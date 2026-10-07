@@ -547,7 +547,7 @@ def prepare(out: Path, camera_source: str = "bake") -> dict:
     cameras/*.json."""
     inputs = verify_inputs()
     log("inputs verified: " + ", ".join(f"{k} {v['sha256'][:12]}" for k, v in inputs["options"].items()))
-    job = IN.load_job(with_astra=False)
+    job = IN.load_job(IN.FT1119['cameras'], with_astra=False)
     _, groups, _, _ = load_pose(job)          # the hinge groups (parts, sides, pivots) of step 0's registration
     cams, all_hinges, cam_source = photo_cameras(job, camera_source)
     paths = glb_paths()
@@ -821,7 +821,7 @@ def refine_check(short: str, cam_dict: dict, hinges_deg: dict | None = None, wid
     from scipy import optimize
     from glasses3d.g3d_host.photoprint.pose import HINGE_BOUND_DEG, pack, unpack
     opt_out_ecoqos(None)
-    job = IN.load_job(with_astra=False)
+    job = IN.load_job(IN.FT1119['cameras'], with_astra=False)
     _, groups, _, _ = load_pose(job)
     gby = {g["name"]: g for g in groups}
     vname = f"reference-{short}.png"
@@ -1080,7 +1080,7 @@ def raster_check(job, rec: dict, gby: dict, m_tile: np.ndarray) -> dict:
 
 
 def measure(out: Path, prep: dict, previous: dict | None = None, workers: int | None = None) -> dict:
-    job = IN.load_job(with_astra=False)
+    job = IN.load_job(IN.FT1119['cameras'], with_astra=False)
     _, groups, _, _ = load_pose(job)
     gby = {g["name"]: g for g in groups}
     paths = glb_paths()
@@ -1402,7 +1402,7 @@ def sheets_photos(out: Path, prep: dict, sil: dict, labels: dict) -> dict:
     """``all_angles_photos.png``: the rows that line up (IoU >= IOU_MIN). ``all_angles_photos_shape_differs.png``: the
     rows that do not, each with its plain note (``shape_note``) under it; not on the main sheet (the brief's rule).
     ``labels``: ``option_labels`` (column labels and legend from the measured differences)."""
-    job = IN.load_job(with_astra=False)
+    job = IN.load_job(IN.FT1119['cameras'], with_astra=False)
     headers = ["your photo"] + [labels["labels"][k] for k, _ in OPTIONS]
     legend = labels["legend"]
     ok_rows, low_rows, files, placement = [], [], {}, {}
@@ -1533,7 +1533,7 @@ def tryon_row_notes(direction: np.ndarray) -> dict:
 
 
 def sheets_tryon(out: Path, prep: dict, labels: dict) -> dict:
-    job = IN.load_job(with_astra=False)
+    job = IN.load_job(IN.FT1119['cameras'], with_astra=False)
     front = np.asarray(prep["front_centre_m"], float)
     reports = {k: json.loads((out / "tryon" / k / "report.json").read_text(encoding="utf-8")) for k, _ in OPTIONS}
     mats = _pose_matrices(reports["A"])

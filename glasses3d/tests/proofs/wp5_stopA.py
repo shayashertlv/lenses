@@ -312,7 +312,7 @@ def make_sheets(root: Path, reg: dict, rep: dict, chk: dict, out_dir: Path, *, v
     from glasses3d.g3d_host.photoprint.check_print import astra_render, direct_bake
     from glasses3d.g3d_host.photoprint.pose import Deformer
 
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     groups = RG.rigid_groups(job)
     regions = RG.build_regions(job, IN.FT1119_PARTS, groups, n_samples=reg["n_samples"], seed=reg["seed"])
     by_name = {r.name: r for r in regions}

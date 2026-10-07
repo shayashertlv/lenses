@@ -51,7 +51,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from glasses3d.g3d import printuv as PU
 from glasses3d.g3d_host.photoprint import inputs as IN
-from glasses3d.g3d_host.photoprint import project as PR
+from glasses3d.g3d_host.photoprint import project as PR, production
 from glasses3d.g3d_host.photoprint import regions as RG
 from glasses3d.g3d_host.photoprint import texels as TX
 from glasses3d.g3d_host.photoprint.compose import CLASS_CODES
@@ -110,7 +110,7 @@ def _short(view: str) -> str:
 # ----------------------------------------------------------------------------- held-out jobs (B3 + B2 diagnostic)
 def _heldout_job(view, tx, radii):
     opt_out_ecoqos()
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     return PP.heldout_b3(job, IN.FT1119_PARTS, view, radii_mm=radii, tx=tx, b2=True, keep_render=True)
 
 
@@ -506,6 +506,9 @@ def b2_summary(heldout_rows: dict) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--job", type=Path, help="G1 proof: explicit frozen job directory")
+    ap.add_argument("--basis", help="G1 proof: named camera basis, never newest")
+    ap.add_argument("--glb", type=Path, help="G1 proof: explicit export")
     ap.add_argument("--workers", type=int, default=None,
                     help="pool size (default os.cpu_count() - 2, EcoQoS opted out per worker)")
     ap.add_argument("--heldout-workers", type=int, default=None, help="default os.cpu_count() - 2")
@@ -523,46 +526,15 @@ def main(argv=None) -> int:
     ap.add_argument("--a4-seeds", type=int, default=5,
                     help="seeds of 8 A4 holes pooled per part in the filler comparison (A4_fillers)")
     a = ap.parse_args(argv)
+    if any((a.job, a.basis, a.glb)) and not all((a.job, a.basis, a.glb)):
+        ap.error('--job, --basis and --glb must be supplied together')
     opt_out_ecoqos()
     prog = Progress("bake_ft1119")
     with prog.heartbeat():
         return _sheets_only(a, prog) if a.sheets_only else _main(a, prog)
 
 
-def _level(path):
-    """Read the owner's bound production choice, else the calibration's fitted recommendation.
-
-    Keep the fitted top-level ``level`` and its diagnostics intact. A production_selection names a candidate and
-    repeats its approved level; a changed/missing candidate refuses instead of silently reverting to the fit.
-    """
-    if not path:
-        return None, None
-    raw = Path(path).read_bytes()
-    d = json.loads(raw)
-    selected = d["level"]
-    reason = "fitted recommendation"
-    if "production_selection" in d:
-        choice = d["production_selection"]
-        if (not isinstance(choice, dict) or not isinstance(choice.get("candidate"), str)
-                or not isinstance(choice.get("reason"), str) or not choice["reason"].strip()
-                or not isinstance(choice.get("owner_words"), str) or not choice["owner_words"].strip()):
-            raise ValueError("production_selection requires a candidate, reason and exact owner words")
-        candidate = (d.get("candidates") or {}).get(choice["candidate"])
-        if not isinstance(candidate, dict) or not isinstance(candidate.get("level"), dict):
-            raise ValueError("the owner's selected production candidate is missing")
-        if choice.get("level") != candidate["level"]:
-            raise ValueError("the owner's selected level changed; a new owner choice is required")
-        selected, reason = candidate["level"], choice["reason"]
-    lv = {"gain": float(selected["gain"]), "gamma": float(selected["gamma"])}
-    if "sat" in selected:
-        lv["sat"] = float(selected["sat"])
-    if "chroma_power" in selected:
-        lv["chroma_power"] = float(selected["chroma_power"])
-    if selected.get("chroma_hold"):
-        lv["chroma_hold"] = True
-    if selected.get("chroma_hue") is not None:
-        lv["chroma_hue"] = [float(x) for x in selected["chroma_hue"]]
-    return lv, f"{reason}; {path} (sha256 {hashlib.sha256(raw).hexdigest()[:12]})"
+_level = production.read_level
 
 
 def _occ(job):
@@ -581,7 +553,7 @@ def _read_heldout(out: Path, views) -> dict:
 
 def _sheets_only(a, prog) -> int:
     out = Path(a.out)
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     tx = float(rep["layout"]["tx_per_mm"])
     lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(IN.FT1119_PARTS), tx,
@@ -609,11 +581,11 @@ def _main(a, prog) -> int:
     t0 = time.perf_counter()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    job = IN.load_job()
+    job = (IN.job_from_dir(a.job, glb=a.glb, basis=a.basis) if a.job
+           else IN.load_job(IN.FT1119["cameras"]))
     prog(f"production bake -> {out} (q001 sha {job.sources['glb_sha256'][:12]}, {len(job.views)} photos)", force=True)
-    level, level_src = _level(a.level)
-    res = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers, step0_report=STEP0,
-                                   compare_fill=COMPARE, level=level, level_source=level_src, **TH)
+    res = production.bake_print(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers,
+                                step0_report=STEP0, compare_fill=COMPARE, calibration=a.level, thresholds=TH)
     tx = float(res["layout"].tx_per_mm)
     rep = res["report"]
     bake = {"out": str(out), "inputs": rep["inputs"], "mode": rep["mode"], "tx_per_mm": tx,
@@ -646,9 +618,9 @@ def _main(a, prog) -> int:
         prog("A2 " + json.dumps({_short(v): r["pass"] for v, r in bake["A2"].items()}), force=True)
     if a.a7_serial:
         prog("A7: serial bake (workers=1)", force=True)
-        PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
-                                 step0_report=STEP0, compare_fill=COMPARE, log=print, level=level,
-                                 level_source=level_src, **TH)
+        production.bake_print(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
+                              step0_report=STEP0, compare_fill=COMPARE, log=print, calibration=a.level,
+                              thresholds=TH)
         names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")
         sha = {n: (hashlib.sha256((out / n).read_bytes()).hexdigest(),
                    hashlib.sha256((out / "a7_serial" / n).read_bytes()).hexdigest()) for n in names}

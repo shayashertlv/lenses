@@ -212,8 +212,8 @@ def hardware_faces(job, print_part_ids, decals: dict | None = None) -> np.ndarra
     """(n_faces + n_decal_faces + 1,) uint8: 0 = not hardware, 1 = large hardware (diagonal >= HARDWARE_SMALL_MM),
     2 = small hardware (see the module docstring); the trailing entry is 0 (face id -1)."""
     from .. import glb as glbmod
-    from .inputs import FT1119
-    g = glbmod.load(str(job.sources.get("glb") or FT1119["glb"]))
+    from .project import job_glb
+    g = glbmod.load(job_glb(job))
     metallic = {}
     lens = {}
     from .. import lens_id

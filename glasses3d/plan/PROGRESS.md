@@ -5,10 +5,64 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-07)
 
+**G1 reusable-library proof is complete (16:46; commit containing this entry). WP5 remains incomplete under
+its unchanged quality gates.** No test/proof processes remain running. The owner already accepted the revised
+appearance: do not ask for that verdict again. No paid call, push, product delivery or threshold relaxation.
+
+Implemented `photoprint/production.py` (`bake_print`, `calibrate_level`, explicit CLI), `inputs.job_from_dir`,
+job-specific AR calibration/measurement and runtime metrics. Fixture bake/calibration drivers delegate to the
+library; no runtime import of tests or implicit FT1119 input remains. Named frozen camera/photo/matte identities
+are verified; stale registration/bake inputs, unknown parts, ambiguous photo names, shared probe images,
+double levelling and overwriting a calibration refuse. Owner-selected B remains bound to its original decision.
+The library receipt explicitly says independent quality proof `not_run`; a successful bake cannot grant acceptance.
+
+All evidence is local-only under `data/wp5/g1_20261007/`:
+
+- **Canonical proof:** exit 0, 15:53:36-16:15:59, three workers, no timeout; 12,202,060 KB free commit at launch.
+  All four maps match the accepted revised bake byte for byte. Print SHA-256
+  `c39869cee1e1caf11f99141a3f93983485806900c73c8a7f977588cf2e11f9c8`.
+  A1, six A2 round trips, protected-photo A3 and provenance pass. A7's serial/parallel outputs match on all six
+  files (four maps, registration, stable report). Five A4 seeds and all six held-out bakes ran; failures below
+  stay recorded in `proof/bake/bake.json`. Fresh Blender copy proof **15/15**, original scene unchanged; GLB
+  `5497ed451c3409d0e780fe6f39d6d9528cf1efc5cf7554118e4334c0a15a554d`, identical to the accepted tool-test GLB.
+- **Renamed-input proof:** exit 0. Four parts renamed `component.00`-`.03`; all six photo names changed.
+  Source/tier/class maps and all **739,419 protected photo texels** remain identical. Fill differs at 1,324,055
+  pixels because existing fill seeds include part names; whole-PNG equality is not claimed for this case.
+  This is a reuse proof on the same geometry/photos, not an unseen-product accuracy claim. The proof exposed
+  first-period name truncation in fitmesh/material lookup; only a three-digit Blender suffix is stripped now.
+  Seven fitmesh tests pass, including exact original-model assembly parity. Failed attempts are preserved in
+  `failed_names_*` / `failed_fixture_*` and the two archived job directories; the fixture's suffix handling was fixed too.
+- **Fresh runtime AR capture:** exit 0, all poses plus portrait and a black-print control. Measurements agree
+  exactly with the independent legacy instrument (`proof/capture_parity.json`); no new appearance approval implied.
+- **Full WP5 regression:** required-data mode, three workers, no timeout; 16:25:30-16:45:21, **1,191.70 s**.
+  **317 passed, 1 expected xfail, 6 fixture setup errors, no skips.** All **30 new G1 cases passed**. The six
+  errors were one region fixture still omitting the now-required camera argument. Fixed it and five equivalent
+  all-angles driver calls. Focused final rerun: **34 passed, no skips/errors**, 1.96 s, 16:45:39-16:45:42
+  (`repair_tests.log`, `repair_tests_run.json`). Thus all 324 collected cases are covered after repair: 323 passes
+  and the one expected xfail; this does not mislabel the first run's exit 1 as a clean full-suite exit.
+- **Review/audit:** full source/test diff and every new file re-read before commit. Migration audit verifies
+  unchanged executable ASTs for 36 calibration, 26 measurement and 30 runtime-metric functions; independent
+  metrics remain unchanged. Changed functions cover explicit inputs, isolation, optional roles and naming.
+  Fixed local-name capture, cross-job side caching and silent unknown-part handling. `final_audit.json` binds
+  source/evidence hashes, exact accepted outputs, fresh capture parity, scene preservation and B-baseline preservation.
+  Static call audit finds only the intentional negative test omitting a camera input. Git data exclusions verified.
+
+**Remaining WP5 stop:** A4 fill fails on all four parts; A5 p95 across/within ratios **1.288293 / 1.300100** at
+7/8 texels fail; B3 **6 of 7 eligible held-out rows fail**. Registration is still **0% pixel-verified**. Owner
+appearance acceptance permits continuation but is not an explicit A4/A5/B3 waiver. The preserved production-B PNG
+is still `b52f31129af3e760195dc2fcde59fafc891340efad9dd0b9b6598c4fae8813b6`.
+
+**Exact next action:** obtain the owner's scope decision: close WP5 as visually accepted single-source print with
+these numeric failures retained as explicit limitations, or continue quality repairs under the existing gates.
+Do not silently waive them, re-ask the appearance verdict, repeat G1, or start WP6. WP0/1/3/3b/4 remain complete
+and tested; WP2 A-C are verified, G1's library dependency is ready but agent wrappers remain gated; WP6 retains
+STOP-I, WP7 is design only, WP8 has not started. Ask before every paid run; never push.
+
 **Context policy updated by the owner, 2026-10-07:** hand off only at reliably established 80% usage of this
 conversation's current context window. Cumulative goal/account usage and summarization or compaction do not
 trigger a handoff. If current usage is unavailable, continue and keep progress notes. PLAN §0 rule 10 and
-AGENTS.md now agree; this supersedes the earlier compaction-triggered handoff below. G1 remains the next WP5 step.
+AGENTS.md now agree; this supersedes the earlier compaction-triggered handoff below. The scope decision above
+is now the next WP5 action; context compaction is not the reason for stopping.
 
 The historical handoff below is preserved. The owner initially requested RESUME HERE section 5 step 1:
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
@@ -197,7 +251,7 @@ All evidence below is local-only under `data/wp5/resume_20261007/`:
 shown sheet hashes. This accepts the appearance for continuation; it is not a delivered model or a numeric-gate
 waiver. No additional visual question is pending. B's preserved production files were not overwritten.
 
-**Exact next action: G1**, the reusable library entry (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`,
+**Next action at the appearance commit (superseded by the G1 completion above): G1**, the reusable library entry (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`,
 no FT1119 defaults), including migration of the bake driver and AR level calibration out of tests. Prove it on
 the accepted revised print through the real host tools, then run/record the required WP5 proof with existing
 A4/A5/held-out failures explicit. **G1 has not started.** The source/class/gain and AR diagnostic scripts remain

@@ -10,8 +10,8 @@ Step 0 (registration):
 - ``gate``: the §5.4 print-registration gate; its null displaces the TEXTURE along the region's strip (build step 3,
   §5.4 option (c): the overlap is kept, so a perfect match registers), the legacy photo-displacement null is kept for
   reports.
-- ``check_print``: the held-out pixel proof (§7), graded by tests/instruments/print_metrics.py (a diagnostic for Astra
-  in single-source mode, never a gate).
+- ``check_print``: held-out runtime diagnostics (§7), measured by ``metrics.py``. The independent proof uses
+  ``tests/instruments/print_metrics.py``; neither runtime imports nor tool verdicts substitute for that proof.
 - ``report``: statuses, B1 / B2, STOP A and deterministic JSON. ``step0``: the end-to-end driver and CLI.
 - ``procs``: the EcoQoS-opted-out process pool and progress lines.
 
@@ -38,7 +38,7 @@ core ``glasses3d.g3d.printuv`` on host arrays, then
 Correction round (2026-10-06, after the AR tool test of 10bf932; PORT_REVIEW section 10):
 - ``shading``: each photo's own normal-space SH shading divided out in linear light (``flatten='test'``: kept only if
   the photos then agree better on the same surface) and the AR level (``level``: gain and gamma calibrated TO THE
-  PHOTOS on arview captures by ``tests/photoprint/ar_calibrate.py``), applied to the composed atlas as the last step;
+  PHOTOS on arview captures by ``production.calibrate_level``), applied to the composed atlas as the last step;
 - ``texels`` / ``metal`` / ``highlights``: the bicubic footprint (no donor within 2.5 px of the background or a bright
   non-acetate pixel: the endpiece scratches), the photometric occluder margin, gold-only foreign-blob dilation, no
   large-hardware margin, shoulder-only glint dilation, and witness flags that must be local highlights (brow-front
@@ -57,11 +57,16 @@ fix round 1: a power of the texel's C*ab, ``chroma_power``, which lifted the low
 tail: with fix round 1's sat 1.107 / power 0.745 the factor is 1.107 at C* 10 and falls below 1 above C* ~15
 (1.107 x (C* / 10)^-0.255 = 1 at C* 14.9); fix round 2: ``chroma_hold`` keeps the factor >= 1 and ``chroma_hue`` lets
 it act only inside the havana hue band, so off-hue noise is not amplified). The level a bake applied is recorded in
-its report.json ``level`` (FT1119's production bake ``data/wp5/ft1119_bake``: gain 0.931, gamma 1.080, sat 0.996,
-chroma_power 0.455, chroma_hold true, chroma_hue 20-100 deg).
+its report.json ``level``; the production driver preserves an explicit owner-selected candidate when supplied.
 The Blender side (``g3d.print_uv``, ``attach_print``, ``detach_print``, ``remove_print_uv``; the exporter's
 ``g3d_print_uv`` allowlist and TEXCOORD index; A6, B5) is ``glasses3d/g3d/print_bpy.py``. Flatten (§6.6) is built since the correction round (``shading``; it was off on
 FT1119, §6.6). Sides are always the x sign, never part names (q001 names temples by the viewer's side).
+
+Reusable entry: ``inputs.job_from_dir(job_dir, glb=export, basis='basis-01')``, then
+``production.bake_print(job, parts, out_dir=out, thresholds=explicit_dict, calibration=optional_record)``.
+Calibration: ``production.calibrate_level(job, groups, bake=unlevelled_bake, glb=attached_copy, out_dir=new_dir,
+chroma_family=explicit_policy)``. No product fixture, latest export, threshold or pigment-family default is selected.
+The bake receipt labels independent quality proof as not_run. See plan/PROGRESS.md for actual WP5 gate status.
 """
 from .project import RefusedError, project_photo_texture
 

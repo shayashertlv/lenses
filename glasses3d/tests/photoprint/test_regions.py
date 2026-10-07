@@ -12,7 +12,7 @@ from glasses3d.g3d_host.photoprint.pose import Deformer, Pose, hinge_matrix, poi
 
 @pytest.fixture(scope="module")
 def job():
-    return IN.load_job(with_astra=False)
+    return IN.load_job(IN.FT1119['cameras'], with_astra=False)
 
 
 @pytest.fixture(scope="module")

@@ -45,7 +45,8 @@ from glasses3d.tests.photoprint import printproof as PP
 OUT = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_print"
 STEP0 = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_strip_null" / "report.json"     # the current step 0 run
 A0_JSON = IN.REPO / "glasses3d" / "data" / "wp5" / "a0" / "a0.json"
-TH = dict(print_reg_mm=0.8, edge_mean_mm=1.0, edge_p90_mm=2.5)
+from glasses3d.g3d_host.photoprint.production import THRESHOLDS
+TH = dict(THRESHOLDS)
 
 
 def geom_sha8(job) -> str:
@@ -57,13 +58,13 @@ def geom_sha8(job) -> str:
 
 def _b3_job(view, tx, radii):
     opt_out_ecoqos()
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     return PP.heldout_b3(job, IN.FT1119_PARTS, view, radii_mm=radii, tx=tx)
 
 
 def _a2_job(view, tx):
     opt_out_ecoqos()
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     return PP.round_trip(job, view, tx, IN.FT1119_PARTS)
 
 
@@ -217,7 +218,7 @@ def main(argv=None) -> int:
 
 def _main(a, prog) -> int:
     t0 = time.perf_counter()
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     root = Path(a.out) / geom_sha8(job)
     prog(f"production bake -> {root}", force=True)
     step0 = a.step0 if a.step0 and Path(a.step0).is_file() else None

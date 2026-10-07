@@ -2,8 +2,8 @@
 (WP3b; replaces the prototype's glbload + inline assembly in plan/prototypes/projection/make_uv_test.py:25-39).
 
 - Every triangle primitive becomes one PART, in the GLB's scene traversal order (``glb.load``), its world-space
-  positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` is the node name before the
-  first '.', ``node_names[i]`` the full node name (Blender's ".001" suffixes are cut, as the prototype did).
+  positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` strips only Blender's
+  three-digit duplicate suffix (e.g. ".001"); embedded periods remain. ``node_names[i]`` is the full node name.
 - ``skip``: parts whose node name contains any of these substrings are left out (the prototype skipped
   ``PROTOTYPE_SKIP``: the FT1119 brand print, lettering and medallion, thin decals on the surface).
 - ``frame``: given (e.g. from a fits.json) or ``NormFrame.from_bbox`` of the kept vertices.
@@ -31,12 +31,18 @@ FRONT_DEPTH_MM = 12.0        # geometric front piece (no names given): faces who
 M_TO_MM = 1000.0
 
 
+def part_name(node_name: str) -> str:
+    """Preserve product names containing periods; strip only a Blender duplicate suffix."""
+    base, dot, suffix = node_name.rpartition('.')
+    return base if dot and base and len(suffix) == 3 and suffix.isascii() and suffix.isdigit() else node_name
+
+
 @dataclass
 class FitMesh:
     V: np.ndarray                 # (N, 3) float64 model millimetres
     F: np.ndarray                 # (M, 3) int64 indices into V
     part: np.ndarray              # (M,) int64 part id per face
-    names: list[str]              # per part: node name before the first '.'
+    names: list[str]              # per part: node name without a Blender duplicate suffix
     node_names: list[str]         # per part: full node name
     materials: list[int | None]   # per part: glTF material index
     frame: NormFrame
@@ -46,7 +52,7 @@ class FitMesh:
         return raster.get_scene(self.V, self.F, self.frame)
 
     def part_ids(self, names) -> list[int]:
-        """Every part whose ``names`` entry (the node name before '.') is in ``names``. Unlike the prototype
+        """Every part whose normalized ``names`` entry is in ``names``. Unlike the prototype
         (``names.index``: the FIRST primitive only), a node with several primitives contributes all of them; on q001
         every name is one primitive, so the two agree there."""
         want = set(names)
@@ -91,7 +97,7 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
         Fs.append(p.triangles + off)
         off += len(p.positions)
         parts.append(np.full(len(p.triangles), i))
-        names.append(p.node_name.split(".")[0])
+        names.append(part_name(p.node_name))
         node_names.append(p.node_name)
         mats.append(p.material_index)
     if not Vs:

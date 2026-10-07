@@ -57,7 +57,7 @@ def main(argv=None) -> int:
         a0_pass, a0_line = a0r.get("pass"), a0r.get("verdict_line")
     if a.a0_only:
         return 0
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     r = step0.run_step0(job, IN.FT1119_PARTS, root / a.name, workers=a.workers, a0_passed=a0_pass,
                         a0_summary=a0_line)
     print(json.dumps(r["report"]["stop_a"], indent=1))

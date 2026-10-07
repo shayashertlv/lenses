@@ -4318,3 +4318,45 @@ Fresh measurements supersede timing comparisons to the heavily loaded historical
   the previous one selectable. The 3 mm splay still drops top IoU **0.0906** and restore reproduces the first metrics.
 
 Fresh full-diff re-review after the green suite: no remaining major. All tests used copies; no paid calls or push.
+
+## 12. WP5 reusable library / WP2 G1 dependency (2026-10-07, verified)
+
+All sources below are already-owned WP5 code; no new third-party implementation, API call or network dependency.
+
+| Source | Decision / destination | Reason and boundary |
+|---|---|---|
+| `tests/photoprint/bake_ft1119.py` production call and owner-level reader | rewrite into `g3d_host/photoprint/production.py` | Explicit job, parts, thresholds and calibration record; the fixture driver retains independent A/B proof, sheets and diagnostic history. Serial proof also uses the library. |
+| `tests/photoprint/print_proof.py` TH | move into `production.THRESHOLDS` | The same 0.8 / 1.0 / 2.5 settings, still required explicitly by callers. No gate relaxed. |
+| `tests/photoprint/ar_calibrate.py` measured calibration/search | rewrite into `g3d_host/photoprint/ar_calibrate.py` | Per-job Calibrator with explicit semantic part groups and colour-family controls. The executable fixture calibration delegates to `production.calibrate_level`; pure legacy helpers remain as a parity oracle. |
+| `tests/photoprint/ar_levels.py` AR/photo measurements | rewrite into `g3d_host/photoprint/ar_levels.py` | Per-job Measurements, explicit optional temple extent/reference point, actual photo names, no fixture load. Original instrument retained independently. |
+| `tests/instruments/print_metrics.py` runtime transitive functions | keep reviewed copies in `g3d_host/photoprint/metrics.py` | Runtime check/calibration no longer imports tests. Independent instrument unchanged; runtime numbers alone never establish acceptance. |
+| `g3d_host/compare.py` frozen basis | reuse through `inputs.job_from_dir` | Named basis and explicit current export, exact camera/photo/matte hashes, shapes and view kinds; all fitted references required. Current and camera-fit model identities recorded separately. |
+| Product fallbacks in `inputs.load_job`, `project.job_glb`, `metal.hardware_faces`, `step0` CLI | drop | A missing input refuses, never opens FT1119. Legacy path constants remain only for explicit fixture callers; synthetic fixtures now carry their source GLB. |
+
+Public entry points: `inputs.job_from_dir(job_dir, glb=..., basis=...)`,
+`production.bake_print(job, parts, out_dir=..., thresholds=..., calibration=...)`, and
+`production.calibrate_level(job, groups, bake=..., glb=..., out_dir=..., chroma_family=...)`.
+Calibration requires a new output directory, an unlevelled bake from this job, and that exact PNG in a template
+GLB whose geometry and UVs pass the manifest check. Measurement groups reject parts absent from the job.
+It recommends candidates without replacing a bound owner selection. Empty comparison roles produce no pass or
+candidate. Probe writes refuse the source path and images shared with non-print parts. Numeric Blender duplicate
+suffixes are tolerated without truncating arbitrary names containing dots. arview owns capture stall detection;
+the host no longer kills a healthy capture merely because 600 seconds elapsed.
+
+The migration review caught and fixed local-name capture (`table`, cache `key`) and cross-job side-cache reuse.
+`data/wp5/g1_20261007/migration_ast_audit.json` compares function ASTs after undoing only the explicit context binding:
+36 calibration and 26 measurement functions retain their original executable structure; the changed functions
+cover input binding, naming, isolation, optional roles and capture lifetime. Proof code is
+`tests/proofs/wp5_library.py`; focused negative/parity cases are `tests/photoprint/test_production.py`.
+Final evidence (`data/wp5/g1_20261007/`): canonical output matches all four accepted maps exactly; serial/pool
+identity on six files; six round trips; 15/15 Blender-copy checks. Renaming every print part and photo preserves
+source/tier/class maps and 739,419 protected texels. Existing name-dependent seeds change generated fill only.
+Fresh all-pose/portrait/black-control capture measurements equal the independent instrument. Thirty copied
+runtime-metric functions retain identical ASTs; only dotted-name mask lookup changes, independently tested.
+
+The full WP5 run completed 317 passes, one expected xfail and six setup errors from one fixture still relying
+on the removed camera default; no skips. Repaired it and five equivalent comparison-sheet driver calls, then
+34 affected tests passed in 1.96 s. All 30 G1 tests passed in the full run; seven fitmesh tests passed separately,
+including the original-model identity and dotted-name regressions. Full diff/new-file re-review and final
+evidence/source hash audit completed. No remaining G1 implementation failure. WP5's numeric quality gates
+remain failed (A4, A5, B3); the appearance verdict alone is not a numeric waiver. Detailed status is in PROGRESS.

@@ -42,7 +42,7 @@ Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and n
 - ``flatten`` ('test' by default; ``shading``): every photo's own normal-space SH shading is fitted on its donor texels
   and divided out in linear light, kept only if the photos then agree better on the same surface (pooled gained dE00
   down >= 0.3 and median |dlog Y| down, also with any one view pair left out: fix round 1);
-- ``level`` ({'gain', 'gamma'[, 'sat', 'chroma_power', 'chroma_hold', 'chroma_hue']} from ``tests/photoprint/ar_calibrate.py``, or None): the AR
+- ``level`` ({'gain', 'gamma'[, 'sat', 'chroma_power', 'chroma_hold', 'chroma_hue']} from ``production.calibrate_level``, or None): the AR
   calibration to the photos,
   applied to every textured texel of the composed atlas as the last step (``shading.level_map``);
 - donors: the bicubic footprint (fix round 1: also clear of bright pixels' light anti-aliased edges) and the
@@ -80,6 +80,7 @@ from PIL import Image
 from glasses3d.g3d import printuv as PU
 
 from .. import lens_id
+from ..fitmesh import part_name
 from .. import raster
 from .. import texture_utils as T
 from . import edges as ED
@@ -117,9 +118,11 @@ class RefusedError(ValueError):
 
 # ----------------------------------------------------------------------------- refusals
 def job_glb(job) -> str:
-    """The job's GLB (a synthetic job carries q001's geometry and names its source instead)."""
-    from .inputs import FT1119
-    return str(job.sources.get("glb") or FT1119["glb"])
+    """The explicit source GLB; never borrow another product's geometry."""
+    path = job.sources.get("glb")
+    if not path:
+        raise RefusedError("the print job has no source GLB")
+    return str(path)
 
 
 def part_materials(job) -> dict[str, dict]:
@@ -128,7 +131,7 @@ def part_materials(job) -> dict[str, dict]:
     g = glbmod.load(job_glb(job))
     out = {}
     for p in g.primitives:
-        nm = p.node_name.split(".")[0]
+        nm = part_name(p.node_name)
         m = g.material(p.material_index) or {}
         pbr = m.get("pbrMetallicRoughness") or {}
         d, _w = lens_id.decide_explicit([("material", m.get("extras")), ("node", None)])

@@ -32,6 +32,7 @@ from ..camera import Camera, NormFrame
 from . import signals as S
 
 REPO = Path(__file__).resolve().parents[3]
+# Legacy fixture locations retained for explicit test callers. Runtime entry points never select them.
 FT1119 = {
     "cameras": REPO / "glasses3d/data/wp3b/ft1119/cameras.json",
     "glb": REPO / "glasses3d/data/reference/projection/q001.glb",
@@ -229,7 +230,7 @@ def ppm_local(cam: Camera, frame: NormFrame, P_mm: np.ndarray) -> np.ndarray:
     return cam.scale / frame.extent / (1.0 - cam.perspective * zn)
 
 
-def load_job(cameras_json: str | Path = FT1119["cameras"], *, images_dir: str | Path | None = None,
+def load_job(cameras_json: str | Path, *, images_dir: str | Path | None = None,
              glb: str | Path | None = None, check_hashes: bool = True, with_astra: bool = True) -> Job:
     """The job WP3b fitted: model, photos (hash-checked), recomputed mattes and the fitted cameras."""
     cj = Path(cameras_json)
@@ -268,3 +269,64 @@ def load_job(cameras_json: str | Path = FT1119["cameras"], *, images_dir: str | 
     if with_astra:
         job.astra = load_astra_texture(glb_path, mesh)
     return job
+
+
+def job_from_dir(job_dir: str | Path, *, glb: str | Path, basis: str,
+                 with_astra: bool = True) -> Job:
+    """Load an explicit model export and named frozen WP3b basis from a job directory.
+
+    No product, latest-file search or camera refit is implied. The basis supplies cameras, native photos and
+    frozen mattes; the explicitly supplied export supplies current geometry/materials. The camera-fit model and
+    current model hashes are recorded separately because Astra may have edited geometry since the fit.
+    """
+    from .. import compare as C
+
+    root = Path(job_dir).resolve()
+    model_path = Path(glb)
+    model_path = (root / model_path).resolve() if not model_path.is_absolute() else model_path.resolve()
+    if not isinstance(basis, str) or not basis:
+        raise InputError("a named frozen camera basis is required")
+    try:
+        frozen = C.load_basis(root, basis)
+        cameras_path = frozen.dir / C.CAMERAS_JSON
+        if sha256_file(cameras_path) != frozen.meta['cameras_json_sha256']:
+            raise InputError("the frozen basis cameras changed")
+        cameras = json.loads(cameras_path.read_text(encoding='utf-8'))
+        for key, actual in [('frame', frozen.meta['frame']), ('front_pivot_mm', frozen.meta['front_pivot_mm']),
+                            ('skip', list(frozen.skip))]:
+            if (cameras['model'].get(key) or ([] if key == 'skip' else None)) != actual:
+                raise InputError(f"the frozen basis {key} differs from its fitted cameras")
+        mesh = fitmesh.load_fit_mesh(model_path, skip=frozen.skip, frame=frozen.frame)
+        views, images = {}, {}
+        for rid, rec in frozen.refs.items():
+            name = rec['image']
+            fitted = cameras['images'].get(name)
+            if (not fitted or fitted.get('status', 'ok') != 'ok' or not fitted.get('camera')
+                    or fitted['camera'] != rec['camera'] or fitted.get('image_sha256') != rec['photo_sha256']
+                    or fitted.get('shape') != rec['shape'] or fitted.get('view_kind') != rec.get('view_kind')):
+                raise InputError(f"{rid}: missing, failed or changed fitted camera/photo identity")
+            photo = frozen.photo(rid)
+            matte = frozen.matte(rid)
+            if photo.shape[:2] != frozen.shape(rid) or matte.shape != photo.shape[:2]:
+                raise InputError(f"{rid}: photo/matte shape differs from the frozen basis")
+            if name in views:
+                raise InputError(f"duplicate basis image: {name}")
+            views[name] = View(name, str(rec.get('view_kind') or ''), photo, matte, frozen.camera(rid),
+                               rec['photo_sha256'])
+            images[name] = {'path': str(frozen.photo_path(rid)), 'sha256': rec['photo_sha256'],
+                            'view_kind': rec.get('view_kind'), 'matte_sha256': rec['matte_sha256']}
+        if set(views) != set(cameras['images']) or len(views) < 2:
+            raise InputError("the basis must contain every fitted photo and at least two views")
+        sources = {'job_dir': str(root), 'basis': basis, 'basis_json': str(frozen.dir / 'basis.json'),
+                   'basis_sha256': sha256_file(frozen.dir / 'basis.json'),
+                   'cameras_json': str(cameras_path), 'cameras_sha256': sha256_file(cameras_path),
+                   'camera_fit_glb_sha256': cameras['model'].get('sha256'),
+                   'glb': str(model_path), 'glb_sha256': sha256_file(model_path), 'images': images}
+        job = Job(mesh, frozen.frame, frozen.frame.to_norm(frozen.pivot_mm[None])[0], views, sources)
+        if with_astra:
+            job.astra = load_astra_texture(model_path, mesh)
+        return job
+    except InputError:
+        raise
+    except (ValueError, LookupError, OSError) as exc:
+        raise InputError(f"cannot load print job: {exc}") from exc

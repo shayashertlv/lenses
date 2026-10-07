@@ -752,77 +752,12 @@ def candidate_portraits(cands: dict, work: Path, job, probe: Path, photos: dict,
 
 def calibrate(bake: Path, glb: Path, work: Path, grid=GRID, max_iter: int = 6, log=print,
               portraits: bool = True) -> dict:
-    job = IN.load_job()
-    table = AL.pair_table(job)
-    photos = {}
-    work.mkdir(parents=True, exist_ok=True)
-    pg = work / "probe_black_TOOLTEST.glb"
-    probe_info = black_probe(glb, pg)
-    probe = capture(pg, work / "probe", log)
-    its = []
-    by_chroma = {}                  # (sat, chroma_power) -> captures; the L* searches run at (1, 1)
-    lock = threading.Lock()         # fix round 3 of step 6: the chroma probes call f from three threads at once
-
-    def f(gain, gamma, tag, sat=1.0, power=1.0):
-        lv = with_chroma(gain, gamma, float(sat), float(power))
-        e = evaluate(bake, glb, work, lv, tag, job, probe, photos, log)
-        with lock:                  # iterations in completion order (the probes' own order is kept by capture_probes)
-            its.append(e)
-            by_chroma.setdefault((round(float(sat), 6), round(float(power), 6)), []).append(e)
-            r = e["residuals"]
-            log(f"[{tag}] gain {gain:.4f} gamma {gamma:.4f} sat {sat:.3f} power {power:.3f} -> {AL.TARGET} calibration "
-                f"{r['calibration']} worst {worst(e):.2f} pass {e['pass']} | chroma p50 {e['chroma']['calibration']} "
-                f"units {e['chroma_units']['calibration']} (worst all graded {chroma_units_worst(e, ALL_GRADED):.2f}) | "
-                f"contrast {e['contrast']['calibration']} | trade-off {r['trade-off']} | held-out {r['held-out']} | "
-                f"brows alone {e['brow_residuals']['calibration']}")
-            (work / "calibration_partial.json").write_text(json.dumps(
-                {"bake": str(bake), "glb_template": str(glb),
-                 "iterations": [{k: v for k, v in x.items() if k != "rows"} for x in its]}, indent=1), encoding="utf-8")
-        return e
-
-    for gm in grid[1]:
-        for gn in grid[0]:
-            f(gn, gm, f"g{gn:.3f}_{gm:.3f}")
-    box = search_box(grid)
-    base_its = by_chroma[(1.0, 1.0)]
-    searches = {name: search(base_its, f, role, max_iter, f"{name}_s", log, box) for name, role in TARGETS.items()}
-    roles = its[0]["pairs"]
-    pairs = roles["calibration"]
-    fin = finish(base_its, f, roles, log)          # step 6 + fix round 1: the chroma stage, the near capture
-    chosen, cands, chroma = fin["chosen"], fin["candidates"], fin["chroma_stage"]
-    loo = {}
-    for p in pairs:
-        rest = pair_index(pairs, [q for q in pairs if q != p])
-        e = best(its, "calibration", rest)
-        own = pair_index(pairs, [p])
-        loo[AL.key(*p)] = {"level_without_it": e["level"], "tag": e["tag"],
-                           "residuals_on_it": [e["residuals"]["calibration"][i] for i in own],
-                           "worst_on_the_others": round(worst(e, "calibration", rest), 2)}
-    brows = brows_alone(base_its, chosen)      # fix round 2 of step 6: the brows alone at the calibration pairs
-    if portraits:
-        candidate_portraits(cands, work, job, probe, photos, log)
-    return {"method": __doc__.split("Method (written down here and in PORT_REVIEW section 10):")[1].strip(),
-            "bake": str(bake), "glb_template": str(glb), "target_form": AL.TARGET, "pair_table": table,
-            "pairs": pairs, "tradeoff": roles["trade-off"], "heldout": roles["held-out"],
-            "probe": {"glb": str(pg), "capture": str(probe)} | probe_info,
-            "level": chosen["level"], "residuals_p10_p50": chosen["residuals"]["calibration"],
-            "chroma_residuals_p50": chosen["chroma"]["calibration"],
-            "chroma_units": chosen["chroma_units"]["calibration"],
-            "chroma_stats": chosen["chroma_stats"]["calibration"],
-            "contrast_std_ratio": chosen["contrast"]["calibration"],
-            "chroma_pass": bool(chroma_units_worst(chosen) <= 1.0), "chroma_stage": chroma,
-            "worst": round(worst(chosen), 2), "residuals": chosen["residuals"],
-            "residuals_by_form": chosen["residuals_by_form"], "pass": chosen["pass"],
-            "pass_by_role": chosen["pass_by_role"], "view_dependence": chosen["view_dependence"],
-            "chosen_capture": chosen["capture"], "search": searches, "leave_one_pair_out": loo, "candidates": cands,
-            "iterations": its, "stop_tol": STOP_TOL, "grid": [list(g) for g in grid], "search_box": box,
-            "chroma_boxes": {"sat": list(SAT_BOX), "power": list(POWER_BOX),
-                             "probes": [list(x) for x in CHROMA_PROBES], "stop": CHROMA_STOP,
-                             "max_iter": CHROMA_MAX_ITER, "family": CHROMA_FAMILY},
-            "chroma_units_all_graded_worst": (round(chroma_units_worst(chosen, ALL_GRADED), 3)
-                                              if _has_roles(chosen, ALL_GRADED) else None),
-            "brow_residuals": chosen.get("brow_residuals"), "brow_pass_by_role": chosen.get("brow_pass_by_role"),
-            "brows_alone": brows, "hue": chosen.get("hue")}
+    """Fixture configuration only; the measured calibration driver lives in the production library."""
+    from glasses3d.g3d_host.photoprint.production import calibrate_level
+    return calibrate_level(IN.load_job(IN.FT1119["cameras"]), AL.GROUPS, bake=bake, glb=glb, out_dir=work,
+                           chroma_family=CHROMA_FAMILY, temple_z=AL.AR_TEMPLE_Z,
+                           reference_point_mm=AL.BRIDGE_MM, grid=grid, max_iter=max_iter,
+                           log=log, portraits=portraits)
 
 
 # ----------------------------------------------------------------------------- re-grade (fix round 3 of step 6)
@@ -835,7 +770,7 @@ def _repo_path(s: str) -> Path:
 def _regrade_chunk(caps: list, probe: str, min_share: float) -> dict:
     """``regrade``'s pool job: ``ar_levels.measure`` of several captures that share one black probe."""
     opt_out_ecoqos()
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     return AL.measure([Path(c) for c in caps], job=job, probes={str(Path(c)): probe for c in caps},
                       min_photo_share=min_share)
 

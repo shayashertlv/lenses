@@ -61,7 +61,7 @@ def run(out_root: Path, workers: int | None, maxfev: int = REG.MAXFEV, n_samples
     t0 = time.perf_counter()
     procs.opt_out_ecoqos()
     out = Path(out_root) / "brow_left_warmth"
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     groups = RG.rigid_groups(job)
     regions = RG.build_regions(job, IN.FT1119_PARTS, groups, n_samples=n_samples, seed=seed)
     by = {r.rid: r for r in regions}

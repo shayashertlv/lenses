@@ -297,7 +297,7 @@ def main(argv=None) -> int:
     rep["print_uv_invariance"] = PM.print_uv_invariance(G["original"], G["printuv"], PARTS)
     rep["A6"] = PM.a6_round_trip(G["original"], G["attached"], PARTS, print_png=man["print_png"])
     rep["B5"] = PM.b5_material_control(G["printuv"], G["attached"], PARTS)
-    job = IN.load_job()                       # the bake's own job: q001.glb as the bake loaded it (decals skipped)
+    job = IN.load_job(IN.FT1119["cameras"])                       # the bake's own job: q001.glb as the bake loaded it (decals skipped)
     lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, PARTS, man["tx_requested"])
     rep["host_layout"] = {"charts_sha": PU.glbmesh.charts_sha(lay.charts, lay.width, lay.height),
                           "matches_manifest": PU.glbmesh.charts_sha(lay.charts, lay.width, lay.height) == man["charts_sha"]}

@@ -109,7 +109,7 @@ def _magnify(im: Image.Image, width: int) -> tuple[Image.Image, float]:
 
 
 def build(painted: Path, original: Path, out: Path, width: int = 1100, job=None) -> dict:
-    job = job or IN.load_job()
+    job = job or IN.load_job(IN.FT1119["cameras"])
     occ = AL._occ(job)
     rows, rec = [], {"sheet": str(out), "painted": str(painted), "original": str(original), "rows": []}
     for title, pose, photo, parts, note, stretch in ROWS:

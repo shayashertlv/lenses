@@ -3,10 +3,11 @@ the gates, the registered sets, check_print (stripes protocol + B0), statuses an
 
 Usage (FT1119 proof; writes registration.json, check_print.json, report.json and sheets/ under ``--out``):
 
-    glasses3d/.venv/Scripts/python -m glasses3d.g3d_host.photoprint.step0 --out glasses3d/data/wp5/ft1119 \
+    glasses3d/.venv/Scripts/python -m glasses3d.g3d_host.photoprint.step0 --cameras <cameras.json> \
+        --parts <part names> --out <new-directory> \
         [--a0 glasses3d/data/wp5/a0/a0.json]
 
-STOP A needs A0's verdict: without ``--a0`` (default: data/wp5/a0/a0.json when it exists) it fires with "A0 verdict
+STOP A needs A0's verdict: without ``--a0`` it fires with "A0 verdict
 not supplied". ``--refold-a0`` folds a (new) A0 JSON into an existing run's report.json without re-registering.
 
 Registrations run in a process pool (each worker opted out of EcoQoS) and print progress at least every 30 s.
@@ -40,7 +41,6 @@ from .procs import Progress, opt_out_ecoqos, pool_map
 
 PRINT_REG_MM = 0.8           # D1 (target 0.5)
 STABILITY_STARTS = 3         # perturbed starts per fold (stability report)
-A0_JSON = IN.REPO / "glasses3d" / "data" / "wp5" / "a0" / "a0.json"
 
 
 def _fit(job, regions, groups, plan, fold, maxfev, tag, quiet=False, start_seed=None, max_runs=REG.MAX_RUNS):
@@ -268,6 +268,8 @@ def gate_table(gate_rows: list[dict], by: dict) -> list[dict]:
 
 def load_a0(path) -> tuple[bool | None, str | None]:
     """(pass, verdict line) from an A0 result JSON (``tests/photoprint/a0.py`` via the proof run), or (None, None)."""
+    if path is None:
+        return None, None
     p = Path(path)
     if not p.is_file():
         return None, None
@@ -278,6 +280,8 @@ def load_a0(path) -> tuple[bool | None, str | None]:
 def load_a0_note(path) -> str | None:
     """What an A0 result's verdict rests on (fix round 2): the literal §8 rule, or the known-limit exemption and its
     status (``reported.would_pass_under_known_limit_exemption`` / ``exemption_status``); None for older files."""
+    if path is None:
+        return None
     p = Path(path)
     if not p.is_file():
         return None
@@ -295,8 +299,8 @@ def load_a0_note(path) -> str | None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--cameras", default=str(IN.FT1119["cameras"]))
-    ap.add_argument("--parts", nargs="+", default=list(IN.FT1119_PARTS))
+    ap.add_argument("--cameras", required=True)
+    ap.add_argument("--parts", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--samples", type=int, default=30000)
     ap.add_argument("--maxfev", type=int, default=REG.MAXFEV)
@@ -305,7 +309,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-b0", action="store_true")
     ap.add_argument("--no-sheets", action="store_true")
     ap.add_argument("--stability-starts", type=int, default=STABILITY_STARTS)
-    ap.add_argument("--a0", default=str(A0_JSON), help="A0 result JSON (STOP A fires without an A0 verdict)")
+    ap.add_argument("--a0", help="A0 result JSON (STOP A fires without an A0 verdict)")
     ap.add_argument("--refold-a0", action="store_true",
                     help="only fold the A0 JSON into an existing --out run (report.finalize; no registration)")
     a = ap.parse_args(argv)

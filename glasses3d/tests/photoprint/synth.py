@@ -156,7 +156,7 @@ def perturbed_camera(job, name: str, yaw_deg: float = PERTURB_YAW_DEG, pivot_mm:
 
 def synthetic_job(real_job=None, *, seed: int = 11):
     """(job handed to registration, truth dict)."""
-    real = real_job or IN.load_job()
+    real = real_job or IN.load_job(IN.FT1119["cameras"])
     axis05 = raster.camera_basis(real.views["reference-05.png"].camera)[2]
     Vt = true_vertices(real, axis05)
     pids = real.part_ids(PRINT_PARTS)
@@ -168,7 +168,7 @@ def synthetic_job(real_job=None, *, seed: int = 11):
         img = render_photo(real, Vt, v.camera, v.shape, colour)
         views[n] = IN.View(name=n, kind=v.kind, image=img, matte=matte_mod.matte(img), camera=v.camera)
     job = IN.Job(mesh=real.mesh, frame=real.frame, pivot=real.pivot, views=views,
-                 sources={"synthetic": "tests/photoprint/synth.py", "print_seed": seed}, astra=real.astra)
+                 sources={**real.sources, "synthetic": "tests/photoprint/synth.py", "print_seed": seed}, astra=real.astra)
     true_cams = {n: v.camera for n, v in real.views.items()}
     start = dict(true_cams)
     start["reference-01.png"] = perturbed_camera(real, "reference-01.png")

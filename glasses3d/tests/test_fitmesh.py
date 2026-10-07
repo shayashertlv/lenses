@@ -60,6 +60,23 @@ def test_front_pivot_named_and_geometric(tmp_path):
         m.front_pivot(["Bridge", "Brow_L", "Brow_R", "Lens_L", "Lens_R", "Saddle"])
 
 
+def test_embedded_periods_keep_parts_distinct(tmp_path):
+    parts = glbfab.default_parts()
+    parts['component.00'] = parts.pop('Brow_L')
+    parts['component.01'] = parts.pop('Brow_R')
+    parts['temple.left.001'] = parts.pop('Temple_L')
+    path = write(tmp_path, glbfab.build(parts))
+    mesh = fitmesh.load_fit_mesh(path)
+    assert mesh.part_ids(['component.00']) != mesh.part_ids(['component.01'])
+    assert len(mesh.part_ids(['component.00', 'component.01'])) == 2
+    assert 'temple.left' in mesh.names
+    from types import SimpleNamespace
+    from glasses3d.g3d_host.photoprint.project import part_materials
+    materials = part_materials(SimpleNamespace(sources={'glb': path}))
+    assert {'component.00', 'component.01', 'temple.left'} <= materials.keys()
+    assert 'component' not in materials
+
+
 def test_refuses_compressed_and_skips_non_triangles(tmp_path):
     with pytest.raises(ValueError, match="KHR_draco"):
         fitmesh.load_fit_mesh(write(tmp_path, glbfab.build(compressed=True)))

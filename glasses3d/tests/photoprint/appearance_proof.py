@@ -137,7 +137,7 @@ def capture(glb, cameras, out):
 
 
 def photo_sheets(before_glb, after_glb, cameras, out):
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     records = json.loads(cameras.read_text(encoding='utf-8'))['cameras']
     result = {}
     for label, glb in [('before', before_glb), ('after', after_glb)]:
@@ -164,7 +164,7 @@ def focus_sheet(cameras: Path, out: Path):
     from glasses3d.tests.photoprint import ar_levels as AL
     from glasses3d.tests.photoprint.step6_proof import sides
     from glasses3d.tests.photoprint.tooltest_closeup_sheet import _box
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     occ = AL._occ(job)
     side = sides(job)
     records = {r['id']: r for r in json.loads(cameras.read_text(encoding='utf-8'))['cameras']}

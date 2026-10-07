@@ -24,8 +24,8 @@ For each region with >= 2 registered views, each registered held-out view h and 
 **B0** (always reported, never gating): strict leave-one-view-out. The registration is refitted WITHOUT h (no pixel
 of h anywhere), h stays at its WP3b camera, and the same sources are rendered at h.
 
-The metrics and the C1-C4 / B3 verdicts come from ``glasses3d/tests/instruments/print_metrics.py`` (never from this
-package): the tool's own numbers are never the proof.
+Runtime metrics come from ``metrics.py``. The independent proof retains its separate implementation in
+``tests/instruments/print_metrics.py``; runtime verdicts alone are never proof of correctness.
 """
 from __future__ import annotations
 
@@ -44,8 +44,8 @@ SHEET_MAX = (1600, 1200)
 
 
 def _instrument():
-    from glasses3d.tests.instruments import print_metrics
-    return print_metrics
+    from . import metrics
+    return metrics
 
 
 def direct_bake(job, deformer: Deformer, render_pose: Pose, sample_pose: Pose, region, h: str, sources: list[str], *,

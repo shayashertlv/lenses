@@ -64,7 +64,7 @@ AR_STREAK_POSES = ("yaw_p45", "yaw_m30", "yaw_m45")
 
 
 def _load(bake: Path):
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     rep = json.loads((bake / "report.json").read_text(encoding="utf-8"))
     tx = float(rep["layout"]["tx_per_mm"])
     lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(IN.FT1119_PARTS), tx,
@@ -366,7 +366,7 @@ def ar_streaks(captures: dict, job=None) -> dict:
     3 of step 6: each temple's side is the x sign of its centroid (``ar_levels.part_sides``); this module's map was
     q001's names under a comment that claimed the x sign."""
     from glasses3d.tests.photoprint import ar_levels as AL
-    temples = {side: t for side, (_b, t, _sg) in AL.part_sides(job or IN.load_job()).items()}
+    temples = {side: t for side, (_b, t, _sg) in AL.part_sides(job or IN.load_job(IN.FT1119["cameras"])).items()}
     out = {}
     for name, cap in captures.items():
         cap = Path(cap)

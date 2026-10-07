@@ -566,7 +566,7 @@ _W: dict = {}       # per worker process: the job, layouts by tx, albedo images 
 def _wjob():
     if "job" not in _W:
         opt_out_ecoqos()
-        _W["job"] = IN.load_job()
+        _W["job"] = IN.load_job(IN.FT1119["cameras"])
         _W["rasters"] = RasterCache()
     return _W["job"]
 
@@ -706,7 +706,7 @@ def provenance(log=print) -> dict:
     candidate's texture C* p90."""
     from glasses3d.tests.photoprint import ar_calibrate as AC
     prog = Progress("provenance", log=log)
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     rad_bake = WP5 / "ft1119_bake_radiance_s6b"
     caps = {"delivered": (WP5 / "tooltest/ar_painted/capture", WP5 / "tooltest/ar_painted/probe"),
             "fix_round_1": (WP5 / "pre_s6fr2_tooltest/ar_painted/capture", WP5 / "pre_s6fr2_tooltest/ar_painted/probe")}

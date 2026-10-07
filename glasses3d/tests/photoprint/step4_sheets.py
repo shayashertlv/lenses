@@ -377,7 +377,7 @@ def main(argv=None) -> int:
     CAPTIONS[:] = a.labels
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    job = IN.load_job()
+    job = IN.load_job(IN.FT1119["cameras"])
     B, A = _read(Path(a.before)), _read(Path(a.after))
     tx = float(A["report"]["layout"]["tx_per_mm"])
     assert abs(tx - float(B["report"]["layout"]["tx_per_mm"])) < 1e-9, "the two bakes have different layouts"

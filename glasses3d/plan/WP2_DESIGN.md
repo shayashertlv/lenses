@@ -329,7 +329,7 @@ implementation-receipt sha and arview recipe.
 | `read_report(path, pointer="", key_offset=0)` | host | no | evidence_json.py:129-190 core (4 MiB, 20,000 chars); `runs/`, `transport/`, `budget/`, approvals, `notes/`, `session/` and the ledger unreachable |
 | `budget_status()` | host | no | `{cap, settled, reserved, unknown_holds, remaining, next_hold, requests}` |
 | `deliver(checkpoint="head", lensenv=None, clip_m=None, note="")` | host + one-shot export | no | §11 |
-| G1 `apply_photo_print`, `remove_photo_print`, `check_print` | host `project_photo_texture` + worker `print_uv`/`attach_print` | yes | **gated on F2**: thresholds (`print_proof.py:48`), level calibration (`ar_calibrate.py`) and driver moved to `g3d_host/photoprint/production.py`; `inputs.job_from_dir`; no FT1119 defaults |
+| G1 `apply_photo_print`, `remove_photo_print`, `check_print` | host `production.bake_print` + worker `print_uv`/`attach_print` | yes | **Library dependency F2 verified 2026-10-07** (PORT_REVIEW §12): explicit thresholds, job-specific calibration and driver in `g3d_host/photoprint/production.py`; `inputs.job_from_dir`; no FT1119 defaults. Agent wrappers still gated pending WP5 quality/scope closeout and stage-D implementation. |
 | G2 `faceted_temple(spec: dict, side)`, `check_relief`, `trace_temple`, `fit_temple` | worker + host | yes / no | **gated** on WP6 leaving re-diagnosis + F1 (`g3d_temple` in the exporter allowlist, temple ops in `g3d/__init__`) + F3 (Prada coupling removed) |
 
 Gates live in a committed `agent/tools/gates.json` naming each tool's proof record; the contract test reads it.
