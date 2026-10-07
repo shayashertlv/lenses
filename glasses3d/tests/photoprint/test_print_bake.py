@@ -390,8 +390,11 @@ def test_a4_fill_knockout_known_verdicts(bake):
 
 
 A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False},
-                         "patchmatch": {"Brow_Left": True, "Brow_Right": False, "Temple_Left": False,
+                         "patchmatch": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False,
                                         "Temple_Right": False}}
+# brow-top repair (2026-10-07, re-pinned deliberately): keeping unsupported colour-only pigment changes the donor
+# support and knockout holes. PyPatchMatch now also FAILS Brow_Left: a recorded A4 regression, not a passing proof.
+# The production quilting filler remains four failures. Frozen A4 criteria and filler selection are unchanged.
 # step 6 (2026-10-07, re-pinned deliberately): PyPatchMatch now passes the -x brow (q001 Brow_Left) and fails the +x
 # temple (Temple_Right) at 8 texels/mm; quilting (the production filler) still fails all four. The step-6 donor rules
 # changed which photo texels the proof's holes are drawn in (the -x brow front keeps its honey band; thin light lines
@@ -404,8 +407,8 @@ A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Tem
 def test_a4_each_filler_at_its_own_radius(bake):
     """Step 4 fix round 1 (review: the step-4 comparison ran PyPatchMatch at quilting's 0.9 mm): each filler at the
     radius ITS OWN knockout chose in this bake (``compare_fill``; PyPatchMatch from 0.3 / 0.5 / 0.9 mm), on the same
-    A4 holes. KNOWN STATE at 8 texels/mm (pinned, fix round 1 of the correction round): only PyPatchMatch passes, on
-    the +x temple (q001 Temple_Right). The production filler stays quilting for the VISUAL reason recorded in
+    A4 holes. KNOWN STATE at 8 texels/mm after the brow-top mask repair: both fillers fail all four parts (history
+    above). The production filler stays quilting for the VISUAL reason recorded in
     report['fill']['choice'] (the owner saw PatchMatch's wood grain along the strips): a choice that costs A4.
     Update A4_FILLERS_KNOWN_AT_8 deliberately."""
     from glasses3d.g3d_host.photoprint import fill as FL

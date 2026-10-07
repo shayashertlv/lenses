@@ -56,6 +56,13 @@ per texel the first failing donor rule, numbers in PORT_REVIEW section 10):**
 The tool's own numbers are reported (``ViewSamples.reasons``: 'pale', 'hardware_margin', 'edge_halo', 'thin_line',
 'dark_blob', 'enclosed'); the proof measures contamination independently from the written print.png
 (``tests/photoprint/step4_sheets``: metal-coloured share per zone near the hardware).
+
+WP5 brow-top diagnosis (2026-10-07): the colour arm also flags isolated pixels in smooth amber patches. Dilating
+these seeds then filling them carves ragged holes around the retained honey cores. A small colour outlier alone is
+therefore insufficient evidence for deletion. ``supported_pale`` retains the old mask near hardware, on coherent
+areas, on neutral colours, or where a local achromatic light increment supports it. The existing physical scales
+and contrast limits are reused; no product coordinates or photo names enter this rule. Step-4 diagnostic mode
+retains the original mask. The report counts unsupported colour-only seeds before their halo can erase print.
 """
 from __future__ import annotations
 
@@ -172,6 +179,33 @@ def pale_mask(image, arm: dict) -> np.ndarray:
     lum = img.mean(-1)
     thr = np.interp(lum, np.asarray(arm["centres"], float), np.asarray(arm["threshold"], float))
     return S.acetate_mask(img) & (lum >= PALE_LUM_MIN) & (blue_ratio(img) > thr)
+
+
+def supported_pale(image, candidate, inside, hardware, ppm: float) -> np.ndarray:
+    """Confirm small colour-only outliers before dilating them into photo holes.
+
+    Keep candidates within the pigment fit's hardware exclusion distance (8 mm), in connected areas larger than
+    the existing enclosed-island limit (2 mm2), or above the absolute neutral-colour limit. Otherwise require the
+    same additive-white signature used for glint shoulders: a local luminance rise >= 12.5 and blue rise >= 0.6 of
+    the red rise, measured over a 0.4 mm masked opening. All thresholds come from the existing donor rules.
+    """
+    img = np.asarray(image, float)
+    M = np.asarray(inside, bool)
+    cand = np.asarray(candidate, bool) & M
+    hw = np.asarray(hardware, bool)
+    near = (ndimage.distance_transform_edt(~hw) <= SAMPLE_AWAY_HARDWARE_MM * ppm
+            if hw.any() else np.zeros_like(M))
+    comp, _ = ndimage.label(cand, structure=np.ones((3, 3), bool))
+    size = np.bincount(comp.ravel())
+    size[0] = 0
+    coherent = size[comp] > ENCLOSED_MAX_MM2 * ppm * ppm
+    fp = _disk(max(1, int(round(LINE_HALF_MM * ppm))))
+    L = img.mean(-1)
+    dL = L - _masked_open(L, M, fp)
+    dR = img[..., 0] - _masked_open(img[..., 0], M, fp)
+    dB = img[..., 2] - _masked_open(img[..., 2], M, fp)
+    light = (dL >= LINE_CONTRAST / 2) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
+    return cand & (near | coherent | (blue_ratio(img) > PALE_MAX_THRESHOLD) | light)
 
 
 def hardware_faces(job, print_part_ids, decals: dict | None = None) -> np.ndarray:
@@ -331,8 +365,9 @@ def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm
     hw = hwk > 0
     if arm is None:
         arm = pigment_arm(img, pr, other, matte, ppm)
-    pale = pale_mask(img, arm)
+    pale_candidate = pale_mask(img, arm)
     inside = ndimage.binary_erosion(np.asarray(matte, bool), iterations=1)
+    pale = (pale_candidate if rules == "step4" else supported_pale(img, pale_candidate, inside, hw, ppm))
     non = inside & ~S.acetate_mask(img)
     lum = img.mean(-1)
     it = max(1, int(round(EDGE_DILATE_MM * ppm)))
@@ -366,7 +401,8 @@ def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm
         area = ndimage.sum(enclosed, lab, np.arange(1, n + 1))
         enclosed = np.isin(lab, np.nonzero(area <= ENCLOSED_MAX_MM2 * ppm * ppm)[0] + 1)
     mask |= enclosed
-    return {"pale": pale, "hardware": hard, "halo": halo & ~pale & ~non, "lines": line & ~pale & ~hard,
+    return {"pale": pale, "pale_colour_only": pale_candidate & inside & ~pale,
+            "hardware": hard, "halo": halo & ~pale & ~non, "lines": line & ~pale & ~hard,
             "dark_blob": db["mask"], "dark_blobs": db["blobs"],
             "bright_lines": tl["bright"], "dark_lines": tl["dark"],
             "enclosed": enclosed, "mask": mask, "arm": arm}

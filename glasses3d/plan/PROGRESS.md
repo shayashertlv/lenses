@@ -116,18 +116,90 @@ Evidence: `data/wp5/owner_B_20261007/{promotion.json,tool_proof_run.json,tool_pr
 sheets_run.json,historical_options_identity.json}`. Preparation/finalization scripts are retained in
 `data/codex_resume_20261007/`. All work was $0; no paid calls or pushes. All launched processes finished.
 
-**Exact next action: section 5 step 2 / section 2's remaining WP5 work, beginning with brow-top pale blotches.**
+**Next action recorded at the B-promotion commit (superseded by the appearance entry below):**
 Read the frozen top comparison `data/wp5/all_angles_sent_1042/`, `data/wp5/all_angles/rows/04_top.png` and
 `data/wp5/all_angles/verify_1/zooms/top_brow_left_x3.png`; trace those texels back through the current B print's
 classes/source maps and highlight handling before proposing a measured tool correction. Preserve the new B
 baseline and test corrections on copies. Then address off-angle darkness (+1.6..+5.1 L*), grey/flat +x temple at
 yaw -30 and -x spot shape/colour versus photo 03, with owner visual judgment. Finally build the reusable library
 entry (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`, no FT1119 defaults) and its G1 proof. None of
-these further corrections or G1 work was started. A context handoff is required under PLAN section 0 rule 10.
+these further corrections or G1 work had started at that commit.
 WP0/1/3/3b/4 are complete and tested; WP2 A-C only are verified; WP5 is in progress; WP6 gated; WP7 design only;
 WP8 not started. Do not repeat A-E or the B promotion.
 The delegated WP6 decisions are already resolved below; do not re-ask them or loosen frozen gates. Before any paid
 call, obtain the owner's explicit approval for that run; ask the fresh WP8 questions when WP8 is reached.
+
+### WP5 brow-top appearance diagnosis, 2026-10-07 (commit containing this entry)
+
+**WP5 is still incomplete. The owner accepted the revised print as close enough and requested the reusable library
+proof next.** A conservative pigment-mask correction is verified on a tool-test copy; the selected B baseline is
+preserved. The frozen top-brow blotches trace mainly to protected photo-04 anchors, not invented fill.
+The colour-arm classifier peppered smooth amber edges with isolated pale seeds; dilation and fill then cut dark,
+ragged holes around the light cores. Existing view gains also brighten this region (about 1.4-1.55). The gain-fitting
+algorithm and owner-selected level parameters were not changed; fitted gains were recomputed from the revised
+donor support, so their values do change. The change is not restricted to the two diagnosed patches.
+
+`metal.supported_pale` now requires spatial/hardware/achromatic support before excluding a small colour-only
+outlier. It reuses the existing 8 mm hardware distance, 2 mm2 island area, 0.85 B/R neutral limit and 0.4 mm
+opening / 12.5 luminance / 0.6 blue-to-red glint-shoulder limits. The old step-4 diagnostic is unchanged. No product
+coordinates enter the production rule. `pale_colour_only` is reported separately; hardware, coherent contamination,
+neutral highlights and additive-white glints remain excluded. This is a partial appearance repair, not a new
+acceptance threshold or a delivered model.
+
+All evidence below is local-only under `data/wp5/resume_20261007/`:
+
+- Fresh diagnostic bake: **exit 0**, 13:58:48-14:03:38, four workers, 2321x1577, 15.94969 texels/mm. Exact arguments
+  are in `bake_run.json`; held-out/B3 was explicitly skipped, A4 used one seed. Print SHA-256:
+  `c39869cee1e1caf11f99141a3f93983485806900c73c8a7f977588cf2e11f9c8`.
+  A1, A2 in six views, protected-photo A3 and provenance pass. A4 and A5 failures remain reported. Registration
+  remains **0% pixel-verified**; this run is not a completed WP5 proof.
+- Fresh Blender copy proof: **15/15**, exit 0, 20.4 s. Tool-test GLB:
+  `tooltest/q001_painted_TOOLTEST.glb`, SHA-256
+  `5497ed451c3409d0e780fe6f39d6d9528cf1efc5cf7554118e4334c0a15a554d`.
+  Original scene unchanged; geometry/UV/normals/spec, material control, undo and all six render checks pass.
+  Production B's PNG is still `b52f31129af3e760195dc2fcde59fafc891340efad9dd0b9b6598c4fae8813b6`.
+- `tests/photoprint/appearance_proof.py` reproduces the source-photo diagnostic and frozen-camera comparisons.
+  Two source-photo crop boxes were fixed before repair. In-sample 1-4 native-pixel band-pass correlation improves
+  **0.856037 -> 0.928199** (4,894 pixels) and **0.777065 -> 0.893445** (4,520 pixels). These are NOT held-out accuracy.
+  `evidence/asset_audit.json` verifies geometry/material invariance, identical sampler/UV selection and exact
+  embedded PNG hashes; both capture inputs/cameras and **24/24** PNG hashes verify. Six photo comparisons and
+  `evidence/owner_focus.png` show the improvement and remaining defects.
+- **Confirmed the recorded A5 failure in the existing production B baseline:** independent read-back at production density,
+  graded 7/8 pixels beyond the 6-pixel reflected seam band, fails BEFORE and AFTER. Across/within p95 ratios are
+  B **1.363681 / 1.290669**, revised **1.288293 / 1.300100**. Absolute across p95 is B **15.19674 / 16.41417**,
+  revised **15.52555 / 16.88483**. `seams_comparison.json` retains both full measurements. The 8-texel/mm regression
+  fixture's seam pass does not establish the production-density gate. No thresholds were weakened.
+- Turned-view material diagnostics (`ar/levels.json`, `ar/provenance.json`) retain both normal and black-print
+  controls, plus clearcoat-off copies labelled TOOLPROBE. Clearcoat-off alone does not solve the appearance:
+  front temple p10 improves +3.67 to +0.79 L*, but its median chroma remains 0.93 versus the photo's 3.51; pitched
+  brow levels become darker. No material change was promoted. The -x arm still has rounder/oranger spots than
+  photo 03, and the +x arm remains flatter in turned views.
+- Full WP5 regression suite, detached with three workers and no timeout: **287 passed, 1 expected xfail,
+  3 skipped, 1 failure**, exit 1, 14:04:44-14:24:08, **1,163.65 s** (`tests.log`, `tests_run.json`). The failure was
+  the known-state A4 table: PatchMatch on Brow_Left now fails too. Deliberately recorded this regression without
+  changing frozen A4 criteria; quilting still fails all four parts. Detailed repeat measurement: 8 holes,
+  fine-band log energy **0.271392 > 0.15**, coarse **0.112324**, mean colour **1.353613 < 3.469649** ring limit,
+  seam ratio **1.023154 < 1.2**. `a4_focused.json` retains all methods/parts/holes.
+  The three manifest tests had skipped because they still opened the old A GLB. Fixed their fixture to follow the
+  current bake's hashed tool-test record; required-data mode now fails instead of skipping missing/stale assets.
+  Focused rerun: **16 passed, no skips**, exit 0, 14:26:46-14:27:50, **63.98 s** (`focused.log`, `focused_run.json`),
+  including the changed A4 record, all manifest tests and all five new pigment-mask regressions. Two of those five
+  were added after the full suite collected; the focused run covers them. The full suite was not repeated after
+  these test-only corrections. This is not a claim that the A4/A5 quality gates pass.
+
+**Owner verdict:** "Close enough—continue with the library proof", in response to `evidence/owner_focus.png`
+(Photo / Selected B / Revised mask -- TOOL TEST). Recorded in owner-ledger row 6, bound to the revised GLB/PNG and
+shown sheet hashes. This accepts the appearance for continuation; it is not a delivered model or a numeric-gate
+waiver. No additional visual question is pending. B's preserved production files were not overwritten.
+
+**Exact next action: G1**, the reusable library entry (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`,
+no FT1119 defaults), including migration of the bake driver and AR level calibration out of tests. Prove it on
+the accepted revised print through the real host tools, then run/record the required WP5 proof with existing
+A4/A5/held-out failures explicit. **G1 has not started.** The source/class/gain and AR diagnostic scripts remain
+available if later work needs them. Owner acceptance cannot turn failed numeric gates into passes.
+WP0/1/3/3b/4 remain complete and tested; WP2 A-C are verified; WP6 remains gated; WP7 design only; WP8 not started.
+Fresh full-diff re-review completed; all launched processes finished. No paid call or push occurred. Do not repeat
+A-E or option B promotion. Ask before every paid run. PLAN section 0 rule 10 requires a clean context handoff here.
 
 ### WP6 delegated decision, 2026-10-07 (group C)
 

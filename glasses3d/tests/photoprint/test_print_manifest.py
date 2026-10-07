@@ -2,6 +2,7 @@
 the bake share) and ``g3d_host.photoprint.manifest`` (what g3d.attach_print reads; the staleness check). numpy only,
 no Blender."""
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -143,20 +144,33 @@ PAINTED = REPO / "glasses3d/data/wp5/tooltest/q001_painted_TOOLTEST.glb"
 
 def _painted_or_skip():
     """The q001 TOOL TEST's painted GLB, when it was made from the current bake (its image is print.png)."""
-    if not (PAINTED.exists() and (BAKE / MF.MANIFEST).exists()):
-        pytest.skip("tool-test GLB / bake manifest not present")
+    unavailable = pytest.fail if os.environ.get('G3D_REQUIRE_DATA') == '1' else pytest.skip
+    painted = PAINTED
+    if (BAKE / 'bake.json').exists():
+        proof = json.loads((BAKE / 'bake.json').read_text(encoding='utf-8')).get('tooltest', {}).get('json')
+        if proof:
+            proof_path = Path(proof)
+            if not proof_path.exists():
+                unavailable('the current bake tool-test record is missing')
+            rec = json.loads(proof_path.read_text(encoding='utf-8'))['painted_glb']
+            painted = Path(rec['path'])
+            if not painted.exists():
+                unavailable('the current bake tool-test GLB is missing')
+            assert MF._sha(painted) == rec['sha256'], 'the recorded tool-test GLB changed'
+    if not (painted.exists() and (BAKE / MF.MANIFEST).exists()):
+        unavailable("tool-test GLB / bake manifest not present")
     man = MF.load_manifest(BAKE)
-    doc, binc = GM.chunks(PAINTED.read_bytes())
+    doc, binc = GM.chunks(painted.read_bytes())
     data = MF._image_bytes(doc, binc, 0) if doc.get("images") else None
     import hashlib
     if data is None or hashlib.sha256(data).hexdigest() != man["print_sha256"]:
-        pytest.skip("the tool-test GLB was made from an earlier bake (rerun tests/photoprint/print_tooltest.py)")
-    return man
+        unavailable("the tool-test GLB was made from an earlier bake (rerun tests/photoprint/print_tooltest.py)")
+    return painted, man
 
 
 def test_check_glb_accepts_the_tool_test_glb():
-    man = _painted_or_skip()
-    r = MF.check_glb(PAINTED, man)
+    painted, man = _painted_or_skip()
+    r = MF.check_glb(painted, man)
     assert r["ok"] and not r["stale"] and r["notes"] == [], r["reasons"]
     for p in PARTS:
         row = r["parts"][p]
@@ -165,8 +179,9 @@ def test_check_glb_accepts_the_tool_test_glb():
 
 def test_check_glb_refuses_another_print_on_the_same_layout():
     """Review (fix round 1): a GLB carrying ANOTHER bake's print on the same layout reported ok."""
-    man = dict(_painted_or_skip(), print_sha256="0" * 64, print_png=str(BAKE / "classes.png"))
-    r = MF.check_glb(PAINTED, man, check_uv=False)
+    painted, current = _painted_or_skip()
+    man = dict(current, print_sha256="0" * 64, print_png=str(BAKE / "classes.png"))
+    r = MF.check_glb(painted, man, check_uv=False)
     assert not r["ok"] and all(r["parts"][p]["print_image"] == "other" for p in PARTS)
     assert sum("not the bake's print.png" in x for x in r["reasons"]) == 4
 
@@ -174,8 +189,8 @@ def test_check_glb_refuses_another_print_on_the_same_layout():
 def test_check_glb_refuses_texcoords_edited_after_print_uv(tmp_path):
     """Review (fix round 1): uvs edited after print_uv reported ok. Half a texel added to u of one part's TEXCOORD_k
     (written into the GLB's binary chunk; positions and identities untouched) is caught, the other parts stay clean."""
-    man = _painted_or_skip()
-    data = bytearray(PAINTED.read_bytes())
+    painted, man = _painted_or_skip()
+    data = bytearray(painted.read_bytes())
     doc, _ = GM.chunks(bytes(data))
     jlen = int(np.frombuffer(bytes(data[12:16]), "<u4")[0])
     bin0 = 12 + 8 + jlen + 8

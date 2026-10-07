@@ -453,6 +453,7 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
         rest = seen & valid & ~clip & ~near & ~foreign
         reasons.update({"metal_or_highlight": int((rest & mt).sum()),
                         "pale": int((rest & dh["pale"][vi, ui]).sum()),
+                        "pale_colour_only": int((rest & dh["pale_colour_only"][vi, ui]).sum()),
                         "hardware_margin": int((rest & dh["hardware"][vi, ui] & ~dh["pale"][vi, ui]).sum()),
                         "edge_halo": int((rest & dh["halo"][vi, ui] & ~dh["hardware"][vi, ui]).sum()),
                         "thin_line": int((rest & dh["lines"][vi, ui] & ~dh["halo"][vi, ui]).sum()),
