@@ -200,7 +200,8 @@ def _structure(doc: dict, binc: bytes) -> tuple[str, str]:
 def verify_inputs() -> dict:
     """sha256 of every option; B and C identified from their capture reports (input path + sha256), the calibration's
     record of the print each was made with, and that print recomputed from the radiance bake with the candidate's level
-    (``ar_calibrate.levelled_png``, the code path that made it) byte for byte. A's print is the production print."""
+    (``ar_calibrate.levelled_png``, the code path that made it) byte for byte. After the owner choice, A is verified
+    against its preserved pre_owner_B bake; these frozen comparison options do not change with production."""
     cal = json.loads(CALIBRATION.read_text(encoding="utf-8"))
     paths = glb_paths()
     rec: dict = {"calibration": {"path": _rel(CALIBRATION), "sha256": sha256_file(CALIBRATION)},
@@ -208,6 +209,9 @@ def verify_inputs() -> dict:
     docA, binA = AC._chunks(paths["A"].read_bytes())
     pngA = _glb_image(docA, binA, AC.print_image_index(docA))
     prod = np.asarray(Image.open(BAKE / "print.png").convert("RGB"))
+    a_bake = BAKE / "pre_owner_B" if "production_selection" in cal else BAKE
+    a_reference = np.asarray(Image.open(a_bake / "print.png").convert("RGB"))
+    rec["option_A_reference_bake"] = _rel(a_bake)
     imgA = np.asarray(Image.open(io.BytesIO(pngA)).convert("RGB"))
     structA = _structure(docA, binA)
     for key, label in OPTIONS:
@@ -232,12 +236,13 @@ def verify_inputs() -> dict:
             if key == "A":
                 lv = cal["candidates"]["photo_angles"]["level"]
                 rec_png = np.asarray(Image.open(io.BytesIO(AC.levelled_png(RADIANCE_BAKE, lv))).convert("RGB"))
-                r.update({"what": "tool-test copy of q001 carrying the production print (the bake's delivered level)",
+                r.update({"what": "tool-test copy of q001 carrying option A's frozen photo_angles print",
                           "level": lv, "level_name": "photo_angles",
                           "print_equals_production_print_png": bool(np.array_equal(imgA, prod)),
+                          "print_equals_option_A_reference_png": bool(np.array_equal(imgA, a_reference)),
                           "print_equals_radiance_bake_levelled_with_photo_angles": bool(np.array_equal(imgA, rec_png))})
-                if not (r["print_equals_production_print_png"] and r["print_equals_radiance_bake_levelled_with_photo_angles"]):
-                    raise SystemExit("A's print is not the production print at the photo_angles level")
+                if not (r["print_equals_option_A_reference_png"] and r["print_equals_radiance_bake_levelled_with_photo_angles"]):
+                    raise SystemExit("A's print is not its preserved reference at the photo_angles level")
             else:
                 cand = cal["candidates"][CANDIDATE_OF[key]]
                 it = next(e for e in cal["iterations"] if e.get("tag") == cand["tag"])

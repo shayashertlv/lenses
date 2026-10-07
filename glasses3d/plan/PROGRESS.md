@@ -5,10 +5,11 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-07)
 
-The historical handoff below is preserved. The owner requested RESUME HERE section 5 step 1 only:
+The historical handoff below is preserved. The owner initially requested RESUME HERE section 5 step 1:
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
 before every paid call. Work is on `glasses3d`, performed sequentially without subagents per AGENTS.md.
 **Section 5 step 1 is complete:** the stopped work in 3.1-3.5 is verified and committed as groups A-E.
+The owner then said "continue": section 5 step 2's already-selected B promotion is also complete (entry below).
 The historical status table and RESUME HERE text below describe the original stop; this active entry supersedes them.
 
 - **Group A committed: `e3fd8fe` (11:39).** All 12 stored step-6 findings reviewed against the full diff,
@@ -58,7 +59,7 @@ The historical status table and RESUME HERE text below describe the original sto
   Analytic camera parity <= 0.00103 px (limit 0.01); rendered <= 0.0313 px (0.1). All six Prada baseline deltas are
   zero for IoU and contour. Exact corpus replays: Prada 19/19, Oakley 21/21, INVU 20/20. Renders: 28 PNGs in 11.1 s,
   fingerprint unchanged; Blender/host silhouette IoU 0.99908-0.99960. No remaining major in D.
-- **Group E verified and committed with this entry.** All six stored majors and the money/network/design minors
+- **Group E committed: `82c5623`.** All six stored majors and the money/network/design minors
   were fixed, followed by a fresh full source/test/design diff re-review against the three stored reviews.
   Final offline suite: **399 passed**, no skips, **65.17 s**, exit 0, 12:58:12-12:59:18
   (`data/codex_resume_20261007/e_tests_r4.log`, `e_tests_run_r4.json`). No remaining blocker/major in E.
@@ -84,10 +85,47 @@ All launched test/proof processes have finished. WP0/1/3/3b/4 retain their prior
 WP2 stages A-C are verified, but WP5 and WP2 as a whole are not complete. WP6 remains gated by STOP-I; WP7 is design
 only and WP8 has not started.
 
-**Exact next action (not started in this request): section 5 step 2 / section 2, the already-chosen WP5 option B.**
-Preserve A under `data/wp5/ft1119_bake/pre_owner_B/`, promote B's frozen level parameters with the owner's recorded
-reason, verify the print hash against B, run the 15/15 tool proof on a temporary bake copy and record its GLB hash.
-Keep that production-level change in a separate explicit-path commit. Then follow the remaining ordered steps.
+### WP5 option B promotion, 2026-10-07 (separate commit with this entry)
+
+**B is now the production level; WP5 remains incomplete.** Reason: "owner chose near_18deg 2026-10-07".
+All **67** original A bake files were copied into `data/wp5/ft1119_bake/pre_owner_B/` and hash-verified before and
+after promotion. The original A tool-test GLB remains unchanged. The new production `print.png` SHA-256 is
+`b52f31129af3e760195dc2fcde59fafc891340efad9dd0b9b6598c4fae8813b6`: **byte-identical** to the PNG embedded in
+the owner-selected B GLB. It was computed once from the unlevelled `ft1119_bake_radiance_s6b` through the existing
+level-map path, not applied over A. Calibration retains its original fitted recommendation/diagnostics and adds a
+`production_selection` bound to candidate parameters and verdict row 4. The bake honors that selection; malformed
+or changed selections refuse, and recalibration cannot overwrite the choice in place.
+
+The temporary bake-copy proof passed **15/15**, exit 0, **22.6 s** (13:41:52-13:42:16). New TOOL TEST GLB:
+`data/wp5/owner_B_20261007/tooltest/q001_painted_TOOLTEST.glb`, SHA-256
+`b5c07b783083e1fb8983c9e737744dee28499aa921b1c363354356ce1f41c769`. The export has fresh provenance, so its whole-file
+hash differs from the earlier candidate. Its texture matches the production manifest; geometry/UV/spec/invariance,
+detach/remove, six photo-camera render comparisons and original scene preservation all pass. This is a tool test,
+not an Astra delivery. Owner-ledger row **5** binds the existing preference to this proof; `new_owner_review=false`.
+
+Focused regression checks: **65 passed, 1 slow test deliberately deselected**, 13.79 s, followed by **27 all-angles
+tests passed**, 1.07 s. The full WP5 suite already passed in A; this small selection/provenance change was checked
+with the focused suite and fresh Blender proof. Four part sheets plus the overview were regenerated for B; old
+held-out panels were excluded. Original held-out and serial artifacts remain under `heldout_option_A/` and
+`a7_serial_option_A/` as well as the intact backup. Prior quality checks are labelled historical, STOP B failures
+remain open, and `step6.json` points explicitly to the prior A proof. The frozen all-angles verifier now checks A
+against the preserved A bake; a fresh identity audit revalidated all four original options without rewriting the
+owner's sent sheets. Fresh full-diff re-review completed before commit.
+
+Evidence: `data/wp5/owner_B_20261007/{promotion.json,tool_proof_run.json,tool_proof.log,tests_run.json,tests.log,
+sheets_run.json,historical_options_identity.json}`. Preparation/finalization scripts are retained in
+`data/codex_resume_20261007/`. All work was $0; no paid calls or pushes. All launched processes finished.
+
+**Exact next action: section 5 step 2 / section 2's remaining WP5 work, beginning with brow-top pale blotches.**
+Read the frozen top comparison `data/wp5/all_angles_sent_1042/`, `data/wp5/all_angles/rows/04_top.png` and
+`data/wp5/all_angles/verify_1/zooms/top_brow_left_x3.png`; trace those texels back through the current B print's
+classes/source maps and highlight handling before proposing a measured tool correction. Preserve the new B
+baseline and test corrections on copies. Then address off-angle darkness (+1.6..+5.1 L*), grey/flat +x temple at
+yaw -30 and -x spot shape/colour versus photo 03, with owner visual judgment. Finally build the reusable library
+entry (`g3d_host/photoprint/production.py`, `inputs.job_from_dir`, no FT1119 defaults) and its G1 proof. None of
+these further corrections or G1 work was started. A context handoff is required under PLAN section 0 rule 10.
+WP0/1/3/3b/4 are complete and tested; WP2 A-C only are verified; WP5 is in progress; WP6 gated; WP7 design only;
+WP8 not started. Do not repeat A-E or the B promotion.
 The delegated WP6 decisions are already resolved below; do not re-ask them or loosen frozen gates. Before any paid
 call, obtain the owner's explicit approval for that run; ask the fresh WP8 questions when WP8 is reached.
 

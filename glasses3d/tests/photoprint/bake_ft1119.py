@@ -518,7 +518,8 @@ def main(argv=None) -> int:
                     help="a print_tooltest tooltest.json: STOP B takes A6 / B5 from it when it graded THIS print "
                          "(same print sha256); print_tooltest records itself afterwards otherwise")
     ap.add_argument("--level", default=None,
-                    help="calibration.json of tests/photoprint/ar_calibrate.py: the AR level (gain, gamma) baked last")
+                    help="calibration.json: honor its bound owner production_selection when present, otherwise "
+                         "use the fitted recommendation; the AR level is baked last")
     ap.add_argument("--a4-seeds", type=int, default=5,
                     help="seeds of 8 A4 holes pooled per part in the filler comparison (A4_fillers)")
     a = ap.parse_args(argv)
@@ -529,20 +530,39 @@ def main(argv=None) -> int:
 
 
 def _level(path):
-    """(level dict or None, its source) from an ar_calibrate calibration.json (correction round, task item 1)."""
+    """Read the owner's bound production choice, else the calibration's fitted recommendation.
+
+    Keep the fitted top-level ``level`` and its diagnostics intact. A production_selection names a candidate and
+    repeats its approved level; a changed/missing candidate refuses instead of silently reverting to the fit.
+    """
     if not path:
         return None, None
-    d = json.loads(Path(path).read_text(encoding="utf-8"))
-    lv = {"gain": float(d["level"]["gain"]), "gamma": float(d["level"]["gamma"])}
-    if "sat" in d["level"]:                                  # step 6: the calibrated chroma factor
-        lv["sat"] = float(d["level"]["sat"])
-    if "chroma_power" in d["level"]:                         # fix round 1 of step 6: ... as a power of C*ab
-        lv["chroma_power"] = float(d["level"]["chroma_power"])
-    if d["level"].get("chroma_hold"):                        # fix round 2 of step 6: held at >= 1 ...
+    raw = Path(path).read_bytes()
+    d = json.loads(raw)
+    selected = d["level"]
+    reason = "fitted recommendation"
+    if "production_selection" in d:
+        choice = d["production_selection"]
+        if (not isinstance(choice, dict) or not isinstance(choice.get("candidate"), str)
+                or not isinstance(choice.get("reason"), str) or not choice["reason"].strip()
+                or not isinstance(choice.get("owner_words"), str) or not choice["owner_words"].strip()):
+            raise ValueError("production_selection requires a candidate, reason and exact owner words")
+        candidate = (d.get("candidates") or {}).get(choice["candidate"])
+        if not isinstance(candidate, dict) or not isinstance(candidate.get("level"), dict):
+            raise ValueError("the owner's selected production candidate is missing")
+        if choice.get("level") != candidate["level"]:
+            raise ValueError("the owner's selected level changed; a new owner choice is required")
+        selected, reason = candidate["level"], choice["reason"]
+    lv = {"gain": float(selected["gain"]), "gamma": float(selected["gamma"])}
+    if "sat" in selected:
+        lv["sat"] = float(selected["sat"])
+    if "chroma_power" in selected:
+        lv["chroma_power"] = float(selected["chroma_power"])
+    if selected.get("chroma_hold"):
         lv["chroma_hold"] = True
-    if d["level"].get("chroma_hue") is not None:             # ... and only inside the havana hue band
-        lv["chroma_hue"] = [float(x) for x in d["level"]["chroma_hue"]]
-    return lv, f"{path} (sha256 {hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]})"
+    if selected.get("chroma_hue") is not None:
+        lv["chroma_hue"] = [float(x) for x in selected["chroma_hue"]]
+    return lv, f"{reason}; {path} (sha256 {hashlib.sha256(raw).hexdigest()[:12]})"
 
 
 def _occ(job):

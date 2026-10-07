@@ -1119,7 +1119,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                                    "15 deg outside; f = g without it), x gain x Y^(gamma - 1) on every textured texel "
                                    "after compose (shading.level_map; sat 1, chroma_power 1, no hold = chromaticity "
                                    "kept)",
-                            "note": ("AR level calibrated to the photos" if level else
+                            "note": ("AR level supplied explicitly; source records its fit or owner selection" if level else
                                      "AR level NOT calibrated: print.png is photo radiance after the gains")},
                   "strip_donors": bool(strip_donors),
                   "text": {k: v for k, v in tm.items() if k not in ("mask", "distance", "see_through_mask")} | {

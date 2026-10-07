@@ -94,6 +94,8 @@ Method (written down here and in PORT_REVIEW section 10):
 Every capture's numbers are written to ``calibration.json`` (``iterations``; ``calibration_partial.json`` after each
 capture while it runs), with the chosen level, which the bake reads (``bake_ft1119 --level FILE``). The pass rule
 (task item 1) is |p10| and |p50| differences <= 2 L*; a pass is reported per role, never pooled.
+The top-level level remains the fitted recommendation. An owner production_selection in calibration.json takes
+precedence when the bake reads it; calibration must use a new output directory rather than overwrite that choice.
 """
 from __future__ import annotations
 
@@ -929,6 +931,9 @@ def main(argv=None) -> int:
             ap.error("--bake and --glb are required (or --capture)")
         bake = Path(a.bake)
         out = Path(a.out) if a.out else bake / "ar_calibration"
+        previous = out / "calibration.json"
+        if previous.is_file() and "production_selection" in json.loads(previous.read_bytes()):
+            raise ValueError("This calibration has an owner production selection; use a new --out directory")
         res = calibrate(bake, Path(a.glb), out, GRID, a.max_iter, log=log, portraits=not a.no_candidate_portraits)
     (out / "calibration.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     print(json.dumps({k: res[k] for k in ("level", "residuals", "worst", "pass", "chroma_residuals_p50", "chroma_units",
