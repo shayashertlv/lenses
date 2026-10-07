@@ -12,7 +12,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP3 exporter + validate_spec | **done, proof passed** (review defects fixed, mutation tests) | 6acfc5a |
 | WP3b camera fitting | **done** (port reproduces the prototype to 1e-6 under scipy 1.16.0; 12-view baseline). The "registration threshold" owner question is DISSOLVED: WP5 showed silhouette error does not predict print error; WP5 uses a photometric gate (engineering decision) | 457daf7 |
 | WP4 lens seating | **done, proof passed** (P2 FT1119 71/71; Prada seats; Oakley 0 moved; P6 junction line 0 px in AR) | b76c249, 140cc71 |
-| WP5 photo print | **in progress**: owner chose "continue, judge by eye in AR" (single-source print per region). Step 5 committed; **step 6 running** | 5ec9c25 |
+| WP5 photo print | **in progress**: owner chose "continue, judge by eye in AR" (single-source print per region). Step 6 built, NOT yet committed (WP5 tests + a final review running); owner asked for every angle x every option (workflow running) | 5ec9c25 |
 | WP6 faceted temples | **stop rule fired** on the Prada tool test (outline better than delivered, facets not reproduced); **re-diagnosis running** | 204f694 |
 | WP2 live Astra session | design done (WP2_DESIGN.md); **stages A-B running**; stage C may install packages (owner pre-approved, safe sources) | 9c532bc |
 | WP7 instructions | not started (rule texts already drafted in WP4_DESIGN §12, WP6_DESIGN rule section) | - |
@@ -21,15 +21,44 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 ## RESUME HERE (state on 2026-10-07; read this first after PLAN.md §0)
 
 **Running workflows (this session; outputs land on disk even if the session ends):**
-- `g3d-wp5-step6` (task w7g6psgfw, run wf_f8bf2ed9-273): brow-patch contrast/chroma (texture vs AR material), -x temple level,
-  endpiece marks; new sheets in `data/wp5/tooltest/` (owner_sheet.png, closeup_sheet.png). On completion: read the result, commit
-  photoprint/tests changes, send the owner the close-up sheet with a plain verdict, decide the next WP5 step.
-- `g3d-wp6-rediagnose` (task w2lnmo22g, run wf_5dce193d-796): (1) build the Prada temples with HAND-TRACED good parameters to
+- WP5 step 6 FINISHED (workflow g3d-wp5-step6, task w7g6psgfw; result copy: scratchpad `wp5_step6.json`, journal of run
+  wf_f8bf2ed9-273). Its changes are UNCOMMITTED in the working tree: `g3d_host/photoprint/{__init__,fill,highlights,labels,project,shading}.py`,
+  `plan/PORT_REVIEW.md` (step 6 + fix rounds 1-2), `tests/instruments/print_metrics.py`, `tests/photoprint/{ar_calibrate,ar_levels,
+  bake_ft1119,correction_proof,print_tooltest,printproof,test_correction_round,test_print_bake}.py`, new `tests/photoprint/{step6_proof,
+  test_step6}.py`, `tests/test_print_blender.py` (tool test on a temp COPY of the bake via `--bake`; sha256 check that the production
+  bake.json is never written). Commit EXACTLY these paths once (a) the WP5 test run passes (`pytest glasses3d/tests/photoprint
+  glasses3d/tests/test_print_blender.py --basetemp=.../data/pytest_tmp/wp5s6`, started 08:11) and (b) the step-6 review in the
+  all-angles workflow finds no blocker/major (fix those first). Never sweep in the WP6/WP2 paths.
+  What step 6 did: the brow honey patches were lost because seam placement let the TOP photo 04 paint a band up to 3 mm into the brow
+  front where photo 05's patches sit; fix in `labels.py` (a face its own region's photo sees keeps that photo; -x nasal brow third now
+  92% photo 05, honey 10.5% vs photo 11.1%; in AR at pitch +20 honey 3.1 -> 19.7%). Level map gained a chroma stage (sat, chroma power,
+  chroma held >= 1, hue band 20-100). -x temple smear fixed (`fill.light_acetate`: lettering counts only behind light acetate). +x endpiece
+  light marks reduced (`highlights.thin_light_lines`). Tool test on a fresh q001 copy 15/15.
+  **Still wrong (independent AR check):** matches brightness + colour only at photo 05's own angle (pitch +20); front pose ~+5 L* lighter and
+  slightly grey (Astra's clearcoat reflection covers 32.9% of the brow fronts, +13 L*: a MATERIAL note for Astra, not the print); honey
+  patches sit at the endpieces (photo 05's middles really are plain); -x temple at yaw +45 +6.4 L* vs photo 03, spots smaller/rounder/more
+  orange; +x temple at yaw -30 grey-flat; darkest decile +1.6..+5.1 L* too light off the calibration angle; STOP B still fires on A4, A5, B3.
+- **Owner question open:** sent `data/wp5/tooltest/owner_sheet_plain.png` (photos | Astra | painted A, B, C; tool test on a copy), asked
+  which row looks most like the glasses. The owner answered "I need to see all the angles compared with each result option" -> agreed.
+  The three options are the level candidates in `data/wp5/ar_calibration/calibration.json` -> `candidates`: A = `photo_angles` (the
+  production print.png: gain 0.931, gamma 1.080, sat 0.996, chroma_power 0.455), B = `near_18deg` ("darker": gain 0.831, gamma 1.168),
+  C = `all_pairs_chroma` ("more colourful": sat 1.378, chroma_power 0.615). Apply the owner's pick by re-running the level map with that
+  candidate, then re-run the tool test on a temp copy.
+- `g3d-wp5-all-angles` (task wubw37okd, run wf_81098786-301, launched 08:24): builds `data/wp5/all_angles/all_angles_photos.png` (each
+  photo 01-06 rendered from THAT photo's fitted camera in arview's own renderer, no face, temples posed to the fitted hinge angles; columns
+  photo | Astra | A | B | C; per-row PNGs in `all_angles/rows/`) and `all_angles_tryon.png` (all 11 try-on poses + worn portrait x 4
+  options; nearest photo only within ~20 deg). Adds an explicit-camera / no-face dev-capture mode to `glasses3d/arview` (existing pose
+  sets must stay byte-identical). Three verifiers (pose/identity with silhouette IoU, owner's eye, code review), up to 2 fix rounds. In
+  parallel: an adversarial review of the uncommitted step-6 diff (report only). On completion: fix step-6 blockers/majors, commit step 6,
+  commit the arview mode (separately), send the owner the two sheets with plain labels and ask again which option looks most like the glasses.
+- `g3d-wp6-rediagnose` (task w2lnmo22g, run wf_5dce193d-796; alive at 08:11: the hand-traced build agent finished 2026-10-06 23:11,
+  the "trace" agent of phase "Tracing fix" is working, its transcript growing): (1) build the Prada temples with HAND-TRACED good parameters to
   decide "tool OK vs tool defect"; (2) add a photo-measured relief cue to the fit, fix the theta instrument (STOP-I) and the open
   review findings, PRADA decals in arview, hinge warnings; (3) fresh proof in `data/wp6/proof2`. On completion: commit, show the
   owner the side sheet (photo | tool test | delivered) if facets now show; if the tool cannot make facets even with good
   parameters, stop and report (PLAN WP6 stop rule).
-- `g3d-wp2-stages-ab` (task wy9jdvbyr, run wf_32fc96f9-1c5): Blender worker/RPC/safe mode/checkpoints (A), cameras/render/
+- `g3d-wp2-stages-ab` (task wy9jdvbyr, run wf_32fc96f9-1c5; launched 07:56, agent impl:A active at 08:11; it created the untracked
+  `glasses3d/g3d/safe_mode.py`): Blender worker/RPC/safe mode/checkpoints (A), cameras/render/
   compare (B). On completion: commit; launch stage C (install pinned openai 3.22.1, openai-agents 0.22.3, mcp 1.30.0 + deps from
   PyPI into glasses3d/.venv, record in requirements.txt), then D-F per WP2_DESIGN §15.
 - If a workflow result is lost: its per-agent results are in
@@ -54,7 +83,9 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 **Gotchas learned:** long Bash heredocs get mangled (write scripts with the Write tool); liveness checks must compare full
 timestamps; agents may sweep other workflows' files into a commit (stage paths explicitly); the WP5 production bake currently
 lives in `tests/photoprint/bake_ft1119.py` and the AR level calibration in `tests/photoprint/ar_calibrate.py` (must become a
-library call before WP2 wraps it); WP6 temple ops are not yet in `g3d/cli.py`, `g3d/__init__.py` or the exporter allowlist.
+library call before WP2 wraps it); the WP5 tool test must run on a temp COPY of the bake (`print_tooltest.py --bake DIR`);
+older calibration / sheet generations are kept under `data/wp5/pre_*` and `data/wp5/tooltest/pre_*` (nothing deleted); the session's
+working directory jumps between folders on its own (always use absolute paths); WP6 temple ops are not yet in `g3d/cli.py`, `g3d/__init__.py` or the exporter allowlist.
 
 **Next after the running work:** WP5 to an owner-acceptable look on FT1119 (by eye), then wire project_photo_texture + calibration
 as a library tool; WP6 per the re-diagnosis; WP2 stages C-F with the $0 proofs A (Prada replay, total exactly 14,261,424 micro-USD)
