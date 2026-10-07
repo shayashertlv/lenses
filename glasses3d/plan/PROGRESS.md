@@ -14,7 +14,8 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 | WP4 | **done, $0 proof passed** (P2 71/71, P3 Prada seats, P5 Oakley 0 moved, P6 junction line 0 px) | (WP4 done commit) |
 | WP5 | step 3 host committed (7ac7c8f): single-source print reads as the real havana from new angles; defects + Blender attach next (step 4) | 7ac7c8f |
 | WP6 | **stop rule fired** (tool test: outline better, facets not reproduced); re-diagnosis running (g3d-wp6-rediagnose) | 204f694 |
-| WP2, WP7, WP8 | not started | - |
+| WP2 | design done (plan/WP2_DESIGN.md, judged panel of 3); stages A-B building (no download needed); stage C needs the owner's PyPI OK | - |
+| WP7, WP8 | not started | - |
 
 ## 2026-10-05: WP0 (setup, ignore rules, port review)
 
@@ -342,3 +343,14 @@ Step 6 (workflow g3d-wp5-step6): attribute contrast/chroma loss (texture vs AR m
 own angles, fix the -x temple level, residual endpiece marks. Material effects go to Astra as notes (Astra keeps material control).
 WP2 design panel (workflow g3d-wp2-design -> plan/WP2_DESIGN.md) started: own Blender worker, safe mode, Agents SDK loop, budget/receipts,
 jobs CLI, owner ledger, $0 fake-client proof. No paid call in WP2.
+
+## 2026-10-07: WP2 design (plan/WP2_DESIGN.md)
+
+Panel: loop 42 (base), worker 40, jobs 38. Facts: EEVEE renders headless on the Arc GPU (1.85 s, Suzanne 640x480), Cycles CPU 1.54 s;
+glasses3d/.venv lacks openai/openai-agents/mcp (openai-agents 0.22.3 imports mcp at load) and nothing is cached: stage C needs the
+owner's PyPI download OK. Pricing = the 161-line astra-only copy ($10 in / $1 cached / $12.5 cache write / $50 out per M; x2/x1.5 above
+272k input). 17 Astra tools live; WP5 print and WP6 temples gated until wired (WP5 production call lives in a test driver; WP6 not in
+cli/__init__/exporter allowlist). $0 proof: A = replay of a Prada session through the real SDK/guard/tools with its 59 recorded usages,
+settled total must equal 14,261,424 micro-USD exactly; B = synthetic job covering timeouts, crash/resume, 429/520/incomplete, approvals,
+stop file. Owner decisions (plain words, §17): PyPI download OK (needed for stage C); for WP8 only: budget cap per run (suggested $15),
+effort (max like every praised run, or high), smoke cap $1. Engineering defaults recorded per run: output cap 16,384, max_turns 60.
