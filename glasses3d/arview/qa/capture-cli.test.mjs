@@ -10,7 +10,7 @@ test('the minimal command gets the documented defaults', () => {
   const options = parseCaptureArgs(base);
   assert.deepEqual({...options}, {glb: 'model.glb', poses: 'default', out: 'out/dir', backgrounds: null, width: 1280, height: 854,
     depthCm: DEFAULT_DEPTH_CM, fixedScale: false, clipZM: null, lensEnvIntensity: null, cropUpscale: 1, portrait: true, liveProbe: false,
-    stepTimeoutS: DEFAULT_STEP_TIMEOUT_S});
+    stepTimeoutS: DEFAULT_STEP_TIMEOUT_S, cameras: null, noFace: false});
 });
 
 test('every option parses, in both the spaced and the = form', () => {

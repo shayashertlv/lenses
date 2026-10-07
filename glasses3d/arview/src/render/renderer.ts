@@ -142,6 +142,17 @@ export interface TempleCentrelines {
   readonly capZM: readonly [number, number];
 }
 
+/** An explicit camera for a capture without a face (`TryOnRenderer.poseCamera`, `arview capture --cameras ... --no-face`):
+ *  the eyewear's place in camera space (asset-local metres to camera-space centimetres, the camera at the origin looking
+ *  down -Z with +Y up, exactly as the try-on's virtual camera) and the projection, both column-major, with the clip planes
+ *  the projection was built with (centimetres). */
+export interface ExplicitCamera {
+  readonly assetToCamera: readonly number[];
+  readonly projection: readonly number[];
+  readonly nearCm: number;
+  readonly farCm: number;
+}
+
 export interface RendererOptions {
   /** Mesh-local metres behind which temple fragments may blend toward the camera under hair (default −0.02). */
   hairStartZ?: number;
@@ -367,6 +378,9 @@ export class TryOnRenderer {
   private uploadedHairIndex = -1;
   private readonly templeKeepCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindStartCm;
   private readonly templeDropCm = TEMPLE_VISIBILITY_PARAMETERS.reliefBehindFullCm;
+  /** Set by poseCamera (a dev capture without a face), cleared by the next pose(): the eyewear is drawn although no face
+   *  is tracked, and the camera's projection is the explicit one. The try-on never sets it. */
+  private explicitCamera = false;
 
   private constructor(renderer: WebGLRenderer, gl: WebGL2RenderingContext, model: ResolvedModel, options: RendererOptions,
     report?: ModelReportBuilder) {
@@ -418,7 +432,9 @@ export class TryOnRenderer {
     this.camera.updateMatrixWorld();
     const {width, height} = this.renderSize;
     return {view: this.camera.matrixWorldInverse.toArray(), projection: this.camera.projectionMatrix.toArray(), width, height,
-      near: this.camera.near, far: this.camera.far, verticalFovDegrees: this.camera.fov};
+      near: this.camera.near, far: this.camera.far,
+      // an explicit camera (poseCamera) sets the projection itself: its vertical field of view is 2 atan(1 / P[1][1])
+      verticalFovDegrees: this.explicitCamera ? 2 * Math.atan(1 / this.camera.projectionMatrix.elements[5]!) * 180 / Math.PI : this.camera.fov};
   }
   /** Asset-local metres to the scene (centimetres, camera space), as drawn: the bridge pose, the bridge offset and the
    *  fit scale included. Null before the first pose. Column-major, a copy. */
@@ -546,6 +562,12 @@ export class TryOnRenderer {
   }
   /** The posed frame's raw and steadied orientation and depth (numbers only), or null when no face is posed. */
   get poseSample(): PoseSample | null {return this.latestPose ? {...this.latestPose} : null;}
+  /** The frame report's temple-end text: the endpoint states, or 'fixed cap' without them; at an explicit camera
+   *  (poseCamera) the arms are drawn as authored, with no cap or clip, and the text says so. */
+  private get templeEndStateText(): string {
+    if (this.explicitCamera) return 'authored (explicit camera: no spread, terminal return or clip)';
+    return this.templeEndpointReport ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap';
+  }
   private get templeEndMaximumZM(): number {
     const original = this.clipZM;
     // An already-short external frame must never grow a tail, or place its endpoint ahead of its usable shaft.
@@ -988,6 +1010,11 @@ export class TryOnRenderer {
    *  `timestampMs` is the frame's capture time, shared by pose and contact-depth filters. */
   pose(frame: HTMLCanvasElement, detection: Detection, timestampMs: number = performance.now()): boolean {
     if (this.disposed) return false;
+    if (this.explicitCamera) {
+      // Back from a camera without a face (poseCamera): the try-on's own virtual camera again.
+      this.explicitCamera = false;
+      this.camera.near = VIRTUAL_CAMERA.nearCm; this.camera.far = VIRTUAL_CAMERA.farCm; this.camera.updateProjectionMatrix();
+    }
     this.poseTimestampMs = timestampMs; this.templeEndpointPending = false;
     this.clearPresentation(false);
     try {
@@ -1099,6 +1126,59 @@ export class TryOnRenderer {
     } catch (error) {this.clearPresentation(); throw error;}
   }
 
+  /** Pose the eyewear at an explicit camera WITHOUT a face (dev capture only: `arview capture --cameras ... --no-face`,
+   *  for comparing a model with product photos taken from known cameras; the try-on never calls this). What is drawn is
+   *  the try-on's own: the materials, the room environment and the camera-relative key light (the camera stays at the
+   *  origin, as the virtual camera does), ACES tone mapping, lens transmission and the crystal look-through, at the
+   *  authored size. What only a face makes is left out: no face or head occluder, no hair, no face shadows, no protection
+   *  rectangles, no near-arm overlays, and the arms keep their authored geometry (no fixed spread, no terminal return, no
+   *  temple clip), so the full temples a product photo shows are drawn. Needs RendererOptions.fixedScale (the camera is
+   *  metric). Draw with `render(null, {hair: false, shadows: false, guard: false})` or a flat override; the next `pose()`
+   *  returns to the face path and the virtual camera. Throws on unusable input (nothing changes then). */
+  poseCamera(frame: HTMLCanvasElement, view: ExplicitCamera): void {
+    if (this.disposed) throw new Error('The renderer is disposed.');
+    if (!this.fixedScale) throw new Error('An explicit camera needs the authored size (RendererOptions.fixedScale): the camera is metric.');
+    if (!this.eyewearAsset) throw new Error('No model is configured.');
+    const matrix16 = (values: readonly number[]): boolean => Array.isArray(values) && values.length === 16 && values.every(Number.isFinite);
+    if (!matrix16(view.assetToCamera) || !matrix16(view.projection)) throw new Error('An explicit camera needs two finite column-major 4x4 matrices.');
+    if (!(view.nearCm > 0) || !(view.farCm > view.nearCm) || !Number.isFinite(view.farCm)) throw new Error('The explicit camera\'s clip planes must satisfy 0 < near < far.');
+    if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
+    const placement = new Matrix4().fromArray(view.assetToCamera);
+    if (Math.abs(placement.determinant()) < 1e-12) throw new Error('The explicit camera\'s placement is singular.');
+    this.templeEndpointPending = false;
+    this.clearPresentation(false);
+    if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
+      this.frameWidth = frame.width; this.frameHeight = frame.height;
+      const {width, height} = this.renderSize;
+      this.renderer.setSize(width, height, false);
+      this.camera.aspect = frame.width / frame.height;
+      this.backgroundTexture?.dispose(); this.backgroundTexture = null;
+    }
+    if (!this.backgroundTexture) {
+      this.backgroundTexture = new CanvasTexture(frame); this.backgroundTexture.colorSpace = SRGBColorSpace;
+      this.backgroundTexture.generateMipmaps = false; this.backgroundTexture.minFilter = LinearFilter; this.backgroundTexture.magFilter = LinearFilter;
+      this.scene.background = this.backgroundTexture;
+    }
+    this.backgroundTexture.image = frame; this.backgroundTexture.needsUpdate = true;
+    this.explicitCamera = true;
+    const camera = this.camera;
+    camera.near = view.nearCm; camera.far = view.farCm;
+    camera.projectionMatrix.fromArray(view.projection); camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    camera.updateMatrixWorld();
+    // The authored arms: no fixed spread, no terminal return (both restore the original storage), no clip, no overlays, no hair.
+    this.rearDrop?.setTerminalFit(null); this.rearDrop?.setShape(0, 0);
+    this.templeClip?.set(null); this.templeVisibility?.set(null); this.hairOcclusion?.set(false, this.hairStartZ);
+    // eyewearPose x the asset's own matrix (the centimetre scale and bridge offset) = the requested placement.
+    const asset = this.eyewearAsset; asset.updateMatrix();
+    const posed = placement.clone().multiply(asset.matrix.clone().invert());
+    this.eyewearPose.matrix.copy(posed); this.eyewearPose.matrixWorldNeedsUpdate = true;
+    this.eyewearPose.visible = this.fitRevealed;
+    this.lastPose = {rawMatrix: placement.toArray(), eyewearMatrix: posed.toArray(), yawDegrees: Number.NaN};
+    this.shadowPending = true;
+  }
+  /** Whether the current frame is posed at an explicit camera without a face (poseCamera). */
+  get explicitCameraPosed(): boolean {return this.explicitCamera;}
+
   /** Upload a category mask as a 0/255 red texture (hair = 255). Returns the upload time in ms. */
   private uploadMask(mask: CategoryMask): number {
     const started = performance.now();
@@ -1209,7 +1289,7 @@ export class TryOnRenderer {
   /** part-id, lens-mask and normals (override.ts): flat materials on every eyewear mesh, black background, no guard, hair,
    *  shadows or look-through; overlays hidden; the face and head depth occluders kept; temples cut at the live clip. */
   private renderFlat(override: RenderOverride): FrameTimings {
-    const root = this.eyewearRoot, tracked = this.facePose.visible, showEyewear = tracked && this.fitRevealed;
+    const root = this.eyewearRoot, tracked = this.facePose.visible || this.explicitCamera, showEyewear = tracked && this.fitRevealed;
     const saved = new Map<Mesh, Mesh['material']>(), overlays: {mesh: Mesh; visible: boolean}[] = [], created: Material[] = [];
     const palette: PaletteEntry[] = [];
     const background = this.scene.background, poseVisible = this.eyewearPose.visible;
@@ -1260,7 +1340,7 @@ export class TryOnRenderer {
     const maximum = this.templeEndMaximumZM;
     return {templeEndMaximumZM: maximum, templeEndNegativeZM: this.templeEndpointReport?.negativeZM ?? maximum,
       templeEndPositiveZM: this.templeEndpointReport?.positiveZM ?? maximum,
-      templeEndState: this.templeEndpointReport ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap',
+      templeEndState: this.templeEndStateText,
       maskUploadMs: 0, endpointMs: 0, submitMs: performance.now() - submitStart, hairApplied: false, maskWidth: 0, maskHeight: 0, sync: this.sync,
       guarded: false, passes: 1, protectedRects: 0, editableRects: 0, safeFallback: false,
       templeKeepCm: this.templeKeepCm, templeDropCm: this.templeDropCm, armSpreadM: this.rearDrop?.spreadM ?? 0,
@@ -1273,7 +1353,8 @@ export class TryOnRenderer {
     const v: RenderVariant = {hair: true, eyewear: true, guard: this.guard, shadows: true, ...variant};
     // With a look-through image the twins are the crystal in every pass (refreshed here, which follows wrapper changes).
     if (this.lookThrough) this.swapTranslucentFrames(true);
-    const tracked = this.facePose.visible;
+    // A camera without a face (poseCamera) draws the eyewear too; no face-driven subsystem is armed then.
+    const tracked = this.facePose.visible || this.explicitCamera;
     const showEyewear = tracked && this.fitRevealed && v.eyewear;
     const wantsHair = v.hair && mask !== null && tracked;
     const showHair = wantsHair && showEyewear;
@@ -1379,8 +1460,7 @@ export class TryOnRenderer {
       templeEndMaximumZM: this.templeEndMaximumZM,
       templeEndNegativeZM: this.templeEndpointReport?.negativeZM ?? this.templeEndMaximumZM,
       templeEndPositiveZM: this.templeEndpointReport?.positiveZM ?? this.templeEndMaximumZM,
-      templeEndState: this.templeEndpointReport
-        ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap',
+      templeEndState: this.templeEndStateText,
       maskUploadMs, endpointMs, submitMs, hairApplied,
       maskWidth: hairApplied ? mask!.width : 0, maskHeight: hairApplied ? mask!.height : 0, sync: this.sync,
       guarded, passes, protectedRects: protection?.protectedRects.length ?? 0, editableRects: protection?.editableRects.length ?? 0, safeFallback,

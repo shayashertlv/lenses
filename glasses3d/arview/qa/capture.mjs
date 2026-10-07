@@ -18,6 +18,9 @@
  *  is loaded, and again for each renderer that draws (posed, portrait, and their reloads), from its own GPU string.
  *  The worn front portrait renders face-a.jpg, read read-only from ../../ar/qa/fixtures and pinned by sha256;
  *  no other face image is ever used. --live-probe loads the GLB once on main's unmodified ar/ (capture/live-probe.mjs).
+ *  `--cameras <cameras.json> --no-face` (dev capture, capture/cameras.ts) replaces the pose sets with explicit pinhole
+ *  cameras and no face: the model at its authored size, `<id>__beauty.png` on each camera's flat background and
+ *  `<id>__part-id.png`, drawn by the same renderer (TryOnRenderer.poseCamera); no settle, no junction, no portrait.
  *  report.json is assembled by capture/report.ts; every fallback and every capture problem is a warning in it.
  *  Exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or is unverified; 4 refused or unchecked by
  *  arview; 1 infrastructure failure (stall, crash, software GPU, integrity); 2 usage error. */
@@ -31,6 +34,7 @@ import {chromium} from '@playwright/test';
 import {ABORT_CLEANUP_BUDGET_MS, INNER_KILL_BUDGET_MS, launchDeadlineMs, parseCaptureArgs, stepDeadlineMs, UsageError, USAGE} from './capture/cli.ts';
 import {closeChromium, killProcessTree, launchChromium, runBounded} from './capture/chromium.mjs';
 import {buildCapturePlan, SAFE_FILE} from './capture/poses.ts';
+import {cameraFile, CAMERA_VARIANTS, CameraSetError, parseCameraSet} from './capture/cameras.ts';
 import {assembleCaptureReport, EXIT, softwareRendererReason} from './capture/report.ts';
 import {consoleLevel, FACE_A_RELATIVE_PATH, FACE_A_SHA256} from './capture/portrait-contract.ts';
 import {readGlbInput} from './capture/glb-input.ts';
@@ -125,6 +129,17 @@ export async function main(argv) {
   let glbBytes;
   try {glbBytes = await fsp.readFile(glbPath);}
   catch (error) {console.error(`arview capture: cannot read ${glbPath} (${messageOf(error)})`); return EXIT.usage;}
+  // --cameras: the explicit cameras, validated before anything starts or is written (a bad file is a usage error, exit 2).
+  let cameraSet = null, camerasBytes = null;
+  if (options.cameras) {
+    try {camerasBytes = await fsp.readFile(path.resolve(options.cameras)); cameraSet = parseCameraSet(JSON.parse(camerasBytes.toString('utf8')));}
+    catch (error) {
+      if (error instanceof CameraSetError || error instanceof SyntaxError || error?.code) {
+        console.error(`arview capture: --cameras ${path.resolve(options.cameras)}: ${messageOf(error)}`); return EXIT.usage;
+      }
+      throw error;
+    }
+  }
   await fsp.mkdir(out, {recursive: true});
   const existing = (await fsp.readdir(out)).filter(name => !name.startsWith('.'));
   if (existing.length) {
@@ -134,7 +149,8 @@ export async function main(argv) {
   }
   const inputSha = sha256(glbBytes);
   const glb = readGlbInput(new Uint8Array(glbBytes.buffer, glbBytes.byteOffset, glbBytes.byteLength));
-  const plan = buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm});
+  const plan = cameraSet ? {set: null, backgrounds: [], poses: [], renderCount: cameraSet.cameras.length * CAMERA_VARIANTS.length, plannedCropCount: 0}
+    : buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm});
   const stepMs = Math.round(options.stepTimeoutS * 1000);
   const warnings = [], errors = [], images = [], poses = [], timings = [], idPalette = [];
   const page_ = {console_errors: [], console_warnings: [], page_errors: [], failed_responses: [], blocked_external: [], navigations: 0};
@@ -187,6 +203,13 @@ export async function main(argv) {
     depth_cm: options.depthCm, fixed_scale: options.fixedScale, clip: options.clipZM ?? 'auto', lensenv: options.lensEnvIntensity,
     crop_upscale: options.cropUpscale, portrait: options.portrait, live_probe: options.liveProbe, step_timeout_s: options.stepTimeoutS,
     plan: {poses: plan.poses.map(entry => entry.pose.id), renders: plan.renderCount, junction_crops: plan.plannedCropCount}};
+  if (cameraSet) {
+    // The explicit-camera mode replaces the pose-set fields that do not apply (recorded as such, never as defaults).
+    Object.assign(request, {poses: null, backgrounds: null, size: null, depth_cm: null, clip: 'none (no face: the arms are drawn as authored)',
+      fixed_scale: true, no_face: true, cameras: {path: path.resolve(options.cameras), sha256: sha256(camerasBytes), schema: cameraSet.schema,
+        ids: cameraSet.cameras.map(camera => camera.id)},
+      plan: {cameras: cameraSet.cameras.map(camera => camera.id), renders: plan.renderCount, junction_crops: 0}});
+  }
   const plannedImages = plan.renderCount + plan.plannedCropCount + (faceA ? 5 : 0);
 
   const loadMs = stepDeadlineMs(options.stepTimeoutS, 1.5);
@@ -344,7 +367,8 @@ export async function main(argv) {
     if (!state.gpu.float_color) warnings.push('EXT_color_buffer_float is unavailable; shadows and float targets fall back');
 
     const initRequest = {modelUrl: modelPath, displayName, templeClipZM: options.clipZM, lensEnvIntensity: options.lensEnvIntensity,
-      fixedScale: options.fixedScale, width: options.width, height: options.height, depthCm: options.depthCm, firstBackground: plan.backgrounds[0]};
+      fixedScale: options.fixedScale, width: cameraSet ? cameraSet.cameras[0].width : options.width,
+      height: cameraSet ? cameraSet.cameras[0].height : options.height, depthCm: options.depthCm, firstBackground: plan.backgrounds[0] ?? 'skin'};
     // Every renderer that draws images is checked itself, not only the throwaway probe context: a GPU process that fell
     // back to a software rasteriser between the probe and a renderer must never get its images reported.
     const renderers = [];
@@ -371,6 +395,30 @@ export async function main(argv) {
       if (init.rendered_sha256 !== inputSha) {
         return await abort(`INTEGRITY: the renderer parsed bytes with sha256 ${init.rendered_sha256}, not the input's ${inputSha}`);
       }
+    }
+    if (init.status === 'rendered' && cameraSet) {
+      // Explicit cameras, no face: nothing to settle (the authored size is shown from the first frame).
+      state.fitting = null;
+      for (const camera of cameraSet.cameras) {
+        const posed = await step(`camera ${camera.id}`, value => window.arview.poseCamera(value), {camera});
+        poses.push({...posed, kind: 'explicit_camera', view_row_major_m: camera.view});
+        if (!posed.explicit) warnings.push(`camera ${camera.id}: the renderer did not take the explicit camera`);
+        for (const variant of CAMERA_VARIANTS) {
+          const file = cameraFile(camera.id, variant);
+          const result = await step(`render ${file}`, value => window.arview.renderCamera(value), {variant, file});
+          for (const warning of result.warnings) warnings.push(warning);
+          if (result.palette && !idPalette.length) idPalette.push(...result.palette);
+          for (const image of result.images) {
+            images.push({file: image.file, pose: camera.id, background: variant === 'beauty' ? camera.background : null, variant, sha256: image.sha256,
+              bytes: image.bytes, width: image.width, height: image.height, kind: image.kind, crop: null, side: null, timing: result.timing});
+          }
+        }
+        log(`camera ${camera.id}: ${CAMERA_VARIANTS.length} renders, ${images.length} images so far`);
+      }
+      const final = await step('finish: posed renderer', () => window.arview.finishPosed());
+      if (final.report) state.modelReport = final.report;
+      if (final.fitting) state.fitting = final.fitting;
+    } else if (init.status === 'rendered') {
       const geometry = await step('geometry: lens top vs brow', () => window.arview.geometry());
       state.geometry = geometry;
       for (const warning of geometry.warnings) warnings.push(`junction geometry: ${warning}`);

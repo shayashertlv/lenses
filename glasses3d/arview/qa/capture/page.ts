@@ -4,7 +4,8 @@
  *  (written to disk and hashed there), so nothing accumulates in page memory and a stall loses nothing already made.
  *  The renderer is used through its public API only (WP1_DESIGN.md §5: create, pose, render with an override,
  *  readback, report, parts, cameraState, assetMatrixWorld, projectAssetPoints, setLighting). Steps:
- *  gpu -> init -> geometry -> settle -> (pose -> render...)... -> finishPosed -> portrait* -> done. */
+ *  gpu -> init -> geometry -> settle -> (pose -> render...)... -> finishPosed -> portrait* -> done; with `--cameras
+ *  --no-face` (capture/cameras.ts): gpu -> init -> (poseCamera -> renderCamera...)... -> finishPosed. */
 import {TryOnRenderer, ModelRefusal, ModelUnchecked} from '../../src/render/renderer.ts';
 import type {FittingReport, FrameTimings, PaletteEntry} from '../../src/render/renderer.ts';
 import type {ModelDefinition} from '../../src/eyewear/catalog.ts';
@@ -19,6 +20,8 @@ import {measureTempleReach, nearSideOfYaw, templeReachWarning} from './temple-re
 import type {TempleReach} from './temple-reach.ts';
 import * as portrait from './portrait.ts';
 import type {PortraitRequest} from './portrait.ts';
+import {assetToCameraScene, METRES_TO_SCENE, projectionMatrix} from './cameras.ts';
+import type {CameraVariant, ExplicitCameraSpec} from './cameras.ts';
 
 interface EmitResult {sha256: string; bytes: number}
 declare global {
@@ -296,6 +299,45 @@ async function render(request: {variant: VariantName; background: BackgroundName
   temple_reach: templeReach};
 }
 
+/** `--cameras --no-face` (capture/cameras.ts): pose one explicit camera, without a face. The camera frame is the camera's
+ *  flat background at its own size (what the lenses transmit); TryOnRenderer.poseCamera does the rest. */
+function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unknown> {
+  const instance = instanceOf(), camera = request.camera;
+  state.source.width = camera.width; state.source.height = camera.height;
+  const context = state.source.getContext('2d')!;
+  context.fillStyle = camera.background; context.fillRect(0, 0, camera.width, camera.height);
+  state.background = null; state.pose = null; state.detection = null; state.sides = [];
+  const assetToCamera = assetToCameraScene(camera), projection = projectionMatrix(camera);
+  instance.poseCamera(state.source, {assetToCamera, projection, nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE});
+  return {id: camera.id, explicit: instance.explicitCameraPosed, background: camera.background, render_size: instance.renderSize,
+    intrinsics_px: {fx: camera.fx, fy: camera.fy, cx: camera.cx, cy: camera.cy}, near_m: camera.near, far_m: camera.far,
+    camera: instance.cameraState(), asset_to_world: instance.assetMatrixWorld(), fitting: instance.fitting,
+    ...(camera.meta !== undefined ? {meta: camera.meta} : {})};
+}
+
+/** One render of the explicit camera: the beauty image (the try-on's draw, no hair, no face shadows, no guard: there is no
+ *  face) or the part-id silhouette on black. */
+async function renderCamera(request: {variant: CameraVariant; file: string}): Promise<Record<string, unknown>> {
+  const instance = instanceOf();
+  if (!instance.explicitCameraPosed) throw new Error('renderCamera: no explicit camera is posed.');
+  const warnings: string[] = [];
+  const timing: FrameTimings = request.variant === 'part-id' ? instance.render(null, {override: 'part-id'})
+    : instance.render(null, {hair: false, shadows: false, guard: false});
+  const pixels = instance.readback();
+  if (pixels.width !== state.source.width || pixels.height !== state.source.height) {
+    warnings.push(`${request.file}: read back ${pixels.width}x${pixels.height}, not the requested ${state.source.width}x${state.source.height}`);
+  }
+  if (!instance.fitting.ready) warnings.push(`${request.file}: the model is not revealed, so the glasses are not drawn`);
+  const full = await emitCanvas(request.file, canvasOf(pixels, {x: 0, y: 0, width: pixels.width, height: pixels.height}));
+  const palette: PaletteEntry[] = timing.palette ?? [];
+  const decoder = request.variant === 'part-id' ? paletteDecoder(palette) : null;
+  if (decoder) for (const warning of decoder.warnings) warnings.push(`part-id palette: ${warning}`);
+  return {timing: {guarded: timing.guarded, passes: timing.passes, safeFallback: timing.safeFallback, shadowsApplied: timing.shadowsApplied ?? null,
+    override: timing.override ?? null, templeEndState: timing.templeEndState},
+  palette: decoder ? palette.map((entry, index) => ({...entry, decode_tolerance: decoder.tolerances[index]})) : null,
+  images: [{...full, kind: 'camera', crop: null, side: null}], warnings};
+}
+
 /** The posed renderer's final model report (render-time fallbacks included), then dispose it. */
 function finishPosed(): Record<string, unknown> {
   const instance = state.instance;
@@ -306,7 +348,7 @@ function finishPosed(): Record<string, unknown> {
 }
 
 const api = {
-  gpu, init, geometry, settle, pose, render, finishPosed,
+  gpu, init, geometry, settle, pose, render, finishPosed, poseCamera, renderCamera,
   portraitPrepare: (fixtureSha256: string) => portrait.prepare(emitCanvas, fixtureSha256),
   portraitCreate: (request: PortraitRequest) => portrait.create(request),
   portraitSettle: () => portrait.settle(),

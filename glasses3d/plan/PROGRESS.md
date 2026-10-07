@@ -9,7 +9,7 @@ The historical handoff below is preserved. The owner requested RESUME HERE secti
 finish and verify sections 3.1-3.5, then commit A-E separately with explicit paths, no push, and approval
 before every paid call. Work is on `glasses3d`, performed sequentially without subagents per AGENTS.md.
 
-- **Group A verified, ready to commit (11:39).** All 12 stored step-6 findings reviewed against the full diff,
+- **Group A committed: `e3fd8fe` (11:39).** All 12 stored step-6 findings reviewed against the full diff,
   followed by a fresh full-diff re-review. Full WP5 suite: **276 passed, 1 expected xfail**, no skips,
   exit 0, 11:19:05-11:38:48 (1,182.86 s); detached without a timeout, default pool limited to 3 for memory.
   `data/codex_resume_20261007/wp5.log` and `wp5_run.json` retain output and exact arguments.
@@ -18,7 +18,18 @@ before every paid call. Work is on `glasses3d`, performed sequentially without s
   tool-test GLB remains `17d604886c126e06a61ffe41df3b7dd3877043a24c9e29d36d0e4f5fcbf98095`.
   Corrected five stale calibration-count claims in PORT_REVIEW (29 captures, not 30). Its WP2 section 11
   belongs to D and is kept out of A. No production level change; owner B promotion remains section 5 step 2.
-- **B-E remain uncommitted and under review.** All checks so far are offline and $0; no paid call or push.
+- **Group B verified, ready to commit (11:49).** Re-read the arview camera-mode diff, new camera parser/tests,
+  and the complete all-angles generator against the stored two review rounds. Fixed measurement ignoring
+  `--workers`; nonpositive limits now fail before work, with CLI regressions. Corrected the metres-to-centimetres
+  matrix comment. No owner sheets needed regeneration; the sent comparison remains valid.
+  Fresh checks: **500 Node tests, 106 QA tests (including GPU explicit-camera and stall tests), 27 Python tests**
+  passed; TypeScript check passed. Logs and commands: `data/codex_resume_20261007/b_runs.json` and `b_*.log`.
+  New ordinary `--poses all --backgrounds skin` capture: **100/100 images byte-identical** to both clean-commit
+  baseline captures (`d005c321ea50e9b787c02f7631480b4e6efa43b9`) and the stored changed-renderer capture.
+  Audited actual PNG hashes against each report, **400 files total** (`pose_identity_audit.json`). The fresh
+  report retains the three existing lens-degenerate-triangle / portrait-auto-fit warnings; exit 0, spec passes.
+  Fresh full-diff re-review complete; no remaining major in B.
+- **C-E remain uncommitted and under review.** All checks so far are offline and $0; no paid call or push.
 
 ## Status (FINAL handoff 2026-10-07 ~11:00; every workflow STOPPED at the owner's request; nothing is running)
 

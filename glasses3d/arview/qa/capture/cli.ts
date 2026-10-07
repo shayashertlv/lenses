@@ -3,6 +3,9 @@
  *    arview capture <glb> --poses default|junction|all --out <dir>
  *      [--backgrounds skin,dark,checker] [--size 1280x854] [--depth-cm 23] [--fixed-scale] [--clip auto|<m>]
  *      [--lensenv N] [--crop-upscale 1|2] [--no-portrait] [--live-probe] [--step-timeout-s 60]
+ *    arview capture <glb> --cameras <cameras.json> --no-face --out <dir> [--lensenv N] [--live-probe] [--step-timeout-s 60]
+ *      (dev capture: explicit cameras without a face, capture/cameras.ts; replaces --poses, implies the authored size and
+ *      no portrait; the camera file sets each image's size and background)
  *
  *  Every value is checked here, before a server or browser starts; a bad value is a UsageError (exit 2), never a
  *  silent default. Both `--name value` and `--name=value` are accepted. */
@@ -51,7 +54,8 @@ export const DEFAULT_SIZE = Object.freeze({width: 1280, height: 854});
 
 export interface CaptureOptions {
   readonly glb: string;
-  readonly poses: PoseSetName;
+  /** null with --cameras (explicit cameras replace the pose sets). */
+  readonly poses: PoseSetName | null;
   readonly out: string;
   /** null: the pose set's own backgrounds. */
   readonly backgrounds: readonly BackgroundName[] | null;
@@ -66,6 +70,10 @@ export interface CaptureOptions {
   readonly portrait: boolean;
   readonly liveProbe: boolean;
   readonly stepTimeoutS: number;
+  /** --cameras: the explicit cameras file (capture/cameras.ts), or null for a pose set. */
+  readonly cameras: string | null;
+  /** --no-face: draw without a face (required with --cameras, the only mode without one). */
+  readonly noFace: boolean;
 }
 
 export class UsageError extends Error {
@@ -74,6 +82,7 @@ export class UsageError extends Error {
 
 export const USAGE = [
   'usage: arview capture <model.glb> --poses default|junction|all --out <dir> [options]',
+  '       arview capture <model.glb> --cameras <cameras.json> --no-face --out <dir> [--lensenv N] [--live-probe] [--step-timeout-s N]',
   '  (or: node qa/capture.mjs <model.glb> --poses ... --out ...)',
   'options:',
   '  --backgrounds skin,dark,checker  backgrounds for the beauty renders (default: the pose set\'s own)',
@@ -87,12 +96,18 @@ export const USAGE = [
   '  --live-probe                     also load the GLB once on main\'s unmodified ar/ and record its verdict',
   '  --step-timeout-s N               per-step deadline, 5-90 s (default 60; model loads get 1.5x, at most 95 s); a stall kills',
   '                                   Chromium and is reported within 2 minutes',
+  '  --cameras <cameras.json>         dev capture: explicit pinhole cameras (schema arview.cameras/1, qa/capture/cameras.ts) instead',
+  '                                   of --poses; the model at its authored size, <id>__beauty.png on each camera\'s background and',
+  '                                   <id>__part-id.png; the try-on\'s renderer, materials, lighting and tone mapping',
+  '  --no-face                        draw without a face: no occluders, hair, face shadows, arm spread or temple clip (with --cameras)',
   'exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or could not be verified;',
   '            4 refused or unchecked by arview (nothing rendered); 1 infrastructure failure; 2 usage error',
 ].join('\n');
 
-const FLAGS = new Set(['fixed-scale', 'no-portrait', 'live-probe']);
-const VALUED = new Set(['poses', 'out', 'backgrounds', 'size', 'depth-cm', 'clip', 'lensenv', 'crop-upscale', 'step-timeout-s']);
+const FLAGS = new Set(['fixed-scale', 'no-portrait', 'live-probe', 'no-face']);
+const VALUED = new Set(['poses', 'out', 'backgrounds', 'size', 'depth-cm', 'clip', 'lensenv', 'crop-upscale', 'step-timeout-s', 'cameras']);
+/** Options a camera file replaces (it sets each image's size and background; no face means no depth, clip or crops). */
+const NOT_WITH_CAMERAS = ['poses', 'backgrounds', 'size', 'depth-cm', 'clip', 'crop-upscale'] as const;
 
 function finiteNumber(name: string, text: string): number {
   if (!/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(text.trim())) throw new UsageError(`--${name} must be a number, got "${text}".`);
@@ -126,6 +141,9 @@ export function parseCaptureArgs(argv: readonly string[]): CaptureOptions {
     throw new UsageError(positional.length ? `Exactly one model path is expected, got ${positional.length}: ${positional.join(' ')}.` : 'The model path is missing.');
   }
   const glb = positional[0]!;
+  const cameras = values.get('cameras') ?? null;
+  if (cameras !== null) return parseCameraCapture(glb, cameras, values, flags);
+  if (flags.has('no-face')) throw new UsageError('--no-face needs --cameras (explicit cameras are the only capture without a face).');
   const poses = values.get('poses');
   if (!poses) throw new UsageError('--poses is required (default, junction or all).');
   if (!(POSE_SET_NAMES as readonly string[]).includes(poses)) throw new UsageError(`--poses must be one of ${POSE_SET_NAMES.join(', ')}, got "${poses}".`);
@@ -197,5 +215,40 @@ export function parseCaptureArgs(argv: readonly string[]): CaptureOptions {
 
   return Object.freeze({glb, poses: poses as PoseSetName, out, backgrounds: backgrounds ? Object.freeze(backgrounds) : null, width, height,
     depthCm, fixedScale: flags.has('fixed-scale'), clipZM, lensEnvIntensity, cropUpscale, portrait: !flags.has('no-portrait'),
-    liveProbe: flags.has('live-probe'), stepTimeoutS});
+    liveProbe: flags.has('live-probe'), stepTimeoutS, cameras: null, noFace: false});
+}
+
+function lensEnvOf(values: ReadonlyMap<string, string>): number | null {
+  const lensenv = values.get('lensenv');
+  if (lensenv === undefined) return null;
+  const value = finiteNumber('lensenv', lensenv);
+  if (value < 0.3 || value > 4) throw new UsageError(`--lensenv must be 0.3-4, got ${value}.`);
+  return value;
+}
+function stepTimeoutOf(values: ReadonlyMap<string, string>): number {
+  const timeout = values.get('step-timeout-s');
+  if (timeout === undefined) return DEFAULT_STEP_TIMEOUT_S;
+  const value = finiteNumber('step-timeout-s', timeout);
+  if (value < STEP_TIMEOUT_RANGE_S[0] || value > STEP_TIMEOUT_RANGE_S[1]) {
+    throw new UsageError(`--step-timeout-s must be ${STEP_TIMEOUT_RANGE_S[0]}-${STEP_TIMEOUT_RANGE_S[1]} (a stall must be reported within about 2 minutes), got ${value}.`);
+  }
+  return value;
+}
+
+/** `--cameras <file> --no-face`: the explicit-camera dev capture (capture/cameras.ts). The file itself is read and
+ *  validated by the orchestrator before any server or browser starts (a bad file is a usage error too). */
+function parseCameraCapture(glb: string, cameras: string, values: ReadonlyMap<string, string>, flags: ReadonlySet<string>): CaptureOptions {
+  for (const name of NOT_WITH_CAMERAS) {
+    if (values.has(name)) {
+      throw new UsageError(`--${name} cannot be combined with --cameras (the camera file sets each image's size and background; without a face there `
+        + 'is no depth, clip or crop).');
+    }
+  }
+  if (!flags.has('no-face')) throw new UsageError('--cameras renders without a face: say so with --no-face.');
+  const out = values.get('out');
+  if (!out) throw new UsageError('--out <dir> is required.');
+  // The authored size and no portrait are implied (a metric camera, no face); --fixed-scale and --no-portrait are accepted.
+  return Object.freeze({glb, poses: null, out, backgrounds: null, width: DEFAULT_SIZE.width, height: DEFAULT_SIZE.height, depthCm: DEFAULT_DEPTH_CM,
+    fixedScale: true, clipZM: null, lensEnvIntensity: lensEnvOf(values), cropUpscale: 1, portrait: false, liveProbe: flags.has('live-probe'),
+    stepTimeoutS: stepTimeoutOf(values), cameras, noFace: true});
 }

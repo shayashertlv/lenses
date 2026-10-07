@@ -280,6 +280,24 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
   (133 images). Every set adds the worn front portrait (5 images) unless `--no-portrait`. Files are
   `<pose>__<background>__<variant>.png`, `<pose>__<variant>.png` for the flat variants, `..__crop_<left|right>.png`,
   `portrait__{source,a,b}__{full,eyes}.png`; sides are named by geometry as spec.py names them (left = x < 0).
+- **Explicit cameras, no face** (dev capture, `qa/capture/cameras.ts`):
+  `node qa/capture.mjs <model.glb> --cameras <cameras.json> --no-face --out <fresh dir> [--lensenv N] [--step-timeout-s N]`.
+  For comparing a model with product photos taken from known cameras (the photos have no face). `cameras.json` (schema
+  `arview.cameras/1`) lists pinhole cameras: `id`, `width` x `height` (width <= 1280), a flat `background` (`#rrggbb`, what
+  the lenses transmit), `view` (row-major 4x4, asset-local metres to camera metres, a rotation with det +1: a mirrored
+  camera is refused), `fx`, `fy`, `cx`, `cy` (render pixels, y down, integer = pixel centre), `near`, `far` (metres) and an
+  optional `meta` copied into the report. Each camera yields `<id>__beauty.png` and `<id>__part-id.png`. The drawing is
+  the try-on's own (`TryOnRenderer.poseCamera`): materials, the room environment and the camera-relative key light (the
+  camera stays at the origin), ACES tone mapping, lens transmission and the crystal look-through, at the authored size
+  (implied); left out is what only a face makes: no face or head occluder, hair, face shadows, protection or near-arm
+  overlays, and the arms keep their authored geometry (no fixed spread, terminal return or temple clip). `--poses`,
+  `--backgrounds`, `--size`, `--depth-cm`, `--clip` and `--crop-upscale` are usage errors with `--cameras`; no settle, no
+  junction, no portrait. The report says so: each image's `timing.templeEndState` is `authored (explicit camera: ...)` and
+  each camera's `camera.verticalFovDegrees` is the explicit projection's (2 atan(1 / P[1][1])), not the virtual camera's
+  63°. A bad cameras file is a usage error (exit 2) before anything is written. The pose sets and their
+  images are unchanged (byte-identical; `glasses3d/data/wp5/all_angles/all_angles.json` `byte_identity`).
+  `tests/capture-cameras.test.ts` (projection through three's matrices, the options, the renderer on a recording backend)
+  and `qa/capture-cameras.test.mjs` (end to end on the GPU) cover it.
 - **Synthetic face** (`qa/capture/synthetic-face.ts`): the canonical face (`../../ar/public/models/canonical-face.json`)
   posed at the requested angles and 23 cm, projected through the 63° MediaPipe camera; `FaceSurface.reconstruct`
   recovers it exactly (tested). A frontal settle (51 frames over 5 s) lets the live fit measure first; each pose then
