@@ -38,8 +38,15 @@ each node, rather than only neighbouring nodes; **33 focused tests now pass**. B
 retained locally. This checkpoint contains the correction, with no accepted production quality proof. Its within-node
 bake exited 0 at 06:26:05: A3/provenance pass, 739,014 protected texels (405 fewer than baseline), but A5
 **1.301842 / 1.289024** and all four A4 parts fail. This implementation fix does not establish quality acceptance.
-Next: inspect active `b3_gain_boundary_texels_01_run.json` (PID 41556, 06:26:50), then run prepared `_03` / `_05`
-sequentially. Use the new `_gain_boundary_texels` suffix, never old boundary/topology names for the new source.
+The common-boundary correction is committed as `83243b7`. B3 views 01/03 exited 0, retaining their three
+failures/one pass and one failure. View 05 also finished (06:35:42), retaining both failures: B3 still six of seven.
+Affine-exemplar matching failed A4 overall; paired relative shading failed the frozen keep test, including after
+enforcing the existing factor bounds during its fit (pooled dE00 drop 0.365, worst leave-one-pair-out -0.140).
+No runtime API changed or model was adopted. Moment-normalized exemplar matching also finished (06:45:02) and
+failed A4 overall, preserving all 160 original cases. Next: inspect active `paired_shading_rgb_probe_run.json`
+(PID 38876, 06:47:19), a bounded per-channel relative-shading model with four synthetic checks. Its colour factors
+need an explicit integration adapter before a bake; the scalar runtime helper cannot consume them as-is.
+The earlier prepared paired-shading full candidate is not run because its keep test fails.
 No source-selection policy or quality criterion has changed. The gain-field fix is committed
 as **`eda0840`** and removes repeated physical
 node constraints: independent density/repeated-sample tests failed before and pass after; **29 focused tests pass**.

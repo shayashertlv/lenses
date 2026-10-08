@@ -12,9 +12,11 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `b3_gain_boundary_texels_01_run.json`, PID **41556**, started 06:26:50, two workers,
-10,329,636 KB free commit at launch: fresh held-out-01 decomposition of the within-node boundary slope correction.
-Next: inspect the full frozen rows, then run prepared `b3_gain_boundary_texels_03.py` and `_05.py` sequentially.
+**Active run:** `paired_shading_rgb_probe_run.json`, PID **38876**, started 06:47:19, two workers,
+10,355,744 KB free commit at launch. All three new B3 decompositions are complete; six of seven original
+eligible rows still fail. The common-boundary fix is committed as `83243b7`.
+Next: inspect the bounded per-channel relative-shading keep test. The earlier paired-shading and
+exemplar comparisons below are complete and unaccepted; do not run their prepared full candidate bake.
 The completed candidate's A3/provenance pass, but A4/A5 still fail (details below). The prepared
 `b3_gain_topology_*` and `b3_gain_boundary_*` names describe prior versions; do not run them on this source.
 Consult the run record before
@@ -198,6 +200,47 @@ Protected support is 405 below the immutable baseline, reported rather than excl
 select 0.9 / 0.3 mm on every part. A5 **1.301842 / 1.289024**, both failed. A4 seed-0 fine errors
 **0.566482 / 0.475355 / 0.246140 / 0.290558** and seam ratios **2.260464 / 1.725944 / 1.494812 / 1.472907**
 (BL/BR/TL/TR): all four fail. This corrects a proved gradient-estimation defect, not the remaining quality failures.
+
+Fresh B3 view 01 retains the right-brow pass (spectrum 0.118276, correlation 1.1). Left-brow spectrum 0.597883 /
+correlation 1.75 fails; left-inner-temple correlation 1.4 fails; right-outer-temple spectrum 0.386111, correlation
+1.6 and colour 7.406334 fail. View 03's left-brow spectrum 0.794991 / correlation 0.416667 still fails.
+Reports `b3_01_gain_boundary_texels_decomposition.json` / `_03_...` retain all frozen rows, source hashes and
+diagnostic subsets. No subset replaces eligibility or grading.
+View 05 exited 0 at 06:35:42: both eligible rows fail. BL spectrum/correlation/colour
+**0.390399 / 0.454545 / 4.853392**; BR **0.346649 / 0.7 / 4.021491**. C3 passes on BL, fails on BR.
+
+Two offline model diagnostics have independent synthetic controls (`model_controls.json`, exit 0):
+raw-context exemplar copying has RMSE 18.784 on a known brightness/contrast-transformed patch, versus 0.217
+after fitting one contrast and three offsets on observed context. Eight compact/long-thin support and poisoning
+checks pass (`affine_donor_synthetic.json`). Separately, independent SH fitting calls a shared albedo pattern
+shading (factor p5/p95 0.595 / 1.708), while same-surface photo differences correctly fit zero. Four checks for
+known relative shading, shared material, masked-input invariance and coordinate rotation pass
+(`paired_shading_synthetic.json`). These prototypes change no runtime API, thresholds or assets; their real-photo
+results follow. All original A4 holes were retained in the exemplar comparison.
+The affine-exemplar run exited 0 at 06:38:24, still failing A4 as a set: seed-0 fine error
+**0.148088 / 0.345833 / 0.190431 / 0.117604**, pooled **0.230686 / 0.228365 / 0.162567 / 0.149412**.
+`affine_donor_probe.json`, `affine_donor_cases/` and the labelled crop review preserve the result. Inspected crops
+remove the sharp paste edges but still lose observed fine structure, especially the left-temple stripes.
+Regression contrast shrinks a donor whose pattern phase differs from the target. A second local diagnostic used
+the observed context's mean and standard deviation instead, with the same donor admission/radius/boundary join;
+eight poisoning/support checks pass (`moment_donor_synthetic.json`). No method is accepted.
+That run started at 06:44:05 (PID 49724), exited 0 at 06:45:02, and still fails A4 overall:
+seed-0 fine error **0.167347 / 0.117175 / 0.209569 / 0.085982**, pooled
+**0.223828 / 0.159946 / 0.199490 / 0.110998**. `moment_donor_probe.json` / `moment_donor_cases/` retain every case.
+
+The unregularized paired-SH probe exited 0 at 06:36:42 but worsened the frozen keep test (pooled dE00 drop
+**-1.473**, |dlogY| drop **-0.3283**). Narrow normal coverage produced huge extrapolated coefficients and every
+view saturated the fixed factor clip. A bounded fit enforces the existing [1/3, 3] range on mean-centred observed
+normal predictions during the solve, retaining the production median normalization/clip afterward; four
+synthetic checks pass (synthetic comparison tolerance 1e-4, not a changed quality gate). It exited 0 at 06:43:00:
+pooled drops **0.365 / 0.0567**, but the unchanged leave-one-pair-out rule still fails (worst dE00 drop **-0.140**
+without 04-05). `paired_shading_probe.json` and `paired_shading_bounded_probe.json` retain both failures. Neither
+model is applied or adopted. The prepared full candidate would simply keep flatten off and is not run.
+The next per-channel bounded fit tests chromatic directional illumination: on an independent synthetic example,
+the achromatic model's maximum log error is 0.246438 while the colour fit recovers it within 0.000006875;
+four recovery/material/masking checks pass (`paired_shading_rgb_synthetic.json`). This is still an experimental
+local model. Its channel factors require an explicit integration adapter before any production bake/A3 proof;
+do not pass these fits into the unchanged scalar runtime factor helper.
 
 Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
