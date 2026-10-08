@@ -47,9 +47,27 @@ failed A4 overall, preserving all 160 original cases. Bounded RGB shading also f
 0.240, worst leave-one-pair-out -0.235), so no integration adapter or full bake is needed for it.
 Full regression `regression_019d321_run.json` finished at 07:35:20: **340 passed, 1 expected xfail, no
 failures/errors/skips**, 1,252.40 s, exit 0. Source hashes were unchanged at `019d321`; the documented A0 periodic
-wrong-match xfail remains. Next: inspect active `reuse_019d321_run.json` (PID 4808, 07:40:50,
-10,510,444 KB free commit at launch), then the prepared complete quality proof `quality_019d321.py` (no skipped
-checks/views, five seeds, serial parity). Do not change runtime source or start another substantial run.
+wrong-match xfail remains. Renamed-input check exited 0 at 07:44:44, all nine checks pass and source unchanged:
+**738,664 protected texels**, protected mask and all source/tier/class maps match the new canonical bake;
+1,323,383 fill pixels change with name-based seeds. No unseen-product claim or repeated G1 migration.
+**No active run.** Complete quality proof `quality_019d321_run.json` finished at 08:11:28, PID 31236, exit 0,
+source unchanged: all six held-out views, five seeds and serial parity, no skips. A1, six A2, A3, provenance and
+A7's six files pass. **A4 all four fail; A5 1.244709/1.269608 fails; B3 six of the same seven eligible rows fail**,
+with no dropped original eligibility. The exact PNG is
+`c00204d54d3a529c33417658e34e411d20d18c4ccf6dc01548671c98e830c7cb`.
+`tooltest_019d321_run.json` exited 0 at 08:13:18 with 15/15 checks and untouched source scene.
+`ar_019d321_run.json` exited 0 at 08:15:29: fresh worn/all-pose/black-probe capture, exact runtime-independent
+measurement parity and controlled geometry/materials/cameras/fitting. `photo_ar_019d321_run.json` exited 0 at
+08:19:44, verifying historical/current capture hashes and the frozen photo cameras. Inspected labelled
+`quality_019d321/ar_comparison.png` and `photo_focus.png`; appearance is close to the accepted revision but
+brow-top pattern and temple differences persist. No final owner verdict was requested while quality fails.
+The new `quality_019d321/proof_summary.json` indexes all current evidence, including regression and reuse;
+`appearance_summary.json` preserves every applicable role/form/group and the existing AR streak instrument.
+Current print calibration L* p50 residuals -5.22/-5.39, held-out contrast 0.650/0.824, chroma failures at all six
+pairs and front hue residual -5.25 degrees remain. AR streak indices -x +45 / +x -30 / +x -45 are
+1.942/7.520/11.501, without an invented threshold. All immutable source/B/accepted hashes remain exact.
+Next: continue causal quality repair, using the pending owner inpainting research if supplied. No quality or final
+AR acceptance is implied. Runtime remains `019d321`; later runtime edits need appropriate fresh validation.
 Context validation's first attempt
 failed before real cases on unsupported long-thin
 strip training; its global-donor fallback is repaired, failed evidence retained, and all ten poison/contract
@@ -60,8 +78,8 @@ A further folded-surface test exposed a crease error in the gain leveller's chor
 intersection of the local tangent planes passes the new test across three fold angles/rigid placement and
 **34 focused tests**. This checkpoint contains the gain correction. Its bake exited 0 at 07:07:22:
 A3/provenance pass, 738,664 protected texels (755 fewer than baseline), but A5 **1.244709 / 1.269608** and all
-four A4 parts still fail. Comparison-point displacement p95/max is 0.109326 / 0.555875 mm. B3 has not been rerun
-on the folded variant. The separate
+four A4 parts still fail. Comparison-point displacement p95/max is 0.109326 / 0.555875 mm. The complete folded
+variant proof above now includes B3, retaining its six failures. The separate
 seam-gradient prototype has four synthetic checks; its prepared chord/folded comparison uses the older
 within-node candidate cache and must not be called a proof of the folded-gain bake. Chord variant finished at
 07:09:48, A5 **0.971405 / 1.055846**, still failing at 8. Folded variant finished at 07:11:34,
@@ -86,8 +104,8 @@ errors **0.130544 / 0.266228 / 0.280017 / 0.218029**; only BL passes A4. The fix
 block joins. Rejected, no runtime filler change. `seam_protected_audit.py` finished at 07:39:25: 5,162 of 28,952
 offset-8 pairs are fully protected. The across-p95 lower bound with editable pairs zero is 5.993749, below the
 current within-p95 11.470301; protected pixels do not prove A5 impossible. Frozen criteria remain unchanged.
-`reuse_019d321.py` tests the repaired code on G1's existing frozen renamed job without rebuilding its historical
-proof; this check is active.
+`reuse_019d321.py` tested the repaired code on G1's existing frozen renamed job without rebuilding its historical
+proof; this check passed as recorded above.
 `gain_folded_review.png` was inspected against B and the accepted revision: broad blurred/smeared fills remain.
 This is an atlas-only diagnostic with source hashes, not a final AR review or appearance pass.
 
@@ -156,7 +174,9 @@ Do not overwrite evidence directories or historical owner sheets. Use a fresh da
 
 | Path | Meaning |
 |---|---|
-| `data/wp5/g1_20261007/proof/bake/bake.json` | Latest complete quality report: A4, A4_fillers, A5, all B3 rows, B3_summary, STOP_B |
+| `data/wp5/repairs_20261008/quality_019d321/proof_summary.json` | Latest repair proof index; failed A4/A5/B3, passing regression/reuse/export, diagnostic AR |
+| `data/wp5/repairs_20261008/quality_019d321/bake/bake.json` | Latest complete frozen quality report; all seeds/views, A7, STOP B remains |
+| `data/wp5/g1_20261007/proof/bake/bake.json` | Immutable pre-repair G1 quality report: A4, A4_fillers, A5, all B3 rows, B3_summary, STOP_B |
 | `data/wp5/g1_20261007/proof/bake/` | Four maps, registration/report, source/class maps, six held-out renders, sheets, serial proof |
 | `data/wp5/g1_20261007/proof/accepted_identity.json` | Exact canonical migration proof |
 | `data/wp5/g1_20261007/proof/renamed_identity.json` | Renamed-input proof and its limits |

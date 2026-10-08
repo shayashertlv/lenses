@@ -12,27 +12,56 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `reuse_019d321_run.json`, PID **4808**, started 07:40:50, two workers,
-10,510,444 KB free commit at launch. Do not change runtime source or launch another substantial run until it
-finishes. The priority-exemplar comparison finished and failed overall; the bilinear seam audit is complete.
+**No active run. Current runtime checkpoint: `019d321`.** The complete frozen quality proof finished at 08:11:28,
+actual exit 0, source unchanged: **A4 fails all four parts, A5 fails both offsets, B3 fails six of the same seven
+eligible rows**. All six held-out views, five seeds per filler and A7 serial comparison ran without skips.
+`quality_019d321/proof_summary.json` indexes the complete evidence; no original B3 eligible row was dropped.
+Next: continue causal repairs; the owner research question about donor-only multiscale inpainting remains pending.
+The current fresh AR evidence is diagnostic, not a final appearance acceptance.
 Full WP5 regression at **`019d321`** finished at 07:35:20:
 **340 passed, 1 expected xfail, no failures/errors/skips**, 1,252.40 s, actual exit 0. Runtime/tests were unchanged
 throughout (`regression_019d321_sources.json`); `regression_019d321_run.json` records PID 31676 and timing.
 The xfail remains the documented A0 periodic wrong-match case, not a quality pass.
-B3 at `83243b7` still has six of seven original eligible rows failing; the folded-gain variant has not had a new
-B3 run. Both seam-gradient variants finished and failed offset 8. `seam_current_chord.py` /
+B3 at `019d321` still has six of seven original eligible rows failing. Both seam-gradient variants finished and
+failed offset 8. `seam_current_chord.py` /
 `seam_current_folded.py` are a controlled pre-reflection comparison on the older within-node candidate cache;
-they must not be labelled as the new gain bake. Next: inspect the renamed-input result, then run the prepared
-complete frozen quality proof `quality_019d321.py` (all six held-out views, five seeds, serial parity; no skips).
-It is not a final acceptance claim. Continue causal quality diagnosis with the
-owner's inpainting research response if available.
+they must not be labelled as the new gain bake. The complete quality proof, exact-PNG Blender tool test and fresh
+AR/photo-angle comparisons are now complete. None is a final acceptance claim.
 The earlier paired-shading and exemplar comparisons are unaccepted; do not run their prepared full candidate bake.
 The completed candidate's A3/provenance pass, but A4/A5 still fail (details below). The prepared
 `b3_gain_topology_*` and `b3_gain_boundary_*` names describe prior versions; do not run them on this source.
 Consult the run record before
 another heavy job. The front-reference experiment exited 0 at 05:30:06; both original
 eligible held-out-05 brow rows still fail. Seam-support fixes are committed as `ccf88df`.
-The full regression passes; no final quality acceptance, completed new reuse check or final AR verdict exists yet.
+The full regression and repaired-code reuse check pass; no final quality acceptance or final AR verdict exists yet.
+
+**Complete proof and appearance, 08:11–08:28:** `quality_019d321_run.json` records PID 31236, start 07:45:29,
+finish 08:11:28, exit 0. A1, all six A2 checks, A3 and the single-source audit pass; A7 matches all six files exactly.
+A3 protects **738,664 texels** (755 below the immutable baseline); readback within one level is 0.999181,
+p99 dE00 0.836842. Selected radii remain quilt 0.9 mm and PatchMatch 0.3 mm for each part. Default A4 seed-0
+fine errors (BL/BR/TL/TR) are **0.440921 / 0.421339 / 0.430153 / 0.237586**, seams
+**2.269105 / 1.525471 / 1.561730 / 1.393089**; all four fail. Five-seed quilt pooled fine errors are
+**0.461501 / 0.226873 / 0.276677 / 0.301186**. A5 ratios are **1.244709 / 1.269608** at frozen offsets 7/8;
+reflection stays six texels. B3 retains only the view-01 right-brow pass; views 02/04/06 have no eligible row, not
+passes. The full frozen rows and both fillers' seed-0/pooled verdicts remain in `quality_019d321/bake/bake.json`.
+B2 remains diagnostic **0/11** and pixel-verified area **0%**; historical A0/B1 limitations are unchanged.
+
+The exact PNG SHA-256 is `c00204d54d3a529c33417658e34e411d20d18c4ccf6dc01548671c98e830c7cb`.
+`tooltest_019d321_run.json` exited 0 at 08:13:18: **15/15 Blender-copy checks**, source scene unchanged.
+Fresh all-pose/worn and black-probe capture exited 0 at 08:15:29; runtime and independent measurements match
+exactly. Geometry, materials, camera and fitting match B/accepted controls. Photo-angle capture exited 0 at
+08:19:44; all historical/current capture hashes and frozen camera identities were verified. Inspected
+`quality_019d321/ar_comparison.png` and `photo_focus.png`: current resembles the accepted revision; brow-top
+blotch/streak structure and temple pattern differences from the real photos persist. No final owner verdict
+was requested for this failed-quality candidate.
+
+`appearance_summary.json` records every role/form and applicable group without changing eligibility. Current print
+L* p50 residuals are **-5.22/-5.39** at calibration poses, **+0.28/-0.67** at trade-off poses, **+2.03/-2.31**
+at held-out poses. All role-wise brow lightness verdicts fail. Held-out contrast ratios **0.650/0.824** miss the
+existing 0.85–1.18 window; chroma criteria fail at every pair. Front hue residual **-5.25 degrees** misses the
+5-degree criterion. Band-energy ratios at held-out +45 are brow **0.330**, temple **0.730**. Existing AR streak
+indices are **1.942** (-x at +45), **7.520/11.501** (+x at -30/-45), versus accepted **1.929/7.752/11.429**;
+these diagnostic indices supply no new pass threshold. All four immutable source/B/accepted hashes remain exact.
 
 **Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
 canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;
@@ -315,8 +344,11 @@ sample and 248 neither. The all-sample across-p95 lower bound if editable pairs 
 below the current within p95 11.470301. Thus protected observations do **not** establish unavoidable A5 failure;
 this is a localization bound, not a replacement verdict or instruction to zero errors. Complete original A5
 reports are preserved in `seam_protected_audit.json`.
-`reuse_019d321.py` runs a current-code check using the existing frozen renamed job, comparing against the new
-folded-gain bake; it does not repeat G1's old accepted-identity migration or overwrite its evidence.
+The current-code check `reuse_019d321.py` exited 0 at 07:44:44 with source unchanged. All nine checks pass:
+source/tier/class maps, protected mask, all **738,664 protected colours**, A1 and A3 remain identical/valid on
+the existing frozen renamed job. **1,323,383 print pixels differ** because existing fill seeds include names;
+whole-PNG identity is not a rename criterion. This compares the new folded-gain bake and does not repeat G1's
+old accepted-identity migration, overwrite its evidence, or prove an unseen product. See `reuse_019d321.json`.
 The labelled `gain_folded_review.png` was generated and inspected: original B, accepted revision, current repaired
 atlas each use their own chart bounds and already levelled PNG. The broad blurred/smeared fill areas remain;
 this review does not establish an appearance improvement or replace final AR evidence. Source hashes are in
