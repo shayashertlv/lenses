@@ -1,5 +1,11 @@
 # WP5 quality repair handoff — active repairs 2026-10-08
 
+**Additional angle review requested:** `data/wp5/combined_20261008/review/more_angles/index.html` compares
+accepted / preferred Poisson / combined at 11 AR angles, six photo-camera angles and two worn views.
+It uses existing verified captures, with linked zoom/panning; all 57 images and desktop/mobile controls passed
+browser QA. `audit.json` preserves capture hashes and matching cameras/transforms. Prior evidence is unchanged;
+no new bake or quality run was needed. The owner's combined appearance verdict is still pending.
+
 **Newest owner direction:** unscreened Poisson is preferred to the accepted full texture, and joint overlapping
 patch reconstruction is preferred for fills. The owner authorized a combined experimental copy, independent
 quality checks and focused accepted/Poisson/combined brow-top, two-arm and worn comparisons, with strong resource

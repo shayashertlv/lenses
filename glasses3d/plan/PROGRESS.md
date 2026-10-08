@@ -5,6 +5,14 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Expanded owner angle review:** the owner requested more angles after receiving the combined results.
+`data/wp5/combined_20261008/review/more_angles/index.html` presents the same three versions across **11 AR
+angles, six photo-camera angles and two worn views**, with an angle selector and linked zoom/panning.
+Only existing captures are displayed; image/report hashes, common cameras/transforms and portrait controls
+are verified in `audit.json`. Prior results and the focused comparison are unchanged. `ui_qa.json` verifies
+all 57 displayed images, navigation, synchronized pan/zoom and desktop/mobile layout without browser errors.
+Combined appearance verdict remains pending; no new bake, quality rerun, paid call or runtime change.
+
 **Owner-selected combination evaluated:** the owner says unscreened Poisson seam correction looks best
 among the full-texture experiments seen, better than the accepted revision, and joint overlapping-patch
 reconstruction gives the best fill results. They authorized (1) an experimental combined copy, (2) independent
