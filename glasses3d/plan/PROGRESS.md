@@ -5,6 +5,23 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Two owner-requested visual copies complete:** the owner preferred quilt with screened and observed-slope
+boundary joins and requested two models plus one HTML comparison with many angles, without an extensive
+testing campaign. Local evidence: `data/wp5/quilt_joins_20261008/`; `models_run.json`, actual PID **26884**, ran
+**19:02:03–19:11:19 +03, exit 0**. Sequential bakes used 12 workers, BLAS 1, AboveNormal and EcoQoS opt-out,
+after verifying about 21.5 GB free commit. Screened bake **243.12 s (4:03)**; slope **245.35 s (4:05)**.
+Both retain current gains/calibration, small-hole PatchMatch and Poisson chart-seam correction; ordinary radius
+selection chooses 1.2 mm quilt radii on all parts for each join. The scalable screened solver reproduces four
+original brow examples byte-exactly. Output audits and all 15 existing Blender/export checks pass for each;
+source scene, runtime, calibration and baseline assets are unchanged. Exact PNG/GLB hashes are in `result.json`.
+`review/more_angles/index.html` compares current / screened / slope across **11 AR angles, six photo-camera
+angles and two worn views**, with GLB links and linked zoom/panning. Shared viewports include the whole glasses.
+All 57 images, matched cameras/transforms/portrait controls, links and browser controls are verified in
+`audit.json` / `ui_qa.json`; the page was visually inspected. No patch views or full A4/A5/B3/regression campaign
+were added. These are visual candidates, not quality acceptance; the default remains regular Poisson.
+No process remains active, no paid call or push. Owner verdict on the two new full models is pending.
+WP5 stays incomplete; WP6 STOP-I. Next: the owner reviews this comparison; do not automatically start more runs.
+
 **Newest owner decision — Poisson-only default:** "there is no noticeable or runtime justified advantages to
 Combined joint-patch + Poisson so lets make poisson only the regular". This supersedes the pending combined
 verdict below: the owner selects Poisson-only and declines joint-patch as the default on appearance/runtime

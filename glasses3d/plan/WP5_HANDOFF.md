@@ -1,5 +1,18 @@
 # WP5 quality repair handoff — active repairs 2026-10-08
 
+**Bounded visual request completed:** the two owner-preferred quilt joins (screened and observed-slope),
+both with current Poisson/gains/calibration, have full-model copies and matched captures. Evidence is local in
+`data/wp5/quilt_joins_20261008/`; actual PID **26884**, `models_run.json`, ran **19:02:03–19:11:19 +03, exit 0**.
+Screened bake **243.12 s**, slope **245.35 s**; sequential, 12 workers, BLAS 1, AboveNormal/EcoQoS opt-out,
+about 21.5 GB free commit. Each method's ordinary training selects 1.2 mm quilt radii for all four parts.
+Four original screened-join crops reproduce byte-exactly. Both output audits and 15/15 Blender/export checks
+pass; source scene, runtime/calibration and baseline assets stay unchanged. `result.json` binds both PNGs/GLBs.
+`review/more_angles/index.html` has **19 views / 57 images** (11 AR, six photo-camera, two worn), both GLB links,
+whole-glasses viewports and linked zoom/panning. Capture controls and browser QA pass; visual layout inspected.
+No full A4/A5/B3 or regression campaign, default change, paid call or push. No process is active. The new model
+verdict is pending: present this comparison and wait for the owner's assessment; do not add automatic runs.
+WP5 remains incomplete; WP6 STOP-I.
+
 **Poisson default implemented and verified; WP5 quality remains open.** Evidence index:
 `data/wp5/poisson_default_20261008/result.json`. No validation process is active. Renamed-input reuse PID **26956**
 finished **18:20:55 +03, exit 0**, all **nine checks pass**: class/source/tier and protected masks identical,
