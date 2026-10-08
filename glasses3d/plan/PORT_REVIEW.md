@@ -4419,3 +4419,28 @@ found. Candidate-specific renamed reuse passes **9/9** checks with all **738,905
 class/source/tier/protected maps agree, A1/A3 pass, sources remain unchanged. Existing name-based fill seeds change
 1,385,453 generated pixels. Historical G1 is preserved; no unseen-product claim. `result.json` binds the default
 PNG/GLB hashes to these proofs, with quality acceptance explicitly false. All runs exited; no paid call, push or WP6 advance.
+
+## 14. Observed-slope join + Poisson: owner-selected default and WP5 closeout (2026-10-08)
+
+The owner reviewed the two complete quilt-join copies at 19 angles and selected observed-slope join + Poisson,
+instructing "set it and mark wp5 as done". This later instruction supersedes WP5's earlier completion condition.
+WP5 is complete by owner visual acceptance, not by a claim that every numerical proof passes. The exact verdict,
+PNG/GLB and viewer hashes are bound in `data/wp5/slope_default_20261008/owner_acceptance.json` and appended to
+the local owner ledger. Screened and combined-joint candidates, previous accepted assets and all failed reports
+are retained unchanged. WP6 STOP-I and R1/R3 are unaffected.
+
+`photoprint/boundary.py` ports the approved experiment's screened correction, with screen length equal to the
+quilt radius. The boundary target continues the normal slope from two valid observed donors; where only one
+exists, the target falls back to zero slope. It never reads hidden truth or writes outside the hole. CG uses
+the original 1e-7/1e-8 tolerances and refuses nonconvergence/nonfinite output. `fill_call('quilt')` applies it
+once after raw quilting, before the existing chart Poisson stage. Raw quilt and PatchMatch primitives remain.
+No product-specific logic, new dependency or threshold change was introduced.
+
+Nine independent boundary controls plus existing Poisson, coordinate and production API tests pass:
+**54 tests in 26.53 s**. The fresh production replay is recorded in `slope_default_20261008/result.json`.
+It takes **243.53 s** and reproduces every approved PNG byte, provenance map, layout, registration and gain value.
+A1/A3 pass with 729,621 protected texels. The local wrapper's unused `bake.json` lookup failed after completion;
+corrected readback passes with only the verified manifest output path differing. Initial failure records are
+preserved and no rebake was needed. No process remains active. Full diff/new-file re-review completed.
+The exact selected variant has no full independent A4/A5/B3 or full regression run. Prior regular-Poisson
+quality failures and its 351-pass regression remain historical evidence for that runtime, not this variant.

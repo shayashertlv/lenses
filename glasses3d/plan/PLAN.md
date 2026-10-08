@@ -29,8 +29,9 @@ next action. Latest owner instructions take precedence. Historical handoffs are 
 6. **Evidence-driven repairs, no blind trial and error.** Diagnose the cause, state a testable hypothesis, repair
    the general method and check it independently. Keep frozen gates, seeds and eligibility; do not tune toward a
    fixture pass. Every work package has a $0 proof and a stop rule. A prompt sentence alone is never a fix.
-   The owner's 2026-10-07 instruction authorizes continued WP5 $0 repairs after STOP B; it does not waive failures
-   or authorize completion/advancement while the required quality proof fails.
+   The 2026-10-07 WP5 repair instruction was superseded on 2026-10-08 by the owner's explicit selection of
+   observed-slope join + Poisson and instruction to mark WP5 done. Record this as owner acceptance, preserving
+   historical failures and distinguishing it from all-proofs-passed completion. WP6 gates remain unchanged.
 7. **Paid calls** (Astra, any provider) need the owner's explicit OK, with a cost estimate, before each paid run.
 8. **Repo safety:**
    - The repo `shayashertlv/lenses` is PUBLIC, and pushing `main` deploys the live app to Railway. Work on the
@@ -77,7 +78,7 @@ next action. Latest owner instructions take precedence. Historical handoffs are 
     > glasses3d/plan/PLAN.md fully to understand what we are doing. Continue from <exact next step>. Ask me before any
     > paid call."
 
-    Never claim a WP is done unless its $0 proof passed and is recorded in PROGRESS.md.
+    Distinguish proof-passed completion from explicit owner closeout (WP5, 2026-10-08); never invent proof passes.
     Use the context-threshold sentence above only for a measured context-triggered handoff; otherwise state that
     the owner requested the handoff.
 
@@ -371,14 +372,18 @@ loop. They run Blender headless on COPIES: `blender.exe -b <copy>.blend --python
     passes.
 
 ### WP5: Photo-projected print (host side, NOT in Blender)
-**Current implementation/status (2026-10-07):** the outline below is the original design. The reusable runtime is
+**Current implementation/status (2026-10-08): WP5 complete by explicit owner acceptance.** The selected default
+is block quilting with observed-slope boundary join, followed by unscreened Poisson chart-seam correction.
+The owner judged the full model best and instructed "set it and mark wp5 as done". This supersedes the earlier
+completion condition; historical failures remain failures, and the exact selected variant has not had a full
+independent A4/A5/B3 proof. WP6 STOP-I remains in force. The outline below is the original design.
+The reusable runtime is
 `photoprint.production.bake_print` / `calibrate_level`, using `inputs.job_from_dir` with an explicit GLB and named
 frozen camera basis. No implicit latest export or FT1119 default is allowed in the runtime. G1 is verified at
 `f020b57`; agent wrappers are still gated. Owner-approved single-source mode supersedes the original all-region
 registration stop below; A0/B1 remain failed diagnostics and B2 is diagnostic, never relabelled as passed. The
-current quality protocols and outstanding A4/A5/B3 repairs are in WP5_HANDOFF.md and WP5_DESIGN.md's current addendum.
-Do not reinstate unregistered view blending from the original outline. Repair all remaining issues under the
-existing independent checks; no quality waiver has been given.
+quality protocols and retained A4/A5/B3 limitations are in WP5_HANDOFF.md and WP5_DESIGN.md's current addendum.
+Do not reinstate unregistered view blending or reopen completed WP5 without a new owner request.
 
 - **Where it runs:** host tool `g3d_host.project_photo_texture(job, parts, views='all')` in the glasses3d venv. It
   reads an exported GLB/npz plus the WP3b cameras and returns baked PNGs that a Blender-side helper attaches as

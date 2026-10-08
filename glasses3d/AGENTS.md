@@ -8,7 +8,8 @@ another agent (e.g. Codex). These instructions translate the handoff for you.
 2. `glasses3d/plan/PROGRESS.md`: **Active resume** and its current status table. It supersedes historical status and
    RESUME HERE entries. Latest owner instructions take precedence over all repository documents.
 3. `glasses3d/plan/WP5_HANDOFF.md` fully, then `WP5_DESIGN.md` and the current/protocol entries of `PORT_REVIEW.md`
-   it identifies. Continue WP5 quality repairs. A–E, option-B promotion and the G1 library proof are complete;
+   it identifies. WP5 is complete by the owner's 2026-10-08 visual acceptance of observed-slope join + Poisson;
+   this is not a claim that every numerical quality gate passed. A–E, option-B promotion and G1 are complete;
    do not redo them. Historical handoffs and workflow results are evidence, not current task instructions.
 
 ## Translating the Claude-specific parts
@@ -58,8 +59,11 @@ another agent (e.g. Codex). These instructions translate the handoff for you.
   search parameters until a fixture turns green, select favourable seeds, drop difficult eligible rows, or
   hand-paint product-specific exceptions. A proven instrument defect needs an independent reproducer and review;
   a failed quality result alone is not evidence that the instrument is wrong.
-- **WP5 repair authorization:** the owner requested all remaining issues be fixed. STOP B blocks completion,
-  acceptance and advancement, not further $0 diagnosis/repair. Do not ask again whether to waive A4/A5/B3.
+- **WP5 owner closeout (2026-10-08):** the latest instruction, "Observed-slope join + Poisson is the best, set it
+  and mark wp5 as done", supersedes the earlier repair-until-all-proofs-pass request for WP5 completion.
+  Keep historical A4/A5/B3 failures and thresholds; the selected variant has no full independent quality run.
+  The owner next requested a commit and code review/cleanup for WP6 readiness. WP6 STOP-I, R1 and frozen R3
+  remain binding; preparation is authorized, starting WP6 implementation or paid work is not.
 
 ## Environment (Windows 11)
 - **Python:** `glasses3d/.venv/Scripts/python.exe`. Blender 5.2: `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`

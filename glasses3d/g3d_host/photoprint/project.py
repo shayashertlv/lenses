@@ -37,7 +37,8 @@ Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in PORT_REVIEW 
 - gains: stage-1 mirror edges and same-part boundaries (02 and 03 were unconnected), stage-2 same-part edges, mirror
   equations and a robust pass, then the stage-3 levelling field (``gain_field.npz``; A3's read back applies it);
 - chart seams: unscreened Poisson stitching is the owner-selected default (2026-10-08), replacing reflection and
-  hard harmonisation while keeping protected photo texels fixed. The regular quilt filler remains unchanged.
+  hard harmonisation while keeping protected photo texels fixed. The owner subsequently selected the
+  observed-slope boundary join after regular quilting; see ``fill.fill_call`` and PORT_REVIEW section 14.
 
 Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and numbers in PORT_REVIEW section 10):
 - ``flatten`` ('test' by default; ``shading``): every photo's own normal-space SH shading is fitted on its donor texels
@@ -338,10 +339,10 @@ def _knock_job(canvas_img, painted, strip_box, tx, radii_px, seed, key, method="
 SMALL_TILE = 160                 # small enclosed holes: PatchMatch on 160-texel cores with 40-texel donor margins
 SMALL_TILE_MARGIN = 40
 FILL_CHOICE = (
-    "quilt is the production filler for a VISUAL reason (the owner saw PyPatchMatch's wood-grain smears along the long "
-    "strips, PROGRESS 2026-10-06), NOT because it fills better by A4: graded by the instrument with each filler at its "
-    "own knockout-chosen radius on the same holes, PatchMatch is closer to A4 on every FT1119 part (near-passable on "
-    "the temples) and quilting costs A4; see bake.json 'A4_fillers' and PORT_REVIEW section 10 (fix round 1 of step 4)")
+    "quilt with observed-slope boundary join is the owner-selected production filler (2026-10-08 full-model "
+    "appearance review), followed by unscreened Poisson chart-seam correction. Independent A4/A5/B3 proof for "
+    "this exact default has not been run. Historical raw-quilt and Poisson-only failures remain recorded; "
+    "owner WP5 completion does not change numerical thresholds or turn those measurements into passes.")
 
 
 def _rows_mask(cv, img: np.ndarray, n: int) -> np.ndarray:

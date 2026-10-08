@@ -1,5 +1,10 @@
 """WP5 step 5: fill (WP5_DESIGN §6.5): text mask, mirror fill, PyPatchMatch fill and the fill-radius knockout.
 
+Current default (2026-10-08): ``fill_call('quilt', ...)`` follows raw block quilting
+with ``boundary.match``'s observed-slope join, selected by the owner in the full-model
+comparison. The measurements below describe earlier raw-quilt implementations;
+they are historical evidence, not independent quality scores for the new default.
+
 Ported from the scratch `g3d-wp5/cov/p4_fill.py` (holes knocked into single-view observed strips, PatchMatch with a
 ``global_mask`` of non-donors, nearest / mirror / Astra candidates, texture statistics) and the AP6 pitfall; PORT_REVIEW
 section 10.
@@ -633,10 +638,18 @@ def small_enclosed(hole: np.ndarray, painted: np.ndarray, tx: float, *, max_mm2:
 
 
 def fill_call(method: str, img, hole, donors, radius: int, seed: int, tband=None) -> dict:
-    """The production hole filler: 'quilt' (default since step 4; ``tband`` = strip-space donors, correction round) or
+    """The production hole filler: 'quilt' with observed-slope join (``tband`` = strip-space donors) or
     'patchmatch' (the design's PyPatchMatch; ``tband`` is not used)."""
     if method == "quilt":
-        return quilt_call(img, hole, donors, radius, seed, tband=tband)
+        from .boundary import match
+        r = quilt_call(img, hole, donors, radius, seed, tband=tband)
+        joined = match(r["out"], img, hole, donors, radius)
+        hole = np.asarray(hole, bool)
+        if not np.array_equal(joined[~hole], np.asarray(img)[~hole]):
+            raise RuntimeError("quilt boundary join changed pixels outside the hole")
+        r.update(out=joined, outside_changed=0, boundary_join="slope",
+                 hole_changed=int(np.any(joined[hole] != 0, axis=-1).sum()))
+        return r
     if method == "patchmatch":
         r = patchmatch_call(img, hole, donors, radius, seed)
         r["method"] = "patchmatch"

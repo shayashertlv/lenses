@@ -28,7 +28,8 @@ core ``glasses3d.g3d.printuv`` on host arrays, then
   levelling field across region boundaries and uv seams;
 - ``highlights``: detect and make holes (never subtract);
 - ``fill``: the text mask (D6), mirror fill of surfaces no photo sees, then the hole filler per (part, facing class)
-  with the radius chosen by knockout: block quilting (default since step 4) or PyPatchMatch (``fill='patchmatch'``);
+  with the radius chosen by knockout: block quilting plus ``boundary``'s observed-slope join (owner-selected
+  2026-10-08) or PyPatchMatch (``fill='patchmatch'``);
 - ``seams``: label-seam band repair and gutter padding; historical reflection/harmonisation helpers remain for
   regression controls. ``poisson``: the owner-selected unscreened chart-seam solve, with observed photo values fixed;
 - ``compose``: the byte-identity compose (A3) and rendering a bake at a camera.

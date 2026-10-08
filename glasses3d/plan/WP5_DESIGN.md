@@ -2,22 +2,25 @@
 
 ## Current implementation addendum (2026-10-08; read before the historical design)
 
-WP5 is incomplete. The owner requests **all remaining issues be repaired**, not waived. Follow
+WP5 is **complete by explicit owner acceptance** of observed-slope join + Poisson (2026-10-08).
+The owner's "set it and mark wp5 as done" supersedes the prior repair-until-all-proofs-pass completion condition.
+This does not change thresholds or assert that historical failed proofs passed. Follow
 [WP5_HANDOFF.md](WP5_HANDOFF.md) and PROGRESS.md's Active resume. The probe, predictions and pending questions below
 are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
 G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
 
-On 2026-10-08 the owner selected **Poisson-only as the regular method**, judging the combined joint-patch +
-Poisson candidate to have no noticeable advantage that justified its runtime. The regular quilt filler remains;
-unscreened Poisson replaces chart-seam reflection/hard harmonisation, with observed photo texels fixed. This is
-a method/appearance choice, not a quality waiver. Historical images and failed proofs remain immutable. The
-runtime port and fresh validation are recorded in PROGRESS; current gains and AR calibration are preserved.
+The selected method uses regular block quilting followed by the observed-slope screened boundary correction
+in `photoprint/boundary.py`, then unscreened Poisson chart-seam correction with protected photo values fixed.
+It reproduces the owner-selected `quilt_joins_20261008/slope` experiment. Current gains, small-hole PatchMatch
+and AR calibration are preserved. The expensive combined joint-patch method was not selected.
+Historical images and failures remain immutable. Full A4/A5/B3 quality proof for this exact variant is unrun;
+owner visual acceptance is recorded separately from numerical results. Runtime verification is in PROGRESS.
 
 The owner authorized **single-source print** on 2026-10-06 (PROGRESS entry "WP5 stage 1"). Actual pixel-verified
 area is **0%**, not the probe's predicted 3.5%. A0's literal bound and B1 still fail; B2 remains diagnostic. Preserve
 these facts and fix proven defects where relevant, but do not silently impose all-region registration as a new
-prerequisite or blend unregistered views. This mode change does not waive A4, A5 or B3. STOP B blocks completion
-and advancement; further $0 repairs and useful visual comparisons are authorized without another continue question.
+prerequisite or blend unregistered views. The original mode decision did not waive A4/A5/B3; the later owner
+closeout above changes WP5 status without changing these measurements. WP6 remains STOP-I.
 
 The independent protocol evolved in the dated PORT_REVIEW §10 corrections. These are the **existing protocols**,
 not new threshold changes in this handoff. Preserve their constants, eligibility, held-out separation and diagnostic
@@ -29,7 +32,7 @@ fields. The original §8 table remains below for history:
 | A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Frozen offsets 7 and 8 remain after reflection is removed (historical band: 6 texels). A wider future band requires readings beyond it. Same-point equality remains diagnostic; Poisson does not impose it. | `print_metrics.seam_steps`, `printproof.seams`; PORT_REVIEW §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
 | B3 | All six held-out bakes; every eligible region/view row, including failures. Protocol `10bf932`: atlas before AR level, no re-lighting. `relit_h` uses held-out shading and is diagnostic only. Preserve `print_metrics.evaluate_b3`/`b3` and their support/coverage rules. | `printproof.heldout_b3`; PORT_REVIEW §10 correction-round fix round 1, item 7 |
 
-The final proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression
+Any future independent quality proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression
 fixture. A green test asserting an expected failure does not pass a quality gate. A proven instrument bug may be
 repaired with independent evidence and regression coverage; do not relax the protocol because an algorithm fails.
 Exact current metrics, assets and closeout steps are in WP5_HANDOFF.md.

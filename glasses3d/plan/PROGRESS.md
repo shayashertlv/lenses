@@ -5,6 +5,37 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Latest owner decision: WP5 done; observed-slope join + Poisson is the default.** Exact instruction:
+"Observed-slope join + Poisson is the best, set it and mark wp5 as done". This supersedes the earlier
+repair-until-all-proofs-pass completion condition. Completion is by owner appearance acceptance; no numerical
+failure is relabelled as passed. The selected full-model copy is `data/wp5/quilt_joins_20261008/slope/`, reviewed
+in the 19-view comparison. PNG SHA-256 `ac4280e9d0a2b85696c1d64f7c9508f56d81f2fc2857f7925af58fd844ddd5b4`;
+TOOLTEST GLB SHA-256 `09a421be248f43b7dd888d48e10c1ffb8fa3297931743b1ef5599df0e6dac9eb`.
+The exact verdict and viewer/asset hashes are appended to `data/ledger/owner_verdicts.jsonl` and recorded in
+`data/wp5/slope_default_20261008/owner_acceptance.json`. Historical assets and ledgers are preserved.
+
+Runtime: `photoprint/boundary.py` ports the approved observed-slope screened correction after raw quilting;
+`fill_call('quilt')` applies it once. Small-hole PatchMatch, gains, calibration and Poisson are unchanged.
+Focused validation: **54 passed in 26.53 s**, covering nine boundary controls, Poisson, quilt coordinates and
+production API checks. Controls include affine fixed point, hidden-truth exclusion, outside invariance,
+unanchored/disconnected/empty holes, closed-form one-pixel solve, solver failure and dispatch isolation.
+Fresh production replay is recorded in `data/wp5/slope_default_20261008/run.json` and `result.json`.
+It reproduces the approved PNG byte-for-byte in **243.53 s**; class/source/tier maps, layout, registration,
+gain field, input/calibration records and all reported output checks also match. A1/A3 pass with **729,621**
+protected texels byte-identical. The bake completed at 19:30; the local wrapper then exited 1 after an unused
+lookup of nonexistent `bake.json`. The corrected readback audit passes (exit 0), allowing only the verified
+output path difference in the manifest. Both initial diagnostic failures are retained in `run.json` and
+`readback_v1.json`; no rebake was needed. No process is active. Full diff and new files re-reviewed.
+
+**Retained limitations:** full independent A4/A5/B3 and full regression have not run on this exact variant.
+The previous Poisson-only runtime's A4 all-four failures, A5 offset-8 failure and B3 six-of-seven failures remain
+historical evidence, not measured results for this new variant. Single-source 0% pixel verification / A0 / B1 / B2
+diagnostics remain explicit. Thresholds and instruments are unchanged. WP6 remains STOP-I with R1/R3 frozen.
+Next authorized task: commit this default/owner closeout, then review and clean code for WP6 readiness.
+Do not restart WP5 repair experiments or request another visual verdict for the same asset.
+
+### Earlier WP5 activity (historical; superseded by the owner closeout above)
+
 **Two owner-requested visual copies complete:** the owner preferred quilt with screened and observed-slope
 boundary joins and requested two models plus one HTML comparison with many angles, without an extensive
 testing campaign. Local evidence: `data/wp5/quilt_joins_20261008/`; `models_run.json`, actual PID **26884**, ran
@@ -605,9 +636,9 @@ thresholds changed. The ready-to-paste prompt is [WP5_SESSION_PROMPT.md](WP5_SES
 | WP0 / WP1 / WP3 / WP3b / WP4 | Complete and tested |
 | A–E repairs; WP5 option B promotion | Committed and verified; do not redo |
 | WP5 reusable library (G1 dependency) | Complete and verified at `f020b57` |
-| WP5 overall | Incomplete: repair A4 fill, A5 seams, B3 held-out realism and review final appearance |
+| WP5 overall | Complete by explicit owner visual acceptance of observed-slope join + Poisson; numerical limitations retained |
 | WP2 | A–C verified; agent wrappers remain gated |
-| WP6 | KEEP STOP-I; no waiver; outside this task |
+| WP6 | KEEP STOP-I, R1 and frozen R3; code review/readiness preparation authorized, implementation not started |
 | WP7 / WP8 | Design only / not started |
 
 **G1 reusable-library proof is complete (16:46; `f020b57`). WP5 remains incomplete under
