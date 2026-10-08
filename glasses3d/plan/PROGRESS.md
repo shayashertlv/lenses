@@ -5,7 +5,7 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
-**Owner-selected combination now authorized:** the owner says unscreened Poisson seam correction looks best
+**Owner-selected combination evaluated:** the owner says unscreened Poisson seam correction looks best
 among the full-texture experiments seen, better than the accepted revision, and joint overlapping-patch
 reconstruction gives the best fill results. They authorized (1) an experimental combined copy, (2) independent
 quality checks and (3) a focused accepted/Poisson/combined comparison of brow top, both arms and one worn view.
@@ -15,8 +15,8 @@ quality waiver or approval of the combined output (subsequently shown, verdict p
 Local work is `data/wp5/combined_20261008/`. The process-local adapter combines joint reconstruction plus its
 saved observed-slope boundary join with unscreened Poisson, replacing the old reflection/hard harmonisation.
 The shipped runtime, frozen instruments and default API remain unchanged. A streamed implementation avoids
-materializing every overlapping patch at production size; exact comparison against all 160 saved raw/joined
-results is required before the full bake. Independent compact/long-thin/poison/repeat/constant controls and
+materializing every overlapping patch at production size; exact equivalence against all 160 saved raw/joined
+results was proved before the full bake. Independent compact/long-thin/poison/repeat/constant controls and
 Poisson controls pass. First parallel launch `checks_run.json` failed on the Windows spawn main guard, not on
 quality or memory; original source/log retained. `checks_v2` corrects the launcher and uses six workers with
 BLAS limited to one thread per worker. It finished **10:33:04, exit 0: all 160 raw and joined outputs are
@@ -42,19 +42,41 @@ Coarse-band, mean-colour and median boundary checks pass. This is not a quality 
 **A2 completed:** PID 29864, **11:52:39–11:52:56, exit 0**, all six round trips pass. `coverage_run.json` also
 exited 0: 9,284 formerly protected pixels become seam-band pixels; 241 regain protection; **all 729,380 pixels
 protected in both versions are byte-identical**. Net support loss is 9,043, with no hidden reclassification.
-**Active B3 proof:** `quality_b3_run.json`, actual PID **28036**, started **11:54:41**. Logs are
-`quality_b3.log` / `quality_b3.err`; at 11:55 the first two held-out bakes are active, no errors. Do not restart or
-kill this healthy run. After actual exit 0, run `summarize`, inspect all outcomes, update/review/commit the progress
-documents with explicit paths. `quality_b3` schedules two held-out bakes with
-six fill workers each (12 bounded compute processes); do not overlap another heavy phase. Its grading remains
-the original six-view protocol. Candidate-specific serial/reuse/full-regression acceptance is not implied by
-this experimental comparison. The shipped runtime and prior runtime regression remain unchanged.
+**B3 completed:** `quality_b3_run.json`, actual PID **28036**, **11:54:41–16:30:08, exit 0** (4 h 35 min 27 s),
+with an empty error log. All six original views were checked with two held-out bakes and six fill workers each.
+Eligible/passing region counts for views 01–06 are **4/1, 0/0, 1/0, 0/0, 2/0, 0/0**. All seven original eligible
+regions are retained; none lost or added. **The same six eligible regions still fail** as runtime 019d321.
+Views without eligible regions are not passes. The grading protocol and thresholds are unchanged.
+`quality/b3_summary.json` records all per-region criteria and the explicit eligibility comparison.
+**Results packaged:** `summarize_run.json`, PID **51140**, **16:31:07, exit 0**, writes `result.json` with
+`quality_acceptance: false`, combined owner verdict pending and source hashes verified unchanged.
+`review/index.html` now includes the complete A4/A5/B3 results beneath the four requested comparisons.
+All 12 images and 13 links were verified; `review/ui_qa.json` records a headless file-based browser check with
+no page errors or horizontal overflow. The rendered quality section was inspected. No B3 process or scheduling
+helper remains active. Do not rerun this completed proof merely to present it.
+Candidate-specific serial/reuse/full-regression acceptance is not implied by this experimental comparison.
+The shipped runtime and its prior regression remain unchanged. The authorized combination/checks/comparison
+are ready for the owner's visual decision; **WP5 remains incomplete because A4 and B3 still fail**, and WP6
+remains STOP-I. Preserve this candidate and the preferred standalone experiments while continuing the repair
+discussion; visual preference cannot waive the outstanding proofs.
 The candidate driver selects the method's own radius on separate training holes, compares quilt and
 PatchMatch at their own radii, and retains A5 offsets 7/8 explicitly even though reflection is replaced.
 The prepared A4 driver retains only the bake fields read by the unchanged knockout instrument, including all
 source UV coordinates for the real-versus-real floor, to reduce worker memory; its actual pool size is recorded
 in `quality/a4_resources.json`. The exact preferred Poisson reference used an earlier colour-gain revision:
 the comparison measures total appearance and does not isolate the fill method as its only difference.
+The owner asked for an ETA and hardware utilization, then explicitly requested maximum CPU use while preserving
+the current run. A five-second sample at 12:16 measured 11.46 logical CPUs used by B3 (12 workers), 82% total system
+CPU, 7.45 GB aggregate B3 working set, and 8.53 GB free RAM. All processes already allowed all 16 logical CPUs.
+Their priority was raised from Normal to AboveNormal (`quality/b3_scheduling.json`); pool sizes remained fixed in
+flight. `monitor_b3_priority.ps1`, PID **49732**, **12:32:38–16:30:11, exit 0**, maintained that setting for new
+descendants every 15 seconds and stopped automatically after B3. Logs/exit record are `b3_priority_monitor*`;
+no worker was killed or restarted. A further sample at 15:31 confirmed all 12 workers busy at about 11.5 logical
+CPUs; utilization fell during the tails of individual bakes as shorter jobs finished. No GPU path was added:
+local hardware reports Arc 140T, but this fill uses CPU NumPy/SciPy. GPU speedup
+is unbenchmarked. One combined bake measured 72 minutes (64 minutes in fill), versus 237.67 s for runtime 019d321;
+the six held-out bakes added 4 h 35 min of validation. The owner went away to wait for the complete results;
+the requested proof has now finished and the evidence is ready to report without another prompt.
 No paid run, push, acceptance promotion or WP6 work.
 
 **Owner visual-review request, 2026-10-08:** the owner explicitly reaffirmed that visual decisions belong to

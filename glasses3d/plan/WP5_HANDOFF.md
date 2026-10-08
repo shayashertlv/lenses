@@ -5,7 +5,7 @@ patch reconstruction is preferred for fills. The owner authorized a combined exp
 quality checks and focused accepted/Poisson/combined brow-top, two-arm and worn comparisons, with strong resource
 utilization. This supersedes the pending-review text below; no combined visual verdict or quality waiver exists.
 Work is in `data/wp5/combined_20261008/`, using a process-local experimental adapter without changing shipped
-runtime/instruments. The streamed joint-patch implementation must reproduce all 160 saved outputs before baking.
+runtime/instruments. The streamed joint-patch implementation reproduced all 160 saved outputs before baking.
 Synthetic controls passed; the first launcher failed on Windows spawn and its evidence is retained. `checks_v2`
 finished 10:33:04, exit 0: all 160 saved raw/joined outputs byte-identical. The full bake finished **11:45:21,
 exit 0**, source hashes unchanged, about 72 minutes. **A5 now passes both frozen offsets 7/8: 0.880536/0.884339**.
@@ -17,12 +17,22 @@ A4 finished **11:51:43, exit 0**, all 60 method/part/seed cases without skips, 1
 only BL; pooled A4 still fails all four: fine errors **0.153055/0.204543/0.204994/0.190375**, limit 0.150.
 All six A2 round trips pass (11:52:56, exit 0). Coverage audit: 9,284 pixels enter seam bands, 241 regain
 protection, and all **729,380 shared protected pixels remain byte-identical**.
-**Active B3 proof:** PID **28036**, `quality_b3_run.json`, started **11:54:41**, two bakes x six fill workers.
-At 11:55 it is healthy with no errors; do not restart/kill it. After exit 0 run `summarize`, review the complete
-results and tracked diff, then commit explicit progress-document paths. Consult PROGRESS for full details.
-The planned seam ordering
-matches the preferred Poisson prototype (no old reflection/hard harmonisation), while grading keeps offsets 7/8.
-PROGRESS Active resume records the exact next phase and any active process. WP5 incomplete; WP6 STOP-I.
+**B3 completed:** PID **28036**, `quality_b3_run.json`, **11:54:41–16:30:08, exit 0**, two bakes x six fill
+workers. All six views ran; eligible/passing counts are **4/1, 0/0, 1/0, 0/0, 2/0, 0/0**, matching the baseline.
+All seven original eligible regions are retained; the same six still fail. No eligible rows were dropped and
+no threshold changed. `quality/b3_summary.json` records the full eligibility comparison and all criteria.
+`summarize_run.json`, PID **51140**, finished **16:31:07, exit 0**: `result.json` records quality acceptance false,
+owner verdict pending and sources unchanged. `review/index.html` includes the four-view comparison and complete
+quality results; all 12 images/13 links are valid, browser QA has no errors/overflow, and the quality section was
+visually checked. The authorized experiment/checks/comparison are ready for the owner's appearance decision.
+Candidate-specific serial/reuse/full-regression acceptance remains separate; shipped runtime is unchanged.
+The owner's maximum-CPU request was applied as AboveNormal priority and unrestricted affinity; concurrency
+remained fixed in flight. Priority monitor PID **49732** exited automatically at **16:30:11, exit 0**. No worker
+was killed or restarted. No GPU path was added or algorithm changed during B3. **No active experiment process remains.**
+The seam ordering matches the preferred Poisson prototype (no old reflection/hard harmonisation), while grading
+keeps offsets 7/8. Consult PROGRESS for full timings, evidence and the protected-support qualification. Do not
+repeat these completed checks to present the results. A4/B3 still need repairs; no combined visual verdict has
+been supplied. WP5 incomplete; WP6 STOP-I.
 
 **Latest owner request: show every experiment for their visual decision.** The review artifact is
 `data/wp5/repairs_20261008/owner_review/index.html`, verified to work directly from disk without a server.
