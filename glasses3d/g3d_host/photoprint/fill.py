@@ -114,9 +114,12 @@ class Canvas:
         self.off = off
         self.map_ii = []
         self.map_jj = []
+        self.source_origins = []
         rows = []
         for k, c in enumerate(self.charts):
-            sub = tex.index[max(c["y0"] - 1, 0):c["y0"] + c["h"] + 1, max(c["x0"] - 1, 0):c["x0"] + c["w"] + 1]
+            source_y, source_x = max(c["y0"] - 1, 0), max(c["x0"] - 1, 0)
+            self.source_origins.append((source_x, source_y))
+            sub = tex.index[source_y:c["y0"] + c["h"] + 1, source_x:c["x0"] + c["w"] + 1]
             ys, xs = np.nonzero(sub >= 0)
             t = sub[ys, xs]
             ok = tex.chart[t] == c["chart"]

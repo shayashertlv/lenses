@@ -36,7 +36,11 @@ def strip_t(canvas, charts_kind: list[str]) -> np.ndarray:
             continue
         ys, xs = canvas.map_ii[k], canvas.map_jj[k]
         oy = int(canvas.off[k][1])
-        t[ys, xs] = ys - oy
+        # Canvas includes a one-texel crop margin (clipped at the atlas edge).
+        # Undo that crop as well as packing: donors use distance from the actual
+        # chart top, identical to atlas_t and independent of packing location.
+        source_y = int(canvas.source_origins[k][1])
+        t[ys, xs] = ys - oy + source_y - int(c["y0"])
     return t
 
 

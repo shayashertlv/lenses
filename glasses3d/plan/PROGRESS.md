@@ -3,11 +3,71 @@
 Format (PLAN.md §4): date, WP, what was done, commit hash, $0-proof numbers, open issues, next step.
 A new session reads this right after PLAN.md §0 and resumes from the first unfinished step.
 
-## Active resume (Codex, 2026-10-07)
+## Active resume (Codex, 2026-10-08)
 
-**Owner-requested handoff: finish all remaining WP5 issues.** The owner now says: "i want to complete all the issues
-you mentioned" and asks for a new session to work on WP5 "until its good". The earlier repair-versus-waiver question
-is resolved: **continue repairs; no scoped completion or quality waiver.** Preparation only in this handoff turn;
+**Repair session in progress, starting from clean `8007c18`.** Read the current rule/design/handoff stack and
+saved G1 quality evidence. No paid calls, threshold changes, waiver, or WP6 work. Historical accepted assets remain
+immutable. Local evidence directory: `data/wp5/repairs_20261008/`; `saved_failure_map.json` preserves the complete
+A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case capture exited 0 and reproduced the
+accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
+drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
+
+**Current repair evidence (04:42):** a synthetic chart-coordinate test exposed a one-texel error in the quilting
+canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;
+the independent test failed at two nonzero chart origins before the fix and all three pass now. A fourth test
+covers repacking multiple strip/cap charts. Final focused regression: **24 passed**, 4.23 s, exit 0 at 04:41:55
+(`coordinate_tests_run.json`, `.log`, `.err`). Earlier experimental-join plus step-4 checks were **26 passed**,
+4.63 s. No instrument or threshold changed. These are implementation checks, not WP5 quality passes.
+
+The failed opt-in `quilt-cut` experiment combined a minimum-error overlap cut and a screened Poisson boundary join.
+It has been withdrawn from the runtime API; its full source/tests/diff and hashes are preserved in local
+`cut_experiment_v2/`. Default production remains `quilt`. All five-seed experiments remain failed evidence. The fresh
+candidate's own training holes selected 1.2 mm for all parts; A4 on its changed domain passes only Brow_Left,
+while A5 still fails.
+Its photo support decreased from 739,419 to 731,385 texels, so that isolated improvement cannot establish a repair.
+On **all original fixed holes**, seed-0 fine-band errors are **0.187619 / 0.270019 / 0.261558 / 0.218841**
+(BL/BR/TL/TR), each above 0.15; pooled five-seed errors are **0.211436 / 0.348960 / 0.253853 / 0.200700**.
+All four median boundary ratios now pass, but A4 does not. See `candidate_bake.json`, `fixed_candidate.json` and
+their exit-0 run records. Earlier `cut_probe.json`, `boundary_probe.json` and `structure_probe.json` remain local
+failed controls; `fill_v1.py` / `quilt_merge_v1.py` preserve the earlier experiment before its donor-mask cost fix.
+
+A5 localization (`seam_diagnosis.json`) identifies the +x temple strip wrap as a major contributor at both frozen
+offsets. A pre-reflection intrinsic seam-field probe reduced ratios to **1.076069 / 1.174303**, still failing;
+protected pixels were unchanged. This diagnostic is not adopted. A curvature-continuation probe is running
+(`seam_curvature_probe_run.json`, PID 36632, started 04:37:09); channel 0 converged in 5,252 iterations but its
+maximum correction was 238.87 levels, a significant appearance concern even before the quality result.
+
+`pm_boundary_probe.json` and `coherent_probe.json` (all 160 fixed cases, both exit 0) also fail A4 overall.
+PatchMatch plus boundary correction passes seed-0 energy only on Brow_Left; whole-hole donor retrieval passes it
+on Brow_Left and Temple_Right. No method switch is accepted. A donor-only self-validation experiment is prepared
+in `adaptive_donor.py` / `adaptive_probe.py`, not run: it hides separate same-shaped holes in observed donors and
+chooses a filler by prediction error there, without proof truth or proof metrics. Base radii remain independently
+selected. Synthetic truth-separation checks are required before this experiment runs.
+
+B3 view-01 decomposition exited 0 at 04:31:39 (`b3_01_decomposition.json`, corresponding run/log files).
+The frozen full-region results remain three failures and one pass. On the left brow's **projected-only** subset,
+fine energy is 0.509587 gained / 0.517220 without gains, spectrum error 0.679246 / 0.666603. Thus fill/gain repair
+alone does not explain that failure. The right brow still passes overall. Temple_Right's projected-only colour
+error improves from 7.160260 to 4.898864 without gains but remains substantial. Subsets are diagnosis, never new
+eligibility or replacement verdicts. Source/held-out crop sheet: `b3_01_crops.png`; views 03/05 decompositions are
+prepared but not run. Source projection and geometry need further diagnosis.
+
+Initial diagnosis to test (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
+fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
+it has no boundary-value constraint. Test a general local boundary correction that preserves copied texture detail
+and never edits protected observations, against independently saved fixed holes (all five original seeds), before
+changing production. A5 must be localized by chart/source class; independent fills across chart seams are a second
+candidate cause, not grounds for extending the reflection band. B3 failures are heterogeneous: one row passes;
+01/-x inner temple fails correlation length alone; the other five fail spectrum plus combinations of energy,
+correlation length and colour. No recalibration can substitute for their pre-level held-out proof.
+
+The remaining historical state and preserved proofs below remain valid. WP5 is incomplete; further repairs,
+independent proofs, fresh regression/reuse checks and final appearance review are still required.
+
+**Historical 2026-10-07 owner-requested handoff (retained): finish all remaining WP5 issues.** The owner said:
+"i want to complete all the issues you mentioned" and asked for a new session to work on WP5 "until its good".
+The earlier repair-versus-waiver question
+is resolved: **continue repairs; no scoped completion or quality waiver.** Preparation only in that handoff turn;
 no additional algorithm repair, paid call or proof run. Read [WP5_HANDOFF.md](WP5_HANDOFF.md) fully for the issue
 list, evidence, protocols, run instructions and completion criteria. This is an explicit requested handoff,
 not a claim that the conversation reached 80% context usage.

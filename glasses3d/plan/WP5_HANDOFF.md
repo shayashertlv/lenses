@@ -1,4 +1,17 @@
-# WP5 quality repair handoff — 2026-10-07
+# WP5 quality repair handoff — active repairs 2026-10-08
+
+**Live repair update:** the current session started clean at `8007c18`. This update is ongoing bookkeeping,
+not an automatic context handoff. Read PROGRESS.md's Active resume for the newest run status. Local evidence is
+`data/wp5/repairs_20261008/`; baseline replay exactly matches the accepted PNG and all 160 original A4 holes are
+saved. A proved one-texel strip-coordinate adapter error has been repaired; 24 focused regression cases pass.
+Failed `quilt-cut` experiments improve boundary joins but still fail A4; their runtime API was withdrawn and source
+archived locally in `cut_experiment_v2/`. Whole-hole copying and boundary-corrected PatchMatch also fail overall.
+A5 seam-field diagnostics still fail; a curvature probe is running (PID 36632; consult its run JSON before any
+heavy job). B3 view 01 confirms a substantial projected-photo detail deficit on the left brow that persists without
+gains; the frozen result remains three failures / one pass. No new candidate is accepted, no thresholds changed,
+no paid calls or WP6 work. Next: finish/inspect A5 probe, independently test donor-only adaptive fill before running
+its fixed cases, then finish B3 views 03/05 and source-projection diagnosis. No final regression/reuse/appearance
+acceptance proof has yet been run for a repaired candidate.
 
 This handoff was explicitly requested by the owner. It is not a context-limit event. Implementation baseline:
 `f020b57e99f9a7eaba77606d3748a4724998d018` on branch `glasses3d`. The later documentation-only commit containing
