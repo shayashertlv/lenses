@@ -12,14 +12,15 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**No active run. Current runtime checkpoint: `019d321`.** The complete frozen quality proof finished at 08:11:28,
+**No active run.** The joint-patch experiment `consensus_probe_run.json` finished at 08:48:10, exit 0, source
+unchanged, all 160 cases converged. It still fails A4 overall and is not adopted. Current runtime checkpoint
+remains `019d321`. The complete frozen production quality proof finished at 08:11:28,
 actual exit 0, source unchanged: **A4 fails all four parts, A5 fails both offsets, B3 fails six of the same seven
 eligible rows**. All six held-out views, five seeds per filler and A7 serial comparison ran without skips.
 `quality_019d321/proof_summary.json` indexes the complete evidence; no original B3 eligible row was dropped.
-Next: implement and independently test a researched donor-only multiscale/topology-aware fill method when the
-pending owner research arrives (`data/wp5/repairs_20261008/research_request.txt`). Tested fill families still fail;
-the separate gradient join cannot coordinate copied texture structure across charts. This is missing algorithmic
-input, not a waiver, a claim of impossibility, or an automatic context handoff.
+Next: use the pending owner research (`data/wp5/repairs_20261008/research_request.txt`) to specify and independently
+test the next donor-only texture method. The additional joint-patch hypothesis has now been tested and failed in
+its declared form. This does not establish impossibility. No quality waiver, paid run or WP6 work is authorized.
 The current fresh AR evidence is diagnostic, not a final appearance acceptance.
 Full WP5 regression at **`019d321`** finished at 07:35:20:
 **340 passed, 1 expected xfail, no failures/errors/skips**, 1,252.40 s, actual exit 0. Runtime/tests were unchanged
@@ -74,6 +75,31 @@ exact; no clipping, solver residuals below 1e-7. Inspected `seam_texture_phase_c
 edge but leaves misplaced structure. This diagnoses a limitation of fixed-guide-gradient stitching, not an A5
 verdict or a proof that WP5 is impossible. Coordinate texture choices across charts in the next method; do not
 keep tuning a colour-offset solve against frozen proof offsets. No runtime change or new acceptance.
+
+**Joint patch reconstruction experiment:** `consensus_fill.py` alternates donor-patch assignment and median
+reconstruction over overlapping target patches. All sources are complete original observed patches; donors and
+protected context never change. The same masked absolute-RGB objective provably cannot increase in either step;
+each assignment includes the previous choice, and every reconstruction uses a channel-wise lower median.
+A five-by-five descriptor shortlist of at most 256 candidates and a 25-iteration work cap were frozen before real
+cases; convergence is reported, not assumed. Existing strip-coordinate donor restrictions apply. No proof metric
+or truth is an optimization input. This is a local experiment, not a runtime API or a source-backed research claim.
+Nine independent compact/long-thin/constant/repeat/poison controls pass. A separate shifted-pattern initializer
+control improves **28.278378 RGB RMSE -> 0** on both compact and long-thin holes; the labelled sheet was inspected.
+Thus this method can change pattern placement, unlike the prior fixed-gradient join. The natural-case comparison
+uses the saved base radii as a diagnostic; a new production method still needs its own independent training-radius
+selection and all current quality/reuse/appearance proofs.
+
+The full `consensus_probe.py` comparison ran 08:36:46–08:48:10 (PID 7708, exit 0, source/instruments unchanged).
+All **160/160 cases converge**, no fallback, maximum 25 iterations (the case at that limit converged too).
+Raw reconstruction fails all four seed-0 and pooled verdicts. Joined seed-0 fine errors are
+**0.244364 / 0.281146 / 0.291109 / 0.105018**; pooled **0.249001 / 0.219569 / 0.176812 / 0.149794**.
+Joined coarse, colour and boundary medians pass, but fine energy fails on both brows and Temple_Left, so only
+Temple_Right passes seed 0 and pooled. `consensus_review.png` uses the first two original seed-0 holes per part,
+fixed before grading. Inspected: overlapping-patch reconstruction removes many small block joins but still loses
+visible stripe/blotch structure; the slope join does not restore it. The tested configuration is rejected for
+production integration; no claim is made about untested radii or all possible joint-patch methods. Reports,
+per-case predictions, source hashes and true run exit remain local. Runtime/tests have not changed, so the full
+regression/reuse/AR evidence at `019d321` remains current; it still does not pass WP5 quality.
 
 **Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
 canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;

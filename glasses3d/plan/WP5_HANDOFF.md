@@ -50,7 +50,12 @@ failures/errors/skips**, 1,252.40 s, exit 0. Source hashes were unchanged at `01
 wrong-match xfail remains. Renamed-input check exited 0 at 07:44:44, all nine checks pass and source unchanged:
 **738,664 protected texels**, protected mask and all source/tier/class maps match the new canonical bake;
 1,323,383 fill pixels change with name-based seeds. No unseen-product claim or repeated G1 migration.
-**No active run.** Complete quality proof `quality_019d321_run.json` finished at 08:11:28, PID 31236, exit 0,
+**No active run.** `consensus_probe_run.json`, PID 7708, ran 08:36:46–08:48:10, exit 0, source/instruments
+unchanged. All 160 original cases converge, no fallback; the raw/observed-slope-joined comparison still fails A4
+overall. Joined pooled fine errors BL/BR/TL/TR: **0.249001/0.219569/0.176812/0.149794**; only TR passes.
+Fixed first-two-seed-0-hole crops were inspected: many block joins disappear but real stripe/blotch structure is
+still lost. No production integration; saved radii were diagnostic, not this method's own radius-selection proof.
+Complete production quality proof `quality_019d321_run.json` finished at 08:11:28, PID 31236, exit 0,
 source unchanged: all six held-out views, five seeds and serial parity, no skips. A1, six A2, A3, provenance and
 A7's six files pass. **A4 all four fail; A5 1.244709/1.269608 fails; B3 six of the same seven eligible rows fail**,
 with no dropped original eligibility. The exact PNG is
@@ -66,10 +71,15 @@ The new `quality_019d321/proof_summary.json` indexes all current evidence, inclu
 Current print calibration L* p50 residuals -5.22/-5.39, held-out contrast 0.650/0.824, chroma failures at all six
 pairs and front hue residual -5.25 degrees remain. AR streak indices -x +45 / +x -30 / +x -45 are
 1.942/7.520/11.501, without an invented threshold. All immutable source/B/accepted hashes remain exact.
-Next: implement and independently test a researched donor-only multiscale/topology-aware fill method when the
-pending owner research arrives; the complete question is `data/wp5/repairs_20261008/research_request.txt`.
-No quality or final AR acceptance is implied. Runtime remains `019d321`; later runtime edits need appropriate
-fresh validation. This is missing algorithmic input, not a waiver or automatic context handoff.
+Next: use pending research at `data/wp5/repairs_20261008/research_request.txt` to specify and independently test
+the next donor-only texture method. An independently derived L1 patch-consensus objective provided another
+safe offline action, now completed and failed in its declared form. The local `consensus_fill.py` alternates
+complete-original-donor assignment
+and overlapping channel-median reconstruction, with a monotone objective, existing strip restrictions, fixed
+descriptor shortlist and iteration cap. Nine contract controls pass; shifted-pattern initializers improve from
+28.278378 RGB RMSE to exact reconstruction in both compact/long-thin controls. The labelled sheet was inspected.
+No source-backed method claim, surface-chart integration or new-method radius proof exists yet.
+No quality or final AR acceptance is implied. Runtime remains `019d321`; later runtime edits need fresh validation.
 An independent synthetic texture-phase control exited 0 at 08:29:30: fixed-guide-gradient stitching preserves
 the coherent control but leaves most copied-pattern misalignment (RGB RMSE **9.789507 -> 9.468284**); protected
 pixels exact, no clipping. The labelled sheet was inspected. `seam_texture_phase_control.json` records the
