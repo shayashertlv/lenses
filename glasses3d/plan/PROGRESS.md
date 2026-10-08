@@ -12,11 +12,12 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `paired_shading_rgb_probe_run.json`, PID **38876**, started 06:47:19, two workers,
-10,355,744 KB free commit at launch. All three new B3 decompositions are complete; six of seven original
-eligible rows still fail. The common-boundary fix is committed as `83243b7`.
-Next: inspect the bounded per-channel relative-shading keep test. The earlier paired-shading and
-exemplar comparisons below are complete and unaccepted; do not run their prepared full candidate bake.
+**Active run:** `seam_current_folded_run.json`, PID **5660**, started 07:10:15, two-worker runner,
+10,332,424 KB free commit at launch. B3 at `83243b7` still has six of seven original eligible rows failing;
+the folded-gain variant has not had a new B3 run. The common-boundary fix is committed as `83243b7`.
+Next: inspect the folded seam-gradient result. `seam_current_chord.py` / `seam_current_folded.py` are a controlled
+pre-reflection comparison on the older within-node candidate cache; they must not be labelled as the new gain bake.
+The earlier paired-shading and exemplar comparisons are unaccepted; do not run their prepared full candidate bake.
 The completed candidate's A3/provenance pass, but A4/A5 still fail (details below). The prepared
 `b3_gain_topology_*` and `b3_gain_boundary_*` names describe prior versions; do not run them on this source.
 Consult the run record before
@@ -241,6 +242,47 @@ the achromatic model's maximum log error is 0.246438 while the colour fit recove
 four recovery/material/masking checks pass (`paired_shading_rgb_synthetic.json`). This is still an experimental
 local model. Its channel factors require an explicit integration adapter before any production bake/A3 proof;
 do not pass these fits into the unchanged scalar runtime factor helper.
+The RGB fit exited 0 at 06:49:47 but also fails keep: pooled drops **0.240 / 0.0579**, worst leave-one-pair-out
+dE00 drop **-0.235**. `paired_shading_rgb_probe.json` retains this rejected result. No adapter or runtime change
+is needed for it, and no full bake is run.
+
+Context-matched donor validation keeps the earlier four fill models and unchanged texture-scoring objective,
+but selects its observed training holes by their visible context, instead of coordinate proximity alone.
+Four independent selection/poisoning controls pass (`training_context_synthetic.json`). Its first invocation
+exited 1 before any real-photo case: the long-thin synthetic shape had no supported within-strip training patch.
+The selector now falls back to complete global donors when that strip restriction yields none, matching the
+existing donor-search fallback policy. Failed source/logs are retained as `training_context_v1.py` and
+`context_validation_probe*`; the fresh `_v2` run passed all ten full filler poison/contract checks before
+processing the 160 original cases. No runtime fill API or quality threshold changed.
+The v2 run exited 0 at 07:02:42 and still fails A4 overall: seed-0 fine error
+**0.182503 / 0.238192 / 0.145904 / 0.104593**, pooled **0.207527 / 0.131632 / 0.170542 / 0.119096**.
+`context_validation_v2_probe.json` preserves every case and training-selection record. No filler is adopted.
+An asynchronous research question on donor-only multiscale texture inpainting was sent to the owner because
+AGENTS.md forbids web research here. It requests an implementable source-backed method, not new thresholds or
+permission to stop; seam/gain work continues independently while any reply is pending.
+
+**Folded-surface gradient defect (this checkpoint):** an independent right-angle folded surface showed the seam
+prototype's averaged tangent gradients over a 3D chord halved the true intrinsic derivative (log error 0.025).
+Comparing each side at the intersection of its tangent planes fixes this; four planar/fold/rigid-placement/solve
+checks pass (`seam_gradient_folded_synthetic.json`). This also exposed a defect in the committed gain leveller:
+its common chord midpoint lies inside the material at a crease. A new continuous-material fold test failed
+before correction (`gain_folded_before*`: one failed, six passed). The gain solver now finds the closest common
+tangent-plane point, with unconstrained fallback for a node lacking two spatial directions. The same test passes
+at 30, 90 and 150 degrees after rigid rotation/translation. **34 focused tests pass**, 4.18 s
+(`gain_folded_final_regression*`); added displacement reporting also passes **34 tests**, 4.01 s, exit 0 at
+07:02:50 (`gain_folded_report_regression*`). `gains_before_fold.py` retains the prior source. No weight, clip or
+proof changed. Runtime source stayed fixed for the production bake, which exited 0 at 07:07:22
+(`gain_folded_candidate*`). A3/provenance pass, within-one-level share 0.999180954, p99 dE00 0.836842,
+738,664 protected texels (755 fewer than baseline, all covered). Quilt/PatchMatch radii remain 0.9 / 0.3 mm
+everywhere. **A5 1.244709 / 1.269608**, both failed. A4 fine errors **0.440921 / 0.421339 / 0.430153 / 0.237586**,
+seam ratios **2.269105 / 1.525471 / 1.561730 / 1.393089**, all four failed. Gain comparison-point shifts have
+p95/max **0.109326 / 0.555875 mm**; this is diagnostic geometry, not a quality criterion or pass.
+
+The separate seam-texel geometry audit (`seam_edge_geometry.json`, exit 0) finds p95/max plane-intersection
+shifts **0.028648 / 0.370311 mm**, none over 1 mm. The old chord-gradient Poisson variant on the SAME
+within-node cache as the upcoming folded variant exited 0 at 07:09:48: **A5 0.971405 / 1.055846**, still failed
+at 8. Protected observations are unchanged; `seam_current_chord.json` records solver/source identities and
+channel residuals. Both remain pre-reflection diagnostics, not complete production proofs.
 
 Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;

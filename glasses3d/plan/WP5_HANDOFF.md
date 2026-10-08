@@ -43,9 +43,23 @@ failures/one pass and one failure. View 05 also finished (06:35:42), retaining b
 Affine-exemplar matching failed A4 overall; paired relative shading failed the frozen keep test, including after
 enforcing the existing factor bounds during its fit (pooled dE00 drop 0.365, worst leave-one-pair-out -0.140).
 No runtime API changed or model was adopted. Moment-normalized exemplar matching also finished (06:45:02) and
-failed A4 overall, preserving all 160 original cases. Next: inspect active `paired_shading_rgb_probe_run.json`
-(PID 38876, 06:47:19), a bounded per-channel relative-shading model with four synthetic checks. Its colour factors
-need an explicit integration adapter before a bake; the scalar runtime helper cannot consume them as-is.
+failed A4 overall, preserving all 160 original cases. Bounded RGB shading also failed keep (pooled dE00 drop
+0.240, worst leave-one-pair-out -0.235), so no integration adapter or full bake is needed for it.
+Next: inspect active `seam_current_folded_run.json` (PID 5660, 07:10:15). Context validation's first attempt
+failed before real cases on unsupported long-thin
+strip training; its global-donor fallback is repaired, failed evidence retained, and all ten poison/contract
+checks passed in v2 before the 160 original holes. V2 exited 0 at 07:02:42 but still fails A4 overall. No
+production filler was changed. An owner research question about donor-only multiscale inpainting is pending;
+authorized offline seam/gain work continues independently. No waiver or stop permission was requested.
+A further folded-surface test exposed a crease error in the gain leveller's chord midpoint. Comparing on the
+intersection of the local tangent planes passes the new test across three fold angles/rigid placement and
+**34 focused tests**. This checkpoint contains the gain correction. Its bake exited 0 at 07:07:22:
+A3/provenance pass, 738,664 protected texels (755 fewer than baseline), but A5 **1.244709 / 1.269608** and all
+four A4 parts still fail. Comparison-point displacement p95/max is 0.109326 / 0.555875 mm. B3 has not been rerun
+on the folded variant. The separate
+seam-gradient prototype has four synthetic checks; its prepared chord/folded comparison uses the older
+within-node candidate cache and must not be called a proof of the folded-gain bake. Chord variant finished at
+07:09:48, A5 **0.971405 / 1.055846**, still failing at 8; the folded variant is active. No protected changes.
 The earlier prepared paired-shading full candidate is not run because its keep test fails.
 No source-selection policy or quality criterion has changed. The gain-field fix is committed
 as **`eda0840`** and removes repeated physical

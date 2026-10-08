@@ -85,3 +85,20 @@ def test_boundary_gradient_uses_observations_inside_a_one_cell_wide_group():
     colours = T.linear_to_srgb(np.exp(values))
     result = GN.level_field(tex, np.ones(len(label), bool), label, colours, 0, tx=8)
     assert np.allclose(result['gain'], 1, rtol=0, atol=1e-10)
+
+
+def test_continuous_surface_gradient_survives_a_fold_at_the_view_boundary():
+    # Fold the right half without changing the material. The comparison point
+    # lies on the fold, not between the planes. Rigid placement is immaterial.
+    rotation, _ = np.linalg.qr(np.array([[1., 3., 2.], [4., 2., 1.], [3., 1., 5.]]))
+    for angle in (30., 90., 150.):
+        tex, label, _ = _surface(8)
+        values = -2.5 + tex.P[:, :1] * np.array([[.08, .05, .03]])
+        right = label == 1
+        distance = tex.P[right, 0] - 4
+        tex.P[right, 2] = distance * np.sin(np.radians(angle))
+        tex.P[right, 0] = 4 + distance * np.cos(np.radians(angle))
+        tex.P = tex.P @ rotation + [50., -10., 30.]
+        colours = T.linear_to_srgb(np.exp(values))
+        result = GN.level_field(tex, np.ones(len(label), bool), label, colours, 0, tx=8)
+        assert np.allclose(result['gain'], 1, rtol=0, atol=1e-10)

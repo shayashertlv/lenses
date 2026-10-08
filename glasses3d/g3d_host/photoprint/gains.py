@@ -469,8 +469,8 @@ LEVEL_EPS = 1e-4                 # linear-light floor of the log colours
 
 
 def _node_gradients(points: np.ndarray, values: np.ndarray, node: np.ndarray,
-                    centres: np.ndarray, means: np.ndarray) -> np.ndarray:
-    """Local tangent-plane slopes from each node's own observed texels.
+                    centres: np.ndarray, means: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Local tangent-plane slopes and normals from each node's observed texels.
 
     Keep at most two spatial directions: curvature must not turn tiny normal
     displacements into a large inferred colour derivative. Observations inside
@@ -489,7 +489,10 @@ def _node_gradients(points: np.ndarray, values: np.ndarray, node: np.ndarray,
     valid[:, 0] = False
     inverse = np.divide(1.0, eigenvalues, out=np.zeros_like(eigenvalues), where=valid)
     pinv = (basis * inverse[:, None, :]) @ basis.transpose(0, 2, 1)
-    return pinv @ rhs
+    # A line or isolated texel cannot determine a plane; its zero normal leaves
+    # the common comparison point unconstrained on that side.
+    normal = basis[:, :, 0] * valid[:, 1, None]
+    return pinv @ rhs, normal
 
 
 def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, ref_label: int | None,
@@ -573,6 +576,7 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     tgts.append(np.zeros((len(na), 3)))
     bnd = ~same_g & diff_view
     na, nb_ = node_of[pa[bnd]], node_of[pb[bnd]]
+    plane_offsets = np.zeros(0)
     if len(na):
         pk, boundary_node = np.unique(np.stack([np.minimum(na, nb_), np.maximum(na, nb_)], 1), axis=0,
                                       return_inverse=True)
@@ -582,11 +586,21 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
         # Compare both groups at the same physical boundary, rather than mistaking
         # the gradient between their node interiors for an exposure discontinuity.
         Pn = np.stack([np.bincount(node, weights=tex.P[sel][:, k], minlength=N) for k in range(3)], 1) / cnt[:, None]
-        gradient = _node_gradients(tex.P[sel], x, node, Pn, V)
+        gradient, normals = _node_gradients(tex.P[sel], x, node, Pn, V)
         boundary_points = (tex.P[pa[bnd]] + tex.P[pb[bnd]]) / 2
         boundary_count = np.bincount(boundary_node, minlength=len(pk))
         mid = np.stack([np.bincount(boundary_node, weights=boundary_points[:, k], minlength=len(pk))
                         for k in range(3)], 1) / boundary_count[:, None]
+        # At a crease, the chord midpoint lies inside the material rather than
+        # on either surface. Move it to the closest common tangent-plane point
+        # before transporting each side's colour gradient to the boundary.
+        planes = normals[pk]
+        residual = np.sum(planes * (Pn[pk] - mid[:, None]), axis=2)
+        system = planes @ planes.transpose(0, 2, 1)
+        coeff = np.einsum('nij,nj->ni', np.linalg.pinv(system, rcond=1e-6, hermitian=True), residual)
+        plane_shift = np.einsum('nki,nk->ni', planes, coeff)
+        plane_offsets = np.linalg.norm(plane_shift, axis=1)
+        mid += plane_shift
         va, vb = (V[pk[:, k]] + np.einsum('ni,nij->nj', mid - Pn[pk[:, k]], gradient[pk[:, k]])
                   for k in (0, 1))
         J = vb - va
@@ -665,6 +679,8 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     at_clip_tex = (np.abs(corr) >= LEVEL_CLIP - 1e-6).any(1)
     big = ((corr >= np.log(LEVEL_LARGE)) | (corr <= -np.log(LEVEL_LARGE))).any(1)
     return {"gain": out_gain, "nodes": int(N), "boundary_pairs": int(n_bnd), "boundary_pairs_dropped": n_bnd_dropped,
+            "boundary_plane_offset_p95_mm": float(np.percentile(plane_offsets, 95)) if len(plane_offsets) else 0.0,
+            "boundary_plane_offset_max_mm": float(plane_offsets.max()) if len(plane_offsets) else 0.0,
             "max_abs_log": float(np.abs(C).max()) if N else 0.0,
             "p95_abs_log": float(np.percentile(np.abs(C), 95)) if N else 0.0,
             "clip_log": LEVEL_CLIP, "nodes_at_clip": int(at_clip_node.sum()), "texels_at_clip": int(at_clip_tex.sum()),
