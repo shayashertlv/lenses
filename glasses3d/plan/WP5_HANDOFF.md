@@ -1,5 +1,35 @@
 # WP5 quality repair handoff — active repairs 2026-10-08
 
+**Poisson default implemented and verified; WP5 quality remains open.** Evidence index:
+`data/wp5/poisson_default_20261008/result.json`. No validation process is active. Renamed-input reuse PID **26956**
+finished **18:20:55 +03, exit 0**, all **nine checks pass**: class/source/tier and protected masks identical,
+**738,905 protected colours** unchanged, A1/A3 and source hashes pass. Existing name-based fill seeds change
+1,385,453 generated pixels. This checks the current default on G1's saved renamed inputs; it does not redo G1.
+Required-data regression PID **39852** finished **18:16:26, exit 0**: **351 passed, one existing A0 xfail**, no
+unexpected failures/errors/skips. One benign already-imported-dash pytest warning. Full diff and both new files
+were re-reviewed after the green suite; no additional implementation issue found. Immutable reference hashes pass.
+Full quality PID **27464** finished **17:52:17, exit 0**, source hashes unchanged. A2 all six and A7 all six files
+pass; A4 fails all four, A5 **0.947512 / 1.030511** at frozen 7/8, B3 same six failures among the same seven eligible
+rows. New full bake **247.77 s**. Preferred prototype replay is byte-exact; current gains explain differences in
+the fresh default image. All 738,664 previously protected pixels stay identical; 241 regain protection.
+Scheduling helper PID **50116** exited **17:52:27, exit 0**; no quality worker remains active. Postproof explanatory
+text refresh is audited as unchanged algorithm ASTs/results (`notes_review/audit.json`, old report retained).
+The local audit's initial Windows path-key mismatch is preserved; corrected `notes_audit_v2` passes.
+Capture PID **5608** finished **17:55:30, exit 0**: 15 Blender checks, source identity and runtime/independent AR
+measurement parity pass. Fresh six-pair appearance/streak measurements are in `review/appearance_summary.json`.
+`review/more_angles/index.html` has verified 19 views / 57 images; fresh default appearance verdict pending.
+Current default PNG SHA-256 `258f863f8fed7e9a36c707d04f7602745f0f4838ca67440dafcbb7716e8b4a1c`, TOOLTEST GLB
+`a8db7b51570fa91917d106219606ddaeec4e48be0b32bd47ac5dcab366435b6f`. Runtime checkpoint is the Poisson-default
+commit containing this entry (parent `e3114b6`). Continue remaining A4/A5/B3 and appearance repairs from this
+saved evidence, retaining Poisson as the selected regular method. WP5 incomplete; WP6 STOP-I. Do not rerun these
+completed proofs without a new reason, or interpret the method choice as a quality waiver.
+
+**Latest owner selection: make Poisson-only the regular method.** The owner found no noticeable or runtime-
+justified advantage to the combined joint-patch candidate. This supersedes its pending verdict below. The
+runtime port keeps the regular quilt filler and current gains/calibration, replacing reflection/hard chart-seam
+harmonisation with unscreened Poisson. Eleven independent controls pass; fresh validation is recorded under
+`data/wp5/poisson_default_20261008/` (see PROGRESS). Frozen A5 offsets remain 7/8; no quality waiver or WP6 advance.
+
 **Additional angle review requested:** `data/wp5/combined_20261008/review/more_angles/index.html` compares
 accepted / preferred Poisson / combined at 11 AR angles, six photo-camera angles and two worn views.
 It uses existing verified captures, with linked zoom/panning; all 57 images and desktop/mobile controls passed

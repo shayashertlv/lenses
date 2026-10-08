@@ -1,5 +1,9 @@
 """WP5 step 4b / 7a: seams (WP5_DESIGN §6.4, §6.5, §6.7, A5).
 
+Production uses ``poisson.stitch`` for chart seams after the owner's 2026-10-08
+selection. The historical reflection/harmonisation helpers below remain for
+their regression controls; they are no longer called by the production bake.
+
 - **Label seams** (a texel next to a 4-neighbour of a different painting view, inside one chart): a hard seam, its
   band of 2 or 4 texels re-synthesised by PatchMatch (never blended: blending is for registered pairs only). The band
   is kept at 2 texels when, after repair, the seam step ratio (mean |dL| of texel pairs straddling the band / mean |dL|

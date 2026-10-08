@@ -36,7 +36,8 @@ Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in PORT_REVIEW 
   holes (<= 2 mm2 inside photo areas) are filled locally by PatchMatch (``fill.small_enclosed``);
 - gains: stage-1 mirror edges and same-part boundaries (02 and 03 were unconnected), stage-2 same-part edges, mirror
   equations and a robust pass, then the stage-3 levelling field (``gain_field.npz``; A3's read back applies it);
-- chart seams: the losing side's fill takes the winner's texture reflected across the seam before the harmonisation.
+- chart seams: unscreened Poisson stitching is the owner-selected default (2026-10-08), replacing reflection and
+  hard harmonisation while keeping protected photo texels fixed. The regular quilt filler remains unchanged.
 
 Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and numbers in PORT_REVIEW section 10):
 - ``flatten`` ('test' by default; ``shading``): every photo's own normal-space SH shading is fitted on its donor texels
@@ -55,7 +56,7 @@ past the whole scene (``texels``) -> anchors and tiers -> labels fixed at the an
 gains to the reference view from same-surface overlaps, else across region boundaries (``gains``) -> highlights
 detected and made holes (``highlights``) -> text mask (D6, decals, bright strokes, see-through text) -> P0 (the photo
 layer) -> mirror fill of surfaces no view sees, outside the text mask -> PatchMatch fill per (part, facing class) with
-radii from the knockout -> label-seam band repair (2 or 4 texels by test) -> chart-seam harmonisation -> the < 30 %
+radii from the knockout -> label-seam band repair (2 or 4 texels by test) -> Poisson chart-seam stitching -> the < 30 %
 anchor-cover rule -> compose (A3) -> gutter padding -> PNGs <= 4096.
 
 Outputs under ``out_dir``: print.png (sRGB), classes.png, source.png (view index + 1), tier.png, layout.json,
@@ -863,18 +864,14 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         t = time.perf_counter()
         protected = photo & ~band_final
         pre_reflect = filled.copy()
-        filled, reflect_info = SM.reflect_seams(job, layout, tex, filled, protected)
-        prog(f"chart-seam reflection: {reflect_info}", force=True)
-        w_paint = np.zeros(n)
-        for i, v in enumerate(vlist):
-            m_ = label == i
-            w_paint[m_] = samples[v].w[m_]
+        reflect_info = {"method": "replaced_by_unscreened_poisson", "applied": False,
+                        "band_texels": 0.0, "full_texels": 0.0, "texels_changed": 0}
         is_anchor = photo & (label == anchor_label)
-        rank = np.where(protected, 1.0 + is_anchor + 0.5 * w_paint / max(float(w_paint.max()), 1e-12), 0.0)
         pre_harmonise = filled.copy()
-        harm, unprot, harm_info = SM.harmonise(tex, filled, protected, pairs, rank=rank,
-                                               source=np.where(protected & (label >= 0), label, -1))
-        protected &= ~unprot
+        from .poisson import stitch
+        harm, harm_info = stitch(tex, filled, protected, pairs)
+        unprot = np.zeros(n, bool)
+        prog(f"chart-seam Poisson: {harm_info}", force=True)
 
         # classes, sources, tiers
         klass = np.zeros(n, np.uint8)

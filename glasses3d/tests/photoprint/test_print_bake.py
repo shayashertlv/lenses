@@ -120,11 +120,11 @@ def test_a5_graded_beyond_the_reflection_band(ft1119_job, bake, outdir):
     texels, fading to 6) made the 1-2 texel reading pass, but BY CONSTRUCTION (step 4 fix round 1, review): inside
     the band the two sides are the same texels. So the verdict is now read beyond the band, at 7 and 8 texels (sample
     points kept on their face's chart), and 1, 2, 4 and 6 texels are reported, not graded. KNOWN STATE (a tripwire,
-    update it deliberately): ``A5_KNOWN_AT_8``. The same-3D-point agreement after harmonisation is set by construction
-    and only reported; the criterion's status is recorded."""
+    update it deliberately): ``A5_KNOWN_AT_8``. Poisson now replaces reflection/hard harmonisation, but the frozen
+    7/8 offsets remain. Same-3D-point agreement stays diagnostic and is no longer imposed by construction."""
     r = PP.seams(ft1119_job, bake, outdir)
     o = r["offsets"]
-    assert bake["report"]["chart_seam_reflection"]["band_texels"] == 6.0 and r["reflection_band_texels"] == 6.0
+    assert bake["report"]["chart_seam_reflection"]["band_texels"] == 0.0 and r["reflection_band_texels"] == 0.0
     assert r["graded_offsets"] == [7, 8] and set(r["criteria"]) == {"p95_at_7_texels", "p95_at_8_texels"}
     assert all(not o[k]["graded"] for k in (1, 2, 4, 6)) and all(o[k]["graded"] for k in (7, 8))
     for k in (7, 8):
@@ -132,15 +132,14 @@ def test_a5_graded_beyond_the_reflection_band(ft1119_job, bake, outdir):
         assert o[k]["across_max"] >= o[k]["across_p95"]                 # p95 is not the worst case; both reported
     assert r["image"] == "print.png read back"
     assert r["pass"] == A5_KNOWN_AT_8, r
-    # inside the band the reflection makes the two sides agree (constructed, not evidence)
-    assert o[1]["across_p95"] < o[1]["within_p95"]
     kinds = r["breakdown"][1]["kinds"]
     assert kinds.get("photo, two views", {"samples": 0})["samples"] < 0.01 * o[1]["samples"]
     assert set(r["breakdown"]) >= {7, 8}
-    assert "NOT yet recorded in PROGRESS" in r["criterion_decision"] and "BEYOND" in r["criterion_decision"]
-    assert bake["report"]["chart_seam_reflection"]["texels_changed"] > 0
-    # harmonisation writes the seam texels: after it they agree by construction
-    assert r["diagnostic_tool_pairs_final_by_construction"]["de00_p50"] < 1.0
+    assert "frozen minimum offsets 7/8" in r["criterion_decision"]
+    assert bake["report"]["chart_seam_reflection"]["texels_changed"] == 0
+    # Poisson has no reflection band and does not impose same-point equality.
+    assert bake["report"]["checks"]["seams"]["harmonise"]["method"] == "unscreened_poisson"
+    assert "diagnostic_tool_pairs_final_by_construction" in r
 
 
 def test_anchors_by_x_sign_and_no_tier1(bake):
@@ -168,9 +167,11 @@ def test_single_source_from_the_written_outputs(ft1119_job, bake, outdir):
     assert bake["report"]["mode"].startswith("single-source, one view per face")
 
 
-def test_harmonise_never_averages_two_views_in_the_bake(bake):
+def test_poisson_preserves_observed_photo_bytes_in_the_bake(bake):
     h = bake["report"]["checks"]["seams"]["harmonise"]
-    assert h["multi_view_means"] == 0
+    assert h["method"] == "unscreened_poisson" and h["protected_changed"] == 0
+    protected = bake["protected"]
+    np.testing.assert_array_equal(bake["final_radiance"][protected], bake["P0"][protected])
 
 
 def test_label_boundaries_move_onto_creases_or_better_colour_agreement(bake):

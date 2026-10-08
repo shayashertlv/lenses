@@ -6,14 +6,18 @@ I chose continued repairs, not a waiver or scoped completion. Do not ask that sc
 Read README.md, glasses3d/AGENTS.md, glasses3d/plan/PLAN.md fully, PROGRESS.md's Active resume,
 WP5_HANDOFF.md fully, WP5_DESIGN.md including its current addendum, and the relevant PORT_REVIEW.md entries.
 Use the current handoff, not the historical RESUME HERE instructions. Inspect git status/log before editing.
-The implementation baseline is f020b57; the later documentation-only handoff commit is the starting checkout.
+Continue the current glasses3d checkout at the Poisson-default checkpoint recorded in Active resume/current handoff.
+f020b57 is the historical G1 baseline, not the current runtime. Preserve the owner's selected Poisson-only regular
+method (ordinary quilt fill, current gains and calibration); the combined joint-patch experiment was not selected.
 
 WP0/1/3/3b/4 are complete and tested. A–E repairs, option-B promotion, the supported-pale mask correction and
 G1 reusable-library proof are committed. WP2 A–C are verified; agent wrappers remain gated. WP6 retains STOP-I.
 Do not redo completed work or advance to other WPs.
 
-Start by reading glasses3d/data/wp5/g1_20261007/proof/bake/bake.json and the independent instruments. Diagnose
-A4 fill failures on all four parts, A5 failures beyond the seam reflection band at production density, and B3
+Start with glasses3d/data/wp5/poisson_default_20261008/result.json, its bake/bake.json and the independent instruments.
+The selected default's regression, exact prototype replay, serial/reuse/export and AR-parity checks are complete;
+do not repeat them without a new implementation change or unresolved concern. Diagnose
+A4 fill failures on all four parts, the remaining production-density A5 failure at frozen offset 8 (7 passes), and B3
 failures in 6 of 7 eligible held-out rows. Then repair their causes, preserve all passing invariants and reusable
 API behaviour, and reassess remaining brow-top blotches, off-angle lightness and temple appearance in fresh AR
 comparisons. Keep B and the accepted revised assets as immutable references. G1 proves reuse, not quality.

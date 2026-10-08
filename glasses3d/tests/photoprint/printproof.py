@@ -30,9 +30,9 @@ graded by the independent instrument (tests/instruments/print_metrics.py), never
 - ``seams`` (A5, fix round 1): the instrument's own uv-seam samples (from the geometry and the layout's uv, not the
   tool's seam pairs) on print.png read back, graded k texels inside each chart against the within-chart change
   at the same separation (``print_metrics.seam_steps``; step 4 fix round 1: graded at 7 and 8 texels, BEYOND the tool's
-  6-texel chart-seam reflection band, inside which the two sides agree by construction; 1, 2, 4 and 6 texels are
-  reported only); the same-3D-point agreement BEFORE the tool's harmonisation is
-  reported as a diagnostic (after it, it is set by construction). Fix round 2: the samples are broken down by what
+  historical 6-texel chart-seam reflection band; frozen offsets 7/8 remain after Poisson replaces reflection.
+  Offsets 1, 2, 4 and 6 and same-3D-point agreement remain diagnostics. Poisson does not impose the same-point
+  equality that historical hard harmonisation wrote by construction. Fix round 2: the samples are broken down by what
   lies on the two sides (classes.png and source.png read back: photo of one view, photos of two views, photo and
   fill, fill on both), and the criterion's status is recorded (``criterion_decision``).
 - ``audit_outputs`` (fix round 2): single source checked from the WRITTEN outputs: every photo texel's view
@@ -82,7 +82,7 @@ A3_LEVEL_TOL = 1            # read-back colour within 1 level per channel (uint8
 A3_SHARE_MIN = 0.995        # ... on at least 99.5 % of the protected photo texels
 A3_DE00_P99_MAX = 1.0
 FLOOR_MAG_TOL = 1.25        # the real-vs-real neighbour's photo px per texel within x/: 1.25 of the hole's
-A5_INSIDE_BAND_TX = (1, 2, 4, 6)    # A5 offsets reported inside the chart-seam reflection band (set by construction)
+A5_INSIDE_BAND_TX = (1, 2, 4, 6)    # Historical inside-band diagnostics, retained when reflection is removed.
 
 
 def _region_E(mask: np.ndarray, acet: np.ndarray) -> np.ndarray:
@@ -473,12 +473,12 @@ def seams(job, res: dict, out_dir=None) -> dict:
         "A5 as graded here is the instrument's off-seam reading: p95 across the seam <= max(3, the within-chart p95 at "
         "the same separation), sample points kept where they land on their face's chart (this module's own "
         "rasteriser of the layout). Fix round 1 of step 4: the verdict is read BEYOND the tool's chart-seam reflection "
-        f"band ({band:g} texels: the losing side copies the winner at the same depth, so 1-2 texels inside it agree by "
-        f"construction), at offsets {list(graded)}; offsets {list(inside)} inside the band are reported, not graded. "
+        f"band (currently {band:g} texels), while retaining the frozen minimum offsets 7/8 even when reflection is "
+        f"removed. The graded offsets are {list(graded)}; offsets {list(inside)} are reported, not graded. "
         "The design's literal reading (p95 dE00 <= 3 between texels of the SAME 3D point) is offset 0, which the "
-        "tool's harmonisation writes, so it passes by construction and is reported as "
-        "diagnostic_tool_pairs_final_by_construction. This criterion change is an engineering decision that is NOT "
-        "yet recorded in PROGRESS.md (fix round 2 states it here).")
+        "historical hard harmonisation wrote by construction. Poisson does not impose that equality. The legacy "
+        "diagnostic_tool_pairs_final_by_construction key is retained for report compatibility, never as a gate. "
+        "The unchanged off-seam criterion and Poisson adoption are recorded in PROGRESS.md.")
     if out_dir is not None and (Path(out_dir) / "classes.png").is_file():
         out["breakdown"] = seam_breakdown(img, smp, Path(out_dir), offsets=tuple(inside[:2]) + tuple(graded))
     pre = tex.image(np.clip(np.asarray(res["colours_pre_harmonise"], float), 0, 255), 0.0, float)
@@ -495,12 +495,14 @@ def seams(job, res: dict, out_dir=None) -> dict:
 
 
 def a5_offsets(res: dict) -> tuple[tuple, tuple, float]:
-    """(graded offsets, inside-band offsets, band texels): A5 is graded at band + 1 and band + 2 texels, where band is
-    the chart-seam reflection depth the bake reports (report.json 'chart_seam_reflection' -> 'band_texels'; 6 when an
-    older report lacks it); 1, 2, 4 and the band itself are reported as inside the band."""
+    """Preserve frozen A5 offsets 7/8 when reflection is removed, extending past any wider reported band.
+
+    The third return value is the actual reflection depth, not the historical
+    sampling floor. Offsets 1/2/4/6 remain diagnostics with or without reflection.
+    """
     info = ((res.get("report") or {}).get("chart_seam_reflection") or {})
     band = float(info.get("band_texels", 6.0))
-    b = int(np.ceil(band))
+    b = max(6, int(np.ceil(band)))
     inside = tuple(k for k in A5_INSIDE_BAND_TX if k <= b)
     return (b + 1, b + 2), inside, band
 

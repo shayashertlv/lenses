@@ -172,8 +172,9 @@ DECISIONS = [
     "area a worn frame shows (temple inner and bottom faces excluded) and judges mirror partners together.",
     "A4: 8 seeded holes per part drawn by the proof over every single-view area; the mean-colour limit is "
     "max(2.0, the median donor-ring baseline) (a fill can only predict a hole's colour from its surroundings).",
-    "A5 (fix round 1, recorded here): graded off the seam, p95 across <= max(3, within-chart p95) at 1 and 2 texels; "
-    "the design's same-3D-point reading passes by construction (the harmonisation writes those texels).",
+    "A5 (current frozen protocol): graded off the seam, p95 across <= max(3, within-chart p95) at offsets 7 and 8 "
+    "texels, beyond any wider reflection band. These offsets remain when Poisson removes reflection. Offsets "
+    "1/2/4/6 and same-3D-point agreement are diagnostic; Poisson does not impose same-point equality.",
 ]
 
 

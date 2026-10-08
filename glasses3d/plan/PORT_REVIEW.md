@@ -4370,3 +4370,52 @@ scope/waiver question is resolved in favour of repairs. STOP B continues to bloc
 while further $0 diagnosis and repair are authorized. See [WP5_HANDOFF.md](WP5_HANDOFF.md) for the exact baseline,
 unchanged measurement protocols, remaining work and final proof requirements. No new algorithm or threshold was
 changed in this documentation pass; §12's G1 evidence remains valid for its recorded assets.
+
+## 13. Owner-selected Poisson default (2026-10-08; integration verified, quality open)
+
+The owner selected Poisson-only as the regular method after judging the combined joint-patch + Poisson result
+to have no noticeable visual benefit that justified its runtime. This adopts a seam method; it does not waive
+A4/A5/B3 or declare WP5 complete. Quilt remains the ordinary filler, with existing small-hole PatchMatch,
+colour gains and approved AR calibration. Joint-patch remains an immutable local experiment.
+
+`g3d_host/photoprint/poisson.py` ports the saved `repairs_20261008/seam_poisson_field.py` objective: a sparse
+least-squares log-radiance correction, zero target correction gradient inside each chart, correction of the guide
+jump across same-part seam pairs, observed photo values fixed, and zero mean correction for unanchored components.
+The original CG tolerances remain 1e-7 relative / 1e-8 absolute. Disconnected charts/parts cannot bleed through
+atlas adjacency. Solver failure refuses instead of silently falling back. Gamut counts are measured before the
+colour conversion clips linear radiance; no gamut clipping occurred on the preferred-input replay or new bake.
+
+`project.py` calls this solve in place of reflection and hard harmonisation. Public bake arguments, provenance
+maps and report structure are retained; method diagnostics identify Poisson and actual reflection depth zero.
+The old seam helpers remain for historical regression controls. No new dependency or product-specific rule.
+`printproof.a5_offsets` explicitly preserves the frozen 7/8 offsets when reflection is removed, and goes beyond
+any future wider band. It must never move the quality measurement inward to 1/2 simply because reflection is zero.
+Thresholds, independent rasterisation, eligibility, seeds, held-out exclusion and all instrument criteria remain.
+
+Eleven independent controls pass: analytic exposure-step and unanchored-gauge cases, a dense least-squares oracle
+with conflicting anchors, constant/disconnected/empty/isolated cases, solver refusal and the A5 sampling floor.
+On the original preferred prototype's saved inputs, **all RGB bytes agree exactly**, with no protected changes
+(`data/wp5/poisson_default_20261008/equivalence.json`). The new production bake uses current gains and therefore
+does not claim pixel identity to the earlier preferred full image. Its measured time is **247.77 s**.
+Serial/pool A7 matches all six files, all six A2 checks pass, and the previous runtime's 738,664 protected photo
+pixels remain byte-identical; 241 additional pixels retain protection. Full quality finished with A4 failed on
+all four parts; A5 ratios **0.947512 / 1.030511** at 7/8, hence failed; and B3 the same six failed regions among
+the same seven eligible rows. All six views and five A4 seeds were retained. The known 8 tx/mm A5 regression
+still passes; it is not the production-density verdict.
+
+After the source-frozen proof, stale explanatory notes were corrected (including an old 1/2-texel A5 note).
+`notes_review/audit.json` proves identical algorithm ASTs and all measured values, preserving the pre-refresh
+report. The first local audit failed only on Windows path-key spelling; its corrected adapter and exit record
+are retained separately. Exact-PNG Blender export passes **15/15** checks, and the fresh runtime AR measurements
+match the independent instrument exactly. All six applicable appearance pairs, roles, forms and groups remain
+in `review/appearance_summary.json`: calibration/held-out lightness still fails, front hue residual is **-5.27°**,
+and temple streak indices (-x +45 / +x -30 / +x -45) are **1.961 / 7.576 / 11.518**. No appearance threshold moved.
+The 19-view gallery verifies all 57 images and matched cameras/materials; brow-top, both 45-degree arms and the
+worn comparison were inspected. This review does not supply an owner appearance verdict.
+Required-data regression finished **351 passed, one existing A0 xfail**, no failures/errors/skips, in **1168.97 s**;
+one benign warning notes that pytest cannot rewrite already-imported `dash`. Runtime/tests/reference hashes
+remain unchanged. Full diff and both new files were re-reviewed after the green run; no implementation blocker
+found. Candidate-specific renamed reuse passes **9/9** checks with all **738,905** protected pixels unchanged;
+class/source/tier/protected maps agree, A1/A3 pass, sources remain unchanged. Existing name-based fill seeds change
+1,385,453 generated pixels. Historical G1 is preserved; no unseen-product claim. `result.json` binds the default
+PNG/GLB hashes to these proofs, with quality acceptance explicitly false. All runs exited; no paid call, push or WP6 advance.

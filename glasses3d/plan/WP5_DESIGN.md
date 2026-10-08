@@ -1,11 +1,17 @@
 # WP5 photo-projected print: final design
 
-## Current implementation addendum (2026-10-07; read before the historical design)
+## Current implementation addendum (2026-10-08; read before the historical design)
 
 WP5 is incomplete. The owner requests **all remaining issues be repaired**, not waived. Follow
 [WP5_HANDOFF.md](WP5_HANDOFF.md) and PROGRESS.md's Active resume. The probe, predictions and pending questions below
 are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
 G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
+
+On 2026-10-08 the owner selected **Poisson-only as the regular method**, judging the combined joint-patch +
+Poisson candidate to have no noticeable advantage that justified its runtime. The regular quilt filler remains;
+unscreened Poisson replaces chart-seam reflection/hard harmonisation, with observed photo texels fixed. This is
+a method/appearance choice, not a quality waiver. Historical images and failed proofs remain immutable. The
+runtime port and fresh validation are recorded in PROGRESS; current gains and AR calibration are preserved.
 
 The owner authorized **single-source print** on 2026-10-06 (PROGRESS entry "WP5 stage 1"). Actual pixel-verified
 area is **0%**, not the probe's predicted 3.5%. A0's literal bound and B1 still fail; B2 remains diagnostic. Preserve
@@ -20,7 +26,7 @@ fields. The original §8 table remains below for history:
 | Check | Current measurement to preserve | Source of the recorded correction |
 |---|---|---|
 | A4 | Per-part median absolute log energy <= 0.15 in both bands; median seam ratio <= 1.2; median mean-colour ΔE00 <= max(2.0, median donor-ring baseline). Literal <= 2.0 remains separately reported. Real-vs-real floor is diagnostic, never an excuse for failure. Compare fillers at their own selected radii on the same holes/seeds, retaining the five-seed comparison. | `tests/instruments/print_metrics.py:a4_criteria` documents the calibrated colour limit; PORT_REVIEW §10 build-step-4 fix round 1 documents fair filler comparison and the diagnostic-only floor |
-| A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Grade beyond the reflection band: current band 6 texels, graded offsets 7 and 8. Same-point equality after harmonisation is constructed and only diagnostic. | `print_metrics.seam_steps`, `printproof.seams`; PORT_REVIEW §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
+| A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Frozen offsets 7 and 8 remain after reflection is removed (historical band: 6 texels). A wider future band requires readings beyond it. Same-point equality remains diagnostic; Poisson does not impose it. | `print_metrics.seam_steps`, `printproof.seams`; PORT_REVIEW §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
 | B3 | All six held-out bakes; every eligible region/view row, including failures. Protocol `10bf932`: atlas before AR level, no re-lighting. `relit_h` uses held-out shading and is diagnostic only. Preserve `print_metrics.evaluate_b3`/`b3` and their support/coverage rules. | `printproof.heldout_b3`; PORT_REVIEW §10 correction-round fix round 1, item 7 |
 
 The final proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression

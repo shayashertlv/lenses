@@ -5,6 +5,55 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Newest owner decision — Poisson-only default:** "there is no noticeable or runtime justified advantages to
+Combined joint-patch + Poisson so lets make poisson only the regular". This supersedes the pending combined
+verdict below: the owner selects Poisson-only and declines joint-patch as the default on appearance/runtime
+grounds. It is not a quality waiver. Ported the saved unscreened solver into the reusable runtime; the regular
+quilt filler, current gains and AR calibration remain. A5 keeps frozen offsets 7/8 despite reflection removal.
+Eleven independent synthetic/protocol controls pass, including a dense least-squares comparison and solver
+failure refusal. Fresh default-bake, quality, serial/reuse, export/AR and regression validation are recorded in
+`data/wp5/poisson_default_20261008/`. WP5 incomplete; WP6 STOP-I. No paid run or push authorized.
+
+**Poisson default integration verified (2026-10-08; WP5 quality still fails):** the reusable solver reproduces the saved preferred
+prototype on its saved inputs: zero differing bytes, zero protected changes (`equivalence.json`; 17:22:51–17:23:58,
+exit 0). This does not claim the new default PNG matches that historical PNG: current colour gains remain active.
+The full production bake took **247.77 s** (4 min 8 s), with no gamut clipping and protected photo bytes intact.
+Full proof `quality_run.json`, actual PID **27464**, completed **17:24:56–17:52:17 +03, exit 0**. All six A2
+checks and all six A7 serial/pool file comparisons pass. A4 fails all four parts; A5 ratios at frozen offsets 7/8
+are **0.947512 / 1.030511**, hence one passes and one fails. B3 retains all seven original eligible rows and
+the same six failures. No skips; five A4 seeds, 12 bake workers, four held-out parents with three inner workers
+each, BLAS 1. Source hashes stayed unchanged during the full proof. Exit 0 does not imply quality acceptance.
+The launcher's priority call did not raise priority; a scheduling-only helper corrected that without restarting
+the job. `monitor_quality_priority.ps1`, PID **50116**, maintained AboveNormal/all-16-CPU affinity and exited
+**17:52:27, exit 0**. Events are recorded in `quality_priority_events.jsonl`. Coverage comparison: all **738,664**
+previously protected photo pixels remain byte-identical, none lose protection, and **241** regain protection.
+After the proof, obsolete explanatory text about reflection was refreshed; `notes_review/audit.json` verifies
+unchanged algorithm ASTs and measured values, retaining the original report. First audit attempt refused due to
+Windows/slash path-key mismatch; `notes_audit_v2` corrects only that local audit adapter and passes.
+Exact-PNG export/capture, PID **5608**, completed **17:54:24–17:55:30, exit 0**: all **15 Blender checks** pass,
+source scene preserved, runtime AR measurements exactly equal the independent instrument. All six applicable
+appearance pairs/roles/groups and streaks remain reported in `review/appearance_summary.json`; failed appearance
+measurements are not waived. `review/more_angles/index.html` compares accepted / preferred Poisson / new default
+at 11 AR angles, six photo angles and two worn views. All 57 images and navigation/pan/zoom/layout checks pass;
+the brow-top preview was inspected. Fresh default appearance verdict remains pending.
+Required-data regression, actual PID **39852**, completed **17:56:56–18:16:26, exit 0**: **351 passed, one existing
+A0 xfail**, no unexpected failures/errors/skips; one benign pytest warning for already-imported `dash`.
+Runtime/tests/reference hashes stayed unchanged. Budget was 12 workers, BLAS 1, AboveNormal and EcoQoS opt-out.
+Four immutable accepted/source asset hashes also match their historical records (`immutable_references.json`).
+Renamed-input reuse, actual PID **26956**, completed **18:16:52–18:20:55, exit 0**, with 12 workers after verifying
+22 GB free commit. **All nine checks pass**: class/source/tier maps and protected masks are identical, all **738,905**
+protected colours agree, A1/A3 pass and sources stay unchanged. Existing name-dependent fill seeds change
+1,385,453 generated pixels; whole-PNG equality is not the rename criterion. This uses G1's frozen renamed job,
+preserving its historical proof and making no unseen-product claim. Full diff and both new files re-reviewed after
+the green suite; no additional implementation issue found. `result.json` indexes all proofs and explicitly keeps
+`quality_acceptance: false`. No validation process remains active. Current default PNG SHA-256:
+`258f863f8fed7e9a36c707d04f7602745f0f4838ca67440dafcbb7716e8b4a1c`; exported TOOLTEST GLB:
+`a8db7b51570fa91917d106219606ddaeec4e48be0b32bd47ac5dcab366435b6f`.
+The brow-top, both arms and worn comparisons have been inspected; no new owner appearance verdict is inferred.
+Runtime checkpoint is the Poisson-default commit containing this entry (parent `e3114b6`). Continue remaining
+A4/A5/B3 and appearance repairs from these current saved failures, keeping Poisson as the selected default.
+Do not repeat the completed validation just to present it. WP5 remains incomplete and WP6 STOP-I.
+
 **Expanded owner angle review:** the owner requested more angles after receiving the combined results.
 `data/wp5/combined_20261008/review/more_angles/index.html` presents the same three versions across **11 AR
 angles, six photo-camera angles and two worn views**, with an angle selector and linked zoom/panning.
