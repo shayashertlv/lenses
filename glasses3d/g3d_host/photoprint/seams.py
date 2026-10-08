@@ -116,9 +116,36 @@ def band_tests(tex, img: np.ndarray, label: np.ndarray, band: np.ndarray, tx: fl
             "pass": bool(step is not None and energy is not None and step <= STEP_MAX and energy >= BAND_ENERGY_MIN)}
 
 
+def _chart_edge_texels(tex, points: np.ndarray, chart: int) -> np.ndarray:
+    """Nearest covered texel centres in the edge point's local 3 x 3 stencil.
+
+    An edge may lie exactly on the empty gutter side of its last texel. Looking
+    up only floor(uv) loses that edge, or can pick an unrelated nearby chart.
+    Restrict the search to the declared chart and never bridge a wider gap.
+    """
+    H, W = tex.shape
+    base = np.floor(points).astype(np.int64)
+    best = np.full(len(points), -1, np.int64)
+    distance = np.full(len(points), np.inf)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            x, y = base[:, 0] + dx, base[:, 1] + dy
+            inside = (x >= 0) & (x < W) & (y >= 0) & (y < H)
+            ids = tex.index[np.clip(y, 0, H - 1), np.clip(x, 0, W - 1)]
+            valid = inside & (ids >= 0)
+            valid[valid] &= tex.chart[ids[valid]] == chart
+            d = (x + 0.5 - points[:, 0]) ** 2 + (y + 0.5 - points[:, 1]) ** 2
+            take = valid & (d < distance)
+            best[take], distance[take] = ids[take], d[take]
+    return best
+
+
 def chart_seam_pairs(job, layout, tex, step: float = PAIR_STEP) -> np.ndarray:
-    """(K, 2) texel rows of the same 3D point on the two sides of every uv seam (mesh edges whose two faces have
-    different uv at the edge's ends, on welded positions)."""
+    """(K, 2) nearest covered texels on either chart to each sampled seam point.
+
+    Seams are welded mesh edges whose faces have different UV endpoints. Texel
+    centres lie on either side of the edge; its exact UV can lie in the gutter.
+    """
     faces = layout.faces
     tri = job.mesh.V[job.mesh.F[faces]]
     w = weld_ids(tri.reshape(-1, 3)).reshape(-1, 3)
@@ -140,7 +167,6 @@ def chart_seam_pairs(job, layout, tex, step: float = PAIR_STEP) -> np.ndarray:
     ua0, ua1 = uv[fa, ca[:, 0]], uv[fa, ca[:, 1]]
     ub0, ub1 = uv[fb, cb[:, 0]], uv[fb, cb[:, 1]]
     seam = (np.abs(ua0 - ub0).max(1) > 1e-6) | (np.abs(ua1 - ub1).max(1) > 1e-6)
-    H, W = tex.shape
     for k in np.nonzero(seam)[0]:
         la = np.linalg.norm(ua1[k] - ua0[k])
         lb = np.linalg.norm(ub1[k] - ub0[k])
@@ -148,8 +174,8 @@ def chart_seam_pairs(job, layout, tex, step: float = PAIR_STEP) -> np.ndarray:
         t = (np.arange(n) + 0.5) / n
         pa = ua0[k][None] * (1 - t[:, None]) + ua1[k][None] * t[:, None]
         pb = ub0[k][None] * (1 - t[:, None]) + ub1[k][None] * t[:, None]
-        ia = tex.index[np.clip(np.floor(pa[:, 1]).astype(int), 0, H - 1), np.clip(np.floor(pa[:, 0]).astype(int), 0, W - 1)]
-        ib = tex.index[np.clip(np.floor(pb[:, 1]).astype(int), 0, H - 1), np.clip(np.floor(pb[:, 0]).astype(int), 0, W - 1)]
+        ia = _chart_edge_texels(tex, pa, int(layout.chart[fa[k]]))
+        ib = _chart_edge_texels(tex, pb, int(layout.chart[fb[k]]))
         ok = (ia >= 0) & (ib >= 0) & (ia != ib)
         if ok.any():
             rows.append(np.stack([ia[ok], ib[ok]], 1))
@@ -310,7 +336,7 @@ def _inward(p0, p1, p2):
     return n * np.where(s == 0, 1.0, s)[:, None]
 
 
-def _bilinear_atlas(img: np.ndarray, uv: np.ndarray) -> np.ndarray:
+def _bilinear_atlas(img: np.ndarray, uv: np.ndarray, *, chart_image=None, chart=None) -> np.ndarray:
     H, W = img.shape[:2]
     x = uv[:, 0] - 0.5
     y = uv[:, 1] - 0.5
@@ -318,6 +344,21 @@ def _bilinear_atlas(img: np.ndarray, uv: np.ndarray) -> np.ndarray:
     y0 = np.clip(np.floor(y).astype(np.int64), 0, H - 2)
     fx = np.clip(x - x0, 0, 1)[:, None]
     fy = np.clip(y - y0, 0, 1)[:, None]
+    if chart_image is not None:
+        # Reflection reads an unpadded atlas. Near a slanted boundary some of
+        # the four taps are gutter pixels or belong to another chart. They are
+        # not surface observations: renormalize the remaining source-chart taps.
+        expected = np.asarray(chart)
+        result = np.zeros((len(uv), img.shape[-1]))
+        total = np.zeros((len(uv), 1))
+        for yy, xx, weight in ((y0, x0, (1 - fx) * (1 - fy)), (y0, x0 + 1, fx * (1 - fy)),
+                               (y0 + 1, x0, (1 - fx) * fy), (y0 + 1, x0 + 1, fx * fy)):
+            w = weight * (chart_image[yy, xx] == expected)[:, None]
+            result += w * img[yy, xx]
+            total += w
+        if np.any(total <= 0):
+            raise ValueError("seam reflection has no source-chart interpolation support")
+        return result / total
     return ((1 - fx) * (1 - fy) * img[y0, x0] + fx * (1 - fy) * img[y0, x0 + 1] + (1 - fx) * fy * img[y0 + 1, x0]
             + fx * fy * img[y0 + 1, x0 + 1])
 
@@ -343,6 +384,7 @@ def reflect_seams(job, layout, tex, col: np.ndarray, protected: np.ndarray, *, b
         return out, {"edges": 0, "texels_changed": 0, "band_texels": float(band), "full_texels": float(full)}
     H, W = tex.shape
     img = tex.image(col, 0.0, float)
+    chart_image = tex.image(tex.chart, -1, np.int32)
     chart_of_face = np.asarray(layout.chart)
     prot = np.asarray(protected, bool)
     rank = np.where(prot, 2, 1)
@@ -381,7 +423,7 @@ def reflect_seams(job, layout, tex, col: np.ndarray, protected: np.ndarray, *, b
             a = 1.0 if d <= full else max(0.0, 1.0 - (d - full) / (band - full))
             if a <= 0:
                 continue
-            v = _bilinear_atlas(img, pw[ok])
+            v = _bilinear_atlas(img, pw[ok], chart_image=chart_image, chart=chart_of_face[fw[rep[ok]]])
             np.add.at(acc, il[ok], a * v)
             np.add.at(wsum, il[ok], a)
             np.maximum.at(amax, il[ok], a)

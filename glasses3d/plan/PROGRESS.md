@@ -12,7 +12,12 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Current repair evidence (04:42):** a synthetic chart-coordinate test exposed a one-texel error in the quilting
+**Active run:** `adaptive_slope_probe_run.json` repeats the same donor-only selector after its independently
+reproduced boundary-slope defect was fixed. Consult its PID/timing/exit record before another heavy job.
+The front-reference experiment exited 0 at 05:30:06; both original eligible held-out-05 brow rows still fail.
+No final quality acceptance, full regression, new reuse check or final AR verdict exists yet.
+
+**Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
 canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;
 the independent test failed at two nonzero chart origins before the fix and all three pass now. A fourth test
 covers repacking multiple strip/cap charts. Final focused regression: **24 passed**, 4.23 s, exit 0 at 04:41:55
@@ -33,26 +38,71 @@ failed controls; `fill_v1.py` / `quilt_merge_v1.py` preserve the earlier experim
 
 A5 localization (`seam_diagnosis.json`) identifies the +x temple strip wrap as a major contributor at both frozen
 offsets. A pre-reflection intrinsic seam-field probe reduced ratios to **1.076069 / 1.174303**, still failing;
-protected pixels were unchanged. This diagnostic is not adopted. A curvature-continuation probe is running
-(`seam_curvature_probe_run.json`, PID 36632, started 04:37:09); channel 0 converged in 5,252 iterations but its
-maximum correction was 238.87 levels, a significant appearance concern even before the quality result.
+protected pixels were unchanged. A curvature-continuation probe exited 0 at 04:51:28 after 14m18s but also failed
+A5 (**1.083764 / 1.120412**). Its maximum correction was 238.87 levels; the inspected strip sheet shows coloured
+edge overshoots. **Rejected**, not adopted (`seam_curvature_probe.json`, `seam_curvature_crops.png`).
 
 `pm_boundary_probe.json` and `coherent_probe.json` (all 160 fixed cases, both exit 0) also fail A4 overall.
 PatchMatch plus boundary correction passes seed-0 energy only on Brow_Left; whole-hole donor retrieval passes it
-on Brow_Left and Temple_Right. No method switch is accepted. A donor-only self-validation experiment is prepared
-in `adaptive_donor.py` / `adaptive_probe.py`, not run: it hides separate same-shaped holes in observed donors and
-chooses a filler by prediction error there, without proof truth or proof metrics. Base radii remain independently
-selected. Synthetic truth-separation checks are required before this experiment runs.
+on Brow_Left and Temple_Right. No method switch is accepted. A donor-only self-validation experiment hid separate
+same-shaped holes in observed donors and selected a filler by prediction error there, without proof truth or proof
+metrics. Ten compact/long-thin poison/invariance checks passed before running all 160 fixed cases; the experiment
+exited 0 at 04:57:57. It **still fails A4**: seed-0 fine energy **0.113631 / 0.247702 / 0.187410 / 0.115291**,
+pooled **0.161779 / 0.175340 / 0.223301 / 0.129627** (BL/BR/TL/TR). Base radii kept their independent selections.
+`adaptive_synthetic.json` and `adaptive_probe.json` retain results; no adaptive runtime API was added.
 
 B3 view-01 decomposition exited 0 at 04:31:39 (`b3_01_decomposition.json`, corresponding run/log files).
 The frozen full-region results remain three failures and one pass. On the left brow's **projected-only** subset,
 fine energy is 0.509587 gained / 0.517220 without gains, spectrum error 0.679246 / 0.666603. Thus fill/gain repair
 alone does not explain that failure. The right brow still passes overall. Temple_Right's projected-only colour
 error improves from 7.160260 to 4.898864 without gains but remains substantial. Subsets are diagnosis, never new
-eligibility or replacement verdicts. Source/held-out crop sheet: `b3_01_crops.png`; views 03/05 decompositions are
-prepared but not run. Source projection and geometry need further diagnosis.
+eligibility or replacement verdicts. Source/held-out crop sheet: `b3_01_crops.png`. A direct-anchor rendering diagnostic bypassed the atlas and confirmed the left brow's
+projected-only detail deficit persists: fine energy **0.550280 direct / 0.517220 atlas**, spectrum error
+**0.592360 / 0.666603**. The independent ray interpolation's self-control has mean absolute error 0.000126,
+max 0.004811 (`b3_direct.json`; successful `b3_direct_v2_run.json`; the first run's decal-face index failure is
+preserved). The +x temple has only view 06 as an eligible anchor with view 01 held out (`anchor_diagnosis.json`).
+Views 03 and 05 were then decomposed with the repaired seam geometry (exit 0 at 05:12:13 / 05:18:27). Their
+original three eligible rows still fail; source hashes and complete frozen rows are retained in the reports.
+View 03 left brow: spectrum 0.792465, correlation-length ratio 0.416667; both projection and fill contribute.
+View 05 right brow: removing gains improves whole-region spectrum **0.333445 -> 0.239447**, colour
+**4.091084 -> 2.220937**, mid/fine energy **0.731144 / 0.754911 -> 0.885411 / 0.912887**. This is a diagnostic
+counterfactual, not a rerun production pass. Without the explicit front photo, the current gain reference picks
+rear view 06 by texel coverage. `front_reference.py` is an experimental geometric fallback using only used
+cameras' alignment with the documented +Z front; six synthetic checks passed, including held-out exclusion and
+preserving explicit-front selection. Its full held-out-05 bake exited 0 at 05:30:06 and still fails both original
+eligible rows: left/right spectrum **0.398069 / 0.388148**, correlation ratios **0.636364 / 0.8**; colour
+**3.886817 / 2.236559**. Gains become almost identity, but the right brow's fill-only fine energy remains
+**0.240437**. `b3_05_front_reference_decomposition.json` preserves full and diagnostic rows without overwriting
+the original experiment. No runtime policy changed.
 
-Initial diagnosis to test (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
+**Seam repairs in this checkpoint:** three independent synthetic failures proved that
+`chart_seam_pairs` dropped an entire valid edge when its exact UV fell into the gutter, and could select a texel
+from an unrelated chart. Nearest covered texels in a bounded 3 x 3 stencil now require the declared chart.
+A fourth independent failure showed reflection darkened a constant-colour rotated surface by interpolating black
+gutter taps. Bilinear reflection now renormalizes only source-chart taps. The reflection band remains six texels;
+quality sampling and thresholds are unchanged. Final focused regression: **27 passed**, 5.69 s, exit 0
+(`seam_repairs_final_tests_run.json`). Original red tests are retained in `seam_neighbours_before*` and
+`reflection_before*`. Fresh production-density bake exited 0 at 05:06:30, original B calibration and independent
+radius selection (quilt 0.9 mm, PatchMatch 0.3 mm for all parts). Seam pairs increased **7,553 -> 26,466**;
+A5 improved **1.288293 / 1.300100 -> 1.184261 / 1.200921**, still failed. **A3 and single-source audit pass**;
+739,276 protected texels (143 fewer than the immutable baseline; not hidden). All four A4 rows still fail.
+See `seam_candidate.json`, `.log`, `.err`, `_run.json`, and `seam_candidate_cache.pkl`. These fixes do not pass WP5.
+
+The same intrinsic gradient probe on the repaired graph improved to **0.899908 / 1.043808**, still failed at 8.
+A multiplicative log-radiance variant avoided all clipping (six synthetic checks passed), but also failed at 8:
+**0.919714 / 1.058512**. Both are unadopted pre-reflection diagnostics, with all protected texels unchanged
+(`seam_neighbour_field.json`, `seam_log_field.json`). No screen length or proof offset was changed.
+
+**Boundary-condition diagnosis:** the zero-normal-slope prototype changed 492 pixels of an already correct affine
+image. Continuing the slope from two valid observed neighbours preserves it exactly and passes hidden-pixel and
+outside-pixel invariance (`boundary_slope_synthetic.json`). All 160 original cases were evaluated at the saved
+independently selected base radii; exit 0 at 05:25:27. Quilting+slope seed-0 fine energy is
+**0.223581 / 0.156040 / 0.136428 / 0.138020**, pooled **0.279221 / 0.174727 / 0.121274 / 0.121645**.
+Both temples improve, both brows still fail; this is not a production A4 pass. PatchMatch+slope's complete results
+are alongside in `boundary_slope_probe.json`. The unchanged donor-only selector is now being tested with this
+corrected boundary condition; previous source is preserved in `adaptive_v1/` and no previous result is overwritten.
+
+Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
 it has no boundary-value constraint. Test a general local boundary correction that preserves copied texture detail
 and never edits protected observations, against independently saved fixed holes (all five original seeds), before

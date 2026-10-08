@@ -6,11 +6,24 @@ not an automatic context handoff. Read PROGRESS.md's Active resume for the newes
 saved. A proved one-texel strip-coordinate adapter error has been repaired; 24 focused regression cases pass.
 Failed `quilt-cut` experiments improve boundary joins but still fail A4; their runtime API was withdrawn and source
 archived locally in `cut_experiment_v2/`. Whole-hole copying and boundary-corrected PatchMatch also fail overall.
-A5 seam-field diagnostics still fail; a curvature probe is running (PID 36632; consult its run JSON before any
-heavy job). B3 view 01 confirms a substantial projected-photo detail deficit on the left brow that persists without
-gains; the frozen result remains three failures / one pass. No new candidate is accepted, no thresholds changed,
-no paid calls or WP6 work. Next: finish/inspect A5 probe, independently test donor-only adaptive fill before running
-its fixed cases, then finish B3 views 03/05 and source-projection diagnosis. No final regression/reuse/appearance
+A5 seam-field and curvature experiments still fail; curvature overshoots were rejected. Donor-only adaptive fill
+passed ten truth-separation checks but still failed A4 on all original cases as a set. B3 view 01 confirms a
+substantial left-brow projected-photo deficit that persists without gains and when bypassing the atlas; the frozen
+result remains three failures / one pass. The coordinate fix is committed as `bd3b3eb`.
+
+Two further seam defects have independent synthetic reproducers: edge lookup into empty/wrong-chart gutters,
+and black gutter contamination of reflection. Their fixes have **27 focused tests passing**, with no change to
+the six-texel reflection band or frozen proof. Fresh default bake exited 0: **A3/provenance pass**, A5 improves to
+**1.184261 / 1.200921 but still fails**, all A4 rows still fail, protected support is 739,276 (143 fewer).
+Repaired-graph gradient and log-radiance probes also still fail at offset 8. B3 views 03/05 decompositions are done;
+their three original eligible rows still fail. View 05 right brow improves substantially without gains; a geometric
+front-reference fallback exited 0 at 05:30:06 but still failed both eligible held-out-05 rows (left/right spectrum
+0.398069 / 0.388148). No runtime gain policy changed. `adaptive_slope_probe.py` is now running; consult
+`adaptive_slope_probe_run.json` before another heavy job. Next: read that result (same donor-only selector,
+corrected observed-slope boundary condition; no hidden proof truth), and continue
+quality repair. The corrected boundary already preserves a synthetic affine field that the old prototype altered,
+and improves both temples' saved-case A4 energy; both brows remain failures. All evidence is local and unaccepted.
+No new candidate is accepted, no thresholds changed, no paid calls or WP6 work. No final regression/reuse/appearance
 acceptance proof has yet been run for a repaired candidate.
 
 This handoff was explicitly requested by the owner. It is not a context-limit event. Implementation baseline:
