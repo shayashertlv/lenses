@@ -16,7 +16,10 @@ drawn original A4 holes (four parts, five seeds, eight holes), with observations
 actual exit 0, source unchanged: **A4 fails all four parts, A5 fails both offsets, B3 fails six of the same seven
 eligible rows**. All six held-out views, five seeds per filler and A7 serial comparison ran without skips.
 `quality_019d321/proof_summary.json` indexes the complete evidence; no original B3 eligible row was dropped.
-Next: continue causal repairs; the owner research question about donor-only multiscale inpainting remains pending.
+Next: implement and independently test a researched donor-only multiscale/topology-aware fill method when the
+pending owner research arrives (`data/wp5/repairs_20261008/research_request.txt`). Tested fill families still fail;
+the separate gradient join cannot coordinate copied texture structure across charts. This is missing algorithmic
+input, not a waiver, a claim of impossibility, or an automatic context handoff.
 The current fresh AR evidence is diagnostic, not a final appearance acceptance.
 Full WP5 regression at **`019d321`** finished at 07:35:20:
 **340 passed, 1 expected xfail, no failures/errors/skips**, 1,252.40 s, actual exit 0. Runtime/tests were unchanged
@@ -35,7 +38,7 @@ another heavy job. The front-reference experiment exited 0 at 05:30:06; both ori
 eligible held-out-05 brow rows still fail. Seam-support fixes are committed as `ccf88df`.
 The full regression and repaired-code reuse check pass; no final quality acceptance or final AR verdict exists yet.
 
-**Complete proof and appearance, 08:11–08:28:** `quality_019d321_run.json` records PID 31236, start 07:45:29,
+**Complete proof and appearance, 08:11–08:25:** `quality_019d321_run.json` records PID 31236, start 07:45:29,
 finish 08:11:28, exit 0. A1, all six A2 checks, A3 and the single-source audit pass; A7 matches all six files exactly.
 A3 protects **738,664 texels** (755 below the immutable baseline); readback within one level is 0.999181,
 p99 dE00 0.836842. Selected radii remain quilt 0.9 mm and PatchMatch 0.3 mm for each part. Default A4 seed-0
@@ -62,6 +65,15 @@ existing 0.85–1.18 window; chroma criteria fail at every pair. Front hue resid
 5-degree criterion. Band-energy ratios at held-out +45 are brow **0.330**, temple **0.730**. Existing AR streak
 indices are **1.942** (-x at +45), **7.520/11.501** (+x at -30/-45), versus accepted **1.929/7.752/11.429**;
 these diagnostic indices supply no new pass threshold. All four immutable source/B/accepted hashes remain exact.
+
+At 08:29:30, `seam_texture_phase_control.py` exited 0. This independent synthetic control constructs one smooth
+strip pattern spanning two charts, then puts a phase-shifted copied pattern in an unprotected band. The existing
+gradient join sees only that guide and protected observations. It preserves the coherent control (only 0.338 RGB
+levels of rounding error) but reduces incorrect-fill RMSE only **9.789507 -> 9.468284**. All protected pixels remain
+exact; no clipping, solver residuals below 1e-7. Inspected `seam_texture_phase_control.png`: the join smooths the
+edge but leaves misplaced structure. This diagnoses a limitation of fixed-guide-gradient stitching, not an A5
+verdict or a proof that WP5 is impossible. Coordinate texture choices across charts in the next method; do not
+keep tuning a colour-offset solve against frozen proof offsets. No runtime change or new acceptance.
 
 **Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
 canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;

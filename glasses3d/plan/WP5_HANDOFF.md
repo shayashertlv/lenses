@@ -66,8 +66,15 @@ The new `quality_019d321/proof_summary.json` indexes all current evidence, inclu
 Current print calibration L* p50 residuals -5.22/-5.39, held-out contrast 0.650/0.824, chroma failures at all six
 pairs and front hue residual -5.25 degrees remain. AR streak indices -x +45 / +x -30 / +x -45 are
 1.942/7.520/11.501, without an invented threshold. All immutable source/B/accepted hashes remain exact.
-Next: continue causal quality repair, using the pending owner inpainting research if supplied. No quality or final
-AR acceptance is implied. Runtime remains `019d321`; later runtime edits need appropriate fresh validation.
+Next: implement and independently test a researched donor-only multiscale/topology-aware fill method when the
+pending owner research arrives; the complete question is `data/wp5/repairs_20261008/research_request.txt`.
+No quality or final AR acceptance is implied. Runtime remains `019d321`; later runtime edits need appropriate
+fresh validation. This is missing algorithmic input, not a waiver or automatic context handoff.
+An independent synthetic texture-phase control exited 0 at 08:29:30: fixed-guide-gradient stitching preserves
+the coherent control but leaves most copied-pattern misalignment (RGB RMSE **9.789507 -> 9.468284**); protected
+pixels exact, no clipping. The labelled sheet was inspected. `seam_texture_phase_control.json` records the
+solver evidence. This supports coordinating texture choices across charts, not tuning offset corrections to
+A5 or claiming that protected observations make it impossible. No runtime change was adopted.
 Context validation's first attempt
 failed before real cases on unsupported long-thin
 strip training; its global-donor fallback is repaired, failed evidence retained, and all ten poison/contract
