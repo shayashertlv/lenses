@@ -60,9 +60,10 @@ def _s1_case_b(rec: dict) -> float | None:
     proof record a diagnostic copied (rec["proof_record"]["s1_case_b_mm"])."""
     s1 = (rec.get("stages") or {}).get("S1") or {}
     # fit-4: what a perfect model transfers at the S1-fitted cameras is the instrument floor's truth
-    v = (((s1.get("instrument_floor") or {}).get("models") or {}).get("truth") or {}).get("R3_transfer_mm")
-    if v is None:
-        v = ((s1.get("theta_cases") or {}).get("cases") or {}).get(S1_CASE_B, {}).get("mean_mm")
+    if "instrument_floor" in s1:
+        v = (((s1.get("instrument_floor") or {}).get("models") or {}).get("truth") or {}).get("R3_transfer_mm")
+        return None if v is None else float(v)  # an unmeasurable floor must not borrow ideal-line evidence
+    v = ((s1.get("theta_cases") or {}).get("cases") or {}).get(S1_CASE_B, {}).get("mean_mm")
     if v is None:
         v = (rec.get("proof_record") or {}).get("s1_case_b_mm")
     return None if v is None else float(v)
@@ -401,17 +402,18 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
                "pass": bool(r2["pass"])}
     # R3 transfer: candidate, delivered, slab (each at its own 05 / 02 cameras)
     glines = {k: {cn: tuple(v) for cn, v in d.items()} for k, d in p2.get("guide_lines", {}).items()}
-    tr = {}
+    tr, transfer_details = {}, {}
     for lab in (C, S, D):
         f = cache[lab]
         ctx = RF.Context(job, {k: f[k] for k in ("05", "02")}, {}, (), glines)
-        tr[lab] = RF.transfer_all(ctx, models[lab])["mean_mm"]
+        transfer_details[lab] = RF.transfer_all(ctx, models[lab])
+        tr[lab] = transfer_details[lab]["mean_mm"]
     lim = {"max_mm": RR.R3_TRANSFER_MAX_MM,
            "delivered_minus_margin_mm": None if tr[D] is None else tr[D] - RR.R3_TRANSFER_MARGIN_MM,
            "slab_minus_margin_mm": None if tr[S] is None else tr[S] - RR.R3_TRANSFER_MARGIN_MM}
     binding = min((v for v in lim.values() if v is not None), default=None)
     s1b = _s1_case_b(pf.rec)
-    g["R3"] = {"transfer_mm": tr, "limits": lim, "binding_limit_mm": binding,
+    g["R3"] = {"transfer_mm": tr, "transfer_details": transfer_details, "limits": lim, "binding_limit_mm": binding,
                "frame": "05 refit camera (theta 0) -> 02 refit camera and theta (graded by S1 in a common frame)",
                # the comparison the owner's R3 decision needs (open_owner_decisions): what a PERFECT model transfers
                "s1_case_b_true_temple_mm": s1b,

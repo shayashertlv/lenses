@@ -507,7 +507,7 @@ def test_fit_retraces_before_every_camera_block(monkeypatch):
     assert calls == [("block", m0), ("retrace", m0 + 1), ("block", m0 + 1), ("retrace", m0 + 2), ("block", m0 + 2)]
     assert res["spec"]["outline"]["top"][0][1] == m0 + 2 and res["final_outline_retraced"]
     assert [h["outline_retraced_before_block"] for h in res["history"]] == [False, True]
-    assert res["fit_version"].startswith("fit-4")                 # fit-4 keeps fit-3's re-trace order
+    assert res["fit_version"].startswith("fit-5")                 # fit-5 keeps fit-3's re-trace order
 
 
 def _box(lo, hi):

@@ -101,13 +101,16 @@ def instrument_floor(sj, truth, slab, fits: dict, glines: dict) -> dict:
         ctx = RF.Context(sj, {k: fits[k] for k in ("05", "02") if k in fits}, {}, (), glines)
         tr = RF.transfer_all(ctx, m) if ("05" in glines and "02" in glines) else None
         out["models"][lab] = {"R2": _r2(sj, m, fits), "R3_transfer_mm": None if tr is None else tr["mean_mm"],
+                              "R3_transfer": tr,
                               "R3_per_crease": None if tr is None else
                               {c: (None if v is None else v["mean_abs_mm"]) for c, v in tr["per_crease"].items()}}
     t, sl = out["models"]["truth"], out["models"]["slab"]
     stop = []
     if not t["R2"]["pass"]:
         stop.append("the TRUE temple fails R2 at the S1-fitted cameras")
-    if t["R3_transfer_mm"] is None or not t["R3_transfer_mm"] <= RR.R3_TRANSFER_MAX_MM:
+    if t["R3_transfer_mm"] is None:
+        stop.append("the TRUE temple has no complete R3 transfer measurement")
+    elif not t["R3_transfer_mm"] <= RR.R3_TRANSFER_MAX_MM:
         stop.append(f"the TRUE temple transfers {t['R3_transfer_mm']} mm > R3_TRANSFER_MAX_MM")
     if sl["R2"]["pass"]:
         stop.append("a zero-relief slab passes R2 at the S1-fitted cameras")

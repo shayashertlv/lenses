@@ -93,8 +93,9 @@ PENALTY = 10.0
 #   fit-4: the measured relief cue (relief_cue: photo crease steps under the matched light, 05 x 02 triangulated
 #          X_C - X_B) and the hinge constraint (relief_hinge) in the objective; no hinge angle in a side view (theta 0,
 #          the camera alone: relief_views.SIDE_THETA_WHY); dn >= 3 deg also at facet / base creases (the pyramid's A-B)
-FIT_VERSION = ("fit-4 (2026-10-07): fit-3 + the measured relief cue (crease steps, triangulated C - B), the hinge "
-               "constraint, no hinge angle in a side view")
+#   fit-5: retain every paired photo crease in R3; a failed transfer makes the measurement incomplete and the
+#          shape infeasible instead of averaging the remaining creases or charging zero transfer loss.
+FIT_VERSION = ("fit-5 (2026-10-08): fit-4 + fail closed on incomplete paired-crease transfer")
 
 
 def _hat(d, a, b, c):
@@ -315,6 +316,8 @@ def objective_many(ctx: Context, specs: list, *, details: bool = False, pool: "F
 
 def _reduce(ctx: Context, vt: dict, ex: dict, details: bool):
     """The objective's sum, in the one fixed order both paths use."""
+    if ex["tr"] is not None and ex["tr"]["missing_creases"]:
+        return (INFEASIBLE, {"refused": "incomplete_transfer", "transfer": ex["tr"]}) if details else INFEASIBLE
     total = 0.0
     parts = {}
     for k in ctx.views:
@@ -425,19 +428,33 @@ def cue_terms(ctx: Context, model) -> dict:
 
 
 def transfer_all(ctx: Context, model) -> dict:
+    """Mean over ALL photo creases observed in both views, in source order.
+
+    Eligibility comes from the photos, never from which rays hit a candidate.
+    A missing/invalid transfer invalidates the aggregate, while retaining each
+    result for diagnosis. Unpaired lines have no cross-view observation and are
+    reported separately; they do not enter R3 for any compared model.
+    """
     from .relief_check import crease_transfer
     out = {}
-    vals = []
+    vals, missing = [], []
+    lines05, lines02 = ctx.guides_lines.get("05", {}), ctx.guides_lines.get("02", {})
     f05, f02 = crease_fit(ctx.fits, "05"), crease_fit(ctx.fits, "02")
-    for cname, l05 in ctx.guides_lines.get("05", {}).items():
-        l02 = ctx.guides_lines.get("02", {}).get(cname)
+    for cname, l05 in lines05.items():
+        l02 = lines02.get(cname)
         if l02 is None:
             continue
         t = crease_transfer(ctx.job, model, f05["theta"], f05["camera"], f02["camera"], f02["theta"], l05, l02, near=1)
         out[cname] = t
-        if t is not None:
+        if t is not None and np.isfinite(t["mean_abs_mm"]) and t["mean_abs_mm"] >= 0:
             vals.append(t["mean_abs_mm"])
-    return {"per_crease": out, "mean_mm": float(np.mean(vals)) if vals else None}
+        else:
+            missing.append(cname)
+    complete = bool(out) and not missing
+    return {"per_crease": out, "mean_mm": float(np.mean(vals)) if complete else None,
+            "complete": complete, "required_creases": list(out), "missing_creases": missing,
+            "unpaired_creases": {"05": [c for c in lines05 if lines02.get(c) is None],
+                                 "02": [c for c in lines02 if lines05.get(c) is None]}}
 
 
 # --------------------------------------------------------------------------------------------- the fit

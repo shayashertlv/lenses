@@ -2,9 +2,10 @@
 
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
-Code review/cleanup is committed at `d5e5917`. The owner now requests resuming WP6 in another session.
-This handoff authorizes offline diagnosis and repairs; no new experiment has been started in this session.
-Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md). No process is active. WP6 has not passed its quality proof.
+Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.
+The saved S1 failure has been reproduced; the latest diagnosis and repair are recorded below.
+Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) with PROGRESS's current Active resume.
+WP6 has not passed its quality proof. Offline diagnosis and repairs remain authorized under unchanged gates.
 
 ## Current gate
 
@@ -23,6 +24,50 @@ authorized diagnosis and corrections aimed at making the unchanged proof valid a
 | R3 relative bound | Delivered 0.693722 mm minus the required 0.5 mm gives 0.193722 mm, below the recorded exact-line truth floor. Both comparator clauses remain binding. |
 | Hand-traced candidate | Fails G1/G2/R1/R3/R4. Its r_C=3.35 mm is a front-bound cap, not measured relief. No candidate is promoted. |
 
+### Latest offline diagnosis and repair (2026-10-08)
+
+The saved measured and exact-line values above reproduce to better than 1e-6 mm, without refitting. New evidence
+is under `data/wp6/s1_floor_resume_20261008/`; earlier evidence is unchanged. At the saved fitted cameras:
+
+| 05 source lines | 02 target lines | True-model transfer |
+|---|---|---|
+| Measured | Measured | 0.910923 mm |
+| Measured | Exact diagnostic | 0.256265 mm |
+| Exact diagnostic | Measured | 0.929841 mm |
+| Exact diagnostic | Exact diagnostic | 0.274915 mm |
+
+The angled guide endpoints carry about 3–7 px error. All 16 sign combinations of those same magnitudes were
+replayed: at fitted cameras **6/16** exceed 0.7 mm (range **0.411172–0.945888 mm**); even at true cameras and true
+theta **2/16** exceed it (range **0.498779–0.735411 mm**). The original measured sign case at true cameras is
+0.606088 mm. These oracle/error-decomposition cases are diagnostics only, not additional acceptance gates.
+No favourable sign or camera is used
+to replace the recorded S1 gate, and no comparator clause is waived.
+
+An independent planar control exposed a separate R3 omission defect: one paired crease could miss the model,
+be discarded from the mean, and leave an almost-zero score from the other crease. The same loss of evidence
+could reduce the fit objective. The repair makes any failed paired transfer invalidate the mean and refuse the
+objective; incomplete evidence is not photo curvature for sigma. Reports retain required/missing/unpaired
+crease names and per-crease results. A missing measured floor no longer falls back to an ideal-line score.
+All valid scores keep their existing arithmetic and weighting. **FIT_VERSION is fit-5**; old fit-4 S1 caches
+are historical replay inputs, not resumable current acceptance evidence.
+
+Validation: **110 distinct affected tests passed, 2 existing expected failures, no skips**, across the 340.26 s
+regression, focused rerun and 24 line-calibration cases. The regression's only unexpected failure was a stale
+fit-4 version assertion; it now expects fit-5 and passed its focused rerun. The serial/pool equivalence tests
+passed with their existing three-worker pool. Logs/PIDs/times/exit codes are in `regression/`,
+`regression_followup/`, `calibration/` and `process_note.json` under the new evidence folder.
+
+The 24 independent analytic blurred-step cases prove that guide correction is not residual error: correction
+**4.169228–6.060273 px**, actual residual **0–0.084030 px**, over three orientations, two blur widths and every
+sign pair of 6 px guide displacement. This does **not** estimate the real photos' systematic errors or justify
+lowering S1's injected errors. Ambiguous edges, highlights, decals and occlusion still need independent controls.
+
+Historical real-photo R3 comparators were replayed without refitting: handtrace **1.010717 mm**, fitted slab
+**0.864184 mm**, delivered **0.693722 mm**, all exactly unchanged with both AB and BC measured at 25/25 samples.
+The binding limit is still **0.193722 mm**. See `comparators.json` for per-crease values and input hashes.
+The frozen files below remain unchanged. No full product fit, geometry promotion, integration enablement,
+paid run or push has occurred. All recorded checks have exited; no long run is left active.
+
 Frozen files remain byte-identical:
 
 - `g3d_host/relief_rules.py`: `7c22eab7b32327f61140fc7982883db9d6be3bbd2c0fbdce8b04d25a7da062cc`
@@ -39,6 +84,7 @@ Frozen files remain byte-identical:
 | Frozen gates | `g3d_host/relief_rules.py` and the S1 dependency table above |
 | Proof and instrument-floor logic | `tests/proofs/wp6_prada.py`, `wp6_prada_stages.py`, `wp6_theta_frame.py` |
 | Saved diagnostics | `tests/proofs/wp6_s1_floor_check.py`, `wp6_handtraced.py`; results under ignored `data/wp6/` |
+| Explicit read-only replay | `tests/proofs/wp6_s1_replay.py`; new output folder, hashes, camera/line decomposition and all target-error signs |
 
 The proposed names `g3d_host/temple_views.py`, `temple_trace.py`, `temple_fit.py` and `g3d/geom/` in the original
 design are historical names, not missing files to recreate. Public `g3d`/CLI temple operations, exporter
@@ -64,12 +110,16 @@ The static review covers **294 Python files / 108 runtime modules**, with no syn
 conflict markers or prohibited tracked assets. The complete cleanup diff/new files were re-reviewed.
 These checks do not replace the retained WP6 product-quality failures above.
 
-## First work in the next session
+## Next repair step
 
-Start from the saved S1 instrument-floor failure. Review `wp6_prada.stage_s1`, `wp6_theta_frame.instrument_floor`
-and the recorded guide/camera errors before choosing a repair. Establish an independent reproducer and improve
-the evidence or method under unchanged gates; do not start another full product fit without resolving the
-instrument issue. A future rule-set redesign needs independent calibration and design review before fitting.
+The saved S1 replay, input-error isolation and clean-step calibration above are complete. The next step is
+independent calibration of the angled-line evidence under parallel edges, highlights, decal contamination,
+occlusion and image noise. Distinguish guide correction from residual line error using known geometry/image
+controls, retain all existing guide-error stress cases, and validate any correction independently
+before changing the measurement path. The analytical transfer controls pass; changing the R3 distance formula
+or further fitting a product is not supported by this diagnosis. Camera correction alone cannot make every
+retained error case pass. Do not lower the injected error sizes or select favourable signs; no new evidence has
+yet justified that. A future rule-set redesign still needs independent calibration and design review before fitting.
 
 Keep earlier proof folders immutable and write new evidence to a new folder. Preserve the fitted slab comparator,
 every view, thresholds and the full R3 conditions. Size one CPU pool to free commit memory, run long jobs detached
@@ -92,11 +142,18 @@ Paths below are relative to `glasses3d/`; do not resume a writer in an old evide
 | Photo/model inventory | `data/reference/prada/manifest.json`; all six photo roles are in PLAN §5 |
 | Source scene | `automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend` relative to the repository root; SHA-256 `56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06` |
 
-First reproduce the stored true-model transfer **0.910922590046477 mm** (AB **0.9860298146578254**, BC
+The completed replay reproduced the stored true-model transfer **0.910922590046477 mm** (AB **0.9860298146578254**, BC
 **0.8358153654351288**) and exact-line result **0.27491460569920634 mm** from the same saved fits. Read
 `wp6_s1_theta_check.rebuild_s1`, `wp6_s1_floor_check.exact_from_measured`, `wp6_theta_frame.instrument_floor`
-and `relief_fit.transfer_all`; check the saved camera/truth hashes before using them. The rebuild helper reads
-the default Prada camera basis, so verify that it is exactly the recorded basis above.
+and `relief_fit.transfer_all`; check the saved camera/truth hashes before using them. Prefer the new explicit
+replay, which supplies and verifies the camera basis rather than relying on the helper's legacy default:
+
+```powershell
+& C:/Users/Shay/PycharmProjects/lenses/glasses3d/.venv/Scripts/python.exe -u -B -m glasses3d.tests.proofs.wp6_s1_replay --proof-dir C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/wp6/proof2 --cameras C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/wp6/wp3b_glossy/cameras.json --out-dir NEW_ABSOLUTE_DIRECTORY
+```
+
+Set BLAS thread limits before imports and use the logged detached runner convention below. Successful exit 0
+means the diagnostic reproduced the record, not that STOP-I passed. Do not rerun simply to resume this checkpoint.
 
 **Legacy script caveat:** bare `python -m ...wp6_s1_floor_check` or `...wp6_s1_theta_check` reads older
 `data/wp6/proof/` and writes fixed historical output paths. Do not run those bare commands for this resume.

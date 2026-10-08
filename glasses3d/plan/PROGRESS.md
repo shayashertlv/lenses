@@ -2,13 +2,15 @@
 
 ## Active resume — WP6 (2026-10-08)
 
-The owner requested a new-session handoff for **resuming WP6**, including removal of obsolete instructions.
-This is an explicit handoff request, not a measured 80% context event. No run is active.
+WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
+The saved S1 failure has now been reproduced and decomposed; do not repeat the initial diagnosis or start a
+product fit. The current repair/checkpoint is described below. No paid run or push has occurred.
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
-continue offline WP6 diagnosis and repairs under unchanged gates. Start with the saved S1 instrument-floor
-failure, reproduce it from saved inputs and isolate its cause before another full product fit.
+continue offline WP6 diagnosis and repairs under unchanged gates. Next, independently calibrate the angled-view
+line measurement and its residual uncertainty, retaining the original guide-error cases as stress controls.
+The original measured S1 still fails; do not start another full product fit yet.
 **STOP-I blocks acceptance and downstream promotion, not diagnosis or repairs intended to resolve it.**
 KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver decision.
 
@@ -20,16 +22,56 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | Core/proof infrastructure built; STOP-I still fails. This is the next active repair task. |
+| WP6 | STOP-I still fails; saved S1 reproduced. Incomplete R3 transfers now fail closed. Line-evidence calibration remains the next repair task. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
+
+## Offline repair checkpoint — 2026-10-08
+
+- **Diagnosis:** `data/wp6/s1_floor_resume_20261008/final_replay/replay.json` reproduces the measured truth
+  **0.910922590046477 mm** and exact-line **0.2749146056992064 mm** without fitting. At the saved cameras,
+  exact 02 lines with measured 05 lines give **0.256265 mm**; measured 02 with exact 05 gives **0.929841 mm**.
+  All 16 signed 02 endpoint-error combinations are retained: **6/16** exceed 0.7 mm at fitted cameras
+  (max **0.945888 mm**); even true cameras/theta leave **2/16** over 0.7 (max **0.735411 mm**).
+  Oracle cameras and the sign sweep are diagnostics, not replacement evidence or additional acceptance gates.
+- **Proven defect and repair:** an independent planar fixture with closed-form 10 px/mm projection showed that
+  losing one of two paired creases produced an almost-zero R3 mean and fit loss. `transfer_all` now retains all
+  paired photo creases, rejects incomplete/nonfinite measurements, and makes their fit objective infeasible.
+  Sigma cannot treat that refusal as measured curvature. S1/GATES reports retain per-crease completeness;
+  a missing measured floor cannot fall back to ideal-line evidence. `FIT_VERSION` is now **fit-5**, so old fit-4
+  proof caches cannot be resumed as current proof. Valid measurements retain their formula and equal weighting.
+- **Replay entry point:** `tests/proofs/wp6_s1_replay.py` requires explicit proof/camera/new output paths, checks
+  source/camera/rules/dependency and rebuilt-truth hashes, and writes no historical inputs. It is a diagnostic,
+  not a proof or a waiver. `rebuild_s1` now accepts an explicit camera path.
+- **Validation:** 12 focused integrity controls passed after the fixes. The affected regression in
+  `data/wp6/s1_floor_resume_20261008/regression/` first recorded 85 passes, 2 existing expected failures and one
+  stale fit-4 version assertion. Updating that assertion for fit-5 and rerunning it with the new controls gave
+  **18 passed** (`regression_followup/`). The 24 independent line-calibration cases below also passed:
+  **110 distinct affected tests passed, 2 retained expected failures**, no skips. The long run took 340.26 s;
+  its three-worker determinism checks passed. No unrelated WP5/AR suite was rerun.
+- **Independent line calibration:** 24 analytic blurred-step controls cover three orientations, two blur widths
+  and every sign pair of 6 px guide displacement. Actual residual error is **0–0.084030 px** while the existing
+  click-to-snap measure reports **4.169228–6.060273 px**. This proves these are different quantities, not the
+  real photos' uncertainty. Real highlights, decals and parallel edges remain uncalibrated; the conservative
+  S1 error injection is unchanged. See `tests/test_temple_line_error_calibration.py` and `calibration.xml`.
+- **Comparators preserved:** `comparators.json` replays the historical handtrace **1.010717 mm**, fitted slab
+  **0.864184 mm** and delivered **0.693722 mm** exactly. All retain AB and BC, both 25/25 hits. The real-photo
+  R3 binding limit remains **0.193722 mm**. Source/evidence hashes match; no comparator was fitted again.
+- **Decision:** retain STOP-I, R1, all R3 clauses, every view and both real-photo comparators. The valid transfer
+  arithmetic agrees with analytic controls; no numerical ray-transfer defect was found. A fresh product fit
+  is not justified while the original measured S1 still fails. Both camera and line errors contribute; next
+  work must establish independently
+  supported line evidence beyond the clean analytic cases (parallel edges, highlights, decal contamination,
+  occlusion and image noise), distinguish guide correction from residual measurement error, and review
+  any proposed method against the full retained error cases before rerunning S1. Do not reduce the injected
+  errors, select signs, widen thresholds, or substitute oracle cameras to obtain a pass.
 
 ## Latest committed checkpoints
 
 - `4304c1d`: exact owner-selected observed-slope + Poisson default and WP5 closeout.
 - `d5e5917`: code review/cleanup for WP6: accurate CLI failure receipts, explicit-camera refusal, cache ignore
   correction, current module map and resolved R1 diagnostic wording.
-- The documentation-only commit containing this handoff follows `d5e5917`: active guidance now targets WP6;
+- `ad5105e`: documentation-only resume handoff after `d5e5917`; active guidance now targets WP6;
   superseded progress/resume text is archived, the obsolete WP5 session prompt is removed, and WP2's stale WP5
   prerequisite wording is corrected. Runtime, thresholds and local evidence are unchanged.
 

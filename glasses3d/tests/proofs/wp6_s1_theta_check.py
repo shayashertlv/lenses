@@ -64,7 +64,7 @@ def transfer_cases(sj, truth, fitted: dict, theta_true: dict) -> dict:
     return out
 
 
-def rebuild_s1(rec: dict):
+def rebuild_s1(rec: dict, *, cameras_path: str | Path | None = None):
     """(job, synthetic job, truth model, S1 record) rebuilt from a proof record: the truth from `truth_params` with the
     record's topology (checked against `truth_spec_sha256`), the true cameras and theta from the S1 record
     (`truth_cameras` / `truth_theta`, s1-4 on: the side views carry a hinge angle) or, for an older record, the
@@ -81,7 +81,7 @@ def rebuild_s1(rec: dict):
     truth_spec = builder(**truth_p)
     if _spec_sha(truth_spec) != s1["truth_spec_sha256"]:
         raise SystemExit("the rebuilt S1 truth differs from the recorded one (truth_spec_sha256)")
-    job = RV.Job("prada")
+    job = RV.Job("prada", cameras_path=cameras_path)
     truth = RV.Model.from_spec(job, truth_spec, "S1 truth")
     if s1.get("truth_cameras") and s1.get("truth_theta"):
         cams = {k: Camera.from_dict(c) for k, c in s1["truth_cameras"].items()}
