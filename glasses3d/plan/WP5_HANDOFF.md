@@ -1,5 +1,23 @@
 # WP5 quality repair handoff — active repairs 2026-10-08
 
+**Latest owner request: show every experiment for their visual decision.** The review artifact is
+`data/wp5/repairs_20261008/owner_review/index.html`, verified to work directly from disk without a server.
+Its 48 entries include all 15 saved complete textures with new matched photo/AR/worn renders; five patch families
+with all 160 saved cases each; ten fixed-case replay families with zero saved-metric mismatches; early cut-quilt
+sheets; all seven saved held-out decompositions; synthetic controls; and seven explicitly numerical-only entries.
+The latter never produced candidate images. New captures/replays are labelled honestly and all historical assets
+are unchanged. `capture_manifest.json`, `patch_manifest.json`, `catalog_audit.json` and `ui_qa.json` in that
+directory record identities, source preservation, 5,332 valid image/report links, camera/geometry controls and
+the browser navigation checks. `all_texture_experiments.png` is the labelled compact overview.
+Capture, replay-v2 and catalog phases all exited 0; PROGRESS Active resume records times and packaging limitations.
+A local-server launch was blocked by automatic approval review; use the verified file-based gallery.
+Codex open requests were queued, not confirmed visible. No new pipeline change or paid run was made.
+
+The owner has supplied **no visual acceptance/rejection of these experiments yet**. Earlier assistant descriptions
+of appearance and decisions against technical integration are not owner verdicts. Preserve them as historical
+observations, with this clarification taking precedence. Present the evidence for the owner's assessment;
+numerical gates remain independent, WP5 incomplete, and WP6 STOP-I. The repair/research state below is unchanged.
+
 **Live repair update:** the current session started clean at `8007c18`. This update is ongoing bookkeeping,
 not an automatic context handoff. Read PROGRESS.md's Active resume for the newest run status. Local evidence is
 `data/wp5/repairs_20261008/`; baseline replay exactly matches the accepted PNG and all 160 original A4 holes are

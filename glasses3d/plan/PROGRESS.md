@@ -5,6 +5,36 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Owner visual-review request, 2026-10-08:** the owner explicitly reaffirmed that visual decisions belong to
+them and asked to see the evidence of every experiment. The local gallery is
+`data/wp5/repairs_20261008/owner_review/index.html`; open this file directly in a browser (no server needed).
+It contains **48 entries**: 15 complete texture variants, 16 patch-experiment entries, seven held-out
+decompositions, seven numerical-only experiments/controls, two independent visual controls and the latest
+comparison sheets. The 15 texture variants have new matched photo-angle, AR-pose and worn renders on identical
+model copies using the exact saved PNGs, without further colour calibration. These are explicitly new review
+captures, not original historical captures. Five patch families expose all 160 retained cases each; ten families
+replay the fixed first two seed-0 cases per originally available part, with **zero mismatches** against saved
+metrics. The oldest boundary probe originally covered brows only. Numerical-only entries explicitly have no
+candidate image; none is invented. Saved inputs and B/accepted references are unchanged.
+
+`owner_review_capture_run.json` (09:28:08–09:31:29), `owner_review_patches_v2_run.json`
+(09:34:04–09:34:52), and `owner_review_catalog_run.json` (09:41:01–09:41:23) all record actual exit 0.
+The initial patch packaging attempt's missing-temple-report error is preserved; v2 limits replay to the original
+scope. `owner_review/catalog_audit.json` verifies **5,332 image/report references, no missing assets**, unchanged
+sources and matching geometry/cameras. `ui_qa.json` records browser checks of all 48 entries, first/last patch
+cases, search and image enlargement, with no page errors; the gallery works from a local file URL. A labelled
+18-panel overview is `owner_review/all_texture_experiments.png` (photo, B, accepted, then all 15 experiments).
+Automatic approval review blocked starting a local HTTP preview server, giving only "blocked by policy";
+the verified file-based gallery avoids that server. Codex open requests were queued, not confirmed visible.
+No pipeline/runtime changes, paid calls, uploads or pushes were made for this review request.
+
+**Appearance authority:** earlier narrative descriptions such as "inspected", "rejected", ripples or lost
+structure are the assistant's observations/technical integration decisions, not owner visual verdicts. The
+gallery records every new owner visual verdict as pending. Keep the historical evidence intact; do not turn
+numerical failure into an owner rejection, or visual preference into a frozen-proof pass. WP5 remains incomplete
+and WP6 gated. The immediate task is to present this evidence and discuss the owner's visual assessment; the
+remaining repair/research status below is unchanged.
+
 **Repair session in progress, starting from clean `8007c18`.** Read the current rule/design/handoff stack and
 saved G1 quality evidence. No paid calls, threshold changes, waiver, or WP6 work. Historical accepted assets remain
 immutable. Local evidence directory: `data/wp5/repairs_20261008/`; `saved_failure_map.json` preserves the complete
