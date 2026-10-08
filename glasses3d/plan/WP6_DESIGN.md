@@ -1,5 +1,10 @@
 # WP6 faceted temples: final design
 
+**Current status (2026-10-08): STOP-I retained; implementation already exists.** Read
+[WP6_READINESS.md](WP6_READINESS.md) for actual module paths, retained instrument failures and the next starting
+point. The original "Build it" verdict and predicted values below are design history, not current proof results.
+The 2026-10-07 delegated decision keeps R1 and every frozen R3 clause. WP5's owner closeout does not waive them.
+
 Written 2026-10-05 from the WP6 measurement and three independent designs, each prototyped at $0 on copies of the
 Prada PRS 17WS scene (`8c82…/agent/scene.blend`, copy sha256 56274deb… unchanged), its six photos and the WP3b cameras,
 in scratch `C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp6/`: tool-first **T** (`proto/`), measurement-first **M**

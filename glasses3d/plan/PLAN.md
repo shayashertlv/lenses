@@ -413,6 +413,9 @@ Do not reinstate unregistered view blending or reopen completed WP5 without a ne
   procedural texture, stop and report before building more.
 
 ### WP6: Faceted temples
+**Current status:** built but gated by STOP-I; see [WP6_READINESS.md](WP6_READINESS.md) before resuming.
+The outline below is historical. R1 and all frozen R3 clauses remain unchanged.
+
 - **Tool `g3d.faceted_temple(...)`** (Blender, numpy). Inputs: side outline, top-view width profile, crease polylines,
   relief heights per facet or node, hinge end and tip. Output: a closed solid with exactly planar facets, sharp edges
   marked, and a flat inner face where the photos show one.

@@ -5,6 +5,34 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**WP6 readiness review after WP5 closeout:** the owner requested "please commit. then review the codebase and
+clean it for us to be ready to start with wp6". WP5 was committed first as **`4304c1d`**, with the exact selected
+default and owner acceptance. Review then found and fixed batch-CLI false success on failed output writes,
+unknown batch operations falling through, and explicit missing WP6 camera paths silently falling back.
+The CLI is now import-safe. A local ignore rule prevents the root fixture allowlist from re-including bytecode.
+Seven regression reproducers failed before the fixes; all **nine focused controls pass** after them.
+
+Read [WP6_READINESS.md](WP6_READINESS.md) for the actual module map, saved STOP-I evidence and first diagnostic
+step when WP6 is requested. Design/prompt/agent entry points were cleaned up; historical measurements, scripts
+and assets remain intact. Static review passes for **294 Python files / 108 runtime modules**: syntax,
+runtime/test and Blender/host import boundaries, conflict markers and prohibited tracked assets. No dependency,
+geometry algorithm, frozen rule or S1 table changed. Readiness regression, actual PID **3344**, completed
+**19:36:37–19:46:42 +03, exit 0**, logged under `data/readiness_20261008/`:
+
+- Full temple tests plus CLI Blender smoke tests: **227 passed, 2 existing strict xfails**, no skips,
+  **541.85 s**. One benign already-imported-dash pytest warning. The xfails retain R1 calibration and F1-rise
+  identifiability failures; they do not pass WP6 quality gates.
+- AR `npm run check`: pass; `npm test`: **500/500**; `npm run test:qa`: **106/106**, no skips or failures.
+- Runtime source hashes stay unchanged across the run. Frozen WP6 hashes and approved/prior texture assets
+  match their stored identities; `source_audit.json` and `final_audit.json` record the checks.
+- After the suite, corrected only R1's stale "open owner decision" diagnostic text to the resolved KEEP R1
+  decision. Its assertion, threshold and strict xfail remain; isolated recheck: **1 xfail, exit 0, 1.05 s**.
+
+Full diff and new-file re-review complete. No review finding remains open within this cleanup scope; no process
+is active. No new WP6 acceptance proof, paid call, push or live-app change. The cleanup commit containing this
+entry follows `4304c1d`. **Ready for the next WP6 diagnosis request**, beginning at the saved S1 instrument-floor
+failure under unchanged STOP-I/R1/R3. Do not automatically start another fit or reopen WP5.
+
 **Latest owner decision: WP5 done; observed-slope join + Poisson is the default.** Exact instruction:
 "Observed-slope join + Poisson is the best, set it and mark wp5 as done". This supersedes the earlier
 repair-until-all-proofs-pass completion condition. Completion is by owner appearance acceptance; no numerical
@@ -31,7 +59,7 @@ output path difference in the manifest. Both initial diagnostic failures are ret
 The previous Poisson-only runtime's A4 all-four failures, A5 offset-8 failure and B3 six-of-seven failures remain
 historical evidence, not measured results for this new variant. Single-source 0% pixel verification / A0 / B1 / B2
 diagnostics remain explicit. Thresholds and instruments are unchanged. WP6 remains STOP-I with R1/R3 frozen.
-Next authorized task: commit this default/owner closeout, then review and clean code for WP6 readiness.
+Default/owner closeout committed as `4304c1d`; the subsequent readiness review is recorded above.
 Do not restart WP5 repair experiments or request another visual verdict for the same asset.
 
 ### Earlier WP5 activity (historical; superseded by the owner closeout above)

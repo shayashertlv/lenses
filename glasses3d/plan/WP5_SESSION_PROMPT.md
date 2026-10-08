@@ -9,8 +9,9 @@ continue WP5 until every proof passes; preserve historical failed measurements a
 The exact selected variant has not had a full independent A4/A5/B3 proof. Keep numerical thresholds unchanged.
 Do not restart WP5 experiments, rerun G1 or seek another appearance verdict for the same approved asset.
 
-My next request was: commit, then review and clean the codebase so we are ready to start WP6.
-Follow the latest readiness review in Active resume. WP6 STOP-I, R1 and all frozen R3 clauses remain in force;
+My next request was: commit, then review and clean the codebase so we are ready to start WP6. That review is
+complete. Follow WP6_READINESS.md and Active resume for the next starting point; do not repeat the cleanup.
+WP6 STOP-I, R1 and all frozen R3 clauses remain in force;
 preparation does not authorize bypassing them. Do not automatically start WP6 implementation or paid runs.
 WP0/1/3/3b/4 are complete and tested. A–E, option-B promotion and G1 are done. WP2 A–C are verified;
 agent wrappers remain gated. WP7/8 have not started implementation.

@@ -21,7 +21,8 @@ PNG path. Initial wrapper/readback failures remain recorded; no runtime failure 
 Full independent A4/A5/B3 and full regression have not run for the selected variant. The prior regular-Poisson
 failures (A4 all four; A5 8 fails / 7 passes; B3 six of seven) remain attached to their original runtime and assets.
 No thresholds, seeds, eligible rows or instruments changed. G1 remains verified; do not redo it.
-Next: commit, then the owner's requested code review/cleanup for WP6 readiness. WP6 remains **STOP-I**;
+WP5 default/closeout committed as `4304c1d`. Next work is recorded in [WP6_READINESS.md](WP6_READINESS.md).
+WP6 remains **STOP-I**;
 R1 and frozen R3 remain binding. Do not restart WP5 or automatically begin WP6 implementation.
 
 ## Historical WP5 work and proof requirements (not current task instructions)

@@ -7,8 +7,9 @@ another agent (e.g. Codex). These instructions translate the handoff for you.
 1. `glasses3d/plan/PLAN.md` §0 (the owner's rules), then the rest of PLAN.md for context.
 2. `glasses3d/plan/PROGRESS.md`: **Active resume** and its current status table. It supersedes historical status and
    RESUME HERE entries. Latest owner instructions take precedence over all repository documents.
-3. `glasses3d/plan/WP5_HANDOFF.md` fully, then `WP5_DESIGN.md` and the current/protocol entries of `PORT_REVIEW.md`
-   it identifies. WP5 is complete by the owner's 2026-10-08 visual acceptance of observed-slope join + Poisson;
+3. `glasses3d/plan/WP6_READINESS.md` for the next work package, then `WP6_DESIGN.md` for its historical design.
+   `WP5_HANDOFF.md` records the closed WP5 task; read its current closeout before changing print code.
+   WP5 is complete by the owner's 2026-10-08 visual acceptance of observed-slope join + Poisson;
    this is not a claim that every numerical quality gate passed. A–E, option-B promotion and G1 are complete;
    do not redo them. Historical handoffs and workflow results are evidence, not current task instructions.
 
@@ -25,7 +26,8 @@ another agent (e.g. Codex). These instructions translate the handoff for you.
   `Workflow({resumeFromRunId})` and the `.js` workflow scripts there are Claude-only: read them as documentation, don't
   run them.
 - **"Claude" in the docs means the coding agent, i.e. you.** The delegated WP6 decision is resolved:
-  KEEP STOP-I, KEEP R1 and KEEP all frozen R3 clauses, no waiver. Do not revisit WP6 during this WP5 task.
+  KEEP STOP-I, KEEP R1 and KEEP all frozen R3 clauses, no waiver. WP6 preparation is authorized; do not bypass
+  these gates or infer that the owner requested another full fit.
 - **"Claude memory"** = plain markdown files in `C:\Users\Shay\.claude\projects\C--Users-Shay-PycharmProjects-lenses\memory\`.
   PROGRESS §6 already copies the essentials; read the files only if you need detail.
 - **Astra ≠ you.** Astra is OpenAI `gpt-6-astra`, called BY the pipeline through the API, and every call is paid.

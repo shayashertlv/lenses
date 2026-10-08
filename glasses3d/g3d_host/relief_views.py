@@ -78,6 +78,9 @@ def rot_about_hinge(P: np.ndarray, side: int, theta: float, axis_xz) -> np.ndarr
 # --------------------------------------------------------------------------------------------- job
 class Job:
     def __init__(self, product: str = "prada", cameras_path: str | Path | None = None, matte_mode: str = "glossy_floor"):
+        # An explicitly requested basis must not silently fall back to a fixture.
+        if cameras_path is not None and not Path(cameras_path).is_file():
+            raise FileNotFoundError(f"explicit camera file does not exist: {cameras_path!s}")
         cfg = PRODUCTS[product]
         self.product = product
         self.cfg = cfg
@@ -88,7 +91,7 @@ class Job:
         self.hinge = dict(cfg["hinge"])
         self.matte_mode = matte_mode
         cams = None
-        for p in ([Path(cameras_path)] if cameras_path else []) + list(cfg["cameras"]):
+        for p in ([Path(cameras_path)] if cameras_path is not None else cfg["cameras"]):
             if Path(p).exists():
                 cams = json.loads(Path(p).read_text(encoding="utf-8"))
                 self.cameras_path = Path(p)

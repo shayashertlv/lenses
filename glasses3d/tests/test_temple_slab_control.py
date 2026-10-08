@@ -104,15 +104,15 @@ def test_crease_observables_separate_the_faceted_temple_from_the_slab(synth):
     assert any(f["flag"] == "SLAB" for f in gs["flags"]) and not any(f["flag"] == "SLAB" for f in gt["flags"])
 
 
-@pytest.mark.xfail(strict=True, reason="open owner decision: R1 (single-plane share <= 0.5 fails the synthetic "
-                                       "faceted truths; see the docstring)")
+@pytest.mark.xfail(strict=True, reason="retained R1 calibration failure (KEEP R1 decision 2026-10-07): "
+                                       "single-plane share <= 0.5 fails the synthetic faceted truths")
 def test_synthetic_faceted_truths_pass_r1():
     """R1 (single-plane share <= R1_SHARE_MAX, frozen 0.5) must be passable by the faceted temples the proof treats
     as truth; a gate nothing can pass decides STOP-P before any photo is read.
 
-    XFAIL (strict) until the owner decides R1 (WP6 fix round 1, 2026-10-06; marked xfail in fix round 2 so the suite's
-    exit code means something again): it stays visible as an expected failure, and turns into a FAILURE (XPASS) the
-    day R1 becomes passable, so the mark cannot outlive the decision. Measured with the shipped measure
+    The delegated 2026-10-07 decision keeps R1's definition and threshold, without a waiver. This strict XFAIL
+    retains the known calibration failure; an unexpected pass requires review rather than silently erasing it.
+    It is not a pending owner question. Measured with the shipped measure
     core: FX.prada_default 0.668 (best plane F2, the 617 mm^2 facet), the S1-like truth 0.708, the recorded candidate
     0.915 (SLAB); over the Prada fit band (r_A 0.02-3, r_C 0-7, F1 rise -0.6..-0.02, the rest at the candidate's
     values: 336 specs) the minimum is 0.596. The design's 0.5 came from prototype numbers (T pyramid 0.34, T fit
@@ -127,4 +127,4 @@ def test_synthetic_faceted_truths_pass_r1():
     shares = {n: report.geometry_numbers(build_temple(s), photo_creases=4)["single_plane_share"] for n, s in rows.items()}
     assert all(v <= RR.R1_SHARE_MAX for v in shares.values()), (
         f"R1 (share <= {RR.R1_SHARE_MAX}) is failed by the synthetic faceted truths themselves: "
-        + ", ".join(f"{n} {v:.3f}" for n, v in shares.items()) + " -- open owner decision (see the docstring)")
+        + ", ".join(f"{n} {v:.3f}" for n, v in shares.items()) + " -- retained calibration failure (see the docstring)")

@@ -1,0 +1,4 @@
+# Keep Python caches ignored even under the root's test-fixture allowlist.
+__pycache__/
+*.py[cod]
+.pytest_cache/

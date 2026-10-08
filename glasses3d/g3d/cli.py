@@ -21,7 +21,9 @@ g3d.print_uv / g3d.attach_print / g3d.detach_print / g3d.remove_print_uv), or a 
 "unhide_eyewire" | "print_uv" | "attach_print" | "detach_print" | "remove_print_uv", ...kwargs}. Objects are passed
 by name; attach_print's `report` is a path (a bake directory, its report.json or print_manifest.json). A `run` (and a
 list of calls) stops at the first PRINT step (print_uv / attach_print / detach_print / remove_print_uv) that is not ok:
-the receipt lists the steps run and its status is that step's, and the save and the export are skipped. Seat steps
+the receipt lists the steps run and its status is that step's, and the save and the export are skipped. Unknown
+operations also stop the run. A refused save or unsuccessful export propagates to the top-level receipt;
+export is skipped after a refused save. Seat steps
 keep the seat CLI's behaviour: a refused or failed seat step is recorded in the receipt and the run goes on, then
 saves and exports (the seat tools' own receipts carry their status; read them).
 
@@ -124,7 +126,7 @@ def _run_calls(cmd: str, spec, opt: dict) -> dict:
                 st = dict(st)
                 op = st.pop("op", None)
                 receipt["results"].append({"op": op, **_call(op, st)})
-                if op in PRINT_OPS and receipt["results"][-1].get("status") != "ok":
+                if op not in SEAT_OPS and receipt["results"][-1].get("status") != "ok":
                     break
         else:
             calls = spec if isinstance(spec, list) else [spec]
@@ -132,15 +134,21 @@ def _run_calls(cmd: str, spec, opt: dict) -> dict:
                 receipt["results"].append({"op": OPS[cmd], **_call(OPS[cmd], dict(kw))})
                 if OPS[cmd] in PRINT_OPS and receipt["results"][-1].get("status") != "ok":
                     break
-        bad = [r for r in receipt["results"] if r.get("op") in PRINT_OPS and r.get("status") != "ok"]
+        bad = [r for r in receipt["results"] if r.get("op") not in SEAT_OPS and r.get("status") != "ok"]
         if bad:                                        # a print step that did not finish: nothing saved or exported
             receipt["status"] = bad[0].get("status", "failed")
             receipt["stopped_at"] = bad[0].get("op")
             return receipt
         if "save-copy" in opt:
             receipt["saved_copy"] = _save_copy(opt["save-copy"])
+            if receipt["saved_copy"].get("status") != "saved":
+                receipt.update(status=receipt["saved_copy"].get("status", "failed"), stopped_at="save-copy")
+                return receipt
         if "export" in opt:
             receipt["export"] = _export(Path(opt["export"]).resolve())
+            if receipt["export"].get("status") != "exported":
+                receipt.update(status=receipt["export"].get("status", "failed"), stopped_at="export")
+                return receipt
         receipt["status"] = "ok"
     except Exception as exc:
         receipt.update(error=f"{type(exc).__name__}: {exc}", traceback=traceback.format_exc(limit=8))
@@ -196,4 +204,5 @@ def run() -> None:
         raise SystemExit(f"unknown command {cmd!r}; {USAGE}")
 
 
-run()
+if __name__ == "__main__":
+    run()
