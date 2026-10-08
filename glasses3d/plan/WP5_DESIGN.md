@@ -35,7 +35,7 @@ fields. The original §8 table remains below for history:
 Any future independent quality proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression
 fixture. A green test asserting an expected failure does not pass a quality gate. A proven instrument bug may be
 repaired with independent evidence and regression coverage; do not relax the protocol because an algorithm fails.
-Exact current metrics, assets and closeout steps are in WP5_HANDOFF.md.
+The closed WP5 record, approved assets and retained numerical limitations are in WP5_HANDOFF.md.
 
 ## Historical design and feasibility evidence (2026-10-05)
 

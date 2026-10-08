@@ -3,7 +3,7 @@
 Written 2026-10-05 at the end of a long review session with the owner (Shay). Two independent reviewers then checked
 it against the disk, git and the owner's requirements, and their corrections are applied. The work-package design
 below preserves the original plan; it is not a command to redo completed work. Read this file fully, then use
-PROGRESS.md's **Active resume** and [WP5_HANDOFF.md](WP5_HANDOFF.md) for current status, resolved decisions and the
+PROGRESS.md's **Active resume** and [WP6_HANDOFF.md](WP6_HANDOFF.md) for current status, resolved decisions and the
 next action. Latest owner instructions take precedence. Historical handoffs are evidence only.
 
 ---
@@ -413,7 +413,7 @@ Do not reinstate unregistered view blending or reopen completed WP5 without a ne
   procedural texture, stop and report before building more.
 
 ### WP6: Faceted temples
-**Current status:** built but gated by STOP-I; see [WP6_READINESS.md](WP6_READINESS.md) before resuming.
+**Current status:** built but gated by STOP-I; see [WP6_HANDOFF.md](WP6_HANDOFF.md) before resuming offline repairs.
 The outline below is historical. R1 and all frozen R3 clauses remain unchanged.
 
 - **Tool `g3d.faceted_temple(...)`** (Blender, numpy). Inputs: side outline, top-view width profile, crease polylines,
@@ -465,7 +465,11 @@ The outline below is historical. R1 and all frozen R3 clauses remain unchanged.
 - **$0 proof:** a test asserts the removed phrases are absent and that every rule names an existing tool and check.
 
 ### WP8: Validation (paid; owner OK per run)
-No paid call of any kind happens before this point. WP0–WP7 must be complete and their $0 proofs passing.
+No paid call of any kind happens before this point. WP0–WP7 must be complete with their required $0 validation.
+WP5's explicit owner closeout and retained limitations apply as recorded in WP5_HANDOFF.md; do not reopen WP5
+automatically. This exception does not waive any WP6 proof or integration requirement.
+Ask the owner again about the per-run budget, reasoning effort, smoke-turn cap, known-good regression product,
+and WP7_DESIGN §4.2 questions 1–2 (specifications/photos and arview lensenv); earlier discussion is not approval.
 0. Smoke turn: ONE capped Astra turn (a few cents) to confirm the real API, tool calls and receipts work end to end.
    Fix anything it reveals before step 1.
 1. Prada PRS 17WS, Tom Ford FT1119-D 52A, and the known-good product (owner picks; see §2).

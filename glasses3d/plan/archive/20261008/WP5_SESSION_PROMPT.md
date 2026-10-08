@@ -1,3 +1,7 @@
+> ARCHIVED, NOT ACTIVE INSTRUCTIONS. Snapshot of `plan/WP5_SESSION_PROMPT.md` at `d5e5917`.
+> Read ../../PROGRESS.md and ../../WP6_HANDOFF.md for current work.
+> Historical relative links were written relative to plan/.
+
 Work in C:\Users\Shay\PycharmProjects\lenses on branch glasses3d.
 
 Read README.md, glasses3d/AGENTS.md, PLAN.md, PROGRESS.md's Active resume and the current WP5_HANDOFF.md.

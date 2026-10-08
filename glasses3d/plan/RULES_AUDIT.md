@@ -2,8 +2,8 @@
 
 **Scope/status (2026-10-07):** this is the historical source-code rules audit, not a second current acceptance
 specification. PLAN §2's owner-approved development-arview requirements take precedence over §C below. Existing
-port decisions are recorded in PORT_REVIEW.md; do not redo them or import old restrictions while repairing WP5.
-Current task rules are AGENTS.md, PLAN §0 and PROGRESS.md's Active resume; see WP5_HANDOFF.md.
+port decisions are recorded in PORT_REVIEW.md; do not redo them or import superseded restrictions.
+Current task rules are AGENTS.md, PLAN §0 and PROGRESS.md's Active resume; see [WP6_HANDOFF.md](WP6_HANDOFF.md).
 
 Inventory of 209 rule mentions across the modeler (main), the Blender Studio (branch `codex/perfecto_automation_agentic` plus `stash@{0}`) and the AR runtime, merged into 41 rules. Each was classified against what the AR page actually needs, then checked a second time; the verifier's corrections are applied below.
 

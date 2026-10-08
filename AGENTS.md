@@ -11,4 +11,5 @@
   local-only material (`ar/modeling/`, `ar_v4/` leftovers, private recordings, `.env`) to Git.
 - **The photo-to-3D glasses pipeline is `glasses3d/` (branch `glasses3d`).** For any work on it, first read
   `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/PROGRESS.md` ("Active resume",
-  not the historical RESUME HERE archive). Follow the current WP5 handoff linked there.
+  not the historical RESUME HERE archive). Follow `glasses3d/plan/WP6_HANDOFF.md`; the new-session prompt is
+  `glasses3d/plan/WP6_SESSION_PROMPT.md`. WP5 is closed by owner acceptance; archived instructions are not active.
