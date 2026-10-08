@@ -5,6 +5,58 @@ A new session reads this right after PLAN.md §0 and resumes from the first unfi
 
 ## Active resume (Codex, 2026-10-08)
 
+**Owner-selected combination now authorized:** the owner says unscreened Poisson seam correction looks best
+among the full-texture experiments seen, better than the accepted revision, and joint overlapping-patch
+reconstruction gives the best fill results. They authorized (1) an experimental combined copy, (2) independent
+quality checks and (3) a focused accepted/Poisson/combined comparison of brow top, both arms and one worn view.
+They requested strong resource utilization. This is a visual preference and experiment authorization, not a
+quality waiver or approval of the combined output (subsequently shown, verdict pending).
+
+Local work is `data/wp5/combined_20261008/`. The process-local adapter combines joint reconstruction plus its
+saved observed-slope boundary join with unscreened Poisson, replacing the old reflection/hard harmonisation.
+The shipped runtime, frozen instruments and default API remain unchanged. A streamed implementation avoids
+materializing every overlapping patch at production size; exact comparison against all 160 saved raw/joined
+results is required before the full bake. Independent compact/long-thin/poison/repeat/constant controls and
+Poisson controls pass. First parallel launch `checks_run.json` failed on the Windows spawn main guard, not on
+quality or memory; original source/log retained. `checks_v2` corrects the launcher and uses six workers with
+BLAS limited to one thread per worker. It finished **10:33:04, exit 0: all 160 raw and joined outputs are
+byte-identical**, zero mismatches (`equivalence.json`).
+**Combined full-model bake finished:** `candidate_run.json`, PID 40280, **10:33:21–11:45:21, exit 0**;
+runtime/instrument/adapter/reference hashes unchanged. Production bake time 4,309.18 s (about 72 minutes) with six
+workers; this is a material runtime limitation. Training selected consensus radii BL/BR/TL/TR
+**0.9/1.2/1.2/1.2 mm**; quilt selected 0.9 mm and PatchMatch 0.3 mm on every part.
+**A5 passes both frozen offsets:** 7/8 across-to-within p95 ratios **0.880536 / 0.884339**, unchanged threshold 1.
+A3 and output audit pass, with **729,621 protected texels**, 9,043 fewer than runtime 019d321: the unchanged
+seam-band rule now admits four-texel bands on all four parts, whereas that baseline admitted only Temple_Left.
+A3 does not establish unchanged protected support; a separate `coverage` phase records those transitions.
+PNG SHA-256 `015776a7f437dee85e8c8b2995beed90e38c3727ade5bf5badfc8c01612a6388`.
+`capture_run.json`, PID 19572, **11:46:48–11:47:22, exit 0**, exports the exact PNG through the Blender tool test
+and matched photo/AR/worn captures. `review/comparison.json` verifies unchanged source, geometry/material controls,
+cameras, fitting and portrait controls. `review/focused_comparison.png` and `review/index.html` show the requested
+accepted / exact preferred Poisson / combined four-view comparison. Shown to the owner; combined verdict pending.
+**A4 completed:** PID 38100, **11:48:31–11:51:43, exit 0**, **12 workers**, one BLAS thread each (actual pool in
+`quality/a4_resources.json`; the runner's generic `pool_workers: 6` field is overridden). All 60 method/part/seed
+cases ran, eight holes each, no skips. Consensus seed 0 passes BL only; five-seed pooled A4 fails all four parts.
+Pooled fine-band errors BL/BR/TL/TR **0.153055 / 0.204543 / 0.204994 / 0.190375**, frozen limit **0.150**.
+Coarse-band, mean-colour and median boundary checks pass. This is not a quality acceptance.
+**A2 completed:** PID 29864, **11:52:39–11:52:56, exit 0**, all six round trips pass. `coverage_run.json` also
+exited 0: 9,284 formerly protected pixels become seam-band pixels; 241 regain protection; **all 729,380 pixels
+protected in both versions are byte-identical**. Net support loss is 9,043, with no hidden reclassification.
+**Active B3 proof:** `quality_b3_run.json`, actual PID **28036**, started **11:54:41**. Logs are
+`quality_b3.log` / `quality_b3.err`; at 11:55 the first two held-out bakes are active, no errors. Do not restart or
+kill this healthy run. After actual exit 0, run `summarize`, inspect all outcomes, update/review/commit the progress
+documents with explicit paths. `quality_b3` schedules two held-out bakes with
+six fill workers each (12 bounded compute processes); do not overlap another heavy phase. Its grading remains
+the original six-view protocol. Candidate-specific serial/reuse/full-regression acceptance is not implied by
+this experimental comparison. The shipped runtime and prior runtime regression remain unchanged.
+The candidate driver selects the method's own radius on separate training holes, compares quilt and
+PatchMatch at their own radii, and retains A5 offsets 7/8 explicitly even though reflection is replaced.
+The prepared A4 driver retains only the bake fields read by the unchanged knockout instrument, including all
+source UV coordinates for the real-versus-real floor, to reduce worker memory; its actual pool size is recorded
+in `quality/a4_resources.json`. The exact preferred Poisson reference used an earlier colour-gain revision:
+the comparison measures total appearance and does not isolate the fill method as its only difference.
+No paid run, push, acceptance promotion or WP6 work.
+
 **Owner visual-review request, 2026-10-08:** the owner explicitly reaffirmed that visual decisions belong to
 them and asked to see the evidence of every experiment. The local gallery is
 `data/wp5/repairs_20261008/owner_review/index.html`; open this file directly in a browser (no server needed).
@@ -42,7 +94,7 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**No active run.** The joint-patch experiment `consensus_probe_run.json` finished at 08:48:10, exit 0, source
+**Earlier completed checkpoint (superseded by the active combined experiment above).** The joint-patch experiment `consensus_probe_run.json` finished at 08:48:10, exit 0, source
 unchanged, all 160 cases converged. It still fails A4 overall and is not adopted. Current runtime checkpoint
 remains `019d321`. The complete frozen production quality proof finished at 08:11:28,
 actual exit 0, source unchanged: **A4 fails all four parts, A5 fails both offsets, B3 fails six of the same seven

@@ -1,5 +1,29 @@
 # WP5 quality repair handoff — active repairs 2026-10-08
 
+**Newest owner direction:** unscreened Poisson is preferred to the accepted full texture, and joint overlapping
+patch reconstruction is preferred for fills. The owner authorized a combined experimental copy, independent
+quality checks and focused accepted/Poisson/combined brow-top, two-arm and worn comparisons, with strong resource
+utilization. This supersedes the pending-review text below; no combined visual verdict or quality waiver exists.
+Work is in `data/wp5/combined_20261008/`, using a process-local experimental adapter without changing shipped
+runtime/instruments. The streamed joint-patch implementation must reproduce all 160 saved outputs before baking.
+Synthetic controls passed; the first launcher failed on Windows spawn and its evidence is retained. `checks_v2`
+finished 10:33:04, exit 0: all 160 saved raw/joined outputs byte-identical. The full bake finished **11:45:21,
+exit 0**, source hashes unchanged, about 72 minutes. **A5 now passes both frozen offsets 7/8: 0.880536/0.884339**.
+A3/output audit pass, but protected support is 729,621 (9,043 fewer than runtime 019d321); the existing rule admits
+four-texel seam bands on all four parts. Preserve that qualification. Consensus radii are 0.9/1.2/1.2/1.2 mm.
+The exact-PNG tool test and controlled captures finished **11:47:22, exit 0**. `review/focused_comparison.png` and
+`review/index.html` have been shown to the owner; combined appearance verdict remains pending.
+A4 finished **11:51:43, exit 0**, all 60 method/part/seed cases without skips, 12 workers. Consensus seed 0 passes
+only BL; pooled A4 still fails all four: fine errors **0.153055/0.204543/0.204994/0.190375**, limit 0.150.
+All six A2 round trips pass (11:52:56, exit 0). Coverage audit: 9,284 pixels enter seam bands, 241 regain
+protection, and all **729,380 shared protected pixels remain byte-identical**.
+**Active B3 proof:** PID **28036**, `quality_b3_run.json`, started **11:54:41**, two bakes x six fill workers.
+At 11:55 it is healthy with no errors; do not restart/kill it. After exit 0 run `summarize`, review the complete
+results and tracked diff, then commit explicit progress-document paths. Consult PROGRESS for full details.
+The planned seam ordering
+matches the preferred Poisson prototype (no old reflection/hard harmonisation), while grading keeps offsets 7/8.
+PROGRESS Active resume records the exact next phase and any active process. WP5 incomplete; WP6 STOP-I.
+
 **Latest owner request: show every experiment for their visual decision.** The review artifact is
 `data/wp5/repairs_20261008/owner_review/index.html`, verified to work directly from disk without a server.
 Its 48 entries include all 15 saved complete textures with new matched photo/AR/worn renders; five patch families
@@ -13,7 +37,8 @@ Capture, replay-v2 and catalog phases all exited 0; PROGRESS Active resume recor
 A local-server launch was blocked by automatic approval review; use the verified file-based gallery.
 Codex open requests were queued, not confirmed visible. No new pipeline change or paid run was made.
 
-The owner has supplied **no visual acceptance/rejection of these experiments yet**. Earlier assistant descriptions
+At gallery publication, the owner had supplied **no visual acceptance/rejection of these experiments yet**; their
+subsequent preferences and the combined candidate's pending verdict are recorded above. Earlier assistant descriptions
 of appearance and decisions against technical integration are not owner verdicts. Preserve them as historical
 observations, with this clarification taking precedence. Present the evidence for the owner's assessment;
 numerical gates remain independent, WP5 incomplete, and WP6 STOP-I. The repair/research state below is unchanged.
@@ -68,7 +93,7 @@ failures/errors/skips**, 1,252.40 s, exit 0. Source hashes were unchanged at `01
 wrong-match xfail remains. Renamed-input check exited 0 at 07:44:44, all nine checks pass and source unchanged:
 **738,664 protected texels**, protected mask and all source/tier/class maps match the new canonical bake;
 1,323,383 fill pixels change with name-based seeds. No unseen-product claim or repeated G1 migration.
-**No active run.** `consensus_probe_run.json`, PID 7708, ran 08:36:46–08:48:10, exit 0, source/instruments
+**Earlier completed checkpoint (superseded above).** `consensus_probe_run.json`, PID 7708, ran 08:36:46–08:48:10, exit 0, source/instruments
 unchanged. All 160 original cases converge, no fallback; the raw/observed-slope-joined comparison still fails A4
 overall. Joined pooled fine errors BL/BR/TL/TR: **0.249001/0.219569/0.176812/0.149794**; only TR passes.
 Fixed first-two-seed-0-hole crops were inspected: many block joins disappear but real stripe/blotch structure is
