@@ -583,6 +583,13 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     tg = np.concatenate(tgts)
     keep = ra != rb
     ra, rb, kd, tg = ra[keep], rb[keep], kd[keep], tg[keep]
+    # The field lives on 1 mm nodes, not on texels. Rasterized neighbours and
+    # sampled chart seams can describe a node edge many times (and overlap the
+    # grid adjacency above). Count each undirected constraint once; otherwise
+    # smoothness grows with texel density while boundary weights stay fixed.
+    edge_key = np.column_stack([np.minimum(ra, rb), np.maximum(ra, rb), kd])
+    _, unique = np.unique(edge_key, axis=0, return_index=True)
+    ra, rb, kd, tg = ra[unique], rb[unique], kd[unique], tg[unique]
     w = np.where(kd == 1, w_boundary, 1.0)
     m_ = len(ra)
     ref_node = ((ng // 1024) % 64 == ref_label) if ref_label is not None else np.zeros(N, bool)

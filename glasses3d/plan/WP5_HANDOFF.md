@@ -18,10 +18,18 @@ the six-texel reflection band or frozen proof. Fresh default bake exited 0: **A3
 Repaired-graph gradient and log-radiance probes also still fail at offset 8. B3 views 03/05 decompositions are done;
 their three original eligible rows still fail. View 05 right brow improves substantially without gains; a geometric
 front-reference fallback exited 0 at 05:30:06 but still failed both eligible held-out-05 rows (left/right spectrum
-0.398069 / 0.388148). No runtime gain policy changed. `adaptive_slope_probe.py` is now running; consult
-`adaptive_slope_probe_run.json` before another heavy job. Next: read that result (same donor-only selector,
-corrected observed-slope boundary condition; no hidden proof truth), and continue
-quality repair. The corrected boundary already preserves a synthetic affine field that the old prototype altered,
+0.398069 / 0.388148). No runtime gain policy changed. `adaptive_slope_probe.py` exited 0 at 05:37:33;
+ten truth-separation checks passed, but A4 still fails overall. Seam repairs are committed as `ccf88df`.
+Signed diagnosis confirms predominantly lost brow detail. Unscreened Poisson stitching passed five synthetic
+checks but still fails A5 at 8 (**0.887166 / 1.038095**; exit 0, 05:41:47); no clipping/protected changes.
+Conditional texture synthesis exited 0 but failed A4 and introduced ripples in inspected crops; rejected.
+The seam diagnosis is complete: main strip-wrap pairs individually pass after Poisson, but the frozen pooled
+verdict still fails; no criterion changed. Next: read active `texture_validation_probe_run.json` (PID 21864,
+05:49:25), then run prepared `gain_topology_candidate.py`. The selector now uses the unchanged production texture
+objective on separate observed training holes, without proof truth. The gain-field fix removes repeated physical
+node constraints: independent density/repeated-sample tests failed before and pass after; **29 focused tests pass**.
+No weight/clip changed and its production quality effect is not yet verified.
+The corrected boundary already preserves a synthetic affine field that the old prototype altered,
 and improves both temples' saved-case A4 energy; both brows remain failures. All evidence is local and unaccepted.
 No new candidate is accepted, no thresholds changed, no paid calls or WP6 work. No final regression/reuse/appearance
 acceptance proof has yet been run for a repaired candidate.

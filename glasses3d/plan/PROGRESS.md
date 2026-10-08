@@ -12,9 +12,12 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `adaptive_slope_probe_run.json` repeats the same donor-only selector after its independently
-reproduced boundary-slope defect was fixed. Consult its PID/timing/exit record before another heavy job.
-The front-reference experiment exited 0 at 05:30:06; both original eligible held-out-05 brow rows still fail.
+**Active run:** `texture_validation_probe_run.json`, PID **21864**, started 05:49:25: the same four donor-only
+models/training holes, with the existing production texture-selection objective instead of pixel MSE. Ten
+truth-separation checks precede all 160 original proof holes. Next prepared run: `gain_topology_candidate.py`, a
+fresh production bake of the gain-field topology fix below (default quilt, independent radius selection, A3/A4/A5
+and provenance). Consult the run record before another heavy job. The front-reference experiment exited 0 at 05:30:06; both original
+eligible held-out-05 brow rows still fail. Seam-support fixes are committed as `ccf88df`.
 No final quality acceptance, full regression, new reuse check or final AR verdict exists yet.
 
 **Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
@@ -93,14 +96,56 @@ A multiplicative log-radiance variant avoided all clipping (six synthetic checks
 **0.919714 / 1.058512**. Both are unadopted pre-reflection diagnostics, with all protected texels unchanged
 (`seam_neighbour_field.json`, `seam_log_field.json`). No screen length or proof offset was changed.
 
+Standard unscreened Poisson stitching was then tested because the prior screened equation forces each chart
+back toward its mismatched guide over a borrowed patch radius. Five independent constant/offset/gauge checks
+passed. The diagnostic exited 0 at 05:41:47 (`seam_poisson_v2_run.json`); **A5 still fails** at 8:
+**0.887166 / 1.038095**, no clipping or protected changes, linear residuals below 1e-7, 363 anchored components.
+No quality samples enter the solver. Full production ordering and appearance remain unverified and this method
+is not adopted. The first synthetic invocation's sparse-boolean dtype error is preserved with its source/log;
+it was corrected before the successful run. See `seam_poisson_field.json` / `seam_poisson_synthetic.json`.
+Its localized review exited 0 at 05:46:59 (`poisson_review_run.json`, `seam_poisson_diagnosis.json`). At 8,
+all four main strip-wrap pairs individually have ratios below 1, while the frozen pooled verdict remains failed.
+The left-brow wrap contributes 643 tail samples (252 both protected, 376 one protected); right-brow strip/cap-z
+also remains mismatched (ratio 1.220222). This is localization, not a replacement test or changed eligibility.
+`seam_poisson_crops.png` was inspected; no coloured overshoot like the rejected curvature solve, but numeric and
+final appearance acceptance still do not pass.
+
 **Boundary-condition diagnosis:** the zero-normal-slope prototype changed 492 pixels of an already correct affine
 image. Continuing the slope from two valid observed neighbours preserves it exactly and passes hidden-pixel and
 outside-pixel invariance (`boundary_slope_synthetic.json`). All 160 original cases were evaluated at the saved
 independently selected base radii; exit 0 at 05:25:27. Quilting+slope seed-0 fine energy is
 **0.223581 / 0.156040 / 0.136428 / 0.138020**, pooled **0.279221 / 0.174727 / 0.121274 / 0.121645**.
 Both temples improve, both brows still fail; this is not a production A4 pass. PatchMatch+slope's complete results
-are alongside in `boundary_slope_probe.json`. The unchanged donor-only selector is now being tested with this
-corrected boundary condition; previous source is preserved in `adaptive_v1/` and no previous result is overwritten.
+are alongside in `boundary_slope_probe.json`. The unchanged donor-only selector with this corrected boundary
+exited 0 at 05:37:33; ten truth-separation checks passed, but A4 still fails overall. Seed-0 fine energy is
+**0.181175 / 0.253101 / 0.189999 / 0.122190**, pooled **0.167970 / 0.166712 / 0.197718 / 0.128060**.
+See `adaptive_slope_synthetic.json` / `adaptive_slope_probe.json`. Previous source is preserved in `adaptive_v1/`
+and no previous result is overwritten. No adaptive runtime API is accepted.
+
+Signed energy diagnosis over all 160 cases exited 0 at 05:39:16 (`a4_signed_diagnosis.json`). Baseline median
+signed fine error is **-0.233180 / -0.248821 / -0.127892 / -0.033209**; observed-slope correction leaves
+**-0.149107 / -0.105602 / -0.007706 / -0.011735**. The brows predominantly lose detail; this does not replace
+absolute-error grading. Inspected labelled crop sheet `a4_signed_brow_0.png` shows curved colour features replaced
+by flatter copied fills. The conditional-texture experiment fits an affine trend and spatial covariance
+by likelihood on local observed donors, then conditions a seeded texture draw on them. It never fits to proof
+truth/metrics; its mean-only output is a diagnostic control. Both compact and long-thin poison tests precede the
+full fixed-case run. That experiment exited 0 at 05:46:26, with nine synthetic checks passed, but failed A4 broadly:
+conditional-draw pooled fine error **0.410778 / 0.377733 / 0.372039 / 0.671167**; mean-control pooled
+**0.234897 / 0.188047 / 0.215485 / 0.273922**. `conditional_brow_0.png` shows invented ripples, so the
+conditional-draw model is rejected. Reports/source remain local in `conditional_texture*` / `conditional_cases/`.
+No production fill method or thresholds have changed. The next selector experiment uses the existing
+`fill.knock_stats` / production radius-selection objective on separate donor training holes; the pointwise MSE
+objective favours smooth means and does not express texture preservation. It never reads proof truth to select.
+
+**Gain-field topology defect:** the documented 1 mm node smoothness edges were counted once by grid adjacency
+and again for every rasterized texel pair / seam sample, whereas boundary edges were deduplicated. Thus the same
+physical surface changed correction with atlas density or repeated identical seam samples. Two independent
+synthetic tests fail before the repair and pass after deduplicating undirected node constraints (kinds retained).
+No weight, clip or threshold changed. Focused regression: **29 passed**, 3.93 s, exit 0 at 05:52:11
+(`gain_topology_regression_run.json` / `.log`). Original source hash
+`9aa6d128c1f94539fa511f50f7e1155c186e643a71ada9e33b86858ae40b6190` and red-test logs are preserved in
+`gains_before_topology.py` / `gain_topology_before*`. Production quality effect is not yet verified; the prepared
+candidate bake must follow the active filler experiment. This fix is not a WP5 quality pass.
 
 Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
