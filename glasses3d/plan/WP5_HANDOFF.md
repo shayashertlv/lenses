@@ -45,7 +45,12 @@ enforcing the existing factor bounds during its fit (pooled dE00 drop 0.365, wor
 No runtime API changed or model was adopted. Moment-normalized exemplar matching also finished (06:45:02) and
 failed A4 overall, preserving all 160 original cases. Bounded RGB shading also failed keep (pooled dE00 drop
 0.240, worst leave-one-pair-out -0.235), so no integration adapter or full bake is needed for it.
-Next: inspect active `seam_current_folded_run.json` (PID 5660, 07:10:15). Context validation's first attempt
+Full regression `regression_019d321_run.json` finished at 07:35:20: **340 passed, 1 expected xfail, no
+failures/errors/skips**, 1,252.40 s, exit 0. Source hashes were unchanged at `019d321`; the documented A0 periodic
+wrong-match xfail remains. Next: inspect active `reuse_019d321_run.json` (PID 4808, 07:40:50,
+10,510,444 KB free commit at launch), then the prepared complete quality proof `quality_019d321.py` (no skipped
+checks/views, five seeds, serial parity). Do not change runtime source or start another substantial run.
+Context validation's first attempt
 failed before real cases on unsupported long-thin
 strip training; its global-donor fallback is repaired, failed evidence retained, and all ten poison/contract
 checks passed in v2 before the 160 original holes. V2 exited 0 at 07:02:42 but still fails A4 overall. No
@@ -59,7 +64,10 @@ four A4 parts still fail. Comparison-point displacement p95/max is 0.109326 / 0.
 on the folded variant. The separate
 seam-gradient prototype has four synthetic checks; its prepared chord/folded comparison uses the older
 within-node candidate cache and must not be called a proof of the folded-gain bake. Chord variant finished at
-07:09:48, A5 **0.971405 / 1.055846**, still failing at 8; the folded variant is active. No protected changes.
+07:09:48, A5 **0.971405 / 1.055846**, still failing at 8. Folded variant finished at 07:11:34,
+**0.981730 / 1.061984**, also failing at 8, slightly worse. No protected changes or clipping; all 347 components
+are anchored, solver residuals below 1e-7. Labelled `seam_current_review.png` was inspected without obvious
+coloured overshoot at that scale. This is no AR/appearance acceptance, and neither method is adopted.
 The earlier prepared paired-shading full candidate is not run because its keep test fails.
 No source-selection policy or quality criterion has changed. The gain-field fix is committed
 as **`eda0840`** and removes repeated physical
@@ -67,8 +75,21 @@ node constraints: independent density/repeated-sample tests failed before and pa
 No weight/clip changed; the production quality regression above remains an open issue.
 The separate fill-boundary prototype preserves a synthetic affine field that its zero-slope predecessor altered,
 and improves both temples' saved-case A4 energy; both brows remain failures. All evidence is local and unaccepted.
-No new candidate is accepted, no thresholds changed, no paid calls or WP6 work. No final regression/reuse/appearance
-acceptance proof has yet been run for a repaired candidate.
+No new candidate is accepted, no thresholds changed, no paid calls or WP6 work. The full regression passes;
+final quality/reuse/appearance acceptance remains incomplete.
+
+Prepared during the source-frozen regression: `priority_exemplar_probe.py` compared confidence/isophote-priority
+patch propagation, with/without the already tested observed-slope join, on all 160 original holes at saved radii.
+Nine synthetic contract checks pass; both this method and existing quilt reconstruct the periodic control exactly,
+so no advantage is established. The real-case run exited 0 at 07:38:57 with source unchanged: joined pooled fine
+errors **0.130544 / 0.266228 / 0.280017 / 0.218029**; only BL passes A4. The fixed diagnostic crops show visible
+block joins. Rejected, no runtime filler change. `seam_protected_audit.py` finished at 07:39:25: 5,162 of 28,952
+offset-8 pairs are fully protected. The across-p95 lower bound with editable pairs zero is 5.993749, below the
+current within-p95 11.470301; protected pixels do not prove A5 impossible. Frozen criteria remain unchanged.
+`reuse_019d321.py` tests the repaired code on G1's existing frozen renamed job without rebuilding its historical
+proof; this check is active.
+`gain_folded_review.png` was inspected against B and the accepted revision: broad blurred/smeared fills remain.
+This is an atlas-only diagnostic with source hashes, not a final AR review or appearance pass.
 
 This handoff was explicitly requested by the owner. It is not a context-limit event. Implementation baseline:
 `f020b57e99f9a7eaba77606d3748a4724998d018` on branch `glasses3d`. The later documentation-only commit containing
@@ -122,10 +143,11 @@ G1 proved canonical equality of four maps; A7 serial/pool equality of four maps,
 photos preserved source/tier/class maps and **739,419 protected texels**. **1,324,055 fill pixels changed** because
 existing seeds include part names. This is same-product reuse evidence, not proof on an unseen product.
 
-Last full WP5 regression: **317 passed, 1 expected xfail, 6 fixture setup errors, no skips**, 1,191.70 s. The camera
+Historical G1 migration regression: **317 passed, 1 expected xfail, 6 fixture setup errors, no skips**, 1,191.70 s. The camera
 argument omission was repaired, followed by **34 affected tests passed**. All 30 G1 tests passed in the full run;
 seven fitmesh tests passed separately. Net coverage after repair is 323 passes + 1 expected xfail over 324 cases.
-Do not describe that first full invocation as a clean exit 0. A fresh full successful run is required after repairs.
+Do not describe that first full invocation as a clean exit 0. The current repair session's fresh successful full
+regression is recorded at the top of this file; further runtime changes require appropriate fresh validation.
 
 ## 3. Evidence and immutable reference assets
 

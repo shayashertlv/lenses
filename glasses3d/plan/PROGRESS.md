@@ -12,18 +12,27 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `seam_current_folded_run.json`, PID **5660**, started 07:10:15, two-worker runner,
-10,332,424 KB free commit at launch. B3 at `83243b7` still has six of seven original eligible rows failing;
-the folded-gain variant has not had a new B3 run. The common-boundary fix is committed as `83243b7`.
-Next: inspect the folded seam-gradient result. `seam_current_chord.py` / `seam_current_folded.py` are a controlled
-pre-reflection comparison on the older within-node candidate cache; they must not be labelled as the new gain bake.
+**Active run:** `reuse_019d321_run.json`, PID **4808**, started 07:40:50, two workers,
+10,510,444 KB free commit at launch. Do not change runtime source or launch another substantial run until it
+finishes. The priority-exemplar comparison finished and failed overall; the bilinear seam audit is complete.
+Full WP5 regression at **`019d321`** finished at 07:35:20:
+**340 passed, 1 expected xfail, no failures/errors/skips**, 1,252.40 s, actual exit 0. Runtime/tests were unchanged
+throughout (`regression_019d321_sources.json`); `regression_019d321_run.json` records PID 31676 and timing.
+The xfail remains the documented A0 periodic wrong-match case, not a quality pass.
+B3 at `83243b7` still has six of seven original eligible rows failing; the folded-gain variant has not had a new
+B3 run. Both seam-gradient variants finished and failed offset 8. `seam_current_chord.py` /
+`seam_current_folded.py` are a controlled pre-reflection comparison on the older within-node candidate cache;
+they must not be labelled as the new gain bake. Next: inspect the renamed-input result, then run the prepared
+complete frozen quality proof `quality_019d321.py` (all six held-out views, five seeds, serial parity; no skips).
+It is not a final acceptance claim. Continue causal quality diagnosis with the
+owner's inpainting research response if available.
 The earlier paired-shading and exemplar comparisons are unaccepted; do not run their prepared full candidate bake.
 The completed candidate's A3/provenance pass, but A4/A5 still fail (details below). The prepared
 `b3_gain_topology_*` and `b3_gain_boundary_*` names describe prior versions; do not run them on this source.
 Consult the run record before
 another heavy job. The front-reference experiment exited 0 at 05:30:06; both original
 eligible held-out-05 brow rows still fail. Seam-support fixes are committed as `ccf88df`.
-No final quality acceptance, full regression, new reuse check or final AR verdict exists yet.
+The full regression passes; no final quality acceptance, completed new reuse check or final AR verdict exists yet.
 
 **Current repair evidence:** coordinate fix committed as `bd3b3eb`. A synthetic test exposed a one-texel error in the quilting
 canvas adapter: the crop's extra border was counted as strip position. Fixed by preserving each source crop origin;
@@ -280,9 +289,38 @@ p95/max **0.109326 / 0.555875 mm**; this is diagnostic geometry, not a quality c
 
 The separate seam-texel geometry audit (`seam_edge_geometry.json`, exit 0) finds p95/max plane-intersection
 shifts **0.028648 / 0.370311 mm**, none over 1 mm. The old chord-gradient Poisson variant on the SAME
-within-node cache as the upcoming folded variant exited 0 at 07:09:48: **A5 0.971405 / 1.055846**, still failed
+within-node cache as the folded variant exited 0 at 07:09:48: **A5 0.971405 / 1.055846**, still failed
 at 8. Protected observations are unchanged; `seam_current_chord.json` records solver/source identities and
 channel residuals. Both remain pre-reflection diagnostics, not complete production proofs.
+The folded variant exited 0 at 07:11:34: **A5 0.981730 / 1.061984**, still failing offset 8 and slightly worse
+on this controlled comparison. Channel residuals are below 1e-7; all 347 graph components are anchored, no
+clipping or protected-pixel changes. The labelled `seam_current_review.png` compares original/chord/folded strip
+crops using the same calibration; inspected crops show no obvious coloured overshoot at that scale. This is
+neither an AR review nor appearance acceptance. Both methods remain unadopted.
+
+While the full regression held runtime/test sources fixed, local `priority_exemplar.py` prepared an alternative
+fill diagnostic: confidence/isophote-priority front propagation copies complete original observed patches and
+never averages overlapping predictions. Nine independent periodic-structure/constant/poisoning/repeatability
+checks pass on compact and long-thin holes. The existing quilt also reconstructs those periodic controls exactly
+(`priority_exemplar_control.json`), so these controls do not establish a superiority or a new runtime defect.
+`priority_exemplar_probe.py` evaluated all 160 original holes, at their saved radii, with raw and observed-slope
+joined outputs specified before grading. It exited 0 at 07:38:57 with unchanged source; all 160 cases remain.
+The joined method's fine-band errors (BL/BR/TL/TR) are seed-0 **0.086120 / 0.362398 / 0.204971 / 0.257512**,
+pooled **0.130544 / 0.266228 / 0.280017 / 0.218029**. Only BL passes the seed-0 and pooled A4 rows; raw priority
+copying fails every part. The fixed first two seed-0 crops per part in `priority_exemplar_review.png` show
+visible block joins, including with boundary correction. **Rejected**, no runtime API change.
+The bilinear-footprint seam audit exited 0 at 07:39:25. At offset 8, 5,162 of 28,952 pairs have both samples
+fully protected. In the folded variant's upper-5% tail, 632 pairs are fully protected, 568 have one protected
+sample and 248 neither. The all-sample across-p95 lower bound if editable pairs became zero is 5.993749 dE00,
+below the current within p95 11.470301. Thus protected observations do **not** establish unavoidable A5 failure;
+this is a localization bound, not a replacement verdict or instruction to zero errors. Complete original A5
+reports are preserved in `seam_protected_audit.json`.
+`reuse_019d321.py` runs a current-code check using the existing frozen renamed job, comparing against the new
+folded-gain bake; it does not repeat G1's old accepted-identity migration or overwrite its evidence.
+The labelled `gain_folded_review.png` was generated and inspected: original B, accepted revision, current repaired
+atlas each use their own chart bounds and already levelled PNG. The broad blurred/smeared fill areas remain;
+this review does not establish an appearance improvement or replace final AR evidence. Source hashes are in
+`gain_folded_review.json`; no owner acceptance question is warranted for this failed-quality candidate.
 
 Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
