@@ -24,12 +24,27 @@ Signed diagnosis confirms predominantly lost brow detail. Unscreened Poisson sti
 checks but still fails A5 at 8 (**0.887166 / 1.038095**; exit 0, 05:41:47); no clipping/protected changes.
 Conditional texture synthesis exited 0 but failed A4 and introduced ripples in inspected crops; rejected.
 The seam diagnosis is complete: main strip-wrap pairs individually pass after Poisson, but the frozen pooled
-verdict still fails; no criterion changed. Next: read active `texture_validation_probe_run.json` (PID 21864,
-05:49:25), then run prepared `gain_topology_candidate.py`. The selector now uses the unchanged production texture
-objective on separate observed training holes, without proof truth. The gain-field fix removes repeated physical
+verdict still fails; no criterion changed. Texture-objective selection exited 0 but still fails A4 as a set;
+all original holes and ten truth-separation checks are retained. Gain-topology bake exited 0: A3/provenance pass,
+739,664 protected texels, but all A4 rows fail and A5 worsened to **1.348161 / 1.345189**. The gradient-aware
+seam diagnostic passed five synthetic checks but still fails offset 8 (**0.967042 / 1.062656**); no clipping or
+protected changes. Contour transport also failed A4 over all original holes. The anchor inventory is complete;
+01/05 omissions leave only one mutual brow-source comparison, insufficient to choose a better view. No policy
+changed. A further independent gain defect was reproduced: comparing cell interiors treated a real surface
+gradient as an exposure jump. Comparing the two extrapolated colours at their common physical boundary passes
+the new tests and **32 focused regressions**. Its first bake exited 0 but still failed A5 (**1.257212 / 1.204647**)
+and all A4 parts. A new narrow-group synthetic failure required estimating slopes from observed texels inside
+each node, rather than only neighbouring nodes; **33 focused tests now pass**. Both versions and red checks are
+retained locally. This checkpoint contains the correction, with no accepted production quality proof. Its within-node
+bake exited 0 at 06:26:05: A3/provenance pass, 739,014 protected texels (405 fewer than baseline), but A5
+**1.301842 / 1.289024** and all four A4 parts fail. This implementation fix does not establish quality acceptance.
+Next: inspect active `b3_gain_boundary_texels_01_run.json` (PID 41556, 06:26:50), then run prepared `_03` / `_05`
+sequentially. Use the new `_gain_boundary_texels` suffix, never old boundary/topology names for the new source.
+No source-selection policy or quality criterion has changed. The gain-field fix is committed
+as **`eda0840`** and removes repeated physical
 node constraints: independent density/repeated-sample tests failed before and pass after; **29 focused tests pass**.
-No weight/clip changed and its production quality effect is not yet verified.
-The corrected boundary already preserves a synthetic affine field that the old prototype altered,
+No weight/clip changed; the production quality regression above remains an open issue.
+The separate fill-boundary prototype preserves a synthetic affine field that its zero-slope predecessor altered,
 and improves both temples' saved-case A4 energy; both brows remain failures. All evidence is local and unaccepted.
 No new candidate is accepted, no thresholds changed, no paid calls or WP6 work. No final regression/reuse/appearance
 acceptance proof has yet been run for a repaired candidate.

@@ -468,6 +468,30 @@ LEVEL_LARGE = 1.5                # reported: texels whose field gain is >= x1.5 
 LEVEL_EPS = 1e-4                 # linear-light floor of the log colours
 
 
+def _node_gradients(points: np.ndarray, values: np.ndarray, node: np.ndarray,
+                    centres: np.ndarray, means: np.ndarray) -> np.ndarray:
+    """Local tangent-plane slopes from each node's own observed texels.
+
+    Keep at most two spatial directions: curvature must not turn tiny normal
+    displacements into a large inferred colour derivative. Observations inside
+    the cell also resolve slopes when a photo group is only one cell wide.
+    """
+    count = len(centres)
+    gram = np.zeros((count, 3, 3))
+    rhs = np.zeros((count, 3, 3))
+    dp, dv = points - centres[node], values - means[node]
+    for i in range(3):
+        for j in range(3):
+            gram[:, i, j] = np.bincount(node, weights=dp[:, i] * dp[:, j], minlength=count)
+            rhs[:, i, j] = np.bincount(node, weights=dp[:, i] * dv[:, j], minlength=count)
+    eigenvalues, basis = np.linalg.eigh(gram)
+    valid = eigenvalues > np.maximum(eigenvalues[:, -1:], 1e-12) * 1e-6
+    valid[:, 0] = False
+    inverse = np.divide(1.0, eigenvalues, out=np.zeros_like(eigenvalues), where=valid)
+    pinv = (basis * inverse[:, None, :]) @ basis.transpose(0, 2, 1)
+    return pinv @ rhs
+
+
 def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, ref_label: int | None,
                 pairs: np.ndarray | None = None, *, tx: float = 16.0, cell: int | None = None,
                 w_boundary: float = LEVEL_W_BOUNDARY,
@@ -481,11 +505,12 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     Least squares with: smoothness c_i = c_j between 4-adjacent nodes of one group and chart, and between the nodes of
     the two texels of a chart-seam pair of one group (``pairs``: the field is continuous across uv seams), weight 1;
     across a boundary (atlas 4-neighbours in one chart, or a chart-seam pair, of two groups painted by DIFFERENT views
-    on the SAME part) c_a - c_b = J, the node pair's jump V_b - V_a (V = the node's mean log colour) AVERAGED along
-    the boundary (the median within 8 mm, same pair of groups: the step is matched, not the blotches crossing it;
-    pairs whose median jump exceeds log 2 in a channel are not levelled), weight
+    on the SAME part) c_a - c_b = J, the node colours extrapolated to their common physical boundary using
+    same-group tangent gradients (different node interiors can differ without an exposure step), weight
     ``w_boundary``; every node weakly toward 0 (``LEVEL_W_ANCHOR``: the correction decays about 10 mm into a group),
-    and nodes of the reference view's groups held at 0. Clipped to +-log 2. Returns {'gain': (n, 3) per texel (1 off the painted
+    with stronger anchoring for the reference view. Optional along-boundary median smoothing and jump rejection
+    use ``LEVEL_TARGET_SIGMA_MM`` and ``LEVEL_MAX_JUMP`` (currently disabled). Clipped to +-log 2.
+    Returns {'gain': (n, 3) per texel (1 off the painted
     set), 'nodes', 'boundary_pairs', 'max_abs_log'}."""
     from scipy import sparse
     from scipy.sparse.linalg import spsolve
@@ -509,7 +534,6 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     node_of[sel] = node
     g_of = np.full(n, -1, np.int64)
     g_of[sel] = g
-    lookup = {int(k): i for i, k in enumerate(ukey)}
     rows_a, rows_b, kinds, tgts = [], [], [], []
     # smoothness: 4-adjacent cells of one group and chart
     ng = ukey // Wc // Hc
@@ -550,15 +574,22 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     bnd = ~same_g & diff_view
     na, nb_ = node_of[pa[bnd]], node_of[pb[bnd]]
     if len(na):
-        pk = np.unique(np.stack([np.minimum(na, nb_), np.maximum(na, nb_)], 1), axis=0)
+        pk, boundary_node = np.unique(np.stack([np.minimum(na, nb_), np.maximum(na, nb_)], 1), axis=0,
+                                      return_inverse=True)
         rows_a.append(pk[:, 0])
         rows_b.append(pk[:, 1])
         kinds.append(np.ones(len(pk), np.int64))
-        # the jump (V_b - V_a) of each boundary node pair, the MEDIAN along its boundary within 2 x
-        # LEVEL_TARGET_SIGMA_MM (same pair of groups, 3D): the field matches the step, not the blotches crossing it
+        # Compare both groups at the same physical boundary, rather than mistaking
+        # the gradient between their node interiors for an exposure discontinuity.
         Pn = np.stack([np.bincount(node, weights=tex.P[sel][:, k], minlength=N) for k in range(3)], 1) / cnt[:, None]
-        J = V[pk[:, 1]] - V[pk[:, 0]]
-        mid = (Pn[pk[:, 0]] + Pn[pk[:, 1]]) / 2
+        gradient = _node_gradients(tex.P[sel], x, node, Pn, V)
+        boundary_points = (tex.P[pa[bnd]] + tex.P[pb[bnd]]) / 2
+        boundary_count = np.bincount(boundary_node, minlength=len(pk))
+        mid = np.stack([np.bincount(boundary_node, weights=boundary_points[:, k], minlength=len(pk))
+                        for k in range(3)], 1) / boundary_count[:, None]
+        va, vb = (V[pk[:, k]] + np.einsum('ni,nij->nj', mid - Pn[pk[:, k]], gradient[pk[:, k]])
+                  for k in (0, 1))
+        J = vb - va
         gp = (ukey[pk[:, 0]] // Wc // Hc // 1024) * 100000 + (ukey[pk[:, 1]] // Wc // Hc // 1024)
         Js = J.copy()
         sig = LEVEL_TARGET_SIGMA_MM

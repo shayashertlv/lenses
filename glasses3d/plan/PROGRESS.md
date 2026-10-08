@@ -12,11 +12,13 @@ A4/filler/A5/B3 failure map and baseline report hash. Baseline replay/case captu
 accepted PNG SHA-256 exactly. `cache_run.json` records PID/timing/exit; `cases/` preserves all 160 independently
 drawn original A4 holes (four parts, five seeds, eight holes), with observations and truth kept separate in use.
 
-**Active run:** `texture_validation_probe_run.json`, PID **21864**, started 05:49:25: the same four donor-only
-models/training holes, with the existing production texture-selection objective instead of pixel MSE. Ten
-truth-separation checks precede all 160 original proof holes. Next prepared run: `gain_topology_candidate.py`, a
-fresh production bake of the gain-field topology fix below (default quilt, independent radius selection, A3/A4/A5
-and provenance). Consult the run record before another heavy job. The front-reference experiment exited 0 at 05:30:06; both original
+**Active run:** `b3_gain_boundary_texels_01_run.json`, PID **41556**, started 06:26:50, two workers,
+10,329,636 KB free commit at launch: fresh held-out-01 decomposition of the within-node boundary slope correction.
+Next: inspect the full frozen rows, then run prepared `b3_gain_boundary_texels_03.py` and `_05.py` sequentially.
+The completed candidate's A3/provenance pass, but A4/A5 still fail (details below). The prepared
+`b3_gain_topology_*` and `b3_gain_boundary_*` names describe prior versions; do not run them on this source.
+Consult the run record before
+another heavy job. The front-reference experiment exited 0 at 05:30:06; both original
 eligible held-out-05 brow rows still fail. Seam-support fixes are committed as `ccf88df`.
 No final quality acceptance, full regression, new reuse check or final AR verdict exists yet.
 
@@ -136,6 +138,9 @@ conditional-draw model is rejected. Reports/source remain local in `conditional_
 No production fill method or thresholds have changed. The next selector experiment uses the existing
 `fill.knock_stats` / production radius-selection objective on separate donor training holes; the pointwise MSE
 objective favours smooth means and does not express texture preservation. It never reads proof truth to select.
+The texture-objective selector exited 0 at 05:58:43, ten truth-separation checks passed. A4 still fails as a set:
+seed-0 fine error **0.124445 / 0.203384 / 0.193901 / 0.119204**, pooled
+**0.174539 / 0.143471 / 0.176289 / 0.118601** (`texture_validation_probe.json`). No selector is adopted.
 
 **Gain-field topology defect:** the documented 1 mm node smoothness edges were counted once by grid adjacency
 and again for every rasterized texel pair / seam sample, whereas boundary edges were deduplicated. Thus the same
@@ -144,8 +149,55 @@ synthetic tests fail before the repair and pass after deduplicating undirected n
 No weight, clip or threshold changed. Focused regression: **29 passed**, 3.93 s, exit 0 at 05:52:11
 (`gain_topology_regression_run.json` / `.log`). Original source hash
 `9aa6d128c1f94539fa511f50f7e1155c186e643a71ada9e33b86858ae40b6190` and red-test logs are preserved in
-`gains_before_topology.py` / `gain_topology_before*`. Production quality effect is not yet verified; the prepared
-candidate bake must follow the active filler experiment. This fix is not a WP5 quality pass.
+`gains_before_topology.py` / `gain_topology_before*`. Fresh production bake exited 0 at 06:04:13, default quilt
+0.9 mm and PatchMatch 0.3 mm independently selected on every part. **A3 and provenance pass**, protected photo
+support 739,664; **all A4 rows still fail**. A5 worsened to **1.348161 / 1.345189**, retained explicitly rather
+than calling the implementation tests quality passes. `gain_topology_candidate.json` / `_cache.pkl` / run/log
+records preserve the full report. Neither this candidate nor the earlier seam candidate is accepted.
+
+The zero-gradient seam prototype also changed 12 texels of an already correct synthetic log-affine planar
+surface, because its seam pairs are distinct neighbouring centres. A local tangent-gradient estimate accounts
+for their physical separation; four independent synthetic checks pass, including exact affine preservation and
+removal of a chart exposure offset (`seam_gradient_check_run.json`, exit 0 at 05:57:55). The prepared experimental
+`seam_gradient_field.py` / `seam_gradient_base.py` use no proof samples or tuned decay length. A fifth
+all-protected no-op check also passed (`seam_gradient_synthetic_v2.json`). On the new gain-topology bake,
+the diagnostic exited 0 at 06:05:49 and still fails A5 at 8: **0.967042 / 1.062656**, no clipping or protected
+changes. This is a pre-reflection diagnostic, not a full-production quality pass or runtime change.
+
+Contour transport (OpenCV Navier-Stokes, fixed three-pixel stencil) passed six synthetic invariance checks and
+ran all 160 original holes, exit 0 at 06:08:32; **still fails A4**. Seed-0 fine error
+**0.341929 / 0.088727 / 0.303084 / 0.436511**, pooled **0.236090 / 0.307809 / 0.270293 / 0.232576**.
+This is a fixed-stencil diagnostic, not an own-radius filler comparison or an accepted method.
+`isophote_fill_probe.json` / `isophote_synthetic.json` retain the result.
+
+The training-view anchor inventory exited 0 at 06:10:24 (`anchor_consistency_diagnosis.json`). With 01 or 05
+omitted, the two eligible brow-front source views have only their one mutual spectral comparison: it cannot
+identify which source is better. With 03 omitted, the left brow has three mutually compared candidates; median
+normalized-band profile distance is 0.165800 (01), 0.176475 (04), 0.210407 (05, current geometric anchor).
+This is diagnosis using remaining training views only, not a changed source policy or B3 result. No source
+admission, eligibility or frozen quality threshold changed.
+
+**Common-boundary gain defect (this checkpoint):** a synthetic continuous log-affine surface was altered merely by
+splitting it between two view labels. The leveller compared the interiors of adjacent 1 mm nodes, attributing
+their natural spatial gradient to exposure. It now fits same-group tangent slopes and compares both groups at
+their shared physical boundary. The original test fails before the correction; invariance to a common gradient,
+response to a real exposure step and rigid-world-coordinate invariance pass after it. Focused regression:
+**32 passed**, 3.95 s, exit 0 at 06:13:11 (`gain_boundary_regression_run.json`). Original source/red tests are
+retained as `gains_before_boundary.py` / `gain_boundary_before*`; the earlier 20-test invocation is also retained.
+That candidate exited 0 at 06:17:46. A5 still fails (**1.257212 / 1.204647**); every A4 part still fails,
+including Temple_Right whose energy passes but boundary ratio does not. This version estimated slopes only
+between nodes. A further independent one-cell-wide-group test exposed its missing transverse derivative
+(`gain_thin_group_before*`: one failed, five passed). The correction now estimates tangent slopes from the
+node's own observed texels. **33 focused tests pass**, 3.93 s, exit 0 at 06:21:36
+(`gain_boundary_texels_regression*`). The node-neighbour version is retained as `gains_boundary_nodes_v1.py`.
+The earlier bake's end-of-run source hash includes comment/dead-lookup cleanup performed during that run;
+numeric code did not change. Runtime source stayed fixed for the within-node bake. No quality pass claimed.
+The within-node bake exited 0 at 06:26:05 (`gain_boundary_texels_candidate*`): A3 within-one-level share
+0.999223289, p99 dE00 0.836842, all 739,014 protected texels covered; single-source provenance passes.
+Protected support is 405 below the immutable baseline, reported rather than excluded. Quilt/PatchMatch still
+select 0.9 / 0.3 mm on every part. A5 **1.301842 / 1.289024**, both failed. A4 seed-0 fine errors
+**0.566482 / 0.475355 / 0.246140 / 0.290558** and seam ratios **2.260464 / 1.725944 / 1.494812 / 1.472907**
+(BL/BR/TL/TR): all four fail. This corrects a proved gradient-estimation defect, not the remaining quality failures.
 
 Initial diagnosis recorded at session start (not a claimed fix): every part passes A4's calibrated mean-colour criterion, but fails
 fine-scale energy and the hole-boundary gradient ratio. Quilting matches context then pastes only inside the hole;
