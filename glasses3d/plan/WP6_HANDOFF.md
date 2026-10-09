@@ -15,6 +15,14 @@ mesh and a matching relief-free copy of its base, without depth exaggeration. Th
 unchanged; `s1_joint_edge_views_run/` records PID 47216, 14:25:30–14:25:33 +03, exit 0. This visualization
 request did not resume the goal or apply the pending repair.
 
+The owner subsequently requested direct angle control. An interactive viewer is served locally at
+`http://127.0.0.1:52003/` (PID 8252); its live receipt is
+`data/wp6/line_evidence_20261009/s1_joint_interactive_server.json`. Assets, source provenance and verified
+browser checks are in `s1_joint_interactive/` and `s1_joint_interactive_qa/`. It uses existing saved meshes;
+rotation, zoom/pan, lighting, model selection and synchronized flat comparison are available. To restart,
+run `serve_joint_viewer.py` from that evidence folder and read the newly allocated port from its receipt.
+Keep this viewer available for owner inspection; the fitting/repair goal remains paused.
+
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
 Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.

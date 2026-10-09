@@ -15,6 +15,16 @@ explanatory control differs from the earlier truth-based control. Source hashes 
 receipt `s1_joint_edge_views_run/`, PID 47216, 14:25:30–14:25:33, exit 0. Visualization only; no fitting,
 runtime repair, acceptance change or goal resumption.
 
+Owner-requested interactive viewer (14:31 +03): `http://127.0.0.1:52003/`, detached local server
+PID 8252; receipt `line_evidence_20261009/s1_joint_interactive_server.json` records its current URL.
+The ignored `s1_joint_interactive/` folder contains the saved experimental/current/truth meshes and
+experimental relief-free control, with rotation, zoom/pan, light controls and synchronized comparison.
+Export verified unchanged source hashes and exact triangle-index/position round trips (common translation
+only). Browser interaction checks passed with no external requests or page errors; screenshots inspected
+under `s1_joint_interactive_qa/`. Restart only the viewer if needed with `serve_joint_viewer.py` in the same
+evidence folder; it selects an available loopback port. The visualization server remains available while
+the WP6 goal stays paused. No fitting or runtime repair occurred.
+
 The next repair has an independent reproducer, but **no runtime fix has been applied**. Two complete,
 uncommitted test files remain in the worktree: `tests/fixtures/occlusion_evidence.py` and
 `tests/test_temple_theta_occlusion.py`. They deliberately expose the current hidden-arm defect; do not
