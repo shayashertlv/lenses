@@ -231,8 +231,12 @@ def _lift_line_extended(job, model, fit, p0, p1, side, n=40):
 
 
 def trace_creases(job, guides: dict, model, fits: dict, corners=PRADA_CORNERS, lift_views=("05", "01")) -> dict:
-    """Snap every guide to its gradient ridge, intersect for corners, lift the corners onto the model surface in the
-    side views (lines extended in (d, y) where a corner lies off the temple, e.g. Prada's C)."""
+    """Intersect image lines, then lift each intersection onto the current temple.
+
+    Lifted paths can bend across facets; intersecting straight fits to those paths
+    moves an on-surface corner away from its image ray. Extend fitted chart lines
+    only when the intersection misses the visible temple (e.g. Prada's C).
+    """
     out = {"views": {}, "corners": {}}
     for key, gl in guides.items():
         L = lightness(job.photo(key))
@@ -256,14 +260,24 @@ def trace_creases(job, guides: dict, model, fits: dict, corners=PRADA_CORNERS, l
                 lifted_lines[nm] = {"centre": c.tolist(), "dir": d.tolist(),
                                     "rms_mm": float(np.sqrt(np.mean(((P - c) @ np.array([-d[1], d[0]])) ** 2)))}
         out["views"][key]["lifted_lines"] = lifted_lines
-        dy = {}
+        dy, methods = {}, {}
         for c, (l1, l2) in corners.items():
+            uv = out["views"][key]["corners_px"].get(c)
+            if uv is None:
+                continue                        # parallel/missing image lines define no finite corner
+            hit = lift_px(job, model, fits[key], uv, side)
+            if hit is not None:
+                dy[c] = [hit["d"], hit["y"]]
+                methods[c] = "surface_intersection"
+                continue
             if l1 in lifted_lines and l2 in lifted_lines:
                 a, b = lifted_lines[l1], lifted_lines[l2]
                 p = line_isect(a["centre"], np.add(a["centre"], a["dir"]), b["centre"], np.add(b["centre"], b["dir"]))
                 if p is not None:
                     dy[c] = p
+                    methods[c] = "extended_chart_lines"
         out["views"][key]["corners_dy"] = dy
+        out["views"][key]["corner_lift_methods"] = methods
     for c in corners:
         vals = [out["views"][k]["corners_dy"][c] for k in lift_views
                 if k in out["views"] and c in out["views"][k].get("corners_dy", {})]

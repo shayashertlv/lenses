@@ -33,6 +33,30 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Coupled camera repair — 2026-10-09
 
+- **Current runtime is fit-8.** An independent tracing defect is repaired: an image-line intersection that
+  hits the visible temple is now lifted directly, rather than intersecting straight fits to two potentially
+  bent surface paths. Off-surface corners retain the existing chart-line extension; reports name the method.
+  Parallel image lines no longer create a spurious finite corner from the curved lifted paths.
+  `corner_intersection_lift/` isolates 0.114–0.510 mm error in eight analytic surface-point cases, versus
+  at most 4.68e-6 mm for direct ray lifting. Sixteen mirrored/pose/height controls plus off-surface and
+  parallel-line cases give **17 failures / 1 pass before repair** (`corner_lift_before/`, PID 33660,
+  09:52:47–09:52:50 +03). Afterward **42 pass / 1 existing xfail**, 69.53 s (`corner_lift_after/`, PID 42928,
+  09:53:32–09:54:41, exit 0), including synthetic trace/fit, cue and cache regressions. No thresholds changed.
+- Fixed-input P2 replay (`p2_corner_lift/`, PID 39000, 09:54:27, exit 0) improves B spread from
+  **0.343638 to 0.336089 mm** in the fresh case (historical 0.384845 to 0.376714). A and C lie outside the
+  surface and retain extension; **A remains 0.535002 mm > 0.5**, and historical A remains 0.583248.
+  Thus the verified tracing fix does not resolve P2 or STOP-I. Cameras, lines, surfaces and all source
+  hashes remain unchanged; historical cameras are diagnostic inputs, not fit-8 acceptance evidence.
+- Rigid-part camera diagnostics were completed and **not integrated**. `rigid_part_controls/` retains
+  all 18 independent articulated-box/wedge cases: nine proposals fail the original front guard, one makes
+  no progress, and eight improve near-part projection while worsening whole-image fit.
+  `front_anchor_controls/` uses the same visible-contour method on the fixed front: camera-only projection
+  improves in 12 cases, worsens in five (up to 6.306 px RMS), and is unchanged in one. Every articulated
+  case's whole-image loss worsens. Neither method justifies a product trial or replacing current cameras.
+  Receipts: PID 29148, 09:46:12–09:46:20; PID 18916, 09:48:11–09:48:19; both exit 0. Keep all failed cases.
+  Further camera work needs an independently justified source of pose information, not additional
+  contour-weight searches. Continue with the remaining R1/instrument evidence under unchanged gates.
+
 - The subsequent source-camera diagnosis preserves the new STOP-I failure. `full_camera_diagnosis/`
   (PID 28444, 09:18:43–09:20:52 +03, exit 0) refits the **exact known geometry** using silhouettes only:
   measured transfer **0.730990 mm**, exact **0.039587 mm**. Shape bias is only part of the failure.
@@ -70,14 +94,13 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
   every articulated whole scene has rank 12 (minimum/maximum singular ratio **0.000174–0.002321**).
   A single camera therefore cannot exactly reproduce all those articulated corner correspondences.
   This includes hidden corners and is **not** proof that silhouette matching or the current gates are
-  impossible. Next test a rigid-part registration diagnostic on independent visible silhouettes, retain
-  full-image/far-part errors and the original front guard, and judge it before any runtime change.
+  impossible. The subsequent rigid-part diagnostics above did not provide a reliable repair.
 - A separate initial-refit defect accepted an unmeasured front guard (`inf <= inf`, or a finite result
   against an infinite baseline). `test_temple_refit_guard.py` reproduces **2 failures / 5 passes** before
   repair. Both guard measurements must now be finite, matching joint alignment's existing rule. The seven
   cases plus input/cache controls give **17 passes**, 1.70 s (`refit_guard_after_corrected/`, PID 43668,
   09:33:43–09:33:45, exit 0). An earlier after-run used a nonexistent test path and exited 4 with no tests;
-  its receipt remains in `refit_guard_after/`. Fitter version is now **fit-7**, invalidating old acceptance
+  its receipt remains in `refit_guard_after/`. That repair introduced **fit-7**, invalidating old acceptance
   caches. After the version update, **19 checks pass**, 2.10 s (`refit_guard_version_checks/`, PID 45236,
   09:38:23–09:38:25, exit 0), including trace order and frozen dependency assertions. The numerical method
   for finite guards is unchanged; existing S1 failures are not explained away.

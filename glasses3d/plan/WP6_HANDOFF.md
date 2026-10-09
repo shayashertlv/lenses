@@ -294,8 +294,12 @@ separate `*_run/run.json` receipts, immutable input hashes and exit 0 unless not
   individual rigid part have a nonzero camera solution. Minimum/maximum singular ratios are
   0.000174–0.002321 versus about 6e-17 for zero articulation. One camera cannot exactly reproduce all of
   those articulated corners. Hidden corners are included; this does not prove the silhouette or gate
-  tolerances impossible. Next test rigid-part registration on independent visible contours, preserving
-  all full-image/far-part errors and the original front guard. No change to runtime camera support yet.
+  tolerances impossible. Subsequent rigid-part trials below did not produce a reliable replacement.
+- `rigid_part_controls/`: all 18 cases retained. Nine proposals fail the front guard, one makes no progress,
+  and eight improve near-part projection while worsening whole-image fit. `front_anchor_controls/` improves
+  camera-only projection in 12 cases, worsens it in five (maximum 6.306 px RMS), and leaves one unchanged;
+  all articulated cases worsen the whole-image loss. Neither experimental method is integrated or tried
+  on product inputs. No more contour-weight searches are justified by this evidence.
 
 During this review, `relief_views.refit_camera` was found to accept an unmeasured front guard because it
 compared infinite distances. It now requires finite baseline and proposed measurements, as joint alignment
@@ -305,7 +309,29 @@ test path and exited 4 without collecting tests (`refit_guard_after/`); preserve
 invalidates earlier acceptance caches. Finite-guard fitting mathematics is unchanged, and both saved S1 cases
 have finite guards, so this repair does not resolve the retained STOP-I failure. After the version update,
 **19 guard/input/cache/trace-order/dependency checks pass**, 2.10 s, `refit_guard_version_checks/`,
-PID 45236, 09:38:23–09:38:25 +03, exit 0.
+PID 45236, 09:38:23–09:38:25 +03, exit 0. This guard repair is committed at `a9021cc`.
+
+## Surface-corner mapping repair (fit-8, 2026-10-09)
+
+An image line can lift to a bent path across the current model's facets. The old tracer fitted a straight
+line to each such path and intersected those fits even when the image corner hit the temple. That changes
+the point being measured. `corner_intersection_lift/` proves **0.114–0.510 mm** error on eight independent
+analytic surface-point cases; direct intersection-ray lifting is within **4.68e-6 mm** of the known point.
+
+`trace_creases` now directly lifts an image intersection that hits the visible temple. If it misses,
+the existing off-surface chart-line extension remains. Each corner reports `corner_lift_methods`.
+Parallel/missing image lines define no finite corner, even if fits to their curved lifts happen to cross.
+The independent 18-case control gives **17 failures / 1 pass before repair**. Afterward the affected trace,
+synthetic fit, cue and cache checks give **42 passes / 1 existing xfail**, 69.53 s, exit 0, in
+`corner_lift_after/` (PID 42928, 09:53:32–09:54:41 +03). Current fitter version is **fit-8**; prior camera caches
+are diagnostic only. The tests and gate thresholds are unchanged apart from the new independent controls.
+
+Fixed-camera/fixed-line P2 replay is in `p2_corner_lift/`. Only B uses the corrected surface mapping:
+fresh B improves **0.343638 → 0.336089 mm**; historical B **0.384845 → 0.376714**. A/C are off-surface and keep
+the existing extension. **Fresh A remains 0.535002 mm > 0.5; historical A remains 0.583248 mm.**
+This is a verified general tracing repair, not a P2 or STOP-I pass. Every recorded input hash is unchanged.
+No new candidate/full product fit occurred. Continue the remaining instrument/R1 diagnosis; additional
+camera work needs independently justified pose evidence rather than further contour-weight experiments.
 
 ## Exact evidence and replay entry points
 
