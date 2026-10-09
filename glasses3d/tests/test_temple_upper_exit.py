@@ -15,7 +15,7 @@ def test_rearward_exit_is_selected_explicitly():
     assert FX._zero_line_from([-1.6, .02, .2], chain, np.array([40., 4.])) is None
 
 
-@pytest.mark.parametrize('relief_scale', [.25, 1., 2.])
+@pytest.mark.parametrize('relief_scale', [-2., -1., -.25, .25, 1., 2.])
 def test_rearward_face_and_virtual_front_node_form_a_solid(relief_scale):
     A, B = np.array([-2., 6.]), np.array([40., 4.])
     u = (B-A)/np.linalg.norm(B-A)
@@ -29,6 +29,10 @@ def test_rearward_face_and_virtual_front_node_form_a_solid(relief_scale):
     assert built.checks["closed"]
     np.testing.assert_allclose(spec["nodes"]["K"][:2], [24.5/.275, 8-(24.5/.275)/10], atol=1e-10)
     assert spec["nodes"]["A_l"][0] < A[0]
+    # The added upper face must not move the independent lower/rear plane.
+    # Analytic plane through B(40,4,0), C(20,-22,3), E(85,-20,0).
+    np.testing.assert_allclose(built.sol.planes['F4'].coef,
+                               [114/55, -12/275, -9/110], atol=1e-12, rtol=0)
 
 
 def test_invalid_exit_direction_is_refused():
