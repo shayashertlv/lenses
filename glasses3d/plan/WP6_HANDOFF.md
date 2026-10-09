@@ -614,6 +614,17 @@ at common views/scales/lights, four directions and both a camera and a light orb
 its prior failing role, not by the new outcome. Syntax checked; inspect the generated images before showing
 them. None of these three final reports/visuals has been produced yet.
 
+Prepared next independent check: `probe_normal_current_eligibility.py` (no fit yet). After auditing/showing
+the matrix visuals, test the same contour-normal proposal with **unchanged observed-angle eligibility**
+on 16 front/top/oblique analytic wedge controls and four rigid side controls, both perturbation signs.
+All use fully visible 900 x 1200 images; no Prada geometry, crease score or true pose selects a fit.
+Current baseline stays available; common image loss and original front guard select, with all projection
+and angle regressions retained. Side/unobserved angles must stay fixed. This is not a claim that it solves
+S1. The script refuses a pool until the four-cell matrix report exists. Generation-only preflight passed
+**20/20**: no boundary clipping, all true-camera image losses zero. Single-process receipt
+`normal_current_eligibility_preflight_run/`, PID **37088**, **13:06:39–13:06:45 +03**, exit 0;
+report/source snapshots in `normal_current_eligibility_preflight/`. No extra heavy pool was started.
+
 The first cell's additional mesh audit is complete: **2,121 points, zero missing**, X error RMS
 **0.040576901405 mm**, mean absolute **0.034576549908 mm**, maximum **0.073704802220 mm**.
 This is a fixed truth-chart point-grid diagnostic, not a new gate. Receipt `s1_joint_geometry_partial_1_run/`,

@@ -302,6 +302,19 @@ passes four independent plane/triangulation/winding controls at 1e-12 mm and ret
 (12:22:54, exit 0). The visualization syntax check passes; actual renders must still be inspected before display.
 After all four cells finish, run these in new logged output folders, audit the whole matrix and show the visuals.
 
+An additional independent camera check is prepared as `probe_normal_current_eligibility.py`, **not yet fit**.
+It applies the unchanged contour-normal proposal after the current fit, freeing only the already-observed
+angles permitted by production. It retains 16 front/top/oblique controls (the earlier held-out pose roles,
+both perturbation signs) plus four rigid side controls, on fully visible 900 x 1200 images of the analytic
+wedge fixture. Side/unobserved angles must remain unchanged; selection uses the common full-scene image
+loss and original front guard. Every hidden-vertex error and common-frame angle is retained, including
+regressions. No product/S1 geometry or crease score enters the control fits. The script refuses a pool until
+the complete matrix report exists. First audit/show the matrix visuals, then use this to test whether the
+proposal helps within existing eligibility; it does not establish that the fresh S1 floor can be solved.
+Generation preflight: **20/20 images fully visible, true-camera image loss zero**, no optimization,
+single process, PID **37088**, **13:06:39–13:06:45 +03**, exit 0. Receipt
+`normal_current_eligibility_preflight_run/`, preserved report/source in `normal_current_eligibility_preflight/`.
+
 The first completed cell also has a read-only mesh audit: **2,121/2,121** fixed truth-chart points covered,
 outer X error **0.040576901405 mm RMS**, **0.034576549908 mm** mean absolute, **0.073704802220 mm** maximum.
 This is a point-grid diagnostic, not an area integral, Hausdorff distance, uncertainty interval or new gate.
