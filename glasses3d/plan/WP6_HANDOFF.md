@@ -556,8 +556,13 @@ measured endpoints, views, limits and constraints retained. The camera callback 
 by production. All four side angles plus 02+x are graded regardless of old observability flags. Initial
 preflight stopped before fitting at the false historical start value (PID 24344, 12:01:49–12:01:51, exit 1).
 The driver now validates legacy raw metadata while using the actual defaulted family. Corrected preflight
-passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0); review complete. Commit the
-reporting correction before launching the matrix. No heavy process is active yet.
+passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0); correction committed at
+**a2e67fc**. The matrix is active: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, started
+**12:07:44 +03**. `s1_fit6_current` began 12:07:51 with 12 workers after 23,736,996 KB available commit
+(GlobalMemoryStatusEx); prelaunch shell free virtual memory was 23,973,836 KB. Order: original current,
+original counterfactual, fresh current, fresh counterfactual. Per-cell receipts/measurements and a cumulative
+`partial_report.json` preserve completed cells. No timeout. Check PID/child activity and receipts before
+another pool, and preserve healthy running work.
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 

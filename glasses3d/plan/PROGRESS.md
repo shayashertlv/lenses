@@ -240,8 +240,14 @@ regardless of the old observability flag. The first preflight stopped before fit
 historical start table (PID 24344, 12:01:49–12:01:51, exit 1). The driver now verifies legacy metadata
 against its raw inputs and reconstructs the actual defaulted family; it never starts from the false zero.
 Corrected preflight passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0).
-Both input families and all source hashes validate. Review is complete; launch the matrix after committing
-the reporting correction. No heavy run is active yet.
+Both input families and all source hashes validate. Reporting correction committed at **a2e67fc**.
+The matrix is now running: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, started
+**12:07:44 +03**. First cell `s1_fit6_current` started 12:07:51 with **12 workers / 23,736,996 KB** available
+commit (Windows GlobalMemoryStatusEx); the shell's free-virtual check before launch was 23,973,836 KB.
+Order: original-input current, original-input counterfactual, fresh-input current, fresh-input counterfactual.
+Each cell writes its own receipt and measurements; `partial_report.json` appears after the first complete
+cell. No timeout. Verify the live PID/children and receipt before any new pool; do not restart or terminate
+this healthy run merely because a camera/shape phase is slow.
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
