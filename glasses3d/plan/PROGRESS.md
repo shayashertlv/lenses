@@ -268,6 +268,22 @@ passes four independent plane/triangulation/winding controls at 1e-12 mm and ret
 (12:22:54, exit 0). The visualization syntax check passes; actual renders must still be inspected before display.
 After all four cells finish, run these in new logged output folders, audit the whole matrix and show the visuals.
 
+The first completed cell also has a read-only mesh audit: **2,121/2,121** fixed truth-chart points covered,
+outer X error **0.040576901405 mm RMS**, **0.034576549908 mm** mean absolute, **0.073704802220 mm** maximum.
+This is a point-grid diagnostic, not an area integral, Hausdorff distance, uncertainty interval or new gate.
+Receipt `s1_joint_geometry_partial_1_run/`, actual PID 25436, **12:28:13 +03**, exit 0 (single process, no pool).
+Output `s1_joint_geometry_partial_1/` includes exact snapshots of its input partial report and audit source;
+both snapshot hashes match the original audit record, preserving provenance when later cells append results.
+The final visualization now requires the full geometry audit and shows its depth errors beside the actual
+meshes, separately from transfer errors. No final visualization or four-cell audit exists yet.
+
+The static protocol review confirms why the camera variant remains diagnostic: production fixes 01/05
+theta in `_initial_view_fit`, excludes it in `align_view`, and also forces zero in the cross-camera comparison.
+`crease_fit` then supplies those values to R2/R3. The frozen dependency table and its test explicitly grade
+only 02+x. Expanding the fitted side angles would need an explicit dependency/procedure review, including
+all quantities the measurements read; it cannot be silently installed or treated as an existing-protocol pass.
+No production rule, dependency file, threshold or observability flag has been changed by this experiment.
+
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
 The preceding **fit-9** repair: the independent virtual-corner control exposed a cap-hit error in fit-8's

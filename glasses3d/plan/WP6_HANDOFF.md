@@ -582,6 +582,21 @@ at common views/scales/lights, four directions and both a camera and a light orb
 its prior failing role, not by the new outcome. Syntax checked; inspect the generated images before showing
 them. None of these three final reports/visuals has been produced yet.
 
+The first cell's additional mesh audit is complete: **2,121 points, zero missing**, X error RMS
+**0.040576901405 mm**, mean absolute **0.034576549908 mm**, maximum **0.073704802220 mm**.
+This is a fixed truth-chart point-grid diagnostic, not a new gate. Receipt `s1_joint_geometry_partial_1_run/`,
+PID 25436, **12:28:13 +03**, exit 0, one process/no pool. `s1_joint_geometry_partial_1/` retains the source
+partial-report and audit-script snapshots with verified original hashes, so later matrix updates cannot erase
+its provenance. The visualization now reads the full geometry audit and labels this depth measure separately
+from the transfer score. Run the full geometry audit before rendering.
+
+Protocol review: `_initial_view_fit`, `align_view`, and `compare_temple_views`' cross-camera rows all impose
+the current side-angle policy. `crease_fit` supplies its angles to the R2/R3 readers; the frozen table and
+`test_s1_dependency_table_names_the_theta_pairs_and_r_b_is_not_fitted` explicitly retain 02+x only.
+Do not silently integrate the counterfactual or call it a frozen-protocol pass. Any production side-angle
+change needs the dependency/procedure issue resolved and every newly read quantity graded, preserving all
+existing thresholds and controls. No such production change or owner-decision request has occurred.
+
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
 | Evidence | Path / use |
