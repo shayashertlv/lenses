@@ -204,14 +204,28 @@ def line_isect(a0, a1, b0, b1):
 
 
 def lift_px(job, model, fit: dict, uv, side: int) -> dict | None:
-    """(d, y) of a pixel lifted onto the model's temple `side` (ray cast), else the ray's meeting with that temple's
-    outer-face plane is not used: None when the ray misses the temple."""
+    """Lift onto a visible outward-facing temple surface, else return None.
+
+    A virtual crease corner's ray can hit a cap or inner wall. That hit is not
+    the outer corner; its position must still come from the crease extensions.
+    Surface orientation is tested in the temple's un-opened chart.
+    """
     V, F, tag = model.composite(job, fit["theta"])
     sc = raster.get_scene(V, F, job.frame)
     h = sc.cast(fit["camera"], np.array([uv[0]]), np.array([uv[1]]), want_points=True)
     if not h["hit"][0] or tag[h["face_id"][0]] != side:
         return None
-    ch = chart_of(h["points"], side, job.hinge["z_mm"], fit["theta"].get(side, 0.0), job.hinge["axis_xz_mm"])[0]
+    tri = V[F[h["face_id"][0]]]
+    normal = np.cross(tri[1] - tri[0], tri[2] - tri[0])
+    norm = float(np.linalg.norm(normal))
+    if norm == 0:
+        return None
+    point = h["points"][0]
+    chart = chart_of(np.array([point, point + normal / norm]), side, job.hinge["z_mm"],
+                     fit["theta"].get(side, 0.0), job.hinge["axis_xz_mm"])
+    if chart[1, 2] - chart[0, 2] <= 1e-8:  # zero-normal roundoff, not a quality threshold
+        return None
+    ch = chart[0]
     return {"d": float(ch[0]), "y": float(ch[1]), "X": float(ch[2])}
 
 
@@ -235,7 +249,8 @@ def trace_creases(job, guides: dict, model, fits: dict, corners=PRADA_CORNERS, l
 
     Lifted paths can bend across facets; intersecting straight fits to those paths
     moves an on-surface corner away from its image ray. Extend fitted chart lines
-    only when the intersection misses the visible temple (e.g. Prada's C).
+    when the intersection misses the visible outer surface (e.g. Prada's C),
+    including rays that hit a cap or inner wall instead.
     """
     out = {"views": {}, "corners": {}}
     for key, gl in guides.items():

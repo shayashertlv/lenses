@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from glasses3d.g3d.temple import fixtures as FX
-from glasses3d.g3d_host import camera as CM, relief_fit as RF, relief_trace as RT
+from glasses3d.g3d_host import camera as CM, relief_fit as RF, relief_trace as RT, relief_views as RV
 
 
 def exact_lines(monkeypatch):
@@ -64,3 +64,38 @@ def test_parallel_lines_have_no_corner(monkeypatch):
                               corners={'q': ('a', 'b')}, lift_views=('05',))
     assert result['views']['05']['corners_px']['q'] is None
     assert 'q' not in result['corners']
+
+
+@pytest.mark.parametrize('height,virtual_y,yaw,pitch,side',
+                         list(itertools.product((2., 4.), (14., 18.), (70., 90.), (-25., 25.), (1, -1))))
+def test_virtual_crease_corner_does_not_snap_to_a_top_cap(monkeypatch, height, virtual_y, yaw, pitch, side):
+    _virtual_corner(monkeypatch, height, virtual_y, yaw, pitch, side, 0.)
+
+
+@pytest.mark.parametrize('side,theta', list(itertools.product((1, -1), (-5., 5.))))
+def test_virtual_corner_surface_check_uses_the_opened_temple_frame(monkeypatch, side, theta):
+    _virtual_corner(monkeypatch, 4., 14., 70., 25., side, theta)
+
+
+def _virtual_corner(monkeypatch, height, virtual_y, yaw, pitch, side, theta):
+    exact_lines(monkeypatch)
+    spec = FX.analytic_prism(h=height)
+    spec['nodes']['O'] = [20., virtual_y, height]
+    del spec['facets']['N']  # Its entire triangle is above the rectangular outline.
+    key = '05' if side == 1 else '01'
+    job = RF.synthetic_setup(spec, views=(key,))
+    cam = replace(job.true_cams[key], yaw=side*yaw, pitch=pitch, perspective=.22)
+    fit = {'camera': cam, 'theta': {side: theta, -side: 0.}}
+    # Exact 3D creases extend from the bottom rectangle corners to a virtual
+    # apex above y=10. Their photographed segments lie inside the outline.
+    vertex = np.array([side*(64.+height), virtual_y, job.hinge['z_mm']-20.])
+    guides = {}
+    for name, d in [('a', 0.), ('b', 40.)]:
+        endpoint = np.array([side*64., -10., job.hinge['z_mm']-d])
+        points = np.array([vertex*(1-t)+endpoint*t for t in (.4, .85)])
+        points = RV.rot_about_hinge(points, side, theta, job.hinge['axis_xz_mm'])
+        guides[name] = CM.project_mm(points, cam, job.frame).tolist()
+    result = RT.trace_creases(job, {key: guides}, job.truth, {key: fit},
+                              corners={'q': ('a', 'b')}, lift_views=(key,))
+    assert result['views'][key]['corners_dy']['q'] == pytest.approx([20., virtual_y], abs=1e-4)
+    assert result['views'][key]['corner_lift_methods']['q'] == 'extended_chart_lines'

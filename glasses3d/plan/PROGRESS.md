@@ -33,6 +33,25 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
+Latest runtime is now **fit-9**: the independent virtual-corner control exposed a cap-hit error in fit-8's
+direct intersection lifting. Two mirrored exact-geometry/exact-line cases hit the top cap instead of the
+virtual corner, producing **4.764397 mm** error. The geometric outward-normal check now runs in the un-opened
+temple frame and rejects cap/inner-wall hits; those corners retain line extension. Before repair, the 32
+controls plus four opened-temple cases give **6 failures / 30 passes** (`virtual_corner_before/`, PID 36056,
+10:20:23–10:20:29 +03). Afterward **78 affected checks pass / 1 existing xfail**, 71.06 s
+(`virtual_corner_after/`, PID 41176, 10:21:04–10:22:16, exit 0), including the earlier surface-corner controls,
+synthetic trace/fit, cue and cache checks. No frozen threshold changes; earlier fit caches are diagnostic only.
+
+The identical 96-case diagnostic is retained before/after (`virtual_corner_controls/` and
+`virtual_corner_controls_fit9/`, actual PIDs 5196 and 43752, exit 0): exact-surface maximum error drops to
+**3.642e-6 mm**, with all 32 corners recovered. Supplying a wrong relief surface still causes up to
+**1.457203 / 1.247151 mm** error at half/1.5-times true relief. This template dependence remains a limitation,
+not a second claimed fix. All cases, original lines and cameras are retained. Fixed-input historical/fresh P2
+replay (`p2_corner_lift_fit9/`, PID 36760, 10:21:31–10:21:32, exit 0) is unchanged from fit-8: **fresh A remains
+0.535002 mm > 0.5**. STOP-I and the fixed-family R1 limitations below remain unresolved. A labelled coordinate
+diagram is saved in `virtual_corner_visual_v2/before_after.png`; this is a synthetic measurement control, not
+a changed product shape or a WP6 quality pass. Continue with photo-supported tracing/representation evidence.
+
 **R1 is measuring a real limitation of the current fixed-outline pyramid family.** It is not an area-integration
 bug, and no threshold or candidate plane has changed. Independent area sampling on five predeclared meshes
 agrees with production to at most **0.000033543**. Both retained S1 pyramid truths are the same spec and score
@@ -64,8 +83,8 @@ verify the area formula within **1.855e-14**; adding region-grown planes changes
 
 Evidence: `line_evidence_20261009/r1_family_bound/` and `r1_family_verification/`, drivers
 `audit_r1_family_bound.py` / `verify_r1_family_bound.py`. Actual PIDs 32420 (10:10:21–10:10:22) and 36120
-(10:12:36–10:12:48), exit 0. All recorded source hashes are unchanged. The current runtime remains **fit-8**,
-whose surface-corner repair is committed at `f0526a5`; no new S1/candidate acceptance run has occurred.
+(10:12:36–10:12:48), exit 0. All recorded source hashes were unchanged across those runs, which used **fit-8**
+(surface-corner repair at `f0526a5`); no new S1/candidate acceptance run has occurred.
 Next, investigate remaining tracing/representation limitations with independent controls and photo evidence;
 do not change the shape merely to beat R1, retry arbitrary contour weights, or reopen resolved waiver questions.
 Proof/diagnostic reporting now preserves calibration evidence under `resolved_gate_decisions`, leaves the
@@ -77,7 +96,7 @@ versus proof-passing evidence clearly, and obtain their final appearance judgmen
 
 ## Coupled camera repair — 2026-10-09
 
-- **Current runtime is fit-8.** An independent tracing defect is repaired: an image-line intersection that
+- **Fit-8 surface-corner repair.** An independent tracing defect is repaired: an image-line intersection that
   hits the visible temple is now lifted directly, rather than intersecting straight fits to two potentially
   bent surface paths. Off-surface corners retain the existing chart-line extension; reports name the method.
   Parallel image lines no longer create a spurious finite corner from the curved lifted paths.

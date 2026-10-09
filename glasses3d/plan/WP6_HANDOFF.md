@@ -323,7 +323,7 @@ the existing off-surface chart-line extension remains. Each corner reports `corn
 Parallel/missing image lines define no finite corner, even if fits to their curved lifts happen to cross.
 The independent 18-case control gives **17 failures / 1 pass before repair**. Afterward the affected trace,
 synthetic fit, cue and cache checks give **42 passes / 1 existing xfail**, 69.53 s, exit 0, in
-`corner_lift_after/` (PID 42928, 09:53:32–09:54:41 +03). Current fitter version is **fit-8**; prior camera caches
+`corner_lift_after/` (PID 42928, 09:53:32–09:54:41 +03). That repair introduced **fit-8**; prior camera caches
 are diagnostic only. The tests and gate thresholds are unchanged apart from the new independent controls.
 
 Fixed-camera/fixed-line P2 replay is in `p2_corner_lift/`. Only B uses the corrected surface mapping:
@@ -332,6 +332,32 @@ the existing extension. **Fresh A remains 0.535002 mm > 0.5; historical A remain
 This is a verified general tracing repair, not a P2 or STOP-I pass. Every recorded input hash is unchanged.
 No new candidate/full product fit occurred. Continue the remaining instrument/R1 diagnosis; additional
 camera work needs independently justified pose evidence rather than further contour-weight experiments.
+
+## Virtual-corner cap-hit repair (fit-9, 2026-10-09)
+
+Current runtime is **fit-9**. `virtual_corner_controls/` uses an independent rectangular three-facet roof whose
+two visible creases meet at an apex outside its outline. All 32 height/apex/pose/side combinations and two
+perturbed lift surfaces per case are retained (96 cases total). Exact geometry and exact image lines still
+produce **4.764397 mm** error in two mirrored cases: the virtual corner's ray hits the top cap, which fit-8
+mistakes for the corner. `lift_px` now checks the actual triangle's outward normal in the un-opened temple
+frame; cap and inner-wall hits leave the corner on the existing line-extension path. The 1e-8 normal-zero
+roundoff tolerance is geometric classification, not a changed quality gate.
+
+The 32 exact controls plus four opened-temple cases give **6 failures / 30 passes before repair**
+(`virtual_corner_before/`, PID 36056, 10:20:23–10:20:29 +03, exit 1). Afterward all affected tests give
+**78 passes / 1 existing xfail**, 71.06 s (`virtual_corner_after/`, PID 41176, 10:21:04–10:22:16, exit 0).
+The earlier on-surface-corner repair remains covered. Version fit-9 invalidates earlier acceptance caches.
+The same 96-case diagnostic after repair has maximum exact-surface error **3.642e-6 mm**, no missing corners;
+wrong half/1.5-times relief surfaces still cause maximum errors **1.457203 / 1.247151 mm**. This is remaining
+template dependence, not a claim to have corrected wrong-surface lifting. Runs `virtual_corner_controls_run/`
+(PID 5196, 10:18:41–10:18:44) and `virtual_corner_controls_fit9_run/` (PID 43752, 10:22:36–10:22:39) exit 0.
+Fixed-input P2 replay in `p2_corner_lift_fit9/` is unchanged from fit-8 (PID 36760, 10:21:31–10:21:32, exit 0).
+Fresh A still fails at 0.535002 mm; STOP-I is unresolved. No new candidate or S1 acceptance run occurred.
+
+The inspected `virtual_corner_visual_v2/before_after.png` illustrates one of the two mirrored failures using
+the retained coordinates. It is labelled as a synthetic tool test. First layout and its receipt are retained;
+v2 separates axis labels and the error caption. Keep showing useful results to the owner, with the distinction
+between measurement controls, real-photo experiments and proof-passing results clear.
 
 ## R1 area audit and fixed-family bound (2026-10-09)
 
@@ -369,7 +395,7 @@ Proof/diagnostic reports now record `resolved_gate_decisions` and an empty compa
 `open_owner_decisions` list. The obsolete STOP-I waiver invitation is removed; calibration evidence remains.
 No stop, threshold, score, parser or waiver evaluator changes. Existing saved JSON is untouched.
 Reporting/completion/cache/diagnostic-exit checks: **21 pass**, 0.19 s, `resolved_gate_reporting/`, actual
-PID 41424, 10:14:51 +03, exit 0. The runtime remains fit-8 (`f0526a5` surface-corner repair).
+PID 41424, 10:14:51 +03, exit 0. This reporting change used fit-8 (`f0526a5` surface-corner repair).
 
 Continue with independent checks of off-surface corner extrapolation and photo-supported representation
 limitations. Do not start another full product fit merely to try the same fixed family again. Show useful
