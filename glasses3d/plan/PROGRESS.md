@@ -259,6 +259,23 @@ S1 acceptance record and does not replace the historical fit-6 proof. Its curren
 as calculated; no result selection. Second cell, `s1_fit6_free_side_counterfactual`, started **12:22:50**
 with a fresh sequential pool of 12 workers after **23,800,452 KB** available commit; parent PID remains 42452.
 
+**Two of four cells are now complete.** The older-input experimental cell finished **12:44:58 +03**:
+measured transfer **0.623282348529 mm**, exact **0.038949400278 mm**; truth R2 passes and zero-relief R2 fails.
+Outline error improves to **0.017566817542 mm** and the maximum across all five audited angle pairs is
+**0.228094533967 degrees** (original 02+x **0.066886181346 degrees**). Zone-level and r_C errors increase to
+**0.090146528450 / 0.056867456815 mm**, still within their existing limits. All 16 sign cases remain measured;
+**3 exceed 0.7**, maximum **0.750531925098 mm**, versus 2 / 0.745211467529 in the current-method baseline.
+Final front bound clear, four-round cap reached. Thus this is a mixed diagnostic improvement, not a universal
+error reduction or proof of convergence. The side-angle protocol remains counterfactual, not integrated.
+
+The mesh audit on both completed cells (`s1_joint_geometry_partial_2/`) retains **2,121/2,121** points each.
+Experimental X-error RMS is **0.061507126426 mm**, worse than current **0.040576901405 mm**; mean signed/absolute
+error **+0.051935012471 mm**, maximum **0.108787221321 mm**. This outer-depth bias is retained beside the better
+outline/transfer results. Receipt PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
+Input/source snapshots are retained automatically. **Third cell `full_fit6_current` is active**, started
+**12:45:00 +03**, 12 workers after **23,811,080 KB** available commit. The fourth cell tests the experimental
+method on this same previously failing input set. Parent PID remains **42452**; no other heavy pool is active.
+
 Readout/visual scripts are prepared under the same ignored evidence folder (not yet run on the full matrix):
 `summarize_s1_joint_counterfactual.py` audits all four results and image-only candidate selection;
 `audit_s1_joint_geometry.py` measures outer-mesh depth at a fixed truth-chart grid (101 stations x 21 height

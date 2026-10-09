@@ -572,6 +572,24 @@ maximum .343955406 degrees at 05+x is recorded separately from the frozen 02+x r
 acceptance claim. `s1_fit6_free_side_counterfactual` started **12:22:50**, 12 workers after 23,800,452 KB free
 commit; parent PID remains **42452**, live child PIDs changed for this cell. The two fresh-input cells follow.
 
+**Current run position: two of four cells complete; `full_fit6_current` active since 12:45:00 +03** with
+12 workers after **23,811,080 KB** available commit; parent PID **42452**. The experimental `full_fit6` cell
+follows automatically. Preserve this live run and inspect its current children before any new pool.
+
+Older-input counterfactual completed **12:44:58**: measured **0.623282348529 mm**, exact **0.038949400278 mm**;
+truth R2 true / zero-relief R2 false. Outline **0.017566817542 mm** and maximum of all five audited angle
+pairs **0.228094533967 degrees** improve. Zone/r_C errors rise to **0.090146528450 / 0.056867456815 mm**;
+02+x error **0.066886181346 degrees**. All remain inside existing numerical recovery limits, but this reads
+side angles and is not the frozen protocol. All 16 sign cases measured; 3 exceed .7 (max .750531925098),
+versus baseline 2 (max .745211467529). Front bound clear; round cap reached. Do not call it convergence or
+an improvement on every diagnostic.
+
+The actual mesh-depth comparison also retains a regression: current X-error RMS **0.040576901405 mm** versus
+experimental **0.061507126426 mm**, with **+0.051935012471 mm** mean bias / **0.108787221321 mm** maximum.
+Both have all 2,121 samples. `s1_joint_geometry_partial_2/` includes source/input snapshots; receipt
+`s1_joint_geometry_partial_2_run/`, PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
+The newer input set must finish before deciding the next repair; no full-matrix verdict or visualization yet.
+
 After the complete matrix, run the prepared ignored scripts with `run_single.py` into fresh log folders:
 `summarize_s1_joint_counterfactual.py`, `audit_s1_joint_geometry.py`, `visualize_joint_diagnostic.py`.
 The first audits all four selections/controls; `--partial` only reads completed rows and writes nothing.
