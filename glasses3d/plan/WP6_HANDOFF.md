@@ -541,6 +541,24 @@ limits, retracing and front/hinge constraints. Keep both retained S1s and all er
 grade all four side angles plus the existing 02+x pair. Production eligibility and the frozen side-theta
 dependency file stay untouched. No full product fit, current-protocol S1 pass claim or oracle-shape promotion.
 
+The joint-diagnostic preflight exposed a reporting defect: S1's raw `params.get(name,0)` table reports an
+omitted `t_ze` as 0 mm although the actual family defaults it to `t_zone` (5 mm in both saved cases).
+`s1_parameter_values` now snapshots effective start/truth values and preserves raw starting parameters.
+No numerical fitting/recovery or historical evidence changes; still fit-10. Independent mesh reconstruction
+fails **4/7** with the old reporting arithmetic (`s1_parameter_record_before_v2/`, PID 14760,
+12:04:41–12:04:42); after correction, **14/14** parameter-record/cache checks pass (PID 47632,
+12:05:28–12:05:29 +03, exit 0). The first draft test's own mutation made its initial receipt unsuitable;
+it is retained separately, not cited as the reproducer.
+
+Prepared `run_s1_joint_counterfactual.py` and `diagnostic_side_camera.py` for the fixed-input 2x2 matrix:
+both S1 cases, each with a fresh current-method baseline and free-side diagnostic; all starting families,
+measured endpoints, views, limits and constraints retained. The camera callback is local and never imported
+by production. All four side angles plus 02+x are graded regardless of old observability flags. Initial
+preflight stopped before fitting at the false historical start value (PID 24344, 12:01:49–12:01:51, exit 1).
+The driver now validates legacy raw metadata while using the actual defaulted family. Corrected preflight
+passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0); review complete. Commit the
+reporting correction before launching the matrix. No heavy process is active yet.
+
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
 | Evidence | Path / use |

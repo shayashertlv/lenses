@@ -221,6 +221,28 @@ camera callback. Grade every 01/05 side angle as well as the original 02+x pair,
 the zero-relief/error-sign controls. Do not change production eligibility or the frozen dependency table,
 call this a current-protocol S1 pass, run a full product fit, or accept an oracle-geometry result as recovery.
 
+Joint-diagnostic preflight found an S1 **reporting** defect: `stage_s1` used raw `params.get(name, 0)` for
+the starting parameter table, so an omitted `t_ze` appeared as **0 mm** although `prada_family` actually
+initializes it to `t_zone` (**5 mm** in both retained cases). `s1_parameter_values` now snapshots the family's
+effective values for the start/truth tables and retains raw start parameters separately. No fitting,
+geometry, recovery computation, threshold, dependency or historical JSON changes; runtime remains fit-10.
+The new independent mesh-reconstruction check has **4 failures / 3 passes** with the old record arithmetic
+(`s1_parameter_record_before_v2/`, PID 14760, 12:04:41–12:04:42 +03). With the correction, the seven checks
+plus seven cache/provenance checks give **14 passes** (`s1_parameter_record_after/`, PID 47632,
+12:05:28–12:05:29, exit 0). The first draft test mutated its own setup; that confounded receipt is retained
+as `s1_parameter_record_before/` and is not the defect reproducer.
+
+Prepared `run_s1_joint_counterfactual.py` / `diagnostic_side_camera.py`: a 2x2 fixed-input synthetic
+comparison, both saved S1 input sets with fresh current-method and free-side diagnostic fits. Each uses
+one bounded pool, original starting family and measured crease endpoints, all five views, original
+four-round/evaluation limits, outline retracing and front/hinge constraints. Every side angle is graded
+regardless of the old observability flag. The first preflight stopped before fitting on the misleading
+historical start table (PID 24344, 12:01:49–12:01:51, exit 1). The driver now verifies legacy metadata
+against its raw inputs and reconstructs the actual defaulted family; it never starts from the false zero.
+Corrected preflight passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0).
+Both input families and all source hashes validate. Review is complete; launch the matrix after committing
+the reporting correction. No heavy run is active yet.
+
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
 The preceding **fit-9** repair: the independent virtual-corner control exposed a cap-hit error in fit-8's

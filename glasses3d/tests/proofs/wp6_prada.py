@@ -603,6 +603,16 @@ def s1_truth(start: dict, topology: str) -> dict:
                 x_in_ze=s["x_in_ze"] - 0.7)
 
 
+def s1_parameter_values(params: dict, topology: str) -> dict:
+    """Snapshot the effective free values, including defaults such as t_ze=t_zone.
+
+    Reporting missing keys as zero could describe an invalid zero-thickness
+    start even though the fitter used a valid constant-thickness temple.
+    """
+    family = RF.prada_family(copy.deepcopy(params), topology=topology)
+    return dict(zip(family.names, map(float, family.x0())))
+
+
 def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, contour_px: dict, quick: bool,
              deps: dict, topology: str = "f1", plan: dict | None = None, add_line_error: bool = True,
              pkl_tag: str = "s1") -> dict:
@@ -616,6 +626,8 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
     from glasses3d.tests.proofs.wp6_prada_stages import _spec_sha, make_retrace
     start_params = copy.deepcopy(start_params)
     truth_params = copy.deepcopy(truth_params)
+    start_values = s1_parameter_values(start_params, topology)
+    truth_values = s1_parameter_values(truth_params, topology)
     builder = FX.prada_pyramid_spec if topology == "pyramid" else FX.prada_spec
     truth_spec = builder(**truth_params)
     truth = RV.Model.from_spec(job, truth_spec, "S1 truth")
@@ -728,7 +740,9 @@ def stage_s1(pf: Proof, job, fits, start_params: dict, truth_params: dict, conto
     tri_noise = s1_tri_noise(sj, truth, tfits, exact, glines, eps, plan)
     pf.hb.log(f"S1 instrument floor: truth R2 {floor['models']['truth']['R2']['pass']}, R3 "
               f"{floor['models']['truth']['R3_transfer_mm']}; slab R2 {floor['models']['slab']['R2']['pass']}")
-    return {"truth": {k: truth_params.get(k, 0.0) for k in x}, "start": {k: start_params.get(k, 0.0) for k in x},
+    return {"truth": truth_values, "start": start_values,
+            "start_params": start_params,
+            "parameter_record_basis": "effective family defaults before fitting; raw parameters retained",
             "truth_params": truth_params, "truth_spec_sha256": _spec_sha(truth_spec),
             "fitted": x, "recovery": rec, "not_fitted": not_fitted,
             "outline_by_edge_mm": {"top": out_top, "bottom": out_bot},
