@@ -19,9 +19,12 @@ analytic-box controls failed 4/8 before; the repair passes the original and held
 four yaws, visible/hidden, nonzero initial/fixed poses). `occlusion_after_run/`: 21 passed, PID 27872,
 15:02:24–15:05:48 +03, exit 0. Wider `occlusion_regressions_run/`: 76 passed, PID 48372,
 15:07:02–15:17:59, exit 0. Both runs have one benign pre-imported Dash pytest warning.
-Keep the separate contour-normal and free-side-angle proposals unintegrated. A current-method-only
-fixed-input replay of the newer failing S1 case is running in `s1_fit11_fixed_input_run/`; read its
-receipt/log before any further heavy run. It retains all original lines, views and 16 sign controls.
+Keep the separate contour-normal and free-side-angle proposals unintegrated. The current-method-only
+fixed-input replay of the newer failing S1 case completed in `s1_fit11_fixed_input_run/`: PID 29844,
+15:21:26–15:36:50 +03, exit 0, 12 workers. All original lines, five protocol views and 16 sign controls
+are retained. Measured transfer is **0.760738195495 mm**, exact **0.067896192015 mm**, unchanged from the
+earlier current-method diagnostic. Round cap; final front bound clear. The independently valid hidden-arm
+repair does **not** resolve this saved instrument-floor failure. No S1 or downstream acceptance.
 
 **New-photo shape evidence:** `photo_edge_audit/` preserves all traced lines and failures from both new
 photos. The rear boundary BE is clear in both. `rear_facet_extent/` measures its end in the side photo:
@@ -30,8 +33,49 @@ camera and saved base surface. Side-camera transfer is calibrated on A/B/C (1.20
 independent camera proof. Background thresholds 45/60/75 L* and base offsets -2/0/+2 mm give 76.33–76.55 mm;
 this is a sensitivity range, not a confidence interval. The saved E projects about 185 px from the new
 observed E. The inspected overlay shows the shape-family mismatch directly. This does not measure facet
-depth or establish a new top-strip tilt. Next: carry the measured extent into a labelled tool-test copy,
-retain depth assumptions explicitly, and compare against both new and all original views.
+depth or establish a new top-strip tilt.
+
+**New comparison built (15:25–15:34 +03):** `extent_comparison/` calls the existing pyramid builder on
+a copy. E becomes **76.456748 mm**; the affine base extends to the next existing outline station,
+80 mm (maximum base change 1.404152 mm). Original A/B/C world coordinates, outline and **3.979779 mm**
+relief remain unchanged. This is an isolated extent correction, not reconstructed real-product depth.
+All three solids (old/new/relief-free) pass core closed-manifold/planarity checks and exported meshes
+round-trip exactly. Native side-photo BE line RMS: **86.750832 -> 2.788437 px**. In the second photo,
+ABC alone calibrates a diagnostic orthographic camera and BE is held out: **32.237786 -> 9.292364 px**.
+All nine camera starts remain recorded. The remaining mismatch is material. The endpoint correction is
+partial, and these pixel diagnostics are not R3 acceptance scores. All six original-view overlays are
+retained at the saved delivered cameras, without refit. Both new overlays and the original-view contact
+sheet were inspected; original-camera contour mismatches remain visible.
+
+**Depth diagnosis:** `photo_depth_probe/` shows an A/B/E coplanar-base, orthographic-camera attempt hits
+its roll/depth bounds and cannot explain C. Its first script run failed because finite-surface lifting
+excluded virtual A; the second uses the extended affine plane and completes. Do not interpret its raw
+out-of-band depth as a measurement. `joint_photo_geometry/` then permits perspective, retaining every
+start and threshold. Three known-scene controls recover the truth from at least one start, but other
+starts can be degenerate (all saved). The real-photo local optimum near 2 mm has a near-zero Jacobian
+singular value. `photo_depth_profile/` explicitly profiles 0/.5/1/2/3/4/5/6/7 mm, each with its own camera:
+RMS is 1.740415 px at 2 mm and 1.804458 px at 4 mm, only **0.064043 px** apart. The four-point fit is
+not independent validation and does not establish real depth. No depth change was promoted into the
+comparison copy. A/B/E coplanarity, side-camera calibration and perspective remain assumptions to resolve
+against the original front/top/rear evidence before a full product fit.
+
+**New controllable viewer:** `http://127.0.0.1:54686/`, actual detached server PID **40292**, started
+15:32:08 +03; receipt `new_reference_resume_20261009/review_viewer_server.json`. `review_viewer/` contains
+the copied meshes, rotation/zoom/pan, shared camera/light controls, previous-shape/flat comparison, clay
+or black material, image export and eight photo overlays. Depth is labelled retained/unresolved throughout.
+Browser interaction, image loading, local-only requests, private-file refusal and narrow layout pass;
+`review_viewer_qa_r2/` screenshots inspected. Initial packaging read UTF-8 as a Windows code page; explicit
+UTF-8 fixes the badge/labels, and all browser checks were repeated. The app open request returned queued;
+give the owner the direct URL. The earlier synthetic viewer remains available separately. No owner verdict
+on these new assets yet; WP6 remains open and all gates remain unchanged.
+
+**Review checkpoint verified (15:37 +03):** `review_checkpoint.json` binds the new meshes, images,
+reports and successful run receipts. All launched required checks finished, current replay input/source
+hashes are unchanged, viewer geometry matches the verified export, and both frozen file hashes remain
+unchanged. The requested work-until-review checkpoint is ready; the owner still needs to judge the new
+comparison. This is not WP6 completion or a claim that the real temple is fully repaired. Next technical
+work: resolve camera/depth and remaining shape-family assumptions with the original front/top/rear
+evidence, while continuing the saved STOP-I diagnosis. No paid run, push or WP5 reopening occurred.
 
 **Owner visual review received (2026-10-09):** “both current method and experiment showed very good
 reconstruction with no noticeable differences between the results.” This applies to the synthetic

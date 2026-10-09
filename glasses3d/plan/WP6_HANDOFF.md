@@ -12,8 +12,11 @@ side eligibility or front guard changes. Original reproducer: 4 fail / 4 pass be
 checks pass (`occlusion_after_run/`, PID 27872, 15:02:24–15:05:48); wider regression selection 76 pass
 (`occlusion_regressions_run/`, PID 48372, 15:07:02–15:17:59), both exit 0. The held-out box cases cover
 both sides, four yaws and nonzero starting/fixed poses. Preserve the separate owner edit in
-`WP6_SESSION_PROMPT.md`. The newer saved S1 case is now being replayed with the current method only in
-`new_reference_resume_20261009/s1_fit11_fixed_input_run/`; read actual PID/log/exit before another pool.
+`WP6_SESSION_PROMPT.md`. The newer saved S1 case replay completed with the current method only in
+`new_reference_resume_20261009/s1_fit11_fixed_input_run/`: PID 29844, 15:21:26–15:36:50 +03, exit 0,
+12 workers, all original lines/views/16 signs. Measured transfer **0.760738195495 mm**, exact
+**0.067896192015 mm**, unchanged from the preceding current-method diagnostic. Round cap; final front
+bound clear. The valid hidden-arm repair does not resolve this saved STOP-I failure. No acceptance.
 Do not restart the completed 2x2 matrix or integrate the separate normal/free-side proposals.
 
 New-photo audit found a concrete shape-family error: rear facet endpoint E was fixed at station 55 mm;
@@ -23,7 +26,39 @@ cases are retained (76.33–76.55 mm); these are not depth confidence bounds. Se
 hash-bound report in `new_reference_resume_20261009/rear_facet_extent/`, plus traces from both new photos
 in `photo_edge_audit/`. This establishes rear extent, not a measured relief depth or top-strip tilt. Next
 produce a separate tool-test copy and photo/3D comparison with these distinctions explicit. Keep every
-original photo and all frozen gates.
+original photo and all frozen gates. This comparison is now built as follows.
+
+`new_reference_resume_20261009/extent_comparison/`: tool-generated copy has E=76.456748 mm; planar zone
+extended to the next existing station, 80 mm (base change up to 1.404152 mm). A/B/C, outline and 3.979779 mm
+relief are retained; this isolates extent and does not claim real depth. Core checks pass and all three
+exported meshes round-trip exactly. Side BE line RMS improves 86.750832 -> 2.788437 px. On the second photo,
+BE is held out while ABC calibrates the diagnostic orthographic camera: 32.237786 -> 9.292364 px. Remaining
+error is material. All nine pose starts and all six original-view overlays are retained; original overlays
+use saved delivered cameras with no refit, not gate-scoring cameras. Images and original contact sheet
+were inspected. The correction is partial; no product acceptance.
+
+The subsequent depth diagnostic is deliberately not selected as a new model: `photo_depth_probe/`
+orthographic ABE fit hits bounds; `joint_photo_geometry/` perspective fit has a near-zero Jacobian singular
+value despite a local ~2 mm solution. All three threshold cases and nine starts remain. Known-scene controls
+recover truth from some starts but also expose degenerate solutions; no selected success rate is claimed.
+The explicit `photo_depth_profile/` gives only 0.064043 px RMS difference between 2 and 4 mm relief. Thus
+four-point reprojection is insufficient to claim reliable depth with these camera/base assumptions. Next
+technical work should resolve that ambiguity using original front/top/rear evidence and a consistent
+camera/shape family, before another full product fit. Keep STOP-I/R1/all R3 clauses and comparators.
+
+New review URL **http://127.0.0.1:54686/**, actual detached server PID **40292** (15:32:08 +03), receipt
+`new_reference_resume_20261009/review_viewer_server.json`. Restart via `serve_review_viewer.py` in that
+folder only if needed; read the newly allocated URL. `review_viewer/` has new/old/flat meshes, camera/light
+controls, clay/black material, export and all eight overlays. It explicitly labels retained, unresolved
+depth. `review_viewer_qa_r2/` browser checks pass and screenshots were inspected; UTF-8 packaging repair is
+included. The app open request returned queued, so provide the direct link. New visual verdict is pending.
+
+`review_checkpoint.json` (15:37 +03) binds exact meshes, overlays, reports and all successful terminal
+receipts. Replay source/input hashes, mesh export and frozen rules/dependencies are verified unchanged.
+The requested new-results-for-review checkpoint is ready and shown via the direct viewer link. Do not
+mark WP6 complete or infer real-product acceptance. The longer rear facet is a partial correction; depth
+and camera/family agreement still need the original front/top/rear evidence. The saved instrument-floor
+failure remains open. No heavy run is active; only the two loopback visualization servers remain available.
 
 Owner review now records both current and experimental synthetic reconstructions as very good, with no
 noticeable difference. Bind this only to the inspected `full_fit6` comparison; the hash-bound record is
