@@ -3,15 +3,17 @@
 ## Active resume — WP6 (2026-10-09)
 
 WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
-The saved S1 failure has now been reproduced and decomposed; do not repeat the initial diagnosis or start a
-product fit. The current repair/checkpoint is described below. No paid run or push has occurred.
+The saved S1 failure has been reproduced, decomposed and repaired: a fresh same-input S1 passes its unchanged
+gates. Do not repeat the initial diagnosis. Remaining WP6 proof prerequisites still apply before a product fit.
+The current repair/checkpoint is described below. No paid run or push has occurred.
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
 continue offline WP6 diagnosis and repairs under unchanged gates. Independent line calibration and camera
-attribution are complete. A bounded joint camera/hinge alignment prototype reduces the saved measured floor to
-0.660145 mm while retaining the original errors. Runtime integration checks passed; a fresh complete S1 is next;
-this diagnostic is not an S1 or WP6 pass. Do not start a full product fit yet.
+attribution are complete. Bounded joint camera/hinge alignment is validated and committed at `640164f`.
+The fresh complete S1 gives **0.691874 mm** measured floor against **0.7 mm**, with all four tested recoveries
+passing. All original line endpoints/errors and input hashes are unchanged. This is an S1 pass, not a WP6 pass.
+Continue with the remaining instruments, comparator fits and proof gates; public integration stays gated.
 **STOP-I blocks acceptance and downstream promotion, not diagnosis or repairs intended to resolve it.**
 KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver decision.
 
@@ -23,7 +25,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | Historical STOP-I retained. Bounded camera alignment improves independent controls and the saved diagnostic; runtime checks pass, fresh S1 next. No quality promotion. |
+| WP6 | Same-input S1 passes under unchanged gates after fit-6 camera repair. Historical failure retained; R1, full real-photo comparisons and remaining proofs still open. No quality promotion. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
 
@@ -61,7 +63,24 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
   its version/content/camera-basis/source-scene provenance; stale or legacy caches are refused, not overwritten.
   This does not prohibit using historical fits explicitly as fixed synthetic-photo inputs in a diagnostic.
   **Eight cache/dependency controls passed**, exit 0, in `proof_cache_tests/`. The S1 input preflight also passed.
-  All changes were reviewed against the preserved gates; next run `run_s1_fit6.py` in a new logged directory.
+  All changes were reviewed against the preserved gates before the fresh S1.
+- **Fresh S1 passed:** `s1_fit6_run/run.json`, actual PID **17824**, **08:25:38–08:41:05 +03** on 2026-10-09,
+  12 workers, BLAS 1, EcoQoS opt-out, exit 0. Stage time **921.48 s**. `s1_fit6/proof.json` records outline
+  **0.126623 / 0.2 mm**, zone level **0.044735 / 0.5 mm**, relief depth **0.022681 / 0.5 mm**, and common-frame
+  hinge placement **0.000297 / 0.3 deg** (error / unchanged limit). Truth R2 passes; slab R2 fails.
+  Measured true-model R3 is **0.691874467104 mm**; exact-line diagnostic **0.062110338854 mm**.
+- **Limits retained:** the four-round cap was reached; this is not a convergence claim. The measured-floor margin
+  is only **0.008126 mm**. F1 rise remains inapplicable to the pyramid; fixed r_B is still not fitted, as before.
+  All 16 target-error sign cases remain measurable; two exceed 0.7 mm, maximum **0.738453 mm**. These remain
+  diagnostic stress cases, not replacement acceptance gates. No error sign was selected for fitting.
+- Final-camera audit: all five alignments are kept inside their original boxes with measured front guards;
+  all stop on no image descent, without the 50-round cap. 05 is near its original shift_x bound. The final
+  front bound is clear. Sigma status remains `penalty_active` for x_in0, x_in_ze, t_zone, t_ze and r_C; do not
+  relabel these as unconstrained uncertainty estimates. Full audit: `s1_fit6_summary/fit_audit.json`.
+- The comparison audit (`s1_fit6_summary/summary.json`) verifies **all eight line endpoints are numerically
+  identical** to the saved S1 and every signed error is unchanged. `s1_fit6_summary/comparison.html` presents
+  the numerical comparison; synthetic silhouette diagnostics are under `s1_fit6_visuals/`. Remaining real-photo
+  R3 comparator clauses and R1 are unpassed. The S1 result does not promote a model or enable public integration.
 
 ## Independent line evidence — 2026-10-09
 
@@ -139,6 +158,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Latest committed checkpoints
 
+- `640164f`: bounded joint camera/hinge alignment, independent controls and proof-cache provenance guards (fit-6).
 - `e983b29`: independent contaminated-line calibration, optional validity masks, photo audit and camera attribution.
 - `22b2a2f`: incomplete-transfer repair, explicit S1 replay, clean-step calibration and unchanged comparators.
 - `4304c1d`: exact owner-selected observed-slope + Poisson default and WP5 closeout.

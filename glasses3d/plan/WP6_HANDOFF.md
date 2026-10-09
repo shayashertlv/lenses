@@ -3,7 +3,8 @@
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
 Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.
-The saved S1 failure has been reproduced; the latest diagnosis and repair are recorded below.
+The saved S1 failure has been repaired: a fresh same-input S1 passes after the fit-6 camera repair. The original
+failure and its diagnosis are retained below, with the fresh result in the coupled-camera section.
 Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) with PROGRESS's current Active resume.
 WP6 has not passed its quality proof. Offline diagnosis and repairs remain authorized under unchanged gates.
 
@@ -16,7 +17,10 @@ The decision record explains the rationale. Old JSON fields named `open_owner_de
 STOP-I message predate that resolution. STOP-I continues to block acceptance/promotion; it does not block
 authorized diagnosis and corrections aimed at making the unchanged proof valid and passable.
 
-| Existing evidence | Result and implication |
+The table preserves the historical baseline. The fresh same-input S1 result below supersedes its S1 verdict;
+R1 and the real-photo comparator requirements remain open and unchanged.
+
+| Historical evidence | Result and implication |
 |---|---|
 | S1 parameter recovery | Outline 0.151779 mm, zone level 0.129544 mm, r_C 0.056853 mm, common-frame theta 0.190497°. These recoveries pass their recorded tolerances. |
 | S1 true-model transfer with realistic guide error | **0.910923 mm**, above the frozen R3 absolute bound **0.7 mm**. The instrument floor still triggers STOP-I. Exact guide lines give 0.274915 mm. |
@@ -188,10 +192,26 @@ cameras and frozen hashes. No paid run or push. The owner's session-prompt edit 
 
 ## Next repair step
 
-Runtime controls, affected regressions and diff review are complete. Run a fresh S1 only on the unchanged saved
-experiment. The prepared explicit driver is
-`data/wp6/line_evidence_20261009/run_s1_fit6.py`; it verifies source hashes, uses original true cameras and guide
-plan, retains all errors/signs, and writes a new `s1_fit6/` folder. It must not run concurrently with another pool.
+Runtime controls, affected regressions and diff review are complete at `640164f`. The fresh same-input S1 in
+`data/wp6/line_evidence_20261009/s1_fit6/proof.json` **passes unchanged STOP-I**: all four tested recoveries pass,
+truth R2 passes, slab R2 fails, measured true-model transfer **0.691874467104 mm <= 0.7**. Exact-line diagnostic is
+0.062110338854 mm. Recovery errors: outline 0.126623 mm, zone 0.044735 mm, r_C 0.022681 mm, common-frame theta
+0.000297 deg. Original source hashes, all eight measured line endpoints and every signed error are unchanged.
+
+The frozen four-round cap was reached: do not claim optimization convergence. The floor margin is only 0.008126 mm.
+F1 rise remains inapplicable to this pyramid and r_B fixed/not fitted. All 16 signed target-error cases remain
+measurable; two exceed 0.7 (maximum 0.738453 mm). They are diagnostic stress rows, not altered acceptance criteria.
+All five final camera alignments stay inside their original boxes and pass measured front guards; no camera
+hits the 50-round cap. 05 is near the original shift_x bound. The final front bound is clear, but x_in0, x_in_ze,
+t_zone, t_ze and r_C sigma statuses remain `penalty_active`. Do not claim unconstrained parameter uncertainty.
+Receipt: `s1_fit6_run/run.json`, PID 17824, 2026-10-09 **08:25:38–08:41:05 +03**, 12 workers, exit 0; stage 921.48 s.
+The driver is `run_s1_fit6.py`; do not rerun it into its completed output. Summary/chart:
+`s1_fit6_summary/{summary.json,comparison.html}`. Synthetic silhouette diagnostics: `s1_fit6_visuals/`.
+
+Continue with remaining instrument/comparator proof prerequisites and the real-photo proof under unchanged
+R1 and every R3 clause. Do not reuse unversioned historical delivered-camera caches as current-fit comparisons.
+Keep the now-passing original S1 as a separate canonical case if a fresh full proof generates new synthetic
+photo cameras or guide fractions from its new delivered fits. No public integration or quality promotion yet.
 The analytical transfer controls pass; changing the R3 distance formula is not supported. Masking does not
 resolve line identity in unmasked parallel edges or highlights. Retain every original guide-error stress case;
 do not lower injected errors, select signs or substitute exact/oracle measurements for gate evidence. A future
