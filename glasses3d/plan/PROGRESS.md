@@ -2,10 +2,36 @@
 
 ## Active resume — WP6 (2026-10-09)
 
-**PAUSED at the owner's request, 13:46 +03.** The owner edited the goal to pause once results were ready
-to view. The completed synthetic comparisons were shown; `s1_joint_visuals/view_orbit.gif` and
-`light_orbit.gif` are ready for review. All launched checks have terminal receipts. Do not resume work
-until the owner asks. WP6 is not complete; WP5 remains owner-closed.
+**RESUMED by the owner, 2026-10-09 15:01 +03.** A new active goal is to work continuously until new
+results are ready and shown for comparison and visual review. The owner explicitly rejects the current
+shape as a representation of the real temple, based on the clearer new colour-variant photos. The earlier
+positive review applies only to synthetic reconstruction accuracy. Fix the confirmed hidden-arm angle
+defect; reassess the shape using the new photos plus every original view; validate the general method
+under unchanged gates and produce labelled photo/model comparisons and a controllable diagnostic view.
+WP6 is incomplete; WP5 remains owner-closed. Earlier pause entries below are historical.
+
+New evidence: `data/wp6/new_reference_resume_20261009/references/` preserves both attached photos
+byte-for-byte with source paths, hashes and the owner's geometry correction. Runtime **fit-11** repairs
+the angle objective to compare the photo with the whole scene, holding the other parts at their input
+pose. A fully hidden arm no longer supplies invented silhouette evidence. The same ROI, angle grid,
+range, 0.002 observability threshold, side eligibility and front guard remain in force. Independent
+analytic-box controls failed 4/8 before; the repair passes the original and held-out cases (both sides,
+four yaws, visible/hidden, nonzero initial/fixed poses). `occlusion_after_run/`: 21 passed, PID 27872,
+15:02:24–15:05:48 +03, exit 0. Wider `occlusion_regressions_run/`: 76 passed, PID 48372,
+15:07:02–15:17:59, exit 0. Both runs have one benign pre-imported Dash pytest warning.
+Keep the separate contour-normal and free-side-angle proposals unintegrated. A current-method-only
+fixed-input replay of the newer failing S1 case is running in `s1_fit11_fixed_input_run/`; read its
+receipt/log before any further heavy run. It retains all original lines, views and 16 sign controls.
+
+**New-photo shape evidence:** `photo_edge_audit/` preserves all traced lines and failures from both new
+photos. The rear boundary BE is clear in both. `rear_facet_extent/` measures its end in the side photo:
+the saved shape fixes E at station 55 mm, but this image locates it near 76.44 mm using the retained side
+camera and saved base surface. Side-camera transfer is calibrated on A/B/C (1.20–1.66 px residual), not an
+independent camera proof. Background thresholds 45/60/75 L* and base offsets -2/0/+2 mm give 76.33–76.55 mm;
+this is a sensitivity range, not a confidence interval. The saved E projects about 185 px from the new
+observed E. The inspected overlay shows the shape-family mismatch directly. This does not measure facet
+depth or establish a new top-strip tilt. Next: carry the measured extent into a labelled tool-test copy,
+retain depth assumptions explicitly, and compare against both new and all original views.
 
 **Owner visual review received (2026-10-09):** “both current method and experiment showed very good
 reconstruction with no noticeable differences between the results.” This applies to the synthetic
@@ -16,7 +42,8 @@ The owner supplied two clearer black-colour photos of the same Prada model and a
 Recommended next pass on resume: inspect their facet correspondence and compatibility with the original
 photos; repair the independently reproduced occlusion/angle defect and validate it under unchanged gates;
 then use the evidence audit to justify any shape-family change before another full product fit. Keep the
-current method as baseline and the experimental proposal separate. “What next?” has not resumed the goal.
+current method as baseline and the experimental proposal separate. The later explicit instruction above
+resumes the goal and supersedes this earlier discussion checkpoint.
 
 Owner-requested extra depth views (14:25 +03) are in
 `data/wp6/line_evidence_20261009/s1_joint_edge_views/{top_edge,hinge_end}.png`.
@@ -36,13 +63,8 @@ under `s1_joint_interactive_qa/`. Restart only the viewer if needed with `serve_
 evidence folder; it selects an available loopback port. The visualization server remains available while
 the WP6 goal stays paused. No fitting or runtime repair occurred.
 
-The next repair has an independent reproducer, but **no runtime fix has been applied**. Two complete,
-uncommitted test files remain in the worktree: `tests/fixtures/occlusion_evidence.py` and
-`tests/test_temple_theta_occlusion.py`. They deliberately expose the current hidden-arm defect; do not
-mistake their four failures for a failed attempted repair. Preserve the owner's separate
-`WP6_SESSION_PROMPT.md` edit. On resume, repair the isolated-arm angle objective to account for the
-other scene components, with unchanged angle range/observability threshold, and validate independently.
-Keep the contour-normal method separate until that repair and its effects have been checked.
+The occlusion reproducer and repair are now complete as recorded above. Preserve the owner's separate
+`WP6_SESSION_PROMPT.md` edit. Historical before-fix failures remain evidence; they are not current failures.
 
 WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
 The original saved S1 now passes with identical inputs, but a fresh full proof regenerating S1 from the newly
@@ -85,7 +107,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Current independent diagnosis — 2026-10-09
 
-Latest runtime is **fit-10**: `relief_cue` now compares corresponding valid offsets/positions on both sides
+The preceding runtime **fit-10**: `relief_cue` now compares corresponding valid offsets/positions on both sides
 of a line before taking the existing difference of medians. Independent side masks previously compared
 different parts of a longitudinal lighting gradient and could invent a cross-line step, even with zero
 paired positions. Off-image samples also reused clipped border pixels. The photo sampler now refuses

@@ -1,13 +1,29 @@
 # WP6 handoff — resume diagnosis and repairs
 
-**Owner-requested pause, 2026-10-09 13:46 +03.** The owner asked to pause when results were ready to view;
-the synthetic rotating-view and moving-light comparisons are ready and were shown. All checks have finished.
-Do not continue until the owner resumes. WP6 is incomplete; its gates and WP5's closeout remain unchanged.
-Two complete uncommitted reproducer files remain: `tests/fixtures/occlusion_evidence.py` and
-`tests/test_temple_theta_occlusion.py`. No runtime repair has been applied; their 4 failures / 4 passes are
-the before-fix evidence. Preserve the separate owner edit in `WP6_SESSION_PROMPT.md`.
-On resume, fix the independently confirmed isolated-arm observability defect described below before
-integrating the separately tested normal-step proposal. Do not restart the completed matrix.
+**Owner resumed work, 2026-10-09 15:01 +03.** Active goal: work continuously until new comparison and
+visual-review results are ready and shown. The owner confirms the old synthetic shape is not the real
+temple shape. Use the newly supplied real colour-variant photos alongside all original evidence, fix the
+confirmed occlusion/angle defect, and validate before further fitting. Gates and WP5's closeout remain
+unchanged. Older pause statements below are historical. The attached photos and correction are preserved
+with hashes in `data/wp6/new_reference_resume_20261009/references/`.
+The independently reproduced occlusion defect is repaired in **fit-11**: compare silhouette evidence
+against the whole scene while other components remain at their input pose. No threshold, grid, ROI,
+side eligibility or front guard changes. Original reproducer: 4 fail / 4 pass before. After: 21 affected
+checks pass (`occlusion_after_run/`, PID 27872, 15:02:24–15:05:48); wider regression selection 76 pass
+(`occlusion_regressions_run/`, PID 48372, 15:07:02–15:17:59), both exit 0. The held-out box cases cover
+both sides, four yaws and nonzero starting/fixed poses. Preserve the separate owner edit in
+`WP6_SESSION_PROMPT.md`. The newer saved S1 case is now being replayed with the current method only in
+`new_reference_resume_20261009/s1_fit11_fixed_input_run/`; read actual PID/log/exit before another pool.
+Do not restart the completed 2x2 matrix or integrate the separate normal/free-side proposals.
+
+New-photo audit found a concrete shape-family error: rear facet endpoint E was fixed at station 55 mm;
+the new side photo places it near 76.44 mm under the retained side camera/base assumption. Original-to-new
+photo A/B/C registration has 1.20–1.66 px residual. All background-threshold and +/-2 mm base-sensitivity
+cases are retained (76.33–76.55 mm); these are not depth confidence bounds. See the inspected overlay and
+hash-bound report in `new_reference_resume_20261009/rear_facet_extent/`, plus traces from both new photos
+in `photo_edge_audit/`. This establishes rear extent, not a measured relief depth or top-strip tilt. Next
+produce a separate tool-test copy and photo/3D comparison with these distinctions explicit. Keep every
+original photo and all frozen gates.
 
 Owner review now records both current and experimental synthetic reconstructions as very good, with no
 noticeable difference. Bind this only to the inspected `full_fit6` comparison; the hash-bound record is
@@ -15,7 +31,7 @@ noticeable difference. Bind this only to the inspected `full_fit6` comparison; t
 a waiver or a preference for experimental integration. Two new owner-supplied black-colour Prada photos
 may clarify the facet arrangement; audit their geometry against the original views on resume. Keep the
 original evidence and current-method baseline. The pending independent angle/occlusion repair and proof
-gates still apply before full fitting/promotion. The goal remains paused while discussing next steps.
+gates still apply before full fitting/promotion. The later explicit instruction above resumed the goal.
 
 At the owner's request, additional inspected straight-down and hinge-end orthographic images are saved
 under `data/wp6/line_evidence_20261009/s1_joint_edge_views/`. They show the existing experimental synthetic

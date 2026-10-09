@@ -478,7 +478,7 @@ def whole_iou(fg, mask) -> float:
 # --------------------------------------------------------------------------------------------- theta
 def fit_theta(job: Job, model: Model, key: str, cam: Camera, theta0: dict | None = None,
               sides=(1, -1)) -> dict:
-    """{side: {theta, loss, grid, observed}} per temple side: minimise 1 - IoU of the photo matte and the render inside
+    """{side: {theta, loss, grid, observed}} per temple side: minimise 1 - IoU of the photo matte and whole-scene render inside
     the side's temple ROI (union of the side's renders over the grid, minus the non-temple parts), 1 deg grid then
     bounded Brent. A flat objective (range < 0.002) is UNOBSERVED and keeps theta0."""
     fg = job.matte(key)
@@ -494,10 +494,13 @@ def fit_theta(job: Job, model: Model, key: str, cam: Camera, theta0: dict | None
             V = rot_about_hinge(V0, s, float(t), job.hinge["axis_xz_mm"])
             masks.append(raster.get_scene(V, F, job.frame).render(cam, fg.shape, 1)["mask"])
         roi = _dilate(np.any(masks, axis=0), RR.ROI_DILATE_MODEL_PX) & ~nontemple
-        other = th.copy()
+        # The photo contains every part. An isolated arm can move entirely behind
+        # a fixed part without changing the visible silhouette; that motion must
+        # not create angle evidence. Hold the other components at their input pose.
+        fixed_mask = base["part_masks"][0] | base["part_masks"][-s]
 
         def loss_of(mask_s):
-            a, b = fg & roi, mask_s & roi
+            a, b = fg & roi, (mask_s | fixed_mask) & roi
             return 1.0 - (a & b).sum() / max((a | b).sum(), 1)
         gl = np.array([loss_of(m_) for m_ in masks])
         if gl.max() - gl.min() < 0.002:
@@ -514,7 +517,6 @@ def fit_theta(job: Job, model: Model, key: str, cam: Camera, theta0: dict | None
         t_best, l_best = (float(res.x), float(res.fun)) if res.fun <= gl[i] else (float(grid[i]), float(gl[i]))
         out[s] = {"theta": t_best, "loss": l_best, "observed": True, "grid_range": float(gl.max() - gl.min()),
                   "grid_best": float(grid[i])}
-        other[s] = t_best
     return out
 
 
