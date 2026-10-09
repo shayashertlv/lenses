@@ -210,6 +210,10 @@ The driver is `run_s1_fit6.py`; do not rerun it into its completed output. Summa
 
 Continue with remaining instrument/comparator proof prerequisites and the real-photo proof under unchanged
 R1 and every R3 clause. Do not reuse unversioned historical delivered-camera caches as current-fit comparisons.
+P1 now grades the analytic prism's plane-area share against the existing independent dense-surface reference:
+every candidate plane and their maximum must match within the existing 0.003 numerical tolerance. R1 is
+unchanged. The 24 focused prism/measurement/input/cache tests pass (9.93 s, exit 0, `p1_guard_tests/`).
+The proof CLI accepts explicit `--cameras`; the Blender proof helper has no default elapsed-time kill.
 Keep the now-passing original S1 as a separate canonical case if a fresh full proof generates new synthetic
 photo cameras or guide fractions from its new delivered fits. No public integration or quality promotion yet.
 The analytical transfer controls pass; changing the R3 distance formula is not supported. Masking does not

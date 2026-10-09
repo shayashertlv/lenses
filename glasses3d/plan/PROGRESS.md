@@ -31,6 +31,14 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Coupled camera repair — 2026-10-09
 
+- Before the next full proof, review found that P1 reported analytic prism plane-area share without grading
+  its accuracy. P1 now includes the existing independent dense-surface reference (0.01 mm grid, unchanged
+  0.003 numerical tolerance) for every candidate plane and the maximum. This does not alter R1 or its 0.5
+  threshold. Valid, corrupt, missing and nonfinite share controls pass: **24 focused tests**, 9.93 s, exit 0,
+  `p1_guard_tests/run.json`, actual PID 27372, 08:48:59–08:49:09 +03. The proof CLI now accepts explicit
+  `--cameras`; its Blender helper no longer imposes a timeout on healthy long checks. New proof evidence must
+  use a fresh folder; retain the original passing same-input S1 separately.
+
 - The old one-pass camera/hinge fit leaves coupled alignment error even with exact geometry. A joint contour
   proposal now optimizes camera plus observable hinges together, selecting steps only by the existing silhouette
   loss. It cannot read crease lines, R3, true cameras or true hinges. The original camera box and 0.1 mm front

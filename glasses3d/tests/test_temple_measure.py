@@ -11,18 +11,10 @@ import pytest
 from glasses3d.g3d.temple import build_temple, report
 from glasses3d.g3d.temple import fixtures as FX
 from glasses3d.g3d.temple import measure as MS
+from glasses3d.tests.fixtures.plane_evidence import PRISM_SHARE_NUMERIC_TOL, prism_plane_shares
 
 G3D = Path(__file__).resolve().parents[1]
 PRADA_GLB = G3D / "data" / "reference" / "prada" / "model.glb"
-
-
-def _prism_surface(h=FX.PRISM["h"]):
-    """The prism's outer surface X(d, y) in closed form: 64 + min(0.1 d, 4 - 0.1 d, h - h|y|/10) over d < 40 for
-    h = 2, else 64 (written for the fixture's h)."""
-    def X(d, y):
-        r = np.minimum(np.minimum(h * d / 20.0, h * (40.0 - d) / 20.0), h - h * np.abs(y) / 10.0)
-        return 64.0 + np.where(d < 40.0, np.maximum(r, 0.0), 0.0)
-    return X
 
 
 def test_prism_bulges_are_closed_form():
@@ -37,16 +29,9 @@ def test_prism_single_plane_share_matches_dense_sampling():
     tb = build_temple(FX.analytic_prism())
     planes = report.facet_planes_chart(tb)
     got = MS.single_plane_share(tb.V, tb.tris, planes)
-    X = _prism_surface()
-    dd, yy = np.meshgrid(np.arange(2.0 + 0.005, 50.0, 0.01), np.arange(-10.0 + 0.005, 10.0, 0.01), indexing="ij")
-    Z = X(dd, yy)
-    gx, gy = np.gradient(Z, 0.01, 0.01)
-    wt = np.sqrt(1 + gx ** 2 + gy ** 2)
-    P = np.stack([dd, yy, Z], -1)
-    for name, n, c in [("least_squares", np.array(got["lsq"]["normal"]), got["lsq"]["offset"])] + planes:
-        dist = np.abs(P @ n - c)
-        share = float((wt * (dist <= 0.3)).sum() / wt.sum())
-        assert got["per_plane"][name] == pytest.approx(share, abs=0.003), name
+    reference = prism_plane_shares([("least_squares", np.array(got["lsq"]["normal"]), got["lsq"]["offset"])] + planes)
+    for name, share in reference.items():
+        assert got["per_plane"][name] == pytest.approx(share, abs=PRISM_SHARE_NUMERIC_TOL), name
     assert got["share"] <= 0.6                                 # a faceted surface: no plane holds most of it
 
 

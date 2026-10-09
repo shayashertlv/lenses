@@ -212,7 +212,7 @@ def _json(o):
 
 
 # --------------------------------------------------------------------------------------------- blender runs
-def blender_steps(tmp: Path, blend: Path, steps: list, name: str, timeout_s=1800) -> list:
+def blender_steps(tmp: Path, blend: Path, steps: list, name: str, timeout_s=None) -> list:
     sp, rp = tmp / f"{name}_steps.json", tmp / f"{name}_receipt.json"
     sp.write_text(json.dumps(steps, default=_json), encoding="utf-8")
     proc = blender.run(blend, RUN, [sp, rp], timeout_s=timeout_s)
@@ -268,7 +268,7 @@ def stage_p0(pf: Proof, extra_specs: dict | None = None) -> dict:
     steps += [{"op": "faceted_temple", "spec": FX.pyramid(), "targets": {"+x": "Front | continuous milled acetate"}},
               {"op": "scene_digest"}, {"op": "timing_faceted_temple", "spec": FX.prada_default(), "repeat": 5}]
     pf.hb.log(f"P0: {len(specs)} fixtures + {len(refusals) + 1} refusals in one Blender session")
-    st = blender_steps(out, blend, steps, "p0", timeout_s=3600)
+    st = blender_steps(out, blend, steps, "p0")
     d0 = st[0]["digest"]
     res = {"fixtures": {}, "refusals": {}, "failures": []}
     for name, spec in specs.items():
@@ -362,16 +362,27 @@ def stage_p0(pf: Proof, extra_specs: dict | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------------------------- P1 / S1
-def stage_p1(pf: Proof, job) -> dict:
-    res = {"checks": {}}
+def prism_instrument_check() -> dict:
+    from glasses3d.tests.fixtures.plane_evidence import PRISM_SHARE_NUMERIC_TOL, prism_plane_shares
     tb = build_temple(FX.analytic_prism())
     vb, _ = MS.vbulge(tb.V, tb.tris)
     pb, _ = MS.pbulge(tb.V, tb.tris)
     share = MS.single_plane_share(tb.V, tb.tris, report.facet_planes_chart(tb))
     dih = sorted(c["dihedral_deg"][1] for c in tb.tables["creases"])
-    res["checks"]["prism"] = {"vbulge": vb, "pbulge": pb, "share": share["share"], "dihedrals": dih,
-                              "pass": abs(vb - 1.8) < 1e-9 and abs(pb - (2 - 0.025 * 30 / 49.75)) < 1e-9 and
-                              np.allclose(sorted(dih), sorted(prism_dihedrals()), atol=0.01)}
+    expected = prism_plane_shares([("least_squares", np.asarray(share["lsq"]["normal"]),
+                                    share["lsq"]["offset"])] + report.facet_planes_chart(tb))
+    errors = {name: abs(share["per_plane"].get(name, float("nan")) - value) for name, value in expected.items()}
+    errors["maximum_share"] = abs(share["share"] - max(expected.values()))
+    share_ok = all(np.isfinite(e) and e <= PRISM_SHARE_NUMERIC_TOL for e in errors.values())
+    return {"vbulge": vb, "pbulge": pb, "share": share["share"], "dihedrals": dih,
+            "share_check": {"pass": bool(share_ok), "reference": expected, "absolute_error": errors,
+                            "numeric_tolerance": PRISM_SHARE_NUMERIC_TOL},
+            "pass": bool(share_ok and abs(vb - 1.8) < 1e-9 and abs(pb - (2 - 0.025 * 30 / 49.75)) < 1e-9 and
+                         np.allclose(sorted(dih), sorted(prism_dihedrals()), atol=0.01))}
+
+
+def stage_p1(pf: Proof, job) -> dict:
+    res = {"checks": {"prism": prism_instrument_check()}}
     g = report.geometry_numbers(build_temple(FX.chamfered_slab_30()), photo_creases=4)
     res["checks"]["chamfered_slab_30"] = {"vbulge": g["vbulge_mm"], "share": g["single_plane_share"],
                                           "slab": any(f["flag"] == "SLAB" for f in g["flags"]),
@@ -791,6 +802,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stages", default="p0,p1,s1,p2,fit,p3,gates")
     ap.add_argument("--out-dir", default=str(OUT))
+    ap.add_argument("--cameras", type=Path, help="explicit camera basis; a missing path is refused, never substituted")
     ap.add_argument("--quick", action="store_true", help="fewer rounds in the fit (development)")
     ap.add_argument("--resume", action="store_true", help="keep the recorded stages of --out-dir (same rules sha256)")
     ap.add_argument("--workers", type=int, default=RF.pool_workers(),
@@ -817,7 +829,7 @@ def _run(pf: Proof, a, stages) -> int:
         r = pf.stage("P0", lambda: stage_p0(pf))
         if not r.get("pass"):
             return finish(pf, pf.stop("STOP-T", "a P0 tool check failed", r.get("failures") or r.get("error")))
-    job = RV.Job("prada")
+    job = RV.Job("prada", cameras_path=getattr(a, "cameras", None))
     pf.rec["cameras"] = {"path": str(job.cameras_path), "sha256": sha(job.cameras_path)}
     delivered_cache_metadata(pf.out, camera_sha256=pf.rec["cameras"]["sha256"],
                              scene_sha256=pf.rec["source_scene"]["sha256_before"])
