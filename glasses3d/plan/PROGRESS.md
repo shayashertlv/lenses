@@ -106,6 +106,36 @@ The mask hypothesis produced the independently verified repair above, but no cha
 supporting another topology. Continue the representation/observability diagnosis under the frozen side-theta
 rule; do not select an alternative topology merely because R1 fails or repeat the rejected camera experiment.
 
+`side_pose_assumption/` is an explicit **counterfactual diagnostic**, not a production change: a local copy
+of the silhouette aligner frees both side hinges on the same 24 unique baseline/held-out images. The 48
+source rows are retained by aliases; their two line-noise levels have identical image/camera inputs, and no
+crease line enters this fit. Only the copied function changes, with the exact source saved; production,
+frozen dependencies and gates remain untouched. Baseline 8/12 projection errors improve, 4 unchanged;
+held-out 12/12 improve. But mean errors remain **1.872175 / 1.017494 px**, and some hinge estimates remain
+far from their known values. Two baseline cases hit the 50-iteration cap; several stop without image descent.
+This is neither a complete pose solution nor evidence authorizing a side-theta rule change. Receipt
+`side_pose_assumption_run/`, PID 17704, 11:07:13–11:07:34 +03, exit 0, 12 workers after 22,329,760 KB free commit.
+
+The poor rigid controls motivated an **unchanged-rule** diagnostic: `probe_camera_base_restart.py` compares
+the current result with the same existing aligner started directly at the original base camera, side theta
+still zero. Selection uses a common full-scene image-loss grid and the original front guard, never truth or
+R3. All 24 unique images / 48 source rows are retained. Rigid true-camera loss witnesses are evaluated only
+after selection. Baseline 4 improve / 0 worsen / 8 unchanged; held-out 8 / 1 / 3. The held-out regression is
+source rows 12/13 (same image): aggregate **0.850678 -> 1.847879 px**, near arm **1.009672 -> 3.098374 px**,
+despite lower common image loss and a clear front guard. **Not integrated or tried on S1.** Output
+`camera_base_restart/`, PID 12104, 11:11:48–11:12:18 +03, exit 0; 12 workers after 22,296,892 KB free commit.
+
+`camera_crop_loss/` separates a control-set confound: four of eight distinct rigid images clip a temple at
+the canvas edge. At their exact true cameras, native masks match byte-for-byte and registration loss is zero,
+but the existing outside-ROI penalty is **0.015702–0.020519**. The other four rigid controls have zero true
+loss. A poorly recovered rigid case (held-out row 20, 4.01 px) is **unclipped**, so clipping is not the whole
+explanation. Every view of **both S1s** has zero true-camera registration loss, zero outside penalty, no
+foreground on the canvas boundary and identical native masks. Thus cropping is not the saved S1 failure's
+cause. Receipt PID 50044, 11:14:23–11:14:38 +03, exit 0. No penalty, view or frozen input was changed.
+Next: add a separately labelled wider-canvas version of **every** independent image to isolate this confound,
+retaining all cropped results. Test the existing method and original-camera restart with the same rules;
+do not drop difficult images or treat the counterfactual free-pose controls as acceptance evidence.
+
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
 The preceding **fit-9** repair: the independent virtual-corner control exposed a cap-hit error in fit-8's

@@ -451,6 +451,30 @@ Each fit run used one 12-worker pool with free commit checked, BLAS 1 and EcoQoS
 The subsequent mask check produced the fit-10 repair above but no changed product-photo evidence. Do not
 pick a new topology merely to lower R1 or reinstate this rejected camera-objective step.
 
+`side_pose_assumption/` is a counterfactual on independent controls only: a saved local copy of the image
+aligner frees both side hinges; no production code/dependency/gate changes. It improves 8/12 baseline and
+12/12 held-out projections (four unchanged), but mean errors remain **1.872175 / 1.017494 px**, and known
+angles are not reliably recovered. Two baseline cases hit the 50-iteration cap. No protocol-change request
+or integration follows from this partial result. All 48 source rows remain represented by 24 unique images
+(line-noise pairs have identical camera/image inputs; no lines are used). PID 17704, 11:07:13–11:07:34, exit 0.
+
+`camera_base_restart_run/` tests direct alignment from the **original camera**, with the
+unchanged production side-theta rule. Compare against the existing fit using a common image grid/front guard;
+never truth or R3 selection. All 24 unique cases/48 aliases retained. Rigid true-camera witnesses are checked
+only after selection. Baseline 4 improve / 0 worsen / 8 unchanged; held-out 8 / 1 / 3. Rows 12/13 worsen
+from **0.850678 to 1.847879 px** (near arm 1.009672 to 3.098374) despite lower image loss and passing front
+guard. Not integrated or tried on S1. PID 12104, 11:11:48–11:12:18 +03, exit 0; 12 workers, BLAS 1/EcoQoS,
+22,296,892 KB free commit beforehand.
+
+`camera_crop_loss/` finds four of eight rigid controls clipped at the image edge: exact true cameras have
+zero registration error but **0.015702–0.020519** outside-ROI penalty. The other four have zero true loss;
+the poorly recovered rigid held-out row 20 is unclipped. All twelve true-camera S1 views are unclipped,
+match their native masks exactly, and have zero registration/outside penalty. This is a control-set confound,
+not the S1 failure's cause. PID 50044, 11:14:23–11:14:38 +03, exit 0. No penalty or input was changed.
+Next add a separately labelled wider-canvas version of every independent image, retaining every cropped
+case, to isolate that confound. Compare current fitting and the original-camera restart under unchanged
+rules; counterfactual free-pose results are never acceptance evidence.
+
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
 | Evidence | Path / use |
