@@ -479,10 +479,53 @@ small rigid regression and three articulated regressions remain; cropping is not
 remains unintegrated and untried on S1. PID 20172, **11:18:15–11:20:14 +03**, exit 0, one 12-worker pool after
 21,858,468 KB free commit. No pool remains active.
 
-Next investigate local basins versus the frozen pose representation on independent fully visible controls.
-The explicit free-pose counterfactual can be diagnosed from both canonical and fitted camera starts with
-full-scene image-only selection, retaining all cases. It cannot alter production eligibility or be passed off
-as S1/quality evidence. Do not repeat rejected camera-only variants or choose a topology solely to lower R1.
+`uncropped_side_pose/` completes the free-pose counterfactual from fitted and original camera starts,
+retaining the production result as fallback and all 24 images / 48 source aliases. One common full-scene
+image-loss grid and original front guard select the result, never true projections or R3. Baseline
+**11 improve / 0 worsen / 1 unchanged**, mean projection **1.676603 -> 0.144647 px**, maximum final 0.686331;
+held-out **11 / 0 / 1**, mean **0.954629 -> 0.142422 px**, maximum 0.327381. Raw hinge angles are not reliably
+recovered just because projection improves. PID 37464, **11:24:02–11:25:11 +03**, exit 0; 12 workers after
+22,063,324 KB free commit. No production or dependency/gate changes, no S1 acceptance claim.
+
+`side_pose_independent/` retains **48 new predeclared controls** with new yaw/pitch/perspective/scale/roll,
+asymmetric openings, new prism depths and the existing valley fixture's different outline. All true-pose
+image losses are zero and no image clips. Same two starts, objective, bounds and front guard; both
+common-frame hinges graded only after image-only selection. Prism **20 improve / 0 worsen / 4 unchanged**,
+mean projection **1.155085 -> 0.172933 px**; valley **21 / 0 / 3**, **1.255342 -> 0.109694 px**.
+Maximum final projection **0.843574 / 0.619401 px**. Seven near-hinge common-frame errors remain > 0.3
+degrees; maxima **1.065444 / 0.936097**, far-hinge maxima **2.147570 / 0.117227**. All seven stop at
+`no_image_descent`, not a cap. Thus this is not a complete repair, and these noise-free known-geometry
+controls do not prove unknown-shape recovery. PID **37048**, **11:32:19–11:39:42 +03**, exit 0; 12 workers
+after **22,047,212 KB** free commit. Production and frozen dependencies unchanged; no S1 acceptance claim.
+
+`side_pose_loss_paths/` retains every selected-to-truth oracle path at ten predeclared fractions. All 48
+paths' samples stay inside the original camera box and front guard; all true-pose endpoints have zero loss.
+**47/48** sampled paths are nonincreasing; **43/48** improve within the first 10%. All seven near-angle
+failures have a small improving step, including one with a small intervening pixel-loss increase. This
+supports an optimization limitation in these controls, not global convergence or an uncertainty estimate.
+No oracle pose replaces a fit. PID **50628**, **11:40:06–11:40:30 +03**, exit 0; 12 workers after
+**22,068,104 KB** free commit.
+
+`contour_normal_steps/`: 96 predeclared rows, all 48 controls in fixed-side and free-side modes. A local
+copy uses contour-normal proposal residuals with one-pixel derivative smoothing; existing image loss,
+bounds, front guard and stopping select steps. Fixed-side **37 improve / 3 worsen / 8 unchanged**, largest
+increase **0.146695 px** (all regressions articulated valley cases); **do not integrate as camera-only repair**.
+Free-side **47 improve / 0 worsen / 1 unchanged**, mean projection **0.141314 -> 0.013627 px**, maximum
+common-frame angle errors **0.060634 near / 0.061121 far degrees**. All 48 meet 0.3 degrees in this
+counterfactual; this is not a frozen-protocol S1 pass. PID **49136**, **11:42:57–11:43:54 +03**, exit 0;
+12 workers after **22,089,924 KB** free commit.
+
+The unchanged proposal also improves **all 24 earlier controls / 48 source aliases**, held out from its
+development (`contour_normal_holdout/`). Baseline mean **0.144647 -> 0.052773 px**, held-out mean
+**0.142422 -> 0.075795 px**; both temples' maximum common-frame errors **0.110666 / 0.157016 degrees**.
+PID **46840**, **11:46:11–11:46:22 +03**, exit 0; 12 workers after **22,102,656 KB** free commit. All inputs,
+runtime and frozen hashes remain unchanged. No current pool, no production or quality acceptance change.
+
+Next use a labelled counterfactual on both retained S1s: side camera/pose refinement at saved recovered
+geometry plus a separate true-geometry control. Preserve all measured/exact lines and all 16 error signs;
+image loss/front guard alone select fits. Do not refit shape, run a full product fit, replace a proof or
+claim acceptance. Unknown-shape recovery and the frozen side-theta dependency still require review before
+any production change; the existing side-theta-zero file remains frozen and untouched.
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 

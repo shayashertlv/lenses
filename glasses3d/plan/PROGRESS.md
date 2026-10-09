@@ -142,11 +142,63 @@ This rules out cropping as the sole cause and does not support integrating the r
 Receipt `camera_uncropped_run/`, PID 20172, **11:18:15–11:20:14 +03**, exit 0; 12 workers after 21,858,468 KB
 free commit, BLAS 1/EcoQoS opt-out. Every task finished; no pool remains active. No S1 or product fit was run.
 
-Next action: investigate the pose ambiguity in independent fully visible controls, separating local optimizer
-basins from the frozen side-theta representation. A possible diagnostic is the already labelled free-pose
-counterfactual from both canonical and fitted camera starts, selected only by the same full-scene objective.
-It must retain every case and cannot change production eligibility or become S1/quality acceptance evidence.
-Do not keep rerunning rejected camera-only variants or select a shape simply to lower R1.
+`uncropped_side_pose/` completes that counterfactual from **both fitted and original camera starts**, with
+side hinges initially zero and production fitting retained as fallback. Selection uses one common full-scene
+image-loss grid across all posed candidates and the original front guard, never known projections or R3.
+All 24 fully visible images / 48 source aliases are retained. Baseline **11 improve / 0 worsen / 1 unchanged**,
+mean projection error **1.676603 -> 0.144647 px** (maximum final 0.686331); held-out **11 / 0 / 1**,
+mean **0.954629 -> 0.142422 px** (maximum 0.327381). This is stronger independent evidence of a pose-model
+limitation, but raw hinge angles are not guaranteed recovered. The copied diagnostic aligner alone frees
+side hinges; production and the frozen dependency table remain untouched. Receipt PID 37464,
+**11:24:02–11:25:11 +03**, exit 0; 12 workers after 22,063,324 KB free commit.
+
+`side_pose_independent/` validates that exact diagnostic on **48 new predeclared controls**: both sides,
+yaw 77/97 degrees, pitch -6/22, perspective 0.08/0.29, 4.7 px/mm, roll -1.7, zero and asymmetric hinge
+pairs (near/far 2.25/-0.75 and -2.25/3.5 degrees). The existing valley fixture adds a different outline and
+surface; prism depths also change. All images are fully visible with zero true-pose image loss. The same
+two starts, objective, bounds and front guard select poses before either common-frame hinge is graded.
+Prism: **20 improve / 0 worsen / 4 unchanged**, mean projection **1.155085 -> 0.172933 px**;
+valley: **21 / 0 / 3**, **1.255342 -> 0.109694 px**. Maximum final projection: **0.843574 / 0.619401 px**.
+Common-frame near-hinge error still exceeds 0.3 degrees in **seven** cases; maxima **1.065444 / 0.936097
+degrees**, far-hinge maxima **2.147570 / 0.117227 degrees**. All seven near-angle failures terminate at
+`no_image_descent`, not the iteration cap. These are noise-free known-geometry controls, not recovery of
+unknown product geometry. The result supports the diagnosis but **does not establish a complete repair**.
+No production or frozen dependency changes and no S1/quality acceptance claim. Receipt PID **37048**,
+**11:32:19–11:39:42 +03**, exit 0; 12 workers after **22,047,212 KB** free commit.
+
+`side_pose_loss_paths/` checks all 48 selected-to-truth oracle paths at ten predeclared fractions with a
+common image-loss grid. All samples stay inside the original camera box and pass the original front guard.
+**47/48** sampled paths are nonincreasing; **43/48** have a lower loss within the first 10% of the path.
+All seven near-angle failures have such a small improving step; one has a small intervening pixel-loss
+increase. Every true-pose endpoint has zero image loss. This points to an optimizer limitation in these
+controls, but finite sampled paths do not prove global convergence or an uncertainty bound. No oracle
+pose is selected or supplied to a gate. PID **50628**, **11:40:06–11:40:30 +03**, exit 0; 12 workers after
+**22,068,104 KB** free commit.
+
+`contour_normal_steps/` tests that optimizer hypothesis in **96 predeclared rows**: all 48 controls in
+fixed-side production mode and free-side counterfactual mode. A local function copy constructs proposals
+from contour-normal residuals (one grid-pixel derivative smoothing), avoiding penalties for tangent motion
+along an edge. The **existing** whole-image score still selects steps, with original bounds/front guard/
+stopping. Fixed-side mode gives **37 improve / 3 worsen / 8 unchanged**; largest projection increase
+**0.146695 px**. All three regressions are articulated valley cases (41, 44, 47). Thus do not integrate this
+as a camera-only repair. Free-side mode gives **47 improve / 0 worsen / 1 unchanged**, mean projection
+**0.141314 -> 0.013627 px**. Maximum common-frame angle error is **0.060634 degrees near / 0.061121 far**;
+all 48 recover both angles to the existing 0.3-degree numerical tolerance. This is still a counterfactual
+known-geometry diagnostic, not a frozen-protocol S1 pass. PID **49136**, **11:42:57–11:43:54 +03**, exit 0;
+12 workers after **22,089,924 KB** free commit.
+
+`contour_normal_holdout/` then applies the **unchanged** proposal to all 24 earlier fully visible controls
+(48 line-noise aliases), held out from contour-normal development. Every case improves, none worsens.
+Baseline mean **0.144647 -> 0.052773 px**, held-out mean **0.142422 -> 0.075795 px**; maximum common-frame
+angle errors over both temples **0.110666 / 0.157016 degrees**. Inputs/runtime/frozen hashes remain unchanged.
+PID **46840**, **11:46:11–11:46:22 +03**, exit 0; 12 workers after **22,102,656 KB** free commit.
+
+Next action: diagnose the effect on both retained S1 cases without changing production eligibility or the
+frozen dependency table. A labelled counterfactual can refine only the side camera/pose at each saved
+recovered geometry, with a separate true-geometry control, retaining all measured/exact lines and all 16
+error signs. Select camera/pose only from image loss and the original front guard. No shape refit, product
+fit, replacement proof or acceptance claim follows from this diagnostic. Unknown-shape recovery and a
+review of the frozen side-theta dependency remain necessary before any production change.
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
