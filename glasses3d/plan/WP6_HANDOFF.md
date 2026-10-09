@@ -1,5 +1,61 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Latest owner review checkpoint — 2026-10-09 22:25 +03.** New comparison ready:
+**http://127.0.0.1:58668/#photo-lab**, server PID **28704**. The owner's approved
+steps 1–4 yielded a camera-only diagnostic, not a supported shape/depth correction.
+Pause the goal when shown, per the explicit review rule. Exact preferred `current`
+geometry is unchanged in both 3D panels; the slider compares old/new photo camera
+alignment. All eight views, controls, exports, desktop/narrow browser layouts and
+screenshots checked. `camera_shape_resume_20261009/review_checkpoint.json` binds
+128 artifacts and verifies prior assets/photos/gates unchanged. Open request queued.
+
+Corrected-mask L60 results: side silhouette contour **7.231829 -> 6.333274 px**;
+oblique **31.953996 -> 10.425583**. Every original contour also decreases, but
+several independent-in-this-fit facet checks worsen (oblique AB **1.31290 ->
+9.93149**, BC **2.49676 -> 7.09574 px**; side AC/BC **2.25727/3.32420 ->
+5.06920/5.52069**). Oblique upper/rear **6.39519/8.51066 -> 4.85499/7.36023**.
+The oblique result reaches yaw/perspective/scale/vertical-shift bounds; 01/05 reach
+roll bounds. Residuals therefore combine unresolved local-camera and shape error.
+Keep all predeclared L45/60/75 sensitivities, both objective variants and earlier
+raw-threshold failures. No facet-score selection. Old construction/camera seeds
+used these facet cues; this is not independent real-product depth validation.
+
+New helpers `g3d_host/relief_crop.py` and `relief_photo_mask.py` are explicitly
+opt-in diagnostics, unconnected to the frozen fitter. Nine crop-score controls and
+six dark-mask controls pass; 31 existing matte/input tests pass. Eight independent
+cropped-wedge camera recoveries: **2 improve, 3 worsen, 3 unchanged** in complete
+geometry projection error. Preserve those failures; correct crop scoring alone
+does not resolve pose observability. Initial alignment PID31464 22:14:28–22:15:55;
+mask repair PID43016 22:19:23–55; final audit PID41680 22:21:12–17; regression
+PID6288 22:21:12–22; browser QA PID41136 22:22:38–44, all exit0. Twelve workers,
+one pool at a time within measured free commit. All runs ended; viewer stays live.
+
+Read-only original saved S1 replay PID16976 22:17:10–16 reproduces measured
+**.763662908288 > .7 mm**, exact **.069957948109**, all 16 signs and truth/slab
+control. Separate current fit-11 failure **.760738195495** remains. Preferred
+synthetic outline **.206456 > .2**, R1 and all frozen R3 clauses remain. No full
+product shape fit, paid call, push, runtime promotion or WP5 reopening. Preserve
+the owner's WP6_SESSION_PROMPT.md edit. On authorized resumption, keep this mesh
+and resolve camera/shape ambiguity using additional cross-view frame/hinge evidence;
+validate on the retained worsening cropped controls before any promotion.
+
+**Active owner-authorized comparison cycle (2026-10-09, 22:11 +03 onward).**
+The owner approved steps 1–4 and requested a continuous goal, pausing when the
+next comparison is ready and shown. Exact preferred mesh/photos/gates are preserved
+under `data/wp6/camera_shape_resume_20261009/baseline/manifest.json`. No shape edit.
+The cropped new photos expose contaminated border-background fitting and an
+inappropriate out-of-image penalty. `relief_crop.CroppedPhotoLevel` is an opt-in
+diagnostic only; frozen production registration is untouched. Nine independent
+box/viewport/uncropped identity tests pass, PID13216, 22:13:10–11, exit0. Run
+`camera_shape_resume_20261009/alignment_run/` PID31464 starts with eight independent
+cropped-wedge controls, then all six original photos and both new photos at all
+L45/60/75 mask sensitivities. Shape fixed; no internal facet edge enters alignment;
+original angle policy, bounds, front guard and termination retained. Twelve workers
+after 20,957,964 KB free commit; one pool. Check receipt before continuing, never kill
+a healthy run. Next: inspect controls/results, measure held-out creases and regional
+residuals, independently validate any further repair, package/show comparison and
+pause. Prior checkpoint artifacts below stay immutable. WP5 and every gate stay.
+
 **Latest owner review (2026-10-09): "current method looks the best".** The owner
 prefers the `current` reconstruction in the latest rear-triangle + upper-face viewer.
 Keep it as the visual baseline on resumption. Exact asset hashes and quote are in

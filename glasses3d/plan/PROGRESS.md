@@ -2,6 +2,74 @@
 
 ## Active resume — WP6 (2026-10-09)
 
+**NEW OWNER REVIEW CHECKPOINT — 2026-10-09 22:25 +03.** The approved steps 1–4
+have produced a camera-only comparison at **http://127.0.0.1:58668/#photo-lab**,
+server PID **28704**. Pause the active goal when shown, under the owner's explicit
+rule. `data/wp6/camera_shape_resume_20261009/review_checkpoint.json` binds 128
+artifacts; the earlier checkpoint, preferred mesh, all eight photos and frozen
+inputs are unchanged. No supported real-depth/shape edit was established. The
+3D before/after panels intentionally contain the identical preferred mesh; the
+photo slider shows the actual camera/hinge change. All eight photo sheets, slider,
+rotation, zoom, lighting, face highlights, export and narrow layout checked; final
+screenshots and all eight overlays inspected. Open request queued in Codex.
+
+Findings with corrected masks, predeclared middle L60 sensitivity: side contour
+**7.231829 -> 6.333274 px**; oblique **31.953996 -> 10.425583 px**. Original
+01–06 contours all improve slightly (03 only .05234 px). Some held-out facet lines
+worsen: new side AC **2.25727 -> 5.06920**, BC **3.32420 -> 5.52069**; oblique
+AB **1.31290 -> 9.93149**, BC **2.49676 -> 7.09574 px**. Oblique upper/rear
+BK/BE improve **6.39519/8.51066 -> 4.85499/7.36023 px**. Its camera reaches yaw,
+perspective, scale and vertical-shift bounds; old side views 01/05 reach roll bounds.
+These residuals do not uniquely identify a shape error. All L45/60/75 rows and
+ordinary/cropped objective comparisons are retained; no best-threshold selection.
+Photo edges were excluded from this alignment but informed earlier shape/camera
+construction, so this is not independent real-depth validation.
+
+Two opt-in diagnostic helpers are added, without changing production imports or
+frozen fitter math: `relief_crop.CroppedPhotoLevel` handles image cuts, and
+`relief_photo_mask.dark_studio_mask` handles bright colored cropped lenses and
+small logo/highlight holes on dark products against white. Independent tests:
+**9 + 6 pass**, plus **31 existing matte/input regressions pass**. Camera recovery
+controls remain mixed: **2/8 improve, 3/8 worsen, 3/8 unchanged** in complete-shape
+projection error. A corrected viewport score does not establish pose recovery;
+do not promote this diagnostic or infer correct depth from silhouette descent.
+
+Receipts: initial alignment PID31464 **22:14:28–22:15:55**, repaired-mask matrix
+PID43016 **22:19:23–55**, exit0, one 12-worker pool at a time (20,957,964 / 21,201,176
+KB free commit). Final analysis PID41680 **22:21:12–17**, existing regressions
+PID6288 **22:21:12–22**, browser QA PID41136 **22:22:38–44**, all exit0. Saved
+`full_fit6` S1 replay PID16976 **22:17:10–16** reproduces **.763662908288 mm > .7**,
+exact **.069957948109**, all 16 sign cases and truth/slab retained. The separate
+fit-11 **.760738195495** failure stays; no new full shape fit. Preferred synthetic
+outline **.206456 > .2**, R1, STOP-I and every frozen R3 clause remain unchanged.
+
+Next only after owner review/resumption: retain the preferred geometry and resolve
+the camera/shape identifiability conflict with frame/hinge constraints across views,
+including cropped controls that currently worsen. Do not infer geometry corrections
+from a local-bound residual or relabel this as a reconstruction pass. No paid calls,
+pushes, WP5 reopening or public integration. Owner session-prompt edit stays separate.
+
+**Owner resumed steps 1–4 (2026-10-09, 22:11 +03 onward).** A new continuous
+goal is active, with the same pause-when-comparison-is-shown rule. Preserve the
+preferred `current` mesh, evaluate fixed-shape camera/hinge registration on all
+eight photos without using facet edges, identify cross-view residuals, and repair
+only supported measurement defects with independent controls. New local evidence:
+`data/wp6/camera_shape_resume_20261009/`; `baseline/manifest.json` binds the exact
+spec, fit, reviewed meshes, all eight photos and frozen files. Preparation PID13372
+finished successfully. No shape change, paid call, push or gate change.
+
+The two cropped close-ups violate the old matte's clear-border assumption; its
+contours visibly include white background/floor reflection. The ordinary camera
+loss also penalizes geometry outside the image. A separate opt-in cropped-photo
+level keeps the full viewport, ignores image-cut edges as object contours and
+does not penalize unseen geometry. Nine independent cropped-box/uncropped identity
+checks pass (PID13216, 22:13:10–11, exit0). It is **not** connected to the frozen
+fitter. Eight analytic cropped-wedge controls precede all real-photo diagnostics;
+12 workers, free commit 20,957,964 KB, run PID31464 at 22:14:28. New-photo dark-mask
+sensitivity L45/60/75 is predeclared; retain every row, display L60 independently
+of facet results. All old camera/hinge bounds and front guards remain. No full
+product shape fit is running; earlier review checkpoints below are preserved.
+
 **Owner review — current method preferred (2026-10-09).** Exact feedback:
 "current method looks the best". Record this as the visual preference for the
 `current` reconstruction in the latest rear-triangle + upper-face comparison.
