@@ -2,6 +2,15 @@
 
 ## Active resume — WP6 (2026-10-09)
 
+**Owner review — current method preferred (2026-10-09).** Exact feedback:
+"current method looks the best". Record this as the visual preference for the
+`current` reconstruction in the latest rear-triangle + upper-face comparison.
+Use that exact reconstruction as the visual baseline on resumption. Asset-bound
+record: `data/wp6/rear_triangle_resume_20261009/owner_preference_current_20261009.json`.
+This is not confirmation of correct real-product shape/depth, a gate waiver or WP6
+completion. The outline failure and all frozen gates remain. No new fit or runtime
+promotion was launched in response; the review checkpoint remains the stopping point.
+
 **OWNER REVIEW CHECKPOINT — 2026-10-09 17:32 +03. Stop for visual review.**
 The new comparison is ready at **http://127.0.0.1:53458/**, server PID **13264**.
 Pause the new goal when shown, under the owner's explicit same-pausing-rule request.
@@ -11,7 +20,7 @@ candidate, flat control, current reconstruction and experimental reconstruction.
 Separate orange upper-face / green rear-triangle highlights, synchronized angles,
 lighting, export and all eight photo overlays passed browser checks; screenshots
 were inspected. All earlier hash-bound artifacts and frozen files are unchanged.
-No final appearance verdict on this new comparison; WP6 remains open.
+The owner now prefers the current reconstruction; real-product acceptance remains open.
 
 Both matched additional synthetic reconstructions completed at the four-round cap,
 with final cameras for their returned meshes. Current: outline **.206456 > .2 mm**,
@@ -36,7 +45,7 @@ remain unresolved; the earlier upper-exit refusal is also preserved, not fixed b
 this new case. Nine analytic upper-exit/preservation checks passed (PID48120,
 17:16:26, exit0); tests committed **500318f**. No production runtime change in this
 pass. No paid calls or pushes. Keep the owner's WP6_SESSION_PROMPT.md edit separate.
-Next after owner feedback/resumption: confirm the highlighted face identification,
+Next on resumption: use the current reconstruction as the preferred visual baseline,
 then reconcile photo camera/depth evidence without sacrificing preferred facets or
 waiving any frozen gate. Do not rerun these completed comparisons merely to resume.
 

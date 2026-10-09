@@ -1,11 +1,19 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Latest owner review (2026-10-09): "current method looks the best".** The owner
+prefers the `current` reconstruction in the latest rear-triangle + upper-face viewer.
+Keep it as the visual baseline on resumption. Exact asset hashes and quote are in
+`data/wp6/rear_triangle_resume_20261009/owner_preference_current_20261009.json`.
+This records a comparison preference, not real-product acceptance or WP6 completion.
+All failures/gates remain; no new fit or runtime promotion was launched. WP5 stays closed.
+
 **Latest: new comparison ready, 2026-10-09 17:32 +03. Stop for owner review.**
 URL **http://127.0.0.1:53458/**, server PID **13264**. Pause the new goal when
 shown, as explicitly requested. Evidence: `data/wp6/rear_triangle_resume_20261009/`,
 hash-bound `review_checkpoint.json`. Six exact mesh exports, separate upper/rear
 highlights and eight photo overlays passed browser checks; screenshots inspected.
-Earlier assets/frozen files verified unchanged. No new appearance verdict yet.
+Earlier assets/frozen files verified unchanged. Current method is visually preferred;
+real-product shape/depth and WP6 acceptance remain open.
 
 The previous lower/rear F4 plane and domain are preserved exactly while adding an
 upper plane. The copy builds without warnings, but conditional top-strip RMS
@@ -21,8 +29,8 @@ is not replacement S1/R3 evidence. PID29040, 17:17:08–17:30:58, exit0; sequent
 bounds apply only to this new local diagnostic family; production bounds unchanged.
 Nine independent signed geometry/preservation checks pass, committed **500318f**.
 All runs finished; only viewers remain. WP5 stays closed and all WP6 gates stay.
-After feedback/resumption, resolve the face identification and photo camera/depth
-conflict; keep earlier upper-exit failures. Do not repeat these finished fits.
+On resumption, retain the current reconstruction as the visual baseline and resolve
+the photo camera/depth conflict; keep earlier upper-exit failures. Do not repeat these finished fits.
 Preserve the separate owner edit in WP6_SESSION_PROMPT.md. No paid call or push.
 
 **Owner steering and pass history:** preserve the rear triangle
