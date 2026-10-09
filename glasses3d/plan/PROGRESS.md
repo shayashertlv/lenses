@@ -3,8 +3,9 @@
 ## Active resume — WP6 (2026-10-09)
 
 WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
-The saved S1 failure has been reproduced, decomposed and repaired: a fresh same-input S1 passes its unchanged
-gates. Do not repeat the initial diagnosis. Remaining WP6 proof prerequisites still apply before a product fit.
+The original saved S1 now passes with identical inputs, but a fresh full proof regenerating S1 from the newly
+fitted delivered cameras still fails the instrument floor. The camera repair is not yet robust across both cases.
+Do not repeat the initial diagnosis; continue from the new failure and its completed decomposition below.
 The current repair/checkpoint is described below. No paid run or push has occurred.
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
@@ -12,8 +13,9 @@ Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md)
 continue offline WP6 diagnosis and repairs under unchanged gates. Independent line calibration and camera
 attribution are complete. Bounded joint camera/hinge alignment is validated and committed at `640164f`.
 The fresh complete S1 gives **0.691874 mm** measured floor against **0.7 mm**, with all four tested recoveries
-passing. All original line endpoints/errors and input hashes are unchanged. This is an S1 pass, not a WP6 pass.
-Continue with the remaining instruments, comparator fits and proof gates; public integration stays gated.
+passing. All original line endpoints/errors and input hashes are unchanged. The fresh full-proof S1 gives
+**0.763663 mm > 0.7** despite all four recovery checks passing. Its true-camera diagnostic is 0.671495 mm;
+camera/shape coupling still contributes error. Continue offline diagnosis; public integration stays gated.
 **STOP-I blocks acceptance and downstream promotion, not diagnosis or repairs intended to resolve it.**
 KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver decision.
 
@@ -25,11 +27,51 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | Same-input S1 passes under unchanged gates after fit-6 camera repair. Historical failure retained; R1, full real-photo comparisons and remaining proofs still open. No quality promotion. |
+| WP6 | Original same-input S1 passes; fresh full-proof S1 still fails STOP-I at 0.763663 mm. P2 A agreement also fails. R1 and all real-photo gates remain open. No quality promotion. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
 
 ## Coupled camera repair — 2026-10-09
+
+- **Fresh full proof stopped at STOP-I:** `line_evidence_20261009/full_fit6_run/run.json`, actual PID **16348**,
+  **08:53:09–09:13:05 +03** on 2026-10-09 at `90c6a8d`; exit 0 means the experiment completed, not quality passed.
+  Twelve workers, BLAS 1, EcoQoS opt-out. The explicit driver
+  `run_full_fit6.py` records 140 input hashes, uses `wp3b_glossy/cameras.json` and a new `full_fit6/` output.
+  P0 (12 fixtures/16 refusals), P1 including prism share, delivered rear family and delivered crease-segment
+  control pass. P2 fails only corner A: **0.535002 mm > 0.5** (old 0.583248); B 0.343638, C 0.849659 mm,
+  in-view outline 0.143755 and held-out outline 0.234398 mm pass. All real line endpoint moves are unchanged.
+  The regenerated S1 fails only its measured floor: **0.763662908288 > 0.7 mm**, exact-line diagnostic
+  **0.069957948109 mm**. Outline 0.124900 mm, zone 0.055750 mm, r_C 0.021755 mm and theta 0.018422 deg all pass;
+  truth R2 passes and slab R2 fails. Four-round cap reached, final front bound clear. S1 took **977.52 s**.
+  All 140 recorded inputs are unchanged. No candidate/slab fit ran. Original `s1_fit6/` remains immutable.
+  The log's historical OPEN OWNER DECISION text is obsolete: KEEP STOP-I is resolved; do not ask for a waiver.
+- The completed read-only replay (`full_fit6_replay/`, receipt `full_fit6_replay_run/`, PID 50864,
+  09:15:11–09:15:18 +03, exit 0) reproduces both scores. At true cameras/theta, measured transfer is
+  **0.671495054504 mm**, exact **0.025290262104**. At fitted cameras, measured source/exact target gives
+  **0.051522530850**, exact source/measured target **0.782335422952**. All 16 target-error sign cases remain:
+  6 exceed 0.7 at fitted cameras (maximum 0.784928), 4 at true cameras (maximum 0.775548). No sign is selected.
+- A separate orchestration control (`p2_acceptance_probe/`) proves that `run_rest` can return PASS when P2
+  fails or has no verdict. After the hashed proof exited, final acceptance was repaired to return STOP-P
+  when P2 has not passed. Diagnostic fits still run; existing earlier failures retain their evidence.
+  The new `test_temple_proof_completion.py` reproduces **3 failures / 3 passes** before the runtime repair
+  (`p2_completion_before/`, 0.46 s). Afterward **13 completion/cache tests pass**, 0.14 s, exit 0,
+  `p2_completion_after/`. This does not change P2's measurements or limits.
+- P2 cause isolation: 12 independent analytic-prism camera/height cases (`corner_projection/report.json`)
+  show the line-lifting arithmetic agrees with closed-form ray/plane intersections within **1.66e-6 mm**.
+  A wrong lifting surface alone can cause **1.91723 mm** cross-view disagreement with exact lines/cameras.
+  On fixed real lines (`photo_corners/report.json`), new cameras give A spread **0.484282 mm** on the delivered
+  surface versus **0.535002** on the traced starting surface; zero relief of that start gives **0.521637**.
+  These are diagnostic substitutions, not selected replacement gate inputs. Test camera/surface coupling
+  independently before changing the tracing method. The recorded P2 failure remains binding.
+- The fixed-line delivered comparator audit (`delivered_transfer_fit6/report.json`) reproduces historical
+  transfer **0.693721950205 mm** and measures **0.556717676040 mm** at the fresh delivered fits. Thus its
+  unchanged R3 margin now demands candidate transfer **<= 0.056717676040 mm**. Preserve the old comparator,
+  the new one and the fitted-slab clause; the improved baseline is not evidence that a candidate passes.
+- Owner requested more angles and lighting to see depth. `s1_depth_views/` contains upper/lower-light sheets
+  and `view_orbit.gif`, rendered from the original same-input S1 truth, recovered mesh and zero-relief truth
+  control. Actual geometry, no exaggeration, identical camera/material/light within each comparison; front
+  60 mm close-ups. These are synthetic tests, not a real-photo candidate or the fitted slab comparator.
+  Input hashes unchanged; `depth_views_run/`, PID 30680, 09:14:36–09:14:52 +03, exit 0. Both sheets inspected.
 
 - Before the next full proof, review found that P1 reported analytic prism plane-area share without grading
   its accuracy. P1 now includes the existing independent dense-surface reference (0.01 mm grid, unchanged

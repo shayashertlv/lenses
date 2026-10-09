@@ -577,5 +577,9 @@ def run_rest(pf, job, fits_d, start, gp, stages, args, p2_done: dict | None = No
             return pf.stop("STOP-P", "the gate stage crashed", gt["error"])
         if not gt["pass"]:
             return pf.stop("STOP-P", f"gates failed: {gt['failed']}", gt["gates"])
+        # P2 has no early stop (diagnostic fits remain useful), but its required
+        # tracing proof must pass before this can be a complete WP6 proof.
+        if not p2.get("pass"):
+            return pf.stop("STOP-P", "P2 tracing proof did not pass", p2)
         return "PASS (owner judges delivered vs candidate in arview next)"
     return "stopped after FIT/P3 (stages)"

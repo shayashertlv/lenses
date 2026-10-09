@@ -3,8 +3,9 @@
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
 Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.
-The saved S1 failure has been repaired: a fresh same-input S1 passes after the fit-6 camera repair. The original
-failure and its diagnosis are retained below, with the fresh result in the coupled-camera section.
+The original saved S1 passes after the fit-6 camera repair with identical inputs, but a fresh full proof's
+regenerated S1 still fails its instrument floor (0.763663 mm). The repair is not yet robust across both cases.
+Both failures, the fixed-input pass and their diagnoses are retained below.
 Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) with PROGRESS's current Active resume.
 WP6 has not passed its quality proof. Offline diagnosis and repairs remain authorized under unchanged gates.
 
@@ -17,8 +18,8 @@ The decision record explains the rationale. Old JSON fields named `open_owner_de
 STOP-I message predate that resolution. STOP-I continues to block acceptance/promotion; it does not block
 authorized diagnosis and corrections aimed at making the unchanged proof valid and passable.
 
-The table preserves the historical baseline. The fresh same-input S1 result below supersedes its S1 verdict;
-R1 and the real-photo comparator requirements remain open and unchanged.
+The table preserves the historical baseline. The same-input S1 pass below supersedes only that original case's
+S1 verdict; the fresh regenerated case still fails. R1 and real-photo comparator requirements remain unchanged.
 
 | Historical evidence | Result and implication |
 |---|---|
@@ -192,6 +193,36 @@ cameras and frozen hashes. No paid run or push. The owner's session-prompt edit 
 
 ## Next repair step
 
+**Fresh full proof completed with STOP-I (2026-10-09):** `line_evidence_20261009/full_fit6_run/run.json`, PID 16348,
+08:53:09–09:13:05 +03 at `90c6a8d`, 12 workers, exit 0 (execution, not quality). The driver
+`run_full_fit6.py` pins the camera basis and 140 inputs, writes `full_fit6/`, and retains canonical `s1_fit6/`.
+P0, P1 and delivered-camera/rear/crease controls pass. P2 still fails A agreement (0.535002 > 0.5 mm); its other
+checks pass. Regenerated S1 has measured floor **0.763662908288 > 0.7 mm** (exact 0.069957948109); all four
+recovery checks pass, truth R2 passes, slab R2 fails, round cap reached and final front bound clear. All 140
+inputs are unchanged. Candidate/slab fitting did not run. No pool remains active from this proof.
+
+`full_fit6_replay/` reproduces the new failure exactly. True-camera diagnostic: measured 0.671495054504 mm,
+exact 0.025290262104. At fitted cameras, measured source/exact target gives 0.051522530850; exact source/measured
+target 0.782335422952. All 16 target-error sign cases remain (6 failures at fitted cameras, 4 at true cameras).
+Next isolate the remaining camera/shape error in this new case; do not replace it with the older passing case,
+select favourable signs, reduce errors, or ask the resolved waiver question. The old log text is historical.
+
+An isolated control in `p2_acceptance_probe/` confirms a proof-reporting defect: `run_rest` can announce PASS
+with P2 failed or absent. It is now repaired to return STOP-P at final acceptance while permitting partial
+diagnostic fits. `test_temple_proof_completion.py` gives 3 failures / 3 passes before (`p2_completion_before/`);
+13 completion/cache controls pass afterward (`p2_completion_after/`, 0.14 s). No threshold changed.
+Independent corner projection controls (`corner_projection/`) validate the lifting arithmetic against analytic
+ray/plane geometry, while showing that using a wrong surface can itself produce cross-view disagreement.
+The fixed-line real-photo audit (`photo_corners/`) gives A spread 0.484282 on the delivered surface versus
+0.535002 on the traced starting surface at the new cameras. Do not select the favourable surface to pass;
+test camera/surface coupling independently and preserve the current P2 failure.
+The delivered R3 audit (`delivered_transfer_fit6/report.json`) measures 0.556717676040 mm at the new fits
+(historical replay 0.693721950205). Its unchanged 0.5 mm margin requires the candidate <= 0.056717676040 mm;
+the fitted-slab margin and 0.7 mm absolute limit also remain binding. No candidate verdict is inferred.
+The owner's requested multi-angle/multi-light depth views are in `s1_depth_views/` (two sheets and rotating GIF).
+These show the original same-input synthetic S1 truth, recovered shape and zero-relief truth control with no
+depth exaggeration; they are not real-photo appearance acceptance. Both static sheets were inspected.
+
 Runtime controls, affected regressions and diff review are complete at `640164f`. The fresh same-input S1 in
 `data/wp6/line_evidence_20261009/s1_fit6/proof.json` **passes unchanged STOP-I**: all four tested recoveries pass,
 truth R2 passes, slab R2 fails, measured true-model transfer **0.691874467104 mm <= 0.7**. Exact-line diagnostic is
@@ -233,7 +264,8 @@ Paths below are relative to `glasses3d/`; do not resume a writer in an old evide
 
 | Evidence | Path / use |
 |---|---|
-| Latest full proof | `data/wp6/proof2/proof.json`: `result=STOP-I`, `stages.S1.instrument_floor`, `stages.S1.instrument_floor_exact_lines`, `stages.S1.lines`, `stages.S1.guide_plan`, `stages.S1.cue`, `stages.S1.theta_cases` |
+| Latest full proof | `data/wp6/line_evidence_20261009/full_fit6/proof.json`: `result=STOP-I`, measured floor 0.763663 mm; explicit replay in `full_fit6_replay/` |
+| Original saved full proof | `data/wp6/proof2/proof.json`: historical `result=STOP-I`, `stages.S1.instrument_floor`, `stages.S1.instrument_floor_exact_lines`, `stages.S1.lines`, `stages.S1.guide_plan`, `stages.S1.cue`, `stages.S1.theta_cases` |
 | Saved fitted inputs | `data/wp6/proof2/s1_fit.pkl` and `fits_delivered.pkl`; load only these trusted local caches when reproducing the recorded case |
 | Resolved decision | `data/wp6/proof2/delegated_decision.json` and the proof's `delegated_decision_review` |
 | Latest hand trace | `data/wp6/handtraced_codex_20261007/handtraced.json`, plus `owner_comparisons/`; not the older crashed `handtraced/` run |
