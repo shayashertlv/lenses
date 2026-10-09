@@ -553,14 +553,16 @@ def refit_camera(job: Job, model: Model, key: str, cam0: Camera, theta: dict, *,
     r0 = render_model(job, model, key, start, theta, points=False)
     r2 = render_model(job, model, key, c2, theta, points=False)
     f0, f2 = front_contour_mm(job, key, r0, start), front_contour_mm(job, key, r2, c2)
-    kept = f2 <= f0 + RR.FRONT_DEGRADE_MAX_MM
+    guard_measured = bool(np.isfinite(f0) and np.isfinite(f2))
+    kept = guard_measured and f2 <= f0 + RR.FRONT_DEGRADE_MAX_MM
     at_bound = []
     x2 = C.pack(c2, vf.unit, job.pivot)
     for i, (nm, (lo, hi)) in enumerate(zip(("yaw", "pitch", "roll", "persp", "scale", "shift_x", "shift_y"), box)):
         if min(x2[i] - lo, hi - x2[i]) < 1e-3 * max(hi - lo, 1e-9):
             at_bound.append(nm)
     info = {"loss_start": float(l0), "loss": float(l2 if kept else l0), "front_contour_start_mm": f0,
-            "front_contour_mm": f2 if kept else f0, "kept": bool(kept), "evals": n1 + n2, "at_bound": at_bound,
+            "front_contour_mm": f2 if kept else f0, "front_guard_measured": guard_measured,
+            "kept": bool(kept), "evals": n1 + n2, "at_bound": at_bound,
             "seconds": time.perf_counter() - t0}
     return (c2 if kept else start), info
 

@@ -258,6 +258,55 @@ without timeouts, and record real PIDs/timestamps/exit codes. Paid calls require
 Continue these authorized offline repairs autonomously. Ask the owner for actual missing input, a new visual
 verdict or a paid-run approval with an estimate, not for permission to resume the agreed repair task.
 
+## Source-camera limitation and guard repair (2026-10-09)
+
+The fresh STOP-I failure remains. All evidence below is under `data/wp6/line_evidence_20261009/`, with
+separate `*_run/run.json` receipts, immutable input hashes and exit 0 unless noted. No candidate is promoted.
+
+- `full_camera_diagnosis/`: exact known geometry refitted with the existing silhouette method still gives
+  measured transfer **0.730990287037 mm**, exact **0.039587031792**. Oracle replacement of source 05's camera
+  and theta gives 0.674045 mm; target 02 gives 0.761184. Thus source registration matters and shape bias
+  alone does not explain the result. PID 28444, 09:18:43–09:20:52 +03; five view tasks in one 12-worker pool.
+- `camera_boxes/`: all relevant views already use native pixels. True source camera shift_x lies
+  **0.286032 px outside** the original packed box in both S1 cases. The fitter's 05 shift reaches that bound.
+  Do not enlarge it or alter injected errors. A true camera with nonzero hinges and a fitted camera with
+  zero hinges use different representations, so the box result alone does not prove infeasibility.
+- `side_camera_capacity/`: oracle known-point fitting tests near-only, front+near, and front+near+far groups.
+  All three optimizations succeed inside the original box, with side theta still zero. Measured transfer
+  is **0.679998 / 0.677673 / 0.712055 mm**; the unchanged whole-image loss is
+  **0.036799 / 0.012942 / 0.010486** versus the baseline **0.007991**. These are capacity diagnostics with
+  unobservable points, not eligible camera fits. Do not select the passing rows or drop the far temple.
+- `visible_contours/`: truth-labelled contours show very few part-confusion matches (11/11,827 at the
+  known-geometry camera). Improving the near part degrades the far one: near/far boundary errors roughly
+  **0.414 / 0.209 px** at the known-geometry camera versus **0.137 / 0.987 px** at the front+near oracle.
+  No evidence supports arbitrary reweighting or freeing side theta.
+- `post_alignment/`: a fixed final Powell step improves image loss in 14/16 independent analytic cases;
+  aggregate corner projection improves in 11, worsens in three, and stays unchanged in two. All original
+  front guards hold. In the identical camera-only diagnostic on both S1 cases (`post_alignment_s1/`),
+  measured floors **worsen to 0.729676 / 0.800290 mm**, exact diagnostics to **0.096829 / 0.102529 mm**.
+  All five views and every signed guide-error row are preserved. The extra step is not integrated into
+  runtime; silhouette descent alone does not establish a depth repair.
+- `side_articulation/`: 18 independent box/wedge controls cover both side cameras, zero articulation, and
+  every sign pair of 1 and 3 degrees. All true cameras are inside their original boxes; all actual fits keep
+  side theta zero. Oracle camera fits reach 1.0–1.4e-13 px RMS for zero articulation, versus 0.257–2.972 px
+  otherwise (local bounded optima). `articulation_projectivity/` checks the normalized linear camera
+  equations independently: every articulated whole scene has rank 12, while zero-angle scenes and each
+  individual rigid part have a nonzero camera solution. Minimum/maximum singular ratios are
+  0.000174–0.002321 versus about 6e-17 for zero articulation. One camera cannot exactly reproduce all of
+  those articulated corners. Hidden corners are included; this does not prove the silhouette or gate
+  tolerances impossible. Next test rigid-part registration on independent visible contours, preserving
+  all full-image/far-part errors and the original front guard. No change to runtime camera support yet.
+
+During this review, `relief_views.refit_camera` was found to accept an unmeasured front guard because it
+compared infinite distances. It now requires finite baseline and proposed measurements, as joint alignment
+already does. The independent seven-case control reproduces two failures before repair; afterward **17
+guard/input/cache tests pass** (1.70 s, `refit_guard_after_corrected/`). An earlier invocation used a nonexistent
+test path and exited 4 without collecting tests (`refit_guard_after/`); preserve it. Fitter version **fit-7**
+invalidates earlier acceptance caches. Finite-guard fitting mathematics is unchanged, and both saved S1 cases
+have finite guards, so this repair does not resolve the retained STOP-I failure. After the version update,
+**19 guard/input/cache/trace-order/dependency checks pass**, 2.10 s, `refit_guard_version_checks/`,
+PID 45236, 09:38:23–09:38:25 +03, exit 0.
+
 ## Exact evidence and replay entry points
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.

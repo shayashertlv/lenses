@@ -97,7 +97,7 @@ PENALTY = 10.0
 #          shape infeasible instead of averaging the remaining creases or charging zero transfer loss.
 #   fit-6: coupled camera / observable hinge alignment selected only by silhouette loss, within the original
 #          camera box and front guard. Side hinges and rear-family fixed-alpha refits remain unchanged.
-FIT_VERSION = ("fit-6 (2026-10-09): fit-5 + bounded joint camera/hinge silhouette alignment")
+FIT_VERSION = ("fit-7 (2026-10-09): fit-6 + measured front guard required for initial camera refit")
 
 
 def _hat(d, a, b, c):
