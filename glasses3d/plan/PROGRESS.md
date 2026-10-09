@@ -193,12 +193,33 @@ Baseline mean **0.144647 -> 0.052773 px**, held-out mean **0.142422 -> 0.075795 
 angle errors over both temples **0.110666 / 0.157016 degrees**. Inputs/runtime/frozen hashes remain unchanged.
 PID **46840**, **11:46:11–11:46:22 +03**, exit 0; 12 workers after **22,102,656 KB** free commit.
 
-Next action: diagnose the effect on both retained S1 cases without changing production eligibility or the
-frozen dependency table. A labelled counterfactual can refine only the side camera/pose at each saved
-recovered geometry, with a separate true-geometry control, retaining all measured/exact lines and all 16
-error signs. Select camera/pose only from image loss and the original front guard. No shape refit, product
-fit, replacement proof or acceptance claim follows from this diagnostic. Unknown-shape recovery and a
-review of the frozen side-theta dependency remain necessary before any production change.
+`s1_side_pose_counterfactual/` now applies the validated diagnostic to both retained S1s, at each saved
+recovered geometry and in a separate true-geometry control. It fits only 01/05 camera/pose, selects from
+the saved and original-camera starts using common-grid image loss and the original front guard, and
+retains every other view, measured/exact line and all 16 error signs. No shape refit or product fit.
+
+| Retained S1 | Saved measured / exact mm | Recovered-geometry pose diagnostic | True-geometry pose diagnostic |
+|---|---|---|---|
+| Original-input `s1_fit6` | 0.691874 / 0.062110 | **0.651047 / 0.028755** | **0.596224 / 0.042336** |
+| Fresh-input `full_fit6` | 0.763663 / 0.069958 | **0.723686 / 0.032661** | **0.669760 / 0.043069** |
+
+The fresh failure therefore **persists above 0.7 mm at the recovered geometry**, even in the counterfactual.
+True-model R2 remains true and zero-relief-control R2 false in every variant. Original-input error signs
+over 0.7: saved 2/16, recovered-geometry 1/16, true-geometry 3/16; fresh-input: **6/16, 6/16, 4/16**.
+No error sign is selected. Common-frame near-side angles improve, but some far-side angles at recovered
+geometry still exceed 0.3 degrees (about 0.36–0.37 in 01 and 0.35 in fresh 05). Thus additional side-angle
+dependencies must not be silently omitted. The measured/exact scores move differently: a lower measured
+score does not alone establish a more accurate pose. All source/runtime/frozen hashes remain unchanged.
+Receipt PID **34080**, **11:49:59–11:53:36 +03**, exit 0; eight workers after **22,080,184 KB** free commit.
+No current process or pool remains active. The production fresh S1 still stands at **0.763663 mm STOP-I**.
+
+Next action: investigate unknown-shape/camera coupling with this independently checked proposal, before
+considering a production change. A fixed-input joint synthetic diagnostic can retain the saved measured
+crease lines, original start/family, all five fitting views, original four-round/evaluation limits and
+retrace/front/hinge constraints; use the free-side contour method only in an explicit local diagnostic
+camera callback. Grade every 01/05 side angle as well as the original 02+x pair, and retain both S1s and
+the zero-relief/error-sign controls. Do not change production eligibility or the frozen dependency table,
+call this a current-protocol S1 pass, run a full product fit, or accept an oracle-geometry result as recovery.
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 

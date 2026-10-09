@@ -521,11 +521,25 @@ development (`contour_normal_holdout/`). Baseline mean **0.144647 -> 0.052773 px
 PID **46840**, **11:46:11–11:46:22 +03**, exit 0; 12 workers after **22,102,656 KB** free commit. All inputs,
 runtime and frozen hashes remain unchanged. No current pool, no production or quality acceptance change.
 
-Next use a labelled counterfactual on both retained S1s: side camera/pose refinement at saved recovered
-geometry plus a separate true-geometry control. Preserve all measured/exact lines and all 16 error signs;
-image loss/front guard alone select fits. Do not refit shape, run a full product fit, replace a proof or
-claim acceptance. Unknown-shape recovery and the frozen side-theta dependency still require review before
-any production change; the existing side-theta-zero file remains frozen and untouched.
+`s1_side_pose_counterfactual/` completes both retained S1 diagnostics: fit only 01/05 camera/pose at saved
+recovered geometry and separate known-true geometry, selecting from saved/original starts by image loss
+and original front guard. Every other view, measured/exact line and all 16 signs stay unchanged.
+Original-input measured/exact: saved **0.691874/0.062110**, recovered-geometry **0.651047/0.028755**,
+true-geometry **0.596224/0.042336 mm**. Fresh-input: saved **0.763663/0.069958**, recovered-geometry
+**0.723686/0.032661**, true-geometry **0.669760/0.043069 mm**. The fresh recovered-geometry result still
+exceeds 0.7. In every variant true R2 holds and the zero-relief control fails R2. Signs over 0.7 are
+original **2/16 -> 1/16 -> 3/16**, fresh **6/16 -> 6/16 -> 4/16**; none selected. Some recovered-geometry
+far-side common-frame angles still miss 0.3 degrees (up to about 0.37), so extra dependencies cannot be
+omitted. Measured/exact scores move differently; lower measured transfer alone is not pose accuracy.
+PID **34080**, **11:49:59–11:53:36 +03**, exit 0; eight workers after **22,080,184 KB** free commit.
+Inputs/runtime/frozen hashes unchanged. No active pool or process. No acceptance or production change;
+the current-protocol fresh S1 remains **0.763663 mm STOP-I**.
+
+Next investigate joint unknown-shape/camera recovery with an explicit local diagnostic camera callback,
+retaining saved measured lines, original start/family, all five fit views, original four-round/evaluation
+limits, retracing and front/hinge constraints. Keep both retained S1s and all error signs/zero-relief controls;
+grade all four side angles plus the existing 02+x pair. Production eligibility and the frozen side-theta
+dependency file stay untouched. No full product fit, current-protocol S1 pass claim or oracle-shape promotion.
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
