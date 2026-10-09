@@ -9,6 +9,14 @@ Both failures, the fixed-input pass and their diagnoses are retained below.
 Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) with PROGRESS's current Active resume.
 WP6 has not passed its quality proof. Offline diagnosis and repairs remain authorized under unchanged gates.
 
+**Latest checkpoint, 13:28 +03:** the fixed-input 2x2 matrix finished successfully; PID 42452 exited 0 at
+13:26:40. Do not restart it. The previously failing input set improves from .760738 to .686086 mm measured
+transfer and .048359 to .042315 mm mesh-depth RMS in the side-angle counterfactual. The older input improves
+transfer but worsens depth. Production side eligibility and the frozen dependency table are unchanged;
+this is not current-protocol S1 acceptance. Full audits and inspected multi-view / moving-light visuals are
+saved under `data/wp6/line_evidence_20261009/s1_joint_{audit,geometry_audit,visuals}/`.
+Next: the prepared 20 independent contour-normal controls under current observed-angle eligibility.
+
 ## Current gate
 
 **KEEP STOP-I, KEEP R1 and every frozen R3 clause.** The delegated decision was resolved on 2026-10-07.
@@ -557,12 +565,12 @@ by production. All four side angles plus 02+x are graded regardless of old obser
 preflight stopped before fitting at the false historical start value (PID 24344, 12:01:49–12:01:51, exit 1).
 The driver now validates legacy raw metadata while using the actual defaulted family. Corrected preflight
 passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0); correction committed at
-**a2e67fc**. The matrix is active: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, started
-**12:07:44 +03**. `s1_fit6_current` began 12:07:51 with 12 workers after 23,736,996 KB available commit
+**a2e67fc**. The matrix completed: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, ran
+**12:07:44–13:26:40 +03**, exit 0. `s1_fit6_current` began 12:07:51 with 12 workers after 23,736,996 KB available commit
 (GlobalMemoryStatusEx); prelaunch shell free virtual memory was 23,973,836 KB. Order: original current,
 original counterfactual, fresh current, fresh counterfactual. Per-cell receipts/measurements and a cumulative
-`partial_report.json` preserve completed cells. No timeout. Check PID/child activity and receipts before
-another pool, and preserve healthy running work.
+`partial_report.json` preserve completed cells. No timeout. Final report/hashes/receipt validate; the main
+PID is gone. Do not restart the completed matrix.
 
 First cell `s1_fit6_current` finished **12:22:48 +03**: measured **0.698285873831 mm**, exact
 **0.069303861394 mm**; truth R2 passes / zero-relief R2 fails; original recoveries within limits
@@ -570,11 +578,15 @@ First cell `s1_fit6_current` finished **12:22:48 +03**: measured **0.69828587383
 measured; 2 exceed .7, maximum .745211468 mm. Final front bound clear, four-round cap reached. Extra side-angle
 maximum .343955406 degrees at 05+x is recorded separately from the frozen 02+x recovery. No new full S1
 acceptance claim. `s1_fit6_free_side_counterfactual` started **12:22:50**, 12 workers after 23,800,452 KB free
-commit; parent PID remains **42452**, live child PIDs changed for this cell. The two fresh-input cells follow.
+commit; parent PID was **42452**, with new child PIDs for this cell. The two fresh-input cells followed.
 
-**Current run position: three of four cells complete; `full_fit6_free_side_counterfactual` active since
-13:01:37 +03**, 12 workers after **21,728,856 KB** available commit; parent PID **42452**. Preserve this
-live final cell and inspect its current children before any new pool.
+**All four cells are complete.** `full_fit6_free_side_counterfactual` ran **13:01:37–13:26:40 +03**,
+12 workers after **21,728,856 KB** available commit. Measured **0.686085984544 mm**, exact
+**0.038064252394 mm**; truth R2 true / zero-relief R2 false; **converged** in four rounds, front bound clear.
+Recovery: outline **0.007874772163 mm**, zone **0.065285077025 mm**, r_C **0.059600811853 mm**,
+02+x **0.055865968087 degrees**, maximum across all five pairs **0.076532148909 degrees**. Existing
+numeric tolerances are met, but this is a side-angle counterfactual, not frozen-protocol S1 acceptance.
+All 16 sign cases measured; 5 exceed .7 (max **0.788291123299 mm**), versus current 5 / .782665889635.
 
 `full_fit6_current` completed **12:45:00–13:01:35 +03**, 12 workers after **23,811,080 KB** available commit.
 Measured **0.760738195495 mm > 0.7**, exact **0.067896192015 mm**; truth R2 true / zero-relief R2 false.
@@ -595,7 +607,7 @@ The actual mesh-depth comparison also retains a regression: current X-error RMS 
 experimental **0.061507126426 mm**, with **+0.051935012471 mm** mean bias / **0.108787221321 mm** maximum.
 Both have all 2,121 samples. `s1_joint_geometry_partial_2/` includes source/input snapshots; receipt
 `s1_joint_geometry_partial_2_run/`, PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
-The newer input set must finish before deciding the next repair; no full-matrix verdict or visualization yet.
+The newer input set is now complete; its depth comparison and visual inspection are recorded below.
 
 `s1_joint_depth_bias_older/` separates the experimental mean depth error into base-surface
 **+0.065487974100 mm** plus relief-over-base **-0.013552961628 mm**. r_C is **3.943132543185 mm**
@@ -604,15 +616,29 @@ do not claim unconstrained parameter uncertainty. This algebraic readout does no
 term caused the bias or justify changing parameters. Receipt `s1_joint_depth_bias_older_run/`, PID **40804**,
 **12:49:51 +03**, exit 0, one process/no pool. Full terms/round parameters, hashes and source are retained.
 
-After the complete matrix, run the prepared ignored scripts with `run_single.py` into fresh log folders:
+The complete matrix was audited/rendered with the prepared ignored scripts through `run_single.py`:
 `summarize_s1_joint_counterfactual.py`, `audit_s1_joint_geometry.py`, `visualize_joint_diagnostic.py`.
 The first audits all four selections/controls; `--partial` only reads completed rows and writes nothing.
 The geometry audit uses a fixed 101 x 21 truth-chart grid to read actual outer triangles, reports missing points
 without dropping them, and passes four independent analytic plane/triangulation/winding controls (1e-12 mm,
 12:22:54 exit 0). These are diagnostic measurements, not new gates. The visualization uses actual geometry
 at common views/scales/lights, four directions and both a camera and a light orbit; it selects `full_fit6` by
-its prior failing role, not by the new outcome. Syntax checked; inspect the generated images before showing
-them. None of these three final reports/visuals has been produced yet.
+its prior failing role, not by the new outcome. All three completed successfully:
+
+- selection/provenance audit `s1_joint_audit_run/`, PID **13864**, **13:27:32 +03**, exit 0;
+- mesh audit `s1_joint_geometry_audit_run/`, PID **43764**, **13:27:46 +03**, exit 0;
+- rendering `s1_joint_visuals_run/`, PID **34960**, **13:28:06–13:28:35 +03**, exit 0.
+
+All four meshes cover 2,121/2,121 points. Newer-input current/experimental depth RMS is
+**0.048358608425 / 0.042314938226 mm**, mean absolute **0.040589812753 / 0.032854111921 mm**,
+maximum **0.095540659390 / 0.082231665598 mm**. Older-input depth regression remains in the report.
+The full audit retains all view poses, image-only selections/bounds/guards, sigma flags and fitted penalties.
+The older fits have zero penalty at the fitted point: their `penalty_active` flags concern nearby stencil
+samples and do not establish what caused the depth bias.
+Both static sheets and eight quarter-cycle animation frames were inspected. `s1_joint_visuals/` holds
+`upper_light.png`, `lower_light.png`, `view_orbit.gif`, `light_orbit.gif`, provenance and QA frames.
+Actual meshes, common scales/views/lights, no depth exaggeration; zero-relief control visibly distinct.
+These synthetic tool visuals do not constitute product appearance acceptance.
 
 Prepared next independent check: `probe_normal_current_eligibility.py` (no fit yet). After auditing/showing
 the matrix visuals, test the same contour-normal proposal with **unchanged observed-angle eligibility**

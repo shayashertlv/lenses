@@ -8,6 +8,16 @@ fitted delivered cameras still fails the instrument floor. The camera repair is 
 Do not repeat the initial diagnosis; continue from the new failure and its completed decomposition below.
 The current repair/checkpoint is described below. No paid run or push has occurred.
 
+**Latest checkpoint (13:28 +03): the four-cell fixed-input diagnostic is complete**, with input/source
+hashes unchanged and exit 0. On the newer failing inputs, the side-angle counterfactual gives measured
+transfer **0.760738 -> 0.686086 mm**, exact **0.067896 -> 0.038064 mm**, and mesh-depth RMS
+**0.048359 -> 0.042315 mm**. It converges in four rounds with a clear front bound. The older-input pair
+improves transfer but worsens depth RMS; retain that mixed outcome. This is **not a frozen-protocol S1 pass**:
+production side-angle eligibility/dependencies are unchanged. R1, P2 and the real-photo gates remain open.
+Full audits and inspected rotating-view/moving-light visuals are in `data/wp6/line_evidence_20261009/`
+under `s1_joint_audit/`, `s1_joint_geometry_audit/`, `s1_joint_visuals/`. Next: complete the prepared
+20 independent contour-normal controls under **current** angle eligibility; do not rerun the matrix.
+
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
 continue offline WP6 diagnosis and repairs under unchanged gates. Independent line calibration and camera
@@ -241,13 +251,12 @@ historical start table (PID 24344, 12:01:49–12:01:51, exit 1). The driver now 
 against its raw inputs and reconstructs the actual defaulted family; it never starts from the false zero.
 Corrected preflight passes (`s1_joint_preflight_v2/`, PID 48700, **12:06:43–12:06:48 +03**, exit 0).
 Both input families and all source hashes validate. Reporting correction committed at **a2e67fc**.
-The matrix is now running: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, started
-**12:07:44 +03**. First cell `s1_fit6_current` started 12:07:51 with **12 workers / 23,736,996 KB** available
+The matrix completed: `s1_joint_counterfactual_run/run.json`, actual PID **42452**, ran
+**12:07:44–13:26:40 +03**, exit 0. First cell `s1_fit6_current` started 12:07:51 with **12 workers / 23,736,996 KB** available
 commit (Windows GlobalMemoryStatusEx); the shell's free-virtual check before launch was 23,973,836 KB.
 Order: original-input current, original-input counterfactual, fresh-input current, fresh-input counterfactual.
 Each cell writes its own receipt and measurements; `partial_report.json` appears after the first complete
-cell. No timeout. Verify the live PID/children and receipt before any new pool; do not restart or terminate
-this healthy run merely because a camera/shape phase is slow.
+cell. No timeout. The final receipt confirms completion; the main PID is gone. Do not restart the matrix.
 
 First cell completed **12:22:48 +03**: current method on `s1_fit6`, measured **0.698285873831 mm**,
 exact **0.069303861394 mm**, truth R2 true / zero-relief R2 false. Recovery: outline **0.123519334 mm**,
@@ -257,7 +266,7 @@ four-round cap reached. The extra side-angle audit gives maximum **0.343955406 d
 side angles are not the frozen protocol's fitted theta pair. This fixed-line diagnostic is not a new full
 S1 acceptance record and does not replace the historical fit-6 proof. Its current-method baseline is retained
 as calculated; no result selection. Second cell, `s1_fit6_free_side_counterfactual`, started **12:22:50**
-with a fresh sequential pool of 12 workers after **23,800,452 KB** available commit; parent PID remains 42452.
+with a fresh sequential pool of 12 workers after **23,800,452 KB** available commit; parent PID was 42452.
 
 The older-input experimental cell finished **12:44:58 +03**:
 measured transfer **0.623282348529 mm**, exact **0.038949400278 mm**; truth R2 passes and zero-relief R2 fails.
@@ -274,15 +283,20 @@ error **+0.051935012471 mm**, maximum **0.108787221321 mm**. This outer-depth bi
 outline/transfer results. Receipt PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
 Input/source snapshots are retained automatically.
 
-**Three of four cells are complete.** `full_fit6_current` ran **12:45:00–13:01:35 +03** with 12 workers after
+`full_fit6_current` ran **12:45:00–13:01:35 +03** with 12 workers after
 **23,811,080 KB** available commit. It reproduces the newer-input failure: measured **0.760738195495 mm > 0.7**,
 exact **0.067896192015 mm**. Truth R2 passes / zero-relief R2 fails. Recovery errors are outline
 **0.122116492259 mm**, zone **0.061137082447 mm**, r_C **0.020220579658 mm**, original 02+x
 **0.026137111802 degrees**. All 16 sign cases measured; **5 exceed 0.7**, maximum **0.782665889635 mm**.
 Extra side-angle maximum **0.303575244634 degrees** is retained separately. Front bound clear; four-round
-cap reached, not convergence. **Final cell `full_fit6_free_side_counterfactual` is active since
-13:01:37 +03**, 12 workers after **21,728,856 KB** available commit. Parent PID remains **42452**;
-no other heavy pool is active. Check its live log/children before another pool; do not restart it.
+cap reached, not convergence. Final cell `full_fit6_free_side_counterfactual` ran
+**13:01:37–13:26:40 +03**, 12 workers after **21,728,856 KB** available commit. It reports **converged**
+after four rounds, final front bound clear, measured **0.686085984544 mm**, exact **0.038064252394 mm**.
+Truth R2 passes / zero-relief R2 fails. Recovery: outline **0.007874772163 mm**, zone
+**0.065285077025 mm**, r_C **0.059600811853 mm**, original 02+x **0.055865968087 degrees**;
+maximum across all five audited angle pairs **0.076532148909 degrees**. All are within the existing
+numeric recovery tolerances, but the side-angle protocol is counterfactual. All 16 sign cases measured;
+**5 exceed .7**, maximum **0.788291123299 mm** (baseline 5 / .782665889635). No stress case was discarded.
 
 The older-input depth-bias decomposition is read-only (`s1_joint_depth_bias_older/`, PID 40804,
 **12:49:51 +03**, exit 0). At the same 2,121 points, experimental mean base-surface error is
@@ -293,14 +307,25 @@ unconstrained uncertainty estimates. The decomposition is algebraic, not causal 
 term, and it authorizes no parameter correction. Saved objective terms and every round's parameters remain
 in the report, with input/source hashes and the source snapshot. No refit or gate change occurred.
 
-Readout/visual scripts are prepared under the same ignored evidence folder (not yet run on the full matrix):
+Readout/visual scripts completed under the same ignored evidence folder:
 `summarize_s1_joint_counterfactual.py` audits all four results and image-only candidate selection;
 `audit_s1_joint_geometry.py` measures outer-mesh depth at a fixed truth-chart grid (101 stations x 21 height
 fractions), preserving missing samples; `visualize_joint_diagnostic.py` renders the fresh failing input set
 from four directions under opposite lights, plus rotating-view and moving-light GIFs. The mesh-depth readout
 passes four independent plane/triangulation/winding controls at 1e-12 mm and retains an outside point as missing
-(12:22:54, exit 0). The visualization syntax check passes; actual renders must still be inspected before display.
-After all four cells finish, run these in new logged output folders, audit the whole matrix and show the visuals.
+(12:22:54, exit 0). Full selection/provenance audit passed, PID **13864**, **13:27:32 +03**, exit 0;
+`s1_joint_audit_run/`. It retains all five view poses, image-only selections, original bounds/front guards,
+sigma flags and penalties at the fitted point. Both older fits have zero penalty at the fitted point;
+`penalty_active` can describe nearby stencil samples and does not establish the cause of their depth bias.
+Full mesh audit passed, PID **43764**, **13:27:46 +03**, exit 0; `s1_joint_geometry_audit_run/`.
+All four cells cover **2,121/2,121** points. Newer-input current/experimental RMS:
+**0.048358608425 / 0.042314938226 mm**; mean absolute **0.040589812753 / 0.032854111921 mm**;
+maximum **0.095540659390 / 0.082231665598 mm**. Older-input RMS remains **.040577 / .061507 mm**.
+Rendering completed, PID **34960**, **13:28:06–13:28:35 +03**, exit 0; `s1_joint_visuals_run/`.
+Both four-view light sheets and eight quarter-cycle animation frames were inspected. Actual geometry,
+common scale/light/view, no depth exaggeration; the zero-relief control is visibly distinguishable.
+Files: `upper_light.png`, `lower_light.png`, `view_orbit.gif`, `light_orbit.gif`, plus provenance and QA frames.
+These are synthetic instrument visuals, not a product model or owner acceptance.
 
 An additional independent camera check is prepared as `probe_normal_current_eligibility.py`, **not yet fit**.
 It applies the unchanged contour-normal proposal after the current fit, freeing only the already-observed
@@ -322,7 +347,7 @@ Receipt `s1_joint_geometry_partial_1_run/`, actual PID 25436, **12:28:13 +03**, 
 Output `s1_joint_geometry_partial_1/` includes exact snapshots of its input partial report and audit source;
 both snapshot hashes match the original audit record, preserving provenance when later cells append results.
 The final visualization now requires the full geometry audit and shows its depth errors beside the actual
-meshes, separately from transfer errors. No final visualization or four-cell audit exists yet.
+meshes, separately from transfer errors. Final visualizations and the four-cell audits are now complete above.
 
 The static protocol review confirms why the camera variant remains diagnostic: production fixes 01/05
 theta in `_initial_view_fit`, excludes it in `align_view`, and also forces zero in the cross-camera comparison.
