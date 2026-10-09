@@ -132,9 +132,21 @@ loss. A poorly recovered rigid case (held-out row 20, 4.01 px) is **unclipped**,
 explanation. Every view of **both S1s** has zero true-camera registration loss, zero outside penalty, no
 foreground on the canvas boundary and identical native masks. Thus cropping is not the saved S1 failure's
 cause. Receipt PID 50044, 11:14:23–11:14:38 +03, exit 0. No penalty, view or frozen input was changed.
-Next: add a separately labelled wider-canvas version of **every** independent image to isolate this confound,
-retaining all cropped results. Test the existing method and original-camera restart with the same rules;
-do not drop difficult images or treat the counterfactual free-pose controls as acceptance evidence.
+`camera_uncropped/` adds **every** independent image on a canvas padded by 200 native pixels per edge,
+retaining all cropped results. All 24 original images match their corresponding native crop byte-for-byte;
+every extended image lies inside the canvas, and all true-camera image losses are zero. Refit each current
+camera, then compare the original-camera restart using the unchanged objective/bounds/front guard/side theta.
+Baseline: **5 improve / 3 worsen / 4 unchanged**, maximum increase **1.173446 px**; held-out **7 / 1 / 4**,
+maximum increase **0.587855 px**. One small rigid regression and three articulated regressions remain.
+This rules out cropping as the sole cause and does not support integrating the restart as a recovery fix.
+Receipt `camera_uncropped_run/`, PID 20172, **11:18:15–11:20:14 +03**, exit 0; 12 workers after 21,858,468 KB
+free commit, BLAS 1/EcoQoS opt-out. Every task finished; no pool remains active. No S1 or product fit was run.
+
+Next action: investigate the pose ambiguity in independent fully visible controls, separating local optimizer
+basins from the frozen side-theta representation. A possible diagnostic is the already labelled free-pose
+counterfactual from both canonical and fitted camera starts, selected only by the same full-scene objective.
+It must retain every case and cannot change production eligibility or become S1/quality acceptance evidence.
+Do not keep rerunning rejected camera-only variants or select a shape simply to lower R1.
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 

@@ -471,9 +471,18 @@ zero registration error but **0.015702–0.020519** outside-ROI penalty. The oth
 the poorly recovered rigid held-out row 20 is unclipped. All twelve true-camera S1 views are unclipped,
 match their native masks exactly, and have zero registration/outside penalty. This is a control-set confound,
 not the S1 failure's cause. PID 50044, 11:14:23–11:14:38 +03, exit 0. No penalty or input was changed.
-Next add a separately labelled wider-canvas version of every independent image, retaining every cropped
-case, to isolate that confound. Compare current fitting and the original-camera restart under unchanged
-rules; counterfactual free-pose results are never acceptance evidence.
+`camera_uncropped/` adds all 24 images on a canvas padded by 200 native pixels per edge. The original crop
+is byte-identical for every case; no extended image touches the canvas boundary and every true-camera image
+loss is zero. After fresh current fitting, the original-camera restart gives baseline **5 improve / 3 worsen /
+4 unchanged** (maximum increase **1.173446 px**) and held-out **7 / 1 / 4** (maximum **0.587855 px**). One
+small rigid regression and three articulated regressions remain; cropping is not the sole cause. Restart
+remains unintegrated and untried on S1. PID 20172, **11:18:15–11:20:14 +03**, exit 0, one 12-worker pool after
+21,858,468 KB free commit. No pool remains active.
+
+Next investigate local basins versus the frozen pose representation on independent fully visible controls.
+The explicit free-pose counterfactual can be diagnosed from both canonical and fitted camera starts with
+full-scene image-only selection, retaining all cases. It cannot alter production eligibility or be passed off
+as S1/quality evidence. Do not repeat rejected camera-only variants or choose a topology solely to lower R1.
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
