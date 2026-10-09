@@ -255,14 +255,20 @@ def zero_line_on_chain(coef, chain, d_min: float = -np.inf, d_max: float = np.in
     return None if not hits else [float(hits[0][0]), float(hits[0][1])]
 
 
-def _zero_line_from(coef, chain, P0):
-    """Where the facet's zero line through P0 (r(P0) = 0) first meets the polyline `chain` going upward from P0."""
+def _zero_line_from(coef, chain, P0, direction="up"):
+    """First zero-line intersection in an explicit direction from P0.
+
+    The historical default goes upward. A rearward exit permits a descending
+    top boundary without silently changing the topology of existing fixtures.
+    """
+    if direction not in ("up", "rearward"):
+        raise ValueError("zero-line direction must be 'up' or 'rearward'")
     a, b, c = (float(x) for x in coef)
     g = np.array([b, c])
     if np.hypot(*g) < 1e-12:
         return None
     u = np.array([-g[1], g[0]]) / np.hypot(*g)
-    if u[1] < 0:
+    if u[1 if direction == "up" else 0] < 0:
         u = -u
     P = np.asarray(chain, np.float64)
     best = None
@@ -308,18 +314,23 @@ def zone_lines(top, zone_end: float, x_in0: float, x_in_ze: float, t_zone: float
 def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_zone: float, arm: list,
                A=None, B=(46.8, 9.52), C=(22.6, -16.3), d_E: float = 55.0, r_A: float = 0.5, r_B: float = 0.5,
                r_C: float = 3.0, rise: float = -0.25, r_H: float | None = None, hinge=None,
-               tip_round_mm: float = 0.0, roll_mm: float = 0.0, t_ze: float | None = None) -> dict:
+               tip_round_mm: float = 0.0, roll_mm: float = 0.0, t_ze: float | None = None,
+               top_zero_direction: str = "up") -> dict:
     """The Prada temple as a valid g3d.temple/1 spec (module docstring). `arm` = [[d, x_in, T], ...] knots beyond
     the zone; the zone is linear from (d0, x_in0) to (zone_end, x_in_ze) with thickness t_zone (to t_ze at the zone
     end when given: zone_lines). A defaults to the hinge-end top corner, H to the hinge-end bottom corner (r_H defaults
     to r_A). Raises ValueError when the facets cannot meet the arm without a step (the zero lines miss the outline or
-    cross ahead of B)."""
+    cross ahead of B). top_zero_direction explicitly selects the upper zero-line
+    exit when B lies on the base; the default preserves the historical family."""
+    if top_zero_direction not in ("up", "rearward"):
+        raise ValueError("top_zero_direction must be 'up' or 'rearward'")
     top = [list(map(float, p)) for p in top]
     bottom = [list(map(float, p)) for p in bottom]
     d0 = top[0][0]
     yt = lambda d: _yt(d, top)
     yb = lambda d: _yb(d, bottom)
     A = (d0, yt(d0)) if A is None else tuple(A)
+    dl = min(d0, A[0]) - 1.0
     H = (d0, yb(d0))
     r_H = r_A if r_H is None else r_H
     E = (float(d_E), yb(d_E))
@@ -335,7 +346,7 @@ def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_
                              f"not behind B inside the outline: change r_B, the F1 rise or E")
     if abs(r_B) < 1e-12:
         # B on the base: F1's zero line runs from B to the top edge, forward or backward of B
-        K = _zero_line_from(c1, top, np.array(B, np.float64))
+        K = _zero_line_from(c1, top, np.array(B, np.float64), direction=top_zero_direction)
     else:
         K = zero_line_on_chain(c1, top, d_min=float(Kp[0]))
     if K is None:
@@ -345,8 +356,8 @@ def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_
     lo, hi = -60.0, 60.0
     nodes = {"A": [A[0], A[1], r_A], "B": [B[0], B[1], r_B], "C": [C[0], C[1], r_C], "H": [H[0], H[1], r_H],
              "E": [E[0], E[1], 0.0], "K": [K[0], K[1], None],
-             "A_hi": [d0 - 1.0, hi, None], "K_hi": [K[0], hi, None], "H_lo": [d0 - 1.0, lo, None],
-             "C_lo": [C[0], lo, None], "E_lo": [E[0], lo, None], "A_l": [d0 - 1.0, A[1], None]}
+             "A_hi": [dl, hi, None], "K_hi": [K[0], hi, None], "H_lo": [dl, lo, None],
+             "C_lo": [C[0], lo, None], "E_lo": [E[0], lo, None], "A_l": [dl, A[1], None]}
     f1 = ["A", "B", "K", "K_hi", "A_hi", "A_l"]
     f4 = ["B", "C", "C_lo", "E_lo", "E"]
     if abs(r_B) >= 1e-12:
@@ -358,7 +369,7 @@ def prada_spec(*, top, bottom, zone_end: float, x_in0: float, x_in_ze: float, t_
               "F3": {"poly": ["A", "A_l", "H_lo", "C_lo", "C"], "plane": "nodes"},
               "F4": {"poly": f4, "plane": "nodes"}}
     # F3's plane: A, C and H; H is a corner of F3 one mm ahead of the hinge-end cap at the bottom edge's height
-    nodes["H"] = [d0 - 1.0, H[1], r_H]
+    nodes["H"] = [dl, H[1], r_H]
     facets["F3"]["poly"] = ["A", "A_l", "H", "H_lo", "C_lo", "C"]
     inner, thick = zone_lines(top, zone_end, x_in0, x_in_ze, t_zone, arm, t_ze)
     return {"schema": SCHEMA, "hinge": copy.deepcopy(hinge or HINGE),
