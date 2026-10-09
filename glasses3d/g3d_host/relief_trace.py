@@ -120,9 +120,29 @@ def trace_outline(job, spec: dict, builder, fits: dict, views=("05", "01"), iter
 
 
 # --------------------------------------------------------------------------------------------- creases
-def refine_line(L: np.ndarray, p0, p1, half: float = 7.0) -> dict | None:
+def refine_line(L: np.ndarray, p0, p1, half: float = 7.0, *, valid_mask: np.ndarray | None = None) -> dict | None:
     """Sub-pixel crease line from guide endpoints: perpendicular profiles of |grad L*| (every 2 px), the peak of each,
-    a least-squares line through the peaks. None with fewer than 5 peaks."""
+    a least-squares line through the peaks. None with fewer than 5 peaks.
+
+    With a mask, only profiles supported entirely by valid pixels are evidence.
+    Excluded pixels cannot contribute through the blur, derivative, interpolation
+    or the step samples. RMS is scatter around the chosen ridge, NOT an estimate
+    of edge-identity error or endpoint uncertainty.
+    """
+    support = None
+    if valid_mask is not None:
+        valid = np.asarray(valid_mask, bool)
+        if valid.shape != L.shape:
+            raise ValueError('valid mask must match lightness shape')
+        valid = valid & np.isfinite(L)
+        # Gaussian sigma=1, truncate=4: radius 4; gradient radius 1;
+        # bilinear sampling reaches one further pixel. A square erosion covers
+        # the complete separable filter footprint in every orientation.
+        support = ndimage.binary_erosion(valid, structure=np.ones((13, 13), bool))
+        if not support.any():
+            return None
+        support = support.astype(float)
+        L = np.where(valid, L, 0.)
     gy, gx = np.gradient(ndimage.gaussian_filter(L, 1.0))
     G = np.hypot(gx, gy)
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
@@ -137,6 +157,9 @@ def refine_line(L: np.ndarray, p0, p1, half: float = 7.0) -> dict | None:
     for s in np.arange(s0, s1, step):
         c = p0 + t * s
         P = c[None] + offs[:, None] * nrm[None]
+        if support is not None and not np.all(ndimage.map_coordinates(
+                support, [P[:, 1], P[:, 0]], order=1, mode='constant', cval=0.) >= 1.-1e-12):
+            continue
         prof = ndimage.map_coordinates(G, [P[:, 1], P[:, 0]], order=1)
         k = int(np.argmax(prof))
         if 0 < k < len(offs) - 1 and prof[k] > max(PEAK_MIN, PEAK_RATIO * float(np.median(prof))):

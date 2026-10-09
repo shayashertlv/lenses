@@ -1,6 +1,6 @@
 # glasses3d progress
 
-## Active resume — WP6 (2026-10-08)
+## Active resume — WP6 (2026-10-09)
 
 WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
 The saved S1 failure has now been reproduced and decomposed; do not repeat the initial diagnosis or start a
@@ -8,8 +8,9 @@ product fit. The current repair/checkpoint is described below. No paid run or pu
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
-continue offline WP6 diagnosis and repairs under unchanged gates. Next, independently calibrate the angled-view
-line measurement and its residual uncertainty, retaining the original guide-error cases as stress controls.
+continue offline WP6 diagnosis and repairs under unchanged gates. Independent contaminated-line calibration is
+now recorded below. Next, isolate camera/hinge recovery error using known synthetic geometry while retaining
+every original measured line and guide-error case. Masking alone does not resolve the saved failure.
 The original measured S1 still fails; do not start another full product fit yet.
 **STOP-I blocks acceptance and downstream promotion, not diagnosis or repairs intended to resolve it.**
 KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver decision.
@@ -22,9 +23,43 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | STOP-I still fails; saved S1 reproduced. Incomplete R3 transfers now fail closed. Line-evidence calibration remains the next repair task. |
+| WP6 | STOP-I still fails; saved S1 reproduced. Incomplete transfers fail closed. Contaminated-line controls support optional mask handling, not lower S1 errors. Camera recovery is under diagnosis. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
+
+## Independent line evidence — 2026-10-09
+
+- Started at `22b2a2f`; the owner's uncommitted session-prompt edit is preserved. No paid calls, push, product fit,
+  geometry changes or public integration. Evidence: `data/wp6/line_evidence_20261009/`.
+- **288 predeclared analytic controls** cover clean/noisy steps, equal/stronger parallel edges, highlights,
+  clipping, lettering, occlusion and absent evidence. Three orientations, two blur widths, all four signs of
+  6 px endpoint displacement, and four fixed noise seeds are retained. The original tracer returned **30 wrong
+  lines (>1 px endpoint error) with RMS <0.25 px**. Maximum endpoint error over the matrix was **24.163897 px**.
+  Low line scatter is not evidence that the chosen ridge is the intended edge.
+- **Repair:** `refine_line(..., valid_mask=...)` excludes the full blur/derivative/interpolation footprint and
+  refuses insufficient valid evidence. Its default path and production `trace_creases` remain unchanged;
+  automatic mask integration is not justified by the photo audit. All **75 mask controls** pass, including
+  invariance to arbitrary excluded-pixel values. The affected regression is **152 passed, 1 existing xfail**
+  (F1-rise identifiability), no skips, **75.29 s**; `affected_regression/run.json` records exit 0.
+- **Held-out validation:** another 288 cases use different orientations, blur widths and noise seeds. All 72
+  masked clipping/lettering/occlusion cases retain a line with maximum endpoint error **0.250000 px**; unmasked
+  parallel edges and highlights still fail. This is synthetic calibration, not real-photo uncertainty or a
+  reason to reduce the retained S1 injection. Reports keep every missing and wrong result.
+- **Photo audit:** all eight legacy lines reproduce the saved P2 endpoints. Masks leave seven unchanged, shorten
+  and slightly change 02 AB (57 to 43 profiles), and leave 02 BC identical (41 profiles); 02 AC remains missing. The mask uses the
+  existing matte/silhouette, highlight and decal constants. `photo_audit_v2/report.json` verifies 11 unchanged
+  input files; its sheets are diagnostic only. An initial visualization attempt lacked matplotlib; it exited 1
+  and was replaced by a Pillow diagnostic sheet, with the failed receipt retained.
+- **Camera attribution:** `camera_components/report.json` keeps all saved lines fixed. Substituting only the true
+  02 yaw changes measured transfer **0.910923 -> 0.559053 mm** while exact-line transfer worsens
+  **0.274915 -> 0.379588 mm**. Thus optimizing the noisy score can reward error cancellation. No oracle case is
+  a gate replacement. Next, assess the camera solver on known geometry and its own silhouette objective.
+- **Known-geometry calibration:** four camera-only tasks (05/02, normal hinge fitting vs supplied true hinges)
+  completed in **49.13 s**, four workers. Exact geometry with normal fitting still transfers **0.863395 mm**
+  (exact lines **0.234553**); supplied true hinges give **0.627842 mm** (exact **0.192404**). Full oracle cameras
+  and hinges reproduce **0.606088 / 0.023917 mm**. The shape is never optimized. Saved inputs stay unchanged.
+  Next hypothesis: the one-pass camera/hinge fit leaves coupled error. Investigate a bounded coupled image
+  alignment step using the existing silhouette objective, never selecting by the noisy R3 score.
 
 ## Offline repair checkpoint — 2026-10-08
 
@@ -68,6 +103,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Latest committed checkpoints
 
+- `22b2a2f`: incomplete-transfer repair, explicit S1 replay, clean-step calibration and unchanged comparators.
 - `4304c1d`: exact owner-selected observed-slope + Poisson default and WP5 closeout.
 - `d5e5917`: code review/cleanup for WP6: accurate CLI failure receipts, explicit-camera refusal, cache ignore
   correction, current module map and resolved R1 diagnostic wording.

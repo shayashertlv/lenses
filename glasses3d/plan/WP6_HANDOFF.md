@@ -110,16 +110,49 @@ The static review covers **294 Python files / 108 runtime modules**, with no syn
 conflict markers or prohibited tracked assets. The complete cleanup diff/new files were re-reviewed.
 These checks do not replace the retained WP6 product-quality failures above.
 
+## Independent contaminated-line calibration (2026-10-09)
+
+`data/wp6/line_evidence_20261009/` holds 288 baseline and 288 held-out controls from
+`tests/fixtures/line_evidence.py`, run by `tests/proofs/wp6_line_evidence.py`. All predeclared signs and seeds,
+missing lines and wrong edges remain in the reports. Parallel edges and highlights can produce a wrong line
+with RMS below 0.25 px (30 baseline cases); maximum extrapolated endpoint error is 24.163897 px. Neither RMS nor
+guide correction alone is a calibrated residual uncertainty.
+
+The independent corrupt-image controls support an optional `refine_line(..., valid_mask=...)` repair: no blur,
+gradient, interpolation or step sample may use excluded pixels. All 75 focused mask checks pass; 152 affected
+tests passed with the existing F1-rise xfail retained (75.29 s, no skips). Different validation angles, blur
+widths and noise seeds retain all 72 masked corruption cases with <=0.250001 px endpoint error. Unmasked
+parallel edges/highlights still fail. Production tracing uses its unchanged default; no S1 error, line,
+eligibility, gate or fit version is replaced by this optional path.
+
+The read-only real-photo audit reproduces all eight saved P2 lines. Existing masks change and shorten angled AB
+(57 to 43 profiles); seven other lines, including angled BC (41), are unchanged. AC in 02 remains missing.
+See `photo_audit_v2/report.json` and its labelled sheets. This does not establish real-photo accuracy or solve
+STOP-I. Inputs were hashed before/after, and no comparator was refitted. An initial missing-matplotlib failure
+is retained in `photo_audit_run/`; the Pillow version completed in `photo_audit_run_v2/`.
+
+`camera_components/report.json` isolates every saved 05/02 camera parameter and theta using labelled oracle
+substitutions. One warning example: true 02 yaw lowers measured R3 from 0.910923 to 0.559053 mm but worsens
+exact-line R3 from 0.274915 to 0.379588 mm. Error cancellation is not a repair criterion. The next experiment is
+camera recovery on known synthetic geometry, graded against its silhouette objective and truth separately;
+all original line errors stay fixed. Do not select an oracle substitution because it passes R3.
+
+The camera-only known-geometry calibration has completed (four workers, 49.13 s):
+`truth_camera_refit/report.json` gives **0.863395 mm measured / 0.234553 mm exact-line** R3 for ordinary fitting
+on the exact synthetic geometry. Giving the solver true hinges gives **0.627842 / 0.192404 mm**; full oracle
+cameras/hinges remain **0.606088 / 0.023917 mm**. This separates the nuisance-fit error from shape error. No
+production fit or gate has changed. Next, test bounded coupled camera/hinge alignment against the image objective
+and independent known-truth controls; do not tune it to R3.
+
 ## Next repair step
 
-The saved S1 replay, input-error isolation and clean-step calibration above are complete. The next step is
-independent calibration of the angled-line evidence under parallel edges, highlights, decal contamination,
-occlusion and image noise. Distinguish guide correction from residual line error using known geometry/image
-controls, retain all existing guide-error stress cases, and validate any correction independently
-before changing the measurement path. The analytical transfer controls pass; changing the R3 distance formula
-or further fitting a product is not supported by this diagnosis. Camera correction alone cannot make every
-retained error case pass. Do not lower the injected error sizes or select favourable signs; no new evidence has
-yet justified that. A future rule-set redesign still needs independent calibration and design review before fitting.
+The saved S1 replay and contaminated-line calibration above are complete. Continue camera/hinge recovery
+diagnosis using the saved S1 geometry and fixed measured lines. Then establish whether a general solver repair
+improves independently known camera evidence, without rewarding noisy-line cancellation. The analytical transfer
+controls pass; changing the R3 distance formula or further fitting a product is not supported. Masking does not
+resolve line identity in unmasked parallel edges or highlights. Retain every original guide-error stress case;
+do not lower injected errors, select signs or substitute exact/oracle measurements for gate evidence. A future
+rule-set redesign still needs independent calibration and design review before fitting.
 
 Keep earlier proof folders immutable and write new evidence to a new folder. Preserve the fitted slab comparator,
 every view, thresholds and the full R3 conditions. Size one CPU pool to free commit memory, run long jobs detached
