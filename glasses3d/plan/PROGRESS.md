@@ -8,10 +8,10 @@ product fit. The current repair/checkpoint is described below. No paid run or pu
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
-continue offline WP6 diagnosis and repairs under unchanged gates. Independent contaminated-line calibration is
-now recorded below. Next, isolate camera/hinge recovery error using known synthetic geometry while retaining
-every original measured line and guide-error case. Masking alone does not resolve the saved failure.
-The original measured S1 still fails; do not start another full product fit yet.
+continue offline WP6 diagnosis and repairs under unchanged gates. Independent line calibration and camera
+attribution are complete. A bounded joint camera/hinge alignment prototype reduces the saved measured floor to
+0.660145 mm while retaining the original errors. Runtime integration checks passed; a fresh complete S1 is next;
+this diagnostic is not an S1 or WP6 pass. Do not start a full product fit yet.
 **STOP-I blocks acceptance and downstream promotion, not diagnosis or repairs intended to resolve it.**
 KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver decision.
 
@@ -23,9 +23,45 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | STOP-I still fails; saved S1 reproduced. Incomplete transfers fail closed. Contaminated-line controls support optional mask handling, not lower S1 errors. Camera recovery is under diagnosis. |
+| WP6 | Historical STOP-I retained. Bounded camera alignment improves independent controls and the saved diagnostic; runtime checks pass, fresh S1 next. No quality promotion. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
+
+## Coupled camera repair — 2026-10-09
+
+- The old one-pass camera/hinge fit leaves coupled alignment error even with exact geometry. A joint contour
+  proposal now optimizes camera plus observable hinges together, selecting steps only by the existing silhouette
+  loss. It cannot read crease lines, R3, true cameras or true hinges. The original camera box and 0.1 mm front
+  guard remain binding; side/unobserved hinges stay fixed and rear-family alpha refits keep their prior method.
+- Independent analytic box/wedge controls cover 16 yaw/sign cases, without Prada assets. All improve aggregate
+  projected-corner error and image loss within bounds. **Five of 48 component errors worsen**; the hidden arm can
+  remain 6.59176 px wrong. Every component is retained. This supports improved alignment, not perfect recovery.
+- A separate **16-case held-out pose set**, including front/top and different pitch, perspective and hinges,
+  also improves every aggregate while respecting bounds and the measured front guard. Two of 48 component RMS
+  errors worsen; a nearly hidden arm still has **24.431427 px** maximum error. All terminate by image descent
+  or relative loss convergence, never the iteration cap. Report: `camera_holdout/report.json`; 12 workers,
+  62.18 s, exit 0. Do not treat silhouette alignment as complete pose recovery.
+- Six-round proposals were still descending (saved-shape noisy/exact floor 0.715770 / 0.087870 mm). Iterating to
+  image convergence, using the existing Powell relative loss tolerance and a reported computational cap, gives
+  **0.660145 / 0.036889 mm**. On exact geometry it gives **0.666753 / 0.040730 mm**. Neither uses R3 for selection.
+  All four camera tasks stop on no further image descent, within bounds and the front guard.
+- All 16 target-error sign cases remain recorded. **Two still exceed 0.7 mm** after alignment (saved-shape maximum
+  0.723932 mm; known-geometry maximum 0.715255 mm). These diagnostics neither replace nor add acceptance gates.
+- Evidence: `data/wp6/line_evidence_20261009/{independent_camera,joint_camera_probe_converged}/report.json`.
+  Runtime `relief_registration.py` integrates the repair as **fit-6**, preserving initial and final fit evidence;
+  its independent controls and affected regression passed. Fresh S1 must preserve
+  every saved guide extent, signed error, synthetic camera, contour perturbation, and frozen dependency.
+- Runtime controls initially gave **17 passes and one test-harness failure**: the outside-box test attempted
+  to mutate the immutable Camera dataclass. It now constructs a replacement camera. Review also made the new
+  alignment step reject an unmeasurable front guard instead of accepting inf <= inf; its refusal test and the
+  corrected boundary test passed in `registration_regression/`: **81 passed, 2 retained expected failures**
+  (R1 calibration and F1-rise identifiability), no ordinary skips, **602.22 s**, exit 0. Serial/pool identity and
+  rear-family checks pass. The 16 independent camera controls passed in the initial run.
+- Proof-cache review found that `fits_delivered.pkl` was reused without a fitter version. A full proof now requires
+  its version/content/camera-basis/source-scene provenance; stale or legacy caches are refused, not overwritten.
+  This does not prohibit using historical fits explicitly as fixed synthetic-photo inputs in a diagnostic.
+  **Eight cache/dependency controls passed**, exit 0, in `proof_cache_tests/`. The S1 input preflight also passed.
+  All changes were reviewed against the preserved gates; next run `run_s1_fit6.py` in a new logged directory.
 
 ## Independent line evidence — 2026-10-09
 
@@ -73,7 +109,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
   losing one of two paired creases produced an almost-zero R3 mean and fit loss. `transfer_all` now retains all
   paired photo creases, rejects incomplete/nonfinite measurements, and makes their fit objective infeasible.
   Sigma cannot treat that refusal as measured curvature. S1/GATES reports retain per-crease completeness;
-  a missing measured floor cannot fall back to ideal-line evidence. `FIT_VERSION` is now **fit-5**, so old fit-4
+  a missing measured floor cannot fall back to ideal-line evidence. That repair introduced **fit-5**, so old fit-4
   proof caches cannot be resumed as current proof. Valid measurements retain their formula and equal weighting.
 - **Replay entry point:** `tests/proofs/wp6_s1_replay.py` requires explicit proof/camera/new output paths, checks
   source/camera/rules/dependency and rebuilt-truth hashes, and writes no historical inputs. It is a diagnostic,
@@ -103,6 +139,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Latest committed checkpoints
 
+- `e983b29`: independent contaminated-line calibration, optional validity masks, photo audit and camera attribution.
 - `22b2a2f`: incomplete-transfer repair, explicit S1 replay, clean-step calibration and unchanged comparators.
 - `4304c1d`: exact owner-selected observed-slope + Poisson default and WP5 closeout.
 - `d5e5917`: code review/cleanup for WP6: accurate CLI failure receipts, explicit-camera refusal, cache ignore

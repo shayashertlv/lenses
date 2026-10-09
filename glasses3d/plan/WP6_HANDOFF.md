@@ -48,7 +48,7 @@ be discarded from the mean, and leave an almost-zero score from the other crease
 could reduce the fit objective. The repair makes any failed paired transfer invalidate the mean and refuse the
 objective; incomplete evidence is not photo curvature for sigma. Reports retain required/missing/unpaired
 crease names and per-crease results. A missing measured floor no longer falls back to an ideal-line score.
-All valid scores keep their existing arithmetic and weighting. **FIT_VERSION is fit-5**; old fit-4 S1 caches
+All valid scores keep their existing arithmetic and weighting. That repair introduced **fit-5**; old fit-4 S1 caches
 are historical replay inputs, not resumable current acceptance evidence.
 
 Validation: **110 distinct affected tests passed, 2 existing expected failures, no skips**, across the 340.26 s
@@ -80,7 +80,7 @@ Frozen files remain byte-identical:
 | Numpy-only temple construction | `g3d/temple/{spec,arrange,planes,build,measure,report}.py` |
 | Section and loft helpers | `g3d/temple/sections.py`, `g3d/temple/loft.py` |
 | Blender scene adapter | `g3d/temple_bpy.py` (direct proof use; public integration still gated) |
-| Host measurements, cameras, tracing, fitting | `g3d_host/relief_{check,views,trace,fit,cue,hinge}.py` |
+| Host measurements, cameras, tracing, fitting | `g3d_host/relief_{check,views,registration,trace,fit,cue,hinge}.py` |
 | Frozen gates | `g3d_host/relief_rules.py` and the S1 dependency table above |
 | Proof and instrument-floor logic | `tests/proofs/wp6_prada.py`, `wp6_prada_stages.py`, `wp6_theta_frame.py` |
 | Saved diagnostics | `tests/proofs/wp6_s1_floor_check.py`, `wp6_handtraced.py`; results under ignored `data/wp6/` |
@@ -144,12 +144,55 @@ cameras/hinges remain **0.606088 / 0.023917 mm**. This separates the nuisance-fi
 production fit or gate has changed. Next, test bounded coupled camera/hinge alignment against the image objective
 and independent known-truth controls; do not tune it to R3.
 
+## Coupled camera repair (2026-10-09, integration validated)
+
+The coupled silhouette experiment is complete. Six iterations left all four tasks still improving, so termination
+now follows the existing Powell relative image-loss tolerance (1e-4), with a reported 50-round computational cap.
+All converged S1 probes stop on no image descent. No R3 measurement or true pose enters this optimizer.
+
+Before applying it to S1, 16 analytic box/wedge controls (eight yaws, both perturbation signs; no Prada assets)
+all improved aggregate corner projection and image loss inside the original bounds and front guard. Five of 48
+individual component errors worsened; maximum hidden-arm error remains 6.59176 px. Keep that limitation and all
+rows. The report is `data/wp6/line_evidence_20261009/independent_camera/report.json`.
+
+The integrated solver also improves all 16 held-out pose cases (front/top included, different pitch/perspective/
+hinges), within the original bounds and measured front guard. Two component RMS errors worsen; a nearly hidden
+arm still has 24.431427 px maximum error. All stop by image convergence, not the cap. Preserve this limitation.
+`camera_holdout/report.json` retains every row; the 12-worker run exited 0 in 62.18 s.
+
+`joint_camera_probe_converged/report.json` retains the two frozen-geometry cases and every original line:
+
+| Geometry used for camera fitting | Measured R3 before / after | Exact-line R3 before / after |
+|---|---|---|
+| Exact synthetic truth | 0.863395 / 0.666753 mm | 0.234553 / 0.040730 mm |
+| Saved recovered S1 shape | 0.910923 / 0.660145 mm | 0.274915 / 0.036889 mm |
+
+All 16 signed target-error cases remain; two exceed 0.7 mm after alignment (maxima 0.715255 and 0.723932 mm).
+These are diagnostic stress rows, not replacements for the original S1 gate or new acceptance requirements.
+No full S1 pass or product-quality claim follows from these camera-only results.
+
+Runtime integration is `g3d_host/relief_registration.py`, called after the initial block-coordinate view fit.
+It keeps original bounds, frees only hinges marked observed, leaves side hinges fixed, applies the original
+front guard, and preserves initial/alignment records through comparison reports. Rear-family alpha rows remain
+unchanged. FIT_VERSION becomes fit-6 so historical S1 cannot masquerade as current-fit proof.
+`registration_tests/` initially recorded 17 passes and a test-harness error (mutating the frozen Camera dataclass
+in an outside-box test). That test now constructs a replacement camera. The new alignment step also refuses an
+unmeasurable front guard (inf <= inf is not a measured comparison), with a dedicated refusal control.
+The affected regression and corrected controls passed in `line_evidence_20261009/registration_regression/`:
+**81 passed, 2 existing expected failures**, no ordinary skips, 602.22 s, exit 0. Serial/pool identity and rear
+checks pass. Eight additional cache/dependency controls pass in `proof_cache_tests/`.
+Full proofs now require `fits_delivered_meta.json` tying a reused delivered cache to its fitter version,
+pickle bytes, camera basis and source scene. Legacy/stale caches are refused before becoming new comparison
+evidence; historical diagnostic reads remain allowed. A preflight verified the fresh S1's original truth,
+cameras and frozen hashes. No paid run or push. The owner's session-prompt edit is untouched.
+
 ## Next repair step
 
-The saved S1 replay and contaminated-line calibration above are complete. Continue camera/hinge recovery
-diagnosis using the saved S1 geometry and fixed measured lines. Then establish whether a general solver repair
-improves independently known camera evidence, without rewarding noisy-line cancellation. The analytical transfer
-controls pass; changing the R3 distance formula or further fitting a product is not supported. Masking does not
+Runtime controls, affected regressions and diff review are complete. Run a fresh S1 only on the unchanged saved
+experiment. The prepared explicit driver is
+`data/wp6/line_evidence_20261009/run_s1_fit6.py`; it verifies source hashes, uses original true cameras and guide
+plan, retains all errors/signs, and writes a new `s1_fit6/` folder. It must not run concurrently with another pool.
+The analytical transfer controls pass; changing the R3 distance formula is not supported. Masking does not
 resolve line identity in unmasked parallel edges or highlights. Retain every original guide-error stress case;
 do not lower injected errors, select signs or substitute exact/oracle measurements for gate evidence. A future
 rule-set redesign still needs independent calibration and design review before fitting.

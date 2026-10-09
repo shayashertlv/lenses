@@ -783,10 +783,9 @@ SIDE_THETA_WHY = ("not fitted in a side view (fit-4; WP6_DESIGN §6 scores theta
                   "round trip traded them (05: theta -2.57 deg against roll -0.61 deg) and could not recover either")
 
 
-def fit_model_view(job: Job, model: Model, key: str, cam0: Camera | None = None) -> dict:
+def _initial_view_fit(job: Job, model: Model, key: str, cam0: Camera) -> dict:
     """theta at the base camera -> camera refit with theta fixed -> theta again (the §6 block coordinates, one round).
     A side view keeps theta 0 for both temples and refits only its camera (SIDE_THETA_WHY)."""
-    cam0 = cam0 or job.base[key]
     if job.kind(key) == "side":
         th = {1: 0.0, -1: 0.0}
         cam, info = refit_camera(job, model, key, cam0, th)
@@ -798,6 +797,17 @@ def fit_model_view(job: Job, model: Model, key: str, cam0: Camera | None = None)
     t2 = fit_theta(job, model, key, cam, th)
     th = {s: t2[s]["theta"] for s in (1, -1)}
     return {"camera": cam, "theta": th, "theta_fit": {str(s): t2[s] for s in (1, -1)}, "refit": info}
+
+
+def fit_model_view(job: Job, model: Model, key: str, cam0: Camera | None = None) -> dict:
+    """Initial block coordinates, then bounded joint silhouette alignment (fit-6).
+
+    Both steps use the original camera box; side and unobserved hinges stay fixed.
+    Rear-family alpha rows still use refit_camera directly with their fixed theta.
+    """
+    from .relief_registration import align_view
+    cam0 = cam0 or job.base[key]
+    return align_view(job, model, key, _initial_view_fit(job, model, key, cam0), cam0)
 
 
 def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | Path | None = None,
@@ -858,6 +868,9 @@ def compare_temple_views(job: Job, models: dict, views="all", *, out_dir: str | 
             sc, _ = score_view(job, model, k, f["camera"], f["theta"], roi)
             sc["refit"] = f.get("refit")
             sc["theta_fit"] = f.get("theta_fit")
+            for field in ("alignment", "initial_refit", "initial_theta_fit"):
+                if field in f:
+                    sc[field] = f[field]
             vrep["models"][label] = sc
         if k == "06" and families:
             vrep["family"] = {}

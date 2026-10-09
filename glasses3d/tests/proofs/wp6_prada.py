@@ -113,6 +113,7 @@ class Proof:
     def __init__(self, out: Path, args):
         self.out = out
         self.args = args
+        delivered_cache_metadata(out)  # refuse stale caches before writing any existing proof record
         out.mkdir(parents=True, exist_ok=True)
         self.hb = Heartbeat()
         self.pool = None
@@ -165,6 +166,35 @@ class Proof:
         self.save()
         self.hb.log(f"STOP {code}: {why}")
         return code
+
+
+def delivered_cache_metadata(out: Path, *, camera_sha256=None, scene_sha256=None) -> dict | None:
+    """A full proof may reuse delivered fits only from this fitter and these inputs.
+
+    Historical caches remain valid diagnostic data (e.g. fixed S1 photo cameras),
+    but must not silently become a new fitter's real-photo comparator. Refuse
+    rather than overwrite them; use a fresh proof output directory.
+    """
+    path, meta_path = out / "fits_delivered.pkl", out / "fits_delivered_meta.json"
+    if not path.exists():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError("delivered camera cache has no valid provenance; use a fresh proof output directory") from exc
+    required = ("fit_version", "pickle_sha256", "camera_basis_sha256", "source_scene_sha256")
+    if not isinstance(meta, dict) or any(not isinstance(meta.get(k), str) or not meta[k] for k in required):
+        raise ValueError("delivered camera cache has incomplete provenance; use a fresh proof output directory")
+    expected = {"fit_version": RF.FIT_VERSION, "pickle_sha256": sha(path)}
+    if camera_sha256 is not None:
+        expected["camera_basis_sha256"] = camera_sha256
+    if scene_sha256 is not None:
+        expected["source_scene_sha256"] = scene_sha256
+    wrong = [key for key, value in expected.items() if meta.get(key) != value]
+    if wrong:
+        raise ValueError(f"delivered camera cache provenance mismatch: {', '.join(wrong)}; "
+                         "use a fresh proof output directory")
+    return meta
 
 
 def _json(o):
@@ -789,6 +819,8 @@ def _run(pf: Proof, a, stages) -> int:
             return finish(pf, pf.stop("STOP-T", "a P0 tool check failed", r.get("failures") or r.get("error")))
     job = RV.Job("prada")
     pf.rec["cameras"] = {"path": str(job.cameras_path), "sha256": sha(job.cameras_path)}
+    delivered_cache_metadata(pf.out, camera_sha256=pf.rec["cameras"]["sha256"],
+                             scene_sha256=pf.rec["source_scene"]["sha256_before"])
     # a recorded S1 graded on synthetic photos rendered differently (relief_fit.SYNTH_RENDER) or fitted by a different
     # fit procedure (relief_fit.FIT_VERSION) is stale: re-run it
     old_s1 = pf.rec["stages"].get("S1")
@@ -821,6 +853,10 @@ def _run(pf: Proof, a, stages) -> int:
         pf.hb.stage = "delivered cameras"
         fits_d = fit_delivered()
         fits_path.write_bytes(pickle.dumps(fits_d))
+        (pf.out / "fits_delivered_meta.json").write_text(json.dumps({
+            "fit_version": RF.FIT_VERSION, "pickle_sha256": sha(fits_path),
+            "camera_basis_sha256": pf.rec["cameras"]["sha256"],
+            "source_scene_sha256": pf.rec["source_scene"]["sha256_before"]}, indent=2), encoding="utf-8")
     pf.rec["stages"]["delivered_fits"] = {k: {"camera": f["camera"].to_dict(), "theta": f["theta"],
                                               "refit": f.get("refit"), "family": f.get("family")}
                                           for k, f in fits_d.items()}

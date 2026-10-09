@@ -178,6 +178,9 @@ def _compare_cache(fit_res, label):
     for k, f in fit_res["fits"].items():
         out[k] = {"camera": f["camera"], "theta": f["theta"], "refit": f.get("refit"),
                   "theta_fit": f.get("theta_fit")}
+        for field in ("alignment", "initial_refit", "initial_theta_fit"):
+            if field in f:
+                out[k][field] = f[field]
         if k == "06" and "family" in f:
             out["06_family"] = f["family"]
             out["06"]["alpha"] = f.get("alpha")

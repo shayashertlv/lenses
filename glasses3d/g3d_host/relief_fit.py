@@ -95,7 +95,9 @@ PENALTY = 10.0
 #          the camera alone: relief_views.SIDE_THETA_WHY); dn >= 3 deg also at facet / base creases (the pyramid's A-B)
 #   fit-5: retain every paired photo crease in R3; a failed transfer makes the measurement incomplete and the
 #          shape infeasible instead of averaging the remaining creases or charging zero transfer loss.
-FIT_VERSION = ("fit-5 (2026-10-08): fit-4 + fail closed on incomplete paired-crease transfer")
+#   fit-6: coupled camera / observable hinge alignment selected only by silhouette loss, within the original
+#          camera box and front guard. Side hinges and rear-family fixed-alpha refits remain unchanged.
+FIT_VERSION = ("fit-6 (2026-10-09): fit-5 + bounded joint camera/hinge silhouette alignment")
 
 
 def _hat(d, a, b, c):
