@@ -2,7 +2,58 @@
 
 ## Active resume — WP6 (2026-10-09)
 
-**OWNER REVIEW CHECKPOINT — 2026-10-09 17:00 +03. Stop here for visual review.**
+**OWNER REVIEW CHECKPOINT — 2026-10-09 17:32 +03. Stop for visual review.**
+The new comparison is ready at **http://127.0.0.1:53458/**, server PID **13264**.
+Pause the new goal when shown, under the owner's explicit same-pausing-rule request.
+Evidence: `data/wp6/rear_triangle_resume_20261009/`, including `review_checkpoint.json`.
+Six meshes are selectable: combined candidate, previous extent, previous upper-face
+candidate, flat control, current reconstruction and experimental reconstruction.
+Separate orange upper-face / green rear-triangle highlights, synchronized angles,
+lighting, export and all eight photo overlays passed browser checks; screenshots
+were inspected. All earlier hash-bound artifacts and frozen files are unchanged.
+No final appearance verdict on this new comparison; WP6 remains open.
+
+Both matched additional synthetic reconstructions completed at the four-round cap,
+with final cameras for their returned meshes. Current: outline **.206456 > .2 mm**,
+base **.375843 <= .5**, logo depth **.024217 <= .5**, upper slope **.018186 <= .05**.
+Experiment: outline **.203739 > .2 mm**, base **.289553 <= .5**, logo depth
+**.124452 <= .5**, upper slope **.038921 <= .05**. Both front constraints and R2
+checks pass for this synthetic case. Neither passes all four recovery limits or
+claims convergence. Measured/exact truth transfer: current **.086407/.093298 mm**,
+experiment **.069792/.077475 mm**. These are not replacements for frozen S1/R3.
+Run PID **29040**, 17:17:08–17:30:58, exit0, sequential 13-worker pools. Identical
+inputs, original views, seed7, guide perturbations and caps for both methods; all
+12 guided lines were detected. Negative-A bounds are explicit for this extra local
+family; production bounds remain unchanged. A +.04 rise perturbation scales r_A
+by the same ratio to preserve the zero line without deepening the indentation.
+
+The combined candidate preserves the previous F4 plane and domain exactly, but
+does not establish the real shape. Its conditional top-strip RMS is **1.75671 mm**;
+side BJ/BE errors **5.46558/2.78844 px**, held-out oblique **4.61003/9.29661 px**.
+All six originals use saved cameras without refitting, not R3 scoring. R1 still
+fails: **.75147175 > .5**. Real camera/depth/top-strip assumptions and arm alignment
+remain unresolved; the earlier upper-exit refusal is also preserved, not fixed by
+this new case. Nine analytic upper-exit/preservation checks passed (PID48120,
+17:16:26, exit0); tests committed **500318f**. No production runtime change in this
+pass. No paid calls or pushes. Keep the owner's WP6_SESSION_PROMPT.md edit separate.
+Next after owner feedback/resumption: confirm the highlighted face identification,
+then reconcile photo camera/depth evidence without sacrificing preferred facets or
+waiving any frozen gate. Do not rerun these completed comparisons merely to resume.
+
+**Feedback and pass history:** the owner says the rightmost triangle below
+the broad upper face was already present in the previous rear-extent candidate.
+They request another continuous goal with the same pause-for-review rule. The
+preceding comparison goal was fulfilled and is closed; the new goal pauses only
+when a new controllable comparison and matched reconstruction results are shown.
+Evidence: `data/wp6/rear_triangle_resume_20261009/`. The upper pass had also changed
+base slope, thickness and shared nodes; the lower/rear F4 normal changed 2.51177°.
+A separate preservation probe retains the previous F4 domain, plane and normal
+exactly, with unchanged outline/base/arm, and measures an added upper plane from
+all prior top-strip samples. It builds cleanly without warnings, but has a larger
+conditional top-strip misfit (1.75671 mm); this is not a correct-product claim.
+Previous viewers and evidence stay immutable. WP5 and every WP6 gate stay unchanged.
+
+**Earlier review checkpoint — 2026-10-09 17:00 +03 (superseded above).**
 Offline tool changes and their independent tests are committed at **cea671c**.
 The authorized broad-upper-face comparison is ready at **http://127.0.0.1:53328/**,
 local server PID **50548** (`top_facet_resume_20261009/review_viewer_server.json`).

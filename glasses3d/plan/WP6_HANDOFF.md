@@ -1,6 +1,40 @@
 # WP6 handoff — resume diagnosis and repairs
 
-**Latest: owner-review checkpoint ready, 2026-10-09 17:00 +03.** Stop for the
+**Latest: new comparison ready, 2026-10-09 17:32 +03. Stop for owner review.**
+URL **http://127.0.0.1:53458/**, server PID **13264**. Pause the new goal when
+shown, as explicitly requested. Evidence: `data/wp6/rear_triangle_resume_20261009/`,
+hash-bound `review_checkpoint.json`. Six exact mesh exports, separate upper/rear
+highlights and eight photo overlays passed browser checks; screenshots inspected.
+Earlier assets/frozen files verified unchanged. No new appearance verdict yet.
+
+The previous lower/rear F4 plane and domain are preserved exactly while adding an
+upper plane. The copy builds without warnings, but conditional top-strip RMS
+**1.75671 mm**, held-out oblique BJ/BE **4.61003/9.29661 px**, and R1 share
+**.75147175 > .5** still show unresolved real-photo geometry/camera assumptions.
+No product or WP6 acceptance. Both new synthetic fits completed at the round cap:
+current outline **.206456 > .2**, base .375843, logo depth .024217, upper slope
+.018186; experiment outline **.203739 > .2**, base .289553, logo depth .124452,
+upper slope .038921. The other three recovery limits, final front constraint and
+R2 pass in each case. New measured/exact transfer .086407/.093298 and .069792/.077475
+is not replacement S1/R3 evidence. PID29040, 17:17:08–17:30:58, exit0; sequential
+13-worker pools, same inputs/seed/views/caps, no missing guided lines. Negative-A
+bounds apply only to this new local diagnostic family; production bounds unchanged.
+Nine independent signed geometry/preservation checks pass, committed **500318f**.
+All runs finished; only viewers remain. WP5 stays closed and all WP6 gates stay.
+After feedback/resumption, resolve the face identification and photo camera/depth
+conflict; keep earlier upper-exit failures. Do not repeat these finished fits.
+Preserve the separate owner edit in WP6_SESSION_PROMPT.md. No paid call or push.
+
+**Owner steering and pass history:** preserve the rear triangle
+the owner preferred in the previous rear-extent candidate while adding the broad
+upper face. Work continuously offline, then pause when the new comparison and
+matched reconstruction results are ready and shown. The earlier goal/comparison
+is complete as a review deliverable, not WP6 acceptance. New evidence root:
+`data/wp6/rear_triangle_resume_20261009/`. Read Active resume for the preservation
+probe and its material top-edge misfit. Do not overwrite earlier evidence or
+restart the completed prior runs. No paid calls or push; WP5 remains closed.
+
+**Earlier checkpoint, 2026-10-09 17:00 +03 (superseded above).** Stop for the
 requested visual review; pause the goal once the viewer is shown. URL
 **http://127.0.0.1:53328/**, server PID50548. Evidence root:
 `data/wp6/top_facet_resume_20261009/`, hash-bound `review_checkpoint.json`.
