@@ -564,6 +564,24 @@ original counterfactual, fresh current, fresh counterfactual. Per-cell receipts/
 `partial_report.json` preserve completed cells. No timeout. Check PID/child activity and receipts before
 another pool, and preserve healthy running work.
 
+First cell `s1_fit6_current` finished **12:22:48 +03**: measured **0.698285873831 mm**, exact
+**0.069303861394 mm**; truth R2 passes / zero-relief R2 fails; original recoveries within limits
+(outline .123519334, zone .042794696, r_C .011102843 mm, 02+x .037680425 degrees). All 16 sign cases are
+measured; 2 exceed .7, maximum .745211468 mm. Final front bound clear, four-round cap reached. Extra side-angle
+maximum .343955406 degrees at 05+x is recorded separately from the frozen 02+x recovery. No new full S1
+acceptance claim. `s1_fit6_free_side_counterfactual` started **12:22:50**, 12 workers after 23,800,452 KB free
+commit; parent PID remains **42452**, live child PIDs changed for this cell. The two fresh-input cells follow.
+
+After the complete matrix, run the prepared ignored scripts with `run_single.py` into fresh log folders:
+`summarize_s1_joint_counterfactual.py`, `audit_s1_joint_geometry.py`, `visualize_joint_diagnostic.py`.
+The first audits all four selections/controls; `--partial` only reads completed rows and writes nothing.
+The geometry audit uses a fixed 101 x 21 truth-chart grid to read actual outer triangles, reports missing points
+without dropping them, and passes four independent analytic plane/triangulation/winding controls (1e-12 mm,
+12:22:54 exit 0). These are diagnostic measurements, not new gates. The visualization uses actual geometry
+at common views/scales/lights, four directions and both a camera and a light orbit; it selects `full_fit6` by
+its prior failing role, not by the new outcome. Syntax checked; inspect the generated images before showing
+them. None of these three final reports/visuals has been produced yet.
+
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
 | Evidence | Path / use |

@@ -249,6 +249,25 @@ Each cell writes its own receipt and measurements; `partial_report.json` appears
 cell. No timeout. Verify the live PID/children and receipt before any new pool; do not restart or terminate
 this healthy run merely because a camera/shape phase is slow.
 
+First cell completed **12:22:48 +03**: current method on `s1_fit6`, measured **0.698285873831 mm**,
+exact **0.069303861394 mm**, truth R2 true / zero-relief R2 false. Recovery: outline **0.123519334 mm**,
+zone **0.042794696 mm**, r_C **0.011102843 mm**, original 02+x angle **0.037680425 degrees**.
+All 16 sign cases measured; **2 exceed 0.7**, maximum **0.745211468 mm**. Final front bound clear;
+four-round cap reached. The extra side-angle audit gives maximum **0.343955406 degrees** at 05+x;
+side angles are not the frozen protocol's fitted theta pair. This fixed-line diagnostic is not a new full
+S1 acceptance record and does not replace the historical fit-6 proof. Its current-method baseline is retained
+as calculated; no result selection. Second cell, `s1_fit6_free_side_counterfactual`, started **12:22:50**
+with a fresh sequential pool of 12 workers after **23,800,452 KB** available commit; parent PID remains 42452.
+
+Readout/visual scripts are prepared under the same ignored evidence folder (not yet run on the full matrix):
+`summarize_s1_joint_counterfactual.py` audits all four results and image-only candidate selection;
+`audit_s1_joint_geometry.py` measures outer-mesh depth at a fixed truth-chart grid (101 stations x 21 height
+fractions), preserving missing samples; `visualize_joint_diagnostic.py` renders the fresh failing input set
+from four directions under opposite lights, plus rotating-view and moving-light GIFs. The mesh-depth readout
+passes four independent plane/triangulation/winding controls at 1e-12 mm and retains an outside point as missing
+(12:22:54, exit 0). The visualization syntax check passes; actual renders must still be inspected before display.
+After all four cells finish, run these in new logged output folders, audit the whole matrix and show the visuals.
+
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
 The preceding **fit-9** repair: the independent virtual-corner control exposed a cap-hit error in fit-8's
