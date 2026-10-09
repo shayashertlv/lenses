@@ -404,6 +404,35 @@ until the required proofs pass. Owner visual acceptance is still required for WP
 
 ## Exact evidence and replay entry points
 
+Newest diagnostic: `line_evidence_20261009/corner_stereo_v2/`. At the retained real cameras, mirrored 05/01
+corner rays meet at just **0.0377–0.3480 degrees**, with **25.0–738.9 mm per corner pixel** local sensitivity.
+This makes unconstrained corner stereo unreliable despite tiny ray residuals. 05/02 B has a much stronger
+**62.3–62.7 degree** baseline (about **0.17 mm/pixel**), but A/C lack the needed intersecting 02 lines. This
+does not license changing P2's view rule, assuming product symmetry, or using an unbounded inferred depth.
+Ten independent ray controls pass (coincident rays correctly rank deficient), and both S1 cases include true/
+fitted cameras, ideal/recorded-without-injected-error/measured lines, plus all original 16 target-error signs.
+The recorded "exact" lines still carry tracer residual; only ideal projections are mathematically exact.
+Sensitivity is not a confidence interval. All original inputs are unchanged. Both drivers completed: PIDs
+49508 (10:29:05–10:29:09) and 36412 (10:29:55–10:29:59), exit 0.
+
+Camera-objective diagnostic **rejected for integration/S1**: using the existing shape objective for a bounded
+camera step improves 20/24 baseline projection controls but worsens 8/24 independent held-out controls. Every
+held-out regression is articulated and evaluation-limited. Continuing every accepted budget-limited proposal
+among **all 48 retained cases** to loss-based stopping does not repair this: baseline 19 improve / 3 worsen /
+2 unchanged, held-out 13 / 7 / 4, maximum held-out increase **0.791892 px**. Near-arm projection alone worsens
+in nine held-out cases (maximum **1.209075 px**); it is not just a far-arm tradeoff. No row is dropped. No
+continuation reaches its 50-round cap (maximum 15). Bounds, objective weights, front guard and fixed side
+theta stay unchanged; truth error and R3 never choose parameters or the stopping point. Component labels in
+the first baseline report were fixed +arm/-arm despite being named near/far; corrected in the new report.
+
+Receipts under `line_evidence_20261009/`: `camera_joint_objective_run/`, PID 32100, 10:33:40–10:35:52;
+`camera_joint_objective_holdout_run/`, PID 7224, 10:37:45–10:39:51; `camera_joint_convergence_run/`, PID 39592,
+10:45:36–10:49:55 +03; read-only `camera_joint_convergence_summary_run/`, PID 17256, 10:51:03. All exit 0.
+Each fit run used one 12-worker pool with free commit checked, BLAS 1 and EcoQoS opt-out. None remains active.
+The next independent check is masked photo-step sampling: test whether unequal support on opposite sides
+of a line turns ordinary longitudinal illumination into an invented cross-line signal, before relying on it
+to reconsider the shape family. Do not pick a new topology merely to lower R1.
+
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
 | Evidence | Path / use |

@@ -31,6 +31,57 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
 
+## Current independent diagnosis — 2026-10-09
+
+The previous checkpoint made progress: cap-hit corner repair `615c7e8` (fit-9), fixed-family R1 bound and
+resolved reporting `ff96e1f`. The owner has seen the labelled synthetic before/after diagram. No quality
+acceptance is implied, and their request to see multi-angle/lighting results remains active.
+
+`line_evidence_20261009/corner_stereo_v2/` rules out replacing the side-view lift with unconstrained mirrored
+stereo at the retained cameras. The real 05/01 corner-ray angles are only **0.0377–0.3480 degrees**; largest
+local sensitivities are **25.0–738.9 mm per input corner pixel**. Tiny ray residuals can coexist with depth
+estimates hundreds of millimetres from the temple. 05/02 gives B a **62.3–62.7 degree** angle and about
+**0.17 mm/pixel** sensitivity; A/C lack the required intersecting lines in 02. Opposite-side pairing also
+assumes the current model's mirror symmetry, not independently measured product symmetry. This diagnostic
+does not replace P2 or violate the unchanged rule against taking its (d,y) from 02.
+
+Ten independent known-point controls check the ray solver: coincident mirrored views are rank deficient;
+other declared baselines recover the point within 1e-8 mm. In both saved S1s, ideal projected lines at true
+cameras recover the known nodes, whereas small tracer residuals or fitted-camera errors become huge at the
+side pair's weak angle. Keep three line conditions distinct: ideal geometric projection, recorded lines with
+injected errors removed (still carrying tracing residual), and measured lines. Every original 16 target-error
+sign case is retained per S1. The differential mm/pixel values are sensitivity, **not uncertainty intervals**.
+No inferred point is selected, clamped, written to a model or promoted. Drivers/receipts: `probe_corner_stereo.py`
+(PID 49508, 10:29:05–10:29:09 +03) and `probe_corner_stereo_v2.py` (PID 36412, 10:29:55–10:29:59), both exit 0.
+
+`probe_camera_joint_objective.py`, recorded before its run in `camera_joint_objective/plan.json`, tests
+24 independent analytic-prism cases covering both sides, two camera yaws, three articulation states and exact/
+0.5-pixel endpoint errors. It tests a bounded camera step using the **existing** silhouette-plus-crease shape
+objective and weights, with the original camera box/front guard and fixed side theta zero. The hypothesis is
+that the camera/shape objective mismatch can leave pose information unused. No R3 score selects the camera;
+known projections grade recovery separately. This is an offline diagnostic, not integrated or tried on S1.
+Baseline: **20 improve / 2 worsen / 2 unchanged** in aggregate known-point projection; largest increase
+0.016102 px. Held-out controls change depth, pitch, yaw, articulation, noise and perturbation direction:
+**12 improve / 8 worsen / 4 unchanged**, largest increase **0.362931 px**. All eight regressions are articulated
+and evaluation-limited. Baseline PID 32100, 10:33:40–10:35:52 +03; holdout PID 7224, 10:37:45–10:39:51; exit 0.
+
+`probe_camera_joint_convergence.py` retains **all 48 cases** and continues only accepted budget-limited
+proposals using the same bounded objective. Stopping uses relative objective change (1e-4), no progress or
+the original front guard, never known-truth error or R3. All finish before the reported 50-round cap (maximum
+15 rounds). Baseline **19 improve / 3 worsen / 2 unchanged**; held-out **13 improve / 7 worsen / 4 unchanged**,
+largest held-out increase **0.791892 px**. Every aggregate regression is articulated. The near arm itself
+worsens in nine held-out cases, by up to **1.209075 px**, so this is not merely an invisible far-arm tradeoff.
+The earlier baseline's `near`/`far` component labels meant fixed +arm/-arm; the convergence report and summary
+correct their names and interpret near by view side. The aggregates and original files are unchanged.
+Convergence receipt: `camera_joint_convergence_run/`, PID 39592, **10:45:36–10:49:55 +03**, exit 0; one
+12-worker pool after 24,314,264 KB free commit, BLAS 1/EcoQoS opt-out. Read-only summary PID 17256, 10:51:03,
+exit 0, `camera_joint_convergence_summary/`. **Do not integrate this camera step or try it on S1.** Increasing
+optimization effort does not resolve the independent regressions. No camera, weight, side theta or gate changed.
+
+Next independent check: whether unmatched sample masks across a photo line can turn a longitudinal lighting
+gradient into a false cross-line step. This affects the cue behind topology/relief interpretation; test known
+fields first, not a product shape. No alternative topology is selected merely because R1 fails.
+
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
 Latest runtime is now **fit-9**: the independent virtual-corner control exposed a cap-hit error in fit-8's
