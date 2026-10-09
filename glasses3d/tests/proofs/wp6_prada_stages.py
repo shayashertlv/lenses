@@ -70,33 +70,45 @@ def _s1_case_b(rec: dict) -> float | None:
 
 
 def open_owner_decisions(rec: dict) -> list:
-    """The rule-set questions only the owner can decide (relief_rules.py is frozen; changing a threshold or a gate's
-    definition is a new rule set, §8 / §9): R1's share limit and R3's "delivered - 0.5" clause. Recorded in every proof
-    and diagnostic record, whatever stop fires, with the evidence on record."""
+    """Compatibility field: the 2026-10-07 delegated KEEP decisions are resolved."""
+    return []
+
+
+def record_gate_decisions(rec: dict) -> None:
+    """Record the current resolved instructions, retaining calibration evidence.
+
+    WP6_HANDOFF.md's Current gate and data/wp6/proof2/delegated_decision.json
+    record the owner's delegated decision. This is reporting only: no gate or
+    stop evaluation reads these fields, and old saved reports are not rewritten.
+    """
     b = _s1_case_b(rec)
     g3 = ((rec.get("stages") or {}).get("GATES") or {}).get("gates", {}).get("R3") or {}
     dl = (g3.get("transfer_mm") or {}).get("delivered")
-    return [
+    rec["open_owner_decisions"] = open_owner_decisions(rec)
+    rec["resolved_gate_decisions"] = {
+        "date": "2026-10-07",
+        "authority": "coding agent under the owner's delegation; reaffirmed in WP6_SESSION_PROMPT.md",
+        "reference": "plan/WP6_HANDOFF.md: Current gate; data/wp6/proof2/delegated_decision.json",
+        "status": "resolved: KEEP STOP-I, R1 and every frozen R3 clause; no waiver",
+        "decisions": [
+        {"gate": "STOP-I", "decision": "KEEP", "rule": "S1 dependencies and instrument floor remain binding",
+         "evidence": {"s1_true_temple_transfer_mm_this_record": b}},
         {"gate": "R1", "rule": f"single-plane share <= {RR.R1_SHARE_MAX} (relief_rules.R1_SHARE_MAX)",
-         "why_open": "the synthetic faceted truths fail it with the shipped measure core (FX.prada_default 0.668, the "
-                     "S1-like truth 0.708; minimum 0.596 over the Prada fit band): every facet plane is a share "
-                     "candidate (§5) while the 0.5 came from least-squares-plane-only prototype numbers",
+         "historical_calibration": "the synthetic faceted truths fail it with the shipped measure core "
+                                   "(FX.prada_default 0.668, the S1-like F1 truth 0.708); every facet plane is "
+                                   "a share candidate (§5)",
          "evidence": "tests/test_temple_slab_control.py::test_synthetic_faceted_truths_pass_r1 (xfail strict: it turns "
                      "into a failure (XPASS) once R1 becomes passable)",
-         "decision": "owner: keep R1, change its threshold, or change the share definition (a new rule set)"},
+         "decision": "KEEP definition and threshold"},
         {"gate": "R3", "rule": f"05 -> 02 transfer <= {RR.R3_TRANSFER_MAX_MM} mm AND <= delivered - "
                                f"{RR.R3_TRANSFER_MARGIN_MM} AND <= fitted slab - {RR.R3_TRANSFER_MARGIN_MM}",
-         "why_open": "the 'delivered - 0.5' clause looks impossible on the project's own numbers: a perfect model "
-                     "fails it whenever the delivered model's transfer is below the true temple's own transfer + 0.5 "
-                     "mm (evidence: this record's S1 true-temple transfer and its delivered transfer). Fix round 3 "
-                     "adds that the 0.7 mm limit itself sits inside what a perfect model transfers once its lines "
-                     "carry the real 02 tracer's 3-7 px endpoint moves (data/wp6/s1_floor_check.json)",
          "evidence": {"s1_case_b_true_temple_mm": b, "delivered_transfer_mm_this_record": dl,
                       "delivered_minus_margin_mm_this_record": None if dl is None else dl - RR.R3_TRANSFER_MARGIN_MM,
                       "note": "s1_case_b is this record's S1 (or the proof's, for a diagnostic); the delivered value "
                               "is measured at the gates (GATES R3), so a proof that stops before the gates has none"},
-         "decision": "owner: keep the clause, drop it, or change the margin (a new rule set)"},
-    ]
+         "decision": "KEEP all clauses and margins"},
+        ],
+    }
 
 
 def stage_p2(pf, job, fits_d, start, guides, topology: str = "f1") -> dict:
@@ -418,10 +430,10 @@ def stage_gates(pf, job, fits_d, fit_out, p2, guides, p3=None) -> dict:
     s1b = _s1_case_b(pf.rec)
     g["R3"] = {"transfer_mm": tr, "transfer_details": transfer_details, "limits": lim, "binding_limit_mm": binding,
                "frame": "05 refit camera (theta 0) -> 02 refit camera and theta (graded by S1 in a common frame)",
-               # the comparison the owner's R3 decision needs (open_owner_decisions): what a PERFECT model transfers
+               # Retain the diagnostic comparison; the delegated KEEP decision is resolved.
                "s1_case_b_true_temple_mm": s1b,
                "true_temple_within_binding_limit": None if (s1b is None or binding is None) else bool(s1b <= binding),
-               "open_owner_decision": "R3's 'delivered - 0.5' clause (see the record's open_owner_decisions)",
+               "gate_decision": "resolved: KEEP every frozen R3 clause; no waiver",
                "pass": bool(tr[C] is not None and tr[C] <= RR.R3_TRANSFER_MAX_MM and
                             tr[D] is not None and tr[C] <= tr[D] - RR.R3_TRANSFER_MARGIN_MM and
                             tr[S] is not None and tr[C] <= tr[S] - RR.R3_TRANSFER_MARGIN_MM)}

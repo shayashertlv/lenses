@@ -34,7 +34,6 @@ def test_diagnostic_exit_records_infrastructure_failures(module, stage_error, ch
     pf = SimpleNamespace(rec=rec, save=lambda: saved.append(dict(rec)),
                          hb=SimpleNamespace(log=lambda message: None, stop=lambda: None))
     monkeypatch.setattr(tool.P, "sha", lambda path: "after" if changed_source else "before")
-    monkeypatch.setattr(tool.PS, "open_owner_decisions", lambda record: {})
     assert tool.finish(pf, "diagnostic complete") == expected
     assert saved[-1]["exit_code"] == expected
 

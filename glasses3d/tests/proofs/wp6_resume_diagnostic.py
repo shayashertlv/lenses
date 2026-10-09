@@ -137,7 +137,7 @@ def main(argv=None) -> int:
 
 
 def finish(pf, msg) -> int:
-    pf.rec["open_owner_decisions"] = PS.open_owner_decisions(pf.rec)
+    PS.record_gate_decisions(pf.rec)
     pf.rec["result"] = msg
     pf.rec["finished_utc"] = P.utc()
     pf.rec["source_scene"]["sha256_after"] = P.sha(P.PRADA_SCENE)

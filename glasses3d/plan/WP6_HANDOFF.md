@@ -333,6 +333,49 @@ This is a verified general tracing repair, not a P2 or STOP-I pass. Every record
 No new candidate/full product fit occurred. Continue the remaining instrument/R1 diagnosis; additional
 camera work needs independently justified pose evidence rather than further contour-weight experiments.
 
+## R1 area audit and fixed-family bound (2026-10-09)
+
+The R1 integration is independently confirmed, not repaired or waived. `r1_surface_area_v2/` samples triangle
+area without the production clipping/moment/band routines: five fixed meshes, four fixed Sobol replicates of
+2^20 draws each. The maximum difference from production is **0.000033543**. Both retained S1 pyramid truths
+have the same raw spec hash (`582763cf5a7dd30d41c6662d28b236fd39f94001226af50237f3d914703d0f03`) and score
+**0.648234358**. F2's exactly coplanar fraction is about **0.488733**; adjacent area inside the 0.3 mm band is
+what pushes it above 0.5. F1 calibration fixtures remain separate cases (0.668233 / 0.708403). These are
+numerical integration checks, not statistical confidence intervals. An initial driver confused canonical and
+raw-spec hash serialization and failed before computation; its exit-1 receipt is retained. The corrected run
+uses the proof's `_spec_sha`, PID 7916, 10:03:04–10:03:07 +03, exit 0.
+
+`r1_family_bound/` covers every free parameter in the current pyramid box while holding outline/nodes fixed.
+For each facet, write its surface as `X = base_offset + beta*d + r_C*phi_i(d,y)` and its area scale as
+`J_i = sqrt(1 + (beta + r_C*b_i)^2 + (r_C*c_i)^2)`. Base/arm parameters reduce to the allowed beta interval;
+arm offsets have no effect inside d 2–50. Every outer facet remains eligible (normal X > 0.6) throughout the
+box. Points with `abs(phi_i-phi_F2) <= 0.3/7` are guaranteed inside F2's band because `r_C <= 7` and `J_F2 >= 1`.
+Divide the minimum guaranteed in-band area by the maximum total area to get conservative lower bounds:
+
+- S1 truth outline/nodes: **0.5434782359**.
+- Historical P2: **0.5635233215**; fixed-line fit-8 mapping: **0.5635226637**.
+- Fresh P2: **0.5629907642**; fixed-line fit-8 mapping: **0.5629903038**.
+
+Thus these fixed families cannot pass R1 by adjusting depth/level alone. The analytical bound is evaluated
+numerically, not a formally verified interval proof. A separate 60-digit Decimal implementation on a slightly
+expanded box agrees within 2e-13. Five known clipping controls and all **165 predeclared boundary/midpoint
+cases** agree with the exact area formula within **1.855e-14**; initial all-plane and spec-plane scores agree
+within 1.211e-14. No failed case is omitted or chosen parameter point promoted. Later retracing changes the
+outline: this is **not global WP6 infeasibility** and does not authorize an invented extra facet or changed gate.
+Drivers: `audit_r1_family_bound.py`, `verify_r1_family_bound.py`; receipts `r1_family_bound_run/` (PID 32420,
+10:10:21–10:10:22) and `r1_family_verification_run/` (PID 36120, 10:12:36–10:12:48), exit 0.
+
+Proof/diagnostic reports now record `resolved_gate_decisions` and an empty compatibility
+`open_owner_decisions` list. The obsolete STOP-I waiver invitation is removed; calibration evidence remains.
+No stop, threshold, score, parser or waiver evaluator changes. Existing saved JSON is untouched.
+Reporting/completion/cache/diagnostic-exit checks: **21 pass**, 0.19 s, `resolved_gate_reporting/`, actual
+PID 41424, 10:14:51 +03, exit 0. The runtime remains fit-8 (`f0526a5` surface-corner repair).
+
+Continue with independent checks of off-surface corner extrapolation and photo-supported representation
+limitations. Do not start another full product fit merely to try the same fixed family again. Show useful
+results to the owner with rotating/multiple-angle and lighting comparisons, clearly labelled as tool tests
+until the required proofs pass. Owner visual acceptance is still required for WP6 completion.
+
 ## Exact evidence and replay entry points
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.

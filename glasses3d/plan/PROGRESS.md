@@ -31,6 +31,50 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
 
+## R1 area and fixed-family feasibility audit — 2026-10-09
+
+**R1 is measuring a real limitation of the current fixed-outline pyramid family.** It is not an area-integration
+bug, and no threshold or candidate plane has changed. Independent area sampling on five predeclared meshes
+agrees with production to at most **0.000033543**. Both retained S1 pyramid truths are the same spec and score
+**0.648234358**; about **0.488733** is exactly on F2, and neighbouring surface inside its 0.3 mm band raises the
+share above 0.5. Do not confuse this truth with the F1 calibration fixtures (0.668233 / 0.708403) or old prototypes.
+The four fixed Sobol replicates per case are numerical checks, not confidence intervals. The first driver
+failed before computation because it compared two different spec-hash serialization protocols; the corrected
+driver verifies the proof's raw-spec hash. Both receipts are retained (`r1_surface_area_run/`, exit 1;
+`r1_surface_area_v2_run/`, PID 7916, 10:03:04–10:03:07 +03, exit 0).
+
+The analytical audit covers the **whole allowed parameter box**, not a search for a favourable fitted shape.
+For fixed outlines/nodes, the zone surface is a base plane plus `r_C * phi_i(d,y)` on each facet. A guaranteed
+subset of F2's tolerance band and extrema of each facet's area scale give these conservative lower bounds:
+
+| Fixed family | R1 lower bound over all free parameters |
+|---|---|
+| Retained S1 truth outline/nodes | 0.5434782359 |
+| Historical P2 outline/nodes | 0.5635233215 |
+| Historical P2 with fit-8 fixed-line corner mapping | 0.5635226637 |
+| Fresh full-proof P2 outline/nodes | 0.5629907642 |
+| Fresh P2 with fit-8 fixed-line corner mapping | 0.5629903038 |
+
+All exceed **0.5**; depth/level fitting alone cannot make these fixed families pass R1. Later retracing can
+change the outline, so this is not proof that all WP6 representations are impossible. The bound is numerically
+evaluated, not a machine-verified interval proof. A separate 60-digit Decimal calculation on an expanded box
+agrees within 2e-13. Five known clipping controls and **165 predeclared parameter-boundary/midpoint cases**
+verify the area formula within **1.855e-14**; adding region-grown planes changes the initial scores by at most
+1.211e-14. No failed/invalid case was discarded and no parameter point is promoted.
+
+Evidence: `line_evidence_20261009/r1_family_bound/` and `r1_family_verification/`, drivers
+`audit_r1_family_bound.py` / `verify_r1_family_bound.py`. Actual PIDs 32420 (10:10:21–10:10:22) and 36120
+(10:12:36–10:12:48), exit 0. All recorded source hashes are unchanged. The current runtime remains **fit-8**,
+whose surface-corner repair is committed at `f0526a5`; no new S1/candidate acceptance run has occurred.
+Next, investigate remaining tracing/representation limitations with independent controls and photo evidence;
+do not change the shape merely to beat R1, retry arbitrary contour weights, or reopen resolved waiver questions.
+Proof/diagnostic reporting now preserves calibration evidence under `resolved_gate_decisions`, leaves the
+compatibility `open_owner_decisions` list empty, and removes the obsolete STOP-I waiver invitation. This is
+reporting only: no gate arithmetic, evaluator, parser or saved historical JSON changes. **21 affected checks
+pass**, 0.19 s (`resolved_gate_reporting/`, PID 41424, 10:14:51 +03, exit 0). The owner reiterated that useful
+results should be shown: retain the rotating/multiple-angle and changing-light comparisons, label experimental
+versus proof-passing evidence clearly, and obtain their final appearance judgment before completion.
+
 ## Coupled camera repair — 2026-10-09
 
 - **Current runtime is fit-8.** An independent tracing defect is repaired: an image-line intersection that

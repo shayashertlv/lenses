@@ -70,3 +70,25 @@ def test_failed_product_gate_keeps_its_evidence(run_proof):
 def test_failed_p2_does_not_prevent_a_partial_diagnostic_fit(run_proof):
     _, result = run_proof({"pass": False}, stages={"fit"})
     assert result == "stopped after FIT/P3 (stages)"
+
+
+@pytest.mark.parametrize("floor, delivered", [(None, None), (.764, .557)])
+def test_reporting_keeps_resolved_gates_and_unmodified_failed_evidence(floor, delivered):
+    import copy
+    from glasses3d.g3d_host import relief_rules as R
+
+    stages = {"S1": {"instrument_floor": {"models": {"truth": {"R3_transfer_mm": floor}}}},
+              "GATES": {"gates": {"R3": {"pass": False, "transfer_mm": {"delivered": delivered}}}}}
+    rec = {"stages": copy.deepcopy(stages), "result": "STOP-I",
+           "open_owner_decisions": [{"gate": "R1", "decision": "obsolete question"}]}
+    S.record_gate_decisions(rec)
+    assert rec["stages"] == stages and rec["result"] == "STOP-I"
+    assert rec["open_owner_decisions"] == []
+    decisions = {d["gate"]: d for d in rec["resolved_gate_decisions"]["decisions"]}
+    assert set(decisions) == {"STOP-I", "R1", "R3"}
+    assert all(d["decision"].startswith("KEEP") for d in decisions.values())
+    assert decisions["STOP-I"]["evidence"]["s1_true_temple_transfer_mm_this_record"] == floor
+    evidence = decisions["R3"]["evidence"]
+    assert evidence["delivered_transfer_mm_this_record"] == delivered
+    assert evidence["delivered_minus_margin_mm_this_record"] == (
+        None if delivered is None else delivered - R.R3_TRANSFER_MARGIN_MM)

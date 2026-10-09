@@ -12,7 +12,8 @@ theta_deg="<the owner's words>" records it as "STOP-I waived by owner" and the p
 owner did not give. S1 runs the real fit's procedure (wp6_prada_stages.make_retrace, FIT_MAX_ROUNDS rounds), grades
 the outline on the fitted spec and theta on the (view, side) pairs the table says R2 / R3 read; a quantity S1 cannot
 test (r_B: not a free parameter) is recorded as "not fitted", never as a recovery pass. The record's
-`open_owner_decisions` lists the rule-set questions only the owner can decide (R1, R3's "delivered - 0.5").
+`resolved_gate_decisions` records KEEP STOP-I, R1 and every frozen R3 clause (2026-10-07 delegated decision).
+There is no outstanding waiver question; offline repairs remain authorized under those unchanged gates.
 
 --workers (default os.cpu_count() - 2; 1 = serial): the camera blocks and the joint fits run on a
 relief_fit.FitPool of persistent workers, each opted out of EcoQoS. The pooled fit is the serial fit bit for bit
@@ -936,8 +937,8 @@ def _run(pf: Proof, a, stages) -> int:
         pf.save()
         if si["stop_i"]:
             return finish(pf, pf.stop(
-                "STOP-I", "S1 cannot recover a quantity that R2 / R3 read (frozen table "
-                f"{S1_DEPS.name}); OPEN OWNER DECISION: waive with --owner-waiver KEY=TEXT or keep the stop",
+                "STOP-I", "S1 fails a required recovery or instrument-floor check (frozen table "
+                f"{S1_DEPS.name}); KEEP STOP-I is resolved: acceptance remains blocked; continue offline diagnosis",
                 {"parameters": si["stop_i"], "recovery": s1["recovery"], "tolerance": s1["tolerance"],
                  "read_by": {k: deps["depends"].get(k) for k in si["stop_i"]},
                  "instrument_floor": s1.get("instrument_floor"),
@@ -977,8 +978,8 @@ def start_params(job, gp) -> dict:
 
 
 def finish(pf: Proof, code) -> int:
-    from glasses3d.tests.proofs.wp6_prada_stages import open_owner_decisions
-    pf.rec["open_owner_decisions"] = open_owner_decisions(pf.rec)
+    from glasses3d.tests.proofs.wp6_prada_stages import record_gate_decisions
+    record_gate_decisions(pf.rec)
     pf.rec["result"] = code
     pf.rec["finished_utc"] = utc()
     pf.rec["source_scene"]["sha256_after"] = sha(PRADA_SCENE)
