@@ -1,5 +1,68 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Latest: owner-review checkpoint ready, 2026-10-09 17:00 +03.** Stop for the
+requested visual review; pause the goal once the viewer is shown. URL
+**http://127.0.0.1:53328/**, server PID50548. Evidence root:
+`data/wp6/top_facet_resume_20261009/`, hash-bound `review_checkpoint.json`.
+All fitting/tests finished; preserve local viewers and every earlier failure.
+Offline tool changes/tests are committed at **cea671c** on branch `glasses3d`.
+The user identified **region 1: broad upper face**. It is now explicit and optionally
+highlighted in the candidate. Five exact mesh exports and eight photo overlays are
+available; browser checks passed and screenshots were inspected. Depth remains
+conditional, R1 .746723 still fails .5, and the rear transition remains unresolved.
+
+Current reconstruction stopped at a legitimate final retrace refusal (K100.27 >
+zone100); viewer labels its last-valid state **incomplete**. The experiment completed
+after the independently tested directionless-normal fallback, at the round cap:
+outline .203919 > .2 mm; base level .309778 <= .5; logo depth .578464 > .5;
+upper slope .027667 <= .05. Final front constraint fails at .550339 mm.
+Additional-test measured/exact truth transfer .203289/.153645 is not frozen S1.
+Repaired experiment PID44796, 16:51:32–16:59:14, exit0. Captured current and repaired
+experiment have identical truth/start/guides/seed/views/caps. No source or frozen-file
+hash changed during the runs. The driver is offline and diagnostic only.
+Validation: 91 pass / 1 existing xfail, 6 exit/boundary tests (five overlap), 8 new
+normal controls, 12 historical default fixtures identical. No owner acceptance of
+these assets yet. WP6 stays open, all gates retained, WP5 stays closed.
+After owner feedback/resumption, address outline/facet feasibility jointly and the
+remaining real-photo camera/depth/arm-transition assumptions. Do not relaunch the
+completed comparisons. Preserve the separate owner edit to WP6_SESSION_PROMPT.md.
+
+**Pass history, 2026-10-09 16:11 +03 onward:** the owner requested a new
+upper-face candidate and reconstruction comparison, then a pause once shown.
+Their marked-image answer is **1: the broad upper face**, not the thin top strip.
+Evidence is in `data/wp6/top_facet_resume_20261009/`; the prior comparison is preserved.
+PROGRESS Active resume records the current measurements and checks.
+The jointly measured upper/base planes are conditional on retained camera/inner
+geometry and edge identities; the 3.97978 mm logo relief is still retained rather
+than measured. No claim of correct real depth or acceptance is justified. Explicit
+rearward upper-boundary support, independent controls, the comparison copy,
+reconstruction diagnostics and all original-view overlays are now complete.
+
+The new copy and viewer now exist (`upper_comparison/`, `review_viewer/`). Measured
+upper rise +.03647928, K d94.76403 mm, E d76.51244 mm, zone 100 mm. Logo depth is
+still retained. Both new and all six original overlays inspected. Oblique held-out
+upper/rear line RMS 3.56885/12.51659 px; remaining mismatch is material. R1 .74672298
+still fails .5; rear transition has a 38.216-degree normal warning. Geometry core
+is valid, but neither product correctness nor gate acceptance follows. New explicit
+rearward exit support preserves all 12 historical default fixture specs. Affected
+checks: 91 pass / 1 existing xfail, then 6 analytic exit/boundary checks pass.
+The additional known-shape reconstruction exposed an infeasible final outline
+retrace (K moves to 100.27 > zone100). It is a legitimate refusal, not a reason to
+loosen the domain or gates. A diagnostic-only capture replay ran as PID
+27016 from 16:43:21 +03, `upper_reconstruction_capture_run/`; it saved pre-retrace
+states and ran current and existing experimental side-camera methods sequentially.
+That capture replay finished with exit 1 at 16:48:47: the current last-valid state
+is saved, while the original experiment hit its nonzero-contour-normal assertion.
+Independent thin masks reproduce the missing direction. A separately tested
+normal-or-point residual retains directionless samples using full point error;
+usable normals keep identical arithmetic. Eight controls pass. This helper is
+used only in a new local diagnostic callback, not production registration.
+The experiment-only retry was PID **44796**, 16:51:32–16:59:14,
+`upper_reconstruction_repaired_run/`, 13 workers. It reused the captured current result
+without another replay; identical inputs were verified before packaging both. All
+failures remain preserved. Stop at the final viewer checkpoint. Original frozen protocol,
+defaults, sign cases and earlier evidence remain unchanged.
+
 **Owner resumed work, 2026-10-09 15:01 +03.** Active goal: work continuously until new comparison and
 visual-review results are ready and shown. The owner confirms the old synthetic shape is not the real
 temple shape. Use the newly supplied real colour-variant photos alongside all original evidence, fix the

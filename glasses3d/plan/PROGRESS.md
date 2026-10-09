@@ -2,6 +2,99 @@
 
 ## Active resume — WP6 (2026-10-09)
 
+**OWNER REVIEW CHECKPOINT — 2026-10-09 17:00 +03. Stop here for visual review.**
+Offline tool changes and their independent tests are committed at **cea671c**.
+The authorized broad-upper-face comparison is ready at **http://127.0.0.1:53328/**,
+local server PID **50548** (`top_facet_resume_20261009/review_viewer_server.json`).
+Pause the active goal when this viewer is shown, as the owner explicitly requested.
+No owner appearance verdict on these new assets yet. WP6 is not accepted or complete.
+The earlier synthetic acceptance remains separate; WP5 remains owner-closed.
+
+The new candidate, previous candidate, relief-free control, current method's **last
+valid state (incomplete)** and completed experimental reconstruction are all selectable.
+The broad F1 face has optional orange identification, with unchanged depth/scale.
+Rotation, zoom, light/material controls, all five meshes, image export, eight photo
+overlays and narrow layout checked; final screenshots inspected. Mesh exports match
+the source vertices/indices. `review_checkpoint.json` binds the reports, assets and
+unchanged frozen files. All required runs have ended; only local viewers stay running.
+
+**New reconstruction results:** current failed at the final outline retrace, K100.27
+outside zone100; its pre-retrace state has outline error .230496 mm, base level .209421,
+logo relief .631657, upper slope .045509. These are **incomplete-state diagnostics**,
+not final gate measurements. The experiment, after the independent directionless-
+normal repair below, completed at the four-round cap: outline **.203919 > .2 mm**,
+base level **.309778 <= .5 mm**, logo relief **.578464 > .5 mm**, upper slope
+**.027667 <= .05**. Final front constraint **fails at .550339 mm**. Measured/exact
+truth transfer .203289/.153645 mm is from this additional test, not a replacement
+S1 pass. Run PID44796, 16:51:32–16:59:14, exit0; all source hashes unchanged.
+Truth/start/guides/seed/views/caps match the captured current case exactly. The
+original experiment's assertion failure and all invalid-start/retrace failures remain.
+
+Validation: 91 affected checks pass with 1 existing xfail; 6 exit/boundary checks
+pass (five overlap that selection); 8 new normal-residual controls pass. Twelve
+historical fixture specs are identical. R1, real-photo depth/camera/arm-transition
+issues, STOP-I and every frozen R3 clause remain open and unchanged. No paid call,
+push, public integration, Astra wrapper or product delivery occurred.
+Next after owner feedback/resumption: jointly handle valid outline/facet updates
+at the rear exit, then resolve actual photo camera/depth and rear-arm geometry.
+Do not repeat the completed runs or label the photo-conditioned candidate correct.
+
+**Upper-face pass history (16:11 +03 onward):** the owner authorized another offline
+candidate and reconstruction comparison, then explicitly identified marked **region 1,
+the broad upper face above the logo triangles**, not the narrow top-edge strip. Work
+until the controllable comparison is ready and shown, then pause for their review.
+Evidence lives in `data/wp6/top_facet_resume_20261009/`; preserve the preceding viewer.
+New separate edge-candidate extraction keeps competing ridges instead of choosing a
+topology. Independent analytic tests plus unchanged builder/trace checks: 80 passed,
+1 existing xfail (PID 35692, 16:17:27–16:18:20, exit 0). Plane/ray helpers: 6 passed.
+Both photos contain a coherent BJ boundary (side RMS .243 px; oblique .232 px); no
+coherent GB edge was detected, which does not prove coplanarity. Conditional on the
+retained camera/inner plane and the top-strip edge identities, fitting both top
+branches jointly gives an upper plane RMS .15746 mm. Its shallow rise is retained;
+the logo depth 3.97978 mm remains an assumption, not a new measurement. The old fixed
+base was incompatible (1.64356 mm RMS); it is not used to manufacture a candidate.
+The builder now has an explicit `top_zero_direction="rearward"` option and supports
+virtual A ahead of the front clipping boundary. Historical defaults are unchanged:
+all 12 fixture specs compare identical to 292b6b7. Independent analytic solid/exit
+checks include three relief scales and refusal beyond the unchanged zone. Final
+affected regressions: **91 passed / 1 existing xfail**, PID 38328, 16:40:16–16:41:25,
+exit 0; added analytic boundary check included in 6/6 tests at 16:45:01–16:45:02.
+
+`upper_comparison/` is built and inspected: upper rise **+.03647928**, upper boundary
+exit d **94.76403 mm**, E **76.51244 mm**, zone 100 mm. The side BJ line is exact by
+construction, not validation. At the oblique ABC-calibrated camera, held-out BJ RMS
+is **3.56885 px**, BE **12.51659 px** (previous candidate 9.29236 at its own camera).
+Both new and all six original photo overlays are preserved and inspected. The new
+copy's R1 share **.74672298 > .5** (previous .72943824); no threshold changed. A
+**38.216-degree arm-normal warning** identifies the unresolved rear transition.
+Do not call this a correct real-product model. Optional orange F1 highlighting in
+the new viewer identifies region 1 without exaggerating geometry.
+
+New synthetic reconstruction is an **additional test**, not a replacement frozen
+S1: same original five fitting views, six generated views, seed 7, 1 px camera
+perturbation and the existing guide perturbation. Explicit positive-rise bounds
+are local to this new family. Initial runs refused invalid starts; the revised
+start scales the entire upper relief plane and tapers the top-outline perturbation
+to zero at its exit-bearing zone knot. No quality threshold was searched or changed.
+`upper_reconstruction_r3_run/` reached four current-method rounds then correctly
+refused a final retrace whose upper exit moved to **100.27 mm > 100 mm**. Preserve
+that failure. `upper_reconstruction_capture_run/` (PID **27016**, started
+16:43:21 +03) reran with diagnostic-only pre-retrace snapshots, then tested the
+existing side-camera experiment. The recording callback does not alter fitting.
+The capture replay ended 16:48:47, exit 1: current reproduced the same final refusal
+and saved its last valid state; the experiment then failed on its contour-normal
+assertion before a shape round. That assertion assumed every gradient direction
+was defined. Independent thin-mask controls reproduce cancellation to zero. The
+new `normal_or_point_residual` retains the full point error for directionless
+samples and exactly preserves the prior normal arithmetic otherwise. It neither
+drops samples nor changes image-loss acceptance, bounds or front guard. Eight
+independent controls pass (PID 7484, 16:51:23, exit 0). Only the local experimental
+callback uses it; no production camera integration or frozen dependency change.
+`upper_reconstruction_repaired_run/` completed as PID **44796**, 16:51:32–16:59:14,
+13 workers. It ran the experiment only; the current result was reused unchanged.
+Identical truth/start/guides/seed/view inputs were verified before final packaging.
+The ready comparison and remaining failures are recorded at the top of this section.
+
 **RESUMED by the owner, 2026-10-09 15:01 +03.** A new active goal is to work continuously until new
 results are ready and shown for comparison and visual review. The owner explicitly rejects the current
 shape as a representation of the real temple, based on the clearer new colour-variant photos. The earlier
