@@ -7,6 +7,14 @@ to view. The completed synthetic comparisons were shown; `s1_joint_visuals/view_
 `light_orbit.gif` are ready for review. All launched checks have terminal receipts. Do not resume work
 until the owner asks. WP6 is not complete; WP5 remains owner-closed.
 
+Owner-requested extra depth views (14:25 +03) are in
+`data/wp6/line_evidence_20261009/s1_joint_edge_views/{top_edge,hinge_end}.png`.
+Both inspected orthographic images show the unchanged saved `full_fit6` experimental mesh beside a
+copy of its own base with relief removed, at identical scale and without depth exaggeration. This
+explanatory control differs from the earlier truth-based control. Source hashes verified unchanged;
+receipt `s1_joint_edge_views_run/`, PID 47216, 14:25:30–14:25:33, exit 0. Visualization only; no fitting,
+runtime repair, acceptance change or goal resumption.
+
 The next repair has an independent reproducer, but **no runtime fix has been applied**. Two complete,
 uncommitted test files remain in the worktree: `tests/fixtures/occlusion_evidence.py` and
 `tests/test_temple_theta_occlusion.py`. They deliberately expose the current hidden-arm defect; do not

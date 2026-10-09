@@ -9,6 +9,12 @@ the before-fix evidence. Preserve the separate owner edit in `WP6_SESSION_PROMPT
 On resume, fix the independently confirmed isolated-arm observability defect described below before
 integrating the separately tested normal-step proposal. Do not restart the completed matrix.
 
+At the owner's request, additional inspected straight-down and hinge-end orthographic images are saved
+under `data/wp6/line_evidence_20261009/s1_joint_edge_views/`. They show the existing experimental synthetic
+mesh and a matching relief-free copy of its base, without depth exaggeration. The source hashes are
+unchanged; `s1_joint_edge_views_run/` records PID 47216, 14:25:30–14:25:33 +03, exit 0. This visualization
+request did not resume the goal or apply the pending repair.
+
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
 Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.
