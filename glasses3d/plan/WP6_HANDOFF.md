@@ -1,5 +1,14 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Owner-requested pause, 2026-10-09 13:46 +03.** The owner asked to pause when results were ready to view;
+the synthetic rotating-view and moving-light comparisons are ready and were shown. All checks have finished.
+Do not continue until the owner resumes. WP6 is incomplete; its gates and WP5's closeout remain unchanged.
+Two complete uncommitted reproducer files remain: `tests/fixtures/occlusion_evidence.py` and
+`tests/test_temple_theta_occlusion.py`. No runtime repair has been applied; their 4 failures / 4 passes are
+the before-fix evidence. Preserve the separate owner edit in `WP6_SESSION_PROMPT.md`.
+On resume, fix the independently confirmed isolated-arm observability defect described below before
+integrating the separately tested normal-step proposal. Do not restart the completed matrix.
+
 WP5 is complete by the owner's 2026-10-08 visual acceptance. Commit `4304c1d` sets **observed-slope join +
 Poisson** as the regular texture method. Its fresh production bake matches the approved texture byte-for-byte.
 Code review/cleanup is committed at `d5e5917`. Offline WP6 repair resumed from the handoff commit `ad5105e`.
@@ -15,7 +24,7 @@ transfer and .048359 to .042315 mm mesh-depth RMS in the side-angle counterfactu
 transfer but worsens depth. Production side eligibility and the frozen dependency table are unchanged;
 this is not current-protocol S1 acceptance. Full audits and inspected multi-view / moving-light visuals are
 saved under `data/wp6/line_evidence_20261009/s1_joint_{audit,geometry_audit,visuals}/`.
-Next: the prepared 20 independent contour-normal controls under current observed-angle eligibility.
+Those 20 controls and 32 held-out geometry controls are now complete; work is paused as requested.
 
 ## Current gate
 
@@ -640,8 +649,8 @@ Both static sheets and eight quarter-cycle animation frames were inspected. `s1_
 Actual meshes, common scales/views/lights, no depth exaggeration; zero-relief control visibly distinct.
 These synthetic tool visuals do not constitute product appearance acceptance.
 
-Prepared next independent check: `probe_normal_current_eligibility.py` (no fit yet). After auditing/showing
-the matrix visuals, test the same contour-normal proposal with **unchanged observed-angle eligibility**
+Completed independent check: `probe_normal_current_eligibility.py`. After auditing/showing
+the matrix visuals, tested the same contour-normal proposal with **unchanged observed-angle eligibility**
 on 16 front/top/oblique analytic wedge controls and four rigid side controls, both perturbation signs.
 All use fully visible 900 x 1200 images; no Prada geometry, crease score or true pose selects a fit.
 Current baseline stays available; common image loss and original front guard select, with all projection
@@ -650,6 +659,34 @@ S1. The script refuses a pool until the four-cell matrix report exists. Generati
 **20/20**: no boundary clipping, all true-camera image losses zero. Single-process receipt
 `normal_current_eligibility_preflight_run/`, PID **37088**, **13:06:39–13:06:45 +03**, exit 0;
 report/source snapshots in `normal_current_eligibility_preflight/`. No extra heavy pool was started.
+
+The full check completed: PID **36008**, **13:31:12–13:32:55 +03**, exit 0,
+`normal_current_eligibility_run/`, 12 workers / **21,445,984 KB** available commit. Non-side **16/16** improve
+mean aggregate projection **1.316866627505 -> .120230471188 px**; rigid-side **4/4** improve
+**.083423280494 -> .019107687817 px**. No individual front/arm RMS worsens by more than 1e-8 px.
+Three common-frame angles remain >.3 degrees, maximum **1.280891980039 degrees** at row 12, yaw 78,
+far arm (before 1.649334118379), unexplained placement .103610575149 mm. It is marked observed by the
+existing detector; no claim that the normal proposal resolves observability. No cap-hit normal alignments.
+
+Held-out `normal_eligibility_holdout/`: exact trial reused on 32 different prism/valley pose/sign cases,
+all generation checks fully visible with zero true-camera loss. Both 16-case families improve every
+aggregate: prism **.123536998693 -> .011031191901 px**, valley **.127096950524 -> .013684032471 px**;
+maximum common-frame angle errors **.016437705125 / .009813589786 degrees**. Receipt
+`normal_eligibility_holdout_run/`, PID **31240**, **13:36:44–13:41:46 +03**, exit 0, 12 workers after
+**21,733,432 KB** free commit. No normal-step runtime change or acceptance claim.
+
+**Next confirmed defect, not yet repaired:** `fit_theta` compares isolated arm masks with the photo.
+The independent `hidden_arm_observability/` opaque-box controls give four fully hidden arms whose
+17 allowed-angle whole-scene images are byte-identical, with zero visible far-arm pixels. Nevertheless
+the detector says observed and shifts theta by **-3.872504404322 / -3.454915028125 degrees** at yaws 60/78.
+Its isolated-arm grid ranges are .039114587963 / .017185148018. Four visible positive controls behave
+correctly. Receipt `hidden_arm_observability_run/`, PID **14632**, **13:42:37–13:42:53 +03**, exit 0.
+The new repository reproducer gives **4 failed / 4 passed**, PID **27656**,
+**13:45:07–13:45:23 +03**, exit 1, `theta_occlusion_before_run/`.
+Proposed repair on resume: include the fixed components' masks (available in `render_model`'s `part_masks`)
+when scoring the changing arm. Keep the current angle range, .002 observability threshold and view
+eligibility. Validate visible/hidden controls and affected regressions before versioned integration.
+This establishes an independent detector defect, not that it caused the S1 floor. Runtime remains fit-10.
 
 The first cell's additional mesh audit is complete: **2,121 points, zero missing**, X error RMS
 **0.040576901405 mm**, mean absolute **0.034576549908 mm**, maximum **0.073704802220 mm**.

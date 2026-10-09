@@ -2,6 +2,19 @@
 
 ## Active resume — WP6 (2026-10-09)
 
+**PAUSED at the owner's request, 13:46 +03.** The owner edited the goal to pause once results were ready
+to view. The completed synthetic comparisons were shown; `s1_joint_visuals/view_orbit.gif` and
+`light_orbit.gif` are ready for review. All launched checks have terminal receipts. Do not resume work
+until the owner asks. WP6 is not complete; WP5 remains owner-closed.
+
+The next repair has an independent reproducer, but **no runtime fix has been applied**. Two complete,
+uncommitted test files remain in the worktree: `tests/fixtures/occlusion_evidence.py` and
+`tests/test_temple_theta_occlusion.py`. They deliberately expose the current hidden-arm defect; do not
+mistake their four failures for a failed attempted repair. Preserve the owner's separate
+`WP6_SESSION_PROMPT.md` edit. On resume, repair the isolated-arm angle objective to account for the
+other scene components, with unchanged angle range/observability threshold, and validate independently.
+Keep the contour-normal method separate until that repair and its effects have been checked.
+
 WP6 offline repair resumed from `ad5105e` on branch `glasses3d`. WP5 remains closed by owner acceptance.
 The original saved S1 now passes with identical inputs, but a fresh full proof regenerating S1 from the newly
 fitted delivered cameras still fails the instrument floor. The camera repair is not yet robust across both cases.
@@ -15,8 +28,8 @@ transfer **0.760738 -> 0.686086 mm**, exact **0.067896 -> 0.038064 mm**, and mes
 improves transfer but worsens depth RMS; retain that mixed outcome. This is **not a frozen-protocol S1 pass**:
 production side-angle eligibility/dependencies are unchanged. R1, P2 and the real-photo gates remain open.
 Full audits and inspected rotating-view/moving-light visuals are in `data/wp6/line_evidence_20261009/`
-under `s1_joint_audit/`, `s1_joint_geometry_audit/`, `s1_joint_visuals/`. Next: complete the prepared
-20 independent contour-normal controls under **current** angle eligibility; do not rerun the matrix.
+under `s1_joint_audit/`, `s1_joint_geometry_audit/`, `s1_joint_visuals/`. The follow-up controls are complete
+below; do not rerun the matrix. Work is paused at the owner's request.
 
 Read [WP6_HANDOFF.md](WP6_HANDOFF.md) fully, then [WP6_DESIGN.md](WP6_DESIGN.md). Use
 [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) to begin the next session. The next agent is authorized to
@@ -327,7 +340,7 @@ common scale/light/view, no depth exaggeration; the zero-relief control is visib
 Files: `upper_light.png`, `lower_light.png`, `view_orbit.gif`, `light_orbit.gif`, plus provenance and QA frames.
 These are synthetic instrument visuals, not a product model or owner acceptance.
 
-An additional independent camera check is prepared as `probe_normal_current_eligibility.py`, **not yet fit**.
+An additional independent camera check completed as `probe_normal_current_eligibility.py`.
 It applies the unchanged contour-normal proposal after the current fit, freeing only the already-observed
 angles permitted by production. It retains 16 front/top/oblique controls (the earlier held-out pose roles,
 both perturbation signs) plus four rigid side controls, on fully visible 900 x 1200 images of the analytic
@@ -339,6 +352,35 @@ proposal helps within existing eligibility; it does not establish that the fresh
 Generation preflight: **20/20 images fully visible, true-camera image loss zero**, no optimization,
 single process, PID **37088**, **13:06:39–13:06:45 +03**, exit 0. Receipt
 `normal_current_eligibility_preflight_run/`, preserved report/source in `normal_current_eligibility_preflight/`.
+
+The full 20-case run completed, PID **36008**, **13:31:12–13:32:55 +03**, exit 0,
+`normal_current_eligibility_run/`; 12 workers after **21,445,984 KB** available commit. All 16 non-side
+cases improve aggregate projection RMS, mean **1.316866627505 -> 0.120230471188 px**; all four rigid-side
+cases improve, mean **0.083423280494 -> 0.019107687817 px**. No individual front/arm RMS increases by
+more than 1e-8 px. Four normal alignments terminate on image-loss convergence and 16 on no image descent.
+Retain the limitation: three common-frame angles still exceed .3 degrees; the largest is **1.280891980039**
+on row 12, yaw 78, far arm, versus 1.649334118379 before. Its unexplained placement is .103610575149 mm.
+The original detector marks this arm observed; the improvement does not certify its observability.
+
+`normal_eligibility_holdout/` repeats the **exact same trial implementation** on 32 predeclared prism/valley
+cases with different poses, hinges, perspective and perturbations. All 32 generation checks show fully
+visible scenes and zero true-camera image loss. All 16 prism and all 16 valley cases improve aggregate
+projection: **0.123536998693 -> 0.011031191901 px**, **0.127096950524 -> 0.013684032471 px** respectively.
+Maximum common-frame errors **0.016437705125 / 0.009813589786 degrees**. Receipt
+`normal_eligibility_holdout_run/`, PID **31240**, **13:36:44–13:41:46 +03**, exit 0; 12 workers after
+**21,733,432 KB** free commit. All rows and hashes retained. No normal-step production integration occurred.
+
+The remaining angle issue prompted an independent occlusion test. `hidden_arm_observability/` uses opaque
+analytic boxes, both sides, yaws 60/78, plus visible positive controls. In **all four hidden cases**, the far
+arm has **zero visible pixels** and all 17 complete-scene angle-grid images are byte-identical, yet
+`fit_theta` reports observed and shifts it by **-3.872504404322 / -3.454915028125 degrees**. Its isolated-arm
+grid ranges are .039114587963 / .017185148018. All four visible controls respond to angle and recover an
+image-identical solution. This proves a detector defect independently of S1; it does not establish its
+contribution to the S1 floor. Receipt `hidden_arm_observability_run/`, PID **14632**,
+**13:42:37–13:42:53 +03**, exit 0, one process.
+The new repository regression reproduces it: **4 failed / 4 passed**, PID **27656**,
+**13:45:07–13:45:23 +03**, exit 1, `theta_occlusion_before_run/`. The owner requested pausing after results
+were ready before any repair was applied. Runtime remains fit-10; frozen files are unchanged.
 
 The first completed cell also has a read-only mesh audit: **2,121/2,121** fixed truth-chart points covered,
 outer X error **0.040576901405 mm RMS**, **0.034576549908 mm** mean absolute, **0.073704802220 mm** maximum.
