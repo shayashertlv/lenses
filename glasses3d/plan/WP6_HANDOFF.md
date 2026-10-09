@@ -572,9 +572,16 @@ maximum .343955406 degrees at 05+x is recorded separately from the frozen 02+x r
 acceptance claim. `s1_fit6_free_side_counterfactual` started **12:22:50**, 12 workers after 23,800,452 KB free
 commit; parent PID remains **42452**, live child PIDs changed for this cell. The two fresh-input cells follow.
 
-**Current run position: two of four cells complete; `full_fit6_current` active since 12:45:00 +03** with
-12 workers after **23,811,080 KB** available commit; parent PID **42452**. The experimental `full_fit6` cell
-follows automatically. Preserve this live run and inspect its current children before any new pool.
+**Current run position: three of four cells complete; `full_fit6_free_side_counterfactual` active since
+13:01:37 +03**, 12 workers after **21,728,856 KB** available commit; parent PID **42452**. Preserve this
+live final cell and inspect its current children before any new pool.
+
+`full_fit6_current` completed **12:45:00–13:01:35 +03**, 12 workers after **23,811,080 KB** available commit.
+Measured **0.760738195495 mm > 0.7**, exact **0.067896192015 mm**; truth R2 true / zero-relief R2 false.
+Recovery: outline **0.122116492259 mm**, zone **0.061137082447 mm**, r_C **0.020220579658 mm**, original
+02+x **0.026137111802 degrees**. All 16 sign cases measured; 5 exceed .7 (max **0.782665889635 mm**).
+Extra side-angle maximum **0.303575244634 degrees** is separate from frozen recovery. Front bound clear;
+four-round cap reached. The newer-input failure reproduces; no acceptance or convergence claim.
 
 Older-input counterfactual completed **12:44:58**: measured **0.623282348529 mm**, exact **0.038949400278 mm**;
 truth R2 true / zero-relief R2 false. Outline **0.017566817542 mm** and maximum of all five audited angle
@@ -589,6 +596,13 @@ experimental **0.061507126426 mm**, with **+0.051935012471 mm** mean bias / **0.
 Both have all 2,121 samples. `s1_joint_geometry_partial_2/` includes source/input snapshots; receipt
 `s1_joint_geometry_partial_2_run/`, PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
 The newer input set must finish before deciding the next repair; no full-matrix verdict or visualization yet.
+
+`s1_joint_depth_bias_older/` separates the experimental mean depth error into base-surface
+**+0.065487974100 mm** plus relief-over-base **-0.013552961628 mm**. r_C is **3.943132543185 mm**
+(truth 4, baseline 3.988897156583). Both fits retain `penalty_active` for the five zone/depth parameters;
+do not claim unconstrained parameter uncertainty. This algebraic readout does not establish which objective
+term caused the bias or justify changing parameters. Receipt `s1_joint_depth_bias_older_run/`, PID **40804**,
+**12:49:51 +03**, exit 0, one process/no pool. Full terms/round parameters, hashes and source are retained.
 
 After the complete matrix, run the prepared ignored scripts with `run_single.py` into fresh log folders:
 `summarize_s1_joint_counterfactual.py`, `audit_s1_joint_geometry.py`, `visualize_joint_diagnostic.py`.

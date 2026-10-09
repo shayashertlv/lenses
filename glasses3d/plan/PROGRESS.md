@@ -259,7 +259,7 @@ S1 acceptance record and does not replace the historical fit-6 proof. Its curren
 as calculated; no result selection. Second cell, `s1_fit6_free_side_counterfactual`, started **12:22:50**
 with a fresh sequential pool of 12 workers after **23,800,452 KB** available commit; parent PID remains 42452.
 
-**Two of four cells are now complete.** The older-input experimental cell finished **12:44:58 +03**:
+The older-input experimental cell finished **12:44:58 +03**:
 measured transfer **0.623282348529 mm**, exact **0.038949400278 mm**; truth R2 passes and zero-relief R2 fails.
 Outline error improves to **0.017566817542 mm** and the maximum across all five audited angle pairs is
 **0.228094533967 degrees** (original 02+x **0.066886181346 degrees**). Zone-level and r_C errors increase to
@@ -272,9 +272,26 @@ The mesh audit on both completed cells (`s1_joint_geometry_partial_2/`) retains 
 Experimental X-error RMS is **0.061507126426 mm**, worse than current **0.040576901405 mm**; mean signed/absolute
 error **+0.051935012471 mm**, maximum **0.108787221321 mm**. This outer-depth bias is retained beside the better
 outline/transfer results. Receipt PID **7328**, **12:45:41–12:45:42 +03**, exit 0, one process/no pool.
-Input/source snapshots are retained automatically. **Third cell `full_fit6_current` is active**, started
-**12:45:00 +03**, 12 workers after **23,811,080 KB** available commit. The fourth cell tests the experimental
-method on this same previously failing input set. Parent PID remains **42452**; no other heavy pool is active.
+Input/source snapshots are retained automatically.
+
+**Three of four cells are complete.** `full_fit6_current` ran **12:45:00–13:01:35 +03** with 12 workers after
+**23,811,080 KB** available commit. It reproduces the newer-input failure: measured **0.760738195495 mm > 0.7**,
+exact **0.067896192015 mm**. Truth R2 passes / zero-relief R2 fails. Recovery errors are outline
+**0.122116492259 mm**, zone **0.061137082447 mm**, r_C **0.020220579658 mm**, original 02+x
+**0.026137111802 degrees**. All 16 sign cases measured; **5 exceed 0.7**, maximum **0.782665889635 mm**.
+Extra side-angle maximum **0.303575244634 degrees** is retained separately. Front bound clear; four-round
+cap reached, not convergence. **Final cell `full_fit6_free_side_counterfactual` is active since
+13:01:37 +03**, 12 workers after **21,728,856 KB** available commit. Parent PID remains **42452**;
+no other heavy pool is active. Check its live log/children before another pool; do not restart it.
+
+The older-input depth-bias decomposition is read-only (`s1_joint_depth_bias_older/`, PID 40804,
+**12:49:51 +03**, exit 0). At the same 2,121 points, experimental mean base-surface error is
+**+0.065487974100 mm** and relief-over-base error **-0.013552961628 mm**, giving the retained
+**+0.051935012471 mm** mean total. r_C is **3.943132543185 mm**, versus the 4 mm truth and baseline
+3.988897156583 mm. Both fits still mark the five zone/depth parameters `penalty_active`; these are not
+unconstrained uncertainty estimates. The decomposition is algebraic, not causal attribution to an objective
+term, and it authorizes no parameter correction. Saved objective terms and every round's parameters remain
+in the report, with input/source hashes and the source snapshot. No refit or gate change occurred.
 
 Readout/visual scripts are prepared under the same ignored evidence folder (not yet run on the full matrix):
 `summarize_s1_joint_counterfactual.py` audits all four results and image-only candidate selection;
