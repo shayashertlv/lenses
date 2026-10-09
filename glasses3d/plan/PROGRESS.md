@@ -33,6 +33,30 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 
 ## Current independent diagnosis — 2026-10-09
 
+Latest runtime is **fit-10**: `relief_cue` now compares corresponding valid offsets/positions on both sides
+of a line before taking the existing difference of medians. Independent side masks previously compared
+different parts of a longitudinal lighting gradient and could invent a cross-line step, even with zero
+paired positions. Off-image samples also reused clipped border pixels. The photo sampler now refuses
+insufficient paired evidence and off-image locations; the model sampler uses the same pairing. Full valid
+support keeps the original arithmetic, offsets, minimum count and thresholds. No guide/error/line changes.
+
+Independent known-field reproducer: **25 fail / 12 pass** before (`cue_pairing_before/`, PID 6312,
+10:54:05–10:54:06 +03, exit 1). After repair, **61 affected checks pass / 1 existing xfail**, including
+synthetic cue/trace/fit and cache validation (`cue_pairing_after/`, PID 36324, 10:55:27–10:56:34, exit 0).
+Review moved photo-only spread computation out of the repeated model path; the same final selection passes
+**61 / 1 xfail**, 65.69 s (`cue_pairing_review/`, PID 18824, 10:58:25–10:59:31, exit 0).
+All **24 held-out diagonal RGB-ramp controls** pass through real lightness conversion and Gaussian blur:
+the largest false step drops from **13.168581 L*** to **0**, and disjoint support is missing, not a zero
+measurement (`cue_pairing_audit_run/`, PID 49796, 10:57:26–10:57:28, exit 0). The original implementation is
+loaded from `cce8f7b` for comparison. Both real-photo records reproduce the original topology measurements
+exactly; all 16 stored crease steps and the topology verdict remain unchanged after repair. This is a general
+instrument defect, **not the cause of Prada's retained P2/R1/STOP-I failures**. Old caches remain diagnostic
+inputs, not current-version acceptance proof. No model is promoted; no paid run or push occurred.
+The fixed-input S1 cue audit also retains both saved cases, all three crease views and truth/recovered/slab
+models (18 rows): photo records unchanged; maximum model shade-step change **2.105e-8**. Receipt
+`s1_cue_pairing_audit_run/`, PID 28552, 11:03:10–11:03:17 +03, exit 0. This does not justify another S1 fit
+merely to try the sampling repair; it is not evidence that STOP-I has passed at fit-10.
+
 The previous checkpoint made progress: cap-hit corner repair `615c7e8` (fit-9), fixed-family R1 bound and
 resolved reporting `ff96e1f`. The owner has seen the labelled synthetic before/after diagram. No quality
 acceptance is implied, and their request to see multi-angle/lighting results remains active.
@@ -78,13 +102,13 @@ Convergence receipt: `camera_joint_convergence_run/`, PID 39592, **10:45:36–10
 exit 0, `camera_joint_convergence_summary/`. **Do not integrate this camera step or try it on S1.** Increasing
 optimization effort does not resolve the independent regressions. No camera, weight, side theta or gate changed.
 
-Next independent check: whether unmatched sample masks across a photo line can turn a longitudinal lighting
-gradient into a false cross-line step. This affects the cue behind topology/relief interpretation; test known
-fields first, not a product shape. No alternative topology is selected merely because R1 fails.
+The mask hypothesis produced the independently verified repair above, but no changed real-photo evidence
+supporting another topology. Continue the representation/observability diagnosis under the frozen side-theta
+rule; do not select an alternative topology merely because R1 fails or repeat the rejected camera experiment.
 
 ## R1 area and fixed-family feasibility audit — 2026-10-09
 
-Latest runtime is now **fit-9**: the independent virtual-corner control exposed a cap-hit error in fit-8's
+The preceding **fit-9** repair: the independent virtual-corner control exposed a cap-hit error in fit-8's
 direct intersection lifting. Two mirrored exact-geometry/exact-line cases hit the top cap instead of the
 virtual corner, producing **4.764397 mm** error. The geometric outward-normal check now runs in the un-opened
 temple frame and rejects cap/inner-wall hits; those corners retain line extension. Before repair, the 32

@@ -97,7 +97,7 @@ PENALTY = 10.0
 #          shape infeasible instead of averaging the remaining creases or charging zero transfer loss.
 #   fit-6: coupled camera / observable hinge alignment selected only by silhouette loss, within the original
 #          camera box and front guard. Side hinges and rear-family fixed-alpha refits remain unchanged.
-FIT_VERSION = ("fit-9 (2026-10-09): fit-8 + reject cap/inner-wall hits for outer crease corners")
+FIT_VERSION = ("fit-10 (2026-10-09): fit-9 + paired valid samples for photo/model crease-step cues")
 
 
 def _hat(d, a, b, c):

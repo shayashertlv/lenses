@@ -58,7 +58,7 @@ from . import relief_rules as RR
 
 CUE_LIGHT = (0.0, math.sin(math.radians(40.0)), math.cos(math.radians(40.0)))   # = relief_fit.SYNTH_LIGHT (tested)
 STEP_TRIM = 0.15             # the outer 15 % of a crease line is skipped (other creases meet there; relief_trace)
-STEP_MIN_SIDE = 5            # samples a side needs for a step
+STEP_MIN_SIDE = 5            # corresponding samples each side needs for a step
 TRI_ENDPOINT_PX = 1.0        # triangulation sigma: each line endpoint perturbed by this along its normal
 CREASE_CORNERS = {"B": ("BC",), "C": ("BC",)}
 TRI_CREASES = ("BC",)
@@ -86,6 +86,20 @@ def _pix(S, shape):
     return q
 
 
+def _paired_step(values: np.ndarray, valid: np.ndarray):
+    """Keep the same offsets/positions on both sides before comparing their medians.
+
+    Independent side masks otherwise compare different longitudinal illumination:
+    even a smooth ramp can become a large apparent crease. No paired evidence is
+    a missing measurement, including when each side separately has many samples.
+    """
+    paired = valid[0] & valid[1]
+    if np.count_nonzero(paired) < STEP_MIN_SIDE:
+        return None
+    step = float(np.median(values[0][paired]) - np.median(values[1][paired]))
+    return step, paired
+
+
 # --------------------------------------------------------------------------------------------- photo
 def blurred_lightness(job, key) -> np.ndarray:
     from .relief_check import lightness
@@ -96,7 +110,7 @@ def blurred_lightness(job, key) -> np.ndarray:
 
 
 def photo_steps(job, key: str, lines: dict, decal_mask: np.ndarray | None = None) -> dict:
-    """{crease: {"step_L", "sigma_L", "n", "p0", "p1"}} on the photo (None for a line with too few valid samples)."""
+    """Photo steps on corresponding valid samples; None when fewer than STEP_MIN_SIDE pairs remain."""
     from scipy import ndimage
     L = blurred_lightness(job, key)
     ok = job.matte(key) & (L <= RR.MASK_HIGHLIGHT_L)
@@ -107,19 +121,19 @@ def photo_steps(job, key: str, lines: dict, decal_mask: np.ndarray | None = None
         P, nv, S = line_samples(p0, p1)
         q = _pix(S, L.shape)
         v = L[q[..., 1], q[..., 0]]
-        valid = ok[q[..., 1], q[..., 0]]
-        a, b = v[0][valid[0]], v[1][valid[1]]
-        if len(a) < STEP_MIN_SIDE or len(b) < STEP_MIN_SIDE:
+        # Clipping makes indexing safe; it must not turn out-of-image positions
+        # into repeated observations of a valid border pixel.
+        in_bounds = ((S[..., 0] >= 0) & (S[..., 0] <= L.shape[1] - 1) &
+                     (S[..., 1] >= 0) & (S[..., 1] <= L.shape[0] - 1))
+        valid = ok[q[..., 1], q[..., 0]] & in_bounds
+        measured = _paired_step(v, valid)
+        if measured is None:
             out[cn] = None
             continue
-        step = float(np.median(a) - np.median(b))
-        # per position: the side medians over the offsets, then their difference; its robust spread / sqrt(n)
-        per = []
-        for i in range(P.shape[0]):
-            aa, bb = v[0, :, i][valid[0, :, i]], v[1, :, i][valid[1, :, i]]
-            if len(aa) and len(bb):
-                per.append(float(np.median(aa) - np.median(bb)))
-        per = np.asarray(per)
+        step, paired = measured
+        # The spread uses exactly the same paired support as the reported step.
+        per = np.asarray([float(np.median(v[0, paired[:, i], i]) - np.median(v[1, paired[:, i], i]))
+                          for i in range(paired.shape[1]) if paired[:, i].any()])
         sig = float(1.4826 * np.median(np.abs(per - np.median(per))) / math.sqrt(len(per))) if len(per) > 2 else None
         out[cn] = {"step_L": step, "sigma_L": sig, "n": int(len(per)), "p0": list(map(float, p0)),
                    "p1": list(map(float, p1))}
@@ -134,7 +148,7 @@ def _near_scene(job, model, near: int, theta: float = 0.0):
 
 def model_steps(job, model, key: str, cam, near: int, lines: dict, light=CUE_LIGHT, theta: float = 0.0) -> dict:
     """{crease: step} in Lambert shade units (n . l, clipped at 0) of the model's near temple (opened by `theta`)
-    through `cam` across each photo line; 0.0 where a side has fewer than STEP_MIN_SIDE samples on the near temple
+    through `cam` across each photo line; 0.0 where fewer than STEP_MIN_SIDE corresponding pairs hit the near temple
     (the model shows no surface there to crease). Hits hidden behind the front are dropped."""
     sc, V, F = _near_scene(job, model, near, theta)
     fr = job.front_scene()
@@ -153,8 +167,8 @@ def model_steps(job, model, key: str, cam, near: int, lines: dict, light=CUE_LIG
         n[(n @ Rt) < 0] *= -1
         shade = np.clip(n @ lw, 0.0, 1.0).reshape(S.shape[:3])
         vis = vis.reshape(S.shape[:3])
-        a, b = shade[0][vis[0]], shade[1][vis[1]]
-        out[cn] = float(np.median(a) - np.median(b)) if len(a) >= STEP_MIN_SIDE and len(b) >= STEP_MIN_SIDE else 0.0
+        measured = _paired_step(shade, vis)
+        out[cn] = measured[0] if measured is not None else 0.0
     return out
 
 

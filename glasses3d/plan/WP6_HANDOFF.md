@@ -404,7 +404,26 @@ until the required proofs pass. Owner visual acceptance is still required for WP
 
 ## Exact evidence and replay entry points
 
-Newest diagnostic: `line_evidence_20261009/corner_stereo_v2/`. At the retained real cameras, mirrored 05/01
+Latest runtime **fit-10** repairs cue sampling on unequal masks. Compare the same valid offsets/positions on
+both sides before taking the existing difference of medians; refuse missing photo pairs and off-image samples
+instead of reusing clipped border pixels. Model steps use the same pairing. No thresholds, weights, guides or
+R3 clauses changed. Before: **25 failures / 12 passes** on independent known lightness fields and a border
+control (`cue_pairing_before/`, PID 6312, 10:54:05–10:54:06 +03, exit 1). After: **61 passes / 1 existing xfail**
+in the affected cue/trace/fit/cache checks (PID 36324, 10:55:27–10:56:34). Review avoids calculating photo-only
+spread on every model evaluation; final checks again **61 pass / 1 xfail**, 65.69 s, `cue_pairing_review/`,
+PID 18824, 10:58:25–10:59:31, exit 0.
+
+`cue_pairing_audit/` retains 24 held-out diagonal RGB ramp controls with lightness conversion and blur. All
+pass: false steps up to **13.168581 L*** become **0**; disjoint support becomes missing. Both real-photo P2
+records reproduce the old topology evidence exactly using `cce8f7b`'s sampler, and **all 16 crease steps and
+both topology verdicts stay unchanged** with the repair. Receipt PID 49796, 10:57:26–10:57:28, exit 0.
+This defect does not explain Prada's current failures or justify a new shape. Prior fit caches are diagnostic
+only. Continue representation/observability analysis; keep every frozen side-theta dependency and gate.
+`s1_cue_pairing_audit/` checks both retained S1s at their saved fits: truth/recovered/slab on all three crease
+views (18 rows), unchanged photo records, maximum model-step change **2.105e-8**. PID 28552,
+11:03:10–11:03:17 +03, exit 0. This is not a new S1 fit or a fit-10 quality pass.
+
+`line_evidence_20261009/corner_stereo_v2/`: at the retained real cameras, mirrored 05/01
 corner rays meet at just **0.0377–0.3480 degrees**, with **25.0–738.9 mm per corner pixel** local sensitivity.
 This makes unconstrained corner stereo unreliable despite tiny ray residuals. 05/02 B has a much stronger
 **62.3–62.7 degree** baseline (about **0.17 mm/pixel**), but A/C lack the needed intersecting 02 lines. This
@@ -429,9 +448,8 @@ Receipts under `line_evidence_20261009/`: `camera_joint_objective_run/`, PID 321
 `camera_joint_objective_holdout_run/`, PID 7224, 10:37:45–10:39:51; `camera_joint_convergence_run/`, PID 39592,
 10:45:36–10:49:55 +03; read-only `camera_joint_convergence_summary_run/`, PID 17256, 10:51:03. All exit 0.
 Each fit run used one 12-worker pool with free commit checked, BLAS 1 and EcoQoS opt-out. None remains active.
-The next independent check is masked photo-step sampling: test whether unequal support on opposite sides
-of a line turns ordinary longitudinal illumination into an invented cross-line signal, before relying on it
-to reconsider the shape family. Do not pick a new topology merely to lower R1.
+The subsequent mask check produced the fit-10 repair above but no changed product-photo evidence. Do not
+pick a new topology merely to lower R1 or reinstate this rejected camera-objective step.
 
 Paths below are relative to `glasses3d/`; do not resume a writer in an old evidence directory.
 
