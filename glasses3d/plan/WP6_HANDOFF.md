@@ -9,6 +9,14 @@ the before-fix evidence. Preserve the separate owner edit in `WP6_SESSION_PROMPT
 On resume, fix the independently confirmed isolated-arm observability defect described below before
 integrating the separately tested normal-step proposal. Do not restart the completed matrix.
 
+Owner review now records both current and experimental synthetic reconstructions as very good, with no
+noticeable difference. Bind this only to the inspected `full_fit6` comparison; the hash-bound record is
+`data/wp6/line_evidence_20261009/s1_joint_interactive_owner_review.json`. It is not real-product acceptance,
+a waiver or a preference for experimental integration. Two new owner-supplied black-colour Prada photos
+may clarify the facet arrangement; audit their geometry against the original views on resume. Keep the
+original evidence and current-method baseline. The pending independent angle/occlusion repair and proof
+gates still apply before full fitting/promotion. The goal remains paused while discussing next steps.
+
 At the owner's request, additional inspected straight-down and hinge-end orthographic images are saved
 under `data/wp6/line_evidence_20261009/s1_joint_edge_views/`. They show the existing experimental synthetic
 mesh and a matching relief-free copy of its base, without depth exaggeration. The source hashes are

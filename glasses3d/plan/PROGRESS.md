@@ -7,6 +7,17 @@ to view. The completed synthetic comparisons were shown; `s1_joint_visuals/view_
 `light_orbit.gif` are ready for review. All launched checks have terminal receipts. Do not resume work
 until the owner asks. WP6 is not complete; WP5 remains owner-closed.
 
+**Owner visual review received (2026-10-09):** “both current method and experiment showed very good
+reconstruction with no noticeable differences between the results.” This applies to the synthetic
+`full_fit6` comparison in the viewer. The asset-bound record is
+`data/wp6/line_evidence_20261009/s1_joint_interactive_owner_review.json`; source/export hashes verified.
+No visual preference, real-product acceptance, experimental-method promotion or gate waiver is implied.
+The owner supplied two clearer black-colour photos of the same Prada model and asked what comes next.
+Recommended next pass on resume: inspect their facet correspondence and compatibility with the original
+photos; repair the independently reproduced occlusion/angle defect and validate it under unchanged gates;
+then use the evidence audit to justify any shape-family change before another full product fit. Keep the
+current method as baseline and the experimental proposal separate. “What next?” has not resumed the goal.
+
 Owner-requested extra depth views (14:25 +03) are in
 `data/wp6/line_evidence_20261009/s1_joint_edge_views/{top_edge,hinge_end}.png`.
 Both inspected orthographic images show the unchanged saved `full_fit6` experimental mesh beside a
