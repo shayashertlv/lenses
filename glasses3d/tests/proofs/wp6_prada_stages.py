@@ -302,7 +302,7 @@ def stage_p3(pf, spec) -> dict:
                                     {"op": "export", "path": str(glb)},
                                     {"op": "save_copy", "path": str(out / "prada_tool_test_faceted.blend")}], "p3")
     original_export, ft, check, exported = st[:4]
-    res = {"export_validation_version": 2,
+    res = {"export_validation_version": 3,
            "tool": {k: ft.get(k) for k in ("status", "code", "message", "warnings", "budget", "geometry", "facets",
                                            "creases", "thickness")},
            "sides": ft.get("sides"), "check_relief": check,
@@ -315,6 +315,8 @@ def stage_p3(pf, spec) -> dict:
         from glasses3d.tests.proofs.wp6_p0_instrument import grade_glb
         g = grade_glb(glb, hinge_z=spec["hinge"]["z_mm"], zone_end=spec["zone_end_d"], outline=spec["outline"],
                       reference_glb=reference,
+                      decal_names=sorted({d["name"] for s in (ft.get("sides") or {}).values()
+                                          for d in s.get("decals", [])}),
                       facet_polys={l: [spec["nodes"][n][:2] for n in (f["poly"] if isinstance(f, dict) else f)]
                                    for l, f in spec["facets"].items()})
         res["instrument"] = {"pass": g["pass"], "failed": {s: {k: v for k, v in t["checks"].items() if not v["pass"]}
@@ -592,7 +594,7 @@ def run_rest(pf, job, fits_d, start, gp, stages, args, p2_done: dict | None = No
         if not p3.get("pass"):
             return pf.stop("STOP-T", "P3 build on the scene copy failed", p3)
     if "gates" in stages:
-        if p3 is not None and (p3.get("export_validation_version") != 2 or not p3.get("pass")
+        if p3 is not None and (p3.get("export_validation_version") != 3 or not p3.get("pass")
                                or not p3.get("instrument", {}).get("pass")):
             return pf.stop("STOP-T", "P3 export validation is failed or incomplete", p3)
         gt = pf.stage("GATES", lambda: stage_gates(pf, job, fits_d, fo, p2, guides, p3))

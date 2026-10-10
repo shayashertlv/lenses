@@ -27,7 +27,7 @@ def test_p3_keeps_independent_export_failures(tmp_path, monkeypatch, failure):
                                 else 'exported'})
             elif step['op'] == 'faceted_temple':
                 applied = True
-                results.append({'status': 'ok', 'warnings': [], 'sides': {}})
+                results.append({'status': 'ok', 'warnings': [], 'sides': {'+x': {'decals': [{'name': 'foil'}]}}})
             else:
                 results.append({})
         return results
@@ -35,6 +35,7 @@ def test_p3_keeps_independent_export_failures(tmp_path, monkeypatch, failure):
     def grade(path, **kwargs):
         captured['graded'] = str(path)
         captured['reference_used'] = str(kwargs.get('reference_glb'))
+        captured['decal_names'] = kwargs.get('decal_names')
         return {'pass': failure not in ('normals', 'decals'),
                 'temples': {'1': {'checks': {'facet_corner_normals': {'pass': failure != 'normals'}}}},
                 'checks': {'decals': {'pass': failure != 'decals'}}}
@@ -47,6 +48,7 @@ def test_p3_keeps_independent_export_failures(tmp_path, monkeypatch, failure):
     if failure != 'reference_export':
         assert captured['reference_used'] == captured['reference']
         assert captured['graded'] != captured['reference']
+        assert captured['decal_names'] == ['foil']
         assert result['instrument']['global']['decals']['pass'] is (failure != 'decals')
     else:
         assert 'graded' not in captured
@@ -54,7 +56,8 @@ def test_p3_keeps_independent_export_failures(tmp_path, monkeypatch, failure):
 
 @pytest.mark.parametrize('cached', [
     {'pass': True},  # historical record omitted reference coverage
-    {'pass': False, 'export_validation_version': 2, 'instrument': {'pass': False}},
+    {'pass': True, 'export_validation_version': 2, 'instrument': {'pass': True}},
+    {'pass': False, 'export_validation_version': 3, 'instrument': {'pass': False}},
 ])
 def test_resumed_gate_run_cannot_bypass_failed_or_incomplete_p3(tmp_path, monkeypatch, cached):
     from glasses3d.tests.test_temple_proof_completion import _Proof

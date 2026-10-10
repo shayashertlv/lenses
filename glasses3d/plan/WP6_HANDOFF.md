@@ -1,5 +1,39 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**COMPARISON READY; PAUSE FOR OWNER REVIEW — 2026-10-10.**
+The authorized steps1–6 are complete as an investigation, not a WP6 pass.
+Open **http://127.0.0.1:57019/** (serverPID35284); evidence is sealed in
+`data/wp6/preferred_goal_20261010/review_checkpoint.json`. All five native models,
+shared controls, both black references, six beige-photo sheets, every failed gate,
+R1 explanation and decal conflict are reviewable. Browser QA and image exports pass,
+including narrow stacked layout; no console errors. The preferred source remains
+cfc11127...; all178 prior artifacts are unchanged. Pause the active goal now as
+requested and wait for owner feedback. No next fit or acceptance is authorized by
+this checkpoint. Preserve the unstaged owner session-prompt edit.
+
+Full nine-worker photo run PID39220 completed15:30:57–16:16:24 +03,exit0.
+Candidate fails G1/G2/G4/R1/R2/R3/R4; preferred additionally fails G3; both passG5/V.
+Preferred/candidate/slab/delivered transfer:.671339790/.839863788/.846459961/
+.556717676mm, binding limit.056717676mm. Photo fitting flattens C relief4.003996→
+1.979685110mm; R1 .693583444→.942731816. S2 passes; STOP-C, failedP2 and retained
+STOP-I remain. Both fit-12 synthetic starts still fail angle; perturbed also fails outline.
+
+A final native audit found four skipped gold-text decals after vertex splitting.
+The general checker now matches verified triangle corners, grades every declared
+decal and fails incomplete/unmatched correspondence. Eight independent controls
+fail before; all30 focused tests pass after. P3 version3 refuses cached version2
+apparent passes. Fresh native integration PID39896,16:25:29–16:26:40,exit0:
+all12 original fixtures/refusals andP1 pass; candidate/preferred complete exports fail.
+Candidate's missed gold text moves1.048947–1.172623mm >1mm; its earlier P3 pass was
+false and is retained as evidence. Both recovery exports and slab also fail decals.
+The immutable original fits are linked through archived runtime bytes and explicit
+`pre_decal_coverage_repair/transition.json`; current authoritative native results are
+`photo_proof_coverage_checked/proof.json`. Fitter stays fit-12; frozen limits unchanged.
+Black checks finished all24 cases PID50404,16:25:57–16:26:48,exit0,nine workers,
+actual AboveNormal/BLAS1/EcoQoS opt-out. No healthy fitting job remains active.
+Zero paid calls/no push; WP5 remains closed. Details and receipts are in PROGRESS.
+Older active/running/next-action entries below are historical and superseded.
+
 **ACTIVE OWNER GOAL — 2026-10-10.** Complete all six proposed steps and pause the
 goal when the synchronized user comparison is ready. Earlier deferred-run pauses
 are superseded. Preserve the preferred source and all frozen gates; no paid calls
@@ -22,7 +56,7 @@ four-round cap, final front bounds clear, all sources unchanged. Retain the
 earlier fit-11 shallow pass as evidence of sensitivity; no replacement S1.
 Core/proof repairs and tests are committed **f0205a3**.
 
-**Now running PID39220**,started15:30:57 +03,`photo_proof_run/`,nine workers,
+**Historical running note (completed above): PID39220**,started15:30:57 +03,`photo_proof_run/`,nine workers,
 actual AboveNormal/BLAS1/EcoQoS opt-out. `photo_proof.py` performs the full preferred
 family and fixed-preferred diagnostics with independent slab and own cameras.
 Keep its snapshotted sources unchanged. Its current-outline preflight builds;

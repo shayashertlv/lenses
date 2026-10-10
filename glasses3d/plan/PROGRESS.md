@@ -2,7 +2,58 @@
 
 ## Active resume — WP6 (2026-10-10)
 
-**ACTIVE OWNER GOAL — complete the six-step investigation and pause for comparison.**
+**COMPARISON READY — owner-requested goal pause, 2026-10-10.**
+The six-step investigation is complete as a review deliverable; **WP6 still fails**.
+Open **http://127.0.0.1:57019/**, loopback server PID35284. Five native temple meshes
+share orbit, view and light: unchanged preferred, six-photo reconstruction,
+independently fitted slab, and both known-shape recoveries. Both black references
+and all six beige views are included. Browser QA passes, including actual drag,
+materials/highlights/light, image export and 420px stacked layout; no console errors.
+The sealed `data/wp6/preferred_goal_20261010/review_checkpoint.json` records the
+completed receipts, source transition, failed gates, screenshots and unchanged
+prior178 artifacts. Pause the goal for the owner now; do not start another fit.
+The smoothing experiment remains unselected; the preferred source is still
+cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce.
+
+Full photo diagnostic completed PID39220,15:30:57–16:16:24 +03,exit0,one nine-worker
+pool. Candidate fails G1/G2/G4/R1/R2/R3/R4; preferred additionally fails G3.
+G5/V pass both. Preferred/candidate/slab/delivered transfer is
+.671339790326/.839863788363/.846459960824/.556717676040mm; the frozen comparator
+margin makes the binding limit .056717676040mm. Candidate C relief is1.979685110mm
+versus preferred4.003996mm; candidate R1 .942731816 versus preferred .693583444.
+Candidate/slab reach four rounds with front bounds active .375/.266mm.
+S2 passes; S3 fires STOP-C. Tracing A .530487416mm still fails .5mm.
+Historical S1/STOP-I and every frozen R1/R3 requirement remain binding.
+
+Final audit found a second genuine P3 defect: four gold-text decals were silently
+skipped when normal splitting changed the exported vertex count. Ordered triangle
+corners retain their connectivity, so the independent checker now matches them
+across split/reindexed vertices, requires every declared decal, and refuses missing,
+ambiguous, unmatched or unmeasurable cases. Eight independent controls fail before;
+all30 focused coverage/proof/cache tests pass after. P3 validation is version3;
+cached version2 apparent passes are refused. Fresh P0/P1 and candidate/preferred
+P3 completed PID39896,16:25:29–16:26:40,exit0. All12 original fixtures/refusals and
+P1 pass; preferred still fails decals. Complete candidate coverage finds all four
+gold text movements1.048947–1.172623mm, failing1mm; both ribbons pass at.9618–.9619mm.
+Thus **the earlier candidate P3 pass was false**. Both complete native exports fail.
+Recovery exports were independently regraded for all six decals; they and slab fail.
+
+Original expensive fit reports are untouched. Before edits, both changed proof
+runtime files were archived and the completed run's full hashes verified.
+`pre_decal_coverage_repair/transition.json` binds old bytes to the repaired runtime;
+`photo_proof_coverage_checked/proof.json` explicitly preserves historical photo
+metrics and replaces only native checks/P0/P1. Fitter remains fit-12; gates unchanged.
+Both black photos completed all24 predeclared checks PID50404,16:25:57–16:26:48,
+exit0,nine workers,BLAS1/EcoQoS opt-out/actual AboveNormal. Displayed before-basis/L60
+whole contours improve preferred→candidate6.0832→3.8927px(side),5.3991→3.5579px(oblique);
+rear-arm errors5.501964→2.785908 /6.188594→6.106300px. These camera checks do not prove depth.
+
+All artifacts remain ignored; no paid calls, push, public integration or WP5 reopening.
+The user's separate WP6_SESSION_PROMPT.md edit is preserved at SHA f36c003d...4f87.
+Next action after the review pause depends on the owner's response; no acceptance
+or gate waiver is inferred. Earlier investigation notes below are historical.
+
+**OWNER GOAL SCOPE — complete the six-step investigation and pause for comparison.**
 The owner authorizes preserving the preferred shape, diagnosing/repairing instruments,
 explaining R1, testing preferred-shape reconstruction, completing photo/export checks,
 and preparing the synchronized comparison. Pause the goal when that comparison is
@@ -70,7 +121,7 @@ A fresh trace on the preferred outline builds successfully (PID37328,15:24:11–
 exit0); P2 corner A still fails .530487416 > .5mm at those saved cameras. The full
 driver already computes its own fresh trace; no band or geometry workaround.
 
-**Now running:** full preferred-family six-photo diagnostic, actual **PID39220**,
+**Historical running note (completed above):** full preferred-family six-photo diagnostic, actual **PID39220**,
 started **15:30:57 +03**, `photo_proof_run/`, nine workers sized from fresh free
 commit (15,868,780KB), BLAS1/EcoQoS opt-out/actual AboveNormal. Output `photo_proof/`.
 It uses own camera fits, an independent slab, S2/S3, complete native P3 and all

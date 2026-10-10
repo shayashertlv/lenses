@@ -265,7 +265,8 @@ def grade_temple(rec, side, hinge_z, zone_end, outline=None, analytic_dihedrals=
 
 
 def grade_glb(glb_path, *, hinge_z: float, zone_end: float, outline: dict | None = None,
-              reference_glb=None, analytic_dihedrals=None, facet_polys: dict | None = None) -> dict:
+              reference_glb=None, analytic_dihedrals=None, facet_polys: dict | None = None,
+              decal_names: list[str] | None = None) -> dict:
     g = glbmod.load(glb_path)
     tp = temples(g)
     out = {"glb": str(glb_path), "temples": {}, "checks": {}}
@@ -284,7 +285,7 @@ def grade_glb(glb_path, *, hinge_z: float, zone_end: float, outline: dict | None
             worst = float(max(d1.max(), d2.max()))
             out["checks"]["mirror_exact"] = {"pass": worst <= F32_MM, "max_mm": worst}
     if reference_glb is not None:
-        out["checks"]["decals"] = _decals(g, glbmod.load(reference_glb), out)
+        out["checks"]["decals"] = _decals(g, glbmod.load(reference_glb), out, decal_names=decal_names)
     for s, t in out["temples"].items():
         for k in [k for k in t if k.startswith("_")]:
             del t[k]
@@ -294,27 +295,62 @@ def grade_glb(glb_path, *, hinge_z: float, zone_end: float, outline: dict | None
     return out
 
 
-def _decals(g, gref, out) -> dict:
-    """Decal nodes = thin non-temple-body parts within 1.5 mm of a temple, matched by name to the reference GLB."""
+def _corner_connectivity(W, T):
+    """Ordered triangle connectivity, independent of normal/UV vertex splitting.
+
+    Use exact exported position equality only. A changed or reordered topology
+    that cannot establish this correspondence is unmeasurable, never omitted.
+    """
+    _, ids = np.unique(W, axis=0, return_inverse=True)
+    seen, result = {}, []
+    for vertex in ids[T].ravel():
+        vertex = int(vertex)
+        if vertex not in seen:
+            seen[vertex] = len(seen)
+        result.append(seen[vertex])
+    return np.asarray(result)
+
+
+def _decals(g, gref, out, *, decal_names=None) -> dict:
+    """Grade every declared decal; otherwise use the historical moved-part heuristic.
+
+    Normal splitting can change the GLB's vertex count without changing any
+    triangles. Compare corresponding triangle corners after checking shared
+    connectivity. Never assume exported vertex indices are stable.
+    """
     new, ref = _nodes(g), _nodes(gref)
+    by_name_new = {r["name"]: r for r in new.values()}
     by_name_ref = {r["name"]: r for r in ref.values()}
-    res = {"decals": [], "pass": True}
-    for ni, r in new.items():
-        if r["role"] != "temple":
+    requested = sorted(set(decal_names)) if decal_names is not None else []
+    if decal_names is None:
+        for r in new.values():
+            W = r["W"]
+            ext = np.ptp(W, axis=0)
+            if r["role"] != "temple" or (float(ext.min()) > 0.3 and float(ext[2]) > 60):
+                continue
+            rr = by_name_ref.get(r["name"])
+            if rr is not None and np.array_equal(rr["W"], W):
+                continue
+            requested.append(r["name"])
+    res = {"decals": [], "required_names": requested, "pass": True}
+    def fail(name, reason):
+        res["decals"].append({"name": name, "pass": False, "reason": reason})
+        res["pass"] = False
+    for name in requested:
+        if sum(r["name"] == name for r in new.values()) != 1 or sum(r["name"] == name for r in ref.values()) != 1:
+            fail(name, "missing or ambiguous source/export node")
             continue
+        r, rr = by_name_new[name], by_name_ref[name]
         W = r["W"]
-        ext = W.max(0) - W.min(0)
-        if float(ext.min()) > 0.3 and float(W[:, 2].max() - W[:, 2].min()) > 60:
-            continue                                                   # a temple body
-        rr = by_name_ref.get(r["name"])
-        if rr is None or rr["W"].shape != W.shape:
+        if (r["T"].shape != rr["T"].shape or not len(r["T"])
+                or not np.array_equal(_corner_connectivity(W, r["T"]), _corner_connectivity(rr["W"], rr["T"]))):
+            fail(name, "triangle-corner correspondence is not established")
             continue
-        move = float(np.max(np.linalg.norm(W - rr["W"], axis=1)))
-        if move == 0.0:
-            continue
+        move = float(np.max(np.linalg.norm(W[r["T"]] - rr["W"][rr["T"]], axis=2)))
         side = "+x" if W[:, 0].mean() > 0 else "-x"
         t = out["temples"].get(side)
         if t is None:
+            fail(name, "missing temple surface")
             continue
         Vw, Tw, regions, region_of = t["_Vw"], t["_Tw"], t["_regions"], t["_region_of"]
         big = {f["id"]: f for f in t["facets"]}
@@ -332,9 +368,12 @@ def _decals(g, gref, out) -> dict:
             if best is not None:
                 dist.append(best[1])
                 regs.add(best[0])
-        ok = move <= DECAL_MOVE_MM and dist and max(abs(d) for d in dist) <= DECAL_LIFT_MM + F32_MM and len(regs) == 1
+        ok = (move <= DECAL_MOVE_MM and len(dist) == len(W) and dist
+              and max(abs(d) for d in dist) <= DECAL_LIFT_MM + F32_MM and len(regs) == 1)
         res["decals"].append({"name": r["name"], "max_move_mm": move,
                               "max_plane_distance_mm": max(abs(d) for d in dist) if dist else None,
+                              "unmatched_vertices": len(W) - len(dist),
+                              "correspondence": "ordered triangle corners with verified shared connectivity",
                               "regions": sorted(regs), "pass": bool(ok)})
         res["pass"] &= bool(ok)
     return res
