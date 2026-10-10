@@ -16,6 +16,7 @@ from glasses3d.agent.loop import RunSettings, run_astra
 from glasses3d.agent import approvals as A
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire
 from glasses3d.agent.replay import ScriptedOpenAI, tool_call, message
+from glasses3d.agent.session_inputs import image_identity
 from glasses3d.g3d_host.fitmesh import load_fit_mesh
 
 
@@ -55,17 +56,17 @@ def rehearse(root):
                  {"pixel":[100,200],"chart_mm":[0,-10]}]),
              tc("lab_candidate",parent_revision=0,nodes=nodes,facets=facets,evidence=[f"{photo}:2:control"],
                 note="Independent synthetic four-facet control; not a reconstruction"),
-             tc("lab_render",views=["side","oblique"],passes=["clay"]),
+             tc("lab_render",views=["side","oblique","temple-side","temple-grazing","temple-top"],passes=["clay"]),
              lambda: tool_call("lab_pick",dict(render_id=list(lab.state["renders"])[-1],view="side",points=[[384,384]])),
              lambda: tool_call("lab_apply",dict(revision=1,checkpoint=lab.s.head["id"])),
-             tc("lab_render",views=["side","oblique"],passes=["clay","normal"]),
+             tc("lab_render",views=["side","oblique","temple-side","temple-grazing","temple-top"],passes=["clay","normal"]),
              tc("lab_depth",parent_revision=1,changes=[{"node":"M","relief_mm":2.5}],rises=[],note="Absolute depth control"),
              tc("lab_depth",parent_revision=2,changes=[{"node":"M","relief_mm":-20}],rises=[],note="Expected too-thin refusal"),
              lambda: tool_call("lab_apply",dict(revision=2,checkpoint=lab.s.head["id"])),
              tc("lab_render",views=["full","side","oblique","other-side","top","end"],passes=["native","clay"]),
              lambda: tool_call("lab_export",dict(checkpoint=lab.s.head["id"])),
              lambda: tool_call("lab_restore",dict(checkpoint=lab.state["start_checkpoint"],reason="Verify untouched original restoration")),
-             tc("lab_render",views=["full","side"],passes=["clay"]),
+             tc("lab_render",views=["full","side","temple-side","temple-grazing","temple-top"],passes=["clay"]),
              lambda: message("OFFLINE SCRIPT COMPLETE. This was not an Astra reasoning run or a product result.")]
     transport = ScriptedOpenAI([])
     def handler(request):
@@ -102,12 +103,17 @@ def rehearse(root):
             b_tri = before.V[before.F[np.isin(before.part,b_ids)]]
             a_tri = after.V[after.F[np.isin(after.part,a_ids)]]
             untouched[name] = bool(np.array_equal(a_tri,b_tri))
-    first_manifest = read(list(lab.state["renders"].values())[0]["manifest"])
+    prepared = read(root / "prepared.json")
+    initial_cameras = {}
+    for group in (prepared["renders"], prepared["closeups"]):
+        rec = lab.state["renders"][group["render_id"]]
+        assert rec["checkpoint"] == lab.state["start_checkpoint"]
+        initial_cameras.update(read(rec["manifest"])["views"])
     fixed = True
     for rec in lab.state["renders"].values():
         m = read(rec["manifest"])
         for name,row in m["views"].items():
-            fixed &= row["blender"] == first_manifest["views"][name]["blender"]
+            fixed &= row["blender"] == initial_cameras[name]["blender"]
     lab.start()
     try:
         fp_before = lab.s.fingerprint()
@@ -117,6 +123,9 @@ def rehearse(root):
                           and lab.s.fingerprint() == fp_before
     finally:
         lab.close()
+    first_content = [x for item in transport.creates[0]["input"] for x in item.get("content",[]) if isinstance(x,dict)]
+    image_hashes = [image_identity(x["image_url"])[0] for x in first_content if x.get("type") == "input_image"]
+    first_text = "\n".join(x.get("text", "") for x in first_content if x.get("type") == "input_text")
     checks = {
         "completed": result["status"] == "completed", "all_scripted_replies": len(transport.creates) == len(steps),
         "missing_approval_refused_before_network": missing_approval_refused and not blocked_network.attempts and not blocked_transport.constructions,
@@ -133,8 +142,12 @@ def rehearse(root):
         "fixed_native_cameras": bool(fixed),
         "native_failed_build_rolled_back": native_rollback,
         "native_path_spec_refused": path_refusal["status"] == "refused",
-        "all_eight_photos_in_first_request": sum(x.get("type")=="input_image" for item in transport.creates[0]["input"]
-                                                 for x in item.get("content",[]) if isinstance(x,dict)) == 8,
+        "six_beige_targets_only": len(lab.manifest["photos"]) == 6 and
+                                  all(p["colour"] == "beige" for p in lab.manifest["photos"]),
+        "exact_target_and_start_images_in_first_request": image_hashes ==
+            [sha(root / "inputs" / p["path"]) for p in lab.manifest["photos"] + lab.manifest["model_views"]],
+        "starting_images_labelled_separately": len(lab.manifest["model_views"]) == 4 and
+            first_text.count("TARGET PHOTO ") == 6 and first_text.count("STARTING MODEL ") == 4,
         "image_tool_output_in_next_request": any(b.get("type")=="input_image" for item in transport.creates[1]["input"]
                                                   if item.get("type")=="function_call_output"
                                                   for b in item.get("output",[]) if isinstance(b,dict)),

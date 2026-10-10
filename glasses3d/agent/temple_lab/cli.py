@@ -20,9 +20,10 @@ from .tools import registry
 REPO = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 SOURCE_SCENE = REPO / "automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend"
-BRIEF = ("Prada model with flat temples: isolated visual editing tool experiment. Interpret all eight real photos, "
+BRIEF = ("Prada model with flat temples: isolated visual editing tool experiment. Interpret all six beige product photos, "
          "mark the physical evidence, propose your own facet layout, then choose and revise its depth. "
-         "The preserved original model is your starting point. No preferred solution is supplied. "
+         "Separately labelled starting-model renders show the preserved original's flat temples. "
+         "These renders describe the model to edit; the beige photos describe the target. No preferred solution is supplied. "
          "The output is an experiment for owner review, not an accepted model.\n")
 
 
@@ -42,6 +43,7 @@ def prepare(root):
     assets = []
     def copy(src, rel):
         dst = inputs / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
         digest = sha(src)
         if sha(dst) != digest:
@@ -58,9 +60,6 @@ def prepare(root):
             raise ValueError("reference manifest mismatch")
         copy(src, f"images/{name}")
         photos.append({"id": Path(name).stem, "path": f"images/{name}", "view": row["label"], "colour": "beige"})
-    for name, view in (("black-side.png", "side"), ("black-oblique.png", "angled")):
-        copy(REPO / "glasses3d/data/wp6/new_reference_resume_20261009/references" / name, f"images/{name}")
-        photos.append({"id": Path(name).stem, "path": f"images/{name}", "view": view, "colour": "black"})
     (inputs / "brief.txt").write_text(BRIEF, encoding="utf-8")
     copy(HERE / "instructions.txt", "instructions.txt")
     write_json_atomic(inputs / "lab.json", {"schema": "g3d.temple_lab/1", "assets": assets, "photos": photos})
@@ -69,29 +68,54 @@ def prepare(root):
     lab = Lab(root)
     try:
         lab.start()
-        initial = lab.inspect()
         renders = lab.render(["full", "side", "oblique", "other-side", "top", "end"], ["native", "clay"])
         if renders["status"] != "ok":
             raise ValueError(f"initial renders failed: {renders}")
+        closeups = lab.render(["temple-side", "temple-grazing", "temple-top"], ["native", "clay"])
+        if closeups["status"] != "ok":
+            raise ValueError(f"initial temple close-ups failed: {closeups}")
+        model_views = []
+        for group, view, ps in ((renders, "full", "native"),
+                                *((closeups, v, "clay") for v in ("temple-side", "temple-grazing", "temple-top"))):
+            source = next(lab.state["images"][iid] for iid in group["image_ids"]
+                          if lab.state["images"][iid]["view"] == view and lab.state["images"][iid]["pass_name"] == ps)
+            iid = f"start-{view}"
+            rel = f"model/{iid}.png"
+            copy(root / source["path"], rel)
+            row = {"id": iid, "path": rel, "view": view, "pass_name": ps,
+                   "checkpoint": source["checkpoint"], "render_id": source["render_id"]}
+            lab.register_image(iid, inputs / rel, kind="render",
+                               **{k: row[k] for k in ("view", "pass_name", "checkpoint", "render_id")})
+            model_views.append(row)
+        lab.manifest.update(assets=assets, model_views=model_views)
+        write_json_atomic(inputs / "lab.json", lab.manifest)
+        lab.save()
+        initial = lab.inspect()
         tools = registry(lab)
         write_json_atomic(root / "tools.json", [{"name": t.name, "description": t.description,
                                                  "parameters": t.params_json_schema} for t in tools])
         write_json_atomic(root / "prepared.json", {"status": "prepared", "initial": initial, "renders": renders,
+                                                   "closeups": closeups, "model_views": model_views,
                                                    "exit_checkpoint": lab.exit_checkpoint(), "paid_calls": 0})
         if not lab.exit_checkpoint()["verified"]:
             raise ValueError("initial checkpoint verification failed")
     finally:
         lab.close()
-    return {"status": "prepared", "path": str(root), "photos": len(photos), "paid_calls": 0}
+    return {"status": "prepared", "path": str(root), "photos": len(photos),
+            "starting_model_images": len(model_views), "paid_calls": 0}
 
 
 def references(lab):
     out = []
-    for i, row in enumerate(lab.manifest["photos"], 1):
+    rows = [(row, f"TARGET PHOTO {row['id']}: {row['colour']} {row['view']} ({i}/{len(lab.manifest['photos'])})")
+            for i, row in enumerate(lab.manifest["photos"], 1)]
+    rows += [(row, f"STARTING MODEL {row['id']}: original flat temples, {row['pass_name']} render at {row['checkpoint']}")
+             for row in lab.manifest.get("model_views", [])]
+    for row, label in rows:
         p = lab.root / "inputs" / row["path"]
         with Image.open(p) as im:
             size = im.size
-        out.append(ReferenceInput(label=f"{row['id']}: {row['colour']} {row['view']} ({i}/8)", path=row["path"],
+        out.append(ReferenceInput(label=label, path=row["path"],
                                    image_url=data_url(p), detail="high", view=row["view"], size_px=size))
     return out
 

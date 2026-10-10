@@ -1,6 +1,30 @@
 # WP6 handoff — resume diagnosis and repairs
 
-**LATEST: ISOLATED ASTRA TEST PACKAGE READY,2026-10-10.** The owner requested a
+**LATEST: BEIGE-ONLY ASTRA PACKAGE WITH FLATNESS VIEWS,2026-10-10.**
+The owner's latest request removes black references and adds views exposing the
+original Prada model's flat temples. Current clean package:
+`data/wp6/astra_temple_lab_20261010/ready-beige-flatness-v2/`. Its first message has
+six beige TARGET PHOTO images and four STARTING MODEL images (full native and
+side/grazing/top-edge clay close-ups). All are byte-bound inputs. The extra fixed
+`temple-side`, `temple-grazing`, `temple-top` views remain available after edits.
+Original geometry is unchanged at c0000; no marks, candidates, events or approval.
+
+Updated `starting-package.png`, `flat-temples.png` and `readiness.json` are in the
+same evidence root. Both sheets were visually reviewed. Black photos are excluded
+from active inputs and payload; old packages/source photos remain historical.
+Offline proof `beige-flatness-rehearsal/rehearsal.json`:20 scripted SDK replies,
+all20 checks pass,PID10664,18:39:11–18:39:49 +03,exit0,zero external requests.
+15 lab tests pass again. Checks cover all10 exact initial images/separate labels,
+nine stable cameras, native edit/restore/export and unchanged unrelated geometry.
+Read-back still matches the2.5mm control within .000006mm on both sides.
+
+Next action is owner review and explicit approval/settings for the isolated paid
+test, then the README's guarded request/run against this new clean package.
+Proposal-only30-reply forecast is $3.42 ($3.12–$4.06), $1.92 reservation tail,
+using the frozen tariff/corpus. No paid call or push. All WP6 failures/STOP-I/R1/R3,
+preferred source, WP5 closeout and the owner's session-prompt edit are preserved.
+
+**Earlier readiness snapshot (eight-photo package; superseded above).** The owner requested a
 detailed plan and continuous offline implementation up to testing readiness,
 clarifying that the input is **the original Prada with flat temples**. This
 supersedes the historical comparison-pause entries below. The goal was created

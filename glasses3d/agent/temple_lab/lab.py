@@ -107,6 +107,10 @@ class Lab(SceneHooks):
             lo, hi = np.asarray(b["lo"]), np.asarray(b["hi"])
             target = ((lo+hi)/2).tolist(); width = float(np.linalg.norm(hi-lo)*1.1)
             temple_center = ((v.min(0)+v.max(0))/2).tolist()
+            # Frame the measured front zone without altering, isolating or flattening the mesh.
+            front = v[v[:, 2] >= spec["hinge"]["z_mm"] - diag["front_zone_mm"]]
+            front_center = ((front.min(0)+front.max(0))/2).tolist()
+            front_width = float(np.linalg.norm(front.max(0)-front.min(0))*1.2)
             self.state["views"] = {
                 "full": dict(name="full", yaw=35, pitch=20, target_mm=target, width_mm=width),
                 "side": dict(name="side", yaw=90, pitch=0, target_mm=temple_center, width_mm=diag["length_mm"]*1.15),
@@ -114,6 +118,9 @@ class Lab(SceneHooks):
                 "other-side": dict(name="other-side", yaw=-90, pitch=0, target_mm=[-temple_center[0], *temple_center[1:]], width_mm=diag["length_mm"]*1.15),
                 "top": dict(name="top", yaw=0, pitch=90, target_mm=target, width_mm=width),
                 "end": dict(name="end", yaw=180, pitch=0, target_mm=target, width_mm=width),
+                "temple-side": dict(name="temple-side", yaw=90, pitch=0, target_mm=front_center, width_mm=front_width),
+                "temple-grazing": dict(name="temple-grazing", yaw=155, pitch=12, target_mm=front_center, width_mm=front_width),
+                "temple-top": dict(name="temple-top", yaw=90, pitch=80, target_mm=front_center, width_mm=front_width),
             }
             self.save()
         return result
@@ -184,7 +191,8 @@ class Lab(SceneHooks):
                 "current_candidate": self.state["candidates"][-1] if self.state["candidates"] else None,
                 "applied_revision": self.state["applied"].get(self.s.head["fingerprint"]),
                 "template_measurements": self.state["template_measurements"], "image_ids": ["blank-chart"],
-                "photos": self.manifest["photos"], "marks": self.state["marks"],
+                "photos": self.manifest["photos"], "starting_model_images": self.manifest.get("model_views", []),
+                "marks": self.state["marks"],
                 "available_views": list(self.state["views"]), "checkpoints": self.s.list_checkpoints(),
                 "quality_status": "Experimental tool test. WP6 remains failed; no thresholds are changed."}
 

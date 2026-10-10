@@ -8,7 +8,7 @@ STOP-I/R1/R3 evidence remain binding. WP5 stays closed.
 
 ## Question the test answers
 
-Can `gpt-6-astra`, given the original scene, all six beige and both black real
+Can `gpt-6-astra`, given the original scene and all six beige real
 photos, use visual feedback to propose a facet arrangement, correct its markings,
 and choose useful depth? We do not know yet. An offline scripted rehearsal proves
 the tools and image transport work; it cannot answer that visual reasoning question.
@@ -22,10 +22,14 @@ not a measurement of the photographed object's depth.
 ## Starting package and isolation
 
 Prepare a new ignored directory with a byte-verified copy of the originally
-delivered Prada `.blend`, eight original photos, a manifest and the exact prompt
+delivered Prada `.blend`, six beige photos, a manifest and the exact prompt
 and tool schemas. Do not read the preferred spec, guide constants or fitted
 candidate into this package. The starting scene must still be the original flat
-scene when the paid test starts. Rehearsals use separate copies.
+scene when the paid test starts. Rehearsals use separate copies. Per the owner's
+2026-10-10 update, black photos are excluded from the active package. Four separately
+labelled model renders are delivered with the first message: full native and clay
+close-ups from the side, grazing angle and top edge. These show the starting model,
+not the desired product. The original scene geometry is unchanged for every render.
 
 Extract a blank editable profile from cross-sections of the original temple mesh.
 It contains no facet nodes or polygons. This is a measured construction template,
@@ -43,8 +47,8 @@ silently change cameras or lights to improve a comparison.
 
 ## What Astra receives and does
 
-1. Read the brief, all eight original photos, the tool instructions and the
-   initial model views. Both colour variants supply geometry evidence. Differences
+1. Read the brief, all six beige photos, the tool instructions and the
+   initial model views. Only the product photos supply target geometry evidence. Differences
    in illumination, reflections or logos are not automatically geometric edges.
 2. Inspect a full image and request a crop when necessary. Every returned image
    carries its image ID, source dimensions, coordinate transform and revision.
@@ -78,7 +82,8 @@ silently change cameras or lights to improve a comparison.
    temples, side/oblique/top/end and the full product with fixed framing and light.
    Inspect thickness, crease visibility, the smooth rear bend and decals. Compare
    final images to every reference, not just the easiest view. Restore any earlier
-   checkpoint when needed. Final export is labelled an experiment.
+   checkpoint when needed. Reuse the fixed `temple-side`, `temple-grazing` and
+   `temple-top` close-ups to compare relief. Final export is labelled an experiment.
 9. End with selected revision/checkpoint, evidence-backed observations, uncertain
    areas and failures. Do not claim exact dimensions from uncalibrated photos,
    owner approval, WP6 success or a finished production model.
@@ -130,9 +135,10 @@ measured approximation is not exact; neither mapping nor profile edits run the
 photo optimizer. Image IDs, marking revisions, candidate revisions and scene
 checkpoints are separate and returned explicitly.
 
-Clean package `data/wp6/astra_temple_lab_20261010/ready-final/` is untouched c0000 with
-all eight photos, exact schemas, instructions and implementation/input hashes.
-The independent verified-rehearsal proof passes18 checks through20 scripted SDK
+Clean package `data/wp6/astra_temple_lab_20261010/ready-beige-flatness-v2/` is untouched c0000 with
+six beige photos, four labelled starting-model images, exact schemas, instructions
+and implementation/input hashes. The earlier eight-photo package is historical.
+The independent beige-flatness rehearsal proof passes20 checks through20 scripted SDK
 responses and real native scene operations.15 lab unit controls,1 actual-worker
 isolation control and80 existing runner/SDK/approval tests pass. Readiness audit
 verifies that exported relief2.5000052106mm matches requested2.5mm on both sides,

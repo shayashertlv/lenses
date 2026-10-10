@@ -1,7 +1,9 @@
 # Isolated temple editing lab
 
-This opt-in experiment starts with the original flat-temple Prada scene and eight
-real photos. It exposes thirteen bounded, image-bearing tools to `gpt-6-astra`.
+This opt-in experiment starts with the original flat-temple Prada scene, six beige
+product photos and four separately labelled starting-model renders. The owner
+removed the black references on 2026-10-10. It exposes thirteen bounded,
+image-bearing tools to `gpt-6-astra`.
 See [the detailed plan](../../plan/ASTRA_TEMPLE_LAB.md) and
 [the exact agent instructions](instructions.txt).
 
@@ -18,9 +20,14 @@ From the repository root, using `glasses3d/.venv/Scripts/python.exe`:
 -m pytest glasses3d/tests/agent/test_temple_lab.py -q
 ```
 
-The prepared directory contains `inputs/scene.blend` (original bytes), all eight
+The prepared directory contains `inputs/scene.blend` (original bytes), all six beige
 photos, the prompt, source hashes, strict schemas, an untouched initial checkpoint
-and fixed native/clay renders. `prepared.json` describes these assets. No template
+and fixed native/clay renders. Four original model images under `inputs/model/`
+are included in the initial message: full native plus clay close-ups from the side,
+grazing angle and top edge. They are labelled STARTING MODEL, separate from TARGET
+PHOTO. The three extra fixed views (`temple-side`, `temple-grazing`, `temple-top`)
+remain available after edits; at most six views can be rendered per call.
+`prepared.json` describes these assets. No template
 is applied to the starting scene. Use a clean package for the actual test, not the
 rehearsal directory; the launch preflight rejects marked/edited rehearsals and
 implementation drift. Each invocation is fresh; resuming an interrupted paid lab

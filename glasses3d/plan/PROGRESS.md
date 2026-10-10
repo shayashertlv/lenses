@@ -2,7 +2,35 @@
 
 ## Active resume — WP6 (2026-10-10)
 
-**ISOLATED ASTRA TOOL TEST READY — 2026-10-10; no paid call.**
+**LATEST: BEIGE-ONLY REFERENCES + FLAT-TEMPLE VIEWS — 2026-10-10.**
+The owner removed the black model from references and requested angles showing
+the starting model's flatness. The active lab now supplies six beige target photos
+and four separately labelled original-model renders in Astra's first message:
+full native, plus clay front-temple side/grazing/top-edge close-ups. Three new
+fixed views can also be rendered in native/clay/normal after edits. Camera targets
+come from the original measured front-zone bounds; no geometry was changed.
+
+Current clean package: `data/wp6/astra_temple_lab_20261010/ready-beige-flatness-v2/`.
+It has original scene bytes, untouched c0000, zero marks/candidates/events and no
+approval. `starting-package.png` shows the updated inputs; `flat-temples.png`
+shows the three close-up angles in native and clay. Both were visually inspected.
+`readiness.json` is refreshed. The old eight-photo package and sheets are historical;
+black originals remain archived but are absent from active inputs/prompt/payload.
+
+`beige-flatness-rehearsal/rehearsal.json`: PID10664,18:39:11–18:39:49 +03,exit0;
+20 scripted SDK replies and all20 checks pass, including exact image bytes/order,
+separate labels, nine fixed cameras through edits/restoration, and no external
+network attempts.15 lab tests pass again (3.74s). Native read-back remains
+2.5000052106mm for the2.5mm control;20 unrelated object meshes are unchanged.
+No Astra call occurred. Source/preferred/frozen-rule/owner-prompt hashes remain
+unchanged. WP5 stays closed; WP6 quality failures/STOP-I/R1/R3 remain binding.
+
+The refreshed proposal-only30-reply estimate is $3.42 ($3.12–$4.06 growth band),
+with a $1.92 reservation tail, using the frozen repository tariff/corpus. Owner
+effort/turn cap/budget and explicit paid-test approval are still required before
+any paid run. Use the new clean package for that decision; do not use old packages.
+
+**Earlier readiness snapshot (eight-photo package; superseded above).**
 The owner rejected the six-photo reconstruction, proposed letting Astra interpret
 and revise depth visually, and explicitly requested an elaborate plan plus tools
 that mimic automation on **the original Prada model with flat temples**. They

@@ -141,9 +141,10 @@ def registry(lab):
         return await call(lab.apply, revision, checkpoint, ctx.tool_call_id)
 
     @lab_tool
-    async def lab_render(views: list[Literal["full", "side", "oblique", "other-side", "top", "end"]],
+    async def lab_render(views: list[Literal["full", "side", "oblique", "other-side", "top", "end",
+                                           "temple-side", "temple-grazing", "temple-top"]],
                          passes: list[Literal["native", "clay", "normal"]]):
-        """Return actual fixed-camera images of the current scene. Use native and clay; normal helps inspect planes."""
+        """Return fixed-camera scene images. temple-side/grazing/top are close-ups for relief and thickness. Use native/clay; normal helps inspect planes. At most six views per call."""
         return await call(lab.render, views, passes)
 
     @lab_tool
