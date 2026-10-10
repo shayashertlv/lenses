@@ -13,7 +13,30 @@ Known articulated-side regressions prohibit applying it to side views. Keep
 eligibility, STOP-I, R1, all R3 clauses, sealed inputs and WP5 closeout. No paid
 run without estimate/approval, no push; preserve the owner's session-prompt edit.
 
-**Current 10:50 +03:** provisional cases finished; harder coupled floor worsens
+**Current 11:25 +03:** both retained replays finished PID25572,10:50:41–11:24:13,
+exit0. Older floor **.684009720502 mm**; harder **.772316912189 mm**, worse than
+current .760738195495. All16 signs retained (2/5 failures respectively), all
+input hashes unchanged, final front guards clear. Harder reaches the four-round
+cap; no promotion. The full six-photo offline diagnostics are now running,
+actual **PID9304**, started11:24:38, `complete_diagnostics_run/`. It retains
+P0's preferred-mesh failure and every quality stop, and continues later stages
+only as diagnostics. A newly generated proof cannot erase the retained failure.
+Keep sources and the active driver unchanged. After completion, run the prepared
+preferred-shape reconstruction and exact-preferred measurement sequentially;
+then package, browser-check and seal results. Goal active, no intermediate review.
+
+Historical 11:11 +03: final retained replay actual PID25572 is healthy; older
+case finished 11:08 at **.684009720502 mm**, reproducing the provisional result.
+Harder input is running with one 12-worker pool. Sources remain frozen. P0/P1
+completed separately: P1 and all 12 original P0 fixtures/16 refusals pass. The
+extra preferred mesh fails the .1deg corner-normal check at **.106794/.110660deg**.
+Read-only diagnosis finds a **.001507mm-tall** triangle affected by float32
+export rounding; 32 independent analytic triangles reproduce the limitation.
+Neither its geometry nor the gate was changed. `tool_instruments/proof.json`
+binds 132 sources/inputs for strict reuse. All 270 prior review artifacts remain
+unchanged. Continue remaining full-proof/comparison work; no intermediate review.
+
+Historical 10:50 +03: provisional cases finished; harder coupled floor worsens
 **.760738 -> .772317 mm**, even though its depth/angle recovery improves. Keep
 that failure. The directionless port bug is repaired using full point residual
 fallback, with **14 focused tests +52 final independent controls passing**.

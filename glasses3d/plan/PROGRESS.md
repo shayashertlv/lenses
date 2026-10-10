@@ -17,7 +17,53 @@ applying it to side views. Replay both retained S1 cases before any full fit.
 STOP-I, R1, all R3 clauses, WP5 closeout and the owner's separate session-prompt
 edit remain unchanged. No paid calls or push.
 
-**Live work, 10:50 +03.** The provisional two-case replay completed PID18088,
+**Live work, 11:25 +03.** Both final retained replays completed, PID25572,
+10:50:41–11:24:13, exit0. Results exactly reproduce the provisional pair:
+older **.684009720502 mm**, harder **.772316912189 mm** (current harder baseline
+**.760738195495 mm**). Exact-line diagnostics **.053420474717 / .075540714277 mm**.
+All16 signs retained in each: **2 / 5** exceed .7; maxima
+**.729853374378 / .791286630358 mm**. Older converged; harder reaches four-round
+cap. Both final front bounds are clear. Shape/angle recovery numbers below remain
+unchanged. The helper is not a solution to the retained harder floor and is not
+promoted. All input hashes match.
+
+**Now running complete offline diagnostics:** actual Python **PID9304**,
+`proof_resume_20261010/complete_diagnostics_run/`, started **11:24:38 +03**.
+Fresh six-photo delivered fits, P2, S1, candidate/slab fit, S2/S3, P3 and every
+frozen gate; exact source-bound P0/P1 from this same goal are reused. The extra
+preferred-mesh P0 failure is retained as STOP-T. After any quality stop, later
+stages are explicitly diagnostics, not acceptance or a waiver. Retained-case
+failure remains separately binding even if a regenerated S1 improves. Keep
+loaded sources and this driver unchanged until it finishes; one pool only.
+Next, run `reconstruct_preferred.py` (`preferred_reconstruction_run`) and
+`measure_preferred.py` (`preferred_complete_run`) sequentially, then package,
+inspect in the browser and seal the complete comparison. These extra runs are
+not yet launched. No intermediate review; goal remains active.
+
+**Earlier live work, 11:11 +03.** Final retained replay PID25572 remains active in
+`proof_resume_20261010/s1_normal_joint_final_run/`. Older case finished at 11:08:
+floor **.684009720502 mm**, exactly reproducing the provisional result; its
+recovery and front guard pass, termination converged. Harder case started 11:08,
+one 12-worker pool. Keep loaded sources unchanged until both cases finish.
+
+Independent P0/P1 finished, PID13576, 10:54:20–10:55:28, exit0 in
+`tool_instruments_run/`: P1 passes; the original 12 P0 fixtures and 16 refusals
+pass. The extra exact owner-preferred fixture fails only corner normals:
+**.106794080040 / .110659767331 deg**, limit **.1**. Other geometry/export,
+mirroring/reversibility checks pass. Read-only `diagnose_export_normals.py`
+isolates a triangle of area **2.263167e-6 mm2**, altitude **.001507419 mm**;
+exported positions differ by at most **2.336658e-6 mm**, rotating its face
+normal **.129883269 deg** from the planned one. The angle formula already
+normalizes vectors; this is not the suspected unnormalized-dot defect.
+`float32_normal_control.py` reproduces absolute-coordinate quantization alone
+on **32 independent analytic triangles** (7 exceed .1deg); centred-coordinate
+control maximum **3.4533e-7 deg**. This diagnoses a precision limitation, not
+a changed exporter or waived gate. Preserve the exact preferred mesh and the
+failed P0 evidence. P0/P1 cache binds 132 source/input files; queued full proof
+may reuse it only if all hashes still match. All 270 prior sealed artifacts
+and every current source binding verified unchanged at 11:09.
+
+**Earlier live work, 10:50 +03.** The provisional two-case replay completed PID18088,
 10:15:24–10:48:49, exit0. Older input improves **.698285874 -> .684009721 mm**;
 harder input **worsens .760738195 -> .772316912 mm**, despite recovery of zone
 level **.040553542 mm**, r_C **.006780937 mm**, and cited angle **.002573414 deg**.
