@@ -2,6 +2,20 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**Owner preference received — 2026-10-10: "test revision is better."** The owner
+prefers `revised` over `current` in **http://127.0.0.1:63259/**. Use that exact
+distal-arm revision as the baseline for the next offline visual comparison:
+`data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`
+(SHA-256 `cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce`).
+The mesh remains `revised` in that sealed viewer; do not rewrite its labels/assets
+or replace historical controls. Asset-bound preference:
+`data/wp6/pose_arm_resume_20261010/owner_visual_verdict_revised_20261010.json`.
+All 270 checkpoint artifacts verified unchanged. This is a relative visual
+preference, not a statement that the full product is perfect or WP6 is complete.
+The review question is answered; the goal remains paused. No new fit or paid run
+launched. Remaining tip/camera residuals, STOP-I, R1 and all frozen R3 clauses
+remain open; WP5 stays closed. Earlier baseline directions below are historical.
+
 **NEW REVIEW CHECKPOINT — 2026-10-10.** Controllable distal-arm comparison:
 **http://127.0.0.1:63259/**, server PID **39488**. Show it and pause the goal for
 owner review, per the explicit stopping rule. Exact accepted `current` mesh is

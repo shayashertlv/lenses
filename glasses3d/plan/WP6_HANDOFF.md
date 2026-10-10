@@ -1,5 +1,18 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Owner preference received — 2026-10-10: "test revision is better."** Select
+`revised` from **http://127.0.0.1:63259/** as the next offline visual baseline.
+Exact spec: `data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`,
+SHA-256 `cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce`.
+Asset-bound record:
+`data/wp6/pose_arm_resume_20261010/owner_visual_verdict_revised_20261010.json`.
+All 270 sealed checkpoint artifacts verified unchanged. Preserve the original
+accepted mesh and historical controls; the sealed viewer keeps its existing IDs.
+This is relative visual preference, not full-product acceptance or a gate waiver.
+The pending review is answered; goal remains paused. No new fit or paid run.
+WP6's remaining tip/camera residuals and frozen failures stay open; WP5 stays
+closed. This supersedes the older visual-baseline directions below.
+
 **NEW REVIEW CHECKPOINT — 2026-10-10.** Show the controllable comparison at
 **http://127.0.0.1:63259/**, server PID **39488**, and pause the goal for owner
 review as requested. Visual verdict is pending; the older apex acceptance is not
