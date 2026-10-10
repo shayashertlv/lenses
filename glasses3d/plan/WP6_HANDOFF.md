@@ -1,5 +1,46 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**ACTIVE FULL-PROOF GOAL — 2026-10-10.** Latest owner instruction supersedes
+the historical paused checkpoints below: work continuously offline, without
+intermediate visual review, until the complete proof comparison is ready.
+Repair the measurement chain with independent shapes and retained failures;
+resolve the facet-check discrepancy while preserving the selected appearance;
+then run the full proof using a memory-sized local pool. Defer pipeline
+integration until the owner reviews the complete results. New evidence root:
+`data/wp6/proof_resume_20261010/`. Start with the independently validated normal
+camera proposal on non-side views only and replay both retained S1 cases.
+Known articulated-side regressions prohibit applying it to side views. Keep
+eligibility, STOP-I, R1, all R3 clauses, sealed inputs and WP5 closeout. No paid
+run without estimate/approval, no push; preserve the owner's session-prompt edit.
+
+**Current 10:50 +03:** provisional cases finished; harder coupled floor worsens
+**.760738 -> .772317 mm**, even though its depth/angle recovery improves. Keep
+that failure. The directionless port bug is repaired using full point residual
+fallback, with **14 focused tests +52 final independent controls passing**.
+The default fitting callback and frozen rules remain unchanged. Final retained
+coupled replays are now running in `proof_resume_20261010/s1_normal_joint_final_run/`;
+read its receipt for PID. Source-frozen, one12-worker pool, both cases. Afterward,
+run preferred-shape reconstruction, complete diagnostics and exact-preferred
+measurements, then package and verify the full user comparison. These prepared
+drivers are not full results yet. The preferred reconstruction preflight passes
+with all12 lines and an exact504-vertex/faces rebuild. PROGRESS.md has numbers,
+receipts, failed preliminary runs and remaining work. Goal stays active.
+
+Historical 10:27 +03 note: provisional coupled
+S1 replay PID18088 is healthy in `proof_resume_20261010/s1_normal_joint_run/`.
+Do not edit its loaded registration source until it finishes. The camera-only
+repair improves .760738 -> .749785 but still fails .7; all52 independent helper
+checks pass. The new directionless-normal test exposes a provisional port bug:
+it drops those samples. Reuse the existing `normal_or_point_residual` fallback
+after this source-frozen run, then revalidate the final method and both retained
+cases. `normal_registration_v1.py` preserves this provisional source; do not
+promote it. The complete-diagnostics and preferred-mesh measurement drivers are
+prepared but not launched. All quality stops stay binding in their reports.
+The preferred shape rebuilds with **exactly identical 504 vertices and faces**
+from `preferred_inputs/builder_input.json`. R1 independent area agrees to
+.000016888; visible facets coexist with the .693583 plane-band share. The goal
+is active and the full user comparison is not ready; keep working.
+
 **Owner preference received — 2026-10-10: "test revision is better."** Select
 `revised` from **http://127.0.0.1:63259/** as the next offline visual baseline.
 Exact spec: `data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`,

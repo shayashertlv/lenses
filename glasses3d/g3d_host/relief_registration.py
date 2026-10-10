@@ -12,12 +12,36 @@ import numpy as np
 from scipy import ndimage, optimize
 
 from . import cameras as C, raster, relief_rules as RR
+from .relief_normal_residual import normal_or_point_residual
 
 MAX_ROUNDS = 50             # computational cap, reported; never a quality verdict
 LOSS_REL_TOL = 1e-4          # cameras.powell's relative image-loss tolerance
 
 
-def align_view(job, model, key, fit, cam0):
+def contour_normals(mask):
+    """Unit image normals for proposals; one-pixel smoothing of raster stairs."""
+    mask = np.asarray(mask, dtype=float)
+    dx = ndimage.gaussian_filter(mask, 1., order=(0, 1))
+    dy = ndimage.gaussian_filter(mask, 1., order=(1, 0))
+    normal = np.stack([dx, dy], axis=-1)
+    return normal / np.maximum(np.linalg.norm(normal, axis=-1, keepdims=True), 1e-12)
+
+
+def refine_contour_normals(job, model, key, fit, cam0):
+    """Opt-in refinement for non-side views under the existing acceptance test.
+
+    Closest-point matches invent tangential correspondences on an outline. A
+    normal residual permits sliding along it while solving the coupled camera
+    and observable hinges. Side views retain the existing method: their fixed
+    articulation can make a smaller image loss a worse geometric estimate.
+    No true coordinates, crease score, new angle eligibility or gate is read.
+    """
+    if job.kind(key) == 'side':
+        return fit
+    return align_view(job, model, key, fit, cam0, normal_only=True)
+
+
+def align_view(job, model, key, fit, cam0, *, normal_only=False):
     """Return a new fit record; preserve the initial fit and all diagnostic rows.
 
     ``cam0`` is the original refit seed, not the latest camera: bounds must never
@@ -61,9 +85,11 @@ def align_view(job, model, key, fit, cam0):
     base_loss = lv.loss(initial_scene, cam0)
     image_evals += 1
     history = []
+    normal_fallback_samples = 0
     us, vs = raster.pixel_grid(lv.shape, lv.stride, lv.roi)
     pi, pj = np.nonzero(lv.edge)
     photo_uv = np.column_stack([us[pj], vs[pi]])
+    photo_normals = contour_normals(lv.ref >= .5) if normal_only else None
     _, pidx = ndimage.distance_transform_edt(~lv.edge, return_indices=True)
     trunc = max(C.ICP_TRUNC*lv.width*lv.stride, 3.*lv.stride)
     # Same relative image-loss tolerance as cameras.powell's ftol. The cap is
@@ -87,12 +113,21 @@ def align_view(job, model, key, fit, cam0):
         ids = np.concatenate([rendered['face_id'][ri, rj], rendered['face_id'][qi, qj]])
         target = np.concatenate([np.column_stack([us[pidx[1][ri, rj]], vs[pidx[0][ri, rj]]]), photo_uv])
         current = np.concatenate([np.column_stack([us[rj], vs[ri]]), np.column_stack([us[qj], vs[qi]])])
+        if normal_only:
+            model_normals = contour_normals(lv.effective(rendered['mask'], lv.ignored(rendered)))
+            normals = np.concatenate([photo_normals[pidx[0][ri, rj], pidx[1][ri, rj]],
+                                      model_normals[qi, qj]])
         ok = np.isfinite(W).all(1) & (ids >= 0) & (np.linalg.norm(current-target, axis=1) <= trunc)
         if ok.sum() < 16:
             termination = 'insufficient_matches'
             break
         n_forward = int(ok[:len(ri)].sum())
         W, labels, target = W[ok].copy(), tags[ids[ok]], target[ok]
+        if normal_only:
+            normals = normals[ok]
+            # Opposing edges of thin objects can cancel the image gradient.
+            # Preserve their full point error rather than losing observations.
+            normal_fallback_samples += int(np.count_nonzero(np.linalg.norm(normals, axis=1) <= .99))
         for side in (1, -1):
             selected = labels == side
             W[selected] = RV.rot_about_hinge(W[selected], side, -th.get(side, 0.), job.hinge['axis_xz_mm'])
@@ -113,6 +148,8 @@ def align_view(job, model, key, fit, cam0):
             uv = raster._project_norm(job.frame.to_norm(points), cm)
             if uv is None:
                 return np.full(2*len(points), 1e3)
+            if normal_only:
+                return (normal_or_point_residual(uv-target, normals)*weight).ravel()
             return ((uv-target)*weight).ravel()
 
         result = optimize.least_squares(residual, x, bounds=(lo, hi), loss='soft_l1',
@@ -146,6 +183,8 @@ def align_view(job, model, key, fit, cam0):
     kept = bool(loss < initial_loss and guard_measured and front_final <= front_base + RR.FRONT_DEGRADE_MAX_MM)
     elapsed = time.perf_counter()-started
     record = {'initial_loss': initial_loss, 'loss': loss, 'history': history,
+              'proposal_metric': 'contour_normal' if normal_only else 'point',
+              'normal_fallback_samples': normal_fallback_samples,
               'front_base_mm': front_base, 'front_final_mm': front_final, 'front_guard_measured': guard_measured,
               'kept': kept, 'base_camera': cam0.to_dict(),
               'initial_camera': camera.to_dict(), 'initial_theta': theta,

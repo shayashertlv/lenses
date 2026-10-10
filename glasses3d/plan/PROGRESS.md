@@ -2,6 +2,99 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**ACTIVE FULL-PROOF GOAL — 2026-10-10, owner resumption.** Work continuously
+offline until the complete proof comparison is ready. No intermediate visual
+review: repair the measurement chain using independent controls and retained
+failures, explain the facet-check discrepancy while preserving the preferred
+appearance, then run the complete proof with one memory-sized local pool.
+Pipeline integration is deferred until the owner reviews those results. This
+supersedes paused-goal directions below. New ignored evidence:
+`data/wp6/proof_resume_20261010/`; all sealed prior artifacts remain unchanged.
+First test: the existing contour-normal camera proposal on non-side views only,
+under unchanged observed-angle eligibility, bounds, objective and front guard.
+Its wedge/prism/valley controls improve; articulated-side regressions forbid
+applying it to side views. Replay both retained S1 cases before any full fit.
+STOP-I, R1, all R3 clauses, WP5 closeout and the owner's separate session-prompt
+edit remain unchanged. No paid calls or push.
+
+**Live work, 10:50 +03.** The provisional two-case replay completed PID18088,
+10:15:24–10:48:49, exit0. Older input improves **.698285874 -> .684009721 mm**;
+harder input **worsens .760738195 -> .772316912 mm**, despite recovery of zone
+level **.040553542 mm**, r_C **.006780937 mm**, and cited angle **.002573414 deg**.
+Harder input stops at the four-round cap with front bound clear; do not call it
+converged. Its diagnostic maximum across all read/side pairs is **.431985618 deg**.
+This is retained failed evidence, not a method promotion.
+
+The final opt-in helper now uses the existing `normal_or_point_residual` for
+directionless samples, retaining every correspondence rather than dropping it.
+The failing regression is now green: **14 focused tests pass**, PID25660,
+10:49:16–29, exit0. **52/52 final independent controls pass**, PID6624,
+10:49:16–48, exit0; all48 non-side improvements match the prior independently
+validated proposal exactly, and four side fits are unchanged. Before this
+normal-only correction, **39 existing/guard checks passed**, PID8496,
+10:36:29–10:45:11, exit0. A first guard-test launcher misquoted pytest's `-k`
+argument (exit4, no tests); the corrected explicit-test invocation above passed.
+No default fitting callback, angle eligibility or frozen rules changed.
+
+**Now running:** `s1_normal_joint_final_run/` (started 10:50 +03; read run.json
+for actual PID), both saved inputs with the final helper. One12-worker pool,
+sequential cases; source hashes must remain fixed. Do not edit the registration
+helper, normal callback, validation source or retained inputs while it runs.
+Next: inspect every recovery/sign/floor result, then execute the preferred-shape
+reconstruction and complete offline diagnostics with unchanged stops. Full
+comparison/verification/owner checkpoint are still outstanding; goal active.
+
+Preferred-shape reconstruction preflight passes, PID32804 10:33:40–44, exit0:
+exact preferred spec rebuilds with **504 identical vertices/faces, zero delta**,
+its perturbation is valid, and all12 expected measured lines are present.
+Prepared `reconstruct_preferred.py`, `run_complete_diagnostics.py`,
+`measure_preferred.py` and `package_results.py` are not yet executed beyond that
+preflight. The packaging script must only run after all required reports exist,
+then its real browser output needs inspection and artifact sealing. Its limits
+read RR.S1_RECOVERY directly, including the unchanged **.05** F1-rise tolerance.
+
+**Earlier work, 10:23 +03 (superseded live-run instructions below).** Camera-only replay preserves both same-input fit-11
+shapes and every measured line: older floor **.698285874 -> .683036574 mm**,
+newer **.760738195 -> .749785341 mm** (still fails .7). Exact-line residuals
+become **.051058817 / .054652982 mm**. After the correction, new-case transfer
+with measured source/exact target is **.036229337 mm**; with exact source and
+measured target **.768445702 mm**. True cameras retain **.671495055 mm** on the
+measured pair: target-line uncertainty dominates, with residual camera bias.
+No true-camera or exact-line result substitutes for frozen measured evidence.
+`normal_replay_run` PID8344, 10:12:03–33, exit0; `transfer_components/` keeps all
+signs and decomposition cases. Helper port reproduces all **52/52** saved
+independent controls (48 non-side improve; four side fits unchanged), PID39080,
+10:14:36–59, exit0. Additional coupled replays are running, actual PID18088,
+`s1_normal_joint_run/`, started 10:15:24, one pool of12; do not kill a healthy run.
+
+The opt-in helper is **not final/promoted**. A new directionless-normal regression
+reveals that the first port drops those samples; retain the red test receipt
+`normal_retention_red_run/` (1 failed as intended). After the currently running
+source-frozen replays finish, replace this with the existing independently tested
+`relief_normal_residual.normal_or_point_residual` fallback, keeping every match.
+Snapshot `normal_registration_v1.py` preserves the provisional source. Then run
+the new guard tests, old affected tests, all52 control comparisons and both
+retained joint cases on the final method before complete diagnostics. Do not
+mistake the provisional run for final validation or modify its loaded source.
+
+Exact preferred-mesh R1 audit: production **.693583443676**, independent Sobol
+**.693576833577**; maximum plane-share discrepancy **.000016888011**. F2 is
+**48.15945%** exactly coplanar, but **68.90452%** lies within its .3mm band.
+F2/F4 angle **3.261194 degrees**, other pair angles **12.155–22.147 degrees**.
+This explains visible facets vs failed R1 without changing either geometry or
+the rule. `preferred_r1/explanation.png` visualizes the counted area. Local
+plotting first lacked matplotlib; the saved failure remains and the final figure
+uses existing Pillow geometry drawing with panel clipping. No dependency install.
+
+Prepared but **not launched** `run_complete_diagnostics.py` will execute P0/P1,
+fresh delivered control/P2/S1, candidate and fitted slab, S2/S3/P3/all frozen gates.
+All quality stops remain recorded and binding; subsequent stages are explicitly
+offline diagnostics, never a waiver or acceptance. It requires final controls
+and final retained cases first. It keeps the original proof topology/inputs;
+the exact preferred mesh needs its own clearly separate comparison/measurement
+beside that historical-family reconstruction. Do not present a historical-family
+fit as replacing the owner's preferred topology. No full proof has run yet.
+
 **Owner preference received — 2026-10-10: "test revision is better."** The owner
 prefers `revised` over `current` in **http://127.0.0.1:63259/**. Use that exact
 distal-arm revision as the baseline for the next offline visual comparison:
