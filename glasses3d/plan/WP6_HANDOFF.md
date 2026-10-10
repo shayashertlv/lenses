@@ -27,7 +27,11 @@ actual AboveNormal/BLAS1/EcoQoS opt-out. `photo_proof.py` performs the full pref
 family and fixed-preferred diagnostics with independent slab and own cameras.
 Keep its snapshotted sources unchanged. Its current-outline preflight builds;
 the older historical trace's different arm length was correctly refused and
-is not reused. Next: inspect full results, run `black_photo_checks.py`, then
+is not reused. Native recovery exports are complete in `recovery_exports/`,
+PID33404,15:49:50–15:50:28,exit0: both mesh/normal/mirror checks pass, decals fail.
+R1 stationing audit preserves the exact score within2.046e-13. At15:55, candidate's
+final camera block is running after four updates; slab fit has not started. Next: inspect full results,
+run `review_assets/black_photos_verified.py` (adds nested loader input hashes), then
 `review_assets/export_models.py` and `review_assets/package_review.py`, browser
 QA/sealing and owner comparison. The final comparison does not exist yet.
 The required end state includes the full preferred-shape/photo/export comparison,

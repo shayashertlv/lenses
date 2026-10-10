@@ -75,9 +75,18 @@ started **15:30:57 +03**, `photo_proof_run/`, nine workers sized from fresh free
 commit (15,868,780KB), BLAS1/EcoQoS opt-out/actual AboveNormal. Output `photo_proof/`.
 It uses own camera fits, an independent slab, S2/S3, complete native P3 and all
 gates, plus separately graded fixed preferred geometry. Keep all snapshotted
-runtime/local driver sources unchanged. After completion, run `black_photo_checks.py`
+runtime/local driver sources unchanged. At15:55, candidate's final camera block
+is running after four shape updates; independent slab fit has not started. Native recovery exports completed
+separately with free-commit headroom: PID33404,15:49:50–15:50:28,exit0,
+`recovery_exports/`. Both synthetic meshes pass independent mesh/normal/mirror
+checks; decal movements still fail (perturbed max1.567782mm, shallow1.511472mm).
+The repaired preferred R1 score differs from the earlier score by only2.046e-13;
+`station_r1_check.json` preserves that audit. `actual_decal_bound.json` restricts
+the earlier distance-bound interpretation to all six actual decal names.
+After completion, run `review_assets/black_photos_verified.py`
 (both photos/models, both retained camera bases, all L45/60/75 sensitivities), then
-`review_assets/export_models.py` and `review_assets/package_review.py`. Browser-check
+`review_assets/export_models.py` (reuses completed recovery exports) and
+`review_assets/package_review.py`. Browser-check
 and seal the complete comparison before pausing the goal. Prepared packaging is
 not a finished comparison. Historical S1 failures remain binding throughout.
 
