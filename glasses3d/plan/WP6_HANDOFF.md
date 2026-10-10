@@ -1,19 +1,46 @@
 # WP6 handoff — resume diagnosis and repairs
 
-**ACTIVE REAL ASTRA OBSERVATION — 2026-10-10.** Owner authorized $10, no fixed
+**REAL ASTRA TEST COMPLETE — 2026-10-10.** Owner authorized $10, no fixed
 reserve and **no reply-count cap**, with Codex only observing/documenting.
-PID50608,started18:51:07 +03, inference18:51:20; current job
+PID50608,started18:51:07 +03, inference18:51:20, finished19:04:41,exit0; job
 `data/wp6/astra_temple_lab_20261010/real-astra-001/`, run `owner-test-001`.
 Maximum reasoning; real production transport; exact prepared modeling prompt/
 13 tools unchanged. Ignored `glasses3d/.env` supplies the owner-added key; never
 read/print its value. No second paid run or intervention is authorized.
 
-Read `real-astra-001-process.json`, the job heartbeat and run transcript/budget/
-tool receipts. `observe_astra.py` reads them and appends separate evidence to
-`observer-evidence.jsonl`. Do not stop a healthy run. Current task is to observe
-through completion, inspect the resulting visuals and document evidence only.
-At18:52:17, four successful tools: template inspection, all9 native/clay views,
-reference-05 crop; no marks or candidate; $0.572329 settled, request5 in flight.
+**35 replies,34 tool calls,$5.599202 settled; $4.400798 remains**, no open holds.
+Astra voluntarily finished after export. No live test remains; do not rerun it.
+Read `real-astra-001-process.json`, run transcript/budget/tool receipts, and the
+separate `observer-evidence.jsonl`. Final `real-astra-report.md`,
+`real-astra-evidence.json` and visually reviewed `real-astra-before-after.png`
+are in `data/wp6/astra_temple_lab_20261010/`; local/ignored evidence only.
+
+Astra marked/corrected all six beige references, removed a speculative diagonal,
+mapped five anchors (max residual5.422359mm), built four planes and addressed a
+conditioning warning. After seeing c0001 renders it increased relief1.6→2.6mm
+with `lab_depth`, then reviewed the photos and final renders. It selected
+revision3/c0003 and exported `work/exports/head-f512d37b13f6561f.glb`,
+1,854,388 bytes,SHA256 `8fc885c4cc0a77497f247d76b31b4d11d045ec084fab01cb1639a06a758ef304`.
+This validates the interaction in this trial, not its reconstruction accuracy.
+
+Read-only audit verifies2.600005008mm relief in the export on both sides,
+unchanged node d/y/polygons/outline/base profiles during the depth edit, exact
+triangle-coordinate preservation for20 unrelated objects and fixed cameras.
+Original inputs, source scene, preferred spec, frozen rules/dependencies,
+prepared prompt/tools, runtime implementation and owner session-prompt edit
+are unchanged. No observer modeling intervention or suggestion was injected.
+
+Tool receipts retain9.497670mm maximum thickness,1.663978mm decal motion,
+1.10mm hinge embedding,.381357mm knuckle penetration and bulge sanity warnings.
+Astra also identifies hard lower transitions, bevel loss and a profile kink.
+WP6 remains failed; no production acceptance or full quality proof. WP5 stays
+closed. Next: owner visual review; no additional paid run or modeling authorized.
+
+Owner's plateau suggestion is recorded for future design, not implemented or
+enforced in this test. Reliable fixed-view photo errors and a noise-calibrated
+improvement threshold are needed before using several non-improving revisions
+(for example3) as a stop. Retain the best valid candidate; plateau with quality
+failures means stagnation. Current shape/mesh statistics do not measure likeness.
 
 The owner-requested budget adjustment is opt-in and approval-bound: shrink
 max output to fit the remaining cap; no fixed reserve, exact input cost still
@@ -22,7 +49,7 @@ then60 loop/lab tests passed including no-cap conversation/continuation. Prompt,
 modeling tools, source shape and frozen quality rules are untouched. Astra's
 voluntary completion is subjective; no objective sufficiency gate is enforced.
 
-**LATEST: BEIGE-ONLY ASTRA PACKAGE WITH FLATNESS VIEWS,2026-10-10.**
+**Preparation history: BEIGE-ONLY ASTRA PACKAGE WITH FLATNESS VIEWS,2026-10-10.**
 The owner's latest request removes black references and adds views exposing the
 original Prada model's flat temples. Current clean package:
 `data/wp6/astra_temple_lab_20261010/ready-beige-flatness-v2/`. Its first message has

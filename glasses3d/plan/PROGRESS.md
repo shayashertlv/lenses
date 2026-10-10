@@ -2,7 +2,7 @@
 
 ## Active resume — WP6 (2026-10-10)
 
-**REAL ASTRA TEST RUNNING — owner-authorized 2026-10-10.**
+**REAL ASTRA TEST COMPLETE — observer-only experiment, 2026-10-10.**
 The owner explicitly authorized the isolated test with $10, no reserved tail,
 then clarified **no reply-count cap** and instructed Codex only to follow and
 document evidence. They configured the newly created ignored `glasses3d/.env`.
@@ -10,14 +10,53 @@ No credential value is printed or committed. This explicit test authorization
 supersedes the earlier paid-test wait for this one isolated run only.
 
 Run: `data/wp6/astra_temple_lab_20261010/real-astra-001/runs/owner-test-001/`.
-Runner PID50608; process started18:51:07 +03, inference launched18:51:20.
-Receipt `real-astra-001-process.json`, stdout `real-astra-001.log`, live heartbeat
-inside the job, transcript/tools/transport/budget under the run. The job is a
+Runner PID50608; process started18:51:07 +03, inference launched18:51:20,
+finished19:04:41 +03, exit0. **35 replies, 34 tool calls, $5.599202 settled**;
+$4.400798 remains, no held/unknown charges. Astra completed voluntarily after
+export; neither budget nor a reply cap stopped it. No live test remains.
+Receipt `real-astra-001-process.json`, stdout `real-astra-001.log`, and
+transcript/tools/transport/budget under the run preserve the execution. The job is a
 fresh original-scene package with the same six beige photos, four original-model
 images, exact prompt and13 modeling tools. Effort=max; max_turns=null; cap=$10.
-Do not inject suggestions, alter the prompt/tools/geometry, or retry paid runs.
-Observe via `observe_astra.py`; snapshots append outside the job to
-`observer-evidence.jsonl`. Finish with a factual evidence report and model review.
+No suggestions, prompt/tool changes or geometry edits were injected. No second
+paid run is authorized. Observer snapshots are in `observer-evidence.jsonl`.
+
+Astra marked all six beige photos, used line refinement and revised its marks
+to remove a speculative diagonal continuation. It mapped five anchors (maximum
+residual5.422359mm), proposed four planes, then repaired a conditioning warning.
+After rendering c0001 with1.6mm lower-crown relief, it chose **2.6mm** using
+`lab_depth` because the logo panel looked weakly differentiated in native light.
+It reviewed the originals and final renders, selected **revision3/c0003** and
+exported `work/exports/head-f512d37b13f6561f.glb` (1,854,388 bytes), SHA-256
+`8fc885c4cc0a77497f247d76b31b4d11d045ec084fab01cb1639a06a758ef304`.
+This demonstrates the marking/render/depth interaction, not a correct product match.
+
+Read-only evidence audit: native export relief is2.600005008mm on both sides;
+depth edit preserves node d/y, facet polygons, outline and base profiles. All
+20 unrelated objects retain exactly identical triangle coordinates. Original
+inputs/source scene, preferred spec, frozen rules/dependencies, prepared prompt/
+tool schemas, runtime implementation and owner session-prompt edit are unchanged.
+All fixed camera matrices are unchanged. Comparison sheet was visually inspected.
+
+Remaining issues: tool reports max thickness9.497670mm, decal motion1.663978mm,
+hinge-leaf embedding1.10mm and knuckle penetration.381357mm. Astra identifies
+hard lower transitions, lost bevel rounding and a profile-transition artifact.
+Both depth versions retain the report-only bulge warning. No acceptance or
+full WP6 proof was performed; STOP-I/R1/frozen R3 remain and WP5 stays closed.
+
+Evidence root `data/wp6/astra_temple_lab_20261010/` now contains
+`real-astra-report.md`, `real-astra-evidence.json`, `real-astra-before-after.png`
+and the read-only generator `document_result.py`. All remain local/ignored.
+Next is owner visual review; further modeling or paid calls need new scope.
+
+The owner proposed stopping when statistics stop improving. Recorded as a future
+design proposal only; it was not injected into this test. A useful plateau rule
+needs reliable photo disagreement at fixed views/annotations, an improvement
+threshold calibrated above noise, and several evaluated revisions (for example3)
+without improvement over the best valid candidate after layout/depth alternatives.
+A plateau with failed quality requirements means stagnation, not success. Current
+thickness/bulge/mesh statistics do not measure photo likeness; budget remains a
+separate stop. No new metric, threshold or stopping rule is implemented here.
 
 To honor the budget request, an opt-in, approval-bound `fit_output_to_budget`
 mode reduces only the response token ceiling when necessary. No fixed reserve
@@ -29,14 +68,7 @@ including an unbounded SDK conversation beyond its default and continuation.
 Inputs/tools/prompt were not altered by these launch-setting changes. Existing
 206-check suite ran74.64s; later60 checks ran50.71s. No geometry guidance was added.
 
-At18:52:17, Astra had inspected the template, requested all9 fixed views in
-native/clay, and cropped reference-05. Four tool calls succeeded; no markings or
-candidate yet. Settled cost $0.572329; request5 in flight. This is an observation,
-not a successful reconstruction or quality acceptance. The owner was told there
-is no objective sufficiency gate: Astra can finish after selecting/reviewing/
-exporting and explaining remaining issues. All WP6 failures/STOP-I/R1/R3 remain.
-
-**LATEST: BEIGE-ONLY REFERENCES + FLAT-TEMPLE VIEWS — 2026-10-10.**
+**Preparation history: BEIGE-ONLY REFERENCES + FLAT-TEMPLE VIEWS — 2026-10-10.**
 The owner removed the black model from references and requested angles showing
 the starting model's flatness. The active lab now supplies six beige target photos
 and four separately labelled original-model renders in Astra's first message:
