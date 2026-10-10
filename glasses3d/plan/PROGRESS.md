@@ -2,7 +2,22 @@
 
 ## Active resume — WP6 (2026-10-10)
 
-**CURRENT OWNER CORRECTION — final facet-to-arm transition, 2026-10-10.**
+**CURRENT OWNER DECISION — keep the original preferred reference, 2026-10-10.**
+After reviewing the smoothing comparison, the owner clarified: **"that wasnt the
+triangle the next one is but im understanding  now that there was never a triangle
+where i was thinking and its the curvature line so let keep the prefereed reference"**.
+The comparison changed a different patch from the one they meant; they now identify
+the intended line as curvature and withdraw the requested geometry correction.
+Keep `data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json` unchanged,
+SHA-256 `cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce`
+(reverified). The `smooth_tip_resume_20261010/` copy is unselected historical tool-test
+evidence, not the preferred reference. Its helper remains opt-in and unused by the
+pipeline. No geometry rollback is needed because the preferred source was never
+modified. This settles the visual correction review only; WP6 failures and frozen
+gates remain unchanged, and the deferred fits remain unrun. Preserve the owner's
+unstaged WP6_SESSION_PROMPT.md edit.
+
+**HISTORICAL CORRECTION EXPERIMENT — superseded by the owner decision above.**
 After reviewing the references in the new chat, the owner identifies the far-right
 triangular patch in the black angled photo as nonphysical: it should continue
 smoothly into the tip. They clarify: **"so the reference model is almost perfect

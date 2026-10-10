@@ -1,6 +1,19 @@
 # WP6 handoff — resume diagnosis and repairs
 
-**LATEST OWNER CORRECTION — 2026-10-10.** The owner now says the far-right triangular
+**LATEST OWNER DECISION — keep the original preferred reference, 2026-10-10.**
+The owner says the smoothing comparison addressed the wrong triangle and now
+recognizes the line they meant as curvature: **"there was never a triangle where
+i was thinking and its the curvature line so let keep the prefereed reference"**.
+The geometry correction is withdrawn. Keep the unchanged preferred source
+`data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`, SHA-256
+`cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce` (reverified).
+The separate `smooth_tip_resume_20261010/` copy is unselected historical evidence;
+do not promote or use it as the reference. Its helper is unused by the pipeline.
+No further visual verdict on that correction is pending. WP6 remains unresolved;
+this decision does not authorize the deferred fits or change any frozen gate.
+Preserve the owner's separate session-prompt edit.
+
+**HISTORICAL CORRECTION EXPERIMENT — superseded above.** The owner then said the far-right triangular
 patch in the black angled reference is not physical and should continue smoothly
 to the tip: **"the reference model is almost perfect but we just need to change
 that"**. A localized comparison copy is ready at **http://127.0.0.1:54016/**,
