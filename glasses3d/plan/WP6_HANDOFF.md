@@ -15,11 +15,21 @@ the frozen 1mm limit. P3 now includes original-decal checks and enforces mesh
 failures, including in resumed records (14 coverage/proof checks, seven cache
 checks pass). Fitter version **fit-12** invalidates old acceptance caches.
 
-Both reconstruction starts are now rerunning under fit-12 as **PID31328**,
-eleven workers, from **15:18:26 +03**, `reconstructed_station_run/`. Keep its
-snapshotted sources unchanged. Then inspect results and run the prepared
-`photo_proof.py` full preferred-family diagnostic, black-photo checks, and the
-comparison package. Neither the full photo run nor final comparison exists yet.
+Fit-12 reconstruction finished **PID31328**,15:18:26–15:30:44 +03,exit0.
+Perturbed-start outline .250127684mm and angle .725841077deg fail; shallow-start
+angle .405794076deg fails. Other recovery checks pass. Both starts reach the
+four-round cap, final front bounds clear, all sources unchanged. Retain the
+earlier fit-11 shallow pass as evidence of sensitivity; no replacement S1.
+Core/proof repairs and tests are committed **f0205a3**.
+
+**Now running PID39220**,started15:30:57 +03,`photo_proof_run/`,nine workers,
+actual AboveNormal/BLAS1/EcoQoS opt-out. `photo_proof.py` performs the full preferred
+family and fixed-preferred diagnostics with independent slab and own cameras.
+Keep its snapshotted sources unchanged. Its current-outline preflight builds;
+the older historical trace's different arm length was correctly refused and
+is not reused. Next: inspect full results, run `black_photo_checks.py`, then
+`review_assets/export_models.py` and `review_assets/package_review.py`, browser
+QA/sealing and owner comparison. The final comparison does not exist yet.
 The required end state includes the full preferred-shape/photo/export comparison,
 an honest explanation of remaining failures, and a goal pause for the owner.
 

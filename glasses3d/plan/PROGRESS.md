@@ -53,15 +53,33 @@ this exact surface conflicts with the 1mm movement limit regardless of the
 placement algorithm. `decal_distance_bound.json` also lists other temple-role
 parts; only the six names in P3's decal receipt are decals, not the hinge parts.
 
-**Now running:** both preferred reconstruction starts under integrated fit-12,
-actual **PID31328**, started **15:18:26 +03**, `reconstructed_station_run/`,
-eleven workers sized from current free commit. Output is
-`station_reconstruction/reconstruction/`; source-frozen until completion.
-Next inspect those results, run the prepared preferred-family six-photo diagnostic
-in `photo_proof.py` (own camera fits, independent slab, S2/S3, full native P3 and all
-gates, plus separately graded fixed preferred geometry), then black-photo checks,
-package/browser-check/seal comparison and pause the goal. That full run is not
-started yet. The historical S1 failures remain binding throughout.
+Integrated fit-12 reconstruction completed **PID31328**, **15:18:26–15:30:44 +03**,
+exit0, eleven then ten workers, BLAS1/EcoQoS opt-out/actual AboveNormal. Both
+predeclared starts remain, with unchanged source hashes. Perturbed errors are
+.250127684mm outline / .334192266mm level / .059952241mm C relief / .025514567
+F1 rise / .725841077deg angle: outline and angle fail. Shallow errors are
+.062175463 / .364436826 / .108884112 / .020846215 / .405794076: angle fails.
+Truth transfer .083891645/.079654071mm; both reach the four-round cap with final
+front bounds clear. The earlier fit-11 shallow pass is retained; changing only
+surface-preserving stationing changes the optimizer outcome, demonstrating
+remaining sensitivity. Neither control replaces frozen S1.
+
+Code/controls committed **f0205a3**. A cheap preflight correctly refused the old
+historical trace because its 136.5mm arm exceeds the preferred 136.175mm profile.
+A fresh trace on the preferred outline builds successfully (PID37328,15:24:11–27,
+exit0); P2 corner A still fails .530487416 > .5mm at those saved cameras. The full
+driver already computes its own fresh trace; no band or geometry workaround.
+
+**Now running:** full preferred-family six-photo diagnostic, actual **PID39220**,
+started **15:30:57 +03**, `photo_proof_run/`, nine workers sized from fresh free
+commit (15,868,780KB), BLAS1/EcoQoS opt-out/actual AboveNormal. Output `photo_proof/`.
+It uses own camera fits, an independent slab, S2/S3, complete native P3 and all
+gates, plus separately graded fixed preferred geometry. Keep all snapshotted
+runtime/local driver sources unchanged. After completion, run `black_photo_checks.py`
+(both photos/models, both retained camera bases, all L45/60/75 sensitivities), then
+`review_assets/export_models.py` and `review_assets/package_review.py`. Browser-check
+and seal the complete comparison before pausing the goal. Prepared packaging is
+not a finished comparison. Historical S1 failures remain binding throughout.
 
 **CURRENT OWNER DECISION — keep the original preferred reference, 2026-10-10.**
 After reviewing the smoothing comparison, the owner clarified: **"that wasnt the
