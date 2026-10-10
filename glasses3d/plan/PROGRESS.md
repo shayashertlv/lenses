@@ -2,6 +2,20 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**12:19 +03, goal still active.** Full diagnostics PID9304 finished the real-photo
+candidate at12:04:26 (four-round cap, final front bound clear) and is in the slab's
+fourth round. The owner asks whether the limits are too hard; this is a question,
+not permission to change them. The current proof keeps every frozen limit.
+Our recommendation is to finish this comparison first, then evaluate R1's
+plane-band proxy, R3's noise/improvement margins and the tiny-triangle normal
+criterion against independent good/bad controls before proposing any new rules.
+R1's arithmetic is independently confirmed; visually distinct facets need not
+pass its 50%/.3mm definition. Do not deform the shape merely to pass this proxy;
+no rule revision is authorized by the question.
+Prepared preferred measurement, package and seal drivers now verify inherited
+source/photo/geometry hashes and the explicit final export audit. They have not
+run yet. All270 prior artifacts and the original14 reference inputs still match.
+
 **ACTIVE FULL-PROOF GOAL — 2026-10-10, owner resumption.** Work continuously
 offline until the complete proof comparison is ready. No intermediate visual
 review: repair the measurement chain using independent controls and retained
@@ -50,6 +64,17 @@ inputs and does not supersede the retained harder **.772316912** failure.
 P2 still fails corner A **.535002014 > .5 mm**; B **.336088763**, C **.849659107**,
 in-view outline **.143754846**, held-out outline **.234398057 mm** pass. The
 run has 13 workers; inputs and all eight photo files remain hash-identical.
+
+**11:58 scheduling correction:** the venv launcher had AboveNormal priority,
+but actual Python PID9304 and its13 workers were Normal. All14 were explicitly
+set to AboveNormal at11:58:53; `live_priority_adjustment.json` records PID/start
+times and before/after classes. Existing RF worker initialization already opts
+out of EcoQoS. No worker count, memory allocation or numerical source changed.
+For subsequent runs, after their pool starts, use the prepared
+`set_fit_priority.ps1 -RunName <receipt-folder>`; it verifies the actual PID's
+start time against the receipt and records a separate resource audit. Repeat
+when the preferred reconstruction starts its second pool. Do not interpret the
+old runner's `above_normal` field as proof of the actual Python priority.
 
 **11:41 export-coverage correction:** the extra P0 fixture name
 `owner_preferred` did not trigger stage_p0's `name.startswith("prada")`

@@ -1,5 +1,13 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Latest,12:19 +03:** PID9304 remains healthy; real-photo candidate completed
+at12:04:26, slab fourth round in progress. The owner's question about limit
+strictness does not authorize threshold changes. Finish the current proof and
+comparison unchanged; any later calibration proposal must preserve these failures
+and use independent good/bad controls. Queued preferred measurement, packaging
+and sealing now also verify full inherited input hashes and final export audits.
+No intermediate review; active goal continues.
+
 **ACTIVE FULL-PROOF GOAL — 2026-10-10.** Latest owner instruction supersedes
 the historical paused checkpoints below: work continuously offline, without
 intermediate visual review, until the complete proof comparison is ready.
@@ -32,6 +40,13 @@ Its four-round cap and STOP-I remain; changed camera-derived inputs mean it
 does not replace the retained .772316912 failure. P2 corner A still fails
 **.535002014 > .5 mm**. No comparison is ready yet. All eight photo sources
 and earlier sealed review artifacts verified unchanged; keep working.
+
+At11:58:53, actual PID9304 and its13 workers were raised from Normal to
+AboveNormal; the venv wrapper's priority had not propagated. The audit is
+`live_priority_adjustment.json`; EcoQoS opt-out was already active. For each
+subsequent pool, run the local `set_fit_priority.ps1 -RunName <receipt-folder>`
+after workers start (including the second preferred-reconstruction pool).
+It checks PID/start-time identity and records scheduling-only changes.
 
 **Export audit correction, 11:41:** the extra `owner_preferred` P0 name skipped
 the existing `prada*` reference-decal check. An explicit read-only audit now
