@@ -5,7 +5,7 @@
 WP5 is **complete by explicit owner acceptance** of observed-slope join + Poisson (2026-10-08).
 The owner's "set it and mark wp5 as done" supersedes the prior repair-until-all-proofs-pass completion condition.
 This does not change thresholds or assert that historical failed proofs passed. Follow
-[WP5_HANDOFF.md](WP5_HANDOFF.md) and PROGRESS.md's Active resume. The probe, predictions and pending questions below
+[WP5_HANDOFF.md](WP5_HANDOFF.md), [PROGRESS.md](PROGRESS.md) and, for WP6, [WP6_FACETS.md](WP6_FACETS.md). The probe, predictions and pending questions below
 are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
 G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
 
@@ -20,7 +20,8 @@ The owner authorized **single-source print** on 2026-10-06 (PROGRESS entry "WP5 
 area is **0%**, not the probe's predicted 3.5%. A0's literal bound and B1 still fail; B2 remains diagnostic. Preserve
 these facts and fix proven defects where relevant, but do not silently impose all-region registration as a new
 prerequisite or blend unregistered views. The original mode decision did not waive A4/A5/B3; the later owner
-closeout above changes WP5 status without changing these measurements. WP6 remains STOP-I.
+closeout above changes WP5 status without changing these measurements. WP6 v1 gates (incl. STOP-I) were retired on 2026-10-10
+by owner decision; WP6 is rebuilt per WP6_FACETS.md.
 
 The independent protocol evolved in the dated PORT_REVIEW §10 corrections. These are the **existing protocols**,
 not new threshold changes in this handoff. Preserve their constants, eligibility, held-out separation and diagnostic

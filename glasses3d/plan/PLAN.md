@@ -3,8 +3,8 @@
 Written 2026-10-05 at the end of a long review session with the owner (Shay). Two independent reviewers then checked
 it against the disk, git and the owner's requirements, and their corrections are applied. The work-package design
 below preserves the original plan; it is not a command to redo completed work. Read this file fully, then use
-PROGRESS.md's **Active resume** and [WP6_HANDOFF.md](WP6_HANDOFF.md) for current status, resolved decisions and the
-next action. Latest owner instructions take precedence. Historical handoffs are evidence only.
+PROGRESS.md for current status, decisions and the next action, and [WP6_FACETS.md](WP6_FACETS.md) for WP6.
+Latest owner instructions take precedence. Historical handoffs are evidence only.
 
 ---
 
@@ -29,9 +29,10 @@ next action. Latest owner instructions take precedence. Historical handoffs are 
 6. **Evidence-driven repairs, no blind trial and error.** Diagnose the cause, state a testable hypothesis, repair
    the general method and check it independently. Keep frozen gates, seeds and eligibility; do not tune toward a
    fixture pass. Every work package has a $0 proof and a stop rule. A prompt sentence alone is never a fix.
-   The 2026-10-07 WP5 repair instruction was superseded on 2026-10-08 by the owner's explicit selection of
-   observed-slope join + Poisson and instruction to mark WP5 done. Record this as owner acceptance, preserving
-   historical failures and distinguishing it from all-proofs-passed completion. WP6 gates remain unchanged.
+   WP5 is closed by owner acceptance: on 2026-10-08 the owner selected observed-slope join + Poisson and said to
+   mark WP5 done. This is not all-proofs-passed completion; historical failures stay recorded. WP6 is rebuilt per
+   [WP6_FACETS.md](WP6_FACETS.md): the v1 gates (S1, R1–R4, G1–G5, P2, the P3 decal limit, the STOP rules) were
+   retired on 2026-10-10 by owner decision, and WP6 is accepted by the owner's eye on photo-matched renders.
 7. **Paid calls** (Astra, any provider) need the owner's explicit OK, with a cost estimate, before each paid run.
 8. **Repo safety:**
    - The repo `shayashertlv/lenses` is PUBLIC, and pushing `main` deploys the live app to Railway. Work on the
@@ -376,7 +377,7 @@ loop. They run Blender headless on COPIES: `blender.exe -b <copy>.blend --python
 is block quilting with observed-slope boundary join, followed by unscreened Poisson chart-seam correction.
 The owner judged the full model best and instructed "set it and mark wp5 as done". This supersedes the earlier
 completion condition; historical failures remain failures, and the exact selected variant has not had a full
-independent A4/A5/B3 proof. WP6 STOP-I remains in force. The outline below is the original design.
+independent A4/A5/B3 proof. The outline below is the original design.
 The reusable runtime is
 `photoprint.production.bake_print` / `calibrate_level`, using `inputs.job_from_dir` with an explicit GLB and named
 frozen camera basis. No implicit latest export or FT1119 default is allowed in the runtime. G1 is verified at
@@ -413,24 +414,16 @@ Do not reinstate unregistered view blending or reopen completed WP5 without a ne
   procedural texture, stop and report before building more.
 
 ### WP6: Faceted temples
-**Current status:** built but gated by STOP-I; see [WP6_HANDOFF.md](WP6_HANDOFF.md) before resuming offline repairs.
-The outline below is historical. R1 and all frozen R3 clauses remain unchanged.
-
-- **Tool `g3d.faceted_temple(...)`** (Blender, numpy). Inputs: side outline, top-view width profile, crease polylines,
-  relief heights per facet or node, hinge end and tip. Output: a closed solid with exactly planar facets, sharp edges
-  marked, and a flat inner face where the photos show one.
-- **Helper upgrades:** polygon sections with sharp creases; lofts with per-station sections. No "rounded tube"
-  mandate (keep only "≥8 points per 90° on rounded corners").
-- **Views:** fitted top and rear comparisons (WP3b).
-- **Check `check_relief`:** outer-face bulge over chord per station, plus a "photo shows a facet step where the model
-  is flat" flag from shading at the fitted cameras. The real rear photo (Prada reference-06) shows the temples end-on
-  and constrains the cross-section envelope.
-- **$0 proof:** Claude traces the Prada parameters (side refs 01/05, top 03, rear 06) through the fitted cameras and
-  builds temples on a copy of `8c82…/agent/scene.blend`.
-  - Pass before showing the owner: the rear-view cross-section envelope matches the photo better than the delivered
-    GLB; the top-view IoU ≥ the delivered GLB's; the bulge is within the 1.9–4.3 mm sanity range.
-  - Then the owner judges.
-  - **Stop rule:** if the tool can't reproduce the temple with good parameters, stop and re-diagnose.
+**Rebuilt 2026-10-10 by owner decision** ("please rebuild wp6"; "i just want astra to be able to handle facets and
+such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md); status is in PROGRESS.md.
+- **Goal:** Astra turns flat or wrong temples into faceted temples that look like the product photos, with tools
+  and seeing aids that work for any faceted-temple product. Prada PR 17WS is the test case, not the definition.
+- **Acceptance:** the owner's eye on photo-matched renders beside the photos. Numbers are information, never gates.
+  Hard refusals: closed 2-manifold, thickness ≥ t_min, declared ridge/valley = built, strict spec validity.
+- **Parts:** builder `g3d.temple/2` (absolute thickness, facets anywhere with fades, core roll); photo-matched
+  compare extending WP2 seeing (fitted camera + temple pose, studio-dome rig, gloss-black pass); seven Astra facet
+  tools with variants and finish preconditions; $0 proofs T1–T5b and two owner sheets before one paid run.
+- The v1 design, gates and code are archived (`plan/archive/20261010/`, tag `wp6-v1-final`).
 
 ### WP2: Live Blender session + Astra loop (port, cleaned)
 - Port the session driver, budget/receipts and agent loop per PORT_REVIEW.
@@ -465,9 +458,10 @@ The outline below is historical. R1 and all frozen R3 clauses remain unchanged.
 - **$0 proof:** a test asserts the removed phrases are absent and that every rule names an existing tool and check.
 
 ### WP8: Validation (paid; owner OK per run)
-No paid call of any kind happens before this point. WP0–WP7 must be complete with their required $0 validation.
+No paid call of any kind happens before this point, except the one owner-OK'd WP6 Astra run planned in
+WP6_FACETS.md §5–§6. WP0–WP7 must be complete with their required $0 validation.
 WP5's explicit owner closeout and retained limitations apply as recorded in WP5_HANDOFF.md; do not reopen WP5
-automatically. This exception does not waive any WP6 proof or integration requirement.
+automatically. WP6 is judged by the owner's eye per WP6_FACETS.md (v1 gates retired 2026-10-10).
 Ask the owner again about the per-run budget, reasoning effort, smoke-turn cap, known-good regression product,
 and WP7_DESIGN §4.2 questions 1–2 (specifications/photos and arview lensenv); earlier discussion is not approval.
 0. Smoke turn: ONE capped Astra turn (a few cents) to confirm the real API, tool calls and receipts work end to end.

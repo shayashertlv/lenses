@@ -9,7 +9,6 @@
   AR work must not replace the live root application or change its deployment.
 - Old AR generations and recovery archives are kept outside the repository. Do not add
   local-only material (`ar/modeling/`, `ar_v4/` leftovers, private recordings, `.env`) to Git.
-- **The photo-to-3D glasses pipeline is `glasses3d/` (branch `glasses3d`).** For any work on it, first read
-  `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/PROGRESS.md` ("Active resume",
-  not the historical RESUME HERE archive). Follow `glasses3d/plan/WP6_HANDOFF.md`; the new-session prompt is
-  `glasses3d/plan/WP6_SESSION_PROMPT.md`. WP5 is closed by owner acceptance; archived instructions are not active.
+- **The photo-to-3D glasses pipeline is `glasses3d/` (branch `glasses3d`).** For any work on it, read
+  `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/PROGRESS.md`, then
+  `glasses3d/plan/WP6_FACETS.md` for WP6. Archived instructions (`glasses3d/plan/archive/`) are not active.

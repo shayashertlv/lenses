@@ -1,8 +1,8 @@
 """WP6 g3d.faceted_temple in headless Blender 5.2 (skipped without Blender or the Prada scene): the tool contract of
 g3d/temple_bpy.py on a COPY of the Prada scene (source sha256 unchanged) - host vs Blender core identical, float32
 storage, sharp edges and facet custom normals, decals re-seated, WeightedNormal removed and restored, extras, dry run
-and refusals leave the scene digest unchanged, revert byte-identical, budgets, roll, export -> validate_spec + the
-independent P0 instrument, and the §4 loft helper."""
+and refusals leave the scene digest unchanged, revert byte-identical, budgets, roll, export -> validate_spec, and the
+§4 loft helper. The v1 P0 instrument grade was archived on 2026-10-10 (tag wp6-v1-final)."""
 from __future__ import annotations
 
 import hashlib
@@ -21,7 +21,7 @@ from glasses3d.g3d_host.spec import validate_spec
 from glasses3d.g3d.temple.sections import polygon_section
 
 HERE = Path(__file__).resolve().parent
-RUN = HERE / "proofs" / "wp6_bpy_run.py"
+RUN = HERE / "proofs" / "temple_bpy_run.py"
 REPO = HERE.parents[1]
 PRADA = REPO / "automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend"
 PRADA_SHA = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06"
@@ -150,16 +150,11 @@ def test_revert_is_byte_identical(main_run):
     assert st[14]["digests"] == st[1]["digests"] and st[14]["data_names"] == st[1]["data_names"]
 
 
-def test_export_validates_and_passes_the_independent_instrument(main_run):
-    st, spec, glb = main_run
+def test_export_validates_and_charts_from_the_extras(main_run):
+    st, _, glb = main_run
     assert st[10]["status"] == "exported", st[10]
     rep = validate_spec(glb)
     assert rep["ok"], rep
-    from glasses3d.tests.proofs.wp6_p0_instrument import grade_glb
-    g = grade_glb(glb, hinge_z=-10.6, zone_end=spec["zone_end_d"], outline=spec["outline"],
-                  facet_polys={l: [spec["nodes"][n][:2] for n in f["poly"]] for l, f in spec["facets"].items()})
-    assert g["pass"], json.dumps({s: {k: v for k, v in t["checks"].items() if not v["pass"]}
-                                  for s, t in g["temples"].items()}, default=str)
     cr = st[9]
     for side in ("+x", "-x"):
         assert cr["temples"][side]["chart"] == "g3d_temple extras"

@@ -1,7 +1,7 @@
 # PORT_REVIEW: what glasses3d copies, rewrites or drops
 
-**Current routing (2026-10-08):** this is dated review and implementation history. Use PROGRESS.md's Active
-resume and [WP6_HANDOFF.md](WP6_HANDOFF.md) for current work. Old pending actions below are not a new task list.
+**Current routing (2026-10-10):** this is dated review and implementation history. Use PROGRESS.md and
+[WP6_FACETS.md](WP6_FACETS.md) for current work. Old pending actions below are not a new task list.
 
 Written 2026-10-05 (WP0.5; WP1 adds §7). PLAN.md §2 rule: code enters glasses3d only after review, by copying it in
 with tests; nothing is imported at runtime from `automation/`, `ar_v4/`, `ar/modeling/` or the stash. Every copied file
@@ -1484,7 +1484,7 @@ is a mean silhouette contour error of 0.66-1.44 mm per view (median 0.74 mm), wi
 ## 10. WP5 scratch port
 
 **Historical implementation/review log.** Dated entries below retain past decisions, failures and corrections.
-For the current task, use PROGRESS.md's Active resume and WP6_HANDOFF.md. A–E, B promotion and G1 are complete;
+For the current task, use PROGRESS.md and WP6_FACETS.md. A–E, B promotion and G1 are complete;
 old instructions to await their approval or finish their workflows are superseded.
 
 WP5 build steps (1) and (2) (WP5_DESIGN §9), host only, 2026-10-05. Scratch read in full: `g3d-wp5/wp5lib.py`,

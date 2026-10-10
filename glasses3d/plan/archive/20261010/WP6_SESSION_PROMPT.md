@@ -21,7 +21,7 @@ acceptance, with observed-slope join + Poisson as the default (4304c1d); its his
 recorded. Do not reopen WP5 or redo completed work. WP2 A–C are verified; wrappers/D–F are unfinished/gated.
 WP7 implementation and WP8 have not started.
 
-Continue authorized offline work autonomously, sequentially, without workflows/subagents. Use CPU resources
+Continue authorized offline work autonomously, sequentially, without workflows/subagents. Use heavy CPU resources for faster runs.
 heavily within free-commit memory limits; one pool at a time, BLAS 1, EcoQoS opt-out. Run long checks detached,
 with logs/PIDs/timestamps/real exit codes and no timeout; never kill a healthy slow run. I judge visuals.
 Ask before every paid run with a cost estimate. Never push. Commit explicit paths only. Keep local data/assets

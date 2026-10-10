@@ -21,12 +21,12 @@ PNG path. Initial wrapper/readback failures remain recorded; no runtime failure 
 Full independent A4/A5/B3 and full regression have not run for the selected variant. The prior regular-Poisson
 failures (A4 all four; A5 8 fails / 7 passes; B3 six of seven) remain attached to their original runtime and assets.
 No thresholds, seeds, eligible rows or instruments changed. G1 remains verified; do not redo it.
-WP5 default/closeout committed as `4304c1d`. Next work is recorded in [WP6_HANDOFF.md](WP6_HANDOFF.md).
-WP6 remains **STOP-I**; R1 and frozen R3 remain binding. The next session resumes WP6 repairs under its current
-handoff; WP5 stays closed.
+WP5 default/closeout committed as `4304c1d`. Current work is recorded in [PROGRESS.md](PROGRESS.md).
+WP6 v1 and its gates (STOP-I, R1, R3) were retired on 2026-10-10 by owner decision; WP6 is being rebuilt per
+[WP6_FACETS.md](WP6_FACETS.md). WP5 stays closed.
 
 ## Historical evidence
 
 The complete old repair handoff is [archived](archive/20261008/WP5_HANDOFF.md). Its pending verdicts,
 all-proofs-pass completion instructions and WP5 resume commands are superseded. Measurements and source assets
-remain intact. Use [WP6_SESSION_PROMPT.md](WP6_SESSION_PROMPT.md) for the next session.
+remain intact. A new session starts from [PROGRESS.md](PROGRESS.md).

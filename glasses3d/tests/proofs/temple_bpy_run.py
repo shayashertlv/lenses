@@ -1,6 +1,7 @@
-"""Headless Blender driver for the WP6 temple tool (tests and the $0 proof). Never saves the .blend it opened.
+"""Headless Blender driver for the WP6 temple tool (tests/test_temple_blender.py; was wp6_bpy_run.py until the v1
+archive of 2026-10-10). Never saves the .blend it opened.
 
-    blender -b --factory-startup --disable-autoexec <copy>.blend --python tests/proofs/wp6_bpy_run.py -- \
+    blender -b --factory-startup --disable-autoexec <copy>.blend --python tests/proofs/temple_bpy_run.py -- \
         <steps.json> <receipt.json>
 
 steps.json = [{"op": ..., ...}] run in order; the receipt holds one result per step (also when a step fails):
