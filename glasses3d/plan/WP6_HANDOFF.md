@@ -1,5 +1,16 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Owner review received — 2026-10-10: "both look perfect".** The owner visually
+accepts both `current` and `revised` in **http://127.0.0.1:53427/** at this comparison
+checkpoint, without choosing a new winner. The asset-bound record is
+`data/wp6/anchored_shape_resume_20261010/owner_visual_verdict_both_20261010.json`.
+Keep the prior preferred `current` baseline. The goal remains paused, and its
+visual review question has been answered. Camera/arm ambiguity, adverse cross-view
+measurements and every frozen numerical failure remain unresolved; WP6 is open.
+Next technical work concerns those issues; do not repeat this apex review or
+interpret the verdict as a gate waiver, runtime promotion or paid-run approval.
+No new fit launched in recording this verdict. WP5 stays closed.
+
 **Actual geometry comparison ready — 2026-10-10.** Show
 **http://127.0.0.1:53427/** (server PID43664), then pause the goal for owner review.
 Preferred `current` mesh is unchanged; the separate test copy raises virtual logo

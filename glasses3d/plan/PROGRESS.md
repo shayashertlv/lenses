@@ -2,6 +2,16 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**Owner review received — 2026-10-10: "both look perfect".** Both `current` and
+`revised` meshes in the actual-geometry comparison at **http://127.0.0.1:53427/**
+are visually accepted at this checkpoint, with no relative preference expressed.
+Asset-bound verdict: `data/wp6/anchored_shape_resume_20261010/owner_visual_verdict_both_20261010.json`.
+Keep the previously preferred `current` mesh as the baseline. The comparison goal
+remains paused; the pending visual question is answered. Camera/arm ambiguity,
+adverse cross-view checks and frozen numerical failures remain open; this is not
+WP6 closeout or a gate waiver. Next technical work is resolving those issues,
+not another apex appearance comparison. No new fit or paid run was launched.
+
 **New actual-geometry review checkpoint — 2026-10-10.** Viewer
 **http://127.0.0.1:53427/**, server PID **43664**. Pause the goal when the verified
 comparison is shown, as the owner requested. Exact preferred `current` mesh remains
