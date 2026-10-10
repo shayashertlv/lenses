@@ -1,31 +1,46 @@
-"""Spec of g3d.faceted_temple (WP6_DESIGN.md §3): schema "g3d.temple/1", defaults, refusal and warning codes, the
-canonical form (and its sha256), and validation into a ParsedSpec the builder works from. numpy only.
+"""Spec of g3d.faceted_temple v2 (plan/WP6_FACETS.md §2.1): schema "g3d.temple/2", defaults, refusal and warning
+codes, the canonical form (and its sha256), knot canonicalisation, and validation into a ParsedSpec. numpy only.
 
 Spec keys (JSON):
-    schema      "g3d.temple/1"
-    hinge       {z_mm, axis_xz_mm, opening_deg}: d = z_mm - z at opening 0; the opening (deg, + = tip outward) turns
-                the temple about the vertical axis through (axis_x, axis_z) (+X temple; the -X one is its mirror)
-    outline     {top: [[d, y]], bottom: [[d, y]], tip_round_mm}: d strictly increasing, first d shared (hinge-end
-                cap) and last d shared (tip cap); tip_round_mm rounds the two tip corners (arcs with
-                max(8, ceil(8 theta / 90 deg)) segments)
-    inner       [[d, x_in]]: the vertical inner face, linear over [d_first, zone_end_d]
-    thickness   [[d, T]]: base thickness, linear over the same span (the base outer surface is a plane there)
-    zone_end_d  end of the facet zone (facets beyond it: E_FACET_ON_BEND)
-    nodes       {name: [d, y, r | null]}: r = mm outward from the base surface; null = solved from the planes
-    facets      {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm: s}}} (a bare list = poly
-                with plane "nodes"); clipped by the outline, no overlaps; the rest of the zone is base (r = 0)
-    chamfers    [{edge: top | bottom, d: [d0, d1], width_mm, depth_mm, taper_mm?}]: a strip along an outline edge
-                whose depth falls linearly from depth_mm at the edge to 0 at width_mm inside it; the width tapers
-                linearly to 0 over taper_mm at both ends (default min(4 width, (d1 - d0) / 2)) so the chamfer never
-                makes a step; planar on every cell of the arrangement
-    roll_mm     0 = crisp (default); > 0 = Blender Bevel on the outer long edges (applied by g3d/temple_bpy.py)
-    options     t_min_mm 1.0, station_step_mm 2.0, planar_tol_mm 1e-6, crease_sharp_deg 6, kink_sharp_deg 25
+    schema    "g3d.temple/2"
+    hinge     {z_mm, axis_xz_mm | null, opening_deg}: d = z_mm - z at opening 0; the opening (deg, + = tip outward)
+              turns the temple about the vertical axis through (axis_x, axis_z). A null axis is filled by the Blender
+              layer from the knuckles; the core needs one only for a non-zero opening.
+    outline   {top: [[d, y]], bottom: [[d, y]], tip_round_mm}: d strictly increasing, first d shared (hinge-end cap)
+              and last d shared (tip cap); tip_round_mm rounds the two tip corners
+    inner     [[d, x_in]]: the vertical inner face, piecewise linear, any shape
+    base      {top: [[d, t]], bottom: [[d, t]]}: base thickness at the top and bottom outline edges; between them the
+              thickness is linear in y (a wedge)
+    nodes     {name: [d, y, t]}: t = mm thickness from the inner face (X = x_in(d) + t), null (solved from the facet
+              planes) or "base" (the base thickness at (d, y)). Virtual nodes outside the outline are allowed.
+    facets    {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm}, fade: null | {d0, d1}}}
+              (a bare list = poly with plane "nodes" and no fade). rise_per_mm = mm of world X gained per mm moved
+              perpendicular from the crease into the facet (negative falls toward the inner face). A faded facet is
+              (1 - s) plane + s base with s = smoothstep((d - d0) / (d1 - d0)): the plane at d0, the base at d1.
+    creases   [{facets: [f1, f2 | "base"], shape: "ridge" | "valley"}]: declared crease shapes, checked after the build
+    chamfers  [{edge: top | bottom, d: [d0, d1], width_mm, depth_mm, taper_mm?}] (v1: a band cut along an outline edge)
+    roll_mm   core edge rounding (8 stacked quarter-arc chamfer sub-bands along both outline edges); 0 = crisp
+    options   t_min_mm 1.0, station_step_mm 2.0, planar_tol_mm 1e-6, kink_sharp_deg 25, border_band_mm 2.0,
+              snap_mm 0.05 (0 = no snapping)
 
-Every refusal is a TempleError(code, message, **fields): nothing is built, and the fields name the facet, point and
-numbers that failed.
+Extension: every PL table (inner, base.top, base.bottom) extends linearly beyond its end segments, so a virtual node is
+never clamped; the outline chains extend the same way when a "base" node outside the outline needs y_top / y_bot.
+
+Knot canonicalisation (parse): every table knot (outline, inner, base), node d and fade d0 / d1 within snap_mm of an
+earlier value snaps onto it (outline knots first, then the other tables, nodes, fades; ascending d within a class), so
+the build sees one shared d set. Two knots of one table that would share a d are refused (E_SHORT_EDGE). Nodes within
+snap_mm (vertically) of the top or bottom outline edge are re-snapped onto it. A facet edge that crosses the outline
+within snap_mm of a station source is resolved by moving the outline knot on that chain onto the crossing (or moving
+another table's knot to its d); a node, fade, chamfer end or second crossing there cannot move and is E_SHORT_EDGE.
+Every snap is reported (ParsedSpec.snaps); ParsedSpec.snapped is the snapped canonical spec (a fixed point of parse).
+
+The spec sha is the sha256 of the canonical JSON (before snapping). Every refusal is a TempleError(code, message,
+**fields): nothing is built, and the fields name the facet, node, point and numbers that failed.
 """
 from __future__ import annotations
 
+import bisect
+import copy
 import hashlib
 import json
 import math
@@ -33,20 +48,22 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-SCHEMA = "g3d.temple/1"
+SCHEMA = "g3d.temple/2"
 
-REFUSALS = ("E_SPEC", "E_TARGET", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED", "E_OUTLINE_NOT_SIMPLE", "E_ZONE",
-            "E_FACET_ON_BEND", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP", "E_FACET_UNDERDETERMINED",
-            "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN", "E_CHAMFER", "E_ROLL", "E_TRIANGULATE",
-            "E_NOT_CLOSED")
-WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF",
-            "W_KNUCKLE_PENETRATION")
+REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED",
+            "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
+            "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_FADE_NEIGHBOUR", "E_TOO_THIN",
+            "E_CHAMFER", "E_ROLL", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
+WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE",
+            "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
 
-DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "crease_sharp_deg": 6.0,
-                   "kink_sharp_deg": 25.0}
+DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "kink_sharp_deg": 25.0,
+                   "border_band_mm": 2.0, "snap_mm": 0.05}
 ILL_CONDITIONED_DEG_PER_MM = 10.0       # E_ILL_CONDITIONED
 CONDITIONING_WARN_DEG_PER_MM = 6.0      # W_CONDITIONING
-FLAT_CREASE_DEG = 2.0                   # W_FLAT_CREASE
+FLAT_CREASE_DEG = 2.0                   # a crease pair below this is "flat" (W_FLAT_CREASE; a declaration is refused)
+SHARP_DIHEDRAL_DEG = 6.0                # faded, ramp and chamfer edges are sharp at or above this dihedral
+BORDER_RAMP_WARN_DEG = 8.0              # W_BORDER_RAMP
 ARM_NORMAL_SPREAD_DEG = 30.0            # W_ARM_NORMAL_SPREAD
 HINGE_LEAF_GAP_MM = 0.2                 # W_HINGE_LEAF: leaf-to-inner-face gap above this ...
 HINGE_LEAF_EMBED_MM = 0.5               # ... or the leaf embedded deeper than this
@@ -57,10 +74,12 @@ MIN_HEIGHT_MM = 0.3                     # outline height (side view) below this 
 CHAMFER_TAPER_RATIO = 4.0               # default taper_mm = min(4 width, (d1 - d0) / 2)
 ROUND_SEGMENTS_PER_90 = 8               # the round-corner rule: >= 8 points per 90 deg, never fewer than 8 segments
 COLLINEAR_AREA_MM2 = 1e-6               # three plane points spanning less than this are collinear
+ROLL_BANDS = 8                          # core roll: stacked chamfer sub-bands per quarter arc
+ROLL_HEIGHT_SHARE = 0.45                # roll_mm <= 0.45 x outline height - chamfer widths
 
 
 class TempleError(ValueError):
-    """A refusal: nothing is built or written. `fields` name what failed (facet, point, numbers)."""
+    """A refusal: nothing is built or written. `fields` name what failed (facet, node, point, numbers)."""
 
     def __init__(self, code: str, message: str, **fields):
         super().__init__(f"{code}: {message}")
@@ -113,30 +132,34 @@ def _pairs(x, where: str) -> list:
     return out
 
 
-TOP_KEYS = ("schema", "hinge", "outline", "inner", "thickness", "zone_end_d", "nodes", "facets", "chamfers",
-            "roll_mm", "options")
+def _keys(d, allowed, where: str):
+    bad = sorted(set(d) - set(allowed))
+    if bad:
+        raise TempleError("E_SPEC", f"unknown {where} keys {bad}; known: {list(allowed)}", unknown=bad, where=where)
+
+
+TOP_KEYS = ("schema", "hinge", "outline", "inner", "base", "nodes", "facets", "creases", "chamfers", "roll_mm",
+            "options")
+REQUIRED_KEYS = ("hinge", "outline", "inner", "base", "nodes", "facets")
 
 
 def canonical(spec: dict) -> dict:
-    """The canonical spec: every key present with its default, numbers as float, the facet shorthand expanded, nodes
-    and facets sorted by name. Raises TempleError(E_SPEC) on a malformed spec (types, unknown keys)."""
+    """The canonical spec: every key present with its default, numbers as float, the facet shorthand expanded, nodes,
+    facets and creases sorted. Raises TempleError(E_SPEC) on a malformed spec (types, unknown keys, unknown names)."""
     if not isinstance(spec, dict):
         raise TempleError("E_SPEC", f"the spec must be a JSON object, got {type(spec).__name__}")
-    unknown = sorted(set(spec) - set(TOP_KEYS))
-    if unknown:
-        raise TempleError("E_SPEC", f"unknown spec keys {unknown}; known: {list(TOP_KEYS)}", unknown=unknown)
     schema = spec.get("schema", SCHEMA)
     if schema != SCHEMA:
-        raise TempleError("E_SPEC", f"schema must be {SCHEMA!r}, got {schema!r}")
-    for k in ("hinge", "outline", "inner", "thickness", "zone_end_d", "nodes", "facets"):
+        hint = " (convert a g3d.temple/1 spec with g3d.temple.convert.v1_to_v2)" if schema == "g3d.temple/1" else ""
+        raise TempleError("E_SPEC", f"schema must be {SCHEMA!r}, got {schema!r}{hint}", schema=schema)
+    _keys(spec, TOP_KEYS, "spec")
+    for k in REQUIRED_KEYS:
         if k not in spec:
             raise TempleError("E_SPEC", f"missing spec key {k!r}", missing=k)
     h = spec["hinge"]
     if not isinstance(h, dict) or "z_mm" not in h:
         raise TempleError("E_SPEC", "hinge must be {z_mm, axis_xz_mm, opening_deg}")
-    bad = sorted(set(h) - {"z_mm", "axis_xz_mm", "opening_deg"})
-    if bad:
-        raise TempleError("E_SPEC", f"unknown hinge keys {bad}", unknown=bad)
+    _keys(h, ("z_mm", "axis_xz_mm", "opening_deg"), "hinge")
     axis = h.get("axis_xz_mm")
     if axis is not None:
         if not isinstance(axis, (list, tuple)) or len(axis) != 2:
@@ -147,40 +170,43 @@ def canonical(spec: dict) -> dict:
     o = spec["outline"]
     if not isinstance(o, dict):
         raise TempleError("E_SPEC", "outline must be {top, bottom, tip_round_mm}")
-    bad = sorted(set(o) - {"top", "bottom", "tip_round_mm"})
-    if bad:
-        raise TempleError("E_SPEC", f"unknown outline keys {bad}", unknown=bad)
+    _keys(o, ("top", "bottom", "tip_round_mm"), "outline")
     if "top" not in o or "bottom" not in o:
         raise TempleError("E_SPEC", "outline needs top and bottom chains")
     outline = {"top": _pairs(o["top"], "outline.top"), "bottom": _pairs(o["bottom"], "outline.bottom"),
                "tip_round_mm": _num(o.get("tip_round_mm", 0.0), "outline.tip_round_mm")}
+    b = spec["base"]
+    if not isinstance(b, dict) or set(b) != {"top", "bottom"}:
+        raise TempleError("E_SPEC", "base must be {top: [[d, t]], bottom: [[d, t]]}")
+    base = {"top": _pairs(b["top"], "base.top"), "bottom": _pairs(b["bottom"], "base.bottom")}
     nodes_in = spec["nodes"]
     if not isinstance(nodes_in, dict):
-        raise TempleError("E_SPEC", "nodes must be {name: [d, y, r | null]}")
+        raise TempleError("E_SPEC", "nodes must be {name: [d, y, t | null | \"base\"]}")
     nodes = {}
     for name in sorted(nodes_in, key=str):
         v = nodes_in[name]
-        if not isinstance(name, str) or not name:
-            raise TempleError("E_SPEC", f"node names must be non-empty strings, got {name!r}")
+        if not isinstance(name, str) or not name or name == "base":
+            raise TempleError("E_SPEC", f"node names must be non-empty strings other than 'base', got {name!r}")
         if not isinstance(v, (list, tuple)) or len(v) != 3:
-            raise TempleError("E_SPEC", f"node {name}: must be [d, y, r | null]", node=name)
-        r = None if v[2] is None else _num(v[2], f"nodes.{name}[2]")
-        nodes[name] = [_num(v[0], f"nodes.{name}[0]"), _num(v[1], f"nodes.{name}[1]"), r]
+            raise TempleError("E_SPEC", f"node {name}: must be [d, y, t | null | \"base\"]", node=name)
+        t = v[2]
+        if t is not None and t != "base":
+            t = _num(t, f"nodes.{name}[2]")
+        nodes[name] = [_num(v[0], f"nodes.{name}[0]"), _num(v[1], f"nodes.{name}[1]"), t]
     fac_in = spec["facets"]
     if not isinstance(fac_in, dict):
-        raise TempleError("E_SPEC", "facets must be {label: {poly, plane}}")
+        raise TempleError("E_SPEC", "facets must be {label: {poly, plane, fade}}")
     facets = {}
     for label in sorted(fac_in, key=str):
         f = fac_in[label]
-        if not isinstance(label, str) or not label or label == "base":
-            raise TempleError("E_SPEC", f"facet labels must be non-empty strings other than 'base', got {label!r}")
+        if not isinstance(label, str) or not label or label == "base" or "|" in label or "/" in label:
+            raise TempleError("E_SPEC", f"facet labels must be non-empty strings other than 'base' without '|' or "
+                              f"'/', got {label!r}")
         if isinstance(f, (list, tuple)):
-            f = {"poly": list(f), "plane": "nodes"}
+            f = {"poly": list(f)}
         if not isinstance(f, dict) or "poly" not in f:
-            raise TempleError("E_SPEC", f"facet {label}: must be {{poly, plane}} or a list of nodes", facet=label)
-        bad = sorted(set(f) - {"poly", "plane"})
-        if bad:
-            raise TempleError("E_SPEC", f"facet {label}: unknown keys {bad}", facet=label)
+            raise TempleError("E_SPEC", f"facet {label}: must be {{poly, plane, fade}} or a list of nodes", facet=label)
+        _keys(f, ("poly", "plane", "fade"), f"facet {label}")
         poly = f["poly"]
         if not isinstance(poly, (list, tuple)) or len(poly) < 3 or not all(isinstance(n, str) for n in poly):
             raise TempleError("E_SPEC", f"facet {label}: poly must list >= 3 node names", facet=label)
@@ -206,7 +232,41 @@ def canonical(spec: dict) -> dict:
                                   f"(adjacent corners)", facet=label)
             plane = {"crease": [str(cr[0]), str(cr[1])],
                      "rise_per_mm": _num(plane["rise_per_mm"], f"facets.{label}.plane.rise_per_mm")}
-        facets[label] = {"poly": [str(n) for n in poly], "plane": plane}
+        fade = f.get("fade")
+        if fade is not None:
+            if not isinstance(fade, dict) or set(fade) != {"d0", "d1"}:
+                raise TempleError("E_SPEC", f"facet {label}: fade must be null or {{d0, d1}}", facet=label)
+            fade = {"d0": _num(fade["d0"], f"facets.{label}.fade.d0"),
+                    "d1": _num(fade["d1"], f"facets.{label}.fade.d1")}
+            if fade["d0"] == fade["d1"]:
+                raise TempleError("E_SPEC", f"facet {label}: fade d0 and d1 must differ", facet=label)
+        facets[label] = {"poly": [str(n) for n in poly], "plane": plane, "fade": fade}
+    creases, seen = [], set()
+    cin = spec.get("creases", []) or []
+    if not isinstance(cin, (list, tuple)):
+        raise TempleError("E_SPEC", "creases must be a list of {facets: [f1, f2 | 'base'], shape}")
+    for i, c in enumerate(cin):
+        if not isinstance(c, dict) or set(c) != {"facets", "shape"}:
+            raise TempleError("E_SPEC", f"creases[{i}] must be {{facets: [f1, f2 | 'base'], shape}}", crease=i)
+        pair = c["facets"]
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2 or not all(isinstance(x, str) for x in pair):
+            raise TempleError("E_SPEC", f"creases[{i}].facets must name two facets (or a facet and 'base')", crease=i)
+        a, b = pair
+        if a == "base":
+            a, b = b, a
+        if a not in facets or (b != "base" and b not in facets) or a == b:
+            raise TempleError("E_SPEC", f"creases[{i}].facets {list(pair)}: unknown or repeated facet", crease=i,
+                              facets=list(pair))
+        if b != "base":
+            a, b = sorted((a, b))
+        if c["shape"] not in ("ridge", "valley"):
+            raise TempleError("E_SPEC", f"creases[{i}].shape must be 'ridge' or 'valley', got {c['shape']!r}",
+                              crease=i)
+        if (a, b) in seen:
+            raise TempleError("E_SPEC", f"crease {a}|{b} is declared twice", facets=[a, b])
+        seen.add((a, b))
+        creases.append({"facets": [a, b], "shape": c["shape"]})
+    creases.sort(key=lambda c: c["facets"])
     chamfers = []
     for i, c in enumerate(spec.get("chamfers", []) or []):
         if not isinstance(c, dict):
@@ -233,21 +293,23 @@ def canonical(spec: dict) -> dict:
     oin = spec.get("options", {}) or {}
     if not isinstance(oin, dict):
         raise TempleError("E_SPEC", "options must be an object")
-    bad = sorted(set(oin) - set(DEFAULT_OPTIONS))
-    if bad:
-        raise TempleError("E_SPEC", f"unknown options {bad}; known: {sorted(DEFAULT_OPTIONS)}", unknown=bad)
+    _keys(oin, DEFAULT_OPTIONS, "options")
     for k, v in oin.items():
         opts[k] = _num(v, f"options.{k}")
-    for k in ("t_min_mm", "station_step_mm", "planar_tol_mm"):
+    for k in ("t_min_mm", "station_step_mm", "planar_tol_mm", "border_band_mm"):
         if opts[k] <= 0:
             raise TempleError("E_SPEC", f"options.{k} must be > 0, got {opts[k]}", option=k)
+    if opts["snap_mm"] < 0:
+        raise TempleError("E_SPEC", f"options.snap_mm must be >= 0, got {opts['snap_mm']}", option="snap_mm")
+    if not 0 < opts["kink_sharp_deg"] < 180:
+        raise TempleError("E_SPEC", f"options.kink_sharp_deg must be in (0, 180), got {opts['kink_sharp_deg']}",
+                          option="kink_sharp_deg")
     roll = _num(spec.get("roll_mm", 0.0), "roll_mm")
     if roll < 0:
         raise TempleError("E_SPEC", f"roll_mm must be >= 0, got {roll}")
-    return {"schema": SCHEMA, "hinge": hinge, "outline": outline,
-            "inner": _pairs(spec["inner"], "inner"), "thickness": _pairs(spec["thickness"], "thickness"),
-            "zone_end_d": _num(spec["zone_end_d"], "zone_end_d"), "nodes": nodes, "facets": facets,
-            "chamfers": chamfers, "roll_mm": roll, "options": opts}
+    return {"schema": SCHEMA, "hinge": hinge, "outline": outline, "inner": _pairs(spec["inner"], "inner"),
+            "base": base, "nodes": nodes, "facets": facets, "creases": creases, "chamfers": chamfers, "roll_mm": roll,
+            "options": opts}
 
 
 def canonical_json(spec: dict) -> str:
@@ -261,7 +323,8 @@ def spec_sha256(spec: dict) -> str:
 
 # --------------------------------------------------------------------------------------------- piecewise linear
 class PL:
-    """A piecewise-linear table [[d, v]] (d strictly increasing), evaluated by linear interpolation."""
+    """A piecewise-linear table [[d, v]] (d strictly increasing), extended linearly beyond its end segments (one knot:
+    constant). np.interp alone would clamp, which moves virtual nodes."""
 
     def __init__(self, pairs, name: str):
         a = np.asarray(pairs, np.float64).reshape(-1, 2)
@@ -272,62 +335,93 @@ class PL:
             raise TempleError("E_SPEC", f"{name}: d must strictly increase (knot {i + 1} at d {a[i + 1, 0]:g} after "
                               f"{a[i, 0]:g})", table=name, knot=i + 1)
         self.d, self.v, self.name = a[:, 0].copy(), a[:, 1].copy(), name
+        if len(a) > 1:
+            self.s0 = (self.v[1] - self.v[0]) / (self.d[1] - self.d[0])
+            self.s1 = (self.v[-1] - self.v[-2]) / (self.d[-1] - self.d[-2])
+        else:
+            self.s0 = self.s1 = 0.0
 
     def __call__(self, d):
+        x = np.asarray(d, np.float64)
         if len(self.d) == 1:
-            return np.full(np.shape(d), self.v[0]) if np.ndim(d) else float(self.v[0])
-        out = np.interp(d, self.d, self.v)
-        return out if np.ndim(d) else float(out)
+            out = np.full(x.shape, self.v[0])
+        else:
+            out = np.interp(x, self.d, self.v)
+            out = np.where(x < self.d[0], self.v[0] + self.s0 * (x - self.d[0]), out)
+            out = np.where(x > self.d[-1], self.v[-1] + self.s1 * (x - self.d[-1]), out)
+        return out if out.ndim else float(out)
 
     def slope(self, d0: float, d1: float) -> float:
         return (self(d1) - self(d0)) / (d1 - d0)
 
-    def covers(self, d0: float, d1: float) -> bool:
-        return self.d[0] <= d0 + 1e-12 and self.d[-1] >= d1 - 1e-12
-
     def knots_inside(self, d0: float, d1: float) -> np.ndarray:
         return self.d[(self.d > d0 + 1e-9) & (self.d < d1 - 1e-9)]
 
-    def linear_misfit(self, d0: float, d1: float) -> tuple[float, float | None]:
-        """Largest distance of a knot inside (d0, d1) from the chord v(d0) -> v(d1): (misfit, knot d)."""
-        worst, at = 0.0, None
-        v0, v1 = self(d0), self(d1)
-        for k in self.knots_inside(d0, d1):
-            m = abs(self(k) - (v0 + (v1 - v0) * (k - d0) / (d1 - d0)))
-            if m > worst:
-                worst, at = m, float(k)
-        return worst, at
+
+def smoothstep(x):
+    x = np.clip(np.asarray(x, np.float64), 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
 
 
 # --------------------------------------------------------------------------------------------- parsed spec
 @dataclass
 class ParsedSpec:
-    canonical: dict
+    canonical: dict                 # the spec as written (canonical form; its sha is sha256)
+    snapped: dict                   # the canonical spec after knot canonicalisation (what is built)
     top: np.ndarray                 # (n, 2) (d, y) after tip rounding
     bottom: np.ndarray
     d0: float
     d1: float
     inner: PL
-    thickness: PL
-    zone_end: float
-    nodes: dict                     # name -> (d, y, r | None)
-    facets: dict                    # label -> {"poly": [...], "plane": ...}
+    t_top: PL
+    t_bot: PL
+    nodes: dict                     # name -> (d, y, t: float | None | "base")
+    facets: dict                    # label -> {"poly", "plane", "fade"}
+    creases: list
     chamfers: list
     options: dict
     hinge: dict
     roll_mm: float
     sha256: str = ""
+    snaps: list = field(default_factory=list)
     notes: list = field(default_factory=list)
 
+    def _chain(self, chain: np.ndarray, d):
+        x = np.asarray(d, np.float64)
+        out = np.interp(x, chain[:, 0], chain[:, 1])
+        s0 = (chain[1, 1] - chain[0, 1]) / (chain[1, 0] - chain[0, 0])
+        s1 = (chain[-1, 1] - chain[-2, 1]) / (chain[-1, 0] - chain[-2, 0])
+        out = np.where(x < chain[0, 0], chain[0, 1] + s0 * (x - chain[0, 0]), out)
+        out = np.where(x > chain[-1, 0], chain[-1, 1] + s1 * (x - chain[-1, 0]), out)
+        return out if out.ndim else float(out)
+
     def y_top(self, d):
-        return np.interp(d, self.top[:, 0], self.top[:, 1])
+        return self._chain(self.top, d)
 
     def y_bot(self, d):
-        return np.interp(d, self.bottom[:, 0], self.bottom[:, 1])
+        return self._chain(self.bottom, d)
 
-    def x_base(self, d):
-        """Base outer surface X (inner face + thickness)."""
-        return self.inner(d) + self.thickness(d)
+    def base_t(self, d, y):
+        """Base thickness at (d, y): t_bot + (t_top - t_bot) (y - y_bot) / (y_top - y_bot), linear in y (extended)."""
+        d, y = np.asarray(d, np.float64), np.asarray(y, np.float64)
+        yb, yt = self.y_bot(d), self.y_top(d)
+        h = np.asarray(yt - yb)
+        if np.any(h <= 1e-9):
+            raise TempleError("E_SPEC", "a base value is needed where the outline (extended) has no height",
+                              d=np.asarray(d)[h <= 1e-9].ravel()[:3].tolist() if np.ndim(d) else float(d))
+        out = self.t_bot(d) + (self.t_top(d) - self.t_bot(d)) * (y - yb) / h
+        return out if np.ndim(out) else float(out)
+
+    def x_base(self, d, y):
+        """Base outer surface X = x_in(d) + base_t(d, y)."""
+        return self.inner(d) + self.base_t(d, y)
+
+    def node_X(self, name: str):
+        """World X of a node's given value (a number t or "base"); None for a solved node."""
+        d, y, t = self.nodes[name]
+        if t is None:
+            return None
+        return float(self.x_base(d, y)) if t == "base" else float(self.inner(d) + t)
 
     def boundary(self) -> np.ndarray:
         """The outline as one CCW polygon in (d, y): bottom chain (d up), tip cap (up), top chain (d down), hinge cap
@@ -368,9 +462,8 @@ def _round_corner(chain: np.ndarray, cap_dir: np.ndarray, r: float, which: str) 
     return out[keep], t
 
 
-def parse(spec: dict) -> ParsedSpec:
-    """Validate a spec (raises TempleError with the failing field) and return the ParsedSpec the builder uses."""
-    c = canonical(spec)
+def _outline(c: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Validated outline chains after tip rounding (v1 rules)."""
     top = np.asarray(c["outline"]["top"], np.float64)
     bot = np.asarray(c["outline"]["bottom"], np.float64)
     for name, ch in (("top", top), ("bottom", bot)):
@@ -387,7 +480,6 @@ def parse(spec: dict) -> ParsedSpec:
         raise TempleError("E_OUTLINE", "outline top and bottom must share their first d (hinge-end cap) and last d "
                           "(tip cap)", top_d=[float(top[0, 0]), float(top[-1, 0])],
                           bottom_d=[float(bot[0, 0]), float(bot[-1, 0])])
-    d0, d1 = float(top[0, 0]), float(top[-1, 0])
     knots = np.unique(np.r_[top[:, 0], bot[:, 0]])
     h = np.interp(knots, top[:, 0], top[:, 1]) - np.interp(knots, bot[:, 0], bot[:, 1])
     if np.any(h <= 0):
@@ -402,40 +494,243 @@ def parse(spec: dict) -> ParsedSpec:
     if r < 0:
         raise TempleError("E_OUTLINE", f"tip_round_mm must be >= 0, got {r}")
     if r > 0:
-        top, t_top = _round_corner(top, np.array([0.0, -1.0]), r, "top")
-        bot, t_bot = _round_corner(bot, np.array([0.0, 1.0]), r, "bottom")
+        top, _ = _round_corner(top, np.array([0.0, -1.0]), r, "top")
+        bot, _ = _round_corner(bot, np.array([0.0, 1.0]), r, "bottom")
         cap = float(top[-1, 1] - bot[-1, 1])
         if cap <= MIN_HEIGHT_MM:
             raise TempleError("E_OUTLINE", f"tip_round_mm {r:g} leaves a tip cap of {cap:.3f} mm (rounds overlap)",
                               cap_mm=cap)
-    inner = PL(c["inner"], "inner")
-    thick = PL(c["thickness"], "thickness")
-    for tab in (inner, thick):
-        if not tab.covers(d0, d1):
-            raise TempleError("E_SPEC", f"{tab.name} must cover the outline's d range [{d0:g}, {d1:g}] (it covers "
-                              f"[{tab.d[0]:g}, {tab.d[-1]:g}])", table=tab.name)
-    ze = c["zone_end_d"]
-    if not (d0 < ze < d1):
-        raise TempleError("E_ZONE", f"zone_end_d {ze:g} must lie strictly inside the outline's d range "
-                          f"({d0:g}, {d1:g})", zone_end_d=ze, d_range=[d0, d1])
-    for tab in (inner, thick):
-        m, at = tab.linear_misfit(d0, ze)
-        if m > 1e-9:
-            raise TempleError("E_ZONE", f"{tab.name} must be linear over the facet zone [{d0:g}, {ze:g}] (flat inner "
-                              f"face, planar base): its knot at d {at:g} is {m:.3g} mm off the line", table=tab.name,
-                              knot_d=at, misfit_mm=m)
-    for k in np.unique(np.r_[knots, inner.d[(inner.d >= d0) & (inner.d <= d1)],
-                             thick.d[(thick.d >= d0) & (thick.d <= d1)]]):
-        if thick(k) <= 0:
-            raise TempleError("E_TOO_THIN", f"thickness {thick(k):.3f} mm at d {k:g}", at=[float(k), None],
-                              thickness_mm=float(thick(k)), t_min_mm=c["options"]["t_min_mm"], facet="base",
-                              defining_points=[])
-    nodes = {k: (v[0], v[1], v[2]) for k, v in c["nodes"].items()}
-    ps = ParsedSpec(canonical=c, top=top, bottom=bot, d0=d0, d1=d1, inner=inner, thickness=thick, zone_end=ze,
-                    nodes=nodes, facets=c["facets"], chamfers=c["chamfers"], options=c["options"], hinge=c["hinge"],
-                    roll_mm=c["roll_mm"], sha256=spec_sha256(spec))
+    return top, bot
+
+
+# --------------------------------------------------------------------------------------------- knot canonicalisation
+TABLES = ("outline.top", "outline.bottom", "inner", "base.top", "base.bottom")
+
+
+def _table(c: dict, name: str) -> list:
+    a, _, b = name.partition(".")
+    if a == "outline":
+        return c["outline"][b]
+    if a == "base":
+        return c["base"][b]
+    return c["inner"]
+
+
+def _d_entries(c: dict) -> list:
+    """(class, d, ref) of every given d value: 0 outline knots, 1 other table knots, 2 node d, 3 fade ends."""
+    out = []
+    for name in TABLES:
+        cls = 0 if name.startswith("outline") else 1
+        out += [(cls, p[0], (name, i)) for i, p in enumerate(_table(c, name))]
+    out += [(2, v[0], ("node", n)) for n, v in c["nodes"].items()]
+    for label, f in c["facets"].items():
+        if f["fade"] is not None:
+            out += [(3, f["fade"][k], ("fade", label, k)) for k in ("d0", "d1")]
+    return out
+
+
+def _ref_name(ref) -> str:
+    if ref[0] in TABLES:
+        return f"{ref[0]}[{ref[1]}]"
+    if ref[0] == "node":
+        return f"node {ref[1]}"
+    if ref[0] == "fade":
+        return f"facet {ref[1]} fade.{ref[2]}"
+    if ref[0] == "chamfer":
+        return f"chamfers[{ref[1]}] break"
+    return f"{ref[1]} tip-round point"
+
+
+def _set_d(c: dict, ref, d: float) -> None:
+    if ref[0] in TABLES:
+        _table(c, ref[0])[ref[1]][0] = d
+    elif ref[0] == "node":
+        c["nodes"][ref[1]][0] = d
+    else:
+        c["facets"][ref[1]]["fade"][ref[2]] = d
+
+
+def _snap_d(c: dict, snap: float, snaps: list) -> None:
+    """Greedy single pass: each value (class order, then ascending d) joins the nearest representative within snap,
+    else becomes one. Two knots of one table on one representative: E_SHORT_EDGE."""
+    reps: list[float] = []
+    used: dict = {}
+    for cls, d, ref in sorted(_d_entries(c), key=lambda e: (e[0], e[1], repr(e[2]))):
+        k = bisect.bisect_left(reps, d)
+        best = None
+        for j in (k - 1, k):
+            if 0 <= j < len(reps) and abs(reps[j] - d) <= snap and (best is None or abs(reps[j] - d) < abs(best - d)):
+                best = reps[j]
+        if best is None:
+            best = d
+            bisect.insort(reps, d)
+        if ref[0] in TABLES:
+            key = (ref[0], best)
+            if key in used:
+                i0 = used[key]
+                raise TempleError("E_SHORT_EDGE", f"{ref[0]} knots {i0} and {ref[1]} lie within snap_mm {snap:g} of "
+                                  f"d {best:g}: remove one or move it at least {snap:g} mm away", table=ref[0],
+                                  knots=[i0, ref[1]], d=[_table(c, ref[0])[i0][0], d], snap_mm=snap)
+            used[key] = ref[1]
+        if best != d:
+            _set_d(c, ref, best)
+            snaps.append({"what": _ref_name(ref), "field": "d", "from": d, "to": best})
+    for name in TABLES:
+        t = _table(c, name)
+        dd = np.diff([p[0] for p in t])
+        if np.any(dd <= 0):
+            i = int(np.nonzero(dd <= 0)[0][0])
+            raise TempleError("E_SHORT_EDGE", f"{name}: snapping leaves knots {i} and {i + 1} out of order",
+                              table=name, knots=[i, i + 1], snap_mm=snap)
+
+
+def _snap_nodes_onto_outline(c: dict, top, bot, snap: float, snaps: list) -> None:
+    d0, d1 = float(top[0, 0]), float(top[-1, 0])
+    for name, v in c["nodes"].items():
+        d, y = v[0], v[1]
+        if not d0 <= d <= d1:
+            continue
+        yt, yb = float(np.interp(d, top[:, 0], top[:, 1])), float(np.interp(d, bot[:, 0], bot[:, 1]))
+        et, eb = abs(y - yt), abs(y - yb)
+        target = None
+        if et <= snap and et <= eb:
+            target = yt
+        elif eb <= snap:
+            target = yb
+        if target is not None and target != y:
+            v[1] = target
+            snaps.append({"what": f"node {name}", "field": "y", "from": y, "to": target,
+                          "note": "re-snapped onto the outline"})
+
+
+def _facet_crossings(c: dict, top, bot) -> list:
+    """(d, y, chain) where a facet edge crosses (or touches) the top or bottom outline edge away from its nodes."""
+    from .arrange import clip_segment
+    boundary = np.vstack([bot, top[::-1]])
+    d0, d1 = float(top[0, 0]), float(top[-1, 0])
+    out = []
+    for f in c["facets"].values():
+        P = [np.array(c["nodes"][n][:2], np.float64) for n in f["poly"]]
+        for p, q in zip(P, P[1:] + P[:1]):
+            for s0, s1 in clip_segment(p, q, boundary):
+                for s in (s0, s1):
+                    x = p + s * (q - p)
+                    if min(np.hypot(*(x - p)), np.hypot(*(x - q))) <= 1e-6:
+                        continue                               # the node itself (inside, or on the outline)
+                    if not d0 < x[0] < d1:
+                        continue
+                    yt, yb = np.interp(x[0], top[:, 0], top[:, 1]), np.interp(x[0], bot[:, 0], bot[:, 1])
+                    chain = "top" if abs(x[1] - yt) <= abs(x[1] - yb) else "bottom"
+                    if not any(abs(o[0] - x[0]) <= 1e-6 and abs(o[1] - x[1]) <= 1e-6 for o in out):
+                        out.append((float(x[0]), float(x[1]), chain))
+    return out
+
+
+def _station_refs(c: dict, top, bot) -> dict:
+    """d -> refs of the given values that become stations (outline incl. tip-round points, tables, nodes, fades,
+    chamfer breaks) inside the outline's d range."""
+    d0, d1 = float(top[0, 0]), float(top[-1, 0])
+    refs: dict = {}
+    raw = {"outline.top": {p[0] for p in c["outline"]["top"]}, "outline.bottom": {p[0] for p in c["outline"]["bottom"]}}
+    for chain, arr in (("outline.top", top), ("outline.bottom", bot)):
+        for i, (d, _) in enumerate(arr.tolist()):
+            if d0 < d < d1:
+                if d in raw[chain]:
+                    j = [p[0] for p in c["outline"][chain.split(".")[1]]].index(d)
+                    refs.setdefault(d, []).append((chain, j))
+                else:
+                    refs.setdefault(d, []).append(("tip_round", chain))
+    for name in TABLES[2:]:
+        for i, p in enumerate(_table(c, name)):
+            if d0 < p[0] < d1:
+                refs.setdefault(p[0], []).append((name, i))
+    for n, v in c["nodes"].items():
+        if d0 < v[0] < d1:
+            refs.setdefault(v[0], []).append(("node", n))
+    for label, f in c["facets"].items():
+        if f["fade"] is not None:
+            for k in ("d0", "d1"):
+                if d0 < f["fade"][k] < d1:
+                    refs.setdefault(f["fade"][k], []).append(("fade", label, k))
+    for i, ch in enumerate(c["chamfers"]):
+        for d in chamfer_breaks(ch):
+            if d0 < d < d1:
+                refs.setdefault(d, []).append(("chamfer", i))
+    return refs
+
+
+def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.ndarray]:
+    """Resolve facet-edge/outline crossings within snap of another station source (module docstring). Returns the
+    final outline chains."""
+    for _ in range(4):
+        top, bot = _outline(c)
+        cross = sorted(_facet_crossings(c, top, bot))
+        refs = _station_refs(c, top, bot)
+        keys = sorted(refs)
+        moved = False
+        for i, (dc, yc, chain) in enumerate(cross):
+            for dj, yj, _ in cross[i + 1:]:
+                if 1e-6 < abs(dj - dc) <= snap:
+                    raise TempleError("E_SHORT_EDGE", f"two facet edges cross the outline at d {dc:.4f} and {dj:.4f} "
+                                      f"(< snap_mm {snap:g} apart): move a node", at=[[dc, yc], [dj, yj]],
+                                      snap_mm=snap)
+            k = bisect.bisect_left(keys, dc)
+            near = [keys[j] for j in (k - 1, k) if 0 <= j < len(keys) and 1e-6 < abs(keys[j] - dc) <= snap]
+            for s in near:
+                fixed = [r for r in refs[s] if r[0] not in TABLES]
+                caps = [r for r in refs[s] if r[0].startswith("outline")
+                        and r[1] in (0, len(c["outline"][r[0].split(".")[1]]) - 1)]
+                if fixed or caps:
+                    what = [_ref_name(r) for r in fixed + caps]
+                    raise TempleError("E_SHORT_EDGE", f"a facet edge crosses the {chain} edge at d {dc:.4f}, "
+                                      f"{abs(dc - s):.4f} mm from d {s:g} ({what}), which cannot move: move a node "
+                                      f"at least snap_mm {snap:g} away", at=[dc, yc], d=s, refs=what, snap_mm=snap)
+                for r in refs[s]:
+                    row = _table(c, r[0])[r[1]]
+                    if r[0] == f"outline.{chain}":
+                        snaps.append({"what": _ref_name(r), "field": "d,y", "from": list(row), "to": [dc, yc],
+                                      "note": "outline knot moved onto a facet-edge crossing"})
+                        row[0], row[1] = dc, yc
+                    else:
+                        snaps.append({"what": _ref_name(r), "field": "d", "from": row[0], "to": dc,
+                                      "note": "knot moved to a facet-edge crossing"})
+                        row[0] = dc
+                moved = True
+            if moved:
+                break
+        if not moved:
+            return top, bot
+    raise TempleError("E_SHORT_EDGE", "facet-edge crossings could not be snapped onto the outline knots in 4 passes",
+                      snap_mm=snap)
+
+
+def parse(spec: dict) -> ParsedSpec:
+    """Validate a spec (raises TempleError with the failing field) and return the ParsedSpec the builder uses."""
+    c = canonical(spec)
+    _outline(c)                                         # the outline and table rules before any snapping
+    for name in TABLES[2:]:
+        PL(_table(c, name), name)
+    s = copy.deepcopy(c)
+    snap = s["options"]["snap_mm"]
+    snaps: list = []
+    if snap > 0:
+        _snap_d(s, snap, snaps)
+    top, bot = _outline(s)
+    if snap > 0:
+        _snap_nodes_onto_outline(s, top, bot, snap, snaps)
+        top, bot = _snap_crossings(s, snap, snaps)
+    d0, d1 = float(top[0, 0]), float(top[-1, 0])
+    inner = PL(s["inner"], "inner")
+    t_top = PL(s["base"]["top"], "base.top")
+    t_bot = PL(s["base"]["bottom"], "base.bottom")
+    nodes = {k: (v[0], v[1], v[2]) for k, v in s["nodes"].items()}
+    ps = ParsedSpec(canonical=c, snapped=s, top=top, bottom=bot, d0=d0, d1=d1, inner=inner, t_top=t_top, t_bot=t_bot,
+                    nodes=nodes, facets=s["facets"], creases=s["creases"], chamfers=s["chamfers"],
+                    options=s["options"], hinge=s["hinge"], roll_mm=s["roll_mm"], sha256=spec_sha256(spec),
+                    snaps=snaps)
     _check_chamfers(ps)
-    if c["hinge"]["opening_deg"] != 0.0 and c["hinge"]["axis_xz_mm"] is None:
+    _check_roll_height(ps)
+    if s["hinge"]["opening_deg"] != 0.0 and s["hinge"]["axis_xz_mm"] is None:
         raise TempleError("E_SPEC", "hinge.opening_deg != 0 needs hinge.axis_xz_mm (the vertical hinge axis)")
     return ps
 
@@ -476,13 +771,56 @@ def _check_chamfers(ps: ParsedSpec) -> None:
                                   chamfers=[j, i])
     if not ps.chamfers:
         return
-    knots = np.unique(np.r_[ps.top[:, 0], ps.bottom[:, 0],
-                            [d for ch in ps.chamfers for d in chamfer_breaks(ch)]])
+    knots = _height_knots(ps)
     h = ps.y_top(knots) - ps.y_bot(knots)
-    wt = sum(chamfer_width(ch, knots) for ch in ps.chamfers if ch["edge"] == "top")
-    wb = sum(chamfer_width(ch, knots) for ch in ps.chamfers if ch["edge"] == "bottom")
-    left = h - np.asarray(wt) - np.asarray(wb)
+    wt, wb = chamfer_widths(ps, knots)
+    left = h - wt - wb
     if np.any(left < MIN_HEIGHT_MM):
         i = int(np.argmin(left))
         raise TempleError("E_CHAMFER", f"chamfer widths leave {left[i]:.3f} mm of the {h[i]:.3f} mm outline height "
                           f"at d {knots[i]:g}", d=float(knots[i]), height_mm=float(h[i]))
+
+
+def _height_knots(ps: ParsedSpec) -> np.ndarray:
+    return np.unique(np.r_[ps.top[:, 0], ps.bottom[:, 0], [d for ch in ps.chamfers for d in chamfer_breaks(ch)]])
+
+
+def chamfer_widths(ps: ParsedSpec, d) -> tuple[np.ndarray, np.ndarray]:
+    """(top, bottom) total chamfer width at d."""
+    d = np.asarray(d, np.float64)
+    wt = np.zeros(d.shape) + sum((chamfer_width(ch, d) for ch in ps.chamfers if ch["edge"] == "top"), 0.0)
+    wb = np.zeros(d.shape) + sum((chamfer_width(ch, d) for ch in ps.chamfers if ch["edge"] == "bottom"), 0.0)
+    return wt, wb
+
+
+def roll_height_limit(ps: ParsedSpec) -> tuple[float, float]:
+    """(limit, at d): the height part of the roll limit, min over outline knots and chamfer breaks of
+    ROLL_HEIGHT_SHARE x height - the chamfer widths there."""
+    knots = _height_knots(ps)
+    wt, wb = chamfer_widths(ps, knots)
+    lim = ROLL_HEIGHT_SHARE * (ps.y_top(knots) - ps.y_bot(knots)) - wt - wb
+    i = int(np.argmin(lim))
+    return float(lim[i]), float(knots[i])
+
+
+def _check_roll_height(ps: ParsedSpec) -> None:
+    r = ps.roll_mm
+    if r <= 0:
+        return
+    lim, at = roll_height_limit(ps)
+    if r > lim:
+        raise TempleError("E_ROLL", f"roll_mm {r:g} does not fit: {ROLL_HEIGHT_SHARE} x the outline height minus the "
+                          f"chamfer widths is {lim:.3f} mm at d {at:g}", roll_mm=r, limit_mm=lim, at_d=at,
+                          reason="height")
+
+
+def roll_profile(r: float) -> tuple[np.ndarray, np.ndarray]:
+    """(s, c) of the core roll: ROLL_BANDS + 1 points of the quarter arc c(s) = r - sqrt(r^2 - (r - s)^2) at equal
+    angles, s = vertical offset from the outline edge (s ascending: s[0] = 0 at the edge, depth r; s[-1] = r,
+    depth 0)."""
+    phi = np.linspace(0.0, math.pi / 2.0, ROLL_BANDS + 1)         # 0 at s = r (outer face) ... 90 deg at the edge
+    s = r * (1.0 - np.sin(phi))
+    cdep = r * (1.0 - np.cos(phi))
+    s[0], cdep[0] = r, 0.0
+    s[-1], cdep[-1] = 0.0, r
+    return s[::-1].copy(), cdep[::-1].copy()

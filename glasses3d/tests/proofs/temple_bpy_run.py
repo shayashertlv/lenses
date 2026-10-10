@@ -6,10 +6,15 @@ archive of 2026-10-10). Never saves the .blend it opened.
 
 steps.json = [{"op": ..., ...}] run in order; the receipt holds one result per step (also when a step fails):
     faceted_temple {spec, side?, targets?, decals?, dry_run?}   unfaceted_temple {object}
+    build_variant_meshes {spec, side?, targets?, decals?}       remove_variant_meshes {names?}
+    mesh_info {names}: per mesh datablock: exists, users, vertices, polygons, g3d_variant tag
+    core_dump {spec}: the core built in Blender's numpy (vertices, polygons, sharp edges)
     check_relief {objects?, photo_creases?}                     scene_digest {}
     mesh_digests {objects?}                                      export {path}
     save_copy {path} (refused when the path exists or is the opened file)
     dump_temples {objects?}: world (asset mm) vertices / triangles / polygons / sharp edges / corner normals
+    decal_standoffs {objects}: per object, each vertex's signed distance (+ outside) to the temple body on its side
+    add_material_slot {object}: a second (empty) material slot - a refusal case, on a COPY only
     loft_sections {stations, path?, caps?, name?}               check_round_corners {object}
     timing_faceted_temple {spec, repeat}: dry-run timings of the Blender tool
 """
@@ -82,6 +87,27 @@ def dump(ob, origin):
                                                                        else str(ob[k])) for k in ob.keys()}}
 
 
+def standoffs(names, origin) -> dict:
+    """Signed distance of every vertex of each object to the temple body on its side (nearest point, + on the
+    outward side of the nearest face): the rule faceted_temple's decal transfer keeps."""
+    from mathutils import Vector
+    cands = T.temple_candidates(bpy.context.scene, origin)
+    out = {}
+    for n in names:
+        ob = bpy.data.objects[n]
+        V, _, _ = T.mesh_arrays(ob, origin)
+        side = 1 if float(V[:, 0].mean()) > 0 else -1
+        body = cands[side][0][1]
+        BV, _, BP = T.mesh_arrays(body, origin, evaluated=True)
+        bvh = T._bvh(BV, BP)
+        sd = []
+        for p in V:
+            loc, nrm, _, dist = bvh.find_nearest(Vector(tuple(map(float, p))))
+            sd.append(dist if float(np.dot(p - np.array(loc), np.array(nrm))) >= 0 else -dist)
+        out[n] = {"side": side, "body": body.name, "sd": sd}
+    return out
+
+
 def run_step(st):
     op = st.get("op")
     kw = {k: v for k, v in st.items() if k != "op"}
@@ -90,6 +116,28 @@ def run_step(st):
         return T.faceted_temple(kw.pop("spec"), **kw)
     if op == "unfaceted_temple":
         return T.unfaceted_temple(kw["object"])
+    if op == "build_variant_meshes":
+        return T.build_variant_meshes(kw.pop("spec"), **kw)
+    if op == "remove_variant_meshes":
+        return T.remove_variant_meshes(kw.get("names"))
+    if op == "mesh_info":
+        out = {}
+        for n in kw["names"]:
+            me = bpy.data.meshes.get(n)
+            out[n] = None if me is None else {"users": me.users, "vertices": len(me.vertices),
+                                              "polygons": len(me.polygons), "g3d_variant": me.get(T.PROP_VARIANT),
+                                              "fake_user": me.use_fake_user}
+        return {"status": "ok", "meshes": out}
+    if op == "core_dump":
+        from glasses3d.g3d.temple import build_temple
+        tb = build_temple(kw["spec"])
+        return {"status": "ok", "V": tb.V.tolist(), "polys": tb.polys, "sharp": tb.sharp}
+    if op == "decal_standoffs":
+        return {"status": "ok", "objects": standoffs(kw["objects"], T.asset_origin(scene))}
+    if op == "add_material_slot":
+        ob = bpy.data.objects[kw["object"]]
+        ob.data.materials.append(None)
+        return {"status": "ok", "slots": len(ob.material_slots)}
     if op == "check_relief":
         return T.check_relief(kw.get("objects"), photo_creases=kw.get("photo_creases"))
     if op == "scene_digest":

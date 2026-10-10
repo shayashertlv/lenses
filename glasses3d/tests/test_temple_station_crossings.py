@@ -1,4 +1,5 @@
-"""Incidental strip subdivisions must not create slivers at clipped facet corners."""
+"""Incidental strip subdivisions must not create slivers at clipped facet corners (g3d.temple/2: facet-edge/outline
+crossings are station sources, subdivided between)."""
 import numpy as np
 import pytest
 
@@ -10,12 +11,12 @@ def roof(offset, height):
     # A rectangular roof independent of product assets. A->C intersects y=-8
     # analytically at d=8+offset, near an incidental d=8 subdivision.
     cy = 8 - 160 / (8 + offset)
-    return FX.base_spec(
+    return FX.straight(
         outline={'top': [[0, 8], [40, 8]], 'bottom': [[0, -8], [40, -8]], 'tip_round_mm': 0},
-        inner=[[0, 10], [40, 10]], thickness=[[0, 5], [40, 5]], zone_end_d=30,
-        nodes={'A': [0, 8, 0], 'B': [20, 8, 0], 'C': [10, cy, height],
-               'H': [0, -8, 0], 'HL': [0, -40, None], 'CL': [10, -40, None],
-               'E': [30, -8, 0], 'EL': [30, -40, None]},
+        inner=[[0, 10], [40, 10]], base={'top': [[0, 5], [40, 5]], 'bottom': [[0, 5], [40, 5]]},
+        nodes={'A': [0, 8, 'base'], 'B': [20, 8, 'base'], 'C': [10, cy, 5 + height],
+               'H': [0, -8, 'base'], 'HL': [0, -40, None], 'CL': [10, -40, None],
+               'E': [30, -8, 'base'], 'EL': [30, -40, None]},
         facets={'roof': ['A', 'B', 'C'], 'left': ['A', 'H', 'HL', 'CL', 'C'],
                 'right': ['B', 'C', 'CL', 'EL', 'E']})
 
@@ -33,7 +34,7 @@ def test_facet_outline_intersection_precedes_regular_subdivision(offset):
 def test_known_planar_roof_retains_normals_in_float32_metres(offset, height):
     tb = B.build_temple(roof(offset, height))
     outer = [i for i, p in enumerate(tb.tri_poly)
-             if tb.poly_kind[p] == 'outer' and tb.poly_region[p] != 'base']
+             if tb.poly_kind[p] == 'outer' and tb.poly_cell[p] == 'facet']
     for side in (-1, 1):
         W, _, T = tb.world(side)
         T = T[outer]

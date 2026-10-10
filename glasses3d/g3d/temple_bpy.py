@@ -1,34 +1,43 @@
-"""Blender layer of WP6 faceted temples (plan/WP6_DESIGN.md §3 "Blender layer", §4, §5). Runs inside Blender 5.2.
+"""Blender layer of WP6 v2 faceted temples (plan/WP6_FACETS.md §2.5, §2.6). Runs inside Blender 5.2.
 
     faceted_temple(spec, *, side="both", targets=None, decals="auto", dry_run=False) -> receipt
     unfaceted_temple(obj) -> report
+    build_variant_meshes(spec, *, side="both", targets=None, decals="auto") -> {"status", "meshes": {side: mesh name},
+        "overrides": {object name: mesh name}, ...}; remove_variant_meshes(names=None) -> report
     check_relief(objects=None, *, photo_creases=None) -> report
     polygon_section(points, corners) / loft_sections(stations, path=None, caps=True, name=None, ...) /
     check_round_corners(obj)
 
-Thin by design: the numpy core (g3d/temple/) plans and checks the solid; this layer reads the scene, places the
-temples, writes once, and reports. Conventions:
+Thin by design: the numpy core (g3d/temple/) plans and checks the solid, roll included (§2.5); this layer reads the
+scene, places the temples, writes once, and reports. Conventions:
+- the spec is g3d.temple/2 only; a /1 spec is converted by the caller (g3d.temple.convert.v1_to_v2);
 - coordinates: the spec is in ASSET millimetres (scene mm minus the scene's `mdl_bridge_underside`, the exporter's
   origin; Prada's is (0, 0, 0)), +Y up, +Z front; the +X temple is the spec, the -X temple its exact mirror;
 - targets by the sign of x, never by name: per side, the temple-role mesh reaching furthest back (>= 60 mm), or the
   `targets` given ({"+x": name, "-x": name} or names whose x sign picks the side). Not a temple-role mesh, shape keys,
-  or a modifier other than WeightedNormal: E_TARGET;
-- plan fully (core, decals, roll, hinge report), then write once: each target's mesh datablock is swapped in place
-  (object name, transform, materials and other extras unchanged); the previous datablock stays as
-  `<mesh> | g3d pre-temple` with a fake user (the earliest backup wins), WeightedNormal modifiers are removed and
-  their settings kept in `g3d_temple_backup`; `unfaceted_temple` puts the very same datablocks back (byte-identical);
-- sharp_edge on the core's sharp set; facet corners get the facet's face normal (custom normals), every other corner
-  is auto-smoothed (zero custom vector);
-- roll_mm > 0: Bevel (limit by weight on the outer long edges, 8 segments, harden normals) applied, then re-checked
-  (closed manifold, Euler 2, facet planarity <= 1e-4 mm, side silhouette = outline <= 0.01 mm); failure -> E_ROLL;
-- decals="auto": parts lying within 1 mm of the old temple surface that are open or thin (bbox, or thickness along
-  the surface normal: measure.is_surface_decal) are ray-projected along their mean surface normal onto the new temple
-  + 0.05 mm (moved through the same datablock swap; restored by unfaceted_temple);
-- extras: partRole temple, region temple_+x / temple_-x, g3d_temple = canonical spec + core version + sha256 +
+  or a modifier other than WeightedNormal: E_TARGET; more than one material slot: E_MULTI_MATERIAL (multi-material
+  temples are deferred);
+- the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (base, faded, ramp)
+  as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the core's sharp
+  set; the non-faded facet polygons (TempleBuild.flat_polys) carry their face normal as custom normals, and so do the
+  roll polygons' corners on the line where the roll leaves such a facet (the arc is tangent there; one smooth fan
+  holds one custom normal), every other corner is auto-smoothed (zero custom vector);
+- plan fully (core, decals, hinge report), then write once: each target's mesh datablock is swapped in place (object
+  name, transform, materials and other extras unchanged); the previous datablock stays as `<mesh> | g3d pre-temple`
+  with a fake user (the earliest backup wins), WeightedNormal modifiers are removed and their settings kept in
+  `g3d_temple_backup`; `unfaceted_temple` puts the very same datablocks back (byte-identical);
+- decals="auto": parts lying within 1 mm of the old temple surface that are open or thin (measure.is_surface_decal)
+  move by CHART TRANSFER: each decal vertex keeps the chart (d, y) of its foot point on the old temple surface and its
+  signed standoff from it, and lands at the new surface X(d, y) plus that standoff along the new surface normal (the
+  -X side mirrored). Motion is reported per decal; W_DECAL_SPANS_CREASE when one decal lands on more than one region;
+- extras: partRole temple, region temple_+x / temple_-x, g3d_temple = canonical /2 spec + core version + sha256 +
   facet table (the exporter copies it to the GLB only once WP4's allowlist names it);
 - hinge parts are never moved (measure.hinge_part_kind: knuckles and temple leaves are excluded from decal planning,
   however close and thin they are); the receipt reports the leaf-to-inner-face gap, temple-knuckle contact and frame-
-  knuckle penetration (W_HINGE_LEAF, W_KNUCKLE_PENETRATION).
+  knuckle penetration (W_HINGE_LEAF, W_KNUCKLE_PENETRATION);
+- build_variant_meshes plans like faceted_temple but writes nothing to the objects: it leaves new, unlinked mesh
+  datablocks (temples and transferred decals, in each object's local frame, tagged `g3d_variant`) for render
+  `mesh_overrides` (§3.2); remove_variant_meshes deletes them again.
 Geometry problems never raise: every function returns a dict with "status" and, when refused, "code".
 """
 from __future__ import annotations
@@ -56,19 +65,17 @@ from .temple import spec as TS
 from .temple.spec import TempleError
 
 BACKUP_SUFFIX = " | g3d pre-temple"
+VARIANT_SUFFIX = " | g3d variant"
 PROP_TEMPLE = "g3d_temple"
 PROP_BACKUP = "g3d_temple_backup"
+PROP_VARIANT = "g3d_variant"
 DECAL_NEAR_MM = MS.DECAL_NEAR_MM   # a decal lies within this of the old temple surface (the shared rule:
 DECAL_THIN_MM = MS.DECAL_THIN_MM   # measure.is_surface_decal, also the host's photo-crease decal mask)
-DECAL_LIFT_MM = 0.05            # ... and lands this far above the new one
-DECAL_RAY_MM = 12.0
+EDGE_SLACK_MM = 1e-3               # a (d, y) this near the outer triangles is inside (float32 BVH, ~1e-4 mm drift)
 HINGE_NEAR_MM = MS.HINGE_NEAR_MM   # hinge parts (the shared rule: measure.hinge_part_kind, also the host's decal mask)
 HINGE_X_MM = MS.HINGE_X_MM
 KNUCKLE_MAX_MM = MS.KNUCKLE_MAX_MM
 TEMPLE_MIN_REACH_MM = 60.0
-ROLL_SEGMENTS = 8
-ROLL_PLANAR_MM = 1e-4
-ROLL_SILHOUETTE_MM = 0.01
 SIDES = {"+x": 1, "-x": -1}
 
 
@@ -98,8 +105,12 @@ def _matrix(ob):
     return M[:3, :3], M[:3, 3]
 
 
+def _side_key(s: int) -> str:
+    return "+x" if s > 0 else "-x"
+
+
 def mesh_arrays(ob, origin, evaluated: bool = False):
-    """(V asset mm, triangles, polygons as lists, loop vertex) of an object's base (or evaluated) mesh."""
+    """(V asset mm, triangles, polygons as lists) of an object's base (or evaluated) mesh."""
     M3, t = _matrix(ob)
     ev = None
     if evaluated:
@@ -135,8 +146,6 @@ def mesh_digest(me) -> str:
         coll.foreach_get(attr, a)
         h.update(a.tobytes())
     for at in sorted(me.attributes, key=lambda a: a.name):
-        if at.name.startswith(".") and at.name not in (".select_vert",):
-            pass
         h.update(f"{at.name}|{at.domain}|{at.data_type}".encode())
         try:
             k = {"FLOAT": 1, "INT": 1, "BOOLEAN": 1, "FLOAT_VECTOR": 3, "FLOAT_COLOR": 4, "BYTE_COLOR": 4,
@@ -206,17 +215,17 @@ def select_targets(sides, targets, scene, origin) -> dict:
             V, _, _ = mesh_arrays(ob, origin) if ob.type == "MESH" else (np.zeros((1, 3)), None, None)
             s = 1 if float(V[:, 0].mean()) > 0 else -1
             if key is not None and SIDES.get(str(key).lower()) not in (s, None):
-                raise TempleError("E_TARGET", f"{ob.name} lies on the {'+x' if s > 0 else '-x'} side, not {key}",
+                raise TempleError("E_TARGET", f"{ob.name} lies on the {_side_key(s)} side, not {key}",
                                   target=ob.name, x_sign=s)
             chosen[s] = ob
     for s in sides:
         if s not in chosen:
             if not cands[s]:
                 raise TempleError("E_TARGET", f"no temple-role mesh reaching >= {TEMPLE_MIN_REACH_MM:g} mm back on "
-                                  f"the {'+x' if s > 0 else '-x'} side", side=s)
+                                  f"the {_side_key(s)} side", side=s)
             if len(cands[s]) > 1 and cands[s][1][0] > 0.9 * cands[s][0][0]:
-                raise TempleError("E_TARGET", f"two temple-role meshes on the {'+x' if s > 0 else '-x'} side reach "
-                                  f"back alike: {[o.name for _, o in cands[s][:2]]}; pass targets", side=s,
+                raise TempleError("E_TARGET", f"two temple-role meshes on the {_side_key(s)} side reach back alike: "
+                                  f"{[o.name for _, o in cands[s][:2]]}; pass targets", side=s,
                                   candidates=[o.name for _, o in cands[s][:3]])
             chosen[s] = cands[s][0][1]
     out = {}
@@ -231,6 +240,11 @@ def select_targets(sides, targets, scene, origin) -> dict:
         if bad:
             raise TempleError("E_TARGET", f"{ob.name} has modifiers {bad} that would change the faceted mesh; "
                               f"remove them first", target=ob.name, modifiers=bad)
+        if len(ob.material_slots) > 1:
+            raise TempleError("E_MULTI_MATERIAL", f"{ob.name} has {len(ob.material_slots)} material slots; "
+                              f"faceted temples support one material (multi-material temples are deferred)",
+                              target=ob.name, materials=[sl.material.name if sl.material else None
+                                                         for sl in ob.material_slots])
         out[s] = ob
     return out
 
@@ -274,25 +288,60 @@ def _signed_distance(bvh, P, side) -> np.ndarray:
     return out
 
 
-def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) -> list:
-    """Decals near the old temple surface and their planned positions on the new one."""
-    plans = []
+class OuterSurface:
+    """The core's outer surface (outer and roll polygons) as a function of the chart (d, y): a BVH over its triangles
+    flattened to (d, y, 0) finds the triangle containing (or nearest to) a point, whose plane X = a + b d + c y gives
+    the value (extended beyond the outline by that plane), its polygon the outward normal and the region label."""
+
+    def __init__(self, tb):
+        kinds = np.array([k in TB.OUTER_KINDS for k in tb.poly_kind])
+        sel = kinds[tb.tri_poly]
+        self.T = tb.tris[sel]
+        self.tri_poly = tb.tri_poly[sel]
+        P = tb.V[self.T]
+        M = np.stack([np.ones(P.shape[:2]), P[..., 0], P[..., 1]], axis=-1)
+        self.coef = np.linalg.solve(M, P[..., 2:3])[..., 0]
+        self.normals = tb.normals
+        self.region = [r.split("/")[0] for r in tb.poly_region]
+        verts = [(float(d), float(y), 0.0) for d, y in tb.V[:, :2]]
+        self.bvh = BVHTree.FromPolygons(verts, [tuple(int(i) for i in t) for t in self.T], all_triangles=True,
+                                        epsilon=0.0)
+
+    def at(self, d: float, y: float) -> tuple[float, np.ndarray, str, bool]:
+        """(X, unit outward normal (local d, y, X), region label, inside the outline). A vertical ray finds the
+        containing triangle (find_nearest's float32 closest point drifts ~1e-4 mm on long thin triangles); outside the
+        outline the nearest triangle extends its plane."""
+        hit = self.bvh.ray_cast(Vector((float(d), float(y), 1.0)), Vector((0.0, 0.0, -1.0)))
+        inside = hit[0] is not None
+        if inside:
+            k = hit[2]
+        else:                                         # outside, or a ray slipping between two triangles at an edge
+            _, _, k, dist = self.bvh.find_nearest(Vector((float(d), float(y), 0.0)))
+            inside = dist <= EDGE_SLACK_MM
+        c = self.coef[k]
+        p = self.tri_poly[k]
+        return float(c[0] + c[1] * d + c[2] * y), self.normals[p], self.region[p], inside
+
+
+def find_decals(old_bvh, side, scene, origin, exclude) -> list:
+    """[(object, V asset mm, signed distances to the old temple)] of the surface decals on one side: every vertex
+    within DECAL_NEAR_MM of the old temple surface, and measure.is_surface_decal (open, or thin by its box or along
+    the surface normal)."""
+    out = []
     for ob in scene.objects:
         if ob in exclude or ob.type != "MESH" or len(ob.data.vertices) == 0:
             continue
-        V, T, polys = mesh_arrays(ob, origin)
+        V, _, polys = mesh_arrays(ob, origin)
         lo, hi = _bbox(V)
         if side * (lo[0] + hi[0]) <= 0:
             continue
-        near, normals = [], []
+        far = False
         for v in V:                                   # cheap rejection first: any vertex beyond DECAL_NEAR_MM
-            loc, nrm, idx, dist = old_bvh.find_nearest(Vector(tuple(map(float, v))))
+            loc, _, _, dist = old_bvh.find_nearest(Vector(tuple(map(float, v))))
             if loc is None or dist > DECAL_NEAR_MM:
-                near = None
+                far = True
                 break
-            near.append(np.array(loc))
-            normals.append(np.array(nrm))
-        if near is None:
+        if far:
             continue
         E = {}
         for p in polys:
@@ -301,29 +350,41 @@ def plan_decals(old_bvh, new_bvh, region_of_poly, side, scene, origin, exclude) 
                 E[e] = E.get(e, 0) + 1
         open_ = any(c == 1 for c in E.values())
         sd = _signed_distance(old_bvh, V, side)
-        if not MS.is_surface_decal(sd, float(np.min(hi - lo)), open_):
-            continue
-        n = np.mean(normals, axis=0)
-        n /= np.linalg.norm(n)
-        lift = MS.decal_standoff(sd, DECAL_LIFT_MM)
-        new, miss, regions = V.copy(), 0, set()
-        for i, v in enumerate(V):
-            o = Vector(tuple(map(float, v + n * DECAL_RAY_MM)))
-            hit = new_bvh.ray_cast(o, Vector(tuple(map(float, -n))), 2 * DECAL_RAY_MM)
-            if hit[0] is None:
-                miss += 1
-                continue
-            new[i] = np.array(hit[0]) + n * lift[i]
-            regions.add(region_of_poly[hit[2]])
-        moves = np.linalg.norm(new - V, axis=1)
-        plans.append({"object": ob, "name": ob.name, "V_old": V, "V_new": new, "normal": n.tolist(), "misses": miss,
-                      "max_move_mm": float(moves.max()), "regions": sorted(regions), "vertices": len(V)})
-    return plans
+        if MS.is_surface_decal(sd, float(np.min(hi - lo)), open_):
+            out.append((ob, V, sd))
+    return out
+
+
+def transfer_decal(V, old_bvh, surf: OuterSurface, side: int, hinge: dict) -> dict:
+    """Chart transfer of one decal (module docstring): per vertex the foot point Q on the old temple (nearest), the
+    signed standoff s = +-|P - Q| (+ on the outward side of the old face), Q's chart (d, y) -> the new surface point
+    S(d, y) + s n(d, y), mirrored for side -1. Returns {"V_new", "standoff", "moves", "regions", "outside"}."""
+    n = len(V)
+    Q = np.zeros((n, 3))
+    s = np.zeros(n)
+    for i, p in enumerate(V):
+        loc, nrm, _, dist = old_bvh.find_nearest(Vector(tuple(map(float, p))))
+        Q[i] = np.array(loc)
+        s[i] = dist if float(np.dot(p - Q[i], np.array(nrm))) >= 0 else -dist
+    Lq = TB.to_local(Q, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"], side=side)
+    P = np.zeros((n, 3))
+    regions, outside = set(), 0
+    for i in range(n):
+        d, y = float(Lq[i, 0]), float(Lq[i, 1])
+        X, nrm, reg, inside = surf.at(d, y)
+        P[i] = np.array([d, y, X]) + s[i] * nrm
+        regions.add(reg)
+        outside += not inside
+    W = TB.to_world(P, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"])
+    if side < 0:
+        W[:, 0] = -W[:, 0]
+    return {"V_new": W, "standoff": s, "moves": np.linalg.norm(W - V, axis=1), "regions": sorted(regions),
+            "outside": int(outside)}
 
 
 def hinge_parts(side, axis, hinge_z, scene, origin, exclude) -> list:
     """[(object, kind)] of one side's hinge parts (measure.hinge_part_kind: "temple_knuckle", "frame_knuckle",
-    "leaf"), in scene order; empty without a hinge axis. These are never moved: plan_decals never takes one as a
+    "leaf"), in scene order; empty without a hinge axis. These are never moved: decal planning never takes one as a
     decal, and hinge_report grades them against the planned temple."""
     out = []
     if axis is None:
@@ -390,8 +451,9 @@ def _local_normals(ob, N_world):
     return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-300)
 
 
-def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, materials, uv=None):
-    """A new mesh datablock: n-gon polygons, sharp_edge, smooth shading, custom normals on the flat polygons."""
+def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, materials, uv=None, corners=None):
+    """A new mesh datablock: the given polygons, sharp_edge, smooth shading, custom normals on the flat polygons (or,
+    with `corners`, the given per-corner custom normals in polygon order, zero = auto-smoothed)."""
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(map(float, v)) for v in V_local], [], [tuple(int(i) for i in p) for p in polys])
     me.update()
@@ -407,13 +469,16 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
         sharp[eidx[(min(a, b), max(a, b))]] = True
     att = me.attributes.get("sharp_edge") or me.attributes.new("sharp_edge", "BOOLEAN", "EDGE")
     att.data.foreach_set("value", sharp)
-    loops = np.zeros((len(me.loops), 3))
-    ls = np.zeros(len(me.polygons), np.int32)
-    me.polygons.foreach_get("loop_start", ls)
-    lt = np.zeros(len(me.polygons), np.int32)
-    me.polygons.foreach_get("loop_total", lt)
-    for p in flat_polys:
-        loops[ls[p]:ls[p] + lt[p]] = normals_local[p]
+    if corners is not None:
+        loops = np.asarray(corners, np.float64)
+    else:
+        loops = np.zeros((len(me.loops), 3))
+        ls = np.zeros(len(me.polygons), np.int32)
+        me.polygons.foreach_get("loop_start", ls)
+        lt = np.zeros(len(me.polygons), np.int32)
+        me.polygons.foreach_get("loop_total", lt)
+        for p in flat_polys:
+            loops[ls[p]:ls[p] + lt[p]] = normals_local[p]
     me.normals_split_custom_set([tuple(map(float, n)) for n in loops])
     if uv is not None:
         lay = me.uv_layers.new(name="UVMap")
@@ -424,106 +489,26 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
     return me, int(sharp.sum())
 
 
-def _roll(me, roll_mm, outer_long, plan, ob):
-    """Apply a Bevel on the outer long edges (weights), re-check, and return the new mesh (or raise E_ROLL)."""
-    att = me.attributes.get("bevel_weight_edge") or me.attributes.new("bevel_weight_edge", "FLOAT", "EDGE")
-    eidx = {tuple(sorted(e.vertices)): e.index for e in me.edges}
-    w = np.zeros(len(me.edges), np.float32)
-    for a, b in outer_long:
-        w[eidx[(min(a, b), max(a, b))]] = 1.0
-    att.data.foreach_set("value", w)
-    tmp = bpy.data.objects.new("g3d temple roll (temporary)", me)
-    tmp.matrix_world = ob.matrix_world
-    bpy.context.scene.collection.objects.link(tmp)
-    try:
-        m = tmp.modifiers.new("g3d roll", "BEVEL")
-        m.width = float(roll_mm)
-        m.segments = ROLL_SEGMENTS
-        m.limit_method = "WEIGHT"
-        m.edge_weight = "bevel_weight_edge"
-        m.harden_normals = True
-        m.affect = "EDGES"
-        m.profile = 0.5
-        m.use_clamp_overlap = True
-        dg = bpy.context.evaluated_depsgraph_get()
-        ev = tmp.evaluated_get(dg)
-        out = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=dg)
-    finally:
-        bpy.data.objects.remove(tmp, do_unlink=True)
-    _triangulate_nonplanar(out)
-    try:
-        chk = _roll_checks(out, plan, ob)
-    except Exception as exc:                                  # noqa: BLE001
-        bpy.data.meshes.remove(out)
-        raise TempleError("E_ROLL", f"the rolled mesh could not be checked: {type(exc).__name__}: {exc}")
-    if not chk["ok"]:
-        bpy.data.meshes.remove(out)
-        raise TempleError("E_ROLL", f"the rolled mesh fails {chk['failed']}", **chk)
-    if out.attributes.get("bevel_weight_edge") is not None:
-        out.attributes.remove(out.attributes["bevel_weight_edge"])
-    return out, chk
-
-
-def _roll_checks(me, plan, ob) -> dict:
-    origin, side, tb = plan["origin"], plan["side"], plan["tb"]
-    M3, t = _matrix(ob)
-    co = np.zeros(len(me.vertices) * 3, np.float32)
-    me.vertices.foreach_get("co", co)
-    W = co.reshape(-1, 3).astype(np.float64) @ M3.T + t - origin
-    h = tb.spec.hinge
-    L = TB.to_local(W, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
-    polys = [list(p.vertices) for p in me.polygons]
-    E = {}
-    for p in polys:
-        for k in range(len(p)):
-            e = (p[k], p[(k + 1) % len(p)])
-            E[e] = E.get(e, 0) + 1
-    open_ = sum(1 for (a, b) in E if (b, a) not in E)
-    dup = sum(1 for c in E.values() if c > 1)
-    und = {(min(a, b), max(a, b)) for a, b in E}
-    chi = len(me.vertices) - len(und) + len(polys)
-    planes = RP.facet_planes_chart(tb)
-    worst = 0.0
-    nfacet = 0
-    for p in polys:
-        P = L[p]
-        for _, n, c in planes:
-            d = P @ n - c
-            if np.max(np.abs(d)) <= 2e-3:
-                worst = max(worst, float(np.max(np.abs(d))))
-                nfacet += 1
-                break
-    ps = tb.spec
-    over = float(np.max(np.r_[L[:, 1] - ps.y_top(L[:, 0]), ps.y_bot(L[:, 0]) - L[:, 1]]))
-    miss = 0.0
-    for chain in (ps.top, ps.bottom):
-        for d, y in chain:
-            miss = max(miss, float(np.min(np.hypot(L[:, 0] - d, L[:, 1] - y))))
-    failed = []
-    if open_ or dup:
-        failed.append("closed manifold")
-    if chi != 2:
-        failed.append("Euler characteristic 2")
-    if worst > ROLL_PLANAR_MM:
-        failed.append(f"facet planarity <= {ROLL_PLANAR_MM} mm")
-    if over > ROLL_SILHOUETTE_MM or miss > ROLL_SILHOUETTE_MM:
-        failed.append(f"side silhouette = outline <= {ROLL_SILHOUETTE_MM} mm")
-    return {"ok": not failed, "failed": failed, "open_edges": open_, "duplicate_edges": dup, "euler": chi,
-            "facet_planarity_mm": worst, "facet_polygons": nfacet, "silhouette_overshoot_mm": over,
-            "outline_knot_miss_mm": miss}
-
-
-def _outer_long_edges(tb) -> list:
-    topo = TB.mesh_topology(tb.polys)
+def corner_normals(tb, polys, n_poly) -> np.ndarray:
+    """Per corner of `polys` (the core's polygons in the order and winding written) the custom normal: the face normal
+    on the flat polygons (tb.flat_polys); on a roll polygon, at a vertex it shares with a flat polygon of the same
+    region, that polygon's normal (the quarter arc is tangent to the face there, and one smooth fan holds one custom
+    normal: a different one would make Blender split the fan with a sharp edge); zero (auto-smoothed) elsewhere."""
+    flat = set(tb.flat_polys)
+    at = {}
+    for p in tb.flat_polys:
+        for v in polys[p]:
+            at[(v, tb.poly_region[p])] = n_poly[p]
+    zero = np.zeros(3)
     out = []
-    for (a, b), p1 in topo["directed"].items():
-        if a > b:
-            continue
-        p2 = topo["directed"][(b, a)]
-        kinds = {tb.poly_kind[p1], tb.poly_kind[p2]}
-        if "outer" in kinds and kinds & {"top", "bottom"}:
-            out.append((a, b))
-    return out
+    for i, poly in enumerate(polys):
+        if i in flat:
+            out += [n_poly[i]] * len(poly)
+        elif tb.poly_kind[i] == "roll":
+            out += [at.get((v, tb.poly_region[i]), zero) for v in poly]
+        else:
+            out += [zero] * len(poly)
+    return np.asarray(out, np.float64).reshape(-1, 3)
 
 
 def _uv(tb) -> np.ndarray:
@@ -547,145 +532,130 @@ def _refused(code, message, fields=None, **extra) -> dict:
     return out
 
 
+def core_digest(tb) -> dict:
+    """sha256 of the core's vertices (float64 bytes) and polygons: the host computes the same from build_temple."""
+    h = hashlib.sha256()
+    h.update(np.ascontiguousarray(tb.V).tobytes())
+    h.update(json.dumps(tb.polys).encode())
+    return {"sha256": h.hexdigest(), "vertices": int(len(tb.V)), "polygons": len(tb.polys)}
+
+
+def _plan(spec, side, targets, decals, scene) -> tuple:
+    """Load, pick targets, fill a null hinge axis from the knuckles, build the core and plan every side (meshes in the
+    targets' local frames, decal transfers, hinge report). Returns (tb, plans, receipt, planned meshes)."""
+    spec = _load_spec(spec)
+    sides = _sides(side)
+    origin = asset_origin(scene)
+    tg = select_targets(sides, targets, scene, origin)
+    spec = json.loads(json.dumps(spec))
+    hinge = spec.get("hinge") or {}
+    axis_used = []
+    if isinstance(hinge, dict) and hinge.get("axis_xz_mm") is None and "z_mm" in hinge:
+        ax, used = default_axis(sides[0], float(hinge["z_mm"]), scene, origin, set(tg.values()))
+        if ax is not None:
+            hinge["axis_xz_mm"] = ax
+            axis_used = used
+    tc = time.perf_counter()
+    tb = TB.build_temple(spec)
+    core_ms = 1000.0 * (time.perf_counter() - tc)
+    rec = RP.receipt(tb, core_ms=core_ms)
+    rec["axis_from"] = axis_used or ("spec" if tb.spec.hinge["axis_xz_mm"] is not None else None)
+    rec["core_digest"] = core_digest(tb)
+    plans: dict = {}
+    planned: list = []
+    surf = OuterSurface(tb)
+    try:
+        for s in sides:
+            plans[s] = _plan_side(tb, surf, s, tg[s], origin, scene, decals, set(tg.values()), planned)
+    except Exception:
+        _cleanup_planned(plans, planned)
+        raise
+    rec["sides"] = {_side_key(s): _side_receipt(plans[s]) for s in sides}
+    side_lines = [[f"{w['code']}: {w['message']}" for w in plans[s]["warnings"]] for s in sides]
+    rec["lines"] = RP.merge_lines(rec["lines"], *side_lines)
+    rec["warnings"] = [w["code"] for w in tb.warnings] + [w["code"] for s in sides for w in plans[s]["warnings"]]
+    return tb, plans, rec, planned
+
+
 def faceted_temple(spec, *, side="both", targets=None, decals="auto", dry_run: bool = False) -> dict:
-    """Build faceted temples from a g3d.temple/1 spec and swap them into the scene (module docstring)."""
+    """Build faceted temples from a g3d.temple/2 spec and swap them into the scene (module docstring)."""
     t0 = time.perf_counter()
     c0 = time.process_time()
     scene = bpy.context.scene
     digest0 = scene_digest(scene)
+    plans, planned = None, []
     try:
-        spec = _load_spec(spec)
-        sides = _sides(side)
-        origin = asset_origin(scene)
-        tg = select_targets(sides, targets, scene, origin)
-        spec = json.loads(json.dumps(spec))
-        hinge = spec.get("hinge") or {}
-        axis_used = []
-        if isinstance(hinge, dict) and hinge.get("axis_xz_mm") is None and "z_mm" in hinge:
-            ax, used = default_axis(sides[0], float(hinge["z_mm"]), scene, origin, set(tg.values()))
-            if ax is not None:
-                hinge["axis_xz_mm"] = ax
-                axis_used = used
-        tc = time.perf_counter()
-        tb = TB.build_temple(spec)
-        core_ms = 1000.0 * (time.perf_counter() - tc)
-        rec = RP.receipt(tb, core_ms=core_ms)
-        rec["axis_from"] = axis_used or ("spec" if tb.spec.hinge["axis_xz_mm"] is not None else None)
-        rec["core_digest"] = core_digest(tb)
-        plans = {}
-        planned_meshes: list = []
-        for s in sides:
-            plans[s] = _plan_side(tb, s, tg[s], origin, scene, decals, set(tg.values()), planned_meshes)
-        rec["sides"] = {("+x" if s > 0 else "-x"): _side_receipt(plans[s]) for s in sides}
-        warnings = list(rec["warnings"])
-        for s in sides:
-            warnings += plans[s]["warnings"]
-        rec["warnings"] = warnings
+        tb, plans, rec, planned = _plan(spec, side, targets, decals, scene)
         if dry_run:
-            _cleanup_planned(plans)
+            _cleanup_planned(plans, planned)
             rec["status"] = "planned"
             rec["scene_unchanged"] = scene_digest(scene) == digest0
-            rec["budget"]["total_ms"] = 1000.0 * (time.perf_counter() - t0)
-            rec["budget"]["total_cpu_ms"] = 1000.0 * (time.process_time() - c0)
-            return TS.plain(rec)
-        _write(plans, tb)
-        rec["status"] = "ok"
+        else:
+            _write(plans, tb)
+            rec["status"] = "ok"
         rec["budget"]["total_ms"] = 1000.0 * (time.perf_counter() - t0)
         rec["budget"]["total_cpu_ms"] = 1000.0 * (time.process_time() - c0)
         return TS.plain(rec)
     except TempleError as e:
-        _cleanup_planned(locals().get("plans"), locals().get("planned_meshes"))
+        _cleanup_planned(plans, planned)
         return _refused(e.code, e.message, e.fields, scene_unchanged=scene_digest(scene) == digest0)
     except Exception as exc:                                  # noqa: BLE001 - report, never raise
-        _cleanup_planned(locals().get("plans"), locals().get("planned_meshes"))
+        _cleanup_planned(plans, planned)
         return {"status": "failed", "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc(limit=8),
                 "scene_unchanged": scene_digest(scene) == digest0}
 
 
-def core_digest(tb) -> dict:
-    h = hashlib.sha256()
-    h.update(np.ascontiguousarray(tb.V).tobytes())
-    h.update(json.dumps(tb.polys).encode())
-    return {"sha256": h.hexdigest(), "V": tb.V.tolist()}
-
-
 def _cleanup_planned(plans, meshes=None):
-    for me in meshes or []:
+    for me in list(meshes or []) + [m for p in (plans or {}).values()
+                                    for m in [p.get("mesh")] + [d.get("mesh") for d in p.get("decals", [])]]:
         try:
-            if me.users == 0 and me.name in bpy.data.meshes:
+            if me is not None and me.users == 0 and me.name in bpy.data.meshes:
                 bpy.data.meshes.remove(me)
         except ReferenceError:                                # already removed
             pass
-    for p in (plans or {}).values():
-        for me in [p.get("mesh")] + list(p.get("decal_meshes", [])):
-            try:
-                if me is not None and me.users == 0 and me.name in bpy.data.meshes:
-                    bpy.data.meshes.remove(me)
-            except ReferenceError:
-                pass
 
 
-def _plan_side(tb, side, ob, origin, scene, decals, targets, planned_meshes: list) -> dict:
+def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list) -> dict:
     W, polys, _ = tb.world(side)
     Wn = _world_normals(tb, side)
     Vloc = _local(ob, W, origin)
     M3, _ = _matrix(ob)
     pl = polys if np.linalg.det(M3) > 0 else [p[::-1] for p in polys]
     nloc = _local_normals(ob, Wn)
-    old_V, old_T, old_polys = mesh_arrays(ob, origin)
+    old_V, _, old_polys = mesh_arrays(ob, origin)
     old_bvh = _bvh(old_V, old_polys)
     new_bvh = _bvh(W, polys)
     excl = set(targets)
-    plan = {"side": side, "object": ob, "origin": origin, "tb": tb, "warnings": [], "W": W}
-    mats = list(ob.data.materials)
+    plan = {"side": side, "object": ob, "origin": origin, "warnings": [], "decals": []}
+    corners = corner_normals(tb, pl, nloc)
     me, nsharp = build_mesh(ob.data.name + " | g3d faceted (planned)", Vloc, pl, tb.sharp, tb.flat_polys, nloc,
-                            mats, uv=_uv(tb) if len(ob.data.uv_layers) else None)
+                            list(ob.data.materials), uv=_uv(tb) if len(ob.data.uv_layers) else None, corners=corners)
+    planned.append(me)
     plan["mesh"] = me
-    planned_meshes.append(me)
     plan["sharp_edges"] = nsharp
-    plan["custom_corners"] = int(sum(len(tb.polys[p]) for p in tb.flat_polys))
-    if tb.spec.roll_mm > 0:
-        tmin = tb.tables["thickness"]["min_mm"]
-        ps = tb.spec
-        knots = np.unique(np.r_[ps.top[:, 0], ps.bottom[:, 0]])
-        hmin = float(np.min(ps.y_top(knots) - ps.y_bot(knots)))
-        limit = min(tmin - ps.options["t_min_mm"], 0.5 * hmin)
-        if tb.spec.roll_mm >= limit:
-            bpy.data.meshes.remove(me)
-            plan["mesh"] = None
-            raise TempleError("E_ROLL", f"roll_mm {tb.spec.roll_mm:g} does not fit: the thinnest section leaves "
-                              f"{limit:.3f} mm (thickness {tmin:.3f} - t_min, or half the {hmin:.3f} mm outline height)",
-                              roll_mm=tb.spec.roll_mm, limit_mm=limit, min_thickness_mm=tmin, min_height_mm=hmin)
-        out, chk = _roll(me, tb.spec.roll_mm, _outer_long_edges(tb), plan, ob)
-        planned_meshes.append(out)
-        bpy.data.meshes.remove(me)
-        plan["mesh"] = out
-        plan["roll"] = chk
-        _refacet_normals(out, plan, ob)
-    region = list(tb.poly_region)
-    plan["decals"] = []
-    plan["decal_meshes"] = []
-    axis = tb.spec.hinge["axis_xz_mm"]
-    hparts = hinge_parts(side, axis, tb.spec.hinge["z_mm"], scene, origin, excl)
-    plan["hinge_parts"] = [{"name": ob.name, "kind": kind} for ob, kind in hparts]
-    if decals == "auto":                     # §3: hinge parts are never moved, so never a decal
-        plan["decals"] = plan_decals(old_bvh, new_bvh, region, side, scene, origin,
-                                     excl | {ob for ob, _ in hparts})
-        for d in plan["decals"]:
-            if len([r for r in d["regions"] if r not in ("top", "bottom", "cap_hinge", "cap_tip")]) > 1:
-                plan["warnings"].append({"code": "W_DECAL_SPANS_CREASE", "decal": d["name"], "regions": d["regions"],
-                                         "message": f"decal {d['name']} lands on {d['regions']}"})
-            dob = d["object"]
+    plan["custom_corners"] = int(np.count_nonzero(np.any(corners != 0.0, axis=1)))
+    h = tb.spec.hinge
+    axis = h["axis_xz_mm"]
+    hparts = hinge_parts(side, axis, h["z_mm"], scene, origin, excl)
+    plan["hinge_parts"] = [{"name": o.name, "kind": kind} for o, kind in hparts]
+    if decals == "auto":                          # hinge parts are never moved, so never a decal
+        for dob, V, _ in find_decals(old_bvh, side, scene, origin, excl | {o for o, _ in hparts}):
+            tr = transfer_decal(V, old_bvh, surf, side, h)
             dm = dob.data.copy()
             dm.name = dob.data.name + " | g3d decal (planned)"
-            loc = _local(dob, d["V_new"], origin)
-            dm.vertices.foreach_set("co", loc.astype(np.float32).ravel())
+            planned.append(dm)
+            dm.vertices.foreach_set("co", _local(dob, tr["V_new"], origin).astype(np.float32).ravel())
             dm.update()
-            d["mesh"] = dm
-            plan["decal_meshes"].append(dm)
+            rec = {"object": dob, "name": dob.name, "mesh": dm, "vertices": len(V), "outside": tr["outside"],
+                   "max_move_mm": float(tr["moves"].max()), "mean_move_mm": float(tr["moves"].mean()),
+                   "standoff_mm": [float(tr["standoff"].min()), float(tr["standoff"].max())],
+                   "regions": tr["regions"]}
+            plan["decals"].append(rec)
+            if len(tr["regions"]) > 1:
+                plan["warnings"].append({"code": "W_DECAL_SPANS_CREASE", "decal": dob.name, "regions": tr["regions"],
+                                         "message": f"decal {dob.name} spans {'|'.join(tr['regions'])}"})
     excl_h = excl | {d["object"] for d in plan["decals"]}
-    plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, tb.spec.hinge["z_mm"], scene, origin, excl_h,
-                                 parts=hparts)
+    plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, h["z_mm"], scene, origin, excl_h, parts=hparts)
     for lf in plan["hinge"]["leaves"]:
         g = lf["gap_mm"]
         if g > TS.HINGE_LEAF_GAP_MM or -g > TS.HINGE_LEAF_EMBED_MM:
@@ -713,158 +683,12 @@ def _world_normals(tb, side) -> np.ndarray:
     return n
 
 
-NONPLANAR_MM = 1e-4
-
-
-def _triangulate_nonplanar(me) -> int:
-    """Split every non-planar polygon the Bevel left (its corner patches where the rounded strip meets a cap) into
-    triangles, so each of its folds is a real edge that can be marked sharp. Returns how many were split."""
-    import bmesh
-    bm = bmesh.new()
-    bm.from_mesh(me)
-    # the Bevel's corner patches can hold coincident vertices and zero-area faces: merge and dissolve them first
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=NONPLANAR_MM)
-    bmesh.ops.dissolve_degenerate(bm, dist=NONPLANAR_MM, edges=bm.edges)
-    bad = []
-    for f in bm.faces:
-        if len(f.verts) <= 3:
-            continue
-        P = np.array([v.co[:] for v in f.verts], np.float64)
-        n = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)
-        L = np.linalg.norm(n)
-        if L <= 0:
-            continue
-        n /= L
-        if float(np.max(np.abs((P - P.mean(0)) @ n))) > NONPLANAR_MM:
-            bad.append(f)
-    if bad:
-        bmesh.ops.triangulate(bm, faces=bad)
-    bm.to_mesh(me)
-    bm.free()
-    me.update()
-    return len(bad)
-
-
-def _fan_normals(me) -> np.ndarray:
-    """Corner normals (object space) computed in float64: corners around a vertex joined across non-sharp manifold
-    edges form a fan; each fan takes the area-weighted mean of its faces' Newell normals."""
-    co = np.zeros(len(me.vertices) * 3, np.float32)
-    me.vertices.foreach_get("co", co)
-    co = co.reshape(-1, 3).astype(np.float64)
-    sharp = np.zeros(len(me.edges), bool)
-    att = me.attributes.get("sharp_edge")
-    if att is not None:
-        att.data.foreach_get("value", sharp)
-    ek = {tuple(sorted(e.vertices)): e.index for e in me.edges}
-    nl = len(me.loops)
-    parent = list(range(nl))
-
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-    fnorm = np.zeros((len(me.polygons), 3))
-    loop_at = {}                                               # (edge key, vertex) -> [loops]
-    for p in me.polygons:
-        vs = list(p.vertices)
-        P = co[vs]
-        fnorm[p.index] = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)          # 2 x area x normal
-        k = len(vs)
-        for i in range(k):
-            li = p.loop_start + i
-            for nb in (vs[i - 1], vs[(i + 1) % k]):
-                key = (min(vs[i], nb), max(vs[i], nb))
-                loop_at.setdefault((key, vs[i]), []).append(li)
-    for (key, v), ls in loop_at.items():
-        e = ek.get(key)
-        if e is not None and not sharp[e] and len(ls) == 2:
-            a, b = find(ls[0]), find(ls[1])
-            if a != b:
-                parent[max(a, b)] = min(a, b)
-    lp = np.zeros(nl, np.int64)
-    for p in me.polygons:
-        lp[p.loop_start:p.loop_start + p.loop_total] = p.index
-    roots = np.array([find(i) for i in range(nl)])
-    acc = np.zeros((nl, 3))
-    np.add.at(acc, roots, fnorm[lp])
-    out = acc[roots]
-    L = np.linalg.norm(out, axis=1, keepdims=True)
-    return out / np.maximum(L, 1e-300)
-
-
-def _resharpen(me, kink_deg: float) -> int:
-    """After the roll: sharp_edge = the edges marked before the Bevel (carried by the modifier) plus every manifold edge
-    whose faces bend more than kink_deg (the bevel's ends against the caps), so the rounded strips stay smooth and the
-    junctions stay crisp. Returns the number of sharp edges."""
-    co = np.zeros(len(me.vertices) * 3, np.float32)
-    me.vertices.foreach_get("co", co)
-    co = co.reshape(-1, 3).astype(np.float64)
-    fn = np.zeros((len(me.polygons), 3))
-    for p in me.polygons:                                       # float64 Newell normals (tiny bevel faces)
-        P = co[list(p.vertices)]
-        n = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)
-        L = np.linalg.norm(n)
-        fn[p.index] = n / L if L > 0 else n
-    ne = len(me.edges)
-    cur = np.zeros(ne, bool)
-    att = me.attributes.get("sharp_edge")
-    if att is not None:
-        att.data.foreach_get("value", cur)
-    else:
-        att = me.attributes.new("sharp_edge", "BOOLEAN", "EDGE")
-    faces_of = [[] for _ in range(ne)]
-    ek_index = {tuple(sorted(e.vertices)): e.index for e in me.edges}
-    for p in me.polygons:
-        for ek in p.edge_keys:
-            faces_of[ek_index[tuple(sorted(ek))]].append(p.index)
-    cosk = math.cos(math.radians(kink_deg))
-    new = cur.copy()
-    for e, fs in enumerate(faces_of):
-        if len(fs) == 2 and float(fn[fs[0]] @ fn[fs[1]]) < cosk:
-            new[e] = True
-    att = me.attributes.get("sharp_edge")
-    att.data.foreach_set("value", new)
-    me.update()
-    return int(new.sum())
-
-
-def _refacet_normals(me, plan, ob):
-    """After the roll: every polygon lying on a facet plane takes that plane's normal at its corners; every other
-    corner is auto-smoothed again (zero custom vector) against the re-derived sharp edges."""
-    tb, side, origin = plan["tb"], plan["side"], plan["origin"]
-    M3, t = _matrix(ob)
-    co = np.zeros(len(me.vertices) * 3, np.float32)
-    me.vertices.foreach_get("co", co)
-    W = co.reshape(-1, 3).astype(np.float64) @ M3.T + t - origin
-    h = tb.spec.hinge
-    L = TB.to_local(W, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
-    planes = RP.facet_planes_chart(tb)
-    _resharpen(me, tb.spec.options["kink_sharp_deg"] - 0.5)     # 0.5 deg margin: float32 polygon normals
-    cn = _fan_normals(me)                                       # explicit everywhere: no reliance on auto fans
-    for p in me.polygons:
-        P = L[list(p.vertices)]
-        for _, n, c in planes:
-            if np.max(np.abs(P @ n - c)) <= 2e-3:
-                nl = np.array([n[2], n[1], -n[0]])
-                a = math.radians(h["opening_deg"])
-                nl = np.array([math.cos(a) * nl[0] - math.sin(a) * nl[2], nl[1],
-                               math.sin(a) * nl[0] + math.cos(a) * nl[2]])
-                if side < 0:
-                    nl[0] = -nl[0]
-                nloc = _local_normals(ob, nl[None, :])[0]
-                cn[p.loop_start:p.loop_start + p.loop_total] = nloc
-                break
-    me.normals_split_custom_set([tuple(map(float, n)) for n in cn])
-    me.update()
-
-
 def _side_receipt(plan) -> dict:
     ob = plan["object"]
     return {"target": ob.name, "mesh": ob.data.name, "sharp_edges": plan["sharp_edges"],
-            "custom_normal_corners": plan["custom_corners"], "roll": plan.get("roll"),
-            "decals": [{k: d[k] for k in ("name", "vertices", "misses", "max_move_mm", "regions", "normal")}
-                       for d in plan["decals"]],
+            "custom_normal_corners": plan["custom_corners"],
+            "decals": [{k: d[k] for k in ("name", "vertices", "outside", "max_move_mm", "mean_move_mm", "standoff_mm",
+                                          "regions")} for d in plan["decals"]],
             "hinge": plan["hinge"], "hinge_parts": plan.get("hinge_parts", []), "warnings": plan["warnings"],
             "planned_vertices": len(plan["mesh"].vertices), "planned_polygons": len(plan["mesh"].polygons)}
 
@@ -927,7 +751,7 @@ def _write(plans, tb) -> None:
             ob["partRole"] = "temple"
             ob["region"] = "temple_+x" if s > 0 else "temple_-x"
             ob[PROP_TEMPLE] = json.dumps(TS.plain({"schema": SCHEMA, "core_version": CORE_VERSION,
-                                                   "spec_sha256": tb.spec.sha256, "side": "+x" if s > 0 else "-x",
+                                                   "spec_sha256": tb.spec.sha256, "side": _side_key(s),
                                                    "canonical_spec": tb.spec.canonical,
                                                    "facets": tb.tables["facets"]}), sort_keys=True)
             ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
@@ -997,10 +821,65 @@ def unfaceted_temple(obj) -> dict:
     return {"status": "ok", "object": ob.name, "mesh": ob.data.name, "decals_restored": restored}
 
 
+# --------------------------------------------------------------------------------------------- variants
+def build_variant_meshes(spec, *, side="both", targets=None, decals="auto") -> dict:
+    """Plan like faceted_temple and keep the planned meshes as new, unlinked datablocks (no object changes): the
+    temples (`meshes` = {side: mesh name}) and the transferred decals, each in its object's local frame, named
+    `<mesh> | g3d variant <sha8>` and tagged `g3d_variant`. `overrides` = {object name: mesh name} is what a render's
+    mesh_overrides takes (§3.2). remove_variant_meshes(names) deletes them."""
+    t0 = time.perf_counter()
+    scene = bpy.context.scene
+    plans, planned = None, []
+    try:
+        tb, plans, rec, planned = _plan(spec, side, targets, decals, scene)
+        tag = tb.spec.sha256[:8]
+        meshes, overrides = {}, {}
+        for s, plan in plans.items():
+            items = [(plan["object"], plan["mesh"])] + [(d["object"], d["mesh"]) for d in plan["decals"]]
+            for ob, me in items:
+                me.name = f"{ob.data.name}{VARIANT_SUFFIX} {tag}"
+                me[PROP_VARIANT] = json.dumps({"spec_sha256": tb.spec.sha256, "side": _side_key(s),
+                                               "object": ob.name}, sort_keys=True)
+                overrides[ob.name] = me.name
+            meshes[_side_key(s)] = plan["mesh"].name
+        rec.update({"status": "ok", "meshes": meshes, "overrides": overrides})
+        rec["budget"]["total_ms"] = 1000.0 * (time.perf_counter() - t0)
+        return TS.plain(rec)
+    except TempleError as e:
+        _cleanup_planned(plans, planned)
+        return _refused(e.code, e.message, e.fields)
+    except Exception as exc:                                  # noqa: BLE001 - report, never raise
+        _cleanup_planned(plans, planned)
+        return {"status": "failed", "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc(limit=8)}
+
+
+def remove_variant_meshes(names=None) -> dict:
+    """Delete variant meshes: the given names (str or list; each must be a g3d_variant mesh no object uses), or
+    every unused g3d_variant mesh when names is None."""
+    if isinstance(names, str):
+        names = [names]
+    todo = [me for me in bpy.data.meshes if me.get(PROP_VARIANT) is not None] if names is None else \
+        [bpy.data.meshes.get(n) for n in names]
+    removed, kept = [], []
+    for name, me in zip(names or [m.name for m in todo], todo):
+        if me is None or me.get(PROP_VARIANT) is None:
+            kept.append({"name": name, "why": "no such g3d variant mesh"})
+        elif me.users > 0:
+            kept.append({"name": name, "why": f"in use ({me.users} users)"})
+        else:
+            bpy.data.meshes.remove(me)
+            removed.append(name)
+    return {"status": "ok" if not kept else "partial", "removed": removed, "kept": kept}
+
+
 # --------------------------------------------------------------------------------------------- check_relief
+CHECK_ZONE_END_D = 50.0          # the measure window behind the hinge (information; /2 has no zone)
+
+
 def check_relief(objects=None, *, photo_creases: int | None = None, hinge_z: float | None = None) -> dict:
-    """§5 geometry numbers of the evaluated temples (both sides): from their g3d_temple extras (chart, facet planes)
-    when present, else the world chart (d = hinge_z - z; hinge_z defaults to the temple's front end)."""
+    """Geometry numbers (measure.measure_temple, information) of the evaluated temples (both sides): from their
+    g3d_temple extras (chart, facet planes) when present, else the world chart (d = hinge_z - z; hinge_z defaults to
+    the temple's front end)."""
     scene = bpy.context.scene
     origin = asset_origin(scene)
     try:
@@ -1018,22 +897,20 @@ def check_relief(objects=None, *, photo_creases: int | None = None, hinge_z: flo
         ext = ob.get(PROP_TEMPLE)
         planes = None
         if isinstance(ext, str):
-            ex = json.loads(ext)
-            spec = ex["canonical_spec"]
+            spec = json.loads(ext)["canonical_spec"]
             h = spec["hinge"]
             L = TB.to_local(V, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
             F = MS.chart_faces(T, side)
-            tb = TB.build_temple(spec)
-            planes = RP.facet_planes_chart(tb)
-            ze, chart = spec["zone_end_d"], "g3d_temple extras"
+            planes = RP.facet_planes_chart(TB.build_temple(spec))
+            chart = "g3d_temple extras"
         else:
             hz = float(V[:, 2].max()) if hinge_z is None else float(hinge_z)
             L, F = MS.chart_mesh(V, T, side, hz)
-            ze, chart = 50.0, f"world (hinge z {hz:.2f})"
-        m = MS.measure_temple(L, F, zone_end=ze, facet_planes=planes, photo_creases=photo_creases)
+            chart = f"world (hinge z {hz:.2f})"
+        m = MS.measure_temple(L, F, zone_end=CHECK_ZONE_END_D, facet_planes=planes, photo_creases=photo_creases)
         m["chart"] = chart
         m["object"] = ob.name
-        out["temples"]["+x" if side > 0 else "-x"] = TS.plain(m)
+        out["temples"][_side_key(side)] = TS.plain(m)
     return out
 
 

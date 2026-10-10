@@ -86,3 +86,32 @@ def test_vertex_pool_merges_within_tolerance():
     a = pool.add((1.0, 2.0))
     assert pool.add((1.0 + 5e-8, 2.0 - 5e-8)) == a
     assert pool.add((1.0 + 3e-7, 2.0)) != a
+
+
+def test_box_pairs_match_brute_force():
+    rng = np.random.default_rng(7)
+    A = rng.uniform(0, 30, (120, 2))
+    B = A + rng.normal(0, 3, (120, 2))
+    B[:20, 0] = A[:20, 0]                                  # vertical chords (zero width in d)
+    i, j = AR._box_pairs(A, B)
+    got = set(zip(i.tolist(), j.tolist()))
+    lo, hi = np.minimum(A, B) - AR.DEDUPE_MM, np.maximum(A, B) + AR.DEDUPE_MM
+    want = {(a, b) for a in range(120) for b in range(120) if a != b and lo[a, 0] <= hi[b, 0] and lo[b, 0] <= hi[a, 0]
+            and lo[a, 1] <= hi[b, 1] and lo[b, 1] <= hi[a, 1]}
+    assert got == want
+
+
+def test_small_ear_clip_follows_the_same_rule():
+    rng = np.random.default_rng(3)
+    for n in range(4, AR.SMALL_POLY + 1):
+        for _ in range(5):
+            ang = np.sort(rng.uniform(0, 2 * np.pi, n))
+            rad = rng.uniform(1.0, 3.0, n)
+            P = np.stack([rad * np.cos(ang), rad * np.sin(ang)], axis=1)       # a star-shaped, simple CCW polygon
+            small = AR._ear_clip_small(P, list(range(n)))
+            old, AR.SMALL_POLY = AR.SMALL_POLY, 3
+            try:
+                big = AR.ear_clip(P, list(range(n)))
+            finally:
+                AR.SMALL_POLY = old
+            assert small == big

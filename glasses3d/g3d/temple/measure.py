@@ -1,5 +1,6 @@
-"""Geometry measures of a temple (WP6_DESIGN.md §5 "Geometry"), shared by g3d.faceted_temple's receipt, g3d.check_relief
-in Blender and g3d_host.relief_check on a GLB, so the tool and the check cannot disagree. numpy only.
+"""Geometry measures of a temple (first defined by the archived WP6 v1 design, plan/archive/20261010/WP6_DESIGN.md §5;
+information only since the v1 gates were retired, plan/WP6_FACETS.md §0), shared by the core, the Blender layer and the
+host so they cannot disagree. numpy only.
 
 Every function takes a triangle mesh in the temple CHART: local (d, y, X) mm, d = z_h - z behind the hinge plane, y up,
 X = |x| outward (the tool's own local frame; a GLB temple is mapped by `chart_from_world`).
@@ -29,7 +30,7 @@ import math
 
 import numpy as np
 
-# measurement definitions (the gate thresholds live in g3d_host/relief_rules.py, which asserts these values)
+# measurement definitions (v1's relief_rules.py asserted these values until its removal; no gate uses them now)
 SHARE_D_RANGE = (2.0, 50.0)
 SHARE_TOL_MM = 0.3
 OUTER_NORMAL_MIN = 0.6
