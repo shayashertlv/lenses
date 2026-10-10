@@ -3,6 +3,24 @@
 ## Active resume — WP6 (2026-10-10)
 
 **REAL ASTRA TEST COMPLETE — observer-only experiment, 2026-10-10.**
+**Owner visual verdict: rejected.** Latest feedback: "the results are still not
+good". Asset-bound local record: `data/wp6/astra_temple_lab_20261010/owner-review-20261010.json`.
+Read-only review of the actual tool arguments identifies one four-plane layout
+at two applied depths; revision 2 only reparameterizes the same upper plane.
+Despite 35 replies, no alternative layout or profile correction was tested after
+render review. Astra explicitly extended fading diagonals into hard full-length
+construction edges while acknowledging the photos did not prove those edges.
+Mapping residual 5.42 mm and template thickness approximation 2.40 mm leave substantial
+uncertainty before the 1 mm depth change. The prompt asks for an experimental
+improvement/export with honest limitations, and supplies no quality-driven
+continuation gate. It therefore permitted the observed early completion.
+Diagnosis: tool operation is demonstrated; reconstruction accuracy, iterative
+convergence and preservation of the original temple finish are not established.
+Proposed priorities before another test: preserve the base/bevel/join geometry,
+provide aligned photo/render evidence for line placement and depth, and require
+actual layout/depth correction attempts with explicit success/stagnation outcomes.
+These are proposals, not implemented repairs or authorization for another run.
+
 The owner explicitly authorized the isolated test with $10, no reserved tail,
 then clarified **no reply-count cap** and instructed Codex only to follow and
 document evidence. They configured the newly created ignored `glasses3d/.env`.

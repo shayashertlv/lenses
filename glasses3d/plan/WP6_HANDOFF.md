@@ -1,5 +1,18 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Latest owner review, 2026-10-10: result rejected ("the results are still not good").**
+`data/wp6/astra_temple_lab_20261010/owner-review-20261010.json` binds this verdict to
+c0003/revision 3/export `8fc885c4...`. Review found one layout at two applied depths,
+with a parameterization-only middle revision; 35 replies were not 35 modeling
+iterations. Fading photo diagonals became hard full-length construction edges.
+Uncertain mapping (5.42 mm) and template thickness approximation (2.40 mm) were
+left unresolved. Prompt allowed an experimental improvement/export with limitations;
+no quality-driven continuation was enforced. Tool operation works, reconstruction
+accuracy and convergence are unproven. Proposed next priorities are preserving
+base/bevel/join geometry, aligned photo/render comparison, and meaningful layout/
+depth correction plus success/stagnation reporting. No repairs or paid rerun are
+authorized by this analysis; continue to respect the observer-only scope.
+
 **REAL ASTRA TEST COMPLETE — 2026-10-10.** Owner authorized $10, no fixed
 reserve and **no reply-count cap**, with Codex only observing/documenting.
 PID50608,started18:51:07 +03, inference18:51:20, finished19:04:41,exit0; job
