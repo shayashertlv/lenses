@@ -296,27 +296,37 @@ def stage_p3(pf, spec) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     blend = scene_copy(out, "prada_copy_p3.blend")
     glb = out / "prada_tool_test_faceted.glb"
-    st = blender_steps(out, blend, [{"op": "faceted_temple", "spec": spec}, {"op": "check_relief", "photo_creases": 4},
+    reference = out / "prada_before_tool.glb"
+    st = blender_steps(out, blend, [{"op": "export", "path": str(reference)},
+                                    {"op": "faceted_temple", "spec": spec}, {"op": "check_relief", "photo_creases": 4},
                                     {"op": "export", "path": str(glb)},
                                     {"op": "save_copy", "path": str(out / "prada_tool_test_faceted.blend")}], "p3")
-    ft = st[0]
-    res = {"tool": {k: ft.get(k) for k in ("status", "code", "message", "warnings", "budget", "geometry", "facets",
+    original_export, ft, check, exported = st[:4]
+    res = {"export_validation_version": 2,
+           "tool": {k: ft.get(k) for k in ("status", "code", "message", "warnings", "budget", "geometry", "facets",
                                            "creases", "thickness")},
-           "sides": ft.get("sides"), "check_relief": st[1], "export": {k: st[2].get(k) for k in ("status", "error")}}
-    if st[2].get("status") == "exported":
+           "sides": ft.get("sides"), "check_relief": check,
+           "export": {k: exported.get(k) for k in ("status", "error")},
+           "reference_export": {k: original_export.get(k) for k in ("status", "error")},
+           "reference_glb": str(reference)}
+    if exported.get("status") == "exported" and original_export.get("status") == "exported":
         vs = validate_spec(glb)
         res["validate_spec"] = {"ok": vs["ok"]}
         from glasses3d.tests.proofs.wp6_p0_instrument import grade_glb
         g = grade_glb(glb, hinge_z=spec["hinge"]["z_mm"], zone_end=spec["zone_end_d"], outline=spec["outline"],
+                      reference_glb=reference,
                       facet_polys={l: [spec["nodes"][n][:2] for n in (f["poly"] if isinstance(f, dict) else f)]
                                    for l, f in spec["facets"].items()})
         res["instrument"] = {"pass": g["pass"], "failed": {s: {k: v for k, v in t["checks"].items() if not v["pass"]}
-                                                           for s, t in g["temples"].items()}}
+                                                           for s, t in g["temples"].items()},
+                             "global": g["checks"]}
+        res["reference_glb_sha256"] = sha(reference)
     res["glb"] = str(glb)
     res["spec_sha256"] = _spec_sha(spec)
     res["source_sha256_unchanged"] = sha(PRADA_SCENE) == pf.rec["source_scene"]["sha256_before"]
     warn = [w.get("code") for w in (ft.get("warnings") or [])]
     res["pass"] = (ft.get("status") == "ok" and res.get("validate_spec", {}).get("ok", False)
+                   and res.get("instrument", {}).get("pass", False)
                    and res["source_sha256_unchanged"])
     res["hinge_warnings"] = [w for w in warn if w in ("W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")]
     return res
@@ -582,6 +592,9 @@ def run_rest(pf, job, fits_d, start, gp, stages, args, p2_done: dict | None = No
         if not p3.get("pass"):
             return pf.stop("STOP-T", "P3 build on the scene copy failed", p3)
     if "gates" in stages:
+        if p3 is not None and (p3.get("export_validation_version") != 2 or not p3.get("pass")
+                               or not p3.get("instrument", {}).get("pass")):
+            return pf.stop("STOP-T", "P3 export validation is failed or incomplete", p3)
         gt = pf.stage("GATES", lambda: stage_gates(pf, job, fits_d, fo, p2, guides, p3))
         label_sheet(pf.out / "views" / "six_view_sheet.png", "TOOL TEST - WP6 $0 proof on a Prada scene copy; "
                     "not a delivered model")

@@ -1,5 +1,28 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**ACTIVE OWNER GOAL — 2026-10-10.** Complete all six proposed steps and pause the
+goal when the synchronized user comparison is ready. Earlier deferred-run pauses
+are superseded. Preserve the preferred source and all frozen gates; no paid calls
+or push. Work is recorded in `data/wp6/preferred_goal_20261010/` and the newest
+PROGRESS entry. Fit-11's two preferred reconstruction starts finished: shallow
+passes all five recovery checks; perturbed fails outline/angle. Both are retained.
+The stationing repair now preserves the continuous surface while removing the
+native preferred mesh's normal failure. Fifteen independent controls fail before,
+115 affected tests pass afterward; all original native P0 fixtures/refusals and P1
+pass. The preferred export still fails decal motion. An independent geometric
+bound shows at least 1.165953mm motion is necessary within .05mm lift, exceeding
+the frozen 1mm limit. P3 now includes original-decal checks and enforces mesh
+failures, including in resumed records (14 coverage/proof checks, seven cache
+checks pass). Fitter version **fit-12** invalidates old acceptance caches.
+
+Both reconstruction starts are now rerunning under fit-12 as **PID31328**,
+eleven workers, from **15:18:26 +03**, `reconstructed_station_run/`. Keep its
+snapshotted sources unchanged. Then inspect results and run the prepared
+`photo_proof.py` full preferred-family diagnostic, black-photo checks, and the
+comparison package. Neither the full photo run nor final comparison exists yet.
+The required end state includes the full preferred-shape/photo/export comparison,
+an honest explanation of remaining failures, and a goal pause for the owner.
+
 **LATEST OWNER DECISION — keep the original preferred reference, 2026-10-10.**
 The owner says the smoothing comparison addressed the wrong triangle and now
 recognizes the line they meant as curvature: **"there was never a triangle where

@@ -2,6 +2,67 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**ACTIVE OWNER GOAL — complete the six-step investigation and pause for comparison.**
+The owner authorizes preserving the preferred shape, diagnosing/repairing instruments,
+explaining R1, testing preferred-shape reconstruction, completing photo/export checks,
+and preparing the synchronized comparison. Pause the goal when that comparison is
+ready. Use available CPU within free-commit limits, one pool at a time; no paid calls,
+gate changes, push or WP5 reopening. This supersedes the earlier deferred-run pause.
+New evidence: `data/wp6/preferred_goal_20261010/`. The preferred source remains
+cfc11127...; the smoothing experiment remains unselected.
+
+P3 now grades against a fresh original export and requires the independent mesh/decal
+grade to pass. Resumed gates refuse an old or failed P3 record. Four fresh-export and
+two resumed-record controls failed before repair; all 14 affected proof/coverage
+checks pass afterward. Native comparisons verify that failed normals/decals now
+keep P3 failed. Seven cache controls pass. Frozen gate definitions are unchanged.
+
+First preferred reconstruction completed PID40108, 15:01:51–15:13:37 +03, exit0,
+ten workers, BLAS1/EcoQoS opt-out/actual AboveNormal. Both predeclared starts were
+retained. Under fit-11, perturbed-start recovery: outline .263965748mm (fails .2),
+level .338794114mm, C relief .098306315mm, F1 slope .022208847, angle .796983050deg
+(fails .3). Shallow-start (25% relief): .136061263mm/.003342258mm/.087980939mm/
+.009505993/.289150592deg, all five recoveries pass. Both reach four rounds;
+truth transfers .098657903/.037945084mm. These are additional controls, not S1
+replacement or proof of starting-point robustness.
+
+Read-only export diagnosis identifies an incidental station at d=21.3mm nearly
+coincident with a true facet/outline crossing at 21.301921387mm. A local general
+stationing proposal incorporates crossing positions before strip subdivision.
+All 31 fixture/analytic/preferred surface controls preserve geometry; preferred
+surface sample difference 1.42e-14mm, volume difference 1.82e-12mm3. Float32 face
+normal error improves .129987565 -> .001824311deg. Native before/after exports
+confirm both temples' normal failures disappear; decal movement still fails.
+Fifteen independent station/float32 controls fail before repair; the integrated
+builder passes all 115 affected core/proof tests. Fitter version is now **fit-12**
+to invalidate acceptance caches after tessellation changes. Preferred source,
+continuous surface and frozen thresholds remain unchanged.
+
+Fresh P0/P1 completed PID32968, 15:17:27–15:18:00 +03, exit0,
+`station_instruments_completed/proof.json`: all 12 original P0 fixtures and refusals
+pass; added `prada_owner_preferred` fails only decal motion, with mesh checks clear.
+P1 passes. The earlier wrapper omitted P1's job argument, and a reuse attempt
+correctly refused an edited unrelated local driver in its broad source manifest;
+both failed receipts remain. The successful run freshly repeats P0/P1 and verifies
+every recorded input. No failed check was omitted or weakened.
+
+Independent closest-triangle distance controls show each original ribbon/shield
+requires at least **1.165952961mm** maximum movement to reach the preferred outer
+surface within .05mm lift (1.215952961mm distance before lift). Thus preserving
+this exact surface conflicts with the 1mm movement limit regardless of the
+placement algorithm. `decal_distance_bound.json` also lists other temple-role
+parts; only the six names in P3's decal receipt are decals, not the hinge parts.
+
+**Now running:** both preferred reconstruction starts under integrated fit-12,
+actual **PID31328**, started **15:18:26 +03**, `reconstructed_station_run/`,
+eleven workers sized from current free commit. Output is
+`station_reconstruction/reconstruction/`; source-frozen until completion.
+Next inspect those results, run the prepared preferred-family six-photo diagnostic
+in `photo_proof.py` (own camera fits, independent slab, S2/S3, full native P3 and all
+gates, plus separately graded fixed preferred geometry), then black-photo checks,
+package/browser-check/seal comparison and pause the goal. That full run is not
+started yet. The historical S1 failures remain binding throughout.
+
 **CURRENT OWNER DECISION — keep the original preferred reference, 2026-10-10.**
 After reviewing the smoothing comparison, the owner clarified: **"that wasnt the
 triangle the next one is but im understanding  now that there was never a triangle

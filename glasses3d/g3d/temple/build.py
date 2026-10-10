@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import planes as PL_
-from .arrange import Arrangement, build_arrangement, ear_clip, point_in_poly, poly_area
+from .arrange import Arrangement, build_arrangement, clip_segment, ear_clip, point_in_poly, poly_area
 from .spec import (ARM_NORMAL_SPREAD_DEG, FLAT_CREASE_DEG, TILE_TOL_MM2, ParsedSpec, TempleError, chamfer_breaks,
                    chamfer_width, parse)
 
@@ -142,6 +142,19 @@ def station_list(ps: ParsedSpec) -> list[float]:
     zk |= {float(n[0]) for n in ps.nodes.values() if d0 < float(n[0]) < ze}
     for ch in ps.chamfers:
         zk |= {float(k) for k in chamfer_breaks(ch) if d0 < k < ze}
+    # A regular station nearly coincident with a facet/outline intersection
+    # creates a tiny triangular cell. Its float32 positions may no longer
+    # retain the facet's normal. Subdivide between the real crossings instead:
+    # only the tessellation changes, and every strip still respects `step`.
+    boundary = ps.boundary()
+    for facet in ps.facets.values():
+        points = [np.asarray(ps.nodes[n][:2]) for n in facet["poly"]]
+        for p, q in zip(points, points[1:] + points[:1]):
+            for a, b in clip_segment(p, q, boundary):
+                for t in (a, b):
+                    d = float((p + t * (q - p))[0])
+                    if d0 < d < ze:
+                        zk.add(d)
     out = _subdivide(sorted(ks), d1, step)
     if not ps.roll_mm > 0:
         out += _subdivide([d0] + sorted(zk), ze, step)
