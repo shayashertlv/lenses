@@ -2,6 +2,111 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**NEW REVIEW CHECKPOINT — 2026-10-10.** Controllable distal-arm comparison:
+**http://127.0.0.1:63259/**, server PID **39488**. Show it and pause the goal for
+owner review, per the explicit stopping rule. Exact accepted `current` mesh is
+preserved; the separate copy changes only d > 100 mm. It raises the upper/lower
+tip **2.528439/.361057 mm**, moves inner x **+1.581311 mm**, changes thickness
+**-2.112391 mm** (4.28 -> 2.167609), and length **-.324955 mm**. All facet planes,
+nodes and proximal profiles (including thickness) remain unchanged. This is a
+conditional tool-test copy, not exact physical truth, product delivery or WP6
+closeout. Current visual review is pending; do not infer acceptance from the
+earlier apex verdict. Evidence: `data/wp6/pose_arm_resume_20261010/`.
+
+The six-original-view fit resolves the earlier sign conflict in tip thickness;
+both black-photo checks improve under both retained camera bases. Saved-camera
+distal contours: black-side **5.765920 -> 4.977340 px**, black-oblique
+**8.563610 -> 6.690734 px**. Original 03/04 distal checks still worsen slightly
+**4.241473 -> 4.405202 / 8.425984 -> 8.685570 px**. Camera-refit rear-arm contour
+improves in **all eight** photos; black-oblique **8.100 -> 6.118846 px**. Whole
+contour improves in seven, with 04 **2.586876 -> 2.601316 px** adverse. Keep these
+results; no all-gates pass or perfect shape claim. The two black photos are
+separate checks for this fit, not unused throughout the exploratory session.
+
+Viewer starts at **Tip close-up**; synchronized orbit, zoom, Side/Top/End/Oblique,
+lighting, surface/highlights, image export and all eight photo overlays checked.
+Browser PID **6528**, **08:52:27.796–08:52:37.371 +03**, exit0. Side/oblique tip,
+narrow layout and all-eight contact sheet inspected. Closed meshes, exact baseline
+identity, 1x depth and private provenance denial verified. `review_checkpoint.json`
+binds the assets, earlier failures, final tool source snapshots and receipts, and
+verifies the prior 148-artifact checkpoint and frozen/photo/baseline inputs.
+Keep gates, WP5 closeout and owner's separate session-prompt edit. No paid calls
+or push. After review/resumption, address remaining tip curvature/camera residuals
+and frozen S1/R1 failures; do not repeat completed fits merely to resume.
+
+**Camera transport repair:** original cream photo 02 and the new black oblique
+photo agree closely under a directly measured 2D similarity, without 3D geometry
+in the registration. L60 contour mean/RMS = **1.004986/1.665719 px**; held-out
+internal AB/BC lines = **.345039/.935830 px**. L45/60/75 and all nine starts remain.
+Transporting the saved 02 camera gives black-oblique whole-contour **31.953996 ->
+7.743727 px**, rear-arm **75.413034 -> 8.041914 px**, with the same accepted mesh.
+These are two real photos, not independent viewing angles or new depth truth.
+05 -> black-side transfer is weaker (L60 contour 3.3294 px; AB/AC 3.7104/5.5413 px);
+keep black-side's existing camera. `camera_transport/report.json` retains all
+thresholds and both original-camera bases, with saved/L60 predeclared for display.
+
+New opt-in `g3d_host/camera_similarity.py` validates image similarities, registers
+cropped mask contours bidirectionally, and transports camera scale/center/roll
+exactly while preserving yaw/pitch/perspective and NormFrame. It is not imported
+by the frozen fitter. **17 new tests, 56 total relevant camera/anchor/crop/mask
+tests pass**, PID29572, **08:28:40.817–08:28:45.349 +03**, exit0. A final logging
+correction separates pre/post ICP parameters and matched residuals; all 17 helper
+tests pass again, PID48392 **08:49:22.731–08:49:25.181 +03**, exit0. Independent
+nonplanar projection and independently rasterized crop/rotation/scale controls
+are included; wrong-shape residuals are reported, never an acceptance pass.
+
+Earlier initializers remain failed evidence: facet-line initialization worsens
+black-side contour 7.2318 -> 15.419 px and only partly repairs oblique rear error
+75.413 -> 42.544 px. Global WP3b contour initialization reaches rear 8.666 px but
+has mixed recovery across 16 known cropped controls. Neither was promoted; no
+frozen WP6 bounds or seeds changed. See `line_pose/` and `global_pose/`.
+
+**Distal shape is unresolved.** Copies change only d > 100 mm; all facets and
+proximal profiles remain fixed. Four-coordinate fit (top/bottom tip height,
+length, inner position) on 01/03/05 improves those views but worsens held-out
+02/04/black-oblique distal contours: **7.6198 -> 9.2050 / 8.1675 -> 10.4595 /
+8.5597 -> 9.1837 px**. Both saved/aligned camera bases and every result remain in
+`distal_arm_v2/` and `distal_validation/`. Adding tip thickness (`distal_section/`)
+does not resolve the real-photo conflict and exposes a known-control optimizer
+failure: negative-sign thickness error **.88184 mm**. An exact coupled geometric
+proposal with descent under the unchanged image objective repairs both controls
+to max **.010510/.003099 mm**, but leaves the real-photo optimum unchanged
+(`distal_joint/`, termination `no_image_descent`, not a proof pass).
+
+Paired bounded camera refits (`distal_refit/`, all eight photos) still regress
+02 rear **5.216 -> 7.429**, 06 whole **4.370 -> 5.129**, and black-oblique rear
+**8.100 -> 11.044 px**. Do not promote these copies or call them correct shape.
+Terminal mask/photo inspection (`terminal_masks/`) follows the visible tips
+reasonably; it does not establish an instrument defect. The current endpoint is
+blunt in side/top views and broad in oblique views. The next predeclared diagnostic,
+`distal_all_views_run`, uses the same five coordinates, all six originals and both
+black-photo checks. Both camera bases start at the accepted mesh, with no best-start
+choice. It completed PID41628 **08:47:22.767–08:47:51.042 +03**, exit0; this is the
+reviewed copy above. A limited distal-copy test, not a full product reconstruction
+or replacement S1. No new representation parameter was added to seek a pass.
+
+All 148 earlier checkpoint hashes, baseline, photos and frozen inputs verified
+unchanged by `distal_validation/report.json`. Its proximal audit mistakenly
+skipped the `thickness` field under the name `thick`; the completed
+`all_views_validation` corrects this audit and explicitly verifies all four
+profiles, both bases, at 1001 stations through d=100. PID35068
+**08:48:36.080–08:49:24.826 +03**, exit0. Final bounded checks PID2716
+**08:49:47.535–08:51:04.485 +03**, exit0, reuse the eight identical accepted-model
+fits and fit only the new copy. Complete R1 remains
+**.693583443676 > .5**; STOP-I **.760738195495 > .7**, prior synthetic outline
+**.206456 > .2**, and all R3 clauses remain binding. No full-fit/promotion claim.
+
+Run receipts in the new root record arguments, environment, timestamps and exit
+codes. Completed actual PIDs: similarity46764, camera transport6492, four-DOF36500,
+validation18624, five-DOF29480, coupled repair40336, refit41756, masks23896; all
+exit0. Masks **08:42:31.873–08:42:37.027 +03**. The original four-DOF launcher
+failed before fitting (PID49892, pickling `__main__`); its code/log are preserved,
+and the corrected runner uses `run_module(..., alter_sys=True)`. First line-fit
+receipt has only launcher PID7840 (actual PID not captured); global actual PID26972
+was separately observed. Later receipts distinguish launcher and actual Python.
+No healthy run was killed; one pool at a time, measured free commit, BLAS1,
+AboveNormal and EcoQoS opt-out. Existing review servers remain available.
+
 **Owner review received — 2026-10-10: "both look perfect".** Both `current` and
 `revised` meshes in the actual-geometry comparison at **http://127.0.0.1:53427/**
 are visually accepted at this checkpoint, with no relative preference expressed.

@@ -1,5 +1,64 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**NEW REVIEW CHECKPOINT — 2026-10-10.** Show the controllable comparison at
+**http://127.0.0.1:63259/**, server PID **39488**, and pause the goal for owner
+review as requested. Visual verdict is pending; the older apex acceptance is not
+acceptance of this copy. Evidence: `data/wp6/pose_arm_resume_20261010/`.
+`review_checkpoint.json` binds assets/failures/source snapshots/receipts and verifies
+the previous 148-artifact checkpoint plus preferred mesh, photos and frozen inputs.
+
+Exact accepted mesh remains the baseline. The test changes d > 100 mm only:
+upper/lower tip +2.528439/+.361057 mm, inner x +1.581311 mm, terminal thickness
+-2.112391 mm and length -.324955 mm. All facets and proximal profiles are fixed.
+Six originals fit it; both black-photo checks improve in both camera bases.
+Saved-camera black-side/oblique distal contour **5.765920 -> 4.977340 /
+8.563610 -> 6.690734 px**. Original 03/04 distal scores regress slightly and remain
+visible. Bounded camera refits improve rear-arm contours in all eight photos;
+whole-contour 04 slightly worsens **2.586876 -> 2.601316 px**. Conditional tool-test
+copy, not exact physical shape or a WP6 pass. The black photos were used in earlier
+diagnostics; they are not wholly untouched validation. Read PROGRESS for details.
+
+Tip close-up, shared orbit/zoom/light, side/top/end/oblique, highlights/export,
+all eight photo sliders/sheets and narrow layout pass browser QA, PID6528
+**08:52:27.796–08:52:37.371 +03**. Side/oblique tip screenshots, narrow view and
+all-eight sheet inspected. No paid call, push, full-fit/promotion or WP5 reopening.
+After review/resumption, address remaining tip curvature, camera residuals and
+frozen S1/R1 failures; do not repeat the completed fit to resume.
+
+Direct photo-to-photo registration shows original 02 and black-oblique are
+near-identical poses under crop/zoom/roll: L60 contour **1.004986 px**, held-out
+AB/BC **.345039/.935830 px**. Transporting saved 02's camera reduces black-oblique
+rear-arm error **75.413034 -> 8.041914 px** without changing geometry. Both photos
+remain evidence, but do not count as independent depth viewpoints. Retain all
+thresholds/starts/bases; display was predeclared saved camera + L60. Black-side
+transfer is weaker and not substituted. The opt-in `camera_similarity` helper
+has 17 independent tests; 56 relevant tests pass, PID29572, **08:28:40–45 +03**.
+Final ICP history-label correction is rechecked: 17 pass, PID48392 **08:49:22–25**.
+No frozen fitter/runtime import or gate/bound changes. Earlier line/global pose
+initializers have failed controls and remain unpromoted evidence.
+
+Distal-copy fits on 01/03/05 improve side/top while regressing original/new
+obliques. Five coordinates include thickness; the scalar solver fails one known
+control by .88184 mm. A coupled proposal under the same image loss repairs the
+two controls to max **.010510/.003099 mm**, but not the real-photo conflict.
+Paired bounded camera refits across eight views still worsen 02/06/new-oblique
+checks. Do not promote these copies. Mask inspection has not proven an instrument
+defect. The predeclared `distal_all_views_run` then fits the same five coordinates
+jointly to all six originals from the accepted mesh, checking both black photos
+and both camera bases. It completed PID41628 **08:47:22–51 +03**, exit0; its result
+is the current comparison above. Bounded candidate refits PID2716 **08:49:47–
+08:51:04**, exit0, reuse the identical accepted-mesh fits. No extra shape parameter
+or favourable start was selected to obtain this result.
+
+Prior checkpoint/baseline/photo/frozen hashes verified unchanged. The completed
+`all_views_validation` corrects the earlier `thick`/`thickness` audit mistake and
+explicitly checks all four proximal profiles and all facet planes in both copies:
+PID35068 **08:48:36–08:49:24 +03**, exit0.
+R1 **.693583443676 > .5**, STOP-I **.760738195495 > .7**, prior outline
+**.206456 > .2**, and every R3 clause stay binding. No new full product fit, paid
+call, push, WP5 reopening or acceptance claim. Owner session-prompt edit remains
+separate. Commit explicit paths; ignored experiment scripts/assets stay local.
+
 **Owner review received — 2026-10-10: "both look perfect".** The owner visually
 accepts both `current` and `revised` in **http://127.0.0.1:53427/** at this comparison
 checkpoint, without choosing a new winner. The asset-bound record is
