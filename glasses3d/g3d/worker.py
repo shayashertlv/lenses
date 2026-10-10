@@ -406,6 +406,21 @@ def m_exec_unvalidated(params):
     return m_exec(params, validated=False)
 
 
+def m_temple_lab_build(params):
+    """Narrow dictionary-only endpoint for the opt-in temple lab; not the exec facade."""
+    from glasses3d.g3d.temple_bpy import faceted_temple
+    marker = ROOT / "inputs" / "lab.json"
+    if not marker.is_file() or json.loads(marker.read_text(encoding="utf-8")).get("schema") != "g3d.temple_lab/1":
+        return {"status": "refused", "code": "E_LAB_ONLY", "message": "this worker is not an isolated temple lab"}
+    if not isinstance(params.get("spec"), dict):
+        return {"status": "refused", "code": "E_SPEC", "message": "lab spec must be a dictionary"}
+
+    def body():
+        receipt = faceted_temple(params["spec"], side="both", decals="auto")
+        return {"status": receipt["status"], "result": receipt}
+    return _mutating(params, body)
+
+
 def m_fingerprint(params):
     t0 = time.perf_counter()
     state = checkpoint.scene_state()
@@ -554,6 +569,7 @@ METHODS = {
     "checkpoint_save": m_checkpoint_save, "checkpoint_restore": m_checkpoint_restore, "load_font": m_load_font,
     "scene_summary": m_scene_summary, "bounds": m_bounds, "render": m_render, "pick": m_pick,
     "export_glb": m_export_glb,
+    "temple_lab_build": m_temple_lab_build,
 }
 
 

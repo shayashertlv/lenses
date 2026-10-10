@@ -57,6 +57,13 @@ def plain(root):
     worker.close()
 
 
+def test_temple_lab_endpoint_is_closed_without_marker(plain):
+    before = plain.call("fingerprint")["fingerprint"]
+    result = plain.call("temple_lab_build", {"spec": {"schema": "bad"}})
+    assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
+    assert plain.call("fingerprint")["fingerprint"] == before
+
+
 # ------------------------------------------------------------------------------------------------ lifecycle
 def test_receipt_identity_and_versions(w):
     r = w.receipt

@@ -1,5 +1,42 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**LATEST: ISOLATED ASTRA TEST PACKAGE READY,2026-10-10.** The owner requested a
+detailed plan and continuous offline implementation up to testing readiness,
+clarifying that the input is **the original Prada with flat temples**. This
+supersedes the historical comparison-pause entries below. The goal was created
+after their reminder. Its preparation work is complete; no paid run occurred.
+
+Read `ASTRA_TEMPLE_LAB.md` and `agent/temple_lab/README.md`. Clean starting package:
+`data/wp6/astra_temple_lab_20261010/ready-final/`; overview `starting-package.png`;
+proof `verified-rehearsal/rehearsal.json`; seal `readiness.json`.13 opt-in tools give
+Astra all8 photos, reversible markings/crops, optional explicit correspondence
+mapping, generic facet layout, profile and absolute depth controls, fixed native/
+clay/normal renders, picks, checkpoint restore and export. The exact prompt is
+`agent/temple_lab/instructions.txt`. No preferred shape or old guide answer leaks
+into this package. The original flat scene is untouched at c0000.
+
+The real SDK/Blender offline rehearsal passes all18 checks,20 scripted responses,
+PID43492,17:29:10–17:29:39 +03,exit0. Socket and real-transport tripwires saw no
+external requests.15 new lab controls,1 native non-lab refusal and80 existing
+SDK/runner/approval controls pass. Native read-back of the2.5mm control is
+2.5000052106mm on both sides;20 unrelated objects retain exact triangle positions.
+Failed native builds and invalid edits restore/preserve the last valid state.
+This is tool proof only; actual Astra geometry interpretation is still untested.
+
+The blank profile approximation has1.249402mm inner and2.399704mm thickness
+linearization deviations and .008344mm tip trim; Astra sees them and can explicitly
+revise profiles. Affine photo mapping does not solve depth. Rehearsal geometry is
+an arbitrary labelled control and has decal/hinge warnings, not an accepted model.
+WP6 remains failed; frozen rules/STOP-I/R1/R3 and preferred source are unchanged;
+WP5 stays closed. Owner session-prompt hash f36c003d...4f87 remains unchanged.
+
+Next action: owner review/authorization of this isolated paid test, with effort,
+turn cap and monetary cap, then `cli request`, exact approval and `cli run` per
+README. The clean package has no approval and launch refuses before network.
+30-turn proposal forecast under the existing frozen tariff/corpus: $3.29,
+$3.00–$3.93 growth band; image-heavy calls can exceed that forecast. No money was
+authorized by preparing it. No full automation, new full fit, push or WP5 work.
+
 **COMPARISON READY; PAUSE FOR OWNER REVIEW — 2026-10-10.**
 The authorized steps1–6 are complete as an investigation, not a WP6 pass.
 Open **http://127.0.0.1:57019/** (serverPID35284); evidence is sealed in

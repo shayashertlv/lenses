@@ -2,6 +2,68 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**ISOLATED ASTRA TOOL TEST READY — 2026-10-10; no paid call.**
+The owner rejected the six-photo reconstruction, proposed letting Astra interpret
+and revise depth visually, and explicitly requested an elaborate plan plus tools
+that mimic automation on **the original Prada model with flat temples**. They
+also explicitly requested a new goal. The active goal was created immediately
+after their reminder and its preparation scope is now fulfilled; paid testing is
+the next owner decision, not part of this offline goal. Earlier comparison-pause
+instructions below are historical. Do not restart a full photo fit.
+
+Read [ASTRA_TEMPLE_LAB.md](ASTRA_TEMPLE_LAB.md) and
+`agent/temple_lab/README.md`. The isolated registry has13 tools: inspect/image,
+mark (including corrections), refine/map, profile/layout/depth, and
+apply/render/pick/restore/export. Layout is `lab_candidate`. It uses the real
+pinned Agents SDK, existing budget/session runner, and a dictionary-only native
+worker endpoint restricted to lab-marked jobs. No arbitrary code or filesystem
+tool is exposed. All8 original photos are inputs. No preferred spec, old photo
+guides or fitted facet answer is supplied. Production wrappers remain gated.
+
+Clean package: `data/wp6/astra_temple_lab_20261010/ready-final/`. Its scene bytes match
+the original source, checkpoint c0000 remains flat, and it has zero marks or
+candidate edits. `starting-package.png` shows the original native/clay scene and
+all8 references; opened for owner review. `readiness.json` records the independent
+read-back and approval refusal. The current launch command refuses absent/stale
+approval before network access; `request` only prepares a request. No approval
+was created in the clean package. Settings/budget are still the owner's choice.
+
+Offline native/SDK rehearsal `verified-rehearsal/`: PID43492,17:29:10–17:29:39 +03,
+exit0;20 scripted responses,18 checks pass. It exercises real images, mark
+replacement/stale refusal, optional mapping, current-model picking, generic
+four-facet layout, two explicit depths, native build/rollback, all six fixed
+views, GLB export and original restore. MockTransport plus socket/production
+transport tripwires record zero external attempts. The synthetic approval is
+labelled OFFLINE ONLY and exists only in rehearsal copies.20 unrelated exported
+objects retain exactly identical triangle coordinates. Both exported temples
+read back requested2.5mm relief as2.5000052106mm (error .0000052106mm). This proves
+tool wiring and metric effects, **not Astra's visual interpretation**.
+
+15 independent lab controls and the real worker's non-lab refusal pass.80 existing
+SDK/runner/approval controls also pass (initial combined run92, final lab run15;
+96 distinct tests). Final review also added restoration before propagating a
+raised native-worker failure; its independent control and rerun both pass.
+Fixed camera matrices are checked across revisions; the lab
+also freezes original bounds for lighting. The production worker/exec facade is
+otherwise unchanged. Every original/preferred/frozen-rule hash remains unchanged,
+including the owner's unstaged session-prompt edit f36c003d...4f87.
+
+Representation limits remain explicit: the measured blank profile is approximate,
+with max inner linearization1.249402mm and thickness linearization2.399704mm;
+the round end requires .008344mm trimming for a finite cap. These are reported
+to Astra; `lab_profile` permits explicit revision. Photo-to-chart mapping needs
+Astra's correspondences and does not recover depth/parallax. Mirrored planar
+facets and a single-valued outline are the available family. Rehearsal warnings
+include decal/hinge conflicts; they are not quality passes. All WP6 failures,
+STOP-I, R1 and R3 remain binding; WP5 remains closed. Preferred unchanged.
+
+For planning only,30 replies at the frozen repository tariff/corpus forecast
+$3.29 (growth band $3.00–$3.93), with an estimated $1.88 unspendable reservation
+tail. Image-heavy tool output may cost more. This is not an approved budget or
+fresh price verification. Before an actual isolated run, obtain the owner's
+explicit exception/approval for that test, effort, turn cap and dollar cap;
+generate an exact bound request and record their words. Never push.
+
 **COMPARISON READY — owner-requested goal pause, 2026-10-10.**
 The six-step investigation is complete as a review deliverable; **WP6 still fails**.
 Open **http://127.0.0.1:57019/**, loopback server PID35284. Five native temple meshes
