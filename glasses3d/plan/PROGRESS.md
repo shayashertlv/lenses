@@ -2,6 +2,40 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**REAL ASTRA TEST RUNNING — owner-authorized 2026-10-10.**
+The owner explicitly authorized the isolated test with $10, no reserved tail,
+then clarified **no reply-count cap** and instructed Codex only to follow and
+document evidence. They configured the newly created ignored `glasses3d/.env`.
+No credential value is printed or committed. This explicit test authorization
+supersedes the earlier paid-test wait for this one isolated run only.
+
+Run: `data/wp6/astra_temple_lab_20261010/real-astra-001/runs/owner-test-001/`.
+Runner PID50608; process started18:51:07 +03, inference launched18:51:20.
+Receipt `real-astra-001-process.json`, stdout `real-astra-001.log`, live heartbeat
+inside the job, transcript/tools/transport/budget under the run. The job is a
+fresh original-scene package with the same six beige photos, four original-model
+images, exact prompt and13 modeling tools. Effort=max; max_turns=null; cap=$10.
+Do not inject suggestions, alter the prompt/tools/geometry, or retry paid runs.
+Observe via `observe_astra.py`; snapshots append outside the job to
+`observer-evidence.jsonl`. Finish with a factual evidence report and model review.
+
+To honor the budget request, an opt-in, approval-bound `fit_output_to_budget`
+mode reduces only the response token ceiling when necessary. No fixed reserve
+is set aside; each request's exact input and reduced response must still fit $10.
+Input cost can prevent spending the last balance. Default production behavior
+is unchanged. SDK `max_turns=None` implements no reply cap directly. Before launch,
+206 money/transport/approval/loop checks passed, then60 loop/lab checks passed
+including an unbounded SDK conversation beyond its default and continuation.
+Inputs/tools/prompt were not altered by these launch-setting changes. Existing
+206-check suite ran74.64s; later60 checks ran50.71s. No geometry guidance was added.
+
+At18:52:17, Astra had inspected the template, requested all9 fixed views in
+native/clay, and cropped reference-05. Four tool calls succeeded; no markings or
+candidate yet. Settled cost $0.572329; request5 in flight. This is an observation,
+not a successful reconstruction or quality acceptance. The owner was told there
+is no objective sufficiency gate: Astra can finish after selecting/reviewing/
+exporting and explaining remaining issues. All WP6 failures/STOP-I/R1/R3 remain.
+
 **LATEST: BEIGE-ONLY REFERENCES + FLAT-TEMPLE VIEWS — 2026-10-10.**
 The owner removed the black model from references and requested angles showing
 the starting model's flatness. The active lab now supplies six beige target photos

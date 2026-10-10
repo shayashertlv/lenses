@@ -164,11 +164,15 @@ class RunSettings:
 
     effort: str | None = None  # paid runs require the owner's explicit high/max choice
     max_output_tokens: int = 16_384
-    max_turns: int = 60
+    max_turns: int | None = 60
     max_continuations: int = 2
+    fit_output_to_budget: bool = False
 
     def approval_settings(self) -> dict:
-        return {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns}
+        settings = {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns}
+        if self.fit_output_to_budget:
+            settings["fit_output_to_budget"] = True
+        return settings
 
 
 @dataclass
@@ -683,10 +687,14 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused(f"effort must be one of {', '.join(EFFORTS)}")
     for name in ("max_output_tokens", "max_turns"):
         value = getattr(settings, name)
+        if name == "max_turns" and value is None:
+            continue
         if type(value) is not int or value < 1:
             raise RunRefused(f"{name} must be a positive integer")
     if type(settings.max_continuations) is not int or settings.max_continuations < 0:
         raise RunRefused("max_continuations must be a non-negative integer")
+    if type(settings.fit_output_to_budget) is not bool:
+        raise RunRefused("fit_output_to_budget must be a boolean")
     if not isinstance(spec.instructions, str) or not spec.instructions.strip():
         raise RunRefused("the instructions are empty")
     if not isinstance(spec.brief, str) or not spec.brief.strip():
@@ -728,12 +736,14 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
             result = await Runner.run(agent, run_input, max_turns=turns_left, session=session, hooks=log,
                                       run_config=run_config)
         except ModelBehaviorError:
-            turns_left -= log.interactions - started
-            state["turns_used"] = settings.max_turns - turns_left
+            used = log.interactions - started
+            state["turns_used"] += used
+            if turns_left is not None:
+                turns_left -= used
             if not _was_incomplete(log, guard) or log.stop_observed:
                 raise
             sequence = log.last_response.get("sequence")
-            if turns_left <= 0:
+            if turns_left is not None and turns_left <= 0:
                 log.note(f"Response to request {sequence} was cut off at the output limit and no turn is left.")
                 return "turn_limit", None
             if state["continuations"] >= settings.max_continuations:
@@ -746,7 +756,7 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
                      continuation=state["continuations"])
             run_input = [{"role": "user", "content": CONTINUATION_NOTE}]
             continue
-        state["turns_used"] = settings.max_turns - turns_left + (log.interactions - started)
+        state["turns_used"] += log.interactions - started
         return "completed", result.final_output
 
 
@@ -841,7 +851,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 session = BlobSession(SESSION_ID, session_path, blobs=blobs)
             # (4) only now the clients, the guard and the receipts
             counter = clients.counting_client()
-            guard = BudgetGuard.attach(counter, ledger)
+            guard = BudgetGuard.attach(counter, ledger, fit_output_to_budget=spec.settings.fit_output_to_budget)
             log = ReviewLog(run_dir, blobs_dir=job_dir / "blobs", guard=guard, secrets=clients.secrets,
                             stop_file=stop_file, heartbeat=heartbeat, run_id=spec.run_id, echo=spec.echo)
             client = clients.inference_client({"request": [log.before_request], "response": [log.after_response]})
@@ -850,6 +860,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "schema": RUN_CONFIG_SCHEMA, "job_id": job_dir.name, "run_id": spec.run_id, "created": _now(),
                 "model": MODEL, "agent": AGENT_NAME, "effort": spec.settings.effort, "reasoning_summary": "auto",
                 "max_output_tokens": spec.settings.max_output_tokens, "max_turns": spec.settings.max_turns,
+                "fit_output_to_budget": spec.settings.fit_output_to_budget,
                 "max_continuations": spec.settings.max_continuations, "service_tier": "default",
                 "parallel_tool_calls": False, "max_function_tool_concurrency": 1, "model_retries": 0,
                 "tracing_disabled": True, "use_responses": True, "use_responses_websocket": False, "client": {

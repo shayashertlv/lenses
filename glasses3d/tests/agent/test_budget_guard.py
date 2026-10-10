@@ -39,6 +39,47 @@ def body_with_usage(block, **changes):
 
 # =========================================================================== the 22 Studio tests, ported
 
+@pytest.mark.parametrize("tokens,cap,expected", [(1000, "0.020", 150), (300000, "7.503", 40)])
+def test_opt_in_output_fits_remaining_cap_and_exact_wire_bytes(env, tokens, cap, expected):
+    client, _ = fake_counter(tokens)
+    guard = BudgetGuard(client, env.path, cap, fit_output_to_budget=True)
+    req = request(max_output_tokens=4096, instructions="unaltered", tools=[])
+    original = json.loads(req.content)
+    run(guard.before_request(req))
+    assert json.loads(req.content) == {**original, "max_output_tokens": expected}
+    assert b"".join(req.stream) == req.content
+    assert int(req.headers["content-length"]) == len(req.content)
+    assert req.headers["authorization"] == "Bearer private-key"
+    row = ledger(env.path)["rows"][0]
+    assert row["max_output_tokens"] == expected
+    assert row["reserved_micro_usd"] == guard.ledger.maximum_micro
+
+
+def test_output_fit_refuses_when_input_cannot_fit_and_default_still_refuses(env):
+    for name, cap, adaptive in (("input", "0.010", True), ("default", "0.020", False)):
+        path = env.tmp / (name + ".json")
+        guard = BudgetGuard(env.client, path, cap, fit_output_to_budget=adaptive)
+        req = request(max_output_tokens=4096)
+        before = req.content
+        with pytest.raises(BudgetExceeded):
+            run(guard.before_request(req))
+        assert req.content == before and ledger(path)["rows"] == []
+
+
+def test_output_fit_uses_settled_balance_and_leaves_affordable_requests_unchanged(env):
+    guard = BudgetGuard(env.client, env.path, "0.025", fit_output_to_budget=True)
+    async def flow():
+        first = request(max_output_tokens=100)
+        before = first.content
+        await guard.before_request(first)
+        assert first.content == before
+        await guard.after_response(response(body=provider_body(usage_block=usage(output=100))))
+        # $0.015 settled, $0.010 left; the next input alone costs at most $0.0125.
+        with pytest.raises(BudgetExceeded):
+            await guard.before_request(request(max_output_tokens=4096))
+        assert len(guard.ledger.rows) == 1
+    run(flow())
+
 
 def test_counts_serialized_images_tools_and_schemas_before_reserving(env):
     guard = BudgetGuard(env.client, env.path, "1")

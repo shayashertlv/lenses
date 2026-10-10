@@ -143,7 +143,16 @@ def make_spec(root, run_id, settings, cap, *, write_request=False):
                               run_inputs=A.run_input_binding(lab.root, brief, photos))
     if write_request:
         chars = len(instructions)+len(brief)+len(json.dumps([t.params_json_schema for t in tools]))
-        cost = estimate(initial_context_tokens(chars, len(photos)), settings.max_turns, settings.max_output_tokens)
+        cost = estimate(initial_context_tokens(chars, len(photos)), settings.max_turns or 30, settings.max_output_tokens)
+        if settings.max_turns is None:
+            cost["illustrative_reply_count"] = 30
+            cost["reply_count_cap"] = None
+            cost["text"] = "Illustrative 30-reply projection only; this run has no reply-count cap. " + cost["text"]
+        if settings.fit_output_to_budget:
+            cost["fixed_output_comparison"] = {k: cost.pop(k) for k in list(cost)
+                                               if k.startswith(("tail_", "required_cap_", "suggested_cap_"))}
+            cost["budget_policy"] = "No fixed reserve. Reduce output ceiling to fit remaining dollars; refuse if input plus 16 output tokens cannot fit."
+            cost["text"] = cost["text"].split("; the last", 1)[0] + ". " + cost["budget_policy"]
         cost["limitation"] = "Historical frozen tariff/corpus forecast; many image tool outputs may increase cost. " \
                              "The monetary cap is enforced independently. No approval has been recorded."
         A.write_approval_request(lab.root / "runs" / run_id, job_id=lab.root.name, request=request,
@@ -161,16 +170,23 @@ def main():
     p.add_argument("--job", type=Path, required=True)
     p.add_argument("--run-id", default="isolated-test-001")
     p.add_argument("--effort", choices=["high", "max"])
-    p.add_argument("--turns", type=int)
+    turns = p.add_mutually_exclusive_group()
+    turns.add_argument("--turns", type=int)
+    turns.add_argument("--no-turn-cap", action="store_true")
     p.add_argument("--cap")
+    p.add_argument("--fit-output-to-budget", action="store_true",
+                   help="Reduce the next response ceiling when needed to use the remaining cap without a fixed reserve")
+    p.add_argument("--env-file", type=Path, help="Explicit local credential file; its contents are never logged")
     a = p.parse_args()
     if a.action == "prepare":
         result = prepare(a.job)
     else:
-        if a.effort is None or a.turns is None or a.cap is None:
-            p.error("request/run requires explicit --effort, --turns and --cap")
-        spec, lab = make_spec(a.job, a.run_id, RunSettings(effort=a.effort, max_turns=a.turns), a.cap,
+        if a.effort is None or (a.turns is None and not a.no_turn_cap) or a.cap is None:
+            p.error("request/run requires --effort, --turns or --no-turn-cap, and --cap")
+        spec, lab = make_spec(a.job, a.run_id, RunSettings(effort=a.effort, max_turns=a.turns,
+                                                        fit_output_to_budget=a.fit_output_to_budget), a.cap,
                               write_request=a.action == "request")
+        spec.env_file = a.env_file
         result = {"status": "approval_request_ready", "request_sha256": spec.current_request_sha256} if \
                  a.action == "request" else asyncio.run(run_astra(spec, scene=lab))
     print(json.dumps(result, indent=2, default=str))

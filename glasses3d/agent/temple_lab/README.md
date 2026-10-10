@@ -48,6 +48,14 @@ network transport. Credentials are supplied through the existing authorized
 runner configuration, never embedded in this package. No credential is needed
 for preparation or offline rehearsal.
 
+For an owner-authorized run without a reply-count cap, replace `--turns` with
+`--no-turn-cap`. `--fit-output-to-budget` reduces the next response's output-token
+ceiling when the full ceiling would not fit the remaining dollars. It reserves no
+fixed tail; exact input cost and the reduced response still must fit the cap.
+Both choices are bound into approval. Pass `--env-file <local-ignored-dotenv>` to
+load the credential without printing it. The estimate for an uncapped run is an
+illustrative 30-reply projection, not its duration or a promise of total cost.
+
 ```text
 -m glasses3d.agent.temple_lab.cli run --job <clean-job> --run-id isolated-test-001 --effort <same> --turns <same> --cap <same>
 ```

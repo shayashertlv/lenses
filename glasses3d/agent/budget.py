@@ -770,19 +770,21 @@ class BudgetGuard:
     """
 
     def __init__(self, client_for_count, ledger_path, maximum_usd, *, run_id: str | None = None,
-                 approval: dict | None = None):
+                 approval: dict | None = None, fit_output_to_budget: bool = False):
         cap_to_micro(maximum_usd)       # refuse a bad cap before anything else (no ledger is created)
         _check_counter(client_for_count)
         self._setup(client_for_count, RunLedger.create(ledger_path, maximum_usd, run_id=run_id, approval=approval))
+        self.fit_output_to_budget = fit_output_to_budget
 
     @classmethod
-    def attach(cls, client_for_count, ledger: RunLedger) -> "BudgetGuard":
+    def attach(cls, client_for_count, ledger: RunLedger, *, fit_output_to_budget: bool = False) -> "BudgetGuard":
         """A guard for a ledger this process just created (JobLedger.open_paid_run): fresh, empty and unattached."""
         if not isinstance(ledger, RunLedger) or not ledger.fresh or ledger.live or ledger.rows:
             raise BudgetGuardError("A guard attaches only to a ledger created by this process with no rows")
         _check_counter(client_for_count)
         guard = cls.__new__(cls)
         guard._setup(client_for_count, ledger)
+        guard.fit_output_to_budget = fit_output_to_budget
         return guard
 
     def _setup(self, client_for_count, ledger: RunLedger) -> None:
@@ -796,6 +798,7 @@ class BudgetGuard:
         self._fatal_error: str | None = None
         self._last_request_size: tuple[int, int] | None = None
         self._open_request = None
+        self.fit_output_to_budget = False
 
     @property
     def ledger_path(self) -> Path:
@@ -931,6 +934,30 @@ class BudgetGuard:
                 self.tariff.reserve_micro(input_tokens, output_limit)
             except PricingError:
                 raise BudgetGuardError("Token counter returned an invalid or unsupported input count") from None
+            if self.fit_output_to_budget:
+                remaining = self.ledger.maximum_micro - self.ledger.totals()["committed_micro_usd"]
+                if self.tariff.reserve_micro(input_tokens, output_limit) > remaining:
+                    # No fixed reserve tail: shrink only the response ceiling, keeping exact input and
+                    # worst-case per-request accounting. Never spend beyond the owner-approved cap.
+                    low, high = 16, output_limit
+                    if high < low or self.tariff.reserve_micro(input_tokens, low) > remaining:
+                        raise BudgetExceeded("Remaining budget cannot cover this input and a 16-token response; "
+                                             "no inference sent")
+                    while low < high:
+                        mid = (low + high + 1) // 2
+                        if self.tariff.reserve_micro(input_tokens, mid) <= remaining:
+                            low = mid
+                        else:
+                            high = mid - 1
+                    output_limit = low
+                    payload["max_output_tokens"] = output_limit
+                    # Pinned httpx2 caches .content separately from the transport stream. Update both;
+                    # ReviewLog runs next and archives exactly the bytes the transport receives.
+                    replacement = type(request)(request.method, request.url, json=payload)
+                    request.stream = replacement.stream
+                    request._content = replacement.content
+                    request.headers["content-length"] = str(len(replacement.content))
+                    request.headers.pop("transfer-encoding", None)
             self._last_request_size = (input_tokens, output_limit)
             try:
                 self.ledger.reserve(input_tokens, output_limit)

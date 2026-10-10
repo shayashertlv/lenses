@@ -32,6 +32,32 @@ SETTINGS = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=10)
 REAL_PRODUCTION = L.ProductionClients
 
 
+def test_sdk_opt_in_budget_fit_binds_setting_and_sends_reduced_ceiling(tmp_path):
+    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=2, fit_output_to_budget=True)
+    usage = R.default_usage(1000, output_tokens=20)
+    job, transport, result, _ = run_once(tmp_path, [R.message("done", usage=usage, counted=1000)],
+                                        cap="0.020", settings=settings)
+    assert result["status"] == "completed"
+    assert transport.creates[0]["max_output_tokens"] == 150
+    rows = assert_money_invariants(job, RUN, transport)
+    assert rows[0]["reserved_micro_usd"] == 20000
+    archived = json.loads((job / "runs" / RUN / "transport" / "0001-request.json").read_text())
+    assert archived["max_output_tokens"] == 150
+    request = json.loads((job / "runs" / RUN / "approval-request.json").read_text())
+    assert request["request"]["settings"]["fit_output_to_budget"] is True
+
+
+def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
+    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=None)
+    replies = [R.tool_call("scene_summary", {}) for _ in range(12)]
+    replies += [R.incomplete(), R.message("done")]
+    job, transport, result, _ = run_once(tmp_path, replies, cap="10", settings=settings)
+    assert result["status"] == "completed"
+    assert result["turns_used"] == 14 and result["continuations"] == 1
+    assert result["settings"]["max_turns"] is None
+    assert len(assert_money_invariants(job, RUN, transport)) == 14
+
+
 @pytest.fixture(autouse=True)
 def no_production_clients(monkeypatch):
     """The production client constructor must never run in these tests."""

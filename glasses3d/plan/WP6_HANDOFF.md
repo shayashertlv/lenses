@@ -1,5 +1,27 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**ACTIVE REAL ASTRA OBSERVATION — 2026-10-10.** Owner authorized $10, no fixed
+reserve and **no reply-count cap**, with Codex only observing/documenting.
+PID50608,started18:51:07 +03, inference18:51:20; current job
+`data/wp6/astra_temple_lab_20261010/real-astra-001/`, run `owner-test-001`.
+Maximum reasoning; real production transport; exact prepared modeling prompt/
+13 tools unchanged. Ignored `glasses3d/.env` supplies the owner-added key; never
+read/print its value. No second paid run or intervention is authorized.
+
+Read `real-astra-001-process.json`, the job heartbeat and run transcript/budget/
+tool receipts. `observe_astra.py` reads them and appends separate evidence to
+`observer-evidence.jsonl`. Do not stop a healthy run. Current task is to observe
+through completion, inspect the resulting visuals and document evidence only.
+At18:52:17, four successful tools: template inspection, all9 native/clay views,
+reference-05 crop; no marks or candidate; $0.572329 settled, request5 in flight.
+
+The owner-requested budget adjustment is opt-in and approval-bound: shrink
+max output to fit the remaining cap; no fixed reserve, exact input cost still
+must fit. `max_turns=None` reaches the SDK unchanged.206 money/loop tests passed,
+then60 loop/lab tests passed including no-cap conversation/continuation. Prompt,
+modeling tools, source shape and frozen quality rules are untouched. Astra's
+voluntary completion is subjective; no objective sufficiency gate is enforced.
+
 **LATEST: BEIGE-ONLY ASTRA PACKAGE WITH FLATNESS VIEWS,2026-10-10.**
 The owner's latest request removes black references and adds views exposing the
 original Prada model's flat temples. Current clean package:
