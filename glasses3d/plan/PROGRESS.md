@@ -40,6 +40,39 @@ Next, run `reconstruct_preferred.py` (`preferred_reconstruction_run`) and
 inspect in the browser and seal the complete comparison. These extra runs are
 not yet launched. No intermediate review; goal remains active.
 
+**11:49 full-run progress:** PID9304 is now fitting the real-photo candidate
+and then its independent slab. Fresh S1 finished at 11:44:52 after 1044 s:
+floor **.723913875075 mm > .7**, so STOP-I remains. Recovery passes: outline
+**.134717701 mm**, zone **.060885487 mm**, r_C **.033689083 mm**, cited theta
+**.048666896 deg**. Truth R2 passes and zero-relief truth R2 fails. Four-round
+cap, final front bound clear. This regenerated S1 has different camera-derived
+inputs and does not supersede the retained harder **.772316912** failure.
+P2 still fails corner A **.535002014 > .5 mm**; B **.336088763**, C **.849659107**,
+in-view outline **.143754846**, held-out outline **.234398057 mm** pass. The
+run has 13 workers; inputs and all eight photo files remain hash-identical.
+
+**11:41 export-coverage correction:** the extra P0 fixture name
+`owner_preferred` did not trigger stage_p0's `name.startswith("prada")`
+reference-decal checks. The earlier "fails only corner normals" statement was
+therefore incomplete. `preferred_export_audit_run/`, actual PID29980,
+11:40:40–11:40:42, exit0, explicitly grades the unchanged GLBs against the
+original delivered copy. In addition to the two corner-normal failures, the
+fine ribbon/shield decals move **1.235775 / 1.235804 mm > 1 mm**. Their surface
+distances **.049816 mm** and single-region checks pass. No textures, geometry,
+thresholds or WP5 work changed. Retain the first partial-coverage result and
+this complete audit. After both final P3 copies exist, run the prepared
+`audit_complete_exports.py` (`complete_export_audit_run`) before packaging;
+it grades both exports with an explicit reference regardless of fixture name.
+The package's export row reads that audit. Loaded full-run sources stay fixed.
+
+Final coupled-error attribution also completed, PID19552, 11:29:05–11:29:11,
+exit0 (`final_transfer_components_run/`). Harder case: measured pair at fitted
+cameras **.772316912189**, at true cameras **.671495054504**; measured source /
+pre-perturbation target **.057089734477**, pre-perturbation source / measured
+target **.791005554582**, both pre-perturbation lines **.075540714277 mm**.
+These "exact" lines still contain the synthetic tracer residual. All 16 sign
+patterns in both camera frames remain; no oracle result replaces gate evidence.
+
 **Earlier live work, 11:11 +03.** Final retained replay PID25572 remains active in
 `proof_resume_20261010/s1_normal_joint_final_run/`. Older case finished at 11:08:
 floor **.684009720502 mm**, exactly reproducing the provisional result; its

@@ -25,6 +25,23 @@ Keep sources and the active driver unchanged. After completion, run the prepared
 preferred-shape reconstruction and exact-preferred measurement sequentially;
 then package, browser-check and seal results. Goal active, no intermediate review.
 
+**11:49 progress:** full-run PID9304 remains healthy with 13 workers, now in
+real-photo candidate/slab fitting. Fresh S1 finished 11:44:52 at
+**.723913875075 mm > .7** despite passing recovery and truth/slab R2 controls.
+Its four-round cap and STOP-I remain; changed camera-derived inputs mean it
+does not replace the retained .772316912 failure. P2 corner A still fails
+**.535002014 > .5 mm**. No comparison is ready yet. All eight photo sources
+and earlier sealed review artifacts verified unchanged; keep working.
+
+**Export audit correction, 11:41:** the extra `owner_preferred` P0 name skipped
+the existing `prada*` reference-decal check. An explicit read-only audit now
+finds two ribbon/shield moves **1.235775/1.235804 mm > 1 mm**, alongside the
+normal failures; surface distance and one-facet placement pass. Earlier
+"only normal failure" wording is incomplete. WP5 remains closed. After both
+P3 exports finish, run `audit_complete_exports.py` as
+`complete_export_audit_run` before packaging; it grades every reference-decal
+check independent of fixture labels. No active source or geometry was changed.
+
 Historical 11:11 +03: final retained replay actual PID25572 is healthy; older
 case finished 11:08 at **.684009720502 mm**, reproducing the provisional result.
 Harder input is running with one 12-worker pool. Sources remain frozen. P0/P1
