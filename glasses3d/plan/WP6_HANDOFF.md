@@ -1,5 +1,31 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**CURRENT PROOF READY FOR OWNER-REQUESTED PAUSE,12:28 +03.** Open
+**http://127.0.0.1:49676/** (serverPID46824). Current proof PID9304 finished
+11:24:38–12:24:13, exit0, unchanged inputs, **quality FAIL**. G1/G2/R1/R2/R3
+fail; G3/G4/G5/R4/V pass. Candidate/slab/delivered transfer is
+**.856924648101/.884873114777/.586994100617mm**, binding limit **.086994100617**.
+S1 floor **.723913875075**, retained harder **.772316912189**, P2 A **.535002014**
+remain failures; S2 passes and S3 fires STOP-C. The actual exported geometry
+passes its mesh checks, but explicit reference-decal audit finds **1.24428/1.24444mm**
+motion above1mm. Every stop remains binding. This does not close WP6.
+
+`proof_resume_20261010/current_proof_review_checkpoint.json` seals the results
+and browser QA, while verifying the prior270 artifacts. Five controllable meshes,
+all failed-gate measurements and photo sheets are ready. The preferred model is
+an unchanged reference; current proof uses the historical shape family. No new
+preferred reconstruction or fixed-preferred measurements ran. Package/seal
+receipts exit0. Follow the owner's latest request: pause for review now, no
+further runs or threshold changes until they continue. Zero paid calls/no push;
+preserve the owner's unstaged session-prompt edit. Older active queue below is
+historical/deferred. PROGRESS.md has detailed numbers and resource receipts.
+
+**LATEST OWNER INSTRUCTION,12:21 +03:** finish the current full proof PID9304,
+prepare its reviewable results and then pause the goal for owner review.
+Do not start preferred_reconstruction_run or preferred_complete_run yet.
+Package this current proof separately, including its explicit original-reference
+export audit and all failed gates. This supersedes the longer queue below.
+
 **Latest,12:19 +03:** PID9304 remains healthy; real-photo candidate completed
 at12:04:26, slab fourth round in progress. The owner's question about limit
 strictness does not authorize threshold changes. Finish the current proof and

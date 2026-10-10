@@ -2,6 +2,52 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**CURRENT PROOF READY — owner-requested pause checkpoint,12:28 +03.**
+Review **http://127.0.0.1:49676/**, loopback serverPID46824; static assets in
+`proof_resume_20261010/current_proof_review/`. Browser checked all five models,
+shared rotation, top/side/oblique views, materials, highlights, light and results
+navigation; no console errors. Screenshot and actual QA record are in
+`current_proof_review_qa/`. The 3D comparison separates the unchanged preferred
+reference, current historical-family fit, its independently fitted slab, S1
+known shape and S1 reconstruction. It does not substitute this old-family fit
+for the owner's preferred topology. Queued preferred-shape runs have NOT started.
+
+The complete diagnostic run finished actualPID9304 **11:24:38–12:24:13**, exit0,
+one13-worker pool, all source hashes unchanged. **Quality FAIL**, not WP6
+acceptance: G1/G2/R1/R2/R3 fail; G3/G4/G5/R4/V pass. Candidate transfer
+**.856924648101 mm**, fitted slab **.884873114777**, delivered **.586994100617**;
+the frozen .5mm comparator margin makes the binding limit **.086994100617 mm**.
+Candidate R1 share **.895384213819**; preferred-reference R1 remains separately
+**.693583443676**. S1 recovery passes but floor **.723913875075 > .7** fails;
+retained harder case remains **.772316912189**. P2 A **.535002014 > .5** fails.
+S2 passes; S3 fires STOP-C for parameter disagreement. Both real-photo fits
+reach the four-round cap. Candidate final front bound is clear; slab is active
+at **.297mm**. STOP-T, STOP-I, STOP-C and STOP-P remain recorded.
+
+Explicit original-reference audit of the actual P3 export finds geometry checks
+pass but ribbon/shield motion **1.244280 /1.244436mm >1mm** fails. Surface lift
+and single-facet placement pass. The original P3 report's narrower coverage is
+retained. This is WP6 export evidence, not reopened WP5 work. Independent
+true-camera diagnostics also show **4/16** harder endpoint-sign cases above .7,
+maximum **.775548305475mm**; those deterministic stress cases are not a population
+failure-rate estimate and do not replace the original measured-input failure.
+
+Packaging PID26368 completed12:24:55; sealing PID50836 completed12:27:59, both
+exit0. `current_proof_review_checkpoint.json` binds all current artifacts and
+verifies the prior270-file checkpoint. It expressly records incomplete repair,
+no promotion, zero paid runs and no push. **Pause the goal for this owner review;
+do not start another fit or change a rule without their continuation.** The
+unexecuted longer comparison queue below is deferred, not completed. The owner's
+separate WP6_SESSION_PROMPT.md edit remains unstaged.
+
+**OWNER REVIEW CHECKPOINT CHANGED,12:21 +03.** The owner explicitly requests:
+"pause the goal when the current proof arrives so ill review it to". Finish
+the already-running complete_diagnostics PID9304, audit its actual export,
+prepare and inspect a clearly labelled current-proof comparison, then set the
+goal to paused for owner review. Do not launch the queued preferred reconstruction
+or fixed-preferred measurement runs before that review. This supersedes the
+longer active-goal execution sequence below; every gate remains frozen.
+
 **12:19 +03, goal still active.** Full diagnostics PID9304 finished the real-photo
 candidate at12:04:26 (four-round cap, final front bound clear) and is in the slab's
 fourth round. The owner asks whether the limits are too hard; this is a question,
