@@ -1,5 +1,30 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**LATEST OWNER REQUEST — NEW CHAT,2026-10-10.** The owner says **"not good.
+i want to resume in another chat"** about the latest comparison. Record rejection
+without inferring an unstated specific defect. The earlier preferred revision
+remains the reference; do not replace it with this failed historical-family fit.
+Current goal is paused. No further experiments were launched. This handoff is
+owner-requested, not a context-threshold handoff.
+
+For the new chat: start from `data/wp6/proof_resume_20261010/current_proof_review_checkpoint.json`
+and its completed failed proof, not the old proof2 replay or an old commit.
+The preferred source is `data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`
+(SHA-256 `cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce`).
+First explain the mismatch between the rejected frozen-family fit and the
+preferred topology, and reassess the residual measurement error from saved
+independent controls and both retained failures. The opt-in normal-camera helper
+worsens the harder retained case; do not promote it or claim repair complete.
+Begin with diagnosis/review and wait for continuation there before launching the
+deferred preferred-shape runs or another full fit. Threshold revisions were only
+discussed, never authorized. Preserve WP5 closeout, every frozen gate, paid-run
+approval/no-push rules and the user's unstaged session-prompt edit.
+
+Completed/tested: WP0/WP1/WP3/WP3b/WP4, A–E repairs/option-B promotion and G1.
+WP5 is closed by owner visual acceptance, not an all-numerical-proofs pass.
+WP2 A–C are verified, D–F/wrappers remain gated; WP6 is unresolved; WP7/WP8
+implementation has not started. Latest complete diagnostic details follow.
+
 **CURRENT PROOF READY FOR OWNER-REQUESTED PAUSE,12:28 +03.** Open
 **http://127.0.0.1:49676/** (serverPID46824). Current proof PID9304 finished
 11:24:38–12:24:13, exit0, unchanged inputs, **quality FAIL**. G1/G2/R1/R2/R3

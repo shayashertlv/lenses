@@ -2,6 +2,29 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**OWNER REQUESTED A NEW CHAT,2026-10-10.** Latest feedback on the current-proof
+comparison: **"not good. i want to resume in another chat"**. It is not visually
+accepted. The owner did not identify a specific defect in that message; do not
+invent the reason or revoke the earlier preferred-revision verdict. The goal in
+this chat is paused, and no further fit is running. This handoff is explicitly
+owner-requested, not triggered by context usage.
+
+Resume from the sealed `data/wp6/proof_resume_20261010/current_proof_review_checkpoint.json`
+and completed failed proof below. Do not reset to ad5105e/d5e5917 or restart the
+obsolete proof2 replay in the older session prompt. The preferred reference is
+`data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json`, SHA-256
+`cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce`; its earlier
+"test revision is better" preference remains distinct from this rejection.
+First reconcile the rejected historical-family fit with that preferred topology,
+and explain the remaining measurement error using the saved independent and
+retained-case evidence. The normal-camera proposal is not a successful repair:
+it worsens the harder retained case. Do not mechanically launch another full fit
+or the queued preferred-shape runs. Begin the new chat with this diagnosis and
+the owner's review; the current review pause remains until continuation there.
+Threshold calibration was discussed, never authorized. Keep all frozen gates,
+WP5 closeout, paid-run approval and no-push rules. Preserve the user's unstaged
+WP6_SESSION_PROMPT.md edit. The status table below now reflects this latest run.
+
 **CURRENT PROOF READY — owner-requested pause checkpoint,12:28 +03.**
 Review **http://127.0.0.1:49676/**, loopback serverPID46824; static assets in
 `proof_resume_20261010/current_proof_review/`. Browser checked all five models,
@@ -809,7 +832,7 @@ KEEP R1 and every frozen R3 clause; no waiver. Do not repeat the resolved waiver
 | A–E repairs, option-B promotion | Complete and verified; do not redo |
 | WP5 reusable library G1 | Complete and verified at `f020b57` |
 | WP5 | Complete by owner visual acceptance; observed-slope join + Poisson default at `4304c1d`. Historical numerical failures remain recorded. |
-| WP6 | Original same-input S1 passes; fresh full-proof S1 still fails STOP-I at 0.763663 mm. P2 A agreement also fails. R1 and all real-photo gates remain open. No quality promotion. |
+| WP6 | Latest full diagnostics finished with quality FAIL: G1/G2/R1/R2/R3 fail, S1 floor .723913875 > .7, retained harder floor .772316912, P2 A and S3 also fail. Owner says latest comparison "not good" and requests a new chat. Goal paused; no quality promotion. |
 | WP2 | A–C verified; D–F and agent wrappers remain unfinished/gated |
 | WP7 / WP8 | Design only / not started |
 
