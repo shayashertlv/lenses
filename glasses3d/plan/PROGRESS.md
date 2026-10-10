@@ -25,6 +25,13 @@ are in [archive/20261008](archive/20261008/README.md). Archived files are eviden
    remove the pending v1 modules below. Owner sheet #2.
 4. Adversarial review of the whole diff, fixes, commit. Cost estimate. Owner OK. One paid run.
 
+Phase 1–2 results (2026-10-11):
+- Seeing is built: pose basis from fits.json, photo-matched compare, white balance and the photo_env light fit.
+- **T2 rig check: no rig passes.** photo_env shows the gloss change 2.6 L8/mm against the 10 target. studio_dome_v1
+  passes the size target but reverses the facet tone order. Details are in WP6_FACETS §3.2 (amended).
+- The builder `g3d.temple/2` is built: 268 tests, v1 equivalence 3e-14 mm, template p95 0.30 mm.
+- The v1 lab is broken until step 3 (it writes /1 specs).
+
 No paid call is authorized now. The next one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)

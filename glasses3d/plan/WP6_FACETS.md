@@ -236,6 +236,20 @@ Astra's inputs hold the target colourway only (owner choice); variant photos app
 
   `native`, `clay` and `normal` are unchanged.
 
+**Amended 2026-10-11 (lighting, after phase 1–2).** The scene is Y-up, so the dome gradient runs along world Y. Rigs:
+- `studio_dome_v1`: the ramp was re-tuned in-sample on T2, which is not a calibration. It shows depth (gloss
+  +5.3 L8/mm raw) but reverses the facet order against the photos (upper-crease step −14 vs the photo's +15).
+- `photo_env` (g3d_host/lighting.py): a per-job, camera-relative environment fitted by NNLS (differential basis;
+  smoothing λ by leave-one-photo-out cross-validation) over 19 declared lobes. Fitted on FRONT acetate of the target
+  non-side photos (02/03/04/06). Temples are held out. It gets the crease-step sign right (+3 vs +15) but the order
+  of the other facets is still wrong (black-side Spearman −0.56). 1 mm moves gloss only 1.2–2.6 L8. The front
+  barely constrains the light near the horizon (condition number 450), where the temple facets mirror.
+
+No rig yet reproduces the photos' facet tone order. Facet tones are not a reliable depth cue at the few-degree level.
+Astra's primary cues are therefore geometric: crease overlays (layout), outer-edge offsets in the top/rear photos
+(thickness) and the section strip (ridge/valley). Shading is a qualitative aid. The owner chooses the rig by eye
+from candidates (photo_env, studio_dome_v1, and a catalogue horizon-band prior declared before rendering).
+
 ### 3.3 Compare (agent/seeing.py `compare_to_photos`, g3d_host/compare.py, g3d_host/pose.py new)
 
 - **`g3d_host/pose.py`:**
@@ -243,7 +257,7 @@ Astra's inputs hold the target colourway only (owner choice); variant photos app
   - `temple_parts(fitmesh, side)`;
   - `posed(fitmesh, pose)` for host raster masks, metrics, crops and overlays, so host and render agree;
   - `chart_at(points_px, ...)` → model (d, y, X) per pixel via raster.cast with the unpose.
-- **Gain:** linear, one per colourway per job. It comes from the front acetate body only (not partRole frame
+- **Gain:** linear, per channel for `native_linear` (white balance) and luma for `gloss_black`; one per colourway per job. It comes from the front acetate body only (not partRole frame
   hardware), mask eroded ≥ 12 px, on the best-registered target photo (04 for Prada). It is applied to every photo of
   that colourway. A variant colourway without a usable front uses its largest acetate region and is labelled so.
 - **Stretch:** one monotone curve from the PHOTO's acetate p2–p98 (linear in L), applied identically to photo and

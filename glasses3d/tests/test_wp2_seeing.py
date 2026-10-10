@@ -13,7 +13,12 @@ cameras imported as basis-01 (data/wp3b/prada/cameras.json + data/reference/prad
 * pick_surface_point lands within 0.05 mm of the host raster's surface point, on the right object;
 * a 3 mm temple splay drops the top IoU by >= 0.05 with model_bytes_identical false; after the restore the metrics
   equal the first compare bit for bit; E_NO_BASIS without a basis;
-* output paths are confined to <job>/work (a junction out of it is refused); reads add no checkpoint.
+* output paths are confined to <job>/work (a junction out of it is refused); reads add no checkpoint;
+* WP6_FACETS §3.3 on the WP6 v2 pose basis: the photo-matched compare (studio_dome_v1) with its default photos (also
+  for refs "all"), the per-channel white-balanced gain, the text (px/mm of the image shown, the points_px frame,
+  outer-edge offsets beside the start model's, the CURRENT compare_id even on a cache hit), no native row for the
+  variant photo, refusals of bad points_px recorded; photo_env with a given environment (float renders, gains keyed
+  by the environment, the environment in the cache key).
 Needs Blender 5.2 and the Prada data (skipped, or failed under G3D_REQUIRE_DATA=1)."""
 from __future__ import annotations
 
@@ -405,3 +410,103 @@ def test_reads_add_no_checkpoint_and_are_journaled(job):
     tools = sorted({p.name.split("-", 1)[1] for p in (job["root"] / "tools").iterdir()})
     assert {"render_views", "compare_to_photos", "pick_surface_point", "execute_blender_code"} <= set(tools)
     assert not s.defects, s.defects
+
+
+# ------------------------------------------------------------------------------------------------ WP6 v2 photo-matched
+WP6_BASIS = G3D / "data" / "wp6v2" / "basis" / "cameras.json"
+
+
+def test_matched_compare_needs_a_pose_basis(job):
+    r = job["seeing"].compare_to_photos(rig="studio_dome_v1", basis="basis-01")
+    assert r["status"] == "error" and r["code"] == "E_NO_POSE", r
+    r = job["seeing"].compare_to_photos(rig="studio_dome_v1", basis="basis-01", crop="zoom")
+    assert r["status"] == "error" and r["code"] == "E_ARGS"
+
+
+@pytest.fixture(scope="module")
+def pose_basis(job):
+    need(WP6_BASIS.is_file(), "the WP6 v2 basis is missing (tests/proofs/wp6v2_basis.py makes it)")
+    doc = json.loads(WP6_BASIS.read_text(encoding="utf-8"))
+    return C.import_cameras_json(job["root"], WP6_BASIS, {n: Path(r["image"]) for n, r in doc["images"].items()},
+                                 reason="WP6 v2 pose basis")
+
+
+def test_matched_compare_on_the_pose_basis(job, pose_basis):
+    s, see, b = job["session"], job["seeing"], pose_basis
+    head0, n0 = s.head, len(s.index.checkpoints())
+    r = see.compare_to_photos("all", passes=("native_linear", "gloss_black"), rig="studio_dome_v1", basis=b.id,
+                              points_px={"reference-05": [[600, 330], [5, 5]]})
+    assert r["status"] == "ok", r
+    assert {"reference-01", "reference-05", "reference-02"} <= set(r["photos"]) and "reference-04" not in \
+        r["photos"] and "black-side" not in r["photos"]                    # "all" = default: target, temple >= 40k px
+    rep = json.loads(Path(r["report"]).read_text(encoding="utf-8"))
+    tg = rep["gains"]["colourways"]["target"]
+    assert tg["photo"] == "reference-04" and tg["region"] == "front acetate body"
+    assert len(tg["native_linear"]["gain"]) == 3 and tg["native_linear"]["gain"][2] > tg["native_linear"]["gain"][0]
+    assert rep["gains"]["colourways"]["variant"]["dark"] and rep["gains"]["gloss_black"]["stretch_from"].startswith(
+        "black-side")
+    for rid, p in r["photos"].items():
+        im = Image.open(p["image"])
+        assert max(im.size) <= 1024 and set(p["rows"]) == {"photo", "native_linear", "overlay", "gloss_black"}
+        rec = rep["photos"][rid]
+        assert rec["crop"]["k"] <= 1.0 and 0.5 < rec["temple_iou"] <= 1.0 and rec["px_per_mm"] > 3
+        assert f"compare_id {r['compare_id']}." in p["text"] and "camera error" in p["text"]
+        assert f"{rec['px_per_mm'] * rec['crop']['k']:.2f} px/mm in this image" in p["text"]
+        assert "points_px are native photo pixels" in p["text"]
+        assert rec["creases"]["ridge"] > 0
+    assert "outer edge" in r["photos"]["reference-03"]["text"] and "start model in brackets" in \
+        r["photos"]["reference-03"]["text"]
+    start = json.loads((job["root"] / "work" / "compare" / f"start-{b.id}.json").read_text(encoding="utf-8"))
+    assert start["checkpoint"] == head0["id"] and any(k.startswith("reference-03@") for k in start["offsets"])
+    pts = r["photos"]["reference-05"]["points"]
+    assert pts[0]["hit"] and pts[0]["side"] == 1 and 0 < pts[0]["d_mm"] < 140 and not pts[1]["hit"]
+    again = see.compare_to_photos(None, passes=("native_linear", "gloss_black"), rig="studio_dome_v1", basis=b.id)
+    assert all(p["cached"] for p in again["photos"].values())
+    assert {k: p["image"] for k, p in again["photos"].items()} == {k: p["image"] for k, p in r["photos"].items()}
+    for p in again["photos"].values():                                     # a cached record names the NEW compare
+        assert f"compare_id {again['compare_id']}." in p["text"] and r["compare_id"] not in p["text"]
+    assert s.fingerprint() == head0["fingerprint"] and len(s.index.checkpoints()) == n0
+
+
+def test_matched_compare_variant_photo_and_recorded_errors(job, pose_basis):
+    see, b = job["seeing"], pose_basis
+    r = see.compare_to_photos(["black-side"], passes=("native_linear",), rig="studio_dome_v1", basis=b.id)
+    assert r["status"] == "ok", r
+    p = r["photos"]["black-side"]
+    assert set(p["rows"]) == {"photo", "overlay", "gloss_black"} and "no native row" in p["text"]
+    calls = len(list((job["root"] / "tools").iterdir()))
+    bad = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", basis=b.id,
+                                points_px={"reference-04": [[10, 10]]})
+    assert bad["status"] == "error" and bad["code"] == "E_ARGS" and "reference-04" in bad["message"]
+    bad = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", basis=b.id,
+                                points_px={"reference-05": [[10, "x"]]})
+    assert bad["status"] == "error" and bad["code"] == "E_ARGS"
+    bad = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", basis=b.id,
+                                points_px={"reference-05": [[1e6, 10]]})
+    assert bad["status"] == "error" and bad["code"] == "E_ARGS" and "inside" in bad["message"]
+    assert len(list((job["root"] / "tools").iterdir())) >= calls + 3             # every refusal is journaled
+
+
+def test_photo_env_compare_with_a_given_environment(job, pose_basis):
+    from glasses3d.g3d_host import lighting as L
+    see, b = job["seeing"], pose_basis
+    env = {"weights": [0.6] * L.N_LOBES}
+    env["weights"][L.LOBES.index("front+12")] = 1.4
+    r = see.compare_to_photos(["reference-05"], passes=("native_linear", "gloss_black"), rig="photo_env",
+                              basis=b.id, env=env)
+    assert r["status"] == "ok", r
+    rep = json.loads(Path(r["report"]).read_text(encoding="utf-8"))
+    assert rep["rig"] == "photo_env" and rep["environment"]["weights"] == env["weights"]
+    rec = rep["photos"]["reference-05"]
+    assert rec["renders"]["native_linear"]["path"].endswith(".npz") and rec["render"]["linear_format"] == "float"
+    assert rec["render"]["rig_spec"]["sectors"] == ["front", "side", "back"]
+    key = f"photo_env:{L.weights_sha(env['weights'])}"
+    gains = json.loads((job["root"] / "work" / "compare" / f"gains-{b.id}.json").read_text(encoding="utf-8"))
+    assert key in gains and gains[key]["env_sha"] == L.weights_sha(env["weights"])
+    again = see.compare_to_photos(["reference-05"], passes=("native_linear", "gloss_black"), rig="photo_env",
+                                  basis=b.id, env=env)
+    assert again["photos"]["reference-05"]["cached"]
+    env2 = {"weights": [0.6] * L.N_LOBES}
+    other = see.compare_to_photos(["reference-05"], passes=("native_linear", "gloss_black"), rig="photo_env",
+                                  basis=b.id, env=env2)
+    assert not other["photos"]["reference-05"]["cached"]                     # the environment is in the cache key
