@@ -1,5 +1,67 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**Actual geometry comparison ready — 2026-10-10.** Show
+**http://127.0.0.1:53427/** (server PID43664), then pause the goal for owner review.
+Preferred `current` mesh is unchanged; the separate test copy raises virtual logo
+junction C **.909491996 mm**, retaining its relief, the entire outline/base/arm,
+other nodes and broad upper plane. The logo/front/rear facet slopes change. This is
+a small conditional shape test, not corrected real-product depth or WP6 acceptance.
+The synchronized **Apex close-up**, angles/lights and eight paired photo overlays
+make the actual geometry difference reviewable. Evidence and final checkpoint:
+`data/wp6/anchored_shape_resume_20261010/`.
+Final browser PID28092 **06:44:08–12 +03**, exit0; actual mesh difference, preferred
+identity, controls/export, eight photos and narrow layout verified. Screenshots
+inspected. Final checkpoint hashes verified; its own live receipt is excluded from
+self-hashing (the preliminary checkpoint is retained separately).
+
+Measurement: preferred C lies **1.580207 mm below** the outline; the photos show a
+smaller rounded cut, not a perfect point. New opt-in `relief_junction` measures the
+outline cut relative to the logo triangle height; 2D similarity cancels exactly.
+01/05/black-side fit one C-height coordinate, black-oblique is held out. Six saved
+vs aligned-camera / L45,60,75 cases yield +.909492–.951124 mm. Display rule was
+saved camera + L60 before results. Gap decreases about 5.97% -> 2.62%; observed
+01/05/black-side/black-oblique = 4.229/2.190/1.456/2.659%. Oblique signed gap error
+3.3291 -> -.0289 percentage points. Sixty-four angular-box corner checks retain the
+same direction. Raster contact validation differs .11–.98 px due to quantization.
+
+Do not promote: several absolute edge checks worsen (new side AC 2.2573 -> 3.6549 px,
+oblique AC 1.6480 -> 3.8389 px; original 01/02/05 also adverse). New side/oblique BC
+improve 3.3242 -> 1.0667 / 2.4968 -> 1.5235 px. Shared A/B alignment improves revised C in
+three side views but worsens it in the old ABC-calibrated oblique camera. The fixed
+front is approximate; no independent real camera calibration was established.
+Large arm mismatch and true depth remain unresolved. All eight photos retained.
+
+New `relief_anchors` reports local scaled-SVD parameter/projection uncertainty and
+unobserved hinge sides. Twenty-four cropped controls show noiseless recovery but
+up to 17.49 px hidden-front error from .5 px measurement noise despite full rank.
+Full rank is not reliable precision. Helper remains opt-in, no frozen-fitter import.
+Seventeen new independent tests and 102 existing relevant tests pass (119 total,
+PID50260 06:38:58–06:39:01 +03). Earlier failed NumPy 2-vector-cross runs and the
+accidental FileExistsError retry are retained, with corrected passing runs.
+
+Complete R1 is **preferred .693583443676 / revised .674423483648**, both fail .5.
+`r1_complete.json` corrects the initial audit's LSQ-only .575734 revised lower
+bound; the earlier value is not the complete R1 score. STOP-I fit-11 .760738>.7,
+preferred synthetic outline .206456>.2, and every frozen R3 clause stay unchanged.
+No full product reconstruction or promotion. Fit PID12204 06:30:02–04, eight-view
+audit PID20048 06:31:35–59, complete R1 PID5476 06:40:03, all exit0. Check current
+checkpoint/browser receipts for final UI verification. After review/resumption,
+retain the preferred mesh and resolve pose/shape ambiguity with independently
+supported evidence before accepting this local correction. No paid call without
+fresh estimate/approval, no subagents, no push, WP5 closed. Preserve the owner's
+WP6_SESSION_PROMPT.md edit separately. No repeated completed fits just to resume.
+
+**Active 2026-10-10 owner resumption.** The owner requests a new continuous goal
+and an actual geometry comparison; a camera-only checkpoint is insufficient.
+Goal active from 2669bea: diagnose all saved cropped-control failures, constrain
+camera/hinges with identifiable visible features, test photo-supported geometry
+corrections on copies, independently validate and replay affected original checks.
+Show a real revised mesh against the exact preferred `current` baseline, then
+pause for visual review. Evidence: `data/wp6/anchored_shape_resume_20261010/`.
+Initial audit distinguishes visible-frame drift from unrecoverable unseen-arm
+angles, preserving all previous metrics/failures. No geometry edits yet. All
+gates and WP5 closeout remain, no subagents/paid calls without approval/push.
+
 **Latest owner review checkpoint — 2026-10-09 22:25 +03.** New comparison ready:
 **http://127.0.0.1:58668/#photo-lab**, server PID **28704**. The owner's approved
 steps 1–4 yielded a camera-only diagnostic, not a supported shape/depth correction.

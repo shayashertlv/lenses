@@ -1,6 +1,77 @@
 # glasses3d progress
 
-## Active resume — WP6 (2026-10-09)
+## Active resume — WP6 (2026-10-10)
+
+**New actual-geometry review checkpoint — 2026-10-10.** Viewer
+**http://127.0.0.1:53427/**, server PID **43664**. Pause the goal when the verified
+comparison is shown, as the owner requested. Exact preferred `current` mesh remains
+the baseline; the other panel is a **conditional test copy**, not a replacement or
+delivered product. Only C's height moves **+0.909491996 mm**; outline, base, arm,
+relief values, all other nodes and the broad upper plane stay fixed. Adjoining
+facets change slope. Use the synchronized **Apex close-up** to see the smaller cut
+across the logo triangle's lower tip. All eight same-camera photo comparisons and
+the conflicting measurements are included. No full-shape/depth recovery claimed.
+Final browser check PID28092 **06:44:08–12 +03**, exit0; desktop/apex/narrow views
+inspected after fixing an overflowing control panel. Final checkpoint binds 148
+artifacts and preserves the earlier checkpoint. Its completed receipt/log are
+excluded from self-hashing; a preliminary self-hash attempt is retained separately.
+
+New evidence: `data/wp6/anchored_shape_resume_20261010/`. The preferred virtual C
+is **1.580207 mm below** its outline. Photos also show a rounded cut; do not force
+a pointed intersection. The new opt-in `relief_junction.triangle_outline_gap`
+measures that cut along C -> midpoint(A,B), normalized by that length. It cancels
+image translation/rotation/zoom. Equal-weight 01/05/black-side measurements fit one
+C-height coordinate; black-oblique is held out. Six retained camera/mask cases
+give **+0.909492 to +0.951124 mm**. The predeclared saved-camera/L60 result changes
+gap fraction from about **5.97% to 2.62%**. Observed 01/05/black-side/black-oblique:
+**4.229/2.190/1.456/2.659%**. The held-out signed error changes **+3.3291 to
+-0.0289 percentage points**. All 64 angular-box corner cases are retained; the
+gap remains near 5.94–5.99% before and 2.61–2.63% after. Actual raster silhouette
+checks differ from analytic contacts by .11–.98 px (pixel-boundary quantization).
+
+**Mixed result, no promotion.** At saved cameras, new side AC worsens **2.2573 ->
+3.6549 px**, BC improves **3.3242 -> 1.0667**; oblique AC worsens **1.6480 ->
+3.8389**, BC improves **2.4968 -> 1.5235**. Original 01/02/05 crease checks also
+worsen; every result is retained in `junction_validation/report.json`. Image
+similarity aligned to unchanged A/B improves revised C in all three side views,
+but worsens it in the earlier ABC-calibrated oblique camera. It is not independent
+depth evidence. The fixed front model is approximate and its cropped landmarks
+are not established as independent calibration truth. Larger arm mismatch remains.
+
+Camera diagnosis: 24 visible-anchor cropped controls recover exact camera/observed
+hinges with noiseless points, but .5 px noise can move unobserved-frame projections
+by **17.49 px** despite full rank. `relief_anchors.fit_anchors` now reports scaled
+SVD uncertainty, probe-coordinate uncertainty and unobserved hinge sides. It is
+opt-in, never connected to the frozen fitter; full rank is not a precision pass.
+All original failures remain. **17 new independent tests + 102 relevant existing
+geometry/mask/ridge tests = 119 pass**, PID50260, **06:38:58–06:39:01 +03**, exit0.
+The initial NumPy 2-vector-cross failure (unit PID20148 / diagnostic PID38724) and
+accidental audit retry's FileExistsError are retained; corrected runs pass.
+
+Complete R1: preferred **.693583443676**, revision **.674423483648**, both **> .5**.
+`r1_complete.json` supersedes the first audit's LSQ-only revised lower bound
+**.575734444798**, which was mislabeled R1; no pass was claimed. STOP-I stays open:
+saved fit-11 floor **.760738195495 > .7**, prior preferred synthetic outline
+**.206456 > .2**, all frozen R3 clauses unchanged. No full product fit or runtime
+promotion. Fit PID12204 **06:30:02–04**; eight-view audit PID20048 **06:31:35–59**;
+complete R1 PID5476 **06:40:03**, all exit0. Earlier checkpoint hashes are preserved.
+No paid calls, subagents, pushes or WP5 reopening; owner session-prompt edit stays
+separate. On resumption, resolve the remaining pose/shape ambiguity before calling
+this local cut correction correct geometry; retain the preferred mesh and all
+adverse cross-view results. Do not repeat completed diagnostics merely to resume.
+
+**Owner resumed: actual shape comparison required.** The owner explicitly requests
+a new goal and continuous work. A new active goal replaces the finished camera-only
+review cycle: diagnose the cropped-camera failures, constrain pose using visible
+frame/hinge evidence, test supported multi-view geometry corrections on copies,
+validate tools independently, then show an actual revised mesh beside the exact
+preferred `current` mesh and pause for review. Camera-only findings are progress
+updates, not review checkpoints. Work sequentially, no subagents; no paid calls
+without fresh estimate/approval, no push, WP5 closed, all gates unchanged.
+New evidence root: `data/wp6/anchored_shape_resume_20261010/`. Starting from
+2669bea. The first audit separates visible-frame camera drift from large errors
+on genuinely unseen cropped arms; it retains every prior control and metric.
+No product geometry change yet. Preserve the owner's session-prompt edit.
 
 **NEW OWNER REVIEW CHECKPOINT — 2026-10-09 22:25 +03.** The approved steps 1–4
 have produced a camera-only comparison at **http://127.0.0.1:58668/#photo-lab**,
