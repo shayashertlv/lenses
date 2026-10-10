@@ -1,5 +1,26 @@
 # WP6 handoff — resume diagnosis and repairs
 
+**LATEST OWNER CORRECTION — 2026-10-10.** The owner now says the far-right triangular
+patch in the black angled reference is not physical and should continue smoothly
+to the tip: **"the reference model is almost perfect but we just need to change
+that"**. A localized comparison copy is ready at **http://127.0.0.1:54016/**,
+server PID47492, `data/wp6/smooth_tip_resume_20261010/`. The exact preferred source
+is preserved. The tangent-strip copy changes only the adjoining base patch by at
+most **.186666001mm**, leaving all four main facets, the inner surface, side outline
+and d>=100mm tip geometry unchanged. The large rear facet remains. This is an
+owner-guided visual tool test, not a full reconstruction or a WP6 pass.
+
+`relief_transition.py` is opt-in; eight independent controls pass. Geometry remains
+closed, Euler2, positive thickness. The local exports required authored-normal
+restoration after Blender rounding; raw failed exports/audits are retained, and
+the final `*_normals_preserved_TOOL_TEST.glb` files pass read-back checks. This does
+not modify the production exporter or waive frozen checks. See PROGRESS's newest
+entry, `report.json`, `export_audit_preserved.json`, and the saved before/after
+comparison. Get the owner's visual verdict on this correction before further
+shape changes. The deferred full fits remain unrun; WP5 and every frozen gate
+retain their status. Preserve the separate session-prompt edit. Older new-chat
+instructions below are historical context, superseded by this narrow correction.
+
 **LATEST OWNER REQUEST — NEW CHAT,2026-10-10.** The owner says **"not good.
 i want to resume in another chat"** about the latest comparison. Record rejection
 without inferring an unstated specific defect. The earlier preferred revision

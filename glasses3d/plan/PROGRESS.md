@@ -2,6 +2,40 @@
 
 ## Active resume — WP6 (2026-10-10)
 
+**CURRENT OWNER CORRECTION — final facet-to-arm transition, 2026-10-10.**
+After reviewing the references in the new chat, the owner identifies the far-right
+triangular patch in the black angled photo as nonphysical: it should continue
+smoothly into the tip. They clarify: **"so the reference model is almost perfect
+but we just need to change that"**. This authorizes the one local correction below;
+it is not a request to launch the deferred fits, change limits or close WP6.
+
+New comparison: **http://127.0.0.1:54016/** (server PID47492), evidence under
+`data/wp6/smooth_tip_resume_20261010/`. The exact preferred spec remains unchanged
+(cfc11127...); a separate deterministic tangent-strip tool copy smooths the base
+patch adjoining the long rear facet and returns to the original arm by d=100mm.
+Maximum X displacement **.186666001mm**. All four facet surfaces, inner wall,
+side-outline coordinates and the entire d>=100mm tip retain their geometry.
+The correction does **not** delete the large rear facet beside the logo triangle.
+The curved patch is tessellated; centroid approximation error **.007976359mm**.
+Its analytic tangent agrees at 201 seam samples; discrete triangles are not claimed
+to have exact continuous tangency. Both meshes are closed, Euler2, positive volume;
+minimum thickness **2.167608740mm**. Eight independent helper controls pass.
+
+The new helper `g3d_host/relief_transition.py` is opt-in and unused by the frozen
+fitter/exporter. Local native GLB export first showed **.035902deg** authored-normal
+rounding, failing a new .01deg serialization check. That result is retained. A
+local serializer restores only NORMAL accessor bytes from verified original
+triangle-corner correspondence; positions/indices remain byte-identical. Both final
+mirrored exports read back within **.000007653mm** and **.000002415deg** of the
+planned geometry/normals. These are comparison-copy checks, not a P0/P3 pass or
+production exporter repair. The initial finite-difference control's step-size error
+(1 fail/7 pass) and raw export audit failures remain in their separate receipts.
+
+Review this local correction before further shape work. No full fit, paid run,
+threshold revision, pipeline promotion or WP5 reopening occurred. All previous
+proof failures remain. Preserve the owner's unstaged WP6_SESSION_PROMPT.md edit.
+The earlier new-chat instructions below are historical context for this checkpoint.
+
 **OWNER REQUESTED A NEW CHAT,2026-10-10.** Latest feedback on the current-proof
 comparison: **"not good. i want to resume in another chat"**. It is not visually
 accepted. The owner did not identify a specific defect in that message; do not
