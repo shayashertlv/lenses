@@ -407,7 +407,7 @@ def m_exec_unvalidated(params):
 
 
 LAB_SCHEMA = "g3d.temple_lab/2"
-VARIANTS_MAX, VARIANT_VIEWS_MAX = 6, 3
+VARIANTS_MAX, VARIANT_VIEWS_MAX = 6, 4
 
 
 def _lab_refusal() -> dict | None:
@@ -440,10 +440,11 @@ def m_temple_variants_render(params):
     """Lab-only, trusted and read-only (WP6_FACETS §4.1 facet_variants): build each variant g3d.temple/2 spec as
     unlinked meshes (temple_bpy.build_variant_meshes), render the head and every built variant at each requested view
     (render.render with the view's pose; a variant's views carry its mesh_overrides) and delete the variant meshes
-    again. params = {variants: [{label, spec}] (1..6), views: [{name, camera, pose}] (1..3), passes, out_dir, rig,
-    env, light_frame, linear_format, engine, samples}. A variant the Blender layer refuses is reported, never
-    rendered. Returns {variants: {label: {status, code, message, overrides}}, render, fingerprint_before,
-    fingerprint_after, unchanged}: the user scene's fingerprint must not change."""
+    again. params = {variants: [{label, spec}] (1..6), views: [{name, camera, pose, passes?}] (1..4), passes, out_dir,
+    rig, env, light_frame, linear_format, engine, samples}; a view's own passes (e.g. gloss_black for a photo of
+    another colourway) replace the call's for that view's head and variant renders. A variant the Blender layer
+    refuses is reported, never rendered. Returns {variants: {label: {status, code, message, overrides}}, render,
+    fingerprint_before, fingerprint_after, unchanged}: the user scene's fingerprint must not change."""
     from glasses3d.g3d import render as _render
     from glasses3d.g3d.temple_bpy import build_variant_meshes, remove_variant_meshes
     refused = _lab_refusal()
@@ -477,8 +478,8 @@ def m_temple_variants_render(params):
         rviews = []
         for view in views:
             stem = _render.safe_name(str(view.get("name", "")))
-            base = {"camera": view["camera"], "passes": list(params.get("passes") or ["native_linear"]),
-                    "pose": view.get("pose")}
+            base = {"camera": view["camera"], "pose": view.get("pose"),
+                    "passes": list(view.get("passes") or params.get("passes") or ["native_linear"])}
             rviews.append({**base, "name": f"{stem}--head"})
             rviews += [{**base, "name": f"{stem}--{label}", "mesh_overrides": b["overrides"]}
                        for label, b in built.items() if b["status"] == "ok"]

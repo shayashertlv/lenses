@@ -20,12 +20,18 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
 -m glasses3d.agent.temple_lab.cli run --job <dir> --run-id <id> <the request's other arguments> [--env-file <dotenv>]
 ```
 
-- **prepare** ($0; about 1 min with the default rig `studio_dome_v1`, 4 min with `photo_env`) writes a new package:
+- **prepare** ($0; 30-40 s with the default rig `studio_dome_v1`, about 4 min with `photo_env`) writes a new package:
   - `inputs/`: `scene.blend` (a byte copy of the original, sha checked), the target photos (checked against the
     reference manifest and the pose basis), the black photos (`cli.COLOURWAY_PHOTOS`, `cli.REFERENCE_PHOTOS`, each
     sha-pinned; below), `brief.txt`, `instructions.txt` and `lab.json` (`g3d.temple_lab/2`: the rig, every input's
-    sha256, the photo list with each photo's role, the pose basis's file hashes);
-  - `basis/cameras.json`: the pose basis restricted to the target photos and B1 (with B1's supplied matte under
+    sha256, the photo list with each photo's role, the pose basis's file hashes). `instructions.txt` is general for
+    any faceted temple and photo set; `brief.txt` (`cli.brief_text`) carries the job's facts: per photo its camera
+    direction, the angle to the temple's outer face (square-on, moderate, edge-on) with the `points_px` depth
+    sensitivity, its number lines and its camera's fit (a transported camera: photo to photo and its check against
+    the starting model); the direction groups; the render light (`--rig`); which temple is charted and which
+    mirrored; the finishes the photo rows give (only the black photos'); revision 0; and the real temples' edge
+    rounding, "not known";
+  - `basis/cameras.json`: the pose basis restricted to the target photos and B1-B3 (with their supplied mattes under
     `basis/mattes/`), imported as `cameras/basis-NN` (with its photo mattes). It sits outside `inputs/` because every
     file under `inputs/` is sha-bound as an approved input (`approvals.input_digests`) and every image under
     `inputs/` is sent in the first message (`approvals.run_input_binding`); the basis files are bound separately
@@ -35,12 +41,23 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
     compared;
   - `job.json` binds the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`), the rig and
     any frozen light; `prepared.json` and `tools.json` describe the package.
-- **rehearse** (T5, $0, about 6 min) prepares its own package and runs a scripted conversation through the pinned
-  Agents SDK, the real Blender worker and every tool, with api.openai.com replaced by a MockTransport and the network
-  blocked. The edits are arbitrary controls. It writes `rehearsal.json` with its checks and the size of every tool
-  output.
+- **rehearse** (T5, $0, about 2 min: prepare 30-40 s, run about 90 s, one Blender worker) prepares its own package
+  and runs a scripted conversation (19 requests) through the pinned Agents SDK, the real Blender worker and every
+  tool, with api.openai.com replaced by a MockTransport and the network blocked. The edits are arbitrary controls. It
+  covers the approval and network guards, required tool choice, E_JUDGEMENT, an SDK timeout then E_BUSY, a timed-out
+  apply, a refused then an accepted finish, the context guard, the export, the text budgets and the top photo's
+  outline line, and the photo set: every photo in the first request (6 target + 3 colourway roles), a black photo in
+  a facet_edit compare, facet_variants at a target and a black photo (gloss_black panels, each model's crease lines
+  counted per panel, the scene unchanged), the B2/B3 compare (photo / overlay / gloss_black) with `points_px`, and the
+  gloss gain still from black-side. It writes `rehearsal.json` with its checks (31 on `review_t5`) and the size of
+  every tool output.
 - **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's tool outputs
-  (`data/wp6v2/lab/estimate.json`).
+  (`--out`, default `data/wp6v2/lab/estimate.json`). Output tokens per request are the paid facet runs' means at
+  effort max (`cli.OUTPUT_TOKENS`: expected 1,852 = run 4, high 2,064 = run 3). facet_variants is priced at the most
+  sheets one call of the rehearsal's job returns (`cli.variant_sheets`: 4 with a photo of another colour, else
+  3). `request`
+  refuses a table that priced fewer sheets than its package's calls return: estimate from a rehearsal of the current
+  tree and pass `--estimate` explicitly.
 - **request** writes `runs/<id>/approval-request.json` and `runs/<id>/instructions-sent.txt` for a clean package. It
   binds the inputs, the instructions (with K), the tool schemas and the run settings, and records nothing as approved.
   After the owner approves that request in chat, `approvals.write_approval` records the owner's exact words.
@@ -51,13 +68,14 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
 Photos (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos included). Every image under
 `inputs/` is in the first message, the target photos first:
 - target `01`..`06` (role `target`): every tool; the default compare set; finish precondition 3;
-- `B1` (role `colourway`, `black-side.png`, sha 6eddabbb…): the same model in black acetate with its pose-basis
-  camera (colourway variant, "camera transported from 05"). `photo_image` and `photo_compare` take it; its compare
-  shows photo / overlay / gloss_black render, no native row (the model's material is the target colourway). Never in
-  the default set, never in `facet_variants` (its sheets render the target material only);
-- `B2` angled and `B3` front (role `reference`, `black-angled.webp` sha 5705c2ca…, `black-front.webp` sha e89d19f4…,
-  from the owner's black Prada product images): no camera, `photo_image` only; `photo_compare` refuses them
-  (outside its enum; the lab's own check names photo_image).
+- `B1` side, `B2` angled and `B3` front (role `colourway`; `black-side.png` sha 6eddabbb…, `black-angled.webp` sha
+  5705c2ca…, `black-front.webp` sha e89d19f4…): the same model in glossy black, each with its pose-basis camera
+  transported from the target photo of the same pose (B1 from 05, B2 from 02, B3 from 04; WP6_FACETS §3.1; owner
+  2026-10-11: "yes, build 1-3"). `photo_image`, `photo_compare` and `facet_variants` take them; a compare shows photo
+  / overlay / gloss_black render, no native row (the model's material is the target colourway), and a variant sheet
+  at one shows gloss_black panels. Never in the default set; one may be the 4th photo of a `facet_variants` call
+  (at most 3 target photos);
+- a photo without a camera would be role `reference` (`photo_image` only; none for Prada).
 
 With B1 in the package's basis, the job's gloss_black gain and stretch come from that dark photo (seeing
 `gains_from_renders`: a dark colourway sets them; its side view has no usable front, so the region is its largest
@@ -93,7 +111,7 @@ count):
 - One `facet_variants` call with 3 variants pairwise >= 0.3 mm apart (`value_mm`: the surface or outline part above),
   counted only over variants that rendered and whose result reached Astra (a call the SDK timed out counts nothing).
 - best_checkpoint's revision compared at every target photo by compares Astra was shown (prepare's compares and a
-  timed-out call's compare do not count; B1 is not required).
+  timed-out call's compare do not count; the black photos are not required).
 - stuck only: the last 3 judgements are on 3 heads that differ pairwise (the same rule), and none says better.
 
 The lab's state is mutated and saved only under one lock (`Lab.state_lock`), so `mark_unseen` (on the event loop,
@@ -129,8 +147,9 @@ the package stale; prepare a fresh one, then request again. Never run from a reh
 ## Limits
 
 - Facet tones depend on the light, and no rig reproduces the photos' facet tone order: shading is a qualitative aid.
-  Layout comes from the crease overlays, thickness from the outer-edge offsets in the top and rear photos, ridge or
-  valley from silhouettes and the section strip.
+  Layout comes from the crease overlays (laid out square-on, confirmed at a moderate angle), thickness from the
+  outer-edge offsets in the top and rear photos, ridge or valley from silhouettes (the section strip shows what the
+  model built).
 - The lighting rig is a package choice (`--rig`). The default is `studio_dome_v1`, the owner's choice of 2026-10-11 on
   the lighting sheet ("c is definitely the best"); `photo_env` and `catalog_band_v1` stay available.
 - One spec drives both temples (mirrored). The front, lenses, hinges and materials never change. The edits have no op

@@ -120,8 +120,12 @@ HARD_TIMEOUT_S = {
     # the facet tools (WP6_FACETS §4.3): 3 x the slowest call measured on the Prada lab (agent/temple_lab, a warm
     # worker, studio_dome_v1 and photo_env, 2026-10-11), rounded up, never below 30 s: inspect 0.3 s, photo_image
     # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached);
-    # facet_variants 0.82 s per render + 2.9 s (21 renders 20.0 s) -> its table value is the cap of
-    # FACET_VARIANTS_BASE_S + FACET_VARIANTS_PER_RENDER_S x photos x (variants + 1) at 3 x 7 renders.
+    # facet_variants 0.82 s per render + 2.9 s (21 renders 20.0 s) -> its table value 90 s = FACET_VARIANTS_BASE_S +
+    # FACET_VARIANTS_PER_RENDER_S x 3 x 7 renders (82.5 s) rounded up. Its worker deadline (hard_timeout_s with
+    # photos and variants) scales with the renders, photos x (variants + 1), up to 4 x 7 = 28 (lab.py module doc),
+    # capped at the table value minus FACET_VARIANTS_HOST_MARGIN_S (75 s: 3.75 x the measured 21 renders, about
+    # 2.9 x the 26 s estimated for 28), so the host's builds before it and crease lines and sheets after it keep
+    # 15 s inside the hard timeout, plus the SDK's 10 s (the measured whole call took 12.8 s).
     # facet_restore and facet_finish (measured 0.3 s and 0.2 s) are set above their worst declared inner deadlines
     # plus FACET_DEADLINE_MARGIN_S, so the SDK never answers E_TIMEOUT while a restore or export may still succeed:
     # restore = one checkpoint restore (journal.CHECKPOINT_DEADLINE_S 60 s) -> 90; finish = that restore and the
@@ -131,6 +135,7 @@ HARD_TIMEOUT_S = {
 }
 FACET_DEADLINE_MARGIN_S = 30.0      # host work after the worker calls and a warm-spare restart (Blender 3.1-4.5 s)
 FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S = 30.0, 2.5
+FACET_VARIANTS_HOST_MARGIN_S = 15.0  # facet_variants' host work around its render, inside the hard timeout
 SNIPPET_SOFT_DEFAULT_S, SNIPPET_SOFT_MIN_S, SNIPPET_SOFT_MAX_S = 120.0, 0.5, 600.0
 SNIPPET_HARD_MARGIN_S = 30.0
 SDK_TIMEOUT_MARGIN_S = 10.0
@@ -139,13 +144,15 @@ SDK_TIMEOUT_MARGIN_S = 10.0
 def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None, variants: int | None = None,
                    photos: int | None = None) -> float:
     """A call's hard timeout (section 7); KeyError for a tool the table does not name (stage D decides it).
-    facet_variants scales with its renders (photos x (variants + 1), the head included), capped at its table value."""
+    With photos and variants, facet_variants' worker render deadline: it scales with its renders (photos x
+    (variants + 1), the head included), capped at the table value minus FACET_VARIANTS_HOST_MARGIN_S (the table's
+    comment)."""
     if tool_name == "execute_blender_code":
         soft = SNIPPET_SOFT_DEFAULT_S if soft_timeout_s is None else float(soft_timeout_s)
         return min(max(soft, SNIPPET_SOFT_MIN_S), SNIPPET_SOFT_MAX_S) + SNIPPET_HARD_MARGIN_S
     if tool_name == "facet_variants" and variants is not None and photos is not None:
         scaled = FACET_VARIANTS_BASE_S + FACET_VARIANTS_PER_RENDER_S * int(photos) * (int(variants) + 1)
-        return float(min(scaled, HARD_TIMEOUT_S[tool_name]))
+        return float(min(scaled, HARD_TIMEOUT_S[tool_name] - FACET_VARIANTS_HOST_MARGIN_S))
     return float(HARD_TIMEOUT_S[tool_name])
 
 

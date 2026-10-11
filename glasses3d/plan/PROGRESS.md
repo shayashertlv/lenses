@@ -130,7 +130,50 @@ stop"):
 - Top photo outline of the best head: only d30 +1.45 beyond 1 mm (run 3: d30 +2.1, d40 +1.2, d50 −1.1, d60 −1.5).
   Astra's summary: about 1.4 mm short at d30; its last three distinct changes moved the error elsewhere.
 - Sheets: `data/wp6v2/result_facet-astra-004/` (faces_run4.png, top_run4.png, reference-0N.png, black-side.png); the
-  3D viewer's default is run 4. The owner's verdict is pending.
+  3D viewer's default is run 4.
+
+**Owner feedback on facet-astra-004, verbatim:** "the only issue that i still see is the top triangle. please
+investigate. (its split into two)". Found: the real top triangle (face 4) is ONE long thin face (hinge top, the
+top-outline peak, a point far back; its lower edge one straight line through the logo's back corner). Run 4 added a
+crease from the peak down to the logo corner that no photo shows (`upper_front` | `upper_rear`). Contributing causes:
+the run-4 instruction "A corner in the top photo's outline is a corner of the faces …" (now removed), the
+coordinator's own split tool test, and layout decided from one viewing direction; run 2 reached the same split
+through a builder refusal (a single face 4 refused because every crease at the logo corner was declared a ridge, and
+"do not redeclare" left splitting as the way out). Evidence: `result_facet-astra-004/top_triangle.png`; run 4's creases drawn on the black angled
+photo with a transported camera cross the top face where the photo shows no edge (review notes).
+
+**Review of Astra's guidance (2026-10-11).** 26 of 106 instruction sentences were not general (20 added from this
+product's failures); Prada assumptions also sit in code (packaging defaults, "acetate" in briefs, gloss-black for
+every colourway, fixed section stations, the top-only outline rule). Why the layout rests on one image: the prompt sent
+every position reading to the side photos ("never from oblique views") and asked for no check from another angle;
+the "two photos agree" rule compared one direction with itself (B1 uses 05's camera, 01 is its mirror); the black
+angled photo had no camera; in run 4 the layout was fixed before Astra first saw an angled view, and the top-photo
+rule kept it chasing one photo's numbers (13 of 14 judgements of 03). Not money, resolution or context.
+
+**Owner decisions after the review, verbatim:** "yes, build 1-3 and make the rule information only" (1: general
+instructions with per-job facts in the brief and a confirm-from-another-angle habit; 2: cameras for the black angled
+and front photos; 3: variant sheets that show black photos with each variant's crease lines). "please max utilize
+local machine for faster work" (pytest-xdist pinned; builds and reviews run in parallel). The outline rule is
+information only since `2ca5be9`.
+
+**Built for run 5 (2026-10-11; build workflow, review, fix workflow, re-review; all $0):**
+- **General instructions** (`instructions.txt`, 12.8k chars): no product or photo-set facts; lay out in the square-on
+  views, then confirm (keep / remove / add creases) in a calibrated view that sees the face at a moderate angle; a
+  crease only where two directions show it; never split a face no photo shows divided; offsets and the outline line
+  are information; the corner rule (one face straight through a corner: its creases cannot all be ridges; keep the
+  face whole; decide with variants at the moderate and glossy views when no silhouette shows it).
+- **Per-job brief** (`cli.brief_text`): each photo's direction, angle band to the outer face and points_px error per
+  mm of depth, direction groups, glossy photos, number lines, camera-fit text, render light, revision 0, roll unknown.
+- **Cameras for B2/B3** (black angled / front) by similarity transport from 02/04 (`g3d_host/camera_similarity.py`
+  restored from wp6-v1-final; `tests/proofs/wp6v2_basis.py`): B2 0.82 px / IoU 0.992 (model check 0.934, temple
+  0.875); B3 1.09 px / 0.992 (0.977 / 0.886) after the per-photo matte fix (white-background matte for B2/B3, B1 keeps
+  its dark matte). Existing basis records byte-identical (`data/wp6v2/basis-pre-b2b3`, `basis-pre-b3fix` kept).
+- **facet_variants** takes any photo with a camera (1..4, at most 3 targets), renders other colours in gloss black,
+  and draws each model's crease lines (the compare overlay's rule, host-side, matches it to 0-2 px).
+- **Builder:** E_CREASE_SHAPE names a node a facet runs straight through ("one is a valley or two of those faces are
+  one ...; keep X whole").
+- **Estimate:** output tokens per reply from runs 2-4 (1852 expected, 2064 high); up to 4 variant sheets.
+- T5 rehearsal 31/31; reviews: no P1 left. Owner, verbatim: "you may do a paid run, only when your ready, max 15$".
 
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 

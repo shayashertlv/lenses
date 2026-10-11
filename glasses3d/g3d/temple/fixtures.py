@@ -6,8 +6,10 @@ edge), valley (an inverted four-facet pyramid), arm_pyramid (a pyramid on the ar
 pyramid with the core roll), virtual_node, solved_node, crease_rise (F1 by crease + rise), analytic_prism (closed-form
 dihedrals on a straight slab), chamfered_slab_30, prada_default (the four-facet Prada layout with declared creases),
 fade (a ridge that dies out in a fade), fade_one_side (the ridge with one side fading beside a plane; taller, it is
-the W_FADE_HOLD and E_FADE_CLIFF case), border_ramp (facets meeting the base with a mismatch the border band absorbs);
-and the refusal cases (one minimal spec per core refusal code). Fixtures are never edited to make a test pass.
+the W_FADE_HOLD and E_FADE_CLIFF case), border_ramp (facets meeting the base with a mismatch the border band absorbs),
+straight_node (four creases at a node a facet runs straight through: four declared ridges are refused E_CREASE_SHAPE
+naming the node, one valley builds); and the refusal cases (one minimal spec per core refusal code). Fixtures are never
+edited to make a test pass.
 
 The fixture base is linear in d and constant in y over d 0-65 (INNER and THICK): "base" nodes there lie on one plane,
 so a facet whose border nodes are "base" meets the base without a ramp.
@@ -238,6 +240,30 @@ def border_ramp(proud_b: float = 0.6) -> dict:
     s = pyramid()
     s["nodes"]["B"][2] = T_ZONE + proud_b
     return s
+
+
+def straight_node(valley: bool = False, lift: float = 0.0, proud: float = 2.0, m1: float = -0.3,
+                  m3: float = -0.15) -> dict:
+    """Four creases at a node that a facet's edge runs straight through, on the straight slab with no base inside the
+    outline. X (every node `proud` mm above the base, a plane parallel to it) lies above the line y 2 with its lower
+    edge L-C-R (L on the hinge-end cap, C at d 30, R on the tip cap); below it R1 = X + m1 (2 - y) shares L-C, R3 =
+    X + m3 (2 - y) shares C-R, and R2 = C-P-Q lies between them (P on R1, Q on R3, below the bottom edge). With m1 <
+    m3 < 0: X|R1, X|R3 and R2|R3 are ridges and R1|R2 is a valley (R1 stands above R2's plane beside their crease).
+    No node values make all four ridges: a convex corner holding a straight line through it is a prism along that
+    line, so R1, R2 and R3 would be one plane. Default: all four declared ridges (E_CREASE_SHAPE naming the node);
+    valley=True declares R1|R2 a valley and builds. `lift` moves C up (X's corner there turns reflex) or down (convex),
+    every node value unchanged. Not in FIXTURES (its default is refused)."""
+    T, yc, yp = PRISM["T"], 2.0, -14.0
+    t_x = T + proud
+    nodes = {"L": [0.0, yc, t_x], "C": [30.0, yc + lift, t_x], "R": [120.0, yc, t_x], "L_hi": [0.0, 30.0, t_x],
+             "R_hi": [120.0, 30.0, t_x], "P": [18.0, yp, t_x + m1 * (yc - yp)], "Q": [42.0, yp, t_x + m3 * (yc - yp)],
+             "L_lo": [0.0, -30.0, None], "R_lo": [120.0, -30.0, None]}
+    facets = {"X": ["L", "C", "R", "R_hi", "L_hi"], "R1": ["C", "L", "L_lo", "P"], "R2": ["C", "P", "Q"],
+              "R3": ["C", "Q", "R_lo", "R"]}
+    shapes = {("X", "R1"): "ridge", ("R1", "R2"): "valley" if valley else "ridge", ("R2", "R3"): "ridge",
+              ("R3", "X"): "ridge"}
+    return straight(nodes=nodes, facets=facets,
+                    creases=[{"facets": list(pair), "shape": shape} for pair, shape in shapes.items()])
 
 
 def prada_default() -> dict:

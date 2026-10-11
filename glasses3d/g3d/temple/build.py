@@ -59,7 +59,11 @@ Steps:
     else the design surface's (faded_corner_normals; the roll does not tilt it); auto-smoothed elsewhere;
  9. creases: every facet/facet and facet/base pair with its length-weighted dihedral and ridge/valley shares; each
     declared pair must share an edge inside the outline and be built with its declared shape (E_CREASE_SHAPE); pairs
-    below 2 deg are "flat" (a declaration on them is refused, an undeclared one warns W_FLAT_CREASE).
+    below 2 deg are "flat" (a declaration on them is refused, an undeclared one warns W_FLAT_CREASE). Where a facet
+    runs straight (within STRAIGHT_NODE_DEG) through an inside node, or bends back there, and three or more creases
+    meet there all declared with one shape, no node values build it (a convex corner holding a straight line is a
+    prism along it): the refusal says one of them has the other shape and that splitting the facet is no way around
+    it (field straight_node).
 """
 from __future__ import annotations
 
@@ -1304,10 +1308,79 @@ def _base_planarity(tb: TempleBuild) -> dict:
     return {"max_mm": float(plan[k]), "at": tb.arr.V[faces[k]].mean(axis=0).tolist(), "cells": len(faces)}
 
 
+STRAIGHT_NODE_DEG = 2.0           # E_CREASE_SHAPE hint: a facet's corner at a node within this of straight, or reflex
+NODE_AT_MM = 1e-6                 # a node is the arrangement vertex within this distance of it
+
+
+def _node_regions(arr: Arrangement, labels: list, v: int, corners: list) -> list:
+    """[[label, angle_deg]] of the regions around the interior arrangement vertex v, counter-clockwise: each face's
+    corner angle at v (faces are CCW, so a corner runs CCW from the outgoing edge to the incoming one), consecutive
+    faces of one label merged (stations and band lines cut one region into several faces). [] when the corners do not
+    close around v."""
+    V = arr.V
+    items = []
+    for fi, k in corners:
+        cyc = arr.faces[fi]
+        o, i = V[cyc[(k + 1) % len(cyc)]] - V[v], V[cyc[k - 1]] - V[v]
+        a0 = math.atan2(o[1], o[0])
+        items.append((a0, math.degrees((math.atan2(i[1], i[0]) - a0) % (2.0 * math.pi)), labels[fi]))
+    if abs(sum(s for _, s, _ in items) - 360.0) > 1e-6:
+        return []
+    regions = []
+    for _, s, lab in sorted(items):
+        if regions and regions[-1][0] == lab:
+            regions[-1][1] += s
+        else:
+            regions.append([lab, s])
+    if len(regions) > 1 and regions[0][0] == regions[-1][0]:
+        regions[0][1] += regions.pop()[1]
+    return regions
+
+
+def _straight_node(tb: TempleBuild, bad: list) -> dict | None:
+    """The first node (by name) strictly inside the outline where three or more creases meet, every one of them is
+    declared and all with one shape, one of them is refused (bad), and a facet's corner there is straight within
+    STRAIGHT_NODE_DEG or reflex. Such a node cannot be built as declared: the surface around it would be convex (all
+    ridges) or concave (all valleys), and a convex corner whose facet holds a straight line through it is a prism along
+    that line, so the facets on the other side are coplanar (flat creases, which a declaration refuses); a reflex corner
+    makes them all coplanar with the facet. One crease there must have the other shape. None when no node qualifies."""
+    ps, arr = tb.spec, tb.arr
+    declared = {tuple(c["facets"]): c["shape"] for c in ps.creases}
+    refused = [tuple(b["facets"]) for b in bad]
+    outline = set(arr.boundary_loop)
+    at_v: dict = {}
+    for fi, cyc in enumerate(arr.faces):
+        for k, u in enumerate(cyc):
+            at_v.setdefault(u, []).append((fi, k))
+    for name in sorted(ps.nodes):
+        p = np.asarray(ps.nodes[name][:2], np.float64)
+        dist = np.hypot(arr.V[:, 0] - p[0], arr.V[:, 1] - p[1])
+        v = int(np.argmin(dist))
+        if dist[v] > NODE_AT_MM or v in outline or v not in at_v:
+            continue
+        regions = _node_regions(arr, tb.face_label, v, at_v[v])
+        n = len(regions)
+        if n < 3:
+            continue
+        pairs = list(dict.fromkeys(_pair(regions[k][0], regions[(k + 1) % n][0]) for k in range(n)))
+        shapes = {declared.get(pr) for pr in pairs}
+        hit = next((pr for pr in refused if pr in pairs), None)
+        if None in shapes or len(shapes) != 1 or hit is None:
+            continue
+        lab, ang = max(((lab, ang) for lab, ang in regions if lab != "base"), key=lambda r: r[1], default=(None, 0.0))
+        if lab is not None and ang >= 180.0 - STRAIGHT_NODE_DEG:
+            return {"node": name, "facet": lab, "angle_deg": ang, "shape": shapes.pop(),
+                    "creases": [list(pr) for pr in sorted(pairs)], "refused": list(hit)}
+    return None
+
+
 def _check_creases(tb: TempleBuild) -> None:
     """E_CREASE_SHAPE for every declared pair that shares no edge inside the outline, is flat (< 2 deg) or is built
     with the other shape. The fix named: the node values; for a pair with a faded facet also a later fade start or end
-    (a fade that flattens the crease over most of its length builds it flat)."""
+    (a fade that flattens the crease over most of its length builds it flat). At a node that cannot be built as
+    declared (_straight_node: a facet runs straight through it or bends back there, and every crease meeting there is
+    declared with one shape) the message leads with a refused crease there and names the fix instead: one of those
+    creases has the other shape (read from the photos), and splitting the facet is no way around it."""
     built = {tuple(r["regions"]): r for r in tb.tables["creases"] if r["kind"] == "crease"}
     bad = []
     for c in tb.spec.creases:
@@ -1322,12 +1395,24 @@ def _check_creases(tb: TempleBuild) -> None:
                         "why": "flat (< 2 deg): no ridge or valley" if r["shape"] == "flat"
                         else "built with the other shape"})
     if bad:
-        b = bad[0]
+        node = _straight_node(tb, bad)
+        b = bad[0] if node is None else next(x for x in bad if x["facets"] == node["refused"])
         dih = "" if b["dihedral_deg"] is None else f" {b['dihedral_deg']:.1f} deg"
-        faded = any(tb.spec.facets[f]["fade"] is not None for f in b["facets"] if f in tb.spec.facets)
-        fix = "fix the node values, or start the fade later / end it later" if faded else "fix the node values"
+        extra = {}
+        if node is None:
+            faded = any(tb.spec.facets[f]["fade"] is not None for f in b["facets"] if f in tb.spec.facets)
+            fix = ("fix the node values, or start the fade later / end it later" if faded else "fix the node values") \
+                + ", do not redeclare"
+        else:
+            x, c, shape = node["facet"], node["node"], node["shape"]
+            how = (f"runs straight through node {c}" if node["angle_deg"] <= 180.0 + STRAIGHT_NODE_DEG
+                   else f"has a {node['angle_deg']:.0f} deg corner at node {c}")
+            fix = (f"facet {x} {how}, so the {len(node['creases'])} creases there cannot all be {shape}s: one is a "
+                   f"{'valley' if shape == 'ridge' else 'ridge'} or two of those faces are one (check the photos or "
+                   f"facet_variants); keep {x} whole")
+            extra["straight_node"] = node
         raise TempleError("E_CREASE_SHAPE", f"crease {'|'.join(b['facets'])} is declared {b['declared']} but built "
-                          f"{b['built']}{dih} ({b['why']}); {fix}, do not redeclare",
+                          f"{b['built']}{dih} ({b['why']}); {fix}",
                           facets=b["facets"], declared=b["declared"], built=b["built"], dihedral_deg=b["dihedral_deg"],
-                          failures=bad)
+                          failures=bad, **extra)
 

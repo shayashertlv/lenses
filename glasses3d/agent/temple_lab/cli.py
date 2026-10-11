@@ -3,18 +3,20 @@ approval guard of agent/loop.py; prepare, estimate and request are $0.
 
     prepare  --job DIR [--rig studio_dome_v1 | photo_env | catalog_band_v1]
         a new isolated package: inputs/ = a byte copy of the original scene, the target photos (checked against the
-        reference manifest and the pose basis), the black photos (the same model in black acetate, sha-checked: B1
-        with its camera in the pose basis, B2 and B3 reference only), brief.txt, instructions.txt and lab.json
-        (g3d.temple_lab/2: the rig, every input's sha256, the photo list with each photo's role, the pose basis);
-        basis/cameras.json = the pose basis restricted to the target photos and B1 (with B1's supplied matte),
-        imported as cameras/basis-NN (outside inputs/: every file under inputs/ is sha-bound and every image under
-        inputs/ is sent in the first message); then Lab.prepare(): the original compared at every target photo
+        reference manifest and the pose basis), the black photos (the same model in black acetate, sha-checked, each
+        with its camera in the pose basis: B1 side, B2 angled, B3 front), any reference-only photos (none for
+        Prada), brief.txt, instructions.txt and lab.json (g3d.temple_lab/2: the rig, every input's sha256, the photo
+        list with each photo's role, the pose basis); basis/cameras.json = the pose basis restricted to the target
+        and colourway photos (with their supplied mattes), imported as cameras/basis-NN (outside inputs/: every file
+        under inputs/ is sha-bound and every image under inputs/ is sent in the first message); then Lab.prepare():
+        the original compared at every target photo
         (only with --rig photo_env does this fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh
         of the original's +X temple, applied and compared. job.json binds the implementation (every .py of g3d,
         g3d_host and agent, and instructions.txt), the rig and any frozen light. The default rig is the owner's choice
         of 2026-10-11, studio_dome_v1 ("c is definitely the best").
     estimate [--rehearsal FILE] [--out FILE]
-        the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py).
+        the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py), with
+        facet_variants priced at the most sheets one call of the rehearsal's job can return (variant_sheets).
     request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4]
         writes runs/<ID>/approval-request.json for a clean package (nothing approved, nothing sent).
     run      the same arguments [--env-file FILE]: the paid run, refused without the owner's approval of exactly that
@@ -36,14 +38,16 @@ import sys
 from PIL import Image
 
 from glasses3d.agent import approvals as A
-from glasses3d.agent.estimate import STUDIO_PARAMETERS, cents_text, suggested_cap_micro
+from glasses3d.agent.estimate import cents_text, suggested_cap_micro
 from glasses3d.agent.loop import (RunRefused, RunSpec, ToolContract, contract_problems, instructions_sha256,
                                   run_astra, tool_registry_sha256)
 from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, Tariff, usd_text
-from glasses3d.agent.seeing import ENV_RIG, MATCHED_RIG, MATCHED_RIGS
+from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, OFFSET_VIEWS
 from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.g3d_host import compare as C
-from .lab import LAB_SCHEMA, Lab, data_url, read, sha, write_json_atomic
+from .lab import (LAB_SCHEMA, VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX, Lab, data_url, read, sha,
+                  write_json_atomic)
+from .state import OUTLINE_VIEW
 from .tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, registry, run_settings
 
 REPO = Path(__file__).resolve().parents[3]
@@ -58,19 +62,22 @@ ESTIMATE = LAB_DATA / "estimate.json"
 DEFAULT_RIG = MATCHED_RIG          # the job rig: the owner's light choice of 2026-10-11 (plan/PROGRESS.md decisions)
 K_TOKEN = "{K}"                     # instructions.txt states finish precondition 1 with the run's K
 # The same model in black acetate (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos
-# included: "yes, make the fixes and run it again"). B1 is a pose
-# basis image (colourway variant, its camera transported from 05): photo_compare shows it beside the gloss_black render.
-# B2 and B3 have no camera: reference only (photo_image). The sha256 pins the exact bytes.
-BLACK = "black"
-COLOURWAY_PHOTOS = ({"id": "B1", "image": "black-side.png", "colour": BLACK,
-                     "sha256": "6eddabbb7bd40888801eaa40964795a278d1daaa4f10986f6b5f86a6e26c19be"},)
-BLACK_PRADA = Path("C:/Users/Shay/OneDrive/Desktop/erroca/images/black_prada")
-REFERENCE_PHOTOS = ({"id": "B2", "view": "angled", "colour": BLACK, "source": BLACK_PRADA / "8056262360200.webp",
-                     "path": "images/black-angled.webp",
+# included: "yes, make the fixes and run it again"; and "yes, build 1-3": calibrated cameras for B2 and B3). Each is a
+# pose basis image (colourway variant, sha256-pinned bytes) whose camera was transported from the target photo of the
+# same pose by an image similarity (tests/proofs/wp6v2_basis.py, g3d_host/camera_similarity.py): B1 from 05, B2 from
+# 02, B3 from 04. photo_compare shows each beside the gloss_black render. No Prada photo is reference only now; a
+# job whose extra photo has no camera passes it as a reference photo ({id, view, colour, source, path, sha256}:
+# photo_image only). colour and the optional finish are job data: the brief and the photo labels print them (the
+# instructions name no product's colour or material). The three black photos are glossy (their facets show as
+# mirrored studio lights; review images 2026-10-11).
+BLACK, GLOSSY = "black", "glossy"
+COLOURWAY_PHOTOS = ({"id": "B1", "image": "black-side.png", "colour": BLACK, "finish": GLOSSY,
+                     "sha256": "6eddabbb7bd40888801eaa40964795a278d1daaa4f10986f6b5f86a6e26c19be"},
+                    {"id": "B2", "image": "black-angled.webp", "colour": BLACK, "finish": GLOSSY,
                      "sha256": "5705c2cab03f5e457d2b1dfc58b5155dec5ac03c3450e7672511a10aeb4ac8f1"},
-                    {"id": "B3", "view": "front", "colour": BLACK, "source": BLACK_PRADA / "8056262360200-F.webp",
-                     "path": "images/black-front.webp",
+                    {"id": "B3", "image": "black-front.webp", "colour": BLACK, "finish": GLOSSY,
                      "sha256": "e89d19f4101d6457a32274dc4a1b8b51a0de525ef09d2179b8657eb6c34621c3"})
+REFERENCE_PHOTOS = ()
 
 # The estimate (WP6_FACETS §4.3): tokens ~ 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112, fitted
 # on the 34 transport deltas of the v1 lab run owner-test-001 (median absolute residual 197 tokens). On that run's
@@ -78,10 +85,17 @@ REFERENCE_PHOTOS = ({"id": "B2", "view": "angled", "colour": BLACK, "source": BL
 # is over-estimated by 27 %, which is kept (conservative).
 TOKENS_PER_CHAR, TOKENS_PER_PATCH, TOKENS_PER_IMAGE, PATCH_PX = 0.42, 0.975, 112, 32
 V1_FIRST_REQUEST = {"formula_tokens": 19245, "counted_tokens": 15121}
-# Output tokens per request (reasoning included). Expected: the v1 lab run (gpt-6-astra, effort max, 35 requests,
-# 20,276 output tokens). High end: the Studio corpus median (estimate.STUDIO_PARAMETERS, 13 runs, all effort max).
-# No gpt-6-astra ledger at effort high exists: high is priced with the max numbers, an upper bound.
-OUTPUT_TOKENS = {"expected": 580, "high": math.ceil(STUDIO_PARAMETERS.output)}
+# Output tokens per request (reasoning included), measured on the paid gpt-6-astra facet runs, all at effort max (each
+# run's runs/<id>/budget.json rows, usage.output_tokens): facet-astra-002 33 requests, mean 1635; facet-astra-003 15
+# requests, mean 2064; facet-astra-004 32 requests, mean 1852 (pooled 80: 1803; the largest single reply 8134).
+# Expected: the latest run's mean (run 4, the current tools); high: the highest run mean (run 3). They replace
+# (2026-10-11 build review, P2) the v1 lab run's 580 and the Studio corpus median 851, which priced every facet run
+# about 30 % low: run 4's table (estimate_004.json) priced 40 replies at $7.47, and run 4 settled $8.21 in 32. No
+# gpt-6-astra ledger at effort high exists: high is priced with the max numbers, an upper bound.
+OUTPUT_TOKENS = {"expected": 1852, "high": 2064}
+OUTPUT_TOKENS_SOURCE = ("mean output tokens per request of the paid facet runs at effort max (budget.json): "
+                        "facet-astra-002 1635 (33 requests), -003 2064 (15), -004 1852 (32); expected = run 4, "
+                        "high = the highest run mean (run 3)")
 # Tool calls per 10 requests. typical: the loop the instructions describe (edit and compare, now and then variants,
 # a closer look, an inspect); edit_heavy: every request an applied facet_edit with its default compare.
 MIXES = {"typical": {"facet_edit": 5, "facet_variants": 1, "photo_compare": 2, "photo_image": 1, "facet_inspect": 1},
@@ -102,36 +116,206 @@ def implementation():
     return {str(p.relative_to(REPO)): sha(p) for p in sorted(set(files))}
 
 
+# --------------------------------------------------------------------------------------------- brief
+# The brief carries the job's facts; instructions.txt is general (plan/WP6_FACETS.md §4.4, amended 2026-10-11). The
+# photo facts come from the job's pose basis (cameras.json records) and are information, never a rule. Directions are
+# temple-relative: one spec drives both temples as mirror images, so the -X temple seen from (yaw, pitch) is the
+# charted (+X) temple seen from (-yaw, pitch).
+SAME_DIRECTION_DEG = 10.0       # cameras whose temple-relative directions are closer than this are one direction
+SQUARE_ON_DEG = 30.0            # under this angle to the outer face's normal a view is square-on: 1 mm of depth error
+#                                 moves a points_px reading at most tan 30 deg = 0.58 mm along the face
+EDGE_ON_DEG = 75.0              # from this angle on the face shows at most cos 75 deg = 0.26 of its width: edge-on
+# OFFSET_VIEWS (imported from agent/seeing.py): the view kinds whose compares print outer-edge offsets.
+# The job's render light, which the brief names (instructions.txt: "the job's fixed light (the brief names it)");
+# g3d/render.py describes each rig.
+RIG_TEXT = {MATCHED_RIG: "a studio light, one large soft key 55 deg above the horizon on the camera's side, a bright "
+                         "sky from just above the horizon, a dark band just below it and a mid-grey ground",
+            ENV_RIG: "a light fitted once to this job's photos on the front of the frame (the temples held out)",
+            CATALOG_RIG: "a catalogue light, a bright band at the horizon over a dark ground and under a dimmer sky, "
+                         "the same all round"}
+
+
+def toward(cam: dict) -> tuple:
+    """The unit vector from the model toward a camera (g3d_host/camera.py: (cos p sin y, sin p, cos p cos y); +X is
+    the charted temple's side, +Y up, +Z the front)."""
+    yaw, pitch = math.radians(float(cam.get("yaw") or 0.0)), math.radians(float(cam.get("pitch") or 0.0))
+    return math.cos(pitch) * math.sin(yaw), math.sin(pitch), math.cos(pitch) * math.cos(yaw)
+
+
+def outer_face_deg(cam: dict) -> float:
+    """The angle between a camera's view and the normal (+-X) of the outer face of the temple it sees best: 0 is
+    square-on, 90 edge-on. 1 mm of depth error moves a points_px reading tan(angle) mm along that face."""
+    return math.degrees(math.acos(min(1.0, abs(toward(cam)[0]))))
+
+
+def direction_deg(a: dict, b: dict) -> float:
+    """The angle between two cameras' temple-relative directions (each mirrored onto the charted temple's side)."""
+    (xa, ya, za), (xb, yb, zb) = toward(a), toward(b)
+    return math.degrees(math.acos(max(-1.0, min(1.0, abs(xa) * abs(xb) + ya * yb + za * zb))))
+
+
+def direction_groups(cams: dict) -> list:
+    """{photo id: camera} grouped by direction: two photos within SAME_DIRECTION_DEG are linked (single link);
+    groups and members in photo order."""
+    ids = list(cams)
+    root = {p: p for p in ids}
+
+    def find(p):
+        while root[p] != p:
+            p = root[p]
+        return p
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            if direction_deg(cams[a], cams[b]) < SAME_DIRECTION_DEG:
+                root[find(b)] = find(a)
+    groups: dict = {}
+    for p in ids:
+        groups.setdefault(find(p), []).append(p)
+    return list(groups.values())
+
+
+def _deg(v) -> str:
+    return f"{round(float(v or 0.0), 1) + 0.0:+.1f}"          # never "-0.0"
+
+
+def angle_band(deg: float) -> str:
+    return "square-on" if deg < SQUARE_ON_DEG else "at a moderate angle" if deg < EDGE_ON_DEG else "edge-on"
+
+
+def temple_seen(cam: dict) -> str:
+    """Which temple's outer face a camera sees: from +X (yaw > 0, g3d_host/camera.py) the charted temple."""
+    return "the charted temple" if toward(cam)[0] > 0 else "the mirrored temple, from its own side"
+
+
 def side_note(rec: dict) -> str:
-    """Which temple a side photo shows: yaw > 0 looks from +X (g3d_host/camera.py), the charted temple."""
-    yaw = float((rec.get("camera") or {}).get("yaw", 0.0))
-    return "it shows the charted temple" if yaw > 0 else "it shows the mirrored temple, from its own side"
+    """Which temple a side photo shows (lab.json leaves the note out; brief_text prints it for a photo it has no
+    camera record of)."""
+    return f"it shows {temple_seen(rec.get('camera') or {})}"
 
 
-def brief_text(product: str, photos: list) -> str:
-    """The brief: the target photos, then any photos of the same model in another colour (role colourway: a camera,
-    photo_compare; role reference: photo_image only)."""
+def colour_text(row: dict) -> str:
+    """A photo's colour with its finish when the job data gives one (e.g. "glossy black")."""
+    return " ".join(x for x in (row.get("finish"), row.get("colour") or "another colour") if x)
+
+
+def camera_fit_text(rec: dict, ids: dict) -> str | None:
+    """How the photo's camera was made and how well it fits, from its pose-basis record: a camera moved from another
+    photo's by an image similarity (``transport``: photo to photo) with, when the basis made one, its check against
+    the starting model (``model_check``: full and temple-region IoU, tests/proofs/wp6v2_basis.py), or a camera with
+    the model's silhouette checked against the photo (``iou``, ``contour_mean_px``)."""
+    t = rec.get("transport") or {}
+    if t:
+        src = ids.get(Path(str(t.get("source") or "")).name) or "another photo"
+        nums = [f"IoU {float(t['mask_iou_after_warp']):.3f}" if t.get("mask_iou_after_warp") is not None else None,
+                f"mean contour {float(t['mean_bidirectional_px']):.1f} px"
+                if t.get("mean_bidirectional_px") is not None else None]
+        nums = ", ".join(n for n in nums if n)
+        copied = not any((rec.get("theta_observed") or {}).values())
+        mc = rec.get("model_check") or {}
+        check = "not checked against the model"
+        if mc.get("iou") is not None:
+            check = (f"starting model's silhouette on the compare's raster: IoU {float(mc['iou']):.3f}"
+                     + (f", temple IoU {float(mc['temple_iou']):.3f}" if mc.get("temple_iou") is not None else ""))
+        return (f"camera moved from {src}'s by matching the two photos' silhouettes"
+                + (f" (photo to photo, on its registration matte: {nums})" if nums else "")
+                + (f", the temples' hinge opening as in {src}" if copied else "")
+                + f"; {check}")
+    if rec.get("iou") is not None:
+        c = rec.get("contour_mean_px")
+        return (f"camera fitted to the model's silhouette (all-views fit): IoU {float(rec['iou']):.3f}"
+                + (f", mean contour {float(c):.1f} px" if c is not None else ""))
+    return None
+
+
+def photo_line(p: dict, rec: dict | None, ids: dict) -> str:
+    """One photo of the brief: its view (and colour), then from its pose-basis record: the camera direction, the
+    temple it sees and how (with the points_px depth sensitivity there), faces it sees from above or below, the
+    number lines its compares print and the camera's fit."""
+    other = p.get("role", "target") != "target"
+    head = f"- {p['id']}: {p['view']}" + (f", {colour_text(p)}" if other else "")
+    cam = (rec or {}).get("camera") if p.get("role") != "reference" else None
+    if not cam:                    # a reference photo, or no pose-basis record given: the view (and side) only
+        tail = [p["note"]] if p.get("note") else []
+        if p.get("role") == "reference":
+            tail.append("no calibrated camera: photo_image only")
+        return head + "".join(f"; {t}" for t in tail)
+    a, pitch = outer_face_deg(cam), float(cam.get("pitch") or 0.0)
+    bits = [f"camera yaw {_deg(cam.get('yaw'))}, pitch {_deg(pitch)}"]
+    if a < EDGE_ON_DEG:
+        whose = ("the charted temple's outer face" if toward(cam)[0] > 0
+                 else "the mirrored temple's outer face, from its own side,")
+        bits.append(f"{whose} {angle_band(a)} ({a:.0f} deg; points_px moves {math.tan(math.radians(a)):.2f} mm per "
+                    "mm of depth error)")
+    else:
+        bits.append(f"the outer faces edge-on ({a:.0f} deg)")
+    if 90.0 - abs(pitch) < EDGE_ON_DEG:
+        bits.append(f"faces that point straight {'up' if pitch > 0 else 'down'} at {90.0 - abs(pitch):.0f} deg from "
+                    "square-on")
+    numbers = (["outer-edge offsets"] if p["view"] in OFFSET_VIEWS else []) + \
+        (["the outline line"] if not other and p["view"] == OUTLINE_VIEW else [])
+    if numbers:
+        bits.append("its compares print " + " and ".join(numbers))
+    fit = camera_fit_text(rec, ids)
+    if fit:
+        bits.append(fit)
+    return head + "; " + "; ".join(bits)
+
+
+def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: str = DEFAULT_RIG,
+               roll_mm: float | None = None) -> str:
+    """The brief (the job's facts; instructions.txt is general): the target photos and any of another colour (role
+    colourway: a camera, photo_compare; role reference: photo_image only), the job's render light (``rig``) and the
+    two temples' names, one line per photo from its pose-basis record in ``cameras`` ({image file name: cameras.json
+    record}; the photo row's path names the file), then the photos grouped by direction, by how they see the outer
+    face, the number lines and the finishes (listed only for the photo rows that give one), revision 0 and the real
+    temples' edge rounding (``roll_mm`` when the job knows it, else "not known")."""
+    cameras = cameras or {}
     targets = [p for p in photos if p.get("role", "target") == "target"]
     others = [p for p in photos if p.get("role", "target") != "target"]
-    lines = [f"Product: {product}, target colourway. The product photos follow: the target photos "
-             f"({', '.join(p['id'] for p in targets)}) show the target."]
+    ids = {Path(p["path"]).name: p["id"] for p in photos if p.get("role") != "reference"}
+    recs = {p["id"]: cameras.get(Path(p["path"]).name) if p.get("role") != "reference" else None for p in photos}
+    first = (f"Product: {product}. The target photos ({', '.join(p['id'] for p in targets)}) show the colourway to "
+             "match.")
     if others:
-        colours = sorted({p.get("colour") or "another colour" for p in others})
-        lines[0] += (f" Photos {', '.join(p['id'] for p in others)} show the same model in {' and '.join(colours)} "
-                     "acetate.")
-    lines.append("")
-    for p in targets:
-        lines.append(f"- {p['id']}: {p['view']}" + (f"; {p['note']}" if p.get("note") else ""))
-    if others:
-        lines += ["", "The same model in another colour (the colour does not matter: the materials never change). Its "
-                      "glossy facets show the creases far more clearly than the target photos:"]
-        for p in others:
-            how = "calibrated camera: photo_compare shows it beside the gloss-black render" \
-                if p["role"] == "colourway" else "reference only, no calibrated camera: photo_image only"
-            lines.append(f"- {p['id']}: {p['view']}, {p.get('colour') or 'another colour'}"
-                         + (f"; {p['note']}" if p.get("note") else "") + f"; {how}")
-    lines += ["", "The scene holds revision 0, a template fitted to the starting model's own temples. Make the temples "
-                  "look like the temples in these photos."]
+        colours = sorted({colour_text(p) for p in others})
+        first += (f" Photos {', '.join(p['id'] for p in others)} show the same model in {' and '.join(colours)} (the "
+                  "materials never change, so they show the shape only)")
+        first += ("; photo_compare and facet_variants show those with a camera beside the gloss-black render." if any(
+            p.get("role") == "colourway" for p in others) else ".")
+    light = (f"The renders use the job's fixed light, {rig}: {RIG_TEXT[rig]}. The photos' light is unknown."
+             if rig in RIG_TEXT else f"The renders use the job's fixed light, {rig}. The photos' light is unknown.")
+    lines = [first, light, "The charted temple is the one the spec's d, y and t chart; the mirrored temple is its "
+             "mirror image on the other side; compares print outer-edge offsets per temple under these names.",
+             "", "Each photo: its view; the camera's yaw (0 from the front, +90 from the charted temple's side, "
+             "-90 from the mirrored temple's, 180 from the rear) and pitch (+ from above); how it sees the temple's "
+             "outer face (0 deg square-on, 90 deg edge-on); its number lines; its camera's fit."]
+    lines += [photo_line(p, recs[p["id"]], ids) for p in targets + others]
+    cams = {pid: rec["camera"] for pid, rec in recs.items() if rec and rec.get("camera")}
+    if cams:
+        def listed(ids_):
+            return ", ".join(ids_) if ids_ else "none"
+        band = {b: [pid for pid, c in cams.items() if angle_band(outer_face_deg(c)) == b]
+                for b in ("square-on", "at a moderate angle", "edge-on")}
+        groups = " | ".join(", ".join(g) for g in direction_groups(cams))
+        lines += ["", f"Directions (cameras within {SAME_DIRECTION_DEG:g} deg of each other count as one, and so do "
+                      f"the side views of the two temples): {groups}.",
+                  f"The temple's outer face square-on (under {SQUARE_ON_DEG:g} deg): {listed(band['square-on'])}. At "
+                  f"a moderate angle ({SQUARE_ON_DEG:g} to {EDGE_ON_DEG:g} deg): {listed(band['at a moderate angle'])}"
+                  f". Edge-on ({EDGE_ON_DEG:g} deg or more): {listed(band['edge-on'])}."]
+        offsets = [p["id"] for p in targets + others if p["id"] in cams and p["view"] in OFFSET_VIEWS]
+        outline = [p["id"] for p in targets if p["id"] in cams and p["view"] == OUTLINE_VIEW]
+        lines.append(f"Outer-edge offsets: {listed(offsets)}. Outline line: {listed(outline)}.")
+    finishes = sorted({p["finish"] for p in photos if p.get("finish")})
+    for f in finishes:
+        lines.append(f"{f.capitalize()} photos: {', '.join(p['id'] for p in photos if p.get('finish') == f)}.")
+    unstated = [p["id"] for p in photos if not p.get("finish")]
+    if finishes and unstated:      # a photo without a finish is not matte: the job data only names none for it
+        lines.append(f"No finish is given for {', '.join(unstated)}.")
+    edge = (f"The real temples' edge rounding is about {float(roll_mm):g} mm (roll_mm)." if roll_mm is not None
+            else "The real temples' edge rounding (roll_mm) is not known: judge it from the photos' edges.")
+    lines += ["", "The scene holds revision 0, a template fitted to the starting model's own temples: no facets, no "
+                  "creases, roll_mm 0, and at every d an outer face straight in y (the base wedge). " + edge
+              + " Make the temples look like the temples in these photos."]
     return "\n".join(lines) + "\n"
 
 
@@ -139,8 +323,9 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
             reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json,
             colourway_photos=COLOURWAY_PHOTOS, reference_photos=REFERENCE_PHOTOS) -> dict:
     """A new package (module doc). $0; ~1 min with studio_dome_v1 (the default), ~4 min with photo_env (its light
-    fit). ``colourway_photos`` name pose-basis images of another colourway ({id, image, colour, sha256}: compared
-    with photo_compare), ``reference_photos`` images without a camera ({id, view, colour, source, path, sha256})."""
+    fit). ``colourway_photos`` name pose-basis images of another colourway ({id, image, colour, finish?, sha256}:
+    compared with photo_compare), ``reference_photos`` images without a camera ({id, view, colour, finish?, source,
+    path, sha256}); colour and finish are printed by the brief and the photo labels."""
     root = Path(root).resolve()
     if root.exists():
         raise ValueError("use a new empty package directory")
@@ -197,6 +382,7 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
             size = list(im.size)
         photos.append({"id": want["id"], "path": f"images/{name}", "view": rec["view_kind"], "size_px": size,
                        "sha256": want["sha256"], "role": "colourway", "colour": want["colour"],
+                       **({"finish": want["finish"]} if want.get("finish") else {}),
                        "basis_ref": C.ref_id(name), "source": str(rec["image"]),
                        **({"note": side_note(rec)} if rec["view_kind"] == "side" else {})})
     for want in reference_photos:
@@ -205,11 +391,12 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
             size = list(im.size)
         photos.append({"id": want["id"], "path": want["path"], "view": want["view"], "size_px": size,
                        "sha256": want["sha256"], "role": "reference", "colour": want["colour"],
-                       "source": str(want["source"])})
+                       **({"finish": want["finish"]} if want.get("finish") else {}), "source": str(want["source"])})
     ids = [p["id"] for p in photos]
     if len(set(ids)) != len(ids):
         raise ValueError(f"photo ids must be distinct: {ids}")
-    (inputs / "brief.txt").write_text(brief_text(manifest.get("name") or reference.name, photos), encoding="utf-8")
+    (inputs / "brief.txt").write_text(brief_text(manifest.get("name") or reference.name, photos, doc["images"],
+                                                 rig=rig), encoding="utf-8")
     assets.append({"path": "brief.txt", "sha256": sha(inputs / "brief.txt")})
     copy(HERE / "instructions.txt", "instructions.txt")
     write_json_atomic(bdir / "cameras.json", {**doc, "images": {**targets, **variants}})
@@ -318,7 +505,7 @@ def references(lab) -> list:
                 label = f"TARGET PHOTO {row['id']} ({i} of {len(rows_)})"
             else:
                 label = (f"{(row.get('colour') or 'other colour').upper()} PHOTO {row['id']} ({i} of {len(rows_)}; "
-                         f"the same model in {row.get('colour') or 'another colour'} acetate, "
+                         f"the same model in {colour_text(row)}, "
                          + ("calibrated camera)" if row["role"] == "colourway" else "reference only, no camera)"))
             out.append(ReferenceInput(label=label, path=row["path"], image_url=data_url(p), detail="high",
                                       view=row["view"], size_px=size))
@@ -346,7 +533,8 @@ def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, est
     if write_request:
         run_dir = root / "runs" / run_id
         cost = estimate if estimate is not None else request_estimate(
-            read(estimate_path), settings, c0_chars(instructions, brief, tools, photos), [p.size_px for p in photos])
+            read(estimate_path), settings, c0_chars(instructions, brief, tools, photos), [p.size_px for p in photos],
+            variant_sheets=lab.variant_photos_max())
         A.write_approval_request(run_dir, job_id=root.name, request=request, estimate=cost, suggested_cap_usd=cap)
         # the exact text sent (its sha256 is the request's instructions_sha256): LF, never the platform's newline
         (run_dir / "instructions-sent.txt").write_text(instructions, encoding="utf-8", newline="\n")
@@ -380,6 +568,36 @@ def call_tokens(sample: dict) -> dict:
     stub = [t for t, (_w, _h, kind) in zip(imgs, sample["images"]) if kind in STUBBED_KINDS]
     return {"tokens": TOKENS_PER_CHAR * (sample["text_chars"] + sample["args_chars"]) + sum(imgs),
             "stubbable": sum(stub), "stub_images": len(stub)}
+
+
+def variant_sheets(rows: list) -> int:
+    """The most sheets one facet_variants call returns for a job with these lab.json photo rows: one per photo, at
+    most VARIANT_TARGETS_MAX target photos plus, when the job has photos of another colour with a camera, one of
+    those, at most VARIANT_PHOTOS_MAX (Lab.variant_photos_max's rule)."""
+    others = sum(1 for r in rows if r.get("role") == "colourway")
+    return min(VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX + others)
+
+
+def rehearsal_variant_sheets(rehearsal: dict) -> int:
+    """variant_sheets of the job the rehearsal prepared (its package's inputs/lab.json); VARIANT_PHOTOS_MAX, the most
+    any job takes, when that package cannot be read."""
+    root = (rehearsal.get("prepared") or {}).get("path")
+    try:
+        return variant_sheets(read(Path(root) / "inputs" / "lab.json")["photos"]) if root else VARIANT_PHOTOS_MAX
+    except (OSError, ValueError, KeyError, TypeError):
+        return VARIANT_PHOTOS_MAX
+
+
+def priced_sample(sample: dict, sheets: int) -> dict:
+    """A recorded facet_variants call priced at ``sheets`` sheets: when it returned fewer, its largest sheet is
+    repeated (an upper bound: a 4th photo of another colour adds one sheet the size of the others, lab.py module
+    doc). Every other call is returned unchanged."""
+    imgs = [list(i) for i in sample["images"]]
+    shown = [i for i in imgs if i[2] == "variants"]
+    if sample["tool"] != "facet_variants" or not shown or len(shown) >= sheets:
+        return sample
+    big = max(shown, key=lambda i: image_tokens(i[0], i[1]))
+    return {**sample, "images": imgs + [list(big)] * (sheets - len(shown))}
 
 
 def mix_step(samples: list, mix: dict) -> dict:
@@ -443,13 +661,15 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
             "context_guard_request": guard_at, "first_long_context_request": long_at}
 
 
-def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: int = 16_384) -> dict:
+def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: int = 16_384,
+                   sheets: int = VARIANT_PHOTOS_MAX) -> dict:
     """The estimate table (estimate.json): runs of ``requests`` replies at effort high and max, the typical mix at the
-    expected output and the edit-heavy mix at the high output (the range)."""
+    expected output and the edit-heavy mix at the high output (the range); facet_variants priced at ``sheets`` sheets
+    a call (priced_sample; main passes the rehearsal job's variant_sheets)."""
     first = rehearsal["first_request"]
     c0 = first_request_tokens(first["text_chars"], first["image_sizes"])
     samples = rehearsal["tool_outputs"]
-    steps = {name: mix_step(samples, mix) for name, mix in MIXES.items()}
+    steps = {name: mix_step([priced_sample(s, sheets) for s in samples], mix) for name, mix in MIXES.items()}
     rows = []
     for n in requests:
         for effort in ("high", "max"):
@@ -465,8 +685,8 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
                          "text": f"{n} replies at effort {effort}: expected {cents_text(exp['expected_micro_usd'])}, "
                                  f"up to {cents_text(high['expected_micro_usd'])} (every reply an edit)"})
     per_tool = {}
-    for s in samples:
-        t = call_tokens(s)
+    for s in samples:                       # as recorded, with the tokens it is priced at
+        t = call_tokens(priced_sample(s, sheets))
         per_tool.setdefault(s["tool"], []).append({"status": s["status"], "text_chars": s["text_chars"],
                                                    "args_chars": s["args_chars"],
                                                    "images": [[w, h, k] for w, h, k in s["images"]],
@@ -474,18 +694,26 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
     return {"schema": ESTIMATE_SCHEMA, "price_version": Tariff.frozen().price_version,
             "formula": "tokens = 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112",
             "first_request": {**first, "tokens": c0, "v1_check": V1_FIRST_REQUEST},
-            "output_tokens_per_request": OUTPUT_TOKENS, "mixes": MIXES,
+            "output_tokens_per_request": OUTPUT_TOKENS, "output_tokens_source": OUTPUT_TOKENS_SOURCE,
+            "variant_sheets": sheets, "mixes": MIXES,
             "steps": {k: {kk: round(vv, 1) for kk, vv in v.items()} for k, v in steps.items()},
             "context_guard_tokens": CONTEXT_GUARD_TOKENS, "long_context_tokens": LONG_CONTEXT_INPUT_TOKENS,
             "rows": rows, "tool_outputs": per_tool,
             "notes": ["No gpt-6-astra ledger at effort high exists; high is priced with the max numbers (an upper "
                       "bound). output_micro_usd is the whole expected output cost, the most effort high can save.",
+                      f"facet_variants is priced at {sheets} sheets a call: a recorded call with fewer sheets has "
+                      "its largest sheet repeated (tool_outputs lists the calls as recorded, at their priced tokens).",
                       "The cap is enforced by the guard request by request, independently of this forecast."]}
 
 
-def request_estimate(table: dict, settings, chars: int, sizes) -> dict:
+def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets: int | None = None) -> dict:
     """The approval request's estimate block: this package's first request and the run's turns (60 when the run has
-    no reply cap) with the growth measured by the rehearsal (estimate.json)."""
+    no reply cap) with the growth measured by the rehearsal (estimate.json). ``variant_sheets``: the most sheets one
+    facet_variants call of this package returns (Lab.variant_photos_max); a table that priced fewer is refused."""
+    priced = table.get("variant_sheets")
+    if variant_sheets is not None and (priced is None or int(priced) < int(variant_sheets)):
+        raise ValueError(f"the estimate table prices facet_variants at {priced or 'the recorded'} sheets a call, this "
+                         f"package's calls return up to {variant_sheets}: run estimate on a current rehearsal")
     c0 = first_request_tokens(chars, sizes)
     n = settings.max_turns or 60
     steps = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in table["steps"].items()}
@@ -502,7 +730,8 @@ def request_estimate(table: dict, settings, chars: int, sizes) -> dict:
             "expected_micro_usd": exp["expected_micro_usd"], "expected_usd": exp["expected_usd"],
             "range_usd": [exp["expected_usd"], high["expected_usd"]], "expected": exp, "high": high,
             "suggested_cap_micro_usd": suggested, "suggested_cap_usd": usd_text(suggested),
-            "source": {"table": table.get("schema"), "steps": table["steps"]},
+            "source": {"table": table.get("schema"), "steps": table["steps"], "variant_sheets": priced,
+                       "output_tokens": OUTPUT_TOKENS, "output_tokens_source": OUTPUT_TOKENS_SOURCE},
             "text": text, "limitation": "A forecast from the rehearsal's tool outputs and the fitted token formula; "
                                         "effort high is priced as max. The cap is enforced independently. No "
                                         "approval has been recorded."}
@@ -536,7 +765,8 @@ def main(argv=None):
         elif a.action == "estimate":
             if a.rehearsal is None:
                 p.error("estimate requires --rehearsal")
-            table = facet_estimate(read(a.rehearsal))
+            rehearsal = read(a.rehearsal)
+            table = facet_estimate(rehearsal, sheets=rehearsal_variant_sheets(rehearsal))
             table["rehearsal"] = {"path": str(a.rehearsal), "sha256": sha(a.rehearsal)}
             write_json_atomic(a.out, table)
             result = {"status": "estimated", "path": str(a.out), "rows": [r["text"] for r in table["rows"]]}

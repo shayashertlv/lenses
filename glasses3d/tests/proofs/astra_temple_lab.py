@@ -2,7 +2,8 @@
 below are arbitrary controls, never Astra or product output.
 
 A fresh package (temple_lab.cli.prepare: a byte copy of the original Prada scene, the six target photos, the three
-black photos B1-B3, the pose basis with B1, revision 0 applied) runs through agent/loop.run_astra with the pinned
+black photos B1-B3, the pose basis with B1-B3 (colourway photos, each with a camera transported from the target photo
+of its pose: B1 from 05, B2 from 02, B3 from 04), revision 0 applied) runs through agent/loop.run_astra with the pinned
 Agents SDK, the real Blender worker and the seven facet tools, while api.openai.com is a MockTransport
 (agent/replay.ScriptedOpenAI) whose replies are scripted
 calls built from the live lab state; LoopbackOnly and the production-transport tripwire are active throughout. The
@@ -11,18 +12,22 @@ facet_finish with K 4, the context guard at 240k counted input); only the approv
 
 The script passes every tool and checks: the missing approval is refused before any request; every request has
 tool_choice required; images of a tool output reach the next request; a facet_edit without the due judgement is
-refused E_JUDGEMENT; a simulated stuck call (facet_inspect made to outlast a shortened SDK timeout) answers E_TIMEOUT
-with the footer and makes the next call E_BUSY; a facet_edit timed out the same way still applies in its thread, and
-its compare (never shown) demands no judgement of the next action; an early facet_finish is refused E_FINISH and the
-run goes on; one scripted count above the guard threshold makes the next request replace the superseded compare images
-by stubs; facet_variants leaves the worker's scene fingerprint unchanged; the top photo's compare text carries its
-outline line (information only); after one more distinct head (judging compare_all), the accepted "stuck" finish
-ends the run (status completed, no further request) with an
-export that validates; the §4.5 text budgets hold on every real
+refused E_JUDGEMENT; H1's facet_edit compare takes a black photo (the default set plus B1); a simulated stuck call
+(facet_inspect made to outlast a shortened SDK timeout) answers E_TIMEOUT with the footer and makes the next call
+E_BUSY; a facet_edit timed out the same way still applies in its thread, and its compare (never shown) demands no
+judgement of the next action; an early facet_finish is refused E_FINISH and the run goes on; one scripted count above
+the guard threshold makes the next request replace the superseded compare images by stubs; facet_variants at 05 and
+B1 leaves the worker's scene fingerprint unchanged, renders 05's panels native and B1's gloss_black, and every render
+panel of both sheets carries that model's own crease lines (computed for every panel, depth-tested on the head's
+scene, drawn in the overlay colours: counted per panel on the sheet); the top photo's compare text carries its outline
+line (information only); after one more distinct head (judging compare_all), the accepted "stuck" finish ends the run
+(status completed, no further request) with an export that validates; the §4.5 text budgets hold on every real
 output; instructions-sent.txt is byte for byte the bound instructions; no network. The first request carries every
-photo (6 target + 3 black); photo_image shows the reference-only B2; photo_compare on B1 (with points_px) shows photo /
-overlay / gloss_black and no native row. It records every tool output's text and image sizes (the estimate's input)
-and where the job's gloss_black gain came from.
+photo (6 target + 3 black, the black ones role colourway with their basis images); photo_image shows a black photo
+(B2); photo_compare on B2 and B3 (points_px on B2, one on the temple, one off it) shows photo / overlay / gloss_black
+and no native row, and the job's gloss_black gain still comes from black-side (seeing.gain_view_rank: a transported
+camera never displaces a fitted gain view). It records every tool output's text and image sizes (the estimate's
+input), where the job's gloss_black gain came from, and each variant sheet's path, pass and per-panel crease lines.
 
 Writes <out>/rehearsal.json (and <out>-run.json, the process receipt).
 Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.astra_temple_lab rehearse --out DIR [--rig RIG]
@@ -43,6 +48,7 @@ import threading
 import time
 import traceback
 
+import numpy as np
 from PIL import Image
 
 from glasses3d.agent import approvals as A
@@ -50,11 +56,13 @@ from glasses3d.agent import replay as R
 from glasses3d.agent.loop import run_astra
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
 from glasses3d.agent.session_inputs import image_identity
+from glasses3d.agent.temple_lab import sheets as SH
 from glasses3d.agent.temple_lab import state as S
 from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, make_spec, prepare
 from glasses3d.agent.temple_lab.lab import read, sha, write_json_atomic
 from glasses3d.agent.temple_lab.tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, run_settings
 from glasses3d.g3d.temple.spec import parse
+from glasses3d.g3d_host.compare import RIDGE_RGB, VALLEY_RGB
 
 RUN_ID = "offline-rehearsal"
 CAP = "100"
@@ -66,7 +74,18 @@ TEXT_BUDGET = {"facet_edit": 1500, "facet_variants": 1500, "facet_restore": 1000
 GUARD_COUNT = CONTEXT_GUARD_TOKENS + 1_000      # one scripted count above the guard: it fires on the next request
 CROP_05 = [300, 150, 900, 450]
 POINTS_05 = [[600.0, 300.0], [700.0, 320.0]]
-POINTS_B1 = [[700.0, 230.0], [1000.0, 220.0]]   # native px of black-side (1607 x 554), on the temple
+# native px of black-angled (1920 x 1280): on the temple (charted d 30.8 at revision 0 by the B2/B3 cameras' own
+# $0 lab check) and the corner, off it
+POINTS_B2 = [[1456.0, 615.0], [5.0, 5.0]]
+BLACK_IDS = ["B1", "B2", "B3"]                    # cli.COLOURWAY_PHOTOS: each a colourway photo with a camera
+BLACK_REFS = ["black-side", "black-angled", "black-front"]
+# H1's facet_edit compare: the default set (compare_points') plus this black photo, which facet_variants then takes (it
+# needs each photo compared first); never fewer photos than the default, since the estimate prices facet_edit by the
+# mean of these outputs
+EDIT_H1_BLACK = "B1"
+VARIANT_PHOTOS = ["05", "B1"]      # a target photo (native panels) and a black one (gloss_black panels)
+VARIANT_PASSES = {"05": ["native_linear"], "B1": ["gloss_black"]}
+BLACK_COMPARE = ["B2", "B3"]
 BLACK_ROWS = {"photo", "overlay", "gloss_black"}  # a variant-colourway photo's compare rows (no native row)
 FOOTER = re.compile(r"\nsettled \$\d+\.\d\d / cap \$\d+\.\d\d · context \S+ tokens$")
 CONTROL = "SCRIPTED CONTROL, not a visual judgement"
@@ -178,6 +197,25 @@ def first_request(body: dict) -> dict:
     return {"text_chars": len(json.dumps(kept, ensure_ascii=False, separators=(",", ":"))), "image_sizes": sizes}
 
 
+def sheet_crease_px(path, layout, shape, n_panels: int) -> list[int]:
+    """The crease-colour pixels (exactly compare.RIDGE_RGB or VALLEY_RGB) inside each panel image of a variant sheet,
+    in panel order (photo, head, variants), the cells placed as sheets.variant_sheet places them when every panel is
+    an image of the same ``shape`` (H, W) (no refused panel)."""
+    cols, pw, _ph = layout
+    h, w = shape
+    a = np.asarray(Image.open(path).convert("RGB"))
+    hit = np.zeros(a.shape[:2], bool)
+    for rgb in (RIDGE_RGB, VALLEY_RGB):
+        hit |= np.all(a == np.asarray(rgb, np.uint8), axis=-1)
+    out = []
+    for n in range(n_panels):
+        r, c = divmod(n, cols)
+        x = SH.GAP_PX + c * (pw + SH.GAP_PX)
+        y = SH.TITLE_PX + SH.GAP_PX + r * (h + SH.LABEL_PX + SH.GAP_PX) + SH.LABEL_PX
+        out.append(int(hit[y:y + h, x:x + w].sum()))
+    return out
+
+
 # --------------------------------------------------------------------------------------------- the rehearsal
 def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     root = Path(root).resolve()
@@ -205,10 +243,10 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     tools = {t.name: t for t in spec.tools}
     timeout0 = tools["facet_inspect"].timeout_seconds
     edit_timeout0 = tools["facet_edit"].timeout_seconds
-    st: dict = {"fingerprints": []}
+    st: dict = {"fingerprints": [], "variant_views": []}
     slow = {"armed": False, "done": threading.Event()}
     slow_edit = {"armed": False, "done": threading.Event()}
-    inspect0, variants0, edit0 = lab.inspect, lab.variants, lab.edit
+    inspect0, variants0, edit0, views0 = lab.inspect, lab.variants, lab.edit, lab._variant_views
 
     def inspect():
         if not slow["armed"]:
@@ -226,6 +264,15 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         st["fingerprints"].append([before, lab.s.fingerprint()])
         return out
 
+    def variant_views(*args, **kwargs):
+        """The worker views of a facet_variants render (each photo's pass) and each sheet's layout (observed only)."""
+        views, comp = views0(*args, **kwargs)
+        st["variant_views"].append({
+            "passes": {v["name"]: list(v.get("passes") or []) for v in views},
+            "photos": {pid: {"layout": list(c["layout"]), "shape": list(c["shape"]), "what": c.get("what")}
+                       for pid, c in comp["photos"].items()}})
+        return views, comp
+
     def edit_fn(*args, **kwargs):
         if not slow_edit["armed"]:
             return edit0(*args, **kwargs)
@@ -235,7 +282,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             return edit0(*args, **kwargs)
         finally:
             slow_edit["done"].set()
-    lab.inspect, lab.variants, lab.edit = inspect, variants, edit_fn
+    lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect, variants, edit_fn, variant_views
 
     def settle(done: threading.Event, timeout_s: float) -> None:
         """A timed-out call's thread has finished and released the scene lock."""
@@ -263,10 +310,17 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         tools["facet_inspect"].timeout_seconds = timeout0
         return R.tool_call("photo_image", {"photo": "05", "crop": None})
 
+    def edit_h1():
+        """H1, judging compare_points; its compare shows that compare's photos (the default set) and a black photo."""
+        st["default_photos"] = list(S.seen_compares(lab.state)[-1]["photos"])
+        st["h1_photos"] = st["default_photos"] + [EDIT_H1_BLACK]
+        return R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0], judged=judgement(lab),
+                                              photos=st["h1_photos"]))
+
     def variants_call():
         st["h1"], st["h1_revision"] = lab.s.head["id"], head_rev()
         return R.tool_call("facet_variants", {"parent_revision": st["h1_revision"], "variants": variant_edits(r0),
-                                              "photos": ["05", "02"], "judgement": judgement(lab, best=st["h1"])},
+                                              "photos": VARIANT_PHOTOS, "judgement": judgement(lab, best=st["h1"])},
                            counted=GUARD_COUNT)
 
     def edit_h3():
@@ -311,7 +365,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("compare_points", lambda: R.tool_call("photo_compare", {"photos": None, "crop": None, "points_px": [
             {"photo": "05", "points": POINTS_05}]})),
         ("edit_unjudged", lambda: R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0]))),
-        ("edit_h1", lambda: R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0], judged=judgement(lab)))),
+        ("edit_h1", edit_h1),
         ("variants", variants_call),
         ("edit_h2", lambda: R.tool_call("facet_edit", edit(variant_rev("deep"), []))),
         ("finish_early", lambda: R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": lab.s.head["id"],
@@ -322,8 +376,8 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("edit_h4", edit_h4),
         ("edit_slow", edit_slow),
         ("restore_h3", restore_h3),
-        ("compare_black", lambda: R.tool_call("photo_compare", {"photos": ["B1"], "crop": None, "points_px": [
-            {"photo": "B1", "points": POINTS_B1}]})),
+        ("compare_black", lambda: R.tool_call("photo_compare", {"photos": BLACK_COMPARE, "crop": None, "points_px": [
+            {"photo": "B2", "points": POINTS_B2}]})),
         ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
                                                               "points_px": None})),
         ("edit_h6", edit_h6),
@@ -347,7 +401,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     with LoopbackOnly() as network, ProductionTransportTripwire() as tripwire:
         result = asyncio.run(run_astra(spec, scene=lab))
     t_run = time.perf_counter() - t1
-    lab.inspect, lab.variants, lab.edit = inspect0, variants0, edit0
+    lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect0, variants0, edit0, views0
     records = call_records(transport.creates, lab.state["images"])
     if len(records) == len(transport.creates) - 1:          # the accepted finish: its output is the final output
         fc = next(o for o in transport.replies[len(transport.creates) - 1].output if o["type"] == "function_call")
@@ -385,13 +439,47 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         if guard_req is not None else []
     expected_images = {"inspect": 2, "photo_image": 1, "photo_black": 1,
                        "compare_points": len(by["compare_points"]["body"]["photos"]),
-                       "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": 2,
-                       "compare_black": 1}
+                       "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": len(VARIANT_PHOTOS),
+                       "compare_black": len(BLACK_COMPARE)}
+    cw_refs = lab.colourway_refs()
+    black_view = {pid: lab.basis.refs[ref].get("view_kind") for pid, ref in cw_refs.items()}
+
+    def black_text_ok(text, pid) -> bool:
+        return str(text).startswith(f"{black_view.get(pid)} black: rows photo/overlay/gloss-black IoU ")
     black_id = by["compare_black"]["body"].get("compare_id")
     black_cmp = next((c for c in lab.state["compares"] if c["compare_id"] == black_id), None)
     black_report = read(black_cmp["report"]) if black_cmp else {}
-    black_rows = sorted(((black_report.get("photos") or {}).get("black-side") or {}).get("rows") or {})
+    black_rows = {pid: sorted(((black_report.get("photos") or {}).get(cw_refs.get(pid)) or {}).get("rows") or {})
+                  for pid in BLACK_COMPARE}
+    black_texts = {pid: str((by["compare_black"]["body"].get("photos") or {}).get(pid)) for pid in BLACK_COMPARE}
     gloss_from = (black_report.get("gains") or {}).get("gloss_black", {}).get("from")
+    h1_texts = by["edit_h1"]["body"].get("photos") or {}
+    # facet_variants at a target and a black photo: each photo's pass, the state record's crease lines per panel and
+    # the crease-colour pixels inside each panel of the sheet the call returned
+    vbody = by["variants"]["body"]
+    vid = vbody.get("variants_id")
+    vrec = next((v for v in lab.state["variants"] if v["id"] == vid), {})
+    vviews = st["variant_views"][-1] if st["variant_views"] else {"passes": {}, "photos": {}}
+    labels = [v["label"] for v in variant_edits(r0)]
+    models = ["head"] + labels
+    sheets = {}
+    for pid in VARIANT_PHOTOS:
+        path = lab.root / "work" / "temple_lab" / "variants" / str(vid) / f"sheet-{pid}.png"
+        geo = vviews["photos"].get(pid)
+        px = sheet_crease_px(path, geo["layout"], geo["shape"], 1 + len(models)) if geo and path.is_file() else None
+        lines = (vrec.get("creases") or {}).get(pid) or {}
+        sheets[pid] = {"path": str(path), "what": (geo or {}).get("what"), "record_models": sorted(lines),
+                       "photo_panel_crease_px": px[0] if px else None,
+                       "panels": {m: {"lines": lines.get(m), "crease_px": px[1 + i] if px else None}
+                                  for i, m in enumerate(models)}}
+
+    def sheet_ok(s) -> bool:
+        panels = s["panels"].values()
+        return (s["record_models"] == sorted(models)
+                and all(isinstance(p["lines"], int) and isinstance(p["crease_px"], int)
+                        and (p["lines"] > 0) == (p["crease_px"] > 0) for p in panels)
+                and s["panels"]["head"]["lines"] > 0
+                and len({p["crease_px"] for p in panels}) > 1)            # each panel draws its own model's lines
     rows = lab.manifest["photos"]
     roles = [r.get("role", "target") for r in rows]
     final = json.loads((result.get("final_output") or "{}").split("\n", 1)[0] or "{}")
@@ -437,15 +525,39 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         "stuck_finish_accepted": by["finish"]["body"].get("finish") == "stuck",
         "every_result_has_the_footer": all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text"),
         "first_request_carries_every_photo": image_hashes == [p["sha256"] for p in rows]
-                                             and roles == ["target"] * 6 + ["colourway", "reference", "reference"]
-                                             and [r["id"] for r in rows[6:]] == ["B1", "B2", "B3"],
-        "photo_image_shows_the_reference_only_black_photo": by["photo_black"]["status"] == "ok"
-                                                            and by["photo_black"]["body"].get("colour") == "black",
+                                             and roles == ["target"] * 6 + ["colourway"] * 3
+                                             and [r["id"] for r in rows[6:]] == BLACK_IDS
+                                             and [r.get("basis_ref") for r in rows[6:]] == BLACK_REFS
+                                             and lab.compare_ids() == lab.photo_ids() + BLACK_IDS
+                                             and lab.image_ids() == lab.compare_ids(),
+        "photo_image_shows_a_black_photo": by["photo_black"]["status"] == "ok"
+                                           and by["photo_black"]["body"].get("photo") == "B2"
+                                           and by["photo_black"]["body"].get("colour") == "black",
+        "edit_compare_takes_a_black_photo": by["edit_h1"]["status"] == "applied"
+                                            and list(h1_texts) == st.get("h1_photos")
+                                            and st.get("default_photos") == list(
+                                                by["compare_points"]["body"].get("photos") or {})
+                                            and EDIT_H1_BLACK not in st["default_photos"]
+                                            and black_text_ok(h1_texts.get(EDIT_H1_BLACK), EDIT_H1_BLACK)
+                                            and not any("black" in str(h1_texts.get(p))
+                                                        for p in st["default_photos"]),
+        "variants_at_a_black_photo_render_gloss_black": by["variants"]["status"] == "ok"
+                                                        and vrec.get("photos") == VARIANT_PHOTOS
+                                                        and vrec.get("rendered") == labels
+                                                        and vviews["passes"] == VARIANT_PASSES
+                                                        and str(sheets["B1"]["what"]).startswith("gloss-black render")
+                                                        and str(sheets["05"]["what"]).startswith("native render"),
+        "variant_sheets_draw_each_models_crease_lines": vrec.get("crease_occlusion") == "scene"
+                                                        and "render" not in vbody
+                                                        and all(sheet_ok(s) for s in sheets.values()),
         "black_compare_is_gloss_without_native": by["compare_black"]["status"] == "ok"
-                                                 and black_cmp is not None and black_cmp["photos"] == ["B1"]
-                                                 and set(black_rows) == BLACK_ROWS
-                                                 and str((by["compare_black"]["body"].get("photos") or {}).get(
-                                                     "B1")).startswith("side black: rows photo/overlay/gloss-black"),
+                                                 and black_cmp is not None and black_cmp["photos"] == BLACK_COMPARE
+                                                 and all(set(black_rows[p]) == BLACK_ROWS for p in BLACK_COMPARE)
+                                                 and all(black_text_ok(black_texts[p], p) for p in BLACK_COMPARE),
+        "black_points_charted": "| points (1456,615) d " in black_texts["B2"]
+                                and "; (5,5) no temple hit" in black_texts["B2"]
+                                and "| points " not in black_texts["B3"],
+        "gloss_gain_still_from_black_side": str(gloss_from).startswith("the dark variant photo black-side "),
         "exit_checkpoint_verified": (result.get("exit_checkpoint") or {}).get("verified") is True,
         "worker_refuses_a_path_spec": path_refusal["status"] == "refused",
         "worker_failed_build_leaves_the_scene": native_rollback,
@@ -461,7 +573,10 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                          "seconds_until_next_request": durations[i] if i < len(durations) else None}
                         for i, r in enumerate(records)],
               "context_guard": {"request": guard_req, "stubbed_call_ids": stubbed},
-              "black_compare": {"compare_id": black_id, "rows": black_rows, "gloss_black_gain_from": gloss_from},
+              "black_compare": {"compare_id": black_id, "rows": black_rows, "texts": black_texts,
+                                "gloss_black_gain_from": gloss_from},
+              "variants_sheets": {"variants_id": vid, "passes": vviews["passes"],
+                                  "crease_occlusion": vrec.get("crease_occlusion"), "sheets": sheets},
               "text_budget": {"limits": TEXT_BUDGET, "over": over_budget,
                               "largest": {t: max((r["text_chars"] for r in records if r["tool"] == t), default=None)
                                           for t in TEXT_BUDGET}},

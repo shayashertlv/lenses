@@ -132,7 +132,21 @@ Chart as in v1:
    - its length-weighted built shape must equal the declared shape, else `E_CREASE_SHAPE` naming the pair, the built
      shape and the dihedral;
    - pairs below 2° report "flat" and a ridge/valley declaration on them is refused;
-   - "base" pairs are judged per edge with length shares.
+   - "base" pairs are judged per edge with length shares;
+   - (amended 2026-10-11, after run 4) a node no values can build: a named node strictly inside the outline where
+     three or more creases meet, all declared with one shape, one of them refused, and a facet's corner there
+     straight (within `STRAIGHT_NODE_DEG` 2°) or reflex. A convex corner holding a straight line is a prism along
+     it (a reflex corner makes every neighbour coplanar with the facet), so those creases cannot all be ridges (nor
+     all valleys). The refusal then leads with a refused crease at that node and names the fix: "facet X runs
+     straight through node C, so the 4 creases there cannot all be ridges: one is a valley or two of those faces
+     are one (check the photos or facet_variants); keep X whole" (field `straight_node`; the old "do not
+     redeclare" ending is dropped there). Why: the real face 4 is one face whose lower edge runs straight through
+     the logo's back corner, where four creases meet. With every crease there declared a ridge no single-face
+     version builds (a tool test refused ~8,500 candidates with `E_CREASE_SHAPE`). Run 2 reached its split that way:
+     a single face (request 25) was refused, and under "fix node t, do not redeclare" it split the face (26-28).
+     Run 4 split face 4 in its first layout, from the side and top views, before any refusal; the hint does not
+     guard that path, the provisional-layout confirm step does. Run 3 declared one valley there and kept face 4
+     whole.
 9. **Receipt** (compact; §4.5):
    - one line per crease (`F1|F2 ridge 12.2° declared ridge`) and per warning or refusal, sides de-duplicated;
    - facet lean against the local base normal;
@@ -217,11 +231,37 @@ still load.
 Photos:
 - 01–06 = colourway target;
 - black-side = variant, "camera transported from 05";
+- black-angled and black-front = variant, cameras transported from 02 and 04 (2026-10-11, owner: "yes, build 1-3",
+  item 2; `tests/proofs/wp6v2_basis.py` with `g3d_host/camera_similarity.py`);
 - black-oblique is excluded (its camera is a copy of 02's, never fitted).
 
-Astra's inputs hold the target colourway; since run 2 (owner, 2026-10-11: "yes, make the fixes and run it again")
-they also hold the black photos: B1 = black-side with its camera (compare in gloss black), B2/B3 = black angled
-and front, reference only.
+**Colourway cameras by transport** (amended 2026-10-11). A black photo's camera is its source photo's camera moved
+through a 2D similarity fitted by contour ICP between the two photos' mattes (`camera_similarity.transport`); θ is
+copied from the source (`theta_observed` false). Each record holds a `transport` block (the similarity, residuals,
+IoU, the source camera, `registration_candidates`) and a supplied matte (`mattes/<name>.png`). The matte is chosen
+per photo by its background: black-side keeps the dark-studio matte (a white-background matte takes in its floor
+reflection); black-angled and black-front take a white-background matte (Lab L < 92 or chroma > 6, specks under
+0.2 % of the image dropped, holes up to 0.2 % filled), because the dark matte (L < 60 or chroma > 8) drops the lit
+light-grey temple tops. Each twin is registered onto both candidate mattes and keeps the one with the lower mean
+contour against its source photo's matte (the matte that segments the black photo the way the source's matte
+segments its own photo).
+
+| Photo | From | Registered on | Photo to photo: mean contour, IoU | Model check: IoU, temple IoU (source photo's) |
+|---|---|---|---|---|
+| B2 black-angled | 02 | dark matte (02's matte drops the same lit strips); camera unchanged | 0.82 px, 0.992 | 0.934, 0.875 (0.928, 0.868) |
+| B3 black-front | 04 | white-background matte | 1.09 px, 0.992; reverse p99 6.85 px | 0.977, 0.886 (0.975, 0.888) |
+
+The model check (`model_check` in each twin's record) poses the original model at the transported camera with the
+compare's raster and scores it against the supplied matte. It is not a fit IoU (`iou`), so `seeing.gain_view_rank`
+still ranks the twins −1 and the gain views stay reference-04 (target) and black-side (variant). The brief prints
+both the photo-to-photo numbers and the model check. Build review (2026-10-11, P1): B3's first camera, registered on
+the dark matte, read 3.70 px / IoU 0.970 (reverse p99 44 px), drew the temple tops about 6 px (~0.7 mm) low and
+scored temple IoU 0.720 against that matte; re-transported, its scale moved +0.77 % and its centre y −4.4 px. Every
+other record is unchanged. The earlier bases are kept, git-ignored: `data/wp6v2/basis-pre-b2b3/`, `basis-pre-b3fix/`.
+
+Astra's inputs hold the target colourway and, since run 2 (owner, 2026-10-11: "yes, make the fixes and run it
+again"), the black photos B1 (black-side), B2 (black-angled) and B3 (black-front), each with its camera:
+photo_compare shows photo / overlay / gloss-black render, and facet_variants takes one as a 4th photo.
 
 ### 3.2 Renderer (g3d/render.py; all opt-in, photo_v1 stays the default, pixel-stable)
 
@@ -302,15 +342,15 @@ from candidates (photo_env, studio_dome_v1, and a catalogue horizon-band prior d
 
 ## 4. Astra facet tools (agent/temple_lab, evolved in place; cli/approval/budget/rehearsal kept)
 
-### 4.1 Tools (7; strict JSON; text + ToolOutputImage detail=high; one photo-id scheme `01…06`)
+### 4.1 Tools (7; strict JSON; text + ToolOutputImage detail=high; photo ids: targets `01…06`, other photos `B1…`)
 
 | Tool | Does |
 |---|---|
 | `facet_inspect()` | Spec summary (10 mm station table, nodes, facets, creases), chart, section strip vs original, receipt lines, checkpoints, budget footer |
-| `photo_image(photo, crop?)` | A target photo or crop, with its transform |
-| `photo_compare(photos?, crop?, points_px?)` | §3.3 compare of the applied head; returns `compare_id` |
+| `photo_image(photo, crop?)` | Any photo of the job (target, another colour with or without a camera) or a crop, with its transform |
+| `photo_compare(photos?, crop?, points_px?)` | §3.3 compare of the applied head at photos with a camera (a photo of another colour: photo / overlay / gloss_black rows); offsets per temple named charted / mirrored; returns `compare_id` |
 | `facet_edit(parent_revision, reset_layout, edits[], judgement?, note, apply=true, photos?)` | Atomic ordered edits (§4.2) on a copy → build. A refusal returns at once with the edit index and code. With apply: checkpointed apply to both temples → compare of the given or default photos → new `compare_id` |
-| `facet_variants(parent_revision, variants[2..6]{label, edits[]}, photos[1..3], judgement?)` | Builds each variant and renders it through `mesh_overrides` into posed copies, so the live scene never changes. Returns one sheet per photo (photo, head, variants; ≤ 1280×900, panels ≤ 640 px, 2 columns; a refused variant is a labelled panel) plus each variant's revision |
+| `facet_variants(parent_revision, variants[2..6]{label, edits[]}, photos[1..4], judgement?)` | Builds each variant and renders it through `mesh_overrides` into posed copies, so the live scene never changes. Photos (amended 2026-10-11, owner: "yes, build 1-3", item 3): 1..4 with a camera, each in an earlier compare, at most 3 of them target photos (a 4th is a photo of another colour; a job without one takes 3). A target photo's panels are the native render; a photo of another colour's are the gloss_black render with its compare's gain and stretch. Every render panel draws the photo's outline and that model's own crease lines (dihedral ≥ 6°, ridge orange, valley blue, depth-tested as the compare overlay; the sheet title says "creases from 6°"), so sheets also compare layouts. Returns one sheet per photo (photo, head, variants; ≤ 1280×900, 2 or 3 columns by the crop's aspect; a refused variant is a labelled panel) plus each variant's revision. Labels are distinct ignoring case, not 'head' and not ending in '_' (they are the render file names). The worker's render deadline is the 90 s table value minus a 15 s host margin (`loop.FACET_VARIANTS_HOST_MARGIN_S`) |
 | `facet_restore(checkpoint, judgement?)` | Restores a checkpoint |
 | `facet_finish(status: matched\|stuck, best_checkpoint, summary, judgement)` | Exports best_checkpoint (validate_spec report included) and ends the run if accepted; otherwise refused with the missing precondition named, and the run continues |
 
@@ -320,7 +360,7 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
   `E_JUDGEMENT`.
 - The host logs judgements. It never grades them.
 
-**Finish preconditions** (procedural, never quality grading, except the one measured rule 5 the owner approved):
+**Finish preconditions** (procedural, never quality grading; 1–4 only since `2ca5be9`):
 1. ≥ K distinct applied heads compared (K owner-set per run, default 4). A head counts only when its BUILT temple
    differs from every head already counted by ≥ 0.2 mm of normal surface distance or outline shift (computed by the
    host on the builds). Amended 2026-10-11: topology and crease-shape tests were dropped after five review rounds
@@ -328,18 +368,21 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
 2. ≥ 1 `facet_variants` call with ≥ 3 variants pairwise ≥ 0.3 mm apart.
 3. best_checkpoint's geometry fingerprint has a compare on all target photos (from cache when available).
 4. `stuck` only: the last 3 judgements cover 3 distinct heads and none says better.
-5. (added 2026-10-11 after run 3, owner: "yes, implement changes") `matched` only: the latest compare of
-   best_checkpoint's revision at the top photo has its outline measured and within 1 mm of the common offset at
-   every station. Per side with ≥ 4 measured stations, the common offset is the median of the photo-minus-model
-   outer-edge offsets (a shift every station shares); deviations count to 0.1 mm as printed; a station is off when
-   every such side that measured it lies more than 1 mm from that side's common offset, the same way; a station no
-   such side measured, inside all their measured spans, is unmeasured and refuses matched too, as does a top photo
-   with no side measured (`state.outline_check`, `outline_ok`). Every compare that shows the top photo prints its
-   outline line ("outline: common −0.6; >1 mm: d30 +2.1 …"). Why: run 3 finished "matched" while its own summary
-   named "1–2 mm" top-view shoulder offsets, with the front block too slim from above (d30 +2.1, d40 +1.2) and too
-   wide behind it (d60 −1.5). It is a stop rule for Astra, not the owner's acceptance (the owner judges by eye). The
-   top camera is oblique (pitch 60°): a station is one image row through the model's outermost point near that d.
-   No tool-test head met it, and the owner's earlier "preferred" shape fails it (PROGRESS.md); Astra may end stuck.
+5. Retired as a precondition in `2ca5be9` (owner, 2026-10-11, after run 4: "yes, build 1-3 and make the rule
+   information only"): the outline line is now information only; `state.finish_missing` checks 1–4, and FINISH_DOC
+   and the instructions state 1–4. In run 4 the rule kept Astra chasing one photo's numbers (13 of 14 judgements of
+   03). The rule as it was (record): added 2026-10-11 after run 3, owner: "yes, implement changes"; `matched` only:
+   the latest compare of best_checkpoint's revision at the top photo has its outline measured and within 1 mm of
+   the common offset at every station. Per side with ≥ 4 measured stations, the common offset is the median of the
+   photo-minus-model outer-edge offsets (a shift every station shares); deviations count to 0.1 mm as printed; a
+   station is off when every such side that measured it lies more than 1 mm from that side's common offset, the same
+   way; a station no such side measured, inside all their measured spans, is unmeasured (`state.outline_check`, still
+   computed). Every compare that shows a target top photo still prints its outline line ("outline: common −0.6;
+   >1 mm: d30 +2.1 …"), as information. Why it was added: run 3 finished "matched" while its own summary named
+   "1–2 mm" top-view shoulder offsets, with the front block too slim from above (d30 +2.1, d40 +1.2) and too wide
+   behind it (d60 −1.5). It was a stop rule for Astra, not the owner's acceptance (the owner judges by eye). The top
+   camera is oblique (pitch 60°): a station is one image row through the model's outermost point near that d. No
+   tool-test head met it, and the owner's earlier "preferred" shape fails it (PROGRESS.md).
 
 ### 4.2 Edits (strict anyOf union; the tool layer converts to and from the §2.1 maps; schema sha pinned in tests)
 
@@ -369,40 +412,144 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
 - **Context guard:** at 240k counted input tokens, one `call_model_input_filter` pass replaces superseded compare and
   variant images (not the latest 2, not best_checkpoint's) with text stubs, bound in the approval.
 - **Budget:** cap and effort per run from the owner. Estimates use T5's real tool outputs with the fitted formula
-  tokens ≈ 0.42·chars + 0.975·⌈W/32⌉⌈H/32⌉ + 112 per image.
+  tokens ≈ 0.42·chars + 0.975·⌈W/32⌉⌈H/32⌉ + 112 per image. (Amended 2026-10-11, build review P2.) Output tokens per
+  request come from the paid facet runs at effort max (`cli.OUTPUT_TOKENS`, budget.json: run 2 mean 1,635, run 3
+  2,064, run 4 1,852): expected = run 4's 1,852, high = the highest run mean, 2,064. The old 580 / 851 priced every
+  facet run about 30 % low (run 4's table priced 40 replies at $7.47; run 4 settled $8.21 in 32). facet_variants is
+  priced at the most sheets one call of the job can return (`cli.variant_sheets`: 4 with a photo of another colour,
+  else 3; the rehearsal's largest sheet repeated), and a request on a package whose calls return more sheets than
+  its estimate table priced is refused.
 - **Isolation:** the starting scene is a byte copy of the original. Revision 0 = template_from_mesh, applied at
   prepare. The preferred spec is never given to Astra.
 
 ### 4.4 Prompt (agent/temple_lab/instructions.txt, rewritten)
 
-Must state concretely:
+The prompt is general for any faceted temple and any photo set; the job's facts are in the brief (amended
+2026-10-11, below). Must state concretely:
 - **(a) Coordinates:** d mm back from the hinge; y mm up (y=0 named); t absolute thickness from the inner face; one
-  spec drives both temples; photo 01 shows the other side.
-- **(b) Position:** read (d, y) from the near-perpendicular side photos with `points_px`, never from oblique views.
-  The grid is valid inside the model outline. A common offset of outline and creases is camera error.
-- **(c) Ridge or valley:** judge from the top and rear silhouettes (a convex corner is a ridge, a notch a valley) and
-  from the shading order; confirm in the section strip; declare every crease. On `E_CREASE_SHAPE`, fix node t; do not
-  redeclare.
-- **(d) Thickness:** read the top and rear outer-edge offsets in mm; t_min 1.0; quote the station table. (Amended
-  2026-10-11, run 3) The top photo's outline line names the stations that are shape, not camera error.
-- **(d2) Top and bottom faces** (added 2026-10-11, run 3): a face along the top or bottom edge is edge-on in the side
-  photos, which show its creases but not its tilt; judge the tilt in the top photo (and front/rear); a face narrow
-  from the side but broad from above points mostly up; put the widest point at the photo's d. Variants that change
-  thickness or tilt include the top photo.
+  spec drives both temples; the brief says which photos show which temple.
+- **(b) Position** (amended 2026-10-11): measure (d, y) with `points_px` in the views square-on to the outer face;
+  confirm in other views, never measure there (a reading goes through the current model's depth). The grid is valid
+  inside the model outline. A common offset of outline and creases is camera error.
+- **(b2) Lay out, then confirm** (added 2026-10-11; amended the same day, build review P1): lay the faces out in the
+  square-on views with a first depth; that layout is provisional. Before refining depth, check it in a calibrated
+  view that sees the outer face at a moderate angle: keep a crease only where that view also shows it, remove one it
+  contradicts (no line although it clearly shows neighbouring creases of similar angle), add one only where both views
+  show it. Every facet_edit that changes the layout compares at a square-on view, such a view and a glossy photo with
+  a camera. When the views disagree on where a crease runs, a depth that puts it on the photo's line in both means
+  depth, none means layout. A number (an offset or outline station) changes the layout only when both views show the
+  new crease or its absence.
+- **(c) Ridge or valley** (amended 2026-10-11): of a crease the photos show, from the silhouettes of views that see it
+  edge-on (a convex kink is a ridge, a notch a valley); the section strip shows what the model built; declare every
+  crease. Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all
+  valleys): read from the photos which one has the other shape (§2.2 step 8). On `E_CREASE_SHAPE`, fix node t (or the
+  fade, as the refusal says), or, when the refusal says the creases at a corner cannot all have one shape, correct the
+  declaration the photos contradict; never redeclare just to match the build, never split a face to get a refused
+  declaration built. ("The shading order" is no longer a cue; §3.2: no rig reproduces the photos' order.)
+- **(d) Thickness** (amended 2026-10-11, build review P2): read the outer-edge offsets of the photos that print them
+  (top and rear views, named in the brief) in mm; t_min 1.0; quote the station table; an offset common to every
+  station is camera error. Every offset, like the outline line of a target top view (information only since
+  `2ca5be9`, owner 2026-10-11), is one view's silhouette: weigh it with the other views, never change the layout for
+  it alone.
+- **(d2) Top and bottom faces** (added 2026-10-11, run 3; amended twice the same day): the side views see a band along
+  the top or bottom edge almost edge-on, so they show only where it meets the outer face; place and confirm the
+  band's own creases, and judge its tilt, in views that see it at a moderate angle (the brief names the views that see
+  faces pointing up or down) and in the front/rear silhouettes; a face narrow from the side but broad from above
+  points mostly up.
 - **(e) Fades:** a crease that dies out ends in a fade or a small dihedral, never a hard edge extended beyond what the
   photos show.
-- **(f) Roll:** highlight band width in px ÷ px/mm ≈ roll.
-- **(g) Not creases:** a line is a crease only if it stays at the same (d, y) in two photos; reflections and curvature
-  highlights move.
-- **(h) Depth:** use `facet_variants` spanning ±1 mm for anything uncertain.
-- **(i) Judgements:** name the largest difference per photo with its (d, y), and make the next edit address it.
+- **(f) Roll:** highlight band width in px ÷ px/mm ≈ roll, a first guess only (it depends on the light).
+- **(g) Creases** (amended 2026-10-11): a line is a crease only where photos from two different directions show it at
+  the same place; the second must see that face at a moderate angle (an edge-on view's lack of a line is no
+  evidence); with no such view, a line in two photos under different light is the best evidence, named in the note.
+  Never merge two faces a visible crease separates, never split a face no photo shows divided; a silhouette corner
+  can be a crease end, a bend in the edge or the silhouette passing between faces.
+- **(h) Depth:** `facet_variants` brackets wide first, then ±1 mm; its panels draw each model's crease lines from
+  6°, so it also compares layouts (a crease under 6° draws no line).
+- **(i) Judgements:** name the largest difference per photo with its (d, y), and make the next edit address the
+  largest one judged to be shape.
 - **(j) Finish:** the preconditions, verbatim. Continue until the pairs read as the same object or the stuck
   condition holds.
 
 Also:
-- no re-view rituals, fixed full-view sweeps, failure pre-framing, repo history or "WP6" jargon;
+- no fixed full-view sweeps, failure pre-framing, repo history or "WP6" jargon; ONE targeted confirmation view after
+  a layout change (b2) replaces the former "no re-view rituals";
+- no product or photo-set facts (colour, material, photo ids, "almost flat", top-photo-only rules): the brief carries
+  them;
 - every tool name appears in the prompt;
 - `contract_problems` also scans parameter-schema descriptions for forbidden phrases.
+
+**Amended 2026-10-11 (owner, after the review of Astra's guidance: "yes, build 1-3 and make the rule information
+only"; decision 1: general instructions, the job's facts in the brief, a confirm-from-another-angle habit).**
+- Why: 26 of 106 instruction sentences were not general (20 came from this product's failures). (b) "read (d, y) from
+  the near-perpendicular side photos with `points_px`, never from oblique views" made the side direction the only
+  source of layout. The old (g) "two photos" compared one direction with itself: B1 has 05's camera and 01 is its
+  mirror. The run-4 sentence "A corner in the top photo's outline is a corner of the faces … One plane across it
+  cannot make the corner" is deleted, because it is false in general (one face whose top edge bends makes that corner
+  too). "Include B1 in every layout compare" and "include the top photo in variants" are replaced by choosing views
+  by what they see. The ban on oblique views keeps one valid core: on a view at angle θ to the face, 1 mm of depth
+  error moves a `points_px` reading by tan θ mm (0.24 mm at the side views, 1.9 mm at 02). So readings are measured
+  square-on and only checked elsewhere.
+- **The brief** (`cli.brief_text`, from the job's pose basis and photo rows) now gives, per photo:
+  - the camera's yaw and pitch;
+  - the temple whose outer face it sees, and the angle to that face (square-on < 30°, moderate 30–75°, edge-on ≥ 75°),
+    with tan θ;
+  - faces pointing up or down that it sees;
+  - its number lines (offsets for top/rear views, the outline line for a target top view);
+  - its camera's fit: the model-silhouette IoU and contour, or the photo-to-photo transport for B2/B3;
+  - colour and finish from the job's photo rows (`COLOURWAY_PHOTOS` gained `finish`; no hard-coded "acetate" or "far
+    more clearly").
+
+  It then lists the direction groups (cameras within 10°, a mirrored side view counting as the same direction). For
+  Prada: 01, 05, B1 | 02, B2 | 03 | 04, B3 | 06. Moderate-angle views: 02 and B2. It closes with revision 0's
+  structure (no facets, no creases, roll 0, a wedge).
+- Kept after the skeptic's review: the run-2 guidance "faces distinct in the photo but barely distinct in the render
+  → the dihedral is probably too small" (confirm it, then raise it); no redeclare on `E_CREASE_SHAPE` (the 4 refusals
+  in runs 2 and 4 were all fixed through node t); the outline-station mechanism; `E_FACET_UNDERDETERMINED` (collinear)
+  vs `E_ILL_CONDITIONED` (narrow); facet_edit compares omit the start offsets. Not adopted: "prefer the fewest faces".
+  Added: `E_RELIEF_STEP` (facets sharing a corner are changed together), and the facet_variants rules (1..4
+  photos with a camera, each compared before, at most 3 target photos; crease lines on every render panel).
+- Length: 12.2k characters (was 11.5k); the brief grows from 1.0k to 3.3k, and the first request from about 30.0k to
+  31.3k tokens (`cli.first_request_tokens`). Tests: `tests/agent/test_temple_lab_cli.py` (general needed phrases,
+  banned product phrases and photo ids, retired rules, the numbers whitelist, FINISH_DOC verbatim, the real-basis
+  brief). No paid run has used the new prompt yet.
+
+**Amended 2026-10-11 (the build review's confirmed findings, and the owner's run-4 complaint "its split into
+two").**
+- **The corner rule (c), new.** Face 4 is one face whose lower edge runs straight through the logo's back corner,
+  where four creases meet. When one face's edge runs straight through a corner, the creases there cannot all be
+  ridges (a convex corner holding a straight line is a prism along it): at least one is a valley, or two faces are
+  coplanar. With every crease there declared a ridge, every single-face version is refused (`E_CREASE_SHAPE`,
+  ~8,500 tool-test candidates). Run 2 reached its split through that refusal (requests 25-28) under "on
+  `E_CREASE_SHAPE` … do not redeclare"; run 4 split in its first layout from the side and top views, which only the
+  confirm step (b2) guards. Run 3 declared one valley there and kept face 4 whole. When no silhouette shows which
+  crease is the valley, Astra brackets the candidates with facet_variants at the moderate-angle and glossy views. The instructions now state the
+  rule, the builder's refusal names it (§2.2 step 8), and a declaration the photos contradict is corrected; never
+  redeclared just to match the build, never "fixed" by splitting a face. This replaces the first record's "no
+  redeclare on `E_CREASE_SHAPE`" for that case only; every other `E_CREASE_SHAPE` is still fixed through node t.
+- **(b2), P1:** the first layout came from the square-on views alone (one direction: 01, 05, B1), and "the layout
+  changes only when both views show … its absence" could never remove a crease the square-on view put in (that view
+  is where its line was seen). The square-on layout is now provisional: a crease stays only where the moderate-angle
+  view also shows it. "Both views" now applies only to changes a number prompts (an offset or outline station), as
+  the pre-build skeptic's correction #9 meant.
+- **(d), P2:** "a station that departs from it is shape, whether or not the start model shows it too" is deleted: the
+  same stations feed the outline line, which is information, and the judgement rule then pushed a persistent
+  station toward a layout change.
+- **P3s:** the ridge/valley sentence covers creases the photos show and says the section strip is the model, not
+  evidence; (d2) as above (the side views show only where a top band meets the outer face); the light sentence names
+  the job's fixed light from the brief instead of "one fixed studio light"; the variants bullet says crease lines are
+  drawn from 6°; the TOOLS photo_compare line is shorter (render row for target photos only).
+- **The brief** (`cli.brief_text`) now also gives: the job's render light (`--rig`, described from g3d/render.py:
+  `cli.RIG_TEXT`); the names "charted" and "mirrored" that the compare text prints per temple; the twins' check
+  against the starting model next to their photo-to-photo numbers ("photo to photo: IoU 0.992, mean contour 1.1 px
+  … checked against the starting model's silhouette: IoU 0.977, temple IoU 0.886" for B3); "No finish is given for
+  01, …, 06" (finishes are job data given only for the other-colour photos, so no target photo satisfies the
+  "glossy photo" compare requirement by default); and "edge rounding (roll_mm) is not known" (`brief_text(roll_mm=)`
+  prints a known value). The offset-view list is `seeing.OFFSET_VIEWS`, imported, no longer a copy.
+- Length: instructions 12,462 characters (was 12,236; the corner rule and the provisional layout added, other
+  sentences shortened); the Prada brief about 4.0k characters (was 3.3k). Tests: `test_temple_lab_cli.py` (needed
+  and retired phrases, the brief's light / temple names / finishes / edge rounding, the real-basis twin lines, the
+  estimate's output tokens and variant sheets). No paid run has used this prompt yet.
 
 ### 4.5 Output budget
 
@@ -419,7 +566,7 @@ Also:
 | T1 | Builder unit tests: fixtures and refusals, v1→v2 equivalence (§2.3), core roll on preferred-v2 at 0.3/0.6/1.0 mm (closed, Euler 2, planar cells, silhouette unchanged, measured width within 15%), crease check refuses c0003's valley, fade/border rules | all pass |
 | T2 | Rig check (tool, not product): preferred render with node C at t and t + 1 mm, at 05 and 01, on facets bounded by C (overlay geometry, eroded 10 px) | median ΔL ≥ 3 L8 (native, beige) and ≥ 10 L8 (gloss_black). Information: preferred's upper-crease step within 2× of the photo's +17–18 L8; black-side facet brightness order Spearman ≥ 0.8; EEVEE vs Cycles (256 spp) per-facet ≤ 2 L8 once |
 | T3 | Template on the Prada original | report numbers (§2.4) |
-| T5 | Scripted rehearsal: real pinned SDK + MockTransport + real Blender, every tool, refused finish keeps the run going and accepted finish ends it, E_JUDGEMENT, E_BUSY, required tool choice, context guard, network tripwire | all checks pass |
+| T5 | Scripted rehearsal (about 2 min: prepare ~30–40 s, run ~90 s): real pinned SDK + MockTransport + real Blender, every tool, refused finish keeps the run going and accepted finish ends it, E_JUDGEMENT, E_BUSY, required tool choice, context guard, network tripwire; since 2026-10-11 also every photo in the first request (6 target + 3 colourway roles), a black photo in a facet_edit compare, facet_variants at a target and a black photo (gloss_black panels, each model's crease lines counted per panel), the B2/B3 compare (photo / overlay / gloss_black) with points_px, and the gloss gain still from black-side | all checks pass (31 on `review_t5`) |
 | T5b | Expressivity: the coding agent as tool user reaches preferred-v2's layout and crease shapes from revision 0 through facet_edit only | ≤ 40 ops, no missing op |
 
 Owner sheets:
@@ -452,7 +599,9 @@ Process rules:
 - Local tag `wp6-v1-final` on the pre-archive HEAD (never pushed).
 - `git rm`, after an import scan proves nothing kept imports them:
   - `g3d_host/relief_*.py` and `g3d_host/camera_similarity.py`, except modules still imported by agent/temple_lab
-    until step 3 (listed and removed then);
+    until step 3 (listed and removed then). `camera_similarity.py` was restored from `wp6-v1-final` on 2026-10-11
+    and is live again: it transports the colourway cameras (§3.1; `tests/proofs/wp6v2_basis.py`,
+    `tests/test_camera_similarity.py`, which checks the restored functions verbatim against the tag);
   - `tests/proofs/wp6_*`;
   - `tests/fixtures/{camera,occlusion}_evidence.py`;
   - the tests that import archived modules.

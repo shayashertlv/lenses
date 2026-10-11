@@ -25,7 +25,7 @@ from glasses3d.agent.temple_lab import geometry as G  # noqa: E402
 from glasses3d.agent.temple_lab import sheets as SH  # noqa: E402
 from glasses3d.agent.temple_lab import state as S  # noqa: E402
 from glasses3d.agent.temple_lab import tools as T  # noqa: E402
-from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab  # noqa: E402
+from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab, render_safe_name  # noqa: E402
 from glasses3d.g3d.temple import build_temple  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
 from glasses3d.g3d.temple import report as RP  # noqa: E402
@@ -35,7 +35,8 @@ from glasses3d.g3d_host.camera import Camera, NormFrame  # noqa: E402
 # the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt
 EDITS_SCHEMA_SHA256 = "d2a21805361de8da2cc4262b75f02c01404fd6add36edaec12ad9e88302a942d"
 PHOTO_IDS = ["01", "02", "03", "04", "05", "06"]
-BLACK_IDS = ["B1", "B2", "B3"]          # B1: a calibrated colourway photo (basis black-side); B2, B3: reference only
+BLACK_IDS = ["B1", "B2", "B3"]          # B1: a calibrated colourway photo (basis black-side); B2, B3: synthetic
+#                                        reference-only photos (the generic reference role; lab_photos)
 KINDS = {"01": "side", "02": "angled", "03": "top", "04": "front", "05": "side", "06": "rear"}
 DEFAULT = ["01", "02", "05"]
 disable_sdk_tracing()                  # the SDK's error path would build a trace exporter (a network client)
@@ -151,32 +152,41 @@ class FakeSession:
             return {"status": "error", "call_id": call_id, "message": "injected render failure"}
         out = Path(params["out_dir"])
         out.mkdir(parents=True, exist_ok=True)
-        built = {x["label"]: {"status": "refused", "code": "E_RELIEF_STEP", "message": "injected"}
+        # keyed and named by the label's render safe name, as the worker (g3d/worker.py temple_variants_render)
+        built = {render_safe_name(x["label"]): {"status": "refused", "code": "E_RELIEF_STEP", "message": "injected"}
                  if x["label"] in self.refuse_variants else {"status": "ok", "overrides": {}}
                  for x in params["variants"]}
         views = []
         for v in params["views"]:
             res = v["camera"]["resolution"]
             for k, name in enumerate(["head"] + [lb for lb, b in built.items() if b["status"] == "ok"]):
-                p = out / f"{v['name']}--{name}_native_linear.npz"
-                a = np.zeros((res[1], res[0]), np.float16)
-                a[res[1] // 4:3 * res[1] // 4, :] = 1.0
-                with open(p, "wb") as f:
-                    np.savez_compressed(f, rgb=np.full((res[1], res[0], 3), 0.2 + 0.1 * k, np.float16), alpha=a)
-                views.append({"name": f"{v['name']}--{name}", "files": {"native_linear": {"path": str(p)}}})
+                files = {}
+                for ps in v.get("passes") or params.get("passes") or ["native_linear"]:   # a view's own passes win
+                    p = out / f"{v['name']}--{name}_{ps}.npz"
+                    a = np.zeros((res[1], res[0]), np.float16)
+                    a[res[1] // 4:3 * res[1] // 4, :] = 1.0
+                    level = (0.2 + 0.1 * k) * (0.1 if ps == "gloss_black" else 1.0)
+                    with open(p, "wb") as f:
+                        np.savez_compressed(f, rgb=np.full((res[1], res[0], 3), level, np.float16), alpha=a)
+                    files[ps] = {"path": str(p)}
+                views.append({"name": f"{v['name']}--{name}", "files": files})
         return {"status": "ok", "call_id": call_id, "result": {"status": "ok", "variants": built,
                                                                "render": {"views": views}, "unchanged": True}}
 
 
 class FakeSeeing:
     """compare_to_photos writes a stacked image and a report.json per call (the fields the lab reads; ``records``
-    replaces a photo's synthetic record, e.g. by one recorded on the real lab). ``slow_s`` sleeps that long first."""
+    replaces a photo's synthetic record, e.g. by one recorded on the real lab). ``slow_s`` sleeps that long first.
+    export_head writes ``scene_glb`` (default: the box glasses of tests/glbfab, part roles on the nodes; the lab's
+    variant crease lines take their occluder from it through fit_mesh)."""
 
     def __init__(self, session, root):
         self.s, self.root = session, Path(root)
         self.calls = []
         self.records: dict = {}
         self.slow_s = 0.0
+        from glasses3d.tests import glbfab
+        self.scene_glb = glbfab.build(role_where="node")
 
     def bounds(self, call_id):
         return {"origin_mm": [0.0, 0.0, 0.0]}
@@ -189,9 +199,13 @@ class FakeSeeing:
             time.sleep(self.slow_s)
         p = self.root / "work" / "exports" / f"head-{self.s.head['fingerprint']}.glb"
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"glTF fake")
+        p.write_bytes(self.scene_glb)
         return {"status": "exported", "path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
                 "fingerprint": self.s.head["fingerprint"], "checkpoint": self.s.head["id"]}
+
+    def fit_mesh(self, glb, sha, *, skip=(), frame=None):
+        from glasses3d.g3d_host import fitmesh
+        return fitmesh.load_fit_mesh(glb, skip=tuple(skip), frame=frame)
 
     def compare_to_photos(self, refs=None, passes=(), rig=None, crop="temple", points_px=None, hinge_z_mm=None,
                           call_id=None, render_deadline_s=None):
@@ -210,15 +224,18 @@ class FakeSeeing:
             vk = "side" if rid == "black-side" else KINDS[rid.split("-")[1]]
             offs = {s: [{"d_mm": float(dd), "offset_mm": round(0.1 * (dd % 7) - 0.3, 2)} for dd in range(10, 131, 10)]
                     for s in ("+1", "-1")} if vk in ("top", "rear") else None
+            black = {"stretch": [21.0, 144.0], "gloss": {"gain": 0.83, "stretch": [21.0, 144.0],
+                                                         "stretch_is_photo": True}} if rid == "black-side" else {}
             rep[rid] = {"view_kind": vk, "temple_iou": 0.912, "px_per_mm": 8.17,
                         "crop": {"box": [20, 30, 300, 210], "k": 0.493}, "outer_edge_offsets_mm": offs,
                         "start_offsets_mm": offs, "stretch": [60.0, 240.0], "background": [255, 255, 255],
-                        **self.records.get(rid, {})}
+                        **black, **self.records.get(rid, {})}
             photos[rid] = {"image": str(img), "text": "x", "cached": False}
             if points_px and rid in points_px:
                 photos[rid]["points"] = [{"uv": [u, v], "hit": True, "side": 1, "d_mm": 20.0, "y_mm": 1.5,
                                           "X_mm": 70.0} for u, v in points_px[rid]]
-        gains = {"colourways": {"target": {"native_linear": {"gain": [0.9, 0.95, 1.1]}}}, "gloss_black": {"gain": 3.0},
+        gains = {"colourways": {"target": {"native_linear": {"gain": [0.9, 0.95, 1.1]}}},
+                 "gloss_black": {"gain": 3.0, "stretch": [0.0, 128.0]},
                  "light_frame": {"center": [0, 0, 0], "radius": 80.0}}
         (d / "report.json").write_text(json.dumps({"photos": rep, "gains": gains, "environment": None}),
                                        encoding="utf-8")
@@ -227,8 +244,10 @@ class FakeSeeing:
 
 
 def lab_photos(root: Path) -> list:
-    """lab.json's photo rows as cli.prepare writes them: the six targets, B1 (the basis' black-side) and the
-    reference-only B2, B3 (synthetic images under inputs/images)."""
+    """lab.json's photo rows in cli.prepare's format: the six targets, B1 (the basis' black-side) and the
+    reference-only B2, B3 (synthetic images under inputs/images): a generic test of the reference role (no camera,
+    photo_image only). The Prada job's own B2, B3 are colourway rows with transported cameras since 2026-10-11
+    (test_temple_lab_cli)."""
     rows = [{"id": p, "path": f"images/reference-{p}.png", "view": KINDS[p], "role": "target"} for p in PHOTO_IDS]
     rows.append({"id": "B1", "path": "images/black-side.png", "view": "side", "role": "colourway", "colour": "black",
                  "basis_ref": "black-side"})
@@ -720,7 +739,8 @@ def test_registry_seven_strict_tools_timeouts_and_contract(lab):
     by = {t.name: t.params_json_schema for t in tools}
     assert enums(by["photo_compare"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]   # the photos with a camera
     assert enums(by["facet_edit"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]
-    assert enums(by["facet_variants"]["properties"]["photos"]) == [PHOTO_IDS]            # target material only
+    assert enums(by["facet_variants"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]   # photos with a camera
+    assert by["facet_variants"]["properties"]["photos"]["maxItems"] == 4                   # 3 targets + 1 black
     assert PHOTO_IDS + ["B1"] in enums(by["facet_edit"]) and PHOTO_IDS + BLACK_IDS not in enums(by["facet_edit"])
     finish = next(t for t in T.registry(lab, L.RunSettings(effort="max", finish_k=6)) if t.name == "facet_finish")
     assert "at least 6" in finish.description and "at every target photo" in finish.description
@@ -760,7 +780,9 @@ def test_photo_compare_returns_compare_id_and_charts_points(lab):
     assert lab.seeing.calls[-1]["passes"] == ["native_linear", "gloss_black"]
     assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1" and lab.seeing.calls[-1]["hinge_z_mm"] == -10.6
     assert "d 20.00 y 1.50 t " in body["photos"]["05"]
-    assert "+1 [" in body["photos"]["03"] and "start [" in body["photos"]["03"]
+    assert "charted [" in body["photos"]["03"] and "mirrored [" in body["photos"]["03"]      # pose.SIDE_KEYS +1 / -1
+    assert "start [" in body["photos"]["03"] and "+1 [" not in body["photos"]["03"]
+    assert "| offsets mm d 10..130:" in body["photos"]["03"]             # the 10 mm station step is not printed
     assert S.pending_compare(lab.state)["compare_id"] == body["compare_id"]
     body, *_ = parsed(call(t, {"photos": ["05"], "crop": None, "points_px": [{"photo": "03", "points": [[1, 1]]}]}))
     assert body["status"] == "refused" and body["code"] == "E_ARGS"
@@ -769,8 +791,8 @@ def test_photo_compare_returns_compare_id_and_charts_points(lab):
 def test_black_photos_image_compare_judge_and_refusals(lab):
     """The black photos: B1 (a calibrated colourway photo) is shown and compared (seeing gets its basis reference,
     the text names its rows) and judged like any photo; B2 and B3 (no camera) are photo_image only, and every
-    compare path refuses them with a message naming photo_image; facet_variants takes target photos only; finish
-    precondition 3 and the default compare set stay the six target photos."""
+    compare path refuses them with a message naming photo_image (facet_variants too); finish precondition 3 and the
+    default compare set stay the six target photos."""
     assert lab.photo_ids() == PHOTO_IDS and lab.compare_ids() == PHOTO_IDS + ["B1"]
     assert lab.image_ids() == PHOTO_IDS + BLACK_IDS and lab.pid("black-side") == "B1" and lab.rid("B1") == "black-side"
     tl = tools_of(lab)
@@ -801,11 +823,13 @@ def test_black_photos_image_compare_judge_and_refusals(lab):
         with pytest.raises(S.LabRefusal, match="photo_image only") as e:
             fn()
         assert e.value.code == "E_ARGS"
-    out = call(tl["facet_variants"], {"parent_revision": 0, "photos": ["B1"], "judgement": judgement(lab),
+    # facet_variants: B1 (gloss-black panels, test_variant_sheets_at_a_black_photo_draw_gloss_and_crease_lines);
+    # B2 / B3 have no camera
+    out = call(tl["facet_variants"], {"parent_revision": 0, "photos": ["B2"], "judgement": judgement(lab),
                                       "variants": [{"label": "A", "edits": []}, {"label": "B", "edits": []}]})
     assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
-    with pytest.raises(S.LabRefusal, match="not a target photo"):
-        lab.variants("x", 0, [{"label": "A", "edits": []}, {"label": "B", "edits": []}], ["B1"], judgement(lab))
+    with pytest.raises(S.LabRefusal, match="photo_image only"):
+        lab.variants("x", 0, [{"label": "A", "edits": []}, {"label": "B", "edits": []}], ["B3"], judgement(lab))
     body, *_ = parsed(call(tl["facet_inspect"], {}))
     assert body["photos"]["B1"] == "side, black, photo_compare" and body["photos"]["B2"] == \
         "angled, black, photo_image only" and body["photos"]["05"] == "side"
@@ -945,9 +969,10 @@ def test_facet_edit_text_budget_on_recorded_t5_outputs(tmp_path, photos):
     blob = json.dumps(body, ensure_ascii=False)
     assert "W_ARM_NORMAL_SPREAD" not in blob and "W_HINGE_LEAF" not in blob and "hinge_leaf_gap_mm" not in blob
     assert body["blender"]["lines"] == ["W_DECAL_SPANS_CREASE: decal Temple right | PRADA gold hallmark spans D|U (x2)"]
-    assert "+1 [-0.7 +1.2 +2.9 +1.9" in body["photos"]["03"] and "d 10..110/10" in body["photos"]["03"]
+    assert "charted [-0.7 +1.2 +2.9 +1.9" in body["photos"]["03"] and "d 10..110:" in body["photos"]["03"]
+    assert "mirrored [-0.8 +1.1 +2.7 +2.0" in body["photos"]["03"] and "-1 [" not in body["photos"]["03"]
     if "06" in photos:
-        assert "d 30..130/10:" in body["photos"]["06"] and " na" not in body["photos"]["06"]
+        assert "d 30..130: charted [" in body["photos"]["06"] and " na" not in body["photos"]["06"]
 
 
 def test_t5_recorded_rehearsal_text_budget():
@@ -1070,7 +1095,7 @@ def test_variant_spread_counts_only_rendered_variants(lab):
     lab.s.render_error = False
     body, *_ = parsed(call(tl["facet_variants"], args))
     assert body["spread_ok"] is True and lab.state["variants"][-1]["spread"] == ["A", "B", "C"]
-    assert lab.s.calls[-1][2] <= L.HARD_TIMEOUT_S["facet_variants"]       # the render's worker deadline
+    assert lab.s.calls[-1][2] <= L.HARD_TIMEOUT_S["facet_variants"] - L.FACET_VARIANTS_HOST_MARGIN_S   # worker
 
 
 def test_variant_sheet_layout_and_refused_panel(tmp_path):
@@ -1082,6 +1107,342 @@ def test_variant_sheet_layout_and_refused_panel(tmp_path):
     cols, pw, ph = SH.variant_layout(8)
     assert cols == 2 and pw <= 640 and ph > 100
     sheet.save(tmp_path / "sheet.png")
+
+
+def test_variant_layout_picks_columns_by_the_crop_aspect():
+    """A wide side-view crop keeps 2 columns; Prada's top-photo crop (aspect 1.43) is shown larger in 3; labels and
+    the title are cut to fit; crease lines are 1 px below CREASE_THIN_PX_PER_MM, else 2 px."""
+    assert SH.variant_layout(5) == SH.variant_layout(5, None) == SH._box(5, 2)
+    assert SH.variant_layout(5, 1357 / 435)[0] == 2 and SH.variant_layout(8, 1357 / 435)[0] == 2      # B1, 05
+    for n in (5, 8):
+        three, two = SH.variant_layout(n, 1281 / 895), SH._box(n, 2)                                   # 03
+        assert three[0] == 3 and min(three[1] / 1.43, three[2]) > 1.1 * min(two[1] / 1.43, two[2])
+    lay = SH.variant_layout(5, 1281 / 895)
+    img = Image.new("RGB", (lay[1], lay[2]), (90, 90, 90))
+    sheet = SH.variant_sheet([("W" * 90, img, None)] * 4 + [("Z refused", None, "note")], "T" * 200, layout=lay)
+    assert sheet.width <= SH.SHEET_W and sheet.height <= SH.SHEET_H
+    assert SH.crease_width(2.2) == 1 and SH.crease_width(4.4) == 2 and SH.crease_width(None) == 2
+    from glasses3d.g3d_host import compare as C
+    drawn = np.asarray(SH.with_creases(Image.new("RGB", (40, 20), (0, 0, 0)), [
+        (np.array([[2.0, 5.0], [38.0, 5.0]]), 1), (np.array([[2.0, 15.0], [38.0, 15.0]]), -1)], width=1))
+    assert tuple(drawn[5, 20]) == C.RIDGE_RGB and tuple(drawn[15, 20]) == C.VALLEY_RGB and drawn[10, 20].sum() == 0
+
+
+@pytest.mark.parametrize("yaw,pitch,persp", [(90.0, 13.6, 0.25), (28.2, 11.4, 0.26), (0.3, 59.9, 0.29),
+                                             (-90.0, 0.0, 0.0), (180.0, 8.8, 0.07)])
+def test_crease_polylines_fast_is_the_overlay_rule(yaw, pitch, persp):
+    """compare.crease_polylines_fast returns exactly compare.crease_polylines' polylines (same samples, runs and
+    order) on the Prada-layout fixture's two temples at the photo kinds' camera angles, and crease_polylines_posed
+    (edges + raster depth of the bodies) is the same thing in one call."""
+    from glasses3d.g3d_host import compare as C
+    from glasses3d.g3d_host import raster
+    tb = build_temple(FX.prada_default())
+    frame = NormFrame((0.0, -5.0, -70.0), 170.0)
+    shape = (320, 640)
+    cam = raster.view_camera(frame, yaw, pitch, 4.0, shape, perspective=persp, center_mm=np.array([0.0, 0.0, -70.0]))
+    bodies = [(tb.world(s)[0], tb.world(s)[2]) for s in (1, -1)]
+    parts = [C.crease_edges(V, F) for V, F in bodies]
+    edges = {k: np.concatenate([e[k] for e in parts]) for k in parts[0]}
+    V = np.concatenate([b[0] for b in bodies])
+    F = np.concatenate([bodies[0][1], bodies[1][1] + len(bodies[0][0])])
+    depth = raster.render(V, F, cam, frame, shape)["depth"]
+    ref = C.crease_polylines(edges, cam, frame, depth)
+    fast = C.crease_polylines_fast(edges, cam, frame, depth)
+    posed = C.crease_polylines_posed(bodies, None, cam, frame, shape)
+    assert len(ref) > 20, len(ref)
+    for got in (fast, posed):
+        assert len(got) == len(ref)
+        assert all(s == t and np.array_equal(p, q) for (p, s), (q, t) in zip(ref, got))
+
+
+def test_variant_sheets_at_a_black_photo_draw_gloss_and_crease_lines(lab, monkeypatch):
+    """facet_variants at three target photos and the black B1 (the 4th photo): B1's views render the gloss_black
+    pass only (the targets' native_linear) and its panels use the gloss gain and stretch of B1's latest compare; the
+    head and every variant panel at every photo carry that model's own crease lines (the photo panel none),
+    depth-tested against the head's exported scene; a variant that moves a crease node draws other lines than the
+    head; the worker deadline scales with the 4 x 4 renders (4 x 7 is capped at the table value)."""
+    from glasses3d.g3d_host import compare as C
+    tl = tools_of(lab)
+    parsed(call(tl["photo_compare"], {"photos": ["B1"], "crop": None, "points_px": None}))
+    spec = FX.prada_default()
+    d, y, t = spec["nodes"]["C"]
+    variants = [{"label": "deep", "edits": [set_t("C", spec, 1.0)]},
+                {"label": "C_fwd", "edits": [{"op": "set_node", "name": "C", "d_mm": d - 8.0, "y_mm": y,
+                                              "t": {"mode": "mm", "mm": float(t)}}]},
+                {"label": "shallow", "edits": [set_t("C", spec, -1.0)]}]
+    gains, drawn = [], []
+    real_composite, real_creases = C.composite_render, SH.with_creases
+
+    def composite(rgb, alpha, gain, bg, **kw):
+        gains.append(np.atleast_1d(gain).tolist())
+        return real_composite(rgb, alpha, gain, bg, **kw)
+
+    def creases(img, polylines, width=2):
+        drawn.append(polylines)
+        return real_creases(img, polylines, width)
+    monkeypatch.setattr(C, "composite_render", composite)
+    monkeypatch.setattr(SH, "with_creases", creases)
+    body, _f, images, text = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants,
+                                                                "photos": ["05", "03", "02", "B1"],
+                                                                "judgement": judgement(lab)}))
+    assert body["status"] == "ok" and len(images) == 4 and body["spread_ok"] is True, body
+    assert "render" not in body and len(text) <= 1500
+    views = {v["name"]: v for v in lab.s.read_params[-1]["views"]}
+    assert views["B1"]["passes"] == ["gloss_black"] and all(views[p]["passes"] == ["native_linear"]
+                                                            for p in ("05", "03", "02"))
+    assert gains.count([0.83]) == 4 and gains.count([0.9, 0.95, 1.1]) == 12            # B1: head + 3 variants
+    rec = lab.state["variants"][-1]
+    assert rec["photos"] == ["05", "03", "02", "B1"] and rec["crease_occlusion"] == "scene"
+    assert set(rec["creases"]) == {"05", "03", "02", "B1"}
+    assert all(n and n > 0 for row in rec["creases"].values() for n in row.values()), rec["creases"]
+    assert len(drawn) == 16                                                              # 4 photos x (head + 3)
+    head05, deep05, fwd05 = drawn[0], drawn[1], drawn[2]                                  # photo 05: head, deep, C_fwd
+
+    from PIL import ImageDraw
+
+    def pixels(pl):
+        im = Image.new("L", (800, 400), 0)
+        dr = ImageDraw.Draw(im)
+        for pts, _s in pl:
+            dr.line([tuple(map(float, p)) for p in pts], fill=255, width=1)
+        return np.asarray(im) > 0
+    moved = (pixels(head05) ^ pixels(fwd05)).sum() / max(1, pixels(head05).sum())
+    assert moved > 0.2, moved                                                            # the crease node moved
+    assert lab.s.calls[-1][2] == L.hard_timeout_s("facet_variants", variants=3, photos=4) == 70.0
+    capped = L.HARD_TIMEOUT_S["facet_variants"] - L.FACET_VARIANTS_HOST_MARGIN_S             # the host's margin
+    assert L.hard_timeout_s("facet_variants", variants=6, photos=4) == capped == 75.0
+    assert deep05 is not None
+
+
+def test_variant_photo_limits_labels_and_a_lab_without_black_photos(lab):
+    """At most 3 target photos per call, a 4th only of another colour (the schema allows 4, the lab names the
+    rule); labels must differ ignoring case and never be 'head' (the render files share a folder on a
+    case-insensitive file system); a lab without photos of another colour takes 3. Crease lines degrade to the
+    temples' own depth (named in the text) when the head's scene cannot be read."""
+    tl = tools_of(lab)
+    two = [{"label": "A", "edits": []}, {"label": "B", "edits": []}]
+    with pytest.raises(S.LabRefusal, match="at most 3 target photos"):
+        lab.variants("x", 0, two, ["01", "02", "03", "05"], None)
+    out = call(tl["facet_variants"], {"parent_revision": 0, "variants": two, "judgement": None,
+                                      "photos": ["01", "02", "03", "B1", "05"]})
+    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
+    for labels in (["Head", "B"], ["a", "A"]):
+        with pytest.raises(S.LabRefusal, match="ignoring case"):
+            lab.variants("x", 0, [{"label": lb, "edits": []} for lb in labels], ["05"], None)
+    with pytest.raises(S.LabRefusal, match="never compared"):
+        lab.variants("x", 0, two, ["05", "B1"], None)                   # B1 needs a compare for its gloss record
+    lab.seeing.scene_glb = b"glTF fake"
+    spec = FX.prada_default()
+    two = [{"label": "A", "edits": [set_t("C", spec, 1)]}, {"label": "B", "edits": []}]
+    body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": 0, "judgement": None,
+                                                             "photos": ["05"], "variants": two}))
+    assert body["status"] == "ok" and len(images) == 1
+    assert body["render"]["crease_lines"].startswith("depth-tested on the temples only")
+    assert lab.state["variants"][-1]["creases"]["05"]["A"] > 0
+    lab.manifest["photos"] = [r for r in lab.manifest["photos"] if r.get("role") != "colourway"]
+    assert lab.variant_photos_max() == 3
+    schema = {t.name: t.params_json_schema for t in T.registry(lab)}["facet_variants"]
+    assert schema["properties"]["photos"]["maxItems"] == 3 and enums(schema["properties"]["photos"]) == [PHOTO_IDS]
+
+
+def test_variant_labels_are_their_render_file_names(lab):
+    """The worker names a variant's render files by g3d/render.py safe_name(label) and the lab looks them up by the
+    label, so a label that is not its own safe name ('deep_', 'A_') is refused E_ARGS before any build or render
+    (before: built, registered, rendered, then shown 'refused None'; 'A_' beside 'a' wrote one file); the
+    distinct-ignoring-case rule runs on the safe names; a label ending in '-' is its own safe name and renders.
+    lab.render_safe_name is render.py's rule: that module imports bpy, so its NAME_RE and safe_name are read from the
+    source here and compared on sample names."""
+    import ast
+    import re
+    import glasses3d.agent.temple_lab.lab as LB
+    src = (Path(LB.__file__).resolve().parents[2] / "g3d" / "render.py").read_text(encoding="utf-8")
+    keep = [n for n in ast.parse(src).body
+            if (isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "NAME_RE" for t in n.targets))
+            or (isinstance(n, ast.FunctionDef) and n.name == "safe_name")]
+    assert len(keep) == 2
+    ns = {"re": re, "RenderRefused": ValueError}
+    exec(compile(ast.Module(body=keep, type_ignores=[]), "g3d/render.py", "exec"), ns)       # noqa: S102
+    assert ns["NAME_RE"].pattern == LB.RENDER_NAME_RE.pattern
+    for name in ("deep", "deep_", "A_", "a__", "_a_", "a.b", "x y", "Zz-9_x", "C_fwd", "deep-", "N" * 90, "é"):
+        try:
+            want = ns["safe_name"](name)
+        except ValueError:                          # no usable character: render.py refuses, the lab's gives ""
+            want = ""
+        assert render_safe_name(name) == want, name
+    spec = FX.prada_default()
+    n_rev, n_calls, seq = len(lab.state["revisions"]), len(lab.s.calls), lab.state["seq"]
+    for labels in (["deep_", "deep"], ["a", "A_"]):
+        with pytest.raises(S.LabRefusal, match="not ending in _") as e:
+            lab.variants("x", 0, [{"label": lb, "edits": [set_t("C", spec, 0.5)]} for lb in labels], ["05"], None)
+        assert e.value.code == "E_ARGS"
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
+                                                             "variants": [{"label": "deep_", "edits": []},
+                                                                          {"label": "B", "edits": []}]}))
+    assert body["status"] == "refused" and body["code"] == "E_ARGS" and "not ending in _" in body["message"]
+    assert len(lab.state["revisions"]) == n_rev and len(lab.s.calls) == n_calls and lab.state["seq"] == seq
+    with pytest.raises(S.LabRefusal, match="ignoring case"):
+        lab.variants("x", 0, [{"label": lb, "edits": []} for lb in ("Deep-", "deep-")], ["05"], None)
+    dash = [{"label": "deep-", "edits": [set_t("C", spec, 1.0)]}, {"label": "B", "edits": []}]
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
+                                                             "variants": dash}))
+    assert body["status"] == "ok" and "render" not in body and lab.state["variants"][-1]["rendered"] == ["deep-", "B"]
+
+
+def test_a_dead_worker_in_the_variant_crease_export_stays_fatal(lab, monkeypatch):
+    """_variant_creases re-raises journal.WorkerFailed from the head's export (the worker died and was not recovered),
+    so the run ends failed_worker as from any tool; any other export failure only degrades the lines to the temples'
+    own depth (test_variant_photo_limits_labels_and_a_lab_without_black_photos)."""
+    def dead(call_id=None):
+        raise WorkerFailed("injected: the worker died during the head's export", lab.s.head)
+    monkeypatch.setattr(lab.seeing, "export_head", dead)
+    two = [{"label": "A", "edits": [set_t("C", FX.prada_default(), 1)]}, {"label": "B", "edits": []}]
+    with pytest.raises(WorkerFailed):
+        call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "judgement": None, "photos": ["05"],
+                                               "variants": two})
+
+
+def test_variant_sheet_titles_and_the_tool_say_creases_are_drawn_from_6_deg(lab, monkeypatch):
+    """A crease under compare.CREASE_MIN_DEG shows on no panel, so every sheet's title says where the lines start (and
+    is not cut at the sheet's width) and so does facet_variants' description."""
+    from PIL import ImageDraw
+    from glasses3d.g3d_host import compare as C
+    legend = f"creases from {C.CREASE_MIN_DEG:g}°"
+    titles, real = [], SH.variant_sheet
+
+    def sheet(panels, title, layout=None):
+        titles.append((title, layout))
+        return real(panels, title, layout=layout)
+    monkeypatch.setattr(SH, "variant_sheet", sheet)
+    tl = tools_of(lab)
+    parsed(call(tl["photo_compare"], {"photos": ["B1"], "crop": None, "points_px": None}))
+    spec = FX.prada_default()
+    two = [{"label": "A", "edits": [set_t("C", spec, 1)]}, {"label": "B", "edits": [set_t("C", spec, -1)]}]
+    body, *_ = parsed(call(tl["facet_variants"], {"parent_revision": 0, "judgement": judgement(lab),
+                                                  "photos": ["05", "03", "B1"], "variants": two}))
+    assert body["status"] == "ok" and len(titles) == 3
+    dr = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    for title, (cols, pw, _ph) in titles:
+        assert legend + " (ridge orange, valley blue), photo outline magenta" in title, title
+        width = cols * pw + (cols + 1) * SH.GAP_PX - 2 * SH.GAP_PX - 4            # variant_sheet's title width
+        assert len(title) <= SH.TITLE_MAX and dr.textlength(title, font=SH._font(SH.TITLE_FONT_PX)) <= width, title
+    assert f"crease lines from {C.CREASE_MIN_DEG:g}°" in " ".join(tl["facet_variants"].description.split())
+
+
+PACKAGE_004 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_004"
+
+
+def _line_mask(polylines, shape) -> np.ndarray:
+    """Crease polylines drawn 1 px wide (ridge 255, valley 128) into an image of ``shape``, to count pixels."""
+    from PIL import ImageDraw
+    im = Image.new("L", (shape[1], shape[0]), 0)
+    dr = ImageDraw.Draw(im)
+    for pts, s in polylines:
+        dr.line([tuple(map(float, p)) for p in pts], fill=255 if s > 0 else 128, width=1)
+    return np.asarray(im)
+
+
+def _overlay_creases(mesh, roles: dict, pose, cam, frame, shape) -> list:
+    """The compare overlay's crease lines of an exported head (seeing._matched_photo): compare.crease_edges of its
+    temple bodies after pose.posed (the temple-role parts by side), depth-tested on the raster of the whole posed
+    scene with compare.crease_polylines (the reference implementation, not the lab's fast path)."""
+    from glasses3d.g3d_host import compare as C
+    from glasses3d.g3d_host import pose as PO
+    bodies = [PO.temple_body(mesh, s, roles) for s in (1, -1)]
+    mp = PO.posed(mesh, pose, roles) if pose else mesh
+    parts = [C.crease_edges(mp.V, mp.F[mp.part == b]) for b in bodies]
+    edges = {k: np.concatenate([e[k] for e in parts]) for k in parts[0]}
+    return C.crease_polylines(edges, cam, frame, mp.scene().render(cam, shape, 1)["depth"])
+
+
+def test_variant_crease_lines_are_the_overlay_rule_on_the_fixture(tmp_path):
+    """Lab._variant_creases (its own path: the head's export through the lab's seeing, the export's temple bodies
+    swapped for the model's, each side placed and opened by that side's pose, the fast polylines) draws exactly the
+    compare overlay's lines of an export whose temple bodies ARE that model: the box-glasses fixture with the
+    Prada-layout temples built in, six camera angles, an asymmetric pose. The rest of the scene hides lines at the
+    angled and front views (the occluder is used), and the same call with the pose's sides swapped draws other lines
+    at every view (the check sees a side mix-up). Fixture data only."""
+    from dataclasses import replace
+    from glasses3d.g3d_host import fitmesh, raster
+    from glasses3d.g3d_host import pose as PO
+    lab = make_lab(tmp_path)
+    bs, tb = lab.basis, lab.build(0)
+    exp = lab.seeing.export_head("fixture")
+    mesh = fitmesh.load_fit_mesh(exp["path"], frame=bs.frame)
+    roles = PO.part_roles(exp["path"])
+    bodies = [PO.temple_body(mesh, s, roles) for s in (1, -1)]
+    keep = ~np.isin(mesh.part, bodies)
+    Vs, Fs, Ps, n = [mesh.V], [mesh.F[keep]], [mesh.part[keep]], len(mesh.V)
+    for s, b in zip((1, -1), bodies):                       # the worker builds the spec into both temple bodies
+        W, _polys, tris = tb.world(s)
+        Vs.append(W)
+        Fs.append(np.asarray(tris, np.int64) + n)
+        Ps.append(np.full(len(tris), b, mesh.part.dtype))
+        n += len(W)
+    head = replace(mesh, V=np.concatenate(Vs), F=np.concatenate(Fs), part=np.concatenate(Ps))
+    temples = replace(head, F=head.F[np.isin(head.part, bodies)], part=head.part[np.isin(head.part, bodies)])
+
+    def pose(a, b):                                       # opening degrees of the +X and -X temples
+        return {"+1": {"theta_deg": a, "axis_xz_mm": [64.6, -10.1]},
+                "-1": {"theta_deg": b, "axis_xz_mm": [-64.6, -10.1]}}
+    shape = (360, 640)
+    views = {"side": (90.0, 13.6, 0.25), "angled": (28.2, 11.4, 0.26), "top": (0.3, 59.9, 0.29),
+             "mirrored-side": (-90.0, 0.0, 0.0), "rear": (180.0, 8.8, 0.07), "front": (0.0, 5.0, 0.2)}
+    photos = {name: {"pose": pose(9.0, 3.0), "shape": shape,
+                     "ccam": raster.view_camera(bs.frame, yaw, pitch, 3.0, shape, perspective=persp,
+                                                center_mm=np.array([0.0, 0.0, -60.0]))}
+              for name, (yaw, pitch, persp) in views.items()}
+    got, info = lab._variant_creases(photos, {"head": tb}, "fixture")
+    swapped, _ = lab._variant_creases({k: {**c, "pose": pose(3.0, 9.0)} for k, c in photos.items()}, {"head": tb},
+                                      "fixture")
+    assert info == {"occlusion": "scene"}
+    hidden = set()
+    for name, c in photos.items():
+        ref = _line_mask(_overlay_creases(head, roles, c["pose"], c["ccam"], bs.frame, shape), shape)
+        lab_px = _line_mask(got[(name, "head")], shape)
+        assert (ref > 0).sum() > 300 and (ref != lab_px).sum() == 0, (name, int((ref != lab_px).sum()))
+        assert (ref != _line_mask(swapped[(name, "head")], shape)).sum() > 0.3 * (ref > 0).sum(), name
+        bare = _line_mask(_overlay_creases(temples, roles, c["pose"], c["ccam"], bs.frame, shape), shape)
+        if (bare > 0).sum() > (ref > 0).sum():
+            hidden.add(name)
+    assert {"angled", "front"} <= hidden, hidden
+
+
+def test_variant_crease_lines_match_the_compare_overlay_on_the_prada_package():
+    """On the recorded Prada package (read-only): Lab._variant_creases of revision 17, handed cmp030's exported head
+    by a stub seeing, draws the compare overlay's lines of that export at cmp030's crop cameras and poses (all seven
+    photos): at most 0.5 % of the line pixels differ (the 2026-10-11 review measured 0 at six photos and 2 of 2905
+    at black-side). The fixture test above runs the same check without package data."""
+    report = PACKAGE_004 / "work" / "compare" / "cmp030" / "report.json"
+    revision = PACKAGE_004 / "work" / "temple_lab" / "revisions" / "r0017.json"
+    if not (report.is_file() and revision.is_file()):
+        pytest.skip("package_004 (git-ignored data) is not on this machine")
+    from glasses3d.g3d_host import compare as C
+    from glasses3d.g3d_host import fitmesh
+    from glasses3d.g3d_host import pose as PO
+    rep = json.loads(report.read_text(encoding="utf-8"))
+    glb = PACKAGE_004 / "work" / "exports" / Path(rep["glb"]["path"].replace("\\", "/")).name
+    assert hashlib.sha256(glb.read_bytes()).hexdigest() == rep["glb"]["sha256"]
+    bs = C.load_basis(PACKAGE_004)
+
+    class PackageSeeing:                       # the lab's seeing, read-only: the export cmp030 compared
+        def export_head(self, call_id=None):
+            return {"status": "exported", "path": str(glb), "sha256": rep["glb"]["sha256"]}
+
+        def fit_mesh(self, path, sha, *, skip=(), frame=None):
+            return fitmesh.load_fit_mesh(path, skip=tuple(skip), frame=frame)
+    lab = Lab.__new__(Lab)                     # no __init__: nothing is written into the package
+    lab._basis, lab.seeing = bs, PackageSeeing()
+    photos = {rid: {"pose": bs.pose(rid), "ccam": Camera(**prec["crop"]["camera"]),
+                    "shape": tuple(prec["crop"]["shape"])} for rid, prec in rep["photos"].items()}
+    tb = build_temple(json.loads(revision.read_text(encoding="utf-8")))
+    got, info = lab._variant_creases(photos, {"head": tb}, "package")
+    assert info == {"occlusion": "scene"} and len(photos) == 7
+    mesh = fitmesh.load_fit_mesh(glb, skip=bs.skip, frame=bs.frame)
+    roles = PO.part_roles(glb)
+    for rid, c in photos.items():
+        a = _line_mask(_overlay_creases(mesh, roles, c["pose"], c["ccam"], bs.frame, c["shape"]), c["shape"])
+        b = _line_mask(got[(rid, "head")], c["shape"])
+        assert (a > 0).sum() > 500 and (a != b).sum() <= 0.005 * (a > 0).sum(), (rid, int((a != b).sum()))
 
 
 LONG = {"N": "N" + "n" * 23, "S": "S" + "s" * 23}       # the longest facet names the edits allow (24 characters)

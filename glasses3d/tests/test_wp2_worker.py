@@ -90,7 +90,8 @@ def lab(root):
 
 def test_temple_variants_render_builds_renders_and_leaves_the_scene_unchanged(lab):
     """WP6_FACETS §4.1 facet_variants: variant meshes built, the head and each built variant rendered at the view
-    (the refused variant reported, not rendered), every variant mesh removed, the user scene fingerprint unchanged."""
+    (the refused variant reported, not rendered), every variant mesh removed, the user scene fingerprint unchanged.
+    A view's own passes replace the call's (a black photo's view renders gloss_black only); 4 views at most."""
     import numpy as np
     from glasses3d.g3d.temple import fixtures as FX
     from glasses3d.g3d_host import blender_camera as BC
@@ -111,21 +112,33 @@ def test_temple_variants_render_builds_renders_and_leaves_the_scene_unchanged(la
                 {"label": "R", "spec": FX.relief_step()}]
     lf = {"center": ((np.asarray(b["lo"]) + np.asarray(b["hi"])) / 2).tolist(),
           "radius": float(np.linalg.norm(np.asarray(b["hi"]) - np.asarray(b["lo"])) / 2)}
-    r = w.call("temple_variants_render", {"variants": variants, "views": [view], "passes": ["native_linear"],
+    black = {**view, "name": "black", "passes": ["gloss_black"]}
+    too_many = w.call("temple_variants_render", {"variants": variants[:1], "views": [view] * 5,
+                                                 "out_dir": str(job / "work" / "variants" / "t0")}, deadline_s=60)
+    assert too_many["status"] == "refused" and too_many["code"] == "E_ARGS" and "1..4" in too_many["message"]
+    r = w.call("temple_variants_render", {"variants": variants, "views": [view, black], "passes": ["native_linear"],
                                           "out_dir": str(job / "work" / "variants" / "t1"), "rig": "studio_dome_v1",
                                           "light_frame": lf}, deadline_s=600)
     assert r["status"] == "ok" and r["unchanged"] is True, r
     assert r["fingerprint_before"] == r["fingerprint_after"] == before
     assert r["variants"]["A"]["status"] == r["variants"]["B"]["status"] == "ok"
     assert r["variants"]["R"]["status"] == "refused" and r["variants"]["R"]["code"] == "E_RELIEF_STEP"
-    assert [v["name"] for v in r["render"]["views"]] == ["side--head", "side--A", "side--B"]
+    names = [v["name"] for v in r["render"]["views"]]
+    assert names == ["side--head", "side--A", "side--B", "black--head", "black--A", "black--B"]
     assert r["render"]["views"][1]["mesh_overrides"] == r["variants"]["A"]["overrides"]
+    assert r["render"]["views"][4]["mesh_overrides"] == r["variants"]["A"]["overrides"]
+    assert all(set(v["files"]) == ({"native_linear"} if v["name"].startswith("side") else {"gloss_black"})
+               for v in r["render"]["views"])
     assert len(r["removed"]["removed"]) == len({m for v in ("A", "B") for m in r["variants"][v]["overrides"].values()})
-    imgs = {v["name"]: C.read_linear(v["files"]["native_linear"]["path"]) for v in r["render"]["views"]}
+    imgs = {v["name"]: C.read_linear(next(iter(v["files"].values()))["path"]) for v in r["render"]["views"]}
     assert all(img[1].max() > 0.5 for img in imgs.values())                    # something rendered in each
-    diff_ab = float(np.abs(imgs["side--A"][0] - imgs["side--B"][0]).max())
-    diff_ha = float(np.abs(imgs["side--head"][0] - imgs["side--A"][0]).max())
-    assert diff_ab > 0.01 and diff_ha > 0.01                                    # the geometry differs in the render
+    for stem in ("side", "black"):
+        diff_ab = float(np.abs(imgs[f"{stem}--A"][0] - imgs[f"{stem}--B"][0]).max())
+        diff_ha = float(np.abs(imgs[f"{stem}--head"][0] - imgs[f"{stem}--A"][0]).max())
+        assert diff_ab > 0.01 and diff_ha > 0.01, stem                          # the geometry differs in the render
+    native, gloss = imgs["side--head"], imgs["black--head"]                      # one camera, two passes
+    on = (native[1] > 0.99) & (gloss[1] > 0.99)
+    assert float(np.median(gloss[0][on])) < 0.5 * float(np.median(native[0][on]))    # the acetate is black
     left = w.call("exec", {"code": "result = [m.name for m in bpy.data.meshes if m.get('g3d_variant') is not None]"},
                   deadline_s=60)
     assert left["status"] == "ok" and left["result"] == []

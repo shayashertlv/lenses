@@ -421,6 +421,85 @@ def test_crease_shape_names_the_fade_for_a_faded_pair():
     assert e.value.message.endswith("(built with the other shape); fix the node values, do not redeclare")
 
 
+STRAIGHT_HINT = ("facet X runs straight through node C, so the 4 creases there cannot all be ridges: one is a valley "
+                 "or two of those faces are one (check the photos or facet_variants); keep X whole")
+
+
+def test_crease_shape_names_a_node_a_facet_runs_straight_through():
+    """Four creases at node C, which facet X's lower edge runs straight through (FX.straight_node), all declared
+    ridges: no node values build that (a convex corner holding a straight line is a prism along it), so E_CREASE_SHAPE
+    leads with the refused crease there and says one is a valley (or two faces are one) and to keep X whole, not "fix
+    the node values, do not redeclare" (run 2 split the owner's face 4 under that advice, 2026-10-11). The same layout
+    with that one crease declared a valley builds as declared."""
+    with pytest.raises(TempleError) as e:
+        build_temple(FX.straight_node())
+    f = e.value.fields
+    assert e.value.code == "E_CREASE_SHAPE" and f["facets"] == ["R1", "R2"] and f["built"] == "valley"
+    assert f["straight_node"] == {"node": "C", "facet": "X", "angle_deg": pytest.approx(180.0, abs=1e-9),
+                                  "shape": "ridge", "creases": [["R1", "R2"], ["R1", "X"], ["R2", "R3"], ["R3", "X"]],
+                                  "refused": ["R1", "R2"]}
+    assert e.value.message.endswith("(built with the other shape); " + STRAIGHT_HINT)
+    assert "do not redeclare" not in e.value.message
+    json.dumps(e.value.to_dict())
+    tb = build_temple(FX.straight_node(valley=True))
+    built = {tuple(c["regions"]): (c["shape"], c["declared"]) for c in tb.tables["creases"] if c["kind"] == "crease"}
+    assert built == {("R1", "X"): ("ridge", "ridge"), ("R1", "R2"): ("valley", "valley"),
+                     ("R2", "R3"): ("ridge", "ridge"), ("R3", "X"): ("ridge", "ridge")}
+    assert tb.checks["closed"] and not tb.warnings
+
+
+@pytest.mark.parametrize("lift, how", [(0.5, "runs straight through node C"), (2.0, "has a 185 deg corner at node C"),
+                                       (-2.0, None)])
+def test_straight_node_hint_needs_a_straight_or_reflex_corner(lift, how):
+    """C lifted 0.5 mm: X's corner there is 181.3 deg, straight within STRAIGHT_NODE_DEG; lifted 2 mm: 185.1 deg,
+    reflex (ridges all round are impossible there too); lowered 2 mm: 174.9 deg, a convex corner that ridges all round
+    can build, so the refusal keeps the node advice. Every node value is unchanged and one valley builds each."""
+    with pytest.raises(TempleError) as e:
+        build_temple(FX.straight_node(lift=lift))
+    assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["facets"] == ["R1", "R2"]
+    if how is None:
+        assert "straight_node" not in e.value.fields
+        assert e.value.message.endswith("(built with the other shape); fix the node values, do not redeclare")
+    else:
+        assert e.value.message.endswith("; " + STRAIGHT_HINT.replace("runs straight through node C", how))
+    build_temple(FX.straight_node(lift=lift, valley=True))
+
+
+def test_straight_node_hint_for_valleys_all_round():
+    """The mirror image (X sunk 2 mm below the base, R1 and R3 rising away from it): four declared valleys are refused
+    with the ridge named; R1|R2 declared a ridge builds."""
+    s = FX.straight_node(proud=-2.0, m1=0.3, m3=0.15)
+    for c in s["creases"]:
+        c["shape"] = "valley"
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    assert e.value.fields["straight_node"]["shape"] == "valley"
+    assert e.value.message.endswith("; facet X runs straight through node C, so the 4 creases there cannot all be "
+                                    "valleys: one is a ridge or two of those faces are one (check the photos or "
+                                    "facet_variants); keep X whole")
+    for c in s["creases"]:
+        if sorted(c["facets"]) == ["R1", "R2"]:
+            c["shape"] = "ridge"
+    build_temple(s)
+
+
+def test_straight_node_message_fits_the_lab_refusal_limit():
+    """With the longest names the edits allow (24 characters) for every facet and the node, the reflex wording and a
+    two-digit dihedral the message stays within the lab's REFUSAL_MAX, so facet_variants returns it whole."""
+    from glasses3d.agent.temple_lab.lab import REFUSAL_MAX, brief
+    long = {k: k + "w" * (24 - len(k)) for k in ("X", "R1", "R2", "R3", "C")}
+    s = FX.straight_node(lift=2.0)
+    s["nodes"] = {long.get(k, k): v for k, v in s["nodes"].items()}
+    s["facets"] = {long[k]: [long.get(n, n) for n in poly] for k, poly in s["facets"].items()}
+    for c in s["creases"]:
+        c["facets"] = [long[x] for x in c["facets"]]
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    m = e.value.message
+    assert e.value.fields["straight_node"]["node"] == long["C"] and f"keep {long['X']} whole" in m
+    assert len(m) <= REFUSAL_MAX and brief(m) == m, len(m)
+
+
 def test_inert_fade_warns_in_one_line():
     """A fade that moves none of its facet's vertices 0.05 mm (W_FADE_INERT, the reviewer's defect 5): beyond the
     facet, or every vertex held by a standing neighbour. One line names every such facet with why."""

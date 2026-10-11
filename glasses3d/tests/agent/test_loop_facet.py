@@ -251,8 +251,28 @@ def test_timeout_table_names_every_facet_tool():
         assert L.hard_timeout_s(name) == L.HARD_TIMEOUT_S[name] and L.sdk_timeout_s(name) == L.HARD_TIMEOUT_S[name] + 10
     small = L.hard_timeout_s("facet_variants", variants=2, photos=1)
     assert small == L.FACET_VARIANTS_BASE_S + 3 * L.FACET_VARIANTS_PER_RENDER_S < L.HARD_TIMEOUT_S["facet_variants"]
-    assert L.hard_timeout_s("facet_variants", variants=6, photos=3) <= L.HARD_TIMEOUT_S["facet_variants"]
     assert all(L.HARD_TIMEOUT_S[name] >= 30 for name in TOOL_NAMES)
+
+
+def test_facet_variants_worker_deadline_leaves_the_host_its_margin():
+    """facet_variants' worker render deadline scales with its renders but stops FACET_VARIANTS_HOST_MARGIN_S under
+    the table value at every photo and variant count the lab takes (up to 4 x 7 renders), so the host's builds,
+    crease lines and sheets keep that margin inside the hard timeout plus the SDK's 10 s (the 2026-10-11 review: at
+    4 photos the old cap left 10 s of the 100 s SDK timeout)."""
+    from glasses3d.agent.temple_lab.lab import VARIANT_PHOTOS_MAX, VARIANTS_MAX, VARIANTS_MIN
+    table = L.HARD_TIMEOUT_S["facet_variants"]
+    assert L.FACET_VARIANTS_HOST_MARGIN_S >= 15.0
+    for photos in range(1, VARIANT_PHOTOS_MAX + 1):
+        for variants in range(VARIANTS_MIN, VARIANTS_MAX + 1):
+            deadline = L.hard_timeout_s("facet_variants", variants=variants, photos=photos)
+            scaled = L.FACET_VARIANTS_BASE_S + L.FACET_VARIANTS_PER_RENDER_S * photos * (variants + 1)
+            assert deadline == min(scaled, table - L.FACET_VARIANTS_HOST_MARGIN_S), (photos, variants)
+            assert L.sdk_timeout_s("facet_variants") - deadline >= \
+                L.FACET_VARIANTS_HOST_MARGIN_S + L.SDK_TIMEOUT_MARGIN_S
+    worst = L.hard_timeout_s("facet_variants", variants=VARIANTS_MAX, photos=VARIANT_PHOTOS_MAX)
+    assert worst == table - L.FACET_VARIANTS_HOST_MARGIN_S == 75.0
+    assert worst >= 2.5 * (0.82 * VARIANT_PHOTOS_MAX * (VARIANTS_MAX + 1) + 2.9)   # the table comment's measured rate
+    assert L.hard_timeout_s("facet_variants", variants=3, photos=4) == 70.0 < worst     # under the cap: scaled
 
 
 def test_restore_and_finish_timeouts_exceed_their_inner_deadlines():

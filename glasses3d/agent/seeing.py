@@ -91,10 +91,12 @@ ENV_DELTA = 0.5                # differential basis step, x the mean weight at t
 ENV_DEADLINE_S = 900.0
 GAIN_VIEW_MAX_PX = 1600
 TEMPLE_ROI_MIN_PX = 40_000
+TEMPLE_REGION_PX = 20           # a compare's temple region: the posed temple pixels dilated by this many px
 DARK_L8 = 80.0                 # a colourway whose photo acetate median luma is below this is dark (black acetate)
 GLOSS_TARGET_L8 = 40.0         # without a dark photo, gloss_black is exposed so the front acetate reads this luma
 GLOSS_FIXED_STRETCH = (0.0, 128.0)
 GRID_STATION_MM = 10.0
+OFFSET_VIEWS = ("top", "rear")  # the view kinds whose compares measure outer-edge offsets (the brief names them)
 
 
 class SeeingError(ValueError):
@@ -702,15 +704,26 @@ class Seeing:
         return fid, [fid] + [b for b in (PO.temple_body(mesh, s, roles) for s in (1, -1)) if b is not None]
 
     @staticmethod
+    def gain_view_rank(rec: dict) -> float:
+        """How a basis photo ranks as its colourway's gain view: its model fit IoU (the record's fit.iou, the model's
+        silhouette against the photo's matte, which the gain region needs), or -1 when it has none. A photo without
+        one, such as a camera transported from a target photo by image similarity (WP6 v2: black-angled, black-front;
+        their transport IoU is photo to photo, and their model_check is information only), is a gain view only when
+        its colourway has no photo with a fit IoU, so adding it to a basis changes no gain (black-side stays the black
+        gain view)."""
+        iou = (rec.get("fit") or {}).get("iou")
+        return -1.0 if iou is None else float(iou)
+
+    @staticmethod
     def gain_views(bs: C.Basis, origin) -> tuple[dict, list]:
-        """Per colourway its best-registered photo (highest fit IoU) at <= GAIN_VIEW_MAX_PX: ({colourway: {rid, k,
-        cam, shape, pose}}, worker views rendering both matched passes)."""
+        """Per colourway its best-registered photo (highest gain_view_rank; ties keep the basis order) at
+        <= GAIN_VIEW_MAX_PX: ({colourway: {rid, k, cam, shape, pose}}, worker views rendering both matched passes)."""
         by_cw: dict = {}
         for rid in bs.refs:
             cw = bs.colourway(rid)
-            iou = float((bs.refs[rid].get("fit") or {}).get("iou") or 0.0)
-            if cw not in by_cw or iou > by_cw[cw][0]:
-                by_cw[cw] = (iou, rid)
+            rank = Seeing.gain_view_rank(bs.refs[rid])
+            if cw not in by_cw or rank > by_cw[cw][0]:
+                by_cw[cw] = (rank, rid)
         geo, views = {}, []
         for cw, (_iou, rid) in by_cw.items():
             cam0, (H, W) = bs.camera(rid), bs.shape(rid)
@@ -1012,7 +1025,7 @@ class Seeing:
             doc = {"glb": exp["path"], "sha256": exp["sha256"], "geometry": gkey, "checkpoint": self.head["id"],
                    "created": C._utc(), "offsets": {}}
             procs.write_json_atomic(path, doc)
-        if (bs.refs[rid].get("view_kind") or "") not in ("top", "rear"):
+        if (bs.refs[rid].get("view_kind") or "") not in OFFSET_VIEWS:
             return None
         key = f"{rid}@{hinge_z:.4f}"
         if key not in doc["offsets"]:
@@ -1346,11 +1359,11 @@ class Seeing:
         body_pts = r["points"][np.isin(part, body_ids)]
         ppm = CAMS.px_per_mm_at(g["cam"], bs.frame, np.median(body_pts, axis=0)) if len(body_pts) else \
             float("nan")
-        region = ndimage.binary_dilation(g["temple"], iterations=20)
+        region = ndimage.binary_dilation(g["temple"], iterations=TEMPLE_REGION_PX)
         a, b = g["mask"] & region, matte & region
         iou = float((a & b).sum() / max(1, (a | b).sum()))
         offsets = None
-        if (bs.refs[rid].get("view_kind") or "") in ("top", "rear"):
+        if (bs.refs[rid].get("view_kind") or "") in OFFSET_VIEWS:
             offsets = self._outer_offsets(bs, rid, g, mesh, bodies, hinge_z)
         head = (f"{rid} ({bs.refs[rid].get('view_kind')}, {cw}, {bs.refs[rid].get('fit_status') or 'fitted'}): "
                 f"temple IoU {iou:.3f}" + ("" if native else "; no native row (the model's material is the target "

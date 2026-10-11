@@ -11,8 +11,10 @@ judgement. A result is ONE text part, compact JSON (numbers rounded) then the fo
 context n tokens" (loop.RunStatus, the run context), followed by its images (ToolOutputImage, detail high).
 WorkerFailed stays fatal (the run ends failed_worker). The edits are the §4.2 strict anyOf union (EDIT_MODELS;
 geometry.apply_edits converts them to the /2 maps). Photo ids (lab.py module doc): photo_image takes every photo
-(Lab.image_ids: target, colourway such as B1, reference-only such as B2, B3); photo_compare, facet_edit's compare,
-judgements and points_px take the photos with a camera (Lab.compare_ids); facet_variants the target photos only.
+(Lab.image_ids: target, colourway = another colour with a calibrated camera, reference = no camera); photo_compare,
+facet_edit's compare, judgements and points_px take the photos with a camera (Lab.compare_ids); facet_variants takes
+those too, at most Lab.variant_photos_max() of them and at most 3 target photos (lab.py module doc). The tool texts
+Astra reads name no photo id: the enums and facet_inspect's photo list carry the job's.
 Annotations are evaluated eagerly (no __future__ import): the tools close over the lab's photo-id Literals.
 """
 import asyncio
@@ -187,7 +189,7 @@ def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids
         points: list[list[float]] = Field(min_length=1, max_length=16, description="native photo pixels [[u, v]]")
 
     class Variant(Input):
-        label: str = Field(description="a short name: a letter, then letters, digits, _ or -")
+        label: str = Field(description="a short name: a letter, then letters, digits, _ or -, not ending in _")
         edits: list[Edit] = Field(max_length=G.EDITS_MAX)
 
     return {"PhotoId": PhotoId, "TargetId": TargetId, "ImageId": ImageId, "Judgement": Judgement,
@@ -259,10 +261,11 @@ def timeout_text(name: str):
 def registry(lab, settings=None) -> list:
     """The seven function tools over ``lab`` (module doc); K of facet_finish = settings.finish_k (default 4)."""
     k = getattr(settings, "finish_k", 4) if settings is not None else 4
+    vmax = lab.variant_photos_max()
     lock = lab.lock
     M = models(lab.photo_ids(), lab.compare_ids(), lab.image_ids())
     Judgement, PhotoPoints, Variant, PhotoId = M["Judgement"], M["PhotoPoints"], M["Variant"], M["PhotoId"]
-    TargetId, ImageId = M["TargetId"], M["ImageId"]
+    ImageId = M["ImageId"]
 
     def tool(name: str):
         return partial(function_tool, name_override=name, timeout=sdk_timeout_s(name),
@@ -332,9 +335,9 @@ def registry(lab, settings=None) -> list:
         y grid every 5 mm) / gloss-black render, all with the photo's own contrast stretch (a photo of another colour
         with a calibrated camera: photo / overlay / gloss-black render, no native row); text per photo: temple
         IoU, px/mm, the crop box and its scale k, outer-edge offsets photo minus model in mm every 10 mm (top and rear
-        photos; "start" = the unedited model's) and points_px charted to (d, y, t). Returns a compare_id; the next
-        facet_edit, facet_variants, facet_restore or facet_finish must carry a judgement of it. A photo without a
-        calibrated camera cannot be compared (photo_image shows it).
+        photos; per temple: charted, mirrored; "start" = the unedited model's) and points_px charted to (d, y, t).
+        Returns a compare_id; the next facet_edit, facet_variants, facet_restore or facet_finish must carry a
+        judgement of it. A photo without a calibrated camera cannot be compared (photo_image shows it).
 
         Args:
             photos: Photo ids, or null for the default set (target photos showing the temple large).
@@ -370,20 +373,24 @@ def registry(lab, settings=None) -> list:
     @tool("facet_variants")
     async def facet_variants(ctx: ToolContext, parent_revision: int,
                              variants: Annotated[list[Variant], Field(min_length=2, max_length=6)],
-                             photos: Annotated[list[TargetId], Field(min_length=1, max_length=3)],
+                             photos: Annotated[list[PhotoId], Field(min_length=1, max_length=vmax)],
                              judgement: Judgement | None):
         """Build 2..6 variants of parent_revision (each its own edit list) and render each beside the head at the
         photos' cameras without changing the scene: one sheet per photo (photo, head, variants; a refused variant
-        is a labelled panel; the photo's outline in magenta on every render). Each built variant becomes a revision
-        that facet_edit can apply with no edits. Text: each variant's revision, its distance from the head, the
-        pairwise distances (max |dX| or outline shift, mm) and spread_ok (3 rendered variants pairwise >= 0.3 mm
-        apart). The sheets have no compare_id and need no judgement: apply the variant that matches best with
-        facet_edit; its compare is judged as usual.
+        is a labelled panel). Every render panel shows the photo's outline (magenta) and that model's own crease
+        lines from 6° (ridges orange, valleys blue, as photo_compare's overlay), so crease layouts can be compared
+        side by side. A target photo's panels are the native render; a photo of another colour shows the
+        gloss-black render with photo_compare's gain and stretch for it. Each built variant becomes a revision that
+        facet_edit can apply with no edits. Text: each variant's revision, its distance from the head, the pairwise
+        distances (max |dX| or outline shift, mm) and spread_ok (3 rendered variants pairwise >= 0.3 mm apart). The
+        sheets have no compare_id and need no judgement: apply the variant that matches best with facet_edit; its
+        compare is judged as usual.
 
         Args:
             parent_revision: The revision the variants edit.
-            variants: 2..6 labelled edit lists.
-            photos: 1..3 target photo ids (the sheets render the target material).
+            variants: 2..6 labelled edit lists (labels distinct ignoring case, not 'head').
+            photos: Photo ids with a camera, each compared before; at most 3 target photos (a 4th must be a photo
+                of another colour).
             judgement: The judgement of the latest compare when one is due, else null.
         """
         return await call(ctx, "facet_variants", lambda cid: lab.variants(

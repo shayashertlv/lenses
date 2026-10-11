@@ -18,12 +18,28 @@ for a run.
 
 Photo ids (lab.json ``photos``, each with a role; rows without one are target photos):
     target      "01".."06" = the basis' reference-01..06 (target colourway): photo_image, photo_compare (the default
-                set), facet_variants, and finish precondition 3 (``photo_ids``);
-    colourway   e.g. "B1" = a basis image of another colourway (``basis_ref``, e.g. black-side): photo_image and
-                photo_compare (photo / overlay / gloss_black, no native row: seeing's variant-colourway compare);
-                never facet_variants (its sheets render the target material) and never the default set;
-    reference   e.g. "B2", "B3" = an image without a camera under inputs/: photo_image only.
+                set), facet_variants (native_linear panels), and finish precondition 3 (``photo_ids``);
+    colourway   a basis image of another colourway with a calibrated camera (``basis_ref``; the Prada job's B1, B2, B3
+                = black-side, black-angled, black-front): photo_image, photo_compare (photo / overlay / gloss_black, no
+                native row: seeing's variant-colourway compare) and facet_variants (gloss_black panels with that
+                compare's gloss gain and stretch); never the default set;
+    reference   an image without a camera under inputs/ (``path``, ``sha256``): photo_image only.
 ``compare_ids`` = target + colourway; ``image_ids`` = all of them.
+
+facet_variants photos: 1..VARIANT_PHOTOS_MAX (4) photos with a camera, at most VARIANT_TARGETS_MAX (3) of them target
+photos, so a 4th is always a photo of another colour. Why 4: the black photos are where the facets read (the gloss
+shows each crease as a highlight line), and run 4 used the top and a side photo in 6 of 6 variant calls plus 02 or 04
+in 3 of 6; one black photo beside those three costs (variants + 1) more renders (~0.8 s each, measured) and one more
+sheet image, within the call's hard timeout (loop.hard_timeout_s caps the worker's render deadline at the 90 s table
+value minus loop.FACET_VARIANTS_HOST_MARGIN_S, 75 s: about 2.9 x the estimated 4 x 7 renders, and the host's builds,
+crease lines and sheets keep 15 s inside the hard timeout; the 2026-10-11 tool test took 9.6 s for 3 photos x 4
+renders). Variant labels are their render files' names: each must be its own g3d/render.py safe_name
+(``render_safe_name``) and differ from the others and from "head" ignoring case. Every render panel shows the photo's
+outline (magenta) and that model's own crease lines in the compare overlay's colours, from compare.CREASE_MIN_DEG (the
+sheet title says so; ``_variant_creases``).
+
+Compare text (``_photo_text``): outer-edge offsets are printed per temple as "charted" (+X, the side the spec is
+charted on) and "mirrored" (-X, its mirror), from the records' pose.SIDE_KEYS "+1" / "-1" (SIDE_TEXT).
 
 Tool methods (each returns a dict for tools.py; "images" lists image files, never sent as paths):
     inspect()                                       head summary, chart, section strip (head / original / parent)
@@ -57,25 +73,29 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 import time
 
 import numpy as np
 from PIL import Image
 
-from glasses3d.agent.journal import BlenderSession
+from glasses3d.agent.journal import BlenderSession, WorkerFailed
 from glasses3d.agent.loop import SceneHooks, hard_timeout_s
 from glasses3d.agent.procs import write_json_atomic
-from glasses3d.agent.seeing import MATCHED_RIGS, Seeing
+from glasses3d.agent.seeing import GRID_STATION_MM, MATCHED_RIGS, Seeing
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import draw as DR
 from glasses3d.g3d.temple import report as RP
 from glasses3d.g3d.temple.spec import BORDER_RAMP_WARN_DEG, TempleError, canonical, plain, spec_sha256
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
+from glasses3d.g3d_host import pose as PO
 from glasses3d.g3d_host import spec as GSPEC
 from . import geometry as G
 from . import sheets as SH
@@ -84,7 +104,9 @@ from .state import LabRefusal
 
 LAB_SCHEMA = "g3d.temple_lab/2"
 MATCHED_PASSES = ("native_linear", "gloss_black")
-VARIANTS_MIN, VARIANTS_MAX, VARIANT_PHOTOS_MAX = 2, 6, 3
+VARIANTS_MIN, VARIANTS_MAX = 2, 6
+VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX = 4, 3     # facet_variants photos (module doc)
+CREASE_THREADS = max(1, min(8, (os.cpu_count() or 2) // 2))   # host crease lines: one task per photo and model
 NOTE_MAX, SUMMARY_MAX = 1000, 2000
 CHART_W = 1024
 BUILD_DEADLINE_S = hard_timeout_s("facet_edit")    # a temple_lab_build still running then is killed (worker restart)
@@ -98,6 +120,15 @@ LOCK_WAIT_S = 600.0              # exit_checkpoint / close wait this long for a 
 MATERIAL_ABS, MATERIAL_REL = 0.1, 0.1     # an inherited warning shows again when a number moves more than this
 RAMP_ITEMS_MAX = 8               # border-ramp runs listed per receipt (then "+N more")
 NUMBER_RE = re.compile(r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?![\w.])")
+RENDER_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")   # = g3d/render.py NAME_RE (that module imports bpy; a test pins it)
+SIDE_TEXT = {PO.SIDE_KEYS[1]: "charted", PO.SIDE_KEYS[-1]: "mirrored"}     # compare text per temple (module doc)
+
+
+def render_safe_name(name: str) -> str:
+    """g3d/render.py safe_name (without its refusal of a name with no usable character): the worker names a variant's
+    render files <photo>--<safe_name(label)>, the lab looks them up by the label, so a label must be its own safe
+    name (facet_variants refuses one ending in "_")."""
+    return RENDER_NAME_RE.sub("_", str(name)).strip("._")[:80]
 
 
 def sha(path) -> str:
@@ -246,21 +277,38 @@ class Lab(SceneHooks):
                                        f"a camera: {self.compare_ids()}")
         raise LabRefusal("E_ARGS", f"there is no photo {pid!r}; photos with a camera: {self.compare_ids()}")
 
-    def _photos_arg(self, photos, *, low: int = 1, high: int | None = None, targets_only: bool = False) \
-            -> list[str] | None:
-        """Validated photo ids of a compare (target and colourway photos) or, targets_only, of a variant render."""
+    def _photos_arg(self, photos, *, low: int = 1, high: int | None = None) -> list[str] | None:
+        """Validated photo ids of a compare or a variant render (target and colourway photos, each with a camera)."""
         if photos is None:
             return None
-        ids = self.photo_ids() if targets_only else self.compare_ids()
+        ids = self.compare_ids()
         high = high or len(ids)
         if not isinstance(photos, list) or not low <= len(photos) <= high or len(set(photos)) != len(photos):
             raise LabRefusal("E_ARGS", f"photos must be {low}..{high} distinct ids of {ids}")
         for p in photos:
             self.rid(p)
-            if p not in ids:
-                raise LabRefusal("E_ARGS", f"photo {p} is not a target photo: facet_variants renders the target "
-                                           f"material only; photos: {ids}")
         return list(photos)
+
+    def variant_photos_max(self) -> int:
+        """The most photos one facet_variants call takes: VARIANT_TARGETS_MAX target photos plus, when the lab has
+        photos of another colour, one of those (module doc)."""
+        return min(VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX + len(self.colourway_refs()))
+
+    def _variant_photos(self, photos) -> list[str]:
+        """facet_variants' photos: 1..variant_photos_max() distinct photos with a camera, at most VARIANT_TARGETS_MAX
+        of them target photos."""
+        high = self.variant_photos_max()
+        if photos is None:
+            raise LabRefusal("E_ARGS", f"photos must name 1..{high} photos")
+        photos = self._photos_arg(photos, low=1, high=high)
+        targets = [p for p in photos if p in self.photo_ids()]
+        if len(targets) > VARIANT_TARGETS_MAX:
+            raise LabRefusal("E_ARGS", f"photos: at most {VARIANT_TARGETS_MAX} target photos (got {targets}); a 4th "
+                                       f"must be a photo of another colour: {list(self.colourway_refs())}")
+        for p in photos:                       # the sheets take the crop, stretch and gains of its latest compare
+            if not any(p in c["photos"] for c in self.state["compares"]):
+                raise LabRefusal("E_STATE", f"photo {p} was never compared; photo_compare it first")
+        return photos
 
     def fingerprint_of(self, checkpoint: str | None) -> str | None:
         row = self.s.index.get(checkpoint) if isinstance(checkpoint, str) else None
@@ -539,8 +587,10 @@ class Lab(SceneHooks):
                     outline: dict | None = None) -> str:
         """One photo of a compare, compact: view (a colourway photo: its colour and rows), temple IoU, scale, crop
         (box and scale k: u_img = (u - x0 + 0.5) k - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top
-        and rear photos, over the stations where the photo has one; with_start: the start model's too), a top
-        photo's outline_check (state.outline_text, information), points_px charted."""
+        and rear photos, over the stations where the photo has one; per temple, "charted" / "mirrored" (SIDE_TEXT);
+        the station step only when it is not seeing's GRID_STATION_MM; with_start: the start model's too; the tool
+        descriptions and the instructions define the sign, so the text does not repeat it), a top photo's
+        outline_check (state.outline_text, information), points_px charted."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")
@@ -559,10 +609,12 @@ class Lab(SceneHooks):
             hit = [i for i, d in enumerate(every) if any(v.get(d) is not None for v in vals.values())]
             ds = every[hit[0]:hit[-1] + 1] if hit else []
             if ds:
-                text += f" | offsets mm photo-model d {ds[0]:g}..{ds[-1]:g}/{ds[1] - ds[0] if len(ds) > 1 else 0:g}:"
+                step = ds[1] - ds[0] if len(ds) > 1 else GRID_STATION_MM
+                text += f" | offsets mm d {ds[0]:g}..{ds[-1]:g}" + \
+                    ("" if abs(step - GRID_STATION_MM) < 1e-9 else f"/{step:g}") + ":"
             use = with_start and isinstance(start, dict) and "missing" not in start
             for side in offs if ds else ():
-                text += f" {side} [{' '.join(f(vals[side].get(d)) for d in ds)}]"
+                text += f" {SIDE_TEXT.get(side, side)} [{' '.join(f(vals[side].get(d)) for d in ds)}]"
                 srows = {r["d_mm"]: r["offset_mm"] for r in (start.get(side) or [])} if use else {}
                 if srows:
                     text += f" start [{' '.join(f(srows.get(d)) for d in ds)}]"
@@ -862,11 +914,15 @@ class Lab(SceneHooks):
         return out
 
     def _variant_views(self, pids: list, n_panels: int, call_id: str) -> tuple[list, dict]:
-        """Worker views (crop camera with the photo's pose) and the compositing record of each photo, from the
-        latest compare that showed it (its crop box, stretch, background, gains and environment)."""
+        """Worker views (crop camera with the photo's pose, one pass) and the compositing record of each photo, from
+        the latest compare that showed it: its crop box (at the scale of this sheet's layout, chosen by the box's
+        aspect: sheets.variant_layout), photo stretch, background, gains and environment. A target photo's panels are
+        the native_linear pass with the job's white-balanced target gain and the photo's stretch; a photo of another
+        colour's are the gloss_black pass with the gloss gain and stretch that compare used for it (its record's
+        ``gloss``; an older record without one: the job's gloss_black gain, and the photo's stretch for a dark
+        colourway as seeing does)."""
         bs = self.basis
         origin = np.asarray(self.seeing.bounds(call_id)["origin_mm"] or (0.0, 0.0, 0.0), float)
-        _cols, pw, ph = SH.variant_layout(n_panels)
         views, recs, render_params = [], {}, None
         for pid in pids:
             rid = self.rid(pid)
@@ -876,34 +932,132 @@ class Lab(SceneHooks):
             report = read(last["report"])
             prec = report["photos"][rid]
             x0, y0, x1, y1 = (int(v) for v in prec["crop"]["box"])
+            layout = SH.variant_layout(n_panels, aspect=(x1 - x0) / (y1 - y0))
+            _cols, pw, ph = layout
             k = min(1.0, pw / (x1 - x0), ph / (y1 - y0))
             ccam = BC.crop_camera(bs.camera(rid), x0, y0, k)
             cshape = (max(1, round((y1 - y0) * k)), max(1, round((x1 - x0) * k)))
-            views.append({"name": pid, "camera": BC.to_blender(ccam, bs.frame, origin, cshape), "pose": bs.pose(rid)})
             gains = report["gains"]
-            recs[pid] = {"rid": rid, "box": (x0, y0, x1, y1), "k": k, "shape": cshape, "stretch": prec["stretch"],
-                         "background": prec["background"],
-                         "gain": gains["colourways"]["target"]["native_linear"]["gain"]}
+            lo, hi = (float(v) for v in prec["stretch"])
+            cw = bs.colourway(rid)
+            if cw == "target":
+                look = {"pass": "native_linear", "gain": gains["colourways"]["target"]["native_linear"]["gain"],
+                        "render_stretch": (lo, hi), "what": f"native render, photo stretch {lo:.0f}-{hi:.0f}"}
+            else:
+                gl, glj = prec.get("gloss") or {}, gains.get("gloss_black") or {}
+                gain = gl.get("gain", glj.get("gain"))
+                if gain is None:
+                    raise LabRefusal("E_STATE", f"photo {pid}'s latest compare has no gloss_black gain; "
+                                                "photo_compare it first")
+                if gl.get("stretch"):
+                    gst = gl["stretch"]
+                else:
+                    dark = (gains["colourways"].get(cw) or {}).get("dark", True)
+                    gst = (lo, hi) if dark or not glj.get("stretch") else glj["stretch"]
+                a, b = (float(v) for v in gst)
+                look = {"pass": "gloss_black", "gain": float(gain), "render_stretch": (a, b),
+                        "what": f"gloss-black render gain {float(gain):.2f} stretch {a:.0f}-{b:.0f}"}
+            views.append({"name": pid, "camera": BC.to_blender(ccam, bs.frame, origin, cshape), "pose": bs.pose(rid),
+                          "passes": [look["pass"]]})
+            ppm = prec.get("px_per_mm")
+            recs[pid] = {"rid": rid, "box": (x0, y0, x1, y1), "k": k, "shape": cshape, "ccam": ccam,
+                         "pose": bs.pose(rid), "layout": layout, "stretch": (lo, hi),
+                         "background": prec["background"], "colour": self._colour(pid),
+                         "px_per_mm": float(ppm) * k if ppm is not None and np.isfinite(ppm) else None, **look}
             if render_params is None:
                 env = report.get("environment")
                 render_params = self.seeing._render_params(self.rig, env, gains.get("light_frame"))
         return views, {"photos": recs, "render": render_params}
 
+    def _head_scene(self, call_id: str):
+        """(the head's exported scene as the compare reads it, without its two temple bodies; the GLB's part roles):
+        the occluder of the variant crease lines (seeing's export and fit mesh, both cached by fingerprint; the
+        basis' skip list leaves out the decals, as in the compare)."""
+        bs = self.basis
+        exp = self.seeing.export_head(call_id)
+        if exp.get("status") != "exported":
+            raise ValueError(f"the head does not export: {exp.get('code')} {exp.get('message')}")
+        mesh = self.seeing.fit_mesh(exp["path"], exp["sha256"], skip=getattr(bs, "skip", ()), frame=bs.frame)
+        roles = PO.part_roles(exp["path"])
+        bodies = [b for b in (PO.temple_body(mesh, s, roles) for s in (1, -1)) if b is not None]
+        if len(bodies) != 2:
+            raise ValueError(f"the head export has {len(bodies)} temple bodies, not 2")
+        keep = ~np.isin(mesh.part, bodies)
+        return replace(mesh, F=mesh.F[keep], part=mesh.part[keep]), roles
+
+    def _variant_creases(self, photos: dict, models: dict, call_id: str) -> tuple[dict, dict]:
+        """Each model's crease polylines at each photo by the compare overlay's rule (compare.crease_edges >= 6 deg,
+        drawn where both faces face the camera and the depth shows them): ({(photo, model): polylines | None},
+        info). ``models`` = {name: TempleBuild} (the head's revision and the built variants). Both temples are
+        placed as the worker places them (TempleBuild.world at the spec's opening, the -X side its mirror), opened
+        by the photo's temple pose (pose.rot_about_hinge, as the render's posed copies) and depth-tested against the
+        head's exported scene with its two temple bodies swapped for the model's (``_head_scene``); when that scene
+        cannot be read, against the two temples alone (info["occlusion"] says so). A WorkerFailed of the head's export
+        (the worker died and was not recovered) is raised: it ends the run failed_worker, as from any tool. On the
+        2026-10-11 package the head's lines match the compare overlay's (from the export) to 0-2 of 584-2905 px at
+        five photos (test_temple_lab pins this method against the overlay rule). One task per photo and model on
+        CREASE_THREADS threads (numpy and open3d release the GIL for most of it)."""
+        bs = self.basis
+        info: dict = {"occlusion": "scene"}
+        try:
+            rest, roles = self._head_scene(call_id)
+        except WorkerFailed:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the lines are still drawn, depth-tested on the temples alone
+            rest = roles = None
+            info["occlusion"] = f"temples only ({type(exc).__name__}: {str(exc)[:80]})"
+        worlds, failed = {}, {}
+        for name, tb in models.items():
+            try:
+                worlds[name] = {s: tb.world(s) for s in (1, -1)}
+            except (TypeError, ValueError) as exc:            # e.g. an opened temple without a hinge axis
+                failed[name] = f"{type(exc).__name__}: {exc}"[:120]
+        occ = {}
+        for pid, c in photos.items():
+            if rest is not None:
+                rp = PO.posed(rest, c["pose"], roles) if c["pose"] else rest
+                occ[pid] = (rp.V, rp.F)
+            else:
+                occ[pid] = None
+
+        def one(task):
+            pid, name = task
+            c = photos[pid]
+            try:
+                pp = PO.parse_pose(c["pose"]) if c["pose"] else {}
+                bodies = []
+                for s in (1, -1):
+                    W, _p, tris = worlds[name][s]
+                    th, axis = pp.get(s, (0.0, (0.0, 0.0)))
+                    bodies.append((PO.rot_about_hinge(W, s, th, axis), tris))
+                return C.crease_polylines_posed(bodies, occ[pid], c["ccam"], bs.frame, c["shape"])
+            except Exception as exc:  # noqa: BLE001 - that panel is drawn without lines, labelled so
+                failed[f"{pid}/{name}"] = f"{type(exc).__name__}: {exc}"[:120]
+                return None
+        tasks = [(pid, name) for pid in photos for name in worlds]
+        out = {(pid, name): None for pid in photos for name in models}
+        if tasks:
+            with ThreadPoolExecutor(max_workers=min(CREASE_THREADS, len(tasks))) as ex:
+                out.update(zip(tasks, ex.map(one, tasks)))
+        if failed:
+            info["failed"] = failed
+        return out, info
+
     def variants(self, call_id: str, parent_revision: int, variants: list, photos: list, judgement) -> dict:
         self._judge(judgement, call_id, "facet_variants")
         self.save()
         parent = S.revision(self.state, parent_revision)
-        photos = self._photos_arg(photos, low=1, high=VARIANT_PHOTOS_MAX, targets_only=True)
-        if photos is None:
-            raise LabRefusal("E_ARGS", f"photos must name 1..{VARIANT_PHOTOS_MAX} photos")
+        photos = self._variant_photos(photos)
         if not isinstance(variants, list) or not VARIANTS_MIN <= len(variants) <= VARIANTS_MAX:
             raise LabRefusal("E_ARGS", f"variants must be {VARIANTS_MIN}..{VARIANTS_MAX} {{label, edits}}")
         labels = [v.get("label") for v in variants]
-        for lb in labels:
-            if not isinstance(lb, str) or not G.NAME_RE.match(lb):
-                raise LabRefusal("E_ARGS", f"variant label {lb!r}: a letter, then up to 23 letters, digits, _ or -")
-        if len(set(labels)) != len(labels):
-            raise LabRefusal("E_ARGS", "variant labels must be distinct")
+        for lb in labels:                       # the worker names a label's render files by its safe name
+            if not isinstance(lb, str) or not G.NAME_RE.match(lb) or render_safe_name(lb) != lb:
+                raise LabRefusal("E_ARGS", f"variant label {lb!r}: a letter, then up to 23 letters, digits, _ or -, "
+                                           "not ending in _")
+        # the render files are named <photo>--<safe name> beside <photo>--head on a case-insensitive file system
+        if len({render_safe_name(lb).lower() for lb in labels} | {"head"}) != len(labels) + 1:
+            raise LabRefusal("E_ARGS", "variant labels must be distinct (ignoring case) and not 'head'")
         head = self.head_record()
         if head is None:
             raise LabRefusal("E_STATE", "the scene holds no applied revision")
@@ -935,10 +1089,10 @@ class Lab(SceneHooks):
                 pairs[tuple(sorted((a, b)))] = self.delta(built[a][0], built[b][0])["value_mm"]
         out = {"status": "ok", "variants_id": vid, "parent": parent["id"], "head_revision": head["revision"],
                "variants": items, "pairwise_mm": {"|".join(k): _r(v) for k, v in pairs.items()}}
-        images, rendered = [], []
+        images, rendered, lines = [], [], {}
         if built:
-            images, render_status, rendered = self._variant_sheets(call_id, vid, parent["id"], photos, head, built,
-                                                                   items)
+            images, render_status, rendered, lines = self._variant_sheets(call_id, vid, parent["id"], photos, head,
+                                                                          built, items)
             if render_status:
                 out["render"] = render_status
         # §4.1 precondition 2 counts only variants Astra was shown: built AND rendered at every photo of a call whose
@@ -947,7 +1101,7 @@ class Lab(SceneHooks):
         out["spread_ok"] = spread is not None
         rec = {"id": vid, "call_id": call_id, "parent": parent["id"], "photos": photos, "seq": self.state["seq"],
                "items": [{k: it.get(k) for k in ("label", "revision", "code", "vs_head_mm")} for it in items],
-               "pairwise": out["pairwise_mm"], "rendered": rendered, "spread": spread}
+               "pairwise": out["pairwise_mm"], "rendered": rendered, "spread": spread, **lines}
         with self.state_lock:
             if call_id in self._unseen:
                 rec["unseen"] = True
@@ -957,9 +1111,13 @@ class Lab(SceneHooks):
         return out
 
     def _variant_sheets(self, call_id: str, vid: str, parent: int, photos: list, head: dict, built: dict,
-                        items: list) -> tuple[list, dict | None, list]:
-        """The worker's read-only render of the head and the built variants, composited into one sheet per photo:
-        (sheet paths, a render-status note or None, the labels rendered at every photo)."""
+                        items: list) -> tuple[list, dict | None, list, dict]:
+        """The worker's read-only render of the head and the built variants (one pass per photo: _variant_views),
+        composited into one sheet per photo; every render panel carries the photo's outline (magenta) and that
+        model's own crease lines (_variant_creases; ridge orange, valley blue; the title says they are drawn from
+        compare.CREASE_MIN_DEG, so a crease under it shows on no panel): (sheet paths, a render-status note or
+        None, the labels rendered at every photo, {creases: {photo: {model: polylines drawn | None}},
+        crease_occlusion} for the state record)."""
         n_panels = 2 + len(items)
         views, comp = self._variant_views(photos, n_panels, call_id)
         out_dir = self.root / "work" / "temple_lab" / "variants" / vid
@@ -970,11 +1128,16 @@ class Lab(SceneHooks):
         r = self.s.call_read("facet_variants", "temple_variants_render", params, deadline_s=deadline,
                              call_id=call_id)
         if r["status"] != "ok":
-            return [], {"status": r["status"], "message": r.get("message")}, []
+            return [], {"status": r["status"], "message": r.get("message")}, [], {}
         res = r["result"]
         if res.get("status") != "ok":
-            return [], {"status": res.get("status"), "code": res.get("code"), "message": res.get("message")}, []
-        files = {v["name"]: v["files"]["native_linear"]["path"] for v in res["render"]["views"]}
+            return [], {"status": res.get("status"), "code": res.get("code"), "message": res.get("message")}, [], {}
+        files = {}
+        for v in res["render"]["views"]:
+            pid = v["name"].split("--", 1)[0]
+            f = (v.get("files") or {}).get(comp["photos"][pid]["pass"]) if pid in comp["photos"] else None
+            if f:
+                files[v["name"]] = f["path"]
         rendered = [lb for lb in built if (res["variants"].get(lb) or {}).get("status") == "ok"
                     and all(f"{pid}--{lb}" in files for pid in photos)]
         status = None
@@ -982,35 +1145,55 @@ class Lab(SceneHooks):
         if blender:
             status = {"blender_refused": {lb: f"{b.get('code')}: {str(b.get('message'))[:120]}"
                                           for lb, b in blender.items()}}
+        models = {"head": self.build(head["revision"]),
+                  **{lb: tb for lb, (_rid, _spec, tb) in built.items() if lb in res["variants"]
+                     and res["variants"][lb].get("status") == "ok"}}
+        polys, info = self._variant_creases(comp["photos"], models, call_id)
+        notes = ([f"depth-tested on the {info['occlusion']}"] if info["occlusion"] != "scene" else []) + \
+            ([f"none drawn for {sorted(info['failed'])[:4]}"] if info.get("failed") else [])
+        if notes:
+            status = {**(status or {}), "crease_lines": "; ".join(notes)}
         paths = []
         bs = self.basis
         for pid in photos:
             c = comp["photos"][pid]
             pc, mc = Seeing.photo_at(bs, c["rid"], c["box"], c["k"], c["shape"])
-            lo, hi = (float(v) for v in c["stretch"])
+            lo, hi = c["stretch"]
+            rlo, rhi = c["render_stretch"]
+            width = SH.crease_width(c["px_per_mm"])
 
-            def panel(name):
+            def panel(name, label):
+                """(label, the composited render with the photo outline and the model's crease lines, None)."""
                 rgb, alpha = C.read_linear(files[f"{pid}--{name}"])
                 im = Image.fromarray(C.apply_stretch(C.composite_render(rgb, alpha, c["gain"], c["background"]),
-                                                     lo, hi))
-                return SH.with_outline(im, mc)
-            panels = [(f"photo {pid} (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(C.apply_stretch(pc, lo, hi)),
-                       None),
-                      (f"head r{head['revision']} ({self.s.head['id']}); magenta = photo outline", panel("head"), None)]
+                                                     rlo, rhi))
+                im = SH.with_outline(im, mc)
+                pl = polys.get((pid, name))
+                if pl is None:
+                    return label + ", no crease lines", im, None
+                return label, SH.with_creases(im, pl, width), None
+            colour = c["colour"]
+            panels = [(f"photo {pid}{' ' + colour if colour else ''} (stretch {lo:.0f}-{hi:.0f})",
+                       Image.fromarray(C.apply_stretch(pc, lo, hi)), None),
+                      panel("head", f"head r{head['revision']} ({self.s.head['id']})")]
             for it in items:
                 lb = it["label"]
                 if it.get("revision") is not None and f"{pid}--{lb}" in files:
-                    panels.append((f"{lb}: r{it['revision']}, {it['vs_head_mm']:.2f} mm from head", panel(lb), None))
+                    panels.append(panel(lb, f"{lb}: r{it['revision']}, {it['vs_head_mm']:.2f} mm from head"))
                 else:
                     why = it.get("message") or (blender.get(lb) or {}).get("message") or "refused"
                     code = it.get("code") or (blender.get(lb) or {}).get("code")
                     panels.append((f"{lb}: refused {code}", None, f"{lb} refused {code}: {why}"))
-            sheet = SH.variant_sheet(panels, f"variants {vid} of r{parent} at photo {pid} "
-                                             f"({bs.refs[c['rid']].get('view_kind')}): native render, photo stretch")
+            view = str(bs.refs[c["rid"]].get("view_kind") or "view") + (f", {colour}" if colour else "")
+            sheet = SH.variant_sheet(panels, f"variants {vid} of r{parent} at {pid} ({view}): {c['what']}; "
+                                             f"{SH.crease_legend(C.CREASE_MIN_DEG)}", layout=c["layout"])
             p = out_dir / f"sheet-{pid}.png"
             sheet.save(p)
             paths.append(self._image(p, "variants", ref=vid, photo=pid, revision=head["revision"]))
-        return paths, status, rendered
+        lines = {"creases": {pid: {name: None if polys.get((pid, name)) is None else len(polys[(pid, name)])
+                                   for name in models} for pid in photos},
+                 "crease_occlusion": info["occlusion"]}
+        return paths, status, rendered, lines
 
     def restore_tool(self, call_id: str, checkpoint: str, judgement) -> dict:
         self._judge(judgement, call_id, "facet_restore")
