@@ -1,14 +1,16 @@
 """The facet lab's package and run entry points (plan/WP6_FACETS.md §4.3-4.4, §5). No paid call without the exact
 approval guard of agent/loop.py; prepare, estimate and request are $0.
 
-    prepare  --job DIR [--rig photo_env]
+    prepare  --job DIR [--rig studio_dome_v1 | photo_env | catalog_band_v1]
         a new isolated package: inputs/ = a byte copy of the original scene, the target photos (checked against the
         reference manifest and the pose basis), brief.txt, instructions.txt and lab.json (g3d.temple_lab/2: the rig,
         every input's sha256, the photo list, the pose basis); basis/cameras.json = the pose basis restricted to the
-        target photos, imported as cameras/basis-NN (outside inputs/: every image under inputs/ is sent in the first
-        message); then Lab.prepare(): the original compared at every photo (with photo_env this fits and freezes the
-        job's light), revision 0 = template_from_mesh of the original's +X temple, applied and compared. job.json
-        binds the implementation (every .py of g3d, g3d_host and agent, and instructions.txt) and the frozen light.
+        target photos, imported as cameras/basis-NN (outside inputs/: every file under inputs/ is sha-bound and every
+        image under inputs/ is sent in the first message); then Lab.prepare(): the original compared at every photo
+        (only with --rig photo_env does this fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh
+        of the original's +X temple, applied and compared. job.json binds the implementation (every .py of g3d,
+        g3d_host and agent, and instructions.txt), the rig and any frozen light. The default rig is the owner's choice
+        of 2026-10-11, studio_dome_v1 ("c is definitely the best").
     estimate [--rehearsal FILE] [--out FILE]
         the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py).
     request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4]
@@ -36,7 +38,7 @@ from glasses3d.agent.estimate import STUDIO_PARAMETERS, cents_text, suggested_ca
 from glasses3d.agent.loop import (RunRefused, RunSpec, ToolContract, contract_problems, instructions_sha256,
                                   run_astra, tool_registry_sha256)
 from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, Tariff, usd_text
-from glasses3d.agent.seeing import ENV_RIG, MATCHED_RIGS
+from glasses3d.agent.seeing import ENV_RIG, MATCHED_RIG, MATCHED_RIGS
 from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.g3d_host import compare as C
 from .lab import LAB_SCHEMA, Lab, data_url, read, sha, write_json_atomic
@@ -51,7 +53,7 @@ REFERENCE = G3D / "data/reference/prada"
 BASIS_JSON = G3D / "data/wp6v2/basis/cameras.json"
 LAB_DATA = G3D / "data/wp6v2/lab"
 ESTIMATE = LAB_DATA / "estimate.json"
-DEFAULT_RIG = ENV_RIG
+DEFAULT_RIG = MATCHED_RIG          # the job rig: the owner's light choice of 2026-10-11 (plan/PROGRESS.md decisions)
 K_TOKEN = "{K}"                     # instructions.txt states finish precondition 1 with the run's K
 
 # The estimate (WP6_FACETS §4.3): tokens ~ 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112, fitted
@@ -101,7 +103,8 @@ def brief_text(product: str, photos: list) -> str:
 
 def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sha256=SOURCE_SCENE_SHA256,
             reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json) -> dict:
-    """A new package (module doc). $0; ~4 min with photo_env (its light fit), ~1 min with studio_dome_v1."""
+    """A new package (module doc). $0; ~1 min with studio_dome_v1 (the default), ~4 min with photo_env (its light
+    fit)."""
     root = Path(root).resolve()
     if root.exists():
         raise ValueError("use a new empty package directory")

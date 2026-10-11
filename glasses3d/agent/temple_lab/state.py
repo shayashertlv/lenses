@@ -12,10 +12,11 @@ State (schema g3d.temple_lab_state/2):
     judgements  [{call_id, tool, compare_id, versus_compare_id, overall, photos, best_checkpoint, revision}]
     variants    [{id, call_id, parent, photos, items: [{label, revision | null, code | null, delta_head_mm}],
                 pairwise: {"A|B": mm}, rendered: [labels rendered at every photo], spread: [3 rendered labels] |
-                null}]
+                null, unseen?}]: an unseen result (a call the SDK timed out) never meets finish precondition 2
     images      {sha256: {kind, ref, revision, file}} of every image returned to Astra (the context guard's index)
     inherited   {revision, core, blender, hinge_leaf_gap_mm}: revision 0's warnings at prepare (lab.py module doc)
-    events      SceneHooks journal entries; finish; best_checkpoint; seq (compare / variants ids)
+    events      SceneHooks journal entries; finish (the accepted facet_finish; finish_unseen: one the SDK timed
+                out, which never ends the run); best_checkpoint; seq (compare / variants ids)
 """
 from __future__ import annotations
 
@@ -82,6 +83,11 @@ def astra_compares(state: dict) -> list[dict]:
 def seen_compares(state: dict) -> list[dict]:
     """Astra's compares that reached it (not those of a call the SDK timed out)."""
     return [c for c in astra_compares(state) if not c.get("unseen")]
+
+
+def seen_variants(state: dict) -> list[dict]:
+    """The facet_variants results that reached Astra (not those of a call the SDK timed out)."""
+    return [v for v in state["variants"] if not v.get("unseen")]
 
 
 def compare(state: dict, compare_id: str) -> dict | None:
@@ -182,7 +188,7 @@ def finish_missing(state: dict, *, status: str, best_revision: int, k: int, dist
         out.append({"precondition": 1, "message": f"{len(chain)} of {k} distinct applied heads compared (revisions "
                                                   f"{chain}); each must differ from every other one counted by "
                                                   ">= 0.2 mm max|dX| or a facet / crease-shape change"})
-    if not any(v.get("spread") for v in state["variants"]):
+    if not any(v.get("spread") for v in seen_variants(state)):
         out.append({"precondition": 2, "message": "no facet_variants call yet with >= 3 built and rendered variants "
                                                   "pairwise >= 0.3 mm apart"})
     covered = {p for c in state["compares"] if c["revision"] == best_revision for p in c["photos"]}

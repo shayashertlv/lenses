@@ -13,7 +13,8 @@ The first matching stage is applied (facet_edit with no edits) and compared at e
 result (target <= 40). Ops a stage cannot express are listed (hinge, chamfers and options have no edit op).
 
 Writes data/wp6v2/lab/t5b/{report.json, TOOL_TEST_*.png (compare images, chart, section strip, labelled), job/}.
-Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.wp6v2_expressivity [--rig photo_env]
+Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.wp6v2_expressivity [--rig <rig>] (default: the lab's
+job rig, studio_dome_v1)
 """
 from __future__ import annotations
 

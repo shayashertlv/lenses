@@ -12,8 +12,9 @@ geometry deltas between builds, and revision 0 from the original's export. numpy
         what changed between two specs (nodes, facets, creases, chains, scalars), compact.
     surface_grid(tb, step) / geometry_delta(tb_a, tb_b)
         the outer surface X on a (d, y) lattice, and between two builds: max |dX| over their common area, the
-        largest outline shift (y_top, y_bot, the end d), and whether the facet set or a built crease shape changed
-        (compared by node geometry, never by label: crease_signature; a rename is no change).
+        largest outline shift (y_top, y_bot, the end d), and whether the layout changed (layout_change: the facet
+        set, a node's (d, y) by >= HEAD_DISTINCT_MM, the facet adjacency or a declared crease's shape; compared by
+        geometry with that tolerance, never by label: a rename or a 0.05 mm nudge is no change).
     revision_zero(glb_path) -> {spec, report, side, hinge_z, axis, chart_mesh, footprints, body}
         template_from_mesh on the +X temple body of the exported head, with the decal and hinge footprints by
         geometry (the rule of tests/proofs/wp6v2_template_report.py) and the body's chart mesh (section strips).
@@ -39,9 +40,9 @@ CHAIN_POINTS_MAX = 160
 D_LIMIT_MM, Y_LIMIT_MM, T_LIMIT_MM = 400.0, 200.0, 40.0     # engineering bounds of a lab spec, not quality limits
 RISE_LIMIT, DELTA_LIMIT_MM, SCALAR_LIMIT_MM = 5.0, 20.0, 10.0
 GRID_STEP_MM = 0.5
-HEAD_DISTINCT_MM = 0.2          # §4.1 finish precondition 1: a head differs from its predecessor by >= this ...
+HEAD_DISTINCT_MM = 0.2          # §4.1 finish precondition 1: a head differs from its predecessor by >= this (max |dX|,
+                                # outline shift, or a node's (d, y) move: a tolerance, never a rounding) ...
 VARIANT_DISTINCT_MM = 0.3       # ... and precondition 2: variants pairwise >= this
-SIGNATURE_DECIMALS = 2          # facet / crease signatures compare node (d, y) rounded to 0.01 mm (crease_signature)
 DIFF_NAMES_MAX = 6              # diff_text: names listed per kind before "+N more" (§4.5 text budget)
 TEMPLE_MIN_REACH_MM, TEMPLE_MIN_OFFSET_MM = 60.0, 20.0     # the one body rule (g3d_host/pose.temple_body)
 
@@ -370,13 +371,16 @@ def diff_specs(a: dict, b: dict) -> dict:
     return out
 
 
-def diff_text(diff: dict, limit: int = 360, names: int = DIFF_NAMES_MAX) -> str:
+def diff_text(diff: dict, limit: int = 360, names: int = DIFF_NAMES_MAX, reset: bool = False) -> str:
     """One compact line of a diff_specs result; a list of more than ``names`` items shows its first names - 1 and
-    "+N more" (e.g. the layout reset_layout cleared)."""
+    "+N more". With ``reset`` (reset_layout cleared the parent's layout) the removed items are counted, not named."""
     parts = []
     for key in ("nodes", "facets", "creases"):
         for kind, items in diff.get(key, {}).items():
             sign = {"added": "+", "removed": "-", "changed": "~", "set": "+"}[kind]
+            if reset and kind == "removed":
+                parts.append(f"-{len(items)} {key if len(items) != 1 else key[:-1]}")
+                continue
             shown = items if len(items) <= names else items[:names - 1] + [f"+{len(items) - names + 1} more"]
             parts.append(f"{sign}{key[:-1] if key != 'creases' else 'crease'} " + ", ".join(shown))
     parts += diff.get("chains", []) + diff.get("scalars", [])
@@ -426,27 +430,101 @@ def surface_grid(tb, step: float = GRID_STEP_MM, origin: tuple = (0.0, 0.0)) -> 
     return ds, ys, X
 
 
-def facet_key(ps, label: str) -> str:
-    """A facet by geometry, never by name: the sorted (d, y) of its polygon's nodes, rounded to 0.01 mm."""
-    pts = sorted((round(float(ps.nodes[n][0]), SIGNATURE_DECIMALS) + 0.0,
-                  round(float(ps.nodes[n][1]), SIGNATURE_DECIMALS) + 0.0) for n in ps.facets[label]["poly"])
-    return ";".join(f"{d:.{SIGNATURE_DECIMALS}f},{y:.{SIGNATURE_DECIMALS}f}" for d, y in pts)
+def facet_polygon(ps, label: str) -> np.ndarray:
+    """A facet's polygon as its nodes' (d, y) in order, (n, 2) mm."""
+    return np.array([[float(ps.nodes[n][0]), float(ps.nodes[n][1])] for n in ps.facets[label]["poly"]], float)
 
 
-def crease_signature(tb) -> tuple:
-    """(facets, built creases) by geometry (§4.1 precondition 1): each facet as its facet_key, each built crease as
-    its shape and the keys of its two regions ("base" for the base). Renaming facets or nodes changes neither; a
-    change of either is a topology / crease-shape change."""
-    keys = {label: facet_key(tb.spec, label) for label in tb.spec.facets}
-    facets = tuple(sorted(keys.values()))
-    creases = tuple(sorted((c["shape"],) + tuple(sorted(keys.get(r, r) for r in c["regions"]))
-                           for c in tb.tables["creases"] if c["kind"] == "crease"))
-    return facets, creases
+def _segment_distance(P: np.ndarray, A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Distance of every point of P (k, 2) to every segment A[j]-B[j] (m, 2): (k, m)."""
+    AB = B - A
+    L2 = (AB ** 2).sum(1)
+    AP = P[:, None, :] - A[None, :, :]
+    t = np.clip((AP * AB[None]).sum(-1) / np.where(L2 > 0, L2, 1.0), 0.0, 1.0)
+    return np.sqrt(((AP - t[..., None] * AB[None]) ** 2).sum(-1))
+
+
+def boundary_distance(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
+    """Distance of every point of P to the closed polygon boundary Q."""
+    return _segment_distance(P, Q, np.roll(Q, -1, axis=0)).min(1)
+
+
+def corners(Q: np.ndarray, tol: float = HEAD_DISTINCT_MM) -> np.ndarray:
+    """The vertices of polygon Q that make its shape: those >= tol from the segment joining their two neighbours (a
+    node on an edge, or within tol of it, shapes nothing)."""
+    prev, nxt = np.roll(Q, 1, axis=0), np.roll(Q, -1, axis=0)
+    d = np.array([_segment_distance(Q[i:i + 1], prev[i:i + 1], nxt[i:i + 1])[0, 0] for i in range(len(Q))])
+    return Q[d >= tol]
+
+
+def same_facet(Pa: np.ndarray, Pb: np.ndarray, tol: float = HEAD_DISTINCT_MM) -> bool:
+    """Two facet polygons are the same facet within tol (a tolerance, never a rounding): every node of either lies
+    < tol from the other's boundary, and every corner of either lies < tol from a node of the other. A node moved
+    >= tol in (d, y) (a corner, or off the other's boundary) makes them different; a rename, the polygon's start or
+    direction and a node added on an edge do not."""
+    if (boundary_distance(Pa, Pb) >= tol).any() or (boundary_distance(Pb, Pa) >= tol).any():
+        return False
+    for P, Q in ((Pa, Pb), (Pb, Pa)):
+        c = corners(P, tol)
+        if len(c) and (np.sqrt(((c[:, None, :] - Q[None, :, :]) ** 2).sum(-1)).min(1) >= tol).any():
+            return False
+    return True
+
+
+def facet_matching(a, b, tol: float = HEAD_DISTINCT_MM) -> dict | None:
+    """{facet of build a: the same facet of build b} (same_facet, one to one), or None when the facet sets differ
+    (a facet added or removed, or a node moved >= tol in (d, y))."""
+    fa, fb = sorted(a.spec.facets), sorted(b.spec.facets)
+    if len(fa) != len(fb):
+        return None
+    pa = {lb: facet_polygon(a.spec, lb) for lb in fa}
+    pb = {lb: facet_polygon(b.spec, lb) for lb in fb}
+
+    def cost(la, lb):
+        return max(float(boundary_distance(pa[la], pb[lb]).max()), float(boundary_distance(pb[lb], pa[la]).max()))
+    cand = {la: sorted((lb for lb in fb if same_facet(pa[la], pb[lb], tol)), key=lambda lb: cost(la, lb))
+            for la in fa}
+    owner: dict = {}                                    # facet of b -> facet of a (Kuhn's augmenting paths)
+
+    def augment(la, seen):
+        for lb in cand[la]:
+            if lb not in seen:
+                seen.add(lb)
+                if lb not in owner or augment(owner[lb], seen):
+                    owner[lb] = la
+                    return True
+        return False
+    for la in fa:
+        if not augment(la, set()):
+            return None
+    return {la: lb for lb, la in owner.items()}
+
+
+def built_creases(tb, rename: dict | None = None) -> dict:
+    """{frozenset of the two regions: built shape} of every built crease (facet | facet and facet | base), the facet
+    labels renamed by ``rename``."""
+    rename = rename or {}
+    return {frozenset(rename.get(r, r) for r in c["regions"]): c["shape"]
+            for c in tb.tables["creases"] if c["kind"] == "crease"}
+
+
+def layout_change(a, b, tol: float = HEAD_DISTINCT_MM) -> dict:
+    """§4.1 precondition 1's layout part, by geometry and never by label: facets_changed (the facet sets differ:
+    facet_matching), and, when they match, creases_changed (the facet adjacency changed: another pair of regions
+    meets, or a declared crease turned from ridge to valley or back; None when the facet sets differ)."""
+    m = facet_matching(a, b, tol)
+    if m is None:
+        return {"facets_changed": True, "creases_changed": None}
+    ca, cb = built_creases(a, m), built_creases(b)
+    declared = {frozenset(m.get(f, f) for f in c["facets"]) for c in a.spec.creases} | \
+        {frozenset(c["facets"]) for c in b.spec.creases}
+    flipped = any({ca[k], cb[k]} == {"ridge", "valley"} for k in declared if k in ca and k in cb)
+    return {"facets_changed": False, "creases_changed": set(ca) != set(cb) or flipped}
 
 
 def geometry_delta(a, b, step: float = GRID_STEP_MM) -> dict:
     """Between two builds: max |dX| over the common outline area (lattice step mm), the largest outline shift
-    (y_top / y_bot at every lattice d of the common range, and the end d), the topology / crease-shape change, and
+    (y_top / y_bot at every lattice d of the common range, and the end d), the layout change (layout_change) and
     value_mm = max(max_dx_mm, outline_mm)."""
     da, ya, Xa = surface_grid(a, step)
     db, yb, Xb = surface_grid(b, step)
@@ -468,15 +546,15 @@ def geometry_delta(a, b, step: float = GRID_STEP_MM) -> dict:
         ds = np.linspace(lo, hi, max(2, int((hi - lo) / step) + 1))
         outline = max(outline, float(np.abs(pa.y_top(ds) - pb.y_top(ds)).max()),
                       float(np.abs(pa.y_bot(ds) - pb.y_bot(ds)).max()))
-    sa, sb = crease_signature(a), crease_signature(b)
     return {"max_dx_mm": round(max_dx, 4), "outline_mm": round(outline, 4),
-            "value_mm": round(max(max_dx, outline), 4), "facets_changed": sa[0] != sb[0],
-            "creases_changed": sa[1] != sb[1]}
+            "value_mm": round(max(max_dx, outline), 4), **layout_change(a, b)}
 
 
 def distinct_heads(delta: dict) -> bool:
-    """§4.1 precondition 1: >= HEAD_DISTINCT_MM max |dX| (or outline shift), or a topology / crease-shape change."""
-    return delta["value_mm"] >= HEAD_DISTINCT_MM or delta["facets_changed"] or delta["creases_changed"]
+    """§4.1 precondition 1: >= HEAD_DISTINCT_MM max |dX| (or outline shift), or a layout change (layout_change: a
+    facet added or removed, a node moved >= HEAD_DISTINCT_MM in (d, y), another adjacency, a declared crease
+    flipped). Nudges below HEAD_DISTINCT_MM never count."""
+    return bool(delta["value_mm"] >= HEAD_DISTINCT_MM or delta["facets_changed"] or delta["creases_changed"])
 
 
 def spread_triple(labels: list, pairs: dict) -> list | None:

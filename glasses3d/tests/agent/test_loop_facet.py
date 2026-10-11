@@ -252,3 +252,20 @@ def test_timeout_table_names_every_facet_tool():
     small = L.hard_timeout_s("facet_variants", variants=2, photos=1)
     assert small == L.FACET_VARIANTS_BASE_S + 3 * L.FACET_VARIANTS_PER_RENDER_S < L.HARD_TIMEOUT_S["facet_variants"]
     assert L.hard_timeout_s("facet_variants", variants=6, photos=3) <= L.HARD_TIMEOUT_S["facet_variants"]
+    assert all(L.HARD_TIMEOUT_S[name] >= 30 for name in TOOL_NAMES)
+
+
+def test_restore_and_finish_timeouts_exceed_their_inner_deadlines():
+    """facet_restore runs one checkpoint restore and facet_finish a restore and an export: their hard timeouts are
+    those declared worker deadlines plus the host margin, so the SDK never answers E_TIMEOUT while a restore or an
+    export may still succeed (a timed-out finish thread would otherwise still export and record)."""
+    from glasses3d.agent.journal import CHECKPOINT_DEADLINE_S
+    from glasses3d.agent.seeing import EXPORT_DEADLINE_S
+    from glasses3d.agent.temple_lab.lab import BUILD_DEADLINE_S
+    restore = CHECKPOINT_DEADLINE_S + L.FACET_DEADLINE_MARGIN_S
+    finish = CHECKPOINT_DEADLINE_S + EXPORT_DEADLINE_S + L.FACET_DEADLINE_MARGIN_S
+    assert L.hard_timeout_s("facet_restore") == restore == 90.0
+    assert L.hard_timeout_s("facet_finish") == finish == 210.0
+    assert L.sdk_timeout_s("facet_restore") > CHECKPOINT_DEADLINE_S
+    assert L.sdk_timeout_s("facet_finish") > CHECKPOINT_DEADLINE_S + EXPORT_DEADLINE_S
+    assert BUILD_DEADLINE_S == L.hard_timeout_s("facet_edit")           # a build never outlives its tool's table value

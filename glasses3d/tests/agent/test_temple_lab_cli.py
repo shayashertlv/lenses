@@ -62,7 +62,8 @@ def fake_import(root, cameras_json, photos, *, reason):
 
 
 class PrepLab:
-    """Lab.prepare's outward behaviour: the photo_env light frozen in work/compare, revision 0, a verified head."""
+    """Lab.prepare's outward behaviour: revision 0, a verified head and, with the photo_env rig only, the job's light
+    frozen in work/compare."""
     made: list = []
 
     def __init__(self, root):
@@ -77,9 +78,10 @@ class PrepLab:
         PrepLab.made.append(self)
 
     def prepare(self):
-        p = self.root / "work" / "compare" / "env-basis-01.json"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"weights_sha": "w" * 16}), encoding="utf-8")
+        if self.manifest["rig"] == "photo_env":
+            p = self.root / "work" / "compare" / "env-basis-01.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"weights_sha": "w" * 16}), encoding="utf-8")
         return {"status": "prepared", "checkpoint": "c0001"}
 
     def is_clean(self):
@@ -95,7 +97,7 @@ class PrepLab:
         self.closed = True
 
 
-def package(tmp_path: Path, rig: str = "photo_env") -> tuple[Path, dict]:
+def package(tmp_path: Path, rig: str = cli.DEFAULT_RIG) -> tuple[Path, dict]:
     src = sources(tmp_path)
     root = tmp_path / "job"
     out = cli.prepare(root, rig=rig, source_scene=src["scene"], scene_sha256=src["scene_sha256"],
@@ -120,8 +122,23 @@ def lab_on(root: Path) -> Lab:
 
 
 # --------------------------------------------------------------------------------------------- prepare
-def test_prepare_writes_an_isolated_bound_package(tmp_path):
+def test_the_default_rig_is_the_owners_choice_and_fits_no_light(tmp_path):
+    """The owner's light choice of 2026-10-11 ("c is definitely the best") = studio_dome_v1 is the package default:
+    prepare fits no photo_env light (job.json environment null) and make_spec needs none."""
+    assert cli.DEFAULT_RIG == "studio_dome_v1"
     root, out = package(tmp_path)
+    assert out["rig"] == "studio_dome_v1"
+    job = json.loads((root / "job.json").read_text(encoding="utf-8"))
+    assert job["rig"] == "studio_dome_v1" and job["environment"] is None
+    assert json.loads((root / "inputs" / "lab.json").read_text(encoding="utf-8"))["rig"] == "studio_dome_v1"
+    assert not (root / "work" / "compare").exists()
+    assert json.loads((root / "prepared.json").read_text(encoding="utf-8"))["environment"] is None
+    spec, _lab = cli.make_spec(root, "r", T.run_settings(effort="max", max_turns=40), "10", lab=lab_on(root))
+    assert spec.settings.finish_tool == "facet_finish"
+
+
+def test_prepare_writes_an_isolated_bound_package(tmp_path):
+    root, out = package(tmp_path, rig="photo_env")
     assert out["status"] == "prepared" and out["photos"] == 6 and out["paid_calls"] == 0 and PrepLab.made[-1].closed
     inputs = root / "inputs"
     images = sorted(p.name for p in (inputs / "images").iterdir())
@@ -198,7 +215,7 @@ def test_make_spec_binds_the_facet_settings_and_writes_an_unapproved_request(tmp
 
 
 def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
-    root, _ = package(tmp_path)
+    root, _ = package(tmp_path, rig="photo_env")
     settings = T.run_settings(effort="high", max_turns=40)
 
     def spec_of(lab):

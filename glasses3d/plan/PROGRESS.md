@@ -36,6 +36,12 @@ No paid call is authorized now. The next one needs a cost estimate and the owner
 
 ## Decisions (owner's words verbatim)
 
+- **2026-10-11, light for photo-matched renders:** "c is definitely the best". The owner was shown A/B/C on the
+  preferred and original models at all 7 photos, with neutral letters and identical lenses. C = `studio_dome_v1`
+  (A = photo_env, B = catalog_band_v1). Record: `data/wp6v2/light_choice/owner_choice.json`. `studio_dome_v1` is
+  the job rig for Astra and owner sheets. Its facet tone order is still not the photos' (WP6_FACETS §3.2), so
+  shading stays a qualitative aid.
+
 - **2026-10-10, WP6 rebuild:** "please rebuild wp6" (reply to the review that proposed judging WP6 by eye on
   photo-matched renders); "i just want astra to be able to handle facets and such, thats it. you can do whatever,
   even rebuild from scratch". Recorded design: [WP6_FACETS.md](WP6_FACETS.md) (62b25e4).

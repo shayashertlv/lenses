@@ -282,12 +282,21 @@ class Lab(SceneHooks):
 
     def mark_unseen(self, call_id: str) -> None:
         """A tool call Astra stopped waiting for (the SDK timed it out; its thread may still run): a compare it made
-        or still makes is recorded unseen and never demands a judgement (§4.1)."""
+        or still makes is recorded unseen and never demands a judgement (§4.1); its facet_variants sheets are unseen
+        and never meet finish precondition 2; a finish it accepted is moved to ``finish_unseen`` (Astra was told
+        E_TIMEOUT and the run goes on)."""
         with self._unseen_lock:
             self._unseen.add(call_id)
             for c in self.state["compares"]:
                 if c.get("call_id") == call_id and c["by"] == "astra":
                     c.update(unseen=True, judged=True)
+            for v in self.state["variants"]:
+                if v.get("call_id") == call_id:
+                    v["unseen"] = True
+            fin = self.state.get("finish")
+            if fin and fin.get("call_id") == call_id:
+                self.state.setdefault("finish_unseen", []).append(fin)
+                self.state["finish"] = None
 
     def restore(self, checkpoint_id, *, reason):
         before = self.s.head["id"]
@@ -301,7 +310,7 @@ class Lab(SceneHooks):
         """The context guard's one choice (loop.ContextGuard): compare and variant images of results older than the
         latest CONTEXT_KEEP_LATEST, except those of best_checkpoint's revision, become text stubs."""
         results = [("compare", c["compare_id"], c["seq"]) for c in S.seen_compares(self.state)] + \
-                  [("variants", v["id"], v["seq"]) for v in self.state["variants"]]
+                  [("variants", v["id"], v["seq"]) for v in S.seen_variants(self.state)]
         keep = {ref for _k, ref, _s in sorted(results, key=lambda r: r[2])[-CONTEXT_KEEP_LATEST:]}
         best = S.head_by_fingerprint(self.state, self.fingerprint_of(self.state.get("best_checkpoint")))
         if best is not None:
@@ -699,7 +708,8 @@ class Lab(SceneHooks):
         rid, new = self._register(spec, parent=parent["id"], kind="edit", ops=len(edits), note=note, call_id=call_id)
         self._builds[rid] = tb
         out = {"status": "built", "revision": rid, "parent": parent["id"], "spec": spec_sha256(spec)[:8],
-               "diff": G.diff_text(G.diff_specs(self.spec(parent["id"]), spec)), "receipt": self._receipt(tb)}
+               "diff": G.diff_text(G.diff_specs(self.spec(parent["id"]), spec), reset=bool(reset_layout)),
+               "receipt": self._receipt(tb)}
         if not new:
             out["note"] = f"this spec is revision {rid} already"
         if notes:
@@ -812,13 +822,17 @@ class Lab(SceneHooks):
                                                                    items)
             if render_status:
                 out["render"] = render_status
-        # §4.1 precondition 2 counts only variants Astra was shown: built AND rendered at every photo of the call
+        # §4.1 precondition 2 counts only variants Astra was shown: built AND rendered at every photo of a call whose
+        # result reached Astra (a call the SDK timed out is unseen: mark_unseen)
         spread = G.spread_triple(rendered, pairs)
         out["spread_ok"] = spread is not None
-        self.state["variants"].append({
-            "id": vid, "call_id": call_id, "parent": parent["id"], "photos": photos, "seq": self.state["seq"],
-            "items": [{k: it.get(k) for k in ("label", "revision", "code", "vs_head_mm")} for it in items],
-            "pairwise": out["pairwise_mm"], "rendered": rendered, "spread": spread})
+        rec = {"id": vid, "call_id": call_id, "parent": parent["id"], "photos": photos, "seq": self.state["seq"],
+               "items": [{k: it.get(k) for k in ("label", "revision", "code", "vs_head_mm")} for it in items],
+               "pairwise": out["pairwise_mm"], "rendered": rendered, "spread": spread}
+        with self._unseen_lock:
+            if call_id in self._unseen:
+                rec["unseen"] = True
+            self.state["variants"].append(rec)
         out["images"] = images
         self.save()
         return out
@@ -933,10 +947,15 @@ class Lab(SceneHooks):
             self.save()
             return {"status": "error", "code": exp.get("code") or "E_EXPORT", "message": exp.get("message")}
         v = GSPEC.validate_spec(exp["path"])
-        self.state["finish"] = {"call_id": call_id, "status": status, "checkpoint": self.s.head["id"],
-                                "best_checkpoint": best_checkpoint, "revision": best["revision"],
-                                "export": {"path": exp["path"], "sha256": exp["sha256"]}, "summary": summary,
-                                "validate_spec": {"ok": v["ok"], "errors": v["errors"], "warnings": v["warnings"]}}
+        fin = {"call_id": call_id, "status": status, "checkpoint": self.s.head["id"],
+               "best_checkpoint": best_checkpoint, "revision": best["revision"],
+               "export": {"path": exp["path"], "sha256": exp["sha256"]}, "summary": summary,
+               "validate_spec": {"ok": v["ok"], "errors": v["errors"], "warnings": v["warnings"]}}
+        with self._unseen_lock:                     # a finish the SDK timed out never ends the run (mark_unseen)
+            if call_id in self._unseen:
+                self.state.setdefault("finish_unseen", []).append(fin)
+            else:
+                self.state["finish"] = fin
         self.save()
         return {"status": "accepted", "finish": status, "checkpoint": self.s.head["id"], "revision": best["revision"],
                 "spec": self.state["revisions"][best["revision"]]["sha256"][:8],

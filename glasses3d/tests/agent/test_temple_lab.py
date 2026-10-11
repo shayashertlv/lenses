@@ -10,6 +10,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -29,7 +30,7 @@ from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab  # noqa: E402
 from glasses3d.g3d.temple import build_temple  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
 from glasses3d.g3d.temple import report as RP  # noqa: E402
-from glasses3d.g3d.temple.spec import canonical, spec_sha256  # noqa: E402
+from glasses3d.g3d.temple.spec import canonical, parse, spec_sha256  # noqa: E402
 from glasses3d.g3d_host.camera import Camera, NormFrame  # noqa: E402
 
 # the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt
@@ -96,6 +97,7 @@ class FakeSession:
         self.refuse_variants: set = set()
         self.render_error = False
         self.closed = 0
+        self.read_params = []
 
     @property
     def head(self):
@@ -142,6 +144,7 @@ class FakeSession:
     def call_read(self, tool, method, params, *, deadline_s, call_id):
         assert method == "temple_variants_render"
         self.calls.append((method, call_id, deadline_s))
+        self.read_params.append(params)
         self.read_fingerprints.append(self.head["fingerprint"])
         if self.render_error:
             return {"status": "error", "call_id": call_id, "message": "injected render failure"}
@@ -181,6 +184,8 @@ class FakeSeeing:
         return {"rig": rig, "light_frame": light_frame, "engine": "auto"}
 
     def export_head(self, call_id=None):
+        if self.slow_s:
+            time.sleep(self.slow_s)
         p = self.root / "work" / "exports" / f"head-{self.s.head['fingerprint']}.glb"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"glTF fake")
@@ -397,14 +402,64 @@ def test_topology_signature_is_geometry_not_labels():
     b = build_temple(renamed)
     d = G.geometry_delta(a, b)
     assert d["value_mm"] == 0.0 and not d["facets_changed"] and not d["creases_changed"] and not G.distinct_heads(d)
-    assert G.crease_signature(a) == G.crease_signature(b)
+    m = G.facet_matching(a, b)
+    assert m == {"F1": "G1", "F2": "G2", "F3": "Q7", "F4": "Z"}
+    assert G.built_creases(a, m) == G.built_creases(b)
+    assert frozenset({"F4", "base"}) in G.built_creases(a)              # a crease against the base keeps "base"
     moved = canonical(FX.prada_default())
     moved["nodes"]["C"][1] += 0.5                                       # C's y: the facets around C move
     d = G.geometry_delta(a, build_temple(moved))
-    assert d["facets_changed"] and G.distinct_heads(d)
-    sig = G.crease_signature(a)
-    assert all(";" in key for key in sig[0]) and all(c[0] in ("ridge", "valley") for c in sig[1])
-    assert any("base" in c[1:] for c in sig[1])                         # a crease against the base keeps "base"
+    assert d["facets_changed"] and d["creases_changed"] is None and G.distinct_heads(d)
+
+
+def _with_free_node(spec: dict, name: str, d: float, y: float) -> dict:
+    s = copy.deepcopy(canonical(spec))
+    s["nodes"][name] = [d, y, "base"]
+    return canonical(s)
+
+
+@pytest.mark.parametrize("dd, dy, distinct", [(0.05, 0.0, False), (0.0, -0.05, False), (0.02, 0.04, False),
+                                              (0.0, 0.19, False), (0.3, 0.0, True), (0.0, 0.3, True),
+                                              (0.0, 0.21, True)])
+def test_head_distinctness_is_a_tolerance_not_a_rounding(dd, dy, distinct):
+    """§4.1 precondition 1 (p3f_review lab defect 1): a node nudged by less than HEAD_DISTINCT_MM in (d, y) (its X
+    change far below 0.2 mm) is no new head, whatever 0.01 mm rounding of the nodes would say; a move of
+    HEAD_DISTINCT_MM or more is. C is a corner of F1, F2 and F4."""
+    a = build_temple(FX.prada_default())
+    moved = canonical(FX.prada_default())
+    moved["nodes"]["C"][0] += dd
+    moved["nodes"]["C"][1] += dy
+    d = G.geometry_delta(a, build_temple(moved))
+    if not distinct:
+        assert d["max_dx_mm"] < G.HEAD_DISTINCT_MM and d["outline_mm"] == 0.0
+        assert not d["facets_changed"] and not d["creases_changed"]
+    assert G.distinct_heads(d) is distinct, d
+
+
+def test_head_distinctness_ignores_labels_order_and_edge_nodes():
+    """A rename plus a rotated, reversed polygon is the same layout; so is a node added on a facet's edge (it shapes
+    nothing); a node added 0.3 mm off the edge is a new facet shape; deleting a facet is a new facet set."""
+    a = build_temple(FX.prada_default())
+    s = rename(FX.prada_default(), {"F1": "X1", "F2": "X2"}, {"A": "N1", "C": "N3"})
+    s["facets"]["X1"]["poly"] = list(reversed(s["facets"]["X1"]["poly"]))
+    s["facets"]["X2"]["poly"] = s["facets"]["X2"]["poly"][1:] + s["facets"]["X2"]["poly"][:1]
+    d = G.geometry_delta(a, build_temple(canonical(s)))
+    assert not G.distinct_heads(d), d
+    poly = canonical(FX.prada_default())["facets"]["F4"]["poly"]
+    nodes = canonical(FX.prada_default())["nodes"]
+    p, q = (np.asarray(nodes[n][:2], float) for n in poly[:2])
+    mid = 0.5 * (p + q)
+    normal = np.array([-(q - p)[1], (q - p)[0]]) / np.linalg.norm(q - p)
+    for offset, distinct in ((0.0, False), (0.3, True)):
+        x = mid + offset * normal
+        e = _with_free_node(FX.prada_default(), "M", float(x[0]), float(x[1]))
+        e["facets"]["F4"]["poly"] = [poly[0], "M"] + poly[1:]
+        P = G.facet_polygon(parse(e), "F4")
+        assert G.same_facet(G.facet_polygon(a.spec, "F4"), P) is not distinct
+    gone = canonical(FX.prada_default())
+    del gone["facets"]["F3"]
+    gone["creases"] = [c for c in gone["creases"] if "F3" not in c["facets"]]
+    assert G.facet_matching(a, SimpleNamespace(spec=parse(gone))) is None
 
 
 # --------------------------------------------------------------------------------------------- tools
@@ -509,6 +564,7 @@ T5_PHOTOS = {
     "03": ("top", 0.817, 7.387, [88, 0, 1360, 895], 0.2559,
            {"+1": [-0.66, 1.21, 2.85, 1.92, -0.41, -0.42, -1.2, -0.99, -0.72, -0.87, -0.29, None, None],
             "-1": [-0.8, 1.07, 2.71, 1.99, -0.54, -0.56, -0.99, -1.0, -0.57, -0.87, -0.3, None, None]}),
+    "04": ("front", 0.890, 7.320, [0, 35, 1190, 373], 0.6775, None),      # T5's compare_all (cmp017)
     "05": ("side", 0.877, 7.473, [49, 30, 1226, 572], 0.4225, None),
     "06": ("rear", 0.782, 6.572, [154, 47, 1364, 543], 0.4617,
            {"+1": [None, None, -0.94, -1.56, -0.47, -3.56, -3.39, -3.22, -3.36, -3.65, -3.03, -0.9, 0.0],
@@ -556,19 +612,29 @@ def roof_edits(r0: dict, rise: float) -> list:
             {"op": "set_crease", "facets": ["D", "U"], "shape": "ridge"}]
 
 
-@pytest.mark.parametrize("photos", [["01", "02", "03", "05", "06"], ["03", "06"]])
+class WorstFooter:
+    """The longest footer a facet run prints (a two-digit spend, a three-digit cap, a six-digit context)."""
+
+    def footer(self):
+        return L.footer_text(99.99, 100.0, 999_999)
+
+
+@pytest.mark.parametrize("photos", [PHOTO_IDS, ["01", "02", "03", "05", "06"], ["03", "06"]])
 def test_facet_edit_text_budget_on_recorded_t5_outputs(tmp_path, photos):
-    """§4.5 on the real T5 numbers: the H3 roof edit's facet_edit text with the recorded compare records, Blender
-    lines and revision-0 warnings is <= 1500 characters; the border ramps are one line; the warnings inherited from
-    revision 0 (W_ARM_NORMAL_SPREAD, W_HINGE_LEAF, the leaf gap) are left out."""
+    """§4.5 on the real T5 numbers: the H3 roof edit's facet_edit text with the recorded compare records (all six
+    photos, the default five, top and rear), Blender lines, revision-0 warnings and the longest footer is <= 1500
+    characters; the border ramps are one line; the warnings inherited from revision 0 (W_ARM_NORMAL_SPREAD,
+    W_HINGE_LEAF, the leaf gap) are left out; the layout reset_layout cleared is counted, not named."""
     lab = make_lab(tmp_path, blender_lines=T5_PREPARE_LINES, gap_mm=T5_GAP_MM)
     lab.seeing.records = t5_records()
     lab.s.blender_lines = T5_EDIT_LINES
-    body, _f, images, text = parsed(call(tools_of(lab)["facet_edit"], {
+    body, footer, images, text = parsed(call(tools_of(lab)["facet_edit"], {
         "parent_revision": 0, "reset_layout": True, "edits": roof_edits(lab.spec(0), -0.12), "judgement": None,
-        "note": "TOOL TEST: the T5 roof", "apply": True, "photos": photos}))
+        "note": "TOOL TEST: the T5 roof", "apply": True, "photos": photos}, context=WorstFooter()))
     assert body["status"] == "applied", body
+    assert footer == WorstFooter().footer() and list(body["photos"]) == photos
     assert len(text) <= 1500, (len(text), text)
+    assert "-4 facets" in body["diff"] and "-5 creases" in body["diff"] and "F1|F2" not in body["diff"]
     lines = body["receipt"]["lines"]
     ramps = [ln for ln in lines if ln.startswith("W_BORDER_RAMP")]
     assert len(ramps) == 1 and ramps[0].count(";") >= 1, lines
@@ -877,6 +943,82 @@ def test_sdk_timeout_text_has_the_footer_and_the_unseen_compare_needs_no_judgeme
                                               "edits": [set_t("C", FX.prada_default(), 1.4)], "note": "x",
                                               "apply": True, "photos": ["05"]}))
     assert body["status"] == "applied"                                 # no E_JUDGEMENT for the unseen compare
+
+
+def test_timed_out_variants_never_meet_precondition_2(lab):
+    """p3f_review lab defect 2: a facet_variants call the SDK times out still renders in its thread, but Astra never
+    saw its sheets: the result is recorded unseen and finish precondition 2 stays missing (both orders: the SDK
+    gives up before or after the result is recorded); a later call that returns counts."""
+    tl = tools_of(lab)
+    spec = FX.prada_default()
+    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
+    args = {"parent_revision": 0, "variants": variants, "photos": ["05"], "judgement": None}
+    read0 = lab.s.call_read
+
+    def slow_read(*a, **kw):
+        time.sleep(1.5)
+        return read0(*a, **kw)
+    lab.s.call_read = slow_read
+    out = sdk_call(tl["facet_variants"], args, "call_var_slow", 0.3)
+    lab.s.call_read = read0
+    assert json.loads(out.rsplit("\n", 1)[0])["code"] == "E_TIMEOUT"
+    rec = lab.state["variants"][-1]
+    assert rec["call_id"] == "call_var_slow" and rec["spread"] == ["A", "B", "C"] and rec["unseen"] is True
+    assert S.seen_variants(lab.state) == []
+
+    def missing():
+        return [m["precondition"] for m in S.finish_missing(lab.state, status="matched", best_revision=0, k=0,
+                                                            distinct=lambda a, b: True, target_photos=[])]
+    assert missing() == [2]
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], args, "call_var_late"))
+    assert body["spread_ok"] is True and missing() == []
+    lab.mark_unseen("call_var_late")                                    # the SDK gave up after the result
+    assert missing() == [2] and S.seen_variants(lab.state) == []
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], args, "call_var_ok"))
+    assert body["spread_ok"] is True and missing() == []
+
+
+def test_timed_out_finish_never_records_the_finish(lab, monkeypatch):
+    """A facet_finish the SDK times out (its restore and export still run in the thread) answers E_TIMEOUT and the
+    run goes on: its accepted finish is kept as finish_unseen, never as the run's finish (both orders)."""
+    import glasses3d.g3d_host.spec as GS
+    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
+                                                        "live_site_would_fail": []})
+    tl = tools_of(lab, finish_k=3)
+    cps = _distinct_heads_and_variants(lab, tl)
+    parsed(call(tl["photo_compare"], {"photos": PHOTO_IDS, "crop": None, "points_px": None}))
+    args = {"status": "matched", "best_checkpoint": cps[-1], "summary": "s", "judgement": judgement(lab, cps[-1])}
+    lab.seeing.slow_s = 1.5
+    out = sdk_call(tl["facet_finish"], args, "call_fin_slow", 0.3)
+    lab.seeing.slow_s = 0.0
+    assert json.loads(out.rsplit("\n", 1)[0])["code"] == "E_TIMEOUT"
+    assert lab.state["finish"] is None and [f["call_id"] for f in lab.state["finish_unseen"]] == ["call_fin_slow"]
+    args["judgement"] = None
+    body, *_ = parsed(call(tools_of(lab, finish_k=3)["facet_finish"], args, "call_fin_late"))
+    assert body["status"] == "accepted" and lab.state["finish"]["call_id"] == "call_fin_late"
+    lab.mark_unseen("call_fin_late")                                    # the SDK gave up after the record
+    assert lab.state["finish"] is None and len(lab.state["finish_unseen"]) == 2
+
+
+def test_the_job_rig_lights_every_compare_and_variant_render(lab):
+    """The lab's rig (lab.json; studio_dome_v1, the owner's choice of 2026-10-11, is the package default) lights
+    photo_compare and facet_edit's compares (native_linear and gloss_black) and facet_variants' renders."""
+    from glasses3d.agent.seeing import MATCHED_RIG
+    from glasses3d.agent.temple_lab import cli
+    assert cli.DEFAULT_RIG == MATCHED_RIG == lab.rig == "studio_dome_v1"
+    tl = tools_of(lab)
+    parsed(call(tl["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None}))
+    assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1"
+    assert lab.seeing.calls[-1]["passes"] == ["native_linear", "gloss_black"]
+    parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": judgement(lab),
+                                   "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x", "apply": True,
+                                   "photos": ["05"]}))
+    assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1"
+    spec = FX.prada_default()
+    parsed(call(tl["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": judgement(lab),
+                                       "variants": [{"label": lb, "edits": [set_t("C", spec, dt)]}
+                                                    for lb, dt in (("A", -1.0), ("B", 1.0))]}))
+    assert lab.s.read_params[-1]["rig"] == "studio_dome_v1"
 
 
 def test_mark_unseen_after_the_compare_was_recorded(lab):

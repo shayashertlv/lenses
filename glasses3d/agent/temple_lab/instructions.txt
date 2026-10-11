@@ -31,9 +31,9 @@ THE SPEC
   splice_chain, offset_chain, set_scalar. reset_layout clears nodes, facets and creases first.
 
 WHAT TO READ WHERE
-- Light: the renders use a light estimated for this job; the photos were lit by an unknown studio light. Shading
-  and tones are a qualitative aid only. Never set depth or ridge/valley from brightness alone. The black glossy row
-  shows facets as reflections, also qualitatively.
+- Light: the renders use one fixed studio light for the whole run; the photos were lit by an unknown studio light.
+  Shading and tones are a qualitative aid only. Never set depth or ridge/valley from brightness alone. The black
+  glossy row shows facets as reflections, also qualitatively.
 - Layout, where the creases run: from the crease overlays. Read (d, y) from the near-perpendicular side photos with
   points_px, never from oblique views. The d/y grid is valid inside the model outline. A common shift of outline
   and creases together is camera error, not shape.

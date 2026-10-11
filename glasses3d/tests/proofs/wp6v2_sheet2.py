@@ -3,11 +3,12 @@ depth.html asks "Can you see the depth change, and does the preferred look like 
 
 One job: a byte copy of the original Prada scene (sha 56274deb...) with the full pose basis (data/wp6v2/basis: target
 photos 01-06 and the black-side variant), inputs/lab.json of the lab schema so the worker's lab-only build and variant
-methods answer. Rig photo_env, the facet lab's job rig (the owner's lighting choice is pending:
-data/wp6v2/light_choice).
+methods answer. Rig = the facet lab's job rig (temple_lab.cli.DEFAULT_RIG: studio_dome_v1, the owner's lighting choice
+of 2026-10-11, "c is definitely the best", data/wp6v2/light_choice/owner_choice.json); the lenses are the scene's own,
+as Astra sees them. The previous photo_env sheet is kept at data/wp6v2/sheet2-photo_env.
 - ORIGINAL: compared at 01-06 and black-side (crops: the temple crop, cells <= CELL_MAX_PX, never upscaled). Its
-  frozen light, gains (white balance from 04's front; the black gloss gain from the black photo) and per-photo
-  stretch are shared by every later render, so the columns differ only by shape;
+  gains (white balance from 04's front; the black gloss gain from the black photo), any frozen light (photo_env only)
+  and per-photo stretch are shared by every later render, so the columns differ only by shape;
 - REVISION 0: template_from_mesh of the original's +X temple (agent/temple_lab/geometry.revision_zero, as the lab's
   prepare), applied to both temples from the original and compared likewise;
 - PREFERRED-v2 (TOOL TEST): the owner-preferred spec cfc11127 converted with v1_to_v2 (the /2 default 0.05 mm
@@ -37,6 +38,7 @@ from PIL import Image, ImageDraw
 from glasses3d.agent.journal import BlenderSession
 from glasses3d.agent.seeing import ENV_RIG, Seeing
 from glasses3d.agent.temple_lab import geometry as G
+from glasses3d.agent.temple_lab.cli import DEFAULT_RIG
 from glasses3d.agent.temple_lab.lab import LAB_SCHEMA
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple.convert import v1_to_v2
@@ -53,7 +55,10 @@ SCENE_SHA = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06"
 PREFERRED = G3D / "data/wp6/pose_arm_resume_20261010/distal_all_views/before/spec.json"
 PREFERRED_SHA = "cfc11127d085c4a642f4a77fb2d6daae676470ffabe699af55b16fc49ec908ce"
 BASIS_JSON = G3D / "data" / "wp6v2" / "basis" / "cameras.json"
-RIG = ENV_RIG
+RIG = DEFAULT_RIG                     # the facet lab's job rig
+LIGHT_CHOICE = G3D / "data" / "wp6v2" / "light_choice" / "owner_choice.json"
+LIGHT_TEXT = {"studio_dome_v1": "the studio light you chose on the lighting sheet (light C)",
+              ENV_RIG: "the light estimated from the photos (photo_env)"}
 PHOTOS = ("reference-01", "reference-02", "reference-03", "reference-04", "reference-05", "reference-06", "black-side")
 STRIP_PHOTOS = ("reference-05", "reference-02", "black-side")
 ROLL_MM = 0.4
@@ -255,12 +260,18 @@ def main() -> dict:
         p = OUT / f"strip_{short(rid)}.png"
         strip_image(rid, files, geo, rec, gains, bs, title).save(p)
         strips.append({"photo": rid, "png": p.name, "title": title})
-    summary = {"questions": QUESTIONS, "created": C._utc(), "rig": RIG, "lighting_choice": "pending (owner)",
+    choice = json.loads(LIGHT_CHOICE.read_text(encoding="utf-8"))
+    if choice.get("rig") != RIG:
+        raise RuntimeError(f"the owner chose {choice.get('rig')}, the lab's rig is {RIG}")
+    summary = {"questions": QUESTIONS, "created": C._utc(), "rig": RIG,
+               "lighting_choice": {"file": str(LIGHT_CHOICE), "sha256": sha(LIGHT_CHOICE),
+                                   **{k: choice.get(k) for k in ("date", "quote", "choice", "rig")}},
                "inputs": {"scene": {"path": str(SCENE), "sha256": SCENE_SHA},
                           "preferred": {"path": str(PREFERRED), "sha256": PREFERRED_SHA},
                           "basis": {"path": str(BASIS_JSON), "sha256": sha(BASIS_JSON)}},
                "specs": {n: {"sha256": spec_sha256(v), "roll_mm": v["roll_mm"]} for n, v in specs.items()},
-               "template_report": r0["report"], "environment": {k: env.get(k) for k in ("weights_sha", "lambda")},
+               "template_report": r0["report"],
+               "environment": None if env is None else {k: env.get(k) for k in ("weights_sha", "lambda")},
                "gains": gains, "boxes": boxes,
                "compare_ids": {n: r["result"]["compare_id"] for n, r in reps.items()},
                "strip": {"node_C": c, "variants": [{k: v[k] for k in ("label", "sha256", "vs_head_mm")}
@@ -293,18 +304,19 @@ a {{ color: inherit; }}
 img {{ max-width: 100%; height: auto; border: 1px solid #8884; background: #fff; }}
 </style></head><body>
 <h1>{html.escape(question)}</h1>
-<p>Lighting: the light estimated from the photos (photo_env). Your choice of lighting is still pending; these pages
-will be made again with the light you choose. Every image uses the same light, colour balance, crop and contrast, so
-the renders differ only by shape. The black photo (black-side) is a different colour of the same frame: it shows the
-shapes in black gloss.</p>
+<p>Lighting: {html.escape(LIGHT_TEXT.get(summary['rig'], summary['rig']))}. Every image uses the same light, colour
+balance, crop and contrast, so the renders differ only by shape. The black photo (black-side) is a different colour of
+the same frame: it shows the shapes in black gloss.</p>
 {body}
 </body></html>
 """
     limits = """<p>Known limits:</p>
 <ul>
-<li>The renders' temples look greyer and darker than the near-white photos: the light is estimated, not known.</li>
-<li>The lenses render light lavender with stripes; in the photos they are dark. Ignore the lenses.</li>
-<li>On the black photo the lettering is white; the renders show it gold.</li>
+<li>The renders' shading does not match the photos everywhere: the temples are a little greyer in the side views,
+and in the rear photo (06) the temple faces next to the hinges render black where the photo shows them light. The
+photos' own studio light is not known, so shading is only a rough guide.</li>
+<li>The lenses render black with dark blue stripes; in the photos they are dark grey-brown. Ignore the lenses.</li>
+<li>On the black photo the lettering is white; the renders show it pale cream.</li>
 </ul>"""
     page1 = f"""<p>Page 1 of 2.</p>
 <ul>

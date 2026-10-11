@@ -249,6 +249,7 @@ No rig yet reproduces the photos' facet tone order. Facet tones are not a reliab
 Astra's primary cues are therefore geometric: crease overlays (layout), outer-edge offsets in the top/rear photos
 (thickness) and the section strip (ridge/valley). Shading is a qualitative aid. The owner chooses the rig by eye
 from candidates (photo_env, studio_dome_v1, and a catalogue horizon-band prior declared before rendering).
+**Owner choice 2026-10-11: `studio_dome_v1` ("c is definitely the best").** It is the job rig.
 
 ### 3.3 Compare (agent/seeing.py `compare_to_photos`, g3d_host/compare.py, g3d_host/pose.py new)
 
