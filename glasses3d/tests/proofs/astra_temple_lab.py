@@ -29,6 +29,22 @@ and no native row, and the job's gloss_black gain still comes from black-side (s
 camera never displaces a fitted gain view). It records every tool output's text and image sizes (the estimate's
 input), where the job's gloss_black gain came from, and each variant sheet's path, pass and per-panel crease lines.
 
+Run 5's inward edge (a crease flipped ridge -> valley by applying a variant, unseen; a solved corner; no way to read t
+from a photo) is rehearsed with the same step count up to the context guard: photo_compare's depths read t from a
+pixel (compare_points: a B2 reading the default set leaves out comes under "depths", at the model's own t;
+compare_black: B2 at H3's crease corner Q, the projection of t = model + DEPTH_DT and the same pixel DEPTH_OFF_PX off
+its depth line, each the exact inverse: t, the model's t, px per mm of t against a finite difference, miss, the charted
+temple, in the text and the compare record); the "sunk" variant (H1's R below the base) builds F1|base a valley where
+H1 builds a ridge, so its variant item and the facet_edit that applies it with no edits ("diff": "no change") state
+crease_vs_head and diff_vs_head against H1; every built facet_edit states crease_vs_head exactly when a facet pair both
+builds have changed shape against the head it replaced (checked on the builds' own crease tables), and diff_vs_head
+exactly when its parent is not that head; one more facet_inspect on the roof H3 (after the guard) prints its solved
+nodes as "solve -> value" (the build's node table), while no receipt lists them as solved corners (outside the
+outline: they bind nothing). After the guard, one scripted head (HM, edit_margins: a crown whose corner B is solved
+from its plane and a logo that takes B, run 5's mechanism as a TOOL TEST layout) makes a receipt carry "margins" (the
+crease's margin with its solved corner, exactly lab.margins_summary of the build) and "solved" (B's t), so the cost
+estimate (cli estimate, priced from these outputs) prices a facet_edit with them.
+
 Writes <out>/rehearsal.json (and <out>-run.json, the process receipt).
 Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.astra_temple_lab rehearse --out DIR [--rig RIG]
 """
@@ -56,12 +72,16 @@ from glasses3d.agent import replay as R
 from glasses3d.agent.loop import run_astra
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
 from glasses3d.agent.session_inputs import image_identity
+from glasses3d.agent.temple_lab import geometry as G
+from glasses3d.agent.temple_lab import lab as LB
 from glasses3d.agent.temple_lab import sheets as SH
 from glasses3d.agent.temple_lab import state as S
 from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, make_spec, prepare
 from glasses3d.agent.temple_lab.lab import read, sha, write_json_atomic
 from glasses3d.agent.temple_lab.tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, run_settings
 from glasses3d.g3d.temple.spec import parse
+from glasses3d.g3d_host import pose as PO
+from glasses3d.g3d_host.camera import project_mm
 from glasses3d.g3d_host.compare import RIDGE_RGB, VALLEY_RGB
 
 RUN_ID = "offline-rehearsal"
@@ -89,6 +109,18 @@ BLACK_COMPARE = ["B2", "B3"]
 BLACK_ROWS = {"photo", "overlay", "gloss_black"}  # a variant-colourway photo's compare rows (no native row)
 FOOTER = re.compile(r"\nsettled \$\d+\.\d\d / cap \$\d+\.\d\d · context \S+ tokens$")
 CONTROL = "SCRIPTED CONTROL, not a visual judgement"
+# depth readings (photo_compare depths): TOOL TEST pixels, each the projection of a chart point at a chosen t
+DEPTH_PHOTO = "B2"                 # the black angled photo (run 5's photo agent read B there at ~7.4-8.0 px per mm)
+DEPTH_AT_R0 = (30.0, 0.0)          # compare_points (revision 0): this (d, y) at the model's own t
+DEPTH_NODE = "Q"                   # compare_black (H3): this crease corner ...
+DEPTH_DT = 1.0                     # ... at the model's t + DEPTH_DT (an arbitrary control thickness) ...
+DEPTH_OFF_PX = 5.0                 # ... and the same pixel moved this far off its depth line
+DEPTH_RE = re.compile(r"d (\S+) y (\S+): t (\S+) \(model (\S+)\) (\S+) px/mm, miss (\S+) px (charted|mirrored)")
+EDIT_H2_VARIANT = "sunk"           # the variant edit_h2 applies with no edits: F1|base ridge (H1) -> valley
+FLIP_H2 = [("F1|base", "ridge", "valley")]
+# the facet_edit steps that build
+EDITS_BUILT = ["edit_h1", "edit_h2", "edit_margins", "edit_h3", "edit_h4", "edit_h6"]
+HM_SOLVED = "B"                    # the margins head's corner solved from the crown's plane (an end of crown|logo)
 
 
 # --------------------------------------------------------------------------------------------- scripted edits
@@ -110,9 +142,18 @@ def facet(label: str, poly: list, crease=None, rise=None) -> dict:
 
 
 def head_edits(name: str, r0: dict) -> tuple[list, bool]:
-    """The scripted heads (edits, reset_layout) on revision 0's chains: H1 one raised triangle; H3 a two-facet roof
-    with a declared ridge (a new layout); H4 the roof with steeper sides; H5 between them (the timed-out apply); H6
-    steeper still (the third distinct head of the stuck finish)."""
+    """The scripted heads (edits, reset_layout) on revision 0's chains: H1 one raised triangle; HM a crown A P R B
+    whose corner B is solved (from the crown's plane) and a logo A B C that takes B, so the crown|logo crease has a
+    solved corner that sets it (its margin in the receipt; the crown's given corners span a wide triangle: the first
+    try, A at (3, 8), tilted 7.1 deg per mm and added a W_CONDITIONING line, t5_wip6c); H3 a two-facet roof with a
+    declared ridge (a new layout); H4 the roof with steeper sides; H5 between them (the timed-out apply); H6 steeper
+    still (the third distinct head of the stuck finish)."""
+    if name == "HM":
+        return [set_node("A", 3.0, -3.0, t_base(r0, 3.0, -3.0, 0.8)),
+                set_node("P", 30.0, 14.0, t_base(r0, 30.0, 14.0, 1.2)),
+                set_node("R", 78.0, 1.5, t_base(r0, 78.0, 1.5, 0.6)), set_node(HM_SOLVED, 45.0, -2.0, None),
+                set_node("C", 20.0, -13.0, t_base(r0, 20.0, -13.0, 0.5)),
+                facet("crown", ["A", "P", "R", HM_SOLVED]), facet("logo", ["A", HM_SOLVED, "C"])], True
     if name == "H1":
         return [set_node("P", 10.0, 4.0, "base"), set_node("Q", 40.0, 4.0, "base"),
                 set_node("R", 25.0, -12.0, t_base(r0, 25.0, -12.0, 0.8)), facet("F1", ["P", "R", "Q"])], False
@@ -125,9 +166,34 @@ def head_edits(name: str, r0: dict) -> tuple[list, bool]:
 
 
 def variant_edits(r0: dict) -> list:
-    """Three depths of H1's node R (its parent is H1's revision)."""
+    """Three depths of H1's node R (its parent is H1's revision): "sunk" sets R below the base, so F1|base is built a
+    valley where H1 (R 0.8 mm proud) builds a ridge (8.0° against 11.4° on the Prada original): a crease flip against
+    the head, as run 5's applied variant; deep and deeper keep the ridge."""
     return [{"label": lb, "edits": [set_node("R", 25.0, -12.0, t_base(r0, 25.0, -12.0, dt))]}
-            for lb, dt in (("shallow", 0.2), ("deep", 1.4), ("deeper", 2.0))]
+            for lb, dt in (("sunk", -0.8), ("deep", 1.4), ("deeper", 2.0))]
+
+
+def built_flips(ref, tb) -> list[tuple[str, str, str]]:
+    """The facet pairs both builds have whose built crease (the build's own crease table, kind "crease") is a ridge in
+    one and a valley in the other: [(pair, shape in ref, shape in tb)] (the rehearsal's own reading of the tables)."""
+    def shapes(x):
+        return {"|".join(c["regions"]): c["shape"] for c in x.tables["creases"] if c["kind"] == "crease"}
+    a, b = shapes(ref), shapes(tb)
+    return [(k, a[k], b[k]) for k in sorted(set(a) & set(b)) if a[k] != b[k] and "flat" not in (a[k], b[k])]
+
+
+def flips_stated(text, flips: list, prefix: str = "") -> bool:
+    """crease_vs_head states exactly these flips (absent when there are none)."""
+    if not flips:
+        return text is None
+    return isinstance(text, str) and text.startswith(prefix) and text.count(" -> ") == len(flips) and all(
+        re.search(rf"(^|; |: ){re.escape(k)} {a} [\d.]+° -> {b} [\d.]+°", text) for k, a, b in flips)
+
+
+def depth_rows(text: str) -> list[dict]:
+    """The depth readings of a compare text (lab.depth_text)."""
+    return [{"d": float(m[1]), "y": float(m[2]), "t": float(m[3]), "model": float(m[4]), "ppm": float(m[5]),
+             "miss": float(m[6]), "side": m[7]} for m in DEPTH_RE.finditer(str(text))]
 
 
 def judgement(lab, best: str | None = None, overall: str = "mixed") -> dict:
@@ -243,7 +309,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     tools = {t.name: t for t in spec.tools}
     timeout0 = tools["facet_inspect"].timeout_seconds
     edit_timeout0 = tools["facet_edit"].timeout_seconds
-    st: dict = {"fingerprints": [], "variant_views": []}
+    st: dict = {"fingerprints": [], "variant_views": [], "edit_heads": {}, "depths": {}}
     slow = {"armed": False, "done": threading.Event()}
     slow_edit = {"armed": False, "done": threading.Event()}
     inspect0, variants0, edit0, views0 = lab.inspect, lab.variants, lab.edit, lab._variant_views
@@ -274,6 +340,8 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         return views, comp
 
     def edit_fn(*args, **kwargs):
+        head = lab.head_record()                         # the head this edit's crease_vs_head / diff_vs_head face
+        st["edit_heads"][args[0]] = head["revision"] if head else None
         if not slow_edit["armed"]:
             return edit0(*args, **kwargs)
         slow_edit["armed"] = False
@@ -301,6 +369,52 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     def head_rev():
         return lab.head_record()["revision"]
 
+    def depth_control(pid: str, d: float, y: float, dt: float, off_px: float = 0.0, side: int = 1) -> dict:
+        """A TOOL TEST depth reading of the head: the native pixel where photo pid shows the point (d, y, t = the
+        model's t there + dt) of the side's temple, placed as the lab builds it (the spec's hinge opening) and opened
+        by the photo's pose, moved off_px perpendicular to the image of its depth line; and what the reading must
+        return: that t (the exact inverse), the model's t, the px per mm of t (a finite difference) and off_px."""
+        rev = head_rev()
+        tb, rid = lab.build(rev), lab.rid(pid)
+        cam, frame, pose = lab.basis.camera(rid), lab.basis.frame, lab.basis.pose(rid)
+        h = tb.spec.hinge
+        deg = float(h.get("opening_deg") or 0.0)
+        opening = (deg, (abs(float(h["axis_xz_mm"][0])), float(h["axis_xz_mm"][1]))) if deg else None
+        x_in = float(np.asarray(tb.spec.inner(d), float))
+        model = float(G.surface_at(tb, np.array([[d, y]], float))[0][0]) - x_in
+        t = model + dt
+
+        def uv(tt):
+            return project_mm(PO.chart_to_posed([[d, y, x_in + tt]], side, float(h["z_mm"]), pose, opening), cam,
+                              frame)[0]
+        e = uv(t + 0.01) - uv(t - 0.01)
+        at = uv(t) + off_px * np.array([-e[1], e[0]]) / float(np.hypot(*e))
+        return {"arg": {"photo": pid, "d_mm": d, "y_mm": y, "uv": [round(float(at[0]), 3), round(float(at[1]), 3)]},
+                "expect": {"photo": pid, "revision": rev, "side": side, "d_mm": d, "y_mm": y, "t_mm": t,
+                           "model_t_mm": model, "px_per_mm": float(np.hypot(*e)) / 0.02, "miss_px": off_px}}
+
+    def compare_points():
+        """The default set with points_px at 05 and a depth reading at B2, which that set leaves out (its reading
+        comes under "depths"): the model's own surface point, so t reads the model's t."""
+        c = depth_control(DEPTH_PHOTO, *DEPTH_AT_R0, 0.0)
+        st["depths"]["compare_points"] = [c["expect"]]
+        return R.tool_call("photo_compare", {"photos": None, "crop": None, "points_px": [
+            {"photo": "05", "points": POINTS_05}], "depths": [c["arg"]]})
+
+    def compare_black():
+        """B2 and B3, points_px at B2, two depth readings at B2 of H3's crease corner Q: on its depth line at the
+        model's t + DEPTH_DT and DEPTH_OFF_PX off it."""
+        d, y = (float(v) for v in lab.spec(head_rev())["nodes"][DEPTH_NODE][:2])
+        rows = [depth_control(DEPTH_PHOTO, d, y, DEPTH_DT, off_px=o) for o in (0.0, DEPTH_OFF_PX)]
+        st["depths"]["compare_black"] = [r["expect"] for r in rows]
+        return R.tool_call("photo_compare", {"photos": BLACK_COMPARE, "crop": None, "points_px": [
+            {"photo": "B2", "points": POINTS_B2}], "depths": [r["arg"] for r in rows]})
+
+    def inspect_roof():
+        """facet_inspect on H3 (a roof whose PT, QT, PB, QB are solved): after the context guard."""
+        st["roof_revision"] = head_rev()
+        return R.tool_call("facet_inspect", {})
+
     def arm_slow():
         slow["armed"] = True
         tools["facet_inspect"].timeout_seconds = SHORT_TIMEOUT_S
@@ -322,6 +436,11 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         return R.tool_call("facet_variants", {"parent_revision": st["h1_revision"], "variants": variant_edits(r0),
                                               "photos": VARIANT_PHOTOS, "judgement": judgement(lab, best=st["h1"])},
                            counted=GUARD_COUNT)
+
+    def edit_margins():
+        """HM (after the context guard), judging edit_h2's compare: its receipt carries margins and solved."""
+        edits, reset = head_edits("HM", r0)
+        return R.tool_call("facet_edit", edit(head_rev(), edits, reset, judged=judgement(lab)))
 
     def edit_h3():
         settle(slow["done"], 60)
@@ -362,24 +481,24 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("inspect", lambda: R.tool_call("facet_inspect", {})),
         ("photo_image", lambda: R.tool_call("photo_image", {"photo": "05", "crop": CROP_05})),
         ("photo_black", lambda: R.tool_call("photo_image", {"photo": "B2", "crop": None})),
-        ("compare_points", lambda: R.tool_call("photo_compare", {"photos": None, "crop": None, "points_px": [
-            {"photo": "05", "points": POINTS_05}]})),
+        ("compare_points", compare_points),
         ("edit_unjudged", lambda: R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0]))),
         ("edit_h1", edit_h1),
         ("variants", variants_call),
-        ("edit_h2", lambda: R.tool_call("facet_edit", edit(variant_rev("deep"), []))),
+        ("edit_h2", lambda: R.tool_call("facet_edit", edit(variant_rev(EDIT_H2_VARIANT), []))),
+        ("edit_margins", edit_margins),
         ("finish_early", lambda: R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": lab.s.head["id"],
                                                               "summary": CONTROL, "judgement": judgement(lab)})),
         ("inspect_slow", arm_slow),
         ("busy", busy),
         ("edit_h3", edit_h3),
+        ("inspect_roof", inspect_roof),
         ("edit_h4", edit_h4),
         ("edit_slow", edit_slow),
         ("restore_h3", restore_h3),
-        ("compare_black", lambda: R.tool_call("photo_compare", {"photos": BLACK_COMPARE, "crop": None, "points_px": [
-            {"photo": "B2", "points": POINTS_B2}]})),
+        ("compare_black", compare_black),
         ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
-                                                              "points_px": None})),
+                                                              "points_px": None, "depths": None})),
         ("edit_h6", edit_h6),
         ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h3"],
                                                         "summary": CONTROL, "judgement": judgement(
@@ -440,7 +559,8 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     expected_images = {"inspect": 2, "photo_image": 1, "photo_black": 1,
                        "compare_points": len(by["compare_points"]["body"]["photos"]),
                        "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": len(VARIANT_PHOTOS),
-                       "compare_black": len(BLACK_COMPARE)}
+                       "compare_black": len(BLACK_COMPARE), "inspect_roof": 2,
+                       "edit_margins": 2 + len(by["edit_margins"]["body"].get("photos") or {})}
     cw_refs = lab.colourway_refs()
     black_view = {pid: lab.basis.refs[ref].get("view_kind") for pid, ref in cw_refs.items()}
 
@@ -480,6 +600,90 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                         and (p["lines"] > 0) == (p["crease_px"] > 0) for p in panels)
                 and s["panels"]["head"]["lines"] > 0
                 and len({p["crease_px"] for p in panels}) > 1)            # each panel draws its own model's lines
+
+    # depth readings: the compare record (rounded to 0.001) and the text Astra read, against each control's inverse
+    def near(a, b, tol) -> bool:
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) <= tol
+
+    def depth_check(step: str, text) -> dict:
+        exp = st["depths"].get(step) or []
+        cid = by[step]["body"].get("compare_id")
+        got = next((c.get("depths") or [] for c in lab.state["compares"] if c["compare_id"] == cid), [])
+        txt = depth_rows(text)
+        ok = bool(exp) and len(got) == len(txt) == len(exp) and all(
+            g.get("photo") == e["photo"] and g.get("revision") == e["revision"] and g.get("side") == e["side"]
+            and near(g.get("t_mm"), e["t_mm"], 0.005) and near(g.get("model_t_mm"), e["model_t_mm"], 0.005)
+            and near(g.get("px_per_mm"), e["px_per_mm"], 0.01 * e["px_per_mm"])
+            and near(g.get("miss_px"), e["miss_px"], 0.01)
+            and x["d"] == e["d_mm"] and x["y"] == e["y_mm"] and near(x["t"], e["t_mm"], 0.006)
+            and near(x["model"], e["model_t_mm"], 0.006)
+            and near(x["ppm"], e["px_per_mm"], 0.06 + 0.01 * e["px_per_mm"]) and near(x["miss"], e["miss_px"], 0.06)
+            and x["side"] == {1: "charted", -1: "mirrored"}[e["side"]]
+            for e, g, x in zip(exp, got, txt))
+        return {"ok": ok, "expected": exp, "recorded": got, "text": text}
+    cp_body = by["compare_points"]["body"]
+    cp_photos = cp_body.get("photos") or {}
+    depths_points = depth_check("compare_points", (cp_body.get("depths") or {}).get(DEPTH_PHOTO))
+    depths_black = depth_check("compare_black", black_texts["B2"].split(" | depths ", 1)[1]
+                               if " | depths " in black_texts["B2"] else "")
+    # crease shapes against the head: every built facet_edit (crease_vs_head exactly on the builds' own flips against
+    # the head it faced, diff_vs_head exactly when its parent is not that head) and every variant item (against H1)
+    edits_vs_head = []
+    for i, r in enumerate(records):
+        b = r["body"]
+        if r["tool"] != "facet_edit" or r["status"] not in ("applied", "built"):
+            continue
+        head = st["edit_heads"].get(r["call_id"])
+        flips = built_flips(lab.build(head), lab.build(b["revision"])) if head is not None else None
+        edits_vs_head.append({
+            "step": names[i], "head": head, "parent": b.get("parent"), "revision": b.get("revision"), "flips": flips,
+            "crease_vs_head": b.get("crease_vs_head"), "diff_vs_head": b.get("diff_vs_head"),
+            "ok": head is not None and flips_stated(b.get("crease_vs_head"), flips, f"r{head}: ")
+                  and ("diff_vs_head" in b) == (b.get("parent") != head)})
+    v_items = {v["label"]: v for v in vbody.get("variants") or []}
+    v_head = vbody.get("head_revision")
+    variant_flips = {lb: built_flips(lab.build(v_head), lab.build(v["revision"])) for lb, v in v_items.items()
+                     if v_head is not None and "revision" in v}
+    b2 = by["edit_h2"]["body"]
+    h2_head = st["edit_heads"].get(by["edit_h2"]["call_id"])
+    sunk = v_items.get(EDIT_H2_VARIANT, {}).get("revision")
+    # facet_inspect on the roof H3: its solved nodes as "solve -> value" (the build's node table); they lie outside the
+    # outline (y +-30 mm), so no receipt lists them as solved corners
+    roof = st.get("roof_revision")
+    ins = by["inspect_roof"]["body"]
+    roof_nodes = lab.spec(roof)["nodes"] if roof is not None else {}
+    roof_table = lab.build(roof).tables["nodes"] if roof is not None else {}
+    roof_solved = sorted(n for n, (_d, _y, t) in roof_nodes.items() if t is None)
+    shown = (ins.get("spec") or {}).get("nodes") or {}
+    h3_receipt = by["edit_h3"]["body"].get("receipt") or {}
+    roof_ok = (ins.get("status") == "ok" and roof is not None and roof == st.get("h3_revision")
+               and (ins.get("head") or {}).get("revision") == roof and bool(roof_solved)
+               and all((shown.get(n) or [None] * 3)[2] == f"solve -> {float(roof_table[n]['t']):.2f}"
+                       for n in roof_solved)
+               and all(isinstance((shown.get(n) or [None] * 3)[2], float) for n in roof_nodes if n not in roof_solved)
+               and "solved" not in h3_receipt
+               and not any("solved from" in ln for ln in (h3_receipt.get("lines") or [])
+                           + ((ins.get("receipt") or {}).get("lines") or [])))
+    h2_vs_head = None if None in (h2_head, sunk) else \
+        f"r{h2_head}: " + G.diff_text(G.diff_specs(lab.spec(h2_head), lab.spec(sunk)))
+    applied_flip_ok = (b2.get("status") == "applied" and b2.get("diff") == "no change" and sunk is not None
+                       and b2.get("parent") == b2.get("revision") == sunk and h2_head == st.get("h1_revision")
+                       and b2.get("diff_vs_head") == h2_vs_head and "~node R t " in str(h2_vs_head)
+                       and built_flips(lab.build(h2_head), lab.build(sunk)) == FLIP_H2
+                       and flips_stated(b2.get("crease_vs_head"), FLIP_H2, f"r{h2_head}: ")
+                       and list(b2).index("crease_vs_head") < list(b2).index("receipt"))
+    # the margins head: its receipt's margins are exactly the host's summary of its build against the head it faced
+    # (B, solved from the crown, sets crown|logo), and its solved names B
+    hm = by["edit_margins"]["body"]
+    hm_head, hm_rev = st["edit_heads"].get(by["edit_margins"]["call_id"]), hm.get("revision")
+    hm_receipt = hm.get("receipt") or {}
+    hm_expect = None if None in (hm_head, hm_rev) else LB.margins_summary(
+        LB.crease_margins(lab.build(hm_rev)), LB.MARGIN_ITEMS_MAX,
+        [k for k, *_ in LB.flips(lab.build(hm_head), lab.build(hm_rev))])
+    margins_ok = (hm.get("status") == "applied" and hm_expect is not None and hm_receipt.get("margins") == hm_expect
+                  and hm_expect.startswith(f"{HM_SOLVED} solved: crown|logo ")
+                  and str(hm_receipt.get("solved")).startswith(f"{HM_SOLVED} ")
+                  and by["edit_margins"]["text_chars"] <= TEXT_BUDGET["facet_edit"])
     rows = lab.manifest["photos"]
     roles = [r.get("role", "target") for r in rows]
     final = json.loads((result.get("final_output") or "{}").split("\n", 1)[0] or "{}")
@@ -558,6 +762,21 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                 and "; (5,5) no temple hit" in black_texts["B2"]
                                 and "| points " not in black_texts["B3"],
         "gloss_gain_still_from_black_side": str(gloss_from).startswith("the dark variant photo black-side "),
+        "depth_reading_outside_the_default_set": depths_points["ok"] and list(cp_body.get("depths") or {}) == [
+            DEPTH_PHOTO] and DEPTH_PHOTO not in cp_photos and not any(" | depths " in str(v)
+                                                                      for v in cp_photos.values()),
+        "black_depths_read_t_px_per_mm_and_miss": depths_black["ok"] and len(depths_black["expected"]) == 2
+                                                  and " | depths " not in black_texts["B3"],
+        "applied_variant_states_the_flip_against_the_head": applied_flip_ok,
+        "crease_vs_head_exactly_on_flips": all(e["ok"] for e in edits_vs_head)
+                                           and [e["step"] for e in edits_vs_head] == EDITS_BUILT
+                                           and [e["step"] for e in edits_vs_head if e["flips"]] == ["edit_h2"],
+        "variant_items_state_their_flips": sorted(variant_flips) == sorted(labels)
+                                           and all(flips_stated(v_items[lb].get("crease_vs_head"), f)
+                                                   for lb, f in variant_flips.items())
+                                           and [lb for lb in labels if variant_flips[lb]] == [EDIT_H2_VARIANT],
+        "inspect_prints_solved_values": roof_ok,
+        "edit_receipt_carries_margins": margins_ok,
         "exit_checkpoint_verified": (result.get("exit_checkpoint") or {}).get("verified") is True,
         "worker_refuses_a_path_spec": path_refusal["status"] == "refused",
         "worker_failed_build_leaves_the_scene": native_rollback,
@@ -577,6 +796,13 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                 "gloss_black_gain_from": gloss_from},
               "variants_sheets": {"variants_id": vid, "passes": vviews["passes"],
                                   "crease_occlusion": vrec.get("crease_occlusion"), "sheets": sheets},
+              "depth_readings": {"compare_points": depths_points, "compare_black": depths_black},
+              "crease_vs_head": {"edits": edits_vs_head,
+                                 "variants": {lb: {"revision": v.get("revision"), "flips": variant_flips.get(lb),
+                                                   "crease_vs_head": v.get("crease_vs_head"),
+                                                   "solved": v.get("solved")} for lb, v in v_items.items()}},
+              "inspect_roof": {"revision": roof, "solved": roof_solved, "nodes": shown},
+              "margins_head": {"revision": hm_rev, "head": hm_head, "receipt": hm_receipt, "expected": hm_expect},
               "text_budget": {"limits": TEXT_BUDGET, "over": over_budget,
                               "largest": {t: max((r["text_chars"] for r in records if r["tool"] == t), default=None)
                                           for t in TEXT_BUDGET}},

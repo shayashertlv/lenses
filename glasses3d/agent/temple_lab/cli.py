@@ -35,6 +35,7 @@ from pathlib import Path
 import shutil
 import sys
 
+import numpy as np
 from PIL import Image
 
 from glasses3d.agent import approvals as A
@@ -45,6 +46,7 @@ from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, Tariff, usd_text
 from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, OFFSET_VIEWS
 from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.g3d_host import compare as C
+from glasses3d.g3d_host.camera import CAMERA_FIELDS, Camera, NormFrame, project_mm
 from .lab import (LAB_SCHEMA, VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX, Lab, data_url, read, sha,
                   write_json_atomic)
 from .state import OUTLINE_VIEW
@@ -125,6 +127,12 @@ SAME_DIRECTION_DEG = 10.0       # cameras whose temple-relative directions are c
 SQUARE_ON_DEG = 30.0            # under this angle to the outer face's normal a view is square-on: 1 mm of depth error
 #                                 moves a points_px reading at most tan 30 deg = 0.58 mm along the face
 EDGE_ON_DEG = 75.0              # from this angle on the face shows at most cos 75 deg = 0.26 of its width: edge-on
+# photo_compare's depths reads t from a pixel (lab.depth_reading). The brief gives each view how finely it reads t:
+# image px per mm of t (pose.line_depth's px_per_mm) at a point T_PX_BACK_MM behind the hinge of the temple whose
+# outer face the camera sees, unposed (about mid-temple: run 5's own reading of node B, d 47, in B2 was 7.87 px/mm,
+# the brief's figure for B2 8.1). Square-on views read t at about a quarter of that: unreliable.
+T_PX_BACK_MM = 50.0
+ALONG_DEG = 25.0                # a camera within this of the temple's length (Z) looks along front-to-back creases
 # OFFSET_VIEWS (imported from agent/seeing.py): the view kinds whose compares print outer-edge offsets.
 # The job's render light, which the brief names (instructions.txt: "the job's fixed light (the brief names it)");
 # g3d/render.py describes each rig.
@@ -146,6 +154,30 @@ def outer_face_deg(cam: dict) -> float:
     """The angle between a camera's view and the normal (+-X) of the outer face of the temple it sees best: 0 is
     square-on, 90 edge-on. 1 mm of depth error moves a points_px reading tan(angle) mm along that face."""
     return math.degrees(math.acos(min(1.0, abs(toward(cam)[0]))))
+
+
+def t_px_per_mm(rec: dict, model: dict | None) -> float | None:
+    """Image px per mm of t in a photo (how finely photo_compare's depths reads t there): the projected length of
+    1 mm along the outer-face normal (+-X, the temple the camera sees) at T_PX_BACK_MM behind that temple's hinge
+    (the record's hinge_axis_xz_mm, else the model's front pivot) at the front pivot's height, through the record's
+    camera in the pose basis's NormFrame (``model``: the cameras.json model record, frame and front_pivot_mm). None
+    without a full camera or that model record."""
+    cam = (rec or {}).get("camera") or {}
+    if not model or not model.get("frame") or model.get("front_pivot_mm") is None or \
+            any(cam.get(k) is None for k in CAMERA_FIELDS):
+        return None
+    side = "+1" if toward(cam)[0] > 0 else "-1"
+    pivot = np.asarray(model["front_pivot_mm"], float)
+    hinge = ((rec.get("hinge_axis_xz_mm") or {}).get(side) or [pivot[0], pivot[2]])
+    P = np.array([float(hinge[0]), pivot[1], float(hinge[1]) - T_PX_BACK_MM])
+    n = np.array([1.0 if side == "+1" else -1.0, 0.0, 0.0])
+    q = project_mm(np.stack([P - 0.5 * n, P + 0.5 * n]), Camera.from_dict(cam), NormFrame.from_dict(model["frame"]))
+    return float(np.hypot(*(q[1] - q[0])))
+
+
+def looks_along_deg(cam: dict) -> float:
+    """The angle between a camera's view and the temple's length (+-Z): 0 looks straight along it."""
+    return math.degrees(math.acos(min(1.0, abs(toward(cam)[2]))))
 
 
 def direction_deg(a: dict, b: dict) -> float:
@@ -227,10 +259,18 @@ def camera_fit_text(rec: dict, ids: dict) -> str | None:
     return None
 
 
-def photo_line(p: dict, rec: dict | None, ids: dict) -> str:
+def depth_text(a: float, px: float | None) -> str:
+    """How finely photo_compare's depths reads t in a view at ``a`` deg to the outer face (``px``: t_px_per_mm, None
+    when unknown): measured at a moderate angle, unreliable square-on."""
+    if angle_band(a) == "square-on":
+        return "reading t with depths is unreliable here" + (f": about {px:.1f} px per mm" if px is not None else "")
+    return f"depths reads t at about {px:.1f} px per mm" if px is not None else "depths reads t here"
+
+
+def photo_line(p: dict, rec: dict | None, ids: dict, model: dict | None = None) -> str:
     """One photo of the brief: its view (and colour), then from its pose-basis record: the camera direction, the
-    temple it sees and how (with the points_px depth sensitivity there), faces it sees from above or below, the
-    number lines its compares print and the camera's fit."""
+    temple it sees and how (with how finely depths reads t there: t_px_per_mm with ``model``, the pose basis's model
+    record), faces it sees from above or below, the number lines its compares print and the camera's fit."""
     other = p.get("role", "target") != "target"
     head = f"- {p['id']}: {p['view']}" + (f", {colour_text(p)}" if other else "")
     cam = (rec or {}).get("camera") if p.get("role") != "reference" else None
@@ -244,8 +284,7 @@ def photo_line(p: dict, rec: dict | None, ids: dict) -> str:
     if a < EDGE_ON_DEG:
         whose = ("the charted temple's outer face" if toward(cam)[0] > 0
                  else "the mirrored temple's outer face, from its own side,")
-        bits.append(f"{whose} {angle_band(a)} ({a:.0f} deg; points_px moves {math.tan(math.radians(a)):.2f} mm per "
-                    "mm of depth error)")
+        bits.append(f"{whose} {angle_band(a)} ({a:.0f} deg; {depth_text(a, t_px_per_mm(rec, model))})")
     else:
         bits.append(f"the outer faces edge-on ({a:.0f} deg)")
     if 90.0 - abs(pitch) < EDGE_ON_DEG:
@@ -262,13 +301,14 @@ def photo_line(p: dict, rec: dict | None, ids: dict) -> str:
 
 
 def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: str = DEFAULT_RIG,
-               roll_mm: float | None = None) -> str:
+               roll_mm: float | None = None, model: dict | None = None) -> str:
     """The brief (the job's facts; instructions.txt is general): the target photos and any of another colour (role
     colourway: a camera, photo_compare; role reference: photo_image only), the job's render light (``rig``) and the
     two temples' names, one line per photo from its pose-basis record in ``cameras`` ({image file name: cameras.json
-    record}; the photo row's path names the file), then the photos grouped by direction, by how they see the outer
-    face, the number lines and the finishes (listed only for the photo rows that give one), revision 0 and the real
-    temples' edge rounding (``roll_mm`` when the job knows it, else "not known")."""
+    record}; the photo row's path names the file; ``model``: the pose basis's model record, for how finely depths
+    reads t in each view), then the photos grouped by direction, by how they see the outer face, the views that look
+    along front-to-back creases, the number lines and the finishes (listed only for the photo rows that give one),
+    revision 0 and the real temples' edge rounding (``roll_mm`` when the job knows it, else "not known")."""
     cameras = cameras or {}
     targets = [p for p in photos if p.get("role", "target") == "target"]
     others = [p for p in photos if p.get("role", "target") != "target"]
@@ -288,8 +328,9 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
              "mirror image on the other side; compares print outer-edge offsets per temple under these names.",
              "", "Each photo: its view; the camera's yaw (0 from the front, +90 from the charted temple's side, "
              "-90 from the mirrored temple's, 180 from the rear) and pitch (+ from above); how it sees the temple's "
-             "outer face (0 deg square-on, 90 deg edge-on); its number lines; its camera's fit."]
-    lines += [photo_line(p, recs[p["id"]], ids) for p in targets + others]
+             "outer face (0 deg square-on, 90 deg edge-on) and how finely photo_compare's depths reads t there; its "
+             "number lines; its camera's fit."]
+    lines += [photo_line(p, recs[p["id"]], ids, model) for p in targets + others]
     cams = {pid: rec["camera"] for pid, rec in recs.items() if rec and rec.get("camera")}
     if cams:
         def listed(ids_):
@@ -301,7 +342,10 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
                       f"the side views of the two temples): {groups}.",
                   f"The temple's outer face square-on (under {SQUARE_ON_DEG:g} deg): {listed(band['square-on'])}. At "
                   f"a moderate angle ({SQUARE_ON_DEG:g} to {EDGE_ON_DEG:g} deg): {listed(band['at a moderate angle'])}"
-                  f". Edge-on ({EDGE_ON_DEG:g} deg or more): {listed(band['edge-on'])}."]
+                  f". Edge-on ({EDGE_ON_DEG:g} deg or more): {listed(band['edge-on'])}.",
+                  "Front and rear views look along creases that run front to back: "
+                  f"{listed([pid for pid, c in cams.items() if looks_along_deg(c) < ALONG_DEG])} (cameras within "
+                  f"{ALONG_DEG:g} deg of the temple's length)."]
         offsets = [p["id"] for p in targets + others if p["id"] in cams and p["view"] in OFFSET_VIEWS]
         outline = [p["id"] for p in targets if p["id"] in cams and p["view"] == OUTLINE_VIEW]
         lines.append(f"Outer-edge offsets: {listed(offsets)}. Outline line: {listed(outline)}.")
@@ -396,7 +440,7 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     if len(set(ids)) != len(ids):
         raise ValueError(f"photo ids must be distinct: {ids}")
     (inputs / "brief.txt").write_text(brief_text(manifest.get("name") or reference.name, photos, doc["images"],
-                                                 rig=rig), encoding="utf-8")
+                                                 rig=rig, model=doc.get("model")), encoding="utf-8")
     assets.append({"path": "brief.txt", "sha256": sha(inputs / "brief.txt")})
     copy(HERE / "instructions.txt", "instructions.txt")
     write_json_atomic(bdir / "cameras.json", {**doc, "images": {**targets, **variants}})

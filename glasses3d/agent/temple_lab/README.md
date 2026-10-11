@@ -26,9 +26,10 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
     sha-pinned; below), `brief.txt`, `instructions.txt` and `lab.json` (`g3d.temple_lab/2`: the rig, every input's
     sha256, the photo list with each photo's role, the pose basis's file hashes). `instructions.txt` is general for
     any faceted temple and photo set; `brief.txt` (`cli.brief_text`) carries the job's facts: per photo its camera
-    direction, the angle to the temple's outer face (square-on, moderate, edge-on) with the `points_px` depth
-    sensitivity, its number lines and its camera's fit (a transported camera: photo to photo and its check against
-    the starting model); the direction groups; the render light (`--rig`); which temple is charted and which
+    direction, the angle to the temple's outer face (square-on, moderate, edge-on) with how finely photo_compare's
+    `depths` reads t there (px per mm), its number lines and its camera's fit (a transported camera: photo to photo
+    and its check against the starting model); the direction groups; the views that look along creases running front
+    to back; the render light (`--rig`); which temple is charted and which
     mirrored; the finishes the photo rows give (only the black photos'); revision 0; and the real temples' edge
     rounding, "not known";
   - `basis/cameras.json`: the pose basis restricted to the target photos and B1-B3 (with their supplied mattes under
@@ -42,15 +43,16 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
   - `job.json` binds the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`), the rig and
     any frozen light; `prepared.json` and `tools.json` describe the package.
 - **rehearse** (T5, $0, about 2 min: prepare 30-40 s, run about 90 s, one Blender worker) prepares its own package
-  and runs a scripted conversation (19 requests) through the pinned Agents SDK, the real Blender worker and every
+  and runs a scripted conversation (20 requests) through the pinned Agents SDK, the real Blender worker and every
   tool, with api.openai.com replaced by a MockTransport and the network blocked. The edits are arbitrary controls. It
   covers the approval and network guards, required tool choice, E_JUDGEMENT, an SDK timeout then E_BUSY, a timed-out
   apply, a refused then an accepted finish, the context guard, the export, the text budgets and the top photo's
   outline line, and the photo set: every photo in the first request (6 target + 3 colourway roles), a black photo in
   a facet_edit compare, facet_variants at a target and a black photo (gloss_black panels, each model's crease lines
-  counted per panel, the scene unchanged), the B2/B3 compare (photo / overlay / gloss_black) with `points_px`, and the
-  gloss gain still from black-side. It writes `rehearsal.json` with its checks (31 on `review_t5`) and the size of
-  every tool output.
+  counted per panel, the scene unchanged), the B2/B3 compare (photo / overlay / gloss_black) with `points_px`, the
+  gloss gain still from black-side, photo_compare's `depths` (a B2 reading outside the default set, two on a black
+  photo), the flips against the head (`crease_vs_head`, `diff_vs_head` of an applied variant) and inspect's solved
+  values. It writes `rehearsal.json` with its checks (37 on `t5_wip6b`) and the size of every tool output.
 - **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's tool outputs
   (`--out`, default `data/wp6v2/lab/estimate.json`). Output tokens per request are the paid facet runs' means at
   effort max (`cli.OUTPUT_TOKENS`: expected 1,852 = run 4, high 2,064 = run 3). facet_variants is priced at the most

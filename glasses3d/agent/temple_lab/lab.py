@@ -44,7 +44,7 @@ charted on) and "mirrored" (-X, its mirror), from the records' pose.SIDE_KEYS "+
 Tool methods (each returns a dict for tools.py; "images" lists image files, never sent as paths):
     inspect()                                       head summary, chart, section strip (head / original / parent)
     photo(photo, crop)                              a target photo or a native-pixel crop, with its transform
-    compare(call_id, photos, crop, points)          the photo-matched compare of the head -> compare_id
+    compare(call_id, photos, crop, points, depths)  the photo-matched compare of the head -> compare_id
     edit(call_id, parent_revision, reset_layout, edits, judgement, note, apply, photos)
     variants(call_id, parent_revision, variants, photos, judgement)
     restore_tool(call_id, checkpoint, judgement)
@@ -60,6 +60,31 @@ The state lock (``Lab.state_lock``, re-entrant) guards every mutation of ``Lab.s
 runs on the event-loop thread while a timed-out call's worker thread may still mutate or save the state, and json
 never serialises a dict that grows under it. It is held only for the mutation or the write, never across a build or
 render.
+
+Solved corners, crease margins and crease shapes against the head (run 5's inward edge: a crease corner solved from
+another facet's plane flipped crown|logo ridge -> valley unseen): facet_inspect prints a solved t as "solve -> value"
+and, on every crease between two facets, its margin (``crease_margins``, in the builder's terms: planes flat in X =
+x_in(d) + t): each face's corner farthest across the crease's line and that corner's offset in X from the other face's
+plane (+ = a ridge by that corner; a t error that size at that corner flips it when no end of the crease is solved),
+and the corners that set it (its ends and those far corners) whose t is solved, except those solved by design
+(``by_design``: a crease + rise facet's other corners); the line is cut in its margin first (``fit_line``).
+facet_edit's receipt and each facet_variants item list, capped and grouped by those solved corners, only the margins
+of creases flipped against the head (first), with such a solved corner or with a margin under MARGIN_FRAGILE_MM at a
+corner with a t of its own (``margins_summary``), the solved corners whose t moved from the CURRENT HEAD's, not those
+solved by design (``solved_moves``), and the creases built with the other shape than in the head (``crease_changes``:
+facet_edit's ``crease_vs_head``, beside ``diff_vs_head`` when the parent is not the head, e.g. a variant applied with
+no edits; facet_restore's, against the head it replaces, also names their solved setting corners: it has no margins).
+A refused build's message (``refusal_message``, facet_edit and facet_variants, within REFUSAL_MAX): E_CREASE_SHAPE
+names the solved corners that set that crease (``refusal_solved``: its ends and far corners, from the spec built
+without its declarations); E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it (``relief_rise``:
+the misfit is linear in the rise, so one more build gives it; the printed value is confirmed to build), else prints
+the misfit to 6 significant digits.
+
+Depth readings (photo_compare ``depths``, ``Lab.depths`` / ``depth_reading``): a pixel of a photo with a camera read as
+the thickness t of a chart point (d, y) along its depth line (pose.line_depth), independent of the model's depth (a
+points_px t is the model's), with the model's t there, the px per mm of t and the pixel's miss from the line, on the
+temple whose outer face the camera sees (both or neither, e.g. a front view: the temple whose point at the model's t
+projects nearest the pixel); the compare record and the text print the same rounded numbers (``fixed``).
 
 ``Lab.distinct(ra, rb)`` is the one head-distinctness rule (geometry.distinct_heads of the two BUILT temples, cached
 per pair) for finish preconditions 1 and 4.
@@ -79,6 +104,7 @@ import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 import time
 
@@ -92,11 +118,13 @@ from glasses3d.agent.seeing import GRID_STATION_MM, MATCHED_RIGS, Seeing
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import draw as DR
 from glasses3d.g3d.temple import report as RP
-from glasses3d.g3d.temple.spec import BORDER_RAMP_WARN_DEG, TempleError, canonical, plain, spec_sha256
+from glasses3d.g3d.temple.build import points_in_poly
+from glasses3d.g3d.temple.spec import BORDER_RAMP_WARN_DEG, TempleError, canonical, parse, plain, spec_sha256
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
 from glasses3d.g3d_host import spec as GSPEC
+from glasses3d.g3d_host.camera import project_mm
 from . import geometry as G
 from . import sheets as SH
 from . import state as S
@@ -119,6 +147,17 @@ CONTEXT_KEEP_LATEST = 2          # the context guard keeps the images of the lat
 LOCK_WAIT_S = 600.0              # exit_checkpoint / close wait this long for a tool call still holding the scene
 MATERIAL_ABS, MATERIAL_REL = 0.1, 0.1     # an inherited warning shows again when a number moves more than this
 RAMP_ITEMS_MAX = 8               # border-ramp runs listed per receipt (then "+N more")
+SOLVED_MOVE_MM = 0.1             # a solved corner is listed in a receipt when its t moved this much from the head's
+SOLVED_ITEMS_MAX = 6             # solved corners listed per receipt (then "+N more")
+MARGIN_FRAGILE_MM = 1.0          # a crease margin under this is listed in receipts (a t error that size can flip it)
+MARGIN_ITEMS_MAX = 3             # crease margins shown per facet_edit receipt (then "+N more")
+MARGIN_VARIANT_ITEMS_MAX = 1     # ... per facet_variants item (its flips first)
+RISE_STEP = 0.01                 # E_RELIEF_STEP: the second build's rise_per_mm offset (relief_rise)
+RISE_DIGITS = 7                  # ... the closing rise_per_mm's least significant digits (more while rounding misses)
+ROUNDING_MISS_MM = 1e-4          # ... a refusal by less than this at a printed rise is its rounding (_rounding_miss)
+CORNER_ON_LINE_MM = 1e-3         # a corner this close to a crease's line is one of its ends, never a far corner
+FAR_NAMED_SHARE = 0.9            # a named corner this share as far across a crease as its facet reaches: the far corner
+DEPTHS_MAX = 12                  # photo_compare depth readings per call
 NUMBER_RE = re.compile(r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?![\w.])")
 RENDER_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")   # = g3d/render.py NAME_RE (that module imports bpy; a test pins it)
 SIDE_TEXT = {PO.SIDE_KEYS[1]: "charted", PO.SIDE_KEYS[-1]: "mirrored"}     # compare text per temple (module doc)
@@ -177,13 +216,451 @@ def brief(text: str, limit: int = REFUSAL_MAX) -> str:
 
 def ramp_line(warnings: list) -> str:
     """Every W_BORDER_RAMP of a build in one line: facet, signed height in mm (+ proud of the base, - below it),
-    slope over the border band, d (a point or a range)."""
+    slope over the border band, d (a point or a range). The sign's legend is in facet_edit's description, not in
+    every receipt (the final pre-run review: §4.5's 1.5k)."""
     items = []
     for w in warnings[:RAMP_ITEMS_MAX]:
         a, b = (f"{x:.1f}" for x in w["d_mm"])
         items.append(f"{w['facet']} {w['height_mm']:+.2f} {w['slope_deg']:.1f}° d {a if a == b else f'{a}-{b}'}")
     more = f"; +{len(warnings) - RAMP_ITEMS_MAX} more" if len(warnings) > RAMP_ITEMS_MAX else ""
-    return f"W_BORDER_RAMP >{BORDER_RAMP_WARN_DEG:g}° (mm, + proud/- below base): " + "; ".join(items) + more
+    return f"W_BORDER_RAMP >{BORDER_RAMP_WARN_DEG:g}°: " + "; ".join(items) + more
+
+
+def conditioning_line(warnings: list) -> str:
+    """Every W_CONDITIONING of a build in one line (the core prints one per facet, its phrase repeated):
+    "W_CONDITIONING (deg per mm of node error): crown 8.3, tail_face 7.2"."""
+    return "W_CONDITIONING (deg per mm of node error): " + ", ".join(
+        f"{w['facet']} {float(w['deg_per_mm']):.1f}" for w in warnings)
+
+
+# --------------------------------------------------------------------------------------------- solved nodes, creases
+def _inner_x(tb, d: float) -> float:
+    return float(np.asarray(tb.spec.inner(d), float))
+
+
+def solved_corners(tb) -> dict:
+    """{node: (t, facet)}: a build's solved nodes (t "solve") that sit on an arrangement vertex, i.e. inside or on the
+    outline (a solved node outside it binds nothing: g3d/temple/planes.py), each with the plane value its vertex took
+    as a thickness from the inner face and the facet whose plane gave it (planes.solve's source of that vertex: the
+    first facet in its visiting order that holds the vertex)."""
+    sol, out = tb.sol, {}
+    for name, (d, _y, t) in tb.spec.nodes.items():
+        v = sol.node_vertex.get(name)
+        if t is not None or v is None:
+            continue
+        src, X = sol.source_vertex[v] or "", float(sol.X_vertex[v])
+        if src.startswith("facet ") and np.isfinite(X):
+            out[name] = (X - _inner_x(tb, d), src[len("facet "):])
+    return out
+
+
+def node_ts(tb) -> dict:
+    """{node: t} of every node of a build with a value (given, base or solved)."""
+    return {n: float(r["t"]) for n, r in tb.tables["nodes"].items() if r.get("t") is not None}
+
+
+def by_design(facets: dict) -> set:
+    """The corners solved by design: those of a crease + rise facet other than its two crease nodes (that plane fixes
+    them; any other t there is refused, E_FACET_NOT_PLANAR or E_RELIEF_STEP). ``facets`` = a spec's or a parsed
+    spec's facets. They are never reported as solved corners that set a crease (margins, crease_vs_head, the
+    E_CREASE_SHAPE refusal)."""
+    out = set()
+    for f in facets.values():
+        if f["plane"] != "nodes":
+            out |= set(f["poly"]) - set(f["plane"]["crease"])
+    return out
+
+
+def _crease_lines(tb) -> dict:
+    """{(F1, F2): (origin, unit direction)} in (d, y) of every crease between two facets of a build: the line of the
+    arrangement edges the two facets share (straight: both planes hold them), directed so that F1, the pair's first,
+    lies on its left."""
+    arr, lab = tb.arr, tb.face_label
+    ef = arr.edge_faces()                       # half-edge -> the face on its left (faces are CCW)
+    acc: dict = {}
+    for (a, b), f in ef.items():
+        g = ef.get((b, a))
+        if g is None:
+            continue
+        la, lb = lab[f], lab[g]
+        if la != lb and "base" not in (la, lb) and la < lb:          # a crease pair is the sorted labels
+            acc.setdefault((la, lb), []).append((a, b))
+    out = {}
+    V = np.asarray(arr.V, float)
+    for key, es in acc.items():
+        vec = sum((V[b] - V[a] for a, b in es), np.zeros(2))
+        L = float(np.hypot(*vec))
+        if L > 1e-12:
+            out[key] = (V[[v for e in es for v in e]].mean(axis=0), vec / L)
+    return out
+
+
+def crease_margins(tb) -> dict:
+    """{(F1, F2): margin} of every built crease between two facets, in the builder's own terms (planes.py: a facet's
+    plane is flat in X = x_in(d) + t, never in t). For each face, its corner farthest ACROSS the crease's line on its
+    own side (the farthest vertex of the facet's region in the arrangement; the farthest of its named corners on the
+    arrangement instead when that one is at least FAR_NAMED_SHARE as far: an unnamed vertex is where the outline cuts
+    the facet off, e.g. beyond a virtual node) and that corner's offset in X from the OTHER face's plane, extended:
+    + = that face lies inward of the other's plane there, i.e. a ridge by that corner; a t error of that size at the
+    corner (one that defines its facet's plane) flips the crease when no end of the crease is solved (a solved end
+    moves with that plane too). margin = {shape, deg, declared, corners [{node (None:
+    an unnamed vertex), d, y, mm}] (F1's corner first), ends (the corners both polygons hold on the line), solved (the
+    ends and far corners whose t is solved: solved_corners, without the corners solved by design), from {node: facet
+    it is solved from}, flip_mm (the smaller |mm| of the far corners with a t of their own: named, not solved by
+    design; inf for none)}."""
+    ps, sol = tb.spec, tb.sol
+    lines = _crease_lines(tb)
+    solved = solved_corners(tb)
+    design = by_design(ps.facets)
+    V = np.asarray(tb.arr.V, float)
+    verts: dict = {}
+    for fi, f in enumerate(tb.arr.faces):
+        verts.setdefault(tb.face_label[fi], set()).update(f)
+    out = {}
+    for c in tb.tables["creases"]:
+        key = tuple(c["regions"])
+        if c["kind"] != "crease" or key not in lines:
+            continue
+        o, u = lines[key]
+        nl = np.array([-u[1], u[0]])            # into F1
+
+        def across(d, y, sign):
+            return sign * float((np.array([d, y], float) - o) @ nl)
+        polys = [ps.facets[f]["poly"] for f in key]
+        ends = sorted(n for n in set(polys[0]) & set(polys[1])
+                      if abs(across(*ps.nodes[n][:2], 1.0)) <= CORNER_ON_LINE_MM)
+        corners = []
+        for own, other, sign, poly in ((key[0], key[1], 1.0, polys[0]), (key[1], key[0], -1.0, polys[1])):
+            vs = sorted(verts.get(own, ()))
+            if not vs:
+                break
+            s_max, k = max((across(V[v, 0], V[v, 1], sign), v) for v in vs)
+            if s_max <= CORNER_ON_LINE_MM:
+                break
+            named = [(across(*ps.nodes[n][:2], sign), n) for n in poly if n in sol.node_vertex]
+            named = [r for r in named if r[0] >= FAR_NAMED_SHARE * s_max]
+            if named:
+                _s, node = max(named)
+                d, y = (float(v) for v in ps.nodes[node][:2])
+            else:                                # e.g. where the outline cuts the facet off beyond its named corners
+                node, d, y = None, float(V[k, 0]), float(V[k, 1])
+            corners.append({"node": node, "d": d, "y": y,
+                            "mm": float(sol.planes[other].X(d, y) - sol.planes[own].X(d, y))})
+        if len(corners) != 2:
+            continue
+        setting = set(ends) | {x["node"] for x in corners if x["node"]}
+        sv = sorted(n for n in setting if n in solved and n not in design)
+        # how far a t error at a far corner flips it: only a corner with a t of its own counts (a corner solved by
+        # design or an unnamed vertex has none; such a corner's margin shrinks with its distance from the line alone)
+        free = [abs(x["mm"]) for x in corners if x["node"] and x["node"] not in design]
+        out[key] = {"shape": c["shape"], "deg": c["mean_dihedral_deg"], "declared": c.get("declared"),
+                    "corners": corners, "ends": ends, "solved": sv, "from": {n: solved[n][1] for n in sv},
+                    "flip_mm": min(free) if free else float("inf")}
+    return out
+
+
+def _corner_name(c: dict) -> str:
+    return c["node"] if c["node"] else f"({c['d']:.0f},{c['y']:.0f})"
+
+
+def margin_text(m: dict, full: bool = False) -> str:
+    """A crease's margin, compact: "P -1.1/C -4.0" (receipts: margins_summary names the solved corners); full
+    (facet_inspect): "P -1.1 / C -4.0 mm across; B solved from crown"."""
+    a, b = m["corners"]
+    if not full:
+        return f"{_corner_name(a)} {a['mm']:+.1f}/{_corner_name(b)} {b['mm']:+.1f}"
+    text = f"{_corner_name(a)} {a['mm']:+.1f} / {_corner_name(b)} {b['mm']:+.1f} mm across"
+    return text + ("; " + ", ".join(f"{n} solved from {m['from'][n]}" for n in m["solved"]) if m["solved"] else "")
+
+
+def fit_line(head: str, tail: str = "", limit: int = LINE_MAX) -> str:
+    """head + tail in at most ``limit`` characters, the tail cut first: whole when it fits, else at its last ", " or
+    "; " that leaves room for " ..." (dropped whole, with "; ...", when none does); head itself is cut at the limit
+    only when it alone does not fit (facet_inspect's crease lines: the crease, then its margin)."""
+    if len(head) >= limit or not tail:
+        return head[:limit]
+    if len(head) + len(tail) <= limit:
+        return head + tail
+    room = limit - len(head) - 4
+    cut = max(tail.rfind(", ", 0, room), tail.rfind("; ", 0, room))
+    return head + (tail[:cut] + " ..." if cut > 0 else "; ..."[:limit - len(head)])
+
+
+def margins_summary(margins: dict, cap: int, first=()) -> str:
+    """The receipts' margins, one compact string: the creases flipped against the head (``first``), then those with a
+    solved corner that sets them or a margin under MARGIN_FRAGILE_MM at a far corner with a t of its own
+    (``flip_mm``), the smallest such margin first; ``cap`` of them shown, grouped by their solved corners ("B
+    solved: crown|logo P -0.9/C -3.4, crown|tail_face P +0.9/E +1.1; F1|F2 P +0.4/C +0.6"), the rest counted ("; +2
+    more", naming any other solved corner they have); "" for none. A flip is listed whatever its margin and whether
+    or not a solved corner sets it."""
+    keys = sorted((k for k, m in margins.items() if k in first or m["solved"] or m["flip_mm"] < MARGIN_FRAGILE_MM),
+                  key=lambda k: (k not in first, margins[k]["flip_mm"], k))
+    shown, rest = keys[:cap], keys[cap:]
+    groups: dict = {}
+    for k in shown:
+        groups.setdefault(tuple(margins[k]["solved"]), []).append(f"{'|'.join(k)} {margin_text(margins[k])}")
+    parts = [(f"{', '.join(sv)} solved: " if sv else "") + ", ".join(items) for sv, items in groups.items()]
+    if rest:
+        extra = sorted({n for k in rest for n in margins[k]["solved"]} - {n for sv in groups for n in sv})
+        parts.append(f"+{len(rest)} more" + (f" ({', '.join(extra)} solved)" if extra else ""))
+    return "; ".join(parts)
+
+
+def refusal_solved(spec: dict, facets) -> str:
+    """For an E_CREASE_SHAPE refusal: the solved corners that set the refused crease, "; solved corners: B" ("" for
+    none). The refused build never finished, so the spec is built again without its declarations (a declaration
+    shapes nothing; it is only checked) and the crease's margin (crease_margins) names them as everywhere else: its
+    ends and each face's far corner whose t is solved, not those solved by design; none when the pair shares no edge
+    inside the outline. A crease with the base (no margin), or a spec that does not build even so: the t-solve nodes
+    of the facet's polygon inside or on the outline, without those solved by design."""
+    try:
+        ps = parse(spec)
+        labels = [f for f in facets or () if f in ps.facets]
+    except (TempleError, KeyError, TypeError, ValueError):
+        return ""
+    if len(labels) == 2:
+        try:
+            m = crease_margins(build_temple({**spec, "creases": []})).get(tuple(sorted(labels)))
+        except (TempleError, KeyError, TypeError, ValueError, FloatingPointError):
+            m = False
+        if m is not False:
+            return f"; solved corners: {', '.join(m['solved'])}" if m and m["solved"] else ""
+    try:
+        names = sorted({n for f in labels for n in ps.facets[f]["poly"] if ps.nodes[n][2] is None}
+                       - by_design(ps.facets))
+        if not names:
+            return ""
+        P = np.array([ps.nodes[n][:2] for n in names], float)
+        B = ps.boundary()
+        inside = points_in_poly(P, B) | (_outline_distance(P, B) <= CORNER_ON_LINE_MM)
+    except (TempleError, KeyError, TypeError, ValueError):
+        return ""
+    names = [n for n, ok in zip(names, inside) if ok]
+    return f"; solved corners: {', '.join(names)}" if names else ""
+
+
+def _outline_distance(P: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Each point's distance from the closed polygon B (both (d, y))."""
+    a, b = B[None, :, :], np.roll(B, -1, axis=0)[None, :, :]
+    e = b - a
+    w = P[:, None, :] - a
+    s = np.clip((w * e).sum(-1) / np.maximum((e * e).sum(-1), 1e-18), 0.0, 1.0)
+    return np.min(np.hypot(*np.moveaxis(w - s[..., None] * e, -1, 0)), axis=1)
+
+
+def _with_rise(spec: dict, label: str, rise: float) -> dict:
+    out = json.loads(json.dumps(spec))
+    out["facets"][label]["plane"]["rise_per_mm"] = rise
+    return out
+
+
+def _worst_misfit(err: TempleError) -> dict | None:
+    """The worst misfit of a planes.solve E_RELIEF_STEP (the one its message prints); None for the other form (two
+    known values at one point: its message prints both values with 6 significant digits already)."""
+    rows = err.fields.get("misfits") if err.code == "E_RELIEF_STEP" else None
+    return max(rows, key=lambda m: abs(m["misfit_mm"])) if rows else None
+
+
+def relief_rise(spec: dict, err: TempleError) -> str:
+    """For an E_RELIEF_STEP (a facet's plane misses a value a neighbour set: planes.solve) that involves a crease-mode
+    facet (the refused facet, else the neighbour whose value it misses, else another neighbour whose values it takes,
+    e.g. a band that sets a corner of the refused facet's plane while the misfit is at a measured node): the
+    rise_per_mm of the first such facet that meets it, "; rise_per_mm 0.1234567 meets it" (a neighbour's: "; F1
+    rise_per_mm ... meets it"). The worst misfit is linear
+    in the rise (a crease plane's X is; every value after it in the visiting order follows linearly), so one more
+    build at the rise + RISE_STEP gives the root; the printed value (RISE_DIGITS significant digits, more while that
+    rounding alone misses: _rounding_miss) must then build the spec without its crease declarations (they shape
+    nothing; a declaration the new value contradicts is the next question, E_CREASE_SHAPE, not this one), else ""
+    (refusal_message prints the misfit instead). Each try is one build (a few tens of ms)."""
+    worst = _worst_misfit(err)
+    spec = {**spec, "creases": []}
+    facets = spec.get("facets") or {}
+    refused = err.fields.get("facet")
+    if worst is None or refused not in facets:
+        return ""
+    src = worst.get("source") or ""
+    cands = [refused] + ([src[len("facet "):]] if src.startswith("facet ") else []) + \
+        [f for f in err.fields.get("neighbours") or () if isinstance(f, str)]
+    at = np.asarray(worst["at"], float)
+    for label in dict.fromkeys(cands):
+        plane = (facets.get(label) or {}).get("plane")
+        if not isinstance(plane, dict) or not isinstance(plane.get("rise_per_mm"), (int, float)):
+            continue
+        r0 = float(plane["rise_per_mm"])
+
+        def misfit(rise):
+            """The misfit at the worst point with this rise: 0.0 when the refused facet then meets every value
+            (the build passes it); None when that rise refuses the facet otherwise."""
+            try:
+                build_temple(_with_rise(spec, label, rise))
+            except TempleError as e:
+                if e.code == "E_RELIEF_STEP" and e.fields.get("facet") == refused and e.fields.get("misfits"):
+                    return next((m["misfit_mm"] for m in e.fields["misfits"]
+                                 if np.hypot(*(np.asarray(m["at"], float) - at)) <= 1e-6), 0.0)
+                if e.fields.get("facet") in (refused, label):
+                    return None
+            return 0.0
+        m0, m1 = float(worst["misfit_mm"]), misfit(r0 + RISE_STEP)
+        if m1 is None or abs(m1 - m0) < 1e-12:
+            continue
+        root = r0 - m0 * RISE_STEP / (m1 - m0)
+        for digits in range(RISE_DIGITS, 18):
+            value = float(f"{root:.{digits}g}")
+            try:
+                build_temple(_with_rise(spec, label, value))
+            except TempleError as e:
+                if _rounding_miss(e):
+                    continue
+                break
+            return f"; {'' if label == refused else label + ' '}rise_per_mm {value:.{digits}g} meets it"
+    return ""
+
+
+def _rounding_miss(err: TempleError) -> bool:
+    """A refusal a printed rise misses by rounding alone: an E_RELIEF_STEP or a polygon off its plane (the builder's
+    PLANAR_MM self-check, 1e-9 mm: a crease plane through a neighbour's corner value needs 8-10 significant digits of
+    its rise on the 2026-10-11 tool tests) by under ROUNDING_MISS_MM."""
+    if err.code == "E_RELIEF_STEP":
+        worst = _worst_misfit(err)
+        return worst is not None and abs(float(worst["misfit_mm"])) < ROUNDING_MISS_MM
+    return err.code == "E_TRIANGULATE" and float(err.fields.get("planarity_mm") or np.inf) < ROUNDING_MISS_MM
+
+
+def refusal_message(spec, err: TempleError) -> str:
+    """A refused build's message for Astra (facet_edit and facet_variants), at most REFUSAL_MAX characters: the core
+    message cut at a clause end (brief) before the note, which always fits. E_CREASE_SHAPE: the solved corners that
+    set that crease (refusal_solved). E_RELIEF_STEP: the rise_per_mm that meets it (relief_rise), else the worst
+    misfit with 6 significant digits in place of the core's 3 (two misfits then give the root by hand)."""
+    msg, note = err.message, ""
+    if spec is not None and err.code == "E_CREASE_SHAPE":
+        note = refusal_solved(spec, err.fields.get("facets"))
+    elif spec is not None and err.code == "E_RELIEF_STEP":
+        try:
+            note = relief_rise(spec, err)
+        except (KeyError, TypeError, ValueError, FloatingPointError):      # a spec the probes cannot vary
+            note = ""
+        worst = _worst_misfit(err)
+        if not note and worst is not None:
+            m = float(worst["misfit_mm"])
+            old = f"{m:+.3g} mm at (d, y)"
+            msg = msg.replace(old, f"{m:+.6g} mm at (d, y)", 1) if old in msg else msg + f"; misfit {m:+.6g} mm"
+    return brief(msg, REFUSAL_MAX - len(note)) + note
+
+
+def solved_moves(tb, ref) -> str:
+    """The solved corners of ``tb`` (solved_corners, without those solved by design: a crease + rise facet's other
+    corners move with its rise, as designed) whose t differs from the reference build's value of that node (the
+    head's) by SOLVED_MOVE_MM or more, or that the reference does not have: "B 5.41 (head 7.06), D 3.10 (new)"; ""
+    when none moved."""
+    before = node_ts(ref)
+    design = by_design(tb.spec.facets)
+    items = []
+    for n, (t, _by) in sorted(solved_corners(tb).items()):
+        if n in design:
+            continue
+        r = before.get(n)
+        if r is None:
+            items.append(f"{n} {t:.2f} (new)")
+        elif abs(t - r) >= SOLVED_MOVE_MM:
+            items.append(f"{n} {t:.2f} (head {r:.2f})")
+    if len(items) > SOLVED_ITEMS_MAX:
+        items = items[:SOLVED_ITEMS_MAX - 1] + [f"+{len(items) - SOLVED_ITEMS_MAX + 1} more"]
+    return ", ".join(items)
+
+
+def flips(ref, tb) -> list[tuple]:
+    """[(pair, (shape, deg) in ref, (shape, deg) in tb)] of the built creases (facet pairs both builds have) that are
+    a ridge in one and a valley in the other."""
+    def shapes(x):
+        return {tuple(c["regions"]): (c["shape"], c["mean_dihedral_deg"]) for c in x.tables["creases"]
+                if c["kind"] == "crease"}
+    a, b = shapes(ref), shapes(tb)
+    return [(k, a[k], b[k]) for k in sorted(set(a) & set(b))
+            if a[k][0] != b[k][0] and "flat" not in (a[k][0], b[k][0])]
+
+
+def crease_changes(ref, tb, margins: dict | None = None, *, solved_note: bool = True) -> list[str]:
+    """The flips of ``tb`` against the reference (the head), the reference first: "crown|logo ridge 21.0° -> valley
+    8.0° (B solved)", naming the solved corners that set the crease in ``tb`` (crease_margins: its ends and far
+    corners, not those solved by design) unless ``solved_note`` is False (facet_edit and facet_variants: their margins
+    list the flips first, with those corners). A declared crease is always built as declared, so this is every change
+    of a declared shape too; a crease of a pair only one build has is the diff's."""
+    margins = (crease_margins(tb) if margins is None else margins) if solved_note else {}
+    out = []
+    for key, (sa, da), (sb, db) in flips(ref, tb):
+        sv = (margins.get(key) or {}).get("solved")
+        out.append(f"{'|'.join(key)} {sa} {da:.1f}° -> {sb} {db:.1f}°" + (f" ({', '.join(sv)} solved)" if sv else ""))
+    return out
+
+
+# --------------------------------------------------------------------------------------------- depth readings
+def depth_reading(tb, camera, frame, pose, d: float, y: float, uv) -> dict:
+    """A thickness read from a photo pixel (photo_compare ``depths``): the point (d, y, X = x_in(d) + t) of the build's
+    temple, placed as the lab builds it (the spec's hinge opening, the -X temple its mirror) and opened by the photo's
+    temple pose, moves along a 3D line as t changes; pose.line_depth finds the t whose projection is nearest uv.
+    Both temples are tried; the one taken is the one whose outer face the camera sees (pose.faces_camera). When both
+    or neither do (a front or rear view: both depth lines can fall on one image row, so the perpendicular miss cannot
+    tell them apart), it is the temple whose point at the model's t (outside the outline: the base t there, extended)
+    projects nearest the pixel; with no such t, the smaller miss. Returns {side, t_mm (None when the view looks along
+    that line), px_per_mm (image px per mm of t there), miss_px (the pixel's perpendicular distance from the line's
+    image: large = the (d, y) is not the point the pixel shows; small does not confirm d, which runs at an angle to the
+    line), model_t_mm (the build's outer surface there; None outside its outline)}. Raises ValueError when the line
+    crosses the camera's near plane."""
+    h = tb.spec.hinge
+    x_in = _inner_x(tb, d)
+    deg = float(h.get("opening_deg") or 0.0)
+    opening = (deg, (abs(float(h["axis_xz_mm"][0])), float(h["axis_xz_mm"][1]))) if deg else None
+    X, _region = G.surface_at(tb, np.array([[d, y]], float))
+    model_t = float(X[0]) - x_in if np.isfinite(X[0]) else None
+    t0 = model_t
+    if t0 is None:
+        try:
+            t0 = float(tb.spec.base_t(d, y))
+        except (TempleError, ValueError, FloatingPointError):
+            t0 = None
+    target = np.asarray(uv, float).reshape(2)
+    rows = []
+    for side in (1, -1):
+        P = PO.chart_to_posed([[d, y, x_in], [d, y, x_in + 1.0]], side, float(h["z_mm"]), pose, opening)
+        n = P[1] - P[0]
+        faces = bool(PO.faces_camera(P[:1], n, camera, frame)[0])
+        near = float("inf")
+        if t0 is not None and np.isfinite(t0):
+            try:
+                near = float(np.hypot(*(project_mm((P[0] + t0 * n)[None], camera, frame)[0] - target)))
+            except ValueError:                            # that point is behind the camera's near plane
+                pass
+        rows.append({"side": side, "faces": faces, "near": near, **PO.line_depth(uv, camera, frame, P[0], n)})
+    facing = [row for row in rows if row["faces"]]
+    if len(facing) == 1:
+        r = facing[0]
+    elif any(np.isfinite(row["near"]) for row in rows):
+        r = min(rows, key=lambda row: row["near"])
+    else:
+        r = min(rows, key=lambda row: row["miss_px"])
+    return {"side": r["side"], "t_mm": r["t"], "px_per_mm": r["px_per_mm"], "miss_px": r["miss_px"],
+            "model_t_mm": model_t}
+
+
+def _r_depths(rows: list) -> list:
+    """Depth readings for the compare record (numbers rounded to 0.001)."""
+    return [{k: (_r(v, 3) if isinstance(v, (float, list)) else v) for k, v in row.items()} for row in rows]
+
+
+def fixed(x: float, nd: int) -> str:
+    """x to nd decimals, rounded half up from its value to 0.001 (the compare record's): one recorded number always
+    prints one way (8.36499999 and 8.36500001 are both 8.365 -> "8.37"); never "-0.00"."""
+    q = Decimal(repr(round(float(x), 3))).quantize(Decimal(1).scaleb(-nd), rounding=ROUND_HALF_UP)
+    return f"{abs(q) if q == 0 else q}"
+
+
+def depth_text(rec: dict) -> str:
+    """One depth reading in a compare text: "d 47 y 9.2: t 7.25 (model 5.41) 8.3 px/mm, miss 0.8 px charted"
+    (numbers through ``fixed``)."""
+    m = "out" if rec.get("model_t_mm") is None else fixed(rec["model_t_mm"], 2)
+    t = "n/a (the view looks along t)" if rec.get("t_mm") is None else fixed(rec["t_mm"], 2)
+    return (f"d {rec['d_mm']:g} y {rec['y_mm']:g}: t {t} (model {m}) {fixed(rec['px_per_mm'], 1)} px/mm, miss "
+            f"{fixed(rec['miss_px'], 1)} px {SIDE_TEXT[PO.SIDE_KEYS[rec['side']]]}")
 
 
 class Lab(SceneHooks):
@@ -539,8 +1016,11 @@ class Lab(SceneHooks):
         return out
 
     def _compare(self, call_id: str, photos, *, by: str, crop: str = "temple", points=None,
-                 hinge_z: float | None = None, with_start: bool = True, tool: str | None = None) -> dict:
-        """The photo-matched compare of the head; a tool's compare renders under that tool's hard timeout."""
+                 hinge_z: float | None = None, with_start: bool = True, tool: str | None = None,
+                 depths: list | None = None) -> dict:
+        """The photo-matched compare of the head; a tool's compare renders under that tool's hard timeout. ``depths``
+        (Lab.depths' readings) are printed in their photo's text, or under "depths" for a photo the compare (its
+        default set) does not show, and kept in the compare record."""
         head = self.head_record()
         if hinge_z is None:
             hinge_z = self.spec(head["revision"])["hinge"]["z_mm"] if head else None
@@ -559,6 +1039,7 @@ class Lab(SceneHooks):
             return {"status": "error", "code": res.get("code", "E_COMPARE"), "message": res.get("message")}
         report = read(res["report"])
         rids = list(res["photos"])
+        depths = _r_depths(depths) if depths else None     # the record and the texts print the same numbers
         outline = {}                     # the outline line (information): every target top photo's outline_check
         for r in rids:
             prec = report["photos"].get(r, {})
@@ -567,30 +1048,39 @@ class Lab(SceneHooks):
         rec = {"compare_id": cid, "checkpoint": res.get("checkpoint", self.s.head["id"]),
                "fingerprint": self.s.head["fingerprint"], "revision": head["revision"] if head else None,
                "photos": [self.pid(r) for r in rids], "by": by, "call_id": call_id, "report": res["report"],
-               "judged": by != "astra", "seq": self.state["seq"], **({"outline": outline} if outline else {})}
+               "judged": by != "astra", "seq": self.state["seq"], **({"outline": outline} if outline else {}),
+               **({"depths": depths} if depths else {})}
         with self.state_lock:
             if by == "astra" and call_id in self._unseen:          # the SDK stopped waiting: Astra never sees it
                 rec.update(unseen=True, judged=True)
             self.state["compares"].append(rec)
         spec = self.spec(head["revision"]) if head else None
         texts, images = {}, []
+        by_photo: dict = {}
+        for dr in depths or []:
+            by_photo.setdefault(dr["photo"], []).append(dr)
         for r in rids:
             texts[self.pid(r)] = self._photo_text(report["photos"].get(r, {}), res["photos"][r].get("points"), spec,
                                                   with_start, colour=self._colour(self.pid(r)),
-                                                  outline=outline.get(self.pid(r)))
+                                                  outline=outline.get(self.pid(r)),
+                                                  depths=by_photo.pop(self.pid(r), None))
             images.append(self._image(res["photos"][r]["image"], "compare", ref=cid, photo=self.pid(r),
                                       revision=rec["revision"]))
         self.save()
-        return {"status": "ok", "compare_id": cid, "photos": texts, "images": images}
+        out = {"status": "ok", "compare_id": cid, "photos": texts}
+        if by_photo:                    # photos the default set left out: their readings on their own
+            out["depths"] = {pid: "; ".join(depth_text(x) for x in rows) for pid, rows in by_photo.items()}
+        out["images"] = images
+        return out
 
     def _photo_text(self, rec: dict, points, spec, with_start: bool = True, colour: str | None = None,
-                    outline: dict | None = None) -> str:
+                    outline: dict | None = None, depths: list | None = None) -> str:
         """One photo of a compare, compact: view (a colourway photo: its colour and rows), temple IoU, scale, crop
         (box and scale k: u_img = (u - x0 + 0.5) k - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top
         and rear photos, over the stations where the photo has one; per temple, "charted" / "mirrored" (SIDE_TEXT);
         the station step only when it is not seeing's GRID_STATION_MM; with_start: the start model's too; the tool
         descriptions and the instructions define the sign, so the text does not repeat it), a top photo's
-        outline_check (state.outline_text, information), points_px charted."""
+        outline_check (state.outline_text, information), points_px charted, depth readings (depth_text)."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")
@@ -631,6 +1121,8 @@ class Lab(SceneHooks):
                     t = p["X_mm"] - float(np.interp(p["d_mm"], inner[:, 0], inner[:, 1]))
                     pts.append(f"({u:g},{v:g}) d {p['d_mm']:.2f} y {p['y_mm']:.2f} t {t:.2f}")
             text += " | points " + "; ".join(pts)
+        if depths:
+            text += " | depths " + "; ".join(depth_text(x) for x in depths)
         return text
 
     # ---------------------------------------------------------------------------------------------- receipts
@@ -666,28 +1158,49 @@ class Lab(SceneHooks):
             out.append(f"hinge_leaf_gap_mm {inh['hinge_leaf_gap_mm']:+.2f} (negative = embedded)")
         return out
 
-    def _receipt(self, tb) -> dict:
+    def _receipt(self, tb, ref=None, *, margins: dict | None = None, first=(), full: bool = False) -> dict:
         """The core receipt for Astra (§4.5): crease lines first ("pair shape dihedral declared|undeclared": a
-        declared shape always matches, a mismatch is refused E_CREASE_SHAPE), then the warnings (every W_BORDER_RAMP
-        in one line; warnings inherited from revision 0 left out while unchanged); border ramps that raised no
-        W_BORDER_RAMP, as "facet height slope d"."""
+        declared shape always matches, a mismatch is refused E_CREASE_SHAPE; ``full`` (facet_inspect): every crease
+        between two facets adds its margin, "; P -1.1 / C -4.0 mm across; B solved from crown", crease_margins, cut
+        first when the line exceeds LINE_MAX: fit_line), then
+        the warnings (every W_CONDITIONING in one line where the first was, every W_BORDER_RAMP in one line last:
+        conditioning_line, ramp_line; warnings inherited from revision 0 left out while unchanged);
+        not ``full``: ``margins``, the creases with a solved corner that sets them or a margin under MARGIN_FRAGILE_MM
+        (margins_summary, ``first`` = the flips against the head, listed first whatever their margin, at most
+        MARGIN_ITEMS_MAX); with ``ref`` (the head's build) ``solved``: the solved corners whose t moved from the head's,
+        not those solved by design (solved_moves); border ramps that
+        raised no W_BORDER_RAMP, as "facet height slope d"."""
         rc = RP.receipt(tb)
         th = rc["thickness"]
-        lines = [f"{'|'.join(c['regions'])} {c['shape']} {c['mean_dihedral_deg']:.1f}° "
-                 f"{'declared' if c.get('declared') else 'undeclared'}"[:LINE_MAX]
-                 for c in tb.tables["creases"] if c["kind"] == "crease"]
-        ramps = []
+        margins = crease_margins(tb) if margins is None else margins
+        lines = []
+        for c in tb.tables["creases"]:
+            if c["kind"] != "crease":
+                continue
+            m = margins.get(tuple(c["regions"])) if full else None
+            lines.append(fit_line(f"{'|'.join(c['regions'])} {c['shape']} {c['mean_dihedral_deg']:.1f}° "
+                                  f"{'declared' if c.get('declared') else 'undeclared'}",
+                                  f"; {margin_text(m, full=True)}" if m else ""))
+        ramps, conditioning = [], []
         for w in tb.warnings:
             line = f"{w['code']}: {w['message']}"
             if self._is_inherited(line):
                 continue
             if w["code"] == "W_BORDER_RAMP":
                 ramps.append(w)
+            elif w["code"] == "W_CONDITIONING" and w.get("facet") and w.get("deg_per_mm") is not None:
+                if not conditioning:
+                    lines.append(None)                  # the grouped line takes the first one's place
+                conditioning.append(w)
             else:
                 lines.append(line[:LINE_MAX])
+        if conditioning:
+            lines[lines.index(None)] = fit_line(conditioning_line(conditioning))
         if ramps:
             lines.append(ramp_line(ramps))
-        out = {"lines": lines,
+        summary = "" if full else margins_summary(margins, MARGIN_ITEMS_MAX, first)
+        moved = solved_moves(tb, ref) if ref is not None else ""
+        out = {"lines": lines, **({"margins": summary} if summary else {}), **({"solved": moved} if moved else {}),
                "lean_deg": {f["label"]: f["lean_deg"] for f in rc["facets"]},
                "thickness": f"{th['min_mm']:.2f} at d {th['min_at'][0]:.1f} y {th['min_at'][1]:.1f} .. "
                             f"{th['max_mm']:.2f} at d {th['max_at'][0]:.1f} y {th['max_at'][1]:.1f}"}
@@ -768,11 +1281,22 @@ class Lab(SceneHooks):
         rid = head["revision"]
         spec, tb = self.spec(rid), self.build(rid)
         rc = RP.receipt(tb, include_stations=True)
-        nodes = {n: [_r(d), _r(y), t if not isinstance(t, float) else _r(t)] for n, (d, y, t) in spec["nodes"].items()}
+        values = node_ts(tb)
+
+        def node_t(name, t):
+            """A given t rounded, "base", or a solved t as "solve -> 5.41" (the value the build gave it)."""
+            if isinstance(t, float):
+                return _r(t)
+            if t is None:
+                return f"solve -> {values[name]:.2f}" if name in values else "solve (in no facet)"
+            return t
+        nodes = {n: [_r(d), _r(y), node_t(n, t)] for n, (d, y, t) in spec["nodes"].items()}
         facets = {}
         for label, f in spec["facets"].items():
+            # the rise exactly as the spec holds it (e.g. an E_RELIEF_STEP's 7 significant digits): one rounded to 0.001
+            # and entered again in a set_facet misses the neighbours' values (planar_tol_mm 1e-6) and is refused
             pl = f["plane"] if f["plane"] == "nodes" else {"crease": f["plane"]["crease"],
-                                                            "rise_per_mm": _r(f["plane"]["rise_per_mm"], 3)}
+                                                            "rise_per_mm": float(f["plane"]["rise_per_mm"])}
             facets[label] = {"poly": f["poly"], "plane": pl, **({"fade": [_r(f["fade"]["d0"]), _r(f["fade"]["d1"])]}
                                                                   if f["fade"] else {})}
         revs = self.state["revisions"]
@@ -788,7 +1312,7 @@ class Lab(SceneHooks):
                         "tip_round_mm": _r(spec["outline"]["tip_round_mm"]), "roll_mm": _r(spec["roll_mm"]),
                         "stations": rc["stations"], "nodes": nodes, "facets": facets,
                         "creases": [f"{'|'.join(c['facets'])} {c['shape']}" for c in spec["creases"]]},
-               "receipt": self._receipt(tb),
+               "receipt": self._receipt(tb, full=True),
                "inherited_from_revision_0": self.inherited_lines(),
                "revisions": {"count": len(revs), "last": rows, "columns": ["id", "parent", "kind", "spec"]},
                "applied": [[h["checkpoint"], h["revision"]] for h in heads[-12:]],
@@ -839,7 +1363,7 @@ class Lab(SceneHooks):
         self.save()
         return out
 
-    def compare(self, call_id: str, photos=None, crop=None, points=None) -> dict:
+    def compare(self, call_id: str, photos=None, crop=None, points=None, depths=None) -> dict:
         photos = self._photos_arg(photos)
         if crop not in (None, "temple", "full"):
             raise LabRefusal("E_ARGS", "crop must be temple, full or null")
@@ -849,7 +1373,44 @@ class Lab(SceneHooks):
             self.rid(p["photo"])
             if photos is not None and p["photo"] not in photos:
                 raise LabRefusal("E_ARGS", f"points name photo {p['photo']}, which this compare does not show")
-        return self._compare(call_id, photos, by="astra", crop=crop or "temple", points=points, tool="photo_compare")
+        readings = self.depths(depths, photos)          # host math: every refusal comes before the render
+        return self._compare(call_id, photos, by="astra", crop=crop or "temple", points=points, tool="photo_compare",
+                             depths=readings)
+
+    def depths(self, depths, photos=None) -> list[dict]:
+        """photo_compare's depth readings (depth_reading on the head's build): ``depths`` = [{photo, d_mm, y_mm, uv}],
+        uv native photo pixels of a photo with a camera (and one this compare shows when ``photos`` names them).
+        E_ARGS for a photo without a camera, a uv outside the photo, or numbers out of range."""
+        if not depths:
+            return []
+        if not isinstance(depths, list) or len(depths) > DEPTHS_MAX:
+            raise LabRefusal("E_ARGS", f"depths must be a list of at most {DEPTHS_MAX} {{photo, d_mm, y_mm, uv}}")
+        head = self.head_record()
+        if head is None:
+            raise LabRefusal("E_STATE", "the scene holds no applied revision")
+        tb, bs, out = self.build(head["revision"]), self.basis, []
+        for i, p in enumerate(depths):
+            pid = p.get("photo") if isinstance(p, dict) else None
+            rid = self.rid(pid)
+            if photos is not None and pid not in photos:
+                raise LabRefusal("E_ARGS", f"depths[{i}] names photo {pid}, which this compare does not show")
+            try:
+                d, y = (float(p[k]) for k in ("d_mm", "y_mm"))
+                u, v = (float(x) for x in p["uv"])
+            except (KeyError, TypeError, ValueError):
+                raise LabRefusal("E_ARGS", f"depths[{i}] must be {{photo, d_mm, y_mm, uv: [u, v]}}") from None
+            if not all(np.isfinite([d, y, u, v])) or abs(d) > G.D_LIMIT_MM or abs(y) > G.Y_LIMIT_MM:
+                raise LabRefusal("E_ARGS", f"depths[{i}]: d_mm, y_mm and uv must be finite (|d| <= "
+                                           f"{G.D_LIMIT_MM:g}, |y| <= {G.Y_LIMIT_MM:g})")
+            H, W = bs.shape(rid)
+            if not (-0.5 <= u <= W - 0.5 and -0.5 <= v <= H - 0.5):
+                raise LabRefusal("E_ARGS", f"depths[{i}].uv {[u, v]} must lie inside the native {W} x {H} photo {pid}")
+            try:
+                r = depth_reading(tb, bs.camera(rid), bs.frame, bs.pose(rid), d, y, (u, v))
+            except ValueError as exc:
+                raise LabRefusal("E_ARGS", f"depths[{i}]: {exc}") from None
+            out.append({"photo": pid, "d_mm": d, "y_mm": y, "uv": [u, v], "revision": head["revision"], **r})
+        return out
 
     def _judge(self, judgement, call_id: str, tool: str) -> None:
         with self.state_lock:
@@ -873,14 +1434,20 @@ class Lab(SceneHooks):
         try:
             tb = build_temple(spec)
         except TempleError as e:
-            return {"status": "refused", "code": e.code, "edit": None, "stage": "build", "message": e.message,
+            return {"status": "refused", "code": e.code, "edit": None, "stage": "build",
+                    "message": refusal_message(spec, e),
                     "fields": {k: v for k, v in e.fields.items() if k in ("facet", "node", "nodes", "pair", "point",
                                                                           "d", "y", "facets")}}
         rid, new = self._register(spec, parent=parent["id"], kind="edit", ops=len(edits), note=note, call_id=call_id)
         self._builds[rid] = tb
         out = {"status": "built", "revision": rid, "parent": parent["id"], "spec": spec_sha256(spec)[:8],
-               "diff": G.diff_text(G.diff_specs(self.spec(parent["id"]), spec), reset=bool(reset_layout)),
-               "receipt": self._receipt(tb)}
+               "diff": G.diff_text(G.diff_specs(self.spec(parent["id"]), spec), reset=bool(reset_layout))}
+        margins = crease_margins(tb)
+        out.update(self._vs_head(spec, tb, parent["id"]))
+        head = self.head_record()
+        head_tb = self.build(head["revision"]) if head else None
+        out["receipt"] = self._receipt(tb, ref=head_tb, margins=margins,
+                                       first=[k for k, *_ in flips(head_tb, tb)] if head_tb is not None else ())
         if not new:
             out["note"] = f"this spec is revision {rid} already"
         if notes:
@@ -911,6 +1478,23 @@ class Lab(SceneHooks):
                 out["compare"] = {k: cmp.get(k) for k in ("status", "code", "message")}
         out["images"] = images
         self.save()
+        return out
+
+    def _vs_head(self, spec: dict, tb, parent: int) -> dict:
+        """What a new revision changes against the CURRENT HEAD's revision (not its parent; applying a variant with no
+        edits diffs "no change" against the variant): ``diff_vs_head`` (when the parent is not the head) and
+        ``crease_vs_head``, its creases built with the other shape than in the head (crease_changes); {} when the
+        scene holds no applied revision or nothing changed."""
+        head = self.head_record()
+        if head is None:
+            return {}
+        hr = head["revision"]
+        out = {}
+        if parent != hr:
+            out["diff_vs_head"] = f"r{hr}: " + G.diff_text(G.diff_specs(self.spec(hr), spec))
+        changes = crease_changes(self.build(hr), tb, solved_note=False)     # the receipt's margins name them
+        if changes:
+            out["crease_vs_head"] = f"r{hr}: " + "; ".join(changes)
         return out
 
     def _variant_views(self, pids: list, n_panels: int, call_id: str) -> tuple[list, dict]:
@@ -1066,13 +1650,14 @@ class Lab(SceneHooks):
         items, built = [], {}
         for v in variants:
             item = {"label": v["label"]}
+            spec = None
             try:
                 spec, _notes = G.apply_edits(base, v.get("edits") or [])
                 tb = build_temple(spec)
             except G.EditError as e:
                 item.update(revision=None, code=e.code, edit=e.index, message=brief(e.message))
             except TempleError as e:
-                item.update(revision=None, code=e.code, edit=None, message=brief(e.message))
+                item.update(revision=None, code=e.code, edit=None, message=refusal_message(spec, e))
             else:
                 rid, _new = self._register(spec, parent=parent["id"], kind="variant", label=v["label"],
                                            ops=len(v.get("edits") or []), call_id=call_id)
@@ -1080,6 +1665,16 @@ class Lab(SceneHooks):
                 d = self.delta(head["revision"], rid)
                 item.update(revision=rid, spec=spec_sha256(spec)[:8], vs_head_mm=_r(d["value_mm"]),
                             creases=self._crease_brief(tb))
+                head_tb = self.build(head["revision"])
+                margins = crease_margins(tb)
+                changes, moved = crease_changes(head_tb, tb, solved_note=False), solved_moves(tb, head_tb)
+                summary = margins_summary(margins, MARGIN_VARIANT_ITEMS_MAX, [k for k, *_ in flips(head_tb, tb)])
+                if changes:                   # against the head, as facet_edit's crease_vs_head
+                    item["crease_vs_head"] = "; ".join(changes)
+                if summary:
+                    item["margins"] = summary
+                if moved:
+                    item["solved"] = moved
                 built[v["label"]] = (rid, spec, tb)
             items.append(item)
         pairs = {}
@@ -1205,6 +1800,7 @@ class Lab(SceneHooks):
         if self.s.head["fingerprint"] == head["fingerprint"]:
             return {"status": "ok", "checkpoint": self.s.head["id"], "revision": head["revision"], "changed": False}
         before = self.s.head["id"]
+        replaced = self.head_record()                  # the head this restore replaces
         r = self.s.restore_checkpoint(checkpoint, call_id=call_id)
         with self.state_lock:
             self.state["events"].append({"call_id": call_id, "tool": "facet_restore", "mutating": True,
@@ -1213,8 +1809,13 @@ class Lab(SceneHooks):
         if r.get("status") != "ok":
             return {"status": "error", "code": "E_RESTORE", "message": r.get("message"),
                     "checkpoint": self.s.head["id"]}
-        return {"status": "ok", "checkpoint": self.s.head["id"], "restored_from": checkpoint,
-                "revision": head["revision"], "spec": self.state["revisions"][head["revision"]]["sha256"][:8]}
+        out = {"status": "ok", "checkpoint": self.s.head["id"], "restored_from": checkpoint,
+               "revision": head["revision"], "spec": self.state["revisions"][head["revision"]]["sha256"][:8]}
+        if replaced is not None and replaced["revision"] != head["revision"]:
+            changes = crease_changes(self.build(replaced["revision"]), self.build(head["revision"]))
+            if changes:                 # as facet_edit's: the creases built with the other shape than that head
+                out["crease_vs_head"] = f"r{replaced['revision']}: " + "; ".join(changes)
+        return out
 
     def finish(self, call_id: str, status: str, best_checkpoint: str, summary: str, judgement, k: int) -> dict:
         self._judge(judgement, call_id, "facet_finish")

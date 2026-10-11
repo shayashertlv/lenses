@@ -20,34 +20,35 @@ THE SPEC
 - base: the surface outside the facets, a wedge: base.top and base.bottom give its thickness along the top and bottom
   edges, linear in y between them.
 - facets: planar polygons over nodes. Plane mode nodes goes through the facet's node values: at least three
-  non-collinear (else E_FACET_UNDERDETERMINED), spread wide (else E_ILL_CONDITIONED). Plane mode crease goes through
-  one edge of the polygon and rises rise_per_mm mm of X per mm moved from that edge into the facet (negative falls
-  toward the inner face); it suits a thin facet. Facets sharing a corner meet there at one height (else
-  E_RELIEF_STEP): change them together. A fade blends a facet into the base between d0_mm (fully the facet) and d1_mm
-  (fully the base).
-- creases: every pair of facets that meet, and every facet edge against the base, is declared ridge (a convex edge)
-  or valley (a concave edge). The host builds the shape from the node values and refuses a declaration the build
+  non-collinear (else E_FACET_UNDERDETERMINED), spread wide (else E_ILL_CONDITIONED), on one plane (else
+  E_FACET_NOT_PLANAR). Plane mode crease goes through one edge of the polygon and rises rise_per_mm mm of X per mm
+  moved from that edge into the facet; it suits a thin facet. Facets sharing a corner meet there at one height (else
+  E_RELIEF_STEP, which names a crease-mode facet's rise_per_mm that does): change them together. A fade blends a
+  facet into the base from d0_mm to d1_mm.
+- creases: every pair of facets that meet, and every facet edge against the base, is declared ridge (a convex edge) or
+  valley (a concave edge). The host builds the shape from the node values and refuses a declaration the build
   contradicts.
 - tip_round_mm rounds the tip (roll_mm: below). The chains outline.top and outline.bottom (the top and bottom edges
   seen from the side), inner, base.top and base.bottom are [d, value] lists.
-- Edits apply in order, all or none; reset_layout clears nodes, facets and creases first.
 
 EVIDENCE
-- Directions: the brief gives each photo's direction and how it sees the temple's outer face (square-on, at a
-  moderate angle or edge-on). Photos of one direction (the side views of the two temples count as one) are one view,
-  even in another colour or light.
+- Directions: the brief groups the photos by direction and says how each sees the temple's outer face (square-on, at a
+  moderate angle or edge-on); photos of one direction are one view, even in another colour or light.
 - Light: the renders use the job's fixed light (the brief names it), the photos an unknown one, so tones, even their
   order, can differ for the right shape: shading is a qualitative aid; never set depth or ridge/valley from which face
   is brighter. On gloss a tone step can be a crease or the edge of a reflected light, yet glossy photos often show the
-  faces best.
+  faces best. A thin line brighter than both neighbours that stays on a crease from two directions supports a ridge;
+  its absence is no evidence.
 - Creases: a line is a crease only where photos from two different directions show it at the same place on the temple
-  (a reflection moves), the second seeing that face at a moderate angle: an edge-on view shows a crease only as a
-  kink in its silhouette, and its lack of a line is no evidence. With no such view, a line in two photos under
-  different light is the best evidence; say so in the note.
-- Points: points_px charts a pixel through the current model's surface to (d, y, t) (t is the model's), so a depth
-  error shifts the reading (the brief gives how far per mm in each view): measure (d, y) in square-on views;
-  elsewhere, only check. The overlay's d/y grid is charted the same way (valid inside the model outline). A common
-  shift of outline and creases together is camera error, not shape.
+  (a reflection moves), the second seeing that face at a moderate angle: an edge-on view shows a crease only as a kink
+  in its silhouette, and its lack of a line is no evidence. With no such view, a line in two photos under different
+  light is the best evidence; say so in the note.
+- Points: points_px charts a pixel through the current model's surface to (d, y, t): its t is the model's, never a
+  measurement, and a depth error shifts its (d, y): measure (d, y) in square-on views; elsewhere, only check it.
+  Measure t with photo_compare's depths in the moderate-angle views (the brief gives their px per mm of t), reading a
+  crease's corners, of both faces, in one photo, on the temple whose outer face it shows. The overlay's d/y grid is
+  charted like points_px (valid inside the model outline). A common shift of outline and creases together is camera
+  error, not shape.
 
 LAYOUT (which faces exist and where their creases run)
 - Faces: put a node exactly where several creases meet (a corner). Every face that creases bound in the photos needs
@@ -58,77 +59,82 @@ LAYOUT (which faces exist and where their creases run)
   where the photos show a crease line on the surface.
 - Lay out, then confirm: lay out the faces in the square-on views with a first depth. That layout is provisional:
   before refining depth, check it in a calibrated view that sees the outer face at a moderate angle (the brief names
-  them). Keep a crease that view also shows, remove one it contradicts (no line although it clearly shows
-  neighbouring creases of similar angle), add one only where both views show it; where it cannot resolve the region,
-  keep the square-on reading and say so in the note. Every facet_edit that changes which facets exist or where
-  creases run compares at a square-on view, a moderate-angle view and a glossy photo when one has a camera. In each
-  overlay every model crease (drawn from 6 deg) should lie on a line the photo shows, and every crease the photo
-  shows on the temple needs one in the model.
+  them). Keep a crease that view also shows, remove one it contradicts (no line although it clearly shows neighbouring
+  creases of similar angle), add one only where both views show it; where it cannot resolve the region, keep the
+  square-on reading and say so in the note. Every facet_edit that changes which facets exist or where creases run
+  compares at a square-on view, a moderate-angle view and a glossy photo when one has a camera. In each overlay every
+  model crease (drawn from 6 deg) should lie on a line the photo shows, and every crease the photo shows on the temple
+  needs one in the model.
 - When those views disagree on where a crease runs: if some depth puts it on the photo's line in both, the depth was
-  wrong, else the layout. A number (an offset or outline station) changes the layout only when both views show the
-  new crease or its absence.
+  wrong, else the layout. A number (an offset or outline station) changes the layout only when both views show the new
+  crease or its absence.
 
 DEPTH AND SHAPE
-- Ridge or valley of a crease the photos show: from the silhouettes of views that see it edge-on (a convex kink in
-  the outline is a ridge, a notch a valley); the section strip shows what the model built. Declare every crease.
-  Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all valleys): one
-  has the other shape, or two of those faces are one. Keep that face whole; read which from the photos, and when no
-  silhouette shows it, bracket the candidates with facet_variants (each with node values that build it) and judge
-  them at the moderate-angle and glossy views. On E_CREASE_SHAPE, change the node t values that make the shape (or
-  the fade, as the refusal says), or, when it says the creases at a corner cannot all have one shape, correct the
-  declaration the photos contradict there. Never redeclare just to match the build; never split a face to get a
-  refused declaration built.
-- Angles: the receipt gives each crease's dihedral. Where the photos show two faces clearly distinct and the render
-  barely distinct, the dihedral is probably too small: confirm it from silhouettes or another direction, then raise
-  the ridge's nodes' t relative to the nodes around them (lower a valley's).
-- Thickness: from the outer-edge offsets of the photos that print them (the brief names them): photo minus model, mm,
-  every 10 mm of d, + where the photo reaches further out; photo_compare prints each with the start model's,
-  facet_edit's compares omit those. An offset about the same at every station is camera error. Each station is one
-  image line through the model's outermost point near that d, so another part may form the photo's outline there:
-  check which in the overlay. Set t to what the photos need, not to stay near the station table (t_top, t_bot).
-- Outline line: a compare showing a target photo taken from above prints its outline line: the common offset, each
-  station more than 1 mm from it and any it could not measure. Like every offset it is information, one view's
-  silhouette: weigh it with the other views; never change the layout for it alone.
+- Ridge or valley: decide it per crease the photos show, from evidence about that crease, before and apart from any
+  bracket about something else: (1) the t of the corners that set it, its ends and each face's corner farthest across
+  its line (as the host names them), measured with depths; give these a measured t, never solve: a solved corner takes
+  another facet's plane, extrapolated, and can flip the crease (the margins name it). Planes are flat in
+  X = x_in(d) + t, not in t: never extrapolate t by hand; enter the measured values, build with apply false, read the
+  shape and margin the host prints (the receipt's crease lines and margins; facet_inspect for the head) and declare
+  the shape the measured values build; a margin within the readings' error leaves (1) open; (2) the views that look
+  along it (the brief says which): a valley never forms an outline, so where the photo's outline runs along the crease
+  it is a ridge (unless another face or part forms that outline). The section strip shows what the model built.
+  Declare every crease. A crease-mode facet's corners off its crease edge are solved by design; a corner no view can
+  read stays solve, and the note says so. If a face then has more measured corners than one plane holds, keep it whole
+  and solve the corner the photos constrain least, named in the note; it moves (the receipt's solved shows how far),
+  so compare the faces it bounds.
+- Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all valleys): one
+  has the other shape, or two of those faces are one. Keep that face whole; read which from the photos as above, and
+  when they do not show it, bracket the candidates with facet_variants (each with node values that build it) and judge
+  them at the moderate-angle and glossy views. On E_CREASE_SHAPE, first give any solved corner that sets that crease
+  (the refusal names them) a measured t; then declare the shape its measured corners build, or
+  change the node t values not measured that make the shape (or the fade, as the refusal says); when it says the
+  creases at a corner cannot all have one shape, correct the declaration the photos contradict there. Never redeclare
+  just to match what unmeasured values build (the refusal's "do not redeclare"); never split a face to get a refused
+  declaration built.
+- Flips: crease_vs_head names every crease built with the other shape than in the head. Each must be one you decided
+  from that crease's evidence; otherwise undo what made it.
+- Angles: where the photos show two faces clearly distinct and the render barely distinct, the dihedral is probably
+  too small: confirm it with depths or another direction, then raise the ridge's nodes' t relative to the nodes around
+  them (lower a valley's).
+- Thickness: from depths and the outer-edge offsets of the photos that print them (the brief names them). Each station
+  is one image line through the model's outermost point near that d, so another part may form the photo's outline
+  there: check which in the overlay. Set t to what the photos need, not to stay near the station table (t_top, t_bot).
+- Outline line: a compare of a target photo taken from above prints its outline line. Like every offset it is
+  information, one view's silhouette: weigh it with the other views; never change the layout or a crease's shape for
+  it alone: an outline offset measures how far out the outermost face reaches, not the shape of a crease below it.
 - Top and bottom faces: the side views see a band along the top or bottom edge that points mostly up or down almost
   edge-on, so they show only where it meets the outer face. Place and confirm the band's own creases, and judge its
-  tilt, in views that see it at a moderate angle (the brief says which see faces pointing up or down) and in front
-  and rear silhouettes. A face narrow from the side but broad from above points mostly up (its t changes quickly with
-  y); a thin band suits plane mode crease.
+  tilt, in views that see it at a moderate angle (the brief says which see faces pointing up or down) and in front and
+  rear silhouettes. A face narrow from the side but broad from above points mostly up (its t changes quickly with y).
 - Fades: a faded facet keeps a standing neighbour's height along their shared crease and blends into the plain arm
   away from it; to let a crease die out, fade both facets that share it the same way. A step against a standing
-  neighbour is refused (E_FADE_CLIFF). Faces that end at a corner point need no fade. A crease that dies out ends in
-  a fade or a small dihedral, never in a hard edge extended beyond what the photos show. Do not fade a facet whose
-  edges the photos show crisp.
+  neighbour is refused (E_FADE_CLIFF). Faces that end at a corner point need no fade. A crease that dies out ends in a
+  fade or a small dihedral, never in a hard edge extended beyond what the photos show. Do not fade a facet whose edges
+  the photos show crisp.
 - Roll: roll_mm rounds only the top and bottom outer edges; creases between facets stay sharp whatever it is. Set it
   from the photos' edges (a highlight's width in px divided by the image's px/mm is a first guess).
-- Variants: bracket anything uncertain with facet_variants, first wide (several mm at the key nodes), then about
-  +-1 mm around the best. Each render panel draws the photo's outline and that model's crease lines from 6 deg, so
-  sheets also compare layouts (a doubtful crease with and without). Pick photos for what changes (depth and tilt: a
-  moderate-angle view; positions: square-on; faces: glossy). Apply the closest variant with facet_edit (its revision
-  as parent_revision, no edits).
+- Variants: bracket anything uncertain with facet_variants, first wide (several mm at the key nodes), then about +-1
+  mm around the best. One bracket answers one question: its arms differ only in the values that question is about (for
+  a crease's shape: an arm of each shape, differing in that crease's corner t and declaration), plus only the values
+  the builder requires to keep shared corners at one height (E_RELIEF_STEP). A depth wanted for another question that
+  builds the other shape is evidence to weigh, never a reason to redeclare. Pick photos for what changes (depth and
+  tilt: a moderate-angle view; positions: square-on; faces: glossy). Apply the closest variant with facet_edit (its
+  revision as parent_revision, no edits; diff_vs_head shows what that changes).
 
 TOOLS
-- facet_inspect: the head's spec (with a 10 mm station table), receipt, chart, section strip and the warnings
-  revision 0 already has.
-- photo_image: any photo, or a crop of it at native scale.
-- photo_compare: the head at the fitted cameras of the photos with one: rows photo, render (target photos only),
-  overlay, gloss-black render; outer-edge offsets; points_px charted to (d, y, t); a compare_id.
-- facet_edit: ordered edits on a revision, built, applied to both temples and compared (apply true); a refusal names
-  the edit index or the build code: fix the cause.
-- facet_variants: 2..6 edit lists on one revision, rendered beside the head without changing the scene at 1..4 photos
-  with a camera, each in an earlier compare, at most 3 of them target photos; each built variant becomes a revision.
-- facet_restore: make an earlier applied checkpoint the scene again. facet_finish: end the run (below).
-Revisions are spec numbers; checkpoints (such as c0003) are applied scenes. Every result ends with the money settled,
-the cap and the context size. When the context grows large, older compare and variant images become short notes (not
-the latest two or your best checkpoint's).
+facet_inspect shows the head; photo_image any photo or a crop of it at native scale; photo_compare the head at the
+photos' fitted cameras (a compare_id); facet_edit builds a revision and, with apply, applies it to both temples and
+compares it (fix a refusal's cause); facet_variants renders 2..6 edit lists on one revision beside the head without
+changing the scene; facet_restore makes an earlier applied checkpoint the scene again; facet_finish ends the run
+(below). Revisions are spec numbers; checkpoints (such as c0003) are applied scenes. When the context grows large,
+older compare and variant images become short notes (not the latest two or your best checkpoint's).
 
 JUDGEMENTS
 After every compare (photo_compare, or facet_edit with apply), the next facet_edit, facet_variants, facet_restore or
-facet_finish carries a judgement of that compare_id: one entry per photo with its verdict and the largest visible
-difference, with its (d, y) when it has one, and best_checkpoint, the checkpoint you judge best so far. Without it
-the call is refused with E_JUDGEMENT and nothing changes. Make the next edit address the largest difference you judge
-to be shape. When one survives three heads, or a bracket only moves it to a neighbouring station, question the layout
-near it (a crease too many or too few, a node misplaced).
+facet_finish carries a judgement of that compare_id, else it is refused with E_JUDGEMENT and nothing changes. Make the
+next edit address the largest difference you judge to be shape. When one survives three heads, or a bracket only moves
+it to a neighbouring station, question the layout near it (a crease too many or too few, a node misplaced).
 
 FINISHING
 facet_finish is accepted only when: (1) at least {K} distinct applied heads were compared; a head counts only when,

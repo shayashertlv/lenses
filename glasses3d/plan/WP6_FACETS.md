@@ -346,12 +346,12 @@ from candidates (photo_env, studio_dome_v1, and a catalogue horizon-band prior d
 
 | Tool | Does |
 |---|---|
-| `facet_inspect()` | Spec summary (10 mm station table, nodes, facets, creases), chart, section strip vs original, receipt lines, checkpoints, budget footer |
+| `facet_inspect()` | Spec summary (10 mm station table, nodes, facets, creases; a solved node's t prints as `solve -> 5.41`, one in no facet as `solve (in no facet)`; a crease-mode facet's rise_per_mm as the spec holds it, never rounded: rounded to 0.001 and entered again, a band's rise misses its neighbours and is refused), chart, section strip vs original, receipt lines, checkpoints, budget footer. Every crease line between two facets carries its margin (`lab.crease_margins`, in the builder's terms: planes flat in X = x_in(d) + t): each face's corner farthest across the crease's line and that corner's offset in X from the other face's plane, extended (+ = a ridge by that corner; a t error that size at that corner flips it when no end of the crease is solved), then the solved corners that set it (its ends and those far corners, never the corners solved by design) with the facet each is solved from: "crown\|logo ridge 13.5° declared; P +3.0 / C +3.8 mm across; B solved from crown". A line over 170 characters is cut in its margin first, at a clause end (`lab.fit_line`) |
 | `photo_image(photo, crop?)` | Any photo of the job (target, another colour with or without a camera) or a crop, with its transform |
-| `photo_compare(photos?, crop?, points_px?)` | §3.3 compare of the applied head at photos with a camera (a photo of another colour: photo / overlay / gloss_black rows); offsets per temple named charted / mirrored; returns `compare_id` |
-| `facet_edit(parent_revision, reset_layout, edits[], judgement?, note, apply=true, photos?)` | Atomic ordered edits (§4.2) on a copy → build. A refusal returns at once with the edit index and code. With apply: checkpointed apply to both temples → compare of the given or default photos → new `compare_id` |
-| `facet_variants(parent_revision, variants[2..6]{label, edits[]}, photos[1..4], judgement?)` | Builds each variant and renders it through `mesh_overrides` into posed copies, so the live scene never changes. Photos (amended 2026-10-11, owner: "yes, build 1-3", item 3): 1..4 with a camera, each in an earlier compare, at most 3 of them target photos (a 4th is a photo of another colour; a job without one takes 3). A target photo's panels are the native render; a photo of another colour's are the gloss_black render with its compare's gain and stretch. Every render panel draws the photo's outline and that model's own crease lines (dihedral ≥ 6°, ridge orange, valley blue, depth-tested as the compare overlay; the sheet title says "creases from 6°"), so sheets also compare layouts. Returns one sheet per photo (photo, head, variants; ≤ 1280×900, 2 or 3 columns by the crop's aspect; a refused variant is a labelled panel) plus each variant's revision. Labels are distinct ignoring case, not 'head' and not ending in '_' (they are the render file names). The worker's render deadline is the 90 s table value minus a 15 s host margin (`loop.FACET_VARIANTS_HOST_MARGIN_S`) |
-| `facet_restore(checkpoint, judgement?)` | Restores a checkpoint |
+| `photo_compare(photos?, crop?, points_px?, depths?)` | §3.3 compare of the applied head at photos with a camera (a photo of another colour: photo / overlay / gloss_black rows); offsets per temple named charted / mirrored; returns `compare_id`. `points_px` charts a pixel through the current model (its t is the model's). `depths` (added 2026-10-11 after run 5; ≤ 12 `{photo, d_mm, y_mm, uv}`) MEASURES t: the point (d, y, x_in + t), placed as the lab builds it and opened by the photo's temple pose, moves along a 3D line as t changes, and `pose.line_depth` returns the t whose projection is nearest `uv` exactly (a projective function of t), with px per mm of t there and the pixel's perpendicular miss (large: the pixel shows another (d, y)). Both temples are tried; the one whose outer face the camera sees is taken; when both or neither do (front and rear views: both depth lines can fall on one image row, so the perpendicular miss cannot tell them apart), the temple whose point at the model's t (outside the outline: the base t there, extended) projects nearest the pixel; with no such t, the smaller miss. Printed per reading with the build's own t there: "d 47 y 9.2: t 7.25 (model 5.41) 7.9 px/mm, miss 0.0 px charted". Refused (`E_ARGS`) before any render for a uv outside the photo, a photo without a camera or not in this compare, values out of range |
+| `facet_edit(parent_revision, reset_layout, edits[], judgement?, note, apply=true, photos?)` | Atomic ordered edits (§4.2) on a copy → build. A refusal returns at once with the edit index and code. With apply: checkpointed apply to both temples → compare of the given or default photos → new `compare_id`. Receipt (added 2026-10-11 after run 5; amended after run 6's reviews): `margins` (the creases flipped against the head, listed first whatever their margin, then those with a solved corner that sets them or a margin under 1 mm at a corner with a t of its own; at most 3, grouped by their solved corners: "B solved: crown\|logo P -3.6/C -4.7"); `solved` (solved corners on the outline arrangement whose t moved ≥ 0.1 mm from the scene head's, never those solved by design: "B 3.09 (head 5.51)", "D 3.10 (new)"); `crease_vs_head` (every crease built with the other shape than in the head's revision, declared or not, against the head whatever the parent; `margins` names their solved corners: "r1: crown\|logo ridge 13.5° -> valley 16.2°"); `diff_vs_head` when the parent is not the head (applying a variant with no edits shows "no change" against the variant and its change against the head here). A refused build's message (≤ 400 characters, cut at a clause end before its note; `lab.refusal_message`): `E_CREASE_SHAPE` ends "; solved corners: B" (the solved ends and far corners of that crease, from the spec built without its declarations: `lab.refusal_solved`); `E_RELIEF_STEP` on a crease-mode facet (the refused one, else the neighbour whose value it misses, else another neighbour it takes values from) ends "; rise_per_mm 0.041638353 meets it" (`lab.relief_rise`: the misfit is linear in the rise, so one more build gives the root; at least 7 significant digits, more while the rounding alone misses; the printed value is confirmed to build the spec without its declarations), otherwise the misfit prints with 6 significant digits |
+| `facet_variants(parent_revision, variants[2..6]{label, edits[]}, photos[1..4], judgement?)` | Builds each variant and renders it through `mesh_overrides` into posed copies, so the live scene never changes. Photos (amended 2026-10-11, owner: "yes, build 1-3", item 3): 1..4 with a camera, each in an earlier compare, at most 3 of them target photos (a 4th is a photo of another colour; a job without one takes 3). A target photo's panels are the native render; a photo of another colour's are the gloss_black render with its compare's gain and stretch. Every render panel draws the photo's outline and that model's own crease lines (dihedral ≥ 6°, ridge orange, valley blue, depth-tested as the compare overlay; the sheet title says "creases from 6°"), so sheets also compare layouts. Returns one sheet per photo (photo, head, variants; ≤ 1280×900, 2 or 3 columns by the crop's aspect; a refused variant is a labelled panel) plus each variant's revision. Labels are distinct ignoring case, not 'head' and not ending in '_' (they are the render file names). The worker's render deadline is the 90 s table value minus a 15 s host margin (`loop.FACET_VARIANTS_HOST_MARGIN_S`). Each variant's text also carries `solved` and, when it flips a crease against the head, `crease_vs_head` (added 2026-10-11 after run 5), and `margins` (as facet_edit's, one per item); a refused variant's message is facet_edit's (the solved corners of an `E_CREASE_SHAPE`, the closing rise of an `E_RELIEF_STEP`) |
+| `facet_restore(checkpoint, judgement?)` | Restores a checkpoint; `crease_vs_head`: the creases it builds with the other shape than the head it replaces, naming their solved setting corners (it has no margins): "r5: crown\|logo valley 16.2° -> ridge 13.5° (B solved)" |
 | `facet_finish(status: matched\|stuck, best_checkpoint, summary, judgement)` | Exports best_checkpoint (validate_spec report included) and ends the run if accepted; otherwise refused with the missing precondition named, and the run continues |
 
 **Judgement** = `{compare_id, versus_compare_id|null, overall: better|same|worse|mixed, photos: [{photo, verdict,
@@ -428,9 +428,12 @@ The prompt is general for any faceted temple and any photo set; the job's facts 
 2026-10-11, below). Must state concretely:
 - **(a) Coordinates:** d mm back from the hinge; y mm up (y=0 named); t absolute thickness from the inner face; one
   spec drives both temples; the brief says which photos show which temple.
-- **(b) Position** (amended 2026-10-11): measure (d, y) with `points_px` in the views square-on to the outer face;
-  confirm in other views, never measure there (a reading goes through the current model's depth). The grid is valid
-  inside the model outline. A common offset of outline and creases is camera error.
+- **(b) Position** (amended 2026-10-11, twice): measure (d, y) with `points_px` in the views square-on to the outer
+  face; confirm in other views, never measure there (a reading goes through the current model's depth). Its t is the
+  model's, never a measurement: measure t with photo_compare's `depths` in the moderate-angle views (the brief gives
+  their px per mm of t), reading a crease's corners, of both faces, in one photo (amended after run 6's review) on the
+  temple whose outer face it shows. The grid is valid inside the model outline. A common offset of outline and creases
+  is camera error.
 - **(b2) Lay out, then confirm** (added 2026-10-11; amended the same day, build review P1): lay the faces out in the
   square-on views with a first depth; that layout is provisional. Before refining depth, check it in a calibrated
   view that sees the outer face at a moderate angle: keep a crease only where that view also shows it, remove one it
@@ -439,18 +442,37 @@ The prompt is general for any faceted temple and any photo set; the job's facts 
   a camera. When the views disagree on where a crease runs, a depth that puts it on the photo's line in both means
   depth, none means layout. A number (an offset or outline station) changes the layout only when both views show the
   new crease or its absence.
-- **(c) Ridge or valley** (amended 2026-10-11): of a crease the photos show, from the silhouettes of views that see it
-  edge-on (a convex kink is a ridge, a notch a valley); the section strip shows what the model built; declare every
-  crease. Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all
-  valleys): read from the photos which one has the other shape (§2.2 step 8). On `E_CREASE_SHAPE`, fix node t (or the
-  fade, as the refusal says), or, when the refusal says the creases at a corner cannot all have one shape, correct the
-  declaration the photos contradict; never redeclare just to match the build, never split a face to get a refused
-  declaration built. ("The shading order" is no longer a cue; §3.2: no rig reproduces the photos' order.)
+- **(c) Ridge or valley** (amended 2026-10-11, three times; the second after run 5, the third after run 6's review,
+  both below): decided per crease the photos show, from evidence about that crease, before and apart from any bracket
+  about something else: (1) the t of the corners that set it, its ends and each face's corner farthest across its line
+  (as the host names them, `lab.crease_margins`), measured with `depths`; these get a measured t, never solve (a
+  solved corner takes another facet's plane, extrapolated, and can flip the crease). The planes are flat in
+  X = x_in(d) + t, not in t, so t is never extrapolated by hand: Astra enters the measured values, builds with apply
+  false, reads the shape and margin the host prints (the receipt's crease lines and `margins`; facet_inspect for the
+  head) and declares the shape the measured values build; a margin within the readings' error leaves (1) open; (2)
+  the views that look along it (the brief names them): a valley never forms an outline, so where the photo's outline
+  runs along the crease it is a ridge, unless another face or part forms that outline. The section strip shows what
+  the model built; declare every crease. A crease-mode facet's corners off its crease edge are solved by design; a
+  corner no view can read stays solve, and the note says so. A face that then has more measured corners than one
+  plane holds (`E_FACET_NOT_PLANAR`) is kept whole and the corner the photos constrain least is solved and named
+  in the note (amended by the final pre-run review: no fold or split is suggested); solving moves that corner (the
+  receipt's `solved` shows how far), so the faces it bounds are compared. Every
+  crease in `crease_vs_head` must be a flip Astra decided from that crease's evidence, else the change that made it is
+  undone. Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all
+  valleys): read from the photos which one has the other shape (§2.2 step 8). On `E_CREASE_SHAPE`, first give any
+  solved corner that sets that crease a measured t (the refusal names the two faces' solved corners,
+  `lab.refusal_solved`); then declare the shape its measured corners build, or change node t values not measured (or
+  the fade, as the refusal says); when the refusal says the creases at a corner cannot all have one shape, correct the
+  declaration the photos contradict. Never redeclare just to match what unmeasured values build (the refusal's "do not
+  redeclare"), never split a face to get a refused declaration built. ("The shading order" is no longer a cue; §3.2:
+  no rig reproduces the photos' order.) A thin line brighter than both neighbours that stays on a crease from two
+  directions supports a ridge; its absence is no evidence.
 - **(d) Thickness** (amended 2026-10-11, build review P2): read the outer-edge offsets of the photos that print them
   (top and rear views, named in the brief) in mm; t_min 1.0; quote the station table; an offset common to every
   station is camera error. Every offset, like the outline line of a target top view (information only since
-  `2ca5be9`, owner 2026-10-11), is one view's silhouette: weigh it with the other views, never change the layout for
-  it alone.
+  `2ca5be9`, owner 2026-10-11), is one view's silhouette: weigh it with the other views, never change the layout or a
+  crease's shape for it alone (amended after run 5): an outline offset measures how far out the outermost face
+  reaches, not the shape of a crease below it.
 - **(d2) Top and bottom faces** (added 2026-10-11, run 3; amended twice the same day): the side views see a band along
   the top or bottom edge almost edge-on, so they show only where it meets the outer face; place and confirm the
   band's own creases, and judge its tilt, in views that see it at a moderate angle (the brief names the views that see
@@ -465,7 +487,13 @@ The prompt is general for any faceted temple and any photo set; the job's facts 
   Never merge two faces a visible crease separates, never split a face no photo shows divided; a silhouette corner
   can be a crease end, a bend in the edge or the silhouette passing between faces.
 - **(h) Depth:** `facet_variants` brackets wide first, then ±1 mm; its panels draw each model's crease lines from
-  6°, so it also compares layouts (a crease under 6° draws no line).
+  6°, so it also compares layouts (a crease under 6° draws no line). One bracket answers one question (amended after
+  run 5): its arms differ only in the values that question is about (a bracket about a crease's shape: an arm of each
+  shape, differing in that crease's corner t and declaration), plus only the values the builder requires to keep
+  shared corners at one height (`E_RELIEF_STEP`; amended after run 6's review, `rise_per_mm: solve` not being built;
+  since the final pre-run review the refusal names a crease-mode facet's closing rise_per_mm);
+  a depth wanted for something else that builds the other shape is evidence to weigh, never a reason to redeclare.
+  Applying a variant shows `diff_vs_head`.
 - **(i) Judgements:** name the largest difference per photo with its (d, y), and make the next edit address the
   largest one judged to be shape.
 - **(j) Finish:** the preconditions, verbatim. Continue until the pairs read as the same object or the stuck
@@ -551,9 +579,143 @@ two").**
   and retired phrases, the brief's light / temple names / finishes / edge rounding, the real-basis twin lines, the
   estimate's output tokens and variant sheets). No paid run has used this prompt yet.
 
+**Amended 2026-10-11 (owner, after run 5: "the inward edge is the one thats really bugging me since the layout is
+perfect. what caused it?", then "ok, fix it and run again, max 15$").**
+- What happened (`package_005`, $0 review): the crown|logo crease (the top triangle against the logo face) was built an
+  8.0° valley (r0014); the photos say ridge (about 80 %; with the corner depths read in B2 and 02 a ridge comes out in
+  0.96 of perturbed readings, 0.81 with every error doubled). The crease's back corner B had t solve, so the builder
+  took it from the crown's plane, extrapolated: 5.41 against 7.0-7.5 in B2 and 02. The crease's sign became a side
+  effect: var013 (request 14, parent r0002, a 43.3° ridge) changed five values at once (C, R, E, P and an outline
+  splice) to chase the top photo's outline and declared a valley in all three arms (7.9°, 28.4°, 42.2°); no single one
+  of those changes flips the crease. Astra never saw B's solved value (the receipt listed none, inspect printed null),
+  had no way to measure t in a moderate-angle view (`points_px` charts through the model: its t is the model's), and
+  applying the chosen variant printed "diff: no change" (against the variant's own revision), so the flip was never
+  shown against the head. The views that look along the crease (04, B3) were first compared at requests 24 and 28,
+  after the decision. They are weak evidence here: in the valley head the top band forms that outline, in the ridge
+  head r0002 the crown's edge at the crease does and matches B3 within ±0.34 mm, but moving the logo's far corner
+  enough to flip the crease moves no outline by more than about 0.5 mm. Gloss decided nothing: no bright line on that
+  crease in B1 or B2, and none on the logo's side edges, which are certain ridges.
+- Tools (§4.1): `depths` measures t; receipts list solved corners and name them on crease lines; `crease_vs_head` and
+  `diff_vs_head` state flips and changes against the head. Not built (recorded): a crease margin and flip point
+  ("flips at P t≈5.0"), which surface forms the outline in each run of rows, process refusals for brackets that mix a
+  crease flip with other changes, and `rise_per_mm: solve` (every ridge build of the $0 ridge test was refused
+  `E_RELIEF_STEP` until the top band's rise was re-solved by hand).
+- Instructions (general, no product facts): (b), (c), (d) and (h) as amended above, plus the gloss-line sentence.
+  The old ridge/valley source "from the silhouettes of views that see it edge-on (a convex kink in the outline is a
+  ridge, a notch a valley)" is retired: an outline shows a crease's shape only where that crease forms it. The TOOLS
+  section became one paragraph (the tool descriptions state the rest; the offsets' print format is left to
+  photo_compare's and facet_edit's descriptions, checked in the test).
+- **The brief:** "points_px moves 1.91 mm per mm of depth error" became how finely `depths` reads t:
+  `cli.t_px_per_mm`, the image length of 1 mm of t 50 mm behind the hinge of the temple the camera sees (unposed): 02
+  "depths reads t at about 7.7 px per mm", B2 8.1 (run 5's own reading at B2's node B: 7.87; the photo review's
+  7.4-8.0); square-on views "reading t with depths is unreliable here: about 2 px per mm". New line: "Front and rear
+  views look along creases that run front to back: 04, 06, B3" (cameras within 25° of the temple's length).
+- Length: instructions 13,952 characters (was 12,804). The test cap rose from 13,000 to 14,000: the new rules add
+  ~1.9k, cutting repetition took back ~0.8k, and every remaining rule is a needed phrase. Brief 4.4k (was 4.2k). First
+  request ≈ 45.2k characters / 33.1k tokens by the formula (run 5's estimate: 42.8k / 32.2k), the tool schemas'
+  `depths` and receipt descriptions included. Tests: `test_temple_lab_cli.py` (needed phrases for every new rule,
+  retired phrases, `t_px_per_mm` exact on an orthographic camera and equal to `pose.line_depth` on a perspective one,
+  the real-basis brief lines); `loop.contract_problems` on the real registry of a scratch package (`tt_run6_pkg`, $0):
+  no problem. No paid run has used this prompt yet.
+
+**Amended 2026-10-11 (run 6's build reviews, confirmed by a verifier; $0, in-memory TOOL TESTs on copies of
+`package_005`'s r0014).** The tools track built the host's crease margin (`lab.crease_margins`), the corners solved
+by design (`lab.by_design`), the solved corners in an `E_CREASE_SHAPE` refusal (`lab.refusal_solved`), facet_restore's
+`crease_vs_head` and the front-view temple choice in `depths`; the prompt uses them as follows.
+- **P1, the ridge test done in t.** Rule (1) said "a ridge when a face's far corner has a smaller t than the other
+  face's plane, extended, gives there". The builder's planes are flat in X = x_in(d) + t (`g3d/temple/planes.py`), and
+  x_in curves (r0014: 65.93 / 63.16 / 62.32 at d 0 / 22.5 / 47). With A 4.5, P 6.0 and B 7.25, the crown plane
+  extended to C gives t 7.92 in t but 11.69 in X. At C 8.0, inside the photos' 7.3-8.0, the hand test says valley
+  (-0.08 / -0.02 mm) where the builder builds an 8.5° ridge; Astra would then have moved measured values to force the
+  valley again. Now: never extrapolate t by hand; enter the measured values, build with apply false, read the shape
+  and the host's margin (per face its corner farthest across the crease's line and that corner's offset in X from the
+  other face's plane, + = a ridge there; facet_inspect prints it on every crease between two facets, receipts and
+  variant items in `margins` only for a crease with a solved setting corner or a margin under 1 mm) and declare the
+  shape the measured values build; a margin within the readings' error leaves (1) open. "Never redeclare just to match
+  the build" now covers only values that were not measured. "A far corner of each face" was ambiguous: the crown's
+  other corner R lies 1.18 mm on the logo's side of the A-B line, and read with R the rule contradicted the build on
+  every revision (r0002, r0005, r0014); it is now "each face's corner farthest across its line, as the host names
+  them".
+- **P2, never solve.** Scoped to the crease being decided (its ends and those far corners). A crease-mode facet's
+  corners off its crease edge are solved by design and never flagged: giving the top band's Pt any t is refused (its
+  own solved value rounded, 5.33, fails `E_FACET_NOT_PLANAR` by -0.0009 mm). A corner no view can read (R and Pt lie
+  on B2's top outline, their depth lines along the edge) stays solve and the note says so. Solving a far corner moves
+  it (the corrected case's R 4.9 -> 8.68, and crown|tail_face 11.7° -> 41.3°), so the faces it bounds are compared.
+  The review's "cannot be satisfied" was refuted: R qualifies as a corner away from the crease, and R solved with the
+  top band's rise re-solved builds a 9.4° ridge.
+- **P2, the bracket.** "Differing only in that crease's corner t and declaration" forbade the only ridge arm that
+  builds: arms with B 6.75 or 7.75 alone are refused `E_RELIEF_STEP` at ∓0.0012 mm until the top band's rise_per_mm is
+  re-solved. The arms may now also differ in "only the values the builder requires to keep shared corners at one
+  height" (`rise_per_mm: solve` is not built).
+- **P2, `E_CREASE_SHAPE`.** The refusal now ends "; solved corners: B"; the instructions give any solved corner that
+  sets the crease a measured t first, then declare the shape the measured corners build or change values not
+  measured (run 5's $0 ridge test had instead lowered P, the node the photos support). The refusal's own "do not
+  redeclare" is named as that scoped rule.
+- **P3:** "reading a crease's corners, of both faces, in one photo" (a camera's error is then common to all four: 02's
+  fit has a mean contour of 7.2 px, about 0.9 mm of t); rule (2)'s "another part" became "another face or part" (in
+  run 5 another facet, the top band, formed that outline).
+- **Length:** the cap stays at 14,000 characters and is not raised again. The new rules were paid for by cutting what
+  the tools state themselves, each now checked in the tool or parameter descriptions by the test: the edit order and
+  reset_layout, refusal indices, the offsets' sign, the outline line's parts, facet_variants' photo limits, panels and
+  revisions, rise_per_mm's sign, a fade's ends, the judgement's fields and the result footer. Instructions 13,897
+  characters (was 13,952); first request ≈ 45.7k characters / 33.4k tokens by the formula (was 45.2k / 33.1k; the
+  tools track's longer descriptions included).
+- **Still open:** rule (2) has no tool behind it (T4, which surface forms each outline, is not built; where a crease
+  falls in a view along it depends on the model's own t, so the check can confirm a ridge on a ridge build but cannot
+  refute a valley head); T5 (refusals for brackets that mix a crease flip with other changes) and T6 (`rise_per_mm:
+  solve`) are not built.
+- Tests: `test_temple_lab_cli.py` (needed and retired phrases, the cut phrases found in the tool and parameter
+  descriptions, the receipt's margins in facet_edit's and facet_variants' descriptions, FINISH_DOC verbatim, the
+  cap); `loop.contract_problems` on the real registry of a scratch package (`tt_run6b_pkg`, $0): no problem. No paid
+  run has used this prompt yet.
+
+**Amended 2026-10-11 (the final pre-run review; $0, TOOL TESTs on the Prada fixture's chains and on copies).**
+- **P2-1, `E_RELIEF_STEP` gave no closing value.** The rules route Astra through it (solving a corner, the
+  one-question bracket's "values the builder requires"), and T6 (`rise_per_mm: solve`) is not built. The refusal now
+  names it (`lab.relief_rise`): on an `E_RELIEF_STEP` that involves a crease-mode facet (the refused facet, else the
+  neighbour whose value it misses, else another neighbour it takes values from) the worst misfit is linear in that
+  facet's rise, so one more build at rise + 0.01 gives the root; the printed value must then build the spec without its crease declarations (a contradicted declaration is the next refusal, not this one), and
+  the message ends "; rise_per_mm <value> meets it" (a neighbour's: "; F1 rise_per_mm ... meets it"), within the
+  400-character refusal, in facet_edit and facet_variants. Seven significant digits do not build a crease plane
+  through a neighbour's corner value: the builder's polygon self-check (`build.PLANAR_MM`, 1e-9 mm) needed 8-10 digits
+  on the tool-test band (B 5.5 / 6.5 / 7.25: 0.041638353, 0.115845641, 0.1715011066), so the host prints at least 7
+  and more while the rounding alone misses. Otherwise (no crease-mode facet, or no root that builds) the worst misfit
+  prints with 6 significant digits instead of the core's 3. Each try is one build (~40 ms; 0.11-0.15 s per refusal
+  measured).
+- **P2-2, rule (c)'s solved corner.** "Solve a corner away from that crease" can push a corner no photo reads far (run
+  5's corrected case: R 4.9 -> 8.68). Now: "keep it whole and solve the corner the photos constrain least, named in the
+  note; it moves (the receipt's solved shows how far), so compare the faces it bounds". The "and no photo shows a
+  fold" clause is gone: the instructions suggest no fold or split (the owner's layout is right, and a split is the
+  failure fixed after run 4).
+- **P3s.** facet_inspect's margin text says "a t error that size at that corner flips it (when no end of the crease is
+  solved)" (a solved end moves with the plane too); a crease flipped against the head is always in the receipt's
+  `margins` (first), even with a wide margin and no solved corner; the `E_CREASE_SHAPE` note lists only the refused
+  crease's solved ends and far corners (the spec built again without its declarations, which shape nothing, so the
+  margins' rule names them), not every solved corner of its two faces; `solved` leaves out the corners solved by design
+  (a crease + rise facet's other corners move with its rise as designed); facet_inspect cuts a crease line's margin
+  first (at a clause end, "..."); the §4.1 rows above describe the margin, the receipt's `margins`, the front-view
+  temple choice of `depths` and facet_restore's `crease_vs_head`; facet_inspect prints rise_per_mm unrounded.
+- **The rehearsal** (T5, `tests/proofs/astra_temple_lab.py`): after the context guard one scripted head (HM: a crown
+  whose corner B is solved from its plane and a logo that takes B) makes a facet_edit receipt carry `margins` and
+  `solved`, checked equal to the host's own summary of the build, so the estimate prices such a receipt.
+- **§4.5 on that head.** Its first layout (`t5_wip6c`: the crown's given corners A (3, 8), P (32, 13.5), R (78, 1.5)
+  tilt it 7.1° per mm, a W_CONDITIONING line) printed 1,577 characters at the five default photos, over the 1.5k
+  budget; the check stays. Two receipt repetitions were cut (`lab.conditioning_line`: every W_CONDITIONING in one line,
+  its phrase once; the W_BORDER_RAMP line's sign legend moved to facet_edit's description) and HM's crown was laid out
+  wider (A (3, -3), P (30, 14): no conditioning warning). Recorded fact, not fixed here: run 5's applied facet_edit
+  texts were 1,470-2,228 characters (7 of 8 over 1.5k; ~700 of 2,228 are 9-12 crease lines), so §4.5 holds for the
+  scripted heads only and an estimate priced from the rehearsal's outputs prices facet_edit low.
+- Instructions 13,937 characters (cap 14,000, unchanged). Tests: `test_temple_lab.py` (the closing rise in facet_edit
+  and facet_variants, each confirmed by a build, with the band's corner moving; a neighbour band's rise; the 6-digit
+  misfit; a flip in the margins with no solved corner; the `E_CREASE_SHAPE` note naming B and not R; by-design corners
+  out of `solved`; the inspect line cut; the conditioning and ramp lines), `test_temple_lab_cli.py` (needed and
+  retired phrases, the tool descriptions). Rehearsal `t5_wip6e` (the final code; `t5_wip6d` the same before the
+  neighbour-rise candidates): 38 of 38 checks, $0, the margins head's facet_edit 1,491 characters (the largest).
+
 ### 4.5 Output budget
 
-- Numbers are rounded (mm 0.01, rise 0.001, deg 0.1).
+- Numbers are rounded (mm 0.01, deg 0.1); a rise_per_mm prints as the spec holds it (facet_inspect) or with at least
+  7 significant digits (an `E_RELIEF_STEP`'s closing value), since 0.001 misses the builder's tolerances.
 - The spec is echoed only by facet_inspect.
 - facet_edit and facet_variants text is ≤ 1.5k chars; facet_apply-style receipts ≤ 1k.
 - Every result ends with `settled $x / cap $y · context n tokens`.

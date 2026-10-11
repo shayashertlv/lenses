@@ -12,7 +12,8 @@ context n tokens" (loop.RunStatus, the run context), followed by its images (Too
 WorkerFailed stays fatal (the run ends failed_worker). The edits are the §4.2 strict anyOf union (EDIT_MODELS;
 geometry.apply_edits converts them to the /2 maps). Photo ids (lab.py module doc): photo_image takes every photo
 (Lab.image_ids: target, colourway = another colour with a calibrated camera, reference = no camera); photo_compare,
-facet_edit's compare, judgements and points_px take the photos with a camera (Lab.compare_ids); facet_variants takes
+facet_edit's compare, judgements, points_px and depths take the photos with a camera (Lab.compare_ids; depths has a
+default so scripted calls without it stay valid; the strict schema still lists it); facet_variants takes
 those too, at most Lab.variant_photos_max() of them and at most 3 target photos (lab.py module doc). The tool texts
 Astra reads name no photo id: the enums and facet_inspect's photo list carry the job's.
 Annotations are evaluated eagerly (no __future__ import): the tools close over the lab's photo-id Literals.
@@ -33,7 +34,7 @@ from glasses3d.agent.journal import WorkerFailed
 from glasses3d.agent.loop import RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.g3d.temple.spec import TempleError
 from . import geometry as G
-from .lab import data_url
+from .lab import DEPTHS_MAX, data_url
 from .state import LabRefusal
 
 CONTEXT_GUARD_TOKENS = 240_000          # §4.3: the one-epoch image filter from this many counted input tokens
@@ -188,12 +189,19 @@ def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids
         photo: PhotoId
         points: list[list[float]] = Field(min_length=1, max_length=16, description="native photo pixels [[u, v]]")
 
+    class Depth(Input):
+        photo: PhotoId
+        d_mm: float = Field(description="d of the point (e.g. a node), mm")
+        y_mm: float = Field(description="y of the point, mm")
+        uv: list[float] = Field(min_length=2, max_length=2,
+                                description="native photo pixel [u, v] where the photo shows that point")
+
     class Variant(Input):
         label: str = Field(description="a short name: a letter, then letters, digits, _ or -, not ending in _")
         edits: list[Edit] = Field(max_length=G.EDITS_MAX)
 
     return {"PhotoId": PhotoId, "TargetId": TargetId, "ImageId": ImageId, "Judgement": Judgement,
-            "PhotoPoints": PhotoPoints, "Variant": Variant}
+            "PhotoPoints": PhotoPoints, "Variant": Variant, "Depth": Depth}
 
 
 # --------------------------------------------------------------------------------------------- output
@@ -265,7 +273,7 @@ def registry(lab, settings=None) -> list:
     lock = lab.lock
     M = models(lab.photo_ids(), lab.compare_ids(), lab.image_ids())
     Judgement, PhotoPoints, Variant, PhotoId = M["Judgement"], M["PhotoPoints"], M["Variant"], M["PhotoId"]
-    ImageId = M["ImageId"]
+    ImageId, Depth = M["ImageId"], M["Depth"]
 
     def tool(name: str):
         return partial(function_tool, name_override=name, timeout=sdk_timeout_s(name),
@@ -306,8 +314,13 @@ def registry(lab, settings=None) -> list:
 
     @tool("facet_inspect")
     async def facet_inspect(ctx: ToolContext):
-        """The applied head: its revision's spec (nodes as [d, y, t], facets, declared creases, a 10 mm station
-        table d, y_top, y_bot, x_in, t_top, t_bot), its receipt (crease lines, warnings, thickness, border ramps),
+        """The applied head: its revision's spec (nodes as [d, y, t], a solved t as "solve -> value"; facets,
+        declared creases, a 10 mm station table d, y_top, y_bot, x_in, t_top, t_bot), its receipt (crease lines;
+        each crease between two facets with its margin: each face's corner farthest across the crease and that
+        corner's mm from the other face's plane, extended (planes are flat in X = x_in(d) + t, not in t; + = a ridge
+        there; a t error that size at that corner flips it (when no end of the crease is solved)), and the solved
+        corners that set it (its ends and those corners) with the facet each is solved from; warnings, thickness,
+        border ramps),
         the warnings inherited from revision 0 (later receipts leave them out while unchanged), recent revisions and
         applied checkpoints, the photo ids, the latest compare and any judgement due. Images:
         the chart (facets shaded by lean, ridges orange, valleys blue, nodes 'name t=', thickness contours, decal and
@@ -329,13 +342,17 @@ def registry(lab, settings=None) -> list:
 
     @tool("photo_compare")
     async def photo_compare(ctx: ToolContext, photos: list[PhotoId] | None, crop: Literal["temple", "full"] | None,
-                            points_px: list[PhotoPoints] | None):
+                            points_px: list[PhotoPoints] | None,
+                            depths: Annotated[list[Depth], Field(min_length=1, max_length=DEPTHS_MAX)] | None = None):
         """Compare the applied head with photos at their fitted cameras and temple poses: per photo one image with
         rows photo / render / overlay (model outline magenta, ridges orange, valleys blue, a d grid every 10 mm and a
         y grid every 5 mm) / gloss-black render, all with the photo's own contrast stretch (a photo of another colour
         with a calibrated camera: photo / overlay / gloss-black render, no native row); text per photo: temple
         IoU, px/mm, the crop box and its scale k, outer-edge offsets photo minus model in mm every 10 mm (top and rear
-        photos; per temple: charted, mirrored; "start" = the unedited model's) and points_px charted to (d, y, t).
+        photos; per temple: charted, mirrored; "start" = the unedited model's), points_px charted to (d, y, t) (t is
+        the model's) and depths read (t measured from the photo, the model's t there, px per mm of t, the pixel's
+        miss from the point's depth line in px: large means the (d, y) is not the point shown, small does not
+        confirm d, which runs at an angle to the depth line; which temple).
         Returns a compare_id; the next facet_edit, facet_variants, facet_restore or facet_finish must carry a
         judgement of it. A photo without a calibrated camera cannot be compared (photo_image shows it).
 
@@ -343,19 +360,29 @@ def registry(lab, settings=None) -> list:
             photos: Photo ids, or null for the default set (target photos showing the temple large).
             crop: temple (default) or full.
             points_px: Native photo pixels to chart through the model, or null.
+            depths: Thickness readings, or null: for a point (d, y), the t whose point (d, y, t) the photo's camera
+                shows nearest the pixel uv, independent of the model's depth.
         """
-        return await call(ctx, "photo_compare", lambda cid: lab.compare(cid, photos, crop, dumped(points_px)))
+        return await call(ctx, "photo_compare", lambda cid: lab.compare(cid, photos, crop, dumped(points_px),
+                                                                         dumped(depths)))
 
     @tool("facet_edit")
     async def facet_edit(ctx: ToolContext, parent_revision: int, reset_layout: bool, edits: list[Edit],
                          judgement: Judgement | None, note: str, apply: bool, photos: list[PhotoId] | None):
         """Make a new revision from parent_revision: the edits apply in order, all or none; a refused edit returns
-        at once with its index and code, a refused build with its code. reset_layout clears nodes, facets and
-        creases first. The receipt lists every built crease (shape, dihedral, declared or undeclared),
-        warnings (not those inherited unchanged from revision 0), thickness, border ramps (facet, height mm, slope,
-        d); images: chart and section strip. With apply true (the usual choice) both
-        temples are rebuilt from the original as a new checkpoint and compared with the given or default photos
-        (a new compare_id; its text as photo_compare's, without the start model's offsets).
+        at once with its index and code, a refused build with its code (E_CREASE_SHAPE names the solved corners that
+        set that crease; E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it). reset_layout
+        clears nodes, facets and creases first. diff is against the parent; against the scene's head revision:
+        diff_vs_head (when the parent is another revision) and crease_vs_head (creases built with the other shape
+        than in the head). The receipt lists every built crease (shape, dihedral, declared or undeclared), margins
+        (as facet_inspect's, only for creases flipped against the head, with a solved corner or with a margin under
+        1 mm, flips first, a few, grouped by their solved corners: "K solved: F1|F2 P -1.1/Q -4.0, ..."), solved:
+        corners solved from a facet's plane (not by design) whose t moved from the head's, warnings (not those
+        inherited unchanged from revision 0), thickness, border ramps (facet, height mm: + proud of the base, -
+        below it, slope, d; also the W_BORDER_RAMP line's items);
+        images: chart and section strip. With apply true (the usual choice) both temples are rebuilt from the
+        original as a new checkpoint and compared with the given or default photos (a new compare_id; its text as
+        photo_compare's, without the start model's offsets).
 
         Args:
             parent_revision: The revision to edit (any earlier one, e.g. a variant).
@@ -381,10 +408,12 @@ def registry(lab, settings=None) -> list:
         lines from 6° (ridges orange, valleys blue, as photo_compare's overlay), so crease layouts can be compared
         side by side. A target photo's panels are the native render; a photo of another colour shows the
         gloss-black render with photo_compare's gain and stretch for it. Each built variant becomes a revision that
-        facet_edit can apply with no edits. Text: each variant's revision, its distance from the head, the pairwise
-        distances (max |dX| or outline shift, mm) and spread_ok (3 rendered variants pairwise >= 0.3 mm apart). The
-        sheets have no compare_id and need no judgement: apply the variant that matches best with facet_edit; its
-        compare is judged as usual.
+        facet_edit can apply with no edits. Text: each variant's revision, its distance from the head, its creases,
+        crease_vs_head (creases built with the other shape than in the head), margins (as facet_edit's), solved
+        (as facet_edit's), a refused variant's code and message (as facet_edit's), the pairwise distances (max |dX| or
+        outline shift, mm) and spread_ok (3 rendered variants pairwise >= 0.3 mm apart). The sheets have no
+        compare_id and need no judgement: apply the variant that matches best with facet_edit; its compare is judged
+        as usual.
 
         Args:
             parent_revision: The revision the variants edit.
@@ -399,7 +428,8 @@ def registry(lab, settings=None) -> list:
 
     @tool("facet_restore")
     async def facet_restore(ctx: ToolContext, checkpoint: str, judgement: Judgement | None):
-        """Make an earlier applied checkpoint the scene again (its revision becomes the head).
+        """Make an earlier applied checkpoint the scene again (its revision becomes the head); crease_vs_head: the
+        creases it builds with the other shape than the head it replaces, naming their solved corners.
 
         Args:
             checkpoint: A checkpoint that holds an applied revision.

@@ -15,6 +15,10 @@ masks, metrics, crops and overlays agree with the Blender render of the same vie
 - ``posed(mesh, pose, roles)`` = a FitMesh with those parts' vertices opened (same faces, parts and frame).
 - ``chart_at(points_px, camera, mesh, pose, roles, hinge_z)`` = per pixel the first hit through the posed mesh
   (raster.cast) and, on a temple part, its chart (d, y, X) at opening 0: d = hinge_z - z, y, X = side x.
+- Depth readings (a pixel read as a thickness, no mesh): ``chart_to_posed`` (the inverse of chart_of + unpose_points,
+  with a temple's own opening first), ``toward_camera`` / ``faces_camera`` (camera.project's camera centre) and
+  ``line_depth(uv, camera, frame, P0, n)`` = the t of the 3D line P0 + t n whose projection is nearest a pixel, its
+  px per mm of t and the pixel's perpendicular miss from the projected line.
 """
 from __future__ import annotations
 
@@ -24,7 +28,7 @@ from dataclasses import replace
 import numpy as np
 
 from . import fitmesh, glb
-from .camera import Camera
+from .camera import Camera, NormFrame, project_mm
 
 SIDE_KEYS = {1: "+1", -1: "-1"}
 POSE_SIDES = {"+1": 1, "1": 1, "-1": -1}
@@ -189,3 +193,70 @@ def chart_at(points_px, camera: Camera, mesh_posed: fitmesh.FitMesh, pose, roles
             rec.update(d_mm=round(float(ch[i, 0]), 2), y_mm=round(float(ch[i, 1]), 2), X_mm=round(float(ch[i, 2]), 2))
         out.append(rec)
     return out
+
+
+# --------------------------------------------------------------------------------------------- depth readings
+def chart_to_posed(ch, side: int, hinge_z: float, pose=None, opening=None) -> np.ndarray:
+    """Chart (d, y, X) points of the ``side`` temple -> posed world mm: x = side X, y, z = hinge_z - d (the inverse of
+    chart_of), then ``opening`` = (deg, (|axis x|, axis z)), a temple spec's own hinge opening (g3d/temple/build.py
+    to_world, mirrored for -1), then the pose's theta for that side (as the render's posed copies; the inverse of
+    unpose_points)."""
+    C = np.asarray(ch, float).reshape(-1, 3)
+    P = np.stack([side * C[:, 2], C[:, 1], hinge_z - C[:, 0]], axis=1)
+    if opening is not None and opening[0]:
+        P = rot_about_hinge(P, side, float(opening[0]), opening[1])
+    p = parse_pose(pose) if not (isinstance(pose, dict) and all(isinstance(k, int) for k in pose)) else pose
+    if side in p:
+        th, axis = p[side]
+        P = rot_about_hinge(P, side, th, axis)
+    return P
+
+
+def toward_camera(P_mm, camera: Camera, frame: NormFrame) -> np.ndarray:
+    """(N, 3) the direction from each point toward the camera (not normalised), in mm space: camera.project's basis
+    (toward = (cos p sin y, sin p, cos p cos y)) with its centre at toward / perspective in the normalized frame;
+    an orthographic camera (perspective 0): toward itself."""
+    yaw, pitch = math.radians(camera.yaw), math.radians(camera.pitch)
+    toward = np.array([math.cos(pitch) * math.sin(yaw), math.sin(pitch), math.cos(pitch) * math.cos(yaw)])
+    Pn = frame.to_norm(np.asarray(P_mm, float).reshape(-1, 3))
+    return toward[None, :] - camera.perspective * Pn
+
+
+def faces_camera(P_mm, n_mm, camera: Camera, frame: NormFrame) -> np.ndarray:
+    """Per point: True when moving it along n (e.g. a temple's outward direction) moves it toward the camera, i.e.
+    the camera sees the face whose outward direction is n from its front."""
+    n = np.asarray(n_mm, float).reshape(-1, 3)
+    return (n * toward_camera(P_mm, camera, frame)).sum(axis=1) > 0.0
+
+
+def line_depth(uv, camera: Camera, frame: NormFrame, P0_mm, n_mm) -> dict:
+    """The point P0 + t n (mm; n = the 3D direction of 1 mm of t) whose projection is nearest the pixel uv (native
+    photo pixels), exactly: a pinhole camera (camera.project) maps the line to an image line, on which the image
+    position is a projective function of t, s(t) = a t / (1 + b t) from P0 (fixed by s(-1) and s(+1)); the foot of
+    uv's perpendicular on the image line gives t. Returns {"t" (None when the view looks along the line, or the foot
+    lies beyond its vanishing point), "px_per_mm" (image px per mm of t at that t), "miss_px" (uv's perpendicular
+    distance from the image line: large = the line is not the one the pixel shows), "uv" (the projection at t)}."""
+    P0 = np.asarray(P0_mm, float).reshape(3)
+    n = np.asarray(n_mm, float).reshape(3)
+    target = np.asarray(uv, float).reshape(2)
+    q = project_mm(np.stack([P0 - n, P0, P0 + n]), camera, frame)
+    e = q[2] - q[0]
+    L = float(np.hypot(*e))
+    if L < 1e-9:
+        return {"t": None, "px_per_mm": 0.0, "miss_px": float(np.hypot(*(target - q[1]))), "uv": q[1].tolist()}
+    e = e / L
+    sm, sp = float((q[0] - q[1]) @ e), float((q[2] - q[1]) @ e)
+    b = (sm + sp) / (sm - sp)
+    a = sp * (1.0 + b)
+    w = target - q[1]
+    s = float(w @ e)
+    miss = float(abs(w[0] * e[1] - w[1] * e[0]))
+    den = a - b * s
+    t = s / den if abs(den) > 1e-12 else None
+    if t is None or 1.0 + b * t <= 1e-9:
+        return {"t": None, "px_per_mm": 0.0, "miss_px": miss, "uv": None}
+    try:
+        at = project_mm((P0 + t * n)[None], camera, frame)[0].tolist()
+    except ValueError:                                  # that point is behind the camera's near plane
+        return {"t": None, "px_per_mm": 0.0, "miss_px": miss, "uv": None}
+    return {"t": t, "px_per_mm": abs(a) / (1.0 + b * t) ** 2, "miss_px": miss, "uv": at}

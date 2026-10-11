@@ -190,7 +190,30 @@ ready, max 15$". Cap $15 (guard), effort max, no reply cap, K 4; code `bf0b699`;
 - Sheets: `data/wp6v2/result_facet-astra-005/` (top_triangle_run5.png, faces_run5.png, top_run5.png,
   angled_run5.png, reference-0N.png); the 3D viewer's default is run 5. The owner's verdict is pending.
 
-No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
+**Owner feedback on facet-astra-005, verbatim:** "the inward edge is the one thats really bugging me since the layout
+is perfect. what caused it?" Found ($0; `data/wp6v2/tooltest_crown_ridge/`, review notes): the crown|logo crease is a
+ridge in the photos (~80%; depth read from the angled views gives a ridge with probability 0.96). Run 5 built an 8°
+valley because the logo's back corner (B) had t solve, so the builder took it from the crown's extrapolated plane
+(5.41 against ~7.0-7.5 in the photos); a bracket chasing the top photo's outline (var013: five changes at once and an
+explicit valley declaration in every arm) then flipped it. Astra never saw solved values or the flip against the head
+(applying the variant said "no change"), and had no way to measure t from the angled photos (points_px gives the
+model's t). Owner, verbatim: "ok, fix it and run again, max 15$".
+
+**Built for run 6 (2026-10-11, $0; build, two review rounds, fixes):**
+- facet_inspect prints solved node values (`solve -> 5.41`) and, per crease, a host margin in the builder's own
+  planes (each face's corner farthest across the crease line, its offset in X = x_in(d) + t from the other face's
+  plane, + = ridge; solved setting corners named). Receipts list `solved` moves and `margins` (flips, solved or
+  fragile creases); `crease_vs_head` / `diff_vs_head` state shape flips against the head, also when a variant is
+  applied with no edits and on facet_restore.
+- photo_compare `depths`: t measured from a photo at (d, y) and a pixel (exact inverse projection; px per mm; miss);
+  front/rear views pick the temple nearest at the model's t. Run 5's logo corner reads 7.0-7.4 in B2, 02 and B3.
+- E_CREASE_SHAPE names the crease's solved corners; E_RELIEF_STEP names the rise_per_mm that closes it.
+- Instructions (13.9k chars, cap 14,000): decide ridge/valley from evidence about that crease (measured corner t,
+  read the host margin, never extrapolate t by hand; views that look along it); measured t for the corners that set a
+  decided crease; one bracket answers one question; never change a crease's shape for an outline number; on
+  E_CREASE_SHAPE first measure its solved corners. T5 38/38 (`t5_wip6e`).
+
+No further paid call is authorized beyond that. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
 

@@ -125,3 +125,66 @@ def test_chart_at_reads_the_chart_through_the_posed_raster():
     miss = PO.chart_at([[1.0, 1.0]], cam, mp, pose, roles, HINGE_Z)[0]
     assert not miss["hit"] and "d_mm" not in miss
     assert Camera.from_dict(cam.to_dict()) == cam
+
+
+# --------------------------------------------------------------------------------------------- depth readings
+FRAME = NormFrame((0.0, -3.9, -71.8), 151.3)                  # a Prada-sized normalized frame (package_005's, rounded)
+
+
+def test_chart_to_posed_inverts_chart_of_and_unpose_points():
+    """chart_to_posed is the inverse of unpose_points + chart_of on both sides, and its temple opening is the builder's
+    to_world (mirrored for -1) before the pose."""
+    rng = np.random.default_rng(5)
+    ch = np.column_stack([rng.uniform(0, 130, 40), rng.uniform(-20, 15, 40), rng.uniform(64, 74, 40)])
+    pose = PO.make_pose({"+1": 6.7, "-1": 2.2}, AXIS)
+    for side in (1, -1):
+        P = PO.chart_to_posed(ch, side, HINGE_Z, pose)
+        back = PO.chart_of(PO.unpose_points(P, np.full(len(P), side, np.int8), pose), np.full(len(P), side, np.int8),
+                           HINGE_Z)
+        np.testing.assert_allclose(back, ch, atol=1e-9)
+    W = TB.to_world(ch[:, [0, 1, 2]], HINGE_Z, AXIS, 3.0)
+    np.testing.assert_allclose(PO.chart_to_posed(ch, 1, HINGE_Z, None, (3.0, AXIS)), W, atol=1e-9)
+    np.testing.assert_allclose(PO.chart_to_posed(ch, -1, HINGE_Z, {}, (3.0, AXIS)), W * [-1, 1, 1], atol=1e-9)
+    np.testing.assert_allclose(PO.chart_to_posed(ch, 1, HINGE_Z, pose, (3.0, AXIS)),
+                               PO.rot_about_hinge(W, 1, 6.7, AXIS), atol=1e-9)
+
+
+@pytest.mark.parametrize("persp", [0.26, 0.0])
+def test_toward_camera_is_the_projection_ray_and_faces_camera_its_sign(persp):
+    cam = Camera(28.2, 11.4, 0.6, persp, 1220.0, 1005.0, 568.0)
+    P = np.array([[70.0, 5.0, -60.0], [-68.0, -3.0, -100.0]])
+    w = PO.toward_camera(P, cam, FRAME)
+    a, b = project_mm(P, cam, FRAME), project_mm(P + 0.3 * w * FRAME.extent, cam, FRAME)    # along the camera's ray
+    np.testing.assert_allclose(a, b, atol=1e-6)
+    out = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])          # each temple's outward direction at opening 0
+    assert PO.faces_camera(P, out, cam, FRAME).tolist() == [True, False]      # yaw +28: the +X temple's side
+    assert PO.faces_camera(P, -out, cam, FRAME).tolist() == [False, True]
+
+
+@pytest.mark.parametrize("persp", [0.26, 0.08, 0.0])
+def test_line_depth_is_the_exact_inverse_of_a_projection(persp):
+    """A point P0 + t n projected by a pinhole (or orthographic) camera reads back as t, the px per mm is the
+    projection's own derivative, and a pixel moved off the line's image by k px reads the same t with miss k."""
+    cam = Camera(28.2, 11.4, 0.6, persp, 1220.0, 1005.0, 568.0)
+    P0 = PO.chart_to_posed([[47.0, 9.2, 66.0]], 1, HINGE_Z, PO.make_pose({"+1": 6.7, "-1": 2.2}, AXIS))[0]
+    n = PO.chart_to_posed([[47.0, 9.2, 67.0]], 1, HINGE_Z, PO.make_pose({"+1": 6.7, "-1": 2.2}, AXIS))[0] - P0
+    for t in (-2.0, 0.0, 5.41, 7.25, 30.0):
+        uv = project_mm((P0 + t * n)[None], cam, FRAME)[0]
+        r = PO.line_depth(uv, cam, FRAME, P0, n)
+        assert r["t"] == pytest.approx(t, abs=1e-6) and r["miss_px"] < 1e-6
+        fd = np.linalg.norm(project_mm((P0 + (t + 1e-4) * n)[None], cam, FRAME)[0] -
+                            project_mm((P0 + (t - 1e-4) * n)[None], cam, FRAME)[0]) / 2e-4
+        assert r["px_per_mm"] == pytest.approx(fd, rel=1e-5) and 5.0 < r["px_per_mm"] < 12.0
+        np.testing.assert_allclose(r["uv"], uv, atol=1e-6)
+        e = project_mm((P0 + (t + 1.0) * n)[None], cam, FRAME)[0] - uv
+        perp = np.array([-e[1], e[0]]) / np.linalg.norm(e)
+        off = PO.line_depth(uv + 4.0 * perp, cam, FRAME, P0, n)
+        assert off["miss_px"] == pytest.approx(4.0, abs=0.05) and off["t"] == pytest.approx(t, abs=0.02)
+
+
+def test_line_depth_along_the_view_has_no_t():
+    """An orthographic camera looking straight along the line: every t projects to one pixel, so no t is read."""
+    cam = Camera(90.0, 0.0, 0.0, 0.0, 1000.0, 600.0, 400.0)       # from +X: the temple's outward direction
+    P0 = np.array([66.0, 2.0, -50.0])
+    r = PO.line_depth(project_mm(P0[None], cam, FRAME)[0] + [0.0, 3.0], cam, FRAME, P0, np.array([1.0, 0.0, 0.0]))
+    assert r["t"] is None and r["px_per_mm"] == 0.0 and r["miss_px"] == pytest.approx(3.0)

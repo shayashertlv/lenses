@@ -7,6 +7,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -22,6 +23,7 @@ from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent.journal import WorkerFailed  # noqa: E402
 from glasses3d.agent.offline import disable_sdk_tracing  # noqa: E402
 from glasses3d.agent.temple_lab import geometry as G  # noqa: E402
+from glasses3d.agent.temple_lab import lab as LB  # noqa: E402
 from glasses3d.agent.temple_lab import sheets as SH  # noqa: E402
 from glasses3d.agent.temple_lab import state as S  # noqa: E402
 from glasses3d.agent.temple_lab import tools as T  # noqa: E402
@@ -30,7 +32,9 @@ from glasses3d.g3d.temple import build_temple  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
 from glasses3d.g3d.temple import report as RP  # noqa: E402
 from glasses3d.g3d.temple.spec import TempleError, canonical, parse, spec_sha256  # noqa: E402
-from glasses3d.g3d_host.camera import Camera, NormFrame  # noqa: E402
+from glasses3d.g3d_host import compare as GC  # noqa: E402
+from glasses3d.g3d_host import pose as PO  # noqa: E402
+from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm  # noqa: E402
 
 # the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt
 EDITS_SCHEMA_SHA256 = "d2a21805361de8da2cc4262b75f02c01404fd6add36edaec12ad9e88302a942d"
@@ -56,6 +60,9 @@ class FakeBasis:
 
     def camera(self, rid):
         return Camera(90.0, 0.0, 0.0, 0.0, 400.0, 160.0, 120.0)
+
+    def shape(self, rid):
+        return 240, 320
 
     def photo(self, rid):
         y, x = np.mgrid[0:240, 0:320]
@@ -985,6 +992,690 @@ def test_t5_recorded_rehearsal_text_budget():
     over = [(s["step"], s["text_chars"]) for s in rec["steps"] if s["tool"] in budget
             and s["text_chars"] > budget[s["tool"]]]
     assert not over, over
+
+
+# --------------------------------------------------------------------------------------------- solved corners, flips
+def _crown_logo(pt: float, shape: str | None = None) -> list:
+    """Run 5's mechanism on the Prada fixture's chains (a TOOL TEST layout, not a product): a crown A P R B whose
+    corner B is solved (from the crown's plane) and a logo A B C; the crown|logo crease along A-B builds a ridge at P t
+    3 and a valley at P t 7 only because B follows the crown's tilt (B t 5.51 and 3.09)."""
+    def node(name, d, y, t):
+        return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
+                "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": float(t)}}
+    plane = {"mode": "nodes", "crease": None, "rise_per_mm": None}
+    out = [node("A", 2.0, 9.0, 4.5), node("P", 35.0, 14.5, pt), node("R", 80.0, 1.0, 4.5),
+           node("B", 47.0, -1.0, None), node("C", 22.0, -12.0, 4.0),
+           {"op": "set_facet", "label": "crown", "poly": ["A", "P", "R", "B"], "plane": plane, "fade": None},
+           {"op": "set_facet", "label": "logo", "poly": ["A", "B", "C"], "plane": plane, "fade": None}]
+    return out + ([{"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}] if shape else [])
+
+
+def _p_t(t: float) -> dict:
+    return {"op": "set_node", "name": "P", "d_mm": 35.0, "y_mm": 14.5, "t": {"mode": "mm", "mm": float(t)}}
+
+
+def _shape(shape: str) -> dict:
+    return {"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}
+
+
+FLIP = "crown|logo ridge 13.5° -> valley 16.2°"
+
+
+def test_solved_corners_margins_and_crease_flips_against_the_head(lab):
+    """T1/T2 and the run-6 margins (run 5's inward edge): facet_inspect prints a solved t as "solve -> value" and every
+    crease between two facets with its margin (each face's far corner across it and that corner's mm from the other
+    face's plane, + = ridge) and the solved corners that set it; a receipt lists only the margins of creases with such
+    a solved corner (or under 1 mm), grouped by those corners, and the solved corners whose t moved from the HEAD's;
+    facet_variants items and facet_edit state the creases built with the other shape than in the head (crease_vs_head),
+    also when a variant is applied with no edits (its diff against the variant says "no change"; diff_vs_head shows
+    the change), and facet_restore against the head it replaces, naming the solved corner; the texts stay within
+    §4.5."""
+    tl = tools_of(lab)
+    b0 = LB.node_ts(lab.build(0))["B"]                                 # revision 0's B (a base node)
+    body, _f, _i, text = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(3.0, "ridge"), "judgement": None,
+        "note": "TOOL TEST: crown and logo", "apply": True, "photos": ["05"]}))
+    assert body["status"] == "applied", body
+    r1, cp1 = body["revision"], body["checkpoint"]
+    assert "B at 47.0,-1.0 t base->solve" in body["diff"]                  # a solved t reads "solve", never None
+    rc = body["receipt"]
+    assert "crown|logo ridge 13.5° declared" in rc["lines"] and not any("solved" in ln for ln in rc["lines"])
+    assert rc["margins"] == "B solved: crown|logo P +3.0/C +3.8"           # B sets it: an end of the crease
+    assert rc["solved"] == f"B 5.51 (head {b0:.2f})" and list(rc)[:3] == ["lines", "margins", "solved"]
+    assert "crease_vs_head" not in body and "diff_vs_head" not in body    # no pair in common with revision 0
+    ins, *_ = parsed(call(tl["facet_inspect"], {}))
+    assert ins["spec"]["nodes"]["B"] == [47.0, -1.0, "solve -> 5.51"] and ins["spec"]["nodes"]["P"][2] == 3.0
+    lines = ins["receipt"]["lines"]
+    assert "crown|logo ridge 13.5° declared; P +3.0 / C +3.8 mm across; B solved from crown" in lines
+    assert "crown|base valley 32.6° undeclared" in lines                  # a crease with the base has no margin
+    assert "solved" not in ins["receipt"] and "margins" not in ins["receipt"]
+    # the bracket: one arm of each shape, built by moving P's t only
+    body, _f, _i, text = parsed(call(tl["facet_variants"], {
+        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
+        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0), _shape("valley")]}]}))
+    assert body["status"] == "ok" and len(text) <= 1500, len(text)
+    by = {v["label"]: v for v in body["variants"]}
+    assert "crease_vs_head" not in by["Pr"] and by["Pr"]["solved"] == "B 5.21 (head 5.51)"
+    assert by["Pr"]["margins"] == "B solved: crown|logo P +2.2/C +2.8"
+    assert by["Pv"]["crease_vs_head"] == "crown|base valley 32.6° -> ridge 37.0°; " + FLIP
+    assert by["Pv"]["margins"] == "B solved: crown|logo P -3.6/C -4.7"    # - = a valley by that corner
+    assert by["Pv"]["solved"] == "B 3.09 (head 5.51)"
+    # applying the valley arm with no edits: the diff against the variant is empty, against the head it is not
+    body, _f, _i, text = parsed(call(tl["facet_edit"], {
+        "parent_revision": by["Pv"]["revision"], "reset_layout": False, "edits": [], "judgement": None,
+        "note": "TOOL TEST: apply the valley arm", "apply": True, "photos": ["05"]}))
+    assert body["status"] == "applied" and body["diff"] == "no change" and len(text) <= 1500, len(text)
+    assert body["diff_vs_head"] == f"r{r1}: ~node P t 3.0->7.0; +crease crown|logo valley"
+    assert body["crease_vs_head"] == f"r{r1}: crown|base valley 32.6° -> ridge 37.0°; " + FLIP
+    assert body["receipt"]["solved"] == "B 3.09 (head 5.51)"
+    assert body["receipt"]["margins"] == "B solved: crown|logo P -3.6/C -4.7"
+    assert "crown|logo valley 16.2° declared" in body["receipt"]["lines"]
+    assert list(body)[:7] == ["status", "revision", "parent", "spec", "diff", "diff_vs_head", "crease_vs_head"]
+    # an edit of the head itself: no diff_vs_head, the flip back stated
+    rv = body["revision"]
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": rv, "reset_layout": False, "edits": [_p_t(3.0), _shape("ridge")],
+        "judgement": judgement(lab), "note": "TOOL TEST: back", "apply": False, "photos": None}))
+    assert body["status"] == "built" and "diff_vs_head" not in body and body["revision"] == r1
+    assert body["crease_vs_head"] == f"r{rv}: crown|base ridge 37.0° -> valley 32.6°; crown|logo valley 16.2° -> " \
+                                     "ridge 13.5°"
+    assert body["receipt"]["solved"] == "B 5.51 (head 3.09)"
+    # restoring the ridge head: the flips against the head it replaces, the solved corner named (no margins there)
+    body, _f, _i, text = parsed(call(tl["facet_restore"], {"checkpoint": cp1, "judgement": None}))
+    assert body["status"] == "ok" and body["revision"] == r1 and len(text) <= 1000, len(text)
+    assert body["crease_vs_head"] == f"r{rv}: crown|base ridge 37.0° -> valley 32.6°; crown|logo valley 16.2° -> " \
+                                     "ridge 13.5° (B solved)"
+    body, *_ = parsed(call(tl["facet_restore"], {"checkpoint": cp1, "judgement": None}))
+    assert body["changed"] is False and "crease_vs_head" not in body
+
+
+def _crown_logo_build(pt: float = 3.0, edits: tuple = ()):
+    spec, _ = G.apply_edits(FX.prada_default(), _crown_logo(pt) + list(edits), reset_layout=True)
+    return spec, build_temple(spec)
+
+
+def _c_t(t: float) -> dict:
+    return {"op": "set_node", "name": "C", "d_mm": 22.0, "y_mm": -12.0, "t": {"mode": "mm", "mm": float(t)}}
+
+
+def test_crease_margins_are_the_builders_planes():
+    """A margin is in the builder's terms: C is a defining corner of the logo (A, B, C), so moving C's t by its margin
+    puts C on the crown's plane, extended, and the crease builds flat; 1 mm less keeps the shape, 1 mm more flips
+    it; across a P sweep the margin's sign is the built shape's. The far corner is the face's farthest across the
+    crease's line on its own side (P for the crown: R lies on the logo's side of A-B extended), the ends are A, B."""
+    _s, tb = _crown_logo_build(3.0)
+    m = LB.crease_margins(tb)[("crown", "logo")]
+    (p, c) = m["corners"]
+    assert (p["node"], c["node"], m["ends"], m["solved"], m["from"]) == ("P", "C", ["A", "B"], ["B"], {"B": "crown"})
+    sol = tb.sol
+    assert c["mm"] == pytest.approx(float(sol.planes["crown"].X(22.0, -12.0) - sol.planes["logo"].X(22.0, -12.0)))
+    assert p["mm"] > 0 and c["mm"] > 0 and m["shape"] == "ridge" and m["flip_mm"] == pytest.approx(p["mm"])
+    t_c = 4.0                                                             # _crown_logo's C
+    for dt, shape in ((-1.0, "ridge"), (0.0, "flat"), (1.0, "valley")):
+        _s, tb2 = _crown_logo_build(3.0, [_c_t(t_c + c["mm"] + dt)])
+        built = next(x for x in tb2.tables["creases"] if x["regions"] == ["crown", "logo"])
+        assert built["shape"] == shape, (dt, built["shape"], built["mean_dihedral_deg"])
+        if shape == "flat":
+            assert built["mean_dihedral_deg"] < 0.01
+    for pt in (2.0, 3.0, 4.0, 5.0, 6.0, 7.0):                            # B follows the crown's tilt (run 5)
+        _s, tb3 = _crown_logo_build(pt)
+        m3 = LB.crease_margins(tb3)[("crown", "logo")]
+        if m3["shape"] != "flat":
+            assert all((x["mm"] > 0) == (m3["shape"] == "ridge") for x in m3["corners"]), (pt, m3)
+
+
+def test_crease_margin_helpers_exempt_corners_solved_by_design_and_cap_the_receipt():
+    """The Prada fixture's K is solved (from F1) but F1 is a crease + rise facet, so K is solved by design: never a
+    solved corner that sets a crease; virtual nodes outside the outline are never named (an unnamed vertex where the
+    outline cuts the facet off stands in, "(35,16)", and counts for no flip margin); no crease of the fixture is
+    listed in a receipt. margins_summary: flips first, then the smallest flip margin, grouped by solved corners,
+    capped with the rest counted (naming any other solved corner); crease_changes ignores a flat crease and pairs only
+    one build has."""
+    spec = FX.prada_default()
+    assert LB.by_design(canonical(spec)["facets"]) == {"K", "K_hi", "A_hi", "A_l"}
+    tb = build_temple(spec)
+    solved = LB.solved_corners(tb)
+    assert list(solved) == ["K"] and solved["K"][1] == "F1" and solved["K"][0] == pytest.approx(5.0, abs=1e-6)
+    margins = LB.crease_margins(tb)
+    assert sorted(margins) == [("F1", "F2"), ("F2", "F3"), ("F2", "F4")]             # never a crease with the base
+    assert all(not m["solved"] for m in margins.values())
+    f12 = margins[("F1", "F2")]
+    assert [c["node"] for c in f12["corners"]] == [None, None] and f12["flip_mm"] == float("inf")
+    assert LB.margin_text(f12) == "(35,16) +1.2/(21,-15) +6.9"
+    assert LB.margins_summary(margins, LB.MARGIN_ITEMS_MAX) == ""
+    assert LB.crease_changes(tb, tb) == [] and LB.solved_moves(tb, tb) == "" and LB.flips(tb, tb) == []
+    other = build_temple(rename(FX.prada_default(), {"F1": "G1"}, {}))
+    assert LB.crease_changes(tb, other) == []                            # F1|F2 and G1|F2 are different pairs
+
+    def mg(mm, solved, flip):
+        return {"corners": [{"node": "P", "d": 0.0, "y": 0.0, "mm": mm}, {"node": "C", "d": 0.0, "y": 0.0,
+                                                                          "mm": 2 * mm}],
+                "solved": solved, "flip_mm": flip}
+    ms = {("a", "b"): mg(2.0, ["B"], 2.0), ("a", "c"): mg(-0.5, ["B"], 0.5), ("c", "d"): mg(0.3, [], 0.3),
+          ("d", "e"): mg(4.0, ["L"], 4.0), ("e", "f"): mg(3.0, [], 3.0)}
+    assert LB.margins_summary(ms, 3) == "c|d P +0.3/C +0.6; B solved: a|c P -0.5/C -1.0, a|b P +2.0/C +4.0; " \
+                                        "+1 more (L solved)"
+    assert LB.margins_summary(ms, 1, [("d", "e")]) == "L solved: d|e P +4.0/C +8.0; +3 more (B solved)"
+    assert LB.margins_summary(ms, 9).count("|") == 4                     # e|f: no solved corner, 3 mm: not listed
+
+
+def test_crease_shape_refusals_name_the_solved_corners(lab, monkeypatch):
+    """E_CREASE_SHAPE (the build never finished, so from the spec) names the t-solve corners of the two facets inside
+    or on the outline, in facet_edit and in facet_variants (within REFUSAL_MAX), never those solved by design or
+    outside the outline."""
+    tl = tools_of(lab)
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(7.0, "ridge"), "judgement": None,
+        "note": "TOOL TEST", "apply": False, "photos": None}))
+    assert body["code"] == "E_CREASE_SHAPE" and body["message"].endswith("do not redeclare; solved corners: B"), body
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(3.0, "ridge"), "judgement": None,
+        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
+    r1 = body["revision"]
+    body, *_ = parsed(call(tl["facet_variants"], {
+        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
+        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0)]}]}))
+    pv = next(v for v in body["variants"] if v["label"] == "Pv")
+    assert pv["code"] == "E_CREASE_SHAPE" and pv["message"].endswith("; solved corners: B")
+    spec = FX.prada_default()
+    assert LB.refusal_solved(spec, ["F1", "F2"]) == ""                    # K: by design
+    assert LB.refusal_solved(spec, ["F2", "F3"]) == ""                    # H_lo, C_lo: outside the outline
+    assert LB.refusal_solved(G.apply_edits(spec, _crown_logo(3.0), reset_layout=True)[0], ["crown", "logo"]) == \
+        "; solved corners: B"
+    # a long core message is cut at a clause end before the note, which always fits
+    real = LB.build_temple
+
+    def refusing(s):
+        if s["nodes"]["P"][2] == 7.0:
+            raise TempleError("E_CREASE_SHAPE", "crease crown|logo is declared ridge; " + "a clause; " * 60 + "end",
+                              facets=["crown", "logo"])
+        return real(s)
+    monkeypatch.setattr(LB, "build_temple", refusing)
+    body, *_ = parsed(call(tl["facet_variants"], {
+        "parent_revision": r1, "photos": ["05"], "judgement": None,
+        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0)]}]}))
+    pv = next(v for v in body["variants"] if v["label"] == "Pv")
+    assert len(pv["message"]) <= LB.REFUSAL_MAX and pv["message"].endswith(" ...; solved corners: B"), pv["message"]
+
+
+# --------------------------------------------------------------------------------------------- the final pre-run review
+NODES_PLANE = {"mode": "nodes", "crease": None, "rise_per_mm": None}
+RISE_RE = re.compile(r"; rise_per_mm (\S+) meets it$")
+
+
+def _set(name: str, d: float, y: float, t) -> dict:
+    """set_node with a measured t (mm) or t None (solve)."""
+    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
+            "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": float(t)}}
+
+
+def _facet_op(label: str, poly: list, plane=None) -> dict:
+    return {"op": "set_facet", "label": label, "poly": poly, "plane": plane or NODES_PLANE, "fade": None}
+
+
+def _band_facet(rise: float) -> dict:
+    return _facet_op("top_band", ["P", "U", "R"], {"mode": "crease", "crease": ["P", "U"], "rise_per_mm": rise})
+
+
+def _band(b_t: float, rise: float) -> list:
+    """A TOOL TEST layout on the Prada fixture's chains (not a product): a crown A P R B whose corner R is solved
+    from the crown (visited first), a logo A B C, and a crease-mode top band P U R (crease P-U, U a virtual node above
+    the outline) whose off-crease corner R (solved by design) the crown sets: any change of the crown (B's t) moves R,
+    so the band's rise must follow it or the build is refused E_RELIEF_STEP (run 5's top-rear band)."""
+    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
+            _set("B", 47.0, -1.0, b_t), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5),
+            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"]), _band_facet(rise)]
+
+
+def _significant(text: str) -> int:
+    return len(re.sub(r"\D", "", text.split("e")[0]).lstrip("0"))
+
+
+def test_relief_step_names_the_rise_that_meets_it_in_edit_and_variants(lab):
+    """The final pre-run review's P2-1: E_RELIEF_STEP on a crease-mode facet ends "; rise_per_mm <value> meets it"
+    (at least 7 significant digits; more only while the rounding alone misses the builder's tolerances), within
+    REFUSAL_MAX, in facet_edit and in facet_variants, and that value builds: the band's rise missing the crown's R,
+    then the band's corner R moving with B (two arms of a bracket, then facet_edit on the head). Not a crease-mode
+    facet: the misfit is printed with 6 significant digits (the core prints 3)."""
+    tl = tools_of(lab)
+    base = {"reset_layout": True, "judgement": None, "note": "TOOL TEST: band", "photos": None}
+    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": _band(5.5, -0.1), "apply": False}))
+    assert body["status"] == "refused" and body["code"] == "E_RELIEF_STEP" and body["stage"] == "build", body
+    msg = body["message"]
+    assert msg.startswith("facet top_band cannot meet facet(s) ['crown'] without a step: +2.29 mm at (d, y)"), msg
+    assert len(msg) <= LB.REFUSAL_MAX and RISE_RE.search(msg) and _significant(RISE_RE.search(msg)[1]) >= 7, msg
+    rise = float(RISE_RE.search(msg)[1])
+    assert rise == pytest.approx(0.0416384, abs=1e-6)                   # the root of the misfit, linear in the rise
+    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": _band(5.5, rise), "apply": True,
+                                              "photos": ["05"]}))
+    assert body["status"] == "applied", body
+    r1 = body["revision"]
+    # the band's corner moves: B measured deeper tilts the crown and moves R; each arm is refused with its own rise
+    arms = {"Bd": 6.5, "Bdd": 7.25}
+    body, *_ = parsed(call(tl["facet_variants"], {
+        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
+        "variants": [{"label": lb, "edits": [_set("B", 47.0, -1.0, bt)]} for lb, bt in arms.items()]}))
+    rises = {}
+    for v in body["variants"]:
+        assert v["revision"] is None and v["code"] == "E_RELIEF_STEP" and len(v["message"]) <= LB.REFUSAL_MAX, v
+        m = RISE_RE.search(v["message"])
+        assert m and _significant(m[1]) >= 7, v["message"]
+        rises[v["label"]] = float(m[1])
+    assert rises["Bd"] != pytest.approx(rise, abs=0.01) and rises["Bdd"] != pytest.approx(rises["Bd"], abs=0.01)
+    body, *_ = parsed(call(tl["facet_variants"], {
+        "parent_revision": r1, "photos": ["05"], "judgement": None,
+        "variants": [{"label": lb, "edits": [_set("B", 47.0, -1.0, bt), _band_facet(rises[lb])]}
+                     for lb, bt in arms.items()]}))
+    assert all(v["revision"] is not None and "code" not in v for v in body["variants"]), body["variants"]
+    # facet_edit on the head: the same corner move, the same rise named, and it builds
+    edit = {**base, "reset_layout": False, "parent_revision": r1, "apply": False}
+    body, *_ = parsed(call(tl["facet_edit"], {**edit, "edits": [_set("B", 47.0, -1.0, 6.5)]}))
+    assert body["code"] == "E_RELIEF_STEP" and float(RISE_RE.search(body["message"])[1]) == rises["Bd"], body
+    body, *_ = parsed(call(tl["facet_edit"], {**edit, "edits": [_set("B", 47.0, -1.0, 6.5), _band_facet(rises["Bd"])]}))
+    assert body["status"] == "built", body
+    # R, solved by design (the band's off-crease corner), moved 1.2 mm with B and the rise: never a receipt's solved
+    r_head, r_new = (LB.solved_corners(lab.build(r))["R"][0] for r in (r1, body["revision"]))
+    assert abs(r_new - r_head) > 1.0 and "R " not in body["receipt"].get("solved", "")
+    # a nodes-mode facet where the crease-mode band was: no rise to name; the misfit to 6 significant digits
+    edits = _band(5.5, rise)[:-1] + [_set("U", 50.0, 30.0, 3.5), _set("V", 92.0, 20.0, 3.2),
+                                      _facet_op("top_band", ["P", "U", "V", "R"])]
+    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": edits, "apply": False}))
+    assert body["code"] == "E_RELIEF_STEP" and "meets it" not in body["message"], body
+    spec, _ = G.apply_edits(FX.prada_default(), edits, reset_layout=True)
+    with pytest.raises(TempleError) as e:
+        build_temple(spec)
+    worst = max(e.value.fields["misfits"], key=lambda x: abs(x["misfit_mm"]))["misfit_mm"]
+    assert f"{worst:+.3g} mm at (d, y)" in e.value.message and f"{worst:+.3g}" != f"{worst:+.6g}"
+    assert body["message"] == e.value.message.replace(f"{worst:+.3g} mm", f"{worst:+.6g} mm")
+    assert LB.relief_rise(spec, e.value) == ""
+
+
+def _crown_logo_r(pt: float) -> list:
+    """_crown_logo with B measured (5.5) and R solved from the crown instead: R is neither an end of crown|logo (A, B)
+    nor the crown's far corner across it (P), so no solved corner sets that crease."""
+    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, pt), _set("R", 80.0, 1.0, None),
+            _set("B", 47.0, -1.0, 5.5), _set("C", 22.0, -12.0, 4.0),
+            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
+
+
+def test_receipt_margins_list_a_flip_with_no_solved_corner_and_a_wide_margin(lab):
+    """P3-2: a crease flipped against the head is listed in the receipt's margins even when no solved corner sets it
+    and its margin is wide (crown|logo, ridge at P 3 -> valley at P 9: P -3.0 / C -3.9); with no flip, that crease is
+    not listed. R, solved from the crown but setting no crease, is the receipt's solved."""
+    tl = tools_of(lab)
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo_r(3.0), "judgement": None,
+        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
+    assert body["status"] == "applied" and "margins" not in body["receipt"], body
+    m = LB.crease_margins(lab.build(body["revision"]))[("crown", "logo")]
+    assert m["shape"] == "ridge" and not m["solved"] and m["flip_mm"] > LB.MARGIN_FRAGILE_MM
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": body["revision"], "reset_layout": False, "edits": [_p_t(9.0)], "judgement": judgement(lab),
+        "note": "TOOL TEST", "apply": False, "photos": None}))
+    assert body["status"] == "built" and "crown|logo ridge 13.4° -> valley 13.4°" in body["crease_vs_head"], body
+    assert body["receipt"]["margins"] == "crown|logo P -3.0/C -3.9"            # no "solved:" group: none sets it
+    assert body["receipt"]["solved"] == "R 8.85 (head 4.49)"
+    ms = {("a", "b"): {"corners": [{"node": "P", "d": 0.0, "y": 0.0, "mm": 3.0},
+                                   {"node": "C", "d": 0.0, "y": 0.0, "mm": 6.0}], "solved": [], "flip_mm": 3.0}}
+    assert LB.margins_summary(ms, 3) == "" and LB.margins_summary(ms, 3, [("a", "b")]) == "a|b P +3.0/C +6.0"
+
+
+def _aft_layout(shape: str) -> list:
+    """A TOOL TEST layout: an aft facet P U V R (visited first; U, V virtual nodes above the outline) sets R, the crown
+    A P R B takes R from it and sets B, the logo A B C takes B: B (an end of crown|logo) and R (a crown corner that sets
+    no crease of the logo) are both solved."""
+    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
+            _set("B", 47.0, -1.0, None), _set("C", 22.0, -12.0, 4.0), _set("U", 50.0, 30.0, 3.5),
+            _set("V", 92.0, 20.0, 3.2), _facet_op("aft", ["P", "U", "V", "R"]),
+            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"]),
+            {"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}]
+
+
+def test_crease_shape_refusal_names_only_the_corners_that_set_the_crease(lab):
+    """P3-3: E_CREASE_SHAPE names the solved corners that set the refused crease (its ends and far corners, as
+    crease_margins names them), not every solved corner of its two faces: crown|logo declared valley where the build
+    makes a ridge names B (its end, solved from the crown), never R (a crown corner solved from the aft facet), in
+    facet_edit and facet_variants."""
+    tl = tools_of(lab)
+    spec, _ = G.apply_edits(FX.prada_default(), _aft_layout("ridge"), reset_layout=True)
+    tb = build_temple(spec)
+    assert sorted(LB.solved_corners(tb)) == ["B", "R"] and LB.solved_corners(tb)["R"][1] == "aft"
+    assert LB.crease_margins(tb)[("crown", "logo")]["solved"] == ["B"]
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _aft_layout("valley"), "judgement": None,
+        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
+    assert body["code"] == "E_CREASE_SHAPE" and body["message"].endswith("do not redeclare; solved corners: B"), body
+    body, *_ = parsed(call(tl["facet_edit"], {
+        "parent_revision": 0, "reset_layout": True, "edits": _aft_layout("ridge"), "judgement": None,
+        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
+    assert body["status"] == "applied", body
+    body, *_ = parsed(call(tl["facet_variants"], {
+        "parent_revision": body["revision"], "photos": ["05"], "judgement": judgement(lab),
+        "variants": [{"label": "V", "edits": [{"op": "set_crease", "facets": ["crown", "logo"], "shape": "valley"}]},
+                     {"label": "Pr", "edits": [_p_t(3.5)]}]}))
+    v = next(x for x in body["variants"] if x["label"] == "V")
+    assert v["code"] == "E_CREASE_SHAPE" and v["message"].endswith("; solved corners: B"), v
+    # a crease with the base has no margin: the facet's own solved corners inside the outline
+    assert LB.refusal_solved(spec, ["crown", "base"]) == "; solved corners: B, R"
+
+
+def _a_band(rise: float) -> dict:
+    return _facet_op("a_band", ["P", "U", "R"], {"mode": "crease", "crease": ["P", "U"], "rise_per_mm": rise})
+
+
+def test_relief_step_names_a_neighbours_rise(lab):
+    """P2-1 when the crease-mode facet is a neighbour: the band a_band (visited first) sets the crown's corner R by
+    design; with B measured the crown's plane through A, P and R misses B (E_RELIEF_STEP on the crown, at node B), and
+    the refusal names the band's rise that moves R until the crown meets B, "; a_band rise_per_mm ... meets it",
+    which builds."""
+    def layout(rise):
+        return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
+                _set("B", 47.0, -1.0, 5.0), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5), _a_band(rise),
+                _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
+    args = {"parent_revision": 0, "reset_layout": True, "judgement": None, "note": "TOOL TEST", "apply": False,
+            "photos": None}
+    body, *_ = parsed(call(tools_of(lab)["facet_edit"], {**args, "edits": layout(-0.1)}))
+    assert body["code"] == "E_RELIEF_STEP" and body["message"].startswith("facet crown cannot meet facet(s) ['a_band']")
+    m = re.search(r"; a_band rise_per_mm (\S+) meets it$", body["message"])
+    assert m and _significant(m[1]) >= 7 and float(m[1]) == pytest.approx(0.0045347, abs=1e-6), body["message"]
+    body, *_ = parsed(call(tools_of(lab)["facet_edit"], {**args, "edits": layout(float(m[1]))}))
+    assert body["status"] == "built", body
+
+
+def test_receipts_leave_out_corners_solved_by_design(lab):
+    """P3-4: a crease + rise facet's other corners are solved by design and move with its rise: the receipt's solved
+    never lists them. A TOOL TEST layout: the band a_band P U R (visited first) sets R by design, the crown A P R B
+    takes R and sets B (solved, not by design), the logo A B C takes B; the band's rise -0.1 -> 0.05 moves R 2.19 ->
+    4.62 (not listed) and B 3.59 -> 5.61 (listed); solved_corners still has R (facet_inspect prints it)."""
+    tl = tools_of(lab)
+    layout = [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
+              _set("B", 47.0, -1.0, None), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5), _a_band(-0.1),
+              _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
+    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": True, "edits": layout,
+                                              "judgement": None, "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
+    assert body["status"] == "applied" and body["receipt"]["solved"].startswith("B 3.59 (head "), body
+    assert "R " not in body["receipt"]["solved"]
+    r1 = body["revision"]
+    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": r1, "reset_layout": False, "edits": [_a_band(0.05)],
+                                              "judgement": judgement(lab), "note": "TOOL TEST", "apply": False,
+                                              "photos": None}))
+    assert body["status"] == "built" and body["receipt"]["solved"] == "B 5.61 (head 3.59)", body
+    r_head, r_new = (LB.solved_corners(lab.build(r))["R"] for r in (r1, body["revision"]))
+    assert r_head[1] == r_new[1] == "a_band" and r_new[0] - r_head[0] == pytest.approx(2.43, abs=0.01)
+    assert LB.by_design(lab.spec(r1)["facets"]) == {"R"}
+
+
+def test_inspect_crease_lines_cut_the_margin_first(lab):
+    """P3-6: a crease line with its margin longer than LINE_MAX keeps the crease whole and cuts the margin at a clause
+    end (the 24-character names the edits allow: the solved-from clause goes, "mm across" stays); fit_line's rules."""
+    spec, _ = G.apply_edits(FX.prada_default(), _crown_logo(3.0, "ridge"), reset_layout=True)
+    names = {"crown": "C" + "c" * 23, "logo": "L" + "l" * 23}
+    long = rename(spec, names, {"P": "P" + "p" * 23, "C": "K" + "k" * 23, "B": "B" + "b" * 23})
+    tb = build_temple(long)
+    m = LB.crease_margins(tb)[tuple(sorted(names.values()))]
+    head = f"{names['crown']}|{names['logo']} ridge {m['deg']:.1f}° declared"
+    full = f"{head}; {LB.margin_text(m, full=True)}"
+    assert len(full) > LB.LINE_MAX
+    line = next(ln for ln in lab._receipt(tb, full=True)["lines"] if ln.startswith(head))
+    assert line == f"{head}; {full[len(head) + 2:].split('; ')[0]} ...", line
+    assert line.endswith("mm across ...") and len(line) <= LB.LINE_MAX
+    assert LB.fit_line("h" * 60, "; " + "x" * 50) == "h" * 60 + "; " + "x" * 50
+    assert LB.fit_line("h" * 160, "; P -1.1 / C -4.0 mm across") == "h" * 160 + "; ..."
+    assert LB.fit_line("h" * 200, "; x") == "h" * LB.LINE_MAX and LB.fit_line("h" * 10) == "h" * 10
+    cut = LB.fit_line("h" * 100, "; P -1.1 / C -4.0 mm across; B solved from crown, D solved from logo, E solved "
+                                 "from logo")
+    assert cut == "h" * 100 + "; P -1.1 / C -4.0 mm across; B solved from crown ...", cut
+
+
+def test_receipt_groups_conditioning_and_ramps_in_one_line_each(lab):
+    """§4.5 after the final pre-run review (its margins head printed 1,577 characters; run 5's applied facet_edit texts
+    were 1,470-2,228): every W_CONDITIONING in one line where the first stood, its phrase once; the W_BORDER_RAMP
+    line without the sign legend, which facet_edit's description carries."""
+    tb = copy.copy(build_temple(FX.prada_default()))
+    cond = [{"code": "W_CONDITIONING", "facet": f, "deg_per_mm": x,
+             "message": f"facet {f} tilts {x:.1f} deg per mm of node error"} for f, x in (("F2", 7.14), ("F4", 6.5))]
+    ramp = {"code": "W_BORDER_RAMP", "facet": "F4", "height_mm": -0.42, "slope_deg": 12.3, "d_mm": [40.0, 55.0],
+            "message": "x"}
+    tb.warnings = [cond[0], {"code": "W_FLAT_CREASE", "message": "crease F2|F3 is flat"}, ramp, cond[1]]
+    lines = lab._receipt(tb)["lines"]
+    warn = [ln for ln in lines if ln.startswith("W_")]
+    assert warn == ["W_CONDITIONING (deg per mm of node error): F2 7.1, F4 6.5", "W_FLAT_CREASE: crease F2|F3 is flat",
+                    "W_BORDER_RAMP >8°: F4 -0.42 12.3° d 40.0-55.0"], warn
+    assert "height mm: + proud of the base, - below it" in " ".join(tools_of(lab)["facet_edit"].description.split())
+
+
+# --------------------------------------------------------------------------------------------- depth readings (T3)
+class AngledBasis(FakeBasis):
+    """FakeBasis with perspective cameras that see the temples' outer faces at a moderate angle: 02 from the charted
+    temple's side (yaw +50), 01 from the mirrored temple's (yaw -50); 320 x 240 photos."""
+    CAMS = {"reference-02": Camera(50.0, 10.0, 0.0, 0.2, 150.0, 160.0, 120.0),
+            "reference-01": Camera(-50.0, 10.0, 0.0, 0.2, 150.0, 160.0, 120.0)}
+
+    def camera(self, rid):
+        return self.CAMS.get(rid) or super().camera(rid)
+
+
+def _uv(lab, rid: str, side: int, d: float, y: float, t: float) -> list:
+    """The pixel where photo rid shows the head's point (d, y, t) on the side's temple (placed as the lab builds it,
+    opened by the photo's pose)."""
+    tb = lab.build(lab.head_record()["revision"])
+    P = PO.chart_to_posed([[d, y, LB._inner_x(tb, d) + t]], side, tb.spec.hinge["z_mm"], lab.basis.pose(rid))
+    return project_mm(P, lab.basis.camera(rid), lab.basis.frame)[0].tolist()
+
+
+def test_photo_compare_depths_read_t_from_a_pixel(lab):
+    """T3: a depth reading returns the t whose point the photo's camera shows at the pixel (the exact inverse of a
+    projected point), on the temple whose outer face the camera sees (charted at yaw +50, mirrored at yaw -50), with
+    the model's t there, the px per mm of t and the perpendicular miss (a pixel off the depth line); refusals: a uv
+    outside the photo, a photo the compare does not show, a photo without a camera (E_ARGS); a photo the default set
+    leaves out gets its readings on their own; the readings are kept in the compare record."""
+    lab._basis = AngledBasis()
+    tl = tools_of(lab)
+    uv2, uv1 = _uv(lab, "reference-02", 1, 40.0, 2.0, 6.0), _uv(lab, "reference-01", -1, 40.0, 2.0, 7.5)
+    assert all(0 <= u < 320 and 0 <= v < 240 for u, v in (uv2, uv1))
+    e = np.subtract(_uv(lab, "reference-02", 1, 40.0, 2.0, 7.0), uv2)      # 1 mm of t in the image of 02
+    off = (np.asarray(uv2) + 5.0 * np.array([-e[1], e[0]]) / np.hypot(*e)).tolist()   # 5 px off the depth line
+    model = lab.depths([{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2}])[0]["model_t_mm"]
+    body, _f, images, text = parsed(call(tl["photo_compare"], {
+        "photos": ["02", "01"], "crop": None, "points_px": None,
+        "depths": [{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2},
+                   {"photo": "01", "d_mm": 40.0, "y_mm": 2.0, "uv": uv1},
+                   {"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": off}]}))
+    assert body["status"] == "ok" and len(images) == 2
+    t02, t01 = body["photos"]["02"], body["photos"]["01"]
+    assert f"| depths d 40 y 2: t 6.00 (model {model:.2f}) " in t02 and " px/mm, miss 0.0 px charted;" in t02
+    assert "| depths d 40 y 2: t 7.50 (model " in t01 and t01.endswith("miss 0.0 px mirrored")
+    rec = lab.state["compares"][-1]["depths"]
+    assert [r["side"] for r in rec] == [1, -1, 1] and rec[0]["t_mm"] == pytest.approx(6.0, abs=1e-3)
+    assert rec[2]["miss_px"] == pytest.approx(5.0, abs=0.01) and rec[2]["t_mm"] == pytest.approx(6.0, abs=0.05)
+    assert rec[0]["px_per_mm"] == pytest.approx(float(np.hypot(*e)), rel=0.02)     # ~0.5: tiny synthetic photos
+    assert len(t02) - len(t02.split(" | depths ")[0]) <= 2 * 80          # about 60-75 characters per reading
+    # refusals (nothing compared)
+    n = len(lab.state["compares"])
+    for depths, photos, what in (([{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": [400.0, 10.0]}], ["02"],
+                                  "inside the native 320 x 240 photo 02"),
+                                 ([{"photo": "05", "d_mm": 40.0, "y_mm": 2.0, "uv": [10.0, 10.0]}], ["02"],
+                                  "which this compare does not show"),
+                                 ([{"photo": "B2", "d_mm": 40.0, "y_mm": 2.0, "uv": [10.0, 10.0]}], None,
+                                  "photo_image only")):
+        with pytest.raises(S.LabRefusal, match=what) as e:
+            lab.compare("x", photos, None, None, depths)
+        assert e.value.code == "E_ARGS"
+    out = call(tl["photo_compare"], {"photos": ["02"], "crop": None, "points_px": None,
+                                     "depths": [{"photo": "B2", "d_mm": 40.0, "y_mm": 2.0, "uv": [1.0, 1.0]}]})
+    assert isinstance(out, str) and "Invalid JSON input for tool photo_compare" in out
+    assert len(lab.state["compares"]) == n
+    # the default set (01, 02, 05 here) leaves 04 out: its reading comes on its own
+    body, *_ = parsed(call(tl["photo_compare"], {"photos": None, "crop": None, "points_px": None,
+                                                 "depths": [{"photo": "04", "d_mm": 40.0, "y_mm": 2.0,
+                                                             "uv": [100.0, 100.0]}]}))
+    assert list(body["depths"]) == ["04"] and body["depths"]["04"].startswith("d 40 y 2: t ")
+    assert all("depths" not in v for v in body["photos"].values())
+
+
+class FrontBasis(FakeBasis):
+    """FakeBasis with front and rear cameras: 04 from the front (perspective: neither temple's outer face faces it),
+    06 from the rear and 03 an orthographic front view (both outer faces face it, opened 2 deg); 320 x 240 photos.
+    Both temples' depth lines fall near one image row, so a pixel's perpendicular miss cannot tell them apart."""
+    CAMS = {"reference-04": Camera(0.0, 8.0, 0.0, 0.2, 150.0, 160.0, 120.0),
+            "reference-06": Camera(180.0, 8.0, 0.0, 0.2, 150.0, 160.0, 120.0),
+            "reference-03": Camera(0.0, 8.0, 0.0, 0.0, 150.0, 160.0, 120.0)}
+
+    def camera(self, rid):
+        return self.CAMS.get(rid) or super().camera(rid)
+
+
+def _depth_line(lab, rid, side, d, y):
+    tb = lab.build(lab.head_record()["revision"])
+    P = PO.chart_to_posed([[d, y, LB._inner_x(tb, d)], [d, y, LB._inner_x(tb, d) + 1.0]], side,
+                          tb.spec.hinge["z_mm"], lab.basis.pose(rid))
+    return P[0], P[1] - P[0]
+
+
+def test_depth_reading_in_front_and_rear_views_takes_the_temple_nearest_at_the_model_t(lab):
+    """Run 5's front views (04, B3) read about half of all pixels on the wrong temple (t ~ -131): when both or neither
+    outer face faces the camera, both temples' depth lines lie near one image row and the smaller perpendicular miss
+    was a coin flip. The temple whose point at the model's t projects nearest the pixel is taken instead: every pixel
+    1-3 px off the line on either side, at t from the model's -2 to +2, at five points of the head (one below its
+    outline: the base t there) and on both temples, reads its own temple and t (the miss rule alone gets some of them
+    wrong here, so the test can fail)."""
+    lab._basis = FrontBasis()
+    tb = lab.build(lab.head_record()["revision"])
+    bs = lab.basis
+    wrong_by_miss = total = 0
+    for rid in ("reference-04", "reference-06", "reference-03"):
+        cam, pose = bs.camera(rid), bs.pose(rid)
+        for d, y in ((10.0, 2.0), (40.0, 2.0), (47.0, -1.0), (90.0, 4.0), (90.0, 0.0)):
+            model = LB.depth_reading(tb, cam, bs.frame, pose, d, y, (0.0, 0.0))["model_t_mm"]
+            if model is None:                                       # (90, 0) lies below the outline: its base t
+                assert (d, y) == (90.0, 0.0)
+                model = float(tb.spec.base_t(d, y))
+            for side in (1, -1):
+                P0, n = _depth_line(lab, rid, side, d, y)
+                faces = bool(PO.faces_camera(P0[None], n, cam, bs.frame)[0])
+                assert faces == (rid == "reference-03"), rid      # neither (perspective front, rear) or both
+                for dt in (-2.0, 0.0, 2.0):
+                    t = model + dt
+                    uv = project_mm((P0 + t * n)[None], cam, bs.frame)[0]
+                    e = project_mm((P0 + (t + 1.0) * n)[None], cam, bs.frame)[0] - uv
+                    perp = np.array([-e[1], e[0]]) / np.hypot(*e)
+                    for off in (-3.0, -2.0, -1.0, 1.0, 2.0, 3.0):
+                        px = uv + off * perp
+                        r = LB.depth_reading(tb, cam, bs.frame, pose, d, y, px)
+                        total += 1
+                        assert r["side"] == side and r["t_mm"] == pytest.approx(t, abs=0.05), (rid, d, y, side, off)
+                        assert r["miss_px"] == pytest.approx(abs(off), abs=0.05)
+                        other = PO.line_depth(px, cam, bs.frame, *_depth_line(lab, rid, -side, d, y))
+                        wrong_by_miss += other["miss_px"] < r["miss_px"]
+    assert total == 3 * 5 * 2 * 3 * 6 and wrong_by_miss > 0, wrong_by_miss
+    # through the tool: the text names the temple read
+    uv = project_mm((lambda P0, n: (P0 + 6.0 * n)[None])(*_depth_line(lab, "reference-04", -1, 40.0, 2.0)),
+                    bs.camera("reference-04"), bs.frame)[0] + [0.0, 1.5]
+    reading = lab.depths([{"photo": "04", "d_mm": 40.0, "y_mm": 2.0, "uv": uv.tolist()}])[0]
+    assert reading["side"] == -1 and reading["t_mm"] == pytest.approx(6.0, abs=0.1)
+    assert LB.depth_text(reading).endswith(" px mirrored")
+
+
+def test_depth_text_prints_one_recorded_number_one_way():
+    """A reading's t at the rounding boundary (float noise either side of 8.365) prints as one number, the one its
+    record keeps to 0.001 (rounded half up); never "-0.00"."""
+    assert LB.fixed(8.364999999, 2) == LB.fixed(8.365000001, 2) == LB.fixed(8.365, 2) == "8.37"
+    assert LB.fixed(2.675, 2) == "2.68" and LB.fixed(-0.0004, 2) == "0.00" and LB.fixed(7.87, 1) == "7.9"
+    recs = [{"d_mm": 45.0, "y_mm": 0.0, "t_mm": t, "model_t_mm": 7.365, "px_per_mm": 7.887, "miss_px": 0.04999,
+             "side": 1} for t in (8.364999999, 8.365000001)]
+    texts = {LB.depth_text(r) for r in LB._r_depths(recs)} | {LB.depth_text(r) for r in recs}
+    assert texts == {"d 45 y 0: t 8.37 (model 7.37) 7.9 px/mm, miss 0.1 px charted"}, texts
+
+
+PACKAGE_005 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_005"
+
+
+def _resolved_rise(spec: dict, facet: str) -> dict:
+    """The spec with ``facet``'s rise_per_mm re-solved so it meets its neighbours with no step (X is linear in the
+    rise: two E_RELIEF_STEP misfits give the root); a TOOL TEST helper (the T6 'solve' the builder lacks)."""
+    def misfit(rise):
+        s = copy.deepcopy(spec)
+        s["facets"][facet]["plane"]["rise_per_mm"] = rise
+        try:
+            build_temple(s)
+            return 0.0, s
+        except TempleError as e:
+            if e.code != "E_RELIEF_STEP":
+                raise
+            return max(e.fields["misfits"], key=lambda m: abs(m["misfit_mm"]))["misfit_mm"], s
+    r0 = spec["facets"][facet]["plane"]["rise_per_mm"]
+    m0, s0 = misfit(r0)
+    if m0 == 0.0:
+        return s0
+    m1, _ = misfit(r0 + 0.01)
+    return misfit(r0 - m0 * 0.01 / (m1 - m0))[1]
+
+
+def test_run5_inward_edge_on_the_real_package():
+    """On run 5's package (read-only; skipped without it): r0014's B is solved from the crown at 5.41 (r0002, the
+    ridge head var013 edited: 7.06), the crown|logo crease flipped ridge -> valley against r0002 with B named; its
+    margin is P -0.9 / C -3.4 (the crown plane extended to C gives 5.56 against C's 9.0); with the photos' B 7.25 and
+    C 7.65 (R solved, the top-rear band's rise re-solved) it is a 9.4 deg ridge at P +1.1 / C +4.0 mm in the builder's
+    planes, with no solved corner setting it. In the black angled
+    photo (B2) a depth reading of B inverts its projection on the charted temple at ~7.8 px per mm of t (the photo
+    agent's reading: 7.4-8.0); in the side photo 01 the mirrored temple is the one seen; in the front photos (B3, 04)
+    every pixel 1-3 px off a corner's depth line reads its own temple (run 5's diagnosis pixel in B3: t 7.03)."""
+    rev = PACKAGE_005 / "work" / "temple_lab" / "revisions"
+    if not (rev / "r0014.json").is_file() or not (rev / "r0002.json").is_file():
+        pytest.skip("package_005 is not on this machine")
+    try:
+        bs = GC.load_basis(PACKAGE_005)
+    except Exception as exc:  # noqa: BLE001 - a missing or moved basis
+        pytest.skip(f"package_005 has no camera basis: {exc}")
+    s14 = json.loads((rev / "r0014.json").read_text(encoding="utf-8"))
+    tb2, tb14 = build_temple(json.loads((rev / "r0002.json").read_text(encoding="utf-8"))), build_temple(s14)
+    b_t, b_from = LB.solved_corners(tb14)["B"]
+    assert b_from == "crown" and b_t == pytest.approx(5.41, abs=0.01)
+    assert "B 5.41 (head 7.06)" in LB.solved_moves(tb14, tb2)
+    assert LB.crease_changes(tb2, tb14) == ["crown|logo ridge 43.3° -> valley 8.0° (B solved)"]
+    m14 = LB.crease_margins(tb14)
+    assert LB.margin_text(m14[("crown", "logo")], full=True) == "P -0.9 / C -3.4 mm across; B solved from crown"
+    assert not m14[("crown", "top_front_band")]["solved"]                 # Pt: solved by design (crease + rise)
+    s = copy.deepcopy(s14)
+    s["nodes"]["B"][2], s["nodes"]["C"][2], s["nodes"]["R"][2] = 7.25, 7.65, None
+    s["creases"] = [c for c in s["creases"] if c["facets"] not in (
+        ["crown", "logo"], ["crown", "tail_face"], ["lower_sweep", "tail_face"], ["tail_face", "base"])]
+    m = LB.crease_margins(build_temple(_resolved_rise(s, "top_rear_band")))[("crown", "logo")]
+    assert (m["shape"], round(m["deg"], 1), LB.margin_text(m)) == ("ridge", 9.4, "P +1.1/C +4.0") and not m["solved"]
+    kept = copy.deepcopy(s14)                 # the head's declarations kept (crown|logo valley, now contradicted):
+    kept["nodes"]["B"][2], kept["nodes"]["C"][2], kept["nodes"]["R"][2] = 7.25, 7.65, None     # the rise still named
+    with pytest.raises(TempleError) as e:
+        build_temple(kept)
+    assert e.value.code == "E_RELIEF_STEP"
+    hint = LB.relief_rise(kept, e.value)
+    assert "rise_per_mm -1.501113" in hint and hint.endswith(" meets it"), hint
+    d, y, _t = tb14.spec.nodes["B"]
+    for rid, side, view in (("black-angled", 1, "B2"), ("reference-01", -1, "01")):
+        cam, pose = bs.camera(rid), bs.pose(rid)
+        P = PO.chart_to_posed([[d, y, LB._inner_x(tb14, d) + 7.25]], side, tb14.spec.hinge["z_mm"], pose)
+        r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, project_mm(P, cam, bs.frame)[0])
+        assert r["side"] == side and r["t_mm"] == pytest.approx(7.25, abs=1e-3) and r["miss_px"] < 1e-3, view
+        assert r["model_t_mm"] == pytest.approx(5.41, abs=0.05)
+        if view == "B2":
+            assert 7.4 <= r["px_per_mm"] <= 8.2
+    cam, pose = bs.camera("black-front"), bs.pose("black-front")
+    r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, (1583.0, 513.0))
+    assert r["side"] == 1 and r["t_mm"] == pytest.approx(7.03, abs=0.02)
+    ts = LB.node_ts(tb14)
+    for rid in ("black-front", "reference-04"):
+        cam, pose = bs.camera(rid), bs.pose(rid)
+        for node in ("A", "B", "C", "P", "R"):
+            d, y, _t = tb14.spec.nodes[node]
+            for side in (1, -1):
+                P0, P1 = PO.chart_to_posed([[d, y, LB._inner_x(tb14, d)], [d, y, LB._inner_x(tb14, d) + 1.0]], side,
+                                           tb14.spec.hinge["z_mm"], pose)
+                for t in (ts[node] - 2.0, ts[node], ts[node] + 2.0):
+                    uv = project_mm((P0 + t * (P1 - P0))[None], cam, bs.frame)[0]
+                    e = project_mm((P0 + (t + 1.0) * (P1 - P0))[None], cam, bs.frame)[0] - uv
+                    for off in (-3.0, -1.0, 1.0, 3.0):
+                        px = uv + off * np.array([-e[1], e[0]]) / np.hypot(*e)
+                        r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, px)
+                        assert r["side"] == side and r["t_mm"] == pytest.approx(t, abs=0.05), (rid, node, side, off)
 
 
 def test_inherited_warnings_reported_once_and_shown_again_when_they_change(tmp_path):

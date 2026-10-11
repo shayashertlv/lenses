@@ -4,6 +4,7 @@ instructions' contract and the facet-run estimate. The real-Blender path is T5 (
 """
 import hashlib
 import json
+import math
 import re
 import threading
 from pathlib import Path
@@ -227,9 +228,10 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
                             "match. Photos B1, B2, B3 show the same model in glossy black (the materials never change")
     assert "- 05: side; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 deg;" in brief
     assert ("- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, "
-            "square-on (14 deg; points_px moves 0.24 mm per mm of depth error)") in brief
+            "square-on (14 deg; reading t with depths is unreliable here)") in brief      # a camera with no scale
     assert ("- B2: angled, glossy black; camera yaw +30.0, pitch +11.4; the charted temple's outer face at a "
-            "moderate angle (61 deg; points_px moves 1.78 mm per mm of depth error)") in brief
+            "moderate angle (61 deg; depths reads t here)") in brief
+    assert "Front and rear views look along creases that run front to back: 04, 06, B3 (cameras within 25 deg" in brief
     assert ("- 03: top; camera yaw +0.3, pitch +59.9; the outer faces edge-on (90 deg); faces that point straight up "
             "at 30 deg from square-on; its compares print outer-edge offsets and the outline line") in brief
     assert "two temples): 01, 05, B1 | 02, B2 | 03 | 04, B3 | 06." in brief       # B1/B2/B3 share 05/02/04's view
@@ -437,17 +439,27 @@ def test_instructions_contract_and_finish_text(tmp_path):
             # tool semantics (a refusal code names its cause; the compares' text as the tools print it)
             "points_px", "E_CREASE_SHAPE", "E_JUDGEMENT", "E_BUSY", "E_TIMEOUT",
             "t_min is 1.0", "station table", "at least three non-collinear (else E_FACET_UNDERDETERMINED)",
-            "spread wide (else E_ILL_CONDITIONED)", "E_RELIEF_STEP): change them together", "E_FADE_CLIFF",
-            "photo_compare prints each with the start model's, facet_edit's compares omit those",
+            "spread wide (else E_ILL_CONDITIONED)", "E_FADE_CLIFF",
+            # the final pre-run review (P2-1): E_RELIEF_STEP names the closing rise of a crease-mode facet (lab.
+            # relief_rise), so the rules that route Astra through it (a solved corner, one-question brackets) close
+            "(else E_RELIEF_STEP, which names a crease-mode facet's rise_per_mm that does): change them together",
             "one image line through the model's outermost point near that d", "+-1 mm", "largest",
-            "at every target photo", "1..4 photos with a camera, each in an earlier compare, at most 3 of them "
-            "target photos", "that model's crease lines from 6 deg", "gloss-black", "render (target photos only)",
+            "at every target photo", "facet_variants renders 2..6 edit lists on one revision beside the head "
+            "without changing the scene", "(drawn from 6 deg)",
             "the charted temple, and the mirrored temple, its exact mirror (compares use these names)",
+            "on one plane (else E_FACET_NOT_PLANAR)",
             # the evidence rules: two directions, a confirming view at a moderate angle, edge-on silence is no proof
             "qualitative", "never set depth or ridge/valley from which face is brighter", "two different directions",
             "at a moderate angle", "its lack of a line is no evidence", "the best evidence; say so in the note",
             "a reflection moves", "On gloss a tone step can be a crease or the edge of a reflected light",
-            "measure (d, y) in square-on views; elsewhere, only check",
+            "A thin line brighter than both neighbours that stays on a crease from two directions supports a ridge; "
+            "its absence is no evidence",
+            # points_px reads (d, y); depths measures t (run 5's valley review: points_px's t is the model's)
+            "measure (d, y) in square-on views; elsewhere, only check", "its t is the model's, never a measurement",
+            "Measure t with photo_compare's depths in the moderate-angle views", "the brief gives their px per mm of t",
+            # a crease's corners, of both faces, in one photo: that camera's error is common to all of them (run-6
+            # review P3: 02's fit has a mean contour of 7.2 px, about 0.9 mm of t)
+            "reading a crease's corners, of both faces, in one photo, on the temple whose outer face it shows",
             "the renders use the job's fixed light (the brief names it)",
             # the habit (owner decision 1): lay out square-on, then confirm or REMOVE at a moderate angle (review of
             # the build, P1: the first layout is provisional, so the confirming view can take a crease out)
@@ -464,13 +476,44 @@ def test_instructions_contract_and_finish_text(tmp_path):
             "A number (an offset or outline station) changes the layout only when both views show the new crease or "
             "its absence", "never split a face that no photo shows divided",
             "never merge two faces that a visible crease separates", "its own facet", "several creases meet",
-            # ridge or valley: of a crease the photos show; the strip is the model; the straight-through-corner rule
-            "Ridge or valley of a crease the photos show", "the section strip shows what the model built",
+            # ridge or valley (run 5's valley review, owner: "the inward edge is the one thats really bugging me"):
+            # decided per crease from that crease's own evidence (its corners' depths, the views along it), before
+            # any other bracket; its corners measured, never solved; the strip is the model; the corner rule
+            "Ridge or valley: decide it per crease the photos show, from evidence about that crease, before and apart "
+            "from any bracket about something else", "the views that look along it (the brief says which): a valley "
+            "never forms an outline", "unless another face or part forms that outline",
+            "The section strip shows what the model built",
+            # run-6 review P1: the builder's planes are flat in X, not in t, so the margin is the host's (lab.
+            # crease_margins: facet_inspect, the receipt's margins), never a hand extrapolation of t; the measured
+            # values decide the declaration. P2: "never solve" is scoped to the crease being decided (its ends and each
+            # face's far corner as the host names them), with the by-design and unreadable corners exempt, and a
+            # solved far corner moves (the receipt's solved)
+            "the t of the corners that set it, its ends and each face's corner farthest across its line (as the host "
+            "names them), measured with depths; give these a measured t, never solve: a solved corner takes another "
+            "facet's plane, extrapolated, and can flip the crease (the margins name it)",
+            "Planes are flat in X = x_in(d) + t, not in t: never extrapolate t by hand; enter the measured values, "
+            "build with apply false, read the shape and margin the host prints (the receipt's crease lines and "
+            "margins; facet_inspect for the head) and declare the shape the measured values build",
+            "a margin within the readings' error leaves (1) open",
+            "A crease-mode facet's corners off its crease edge are solved by design; a corner no view can read stays "
+            "solve, and the note says so",
+            # the final pre-run review (P2-2): the corner solved is the one the photos constrain least (run 5's "away
+            # from that crease" pushed an unreadable R 4.9 -> 8.68); never a fold or a split (the owner's layout is
+            # right; a split is the failure fixed after run 4)
+            "If a face then has more measured corners than one plane holds, keep it whole and solve the corner the "
+            "photos constrain least, named in the note; it moves (the receipt's solved shows how far), so compare the "
+            "faces it bounds", "crease_vs_head", "Each must be one you decided from that crease's evidence",
+            "diff_vs_head",
             "Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all "
-            "valleys): one has the other shape, or two of those faces are one", "change the node t values",
+            "valleys): one has the other shape, or two of those faces are one",
+            # run-6 review P2: E_CREASE_SHAPE names the facets' solved corners (lab.refusal_solved): measure them
+            # first; a redeclaration is wrong only when it matches what values that were not measured build
+            "On E_CREASE_SHAPE, first give any solved corner that sets that crease (the refusal names them) a measured "
+            "t; then declare the shape its measured corners build, or change the node t values not measured that make "
+            "the shape", "A depth wanted for another question that builds the other shape is evidence to weigh",
             "when it says the creases at a corner cannot all have one shape, correct the declaration the photos "
-            "contradict there", "Never redeclare just to match the build",
-            "never split a face to get a refused declaration built",
+            "contradict there", "Never redeclare just to match what unmeasured values build (the refusal's \"do not "
+            "redeclare\")", "never split a face to get a refused declaration built",
             # kept after the owner's run-2 remarks (barely noticeable, soft lines)
             "barely distinct, the dihedral is probably too small", "several mm at the key nodes",
             "keeps a standing neighbour's height along their shared crease",
@@ -481,11 +524,55 @@ def test_instructions_contract_and_finish_text(tmp_path):
             "Place and confirm the band's own creases, and judge its tilt, in views that see it at a moderate angle",
             # the outline line and every offset are information only (2ca5be9): one view's silhouette
             "outline line", "Like every offset it is information, one view's silhouette",
-            "never change the layout for it alone",
+            "never change the layout or a crease's shape for it alone: an outline offset measures how far out the "
+            "outermost face reaches, not the shape of a crease below it",
+            # one bracket answers one question (run 5: a five-change bracket redeclared the crease in every arm)
+            "One bracket answers one question: its arms differ only in the values that question is about",
+            # run-6 review P2: an arm that moves a corner t must also keep shared corners at one height (E_RELIEF_STEP;
+            # rise_per_mm "solve" is not built)
+            "(for a crease's shape: an arm of each shape, differing in that crease's corner t and declaration), plus "
+            "only the values the builder requires to keep shared corners at one height (E_RELIEF_STEP)",
+            "evidence to weigh, never a reason to redeclare",
             # the job's facts come from the brief
-            "The brief says which photos show the charted temple", "the brief gives how far per mm",
+            "The brief says which photos show the charted temple",
             "the brief names them", "the brief says which", "the brief describes it", "the brief lists them"):
         assert needed in flat, needed
+    # tool semantics the instructions' TOOLS list no longer repeats (run 5 review: cut repetition): the tool
+    # descriptions Astra reads with every request state them
+    described = {t.name: " ".join(t.description.split()) for t in tools}
+    schema_text = {t.name: " ".join(" ".join(s for _p, s in L.schema_descriptions(t.params_json_schema)).split())
+                   for t in tools}
+    assert "\"start\" = the unedited model's" in described["photo_compare"]
+    assert "without the start model's offsets" in described["facet_edit"]
+    assert "gloss-black render" in described["photo_compare"] and "no native row" in described["photo_compare"]
+    # cut from the instructions after run 6's review (the length cap stays 14,000): what the tools state themselves
+    assert "photo minus model" in described["photo_compare"]                       # an offset's sign
+    assert "the edits apply in order, all or none" in described["facet_edit"]
+    assert "reset_layout clears nodes, facets and creases first" in described["facet_edit"]
+    assert "a refused edit returns at once with its index and code, a refused build with its code" in \
+        described["facet_edit"]
+    assert "that model's own crease lines from 6°" in described["facet_variants"]
+    assert "crease layouts can be compared side by side" in described["facet_variants"]
+    assert "Each built variant becomes a revision" in described["facet_variants"]
+    assert "Photo ids with a camera, each compared before; at most 3 target photos" in schema_text["facet_variants"]
+    assert "(negative falls toward the inner face)" in schema_text["facet_edit"]           # rise_per_mm
+    assert "d where the facet is fully its plane" in schema_text["facet_edit"]              # a fade's d0 / d1
+    assert "d where it has blended into the plain arm" in schema_text["facet_edit"]
+    for name in ("facet_edit", "facet_variants", "facet_restore", "facet_finish"):          # the judgement's fields
+        assert "the largest visible difference in this photo" in schema_text[name], name
+        assert "where it is: d mm, or null" in schema_text[name], name
+        assert "the checkpoint of the best revision so far" in schema_text[name], name
+    # the margins the ridge/valley rule reads are the host's (lab.crease_margins), in the builder's terms
+    assert "planes are flat in X = x_in(d) + t, not in t" in described["facet_inspect"]
+    assert "margins (as facet_inspect's, only for creases flipped against the head, with a solved corner or with a " \
+           "margin under 1 mm" in described["facet_edit"]
+    assert "a t error that size at that corner flips it (when no end of the crease is solved)" in \
+        described["facet_inspect"]
+    assert "corners solved from a facet's plane (not by design) whose t moved from the head's" in \
+        described["facet_edit"]
+    assert "E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it" in described["facet_edit"]
+    assert "a refused variant's code and message (as facet_edit's)" in described["facet_variants"]
+    assert "margins (as facet_edit's)" in described["facet_variants"]
     for retired in ("on its own", "no neighbour needs to share",          # a lone fade does not dissolve its creases
                     "fewest faces", "redeclare it",                       # review of 2026-10-11 (skeptic B3)
                     "one plane across it cannot make the corner", "a corner in the top photo's outline",
@@ -496,14 +583,45 @@ def test_instructions_contract_and_finish_text(tmp_path):
                     # top-face views come from the brief; any crease the first layout put in can be removed (P1)
                     "a station that departs from it is shape", "whether or not the start model shows it too",
                     "do not redeclare the crease", "one fixed studio light", "top faces: from above",
-                    "and the section strip. declare", "change the layout only when", "is not yet a crease"):
+                    "and the section strip. declare", "change the layout only when", "is not yet a crease",
+                    # run 5's valley review: ridge/valley no longer rests on edge-on silhouettes alone (an outline
+                    # shows a crease's shape only where that crease forms it), and points_px's t is never measured
+                    "from the silhouettes of views that see it edge-on", "a convex kink in the outline is a ridge",
+                    "when no silhouette shows it", "confirm it from silhouettes", "the brief gives how far per mm",
+                    "never change the layout for it alone",
+                    # run 6's review: the ridge test by hand in t (P1: the planes are flat in X; on run 5's crease at
+                    # C 8.0 it said valley where the builder builds an 8.5 deg ridge), "a far corner" (P2: the wrong one
+                    # flips the verdict), the unscoped never-solve / never-redeclare / change-the-t rules (P2), the
+                    # bracket that forbade the values E_RELIEF_STEP requires (P2), one face's corners per photo (P3),
+                    # "another part"
+                    "has a smaller t than the other face's plane", "a far corner of each face",
+                    "give the corners that set a decided crease", "receipts name it",
+                    "never redeclare just to match the build", "change the node t values that make the shape",
+                    "differing only in that crease's corner t", "reading a face's corners in one photo",
+                    "unless another part forms",
+                    # the final pre-run review (P2-2): no corner pushed "away from that crease", no fold suggested
+                    "solve a corner away from that crease", "no photo shows a fold", "fold"):
         assert retired not in low, retired
     for number in re.findall(r"\d+(?:\.\d+)?", text):                    # no product coordinates: only rules' numbers
         assert number in INSTRUCTION_NUMBERS, number
     # about the length of the product-specific text it replaced (11,592 chars); the build review's fixes added the
     # corner rule and the provisional layout (12,236 -> 12,462 chars); the final review gave the corner rule a way to
-    # decide it (variants at the moderate-angle and glossy views) and the coplanar case (-> 12,802 chars)
-    assert len(raw) <= 13_000
+    # decide it (variants at the moderate-angle and glossy views) and the coplanar case (-> 12,802 chars).
+    # Raised 13,000 -> 14,000 after run 5's valley review (owner: "ok, fix it and run again, max 15$"): the crease
+    # rules that run lacked (decide ridge/valley from the crease's own corners measured with depths and from the views
+    # along it, before any other bracket; measured corners, never solved, and the E_FACET_NOT_PLANAR way out; flips
+    # against the head; one question per bracket; an outline offset never decides a crease's shape; the gloss line;
+    # depths vs points_px) add ~1.9k; cutting repetition with the tool descriptions (the TOOLS list, the offsets'
+    # print format) and wordiness took back ~0.8k (-> 13,952 chars). Every remaining rule is a needed phrase above.
+    # Run 6's review (the ridge test in the builder's terms with the host's margin, scoped never-solve, the solved
+    # corners of an E_CREASE_SHAPE first, the bracket's E_RELIEF_STEP values) fitted under the same cap by cutting
+    # what the tools state themselves: the edit order and reset_layout, refusal indices, the offsets' sign, the
+    # variants' photos, panels and revisions, rise_per_mm's sign, the fade's ends and the judgement's fields (each
+    # checked above in a tool or parameter description), the outline line's parts and the footer (their printed text
+    # names them) -> 13,897 chars. The cap is not raised again: a new rule cuts text. The final pre-run review: the
+    # corner solved is the one the photos constrain least, without the fold clause, and E_RELIEF_STEP names the closing
+    # rise (-> 13,937 chars).
+    assert len(raw) <= 14_000
 
 
 # --------------------------------------------------------------------------------------------- brief
@@ -545,6 +663,43 @@ def test_brief_geometry_helpers():
     assert cli.colour_text({}) == "another colour"
 
 
+def test_brief_depth_reading_helpers():
+    """How finely photo_compare's depths reads t in a view (cli.t_px_per_mm): the image length of 1 mm along the outer
+    face's normal of the temple the camera sees, T_PX_BACK_MM behind its hinge; exact on an orthographic camera
+    (scale / extent x sin of the angle to the face), pose.line_depth's px per mm at t 0 on a perspective one, None
+    without a full camera or the basis's model record; square-on views say reading t is unreliable."""
+    from glasses3d.g3d_host import pose as PO
+    from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm
+    model ={"frame": {"center": [0.0, 0.0, -60.0], "extent": 100.0}, "front_pivot_mm": [0.0, -3.0, -3.0]}
+    ortho = {"yaw": 30.0, "pitch": 0.0, "roll": 0.0, "perspective": 0.0, "scale": 1000.0, "center_x": 500.0,
+             "center_y": 400.0}
+    assert cli.t_px_per_mm({"camera": ortho}, model) == pytest.approx(1000.0 / 100.0 * math.sin(math.radians(60.0)))
+    assert cli.t_px_per_mm({"camera": {**ortho, "yaw": -30.0}}, model) == pytest.approx(8.660254, abs=1e-6)
+    persp = {**ortho, "perspective": 0.25, "pitch": 11.0}
+    rec = {"camera": persp, "hinge_axis_xz_mm": {"+1": [64.0, -10.0], "-1": [-64.0, -10.0]}}
+    P = np.array([64.0, -3.0, -10.0 - cli.T_PX_BACK_MM])
+    cam, frame = Camera.from_dict(persp), NormFrame.from_dict(model["frame"])
+    reading = PO.line_depth(project_mm(P[None], cam, frame)[0], cam, frame, P, np.array([1.0, 0.0, 0.0]))
+    assert reading["t"] == pytest.approx(0.0, abs=1e-9)                  # the pixel of P itself: px per mm at t 0
+    exact = reading["px_per_mm"]
+    got = cli.t_px_per_mm(rec, model)
+    assert got == pytest.approx(exact, rel=1e-3) and got != pytest.approx(8.660254, rel=1e-2)  # perspective counts
+    assert cli.t_px_per_mm({"camera": {"yaw": 30.0, "pitch": 0.0}}, model) is None           # no scale
+    assert cli.t_px_per_mm({"camera": ortho}, None) is None and cli.t_px_per_mm({"camera": ortho}, {}) is None
+    assert cli.depth_text(62.0, 7.71) == "depths reads t at about 7.7 px per mm"
+    assert cli.depth_text(62.0, None) == "depths reads t here"
+    assert cli.depth_text(14.0, 2.07) == "reading t with depths is unreliable here: about 2.1 px per mm"
+    assert cli.depth_text(14.0, None) == "reading t with depths is unreliable here"
+    assert cli.looks_along_deg({"yaw": 0.0, "pitch": 10.0}) == pytest.approx(10.0)
+    assert cli.looks_along_deg({"yaw": 180.0, "pitch": 0.0}) == pytest.approx(0.0, abs=1e-6)
+    assert cli.looks_along_deg({"yaw": 90.0, "pitch": 0.0}) == pytest.approx(90.0)
+    photos = [{"id": "02", "path": "images/reference-02.png", "view": "angled", "role": "target"}]
+    brief = cli.brief_text("Frame X", photos, {"reference-02.png": {"camera": ortho}}, model=model)
+    assert "- 02: angled; camera yaw +30.0, pitch +0.0; the charted temple's outer face at a moderate angle (60 deg; " \
+           "depths reads t at about 8.7 px per mm)" in brief
+    assert "Front and rear views look along creases that run front to back: none (cameras within 25 deg" in brief
+
+
 def test_brief_of_a_job_without_another_colour_or_a_moderate_view():
     """A photo set with only target photos and no view at a moderate angle to the outer face: the brief says so
     ("none"), names no other colour and no finish (the instructions' fallback: a line in two photos under
@@ -558,6 +713,7 @@ def test_brief_of_a_job_without_another_colour_or_a_moderate_view():
     brief = cli.brief_text("Frame X", photos, cams)
     assert "At a moderate angle (30 to 75 deg): none." in brief and "two temples): 01 | 02 | 03." in brief
     assert "Outer-edge offsets: 03. Outline line: none." in brief
+    assert "Front and rear views look along creases that run front to back: 02, 03 (" in brief
     assert "same model in" not in brief and "photos:" not in brief.split("Outline line")[1]
     assert "No finish is given" not in brief                                # no photo row gives a finish
     assert "- 02: front; camera yaw +0.0, pitch +5.0; the outer faces edge-on (90 deg)" in brief
@@ -597,7 +753,7 @@ def real_brief() -> str:
     for w in cli.COLOURWAY_PHOTOS:
         photos.append({"id": w["id"], "path": f"images/{w['image']}", "view": doc["images"][w["image"]]["view_kind"],
                        "role": "colourway", "colour": w["colour"], "finish": w["finish"]})
-    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"])
+    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"], model=doc.get("model"))
 
 
 @pytest.mark.skipif(not cli.BASIS_JSON.is_file(), reason="the pose basis (git-ignored data) is absent")
@@ -613,11 +769,17 @@ def test_brief_on_the_real_pose_basis():
            "more): 03, 04, 06, B3." in brief
     assert "Outer-edge offsets: 03, 06. Outline line: 03." in brief and "Glossy photos: B1, B2, B3." in brief
     assert "No finish is given for 01, 02, 03, 04, 05, 06." in brief
+    # how finely depths reads t (cli.t_px_per_mm, 50 mm behind the hinge): run 5's own reading at B2's node B
+    # (d 47) was 7.87 px/mm, the photo review's 7.4-8.0 in 02 and B2
     assert "- 02: angled; camera yaw +28.2, pitch +11.4; the charted temple's outer face at a moderate angle (62 deg;" \
-           " points_px moves 1.91 mm per mm of depth error); camera fitted to the model's silhouette (all-views " \
+           " depths reads t at about 7.7 px per mm); camera fitted to the model's silhouette (all-views " \
            "fit): IoU 0.926" in brief
+    assert "the charted temple's outer face at a moderate angle (62 deg; depths reads t at about 8.1 px per mm); " \
+           "camera moved from 02's" in brief                                  # B2
     assert "- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, " \
-           "square-on (14 deg; points_px moves 0.24 mm per mm of depth error)" in brief
+           "square-on (14 deg; reading t with depths is unreliable here: about 2.1 px per mm)" in brief
+    assert "Front and rear views look along creases that run front to back: 04, 06, B3 (cameras within 25 deg of " \
+           "the temple's length)." in brief
     assert "faces that point straight up at 30 deg from square-on; its compares print outer-edge offsets and the " \
            "outline line" in brief
     assert "camera moved from 02's by matching the two photos' silhouettes (photo to photo, on its registration " \
@@ -628,11 +790,13 @@ def test_brief_on_the_real_pose_basis():
            "on the compare's raster: IoU 0.977, temple IoU 0.886" in brief
     assert "not checked against the model" not in brief                  # every transported camera has its check
     for pointer in ("charted temple", "mirrored temple", "square-on", "at a moderate angle", "edge-on", "Directions",
-                    "points_px moves", "Outer-edge offsets", "Outline line", "Glossy photos",
-                    "faces that point straight up",
+                    "depths reads t at about", "px per mm", "look along creases that run front to back",
+                    "Outer-edge offsets", "Outline line", "Glossy photos", "faces that point straight up",
                     "revision 0", "glossy black", "fixed light, studio_dome_v1", "edge rounding"):
         assert pointer in brief, pointer                               # what the instructions say the brief gives
     assert "acetate" not in brief and "far more clearly" not in brief
+    for gone in ("points_px moves", "mm of depth error"):              # replaced by how finely depths reads t
+        assert gone not in brief, gone
 
 
 # --------------------------------------------------------------------------------------------- estimate

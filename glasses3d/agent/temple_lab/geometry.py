@@ -9,7 +9,7 @@ geometry deltas between builds, and revision 0 from the original's export. numpy
     spec_to_edits(spec) -> edits
         the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse).
     diff_specs(a, b) -> dict, diff_text(diff) -> str
-        what changed between two specs (nodes, facets, creases, chains, scalars), compact.
+        what changed between two specs (nodes, facets, creases, chains, scalars), compact; a solved t reads "solve".
     surface_grid / surface_at / crease_edges / crease_pieces / crease_delta / geometry_delta / distinct_heads
         between two BUILT temples (g3d.temple builds, never their specs, labels or node names): the outer surface X
         and its gradient on a (d, y) lattice, the max normal distance |dX| / sqrt(1 + |grad X|^2) over the lattice
@@ -354,7 +354,7 @@ def diff_specs(a: dict, b: dict) -> dict:
         if math.hypot(d1 - d0, y1 - y0) > 1e-9:
             parts.append(f"at {_r(d1)},{_r(y1)}")
         if t0 != t1:
-            ta, tb = (_r(t) if isinstance(t, float) else t for t in (t0, t1))
+            ta, tb = (_r(t) if isinstance(t, float) else "solve" if t is None else t for t in (t0, t1))
             parts.append(f"t {ta}->{tb}")
         if parts:
             nodes["changed"].append(f"{n} " + " ".join(parts))
