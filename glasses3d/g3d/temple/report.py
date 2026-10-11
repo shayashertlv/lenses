@@ -122,7 +122,8 @@ def receipt_full(tb, *, core_ms: float | None = None) -> dict:
 
 # --------------------------------------------------------------------------------------------- measures (information)
 def facet_planes_chart(tb) -> list:
-    """[(label, unit normal, offset)] of every non-faded facet's outer plane in the chart (n . x = c)."""
+    """[(label, unit normal, offset)] of the outer plane of every facet with a facet cell (fade weight 0) in the chart
+    (n . x = c)."""
     out = []
     for label in sorted(tb.spec.facets):
         ids = [i for i, (k, rg, c) in enumerate(zip(tb.poly_kind, tb.poly_region, tb.poly_cell))

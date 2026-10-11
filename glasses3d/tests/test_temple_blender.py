@@ -3,6 +3,8 @@ g3d/temple_bpy.py (plan/WP6_FACETS.md §2.5, §2.6) on a COPY of the Prada scene
 
 - every /2 fixture plans in Blender with the host's core bit for bit, leaving the scene unchanged;
 - the roll fixture (core roll, no Blender Bevel) is written closed and 2-manifold with its rolled polygons;
+- the fade fixture is written with planar face-normal cells before its fade, design-surface normals on its faded
+  fans and no fan split;
 - preferred-v2 (the owner-preferred spec through convert.v1_to_v2, the /2 default snapping) on the copy: dry run and
   refusals (E_RELIEF_STEP, E_TARGET, E_MULTI_MATERIAL) leave the scene unchanged; the written temples are the core's
   polygons with its sharp set and facet custom normals; decals move by chart transfer keeping their standoff (max
@@ -23,6 +25,7 @@ import pytest
 
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import fixtures as FX
+from glasses3d.g3d.temple.build import faded_corner_normals
 from glasses3d.g3d.temple.convert import v1_to_v2
 from glasses3d.g3d.temple.sections import polygon_section
 from glasses3d.g3d.temple.spec import spec_sha256
@@ -151,6 +154,9 @@ def fixtures_run(prada_copy):
     steps += [{"op": "faceted_temple", "spec": FX.rolled(0.6)}, {"op": "dump_temples", "objects": [RIGHT, LEFT]},
               {"op": "unfaceted_temple", "object": RIGHT}, {"op": "unfaceted_temple", "object": LEFT},
               {"op": "scene_digest"}]
+    steps += [{"op": "faceted_temple", "spec": FX.fade()}, {"op": "dump_temples", "objects": [RIGHT, LEFT]},
+              {"op": "unfaceted_temple", "object": RIGHT}, {"op": "unfaceted_temple", "object": LEFT},
+              {"op": "scene_digest"}]
     return run_steps(tmp, blend, steps, "fixtures"), names
 
 
@@ -188,6 +194,51 @@ def test_roll_fixture_is_the_core_roll(fixtures_run):
         flat_corners = sum(len(tb.polys[p]) for p in tb.flat_polys)
         assert rolled and r["sides"]["+x" if side > 0 else "-x"]["custom_normal_corners"] > flat_corners
     assert st[k + 2]["status"] == "ok" and st[k + 3]["status"] == "ok"
+
+
+def _newell(P) -> np.ndarray:
+    n = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)
+    return n / np.linalg.norm(n)
+
+
+def test_fade_fixture_is_written_planar_before_its_fade(fixtures_run):
+    """The fade fixture written: its cells before the fade are planar n-gons with face normals, the faded cells'
+    corners where the fade starts carry the same face normal (the fade is tangent there), every other faded fan its
+    design-surface normal (build.faded_corner_normals), and Blender splits no fan (its sharp set is the core's); the
+    revert restores the scene."""
+    st, names = fixtures_run
+    k = 1 + 2 * len(names) + 5
+    r, dump = st[k], st[k + 1]
+    assert r["status"] == "ok", r
+    tb = build_temple(FX.fade())
+    t = next(t for t in dump["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)     # the +X temple
+    W, polys, _ = tb.world(1)
+    assert t["polys"] == polys and len(t["sharp"]) == len(tb.sharp)
+    cn = np.array(t["corner_normals"])
+    starts = np.cumsum([0] + [len(p) for p in polys])
+    flat = set(tb.flat_polys)
+    at = {(v, tb.poly_region[p]): _newell(W[polys[p]]) for p in tb.flat_polys for v in polys[p]}
+    ang = lambda c, n: math.degrees(math.acos(np.clip(c @ n / np.linalg.norm(c), -1, 1)))
+    worst, joined = 0.0, 0
+    for pi, p in enumerate(polys):
+        for j, v in enumerate(p):
+            if pi in flat:
+                worst = max(worst, ang(cn[starts[pi] + j], _newell(W[p])))
+            elif tb.poly_cell[pi] == "faded" and (v, tb.poly_region[pi]) in at:
+                worst = max(worst, ang(cn[starts[pi] + j], at[(v, tb.poly_region[pi])]))
+                joined += 1
+    assert flat and joined >= 4 and worst <= 0.1                  # the d0 ridge, top and bottom vertices
+    fc = faded_corner_normals(tb)                                  # every faded fan: its design-surface normal
+    nw = {k: n for k, n in zip(fc, _world_dirs_plus_x(tb, np.array(list(fc.values()))))}
+    worst = max(ang(cn[starts[i] + polys[i].index(v)], n) for (i, v), n in nw.items())
+    assert len(nw) > 100 and worst <= 0.1
+    assert st[k + 2]["status"] == "ok" and st[k + 3]["status"] == "ok" and st[k + 4]["digest"] == st[0]["digest"]
+
+
+def _world_dirs_plus_x(tb, N) -> np.ndarray:
+    """Local (d, y, X) directions -> world for the +X temple at opening 0 (x = X, y, z = -d)."""
+    assert tb.spec.hinge["opening_deg"] == 0.0
+    return np.stack([N[:, 2], N[:, 1], -N[:, 0]], axis=1)
 
 
 def test_dry_run_and_refusals_leave_the_scene_unchanged(main_run):

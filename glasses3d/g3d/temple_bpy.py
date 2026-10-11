@@ -19,9 +19,11 @@ scene, places the temples, writes once, and reports. Conventions:
   temples are deferred);
 - the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (base, faded, ramp)
   as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the core's sharp
-  set; the non-faded facet polygons (TempleBuild.flat_polys) carry their face normal as custom normals, and so do the
-  roll polygons' corners on the line where the roll leaves such a facet (the arc is tangent there; one smooth fan
-  holds one custom normal), every other corner is auto-smoothed (zero custom vector);
+  set; the facet-cell polygons (TempleBuild.flat_polys: every facet face at fade weight 0) carry their face normal
+  as custom normals, and so do the roll polygons' corners on the line where the roll leaves such a facet (tangent
+  there; one smooth fan holds one custom normal); every smooth fan of one faded region's outer / roll polygons holds
+  one normal, the design surface's (build.faded_corner_normals: the fade start's face normal, the roll never tilts
+  it); every other corner is auto-smoothed (zero);
 - plan fully (core, decals, hinge report), then write once: each target's mesh datablock is swapped in place (object
   name, transform, materials and other extras unchanged); the previous datablock stays as `<mesh> | g3d pre-temple`
   with a fake user (the earliest backup wins), WeightedNormal modifiers are removed and their settings kept in
@@ -492,12 +494,15 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
     return me, int(sharp.sum())
 
 
-def corner_normals(tb, polys, n_poly) -> np.ndarray:
+def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
     """Per corner of `polys` (the core's polygons in the order and winding written) the custom normal: the face normal
-    on the flat polygons (tb.flat_polys); on a roll polygon, at a vertex it shares with a flat polygon of the same
-    region, that polygon's normal (the quarter arc is tangent to the face there, and one smooth fan holds one custom
-    normal: a different one would make Blender split the fan with a sharp edge); zero (auto-smoothed) elsewhere."""
+    on the flat polygons (tb.flat_polys); on a faded fan, `n_faded[(polygon, vertex)]` (the core's
+    faded_corner_normals in the object's frame: one normal per smooth fan of one faded region, the design surface's);
+    on a roll polygon, at a vertex it shares with a flat polygon of the same region, that polygon's normal (the
+    quarter arc is tangent to the face there, and one smooth fan holds one custom normal: a different one would make
+    Blender split the fan with a sharp edge); zero (auto-smoothed) elsewhere."""
     flat = set(tb.flat_polys)
+    n_faded = n_faded or {}
     at = {}
     for p in tb.flat_polys:
         for v in polys[p]:
@@ -507,8 +512,8 @@ def corner_normals(tb, polys, n_poly) -> np.ndarray:
     for i, poly in enumerate(polys):
         if i in flat:
             out += [n_poly[i]] * len(poly)
-        elif tb.poly_kind[i] == "roll":
-            out += [at.get((v, tb.poly_region[i]), zero) for v in poly]
+        elif tb.poly_kind[i] in ("roll", "outer"):
+            out += [n_faded[(i, v)] if (i, v) in n_faded else at.get((v, tb.poly_region[i]), zero) for v in poly]
         else:
             out += [zero] * len(poly)
     return np.asarray(out, np.float64).reshape(-1, 3)
@@ -630,12 +635,15 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
     M3, _ = _matrix(ob)
     pl = polys if np.linalg.det(M3) > 0 else [p[::-1] for p in polys]
     nloc = _local_normals(ob, Wn)
+    fc = TB.faded_corner_normals(tb)
+    keys = list(fc)
+    nf = _local_normals(ob, _world_dirs(tb, side, np.array([fc[k] for k in keys]))) if keys else []
     old_V, _, old_polys = mesh_arrays(ob, origin)
     old_bvh = _bvh(old_V, old_polys)
     new_bvh = _bvh(W, polys)
     excl = set(targets)
     plan = {"side": side, "object": ob, "origin": origin, "warnings": [], "decals": []}
-    corners = corner_normals(tb, pl, nloc)
+    corners = corner_normals(tb, pl, nloc, {k: nf[j] for j, k in enumerate(keys)})
     me, nsharp = build_mesh(ob.data.name + " | g3d faceted (planned)", Vloc, pl, tb.sharp, tb.flat_polys, nloc,
                             list(ob.data.materials), uv=_uv(tb) if len(ob.data.uv_layers) else None, corners=corners)
     planned.append(me)
@@ -680,10 +688,16 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
 
 
 def _world_normals(tb, side) -> np.ndarray:
+    return _world_dirs(tb, side, tb.normals)
+
+
+def _world_dirs(tb, side, N_local) -> np.ndarray:
+    """Local (d, y, X) directions of the build -> world, at the spec's opening, on the given side."""
     h = tb.spec.hinge
     a = math.radians(h["opening_deg"])
     # local (d, y, X) normal -> world (x = X, y, z = -d), then the opening rotation about y (x-z plane)
-    n = np.stack([tb.normals[:, 2], tb.normals[:, 1], -tb.normals[:, 0]], axis=1)
+    N_local = np.asarray(N_local, np.float64).reshape(-1, 3)
+    n = np.stack([N_local[:, 2], N_local[:, 1], -N_local[:, 0]], axis=1)
     c, s_ = math.cos(a), math.sin(a)
     n = np.stack([c * n[:, 0] - s_ * n[:, 2], n[:, 1], s_ * n[:, 0] + c * n[:, 2]], axis=1)
     if side < 0:

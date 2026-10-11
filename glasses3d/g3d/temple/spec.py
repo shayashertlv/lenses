@@ -17,6 +17,10 @@ Spec keys (JSON):
               (a bare list = poly with plane "nodes" and no fade). rise_per_mm = mm of world X gained per mm moved
               perpendicular from the crease into the facet (negative falls toward the inner face). A faded facet is
               (1 - s) plane + s base with s = smoothstep((d - d0) / (d1 - d0)): the plane at d0, the base at d1.
+              Facets with different fades (or none) may share creases: a shared vertex takes the least-faded one. Where
+              that holds a faded facet at least FADE_HOLD_MIN_MM from its own fade and one of its triangles tilts more
+              than FADE_CLIFF_DEG off its own fade (a wall inside one row of triangles), the build refuses
+              E_FADE_CLIFF. A fade that moves none of its facet's vertices FADE_HOLD_MIN_MM warns W_FADE_INERT.
     creases   [{facets: [f1, f2 | "base"], shape: "ridge" | "valley"}]: declared crease shapes, checked after the build
     chamfers  [{edge: top | bottom, d: [d0, d1], width_mm, depth_mm, taper_mm?}] (v1: a band cut along an outline edge)
     roll_mm   core edge rounding (8 stacked quarter-arc chamfer sub-bands along both outline edges); 0 = crisp
@@ -52,10 +56,10 @@ SCHEMA = "g3d.temple/2"
 
 REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED",
             "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
-            "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_FADE_NEIGHBOUR", "E_TOO_THIN",
-            "E_CHAMFER", "E_ROLL", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
-WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE",
-            "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
+            "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN",
+            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
+WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT",
+            "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
 
 DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "kink_sharp_deg": 25.0,
                    "border_band_mm": 2.0, "snap_mm": 0.05}
@@ -63,6 +67,15 @@ ILL_CONDITIONED_DEG_PER_MM = 10.0       # E_ILL_CONDITIONED
 CONDITIONING_WARN_DEG_PER_MM = 6.0      # W_CONDITIONING
 FLAT_CREASE_DEG = 2.0                   # a crease pair below this is "flat" (W_FLAT_CREASE; a declaration is refused)
 SHARP_DIHEDRAL_DEG = 6.0                # faded, ramp and chamfer edges are sharp at or above this dihedral
+CREASE_STANDS_DEG = 0.5                 # a crease edge beside a faded cell is sharp while its design dihedral >= this
+FADE_ZERO = 1e-12                       # a fade weight below this is 0 (the face is a facet cell, its values the plane)
+FADE_CLIFF_DEG = 25.0                   # E_FADE_CLIFF: a held faded triangle tilted more than this off its own fade
+FADE_HOLD_WARN_DEG = 10.0               # W_FADE_HOLD: the largest such tilt at or above this (one receipt line)
+FADE_HOLD_MIN_MM = 0.05                 # the smallest hold (built minus the faded facet's own value) that counts
+#                                         (E_FADE_CLIFF / W_FADE_HOLD) and the smallest move a fade must make (else
+#                                         W_FADE_INERT): the photos show the temple at ~3-8 px/mm, so 0.05 mm is
+#                                         0.15-0.4 px, well under one pixel; a smaller step cannot be seen, and a
+#                                         large tilt there is a micron-wide sliver triangle's, not a wall
 BORDER_RAMP_WARN_DEG = 8.0              # W_BORDER_RAMP
 ARM_NORMAL_SPREAD_DEG = 30.0            # W_ARM_NORMAL_SPREAD
 HINGE_LEAF_GAP_MM = 0.2                 # W_HINGE_LEAF: leaf-to-inner-face gap above this ...

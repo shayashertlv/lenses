@@ -5,7 +5,8 @@ Fixtures (each a full "g3d.temple/2" spec on a Prada-like outline unless named o
 edge), valley (an inverted four-facet pyramid), arm_pyramid (a pyramid on the arm), top_chamfer_arm, rolled (the
 pyramid with the core roll), virtual_node, solved_node, crease_rise (F1 by crease + rise), analytic_prism (closed-form
 dihedrals on a straight slab), chamfered_slab_30, prada_default (the four-facet Prada layout with declared creases),
-fade (a ridge that dies out in a fade), border_ramp (facets meeting the base with a mismatch the border band absorbs);
+fade (a ridge that dies out in a fade), fade_one_side (the ridge with one side fading beside a plane; taller, it is
+the W_FADE_HOLD and E_FADE_CLIFF case), border_ramp (facets meeting the base with a mismatch the border band absorbs);
 and the refusal cases (one minimal spec per core refusal code). Fixtures are never edited to make a test pass.
 
 The fixture base is linear in d and constant in y over d 0-65 (INNER and THICK): "base" nodes there lie on one plane,
@@ -217,6 +218,20 @@ def fade(d0: float = 30.0, d1: float = 60.0, proud: float = 1.5) -> dict:
                     creases=[{"facets": ["N", "S"], "shape": "ridge"}])
 
 
+def fade_one_side(d0: float = 30.0, d1: float = 60.0, proud: float = 1.5, edge: float = 0.5) -> dict:
+    """The fade ridge with only N fading, N's outer corners `edge` mm proud of the base: S keeps its plane, so the
+    N|S ridge stays where S stands (the shared ridge vertices take S, the less-faded facet) while N's outer edge
+    blends down to the base, away from the ridge (was E_FADE_NEIGHBOUR before 2026-10-11). Near d1 S holds the ridge
+    `proud` mm above N's fade and N's 10 mm wide triangles tilt about atan(proud / 10) off it: 8.5 deg as is,
+    W_FADE_HOLD (>= 10 deg) at proud 3, E_FADE_CLIFF (> 25 deg) at proud 6 (edge 0; N's outer edge then lies on the
+    base, so its fade also moves no vertex: W_FADE_INERT)."""
+    s = fade(d0, d1, proud)
+    s["facets"]["S"]["fade"] = None
+    for n in ("N0", "N1"):
+        s["nodes"][n][2] = PRISM["T"] + edge
+    return s
+
+
 def border_ramp(proud_b: float = 0.6) -> dict:
     """The pyramid with B `proud_b` mm above the base: F2 and F4 meet the base with a mismatch rising from 0 at A / E
     to proud_b at B, which the border band absorbs (W_BORDER_RAMP above 8 deg)."""
@@ -241,7 +256,7 @@ FIXTURES = {"slab": slab, "wedge": wedge, "pyramid": pyramid, "valley": valley, 
             "top_chamfer_arm": top_chamfer_arm, "rolled": rolled, "virtual_node": virtual_node,
             "solved_node": solved_node, "crease_rise": crease_rise, "analytic_prism": analytic_prism,
             "chamfered_slab_30": chamfered_slab_30, "prada_default": prada_default, "fade": fade,
-            "border_ramp": border_ramp}
+            "fade_one_side": fade_one_side, "border_ramp": border_ramp}
 
 
 # --------------------------------------------------------------------------------------------- refusal cases
@@ -288,13 +303,11 @@ def refusal_cases() -> dict:
     s["nodes"]["C"][2] = T_ZONE + 3.0         # D (1.6 proud, on A-C) and C (3.0) disagree with a plane through A, B
     out["E_FACET_NOT_PLANAR"] = s
     out["E_ILL_CONDITIONED"] = near_collinear_f1()
-    s = fade()
-    s["facets"]["S"]["fade"] = None           # N fades, its crease neighbour S does not
-    out["E_FADE_NEIGHBOUR"] = s
     out["E_TOO_THIN"] = f4_thin_regression()
     s = base_spec(chamfers=[{"edge": "top", "d": [70.0, 125.0], "width_mm": 30.0, "depth_mm": 0.8}])
     out["E_CHAMFER"] = s
     out["E_ROLL"] = rolled(roll_mm=3.5)
+    out["E_FADE_CLIFF"] = fade_one_side(proud=6.0, edge=0.0)   # S holds N's ridge 6 mm above its fade: 31.0 deg
     s = pyramid()
     s["creases"] = [{"facets": ["F2", "F3"], "shape": "valley"}]
     out["E_CREASE_SHAPE"] = s

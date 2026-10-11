@@ -20,7 +20,8 @@ Frame: scene mm, +Y up, +Z front. The spec describes the +X temple; the -X templ
 reversed). Parts are chosen by the sign of x, never by name. Station d = z_h - z at opening 0; X = |x|.
 """
 SCHEMA = "g3d.temple/2"
-CORE_VERSION = "wp6-core-2.0"
+CORE_VERSION = "wp6-core-2.1"      # 2.1 (2026-10-11): cells by fade weight, mixed fades (E_FADE_CLIFF, W_FADE_HOLD,
+#                                    W_FADE_INERT), standing faded creases sharp
 
 from .spec import TempleError, canonical, canonical_json, spec_sha256  # noqa: E402,F401
 from .build import build_temple, TempleBuild  # noqa: E402,F401
