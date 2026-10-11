@@ -67,11 +67,24 @@ def test_end_rule_and_tip_round_fit():
     sp["outline"]["tip_round_mm"] = 2.0                                 # a rounded end the core can rebuild
     _, s2, rep = template_of(sp)
     assert rep["tip_round"]["objective_mm"] < rep["tip_round"]["objective_at_0_mm"]
-    assert 1.5 <= s2["outline"]["tip_round_mm"] <= 2.0                   # ties go to the smaller radius
+    # the lowest objective, no tie margin: within one 0.05 mm grid step (the tip cap sits END_EPS_MM inside the mesh
+    # and the chains are sampled every 1 mm; 1.95 on 2026-10-11, 1.9 with the retired 0.005 mm tie margin)
+    assert 2.0 - TT.TIP_FIT_STEP_MM <= s2["outline"]["tip_round_mm"] <= 2.0
     sp["outline"]["tip_round_mm"] = 9.0                                 # a tip narrowing to 2 mm: the end rule cuts
     _, s3, rep3 = template_of(sp)
     assert rep3["length_lost_mm"]["tip"] == pytest.approx(1.0, abs=1e-9)    # the last station >= 50 % is d 119
     assert s3["outline"]["top"][-1][0] == 119.0
+
+
+def test_the_knot_cap_is_reported_when_it_binds(monkeypatch):
+    _, _, rep = template_of(FX.wedge())
+    k = rep["knots"]
+    assert not k["cap_bound"] and k["max_error_mm"] <= TT.RDP_TOL_MM and k["target"] == TT.KNOT_TARGET
+    monkeypatch.setattr(TT, "MAX_KNOTS", 6)                             # the fixture outline has 22 top knots
+    _, s2, rep = template_of(FX.wedge())
+    k = rep["knots"]
+    assert k["count"] == 6 and k["cap_bound"] and k["max_error_mm"] > TT.RDP_TOL_MM
+    assert "cap binds" in k["note"] and len(s2["outline"]["top"]) == 6
 
 
 def test_end_cut():
@@ -144,6 +157,7 @@ def test_prada_original_template():
     tb = build_temple(s2)
     assert tb.checks["closed"] and tb.checks["euler"] == 2
     assert rep["knots"]["count"] <= TT.MAX_KNOTS and rep["stations"]["count"] > 130
+    assert not rep["knots"]["cap_bound"] and rep["knots"]["max_error_mm"] <= TT.RDP_TOL_MM   # 61 knots on 2026-10-11
     assert 0 < rep["length_lost_mm"]["tip"] < 2.0
     # an instrument sanity bound (a wrong side, hinge or chart would put the rebuild centimetres away), not a gate
     assert rep["distance_original_to_rebuild"]["all"]["max_mm"] < 2.0

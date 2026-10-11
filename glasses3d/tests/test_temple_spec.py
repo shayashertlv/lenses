@@ -254,3 +254,30 @@ def test_a_crossing_near_a_node_that_cannot_move_is_a_short_edge():
     with pytest.raises(TempleError) as e:
         S.parse(s)
     assert e.value.code == "E_SHORT_EDGE" and "node J" in e.value.fields["refs"]
+
+
+def _many_crossings_spec(n_near: int, n_fac: int = 5) -> dict:
+    """n_fac facets whose P -> V edge crosses the bottom edge (y -10) at d - 1.8, with a bottom knot 0.03 mm behind
+    the first n_near of those crossings."""
+    ds = [10.0 + 20.0 * i for i in range(n_fac)]
+    bottom = [[0.0, -10.0]] + [[d - 1.8 + 0.03, -10.0] for d in ds[:n_near]] + [[120.0, -10.0]]
+    nodes, facets = {}, {}
+    for i, d in enumerate(ds):
+        nodes.update({f"P{i}": [d, 5.0, 4.6], f"R{i}": [d + 10.0, 5.0, 4.8], f"V{i}": [d - 3.0, -20.0, 4.0],
+                      f"W{i}": [d + 10.0, -20.0, None]})
+        facets[f"T{i}"] = [f"P{i}", f"V{i}", f"W{i}", f"R{i}"]
+    s = FX.straight(nodes=nodes, facets=facets)
+    s["outline"]["bottom"] = bottom
+    return s
+
+
+@pytest.mark.parametrize("n_near", [1, 3, 4, 5])
+def test_every_snappable_crossing_is_snapped(n_near):
+    ps = S.parse(_many_crossings_spec(n_near))                         # was E_SHORT_EDGE from 4 crossings (4 passes)
+    moved = [x for x in ps.snaps if x.get("note") == "outline knot moved onto a facet-edge crossing"]
+    assert len(moved) == n_near
+    for d in [10.0 + 20.0 * i - 1.8 for i in range(n_near)]:
+        assert min(abs(ps.bottom[:, 0] - d)) <= 1e-9                     # each knot now IS its crossing
+    assert S.parse(ps.snapped).snaps == []
+    tb = build_temple(ps)
+    assert tb.checks["closed"] and tb.checks["euler"] == 2

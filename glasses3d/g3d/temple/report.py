@@ -1,12 +1,15 @@
 """Receipts of g3d.faceted_temple /2 (plan/WP6_FACETS.md §2.2 step 9, §4.5). numpy only.
 
-`receipt(tb)` is the compact receipt Astra reads (numbers rounded: mm 0.01, rise 0.001, deg 0.1):
+`receipt(tb, include_stations=False)` is the compact receipt Astra reads (numbers rounded: mm 0.01, rise 0.001,
+deg 0.1):
     lines         one line per crease first ("F1|F2 ridge 12.2° declared ridge"), then one per warning
     creases       pair, built shape, length-weighted dihedral, declared shape
     facets        lean against the local base normal, the crease rise relative to the local base gradient, fade
     thickness     min / max and where
-    border_ramps  per facet: ramp height (max), slope (deg) over border_band_mm, border length
-    stations      a 10 mm table: d, y_top, y_bot, x_in, t_top, t_bot
+    border_ramps  per facet/base border run: facet, d range, signed ramp height (+ = the facet stands proud of the
+                  base, - = sunk below it), slope (deg) over border_band_mm, run length
+    stations      only with include_stations=True (facet_inspect; §4.5 keeps edit receipts short): a 10 mm table of
+                  d, y_top, y_bot, x_in, t_top, t_bot
     snaps         every knot canonicalisation move
     checks        closed, Euler, volume, planarity
 The Blender layer adds decal motion and the hinge leaf gap / knuckle contact per side, and de-duplicates lines across
@@ -29,7 +32,7 @@ def _r(x, nd: int = 2):
         return None
     if isinstance(x, (list, tuple, np.ndarray)):
         return [_r(v, nd) for v in x]
-    return round(float(x), nd)
+    return round(float(x), nd) + 0.0                     # + 0.0: no "-0.0"
 
 
 def crease_lines(tb) -> list[str]:
@@ -69,8 +72,8 @@ def station_table(ps, step: float = RECEIPT_STATION_STEP_MM) -> list[list[float]
              float(ps.t_bot(d))] for d in ds]
 
 
-def receipt(tb, *, core_ms: float | None = None) -> dict:
-    """The compact receipt (module docstring)."""
+def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False) -> dict:
+    """The compact receipt (module docstring); the 10 mm station table only with include_stations."""
     t = tb.tables
     creases = [{"pair": "|".join(c["regions"]), "shape": c["shape"], "deg": _r(c["mean_dihedral_deg"], 1),
                 "declared": c.get("declared")} for c in t["creases"] if c["kind"] == "crease"]
@@ -89,14 +92,16 @@ def receipt(tb, *, core_ms: float | None = None) -> dict:
            "facets": facets,
            "thickness": {"min_mm": _r(th["min_mm"]), "min_at": _r(th["min_at"]), "max_mm": _r(th["max_mm"]),
                          "max_at": _r(th["max_at"])},
-           "border_ramps": [{"facet": r["facet"], "height_mm": _r(r["height_mm"]), "slope_deg": _r(r["slope_deg"], 1),
-                             "length_mm": _r(r["length_mm"])} for r in t["border_ramps"]],
-           "stations": {"columns": STATION_COLUMNS, "rows": [_r(row) for row in station_table(tb.spec)]},
+           "border_ramps": [{"facet": r["facet"], "d_mm": _r(r["d_mm"], 1), "height_mm": _r(r["height_mm"]),
+                             "slope_deg": _r(r["slope_deg"], 1), "length_mm": _r(r["length_mm"])}
+                            for r in t["border_ramps"]],
            "snaps": [{"what": s["what"], "from": _r(s["from"], 4), "to": _r(s["to"], 4)} for s in tb.spec.snaps],
            "checks": {"closed": tb.checks["closed"], "euler": tb.checks["euler"],
                       "volume_mm3": _r(tb.checks["volume_mm3"], 1),
                       "planar": tb.checks["planarity_max_mm"] <= 1e-9},
            "budget": {"core_ms": _r(core_ms, 1)}}
+    if include_stations:
+        out["stations"] = {"columns": STATION_COLUMNS, "rows": [_r(row) for row in station_table(tb.spec)]}
     if t.get("roll"):
         out["roll"] = {"roll_mm": _r(t["roll"]["roll_mm"]), "limit_mm": _r(t["roll"]["limit_mm"])}
     return plain(out)

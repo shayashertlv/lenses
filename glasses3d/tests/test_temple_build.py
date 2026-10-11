@@ -143,14 +143,19 @@ def test_sharp_sets(builds):
 def test_faded_edges_are_sharp_only_at_6_deg(builds):
     tb = builds["fade"]
     topo = mesh_topology(tb.polys)
-    n = 0
+    sharp = set(tb.sharp)
+    n, cross, cross_soft = 0, 0, 0
     for (a, b), p1 in topo["directed"].items():
         p2 = topo["directed"][(b, a)]
-        if a < b and tb.poly_cell[p1] == tb.poly_cell[p2] == "faded" and tb.poly_region[p1] == tb.poly_region[p2]:
+        if a < b and "faded" in (tb.poly_cell[p1], tb.poly_cell[p2]) and \
+                {tb.poly_kind[p1], tb.poly_kind[p2]} <= {"outer", "roll"}:
             dih = math.degrees(math.acos(np.clip(tb.normals[p1] @ tb.normals[p2], -1, 1)))
-            assert ((a, b) in set(tb.sharp)) == (dih >= 6.0)
+            assert ((a, b) in sharp) == (dih >= 6.0)                 # inside N or S, N|S, and N or S against the base
             n += 1
-    assert n > 10
+            if tb.poly_region[p1] != tb.poly_region[p2] and "base" not in (tb.poly_region[p1], tb.poly_region[p2]):
+                cross += 1
+                cross_soft += dih < 6.0
+    assert n > 10 and cross > 10 and cross_soft >= 3               # the N|S ridge dies out in the fade: smooth there
 
 
 def test_facet_corners_take_the_face_normal(builds):
@@ -204,17 +209,34 @@ def test_border_band_ramp(builds):
     assert len(far) and np.max(np.abs(tb.X_surface[far] - B[far])) <= 1e-12        # the base beyond the band
     on_line = base_v[np.abs(dist[base_v] - band) < 1e-9]
     assert len(on_line) > 10                                     # the band line is in the arrangement
-    ramps = {r["facet"]: r for r in tb.tables["border_ramps"]}
-    assert set(ramps) == {"F2", "F4"}
-    for r in ramps.values():
+    assert [(r["facet"], r["d_mm"]) for r in tb.tables["border_ramps"]] == [("F2", [0.0, 46.8]), ("F4", [46.8, 55.0])]
+    for r in tb.tables["border_ramps"]:                          # one row per border run, signed: B stands proud
         assert r["height_mm"] == pytest.approx(0.6, abs=1e-9)
         assert r["slope_deg"] == pytest.approx(math.degrees(math.atan(0.3)), abs=1e-9)
     assert {w["facet"] for w in tb.warnings if w["code"] == "W_BORDER_RAMP"} == {"F2", "F4"}
-    assert all(r["height_mm"] < 1e-9 for r in builds["pyramid"].tables["border_ramps"])
+    sunk = build_temple(FX.border_ramp(proud_b=-0.6))
+    assert [r["height_mm"] for r in sunk.tables["border_ramps"]] == pytest.approx([-0.6, -0.6], abs=1e-9)
+    assert all("below the base by 0.60 mm" in w["message"] for w in sunk.warnings if w["code"] == "W_BORDER_RAMP")
+    assert all(abs(r["height_mm"]) < 1e-9 for r in builds["pyramid"].tables["border_ramps"])
     assert not any(w["code"] == "W_BORDER_RAMP" for w in builds["pyramid"].warnings)
     for i, k in enumerate(tb.face_cell):                         # ramp cells touch the band only
         if k == "ramp":
             assert np.min(dist[tb.arr.faces[i]]) < band
+
+
+def test_border_ramps_are_reported_per_run():
+    # a band facet across the slab, tilted in d: 0.3 mm proud along its front border, 0.3 mm sunk along its rear one
+    s = FX.straight(nodes={"P": [20.0, 12.0, 4.3], "Q": [20.0, -12.0, 4.3], "R": [30.0, -12.0, 3.7],
+                           "S": [30.0, 12.0, 3.7]}, facets={"band": ["P", "Q", "R", "S"]})
+    tb = build_temple(s)
+    rows = [(r["facet"], r["d_mm"], round(r["height_mm"], 9), round(r["length_mm"], 9))
+            for r in tb.tables["border_ramps"]]
+    assert rows == [("band", [20.0, 20.0], 0.3, 20.0), ("band", [30.0, 30.0], -0.3, 20.0)]
+    msgs = [w["message"] for w in tb.warnings if w["code"] == "W_BORDER_RAMP"]
+    assert len(msgs) == 2 and "proud of the base by 0.30 mm at d 20.0:" in msgs[0] and "below" in msgs[1]
+    r = report.receipt(tb)["border_ramps"]
+    assert r == [{"facet": "band", "d_mm": [20.0, 20.0], "height_mm": 0.3, "slope_deg": 8.5, "length_mm": 20.0},
+                 {"facet": "band", "d_mm": [30.0, 30.0], "height_mm": -0.3, "slope_deg": 8.5, "length_mm": 20.0}]
 
 
 def test_wedge_base_values(builds):
@@ -371,13 +393,16 @@ def test_compact_receipt(builds):
     assert {f["label"] for f in r["facets"]} == {"F1", "F2", "F3", "F4"}
     f1 = next(f for f in r["facets"] if f["label"] == "F1")
     assert f1["rise"] == -0.38 and "rise_vs_base" in f1 and isinstance(f1["lean_deg"], float)
-    rows = r["stations"]["rows"]
-    assert r["stations"]["columns"] == ["d", "y_top", "y_bot", "x_in", "t_top", "t_bot"]
+    assert "stations" not in r                                         # §4.5: facet_inspect asks for the table
+    rs = report.receipt(tb, core_ms=12.345, include_stations=True)
+    rows = rs["stations"]["rows"]
+    assert rs["stations"]["columns"] == ["d", "y_top", "y_bot", "x_in", "t_top", "t_bot"]
     assert rows[1][0] - rows[0][0] == 10.0 and rows[-1][0] == tb.spec.d1
+    assert {k: v for k, v in rs.items() if k != "stations"} == r
     assert r["thickness"]["min_mm"] == round(tb.tables["thickness"]["min_mm"], 2)
     assert r["checks"] == {"closed": True, "euler": 2, "volume_mm3": round(tb.checks["volume_mm3"], 1), "planar": True}
     assert r["budget"]["core_ms"] == 12.3 and r["spec_sha256"] == tb.spec.sha256
-    assert len(text) < 3000, len(text)
+    assert len(text) <= 1500, len(text)                                # 1377 chars on 2026-10-11 (2061 with stations)
     full = report.receipt_full(tb)
     json.dumps(full)
     assert {"facets", "creases", "border_ramps", "base_planarity", "nodes", "snaps"} <= set(full)

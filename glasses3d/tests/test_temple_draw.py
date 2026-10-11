@@ -73,6 +73,13 @@ def test_thickness_contours_cover_the_range():
         assert np.abs(t - lv).max() < 0.05          # the core's triangles approximate the wedge closely
 
 
+def test_a_region_at_a_contour_level_draws_no_noise():
+    tb = build_temple(FX.pyramid())                  # the base is 5.0 mm (+- 1e-14) over d 0-65, the facets above it
+    segs = DR._contours(tb, [5.0])[5.0]
+    d5 = 80.0 + 10.0 * 0.34 / 0.47                   # the arm's base thickness passes 5.0 between d 80 (5.34) and 90
+    assert segs and all(abs(p[0] - d5) < 1e-9 and abs(q[0] - d5) < 1e-9 for p, q in segs)
+
+
 def test_section_strip_overlays_builds_and_meshes(viz):
     cur, prev = build_temple(FX.prada_default()), build_temple(FX.pyramid())
     slab = build_temple(FX.slab())

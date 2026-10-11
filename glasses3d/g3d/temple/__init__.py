@@ -8,8 +8,10 @@ Blender 5.2 and on the host; nothing here imports bpy, open3d, scipy or cv2.
     build     border band, stations, values (facets, fades, ramps, base), chamfers, core roll, cells, sharp sets,
               crease check, self-checks, mirror, opening
     measure   sections, bulges, single-plane share, facet table (information), decal / hinge-part rules
-    report    the compact receipt (crease lines first) and the full tables
+    report    the compact receipt (crease lines first; the 10 mm station table on request) and the full tables
     convert   g3d.temple/1 -> /2 (tests and owner sheets only; the only place a /1 spec is read)
+    template  revision 0: a /2 spec measured from an existing temple mesh (template_from_mesh) and its report
+    draw      the (d, y) chart and the section strip images (host only: imports PIL, never imported in Blender)
     fixtures  the P0 fixture specs and refusal cases, the Prada-layout helper
     sections  g3d.polygon_section (closed 2D sections with sharp / chamfer / round corners), check_round_corners
     loft      g3d.loft_sections (per-station lofts with sharp longitudinal edges)

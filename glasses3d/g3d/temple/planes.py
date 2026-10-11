@@ -185,10 +185,10 @@ def solve(ps, arr, face_label: list) -> PlaneSolution:
                 if code == "E_RELIEF_STEP":
                     nb = sorted({_src(p[3])[6:] for p in pts if p[3][0] == "facet"})
                     fields["neighbours"] = nb
-                    what = (f"cannot meet facet(s) {nb} without a step: {worst['misfit_mm']:+.4f} mm at (d, y) "
+                    what = (f"cannot meet facet(s) {nb} without a step: {worst['misfit_mm']:+.3g} mm at (d, y) "
                             f"({worst['at'][0]:.3f}, {worst['at'][1]:.3f}) ({worst['source']})")
                 else:
-                    what = (f"has {len(pts)} known heights that are not coplanar (worst {worst['misfit_mm']:+.4f} mm "
+                    what = (f"has {len(pts)} known heights that are not coplanar (worst {worst['misfit_mm']:+.3g} mm "
                             f"at {worst['source']})")
                 raise TempleError(code, f"facet {label} {what}", **fields)
             if cond > ILL_CONDITIONED_DEG_PER_MM:

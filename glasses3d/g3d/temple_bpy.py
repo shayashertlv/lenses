@@ -30,8 +30,11 @@ scene, places the temples, writes once, and reports. Conventions:
   move by CHART TRANSFER: each decal vertex keeps the chart (d, y) of its foot point on the old temple surface and its
   signed standoff from it, and lands at the new surface X(d, y) plus that standoff along the new surface normal (the
   -X side mirrored). Motion is reported per decal; W_DECAL_SPANS_CREASE when one decal lands on more than one region;
+- a null hinge axis is filled from the knuckles (default_axis) for the build only: the receipt's spec_sha256 and the
+  extras' canonical spec stay the spec as written (the host's sha of the same spec); the filled axis is reported
+  separately (receipt axis_filled_mm / axis_from, extras hinge_axis_xz_mm);
 - extras: partRole temple, region temple_+x / temple_-x, g3d_temple = canonical /2 spec + core version + sha256 +
-  facet table (the exporter copies it to the GLB only once WP4's allowlist names it);
+  the built hinge axis + facet table (the exporter copies it to the GLB only once WP4's allowlist names it);
 - hinge parts are never moved (measure.hinge_part_kind: knuckles and temple leaves are excluded from decal planning,
   however close and thin they are); the receipt reports the leaf-to-inner-face gap, temple-knuckle contact and frame-
   knuckle penetration (W_HINGE_LEAF, W_KNUCKLE_PENETRATION);
@@ -548,18 +551,23 @@ def _plan(spec, side, targets, decals, scene) -> tuple:
     origin = asset_origin(scene)
     tg = select_targets(sides, targets, scene, origin)
     spec = json.loads(json.dumps(spec))
+    written = TS.canonical(spec)                  # the spec as written: its sha names it, also when the axis is filled
+    sha_written = TS.spec_sha256(spec)
     hinge = spec.get("hinge") or {}
-    axis_used = []
+    axis_used, axis_filled = [], None
     if isinstance(hinge, dict) and hinge.get("axis_xz_mm") is None and "z_mm" in hinge:
         ax, used = default_axis(sides[0], float(hinge["z_mm"]), scene, origin, set(tg.values()))
         if ax is not None:
-            hinge["axis_xz_mm"] = ax
+            hinge["axis_xz_mm"] = axis_filled = ax
             axis_used = used
     tc = time.perf_counter()
     tb = TB.build_temple(spec)
     core_ms = 1000.0 * (time.perf_counter() - tc)
+    if axis_filled is not None:                   # the built hinge stays in tb.spec.hinge (geometry, opening)
+        tb.spec.canonical, tb.spec.sha256 = written, sha_written
     rec = RP.receipt(tb, core_ms=core_ms)
     rec["axis_from"] = axis_used or ("spec" if tb.spec.hinge["axis_xz_mm"] is not None else None)
+    rec["axis_filled_mm"] = axis_filled
     rec["core_digest"] = core_digest(tb)
     plans: dict = {}
     planned: list = []
@@ -753,6 +761,7 @@ def _write(plans, tb) -> None:
             ob[PROP_TEMPLE] = json.dumps(TS.plain({"schema": SCHEMA, "core_version": CORE_VERSION,
                                                    "spec_sha256": tb.spec.sha256, "side": _side_key(s),
                                                    "canonical_spec": tb.spec.canonical,
+                                                   "hinge_axis_xz_mm": tb.spec.hinge["axis_xz_mm"],
                                                    "facets": tb.tables["facets"]}), sort_keys=True)
             ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
             done.append(ob)
@@ -897,8 +906,11 @@ def check_relief(objects=None, *, photo_creases: int | None = None, hinge_z: flo
         ext = ob.get(PROP_TEMPLE)
         planes = None
         if isinstance(ext, str):
-            spec = json.loads(ext)["canonical_spec"]
+            ext = json.loads(ext)
+            spec = ext["canonical_spec"]
             h = spec["hinge"]
+            if h["axis_xz_mm"] is None:                 # the axis faceted_temple filled from the knuckles
+                h["axis_xz_mm"] = ext.get("hinge_axis_xz_mm")
             L = TB.to_local(V, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
             F = MS.chart_faces(T, side)
             planes = RP.facet_planes_chart(TB.build_temple(spec))

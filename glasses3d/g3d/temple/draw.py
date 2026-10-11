@@ -43,6 +43,7 @@ LEAN_LO = np.array([226.0, 236.0, 240.0])    # lean 0 deg
 LEAN_HI = np.array([70.0, 104.0, 118.0])     # lean >= LEAN_MAX_DEG
 LEAN_MAX_DEG = 30.0
 CONTOUR_MM = 0.5
+CONTOUR_EPS_MM = 1e-9                   # a thickness this close to a contour level is ON it (float noise)
 CONTOUR = (150, 128, 170)
 DECAL = (142, 36, 170)
 HINGE = (46, 125, 50)
@@ -130,22 +131,26 @@ def _hull(P: np.ndarray) -> np.ndarray:
 
 def _contours(tb, levels) -> dict:
     """{level: [(p, q)]} iso-thickness segments in (d, y) over the outer cells (marching triangles on the
-    arrangement's ear clipping; thickness is linear on each triangle)."""
+    arrangement's ear clipping; thickness is linear on each triangle). A corner within CONTOUR_EPS_MM of the level
+    counts as on it and on the >= side, so a region lying at the level draws only its border with lower thickness,
+    never the float noise inside it."""
     V2, th = tb.arr.V, tb.thickness
     out = {lv: [] for lv in levels}
     for f, tris in zip(tb.arr.faces, tb.arr.face_tris):
         for tri in tris:
-            t = th[list(tri)]
             P = V2[list(tri)]
             for lv in levels:
-                if t.min() > lv or t.max() < lv or t.min() == t.max():
+                t = th[list(tri)]
+                if t.min() > lv + CONTOUR_EPS_MM or t.max() < lv - CONTOUR_EPS_MM:
                     continue
+                t = np.where(np.abs(t - lv) <= CONTOUR_EPS_MM, lv, t)
+                up = t >= lv
                 pts = []
                 for i, j in ((0, 1), (1, 2), (2, 0)):
-                    if (t[i] - lv) * (t[j] - lv) < 0:
+                    if up[i] != up[j]:
                         s = (lv - t[i]) / (t[j] - t[i])
                         pts.append(P[i] + s * (P[j] - P[i]))
-                if len(pts) == 2:
+                if len(pts) == 2 and np.hypot(*(pts[1] - pts[0])) > CONTOUR_EPS_MM:
                     out[lv].append((pts[0], pts[1]))
     return out
 

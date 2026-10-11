@@ -25,6 +25,7 @@ from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import fixtures as FX
 from glasses3d.g3d.temple.convert import v1_to_v2
 from glasses3d.g3d.temple.sections import polygon_section
+from glasses3d.g3d.temple.spec import spec_sha256
 from glasses3d.g3d_host import blender
 from glasses3d.g3d_host.spec import validate_spec
 
@@ -63,6 +64,12 @@ def run_steps(tmp: Path, blend: Path, steps: list, name: str) -> list:
     proc = blender.run(blend, RUN, [sp, rp], timeout_s=900)
     assert rp.exists(), proc.stderr[-3000:] + proc.stdout[-3000:]
     return json.loads(rp.read_text(encoding="utf-8"))["steps"]
+
+
+def null_axis(spec: dict) -> dict:
+    s = json.loads(json.dumps(spec))
+    s["hinge"]["axis_xz_mm"] = None
+    return s
 
 
 def closed_manifold(polys) -> tuple[bool, int]:
@@ -128,6 +135,7 @@ def main_run(prada_copy, preferred_v2):
              {"op": "faceted_temple", "spec": spec},                                         # 23
              {"op": "core_dump", "spec": spec},                                              # 24
              {"op": "core_dump", "spec": variant},                                           # 25
+             {"op": "faceted_temple", "spec": null_axis(variant), "side": "-x", "dry_run": True},  # 26
              ]
     return run_steps(tmp, blend, steps, "main"), spec, variant, glb
 
@@ -277,6 +285,18 @@ def test_export_validates_and_charts_from_the_extras(main_run):
     for side in ("+x", "-x"):
         assert cr["temples"][side]["chart"] == "g3d_temple extras"
         assert cr["temples"][side]["inner_flatness_mm"] <= 1e-3
+
+
+def test_a_filled_axis_keeps_the_written_sha(main_run):
+    st, _, variant, _ = main_run
+    r = st[26]                                                         # -X only: +X has two material slots by now
+    assert r["status"] == "planned", r
+    s = null_axis(variant)
+    filled = json.loads(json.dumps(s))
+    filled["hinge"]["axis_xz_mm"] = r["axis_filled_mm"]
+    assert r["spec_sha256"] == spec_sha256(s) == build_temple(s).spec.sha256 != spec_sha256(filled)
+    assert len(r["axis_filled_mm"]) == 2 and r["axis_from"]            # the knuckles named
+    assert abs(r["axis_filled_mm"][0] - 64.6) < 2.0 and abs(r["axis_filled_mm"][1] - (-10.1)) < 2.0
 
 
 def test_variant_meshes_leave_the_objects_and_are_removed(main_run):

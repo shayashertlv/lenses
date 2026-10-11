@@ -81,6 +81,14 @@ def test_relief_step_names_the_neighbour():
     f = e.value.fields
     assert e.value.code == "E_RELIEF_STEP" and f["facet"] == "Fb" and f["neighbours"] == ["Fa"]
     assert max(abs(m["misfit_mm"]) for m in f["misfits"]) > 0.1
+    s = FX.relief_step()
+    s["nodes"]["S2"][2] = 4.5 + 4e-6                   # a step of a few 1e-6 mm: above planar_tol, and the message
+                                                       # says so (it printed "+0.0000 mm")
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    worst = max(e.value.fields["misfits"], key=lambda m: abs(m["misfit_mm"]))["misfit_mm"]
+    assert e.value.code == "E_RELIEF_STEP" and 1e-6 < abs(worst) < 1e-5
+    assert f"{worst:+.3g} mm" in e.value.message and "0.0000" not in e.value.message
 
 
 def test_over_determined_facet_is_not_planar_with_each_misfit():

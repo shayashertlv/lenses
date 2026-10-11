@@ -14,12 +14,14 @@ Stations every STATION_STEP_MM (integer d, plus one END_EPS_MM inside each end).
   and y_bot, minus x_in (the /2 wedge base).
 Ends: the tip ends at the last station whose height is >= END_HEIGHT_SHARE of the median height over the last
 END_WINDOW_MM (the hinge end symmetrically at the first); the length lost is reported. The five chains (outline top,
-bottom, inner, base top, base bottom) share ONE knot set chosen by a greedy joint Ramer-Douglas-Peucker split at
-RDP_TOL_MM, at most MAX_KNOTS knots (the simplification error per chain is reported). tip_round_mm is fitted on a
-0.05 mm grid: for a radius r > 0 the outline knots within r of the tip are replaced by the corner where the last kept
+bottom, inner, base top, base bottom) share ONE knot set chosen by a greedy joint Ramer-Douglas-Peucker split until
+every chain is within RDP_TOL_MM (the §2.4 target of <= KNOT_TARGET knots is reported, not enforced: the tolerance
+wins); MAX_KNOTS is only a safety cap, and the report says when it binds and the error left. tip_round_mm is fitted on
+a 0.05 mm grid: for a radius r > 0 the outline knots within r of the tip are replaced by the corner where the last kept
 segment, extended, meets the tip cap, and the core's arc rounds that corner; the objective is the two-sided mean
-distance between the rebuilt and the original side silhouettes over the last TIP_FIT_WINDOW_MM, and the smallest radius
-within TIP_FIT_TIE_MM of the lowest objective wins.
+distance between the rebuilt and the original side silhouettes over the last TIP_FIT_WINDOW_MM, and the radius with
+the lowest objective wins (the smallest one on an exact tie). No tie margin: a margin would decide the radius by an
+uncalibrated constant (review D6, 2026-10-11); the report gives the objective at 0 and at the winner.
 
 Report (information, never a gate): the one-sided original -> rebuild distance (area-weighted surface samples of the
 original to the /2 core's mesh) as mean / p95 / max per region (hinge zone: the first 15 mm; bend: +-10 mm around the
@@ -47,12 +49,12 @@ HUBER_K = 1.345
 END_WINDOW_MM = 5.0
 END_HEIGHT_SHARE = 0.5
 RDP_TOL_MM = 0.03
-MAX_KNOTS = 40
+KNOT_TARGET = 40                   # §2.4 "target <= 40 knots per chain": reported, the tolerance wins
+MAX_KNOTS = 2 * KNOT_TARGET        # a safety cap against a noisy mesh (every station a knot); reported when it binds
 TIP_FIT_STEP_MM = 0.05
 TIP_FIT_MAX_MM = 3.0
 TIP_FIT_WINDOW_MM = 5.0
 TIP_FIT_SAMPLE_MM = 0.02
-TIP_FIT_TIE_MM = RDP_TOL_MM / 6    # objectives this close are a tie (the smaller radius wins): below the outline noise
 SAMPLES = 40000                    # original surface samples for the distance report
 SAMPLE_SEED = 0
 SLAB_MM = 1.0                      # distance search: point slabs in d ...
@@ -231,8 +233,9 @@ def _from(chain: np.ndarray, d: float) -> np.ndarray:
 
 
 def fit_tip_round(top: np.ndarray, bot: np.ndarray, sil: np.ndarray, d_from: float) -> dict:
-    """tip_round_mm on a TIP_FIT_STEP_MM grid (module docstring). top / bot: the emitted outline chains. Returns
-    {"tip_round_mm", "top", "bottom", "table": [[r, objective]], "objective_mm"} with the chains the winner needs."""
+    """tip_round_mm on a TIP_FIT_STEP_MM grid: the lowest objective (module docstring). top / bot: the emitted outline
+    chains. Returns {"tip_round_mm", "top", "bottom", "table": [[r, objective]], "objective_mm"} with the chains the
+    winner needs."""
     cap = float(top[-1, 1] - bot[-1, 1])
     rmax = min(TIP_FIT_MAX_MM, 0.45 * cap)
     table = []
@@ -253,9 +256,8 @@ def fit_tip_round(top: np.ndarray, bot: np.ndarray, sil: np.ndarray, d_from: flo
         r2o = _seg_dist(dens, sil[:-1], sil[1:])
         obj = 0.5 * (float(o2r.mean()) + float(r2o.mean()))
         table.append([r, obj, t2, b2])
-    lowest = min(o for _, o, _, _ in table)
-    r, obj, t2, b2 = next(row for row in table if row[1] <= lowest + TIP_FIT_TIE_MM)
-    return {"tip_round_mm": r, "objective_mm": obj, "top": t2, "bottom": b2, "lowest_mm": lowest,
+    r, obj, t2, b2 = min(table, key=lambda row: row[1])          # the first (smallest r) of exact ties
+    return {"tip_round_mm": r, "objective_mm": obj, "top": t2, "bottom": b2,
             "table": [[row[0], row[1]] for row in table]}
 
 
@@ -386,8 +388,9 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
                           f"between its ends)", d=bad[:20])
     D = np.array([r["d"] for r in keep])
     Y = np.array([[r[k] for r in keep] for k in ("y_top", "y_bot", "x_in", "t_top", "t_bot")])
-    knots = shared_knots(D, Y)
+    knots = shared_knots(D, Y, max_knots=MAX_KNOTS)
     err = chain_errors(D, Y, knots)
+    cap_bound = len(knots) >= MAX_KNOTS and float(err.max()) > RDP_TOL_MM
     Dk = D[knots]
     top = np.stack([Dk, Y[0, knots]], axis=1)
     bot = np.stack([Dk, Y[1, knots]], axis=1)
@@ -437,13 +440,16 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
                      "edge_share": EDGE_SHARE},
         "length_lost_mm": {"hinge_end": float(D[0] - dlo), "tip": float(dhi - d1),
                            "rule": f"end station height >= {END_HEIGHT_SHARE} x median over {END_WINDOW_MM:g} mm"},
-        "knots": {"count": len(knots), "max": MAX_KNOTS, "tol_mm": RDP_TOL_MM,
+        "knots": {"count": len(knots), "target": KNOT_TARGET, "max": MAX_KNOTS, "tol_mm": RDP_TOL_MM,
+                  "max_error_mm": float(err.max()), "cap_bound": cap_bound,
+                  "note": (f"the {MAX_KNOTS}-knot cap binds: max simplification error {float(err.max()):.3f} mm > "
+                           f"{RDP_TOL_MM} mm" if cap_bound else f"every chain within {RDP_TOL_MM} mm"),
                   "outline_top": len(spec["outline"]["top"]), "outline_bottom": len(spec["outline"]["bottom"])},
         "simplification_error_mm": {**{c: float(e) for c, e in zip(CHAINS, err)},
                                     "note": "knot interpolation vs the 1 mm stations, before the tip-round fit"},
         "tip_round": {"tip_round_mm": tip["tip_round_mm"], "objective_mm": tip["objective_mm"],
                       "objective_at_0_mm": tip["table"][0][1] if tip["table"][0][0] == 0 else None,
-                      "lowest_mm": tip["lowest_mm"], "tie_mm": TIP_FIT_TIE_MM,
+                      "rule": "the lowest two-sided mean silhouette distance on the 0.05 mm grid; no tie margin",
                       "window_mm": TIP_FIT_WINDOW_MM, "candidates": len(tip["table"])},
         "outer_fit_resid_p95_mm": {"median": float(np.median(resid)), "max": float(resid.max()),
                                    "max_at_d": float(D[int(np.argmax(resid))])},

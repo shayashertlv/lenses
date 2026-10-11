@@ -39,7 +39,9 @@ def test_rearward_face_and_virtual_front_node_form_a_solid(relief_scale):
     # The added upper face must not move the independent lower/rear plane: X through B (40, 4, 65), C (20, -22, 68)
     # and E (85, -20, 65) on the base X = 60 + 5.
     np.testing.assert_allclose(built.sol.planes['F4'].coef, [65 + 114 / 55, -12 / 275, -9 / 110], atol=1e-12, rtol=0)
-    ramps = {r["facet"]: r["height_mm"] for r in built.tables["border_ramps"]}
+    ramps = {}
+    for r in built.tables["border_ramps"]:                    # one row per border run, signed
+        ramps[r["facet"]] = max(ramps.get(r["facet"], 0.0), abs(r["height_mm"]))
     assert ramps["F1"] < 1e-9 and ramps["F4"] < 1e-9          # K and E sit where the planes meet the base exactly
 
 

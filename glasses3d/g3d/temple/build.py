@@ -27,7 +27,8 @@ Steps:
     bottom strips), a planar hinge-end cap and tip cap;
  7. self-checks: closed oriented 2-manifold, Euler 2, volume > 0, every polygon planar (<= 1e-9 mm), thickness >=
     t_min (E_TOO_THIN), outer triangles with positive (d, y) area (no self-intersection);
- 8. sharp edges: facet/facet and non-faded facet/base always; faded, ramp and chamfer edges at a dihedral >= 6 deg;
+ 8. sharp edges: non-faded facet/facet and facet/base always; faded (inside a faded facet, faded/faded and
+    faded/base), ramp and chamfer edges at a dihedral >= 6 deg;
     roll edges (sub-band / sub-band, roll / outer face, roll / strip) smooth; face-to-strip and face-to-cap sharp;
     strip / strip and strip / cap at kinks > kink_sharp_deg. Custom normals: face normals on non-faded facet polygons;
  9. creases: every facet/facet and facet/base pair with its length-weighted dihedral and ridge/valley shares; each
@@ -804,8 +805,8 @@ def _sharp_edges(ps, topo, kind, region, cell, normals):
             l2, _, c2 = region[p2].partition("/")
             if l1 != l2:
                 info.append(("crease", _pair(l1, l2), a, b, p1, p2, dih))
-                if "base" not in (l1, l2):
-                    s = True
+                if "base" not in (l1, l2):                  # always, but two faded facets only where still bent
+                    s = "faded" not in (cell[p1], cell[p2]) or dih >= SHARP_DIHEDRAL_DEG
                 else:
                     fc = cell[p1] if l1 != "base" else cell[p2]
                     s = fc == "facet" or dih >= SHARP_DIHEDRAL_DEG
@@ -924,11 +925,14 @@ def _tables(tb: TempleBuild, edge_info: dict, B: np.ndarray, prep: Prep, roll_in
     out["border_ramps"] = _border_ramps(tb, B)
     for r in out["border_ramps"]:
         if r["slope_deg"] > BORDER_RAMP_WARN_DEG:
+            a, b = (f"{x:.1f}" for x in r["d_mm"])
             tb.warnings.append({"code": "W_BORDER_RAMP", "facet": r["facet"], "slope_deg": r["slope_deg"],
-                                "height_mm": r["height_mm"],
-                                "message": f"facet {r['facet']} meets the base with a {r['height_mm']:.2f} mm ramp "
-                                           f"({r['slope_deg']:.1f} deg over border_band_mm "
-                                           f"{ps.options['border_band_mm']:g}; > {BORDER_RAMP_WARN_DEG})"})
+                                "height_mm": r["height_mm"], "d_mm": r["d_mm"],
+                                "message": f"facet {r['facet']} stands {'proud of' if r['height_mm'] > 0 else 'below'} "
+                                           f"the base by {abs(r['height_mm']):.2f} mm "
+                                           f"{f'at d {a}' if a == b else f'along d {a}-{b}'}: a "
+                                           f"{r['slope_deg']:.1f} deg ramp over border_band_mm "
+                                           f"{ps.options['border_band_mm']:g} (> {BORDER_RAMP_WARN_DEG})"})
     out["base_planarity"] = _base_planarity(tb)
     out["smooth_spread_deg"] = edge_info["smooth_spread_deg"]
     nodes = {}
@@ -946,31 +950,46 @@ def _tables(tb: TempleBuild, edge_info: dict, B: np.ndarray, prep: Prep, roll_in
 
 
 def _border_ramps(tb: TempleBuild, B: np.ndarray) -> list:
-    """Per facet: its border with the base (final arrangement edges), the ramp height (max |facet - base| on it), the
-    ramp slope over border_band_mm and the border length."""
+    """Per border run (a connected chain of final arrangement edges between one facet and the base): its d range, the
+    ramp height = the signed facet - base mismatch of largest size on it (+ = the facet stands proud of the base,
+    - = sunk below it), where, the ramp slope over border_band_mm and the run length. Sorted by facet, then d."""
     ps = tb.spec
     band = ps.options["border_band_mm"]
+    V2 = tb.arr.V
     ef = tb.arr.edge_faces()
-    per: dict = {}
+    edges: dict = {}
     for (a, b), f1 in ef.items():
         f2 = ef.get((b, a))
-        if f2 is None:
-            continue
-        l1, l2 = tb.face_label[f1], tb.face_label[f2]
-        if l1 == "base" or l2 != "base":
-            continue
-        r = per.setdefault(l1, {"length": 0.0, "height": 0.0, "at": None})
-        r["length"] += float(np.hypot(*(tb.arr.V[a] - tb.arr.V[b])))
-        for v in (a, b):
-            m = abs(float(tb.X_surface[v] - B[v]))
-            if m >= r["height"]:
-                r["height"], r["at"] = m, tb.arr.V[v].tolist()
+        if f2 is not None and tb.face_label[f1] != "base" and tb.face_label[f2] == "base":
+            edges.setdefault(tb.face_label[f1], []).append((a, b))
     out = []
-    for lab in sorted(per):
-        r = per[lab]
-        out.append({"facet": lab, "height_mm": r["height"], "at": r["at"],
-                    "slope_deg": math.degrees(math.atan2(r["height"], band)), "length_mm": r["length"]})
-    return out
+    for lab in sorted(edges):
+        for es in _edge_chains(edges[lab]):
+            vs = sorted({v for e in es for v in e})
+            m = tb.X_surface[vs] - B[vs]
+            k = int(np.argmax(np.abs(m)))
+            h = float(m[k])
+            out.append({"facet": lab, "d_mm": [float(V2[vs, 0].min()), float(V2[vs, 0].max())], "height_mm": h,
+                        "at": V2[vs[k]].tolist(), "slope_deg": math.degrees(math.atan2(abs(h), band)),
+                        "length_mm": float(sum(np.hypot(*(V2[a] - V2[b])) for a, b in es))})
+    return sorted(out, key=lambda r: (r["facet"], r["d_mm"][0], r["d_mm"][1]))
+
+
+def _edge_chains(edges: list) -> list:
+    """The edges grouped into connected components (edges sharing a vertex), by union-find."""
+    root: dict = {}
+
+    def find(v):
+        while root.setdefault(v, v) != v:
+            root[v] = root[root[v]]
+            v = root[v]
+        return v
+    for a, b in edges:
+        root[find(a)] = find(b)
+    out: dict = {}
+    for a, b in edges:
+        out.setdefault(find(a), []).append((a, b))
+    return list(out.values())
 
 
 def _base_planarity(tb: TempleBuild) -> dict:

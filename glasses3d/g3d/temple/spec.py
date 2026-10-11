@@ -660,14 +660,22 @@ def _station_refs(c: dict, top, bot) -> dict:
 
 
 def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.ndarray]:
-    """Resolve facet-edge/outline crossings within snap of another station source (module docstring). Returns the
-    final outline chains."""
-    for _ in range(4):
+    """Resolve facet-edge/outline crossings within snap of another station source (module docstring). Each pass moves
+    the knots of every crossing whose station source no earlier crossing of the pass took (a moved knot becomes an
+    outline vertex at its crossing, so a pass resolves at least one crossing); the passes are bounded by the first
+    pass's crossing count. Returns the final outline chains."""
+    passes = None
+    k_pass = 0
+    while passes is None or k_pass < passes:
+        k_pass += 1
         top, bot = _outline(c)
         cross = sorted(_facet_crossings(c, top, bot))
+        if passes is None:
+            passes = len(cross) + 1
         refs = _station_refs(c, top, bot)
         keys = sorted(refs)
         moved = False
+        taken: set = set()
         for i, (dc, yc, chain) in enumerate(cross):
             for dj, yj, _ in cross[i + 1:]:
                 if 1e-6 < abs(dj - dc) <= snap:
@@ -676,6 +684,8 @@ def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.n
                                       snap_mm=snap)
             k = bisect.bisect_left(keys, dc)
             near = [keys[j] for j in (k - 1, k) if 0 <= j < len(keys) and 1e-6 < abs(keys[j] - dc) <= snap]
+            if any(s in taken for s in near):
+                continue                                   # its knot moved this pass: judged again on the next one
             for s in near:
                 fixed = [r for r in refs[s] if r[0] not in TABLES]
                 caps = [r for r in refs[s] if r[0].startswith("outline")
@@ -695,13 +705,12 @@ def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.n
                         snaps.append({"what": _ref_name(r), "field": "d", "from": row[0], "to": dc,
                                       "note": "knot moved to a facet-edge crossing"})
                         row[0] = dc
+                taken.add(s)
                 moved = True
-            if moved:
-                break
         if not moved:
             return top, bot
-    raise TempleError("E_SHORT_EDGE", "facet-edge crossings could not be snapped onto the outline knots in 4 passes",
-                      snap_mm=snap)
+    raise TempleError("E_SHORT_EDGE", f"facet-edge crossings could not be snapped onto the outline knots in {passes} "
+                      f"passes", snap_mm=snap, passes=passes)
 
 
 def parse(spec: dict) -> ParsedSpec:
