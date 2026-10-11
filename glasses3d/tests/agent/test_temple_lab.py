@@ -1111,7 +1111,8 @@ def test_variant_refusals_keep_the_whole_message(lab, monkeypatch):
                                                              "photos": ["05"], "judgement": None}))
     z = next(v for v in body["variants"] if v["label"] == "Z")
     assert z["code"] == "E_FADE_CLIFF" and z["message"] == cliff.message
-    assert z["message"].endswith(f"fade {LONG['S']} the same way, or end the crease at a node")
+    assert z["message"].endswith(f"fade {LONG['S']} the same way, start the fade where the crease ends, or end the "
+                                  f"crease at a node")
     text = "the first clause; the second clause. " * 30
     out = LB.brief(text)
     assert len(out) <= LB.REFUSAL_MAX and out.endswith(" ...") and out[:-4].endswith("clause")

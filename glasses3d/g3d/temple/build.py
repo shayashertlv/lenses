@@ -1021,8 +1021,9 @@ def _check_fade_holds(ps, sol, V, polys, kind, region, cell, S, holder) -> list:
     a, b = (f"{x:.1f}" for x in g["d_mm"])
     if cliff:
         msg = (f"facet {lab} fades but {who} holds it {abs(h):.2f} mm {'up' if h > 0 else 'down'} on their crease at "
-               f"d {a}-{b} (worst at d {g['at'][0]:.1f} y {g['at'][1]:.1f}): a wall {deg:.1f} deg off its fade "
-               f"(> {FADE_CLIFF_DEG:g}); fade {who} the same way, or end the crease at a node")
+               f"d {a}-{b} (worst at d {g['at'][0]:.1f} y {g['at'][1]:.1f}): a {'folded ' if deg > 90 else ''}wall "
+               f"{min(deg, 90.0):.0f} deg off its fade (> {FADE_CLIFF_DEG:g}); fade {who} the same way, start the "
+               f"fade where the crease ends, or end the crease at a node")
         raise TempleError("E_FADE_CLIFF", msg, facet=lab, neighbour=nb, facets=[lab] + ([nb] if nb else []),
                           d_mm=g["d_mm"], hold_mm=h, tilt_deg=deg, at=g["at"], limit_deg=FADE_CLIFF_DEG,
                           min_hold_mm=FADE_HOLD_MIN_MM, failures=groups)

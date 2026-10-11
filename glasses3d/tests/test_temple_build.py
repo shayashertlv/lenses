@@ -398,8 +398,8 @@ def test_fade_cliff_refuses_a_held_wall(monkeypatch):
     assert f["min_hold_mm"] == FADE_HOLD_MIN_MM == 0.05
     assert f["tilt_deg"] == pytest.approx(math.degrees(math.atan(0.6)), abs=1e-6)       # 6 mm over 10 mm wide cells
     assert e.value.message == (f"facet N fades but S holds it 6.00 mm up on their crease at d 50.0-60.0 (worst at d "
-                               f"{f['at'][0]:.1f} y {f['at'][1]:.1f}): a wall 31.0 deg off its fade (> 25); fade S the "
-                               f"same way, or end the crease at a node")
+                               f"{f['at'][0]:.1f} y {f['at'][1]:.1f}): a wall 31 deg off its fade (> 25); fade S the "
+                               f"same way, start the fade where the crease ends, or end the crease at a node")
     _no_fade_check(monkeypatch)                                        # the same build unchecked: the tilt is real
     worst = max(_counted(build_temple(spec)), key=lambda x: x[0])
     assert f["tilt_deg"] == pytest.approx(worst[0], abs=1e-9) and worst[0] > 25.0 and worst[2] == "N"
@@ -482,7 +482,8 @@ def test_astra_r0015_held_walls_are_refused(monkeypatch, case, fades, facet, nei
     f = e.value.fields
     assert e.value.code == "E_FADE_CLIFF" and (f["facet"], f["neighbour"]) == (facet, neighbour)
     assert e.value.message.startswith(f"facet {facet} fades but {neighbour} holds it {abs(f['hold_mm']):.2f} mm ")
-    assert e.value.message.endswith(f"fade {neighbour} the same way, or end the crease at a node")
+    assert e.value.message.endswith(f"fade {neighbour} the same way, start the fade where the crease ends, or end "
+                                    f"the crease at a node")
     assert f["d_mm"][0] <= f["at"][0] <= f["d_mm"][1]
     _no_fade_check(monkeypatch)
     rows = _tilts(build_temple(spec))

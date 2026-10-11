@@ -39,6 +39,7 @@ WHAT TO READ WHERE
   same model far more clearly than the target photos. Use them to find every crease, then check the positions on
   the calibrated side views with points_px. photo_compare shows a black photo that has a calibrated camera (such as
   B1) beside the black glossy render of the head; the black photos without a camera are for photo_image only.
+  Whenever you change the layout, include B1 in facet_edit's photos (or compare B1 with photo_compare).
 - Layout, where the creases run: from the crease overlays. Read (d, y) from the near-perpendicular side photos with
   points_px, never from oblique views. The d/y grid is valid inside the model outline. A common shift of outline
   and creases together is camera error, not shape.
@@ -46,20 +47,25 @@ WHAT TO READ WHERE
   face that creases bound in the photos needs its own facet: never merge two faces that a visible crease separates.
 - Angles: faces that read as clearly distinct faces in the photos usually meet at well over 10 deg (the receipt
   gives each crease's dihedral). Where your render shows faces barely distinguishable and the photo shows distinct
-  faces, increase the angles (the thickness at the nodes).
+  faces, increase the angles: raise the t of the nodes on a ridge, or lower the t of the nodes in a valley,
+  relative to the nodes around them.
 - Ridge or valley: from the top and rear silhouettes (a convex corner in the outline is a ridge, a notch is a
   valley) and the section strip of facet_inspect and facet_edit. Declare every crease. On E_CREASE_SHAPE, change the
   node t values that make the shape (for a faded facet, or start or end its fade later); do not redeclare the crease
   to match the build.
 - Thickness: from the outer-edge offsets in the top and rear photos (photo minus model, mm, every 10 mm of d).
-  photo_compare prints each with the start model's offset at the same station: a difference the start model shares
-  is camera error; what is left is shape. Quote the station table of facet_inspect (t_top, t_bot) when you set t.
+  photo_compare prints each with the start model's offset at the same station. An offset about the same at every
+  station, which the start model shows too, is camera error. A local excess where the photos show facets is shape,
+  even when the start model shows it as well: the start model is almost flat, so it lacks the facets' outward
+  bulge, and there the facets must stand further out. The station table of facet_inspect (t_top, t_bot) gives the
+  current thickness; set t to what the photos need, not to stay near the table.
 - Fades: a faded facet keeps a standing neighbour's height along their shared crease and blends into the plain arm
   away from it; to let a crease die out, fade both facets that share it the same way. A fade that would leave a
   step against a standing neighbour is refused (E_FADE_CLIFF). Faces that end at a corner point need no fade. A
   crease that dies out ends in a fade or a small dihedral, never in a hard edge extended beyond what the photos
   show. Do not fade a facet whose edges the photos show crisp.
-- Roll: crease lines on this kind of acetate temple are sharp; keep roll_mm small unless the photos show rounded
+- Roll: roll_mm rounds only the top and bottom outer edges; the creases between facets stay sharp whatever it is.
+  The outer edges of this kind of acetate temple are sharp; keep roll_mm small unless the photos show rounded
   edges. The width in px of the highlight along an edge, divided by the px/mm of that image, is about roll_mm.
 - Not creases: a line is a crease only if it stays at the same (d, y) in two photos. Reflections and highlights of
   curvature move between photos.
