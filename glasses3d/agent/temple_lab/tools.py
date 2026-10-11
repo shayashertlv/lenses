@@ -228,8 +228,9 @@ FINISH_DOC = """End the run with best_checkpoint, which is exported and validate
     distinct applied heads were compared; a head counts only when, against every other head counted, the built temple
     surface or outline moves by at least 0.2 mm somewhere; (2) one facet_variants call rendered at least 3 variants
     pairwise at least 0.3 mm apart; (3) you were shown a compare of best_checkpoint's revision at every target photo;
-    (4) for stuck, the last 3 judgements cover 3 distinct heads (as in 1) and none says better. Otherwise it is refused with the missing ones named and the run
-    continues.
+    (4) for stuck, the last 3 judgements cover 3 distinct heads (as in 1) and none says better; (5) for matched, the
+    top photo's outline at best_checkpoint is measured and lies within 1 mm of its common offset at every station
+    (its compare's outline line). Otherwise it is refused with the missing ones named and the run continues.
 
     Args:
         status: matched (the renders and photos read as the same object) or stuck.

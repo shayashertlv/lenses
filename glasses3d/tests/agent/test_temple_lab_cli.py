@@ -361,12 +361,17 @@ def test_instructions_contract_and_finish_text(tmp_path):
                    "several mm at the key nodes", "not only in small steps", "sharp; keep roll_mm small",
                    "keeps a standing neighbour's height along their shared crease",
                    "fade both facets that share it the same way", "E_FADE_CLIFF", "need no fade",
-                   "Do not fade a facet whose edges the photos show crisp", "at every target photo"):
+                   "Do not fade a facet whose edges the photos show crisp", "at every target photo",
+                   # after facet-astra-003 (a top face read only from the side): judge top faces from above
+                   "Top and bottom faces", "edge-on in the side photos", "points mostly up", "outline line",
+                   "Those stations are shape, not camera error", "include the top photo in their photos",
+                   "(5) for matched", "A corner in the top photo's outline is a corner of the faces",
+                   "One plane across it cannot make the corner"):
         assert needed in " ".join(text.split()), needed
     for retired in ("on its own", "no neighbour needs to share"):       # a lone fade does not dissolve its creases
         assert retired not in " ".join(low.split()), retired
     for number in re.findall(r"\d+(?:\.\d+)?", text):                    # no product coordinates: only rules' numbers
-        assert number in {"0", "1", "1.0", "2", "3", "4", "6", "10", "0.2", "0.3", "0003"}, number
+        assert number in {"0", "1", "1.0", "2", "3", "4", "5", "6", "10", "0.2", "0.3", "0003"}, number
 
 
 # --------------------------------------------------------------------------------------------- estimate

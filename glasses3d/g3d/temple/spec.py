@@ -58,7 +58,7 @@ REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NO
             "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
             "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN",
             "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
-WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT",
+WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT", "W_FADE_EARLY",
             "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
 
 DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "kink_sharp_deg": 25.0,
@@ -76,6 +76,9 @@ FADE_HOLD_MIN_MM = 0.05                 # the smallest hold (built minus the fad
 #                                         W_FADE_INERT): the photos show the temple at ~3-8 px/mm, so 0.05 mm is
 #                                         0.15-0.4 px, well under one pixel; a smaller step cannot be seen, and a
 #                                         large tilt there is a micron-wide sliver triangle's, not a wall
+FADE_EARLY_SHARE = 0.25                 # W_FADE_EARLY: a fade starting within this share of its facet's own d extent
+FADE_EARLY_MM = 5.0                     # ... and within this many mm (from the side the facet stands on) leaves it
+#                                         barely flat anywhere (a long facet flat for 17 mm still reads as a face)
 BORDER_RAMP_WARN_DEG = 8.0              # W_BORDER_RAMP
 ARM_NORMAL_SPREAD_DEG = 30.0            # W_ARM_NORMAL_SPREAD
 HINGE_LEAF_GAP_MM = 0.2                 # W_HINGE_LEAF: leaf-to-inner-face gap above this ...

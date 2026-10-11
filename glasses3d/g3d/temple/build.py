@@ -45,7 +45,9 @@ Steps:
     worst point, the largest hold (mm) and tilt, and the fix (fade the neighbour the same way, or end the crease at a
     node); else the largest counted tilt >= FADE_HOLD_WARN_DEG (10) is one W_FADE_HOLD (one receipt line). Mixed
     fades under the limit build. Fades that move none of their facet's vertices FADE_HOLD_MIN_MM (less-faded
-    neighbours hold them all, or the fade lies outside the facet) are one W_FADE_INERT naming those facets;
+    neighbours hold them all, or the fade lies outside the facet) are one W_FADE_INERT naming those facets; fades that
+    start within FADE_EARLY_SHARE of their facet's own d extent and within FADE_EARLY_MM of its end (the facet barely
+    stands flat anywhere, so it never reads as a face of its own) are one W_FADE_EARLY naming those facets;
  8. sharp edges: a crease edge (two different regions, facet/facet or facet/base) between facet cells always; one
     with a faded cell on either side while the crease still stands: its design dihedral (the angle between the two
     regions' surfaces, plane / fade / base, at the edge midpoint; chamfers, roll and triangulation aside) >=
@@ -69,9 +71,9 @@ import numpy as np
 from . import planes as PL_
 from .arrange import Arrangement, build_arrangement, clip_segment, ear_clip, poly_area, simple_polygon
 from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, FADE_CLIFF_DEG,
-                   FADE_HOLD_MIN_MM, FADE_HOLD_WARN_DEG, FADE_ZERO, FLAT_CREASE_DEG, ROLL_BANDS, SHARP_DIHEDRAL_DEG,
-                   TILE_TOL_MM2, ParsedSpec, TempleError, _facet_crossings, chamfer_breaks, chamfer_width, parse,
-                   roll_height_limit, roll_profile, smoothstep)
+                   FADE_EARLY_MM, FADE_EARLY_SHARE, FADE_HOLD_MIN_MM, FADE_HOLD_WARN_DEG, FADE_ZERO, FLAT_CREASE_DEG,
+                   ROLL_BANDS, SHARP_DIHEDRAL_DEG, TILE_TOL_MM2, ParsedSpec, TempleError, _facet_crossings,
+                   chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile, smoothstep)
 
 WALL_KINDS = ("top", "bottom", "cap_hinge", "cap_tip")
 OUTER_KINDS = ("outer", "roll")
@@ -646,6 +648,7 @@ def build_temple(spec) -> TempleBuild:
                           f"plane", polygon=k, kind=kind[k], region=region[k], planarity_mm=float(planarity[k]))
     hold_warnings = _check_fade_holds(ps, sol, V, polys, kind, region, pcell, S, holder)
     hold_warnings += _inert_fades(ps, sol, arr, labels, S)
+    hold_warnings += _early_fades(ps, arr, labels)
     sharp, edge_info, warnings = _sharp_edges(ps, sol, V, mesh_topology(polys), kind, region, pcell, normals)
     flat = [i for i, (k_, c_) in enumerate(zip(kind, pcell)) if k_ == "outer" and c_ == "facet"]
     tb = TempleBuild(spec=ps, arr=arr, sol=sol, face_label=labels, face_chamfer=chamf, face_roll=froll,
@@ -1074,6 +1077,48 @@ def _inert_fades(ps, sol, arr, labels, S) -> list:
     if shown < len(items):
         text += f"; +{len(items) - shown} more"
     return [{"code": "W_FADE_INERT", "facets": [lab for lab, _ in items], "why": dict(items), "message": text}]
+
+
+EARLY_ADVICE = "; fade later (alike across a shared crease)"
+EARLY_MESSAGE_CHARS = 156         # W_FADE_EARLY's message: "W_FADE_EARLY: " + it fits a 170-character receipt line
+
+
+def _early_fades(ps, arr, labels) -> list:
+    """[] or one W_FADE_EARLY (one short receipt line) naming every faded facet whose fade starts within
+    FADE_EARLY_SHARE of the facet's own built d extent and within FADE_EARLY_MM of its end, both counted from the side
+    the facet stands on (d0 < d1: its front; else its back): such a facet is faded nearly everywhere, so it never
+    reads as a flat face of its own. Each item names the flat length and that end; facets past EARLY_MESSAGE_CHARS
+    (with EARLY_ADVICE) are counted ("+N more"); the record lists them all."""
+    items = []
+    for lab in sorted(ps.facets):
+        fade = ps.facets[lab]["fade"]
+        vs = sorted({v for fi, f in enumerate(arr.faces) if labels[fi] == lab for v in f})
+        if fade is None or not vs:
+            continue
+        lo, hi = float(arr.V[vs, 0].min()), float(arr.V[vs, 0].max())
+        if hi - lo <= DEDUPE_MM:
+            continue
+        front = fade["d1"] > fade["d0"]
+        flat = max((fade["d0"] - lo) if front else (hi - fade["d0"]), 0.0)
+        share = min(flat / (hi - lo), 1.0)
+        if share < FADE_EARLY_SHARE and flat < FADE_EARLY_MM:
+            items.append((lab, share, flat, lo if front else hi, "front" if front else "back"))
+    if not items:
+        return []
+    text = "barely flat before their fade: "
+    budget = EARLY_MESSAGE_CHARS - len(EARLY_ADVICE) - len("; +99 more")
+    shown = 0
+    for lab, share, flat, end, side in items:
+        part = f"{'; ' if shown else ''}{lab} flat {flat:.1f} mm at its {side} (d {end:.1f})"
+        if shown and len(text) + len(part) > budget:
+            break
+        text += part
+        shown += 1
+    if shown < len(items):
+        text += f"; +{len(items) - shown} more"
+    return [{"code": "W_FADE_EARLY", "facets": [it[0] for it in items],
+             "share": {it[0]: round(it[1], 3) for it in items},
+             "flat_mm": {it[0]: round(it[2], 2) for it in items}, "message": text + EARLY_ADVICE}]
 
 
 def _faded_creases_standing(ps, sol, V, edges, kind, region, cell) -> dict:

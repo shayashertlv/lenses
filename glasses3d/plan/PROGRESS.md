@@ -85,7 +85,39 @@ Phase 3 and pre-flight results (2026-10-11):
 - Sheet: `data/wp6v2/result_facet-astra-003/` (faces_run3.png). The owner's verdict is pending; first remark: "it still
   looks like the top triangle isnt being recognized right?"
 
-No further paid call is authorized. The next one needs a cost estimate and the owner's explicit OK.
+**Owner feedback on facet-astra-003, verbatim:** "i meant 4 and the results look like it really didnt recognize it"
+(face 4 = the thin band above the logo, the top of the temple's front block). Evidence: run 3's top photo (03)
+outline, photo minus model, both sides: d30 +1.5, d40 +0.7, d50 −1.7, d60 −2.1 against a common −0.6. From above the
+real front block is broad and widest near d 25–30; run 3 is slim there and widest at d 50–60. Astra's own summary
+named "minor top-view shoulder/transition offsets (about 1–2 mm)" and still finished "matched".
+
+**Fixes for run 4** (owner: "yes, implement changes, test them, and run a paid run with a budget of 15$ to force
+stop"):
+- Finish precondition 5 (`matched` only): the top photo's outline measured and within 1 mm of its common offset at
+  every station; every compare that shows the top photo prints its outline line (WP6_FACETS §4.1).
+- Instructions: judge top and bottom faces from the top photo (edge-on from the side); the outline line's stations
+  are shape, not camera error; the top photo may be oblique (a station is one image row); a corner in the top
+  outline needs separate facets meeting at a node; a thin band takes a crease + rise plane; finish before the cap.
+- Builder `W_FADE_EARLY` (core wp6-core-2.2): a fade that leaves its facet flat for under 5 mm and under a quarter of
+  its length (run 3's tail: 0.1 mm).
+- Tool test ($0, a COPY of run 3's package, `data/wp6v2/tooltest_face4/`, never Astra input; photo-minus-model mm at
+  the real top-photo compare):
+  - run 3's best head: d30 +2.1, d40 +1.2, d50 −1.1, d60 −1.5 off;
+  - its layout with node depths A, C, D and the crown's rise searched (45 tries): best d30 +1.3, d60 −1.2;
+  - face 4 split from the upper-back face (A-B-C and B-F-C), depths and rises searched (~50 tries): best d30 +1.3
+    alone; 35 tries with face 4 through its three nodes were refused E_ILL_CONDITIONED;
+  - a fit on the mesh's widest point per d (ignoring the oblique top camera, pitch 60°) passed on the mesh but read
+    d30 +1.8, d40 +3.4, d50 +2.8, d60 +2.2 at the camera.
+  No tested head met the rule. Whole models at the same compare: the original and the owner's earlier "preferred"
+  shape fail it (preferred d30 +2.2, d40 +2.9, d50 +1.8); only Astra's rejected c0003 passes, with d40 unmeasured
+  (now refused as unmeasured). Told to the owner before the run: the rule pushes Astra to work on the top view;
+  passing it does not make a shape good; Astra may finish "stuck".
+- Pre-flight review (5 reviewers + 5 verifiers): fixed the T5 outline check, unmeasured stations passing, 0.1 mm
+  deviations, the oblique-camera wording, W_FADE_EARLY's length rule and wording, this paragraph's claims, and the
+  money plan: the owner named one number, so the cap is $15 (the budget guard), which spend can never pass; the
+  guard keeps room for the reply in flight, so the run ends near $13 at the latest. No separate watcher.
+
+No further paid call is authorized beyond run 4's terms. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
 

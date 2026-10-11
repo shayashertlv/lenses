@@ -439,6 +439,33 @@ def test_inert_fade_warns_in_one_line():
     assert not any(x["code"] == "W_FADE_INERT" for x in build_temple(FX.fade_one_side()).warnings)    # edge 0.5
 
 
+def test_early_fade_warns_in_one_line():
+    """A fade that starts within FADE_EARLY_SHARE of its facet's own d extent and within FADE_EARLY_MM of its end,
+    counted from the side the facet stands on (W_FADE_EARLY; facet-astra-003's tail faded from its own front corner
+    and never read as a face): one line names every such facet with its flat length and that end, and the fix; a fade
+    from the middle, or one leaving FADE_EARLY_MM or more flat, does not warn; a fade toward the hinge counts from the
+    facet's back."""
+    tb = build_temple(FX.fade(d0=4.0, d1=60.0))
+    w = [x for x in tb.warnings if x["code"] == "W_FADE_EARLY"]
+    assert len(w) == 1 and w[0]["facets"] == ["N", "S"] and w[0]["share"] == {"N": 0.067, "S": 0.067}
+    assert w[0]["flat_mm"] == {"N": 4.0, "S": 4.0}
+    assert w[0]["message"] == ("barely flat before their fade: N flat 4.0 mm at its front (d 0.0); S flat 4.0 mm at "
+                               "its front (d 0.0); fade later (alike across a shared crease)")
+    assert [ln for ln in report.receipt(tb)["lines"] if ln.startswith("W_FADE_EARLY")] == \
+        [f"W_FADE_EARLY: {w[0]['message']}"]
+    assert not any(x["code"] == "W_FADE_EARLY" for x in build_temple(FX.fade()).warnings)     # d0 30 of d 0-60
+    assert not any(x["code"] == "W_FADE_EARLY" for x in build_temple(FX.fade(d0=5.0, d1=60.0)).warnings)  # 5 mm
+    for d0, warned in ((56.0, True), (40.0, False)):   # toward the hinge: N and S (d 0-60) stand only over d d0-60
+        back = FX.fade()
+        back["creases"] = []                              # the ridge fades out ahead of d0 (undeclared, not refused)
+        for f in back["facets"].values():
+            f["fade"] = {"d0": d0, "d1": 10.0}
+        w = [x for x in build_temple(back).warnings if x["code"] == "W_FADE_EARLY"]
+        assert (w[0]["share"] if w else None) == ({"N": 0.067, "S": 0.067} if warned else None)
+        if warned:
+            assert w[0]["message"].startswith("barely flat before their fade: N flat 4.0 mm at its back (d 60.0); ")
+
+
 # the reviewer's probe table on facet-astra-002's r0015 (2026-10-11): every facet fades over d 40-85 as built ("REST")
 R15_FACETS = ("crown", "hinge_flank", "logo", "rear_bevel", "tail_flank")
 REST = {k: (40.0, 85.0) for k in R15_FACETS}

@@ -100,6 +100,10 @@ Chart as in v1:
      crease; a fade that would leave a step against a standing neighbour (a faded outer or roll triangle held
      ≥ 0.05 mm off its own fade and tilted > 25° from it) is refused with `E_FADE_CLIFF`; 10–25° warns `W_FADE_HOLD`;
      a fade that moves nothing ≥ 0.05 mm warns `W_FADE_INERT`. The former `E_FADE_NEIGHBOUR` pushed Astra to fade every facet;
+   - (amended 2026-10-11, run 3) a fade that leaves its facet flat for under 5 mm and under a quarter of its own d
+     extent (counted from the side the facet stands on) warns `W_FADE_EARLY` with the fix (fade later, alike across a
+     shared crease): run 3's upper-back triangle faded from its own front corner and never read as a face of its own
+     (core wp6-core-2.2);
    - cells are classed by their actual fade weight: a cell entirely before the fade is an ordinary flat facet cell;
    - stations inside [d0, d1] are spaced ≤ min(station_step, (d1 − d0)/6).
 4. **Facet/base borders:** a border vertex takes the facet value. The core inserts a line `border_band_mm` into the
@@ -316,7 +320,7 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
   `E_JUDGEMENT`.
 - The host logs judgements. It never grades them.
 
-**Finish preconditions** (procedural, never quality grading):
+**Finish preconditions** (procedural, never quality grading, except the one measured rule 5 the owner approved):
 1. ≥ K distinct applied heads compared (K owner-set per run, default 4). A head counts only when its BUILT temple
    differs from every head already counted by ≥ 0.2 mm of normal surface distance or outline shift (computed by the
    host on the builds). Amended 2026-10-11: topology and crease-shape tests were dropped after five review rounds
@@ -324,6 +328,18 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
 2. ≥ 1 `facet_variants` call with ≥ 3 variants pairwise ≥ 0.3 mm apart.
 3. best_checkpoint's geometry fingerprint has a compare on all target photos (from cache when available).
 4. `stuck` only: the last 3 judgements cover 3 distinct heads and none says better.
+5. (added 2026-10-11 after run 3, owner: "yes, implement changes") `matched` only: the latest compare of
+   best_checkpoint's revision at the top photo has its outline measured and within 1 mm of the common offset at
+   every station. Per side with ≥ 4 measured stations, the common offset is the median of the photo-minus-model
+   outer-edge offsets (a shift every station shares); deviations count to 0.1 mm as printed; a station is off when
+   every such side that measured it lies more than 1 mm from that side's common offset, the same way; a station no
+   such side measured, inside all their measured spans, is unmeasured and refuses matched too, as does a top photo
+   with no side measured (`state.outline_check`, `outline_ok`). Every compare that shows the top photo prints its
+   outline line ("outline: common −0.6; >1 mm: d30 +2.1 …"). Why: run 3 finished "matched" while its own summary
+   named "1–2 mm" top-view shoulder offsets, with the front block too slim from above (d30 +2.1, d40 +1.2) and too
+   wide behind it (d60 −1.5). It is a stop rule for Astra, not the owner's acceptance (the owner judges by eye). The
+   top camera is oblique (pitch 60°): a station is one image row through the model's outermost point near that d.
+   No tool-test head met it, and the owner's earlier "preferred" shape fails it (PROGRESS.md); Astra may end stuck.
 
 ### 4.2 Edits (strict anyOf union; the tool layer converts to and from the §2.1 maps; schema sha pinned in tests)
 
@@ -367,7 +383,12 @@ Must state concretely:
 - **(c) Ridge or valley:** judge from the top and rear silhouettes (a convex corner is a ridge, a notch a valley) and
   from the shading order; confirm in the section strip; declare every crease. On `E_CREASE_SHAPE`, fix node t; do not
   redeclare.
-- **(d) Thickness:** read the top and rear outer-edge offsets in mm; t_min 1.0; quote the station table.
+- **(d) Thickness:** read the top and rear outer-edge offsets in mm; t_min 1.0; quote the station table. (Amended
+  2026-10-11, run 3) The top photo's outline line names the stations that are shape, not camera error.
+- **(d2) Top and bottom faces** (added 2026-10-11, run 3): a face along the top or bottom edge is edge-on in the side
+  photos, which show its creases but not its tilt; judge the tilt in the top photo (and front/rear); a face narrow
+  from the side but broad from above points mostly up; put the widest point at the photo's d. Variants that change
+  thickness or tilt include the top photo.
 - **(e) Fades:** a crease that dies out ends in a fade or a small dihedral, never a hard edge extended beyond what the
   photos show.
 - **(f) Roll:** highlight band width in px ÷ px/mm ≈ roll.

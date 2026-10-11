@@ -511,10 +511,15 @@ class Lab(SceneHooks):
             return {"status": "error", "code": res.get("code", "E_COMPARE"), "message": res.get("message")}
         report = read(res["report"])
         rids = list(res["photos"])
+        outline = {}                     # finish precondition 5: every target top photo's outline_check
+        for r in rids:
+            prec = report["photos"].get(r, {})
+            if prec.get("view_kind") == S.OUTLINE_VIEW and self.pid(r) in self.photo_ids():
+                outline[self.pid(r)] = S.outline_check(prec.get("outer_edge_offsets_mm"))
         rec = {"compare_id": cid, "checkpoint": res.get("checkpoint", self.s.head["id"]),
                "fingerprint": self.s.head["fingerprint"], "revision": head["revision"] if head else None,
                "photos": [self.pid(r) for r in rids], "by": by, "call_id": call_id, "report": res["report"],
-               "judged": by != "astra", "seq": self.state["seq"]}
+               "judged": by != "astra", "seq": self.state["seq"], **({"outline": outline} if outline else {})}
         with self.state_lock:
             if by == "astra" and call_id in self._unseen:          # the SDK stopped waiting: Astra never sees it
                 rec.update(unseen=True, judged=True)
@@ -523,17 +528,19 @@ class Lab(SceneHooks):
         texts, images = {}, []
         for r in rids:
             texts[self.pid(r)] = self._photo_text(report["photos"].get(r, {}), res["photos"][r].get("points"), spec,
-                                                  with_start, colour=self._colour(self.pid(r)))
+                                                  with_start, colour=self._colour(self.pid(r)),
+                                                  outline=outline.get(self.pid(r)))
             images.append(self._image(res["photos"][r]["image"], "compare", ref=cid, photo=self.pid(r),
                                       revision=rec["revision"]))
         self.save()
         return {"status": "ok", "compare_id": cid, "photos": texts, "images": images}
 
-    def _photo_text(self, rec: dict, points, spec, with_start: bool = True, colour: str | None = None) -> str:
+    def _photo_text(self, rec: dict, points, spec, with_start: bool = True, colour: str | None = None,
+                    outline: dict | None = None) -> str:
         """One photo of a compare, compact: view (a colourway photo: its colour and rows), temple IoU, scale, crop
         (box and scale k: u_img = (u - x0 + 0.5) k - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top
-        and rear photos, over the stations where the photo has one; with_start: the start model's too), points_px
-        charted."""
+        and rear photos, over the stations where the photo has one; with_start: the start model's too), a top
+        photo's outline_check (state.outline_text: finish precondition 5), points_px charted."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")
@@ -559,6 +566,8 @@ class Lab(SceneHooks):
                 srows = {r["d_mm"]: r["offset_mm"] for r in (start.get(side) or [])} if use else {}
                 if srows:
                     text += f" start [{' '.join(f(srows.get(d)) for d in ds)}]"
+        if outline:
+            text += " | " + S.outline_text(outline)
         if points:
             pts = []
             inner = np.asarray(spec["inner"], float) if spec is not None else None

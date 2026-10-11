@@ -15,8 +15,10 @@ refused E_JUDGEMENT; a simulated stuck call (facet_inspect made to outlast a sho
 with the footer and makes the next call E_BUSY; a facet_edit timed out the same way still applies in its thread, and
 its compare (never shown) demands no judgement of the next action; an early facet_finish is refused E_FINISH and the
 run goes on; one scripted count above the guard threshold makes the next request replace the superseded compare images
-by stubs; facet_variants leaves the worker's scene fingerprint unchanged; the accepted facet_finish ends the run
-(status completed, no further request) with an export that validates; the §4.5 text budgets hold on every real
+by stubs; facet_variants leaves the worker's scene fingerprint unchanged; the top photo's compare text carries its
+outline line, and a "matched" finish on a head whose top outline is off is refused with precondition 5 alone; after
+one more distinct head, the accepted "stuck" finish ends the run (status completed, no further request) with an
+export that validates; the §4.5 text budgets hold on every real
 output; instructions-sent.txt is byte for byte the bound instructions; no network. The first request carries every
 photo (6 target + 3 black); photo_image shows the reference-only B2; photo_compare on B1 (with points_px) shows photo /
 overlay / gloss_black and no native row. It records every tool output's text and image sizes (the estimate's input)
@@ -90,11 +92,12 @@ def facet(label: str, poly: list, crease=None, rise=None) -> dict:
 
 def head_edits(name: str, r0: dict) -> tuple[list, bool]:
     """The scripted heads (edits, reset_layout) on revision 0's chains: H1 one raised triangle; H3 a two-facet roof
-    with a declared ridge (a new layout); H4 the roof with steeper sides; H5 between them (the timed-out apply)."""
+    with a declared ridge (a new layout); H4 the roof with steeper sides; H5 between them (the timed-out apply); H6
+    steeper still (the third distinct head of the stuck finish)."""
     if name == "H1":
         return [set_node("P", 10.0, 4.0, "base"), set_node("Q", 40.0, 4.0, "base"),
                 set_node("R", 25.0, -12.0, t_base(r0, 25.0, -12.0, 0.8)), facet("F1", ["P", "R", "Q"])], False
-    rise = {"H3": -0.12, "H4": -0.2, "H5": -0.16}[name]
+    rise = {"H3": -0.12, "H4": -0.2, "H5": -0.16, "H6": -0.28}[name]
     return [set_node("P", 8.0, 1.0, t_base(r0, 8.0, 1.0, 0.8)), set_node("Q", 45.0, 0.0, t_base(r0, 45.0, 0.0, 0.8)),
             set_node("PT", 8.0, 30.0, None), set_node("QT", 45.0, 30.0, None),
             set_node("PB", 8.0, -30.0, None), set_node("QB", 45.0, -30.0, None),
@@ -286,6 +289,11 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1], judged=judgement(lab, best=st["h3"],
                                                                                          overall="worse")))
 
+    def edit_h6():
+        """A third distinct head after the refused matched finish (whose judgement covered compare_all)."""
+        edits, _ = head_edits("H6", r0)
+        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1]))
+
     def restore_h3():
         """After the timed-out apply has finished: no judgement is due (its compare was never shown)."""
         settle(slow_edit["done"], 120)
@@ -316,9 +324,13 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             {"photo": "B1", "points": POINTS_B1}]})),
         ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
                                                               "points_px": None})),
-        ("finish", lambda: R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": st["h3"],
+        ("finish_outline", lambda: R.tool_call("facet_finish", {
+            "status": "matched", "best_checkpoint": st["h3"], "summary": CONTROL,
+            "judgement": judgement(lab, best=st["h3"], overall="same")})),
+        ("edit_h6", edit_h6),
+        ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h3"],
                                                         "summary": CONTROL, "judgement": judgement(
-                                                            lab, best=st["h3"], overall="same")})),
+                                                            lab, best=st["h3"], overall="worse")})),
     ]
     names = [n for n, _ in steps]
     transport = R.ScriptedOpenAI([])
@@ -420,6 +432,13 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         "variants_left_the_scene_unchanged": bool(st["fingerprints"]) and all(a == b for a, b in st["fingerprints"])
                                              and by["variants"]["body"].get("spread_ok") is True,
         "export_validates": by["finish"]["body"].get("validate_spec", {}).get("ok") is True,
+        "top_photo_compare_has_the_outline_line": "| outline: common " in str(
+            (by["compare_all"]["body"].get("photos") or {}).get("03")) and ">1 mm: d" in str(
+            (by["compare_all"]["body"].get("photos") or {}).get("03")),
+        "matched_refused_on_the_top_outline_alone": by["finish_outline"]["code"] == "E_FINISH"
+                                                    and [m["precondition"] for m in by["finish_outline"]["body"].get(
+                                                        "missing", [])] == [5],
+        "stuck_finish_accepted": by["finish"]["body"].get("finish") == "stuck",
         "every_result_has_the_footer": all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text"),
         "first_request_carries_every_photo": image_hashes == [p["sha256"] for p in rows]
                                              and roles == ["target"] * 6 + ["colourway", "reference", "reference"]

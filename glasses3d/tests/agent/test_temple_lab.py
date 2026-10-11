@@ -1135,6 +1135,15 @@ def test_fade_warning_lines_fit_a_receipt_line():
     w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_INERT"]
     assert len(w) == 1 and len(w[0]["facets"]) == 3 and w[0]["message"].endswith("; +1 more")
     assert len(f"W_FADE_INERT: {w[0]['message']}") <= LB.LINE_MAX
+    s = rename(FX.fade(), LONG, {})                                   # 3-digit d: both facets fade early ...
+    for f in s["facets"].values():
+        f["fade"] = {"d0": 104.0, "d1": 30.0}                          # ... toward the hinge, flat over d 104-108
+    s["nodes"]["R1"][0] = s["nodes"]["N1"][0] = s["nodes"]["S1"][0] = 108.0
+    s["creases"] = []
+    w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_EARLY"]
+    assert len(w) == 1 and len(w[0]["facets"]) == 2 and "; +1 more; fade later" in w[0]["message"]   # one shown
+    assert "at its back (d 108.0)" in w[0]["message"]
+    assert len(f"W_FADE_EARLY: {w[0]['message']}") <= LB.LINE_MAX
 
 
 def test_facet_restore(lab):
@@ -1192,6 +1201,84 @@ def test_finish_refused_names_preconditions_then_accepted(lab, monkeypatch):
     assert lab.state["finish"]["checkpoint"] == lab.s.head["id"] and len(text) <= 1500
     assert L.tool_result_status(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best,
                                                           "summary": "s", "judgement": None})) == "accepted"
+
+
+# --------------------------------------------------------------------------------------------- precondition 5
+RUN3_TOP = {"+1": [-0.4, 0.1, 1.5, 0.7, -1.8, -2.1, -1.5, -0.8, -0.6, -0.7, -0.3, None, None],    # facet-astra-003's
+            "-1": [-0.5, 0.0, 1.5, 0.6, -1.6, -2.1, -1.4, -0.8, -0.6, -0.9, -0.3, None, None]}    # best head, photo 03
+
+
+def offsets(table: dict) -> dict:
+    """{side: [offset_mm at d 10, 20, ...]} as a compare's outer_edge_offsets_mm."""
+    return {side: [{"d_mm": float(d), "offset_mm": v} for d, v in zip(range(10, 10 * len(vals) + 1, 10), vals)]
+            for side, vals in table.items()}
+
+
+def test_outline_check_names_shape_beyond_the_common_offset():
+    """facet-astra-003's best head at the top photo: common -0.6 on both sides; d30, d40 and d60 lie more than 1 mm
+    from it on both sides, the same way (d50 only on one side: not off). Deviations count as printed (0.1 mm). Sides
+    that disagree in sign, a side with fewer than OUTLINE_MIN_STATIONS stations and a station one side measured never
+    count; a station no side measured, inside the measured span of every side, is unmeasured; no side with enough
+    stations is "not measured". Unmeasured or not measured fails precondition 5 like an off station."""
+    chk = S.outline_check(offsets(RUN3_TOP))
+    assert chk == {"common": {"+1": -0.6, "-1": -0.6}, "off": [[30.0, 2.1], [40.0, 1.25], [60.0, -1.5]],
+                   "unmeasured": []} and not S.outline_ok(chk)
+    assert S.outline_text(chk) == "outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5"
+    flat = S.outline_check(offsets({"+1": [0.1, -0.2, 0.0, 0.3, -0.1], "-1": [0.0, 0.0, 0.2, None, 0.1]}))
+    assert S.outline_ok(flat) and S.outline_text(flat) == "outline: common +0.0; all within 1 mm"
+    near = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.04]}))
+    assert near["off"] == [] and S.outline_ok(near)                   # 1.04 is +1.0 as printed: not beyond 1 mm
+    split = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.5], "-1": [0.0, 0.0, 0.0, 0.0, -1.5]}))
+    assert split["off"] == [] and S.outline_ok(split)                 # the sides disagree: not shape
+    one = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.5], "-1": [0.0, 0.0, 1.5, None, None]}))
+    assert one == {"common": {"+1": 0.0}, "off": [[50.0, 1.5]], "unmeasured": []}    # -1: 3 stations, no common
+    gap = S.outline_check(offsets({"+1": [0.0, 0.1, 0.0, None, 0.2, -0.1, None],
+                                   "-1": [0.0, 0.1, 0.0, None, 0.2, -0.1, 0.0]}))
+    assert gap["unmeasured"] == [40.0] and not S.outline_ok(gap)      # neither side measured d40: unmeasured
+    assert S.outline_text(gap) == "outline: common +0.0; none >1 mm; unmeasured: d40"
+    for none in (offsets({"+1": [0.0, 1.0, None]}), None):
+        chk0 = S.outline_check(none)
+        assert chk0 == {"common": {}, "off": [], "unmeasured": []} and not S.outline_ok(chk0)
+        assert S.outline_text(chk0) == "outline: not measured (under 4 stations a side)"
+    many = S.outline_check(offsets({"+1": [0.0] * 6 + [2.0] * 5}))
+    assert S.outline_text(many) == "outline: common +0.0; >1 mm: d70 +2.0 d80 +2.0 d90 +2.0 d100 +2.0 (+1 more)"
+
+
+def test_matched_needs_the_top_outline_within_1_mm(lab, monkeypatch):
+    """Finish precondition 5: matched is refused while the latest compare of best_checkpoint's revision at the top
+    photo has a station more than 1 mm from the common offset, or could not measure the outline; the refusal and that
+    photo's compare text name the stations (no other photo carries an outline line); it never holds stuck; once the
+    latest compare of that head is within reach, matched is accepted."""
+    import glasses3d.g3d_host.spec as GS
+    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
+                                                        "live_site_would_fail": []})
+    tl = tools_of(lab, finish_k=3)
+    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets(RUN3_TOP)}
+    best = _distinct_heads_and_variants(lab, tl)[0]
+    parsed(call(tl["facet_restore"], {"checkpoint": best, "judgement": None}))
+    body, *_ = parsed(call(tl["photo_compare"], {"photos": PHOTO_IDS + ["B1"], "crop": None, "points_px": None}))
+    assert body["photos"]["03"].endswith("| outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5")
+    assert [p for p, t in body["photos"].items() if "outline" in t] == ["03"]
+    assert lab.state["compares"][-1]["outline"] == {"03": S.outline_check(offsets(RUN3_TOP))}
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
+                                                "judgement": judgement(lab, best=best, overall="same")}))
+    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [5]
+    assert body["missing"][0]["photos"] == ["03"]
+    assert "revision 1: photo 03 outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5" in \
+        body["missing"][0]["message"]
+    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets({"+1": [0.0, 1.0] + [None] * 9})}
+    parsed(call(tl["photo_compare"], {"photos": ["03"], "crop": None, "points_px": None}))
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
+                                                "judgement": judgement(lab, best=best, overall="same")}))
+    assert [m["precondition"] for m in body["missing"]] == [5] and "not measured" in body["missing"][0]["message"]
+    assert 5 not in [m["precondition"] for m in S.finish_missing(lab.state, status="stuck", best_revision=1, k=0,
+                                                                  distinct=lab.distinct, target_photos=PHOTO_IDS)]
+    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets({"+1": [-0.6] * 11, "-1": [-0.5] * 11})}
+    body, *_ = parsed(call(tl["photo_compare"], {"photos": ["03"], "crop": None, "points_px": None}))
+    assert body["photos"]["03"].endswith("| outline: common -0.6; all within 1 mm")
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
+                                                "judgement": judgement(lab, best=best, overall="same")}))
+    assert body["status"] == "accepted" and body["revision"] == 1
 
 
 def test_stuck_needs_three_distinct_heads_none_better(lab):
