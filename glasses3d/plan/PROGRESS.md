@@ -48,7 +48,22 @@ Phase 3 and pre-flight results (2026-10-11):
 - **Estimate** (from T5 tool outputs): 40 replies $7.26 (cap $15); 60 replies $13.78, edit-heavy $16.56 (cap $20);
   90 replies $22.19 (cap $50). Package: `data/wp6v2/lab/package`. The request `runs/facet-astra-001` is UNAPPROVED.
 
-No paid call is authorized now. The next one needs a cost estimate and the owner's explicit OK.
+**Paid run `facet-astra-002` (2026-10-11).**
+- Approval, in the owner's words: "yuo can run it with 20$ max (dont use reserve spending, just cut it by 18$). dont
+  have a replies limit."
+- Settings: effort max, no reply cap, cap $20, no output squeezing.
+- A host watcher (`data/wp6v2/lab/stop_at_18.py`) would have stopped the run at $18 settled. Until 10:29 it counted the
+  guard's per-request hold as spend; it was corrected while running, and it never fired.
+- Result: 10:03:29–10:30:09, **33 requests, $6.679752 settled**, Astra finished on its own via `facet_finish`
+  "matched".
+  - Best checkpoint c0013, revision 15. Export `head-10ab74e8a162dded.glb`; validate_spec ok (2 warnings).
+  - Layout: logo triangle, crown, hinge flank and tail flank fading at 55–85 mm, roll 0.25 mm. Every crease was
+    declared a ridge.
+  - 3 variant sheets, 6+ builder refusals that Astra fixed itself.
+- Owner sheet: `data/wp6v2/result_facet-astra-002/` (tests/proofs/wp6v2_result_sheet.py). The owner's verdict is
+  pending.
+
+No further paid call is authorized. The next one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
 
