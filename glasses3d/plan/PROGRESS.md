@@ -63,6 +63,28 @@ Phase 3 and pre-flight results (2026-10-11):
 - Owner sheet: `data/wp6v2/result_facet-astra-002/` (tests/proofs/wp6v2_result_sheet.py). The owner's verdict is
   pending.
 
+**Owner feedback on facet-astra-002, verbatim:**
+- "yes it did miss the red line."
+- "the top triangle facet is barely noticeable. every other triangle also faces the same issue which is not being
+  pulled enough outwards"
+- an unwanted line from the logo apex
+- "the each triangle line is very soft wheres it needs to be sharp"
+
+**Fixes:**
+- `c7362c4` builder: flat cells before a fade, sharp creases, E_FADE_CLIFF.
+- `b34df09` black photos B1–B3 for Astra, plus clearer instructions.
+- `cc38cbe` pre-flight P1: the start-model "camera error" sentence had kept the facets shallow.
+- A three-lens pre-flight review gave GO.
+
+**Paid run `facet-astra-003` (2026-10-11).**
+- Approval: "yes, make the fixes and run it again", with the same terms. 13:27:20–13:42:02, 15 requests, **$3.598669**.
+- Astra finished on its own as "matched". Best checkpoint c0011, rev 12; export `head-bad259c0eb030eff.glb`; spec ok.
+- Layout: logo, heel, crown, lower_aft and tail. The crease behind the logo is now present (valley, 12°). Creases run
+  12–19° (run 2: 7–8°). Roll 0.15 mm.
+- Crown and tail both fade 47→76 mm, so the upper-back triangle does not read as its own flat face.
+- Sheet: `data/wp6v2/result_facet-astra-003/` (faces_run3.png). The owner's verdict is pending; first remark: "it still
+  looks like the top triangle isnt being recognized right?"
+
 No further paid call is authorized. The next one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
