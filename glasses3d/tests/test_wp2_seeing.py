@@ -14,11 +14,15 @@ cameras imported as basis-01 (data/wp3b/prada/cameras.json + data/reference/prad
 * a 3 mm temple splay drops the top IoU by >= 0.05 with model_bytes_identical false; after the restore the metrics
   equal the first compare bit for bit; E_NO_BASIS without a basis;
 * output paths are confined to <job>/work (a junction out of it is refused); reads add no checkpoint;
-* WP6_FACETS §3.3 on the WP6 v2 pose basis: the photo-matched compare (studio_dome_v1) with its default photos (also
-  for refs "all"), the per-channel white-balanced gain, the text (px/mm of the image shown, the points_px frame,
-  outer-edge offsets beside the start model's, the CURRENT compare_id even on a cache hit), no native row for the
-  variant photo, refusals of bad points_px recorded; photo_env with a given environment (float renders, gains keyed
-  by the environment, the environment in the cache key).
+* WP6_FACETS §3.3 on the WP6 v2 pose basis: the photo-matched compare (studio_dome_v1) with its default photos, the
+  per-channel white-balanced gain, the text (px/mm of the image shown, the points_px frame, outer-edge offsets beside
+  the start model's, the CURRENT compare_id even on a cache hit), no native row for the variant photo, refusals of bad
+  points_px recorded; photo_env with a given environment (float renders, gains keyed by the environment, the
+  environment in the cache key);
+* photo sets in both paths: "default" = the target photos with a posed temple ROI >= 40k px, "all" = every target
+  photo (never the variant), None = "all" for photo_v1 and "default" for a matched rig;
+* every failure is journaled: malformed hinge_z_mm / gains / boxes / env are E_ARGS, an unexpected exception inside
+  either path is E_COMPARE, each with its journal record.
 Needs Blender 5.2 and the Prada data (skipped, or failed under G3D_REQUIRE_DATA=1)."""
 from __future__ import annotations
 
@@ -434,11 +438,12 @@ def pose_basis(job):
 def test_matched_compare_on_the_pose_basis(job, pose_basis):
     s, see, b = job["session"], job["seeing"], pose_basis
     head0, n0 = s.head, len(s.index.checkpoints())
-    r = see.compare_to_photos("all", passes=("native_linear", "gloss_black"), rig="studio_dome_v1", basis=b.id,
+    r = see.compare_to_photos("default", passes=("native_linear", "gloss_black"), rig="studio_dome_v1",
+                              basis=b.id,
                               points_px={"reference-05": [[600, 330], [5, 5]]})
     assert r["status"] == "ok", r
     assert {"reference-01", "reference-05", "reference-02"} <= set(r["photos"]) and "reference-04" not in \
-        r["photos"] and "black-side" not in r["photos"]                    # "all" = default: target, temple >= 40k px
+        r["photos"] and "black-side" not in r["photos"]                    # default: target, temple >= 40k px
     rep = json.loads(Path(r["report"]).read_text(encoding="utf-8"))
     tg = rep["gains"]["colourways"]["target"]
     assert tg["photo"] == "reference-04" and tg["region"] == "front acetate body"
@@ -510,3 +515,55 @@ def test_photo_env_compare_with_a_given_environment(job, pose_basis):
     other = see.compare_to_photos(["reference-05"], passes=("native_linear", "gloss_black"), rig="photo_env",
                                   basis=b.id, env=env2)
     assert not other["photos"]["reference-05"]["cached"]                     # the environment is in the cache key
+
+
+def test_photo_sets_default_and_all_in_both_paths(job, pose_basis):
+    from glasses3d.g3d_host import pose as PO
+    see, b = job["seeing"], pose_basis
+    mesh, exp = head_mesh(job, skip=b.skip, frame=b.frame)
+    default, geo = Seeing.default_refs(b, mesh, PO.part_roles(exp["path"]))
+    targets = [f"reference-0{i}" for i in range(1, 7)]
+    assert [r for r in b.refs if b.colourway(r) == "target"] == targets and b.colourway("black-side") == "variant"
+    assert set(geo) == set(targets) and default == [r for r in targets if geo[r]["temple_px"] >= 40_000]
+    assert "reference-04" not in default and "reference-03" in default
+    assert Seeing._ref_ids(b, "all") == targets and Seeing._ref_ids(b, None) == targets
+    r = see.compare_to_photos("default", passes=(), basis=b.id)                          # photo_v1
+    assert r["status"] == "ok" and list(r["refs"]) == default, r
+    for refs in ("all", None):
+        r = see.compare_to_photos(refs, passes=(), basis=b.id)
+        assert r["status"] == "ok" and list(r["refs"]) == targets, r
+    # matched: the photo set is resolved before any render; a points_px refusal names it
+    for refs, want in (("all", targets), (None, default), ("default", default)):
+        r = see.compare_to_photos(refs, rig="studio_dome_v1", basis=b.id, points_px={"black-side": [[5, 5]]})
+        assert r["status"] == "error" and r["code"] == "E_ARGS" and f"({want})" in r["message"], (refs, r)
+
+
+def test_every_compare_failure_is_journaled(job, pose_basis, monkeypatch):
+    see, b = job["seeing"], pose_basis
+    tools = job["root"] / "tools"
+
+    def n_calls():
+        return len(list(tools.iterdir()))
+    bad_args = [{"hinge_z_mm": "x"}, {"hinge_z_mm": float("nan")}, {"gains": {"colourways": {}}},
+                {"boxes": {"reference-05": {"box": [0, 0, 10], "k": 1.0}}},
+                {"boxes": {"reference-05": {"box": [0, 0, 10, 10], "k": 2.0}}}, {"boxes": [1, 2]},
+                {"env": {"weights": [1.0] * 3}}]
+    for kw in bad_args:
+        n0 = n_calls()
+        rig = "photo_env" if "env" in kw else "studio_dome_v1"
+        r = see.compare_to_photos(["reference-05"], rig=rig, basis=b.id, **kw)
+        assert r["status"] == "error" and r["code"] == "E_ARGS", (kw, r)
+        assert n_calls() == n0 + 1, kw
+    r = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", basis=b.id, env={"weights": [1.0] * 19})
+    assert r["code"] == "E_ARGS" and "takes none" in r["message"]
+
+    def boom(*_a, **_k):
+        raise KeyError("injected")
+    monkeypatch.setattr(Seeing, "_matched_body", boom)
+    n0 = n_calls()
+    r = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", basis=b.id)
+    assert r["status"] == "error" and r["code"] == "E_COMPARE" and "injected" in r["message"] and n_calls() == n0 + 1
+    monkeypatch.setattr(C, "reference_metrics", boom)
+    n0 = n_calls()
+    r = see.compare_to_photos(["reference-05"], passes=(), basis=b.id)                     # photo_v1
+    assert r["status"] == "error" and r["code"] == "E_COMPARE" and "injected" in r["message"] and n_calls() == n0 + 1

@@ -19,16 +19,23 @@ Order of one run (``run_astra``):
    then guard, ``on_llm_end`` cross-check), SDK tracing disabled without building its exporter, the heartbeat thread.
 5. ``Runner.run`` with exactly the section-7 construction; an ``incomplete`` response (settled by the transport
    hook, then raised by the SDK) gets up to 2 continuation runs on the same session with the host note, each
-   counting against ``max_turns``; every other outcome maps to one status.
+   counting against ``max_turns``; every other outcome maps to one status. With ``RunSettings.finish_tool`` (the
+   facet runs of WP6_FACETS §4.3) the run is final only when that tool's result has status "accepted"
+   (``FinishOnAccepted``); a text reply without it continues with one factual host note, up to ``max_continuations``
+   notes, then ends ``ended_without_finish``. ``tool_choice`` / ``reset_tool_choice`` set the model's tool choice;
+   ``context_guard_tokens`` adds the one-epoch image filter (``ContextGuard``). All of them default off, are bound
+   into the approval settings and the tool-registry sha, and leave a default run's requests unchanged.
 6. **Always**: an open request becomes unknown (``guard.transport_failed`` in the except clause for a connection
    error or timeout, ``guard.mark_unknown`` in finally), the exit checkpoint (head sha re-verified) is taken before the
    worker closes, the paid run is closed (``JobLedger.close_paid_run``), ``result.json`` is written.
 
 Statuses: completed, turn_limit, budget_limit, stopped, provider_rejected (4xx, $0), provider_unknown (5xx, non-JSON,
-connection error or timeout; the full hold kept), output_limit, failed_worker, failed (with the exception type).
+connection error or timeout; the full hold kept), output_limit, failed_worker, failed (with the exception type),
+ended_without_finish (a finish-gated run whose replies kept ending without the accepted finish).
 
 The scene (stage A's ``BlenderSession`` behind stage D's tools) is reached only through ``SceneHooks``; tools are
-injected (stage D builds the registry). Nothing here imports from automation/ or reads automation/.env.
+injected (stage D builds the registry). Tools receive a ``RunStatus`` as the SDK run context (``ctx.context``): money
+and context numbers for their result footers. Nothing here imports from automation/ or reads automation/.env.
 """
 from __future__ import annotations
 
@@ -50,10 +57,12 @@ import zlib
 from typing import Any, Callable, Iterable, Sequence
 
 from agents import Agent, ModelSettings, RunConfig, Runner, SQLiteSession
+from agents.agent import ToolsToFinalOutputResult
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from agents.models.openai_provider import OpenAIProvider
 from agents.retry import ModelRetrySettings
 from agents.run import ToolExecutionConfig
+from agents.run_config import ModelInputData
 from agents.tool import FunctionTool, default_tool_error_function
 from openai import APIConnectionError
 from openai.types.shared import Reasoning
@@ -73,9 +82,13 @@ RESULT_SCHEMA = "g3d.run_result/1"
 RUN_CONFIG_SCHEMA = "g3d.run_config/1"
 HEARTBEAT_SCHEMA = "g3d.heartbeat/1"
 STATUSES = ("completed", "turn_limit", "budget_limit", "stopped", "provider_rejected", "provider_unknown",
-            "output_limit", "failed_worker", "failed")
+            "output_limit", "failed_worker", "failed", "ended_without_finish")
 EFFORTS = ("high", "max")
+TOOL_CHOICES = ("auto", "required")
+FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and version bound into the approval)
+CONTEXT_GUARD = "g3d.context_guard/1"              # ContextGuard
 CONTINUATION_NOTE = ("Your previous response was cut off at the output limit and was not recorded. Continue.")
+FINISH_NOTE = "Your reply called no tool. The run ends only when `{tool}` returns status accepted."
 DANGLING_OUTPUT = ("interrupted: the run ended before this call returned; it has no result and any effect it had on "
                    "the scene was rolled back")
 INFERENCE_TIMEOUT_S = 900.0         # the model-wait ceiling (observed maximum 165 s)
@@ -104,17 +117,30 @@ HARD_TIMEOUT_S = {
     "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
     "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,
     "deliver": 600, "pick_surface_point": 30, "read_image": 30, "read_report": 30, "scene_summary": 30,
+    # the facet tools (WP6_FACETS §4.3): 3 x the slowest call measured on the Prada lab (agent/temple_lab, a warm
+    # worker, studio_dome_v1 and photo_env, 2026-10-11), rounded up, never below 30 s: inspect 0.3 s, photo_image
+    # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached),
+    # restore 0.3 s, finish 0.2 s; facet_variants 0.82 s per render + 2.9 s (21 renders 20.0 s) -> its table value is
+    # the cap of FACET_VARIANTS_BASE_S + FACET_VARIANTS_PER_RENDER_S x photos x (variants + 1) at 3 x 7 renders
+    "facet_inspect": 30, "photo_image": 30, "photo_compare": 40, "facet_edit": 60, "facet_variants": 90,
+    "facet_restore": 30, "facet_finish": 30,
 }
+FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S = 30.0, 2.5
 SNIPPET_SOFT_DEFAULT_S, SNIPPET_SOFT_MIN_S, SNIPPET_SOFT_MAX_S = 120.0, 0.5, 600.0
 SNIPPET_HARD_MARGIN_S = 30.0
 SDK_TIMEOUT_MARGIN_S = 10.0
 
 
-def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None) -> float:
-    """A call's hard timeout (section 7); KeyError for a tool the table does not name (stage D decides it)."""
+def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None, variants: int | None = None,
+                   photos: int | None = None) -> float:
+    """A call's hard timeout (section 7); KeyError for a tool the table does not name (stage D decides it).
+    facet_variants scales with its renders (photos x (variants + 1), the head included), capped at its table value."""
     if tool_name == "execute_blender_code":
         soft = SNIPPET_SOFT_DEFAULT_S if soft_timeout_s is None else float(soft_timeout_s)
         return min(max(soft, SNIPPET_SOFT_MIN_S), SNIPPET_SOFT_MAX_S) + SNIPPET_HARD_MARGIN_S
+    if tool_name == "facet_variants" and variants is not None and photos is not None:
+        scaled = FACET_VARIANTS_BASE_S + FACET_VARIANTS_PER_RENDER_S * int(photos) * (int(variants) + 1)
+        return float(min(scaled, HARD_TIMEOUT_S[tool_name]))
     return float(HARD_TIMEOUT_S[tool_name])
 
 
@@ -152,26 +178,69 @@ def contract_problems(contract: ToolContract, *, instructions: str, brief: str, 
     problems += [f"`{tool.name}` has no description" for tool in tools if not (tool.description or "").strip()]
     texts = [("the instructions", instructions), ("the brief", brief)] + [
         (f"the description of `{tool.name}`", tool.description or "") for tool in tools]
+    for tool in tools:
+        texts += [(f"a parameter description of `{tool.name}` ({path})", text)
+                  for path, text in schema_descriptions(getattr(tool, "params_json_schema", None))]
     for phrase in contract.removed_phrases:
         problems += [f"removed phrase {phrase!r} appears in {where}" for where, text in texts
                      if phrase.lower() in text.lower()]
     return problems
 
 
+def schema_descriptions(schema, path: str = "$") -> list[tuple[str, str]]:
+    """Every ``description`` string inside a JSON schema (properties, $defs, anyOf members, items), with its path."""
+    out = []
+    if isinstance(schema, dict):
+        if isinstance(schema.get("description"), str):
+            out.append((path, schema["description"]))
+        for key, value in schema.items():
+            if key != "description":
+                out += schema_descriptions(value, f"{path}.{key}")
+    elif isinstance(schema, list):
+        for i, value in enumerate(schema):
+            out += schema_descriptions(value, f"{path}[{i}]")
+    return out
+
+
 @dataclass(frozen=True)
 class RunSettings:
-    """Engineering settings recorded per run (WP2_DESIGN section 1: output cap 16,384, max_turns 60)."""
+    """Engineering settings recorded per run (WP2_DESIGN section 1: output cap 16,384, max_turns 60).
+
+    The facet runs (WP6_FACETS §4.3) add: ``tool_choice`` "required" (every reply calls a tool), ``reset_tool_choice``
+    False (the SDK keeps that choice after the first tool call), ``finish_tool`` (the run is final only when this
+    tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads) and
+    ``context_guard_tokens`` (the one-epoch image filter threshold). Their defaults change nothing."""
 
     effort: str | None = None  # paid runs require the owner's explicit high/max choice
     max_output_tokens: int = 16_384
     max_turns: int | None = 60
     max_continuations: int = 2
     fit_output_to_budget: bool = False
+    tool_choice: str = "auto"
+    reset_tool_choice: bool = True
+    finish_tool: str | None = None
+    finish_k: int = 4
+    context_guard_tokens: int | None = None
+
+    def behavior(self) -> dict:
+        """The non-default agent behaviour, bound into the approval settings and the tool-registry sha ({} when
+        every new setting has its default)."""
+        out: dict = {}
+        if self.tool_choice != "auto":
+            out["tool_choice"] = self.tool_choice
+        if self.reset_tool_choice is not True:
+            out["reset_tool_choice"] = self.reset_tool_choice
+        if self.finish_tool is not None:
+            out["finish"] = {"tool": self.finish_tool, "behavior": FINISH_BEHAVIOR, "k": self.finish_k}
+        if self.context_guard_tokens is not None:
+            out["context_guard"] = {"input_tokens": self.context_guard_tokens, "filter": CONTEXT_GUARD}
+        return out
 
     def approval_settings(self) -> dict:
         settings = {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns}
         if self.fit_output_to_budget:
             settings["fit_output_to_budget"] = True
+        settings.update(self.behavior())
         return settings
 
 
@@ -227,6 +296,11 @@ class SceneHooks:
     def worker_info(self) -> dict:
         return {}
 
+    def context_stubs(self, image_sha256s: list[str]) -> dict[str, str]:
+        """The context guard's one choice: {image sha256: text stub} for the tool-output images (sha256 of the
+        image bytes, in input order) that may be replaced; {} keeps every image."""
+        return {}
+
     def close(self) -> None:
         return None
 
@@ -237,28 +311,182 @@ class SceneHooks:
 def build_model_settings(settings: RunSettings) -> ModelSettings:
     return ModelSettings(parallel_tool_calls=False, max_tokens=settings.max_output_tokens,
                          retry=ModelRetrySettings(max_retries=0), extra_body={"service_tier": "default"},
-                         reasoning=Reasoning(effort=settings.effort, summary="auto"))
+                         reasoning=Reasoning(effort=settings.effort, summary="auto"),
+                         tool_choice=None if settings.tool_choice == "auto" else settings.tool_choice)
 
 
 def build_agent(instructions: str, tools: Sequence[Any], settings: RunSettings) -> Agent:
+    extra: dict = {}
+    if settings.finish_tool is not None:
+        extra["tool_use_behavior"] = FinishOnAccepted(settings.finish_tool)
+    if settings.reset_tool_choice is not True:
+        extra["reset_tool_choice"] = settings.reset_tool_choice
     return Agent(name=AGENT_NAME, model=MODEL, instructions=instructions, tools=list(tools),
-                 model_settings=build_model_settings(settings))
+                 model_settings=build_model_settings(settings), **extra)
 
 
-def build_run_config(client) -> RunConfig:
+def build_run_config(client, *, input_filter: Callable | None = None) -> RunConfig:
+    extra = {"call_model_input_filter": input_filter} if input_filter is not None else {}
     return RunConfig(tracing_disabled=True, trace_include_sensitive_data=False,
                      tool_execution=ToolExecutionConfig(max_function_tool_concurrency=1),
                      model_provider=OpenAIProvider(openai_client=client, use_responses=True,
-                                                   use_responses_websocket=False))
+                                                   use_responses_websocket=False), **extra)
 
 
-def tool_registry_sha256(tools: Sequence[Any]) -> str:
-    """sha256 of the registry Astra sees: every tool's name, description, parameter schema and strictness."""
+def tool_registry_sha256(tools: Sequence[Any], settings: RunSettings | None = None) -> str:
+    """sha256 of the registry Astra sees: every tool's name, description, parameter schema and strictness, plus the
+    run's non-default agent behaviour (``RunSettings.behavior``: tool choice, finish gate, context guard) when there
+    is one, so the registry sha of a default run is unchanged."""
     rows = sorted(({"name": tool.name, "description": getattr(tool, "description", ""),
                     "parameters": getattr(tool, "params_json_schema", None),
                     "strict": getattr(tool, "strict_json_schema", None)} for tool in tools),
                   key=lambda row: row["name"])
-    return hashlib.sha256(canonical_json(rows)).hexdigest()
+    behavior = settings.behavior() if settings is not None else {}
+    return hashlib.sha256(canonical_json({"tools": rows, "behavior": behavior} if behavior else rows)).hexdigest()
+
+
+def tool_result_text(output) -> str:
+    """The text of a tool's return value (a str, a ToolOutputText, or a list of text/image parts)."""
+    if isinstance(output, str):
+        return output
+    parts = output if isinstance(output, (list, tuple)) else [output]
+    texts = []
+    for part in parts:
+        text = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
+        if isinstance(text, str):
+            texts.append(text)
+    return "\n".join(texts)
+
+
+def tool_result_status(output) -> str | None:
+    """The "status" of a tool result whose text starts with a JSON object (the facet tools' format), else None."""
+    text = tool_result_text(output).lstrip()
+    try:
+        value, _end = json.JSONDecoder().raw_decode(text)
+    except ValueError:
+        return None
+    return value.get("status") if isinstance(value, dict) else None
+
+
+class FinishOnAccepted:
+    """The facet runs' ``tool_use_behavior`` (a ToolsToFinalOutputFunction, WP6_FACETS §4.3): the run is final only
+    when ``tool``'s result has status "accepted" (its text is the final output). A refused finish goes back to Astra
+    like any other result. ``accepted`` lists the accepted results of this run."""
+
+    name = FINISH_BEHAVIOR
+
+    def __init__(self, tool: str):
+        self.tool = tool
+        self.accepted: list[str] = []
+
+    def __call__(self, context, results) -> ToolsToFinalOutputResult:
+        for result in results:
+            if getattr(result.tool, "name", None) == self.tool and tool_result_status(result.output) == "accepted":
+                text = tool_result_text(result.output)
+                self.accepted.append(text)
+                return ToolsToFinalOutputResult(is_final_output=True, final_output=text)
+        return ToolsToFinalOutputResult(is_final_output=False, final_output=None)
+
+
+_DATA_IMAGE_B64 = re.compile(r"^data:image/[A-Za-z0-9.+-]+;base64,(.*)$", re.DOTALL)
+
+
+def _image_sha256(url) -> str | None:
+    match = _DATA_IMAGE_B64.match(url) if isinstance(url, str) else None
+    if match is None:
+        return None
+    try:
+        return hashlib.sha256(base64.b64decode(match[1], validate=True)).hexdigest()
+    except ValueError:
+        return None
+
+
+def tool_output_images(items) -> list[str]:
+    """sha256 of every data-URL image inside a function_call_output of the model input, in order."""
+    out = []
+    for item in items or []:
+        if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(item.get("output"),
+                                                                                                 list):
+            for part in item["output"]:
+                if isinstance(part, dict) and part.get("type") == "input_image":
+                    sha = _image_sha256(part.get("image_url"))
+                    if sha is not None:
+                        out.append(sha)
+    return out
+
+
+class ContextGuard:
+    """``RunConfig.call_model_input_filter`` (WP6_FACETS §4.3): once the last counted request reached ``threshold``
+    input tokens, ask ``choose`` ONCE which tool-output images to replace with text stubs ({sha256: stub}), then apply
+    that same choice to this and every later request of the run (one prompt-cache rewrite, then a stable prefix).
+    Brief images and images ``choose`` does not name are never touched; the session keeps every image."""
+
+    name = CONTEXT_GUARD
+
+    def __init__(self, threshold: int, *, counted: Callable[[], int | None], choose: Callable[[list], dict],
+                 notify: Callable[[dict], None] | None = None):
+        self.threshold = int(threshold)
+        self.counted, self.choose, self.notify = counted, choose, notify
+        self.stubs: dict | None = None
+        self.epoch: dict | None = None
+        self.replaced = 0
+
+    def __call__(self, data) -> ModelInputData:
+        model_data = data.model_data
+        if self.stubs is None:
+            tokens = self.counted()
+            if tokens is None or tokens < self.threshold:
+                return model_data
+            shas = tool_output_images(model_data.input)
+            present = set(shas)
+            self.stubs = {sha: str(text) for sha, text in (self.choose(shas) or {}).items() if sha in present}
+            self.epoch = {"at_counted_input_tokens": tokens, "tool_images": len(shas), "stubbed": len(self.stubs)}
+            if self.notify is not None:
+                self.notify(dict(self.epoch))
+        if not self.stubs:
+            return model_data
+        items, replaced = [], 0
+        for item in model_data.input:
+            if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(
+                    item.get("output"), list):
+                parts = []
+                for part in item["output"]:
+                    sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and \
+                        part.get("type") == "input_image" else None
+                    if sha in self.stubs:
+                        parts.append({"type": "input_text", "text": self.stubs[sha]})
+                        replaced += 1
+                    else:
+                        parts.append(part)
+                item = {**item, "output": parts}
+            items.append(item)
+        self.replaced = replaced
+        return ModelInputData(input=items, instructions=model_data.instructions)
+
+
+class RunStatus:
+    """The SDK run context the tools receive (``ctx.context``): settled money, the cap and the last counted input
+    for the footer every facet tool result ends with (WP6_FACETS §4.5)."""
+
+    def __init__(self, guard: BudgetGuard | None = None):
+        self.guard = guard
+
+    def numbers(self) -> dict:
+        if self.guard is None:
+            return {"settled_usd": None, "cap_usd": None, "context_tokens": None}
+        summary = self.guard.summary()
+        return {"settled_usd": summary["settled_micro_usd"] / 1e6, "cap_usd": summary["maximum_micro_usd"] / 1e6,
+                "context_tokens": summary["planning"]["last_counted_input_tokens"]}
+
+    def footer(self) -> str:
+        return footer_text(**self.numbers())
+
+
+def footer_text(settled_usd=None, cap_usd=None, context_tokens=None) -> str:
+    def usd(value):
+        return "n/a" if value is None else f"${value:.2f}"
+    return (f"settled {usd(settled_usd)} / cap {usd(cap_usd)} · context "
+            f"{'n/a' if context_tokens is None else context_tokens} tokens")
 
 
 def instructions_sha256(instructions: str) -> str:
@@ -695,6 +923,15 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused("max_continuations must be a non-negative integer")
     if type(settings.fit_output_to_budget) is not bool:
         raise RunRefused("fit_output_to_budget must be a boolean")
+    if settings.tool_choice not in TOOL_CHOICES:
+        raise RunRefused(f"tool_choice must be one of {', '.join(TOOL_CHOICES)}")
+    if type(settings.reset_tool_choice) is not bool:
+        raise RunRefused("reset_tool_choice must be a boolean")
+    if type(settings.finish_k) is not int or settings.finish_k < 1:
+        raise RunRefused("finish_k must be a positive integer")
+    if settings.context_guard_tokens is not None and (type(settings.context_guard_tokens) is not int
+                                                      or settings.context_guard_tokens < 1):
+        raise RunRefused("context_guard_tokens must be a positive integer or None")
     if not isinstance(spec.instructions, str) or not spec.instructions.strip():
         raise RunRefused("the instructions are empty")
     if not isinstance(spec.brief, str) or not spec.brief.strip():
@@ -704,6 +941,8 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused("only local function tools are covered by the budget")
     if len(set(names)) != len(names):
         raise RunRefused("tool names must be unique")
+    if settings.finish_tool is not None and settings.finish_tool not in names:
+        raise RunRefused(f"the finish tool `{settings.finish_tool}` is not registered")
 
 
 def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
@@ -716,7 +955,7 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
     if request_sha256(request) != spec.current_request_sha256:
         raise ApprovalRefused("stale", "the run's request sha differs from the approved request")
     current = build_request(spec.job_dir, instructions_sha256=instructions_sha256(spec.instructions),
-                            tool_registry_sha256=tool_registry_sha256(spec.tools),
+                            tool_registry_sha256=tool_registry_sha256(spec.tools, spec.settings),
                             settings=spec.settings.approval_settings(), unsent_owner_notes=spec.owner_notes,
                             run_inputs=run_input_binding(spec.job_dir, spec.brief, spec.photos))
     if request_sha256(current) != request_sha256(request):
@@ -726,15 +965,17 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
 
 
 async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewLog, guard: BudgetGuard,
-                 run_config: RunConfig, settings: RunSettings, state: dict) -> tuple[str, Any]:
-    """Runner.run, then up to ``max_continuations`` continuation runs after an incomplete response."""
+                 run_config: RunConfig, settings: RunSettings, state: dict, context: Any = None) -> tuple[str, Any]:
+    """Runner.run, then up to ``max_continuations`` continuation runs after an incomplete response; with a finish
+    tool, up to ``max_continuations`` host notes after a reply that ended without the accepted finish."""
     turns_left = settings.max_turns
     run_input: list[dict] = [{"role": "user", "content": first_input}]
+    finisher = agent.tool_use_behavior if isinstance(agent.tool_use_behavior, FinishOnAccepted) else None
     while True:
         started = log.interactions
         try:
             result = await Runner.run(agent, run_input, max_turns=turns_left, session=session, hooks=log,
-                                      run_config=run_config)
+                                      run_config=run_config, context=context)
         except ModelBehaviorError:
             used = log.interactions - started
             state["turns_used"] += used
@@ -756,8 +997,24 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
                      continuation=state["continuations"])
             run_input = [{"role": "user", "content": CONTINUATION_NOTE}]
             continue
-        state["turns_used"] += log.interactions - started
-        return "completed", result.final_output
+        used = log.interactions - started
+        state["turns_used"] += used
+        if finisher is None or finisher.accepted:
+            return "completed", result.final_output
+        # a text reply without the accepted finish (the fallback when required tool choice is not in force)
+        if turns_left is not None:
+            turns_left -= used
+        if state["finish_notes"] >= settings.max_continuations:
+            log.note(f"The reply ended without an accepted `{finisher.tool}`; {settings.max_continuations} host "
+                     "notes were used, so the run ends.")
+            return "ended_without_finish", result.final_output
+        if turns_left is not None and turns_left <= 0:
+            log.note(f"The reply ended without an accepted `{finisher.tool}` and no turn is left.")
+            return "turn_limit", result.final_output
+        state["finish_notes"] += 1
+        log.note(f"The reply ended without an accepted `{finisher.tool}`; host note {state['finish_notes']} of "
+                 f"{settings.max_continuations}.", finish_note=state["finish_notes"])
+        run_input = [{"role": "user", "content": FINISH_NOTE.format(tool=finisher.tool)}]
 
 
 async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=None) -> dict:
@@ -826,9 +1083,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
 
         heartbeat = Heartbeat(job_dir / "heartbeat.json", run_id=spec.run_id, interval_s=spec.heartbeat_interval_s,
                               report_after_s=spec.status_line_after_s, worker_info=scene.worker_info)
-        state = {"turns_used": 0, "continuations": 0}
+        state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
-        counter = client = guard = log = None
+        counter = client = guard = log = context_guard = None
         exit_checkpoint = exit_error = scan = None
         plan = None
         teardown_errors: list[dict] = []
@@ -873,7 +1130,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "tool_registry_sha256": request.get("tool_registry_sha256"),
                 "tools": [tool.name for tool in spec.tools], "session": "session/session.sqlite",
                 "resume": bool(spec.resume), "scene_start": scene_start, "stale_stop_file_removed": stale_stop,
-                "versions": _versions(), "implementation": implementation})
+                "versions": _versions(), "implementation": implementation,
+                **({"behavior": spec.settings.behavior()} if spec.settings.behavior() else {})})
             write_json(run_dir / "input-receipt.json", plan.receipt)
             log.event("session_started", model=MODEL, effort=spec.settings.effort, resume=bool(spec.resume),
                       max_turns=spec.settings.max_turns, max_output_tokens=spec.settings.max_output_tokens,
@@ -886,10 +1144,19 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 log.note(rollback_sentence(rollback), rollback=rollback)
             heartbeat.start()
             agent = build_agent(spec.instructions, spec.tools, spec.settings)
+            if spec.settings.context_guard_tokens is not None:
+                run_guard = guard
+                context_guard = ContextGuard(
+                    spec.settings.context_guard_tokens,
+                    counted=lambda: run_guard.planning()["last_counted_input_tokens"], choose=scene.context_stubs,
+                    notify=lambda epoch: log.note(f"Context guard: {epoch['stubbed']} of {epoch['tool_images']} "
+                                                  f"tool images replaced by text stubs at "
+                                                  f"{epoch['at_counted_input_tokens']} counted input tokens.",
+                                                  context_guard=epoch))
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
-                                                run_config=build_run_config(client), settings=spec.settings,
-                                                state=state)
+                                                run_config=build_run_config(client, input_filter=context_guard),
+                                                settings=spec.settings, state=state, context=RunStatus(guard))
         except BaseException as raised:     # noqa: BLE001 - every outcome becomes a status and a result.json
             if guard is not None and is_transport_failure(raised) and guard.open_sequence is not None:
                 try:
@@ -957,6 +1224,11 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "heartbeat": {"beats": heartbeat.beats, "write_failures": heartbeat.write_failures,
                               "max_gap_s": heartbeat.max_gap_s(), "states": list(heartbeat.states)},
                 "transcript": "transcript.md"}
+            if spec.settings.finish_tool is not None:
+                result["finish_notes"] = state["finish_notes"]
+            if spec.settings.context_guard_tokens is not None:
+                result["context_guard"] = {"epoch": context_guard.epoch if context_guard else None,
+                                           "replaced_last_request": context_guard.replaced if context_guard else 0}
             result = cleaner(result)
             if log is not None:
                 try:

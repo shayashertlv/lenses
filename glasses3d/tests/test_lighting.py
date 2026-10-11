@@ -1,4 +1,4 @@
-"""g3d_host/lighting.py (the photo_env environment, WP6_FACETS §3.2 amended 2026-10-10).
+"""g3d_host/lighting.py (the photo_env environment, WP6_FACETS §3.2 amended 2026-10-11).
 
 Host only (always run):
 * the lobes are a partition of unity (equal weights = a uniform world), the floor term is a horizon step, the
@@ -14,8 +14,9 @@ Real worker on a copy of the Prada scene (Blender 5.2 + data; skipped, or failed
   basis renders (two re-linearised steps): the weights come back and the direct render of the fit reproduces the
   target;
 * the job's fitted environment (Seeing.photo_env, one iteration at a reduced crop size for test time) is frozen in
-  work/compare/env-<basis>.json with its weights, CV table, residuals and photo shas, and the next call reuses it
-  without rendering."""
+  work/compare/env-<basis>.json with its weights, CV table, residuals and photo shas, the rule that the smoothing
+  strength is chosen once on the iteration-0 system (each iteration's own CV choice recorded beside it), and the next
+  call reuses it without rendering."""
 from __future__ import annotations
 
 import json
@@ -221,6 +222,8 @@ def test_job_environment_is_frozen_and_reused(prada, monkeypatch):
             assert c["photo_sha256"] == bs.refs[c["photo"]]["photo_sha256"] and c["erode_native_px"] >= 12
         it = rec["iterations"][0]
         assert set(it["direct_residuals"]) == cal and it["direct_mean_rel_rms"] < 0.2
+        assert "once" in rec["lambda_rule"] and it["lambda_used"] == it["cv_lambda"] == rec["lambda"]
+        assert set(it["cv_rel_rms"]) == {str(x) for x in L.LAMBDA_GRID}
         assert rec["fit_on"].startswith("front acetate")
         renders = sorted((root / "work" / "compare" / f"env-{bs.id}-fit").rglob("*.npz"))
         again = see.photo_env()

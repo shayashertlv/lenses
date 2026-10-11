@@ -17,17 +17,21 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
 - ``compare_to_photos(refs, parts, passes, crops, size_px, basis)``: metrics on the frozen basis (compare.py), deltas
   against the previous compare on the same basis with ``model_bytes_identical`` / ``geometry_identical``, one sheet
   per reference (photo | native | clay | overlay), crops, ``work/compare/<call>/report.json``. E_NO_BASIS without a
-  basis. With ``rig="studio_dome_v1"`` or ``rig="photo_env"`` it is the photo-matched compare of WP6_FACETS §3.3
-  (``_matched_compare``): each photo's temple pose from the basis, the rig, the native_linear (and optional
-  gloss_black) pass, a white-balanced (per-channel, linear) native gain and a luma gloss_black gain per job, frozen in
-  ``work/compare/gains-<basis>.json`` with the light frame, the photo's acetate p2-p98 stretch on photo and render, a
-  temple crop, one stacked image per photo (photo / render / overlay with the model outline, crease polylines and the
-  chart grid / gloss_black; a variant-colourway photo gets no native row), compact text (the px/mm of the image
-  shown, the points_px frame, outer-edge offsets beside the job's start model's, the current compare_id),
-  ``points_px`` charted through the posed raster, and a per-(geometry, photo, rig, passes, environment) cache.
-  Default photos (refs None / "default" / "all"): target colourway with a temple ROI of >= 40k px.
+  basis. With ``rig`` = "studio_dome_v1", "photo_env" or "catalog_band_v1" it is the photo-matched compare of
+  WP6_FACETS §3.3 (``_matched_compare``): each photo's temple pose from the basis, the rig, the native_linear (and
+  optional gloss_black) pass, a white-balanced (per-channel, linear) native gain and a luma gloss_black gain per job,
+  frozen in ``work/compare/gains-<basis>.json`` with the light frame, the photo's acetate p2-p98 stretch on photo and
+  render, a temple crop, one stacked image per photo (photo / render / overlay with the model outline, crease
+  polylines and the chart grid / gloss_black; a variant-colourway photo gets no native row), compact text (the px/mm
+  of the image shown, the points_px frame, outer-edge offsets beside the job's start model's, the current
+  compare_id), ``points_px`` charted through the posed raster, and a per-(geometry, photo, rig, passes, environment)
+  cache. Photos, in both paths: "all" = every target-colourway photo; "default" = the target photos whose posed
+  temple ROI is >= 40k px; a list names photos; None = "all" for photo_v1 and "default" for a matched rig. Every
+  failure is journaled (a refusal of the arguments E_ARGS / E_NO_BASIS / E_NO_POSE, anything later E_COMPARE).
   ``photo_env`` = the environment fitted to the photos' front acetate (g3d_host/lighting.py; ``photo_env()``),
-  frozen per job in ``work/compare/env-<basis>.json`` with its weights, residuals and photo shas.
+  frozen per job in ``work/compare/env-<basis>.json`` with its weights, residuals and photo shas. Its smoothing
+  strength is chosen ONCE, by leave-one-photo-out cross-validation on the iteration-0 system, and kept by the later
+  iterations; each iteration's own CV choice is recorded beside it as information (``cv_lambda``), never used.
 - ``pick_surface_point(view, points)``: up to 64 pixel centres on a frozen, canonical or manifest camera ->
   {hit, object, partRole, point_mm, asset_mm, normal, face, distance}.
 - ``fit_cameras(reason, images, views, refs=None)``: export the head, ``fit_views`` with 14 workers (EcoQoS opted
@@ -74,7 +78,9 @@ NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,60}$")
 REF_RE = re.compile(r"^reference-\d+$")
 MATCHED_RIG = "studio_dome_v1"
 ENV_RIG = "photo_env"
-MATCHED_RIGS = (MATCHED_RIG, ENV_RIG)
+CATALOG_RIG = "catalog_band_v1"
+MATCHED_RIGS = (MATCHED_RIG, ENV_RIG, CATALOG_RIG)
+FLOAT_RIGS = (ENV_RIG, CATALOG_RIG)          # rendered as unclipped float (the gain is applied after the render)
 MATCHED_PASSES = ("native_linear", "gloss_black")
 MATCHED_SCHEMA = "g3d.photo_compare/2"
 ENV_FIT_MAX_PX = 640           # calibration crops are rendered at <= this long side (the fit cells are ~1 mm)
@@ -441,16 +447,28 @@ class Seeing:
         return out
 
     # ---------------------------------------------------------------------------------------------- compare
-    def compare_to_photos(self, refs="all", parts="all", passes=DEFAULT_PASSES, crops=None, size_px: int = 1024,
+    def compare_to_photos(self, refs=None, parts="all", passes=DEFAULT_PASSES, crops=None, size_px: int = 1024,
                           basis: str | None = None, call_id: str | None = None, *, rig: str = "photo_v1",
                           crop: str = "temple", points_px: dict | None = None, hinge_z_mm: float | None = None,
                           gains: dict | None = None, boxes: dict | None = None, use_cache: bool = True,
-                          env: dict | None = None) -> dict:
-        if rig != "photo_v1":
-            return self._matched_compare(refs, passes, crop, basis, call_id, rig=rig, points_px=points_px,
-                                         hinge_z_mm=hinge_z_mm, gains_override=gains, boxes=boxes,
-                                         use_cache=use_cache, env_override=env)
+                          env: dict | None = None, render_deadline_s: float | None = None) -> dict:
+        """Module doc. Every failure is journaled: an unexpected exception becomes a recorded E_COMPARE.
+        ``render_deadline_s`` (matched rigs) caps the worker deadline of the compare renders below RENDER_DEADLINE_S
+        (the facet lab passes its tool's hard timeout)."""
         call_id = self.s.new_call_id("compare_to_photos", call_id)
+        try:
+            if rig != "photo_v1":
+                return self._matched_compare(refs, passes, crop, basis, call_id, rig=rig, points_px=points_px,
+                                             hinge_z_mm=hinge_z_mm, gains_override=gains, boxes=boxes,
+                                             use_cache=use_cache, env_override=env,
+                                             render_deadline_s=render_deadline_s)
+            return self._compare_v1(refs, parts, passes, crops, size_px, basis, call_id)
+        except Exception as exc:  # noqa: BLE001 - reported and journaled, never raised to the caller
+            out = _err(call_id, "E_COMPARE", f"{type(exc).__name__}: {exc}"[:2000])
+            self.s.record_call("compare_to_photos", call_id, {"refs": refs, "rig": rig, "basis": basis}, out)
+            return out
+
+    def _compare_v1(self, refs, parts, passes, crops, size_px, basis, call_id: str) -> dict:
         args = {"refs": refs, "parts": parts, "passes": list(passes or ()), "crops": crops, "size_px": size_px,
                 "basis": basis}
         t0 = time.perf_counter()
@@ -462,7 +480,7 @@ class Seeing:
             passes = [p for p in dict.fromkeys(passes or ()) if p]
             if any(p not in ("native", "clay") for p in passes):
                 raise SeeingError("E_ARGS", "compare passes are native and clay (or none)")
-            rids = self._ref_ids(bs, refs)
+            rids = "default" if refs == "default" else self._ref_ids(bs, refs)
             crops = list(crops or [])
             size_px = int(size_px)
             if not SIZE_RANGE[0] <= size_px <= SIZE_RANGE[1]:
@@ -472,7 +490,7 @@ class Seeing:
             out = _err(call_id, "E_NO_BASIS", str(exc))
             self.s.record_call("compare_to_photos", call_id, args, out)
             return out
-        except (SeeingError, ValueError, OSError) as exc:
+        except (SeeingError, ValueError, OSError, TypeError, KeyError) as exc:
             out = _err(call_id, getattr(exc, "code", "E_ARGS"), str(exc))
             self.s.record_call("compare_to_photos", call_id, args, out)
             return out
@@ -486,6 +504,13 @@ class Seeing:
         t1 = time.perf_counter()
         mesh = self.fit_mesh(exp["path"], exp["sha256"], skip=bs.skip, frame=bs.frame)
         gkey = C.geometry_key(mesh)
+        if rids == "default":
+            try:
+                rids = self.default_refs(bs, mesh, PO.part_roles(exp["path"]))[0]
+            except SeeingError as exc:
+                out = _err(call_id, exc.code, str(exc))
+                self.s.record_call("compare_to_photos", call_id, args, out)
+                return out
         metrics, masks = {}, {}
         for rid in rids:
             metrics[rid], masks[rid] = C.reference_metrics(mesh, bs, rid)
@@ -584,8 +609,10 @@ class Seeing:
 
     @staticmethod
     def _ref_ids(bs: C.Basis, refs) -> list[str]:
+        """The photos named by ``refs``: None / "all" = every target-colourway photo (all of a WP2 basis), else a
+        list of names or 1-based indices ("default" is resolved by ``default_refs``, which needs the model)."""
         if refs in (None, "all"):
-            return list(bs.refs)
+            return [rid for rid in bs.refs if bs.colourway(rid) == "target"]
         items = [refs] if isinstance(refs, (str, int)) else list(refs)
         names = list(bs.refs)
         out = []
@@ -654,6 +681,16 @@ class Seeing:
         temple = np.isin(part, PO.temple_parts(mp, 1, roles) + PO.temple_parts(mp, -1, roles))
         return {"pose": pose, "mesh": mp, "cam": cam, "shape": shape, "mask": r["mask"], "part": part,
                 "temple": temple, "temple_px": int(temple.sum())}
+
+    @classmethod
+    def default_refs(cls, bs: C.Basis, mesh, roles: dict) -> tuple[list, dict]:
+        """(the default photos: target colourway with a posed temple ROI >= TEMPLE_ROI_MIN_PX at native size
+        (WP6_FACETS §3.3), {photo: matched geometry} of every target photo)."""
+        geo = {rid: cls._matched_geometry(bs, rid, mesh, roles) for rid in bs.refs if bs.colourway(rid) == "target"}
+        rids = [rid for rid, g in geo.items() if g["temple_px"] >= TEMPLE_ROI_MIN_PX]
+        if not rids:
+            raise SeeingError("E_ARGS", f"no target photo shows >= {TEMPLE_ROI_MIN_PX} temple pixels; name the photos")
+        return rids, geo
 
     @staticmethod
     def _acetate_ids(mesh, roles) -> tuple[int | None, list]:
@@ -739,9 +776,12 @@ class Seeing:
         return pc, mc
 
     def _render_params(self, rig: str, env: dict | None, light_frame: dict | None) -> dict:
-        """The worker parameters a matched rig needs (photo_env: the frozen lobe weights and float output)."""
+        """The worker parameters a matched rig needs (photo_env: the frozen lobe weights; photo_env and
+        catalog_band_v1: unclipped float output)."""
         if rig == ENV_RIG:
             return {"rig": rig, "env": L.env_param(env), "linear_format": "float", "engine": "auto"}
+        if rig in FLOAT_RIGS:
+            return {"rig": rig, "linear_format": "float", "engine": "auto"}
         return {"rig": rig, "light_frame": light_frame, "engine": "auto"}
 
     def _matched_gains(self, bs: C.Basis, mesh, roles, rig: str, origin, call_id: str, out_dir: Path,
@@ -878,14 +918,17 @@ class Seeing:
             B = np.column_stack([(cells({c["rid"]: rr[(c["rid"], f"L{i:02d}")] for c in cals}) - f0) / delta
                                  for i in range(n)])
             rhs = L.gauss_newton_rhs(y, f0, B, w0)
+            lam_it, cv_it = L.cv_lambda(B, rhs, groups)        # this system's own choice (information after it 0)
             if lam is None:
-                lam, cv_table = L.cv_lambda(B, rhs, groups)
+                lam, cv_table = lam_it, cv_it
             fit = L.fit_env(B, rhs, groups, lam)
             w1 = np.asarray(fit["weights"])
             direct = self._env_render(call_id, cals, {"w": w1}, origin, out_dir, f"direct-{it}")
             f1 = cells({c["rid"]: direct[(c["rid"], "w")] for c in cals})
             res = L.residual_stats(f1, y, groups)
             iterations.append({"iteration": it, "linearised_at_sha": L.weights_sha(w0), "delta": delta,
+                               "lambda_used": lam, "cv_lambda": lam_it,
+                               "cv_rel_rms": {str(t["lambda"]): t["cv_rel_rms"] for t in cv_it},
                                "weights": fit["weights"], "model_residuals": fit["residuals"],
                                "direct_residuals": res,
                                "direct_mean_rel_rms": float(np.mean([v["rel_rms"] for v in res.values()]))})
@@ -901,6 +944,9 @@ class Seeing:
                                           "floor_deg": L.FLOOR_DEG},
                 "weights": best["weights"], "weights_sha": L.weights_sha(best["weights"]),
                 "chosen_iteration": best["iteration"], "lambda": lam, "lambda_grid": list(L.LAMBDA_GRID),
+                "lambda_rule": "chosen once by leave-one-photo-out CV on the iteration-0 system and kept by every "
+                               "later iteration; each iteration's own CV choice is recorded as cv_lambda "
+                               "(information, not used)",
                 "cv": cv_table, "iterations": iterations, "level": level, "white_balance_uniform": wb0,
                 "chroma": [float(v) for v in chroma_rgb],
                 "calibration": [{"photo": c["rid"], "photo_sha256": bs.refs[c["rid"]]["photo_sha256"],
@@ -1001,12 +1047,11 @@ class Seeing:
         return out
 
     def _matched_compare(self, refs, passes, crop, basis, call_id, *, rig, points_px, hinge_z_mm, gains_override,
-                         boxes=None, use_cache=True, env_override=None) -> dict:
+                         boxes=None, use_cache=True, env_override=None, render_deadline_s=None) -> dict:
         """The photo-matched compare (module doc). ``gains`` / ``env`` override the job's frozen gains /
         environment (one normalisation across jobs, e.g. an owner sheet); ``boxes`` = {photo: {"box": [x0, y0, x1,
         y1], "k": scale, "stretch": [lo, hi] (optional)}} fixes crops (and stretches) so several models share
         them."""
-        call_id = self.s.new_call_id("compare_to_photos", call_id)
         args = {"refs": refs, "passes": list(passes or ()), "crop": crop, "basis": basis, "rig": rig,
                 "points_px": points_px, "hinge_z_mm": hinge_z_mm, "gains": "override" if gains_override else None,
                 "env": "override" if env_override else None, "boxes": boxes}
@@ -1027,32 +1072,77 @@ class Seeing:
                 if bs.pose(rid) is None:
                     raise SeeingError("E_NO_POSE", f"{bs.id} has no temple pose for {rid}; the photo-matched compare "
                                                    "needs a WP6 basis (theta_deg, hinge_axis_xz_mm)")
-            want = None if refs in (None, "default", "all") else self._ref_ids(bs, refs)
+            want = "default" if refs in (None, "default") else self._ref_ids(bs, refs)
+            self._check_matched_args(rig, hinge_z_mm, gains_override, boxes, env_override)
             out_dir = self._prepare_work_dir(self.work / "compare" / call_id)
         except C.NoBasis as exc:
             out = _err(call_id, "E_NO_BASIS", str(exc))
             self.s.record_call("compare_to_photos", call_id, args, out)
             return out
-        except (SeeingError, ValueError, OSError) as exc:
+        except (SeeingError, ValueError, OSError, TypeError, KeyError) as exc:
             out = _err(call_id, getattr(exc, "code", "E_ARGS"), str(exc))
             self.s.record_call("compare_to_photos", call_id, args, out)
             return out
-        exp = self.export_head(call_id)
-        if exp.get("status") != "exported":
-            out = _err(call_id, exp.get("code") or "E_EXPORT",
-                       f"the scene does not export, so it cannot be compared: {exp.get('message')}")
-            self.s.record_call("compare_to_photos", call_id, args, out)
-            return out
         try:
-            out = self._matched_body(bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override,
-                                     boxes, use_cache, env_override, call_id, out_dir, t0, secs)
-        except (SeeingError, ValueError) as exc:
-            out = _err(call_id, getattr(exc, "code", "E_COMPARE"), str(exc))
+            exp = self.export_head(call_id)
+            if exp.get("status") != "exported":
+                out = _err(call_id, exp.get("code") or "E_EXPORT",
+                           f"the scene does not export, so it cannot be compared: {exp.get('message')}")
+            else:
+                out = self._matched_body(bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override,
+                                         boxes, use_cache, env_override, call_id, out_dir, t0, secs,
+                                         render_deadline_s=render_deadline_s)
+        except SeeingError as exc:
+            out = _err(call_id, exc.code, str(exc))
+        except Exception as exc:  # noqa: BLE001 - every failure after the arguments is a journaled E_COMPARE
+            out = _err(call_id, "E_COMPARE", f"{type(exc).__name__}: {exc}"[:2000])
         self.s.record_call("compare_to_photos", call_id, args, out)
         return out
 
+    @staticmethod
+    def _check_matched_args(rig: str, hinge_z_mm, gains, boxes, env) -> None:
+        """Refuse malformed hinge_z_mm / gains / boxes / env overrides up front (E_ARGS)."""
+        def num(x) -> bool:
+            return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+        if hinge_z_mm is not None and not num(hinge_z_mm):
+            raise SeeingError("E_ARGS", "hinge_z_mm must be a finite number (the spec's hinge.z_mm) or None")
+        if gains is not None:
+            try:
+                g = gains["colourways"]["target"]["native_linear"]["gain"]
+                ok = all(num(v) and v > 0 for v in np.atleast_1d(g).tolist()) and num(gains["gloss_black"]["gain"])
+                ok = ok and len(gains["gloss_black"]["stretch"]) == 2
+            except (KeyError, TypeError, IndexError):
+                ok = False
+            if not ok:
+                raise SeeingError("E_ARGS", "gains must be a job's frozen gains record (colourways.target.native_linear"
+                                            ".gain, gloss_black.gain and .stretch)")
+        if boxes is not None:
+            if not isinstance(boxes, dict):
+                raise SeeingError("E_ARGS", "boxes must be {photo: {box: [x0, y0, x1, y1], k, stretch?}}")
+            for rid, b in boxes.items():
+                try:
+                    box, k = [float(v) for v in b["box"]], b["k"]
+                    st = b.get("stretch")
+                    ok = len(box) == 4 and all(map(num, box)) and box[2] > box[0] and box[3] > box[1] and num(k) \
+                        and 0 < k <= 1 and (st is None or (len(st) == 2 and all(map(num, st)) and st[1] > st[0]))
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    ok = False
+                if not ok:
+                    raise SeeingError("E_ARGS", f"boxes[{rid!r}] must be {{box: [x0, y0, x1, y1], k in (0, 1], "
+                                                "stretch: [lo, hi] (optional)}")
+        if env is not None:
+            if rig != ENV_RIG:
+                raise SeeingError("E_ARGS", f"env is the {ENV_RIG} environment; rig {rig!r} takes none")
+            try:
+                w = list(env["weights"])
+                ok = len(w) == L.N_LOBES and all(num(v) and v >= 0 for v in w)
+            except (KeyError, TypeError):
+                ok = False
+            if not ok:
+                raise SeeingError("E_ARGS", f"env must be {{weights: {L.N_LOBES} non-negative numbers}}")
+
     def _matched_body(self, bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override, boxes,
-                      use_cache, env_override, call_id, out_dir, t0, secs) -> dict:
+                      use_cache, env_override, call_id, out_dir, t0, secs, *, render_deadline_s=None) -> dict:
         mesh = self.fit_mesh(exp["path"], exp["sha256"], skip=bs.skip, frame=bs.frame)
         roles = PO.part_roles(exp["path"])
         gkey = C.geometry_key(mesh)
@@ -1063,12 +1153,10 @@ class Seeing:
                   if b is not None]
             hinge_z_mm = float(np.mean(zs)) if zs else 0.0
         t1 = time.perf_counter()
-        geo = {}
-        for rid in (want or [r for r in bs.refs if bs.colourway(r) == "target"]):
-            geo[rid] = self._matched_geometry(bs, rid, mesh, roles)
-        rids = want or [rid for rid, g in geo.items() if g["temple_px"] >= TEMPLE_ROI_MIN_PX]
-        if not rids:
-            raise SeeingError("E_ARGS", "no target photo shows >= 40k temple pixels; name the photos")
+        if want == "default":
+            rids, geo = self.default_refs(bs, mesh, roles)
+        else:
+            rids, geo = want, {rid: self._matched_geometry(bs, rid, mesh, roles) for rid in want}
         points_px = self._check_points(bs, rids, points_px)
         secs["geometry"] = round(time.perf_counter() - t1, 3)
         t1 = time.perf_counter()
@@ -1121,7 +1209,7 @@ class Seeing:
             rr = self.s.call_read("compare_to_photos", "render", {
                 "out_dir": str(out_dir / "renders"), "views": views,
                 **self._render_params(rig, env, gains.get("light_frame"))},
-                deadline_s=RENDER_DEADLINE_S, call_id=call_id)
+                deadline_s=min(RENDER_DEADLINE_S, render_deadline_s or RENDER_DEADLINE_S), call_id=call_id)
             if rr["status"] != "ok":
                 return rr
             files = {v["name"]: v["files"] for v in rr["result"]["views"]}

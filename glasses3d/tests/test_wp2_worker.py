@@ -61,7 +61,75 @@ def test_temple_lab_endpoint_is_closed_without_marker(plain):
     before = plain.call("fingerprint")["fingerprint"]
     result = plain.call("temple_lab_build", {"spec": {"schema": "bad"}})
     assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
+    result = plain.call("temple_variants_render", {"variants": [{"label": "A", "spec": {}}], "views": []})
+    assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
     assert plain.call("fingerprint")["fingerprint"] == before
+
+
+PRADA = Path(__file__).resolve().parents[2] / ("automation/data/blender_agent/studio/jobs/"
+                                               "8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend")
+PRADA_SHA = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06"
+
+
+@pytest.fixture(scope="module")
+def lab(root):
+    """A run-mode worker in an isolated temple-lab job (inputs/lab.json g3d.temple_lab/2) on a COPY of Prada."""
+    if not PRADA.exists():
+        pytest.skip("Prada scene not available")
+    job = root / "lab"
+    (job / "inputs").mkdir(parents=True)
+    (job / "inputs" / "lab.json").write_text(json.dumps({"schema": "g3d.temple_lab/2"}), encoding="utf-8")
+    seed = job / "inputs" / "scene.blend"
+    seed.write_bytes(PRADA.read_bytes())
+    assert hashlib.sha256(seed.read_bytes()).hexdigest() == PRADA_SHA
+    worker = WorkerClient(job, start_blend=seed).start()
+    yield job, worker
+    worker.close()
+    assert hashlib.sha256(PRADA.read_bytes()).hexdigest() == PRADA_SHA
+
+
+def test_temple_variants_render_builds_renders_and_leaves_the_scene_unchanged(lab):
+    """WP6_FACETS §4.1 facet_variants: variant meshes built, the head and each built variant rendered at the view
+    (the refused variant reported, not rendered), every variant mesh removed, the user scene fingerprint unchanged."""
+    import numpy as np
+    from glasses3d.g3d.temple import fixtures as FX
+    from glasses3d.g3d_host import blender_camera as BC
+    from glasses3d.g3d_host import compare as C
+    from glasses3d.g3d_host.camera import NormFrame
+    job, w = lab
+    before = w.call("fingerprint")["fingerprint"]
+    b = w.call("bounds")
+    origin = np.asarray(b["origin_mm"] or (0.0, 0.0, 0.0), float)
+    lo, hi = np.asarray(b["lo"], float) - origin, np.asarray(b["hi"], float) - origin
+    frame = NormFrame(tuple(float(x) for x in (lo + hi) / 2), float((hi - lo).max()))
+    temple = np.array([0.5 * (lo[0] + hi[0]) + 0.35 * (hi[0] - lo[0]), 0.0, 0.5 * (lo[2] + hi[2])])
+    cam, shape = BC.custom_view(90.0, 0.0, temple, 150.0, frame, 192)
+    view = {"name": "side", "camera": BC.to_blender(cam, frame, origin, shape), "pose": None}
+    deeper = FX.prada_default()
+    deeper["nodes"]["C"][2] = float(deeper["nodes"]["C"][2]) + 1.0
+    variants = [{"label": "A", "spec": FX.prada_default()}, {"label": "B", "spec": deeper},
+                {"label": "R", "spec": FX.relief_step()}]
+    lf = {"center": ((np.asarray(b["lo"]) + np.asarray(b["hi"])) / 2).tolist(),
+          "radius": float(np.linalg.norm(np.asarray(b["hi"]) - np.asarray(b["lo"])) / 2)}
+    r = w.call("temple_variants_render", {"variants": variants, "views": [view], "passes": ["native_linear"],
+                                          "out_dir": str(job / "work" / "variants" / "t1"), "rig": "studio_dome_v1",
+                                          "light_frame": lf}, deadline_s=600)
+    assert r["status"] == "ok" and r["unchanged"] is True, r
+    assert r["fingerprint_before"] == r["fingerprint_after"] == before
+    assert r["variants"]["A"]["status"] == r["variants"]["B"]["status"] == "ok"
+    assert r["variants"]["R"]["status"] == "refused" and r["variants"]["R"]["code"] == "E_RELIEF_STEP"
+    assert [v["name"] for v in r["render"]["views"]] == ["side--head", "side--A", "side--B"]
+    assert r["render"]["views"][1]["mesh_overrides"] == r["variants"]["A"]["overrides"]
+    assert len(r["removed"]["removed"]) == len({m for v in ("A", "B") for m in r["variants"][v]["overrides"].values()})
+    imgs = {v["name"]: C.read_linear(v["files"]["native_linear"]["path"]) for v in r["render"]["views"]}
+    assert all(img[1].max() > 0.5 for img in imgs.values())                    # something rendered in each
+    diff_ab = float(np.abs(imgs["side--A"][0] - imgs["side--B"][0]).max())
+    diff_ha = float(np.abs(imgs["side--head"][0] - imgs["side--A"][0]).max())
+    assert diff_ab > 0.01 and diff_ha > 0.01                                    # the geometry differs in the render
+    left = w.call("exec", {"code": "result = [m.name for m in bpy.data.meshes if m.get('g3d_variant') is not None]"},
+                  deadline_s=60)
+    assert left["status"] == "ok" and left["result"] == []
+    assert w.call("fingerprint")["fingerprint"] == before
 
 
 # ------------------------------------------------------------------------------------------------ lifecycle

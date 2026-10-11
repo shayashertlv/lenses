@@ -1,4 +1,4 @@
-"""The photo-estimated environment (rig photo_env, WP6_FACETS §3.2 amended 2026-10-10): fit, then held-out checks.
+"""The photo-estimated environment (rig photo_env, WP6_FACETS §3.2 amended 2026-10-11): fit, then held-out checks.
 
 For the ORIGINAL Prada scene (sha 56274deb...) and the PREFERRED v1 build (data/wp6/preferred_goal_20261010/
 photo_proof_coverage_checked/preferred/p3/prada_tool_test_faceted.blend, sha 45964428...), each a byte copy in its

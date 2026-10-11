@@ -24,6 +24,10 @@ Rigs (``params["rig"]``, recorded with their frozen values):
   from ``params["env"]`` = {"weights": [...]} (lobe order ``env_lobes()``), per view overridable (one lobe alone
   renders a basis image). No lights; EEVEE raytracing off, world sun extraction off (the render stays linear in the
   weights).
+- ``catalog_band_v1`` (CATALOG_SPEC): a catalogue horizon-band prior declared before any render with it (WP6_FACETS
+  §3.2 amended 2026-10-11): world radiance = world_strength x ramp(elevation e above the scene's up axis +Y), linear
+  in degrees between the declared knots ``ramp_deg``, the same at every azimuth (camera-relative like photo_env, with
+  nothing to turn). No lamps; EEVEE raytracing off, world sun extraction off.
 
 Passes:
 
@@ -35,13 +39,19 @@ Passes:
   with ``params["linear_format"] == "float"`` both linear passes are written as OpenEXR float and converted in the
   worker to ``<view>_<pass>.npz`` {rgb (straight alpha), alpha} float16, unclipped;
 - ``gloss_black``: as native_linear with the acetate body materials (those of the front body and the temple bodies,
-  ``acetate_bodies``) replaced on the copies by black glossy acetate (GLOSS_BLACK); lenses and metals keep theirs.
+  ``acetate_bodies``) replaced on the copies by black glossy acetate (GLOSS_BLACK); lenses (unless ``lens_material``)
+  and metals keep theirs.
 
 Per view (all optional): ``pose`` = {"+1": {"theta_deg", "axis_xz_mm"}, "-1": ...} opens each side's temple-role
 copies (selected by the sign of their box centre x, asset mm) about the vertical hinge axis (asset mm, x signed):
 matrix_world = T(axis) R_y T(-axis) M with x' = c dx - s dz, z' = s dx + c dz at angle side x theta, so + is tip
 outward on both sides (= g3d/temple/build.py to_world and g3d_host/pose.rot_about_hinge). ``mesh_overrides`` =
 {object name: mesh datablock name} swaps a copy's data (non-mutating variants); materials stay the original's.
+``lens_material`` (per view, else ``params["lens_material"]``; default None = the scene's own) = a LENS_MATERIALS
+name: every material slot of the lens-role copies (partRole "lens" on the object or its data) gets that fixed
+material in the native, native_linear and gloss_black passes, so a sheet can show one lens under several rigs
+(``dark_tint_v1``: unlit, emission only, no reflection or transmission, so it reads the same under every rig). A lens
+copy without a material slot is refused; each file records the material and the lens objects it covered.
 
 Engine: EEVEE (``BLENDER_EEVEE``; ``params["samples"]``, else the rig's frozen ``samples``, else 16; the samples used
 are recorded) on the GPU; Cycles CPU (same samples) when the GPU is a software renderer, when EEVEE raises / returns
@@ -92,10 +102,24 @@ ENV_SPEC = {"up_axis": "Y", "azimuth": "camera", "elevation_knots_deg": (-90.0, 
             "sectors": ("front", "side", "back"), "floor_deg": (-1.0, 0.0), "raytracing": False, "samples": 16,
             "sun_threshold": 0.0}
 ENV_MAX_WEIGHT = 1e3
-RIGS = {RIG: RIG_SPEC, DOME_RIG: DOME_SPEC, ENV_RIG: ENV_SPEC}
+# Catalogue CGI is lit by bright strip lights / a white sweep at the camera's horizon, over a dark ground and under a
+# dimmer ceiling; in the black photo the logo panel (mirror direction ~+2.8 deg) is ~3x brighter than the facet that
+# mirrors ~-2 deg. The knots say exactly that and were declared before the first render with this rig (2026-10-11);
+# they are never tuned. world_strength is the one scale, chosen once so the native gain on the front acetate is ~1
+# (the gain is applied anyway): at strength 1.0 the Prada original's 04 front gain was 2.90 (luminance of the
+# per-channel gain; data/wp6v2/light_choice/calibration_strength1.json), and world light scales linearly.
+CATALOG_RIG = "catalog_band_v1"
+CATALOG_SPEC = {"up_axis": "Y", "azimuth": "uniform",
+                "ramp_deg": ((-90.0, 0.08), (-2.0, 0.08), (0.0, 1.0), (12.0, 1.0), (25.0, 0.35), (55.0, 0.35),
+                             (90.0, 0.6)),
+                "world_strength": 2.9, "lamps": 0, "raytracing": False, "samples": 16, "sun_threshold": 0.0}
+RIGS = {RIG: RIG_SPEC, DOME_RIG: DOME_SPEC, ENV_RIG: ENV_SPEC, CATALOG_RIG: CATALOG_SPEC}
 LINEAR_FORMATS = ("png16", "float")
 GLOSS_BLACK = {"base": 0.01, "roughness": 0.12, "coat": 0.6, "coat_roughness": 0.05, "ior": 1.49}
-PASSES = ("native", "clay", "normal", "native_linear", "gloss_black")
+# Sheet-only lens materials (module doc). dark_tint_v1 is a dark brown-grey emission (linear RGB; about sRGB 19/17/14
+# at gain 1): no BSDF, so no rig's reflections or transmission reach it and it is the same radiance under every rig.
+LENS_MATERIALS = {"dark_tint_v1": {"shader": "emission", "emission_rgb": (0.006, 0.005, 0.004), "strength": 1.0}}
+PASSES =("native", "clay", "normal", "native_linear", "gloss_black")
 LINEAR_PASSES = ("native_linear", "gloss_black")
 POSE_SIDES = {"+1": 1, "1": 1, "-1": -1}
 POSE_MAX_DEG = 45.0
@@ -443,6 +467,8 @@ class TempRender:
             self._set_materials(c, mats)
         self.sides = temple_sides(self.objects, self.origin)
         self.bodies, self.acetate = acetate_bodies(self.objects, self.origin)
+        self.lenses = sorted(o.name for o in self.objects if _role(o) == "lens")
+        self.lens_mats: dict = {}
         cd = self._new(bpy.data.cameras, "g3d_render_cam")
         self.cam = self._new(bpy.data.objects, "g3d_render_cam", cd)
         sc.collection.objects.link(self.cam)
@@ -489,7 +515,7 @@ class TempRender:
         self.set_view("Standard")
         self.dither0 = r.dither_intensity
         sc.eevee.taa_render_samples = self.samples
-        if self.rig in (DOME_RIG, ENV_RIG):
+        if self.rig in (DOME_RIG, ENV_RIG, CATALOG_RIG):
             sc.eevee.use_raytracing = bool(self.spec["raytracing"])
         sc.cycles.device = "CPU"
         sc.cycles.samples = self.samples
@@ -502,6 +528,8 @@ class TempRender:
             return self._dome()
         if self.rig == ENV_RIG:
             return self._env()
+        if self.rig == CATALOG_RIG:
+            return self._catalog()
         sc, spec = self.scene, self.spec
         world = self._new(bpy.data.worlds, "g3d_render_world")
         world.use_nodes = True
@@ -643,6 +671,45 @@ class TempRender:
         self.env_dot = dot
         sc.world = world
 
+    def _catalog(self) -> None:
+        """catalog_band_v1: world radiance = ramp_deg(elevation of the view direction above the up axis) x
+        world_strength (ColorRamp position = (asin(up component) + 90 deg) / 180 deg, linear between the knots); no
+        lamps."""
+        sc, spec = self.scene, self.spec
+        world = self._new(bpy.data.worlds, "g3d_render_world")
+        world.use_nodes = True
+        if hasattr(world, "sun_threshold"):
+            world.sun_threshold = float(spec["sun_threshold"])
+        nt = world.node_tree
+        N = nt.nodes.new
+        bg = nt.nodes.get("Background")
+        tc, nrm, sep = N("ShaderNodeTexCoord"), N("ShaderNodeVectorMath"), N("ShaderNodeSeparateXYZ")
+        nrm.operation = "NORMALIZE"
+        nt.links.new(tc.outputs["Generated"], nrm.inputs[0])
+        nt.links.new(nrm.outputs["Vector"], sep.inputs[0])
+        cl = N("ShaderNodeClamp")
+        cl.inputs["Min"].default_value, cl.inputs["Max"].default_value = -1.0, 1.0
+        nt.links.new(sep.outputs[spec["up_axis"]], cl.inputs["Value"])
+        pos = self._math(nt, "MULTIPLY_ADD", self._math(nt, "ARCSINE", cl.outputs["Result"]), 1.0 / math.pi, 0.5)
+        cr = N("ShaderNodeValToRGB")
+        nt.links.new(pos, cr.inputs["Fac"])
+        nt.links.new(cr.outputs["Color"], bg.inputs["Color"])
+        ramp = cr.color_ramp
+        ramp.interpolation = "LINEAR"
+        knots = [((float(el) + 90.0) / 180.0, float(v)) for el, v in spec["ramp_deg"]]
+        ends = sorted(ramp.elements, key=lambda e: e.position)     # the default pair at 0 and 1
+        for e, (p, v) in ((ends[0], knots[0]), (ends[-1], knots[-1])):
+            e.position, e.color = p, (v, v, v, 1.0)
+        for p, v in knots[1:-1]:
+            e = ramp.elements.new(p)
+            e.color = (v, v, v, 1.0)
+        got = sorted((e.position, e.color[0]) for e in ramp.elements)        # float32 in Blender
+        want = sorted(knots)
+        if len(got) != len(want) or any(abs(a - c) > 1e-5 or abs(b - d) > 1e-5 for (a, b), (c, d) in zip(got, want)):
+            raise RuntimeError(f"the catalogue ramp did not build as specified: {got}")
+        bg.inputs["Strength"].default_value = float(spec["world_strength"])
+        sc.world = world
+
     def set_env(self, weights, cam_matrix) -> None:
         """Fill the photo_env ramps with ``weights`` and turn the sectors to the camera's azimuth."""
         _pos, prof = env_profiles(weights, self.spec)
@@ -705,9 +772,26 @@ class TempRender:
             slot.link = "OBJECT"
             slot.material = mats[i] if i < len(mats) else None
 
-    def configure(self, pose: dict, overrides: dict, pass_name: str) -> None:
+    def lens_material(self, name: str):
+        """The fixed sheet-only lens material ``name`` (LENS_MATERIALS; made once per render call)."""
+        m = self.lens_mats.get(name)
+        if m is None:
+            spec = LENS_MATERIALS[name]
+            m = self._new(bpy.data.materials, f"g3d_render_lens_{name}")
+            m.use_nodes = True
+            nt = m.node_tree
+            nt.nodes.clear()
+            em, out = nt.nodes.new("ShaderNodeEmission"), nt.nodes.new("ShaderNodeOutputMaterial")
+            em.inputs["Color"].default_value = (*spec["emission_rgb"], 1.0)
+            em.inputs["Strength"].default_value = float(spec["strength"])
+            nt.links.new(em.outputs[0], out.inputs["Surface"])
+            m.diffuse_color = (*spec["emission_rgb"], 1.0)
+            self.lens_mats[name] = m
+        return m
+
+    def configure(self, pose: dict, overrides: dict, pass_name: str, lens: str | None = None) -> None:
         """Set every copy's data, world matrix and materials for one view and pass (posed sides, mesh overrides,
-        the gloss_black acetate swap)."""
+        the gloss_black acetate swap, the lens material override)."""
         for name, c in self.copies.items():
             data, mw, mats = self.base[name]
             want = bpy.data.meshes[overrides[name]] if name in overrides else data
@@ -723,6 +807,8 @@ class TempRender:
                 c.matrix_world = mw
             if pass_name == "gloss_black":
                 mats = [self.gloss if mt in self.acetate else mt for mt in mats]
+            if lens is not None and name in self.lenses:
+                mats = [self.lens_material(lens)] * len(c.material_slots)
             self._set_materials(c, mats)
 
     def __exit__(self, *exc) -> None:
@@ -775,6 +861,7 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
     out_dir = work_dir(params.get("out_dir", ""), root)
     passes_all = set()
     names = set()
+    lens0 = params.get("lens_material")
     for v in views:
         if not isinstance(v, dict) or "camera" not in v:
             raise RenderRefused("each view needs a name and a camera spec")
@@ -795,6 +882,9 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
         if not isinstance(mo, dict) or not all(isinstance(k, str) and isinstance(m, str) for k, m in mo.items()):
             raise RenderRefused("mesh_overrides must be {object name: mesh datablock name}")
         v["overrides"] = dict(mo)
+        v["lens"] = v.get("lens_material", lens0)
+        if v["lens"] is not None and (not isinstance(v["lens"], str) or v["lens"] not in LENS_MATERIALS):
+            raise RenderRefused(f"lens_material must be None or one of {sorted(LENS_MATERIALS)}, not {v['lens']!r}")
     rig = str(params.get("rig") or RIG)
     if rig not in RIGS:
         raise RenderRefused(f"unknown rig {rig!r}; rigs: {sorted(RIGS)}")
@@ -840,6 +930,10 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
                 raise RenderRefused(f"mesh_overrides: {name!r} is not a rendered mesh object")
             if mesh not in bpy.data.meshes:
                 raise RenderRefused(f"mesh_overrides: no mesh datablock {mesh!r}")
+    if any(v["lens"] is not None for v in views):
+        bare = sorted(o.name for o in objs if _role(o) == "lens" and not len(o.material_slots))
+        if bare:
+            raise RenderRefused(f"lens_material: lens objects without a material slot cannot take it: {bare}")
     gpu0 = gpu_info()
     engine = "cycles" if want == "cycles" or (want == "auto" and software_gpu(gpu0)) else "eevee"
     fallback = None
@@ -848,6 +942,7 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
     results = {v["file_stem"]: {"name": v.get("name"), "files": {}} for v in views}
     with TempRender(scene, objs, params.get("light_frame") or {}, samples, rig, rig_spec) as tr:
         bodies, acetate = tr.bodies, [m.name for m in tr.acetate]
+        lamps = sorted(o.name for o in tr.scene.objects if o.type == "LIGHT")
         posed = {}
         for ps in PASSES:
             todo = [v for v in views if ps in v["passes"]]
@@ -856,7 +951,7 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
             tr.set_pass(ps, linear_format)
             as_float = ps in LINEAR_PASSES and linear_format == "float"
             for v in todo:
-                tr.configure(v["pose_parsed"], v["overrides"], ps)
+                tr.configure(v["pose_parsed"], v["overrides"], ps, v["lens"])
                 posed[v["file_stem"]] = sorted(n for n, s in tr.sides.items() if s in v["pose_parsed"])
                 apply_camera(tr.cam, v["camera"], tr.scene)
                 tr.aim_key(v["camera"]["matrix_world"])
@@ -888,6 +983,9 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
                 if rig == ENV_RIG:
                     rec["env_weights"] = list(v["env_weights"])
                     rec["env_azimuth"] = [round(c, 6) for c in tr.env_h]
+                if v["lens"] is not None and ps not in ("clay", "normal"):      # those two override every material
+                    rec["lens_material"] = {"name": v["lens"], "objects": list(tr.lenses)}
+        lens_objects = list(tr.lenses)
     gpu1 = gpu_info()
     state1 = checkpoint.scene_state()
     fp1 = checkpoint.fingerprint(state1)
@@ -899,7 +997,9 @@ def render(params: dict, root, *, selftest: bool = False) -> dict:
     out = {"views": list(results.values()), "rig": rig, "rig_spec": rig_spec, "samples": samples,
            "linear_format": linear_format, **({"env_lobes": env_lobes(rig_spec)} if rig == ENV_RIG else {}),
            "rig_overridden": params.get("rig_spec_override") is not None, "engine_requested": want,
-           "acetate_bodies": bodies, "acetate_materials": acetate, "gloss_black": GLOSS_BLACK,
+           "acetate_bodies": bodies, "acetate_materials": acetate, "gloss_black": GLOSS_BLACK, "lamps": lamps,
+           "lens_objects": lens_objects,
+           "lens_materials": {n: LENS_MATERIALS[n] for n in sorted({v["lens"] for v in views} - {None})},
            "engine_final": ENGINES[engine], "fallback": fallback, "gpu": gpu1 if "error" not in gpu1 else gpu0,
            "software_gpu": software_gpu(gpu1), "objects": [o.name for o in objs], "skipped": skipped,
            "fingerprint_before": fp0, "fingerprint_after": fp1, "unchanged": fp0 == fp1,

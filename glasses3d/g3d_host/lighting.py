@@ -1,4 +1,4 @@
-"""Photo-estimated, camera-relative environment (WP6_FACETS §3.2 amended 2026-10-10: rig ``photo_env``), host side.
+"""Photo-estimated, camera-relative environment (WP6_FACETS §3.2 amended 2026-10-11: rig ``photo_env``), host side.
 
 Product photos are catalogue shots: the object on a white glossy floor, a white sweep, the lights moving with the
 camera while a turntable turns the product. So the environment is camera-relative: elevation e from the scene's up

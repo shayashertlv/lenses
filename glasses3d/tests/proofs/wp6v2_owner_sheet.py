@@ -13,9 +13,16 @@ original, and per photo one crop (the union of the three models' temple crops; c
 one photo stretch (the original's) — so the columns differ only by geometry. The black-side photo is the variant
 colourway: it gets the gloss_black row only (the models' material is the target colourway).
 
-Writes data/wp6v2/<sheet1 | sheet1b>/{<photo>.png (rows native / gloss_black, columns PHOTO | ORIGINAL | ASTRA c0003 |
-PREFERRED), index.html (cover text: what each row is, known limits), summary.json}.
-Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.wp6v2_owner_sheet [--rig photo_env]
+Writes data/wp6v2/<sheet1 | sheet1b>/ (or ``--out``) {<photo>.png (rows native / gloss_black, columns PHOTO | ORIGINAL |
+ASTRA c0003 | PREFERRED), index.html (cover text: what each row is, known limits), summary.json}. The photo_env cover's
+limits are written from this run's own measurements (summary.json ``facts``: the calibration photos, the stretch
+factor, the preferred build's facet order and upper-crease step and the black-side facet range (the measures of
+tests/proofs/wp6v2_light_choice.py on the T2 facet polygons), and the outer-edge offsets at the top and rear photos
+as medians per model and side, their range and which side of the photo's edge each model sits on), never typed in.
+``--cover DIR`` rewrites DIR/index.html from DIR/summary.json alone (no worker; the offsets are recomputed from the
+summary's pages, the same data).
+Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.wp6v2_owner_sheet [--rig photo_env] [--out DIR]
+     [--cover DIR]
 """
 from __future__ import annotations
 
@@ -36,6 +43,7 @@ from glasses3d.agent.journal import BlenderSession
 from glasses3d.agent.seeing import Seeing
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
+from glasses3d.tests.proofs import wp6v2_light_choice as LC
 
 G3D = Path(__file__).resolve().parents[2]
 REPO = G3D.parent
@@ -109,9 +117,9 @@ def sheet(rid: str, recs: dict, title: str) -> Image.Image:
     return out
 
 
-def main(rig: str = "studio_dome_v1") -> dict:
+def main(rig: str = "studio_dome_v1", out: Path | None = None) -> dict:
     global OUT
-    OUT = OUTS[rig]
+    OUT = Path(out) if out else OUTS[rig]
     t0 = time.perf_counter()
     for name, (_l, path, want) in MODELS.items():
         got = sha(path)
@@ -183,7 +191,13 @@ def main(rig: str = "studio_dome_v1") -> dict:
                       "temple_iou": {name: round(recs[name]["temple_iou"], 3) for name in MODELS},
                       "outer_edge_offsets_mm": {name: recs[name]["outer_edge_offsets_mm"] for name in MODELS}})
     rig_spec = reports["original"]["photos"][PHOTOS[0]]["render"]["rig_spec"]
-    summary = {"question": QUESTION, "created": C._utc(),
+    build = json.loads(LC.BUILD.read_text(encoding="utf-8"))
+    facts = {"env_calibration_photos": [c["photo"] for c in (env or {}).get("calibration") or []],
+             "gain": {k: gains["colourways"]["target"][k] for k in ("photo", "region")},
+             "stretch_factor": {rid: 255.0 / (c["stretch"][1] - c["stretch"][0]) for rid, c in crops.items()},
+             "outer_edge_offsets_mm": edge_offsets(pages),
+             "measures": {name: LC.numbers(OUT / f"job_{name}", reports[name], build) for name in MODELS}}
+    summary ={"question": QUESTION, "created": C._utc(), "facts": facts,
                "inputs": {name: {"label": l, "path": str(pth), "sha256": w} for name, (l, pth, w) in MODELS.items()},
                "basis": {"path": str(BASIS_JSON), "sha256": sha(BASIS_JSON)},
                "rig": {"name": rig, "spec": rig_spec}, "environment": env, "gains": gains, "crops": crops,
@@ -198,7 +212,56 @@ def main(rig: str = "studio_dome_v1") -> dict:
     return summary
 
 
-def write_index(summary: dict) -> None:
+def edge_offsets(pages: list) -> dict:
+    """Per photo with outer-edge offsets (photo minus model, mm; < 0 = the model's edge sits outside the photo's):
+    the median of every model and side, their range and the median of all stations pooled."""
+    out = {}
+    for pg in pages:
+        per, pooled = {}, []
+        for name, offs in (pg.get("outer_edge_offsets_mm") or {}).items():
+            for side, rows in (offs or {}).items():
+                vals = [o["offset_mm"] for o in rows if o["offset_mm"] is not None]
+                if vals:
+                    per.setdefault(name, {})[str(side)] = float(np.median(vals))
+                    pooled += vals
+        if per:
+            meds = [v for sides in per.values() for v in sides.values()]
+            out[pg["photo"]] = {"per_model_side": per, "range": [min(meds), max(meds)],
+                                "pooled_median": float(np.median(pooled)), "outside": int(sum(v < 0 for v in meds)),
+                                "count": len(meds)}
+    return out
+
+
+def _mm(lo: float, hi: float) -> str:
+    a, b = sorted((abs(lo), abs(hi)))
+    return f"{a:.1f} mm" if f"{a:.1f}" == f"{b:.1f}" else f"{a:.1f}-{b:.1f} mm"
+
+
+def offsets_clause(rec: dict) -> str:
+    """Where the models' outer edges sit against the photo's, from one photo's edge_offsets record: one clause when
+    every model and side agrees, else per model (sides that disagree are listed)."""
+    per = rec["per_model_side"]
+    meds = [v for sides in per.values() for v in sides.values()]
+    sides = "both sides" if all(len(s) == 2 for s in per.values()) else "every side measured"
+    if rec["outside"] in (0, rec["count"]):
+        word = "outside" if rec["outside"] else "inside"
+        return f"{word} the photo's on every model and {sides}, by {_mm(min(meds), max(meds))}"
+    groups = {}
+    for name, s in per.items():
+        label = MODELS[name][0].split(" (")[0] if name in MODELS else name
+        v = list(s.values())
+        if all(x < 0 for x in v) or all(x >= 0 for x in v):
+            groups.setdefault("outside" if v[0] < 0 else "inside", []).append(f"{label} ({_mm(min(v), max(v))})")
+        else:
+            groups.setdefault("mixed", []).append(label + " (" + ", ".join(
+                f"side {k} {abs(x):.1f} mm {'outside' if x < 0 else 'inside'}" for k, x in sorted(s.items())) + ")")
+    parts = [f"{w} on {' and '.join(groups[w])}" for w in ("inside", "outside") if w in groups]
+    if "mixed" in groups:
+        parts.append("split on " + " and ".join(groups["mixed"]))
+    return ", and ".join(parts)
+
+
+def write_index(summary: dict, out: Path | None = None) -> None:
     rows = []
     for pg in summary["pages"]:
         rows.append(f"<section><h2>{html.escape(pg['title'])}</h2>"
@@ -225,38 +288,73 @@ share the same gains, crops and stretches, so the columns differ only by shape.<
 {''.join(rows)}
 </body></html>
 """
-    (OUT / "index.html").write_text(page, encoding="utf-8")
+    (Path(out or OUT) / "index.html").write_text(page, encoding="utf-8")
 
 
-LIMITS_ENV = (
-    "The lighting is estimated from the photos themselves: a smooth surrounding light that turns with the camera "
-    "(as on a turntable), fitted to the FRONT of the frame in photos 02, 03, 04 and 06 only. The temples were never "
-    "used to fit it, so how the temples look here is a fair test of the lighting.",
-    "The colour is matched to photo 04's front, channel by channel, so the front renders ivory like the photos "
-    "(sheet #1 was mustard). The black-side photo is a different colourway: it shows only the black glossy row.",
-    "Known mismatch, side photos 01 and 05: the photo's temples are almost white; the renders read greyer, because "
-    "the contrast stretch magnifies small brightness differences about four times. On the preferred build the upper "
-    "temple facets (the logo triangle and the band above it) render DARKER than the lower facets, while both photo "
-    "shoots show them BRIGHTER. Only the step between the logo triangle and the band above it has the photo's "
-    "direction now.",
-    "Black-side: the photo's logo triangle is bright grey; all three renders show the temples almost uniformly "
-    "black. The lighting fitted on the ivory front cannot show the narrow bright band that the black temple "
-    "reflects, so this row does not yet show depth fairly. It is not a verdict on the shape.",
-    "The lenses render light grey or lavender (the bright surroundings show through them); in the photos they are "
-    "dark. Ignore the lenses.",
-    "Photo 06 (rear): both temples read about 3 mm too wide for every model, and photo 03 (top) does not show this. "
-    "That is the rear camera, not the shape.",
-)
+def limits_env(summary: dict) -> list[str]:
+    """The cover's known limits, written from the run's own measurements (summary ``facts``); a limit whose numbers
+    are missing is left out."""
+    f = summary.get("facts") or {}
+    out = []
+    cal = f.get("env_calibration_photos") or []
+    if cal:
+        out.append("The lighting is estimated from the photos themselves: a smooth surrounding light that turns with "
+                   "the camera (as on a turntable), fitted to the FRONT of the frame in photos "
+                   f"{', '.join(c[-2:] for c in cal)} only. The temples were never used to fit it, so how the temples "
+                   "look here is a fair test of the lighting.")
+    g = f.get("gain") or {}
+    if g:
+        out.append(f"The colour is matched to photo {g['photo'][-2:]}'s front ({g['region']}), channel by channel. "
+                   "The black-side photo is a different colourway: it shows only the black glossy row.")
+    sf = f.get("stretch_factor") or {}
+    if "reference-05" in sf and "reference-01" in sf:
+        out.append("Side photos 05 and 01: the contrast stretch magnifies brightness differences "
+                   f"{sf['reference-05']:.1f} and {sf['reference-01']:.1f} times, so small brightness differences "
+                   "on the near-white temples look large.")
+    m = (f.get("measures") or {}).get("preferred") or {}
+    fac, step = m.get("facets") or {}, m.get("upper_crease_step_raw") or {}
+    rho = [(rid, (fac.get(rid) or {}).get("spearman")) for rid in ("reference-05", "reference-01", "black-side")]
+    if all(r is not None for _rid, r in rho):
+        out.append("Measured on the preferred build, the order of the temple facets from dark to bright agrees with "
+                   "the photo's by " + ", ".join(f"{r:+.2f} at {rid.replace('reference-', '')}" for rid, r in rho)
+                   + " (+1 = the same order, -1 = reversed).")
+    if "reference-05" in step and "reference-01" in step:
+        out.append("The logo triangle against the band above it (0-255 brightness, before the stretch): "
+                   + "; ".join(f"photo {step[rid]['photo']:+.0f}, render {step[rid]['render']:+.0f} at {rid[-2:]}"
+                               for rid in ("reference-05", "reference-01")) + ".")
+    bsf = fac.get("black-side") or {}
+    if bsf.get("photo_L8"):
+        out.append(f"Black-side: on the black photo the preferred build's temple facets span "
+                   f"{min(bsf['photo_L8']):.0f}-{max(bsf['photo_L8']):.0f} (0-255); its render spans "
+                   f"{min(bsf['render_L8']):.0f}-{max(bsf['render_L8']):.0f}. The PRADA / MILANO lettering renders "
+                   "gold in the black glossy row, while the photo's lettering is white: ignore the lettering there.")
+    out.append("The lenses render light grey or lavender (the bright surroundings show through them); in the photos "
+               "they are dark. Ignore the lenses.")
+    off = f.get("outer_edge_offsets_mm") or edge_offsets(summary.get("pages") or [])
+    if "reference-06" in off:
+        rear, top = off["reference-06"], off.get("reference-03")
+        text = (f"Outer-edge offsets (medians per model and side): in photo 06 (rear) the models' temple outer edges "
+                f"sit {offsets_clause(rear)}")
+        text += f"; in photo 03 (top) they sit {offsets_clause(top)}." if top is not None else "."
+        rear_abs = [abs(v) for s in rear["per_model_side"].values() for v in s.values()]
+        top_abs = [abs(v) for s in (top or {}).get("per_model_side", {}).values() for v in s.values()]
+        if rear["outside"] in (0, rear["count"]) and top_abs and max(top_abs) < min(rear_abs):
+            text += (" At 06 every model and side is off the same way, and by more than any model at 03, so the 06 "
+                     "offset is most likely the rear camera, not the shape.")
+        else:
+            text += " These numbers do not separate the rear camera from the shape."
+        out.append(text)
+    return out
 
 
-def write_index_env(summary: dict) -> None:
+def write_index_env(summary: dict, out: Path | None = None) -> None:
     rows = []
     for pg in summary["pages"]:
         rows.append(f"<section><h2>{html.escape(pg['title'])}</h2>"
                     f"<img src=\"{html.escape(pg['png'])}\" alt=\"{html.escape(pg['photo'])}\"></section>")
     g = summary["gains"]
     tg = g["colourways"]["target"]
-    limits = "".join(f"<li>{html.escape(t)}</li>" for t in LIMITS_ENV)
+    limits = "".join(f"<li>{html.escape(t)}</li>" for t in limits_env(summary))
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Owner sheet 1b</title>
@@ -284,11 +382,20 @@ exposed like the black photo (black-side, one brightness gain over its temple).<
 {''.join(rows)}
 </body></html>
 """
-    (OUT / "index.html").write_text(page, encoding="utf-8")
+    (Path(out or OUT) / "index.html").write_text(page, encoding="utf-8")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--rig", default="studio_dome_v1", choices=tuple(OUTS))
-    s = main(ap.parse_args().rig)
-    print(json.dumps({"timings_s": s["timings_s"], "pages": [p["png"] for p in s["pages"]]}, indent=1))
+    ap.add_argument("--out", default=None, help="output folder (default: data/wp6v2/sheet1 or sheet1b)")
+    ap.add_argument("--cover", default=None, help="rewrite DIR/index.html from DIR/summary.json only (no worker)")
+    a = ap.parse_args()
+    if a.cover:
+        d = Path(a.cover)
+        sm = json.loads((d / "summary.json").read_text(encoding="utf-8"))
+        (write_index if sm["rig"]["name"] == "studio_dome_v1" else write_index_env)(sm, d)
+        print(json.dumps(limits_env(sm) if sm["rig"]["name"] != "studio_dome_v1" else [], indent=1))
+    else:
+        s = main(a.rig, a.out)
+        print(json.dumps({"timings_s": s["timings_s"], "pages": [p["png"] for p in s["pages"]]}, indent=1))

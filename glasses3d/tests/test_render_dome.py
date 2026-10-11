@@ -15,8 +15,14 @@
 * the worker's acetate bodies are the host's (one body rule, g3d_host/pose) and the samples used are recorded;
 * photo_env: the lobe layout is g3d_host/lighting.py's, the float output is an unclipped .npz, the sectors turn with
   the camera (camera-side lobes light the front at 04 more than three times the back lobes), the render scales with
-  the weights; refusals for missing / malformed weights, weights on another rig, an unknown linear_format.
-Needs Blender 5.2 and the Prada data (skipped, or failed under G3D_REQUIRE_DATA=1)."""
+  the weights; refusals for missing / malformed weights, weights on another rig, an unknown linear_format;
+* catalog_band_v1: a mirror sphere reflects world_strength x the declared elevation profile (within 5 % in bands away
+  from the knots), the same from two camera azimuths; no lamps; the knots are recorded as declared;
+* lens_material dark_tint_v1 (sheet-only): every lens-role copy renders its declared emission exactly, the same under
+  catalog_band_v1 and studio_dome_v1 and in native_linear and gloss_black; a view can opt out (None) and keeps the
+  scene's own lens; the frame is untouched; an unknown name is refused.
+Needs Blender 5.2 and the Prada data (skipped, or failed under G3D_REQUIRE_DATA=1; the mirror sphere needs Blender
+only)."""
 from __future__ import annotations
 
 import json
@@ -187,6 +193,7 @@ def test_mesh_overrides_swap_a_copy_only(job):
     ({"views_overrides": {"no such object": "x"}}, "not a rendered mesh"),
     ({"views_overrides": {"Temple right | faceted sweep and ear bend": "no such mesh"}}, "no mesh datablock"),
     ({"rig": "studio_dome_v1", "rig_spec_override": {"no_such_key": 1}}, "unknown keys"),
+    ({"lens_material": "clear_v9"}, "lens_material must be"),
 ])
 def test_refusals(job, params, match):
     v = view(job, "reference-05", 0.25, passes=["clay"])
@@ -265,6 +272,86 @@ def test_photo_env_float_output_lobes_and_orientation(job):
     np.testing.assert_allclose(img["half"][0][face] @ C.LUMA, 0.5 * u, rtol=0.01, atol=2e-3)       # homogeneous
 
 
+# ------------------------------------------------------------------------------------------------ catalog_band_v1
+MIRROR_SPHERE = '''
+import sys, bpy
+out = sys.argv[sys.argv.index("--") + 1]
+for ob in list(bpy.data.objects):
+    bpy.data.objects.remove(ob, do_unlink=True)
+bpy.ops.mesh.primitive_uv_sphere_add(segments=256, ring_count=128, radius=1.0)
+ob = bpy.context.active_object
+bpy.ops.object.shade_smooth()
+m = bpy.data.materials.new("mirror")
+m.use_nodes = True
+b = m.node_tree.nodes.get("Principled BSDF")
+b.inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+b.inputs["Metallic"].default_value = 1.0
+b.inputs["Roughness"].default_value = 0.0
+ob.data.materials.append(m)
+bpy.ops.wm.save_as_mainfile(filepath=out)
+'''
+
+
+def catalog_profile(e_deg, knots) -> np.ndarray:
+    k = np.asarray(knots, float)
+    return np.interp(e_deg, k[:, 0], k[:, 1])
+
+
+def test_catalog_band_is_the_declared_elevation_profile(tmp_path):
+    """A mirror sphere (metallic 1, roughness 0) reflects the world: at every pixel the render is world_strength x the
+    declared profile at the elevation of the reflected ray, the same from two camera azimuths; no lamps, float
+    output, the knots recorded as declared."""
+    script = tmp_path / "sphere.py"
+    script.write_text(MIRROR_SPHERE, encoding="utf-8")
+    blend = tmp_path / "sphere.blend"
+    proc = blender.run(None, script, [blend], timeout_s=300)
+    assert blend.is_file(), proc.stderr[-2000:]
+    (tmp_path / "work").mkdir()
+    n = 400
+    views = []
+    for name, m in (("from_z", [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 5], [0, 0, 0, 1]]),
+                    ("from_x", [[0, 0, 1, 5], [0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1]])):
+        views.append({"name": name, "passes": ["native_linear", "gloss_black"],
+                      "camera": {"type": "ORTHO", "sensor_mm": 36.0, "ortho_scale": 2.4, "shift_x": 0.0,
+                                 "shift_y": 0.0, "clip_start": 0.01, "clip_end": 100.0, "matrix_world": m,
+                                 "resolution": [n, n]}})
+    w = WorkerClient(tmp_path, start_blend=blend, selftest=True).start()
+    try:
+        r = w.call("render", {"out_dir": str(tmp_path / "work" / "cat"), "views": views, "engine": "eevee",
+                              "rig": "catalog_band_v1", "linear_format": "float"}, deadline_s=300)
+    finally:
+        w.close()
+    spec = r["rig_spec"]
+    assert r["rig"] == "catalog_band_v1" and r["unchanged"] and r["lamps"] == []
+    assert [list(k) for k in spec["ramp_deg"]] == [[-90.0, 0.08], [-2.0, 0.08], [0.0, 1.0], [12.0, 1.0],
+                                                   [25.0, 0.35], [55.0, 0.35], [90.0, 0.6]]
+    assert spec["world_strength"] > 0 and spec["raytracing"] is False and spec["azimuth"] == "uniform"
+    c = (np.arange(n) + 0.5 - n / 2) * 2.4 / n
+    X, Y = np.meshgrid(c, -c)
+    rr = X ** 2 + Y ** 2
+    inside = rr < 0.9 ** 2
+    nz = np.sqrt(np.clip(1 - rr, 0, 1))
+    e = np.degrees(np.arcsin(np.clip(2 * nz * Y, -1, 1)))          # reflected ray (0, 0, -1) + 2 n_z n: its y
+    want = spec["world_strength"] * catalog_profile(e, spec["ramp_deg"])
+    imgs = {}
+    for v in r["views"]:
+        f = v["files"]["native_linear"]
+        assert f["path"].endswith(".npz") and f["bit_depth"] == "float16" and f["view_transform"] == "Raw"
+        rgb, a = C.read_linear(f["path"])
+        assert (a[inside] > 0.999).all()
+        imgs[v["name"]] = rgb @ C.LUMA
+    got = imgs["from_z"]
+    rows = {}
+    for lo, hi in ((-80, -5), (2, 10), (30, 50), (60, 85)):           # away from the knots' corners
+        sel = inside & (e >= lo) & (e <= hi)
+        ratio = got[sel] / want[sel]
+        rows[(lo, hi)] = (int(sel.sum()), round(float(np.median(ratio)), 4), round(float(np.percentile(ratio, 90)), 4))
+        assert sel.sum() > 500 and abs(np.median(ratio) - 1.0) < 0.05, rows
+    np.testing.assert_allclose(np.median(imgs["from_x"][inside]), np.median(got[inside]), rtol=0.02)
+    assert np.median(np.abs(imgs["from_x"][inside] - got[inside])) < 0.02 * np.median(got[inside])
+    print("catalog_band_v1 mirror sphere: (px, median, p90 of render / declared) per elevation band", rows)
+
+
 @pytest.mark.parametrize("params, match", [
     ({"rig": "photo_env"}, "needs env weights"),
     ({"rig": "photo_env", "env": {"weights": [1.0] * 5}}, "env weights must be 19"),
@@ -278,3 +365,46 @@ def test_photo_env_refusals(job, params, match):
     with pytest.raises(WorkerError, match=match):
         job["w"].call("render", {"out_dir": str(job["root"] / "work" / "refuse_env"), "views": [v], **params},
                       deadline_s=120)
+
+
+# ------------------------------------------------------------------------------------------------ lens_material
+def test_lens_material_is_one_fixed_unlit_tint(job):
+    """dark_tint_v1 on every lens-role copy: the declared emission, identical under two rigs and two passes; a view
+    with lens_material None keeps the scene's lens; the frame does not change."""
+    tint = view(job, "reference-04", 0.4, name="tint", passes=["native_linear", "gloss_black"])
+    own = view(job, "reference-04", 0.4, name="own", passes=["native_linear"], lens_material=None)
+    runs = {rig: render(job, [tint, own], f"lens_{rig}", rig=rig, linear_format="float", lens_material="dark_tint_v1")
+            for rig in ("catalog_band_v1", "studio_dome_v1")}
+    mesh, roles = head_mesh(job)
+    mp = PO.posed(mesh, tint["pose"], roles)
+    ras = mp.scene().render(tint["cam"], tint["shape"], 1)
+    part = np.full(tint["shape"], -1)
+    part[ras["mask"]] = mp.part[ras["face_id"][ras["mask"]]]
+    lens_ids = [i for i, n in enumerate(mp.node_names) if roles.get(n) == "lens"]
+    lens = C.erode_px(np.isin(part, lens_ids), 3)
+    front = C.erode_px(part == PO.front_body(mp, roles), 3)
+    assert lens.sum() > 500 and front.sum() > 500
+    lens_names = sorted({n for n in mp.node_names if roles.get(n) == "lens"})
+    seen = {}
+    for rig, r in runs.items():
+        spec = r["lens_materials"]["dark_tint_v1"]
+        assert spec["shader"] == "emission" and r["lens_objects"] == lens_names
+        e = np.asarray(spec["emission_rgb"]) * spec["strength"]
+        f = {v["name"]: v["files"] for v in r["views"]}
+        assert "lens_material" not in f["own"]["native_linear"]
+        for ps in ("native_linear", "gloss_black"):
+            assert f["tint"][ps]["lens_material"] == {"name": "dark_tint_v1", "objects": lens_names}
+            rgb, a = C.read_linear(f["tint"][ps]["path"])
+            close = np.all(np.abs(rgb[lens] - e) < 2e-4, axis=1) & (a[lens] > 0.999)
+            assert close.mean() > 0.98, (rig, ps, float(close.mean()))
+            seen[(rig, ps)] = np.median(rgb[lens], axis=0)
+        t_rgb, _ = C.read_linear(f["tint"]["native_linear"]["path"])
+        o_rgb, _ = C.read_linear(f["own"]["native_linear"]["path"])
+        assert np.median(o_rgb[lens] @ C.LUMA) > 5 * np.median(t_rgb[lens] @ C.LUMA)       # the scene's own lens
+        yt, yo = t_rgb[front] @ C.LUMA, o_rgb[front] @ C.LUMA
+        assert np.median(np.abs(yt - yo)) < 0.01 * np.median(yo), rig                      # the frame is untouched
+    ref = next(iter(seen.values()))
+    for k, m in seen.items():
+        np.testing.assert_allclose(m, ref, atol=1e-5, err_msg=str(k))
+    print("dark_tint_v1 lens median RGB per rig and pass:",
+          {f"{r}/{p}": m.round(5).tolist() for (r, p), m in seen.items()})

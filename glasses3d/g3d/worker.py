@@ -406,12 +406,27 @@ def m_exec_unvalidated(params):
     return m_exec(params, validated=False)
 
 
+LAB_SCHEMA = "g3d.temple_lab/2"
+VARIANTS_MAX, VARIANT_VIEWS_MAX = 6, 3
+
+
+def _lab_refusal() -> dict | None:
+    """The temple-lab methods answer only in an isolated lab job (<root>/inputs/lab.json of LAB_SCHEMA)."""
+    marker = ROOT / "inputs" / "lab.json"
+    try:
+        ok = marker.is_file() and json.loads(marker.read_text(encoding="utf-8")).get("schema") == LAB_SCHEMA
+    except (OSError, ValueError):
+        ok = False
+    return None if ok else {"status": "refused", "code": "E_LAB_ONLY",
+                            "message": "this worker is not an isolated temple lab"}
+
+
 def m_temple_lab_build(params):
     """Narrow dictionary-only endpoint for the opt-in temple lab; not the exec facade."""
     from glasses3d.g3d.temple_bpy import faceted_temple
-    marker = ROOT / "inputs" / "lab.json"
-    if not marker.is_file() or json.loads(marker.read_text(encoding="utf-8")).get("schema") != "g3d.temple_lab/1":
-        return {"status": "refused", "code": "E_LAB_ONLY", "message": "this worker is not an isolated temple lab"}
+    refused = _lab_refusal()
+    if refused:
+        return refused
     if not isinstance(params.get("spec"), dict):
         return {"status": "refused", "code": "E_SPEC", "message": "lab spec must be a dictionary"}
 
@@ -419,6 +434,63 @@ def m_temple_lab_build(params):
         receipt = faceted_temple(params["spec"], side="both", decals="auto")
         return {"status": receipt["status"], "result": receipt}
     return _mutating(params, body)
+
+
+def m_temple_variants_render(params):
+    """Lab-only, trusted and read-only (WP6_FACETS §4.1 facet_variants): build each variant g3d.temple/2 spec as
+    unlinked meshes (temple_bpy.build_variant_meshes), render the head and every built variant at each requested view
+    (render.render with the view's pose; a variant's views carry its mesh_overrides) and delete the variant meshes
+    again. params = {variants: [{label, spec}] (1..6), views: [{name, camera, pose}] (1..3), passes, out_dir, rig,
+    env, light_frame, linear_format, engine, samples}. A variant the Blender layer refuses is reported, never
+    rendered. Returns {variants: {label: {status, code, message, overrides}}, render, fingerprint_before,
+    fingerprint_after, unchanged}: the user scene's fingerprint must not change."""
+    from glasses3d.g3d import render as _render
+    from glasses3d.g3d.temple_bpy import build_variant_meshes, remove_variant_meshes
+    refused = _lab_refusal()
+    if refused:
+        return refused
+    variants, views = params.get("variants"), params.get("views")
+    if not isinstance(variants, list) or not 1 <= len(variants) <= VARIANTS_MAX or \
+            not all(isinstance(v, dict) and isinstance(v.get("spec"), dict) for v in variants):
+        return {"status": "refused", "code": "E_ARGS", "message": f"variants must be 1..{VARIANTS_MAX} {{label, spec}}"}
+    labels = [_render.safe_name(str(v.get("label", ""))) for v in variants]
+    if len(set(labels)) != len(labels):
+        return {"status": "refused", "code": "E_ARGS", "message": "variant labels must be distinct"}
+    if not isinstance(views, list) or not 1 <= len(views) <= VARIANT_VIEWS_MAX or \
+            not all(isinstance(v, dict) and "camera" in v for v in views):
+        return {"status": "refused", "code": "E_ARGS",
+                "message": f"views must be 1..{VARIANT_VIEWS_MAX} {{name, camera}}"}
+    t0 = time.perf_counter()
+    fp0 = checkpoint.fingerprint()
+    made, built = [], {}
+    render_out = None
+    try:
+        for label, v in zip(labels, variants):
+            r = build_variant_meshes(v["spec"])
+            if r.get("status") == "ok":
+                made.extend(sorted(set(r["overrides"].values())))
+                built[label] = {"status": "ok", "overrides": r["overrides"], "spec_sha256": r.get("spec_sha256"),
+                                "lines": r.get("lines", [])}
+            else:
+                built[label] = {"status": r.get("status"), "code": r.get("code"),
+                                "message": r.get("message") or r.get("error")}
+        rviews = []
+        for view in views:
+            stem = _render.safe_name(str(view.get("name", "")))
+            base = {"camera": view["camera"], "passes": list(params.get("passes") or ["native_linear"]),
+                    "pose": view.get("pose")}
+            rviews.append({**base, "name": f"{stem}--head"})
+            rviews += [{**base, "name": f"{stem}--{label}", "mesh_overrides": b["overrides"]}
+                       for label, b in built.items() if b["status"] == "ok"]
+        rparams = {k: params[k] for k in ("rig", "env", "light_frame", "linear_format", "engine", "samples")
+                   if params.get(k) is not None}
+        render_out = _render.render({**rparams, "out_dir": params.get("out_dir", ""), "views": rviews}, ROOT,
+                                    selftest=SELFTEST)
+    finally:
+        removed = remove_variant_meshes(made) if made else {"status": "ok", "removed": [], "kept": []}
+    fp1 = checkpoint.fingerprint()
+    return {"status": "ok", "variants": built, "render": render_out, "removed": removed, "fingerprint_before": fp0,
+            "fingerprint_after": fp1, "unchanged": fp0 == fp1, "seconds": round(time.perf_counter() - t0, 4)}
 
 
 def m_fingerprint(params):
@@ -569,7 +641,7 @@ METHODS = {
     "checkpoint_save": m_checkpoint_save, "checkpoint_restore": m_checkpoint_restore, "load_font": m_load_font,
     "scene_summary": m_scene_summary, "bounds": m_bounds, "render": m_render, "pick": m_pick,
     "export_glb": m_export_glb,
-    "temple_lab_build": m_temple_lab_build,
+    "temple_lab_build": m_temple_lab_build, "temple_variants_render": m_temple_variants_render,
 }
 
 
