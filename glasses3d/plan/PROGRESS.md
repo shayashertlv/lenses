@@ -213,7 +213,21 @@ model's t). Owner, verbatim: "ok, fix it and run again, max 15$".
   decided crease; one bracket answers one question; never change a crease's shape for an outline number; on
   E_CREASE_SHAPE first measure its solved corners. T5 38/38 (`t5_wip6e`).
 
-No further paid call is authorized beyond that. Each one needs a cost estimate and the owner's explicit OK.
+**Paid run `facet-astra-006` (2026-10-12).** Approval in the owner's words: "ok, fix it and run again, max 15$". Cap $15,
+effort max, no reply cap, K 4; code `7631a31`; T5 `t5_006` 38/38; estimate_006 (40 replies $10.77, up to $13.80).
+- 00:15-00:34, 26 requests, **$5.075421** settled. Astra finished on its own as **"stuck"**. Best checkpoint c0013
+  (revision 13); export `head-8e43a634deb82aa3.glb` (sha daa5beb96b…); validate_spec ok.
+- Fixed: the top triangle stays one face and the **crown|logo crease is a ridge**; Astra measured A, C, D, H and F
+  with depths (C 7.49) and declared what the measured values built.
+- New problems: the back faces fade from d 48 (Crown, Lower and Tail fade 48-82; Tail is flat 0.7 mm before its fade,
+  W_FADE_EARLY fired 4 times and Astra kept the early fade from a bracket judged on B2 smoothness and the top
+  silhouette), so the upper-back and lower-back triangles do not read as crisp faces; Front|Logo (the face beside the
+  hinge against the logo) is a valley from the measured depths, a ridge in runs 3-5; the top triangle's rise -0.85
+  renders it bright in the side view. Top view still 1-2.5 mm slim at d10-40 (Astra's summary).
+- Sheets: `data/wp6v2/result_facet-astra-006/` (top_triangle_run6.png, faces_run6.png, angled_run6.png, top_run6.png);
+  the 3D viewer's default is run 6. The owner's verdict is pending.
+
+No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
 
