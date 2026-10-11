@@ -117,7 +117,22 @@ stop"):
   money plan: the owner named one number, so the cap is $15 (the budget guard), which spend can never pass; the
   guard keeps room for the reply in flight, so the run ends near $13 at the latest. No separate watcher.
 
-No further paid call is authorized beyond run 4's terms. Each one needs a cost estimate and the owner's explicit OK.
+**Paid run `facet-astra-004` (2026-10-11).**
+- Approval in the owner's words: "yes, implement changes, test them, and run a paid run with a budget of 15$ to force
+  stop". Cap $15 (the budget guard), effort max, no reply cap, K 4. Code `e138736`; T5 `t5_004` 27/27.
+- 15:01:06–15:30:05, 32 requests, **$8.209531** settled. Astra finished on its own as **"stuck"** (the outline rule
+  was never met; no finish refusals). Best checkpoint c0019 (revision 17); export `head-38c91e136fe6ab7b.glb`
+  (sha 0857568818…); validate_spec ok.
+- Layout: hinge, logo, sweep, tail and two upper faces. **Face 4 is its own facet** (`upper_front`: hinge top, the
+  top-outline peak, the logo corner; crease + rise −0.59, steeper than run 3's −0.35). The upper back is a separate
+  face (`upper_rear`), with a ridge between them. Fades start at 77 mm, so no face fades from its own corner.
+  Seven creases declared; roll 0.12 mm.
+- Top photo outline of the best head: only d30 +1.45 beyond 1 mm (run 3: d30 +2.1, d40 +1.2, d50 −1.1, d60 −1.5).
+  Astra's summary: about 1.4 mm short at d30; its last three distinct changes moved the error elsewhere.
+- Sheets: `data/wp6v2/result_facet-astra-004/` (faces_run4.png, top_run4.png, reference-0N.png, black-side.png); the
+  3D viewer's default is run 4. The owner's verdict is pending.
+
+No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
 
