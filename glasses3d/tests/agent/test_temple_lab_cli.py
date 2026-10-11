@@ -365,7 +365,7 @@ def test_instructions_contract_and_finish_text(tmp_path):
                    # after facet-astra-003 (a top face read only from the side): judge top faces from above
                    "Top and bottom faces", "edge-on in the side photos", "points mostly up", "outline line",
                    "Those stations are shape, not camera error", "include the top photo in their photos",
-                   "(5) for matched", "A corner in the top photo's outline is a corner of the faces",
+                   "A corner in the top photo's outline is a corner of the faces",
                    "One plane across it cannot make the corner"):
         assert needed in " ".join(text.split()), needed
     for retired in ("on its own", "no neighbour needs to share"):       # a lone fade does not dissolve its creases

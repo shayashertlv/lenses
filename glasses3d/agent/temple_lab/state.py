@@ -1,10 +1,10 @@
 """The facet lab's persistent state (``work/temple_lab/state.json``) and the host's procedural rules over it
 (plan/WP6_FACETS.md §4.1): the judgement rule (E_JUDGEMENT) and the finish preconditions (finish_missing: one
 head-distinctness rule, geometry.distinct_heads of the built temples, for preconditions 1 and 4; only compares and
-variants that reached Astra count). The host logs judgements and checks procedure; it never grades quality, with one
-measured exception the owner asked for (2026-10-11): a "matched" finish needs the top photo's outline within
-OUTLINE_TOL_MM of its common offset at every station (precondition 5, outline_check). Lab mutates and saves the state
-only under its state lock (Lab.state_lock).
+variants that reached Astra count). The host logs judgements and checks procedure; it never grades quality. The top
+photo's outline line (outline_check: stations beyond OUTLINE_TOL_MM of the common offset) is information printed in
+compares; it was finish precondition 5 for run 4 and is information only since the owner's 2026-10-11 decision. Lab
+mutates and saves the state only under its state lock (Lab.state_lock).
 
 State (schema g3d.temple_lab_state/2):
     revisions   [{id, parent, sha256, file, kind: template | edit | variant, label, ops, note, call_id}] (one per
@@ -13,7 +13,7 @@ State (schema g3d.temple_lab_state/2):
     compares    [{compare_id, checkpoint, fingerprint, revision, photos, by: prepare | astra, call_id, report,
                 judged, unseen?, outline?: {photo: outline_check}}]: Astra must judge the latest "astra" compare it
                 was shown on its next action tool; a compare made by a call the SDK timed out is "unseen" (never
-                shown, never judged); outline: the top photos' outline_check (precondition 5)
+                shown, never judged); outline: the top photos' outline_check (information)
     judgements  [{call_id, tool, compare_id, versus_compare_id, overall, photos, best_checkpoint, revision}]
     variants    [{id, call_id, parent, photos, items: [{label, revision | null, code | null, delta_head_mm}],
                 pairwise: {"A|B": mm}, rendered: [labels rendered at every photo], spread: [3 rendered labels] |
@@ -36,7 +36,7 @@ VERDICTS = ("better", "same", "worse", "mixed")
 DIFFERENCE_MAX = 200
 STUCK_LAST = 3
 DIFFERENT_ATTEMPT = "the built temple surface or outline moves by at least 0.2 mm somewhere"   # = geometry.distinct_heads
-OUTLINE_VIEW = "top"             # precondition 5 reads the outer-edge offsets of the photos of this view
+OUTLINE_VIEW = "top"             # the outline line reads the outer-edge offsets of the photos of this view
 OUTLINE_TOL_MM = 1.0             # ... a station further than this from the side's common offset is shape (the top
 #                                  camera's fit and the temple pose agree to about 0.5 mm along the outline;
 #                                  deviations are compared as printed, to 0.1 mm)
@@ -178,7 +178,7 @@ def applied_checkpoints(state: dict) -> list[str]:
 
 # --------------------------------------------------------------------------------------------- outline
 def outline_check(offsets) -> dict:
-    """Precondition 5's measure of one top photo: ``offsets`` = its outer-edge offsets {side: [{d_mm, offset_mm}]}
+    """The outline line's measure of one top photo: ``offsets`` = its outer-edge offsets {side: [{d_mm, offset_mm}]}
     (photo minus model, mm, + = the photo reaches further out; None where no edge was found). Per side with at least
     OUTLINE_MIN_STATIONS measured stations, the common offset is their median (a shift shared by every station:
     camera and pose translation); a station's deviation from it is taken to 0.1 mm. A station is off when, on every
@@ -186,7 +186,7 @@ def outline_check(offsets) -> dict:
     unmeasured when it lies strictly between the first and last measured station of every such side and none
     measured it. Returns {"common": {side: mm}, "off": [[d_mm, mm], ...] (mm: the mean deviation over those sides),
     "unmeasured": [d_mm, ...]}; "common" is {} when no side measured OUTLINE_MIN_STATIONS stations (nothing measured:
-    outline_ok is False)."""
+    outline_ok is False). Information only (no finish precondition)."""
     common, dev, spans = {}, {}, []
     for side, rows in (offsets or {}).items():
         vals = [(float(r["d_mm"]), float(r["offset_mm"])) for r in rows or [] if r.get("offset_mm") is not None]
@@ -205,7 +205,7 @@ def outline_check(offsets) -> dict:
 
 
 def outline_ok(chk: dict) -> bool:
-    """Precondition 5 holds for this top photo: measured, no station off and none unmeasured inside the outline."""
+    """This top photo's outline is measured, with no station off and none unmeasured inside the outline."""
     return bool(chk["common"]) and not chk["off"] and not chk.get("unmeasured")
 
 
@@ -249,9 +249,8 @@ def distinct_compared_heads(state: dict, distinct, limit: int | None = None) -> 
 def finish_missing(state: dict, *, status: str, best_revision: int, k: int, distinct, target_photos: list) -> list:
     """The unmet finish preconditions (§4.1), each as {precondition, message}; [] = all met. ``distinct(ra, rb)`` is
     the one head-distinctness rule, used by precondition 1 and by precondition 4. Only what reached Astra counts:
-    seen compares (1, 3, 5) and seen variants (2). Precondition 5 (matched only) reads the outline_check of the
-    latest seen compare of best_revision that showed a target top photo (a job without a top photo: nothing to
-    check); a station off, a station unmeasured inside the outline, or no measurement at all refuses matched."""
+    seen compares (1, 3) and seen variants (2). The top photo's outline line is information, never a precondition
+    (owner, 2026-10-11)."""
     out = []
     chain = distinct_compared_heads(state, distinct, limit=k)
     if len(chain) < k:
@@ -276,15 +275,4 @@ def finish_missing(state: dict, *, status: str, best_revision: int, k: int, dist
                                                       f"{STUCK_LAST} distinct heads, none 'better'; they cover "
                                                       f"{len(heads)} distinct heads" + (f" and {better} said better"
                                                                                         if better else "")})
-    if status == "matched":
-        last = next((c for c in reversed(seen_compares(state)) if c["revision"] == best_revision and c.get("outline")),
-                    None)
-        bad = {pid: chk for pid, chk in ((last or {}).get("outline") or {}).items() if not outline_ok(chk)}
-        if bad:
-            where = "; ".join(f"photo {pid} {outline_text(chk)}" for pid, chk in sorted(bad.items()))
-            out.append({"precondition": 5, "photos": sorted(bad),
-                        "message": f"matched needs the top photo's outline measured and within {OUTLINE_TOL_MM:g} mm "
-                                   f"of its common offset at every station; revision {best_revision}: {where} (+: the "
-                                   "photo reaches further out, -: the model does). Change the shape there, or finish "
-                                   "stuck"})
     return out

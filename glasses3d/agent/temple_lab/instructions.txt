@@ -118,10 +118,9 @@ facet_finish is accepted only when: (1) at least {K} distinct applied heads were
 against every other head counted, the built temple surface or outline moves by at least 0.2 mm somewhere; (2) one
 facet_variants call rendered at least 3
 variants pairwise at least 0.3 mm apart; (3) you were shown a compare of best_checkpoint's revision at every target
-photo; (4) for stuck, the last 3 judgements cover 3 distinct heads (as in 1) and none says better; (5) for matched,
-the top photo's outline at best_checkpoint is measured and lies within 1 mm of its common offset at every station
-(its compare's outline line). Otherwise it is refused with the missing ones named and the run continues. Continue until the
-renders and the photos read as the same object (status matched), or the stuck condition holds (status stuck). The
+photo; (4) for stuck, the last 3 judgements cover 3 distinct heads (as in 1) and none says better. Otherwise it is
+refused with the missing ones named and the run continues. Continue until the renders and the photos read as the same
+object (status matched), or the stuck condition holds (status stuck). The
 host ends the run without a finish once the next request could pass the cap (the settled amount plus one large
 reply, a few dollars), so finish before then.
 

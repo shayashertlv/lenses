@@ -511,7 +511,7 @@ class Lab(SceneHooks):
             return {"status": "error", "code": res.get("code", "E_COMPARE"), "message": res.get("message")}
         report = read(res["report"])
         rids = list(res["photos"])
-        outline = {}                     # finish precondition 5: every target top photo's outline_check
+        outline = {}                     # the outline line (information): every target top photo's outline_check
         for r in rids:
             prec = report["photos"].get(r, {})
             if prec.get("view_kind") == S.OUTLINE_VIEW and self.pid(r) in self.photo_ids():
@@ -540,7 +540,7 @@ class Lab(SceneHooks):
         """One photo of a compare, compact: view (a colourway photo: its colour and rows), temple IoU, scale, crop
         (box and scale k: u_img = (u - x0 + 0.5) k - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top
         and rear photos, over the stations where the photo has one; with_start: the start model's too), a top
-        photo's outline_check (state.outline_text: finish precondition 5), points_px charted."""
+        photo's outline_check (state.outline_text, information), points_px charted."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")

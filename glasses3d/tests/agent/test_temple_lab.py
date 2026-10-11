@@ -1203,7 +1203,7 @@ def test_finish_refused_names_preconditions_then_accepted(lab, monkeypatch):
                                                           "summary": "s", "judgement": None})) == "accepted"
 
 
-# --------------------------------------------------------------------------------------------- precondition 5
+# --------------------------------------------------------------------------------------------- the outline line
 RUN3_TOP = {"+1": [-0.4, 0.1, 1.5, 0.7, -1.8, -2.1, -1.5, -0.8, -0.6, -0.7, -0.3, None, None],    # facet-astra-003's
             "-1": [-0.5, 0.0, 1.5, 0.6, -1.6, -2.1, -1.4, -0.8, -0.6, -0.9, -0.3, None, None]}    # best head, photo 03
 
@@ -1219,7 +1219,7 @@ def test_outline_check_names_shape_beyond_the_common_offset():
     from it on both sides, the same way (d50 only on one side: not off). Deviations count as printed (0.1 mm). Sides
     that disagree in sign, a side with fewer than OUTLINE_MIN_STATIONS stations and a station one side measured never
     count; a station no side measured, inside the measured span of every side, is unmeasured; no side with enough
-    stations is "not measured". Unmeasured or not measured fails precondition 5 like an off station."""
+    stations is "not measured"; outline_ok holds only for a measured outline with no station off or unmeasured."""
     chk = S.outline_check(offsets(RUN3_TOP))
     assert chk == {"common": {"+1": -0.6, "-1": -0.6}, "off": [[30.0, 2.1], [40.0, 1.25], [60.0, -1.5]],
                    "unmeasured": []} and not S.outline_ok(chk)
@@ -1244,11 +1244,10 @@ def test_outline_check_names_shape_beyond_the_common_offset():
     assert S.outline_text(many) == "outline: common +0.0; >1 mm: d70 +2.0 d80 +2.0 d90 +2.0 d100 +2.0 (+1 more)"
 
 
-def test_matched_needs_the_top_outline_within_1_mm(lab, monkeypatch):
-    """Finish precondition 5: matched is refused while the latest compare of best_checkpoint's revision at the top
-    photo has a station more than 1 mm from the common offset, or could not measure the outline; the refusal and that
-    photo's compare text name the stations (no other photo carries an outline line); it never holds stuck; once the
-    latest compare of that head is within reach, matched is accepted."""
+def test_top_outline_line_is_information_only(lab, monkeypatch):
+    """The top photo's outline line (owner 2026-10-11: information only): photo 03's compare text names the stations
+    beyond 1 mm of the common offset (no other photo carries an outline line) and the compare record keeps the check,
+    but facet_finish never refuses on it: matched is accepted with the outline off."""
     import glasses3d.g3d_host.spec as GS
     monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
                                                         "live_site_would_fail": []})
@@ -1260,22 +1259,8 @@ def test_matched_needs_the_top_outline_within_1_mm(lab, monkeypatch):
     assert body["photos"]["03"].endswith("| outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5")
     assert [p for p, t in body["photos"].items() if "outline" in t] == ["03"]
     assert lab.state["compares"][-1]["outline"] == {"03": S.outline_check(offsets(RUN3_TOP))}
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
-                                                "judgement": judgement(lab, best=best, overall="same")}))
-    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [5]
-    assert body["missing"][0]["photos"] == ["03"]
-    assert "revision 1: photo 03 outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5" in \
-        body["missing"][0]["message"]
-    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets({"+1": [0.0, 1.0] + [None] * 9})}
-    parsed(call(tl["photo_compare"], {"photos": ["03"], "crop": None, "points_px": None}))
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
-                                                "judgement": judgement(lab, best=best, overall="same")}))
-    assert [m["precondition"] for m in body["missing"]] == [5] and "not measured" in body["missing"][0]["message"]
-    assert 5 not in [m["precondition"] for m in S.finish_missing(lab.state, status="stuck", best_revision=1, k=0,
-                                                                  distinct=lab.distinct, target_photos=PHOTO_IDS)]
-    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets({"+1": [-0.6] * 11, "-1": [-0.5] * 11})}
-    body, *_ = parsed(call(tl["photo_compare"], {"photos": ["03"], "crop": None, "points_px": None}))
-    assert body["photos"]["03"].endswith("| outline: common -0.6; all within 1 mm")
+    assert S.finish_missing(lab.state, status="matched", best_revision=1, k=0, distinct=lab.distinct,
+                            target_photos=PHOTO_IDS) == []
     body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
                                                 "judgement": judgement(lab, best=best, overall="same")}))
     assert body["status"] == "accepted" and body["revision"] == 1

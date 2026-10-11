@@ -13,3 +13,5 @@ pypatchmatch==2.0.1
 # 0.34-1.07 px, against 5-11 px contour error.
 open3d==0.20.0
 pytest==9.1.1
+pytest-xdist==3.8.0      # 2026-10-11: parallel test runs (-n 14), owner: "max utilize local machine"
+execnet==2.1.2           # pytest-xdist dependency

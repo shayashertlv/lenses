@@ -16,8 +16,8 @@ with the footer and makes the next call E_BUSY; a facet_edit timed out the same 
 its compare (never shown) demands no judgement of the next action; an early facet_finish is refused E_FINISH and the
 run goes on; one scripted count above the guard threshold makes the next request replace the superseded compare images
 by stubs; facet_variants leaves the worker's scene fingerprint unchanged; the top photo's compare text carries its
-outline line, and a "matched" finish on a head whose top outline is off is refused with precondition 5 alone; after
-one more distinct head, the accepted "stuck" finish ends the run (status completed, no further request) with an
+outline line (information only); after one more distinct head (judging compare_all), the accepted "stuck" finish
+ends the run (status completed, no further request) with an
 export that validates; the §4.5 text budgets hold on every real
 output; instructions-sent.txt is byte for byte the bound instructions; no network. The first request carries every
 photo (6 target + 3 black); photo_image shows the reference-only B2; photo_compare on B1 (with points_px) shows photo /
@@ -290,9 +290,11 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                                                                          overall="worse")))
 
     def edit_h6():
-        """A third distinct head after the refused matched finish (whose judgement covered compare_all)."""
+        """A third distinct head; its judgement covers compare_all (H3), so the stuck finish's last three judgements
+        are on H4, H3 and H6."""
         edits, _ = head_edits("H6", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1]))
+        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1], judged=judgement(lab, best=st["h3"],
+                                                                                         overall="same")))
 
     def restore_h3():
         """After the timed-out apply has finished: no judgement is due (its compare was never shown)."""
@@ -324,9 +326,6 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             {"photo": "B1", "points": POINTS_B1}]})),
         ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
                                                               "points_px": None})),
-        ("finish_outline", lambda: R.tool_call("facet_finish", {
-            "status": "matched", "best_checkpoint": st["h3"], "summary": CONTROL,
-            "judgement": judgement(lab, best=st["h3"], overall="same")})),
         ("edit_h6", edit_h6),
         ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h3"],
                                                         "summary": CONTROL, "judgement": judgement(
@@ -435,9 +434,6 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         "top_photo_compare_has_the_outline_line": "| outline: common " in str(
             (by["compare_all"]["body"].get("photos") or {}).get("03")) and ">1 mm: d" in str(
             (by["compare_all"]["body"].get("photos") or {}).get("03")),
-        "matched_refused_on_the_top_outline_alone": by["finish_outline"]["code"] == "E_FINISH"
-                                                    and [m["precondition"] for m in by["finish_outline"]["body"].get(
-                                                        "missing", [])] == [5],
         "stuck_finish_accepted": by["finish"]["body"].get("finish") == "stuck",
         "every_result_has_the_footer": all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text"),
         "first_request_carries_every_photo": image_hashes == [p["sha256"] for p in rows]
