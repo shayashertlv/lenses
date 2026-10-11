@@ -14,7 +14,16 @@ Job layout (``root``):
 target photo (this fixes the job's start model, gains and, for photo_env, its environment), take revision 0 =
 template_from_mesh of the original's +X temple body (with the decal and hinge footprints and the body's chart mesh for
 the section strips), apply it, and compare revision 0 at every target photo. ``Lab(root).start()`` reopens the head
-for a run. Photo ids are "01".."06" (= the basis' reference-01..06, target colourway only).
+for a run.
+
+Photo ids (lab.json ``photos``, each with a role; rows without one are target photos):
+    target      "01".."06" = the basis' reference-01..06 (target colourway): photo_image, photo_compare (the default
+                set), facet_variants, and finish precondition 3 (``photo_ids``);
+    colourway   e.g. "B1" = a basis image of another colourway (``basis_ref``, e.g. black-side): photo_image and
+                photo_compare (photo / overlay / gloss_black, no native row: seeing's variant-colourway compare);
+                never facet_variants (its sheets render the target material) and never the default set;
+    reference   e.g. "B2", "B3" = an image without a camera under inputs/: photo_image only.
+``compare_ids`` = target + colourway; ``image_ids`` = all of them.
 
 Tool methods (each returns a dict for tools.py; "images" lists image files, never sent as paths):
     inspect()                                       head summary, chart, section strip (head / original / parent)
@@ -81,7 +90,8 @@ CHART_W = 1024
 BUILD_DEADLINE_S = hard_timeout_s("facet_edit")    # a temple_lab_build still running then is killed (worker restart)
 STRIP_STATIONS = (5, 15, 25, 35, 50, 65, 80)
 STRIP_PANEL_W, STRIP_PANEL_H = 146, 420
-LINE_MAX = 170
+LINE_MAX = 170                   # a receipt line (the core's W_* messages fit it with 24-character names)
+REFUSAL_MAX = 400                # a refusal message in facet_variants (the core's longest are about 250)
 BUILD_CACHE = 24
 CONTEXT_KEEP_LATEST = 2          # the context guard keeps the images of the latest 2 compare / variants results
 LOCK_WAIT_S = 600.0              # exit_checkpoint / close wait this long for a tool call still holding the scene
@@ -121,6 +131,17 @@ def same_warning(line: str, ref: str) -> bool:
     nums, refs = NUMBER_RE.findall(line), NUMBER_RE.findall(ref)
     return NUMBER_RE.sub("#", line) == NUMBER_RE.sub("#", ref) and len(nums) == len(refs) and \
         all(_close(a, b) for a, b in zip(nums, refs))
+
+
+def brief(text: str, limit: int = REFUSAL_MAX) -> str:
+    """text whole when it fits in limit characters, else cut at its last clause end ("; " or ". ") before the limit
+    (at the last space when it has none) and marked " ...": never mid-word, never mid-clause when it has clauses."""
+    if len(text) <= limit:
+        return text
+    cut = max(text.rfind("; ", 0, limit - 3), text.rfind(". ", 0, limit - 3))
+    if cut <= 0:
+        cut = text.rfind(" ", 0, limit - 3)
+    return (text[:cut] if cut > 0 else text[:limit - 4]) + " ..."
 
 
 def ramp_line(warnings: list) -> str:
@@ -179,25 +200,66 @@ class Lab(SceneHooks):
         """The target photos as "01".. (the basis' reference-NN of the target colourway)."""
         return [self.pid(rid) for rid in self.basis.refs if self.basis.colourway(rid) == "target"]
 
-    @staticmethod
-    def pid(rid: str) -> str:
+    def _rows(self, role: str) -> list[dict]:
+        return [r for r in self.manifest.get("photos") or [] if r.get("role", "target") == role]
+
+    def colourway_refs(self) -> dict:
+        """{photo id: basis reference} of the calibrated photos of another colourway (e.g. {"B1": "black-side"})."""
+        out = {}
+        for row in self._rows("colourway"):
+            ref = row.get("basis_ref")
+            if ref not in self.basis.refs or self.basis.colourway(ref) == "target":
+                raise ValueError(f"lab.json photo {row.get('id')!r}: the basis holds no colourway image {ref!r}")
+            out[row["id"]] = ref
+        return out
+
+    def _colour(self, pid: str) -> str | None:
+        """The colour of a colourway or reference-only photo (e.g. "black"); None for a target photo."""
+        row = next((r for r in self.manifest.get("photos") or [] if r.get("id") == pid
+                    and r.get("role", "target") != "target"), None)
+        return (row.get("colour") or "other colour") if row else None
+
+    def compare_ids(self) -> list[str]:
+        """The photos photo_compare takes: the target photos, then the calibrated colourway photos."""
+        return self.photo_ids() + list(self.colourway_refs())
+
+    def image_ids(self) -> list[str]:
+        """The photos photo_image takes: the compare photos, then the reference-only photos (no camera)."""
+        return self.compare_ids() + [r["id"] for r in self._rows("reference")]
+
+    def pid(self, rid: str) -> str:
+        for pid, ref in self.colourway_refs().items():
+            if ref == rid:
+                return pid
         return rid[len("reference-"):] if rid.startswith("reference-") else rid
 
     def rid(self, pid: str) -> str:
+        """The basis reference of a target or colourway photo id; a reference-only photo (no camera) is refused."""
         for rid in self.basis.refs:
             if self.pid(rid) == pid and self.basis.colourway(rid) == "target":
                 return rid
-        raise LabRefusal("E_ARGS", f"there is no target photo {pid!r}; photos: {self.photo_ids()}")
+        ref = self.colourway_refs().get(pid)
+        if ref is not None:
+            return ref
+        if pid in [r["id"] for r in self._rows("reference")]:
+            raise LabRefusal("E_ARGS", f"photo {pid} has no calibrated camera: it is for photo_image only; photos with "
+                                       f"a camera: {self.compare_ids()}")
+        raise LabRefusal("E_ARGS", f"there is no photo {pid!r}; photos with a camera: {self.compare_ids()}")
 
-    def _photos_arg(self, photos, *, low: int = 1, high: int | None = None) -> list[str] | None:
+    def _photos_arg(self, photos, *, low: int = 1, high: int | None = None, targets_only: bool = False) \
+            -> list[str] | None:
+        """Validated photo ids of a compare (target and colourway photos) or, targets_only, of a variant render."""
         if photos is None:
             return None
-        ids = self.photo_ids()
+        ids = self.photo_ids() if targets_only else self.compare_ids()
         high = high or len(ids)
         if not isinstance(photos, list) or not low <= len(photos) <= high or len(set(photos)) != len(photos):
             raise LabRefusal("E_ARGS", f"photos must be {low}..{high} distinct ids of {ids}")
         for p in photos:
             self.rid(p)
+            if p not in ids:
+                raise LabRefusal("E_ARGS", f"photo {p} is not a target photo: facet_variants renders the target "
+                                           f"material only; photos: {ids}")
         return list(photos)
 
     def fingerprint_of(self, checkpoint: str | None) -> str | None:
@@ -461,20 +523,22 @@ class Lab(SceneHooks):
         texts, images = {}, []
         for r in rids:
             texts[self.pid(r)] = self._photo_text(report["photos"].get(r, {}), res["photos"][r].get("points"), spec,
-                                                  with_start)
+                                                  with_start, colour=self._colour(self.pid(r)))
             images.append(self._image(res["photos"][r]["image"], "compare", ref=cid, photo=self.pid(r),
                                       revision=rec["revision"]))
         self.save()
         return {"status": "ok", "compare_id": cid, "photos": texts, "images": images}
 
-    def _photo_text(self, rec: dict, points, spec, with_start: bool = True) -> str:
-        """One photo of a compare, compact: view, temple IoU, scale, crop (box and scale k: u_img = (u - x0 + 0.5) k
-        - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top and rear photos, over the stations where the
-        photo has one; with_start: the start model's too), points_px charted."""
+    def _photo_text(self, rec: dict, points, spec, with_start: bool = True, colour: str | None = None) -> str:
+        """One photo of a compare, compact: view (a colourway photo: its colour and rows), temple IoU, scale, crop
+        (box and scale k: u_img = (u - x0 + 0.5) k - 0.5), outer-edge offsets in mm to 0.1 (photo minus model, top
+        and rear photos, over the stations where the photo has one; with_start: the start model's too), points_px
+        charted."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")
-        text = f"{rec.get('view_kind')} IoU {float(rec.get('temple_iou', float('nan'))):.3f}"
+        text = f"{rec.get('view_kind')}" + (f" {colour}: rows photo/overlay/gloss-black" if colour else "") + \
+            f" IoU {float(rec.get('temple_iou', float('nan'))):.3f}"
         if ppm is not None and np.isfinite(ppm):
             text += f", {ppm * k:.2f} px/mm"                        # in the image shown; native = this / k
         if crop.get("box"):
@@ -667,8 +731,7 @@ class Lab(SceneHooks):
                "inherited_from_revision_0": self.inherited_lines(),
                "revisions": {"count": len(revs), "last": rows, "columns": ["id", "parent", "kind", "spec"]},
                "applied": [[h["checkpoint"], h["revision"]] for h in heads[-12:]],
-               "photos": {self.pid(r): self.basis.refs[r].get("view_kind") for r in self.basis.refs
-                          if self.basis.colourway(r) == "target"},
+               "photos": self._photo_list(),
                "latest_compare": mine[-1]["compare_id"] if mine else None,
                "judgement_due": (S.pending_compare(self.state) or {}).get("compare_id"),
                "best_checkpoint": self.state.get("best_checkpoint"),
@@ -676,9 +739,26 @@ class Lab(SceneHooks):
         self.save()
         return out
 
+    def _photo_list(self) -> dict:
+        """facet_inspect's photo list: id -> view (a photo of another colourway: its colour and what takes it)."""
+        out = {pid: self.basis.refs[self.rid(pid)].get("view_kind") for pid in self.photo_ids()}
+        for pid, ref in self.colourway_refs().items():
+            out[pid] = f"{self.basis.refs[ref].get('view_kind')}, {self._colour(pid)}, photo_compare"
+        for row in self._rows("reference"):
+            out[row["id"]] = f"{row.get('view')}, {self._colour(row['id'])}, photo_image only"
+        return out
+
     def photo(self, photo: str, crop=None) -> dict:
-        rid = self.rid(photo)
-        rgb = self.basis.photo(rid)
+        """A photo (any of image_ids: a reference-only photo is read from inputs/, sha-checked) or a native crop."""
+        ref_row = next((r for r in self._rows("reference") if r["id"] == photo), None)
+        if ref_row is not None:
+            p = (self.root / "inputs" / ref_row["path"]).resolve()
+            if not p.is_relative_to(self.root / "inputs") or not p.is_file() or sha(p) != ref_row["sha256"]:
+                raise LabRefusal("E_STATE", f"photo {photo}: its input bytes changed")
+            rgb, view = np.asarray(Image.open(p).convert("RGB")), ref_row.get("view")
+        else:
+            rid = self.rid(photo)
+            rgb, view = self.basis.photo(rid), self.basis.refs[rid].get("view_kind")
         H, W = rgb.shape[:2]
         if crop is not None:
             if not isinstance(crop, list) or len(crop) != 4 or any(isinstance(v, bool) or not isinstance(v, int)
@@ -692,8 +772,9 @@ class Lab(SceneHooks):
         p = self.work / "images" / f"photo-{photo}-{tag}.png"
         p.parent.mkdir(parents=True, exist_ok=True)
         im.save(p)
-        out = {"status": "ok", "photo": photo, "view": self.basis.refs[rid].get("view_kind"), "transform": transform,
-               "images": [self._image(p, "photo", ref=f"photo-{photo}")]}
+        colour = self._colour(photo)
+        out = {"status": "ok", "photo": photo, "view": view, **({"colour": colour} if colour else {}),
+               "transform": transform, "images": [self._image(p, "photo", ref=f"photo-{photo}")]}
         self.save()
         return out
 
@@ -704,9 +785,9 @@ class Lab(SceneHooks):
         if self.head_record() is None:
             raise LabRefusal("E_STATE", "the scene holds no applied revision")
         for p in points or []:
+            self.rid(p["photo"])
             if photos is not None and p["photo"] not in photos:
                 raise LabRefusal("E_ARGS", f"points name photo {p['photo']}, which this compare does not show")
-            self.rid(p["photo"])
         return self._compare(call_id, photos, by="astra", crop=crop or "temple", points=points, tool="photo_compare")
 
     def _judge(self, judgement, call_id: str, tool: str) -> None:
@@ -803,7 +884,7 @@ class Lab(SceneHooks):
         self._judge(judgement, call_id, "facet_variants")
         self.save()
         parent = S.revision(self.state, parent_revision)
-        photos = self._photos_arg(photos, low=1, high=VARIANT_PHOTOS_MAX)
+        photos = self._photos_arg(photos, low=1, high=VARIANT_PHOTOS_MAX, targets_only=True)
         if photos is None:
             raise LabRefusal("E_ARGS", f"photos must name 1..{VARIANT_PHOTOS_MAX} photos")
         if not isinstance(variants, list) or not VARIANTS_MIN <= len(variants) <= VARIANTS_MAX:
@@ -826,9 +907,9 @@ class Lab(SceneHooks):
                 spec, _notes = G.apply_edits(base, v.get("edits") or [])
                 tb = build_temple(spec)
             except G.EditError as e:
-                item.update(revision=None, code=e.code, edit=e.index, message=e.message[:LINE_MAX])
+                item.update(revision=None, code=e.code, edit=e.index, message=brief(e.message))
             except TempleError as e:
-                item.update(revision=None, code=e.code, edit=None, message=e.message[:LINE_MAX])
+                item.update(revision=None, code=e.code, edit=None, message=brief(e.message))
             else:
                 rid, _new = self._register(spec, parent=parent["id"], kind="variant", label=v["label"],
                                            ops=len(v.get("edits") or []), call_id=call_id)

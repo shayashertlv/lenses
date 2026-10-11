@@ -22,13 +22,15 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
 
 - **prepare** ($0; about 1 min with the default rig `studio_dome_v1`, 4 min with `photo_env`) writes a new package:
   - `inputs/`: `scene.blend` (a byte copy of the original, sha checked), the target photos (checked against the
-    reference manifest and the pose basis), `brief.txt`, `instructions.txt` and `lab.json`
-    (`g3d.temple_lab/2`: the rig, every input's sha256, the photo list, the pose basis's file hashes);
-  - `basis/cameras.json`: the pose basis restricted to the target photos, imported as `cameras/basis-NN` (with its
-    photo mattes). It sits outside `inputs/` because every file under `inputs/` is sha-bound as an approved input
-    (`approvals.input_digests`) and every image under `inputs/` is sent in the first message
-    (`approvals.run_input_binding`); the basis files are bound separately (`lab.json` `basis.files`);
-  - then the original is compared at every photo (only with `--rig photo_env` does this fit and freeze the job's
+    reference manifest and the pose basis), the black photos (`cli.COLOURWAY_PHOTOS`, `cli.REFERENCE_PHOTOS`, each
+    sha-pinned; below), `brief.txt`, `instructions.txt` and `lab.json` (`g3d.temple_lab/2`: the rig, every input's
+    sha256, the photo list with each photo's role, the pose basis's file hashes);
+  - `basis/cameras.json`: the pose basis restricted to the target photos and B1 (with B1's supplied matte under
+    `basis/mattes/`), imported as `cameras/basis-NN` (with its photo mattes). It sits outside `inputs/` because every
+    file under `inputs/` is sha-bound as an approved input (`approvals.input_digests`) and every image under
+    `inputs/` is sent in the first message (`approvals.run_input_binding`); the basis files are bound separately
+    (`lab.json` `basis.files`);
+  - then the original is compared at every target photo (only with `--rig photo_env` does this fit and freeze the job's
     light, about 150 s), revision 0 (`template_from_mesh` of the original's +X temple) is applied, checkpointed and
     compared;
   - `job.json` binds the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`), the rig and
@@ -45,6 +47,22 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
 - **run** is the paid run. The budget guard refuses it before any request unless the owner approved exactly that
   request. `--no-turn-cap` replaces `--turns`, and `--fit-output-to-budget` lets the last replies use the rest of the
   cap; both are bound into the approval.
+
+Photos (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos included). Every image under
+`inputs/` is in the first message, the target photos first:
+- target `01`..`06` (role `target`): every tool; the default compare set; finish precondition 3;
+- `B1` (role `colourway`, `black-side.png`, sha 6eddabbb…): the same model in black acetate with its pose-basis
+  camera (colourway variant, "camera transported from 05"). `photo_image` and `photo_compare` take it; its compare
+  shows photo / overlay / gloss_black render, no native row (the model's material is the target colourway). Never in
+  the default set, never in `facet_variants` (its sheets render the target material only);
+- `B2` angled and `B3` front (role `reference`, `black-angled.webp` sha 5705c2ca…, `black-front.webp` sha e89d19f4…,
+  from the owner's black Prada product images): no camera, `photo_image` only; `photo_compare` refuses them
+  (outside its enum; the lab's own check names photo_image).
+
+With B1 in the package's basis, the job's gloss_black gain and stretch come from that dark photo (seeing
+`gains_from_renders`: a dark colourway sets them; its side view has no usable front, so the region is its largest
+acetate region, labelled so), frozen at prepare like every gain. Without a dark photo they were the fixed exposure
+of the front acetate to luma 40 and the stretch 0-128.
 
 Run settings (`tools.run_settings`): every reply must call a tool (`tool_choice` required, kept after the first call);
 the run ends only when `facet_finish` returns accepted (K distinct compared heads, `--k`, default 4); a text reply
@@ -74,8 +92,8 @@ count):
   roll) and is cached per pair of revisions.
 - One `facet_variants` call with 3 variants pairwise >= 0.3 mm apart (`value_mm`: the surface or outline part above),
   counted only over variants that rendered and whose result reached Astra (a call the SDK timed out counts nothing).
-- best_checkpoint's revision compared at every photo by compares Astra was shown (prepare's compares and a timed-out
-  call's compare do not count).
+- best_checkpoint's revision compared at every target photo by compares Astra was shown (prepare's compares and a
+  timed-out call's compare do not count; B1 is not required).
 - stuck only: the last 3 judgements are on 3 heads that differ pairwise (the same rule), and none says better.
 
 The lab's state is mutated and saved only under one lock (`Lab.state_lock`), so `mark_unseen` (on the event loop,

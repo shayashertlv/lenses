@@ -1,9 +1,10 @@
 """T5 (plan/WP6_FACETS.md §5): the $0 scripted rehearsal of a facet run. SCRIPTED OFFLINE TOOL TEST: the edits
 below are arbitrary controls, never Astra or product output.
 
-A fresh package (temple_lab.cli.prepare: a byte copy of the original Prada scene, the target photos, the pose basis,
-revision 0 applied) runs through agent/loop.run_astra with the pinned Agents SDK, the real Blender worker and the
-seven facet tools, while api.openai.com is a MockTransport (agent/replay.ScriptedOpenAI) whose replies are scripted
+A fresh package (temple_lab.cli.prepare: a byte copy of the original Prada scene, the six target photos, the three
+black photos B1-B3, the pose basis with B1, revision 0 applied) runs through agent/loop.run_astra with the pinned
+Agents SDK, the real Blender worker and the seven facet tools, while api.openai.com is a MockTransport
+(agent/replay.ScriptedOpenAI) whose replies are scripted
 calls built from the live lab state; LoopbackOnly and the production-transport tripwire are active throughout. The
 run settings are exactly a paid run's (tools.run_settings: required tool choice kept, final only on an accepted
 facet_finish with K 4, the context guard at 240k counted input); only the approval is a synthetic OFFLINE ONLY record.
@@ -16,8 +17,10 @@ its compare (never shown) demands no judgement of the next action; an early face
 run goes on; one scripted count above the guard threshold makes the next request replace the superseded compare images
 by stubs; facet_variants leaves the worker's scene fingerprint unchanged; the accepted facet_finish ends the run
 (status completed, no further request) with an export that validates; the §4.5 text budgets hold on every real
-output; instructions-sent.txt is byte for byte the bound instructions; no network. It records every tool output's
-text and image sizes (the estimate's input).
+output; instructions-sent.txt is byte for byte the bound instructions; no network. The first request carries every
+photo (6 target + 3 black); photo_image shows the reference-only B2; photo_compare on B1 (with points_px) shows photo /
+overlay / gloss_black and no native row. It records every tool output's text and image sizes (the estimate's input)
+and where the job's gloss_black gain came from.
 
 Writes <out>/rehearsal.json (and <out>-run.json, the process receipt).
 Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.astra_temple_lab rehearse --out DIR [--rig RIG]
@@ -61,6 +64,8 @@ TEXT_BUDGET = {"facet_edit": 1500, "facet_variants": 1500, "facet_restore": 1000
 GUARD_COUNT = CONTEXT_GUARD_TOKENS + 1_000      # one scripted count above the guard: it fires on the next request
 CROP_05 = [300, 150, 900, 450]
 POINTS_05 = [[600.0, 300.0], [700.0, 320.0]]
+POINTS_B1 = [[700.0, 230.0], [1000.0, 220.0]]   # native px of black-side (1607 x 554), on the temple
+BLACK_ROWS = {"photo", "overlay", "gloss_black"}  # a variant-colourway photo's compare rows (no native row)
 FOOTER = re.compile(r"\nsettled \$\d+\.\d\d / cap \$\d+\.\d\d · context \S+ tokens$")
 CONTROL = "SCRIPTED CONTROL, not a visual judgement"
 
@@ -292,6 +297,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     steps = [
         ("inspect", lambda: R.tool_call("facet_inspect", {})),
         ("photo_image", lambda: R.tool_call("photo_image", {"photo": "05", "crop": CROP_05})),
+        ("photo_black", lambda: R.tool_call("photo_image", {"photo": "B2", "crop": None})),
         ("compare_points", lambda: R.tool_call("photo_compare", {"photos": None, "crop": None, "points_px": [
             {"photo": "05", "points": POINTS_05}]})),
         ("edit_unjudged", lambda: R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0]))),
@@ -306,6 +312,8 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("edit_h4", edit_h4),
         ("edit_slow", edit_slow),
         ("restore_h3", restore_h3),
+        ("compare_black", lambda: R.tool_call("photo_compare", {"photos": ["B1"], "crop": None, "points_px": [
+            {"photo": "B1", "points": POINTS_B1}]})),
         ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
                                                               "points_px": None})),
         ("finish", lambda: R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": st["h3"],
@@ -364,8 +372,17 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                       and i.get("type") == "function_call_output"
                       for p in _parts(i) if p.get("type") == "input_text" and p["text"].startswith("[image removed")}) \
         if guard_req is not None else []
-    expected_images = {"inspect": 2, "photo_image": 1, "compare_points": len(by["compare_points"]["body"]["photos"]),
-                       "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": 2}
+    expected_images = {"inspect": 2, "photo_image": 1, "photo_black": 1,
+                       "compare_points": len(by["compare_points"]["body"]["photos"]),
+                       "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": 2,
+                       "compare_black": 1}
+    black_id = by["compare_black"]["body"].get("compare_id")
+    black_cmp = next((c for c in lab.state["compares"] if c["compare_id"] == black_id), None)
+    black_report = read(black_cmp["report"]) if black_cmp else {}
+    black_rows = sorted(((black_report.get("photos") or {}).get("black-side") or {}).get("rows") or {})
+    gloss_from = (black_report.get("gains") or {}).get("gloss_black", {}).get("from")
+    rows = lab.manifest["photos"]
+    roles = [r.get("role", "target") for r in rows]
     final = json.loads((result.get("final_output") or "{}").split("\n", 1)[0] or "{}")
     request = read(root / "runs" / RUN_ID / "approval-request.json")["request"]
     sent = root / "runs" / RUN_ID / "instructions-sent.txt"
@@ -404,7 +421,16 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                              and by["variants"]["body"].get("spread_ok") is True,
         "export_validates": by["finish"]["body"].get("validate_spec", {}).get("ok") is True,
         "every_result_has_the_footer": all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text"),
-        "first_request_carries_the_target_photos": image_hashes == [p["sha256"] for p in lab.manifest["photos"]],
+        "first_request_carries_every_photo": image_hashes == [p["sha256"] for p in rows]
+                                             and roles == ["target"] * 6 + ["colourway", "reference", "reference"]
+                                             and [r["id"] for r in rows[6:]] == ["B1", "B2", "B3"],
+        "photo_image_shows_the_reference_only_black_photo": by["photo_black"]["status"] == "ok"
+                                                            and by["photo_black"]["body"].get("colour") == "black",
+        "black_compare_is_gloss_without_native": by["compare_black"]["status"] == "ok"
+                                                 and black_cmp is not None and black_cmp["photos"] == ["B1"]
+                                                 and set(black_rows) == BLACK_ROWS
+                                                 and str((by["compare_black"]["body"].get("photos") or {}).get(
+                                                     "B1")).startswith("side black: rows photo/overlay/gloss-black"),
         "exit_checkpoint_verified": (result.get("exit_checkpoint") or {}).get("verified") is True,
         "worker_refuses_a_path_spec": path_refusal["status"] == "refused",
         "worker_failed_build_leaves_the_scene": native_rollback,
@@ -420,6 +446,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                          "seconds_until_next_request": durations[i] if i < len(durations) else None}
                         for i, r in enumerate(records)],
               "context_guard": {"request": guard_req, "stubbed_call_ids": stubbed},
+              "black_compare": {"compare_id": black_id, "rows": black_rows, "gloss_black_gain_from": gloss_from},
               "text_budget": {"limits": TEXT_BUDGET, "over": over_budget,
                               "largest": {t: max((r["text_chars"] for r in records if r["tool"] == t), default=None)
                                           for t in TEXT_BUDGET}},

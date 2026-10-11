@@ -4,6 +4,7 @@ instructions' contract and the facet-run estimate. The real-Blender path is T5 (
 """
 import hashlib
 import json
+import re
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,7 +32,8 @@ def sha(p) -> str:
 
 
 def sources(tmp: Path) -> dict:
-    """A fake original scene, reference folder (manifest + 6 target photos + a variant photo) and pose basis."""
+    """A fake original scene, reference folder (manifest + 6 target photos), a variant photo with its supplied matte
+    (B1), the pose basis and two reference-only black photos (B2, B3)."""
     ref = tmp / "reference"
     ref.mkdir(parents=True)
     scene = tmp / "scene.blend"
@@ -44,12 +46,27 @@ def sources(tmp: Path) -> dict:
         images[name] = {"image": str(ref / name), "image_sha256": files[name]["sha256"], "view_kind": kind,
                         "colourway": "target", "camera": {"yaw": yaw}}
     Image.new("RGB", (30, 30), (0, 0, 0)).save(ref / "black-side.png")
+    (tmp / "mattes").mkdir()
+    Image.new("L", (30, 30), 255).save(tmp / "mattes" / "black-side.png")
     images["black-side.png"] = {"image": str(ref / "black-side.png"), "image_sha256": sha(ref / "black-side.png"),
-                                "view_kind": "side", "colourway": "variant", "camera": {"yaw": 90.0}}
+                                "view_kind": "side", "colourway": "variant", "camera": {"yaw": 90.0},
+                                "matte_mode": "supplied", "matte_file": "mattes/black-side.png",
+                                "matte_file_sha256": sha(tmp / "mattes" / "black-side.png")}
     (ref / "manifest.json").write_text(json.dumps({"name": "Test Frame 1", "files": files}), encoding="utf-8")
     basis = tmp / "cameras.json"
     basis.write_text(json.dumps({"model": {"skip": []}, "images": images}), encoding="utf-8")
-    return {"scene": scene, "scene_sha256": sha(scene), "reference": ref, "basis_json": basis}
+    black = tmp / "black"
+    black.mkdir()
+    refs = []
+    for pid, view in (("B2", "angled"), ("B3", "front")):
+        p = black / f"{pid}.png"
+        Image.new("RGB", (48, 32), (5, 5, 5 + len(view))).save(p)
+        refs.append({"id": pid, "view": view, "colour": "black", "source": p, "path": f"images/black-{view}.png",
+                     "sha256": sha(p)})
+    return {"scene": scene, "scene_sha256": sha(scene), "reference": ref, "basis_json": basis,
+            "colourway_photos": ({"id": "B1", "image": "black-side.png", "colour": "black",
+                                  "sha256": sha(ref / "black-side.png")},),
+            "reference_photos": tuple(refs)}
 
 
 def fake_import(root, cameras_json, photos, *, reason):
@@ -88,6 +105,12 @@ class PrepLab:
         return True
 
     def photo_ids(self):
+        return [p["id"] for p in self.manifest["photos"] if p["role"] == "target"]
+
+    def compare_ids(self):
+        return self.photo_ids() + [p["id"] for p in self.manifest["photos"] if p["role"] == "colourway"]
+
+    def image_ids(self):
         return [p["id"] for p in self.manifest["photos"]]
 
     def exit_checkpoint(self):
@@ -102,7 +125,8 @@ def package(tmp_path: Path, rig: str = cli.DEFAULT_RIG) -> tuple[Path, dict]:
     root = tmp_path / "job"
     out = cli.prepare(root, rig=rig, source_scene=src["scene"], scene_sha256=src["scene_sha256"],
                       reference=src["reference"], basis_json=src["basis_json"], lab_class=PrepLab,
-                      import_basis=fake_import)
+                      import_basis=fake_import, colourway_photos=src["colourway_photos"],
+                      reference_photos=src["reference_photos"])
     return root, out
 
 
@@ -139,22 +163,32 @@ def test_the_default_rig_is_the_owners_choice_and_fits_no_light(tmp_path):
 
 def test_prepare_writes_an_isolated_bound_package(tmp_path):
     root, out = package(tmp_path, rig="photo_env")
-    assert out["status"] == "prepared" and out["photos"] == 6 and out["paid_calls"] == 0 and PrepLab.made[-1].closed
+    assert out["status"] == "prepared" and out["photos"] == 9 and out["paid_calls"] == 0 and PrepLab.made[-1].closed
     inputs = root / "inputs"
     images = sorted(p.name for p in (inputs / "images").iterdir())
-    assert images == [f"reference-0{k}.png" for k in range(1, 7)]                      # target photos only
+    assert images == ["black-angled.png", "black-front.png", "black-side.png"] + \
+        [f"reference-0{k}.png" for k in range(1, 7)]                       # the targets and the black photos
     assert sorted(p.name for p in inputs.iterdir()) == ["brief.txt", "images", "instructions.txt", "lab.json",
                                                          "scene.blend"]
     assert sha(inputs / "scene.blend") == sha(tmp_path / "scene.blend")
     lab_json = json.loads((inputs / "lab.json").read_text(encoding="utf-8"))
     assert lab_json["schema"] == LAB_SCHEMA and lab_json["rig"] == "photo_env"
-    assert {a["path"]: a["sha256"] for a in lab_json["assets"]}["images/reference-05.png"] == \
-        sha(inputs / "images/reference-05.png")
-    assert [p["id"] for p in lab_json["photos"]] == ["01", "02", "03", "04", "05", "06"]
+    assets = {a["path"]: a["sha256"] for a in lab_json["assets"]}
+    assert assets["images/reference-05.png"] == sha(inputs / "images/reference-05.png")
+    assert assets["images/black-side.png"] == sha(tmp_path / "reference" / "black-side.png")
+    assert assets["images/black-front.png"] == sha(tmp_path / "black" / "B3.png")      # byte copies, sha-bound
+    rows = {p["id"]: p for p in lab_json["photos"]}
+    assert list(rows) == ["01", "02", "03", "04", "05", "06", "B1", "B2", "B3"]
+    assert [rows[k]["role"] for k in rows] == ["target"] * 6 + ["colourway", "reference", "reference"]
+    assert rows["B1"]["basis_ref"] == "black-side" and rows["B1"]["path"] == "images/black-side.png"
+    assert rows["B2"]["view"] == "angled" and "basis_ref" not in rows["B2"] and rows["B3"]["colour"] == "black"
     basis = json.loads((root / "basis" / "cameras.json").read_text(encoding="utf-8"))
-    assert sorted(basis["images"]) == [f"reference-0{k}.png" for k in range(1, 7)]   # the variant photo is left out
+    assert sorted(basis["images"]) == ["black-side.png"] + [f"reference-0{k}.png" for k in range(1, 7)]
+    assert sha(root / "basis" / "mattes" / "black-side.png") == basis["images"]["black-side.png"]["matte_file_sha256"]
+    assert json.loads((root / "cameras" / "basis-01" / "basis.json").read_text(encoding="utf-8"))["photos"] == \
+        ["black-side.png"] + [f"reference-0{k}.png" for k in range(1, 7)]
     assert set(lab_json["basis"]["files"]) == {"basis/cameras.json", "cameras/basis-01/cameras.json",
-                                               "cameras/basis-01/basis.json"}
+                                               "cameras/basis-01/basis.json", "basis/mattes/black-side.png"}
     job = json.loads((root / "job.json").read_text(encoding="utf-8"))
     assert job["implementation"] == cli.implementation() and job["rig"] == "photo_env"
     assert job["environment"]["weights_sha"] == "w" * 16
@@ -164,13 +198,34 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
     brief = (inputs / "brief.txt").read_text(encoding="utf-8")
     assert "Test Frame 1" in brief and "- 05: side; it shows the charted temple" in brief
     assert "- 01: side; it shows the mirrored temple" in brief
+    assert "Photos B1, B2, B3 show the same model in black acetate." in brief
+    assert "- B1: side, black; it shows the charted temple; calibrated camera: photo_compare" in brief
+    assert "- B2: angled, black; reference only, no calibrated camera: photo_image only" in brief
     assert (inputs / "instructions.txt").read_bytes() == (cli.HERE / "instructions.txt").read_bytes()
+
+
+def test_the_pinned_black_photos():
+    """The package's black photos are pinned by sha256: B1 = the pose basis's black-side (its camera transported from
+    05), B2 angled and B3 front reference only; distinct ids and input paths."""
+    assert [p["id"] for p in cli.COLOURWAY_PHOTOS + cli.REFERENCE_PHOTOS] == ["B1", "B2", "B3"]
+    assert cli.COLOURWAY_PHOTOS[0]["image"] == "black-side.png"
+    assert cli.COLOURWAY_PHOTOS[0]["sha256"].startswith("6eddabbb")
+    assert [(p["view"], p["sha256"][:8]) for p in cli.REFERENCE_PHOTOS] == [("angled", "5705c2ca"),
+                                                                           ("front", "e89d19f4")]
+    assert len({p["path"] for p in cli.REFERENCE_PHOTOS}) == 2
+    if cli.BASIS_JSON.is_file():
+        rec = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))["images"]["black-side.png"]
+        assert rec["image_sha256"] == cli.COLOURWAY_PHOTOS[0]["sha256"] and rec["colourway"] == "variant"
+    for p in cli.REFERENCE_PHOTOS:
+        if Path(p["source"]).is_file():
+            assert sha(p["source"]) == p["sha256"]
 
 
 def test_prepare_refusals(tmp_path):
     src = sources(tmp_path)
     kw = dict(source_scene=src["scene"], reference=src["reference"], basis_json=src["basis_json"],
-              lab_class=PrepLab, import_basis=fake_import)
+              lab_class=PrepLab, import_basis=fake_import, colourway_photos=src["colourway_photos"],
+              reference_photos=src["reference_photos"])
     with pytest.raises(ValueError, match="expected sha256"):
         cli.prepare(tmp_path / "a", scene_sha256="0" * 64, **kw)
     with pytest.raises(ValueError, match="rig"):
@@ -178,6 +233,24 @@ def test_prepare_refusals(tmp_path):
     (tmp_path / "c").mkdir()
     with pytest.raises(ValueError, match="new empty"):
         cli.prepare(tmp_path / "c", scene_sha256=src["scene_sha256"], **kw)
+    bad = [{**src["reference_photos"][0], "sha256": "0" * 64}]                  # B2's bytes are not the pinned ones
+    with pytest.raises(ValueError, match="expected sha256"):
+        cli.prepare(tmp_path / "e", scene_sha256=src["scene_sha256"], **{**kw, "reference_photos": bad})
+    for n, want in enumerate(({"id": "B1", "image": "reference-05.png", "colour": "black",   # a target photo
+                               "sha256": sha(src["reference"] / "reference-05.png")},
+                              {**src["colourway_photos"][0], "sha256": "0" * 64})):
+        with pytest.raises(ValueError, match="not a colourway image"):
+            cli.prepare(tmp_path / f"f{n}", scene_sha256=src["scene_sha256"], **{**kw, "colourway_photos": (want,)})
+    with pytest.raises(ValueError, match="distinct"):
+        cli.prepare(tmp_path / "g", scene_sha256=src["scene_sha256"],
+                    **{**kw, "reference_photos": src["reference_photos"][:1] + (
+                        {**src["reference_photos"][1], "id": "B2"},)})
+    matte = tmp_path / "mattes" / "black-side.png"
+    saved = matte.read_bytes()
+    Image.new("L", (30, 30), 0).save(matte)
+    with pytest.raises(ValueError, match="supplied matte"):
+        cli.prepare(tmp_path / "h", scene_sha256=src["scene_sha256"], **kw)
+    matte.write_bytes(saved)
     doc = json.loads(src["basis_json"].read_text(encoding="utf-8"))
     doc["images"]["reference-03.png"]["image_sha256"] = "f" * 64
     src["basis_json"].write_text(json.dumps(doc), encoding="utf-8")
@@ -207,8 +280,13 @@ def test_make_spec_binds_the_facet_settings_and_writes_an_unapproved_request(tmp
     assert req["instructions_sha256"] == L.instructions_sha256(sent)
     raw = (run / "instructions-sent.txt").read_bytes()                  # the exact bytes sent: LF, on every platform
     assert b"\r" not in raw and hashlib.sha256(raw).hexdigest() == req["instructions_sha256"]
-    assert [p.label for p in spec.photos] == [f"TARGET PHOTO 0{k} ({k} of 6)" for k in range(1, 7)]
-    assert [r["path"] for r in req["run_inputs"]["photos"]] == [f"images/reference-0{k}.png" for k in range(1, 7)]
+    assert [p.label for p in spec.photos] == [f"TARGET PHOTO 0{k} ({k} of 6)" for k in range(1, 7)] + [
+        "BLACK PHOTO B1 (1 of 3; the same model in black acetate, calibrated camera)",
+        "BLACK PHOTO B2 (2 of 3; the same model in black acetate, reference only, no camera)",
+        "BLACK PHOTO B3 (3 of 3; the same model in black acetate, reference only, no camera)"]
+    assert [r["path"] for r in req["run_inputs"]["photos"]] == [f"images/reference-0{k}.png" for k in range(1, 7)] + [
+        "images/black-side.png", "images/black-angled.png", "images/black-front.png"]     # every image, sent first
+    assert [p.view for p in spec.photos][-3:] == ["side", "angled", "front"]
     assert spec.contract.named == frozenset(T.TOOL_NAMES) and "c0001" in spec.scene_note
     # the loop's own re-check of the bound request agrees (settings included)
     assert L._check_bound_request(run, spec)["tool_registry_sha256"] == req["tool_registry_sha256"]
@@ -238,12 +316,19 @@ def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="pose basis changed"):
         spec_of(lab)
     basis.write_bytes(saved)
-    photo = root / "inputs" / "images" / "reference-02.png"
-    saved = photo.read_bytes()
-    photo.write_bytes(saved + b"x")
-    with pytest.raises(ValueError, match="input bytes changed"):
+    matte = root / "basis" / "mattes" / "black-side.png"                  # B1's supplied matte is bound with the basis
+    saved = matte.read_bytes()
+    matte.write_bytes(saved + b" ")
+    with pytest.raises(ValueError, match="pose basis changed"):
         spec_of(lab)
-    photo.write_bytes(saved)
+    matte.write_bytes(saved)
+    for name in ("reference-02.png", "black-front.png"):
+        photo = root / "inputs" / "images" / name
+        saved = photo.read_bytes()
+        photo.write_bytes(saved + b"x")
+        with pytest.raises(ValueError, match="input bytes changed"):
+            spec_of(lab)
+        photo.write_bytes(saved)
     lab._compare("call-1", ["05"], by="astra")                        # a facet tool ran: not clean any more
     with pytest.raises(ValueError, match="clean package"):
         spec_of(lab)
@@ -269,8 +354,19 @@ def test_instructions_contract_and_finish_text(tmp_path):
                    "owner", "earlier run", "v1"):
         assert banned not in low, banned
     for needed in ("points_px", "E_CREASE_SHAPE", "E_JUDGEMENT", "E_BUSY", "t_min is 1.0", "station table",
-                   "qualitative", "start model", "fade", "roll_mm", "+-1 mm", "largest"):
-        assert needed in text, needed
+                   "qualitative", "start model", "fade", "roll_mm", "+-1 mm", "largest",
+                   # the guidance after facet-astra-002 (general for faceted temples; never an answer's coordinates)
+                   "black photos", "B1", "far more clearly", "calibrated side views", "several creases meet",
+                   "its own facet", "never merge two faces", "well over 10 deg", "increase the angles",
+                   "several mm at the key nodes", "not only in small steps", "sharp; keep roll_mm small",
+                   "keeps a standing neighbour's height along their shared crease",
+                   "fade both facets that share it the same way", "E_FADE_CLIFF", "need no fade",
+                   "Do not fade a facet whose edges the photos show crisp", "at every target photo"):
+        assert needed in " ".join(text.split()), needed
+    for retired in ("on its own", "no neighbour needs to share"):       # a lone fade does not dissolve its creases
+        assert retired not in " ".join(low.split()), retired
+    for number in re.findall(r"\d+(?:\.\d+)?", text):                    # no product coordinates: only rules' numbers
+        assert number in {"0", "1", "1.0", "2", "3", "4", "6", "10", "0.2", "0.3", "0003"}, number
 
 
 # --------------------------------------------------------------------------------------------- estimate

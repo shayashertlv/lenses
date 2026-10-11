@@ -29,12 +29,13 @@ from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab  # noqa: E402
 from glasses3d.g3d.temple import build_temple  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
 from glasses3d.g3d.temple import report as RP  # noqa: E402
-from glasses3d.g3d.temple.spec import canonical, parse, spec_sha256  # noqa: E402
+from glasses3d.g3d.temple.spec import TempleError, canonical, parse, spec_sha256  # noqa: E402
 from glasses3d.g3d_host.camera import Camera, NormFrame  # noqa: E402
 
 # the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt
-EDITS_SCHEMA_SHA256 = "2abfc92d4b74eb201b7a5cf0322fda8bb16ccdbd5e322d74be8fac74a3f7e954"
+EDITS_SCHEMA_SHA256 = "d2a21805361de8da2cc4262b75f02c01404fd6add36edaec12ad9e88302a942d"
 PHOTO_IDS = ["01", "02", "03", "04", "05", "06"]
+BLACK_IDS = ["B1", "B2", "B3"]          # B1: a calibrated colourway photo (basis black-side); B2, B3: reference only
 KINDS = {"01": "side", "02": "angled", "03": "top", "04": "front", "05": "side", "06": "rear"}
 DEFAULT = ["01", "02", "05"]
 disable_sdk_tracing()                  # the SDK's error path would build a trace exporter (a network client)
@@ -42,14 +43,15 @@ disable_sdk_tracing()                  # the SDK's error path would build a trac
 
 # --------------------------------------------------------------------------------------------- fakes
 class FakeBasis:
-    """Six target photos (small synthetic images) with orthographic cameras."""
+    """Six target photos and the variant-colourway black-side (small synthetic images) with orthographic cameras."""
 
     def __init__(self):
         self.frame = NormFrame((0.0, 0.0, 0.0), 200.0)
         self.refs = {f"reference-{p}": {"view_kind": KINDS[p], "camera": None} for p in PHOTO_IDS}
+        self.refs["black-side"] = {"view_kind": "side", "camera": None, "colourway": "variant"}
 
     def colourway(self, rid):
-        return "target"
+        return self.refs[rid].get("colourway") or "target"
 
     def camera(self, rid):
         return Camera(90.0, 0.0, 0.0, 0.0, 400.0, 160.0, 120.0)
@@ -205,7 +207,7 @@ class FakeSeeing:
             img = d / f"{rid}.png"
             tint = hashlib.sha256(f"{call_id}{rid}".encode()).digest()
             Image.new("RGB", (300, 400), tuple(tint[:3])).save(img)
-            vk = KINDS[rid.split("-")[1]]
+            vk = "side" if rid == "black-side" else KINDS[rid.split("-")[1]]
             offs = {s: [{"d_mm": float(dd), "offset_mm": round(0.1 * (dd % 7) - 0.3, 2)} for dd in range(10, 131, 10)]
                     for s in ("+1", "-1")} if vk in ("top", "rear") else None
             rep[rid] = {"view_kind": vk, "temple_iou": 0.912, "px_per_mm": 8.17,
@@ -224,12 +226,28 @@ class FakeSeeing:
                 "report": str(d / "report.json")}
 
 
+def lab_photos(root: Path) -> list:
+    """lab.json's photo rows as cli.prepare writes them: the six targets, B1 (the basis' black-side) and the
+    reference-only B2, B3 (synthetic images under inputs/images)."""
+    rows = [{"id": p, "path": f"images/reference-{p}.png", "view": KINDS[p], "role": "target"} for p in PHOTO_IDS]
+    rows.append({"id": "B1", "path": "images/black-side.png", "view": "side", "role": "colourway", "colour": "black",
+                 "basis_ref": "black-side"})
+    (root / "inputs" / "images").mkdir(parents=True, exist_ok=True)
+    for pid, view, size in (("B2", "angled", (192, 128)), ("B3", "front", (180, 120))):
+        p = root / "inputs" / "images" / f"black-{view}.png"
+        Image.new("RGB", size, (12, 12, 14 + len(view))).save(p)
+        rows.append({"id": pid, "path": f"images/black-{view}.png", "view": view, "role": "reference",
+                     "colour": "black", "sha256": hashlib.sha256(p.read_bytes()).hexdigest()})
+    return rows
+
+
 def make_lab(root: Path, spec=None, **session) -> Lab:
     """A prepared lab: revision 0 = spec (default prada_default) applied on the fake original and compared at every
-    photo by the prepare step (``session``: FakeSession attributes for that apply, e.g. blender_lines)."""
+    target photo by the prepare step (``session``: FakeSession attributes for that apply, e.g. blender_lines)."""
     (root / "inputs").mkdir(parents=True, exist_ok=True)
     (root / "inputs" / "lab.json").write_text(json.dumps({"schema": LAB_SCHEMA, "rig": "studio_dome_v1",
-                                                          "assets": []}), encoding="utf-8")
+                                                          "assets": [], "photos": lab_photos(root)}),
+                                              encoding="utf-8")
     s = FakeSession(root)
     for k, v in session.items():
         setattr(s, k, v)
@@ -270,6 +288,21 @@ def judgement(lab, best=None, overall="mixed"):
             "photos": [{"photo": p, "verdict": overall, "largest_difference": "upper facet too dark at the logo",
                         "at_d_mm": 30.0, "at_y_mm": 5.0} for p in c["photos"]],
             "best_checkpoint": best or lab.s.head["id"]}
+
+
+def enums(schema) -> list:
+    """Every "enum" list inside a JSON schema (the photo-id Literals), in order, $defs included."""
+    out = []
+    if isinstance(schema, dict):
+        if isinstance(schema.get("enum"), list):
+            out.append(schema["enum"])
+        for k, v in schema.items():
+            if k != "enum":
+                out += enums(v)
+    elif isinstance(schema, list):
+        for v in schema:
+            out += enums(v)
+    return out
 
 
 def set_t(name, spec, dt):
@@ -683,9 +716,14 @@ def test_registry_seven_strict_tools_timeouts_and_contract(lab):
     text = "Tools: " + ", ".join(T.TOOL_NAMES) + "."
     assert L.contract_problems(L.ToolContract(frozenset(T.TOOL_NAMES)), instructions=text, brief="b", tools=tools) == []
     enum = tools[1].params_json_schema["properties"]["photo"]["enum"]
-    assert enum == PHOTO_IDS
+    assert enum == PHOTO_IDS + BLACK_IDS                              # photo_image: every photo
+    by = {t.name: t.params_json_schema for t in tools}
+    assert enums(by["photo_compare"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]   # the photos with a camera
+    assert enums(by["facet_edit"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]
+    assert enums(by["facet_variants"]["properties"]["photos"]) == [PHOTO_IDS]            # target material only
+    assert PHOTO_IDS + ["B1"] in enums(by["facet_edit"]) and PHOTO_IDS + BLACK_IDS not in enums(by["facet_edit"])
     finish = next(t for t in T.registry(lab, L.RunSettings(effort="max", finish_k=6)) if t.name == "facet_finish")
-    assert "at least 6" in finish.description
+    assert "at least 6" in finish.description and "at every target photo" in finish.description
 
 
 def test_facet_inspect_echoes_the_spec_once_with_station_table(lab):
@@ -726,6 +764,61 @@ def test_photo_compare_returns_compare_id_and_charts_points(lab):
     assert S.pending_compare(lab.state)["compare_id"] == body["compare_id"]
     body, *_ = parsed(call(t, {"photos": ["05"], "crop": None, "points_px": [{"photo": "03", "points": [[1, 1]]}]}))
     assert body["status"] == "refused" and body["code"] == "E_ARGS"
+
+
+def test_black_photos_image_compare_judge_and_refusals(lab):
+    """The black photos: B1 (a calibrated colourway photo) is shown and compared (seeing gets its basis reference,
+    the text names its rows) and judged like any photo; B2 and B3 (no camera) are photo_image only, and every
+    compare path refuses them with a message naming photo_image; facet_variants takes target photos only; finish
+    precondition 3 and the default compare set stay the six target photos."""
+    assert lab.photo_ids() == PHOTO_IDS and lab.compare_ids() == PHOTO_IDS + ["B1"]
+    assert lab.image_ids() == PHOTO_IDS + BLACK_IDS and lab.pid("black-side") == "B1" and lab.rid("B1") == "black-side"
+    tl = tools_of(lab)
+    for pid, view in (("B2", "angled"), ("B3", "front"), ("B1", "side")):
+        body, _f, images, _t = parsed(call(tl["photo_image"], {"photo": pid, "crop": [0, 0, 64, 40]}))
+        assert body["status"] == "ok" and body["view"] == view and body["colour"] == "black" and len(images) == 1
+    body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None}))
+    assert "colour" not in body
+    body, _f, images, _t = parsed(call(tl["photo_compare"], {"photos": ["B1", "05"], "crop": None, "points_px": [
+        {"photo": "B1", "points": [[100.0, 120.0]]}]}))
+    assert body["status"] == "ok" and list(body["photos"]) == ["B1", "05"] and len(images) == 2
+    assert lab.seeing.calls[-1]["refs"] == ["black-side", "reference-05"]
+    assert set(lab.seeing.calls[-1]["points_px"]) == {"black-side"}
+    assert body["photos"]["B1"].startswith("side black: rows photo/overlay/gloss-black IoU ")
+    assert "d 20.00 y 1.50 t " in body["photos"]["B1"] and "black" not in body["photos"]["05"]
+    assert S.pending_compare(lab.state)["photos"] == ["B1", "05"]
+    j = judgement(lab)
+    assert [p["photo"] for p in j["photos"]] == ["B1", "05"]
+    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": j,
+                                              "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x",
+                                              "apply": True, "photos": ["B1"]}))
+    assert body["status"] == "applied" and list(body["photos"]) == ["B1"] and lab.state["judgements"][-1]["photos"]
+    # B2 / B3: outside the compare enums (the SDK refuses the arguments), and the lab names photo_image
+    out = call(tl["photo_compare"], {"photos": ["B2"], "crop": None, "points_px": None})
+    assert isinstance(out, str) and "Invalid JSON input for tool photo_compare" in out
+    for fn in (lambda: lab.compare("x", ["B2"]), lambda: lab.compare("x", ["05"], None, [{"photo": "B3",
+                                                                                        "points": [[1, 1]]}])):
+        with pytest.raises(S.LabRefusal, match="photo_image only") as e:
+            fn()
+        assert e.value.code == "E_ARGS"
+    out = call(tl["facet_variants"], {"parent_revision": 0, "photos": ["B1"], "judgement": judgement(lab),
+                                      "variants": [{"label": "A", "edits": []}, {"label": "B", "edits": []}]})
+    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
+    with pytest.raises(S.LabRefusal, match="not a target photo"):
+        lab.variants("x", 0, [{"label": "A", "edits": []}, {"label": "B", "edits": []}], ["B1"], judgement(lab))
+    body, *_ = parsed(call(tl["facet_inspect"], {}))
+    assert body["photos"]["B1"] == "side, black, photo_compare" and body["photos"]["B2"] == \
+        "angled, black, photo_image only" and body["photos"]["05"] == "side"
+    # the default set and finish precondition 3 are the target photos
+    parsed(call(tl["photo_compare"], {"photos": None, "crop": None, "points_px": None}))
+    assert lab.seeing.calls[-1]["refs"] == "default"
+    miss = S.finish_missing(lab.state, status="matched", best_revision=1, k=1, distinct=lab.distinct,
+                            target_photos=lab.photo_ids())
+    assert next(m for m in miss if m["precondition"] == 3)["photos"] == ["03", "04", "06"]     # B1 never needed
+    # a reference-only photo whose bytes changed is refused
+    (lab.root / "inputs" / "images" / "black-front.png").write_bytes(b"changed")
+    body, *_ = parsed(call(tl["photo_image"], {"photo": "B3", "crop": None}))
+    assert body["status"] == "refused" and body["code"] == "E_STATE"
 
 
 def test_facet_edit_refusals_return_at_once_and_change_nothing(lab):
@@ -989,6 +1082,58 @@ def test_variant_sheet_layout_and_refused_panel(tmp_path):
     cols, pw, ph = SH.variant_layout(8)
     assert cols == 2 and pw <= 640 and ph > 100
     sheet.save(tmp_path / "sheet.png")
+
+
+LONG = {"N": "N" + "n" * 23, "S": "S" + "s" * 23}       # the longest facet names the edits allow (24 characters)
+
+
+def test_variant_refusals_keep_the_whole_message(lab, monkeypatch):
+    """facet_variants returns a core refusal whole (E_FADE_CLIFF with 24-character facet names is longer than a
+    receipt line) and cuts a longer text only at a clause end, never mid-sentence (the reviewer's defect 4,
+    2026-10-11: "...or end the cr")."""
+    import glasses3d.agent.temple_lab.lab as LB
+    with pytest.raises(TempleError) as e:
+        build_temple(rename(FX.refusal_cases()["E_FADE_CLIFF"], LONG, {}))
+    cliff = e.value
+    assert cliff.code == "E_FADE_CLIFF" and LB.LINE_MAX < len(cliff.message) <= LB.REFUSAL_MAX
+    real = LB.build_temple
+
+    def refusing(spec):
+        try:
+            return real(spec)
+        except TempleError:
+            raise cliff from None
+    monkeypatch.setattr(LB, "build_temple", refusing)
+    spec = FX.prada_default()
+    variants = [{"label": "A", "edits": [set_t("C", spec, -1.0)]}, {"label": "B", "edits": [set_t("C", spec, 0.5)]},
+                {"label": "Z", "edits": [set_t("A", spec, 5.0)]}]
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "variants": variants,
+                                                             "photos": ["05"], "judgement": None}))
+    z = next(v for v in body["variants"] if v["label"] == "Z")
+    assert z["code"] == "E_FADE_CLIFF" and z["message"] == cliff.message
+    assert z["message"].endswith(f"fade {LONG['S']} the same way, or end the crease at a node")
+    text = "the first clause; the second clause. " * 30
+    out = LB.brief(text)
+    assert len(out) <= LB.REFUSAL_MAX and out.endswith(" ...") and out[:-4].endswith("clause")
+    assert LB.brief("one " * 200).endswith("one ...") and LB.brief(cliff.message) == cliff.message
+
+
+def test_fade_warning_lines_fit_a_receipt_line():
+    """W_FADE_HOLD and W_FADE_INERT with 24-character facet names fit LINE_MAX whole, W_FADE_HOLD with 3 characters to
+    spare (3-digit d, a 2-digit hold), so the receipt never cuts their advice; W_FADE_INERT counts the facets past
+    its budget ("+N more")."""
+    import glasses3d.agent.temple_lab.lab as LB
+    tb = build_temple(rename(FX.fade_one_side(proud=3.0, edge=0.0), LONG, {}))
+    lines = {ln.split(":", 1)[0]: ln for ln in RP.warning_lines(tb)}
+    assert len(lines["W_FADE_HOLD"]) + 3 <= LB.LINE_MAX and lines["W_FADE_HOLD"].endswith("(>= 10; > 25 is refused)")
+    assert lines["W_FADE_INERT"].endswith(f"{LONG['N']} (held by less-faded neighbours)")
+    s = canonical(FX.pyramid())
+    for f in s["facets"].values():
+        f["fade"] = {"d0": 110.0, "d1": 130.0}                         # beyond every facet: three inert fades
+    s = rename(s, {k: k + "x" * 22 for k in s["facets"]}, {})
+    w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_INERT"]
+    assert len(w) == 1 and len(w[0]["facets"]) == 3 and w[0]["message"].endswith("; +1 more")
+    assert len(f"W_FADE_INERT: {w[0]['message']}") <= LB.LINE_MAX
 
 
 def test_facet_restore(lab):

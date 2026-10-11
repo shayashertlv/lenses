@@ -10,8 +10,10 @@ E_TIMEOUT} with the footer (timeout_text) and is Lab.mark_unseen, so a compare i
 judgement. A result is ONE text part, compact JSON (numbers rounded) then the footer line "settled $x / cap $y ·
 context n tokens" (loop.RunStatus, the run context), followed by its images (ToolOutputImage, detail high).
 WorkerFailed stays fatal (the run ends failed_worker). The edits are the §4.2 strict anyOf union (EDIT_MODELS;
-geometry.apply_edits converts them to the /2 maps); photo ids are the lab's target photos.
-Annotations are evaluated eagerly (no __future__ import): the tools close over the lab's photo-id Literal.
+geometry.apply_edits converts them to the /2 maps). Photo ids (lab.py module doc): photo_image takes every photo
+(Lab.image_ids: target, colourway such as B1, reference-only such as B2, B3); photo_compare, facet_edit's compare,
+judgements and points_px take the photos with a camera (Lab.compare_ids); facet_variants the target photos only.
+Annotations are evaluated eagerly (no __future__ import): the tools close over the lab's photo-id Literals.
 """
 import asyncio
 import json
@@ -74,7 +76,10 @@ class Plane(Input):
 
 class Fade(Input):
     d0_mm: float = Field(description="d where the facet is fully its plane")
-    d1_mm: float = Field(description="d where it has blended into the base")
+    d1_mm: float = Field(description="d where it has blended into the plain arm away from its creases; along a "
+                                     "crease with a standing neighbour it keeps that neighbour's height (fade both "
+                                     "facets of a crease the same way to let it die out; a step against a standing "
+                                     "neighbour is refused, E_FADE_CLIFF)")
 
 
 class SetFacet(Input):
@@ -152,9 +157,14 @@ def edits_schema() -> dict:
 
 
 # --------------------------------------------------------------------------------------------- photo-dependent models
-def models(photo_ids: list[str]) -> dict:
-    """The models whose schema names the lab's photo ids."""
-    PhotoId = Literal[tuple(photo_ids)]
+def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids: list[str] | None = None) -> dict:
+    """The models whose schema names the lab's photo ids: TargetId (the target photos), PhotoId (the photos with a
+    camera: compare, judgement, points; default the target photos) and ImageId (every photo: photo_image; default
+    PhotoId's)."""
+    TargetId = Literal[tuple(photo_ids)]
+    compare_ids = list(compare_ids or photo_ids)
+    PhotoId = Literal[tuple(compare_ids)]
+    ImageId = Literal[tuple(image_ids or compare_ids)]
 
     class PhotoJudgement(Input):
         photo: PhotoId
@@ -168,7 +178,7 @@ def models(photo_ids: list[str]) -> dict:
         compare_id: str = Field(description="the latest compare_id")
         versus_compare_id: str | None = Field(description="the earlier compare it is judged against, or null")
         overall: Verdict
-        photos: list[PhotoJudgement] = Field(min_length=1, max_length=len(photo_ids),
+        photos: list[PhotoJudgement] = Field(min_length=1, max_length=len(compare_ids),
                                              description="one entry per photo of that compare")
         best_checkpoint: str = Field(description="the checkpoint of the best revision so far")
 
@@ -180,7 +190,8 @@ def models(photo_ids: list[str]) -> dict:
         label: str = Field(description="a short name: a letter, then letters, digits, _ or -")
         edits: list[Edit] = Field(max_length=G.EDITS_MAX)
 
-    return {"PhotoId": PhotoId, "Judgement": Judgement, "PhotoPoints": PhotoPoints, "Variant": Variant}
+    return {"PhotoId": PhotoId, "TargetId": TargetId, "ImageId": ImageId, "Judgement": Judgement,
+            "PhotoPoints": PhotoPoints, "Variant": Variant}
 
 
 # --------------------------------------------------------------------------------------------- output
@@ -215,9 +226,9 @@ def run_settings(**settings) -> RunSettings:
 
 FINISH_DOC = """End the run with best_checkpoint, which is exported and validated. Accepted only when: (1) at least {k}
     distinct applied heads were compared; a head counts only when, against every other head counted, the built temple
-    surface or outline moves by at least 0.2 mm somewhere; (2) one facet_variants call rendered at least 3 variants pairwise at least 0.3 mm apart; (3) you
-    were shown a compare of best_checkpoint's revision at every photo; (4) for stuck, the last 3 judgements cover 3
-    distinct heads (as in 1) and none says better. Otherwise it is refused with the missing ones named and the run
+    surface or outline moves by at least 0.2 mm somewhere; (2) one facet_variants call rendered at least 3 variants
+    pairwise at least 0.3 mm apart; (3) you were shown a compare of best_checkpoint's revision at every target photo;
+    (4) for stuck, the last 3 judgements cover 3 distinct heads (as in 1) and none says better. Otherwise it is refused with the missing ones named and the run
     continues.
 
     Args:
@@ -249,8 +260,9 @@ def registry(lab, settings=None) -> list:
     """The seven function tools over ``lab`` (module doc); K of facet_finish = settings.finish_k (default 4)."""
     k = getattr(settings, "finish_k", 4) if settings is not None else 4
     lock = lab.lock
-    M = models(lab.photo_ids())
+    M = models(lab.photo_ids(), lab.compare_ids(), lab.image_ids())
     Judgement, PhotoPoints, Variant, PhotoId = M["Judgement"], M["PhotoPoints"], M["Variant"], M["PhotoId"]
+    TargetId, ImageId = M["TargetId"], M["ImageId"]
 
     def tool(name: str):
         return partial(function_tool, name_override=name, timeout=sdk_timeout_s(name),
@@ -300,9 +312,10 @@ def registry(lab, settings=None) -> list:
         return await call(ctx, "facet_inspect", lambda cid: lab.inspect())
 
     @tool("photo_image")
-    async def photo_image(ctx: ToolContext, photo: PhotoId,
+    async def photo_image(ctx: ToolContext, photo: ImageId,
                           crop: Annotated[list[int], Field(min_length=4, max_length=4)] | None):
-        """A target photo, or a crop of it, at its native scale (downscaled only to a long side of 1024), with the
+        """A photo (a target photo or a photo of the same model in another colour, including those without a
+        calibrated camera), or a crop of it, at its native scale (downscaled only to a long side of 1024), with the
         transform back to native photo pixels.
 
         Args:
@@ -316,13 +329,15 @@ def registry(lab, settings=None) -> list:
                             points_px: list[PhotoPoints] | None):
         """Compare the applied head with photos at their fitted cameras and temple poses: per photo one image with
         rows photo / render / overlay (model outline magenta, ridges orange, valleys blue, a d grid every 10 mm and a
-        y grid every 5 mm) / gloss-black render, all with the photo's own contrast stretch; text per photo: temple
+        y grid every 5 mm) / gloss-black render, all with the photo's own contrast stretch (a photo of another colour
+        with a calibrated camera: photo / overlay / gloss-black render, no native row); text per photo: temple
         IoU, px/mm, the crop box and its scale k, outer-edge offsets photo minus model in mm every 10 mm (top and rear
         photos; "start" = the unedited model's) and points_px charted to (d, y, t). Returns a compare_id; the next
-        facet_edit, facet_variants, facet_restore or facet_finish must carry a judgement of it.
+        facet_edit, facet_variants, facet_restore or facet_finish must carry a judgement of it. A photo without a
+        calibrated camera cannot be compared (photo_image shows it).
 
         Args:
-            photos: Photo ids, or null for the default set (photos showing the temple large).
+            photos: Photo ids, or null for the default set (target photos showing the temple large).
             crop: temple (default) or full.
             points_px: Native photo pixels to chart through the model, or null.
         """
@@ -355,7 +370,7 @@ def registry(lab, settings=None) -> list:
     @tool("facet_variants")
     async def facet_variants(ctx: ToolContext, parent_revision: int,
                              variants: Annotated[list[Variant], Field(min_length=2, max_length=6)],
-                             photos: Annotated[list[PhotoId], Field(min_length=1, max_length=3)],
+                             photos: Annotated[list[TargetId], Field(min_length=1, max_length=3)],
                              judgement: Judgement | None):
         """Build 2..6 variants of parent_revision (each its own edit list) and render each beside the head at the
         photos' cameras without changing the scene: one sheet per photo (photo, head, variants; a refused variant
@@ -368,7 +383,7 @@ def registry(lab, settings=None) -> list:
         Args:
             parent_revision: The revision the variants edit.
             variants: 2..6 labelled edit lists.
-            photos: 1..3 photo ids.
+            photos: 1..3 target photo ids (the sheets render the target material).
             judgement: The judgement of the latest compare when one is due, else null.
         """
         return await call(ctx, "facet_variants", lambda cid: lab.variants(

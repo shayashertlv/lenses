@@ -3,10 +3,12 @@ approval guard of agent/loop.py; prepare, estimate and request are $0.
 
     prepare  --job DIR [--rig studio_dome_v1 | photo_env | catalog_band_v1]
         a new isolated package: inputs/ = a byte copy of the original scene, the target photos (checked against the
-        reference manifest and the pose basis), brief.txt, instructions.txt and lab.json (g3d.temple_lab/2: the rig,
-        every input's sha256, the photo list, the pose basis); basis/cameras.json = the pose basis restricted to the
-        target photos, imported as cameras/basis-NN (outside inputs/: every file under inputs/ is sha-bound and every
-        image under inputs/ is sent in the first message); then Lab.prepare(): the original compared at every photo
+        reference manifest and the pose basis), the black photos (the same model in black acetate, sha-checked: B1
+        with its camera in the pose basis, B2 and B3 reference only), brief.txt, instructions.txt and lab.json
+        (g3d.temple_lab/2: the rig, every input's sha256, the photo list with each photo's role, the pose basis);
+        basis/cameras.json = the pose basis restricted to the target photos and B1 (with B1's supplied matte),
+        imported as cameras/basis-NN (outside inputs/: every file under inputs/ is sha-bound and every image under
+        inputs/ is sent in the first message); then Lab.prepare(): the original compared at every target photo
         (only with --rig photo_env does this fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh
         of the original's +X temple, applied and compared. job.json binds the implementation (every .py of g3d,
         g3d_host and agent, and instructions.txt), the rig and any frozen light. The default rig is the owner's choice
@@ -55,6 +57,20 @@ LAB_DATA = G3D / "data/wp6v2/lab"
 ESTIMATE = LAB_DATA / "estimate.json"
 DEFAULT_RIG = MATCHED_RIG          # the job rig: the owner's light choice of 2026-10-11 (plan/PROGRESS.md decisions)
 K_TOKEN = "{K}"                     # instructions.txt states finish precondition 1 with the run's K
+# The same model in black acetate (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos
+# included: "yes, make the fixes and run it again"). B1 is a pose
+# basis image (colourway variant, its camera transported from 05): photo_compare shows it beside the gloss_black render.
+# B2 and B3 have no camera: reference only (photo_image). The sha256 pins the exact bytes.
+BLACK = "black"
+COLOURWAY_PHOTOS = ({"id": "B1", "image": "black-side.png", "colour": BLACK,
+                     "sha256": "6eddabbb7bd40888801eaa40964795a278d1daaa4f10986f6b5f86a6e26c19be"},)
+BLACK_PRADA = Path("C:/Users/Shay/OneDrive/Desktop/erroca/images/black_prada")
+REFERENCE_PHOTOS = ({"id": "B2", "view": "angled", "colour": BLACK, "source": BLACK_PRADA / "8056262360200.webp",
+                     "path": "images/black-angled.webp",
+                     "sha256": "5705c2cab03f5e457d2b1dfc58b5155dec5ac03c3450e7672511a10aeb4ac8f1"},
+                    {"id": "B3", "view": "front", "colour": BLACK, "source": BLACK_PRADA / "8056262360200-F.webp",
+                     "path": "images/black-front.webp",
+                     "sha256": "e89d19f4101d6457a32274dc4a1b8b51a0de525ef09d2179b8657eb6c34621c3"})
 
 # The estimate (WP6_FACETS §4.3): tokens ~ 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112, fitted
 # on the 34 transport deltas of the v1 lab run owner-test-001 (median absolute residual 197 tokens). On that run's
@@ -93,18 +109,38 @@ def side_note(rec: dict) -> str:
 
 
 def brief_text(product: str, photos: list) -> str:
-    lines = [f"Product: {product}, target colourway. The product photos follow; every one shows the target.", ""]
-    for p in photos:
+    """The brief: the target photos, then any photos of the same model in another colour (role colourway: a camera,
+    photo_compare; role reference: photo_image only)."""
+    targets = [p for p in photos if p.get("role", "target") == "target"]
+    others = [p for p in photos if p.get("role", "target") != "target"]
+    lines = [f"Product: {product}, target colourway. The product photos follow: the target photos "
+             f"({', '.join(p['id'] for p in targets)}) show the target."]
+    if others:
+        colours = sorted({p.get("colour") or "another colour" for p in others})
+        lines[0] += (f" Photos {', '.join(p['id'] for p in others)} show the same model in {' and '.join(colours)} "
+                     "acetate.")
+    lines.append("")
+    for p in targets:
         lines.append(f"- {p['id']}: {p['view']}" + (f"; {p['note']}" if p.get("note") else ""))
+    if others:
+        lines += ["", "The same model in another colour (the colour does not matter: the materials never change). Its "
+                      "glossy facets show the creases far more clearly than the target photos:"]
+        for p in others:
+            how = "calibrated camera: photo_compare shows it beside the gloss-black render" \
+                if p["role"] == "colourway" else "reference only, no calibrated camera: photo_image only"
+            lines.append(f"- {p['id']}: {p['view']}, {p.get('colour') or 'another colour'}"
+                         + (f"; {p['note']}" if p.get("note") else "") + f"; {how}")
     lines += ["", "The scene holds revision 0, a template fitted to the starting model's own temples. Make the temples "
                   "look like the temples in these photos."]
     return "\n".join(lines) + "\n"
 
 
 def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sha256=SOURCE_SCENE_SHA256,
-            reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json) -> dict:
+            reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json,
+            colourway_photos=COLOURWAY_PHOTOS, reference_photos=REFERENCE_PHOTOS) -> dict:
     """A new package (module doc). $0; ~1 min with studio_dome_v1 (the default), ~4 min with photo_env (its light
-    fit)."""
+    fit). ``colourway_photos`` name pose-basis images of another colourway ({id, image, colour, sha256}: compared
+    with photo_compare), ``reference_photos`` images without a camera ({id, view, colour, source, path, sha256})."""
     root = Path(root).resolve()
     if root.exists():
         raise ValueError("use a new empty package directory")
@@ -139,15 +175,46 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
         with Image.open(paths[name]) as im:
             size = list(im.size)
         photos.append({"id": Path(name).stem.split("-", 1)[1], "path": f"images/{name}", "view": rec["view_kind"],
-                       "size_px": size, "sha256": row["sha256"],
+                       "size_px": size, "sha256": row["sha256"], "role": "target",
                        **({"note": side_note(rec)} if rec["view_kind"] == "side" else {})})
+    bdir = root / "basis"
+    bdir.mkdir()
+    variants = {}
+    for want in colourway_photos:
+        name = want["image"]
+        rec = doc["images"].get(name)
+        if rec is None or rec.get("colourway") in (None, "target") or rec.get("image_sha256") != want["sha256"]:
+            raise ValueError(f"{name}: not a colourway image of the pose basis with the expected sha256")
+        paths[name] = copy(rec["image"], f"images/{name}", want["sha256"])
+        if rec.get("matte_mode") == "supplied":              # the pose basis's own matte, copied beside cameras.json
+            dst = bdir / rec["matte_file"]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(Path(basis_json).parent / rec["matte_file"], dst)
+            if sha(dst) != rec.get("matte_file_sha256"):
+                raise ValueError(f"{name}: the supplied matte does not have the expected sha256")
+        variants[name] = rec
+        with Image.open(paths[name]) as im:
+            size = list(im.size)
+        photos.append({"id": want["id"], "path": f"images/{name}", "view": rec["view_kind"], "size_px": size,
+                       "sha256": want["sha256"], "role": "colourway", "colour": want["colour"],
+                       "basis_ref": C.ref_id(name), "source": str(rec["image"]),
+                       **({"note": side_note(rec)} if rec["view_kind"] == "side" else {})})
+    for want in reference_photos:
+        dst = copy(want["source"], want["path"], want["sha256"])
+        with Image.open(dst) as im:
+            size = list(im.size)
+        photos.append({"id": want["id"], "path": want["path"], "view": want["view"], "size_px": size,
+                       "sha256": want["sha256"], "role": "reference", "colour": want["colour"],
+                       "source": str(want["source"])})
+    ids = [p["id"] for p in photos]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"photo ids must be distinct: {ids}")
     (inputs / "brief.txt").write_text(brief_text(manifest.get("name") or reference.name, photos), encoding="utf-8")
     assets.append({"path": "brief.txt", "sha256": sha(inputs / "brief.txt")})
     copy(HERE / "instructions.txt", "instructions.txt")
-    bdir = root / "basis"
-    bdir.mkdir()
-    write_json_atomic(bdir / "cameras.json", {**doc, "images": targets})
-    basis = import_basis(root, bdir / "cameras.json", paths, reason="facet lab package (target photos only)")
+    write_json_atomic(bdir / "cameras.json", {**doc, "images": {**targets, **variants}})
+    basis = import_basis(root, bdir / "cameras.json", paths,
+                         reason="facet lab package (target photos and the calibrated colourway photos)")
     bound = basis_files(root, basis.id)
     write_json_atomic(inputs / "lab.json", {
         "schema": LAB_SCHEMA, "rig": rig, "product": manifest.get("name"), "assets": assets,
@@ -189,8 +256,12 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
 
 
 def basis_files(root: Path, basis_id: str) -> dict:
-    """sha256 of the pose basis files a package binds (the source copy outside inputs/ and the frozen basis)."""
+    """sha256 of the pose basis files a package binds (the source copy outside inputs/ with any supplied matte, and
+    the frozen basis)."""
+    root = Path(root)
     files = ["basis/cameras.json", f"{C.CAMERAS_DIR}/{basis_id}/cameras.json", f"{C.CAMERAS_DIR}/{basis_id}/basis.json"]
+    files += sorted(rel for rel in (p.relative_to(root).as_posix() for p in (root / "basis").rglob("*")
+                                    if p.is_file()) if rel not in files)
     return {f: sha(root / f) for f in files}
 
 
@@ -233,14 +304,24 @@ def instructions_text(root: Path, k: int) -> str:
 
 
 def references(lab) -> list:
+    """Every photo of the package, in lab.json order (the target photos first): the first message's images."""
     rows = lab.manifest["photos"]
+    targets = [r for r in rows if r.get("role", "target") == "target"]
+    others = [r for r in rows if r.get("role", "target") != "target"]
     out = []
-    for i, row in enumerate(rows, 1):
-        p = lab.root / "inputs" / row["path"]
-        with Image.open(p) as im:
-            size = im.size
-        out.append(ReferenceInput(label=f"TARGET PHOTO {row['id']} ({i} of {len(rows)})", path=row["path"],
-                                  image_url=data_url(p), detail="high", view=row["view"], size_px=size))
+    for group, rows_ in (("target", targets), ("other", others)):
+        for i, row in enumerate(rows_, 1):
+            p = lab.root / "inputs" / row["path"]
+            with Image.open(p) as im:
+                size = im.size
+            if group == "target":
+                label = f"TARGET PHOTO {row['id']} ({i} of {len(rows_)})"
+            else:
+                label = (f"{(row.get('colour') or 'other colour').upper()} PHOTO {row['id']} ({i} of {len(rows_)}; "
+                         f"the same model in {row.get('colour') or 'another colour'} acetate, "
+                         + ("calibrated camera)" if row["role"] == "colourway" else "reference only, no camera)"))
+            out.append(ReferenceInput(label=label, path=row["path"], image_url=data_url(p), detail="high",
+                                      view=row["view"], size_px=size))
     return out
 
 

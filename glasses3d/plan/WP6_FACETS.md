@@ -95,8 +95,12 @@ Chart as in v1:
    - faded facet → X = (1 − s)·plane + s·base, s = smoothstep((d − d0)/(d1 − d0)).
    - otherwise base: X = x_in(d) + lerp_y(t_top(d), t_bot(d)).
 3. **Fades:**
-   - a faded facet's crease neighbours must be base or carry the identical fade, else `E_FADE_NEIGHBOUR`;
-   - a vertex shared by two facets with different fades is refused;
+   - (amended 2026-10-11, run 2) neighbours may carry different fades: a vertex shared by facets with different
+     fade weights takes the least-faded value, so a faded facet keeps a standing neighbour's height along their
+     crease; a fade that would leave a step against a standing neighbour (a faded outer or roll triangle held
+     ≥ 0.05 mm off its own fade and tilted > 25° from it) is refused with `E_FADE_CLIFF`; 10–25° warns `W_FADE_HOLD`;
+     a fade that moves nothing ≥ 0.05 mm warns `W_FADE_INERT`. The former `E_FADE_NEIGHBOUR` pushed Astra to fade every facet;
+   - cells are classed by their actual fade weight: a cell entirely before the fade is an ordinary flat facet cell;
    - stations inside [d0, d1] are spaced ≤ min(station_step, (d1 − d0)/6).
 4. **Facet/base borders:** a border vertex takes the facet value. The core inserts a line `border_band_mm` into the
    base parallel to each facet/base border, so the ramp absorbing any facet–base mismatch has a defined width. The
@@ -113,7 +117,9 @@ Chart as in v1:
      as information.
 7. **Sharp edges** (v1 rule kept):
    - facet/facet and non-faded facet/base edges are always sharp;
-   - faded and ramp edges are sharp only at a dihedral ≥ 6°;
+   - crease edges between two different facets are sharp while the crease still stands (> 0.5° between the
+     intended surfaces), also in faded zones (amended 2026-10-11); edges inside one faded facet and ramp edges are
+     sharp only at a dihedral ≥ 6°;
    - strips, caps and kinks follow v1.
 
    Custom normals are face normals on non-faded facet polygons and auto-smooth elsewhere.
@@ -209,7 +215,9 @@ Photos:
 - black-side = variant, "camera transported from 05";
 - black-oblique is excluded (its camera is a copy of 02's, never fitted).
 
-Astra's inputs hold the target colourway only (owner choice); variant photos appear on owner sheets.
+Astra's inputs hold the target colourway; since run 2 (owner, 2026-10-11: "yes, make the fixes and run it again")
+they also hold the black photos: B1 = black-side with its camera (compare in gloss black), B2/B3 = black angled
+and front, reference only.
 
 ### 3.2 Renderer (g3d/render.py; all opt-in, photo_v1 stays the default, pixel-stable)
 
