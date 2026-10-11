@@ -1,6 +1,8 @@
 """The facet lab's persistent state (``work/temple_lab/state.json``) and the host's procedural rules over it
-(plan/WP6_FACETS.md §4.1): the judgement rule (E_JUDGEMENT) and the finish preconditions. The host logs judgements
-and checks procedure; it never grades quality.
+(plan/WP6_FACETS.md §4.1): the judgement rule (E_JUDGEMENT) and the finish preconditions (finish_missing: one
+head-distinctness rule, geometry.distinct_heads of the built temples, for preconditions 1 and 4; only compares and
+variants that reached Astra count). The host logs judgements and checks procedure; it never grades quality. Lab
+mutates and saves the state only under its state lock (Lab.state_lock).
 
 State (schema g3d.temple_lab_state/2):
     revisions   [{id, parent, sha256, file, kind: template | edit | variant, label, ops, note, call_id}] (one per
@@ -29,6 +31,7 @@ STATE_SCHEMA = "g3d.temple_lab_state/2"
 VERDICTS = ("better", "same", "worse", "mixed")
 DIFFERENCE_MAX = 200
 STUCK_LAST = 3
+DIFFERENT_ATTEMPT = "the built temple surface or outline moves by at least 0.2 mm somewhere"   # = geometry.distinct_heads
 
 
 class LabRefusal(ValueError):
@@ -164,13 +167,13 @@ def applied_checkpoints(state: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------------------------- finish
-def distinct_compared_heads(state: dict, distinct, limit: int | None = None) -> list[int]:
-    """The revisions of Astra's (seen) compares in order, each kept only when ``distinct(kept, revision)`` holds against
-    EVERY revision kept before it (§4.1 precondition 1: unique distinct heads; going back to an earlier head, or to
-    one geometrically equal to it, never counts again). Stops once ``limit`` heads are kept."""
+def unique_heads(revisions, distinct, limit: int | None = None) -> list[int]:
+    """The revisions in order, each kept only when ``distinct(kept, revision)`` holds against EVERY revision kept
+    before it (going back to an earlier head, or to one geometrically equal to it, never counts again); stops once
+    ``limit`` are kept. ``distinct`` is the one head-distinctness rule (Lab.distinct: geometry.distinct_heads of the
+    two built temples)."""
     chain: list[int] = []
-    for c in seen_compares(state):
-        r = c["revision"]
+    for r in revisions:
         if r is None or r in chain:
             continue
         if all(distinct(kept, r) for kept in chain):
@@ -180,30 +183,37 @@ def distinct_compared_heads(state: dict, distinct, limit: int | None = None) -> 
     return chain
 
 
+def distinct_compared_heads(state: dict, distinct, limit: int | None = None) -> list[int]:
+    """§4.1 precondition 1: the unique distinct heads (unique_heads) among the revisions of Astra's seen compares."""
+    return unique_heads([c["revision"] for c in seen_compares(state)], distinct, limit)
+
+
 def finish_missing(state: dict, *, status: str, best_revision: int, k: int, distinct, target_photos: list) -> list:
-    """The unmet finish preconditions (§4.1), each as {precondition, message}; [] = all met."""
+    """The unmet finish preconditions (§4.1), each as {precondition, message}; [] = all met. ``distinct(ra, rb)`` is
+    the one head-distinctness rule, used by precondition 1 and by precondition 4. Only what reached Astra counts:
+    seen compares (1, 3) and seen variants (2)."""
     out = []
     chain = distinct_compared_heads(state, distinct, limit=k)
     if len(chain) < k:
         out.append({"precondition": 1, "message": f"{len(chain)} of {k} distinct applied heads compared (revisions "
-                                                  f"{chain}); each must differ from every other one counted by "
-                                                  ">= 0.2 mm max|dX| or a facet / crease-shape change"})
+                                                  f"{chain}); a head counts only when it differs from every head "
+                                                  f"counted: {DIFFERENT_ATTEMPT}"})
     if not any(v.get("spread") for v in seen_variants(state)):
         out.append({"precondition": 2, "message": "no facet_variants call yet with >= 3 built and rendered variants "
                                                   "pairwise >= 0.3 mm apart"})
-    covered = {p for c in state["compares"] if c["revision"] == best_revision for p in c["photos"]}
+    covered = {p for c in seen_compares(state) if c["revision"] == best_revision for p in c["photos"]}
     missing = [p for p in target_photos if p not in covered]
     if missing:
-        out.append({"precondition": 3, "message": f"revision {best_revision} (best_checkpoint) has no compare at "
-                                                  f"photos {missing}: apply or restore it, then photo_compare those "
-                                                  "photos", "photos": missing})
+        out.append({"precondition": 3, "message": f"you were shown no compare of revision {best_revision} "
+                                                  f"(best_checkpoint) at photos {missing}: apply or restore it, then "
+                                                  "photo_compare those photos", "photos": missing})
     if status == "stuck":
         last = state["judgements"][-STUCK_LAST:]
-        revs = {j["compare_revision"] for j in last}
+        heads = unique_heads([j["compare_revision"] for j in last], distinct)
         better = [j["compare_id"] for j in last if j["overall"] == "better"]
-        if len(last) < STUCK_LAST or len(revs) < STUCK_LAST or better:
+        if len(last) < STUCK_LAST or len(heads) < STUCK_LAST or better:
             out.append({"precondition": 4, "message": f"stuck needs the last {STUCK_LAST} judgements on "
                                                       f"{STUCK_LAST} distinct heads, none 'better'; they cover "
-                                                      f"{len(revs)} heads" + (f" and {better} said better"
-                                                                              if better else "")})
+                                                      f"{len(heads)} distinct heads" + (f" and {better} said better"
+                                                                                        if better else "")})
     return out

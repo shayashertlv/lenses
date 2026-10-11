@@ -309,8 +309,10 @@ largest_difference ≤ 200 chars, at_d_mm|null, at_y_mm|null}], best_checkpoint}
 - The host logs judgements. It never grades them.
 
 **Finish preconditions** (procedural, never quality grading):
-1. ≥ K distinct applied heads compared (K owner-set per run, default 4). Each differs from its predecessor by
-   ≥ 0.2 mm max|ΔX|, or by a topology or crease-shape change, computed by the host.
+1. ≥ K distinct applied heads compared (K owner-set per run, default 4). A head counts only when its BUILT temple
+   differs from every head already counted by ≥ 0.2 mm of normal surface distance or outline shift (computed by the
+   host on the builds). Amended 2026-10-11: topology and crease-shape tests were dropped after five review rounds
+   showed knife edges near any crease threshold; a real layout or ridge/valley change moves the surface.
 2. ≥ 1 `facet_variants` call with ≥ 3 variants pairwise ≥ 0.3 mm apart.
 3. best_checkpoint's geometry fingerprint has a compare on all target photos (from cache when available).
 4. `stuck` only: the last 3 judgements cover 3 distinct heads and none says better.

@@ -214,10 +214,11 @@ def run_settings(**settings) -> RunSettings:
 
 
 FINISH_DOC = """End the run with best_checkpoint, which is exported and validated. Accepted only when: (1) at least {k}
-    distinct applied heads were compared, each differing from every other one counted by at least 0.2 mm max |dX| or
-    by a facet or crease-shape change; (2) one facet_variants call rendered at least 3 variants pairwise at least 0.3
-    mm apart; (3) best_checkpoint's revision was compared at every photo; (4) for stuck, the last 3 judgements cover 3
-    distinct heads and none says better. Otherwise it is refused with the missing ones named and the run continues.
+    distinct applied heads were compared; a head counts only when, against every other head counted, the built temple
+    surface or outline moves by at least 0.2 mm somewhere; (2) one facet_variants call rendered at least 3 variants pairwise at least 0.3 mm apart; (3) you
+    were shown a compare of best_checkpoint's revision at every photo; (4) for stuck, the last 3 judgements cover 3
+    distinct heads (as in 1) and none says better. Otherwise it is refused with the missing ones named and the run
+    continues.
 
     Args:
         status: matched (the renders and photos read as the same object) or stuck.

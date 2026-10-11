@@ -51,14 +51,35 @@ the run ends only when `facet_finish` returns accepted (K distinct compared head
 gets one host note, at most twice, then the run ends `ended_without_finish`. At 240k counted input tokens the
 context guard replaces superseded compare and variant images by text stubs once.
 
-Finish preconditions (`state.finish_missing`, procedure only):
+Finish preconditions (`state.finish_missing`, procedure only; only compares and variant sheets that reached Astra
+count):
 - K unique heads: a compared head counts only when it differs from every head already counted (going back to an
-  earlier head counts nothing). "Differs" is >= 0.2 mm max |dX| or outline shift, or a layout change judged by
-  geometry with a 0.2 mm tolerance, never by label or rounding (`geometry.layout_change`): a facet added or removed,
-  a facet corner moved >= 0.2 mm in (d, y), another facet adjacency, or a declared crease turned ridge <-> valley.
-  A rename, a node added on an edge or a 0.05 mm nudge is no change.
-- One `facet_variants` call with 3 variants pairwise >= 0.3 mm apart, counted only over variants that rendered and
-  whose result reached Astra (a call the SDK timed out counts nothing).
+  earlier head counts nothing).
+- "Differs" is one rule (`Lab.distinct` = `geometry.distinct_heads`), also used for the stuck status. It compares the
+  two BUILT temples (the g3d.temple build of each head's spec), never their specs, labels, node names or crease
+  tables. Astra is told: the built temple surface or outline moves by at least 0.2 mm somewhere. Two heads differ
+  when either is >= 0.2 mm:
+  - surface: the largest NORMAL distance between the two outer surfaces (roll and chamfers included) on the common
+    0.5 mm (d, y) grid inside both outlines, |dX| / sqrt(1 + |grad X|^2) with the mean of the two gradients, so the
+    nearly vertical roll band does not magnify an outline move;
+  - outline: y_top or y_bot at any d, or the end d0 / d1.
+
+  The visible-crease comparison (ridge and valley sets by Hausdorff distance, `crease_delta`) is still computed and
+  reported, but it never decides: every threshold on crease visibility had a knife edge that 0.05-0.1 mm thickness
+  nudges could cross (reviews of 2026-10-11), while a real layout change or ridge <-> valley flip moves the surface.
+  So flat (flush or coplanar) facets, coplanar splits, slivers, hairline gaps, a rename, a reordered polygon, a node
+  or corner outside the outline and nudges under 0.2 mm are no change by construction; a 0.3 mm thickness change at
+  a node or a deleted proud facet is. K = 4 therefore needs four built temples each at least 0.2 mm from the others.
+  The comparison takes about 0.05 s per pair on the Prada fixture (0.15 s on the preferred layout with a 0.4 mm
+  roll) and is cached per pair of revisions.
+- One `facet_variants` call with 3 variants pairwise >= 0.3 mm apart (`value_mm`: the surface or outline part above),
+  counted only over variants that rendered and whose result reached Astra (a call the SDK timed out counts nothing).
+- best_checkpoint's revision compared at every photo by compares Astra was shown (prepare's compares and a timed-out
+  call's compare do not count).
+- stuck only: the last 3 judgements are on 3 heads that differ pairwise (the same rule), and none says better.
+
+The lab's state is mutated and saved only under one lock (`Lab.state_lock`), so `mark_unseen` (on the event loop,
+when the SDK times a call out) never races the worker thread's saves.
 
 Timeouts: each tool has its SDK timeout (`loop.HARD_TIMEOUT_S` + 10 s). A timed-out call answers `E_TIMEOUT` with the
 money / context footer; its thread may still run and holds the lab's scene lock (`Lab.lock`), so other tools answer
@@ -101,3 +122,7 @@ the package stale; prepare a fresh one, then request again. Never run from a reh
   max (no high-effort ledger exists). The cap is enforced request by request, independently.
 - This CLI does not resume an interrupted paid run: `request` and `run` need a clean package. The loop's resume and
   rollback planning are tested with the lab journal (prepare's apply is never rolled back) but not wired here.
+- Head distinctness: a crease rising from below 1 deg to 2 deg or more counts as appearing (on the 2 mm border band a
+  facet proud by 0.035 mm, then 0.07 mm: a 0.04 mm surface change). A fold is measured over the border band or the
+  largest of its halvings (down to 0.25 mm) that stays in each side's region, so a facet narrower than 0.25 mm is
+  measured partly across its neighbour; a fold that cannot be measured inside the outline counts as no fold.

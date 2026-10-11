@@ -31,6 +31,14 @@ The scene lock (``Lab.lock``) serialises every use of the worker: tools.py takes
 SDK timed out is ``mark_unseen``: a compare it still makes is recorded unseen and never demands a judgement. Compares of
 a tool call render under that tool's hard timeout (loop.hard_timeout_s), never seeing's longer default.
 
+The state lock (``Lab.state_lock``, re-entrant) guards every mutation of ``Lab.state`` and every save: mark_unseen
+runs on the event-loop thread while a timed-out call's worker thread may still mutate or save the state, and json
+never serialises a dict that grows under it. It is held only for the mutation or the write, never across a build or
+render.
+
+``Lab.distinct(ra, rb)`` is the one head-distinctness rule (geometry.distinct_heads of the two BUILT temples, cached
+per pair) for finish preconditions 1 and 4.
+
 Warnings revision 0 already has (its core warnings and the Blender layer's lines at prepare, e.g. W_HINGE_LEAF,
 W_ARM_NORMAL_SPREAD; state "inherited") are listed by facet_inspect as inherited from revision 0 and left out of
 later receipts while their numbers stay within MATERIAL_ABS / MATERIAL_REL of revision 0's.
@@ -148,11 +156,12 @@ class Lab(SceneHooks):
         self.lock = threading.Lock()                 # the scene lock (module doc)
         self.running: dict | None = None             # the tool call holding it (tools.py)
         self._unseen: set = set()                    # call ids the SDK timed out (mark_unseen)
-        self._unseen_lock = threading.Lock()
+        self.state_lock = threading.RLock()          # every state mutation and save (module doc)
 
     # ---------------------------------------------------------------------------------------------- plumbing
     def save(self) -> None:
-        S.save(self.state_path, self.state)
+        with self.state_lock:
+            S.save(self.state_path, self.state)
 
     def verify_inputs(self) -> None:
         for row in self.manifest.get("assets", []):
@@ -215,20 +224,26 @@ class Lab(SceneHooks):
             self._deltas[key] = G.geometry_delta(self.build(key[0]), self.build(key[1]))
         return self._deltas[key]
 
+    def distinct(self, ra: int, rb: int) -> bool:
+        """The one head-distinctness rule (finish preconditions 1 and 4): geometry.distinct_heads of the two revisions'
+        built temples. A revision is never distinct from itself."""
+        return ra != rb and G.distinct_heads(self.delta(ra, rb))
+
     def head_record(self) -> dict | None:
         return S.head_by_fingerprint(self.state, self.s.head["fingerprint"]) if self.s.head else None
 
     def _register(self, spec: dict, *, parent, kind: str, label=None, ops: int = 0, note: str = "",
                   call_id=None) -> tuple[int, bool]:
         digest = spec_sha256(spec)
-        for r in self.state["revisions"]:
-            if r["sha256"] == digest:
-                return r["id"], False
-        rid = len(self.state["revisions"])
-        rel = f"revisions/r{rid:04d}.json"
-        write_json_atomic(self.work / rel, canonical(spec))
-        self.state["revisions"].append({"id": rid, "parent": parent, "sha256": digest, "file": rel, "kind": kind,
-                                        "label": label, "ops": ops, "note": note, "call_id": call_id})
+        with self.state_lock:
+            for r in self.state["revisions"]:
+                if r["sha256"] == digest:
+                    return r["id"], False
+            rid = len(self.state["revisions"])
+            rel = f"revisions/r{rid:04d}.json"
+            write_json_atomic(self.work / rel, canonical(spec))
+            self.state["revisions"].append({"id": rid, "parent": parent, "sha256": digest, "file": rel, "kind": kind,
+                                            "label": label, "ops": ops, "note": note, "call_id": call_id})
         return rid, True
 
     def _image(self, path, kind: str, **meta) -> str:
@@ -236,12 +251,15 @@ class Lab(SceneHooks):
         path = Path(path).resolve()
         if not path.is_relative_to(self.root):
             raise ValueError("image outside the lab")
-        self.state["images"][sha(path)] = {"kind": kind, "file": str(path.relative_to(self.root)), **meta}
+        digest = sha(path)
+        with self.state_lock:
+            self.state["images"][digest] = {"kind": kind, "file": str(path.relative_to(self.root)), **meta}
         return str(path)
 
     def _next(self, prefix: str) -> str:
-        self.state["seq"] += 1
-        return f"{prefix}{self.state['seq']:03d}"
+        with self.state_lock:
+            self.state["seq"] += 1
+            return f"{prefix}{self.state['seq']:03d}"
 
     # ---------------------------------------------------------------------------------------------- SceneHooks
     def start(self):
@@ -265,7 +283,8 @@ class Lab(SceneHooks):
         return {"worker_pid": self.s.worker.pid if self.s.worker else None}
 
     def journal_entries(self):
-        return self.state["events"]
+        with self.state_lock:
+            return list(self.state["events"])
 
     def exit_checkpoint(self):
         """The head re-verified, under the scene lock (never while a timed-out tool call still uses the worker)."""
@@ -284,8 +303,8 @@ class Lab(SceneHooks):
         """A tool call Astra stopped waiting for (the SDK timed it out; its thread may still run): a compare it made
         or still makes is recorded unseen and never demands a judgement (§4.1); its facet_variants sheets are unseen
         and never meet finish precondition 2; a finish it accepted is moved to ``finish_unseen`` (Astra was told
-        E_TIMEOUT and the run goes on)."""
-        with self._unseen_lock:
+        E_TIMEOUT and the run goes on). Under the state lock: the call's thread may still be mutating or saving."""
+        with self.state_lock:
             self._unseen.add(call_id)
             for c in self.state["compares"]:
                 if c.get("call_id") == call_id and c["by"] == "astra":
@@ -301,23 +320,27 @@ class Lab(SceneHooks):
     def restore(self, checkpoint_id, *, reason):
         before = self.s.head["id"]
         out = self.s.restore_checkpoint(checkpoint_id, call_id="loop-rollback")
-        self.state["events"].append({"kind": "rollback", "checkpoint": checkpoint_id, "checkpoint_before": before,
-                                     "head": self.s.head["id"], "reason": reason})
+        with self.state_lock:
+            self.state["events"].append({"kind": "rollback", "checkpoint": checkpoint_id, "checkpoint_before": before,
+                                         "head": self.s.head["id"], "reason": reason})
         self.save()
         return {"checkpoint": out.get("checkpoint"), "restored_from": checkpoint_id}
 
     def context_stubs(self, image_sha256s):
         """The context guard's one choice (loop.ContextGuard): compare and variant images of results older than the
         latest CONTEXT_KEEP_LATEST, except those of best_checkpoint's revision, become text stubs."""
-        results = [("compare", c["compare_id"], c["seq"]) for c in S.seen_compares(self.state)] + \
-                  [("variants", v["id"], v["seq"]) for v in S.seen_variants(self.state)]
-        keep = {ref for _k, ref, _s in sorted(results, key=lambda r: r[2])[-CONTEXT_KEEP_LATEST:]}
-        best = S.head_by_fingerprint(self.state, self.fingerprint_of(self.state.get("best_checkpoint")))
-        if best is not None:
-            keep |= {c["compare_id"] for c in self.state["compares"] if c["revision"] == best["revision"]}
+        with self.state_lock:
+            results = [("compare", c["compare_id"], c["seq"]) for c in S.seen_compares(self.state)] + \
+                      [("variants", v["id"], v["seq"]) for v in S.seen_variants(self.state)]
+            best = S.head_by_fingerprint(self.state, self.fingerprint_of(self.state.get("best_checkpoint")))
+            best_compares = {c["compare_id"] for c in self.state["compares"]
+                             if best is not None and c["revision"] == best["revision"]}
+            images = {digest: dict(self.state["images"][digest]) for digest in image_sha256s
+                      if digest in self.state["images"]}
+        keep = {ref for _k, ref, _s in sorted(results, key=lambda r: r[2])[-CONTEXT_KEEP_LATEST:]} | best_compares
         out = {}
         for digest in image_sha256s:
-            rec = self.state["images"].get(digest)
+            rec = images.get(digest)
             if rec and rec["kind"] in ("compare", "variants") and rec["ref"] not in keep:
                 what = f"photo {rec.get('photo')}" if rec.get("photo") else "sheet"
                 out[digest] = (f"[image removed by the host to save context: {rec['kind']} {rec['ref']} {what}, "
@@ -338,8 +361,9 @@ class Lab(SceneHooks):
             raise ValueError("this lab is prepared already")
         t0 = time.perf_counter()
         self.start()
-        self.state["start_checkpoint"] = self.s.head["id"]
-        self.state["start_fingerprint"] = self.s.head["fingerprint"]
+        with self.state_lock:
+            self.state["start_checkpoint"] = self.s.head["id"]
+            self.state["start_fingerprint"] = self.s.head["fingerprint"]
         exp = self.seeing.export_head("prepare-export")
         if exp.get("status") != "exported":
             raise ValueError(f"the original does not export: {exp}")
@@ -348,10 +372,11 @@ class Lab(SceneHooks):
         mesh_rel = "original_chart.npz"
         with open(self.work / mesh_rel, "wb") as f:
             np.savez_compressed(f, V=L, F=Fc)
-        self.state["original"] = {"export": {k: exp[k] for k in ("path", "sha256", "checkpoint")}, "body": r0["body"],
-                                  "side": r0["side"], "hinge_z_mm": r0["hinge_z"], "axis_xz_mm": r0["axis"],
-                                  "chart_mesh": mesh_rel, "footprints": r0["footprints"],
-                                  "template_report": plain(r0["report"])}
+        with self.state_lock:
+            self.state["original"] = {"export": {k: exp[k] for k in ("path", "sha256", "checkpoint")},
+                                      "body": r0["body"], "side": r0["side"], "hinge_z_mm": r0["hinge_z"],
+                                      "axis_xz_mm": r0["axis"], "chart_mesh": mesh_rel,
+                                      "footprints": r0["footprints"], "template_report": plain(r0["report"])}
         cmp0 = self._compare("prepare-original", self.photo_ids(), by="prepare", hinge_z=r0["spec"]["hinge"]["z_mm"])
         if cmp0.get("status") != "ok":
             raise ValueError(f"the compare of the original failed: {cmp0}")
@@ -388,15 +413,18 @@ class Lab(SceneHooks):
             raise
         if out["status"] != "ok":
             out["rollback"] = self.s.restore_checkpoint(before, call_id=call_id + "-rollback")
-        else:
-            self.state["heads"].append({"checkpoint": self.s.head["id"], "fingerprint": self.s.head["fingerprint"],
-                                        "revision": rid, "call_id": call_id})
-            if tool == "prepare":
-                self.state["inherited"] = self._inherited_of(rid, out.get("result") or {})
-        # prepare's apply is the package baseline (kind "prepare"): a resumed run never rolls it back
-        self.state["events"].append({"kind": "prepare" if tool == "prepare" else "call", "call_id": call_id,
-                                     "tool": tool, "mutating": True, "checkpoint_before": before,
-                                     "checkpoint_after": self.s.head["id"]})
+        inherited = self._inherited_of(rid, out.get("result") or {}) if out["status"] == "ok" and tool == "prepare" \
+            else None
+        with self.state_lock:
+            if out["status"] == "ok":
+                self.state["heads"].append({"checkpoint": self.s.head["id"], "fingerprint": self.s.head["fingerprint"],
+                                            "revision": rid, "call_id": call_id})
+                if inherited is not None:
+                    self.state["inherited"] = inherited
+            # prepare's apply is the package baseline (kind "prepare"): a resumed run never rolls it back
+            self.state["events"].append({"kind": "prepare" if tool == "prepare" else "call", "call_id": call_id,
+                                         "tool": tool, "mutating": True, "checkpoint_before": before,
+                                         "checkpoint_after": self.s.head["id"]})
         self.save()
         return out
 
@@ -425,7 +453,7 @@ class Lab(SceneHooks):
                "fingerprint": self.s.head["fingerprint"], "revision": head["revision"] if head else None,
                "photos": [self.pid(r) for r in rids], "by": by, "call_id": call_id, "report": res["report"],
                "judged": by != "astra", "seq": self.state["seq"]}
-        with self._unseen_lock:
+        with self.state_lock:
             if by == "astra" and call_id in self._unseen:          # the SDK stopped waiting: Astra never sees it
                 rec.update(unseen=True, judged=True)
             self.state["compares"].append(rec)
@@ -682,8 +710,9 @@ class Lab(SceneHooks):
         return self._compare(call_id, photos, by="astra", crop=crop or "temple", points=points, tool="photo_compare")
 
     def _judge(self, judgement, call_id: str, tool: str) -> None:
-        rec = S.check_judgement(self.state, judgement, fingerprint_of=self.fingerprint_of)
-        S.record_judgement(self.state, rec, call_id=call_id, tool=tool)
+        with self.state_lock:
+            rec = S.check_judgement(self.state, judgement, fingerprint_of=self.fingerprint_of)
+            S.record_judgement(self.state, rec, call_id=call_id, tool=tool)
 
     def edit(self, call_id: str, parent_revision: int, reset_layout: bool, edits: list, judgement, note: str,
              apply: bool = True, photos=None) -> dict:
@@ -829,7 +858,7 @@ class Lab(SceneHooks):
         rec = {"id": vid, "call_id": call_id, "parent": parent["id"], "photos": photos, "seq": self.state["seq"],
                "items": [{k: it.get(k) for k in ("label", "revision", "code", "vs_head_mm")} for it in items],
                "pairwise": out["pairwise_mm"], "rendered": rendered, "spread": spread}
-        with self._unseen_lock:
+        with self.state_lock:
             if call_id in self._unseen:
                 rec["unseen"] = True
             self.state["variants"].append(rec)
@@ -904,8 +933,9 @@ class Lab(SceneHooks):
             return {"status": "ok", "checkpoint": self.s.head["id"], "revision": head["revision"], "changed": False}
         before = self.s.head["id"]
         r = self.s.restore_checkpoint(checkpoint, call_id=call_id)
-        self.state["events"].append({"call_id": call_id, "tool": "facet_restore", "mutating": True,
-                                     "checkpoint_before": before, "checkpoint_after": self.s.head["id"]})
+        with self.state_lock:
+            self.state["events"].append({"call_id": call_id, "tool": "facet_restore", "mutating": True,
+                                         "checkpoint_before": before, "checkpoint_after": self.s.head["id"]})
         self.save()
         if r.get("status") != "ok":
             return {"status": "error", "code": "E_RESTORE", "message": r.get("message"),
@@ -924,21 +954,22 @@ class Lab(SceneHooks):
         if best is None:
             raise LabRefusal("E_ARGS", f"best_checkpoint {best_checkpoint!r} holds no applied revision; applied: "
                                        f"{S.applied_checkpoints(self.state)[-12:]}")
-
-        def distinct(ra: int, rb: int) -> bool:
-            return G.distinct_heads(self.delta(ra, rb))
-        missing = S.finish_missing(self.state, status=status, best_revision=best["revision"], k=int(k),
-                                   distinct=distinct, target_photos=self.photo_ids())
+        with self.state_lock:                       # a snapshot: the distinctness builds run outside the lock
+            snap = {key: json.loads(json.dumps(self.state[key])) for key in ("compares", "variants", "judgements")}
+        missing = S.finish_missing(snap, status=status, best_revision=best["revision"], k=int(k),
+                                   distinct=self.distinct, target_photos=self.photo_ids())
         if missing:
-            self.state["finish_refusals"] += 1
+            with self.state_lock:
+                self.state["finish_refusals"] += 1
             self.save()
             return {"status": "refused", "code": "E_FINISH", "missing": missing,
                     "message": "the run continues; meet the preconditions named in missing"}
         before = self.s.head["id"]
         if self.s.head["fingerprint"] != best["fingerprint"]:
             r = self.s.restore_checkpoint(best_checkpoint, call_id=call_id)
-            self.state["events"].append({"call_id": call_id, "tool": "facet_finish", "mutating": True,
-                                         "checkpoint_before": before, "checkpoint_after": self.s.head["id"]})
+            with self.state_lock:
+                self.state["events"].append({"call_id": call_id, "tool": "facet_finish", "mutating": True,
+                                             "checkpoint_before": before, "checkpoint_after": self.s.head["id"]})
             if r.get("status") != "ok":
                 self.save()
                 return {"status": "error", "code": "E_RESTORE", "message": r.get("message")}
@@ -951,7 +982,7 @@ class Lab(SceneHooks):
                "best_checkpoint": best_checkpoint, "revision": best["revision"],
                "export": {"path": exp["path"], "sha256": exp["sha256"]}, "summary": summary,
                "validate_spec": {"ok": v["ok"], "errors": v["errors"], "warnings": v["warnings"]}}
-        with self._unseen_lock:                     # a finish the SDK timed out never ends the run (mark_unseen)
+        with self.state_lock:                       # a finish the SDK timed out never ends the run (mark_unseen)
             if call_id in self._unseen:
                 self.state.setdefault("finish_unseen", []).append(fin)
             else:

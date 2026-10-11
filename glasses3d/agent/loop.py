@@ -125,7 +125,7 @@ HARD_TIMEOUT_S = {
     # facet_restore and facet_finish (measured 0.3 s and 0.2 s) are set above their worst declared inner deadlines
     # plus FACET_DEADLINE_MARGIN_S, so the SDK never answers E_TIMEOUT while a restore or export may still succeed:
     # restore = one checkpoint restore (journal.CHECKPOINT_DEADLINE_S 60 s) -> 90; finish = that restore and the
-    # export (seeing.EXPORT_DEADLINE_S 120 s) -> 210 (test_temple_lab pins both against the imported deadlines).
+    # export (seeing.EXPORT_DEADLINE_S 120 s) -> 210 (test_loop_facet pins both against the imported deadlines).
     "facet_inspect": 30, "photo_image": 30, "photo_compare": 40, "facet_edit": 60, "facet_variants": 90,
     "facet_restore": 90, "facet_finish": 210,
 }

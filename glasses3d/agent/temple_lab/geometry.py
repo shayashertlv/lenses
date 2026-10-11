@@ -10,11 +10,16 @@ geometry deltas between builds, and revision 0 from the original's export. numpy
         the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse).
     diff_specs(a, b) -> dict, diff_text(diff) -> str
         what changed between two specs (nodes, facets, creases, chains, scalars), compact.
-    surface_grid(tb, step) / geometry_delta(tb_a, tb_b)
-        the outer surface X on a (d, y) lattice, and between two builds: max |dX| over their common area, the
-        largest outline shift (y_top, y_bot, the end d), and whether the layout changed (layout_change: the facet
-        set, a node's (d, y) by >= HEAD_DISTINCT_MM, the facet adjacency or a declared crease's shape; compared by
-        geometry with that tolerance, never by label: a rename or a 0.05 mm nudge is no change).
+    surface_grid / surface_at / crease_edges / crease_pieces / crease_delta / geometry_delta / distinct_heads
+        between two BUILT temples (g3d.temple builds, never their specs, labels or node names): the outer surface X
+        and its gradient on a (d, y) lattice, the max normal distance |dX| / sqrt(1 + |grad X|^2) over the lattice
+        points inside both outlines, the largest outline shift (y_top, y_bot, the end d), and the visible creases:
+        each head's built crease edges folding >= FLAT_CREASE_DEG (measured over the border band, crease_pieces) as a
+        ridge set and a valley set of (d, y) segments, compared by symmetric Hausdorff distance (crease_delta).
+        distinct_heads is the one rule of finish preconditions 1 and 4: >= HEAD_DISTINCT_MM of normal surface
+        distance or outline shift (the crease comparison is reported, never decisive). Flat facets, coplanar splits,
+        slivers, renames, reordered polygons, corners outside the outline and nudges under 0.2 mm are no change by
+        construction.
     revision_zero(glb_path) -> {spec, report, side, hinge_z, axis, chart_mesh, footprints, body}
         template_from_mesh on the +X temple body of the exported head, with the decal and hinge footprints by
         geometry (the rule of tests/proofs/wp6v2_template_report.py) and the body's chart mesh (section strips).
@@ -30,7 +35,7 @@ import numpy as np
 from glasses3d.g3d.temple import measure as MS
 from glasses3d.g3d.temple import template as TT
 from glasses3d.g3d.temple.build import OUTER_KINDS
-from glasses3d.g3d.temple.spec import canonical
+from glasses3d.g3d.temple.spec import FLAT_CREASE_DEG, canonical
 
 CHAINS = ("outline.top", "outline.bottom", "inner", "base.top", "base.bottom")
 SCALARS = ("roll_mm", "tip_round_mm")
@@ -40,9 +45,17 @@ CHAIN_POINTS_MAX = 160
 D_LIMIT_MM, Y_LIMIT_MM, T_LIMIT_MM = 400.0, 200.0, 40.0     # engineering bounds of a lab spec, not quality limits
 RISE_LIMIT, DELTA_LIMIT_MM, SCALAR_LIMIT_MM = 5.0, 20.0, 10.0
 GRID_STEP_MM = 0.5
-HEAD_DISTINCT_MM = 0.2          # §4.1 finish precondition 1: a head differs from its predecessor by >= this (max |dX|,
-                                # outline shift, or a node's (d, y) move: a tolerance, never a rounding) ...
-VARIANT_DISTINCT_MM = 0.3       # ... and precondition 2: variants pairwise >= this
+HEAD_DISTINCT_MM = 0.2          # §4.1 finish preconditions 1 and 4: two heads are distinct when their built temples
+                                # differ by >= this normal surface distance or outline shift ...
+VARIANT_DISTINCT_MM = 0.3       # ... and precondition 2: variants pairwise >= this (value_mm)
+CREASE_MATCH_DEG = 0.5 * FLAT_CREASE_DEG    # a crease piece folding >= FLAT_CREASE_DEG is matched against the other
+                                # head's pieces of its shape from this fold on (hysteresis at the visibility threshold)
+CREASE_EMPTY_MIN_MM = 2.0       # a crease set against none of its shape differs when it totals this length
+CREASE_PIECE_MM = 0.1           # crease_pieces: crease edges are measured in pieces of at most this length
+CREASE_SAMPLE_MM = 0.02         # directed_mm: sample spacing along a crease (the value is short by < half of it)
+SURFACE_CELL_MM = 1.0           # surface_at: the triangle bucket grid
+CREASE_NEAR_MM = 1.0            # directed_mm: candidate segments within this of a chunk of samples
+CREASE_CHUNK = 256              # directed_mm: samples per chunk
 DIFF_NAMES_MAX = 6              # diff_text: names listed per kind before "+N more" (§4.5 text budget)
 TEMPLE_MIN_REACH_MM, TEMPLE_MIN_OFFSET_MM = 60.0, 20.0     # the one body rule (g3d_host/pose.temple_body)
 
@@ -389,10 +402,18 @@ def diff_text(diff: dict, limit: int = 360, names: int = DIFF_NAMES_MAX, reset: 
 
 
 # --------------------------------------------------------------------------------------------- deltas
+def _tri_gradients(V: np.ndarray, T: np.ndarray) -> np.ndarray:
+    """(k, 2) gradient (dX/dd, dX/dy) of each triangle's plane (outer triangles are a graph over (d, y))."""
+    n = np.cross(V[T[:, 1]] - V[T[:, 0]], V[T[:, 2]] - V[T[:, 0]])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return -n[:, :2] / n[:, 2:3]
+
+
 def surface_grid(tb, step: float = GRID_STEP_MM, origin: tuple = (0.0, 0.0)) -> tuple[np.ndarray, np.ndarray,
-                                                                                         np.ndarray]:
-    """(d values, y values, X[i_d, i_y]) of the outer surface (outer and roll polygons, which tile the outline in
-    (d, y)) on the lattice origin + k x step; NaN outside the outline."""
+                                                                                         np.ndarray, np.ndarray]:
+    """(d values, y values, X[i_d, i_y], grad[i_d, i_y] = (dX/dd, dX/dy)) of the outer surface (outer and roll
+    polygons, which tile the outline in (d, y)) on the lattice origin + k x step, each point from the triangle that
+    holds it; NaN outside the outline."""
     V = np.asarray(tb.V, float)
     kind = np.array([k in OUTER_KINDS for k in tb.poly_kind])[np.asarray(tb.tri_poly)]
     T = np.asarray(tb.tris)[kind]
@@ -403,6 +424,8 @@ def surface_grid(tb, step: float = GRID_STEP_MM, origin: tuple = (0.0, 0.0)) -> 
     ds = origin[0] + step * np.arange(i0[0], i1[0] + 1)
     ys = origin[1] + step * np.arange(i0[1], i1[1] + 1)
     X = np.full((len(ds), len(ys)), np.nan)
+    Gr = np.full((len(ds), len(ys), 2), np.nan)
+    grads = _tri_gradients(V, T)
     A, B, Cc = P[T[:, 0]], P[T[:, 1]], P[T[:, 2]]
     tmin, tmax = np.minimum(np.minimum(A, B), Cc), np.maximum(np.maximum(A, B), Cc)
     ja = np.ceil((tmin - origin) / step - 1e-9).astype(int) - i0
@@ -425,120 +448,240 @@ def surface_grid(tb, step: float = GRID_STEP_MM, origin: tuple = (0.0, 0.0)) -> 
         inside = (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
         if inside.any():
             x = l1 * V[T[t, 0], 2] + l2 * V[T[t, 1], 2] + l3 * V[T[t, 2], 2]
-            sub = X[max(ja[t, 0], 0):jb[t, 0] + 1, max(ja[t, 1], 0):jb[t, 1] + 1]
-            sub[inside] = x[inside]
-    return ds, ys, X
+            box = (slice(max(ja[t, 0], 0), jb[t, 0] + 1), slice(max(ja[t, 1], 0), jb[t, 1] + 1))
+            X[box][inside] = x[inside]
+            Gr[box][inside] = grads[t]
+    return ds, ys, X, Gr
 
 
-def facet_polygon(ps, label: str) -> np.ndarray:
-    """A facet's polygon as its nodes' (d, y) in order, (n, 2) mm."""
-    return np.array([[float(ps.nodes[n][0]), float(ps.nodes[n][1])] for n in ps.facets[label]["poly"]], float)
+def _regions(tb) -> np.ndarray:
+    """Per polygon, an id of its region (the facet label or "base" before any "/chamfer<i>"), within one build."""
+    names: dict = {}
+    return np.array([names.setdefault(r.partition("/")[0], len(names)) for r in tb.poly_region], np.int64)
 
 
-def _segment_distance(P: np.ndarray, A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    """Distance of every point of P (k, 2) to every segment A[j]-B[j] (m, 2): (k, m)."""
-    AB = B - A
-    L2 = (AB ** 2).sum(1)
-    AP = P[:, None, :] - A[None, :, :]
-    t = np.clip((AP * AB[None]).sum(-1) / np.where(L2 > 0, L2, 1.0), 0.0, 1.0)
-    return np.sqrt(((AP - t[..., None] * AB[None]) ** 2).sum(-1))
+def crease_edges(tb) -> dict:
+    """Every BUILT crease edge of the outer surface: an edge between two outer / roll polygons of different regions
+    (two facets, or a facet and the base; the chamfer and roll sub-bands of one region are not creases), as
+    {"seg": (m, 2, 2) (d, y) ends a -> b, "left", "right": (m,) the region ids (_regions) on either side of a -> b}
+    (outer polygons run counter-clockwise in (d, y)). Topology only: how much an edge folds is crease_pieces'."""
+    region = _regions(tb)
+    outer = [p for p, k in enumerate(tb.poly_kind) if k in OUTER_KINDS]
+    polys = [list(tb.polys[p]) for p in outer]
+    A = np.fromiter((v for q in polys for v in q), np.int64)
+    B = np.fromiter((v for q in polys for v in q[1:] + q[:1]), np.int64)
+    P = np.repeat(np.asarray(outer, np.int64), [len(q) for q in polys])
+    n = len(tb.V)
+    key, rev = A * n + B, B * n + A
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    pos = np.minimum(np.searchsorted(ks, rev), len(ks) - 1)
+    hit = (ks[pos] == rev) & (A < B)
+    A, B, P1, P2 = A[hit], B[hit], P[hit], P[order[pos[hit]]]
+    cr = region[P1] != region[P2]
+    V = np.asarray(tb.V, float)
+    return {"seg": np.stack([V[A[cr], :2], V[B[cr], :2]], axis=1), "left": region[P1[cr]], "right": region[P2[cr]]}
 
 
-def boundary_distance(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
-    """Distance of every point of P to the closed polygon boundary Q."""
-    return _segment_distance(P, Q, np.roll(Q, -1, axis=0)).min(1)
+def surface_at(tb, P: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(X, region id) of the built outer surface (outer and roll polygons) at the (d, y) points P, by barycentric
+    lookup in the build's own triangulation (triangles bucketed on a SURFACE_CELL_MM grid); NaN and -1 outside the
+    outline. A point on an edge takes either triangle (X is continuous)."""
+    V = np.asarray(tb.V, float)
+    sel = np.array([k in OUTER_KINDS for k in tb.poly_kind])[np.asarray(tb.tri_poly)]
+    T = np.asarray(tb.tris)[sel]
+    reg = _regions(tb)[np.asarray(tb.tri_poly)[sel]]
+    P = np.asarray(P, float).reshape(-1, 2)
+    out, rid = np.full(len(P), np.nan), np.full(len(P), -1, np.int64)
+    if not len(T) or not len(P):
+        return out, rid
+    C = V[T][:, :, :2]
+    lo = C.reshape(-1, 2).min(0)
+    c0 = np.floor((C.min(axis=1) - lo) / SURFACE_CELL_MM).astype(np.int64)
+    c1 = np.floor((C.max(axis=1) - lo) / SURFACE_CELL_MM).astype(np.int64)
+    ny = c1[:, 1] - c0[:, 1] + 1
+    cnt = (c1[:, 0] - c0[:, 0] + 1) * ny
+    tri = np.repeat(np.arange(len(T)), cnt)
+    k = np.arange(len(tri)) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+    W = int(c1[:, 1].max()) + 2
+    cid = (c0[tri, 0] + k // ny[tri]) * W + c0[tri, 1] + k % ny[tri]
+    order = np.argsort(cid, kind="stable")
+    cid, tri = cid[order], tri[order]
+    fin = np.isfinite(P).all(axis=1)
+    q = np.floor((np.where(fin[:, None], P, lo) - lo) / SURFACE_CELL_MM).astype(np.int64)
+    ok = fin & (q >= 0).all(axis=1) & (q[:, 1] < W)
+    qid = np.where(ok, q[:, 0] * W + q[:, 1], -1)
+    s0, s1 = np.searchsorted(cid, qid, "left"), np.searchsorted(cid, qid, "right")
+    m = np.where(ok, s1 - s0, 0)
+    qi = np.repeat(np.arange(len(P)), m)
+    ti = tri[np.repeat(s0, m) + np.arange(len(qi)) - np.repeat(np.cumsum(m) - m, m)]
+    a, b, c = C[ti, 0], C[ti, 1], C[ti, 2]
+    p = P[qi]
+    den = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        l1 = ((b[:, 1] - c[:, 1]) * (p[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (p[:, 1] - c[:, 1])) / den
+        l2 = ((c[:, 1] - a[:, 1]) * (p[:, 0] - c[:, 0]) + (a[:, 0] - c[:, 0]) * (p[:, 1] - c[:, 1])) / den
+    l3 = 1.0 - l1 - l2
+    inside = (np.abs(den) > 1e-14) & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+    X = V[T[ti], 2]
+    out[qi[inside]] = (l1 * X[:, 0] + l2 * X[:, 1] + l3 * X[:, 2])[inside]
+    rid[qi[inside]] = reg[ti[inside]]
+    return out, rid
 
 
-def corners(Q: np.ndarray, tol: float = HEAD_DISTINCT_MM) -> np.ndarray:
-    """The vertices of polygon Q that make its shape: those >= tol from the segment joining their two neighbours (a
-    node on an edge, or within tol of it, shapes nothing)."""
-    prev, nxt = np.roll(Q, 1, axis=0), np.roll(Q, -1, axis=0)
-    d = np.array([_segment_distance(Q[i:i + 1], prev[i:i + 1], nxt[i:i + 1])[0, 0] for i in range(len(Q))])
-    return Q[d >= tol]
+def crease_pieces(tb) -> dict:
+    """The built crease edges (crease_edges) cut into pieces of <= CREASE_PIECE_MM, each with its signed fold in
+    degrees (+ ridge, - valley; NaN where it cannot be measured inside the outline). At the piece's midpoint p, across
+    the edge (unit m toward its left region), each side's slope is the built surface's secant over the largest of
+    s, s / 2, s / 4, s / 8 (s = the spec's border_band_mm) whose end still lies in THAT side's region (else s / 8):
+    fold = -(atan((X(p + s+ m) - X(p)) / s+) + atan((X(p - s- m) - X(p)) / s-)). So a facet proud by h meets the base
+    with atan(h / s) however the build triangulates its ramp, two facets fold by their dihedral, and a flat (coplanar)
+    split folds 0 even beside another crease: a secant never crosses into a third region."""
+    ce = crease_edges(tb)
+    seg = ce["seg"]
+    L = np.hypot(*(seg[:, 1] - seg[:, 0]).T)
+    keep = L > 1e-9
+    seg, L, left, right = seg[keep], L[keep], ce["left"][keep], ce["right"][keep]
+    k = np.maximum(1, np.ceil(L / CREASE_PIECE_MM)).astype(np.int64)
+    idx = np.repeat(np.arange(len(seg)), k)
+    j = np.arange(len(idx)) - np.repeat(np.cumsum(k) - k, k)
+    e = seg[idx, 1] - seg[idx, 0]
+    pieces = np.stack([seg[idx, 0] + (j / k[idx])[:, None] * e, seg[idx, 0] + ((j + 1) / k[idx])[:, None] * e], axis=1)
+    mid = pieces.mean(axis=1)
+    m = np.stack([-e[:, 1], e[:, 0]], axis=1) / L[idx][:, None]
+    s = float(tb.spec.options["border_band_mm"])
+    scales = (s, 0.5 * s, 0.25 * s, 0.125 * s)
+    pts = [mid] + [mid + side * sc * m for side in (1.0, -1.0) for sc in scales]
+    X, R = surface_at(tb, np.concatenate(pts))
+    X, R = X.reshape(len(pts), len(mid)), R.reshape(len(pts), len(mid))
+    slopes = []
+    for side, region in ((0, left[idx]), (1, right[idx])):
+        sl = np.full(len(mid), np.nan)
+        for i, sc in enumerate(scales):
+            row = 1 + len(scales) * side + i
+            v = (X[row] - X[0]) / sc
+            last = i == len(scales) - 1
+            sl = np.where(np.isnan(sl) & ((R[row] == region) | last), v, sl)
+        slopes.append(sl)
+    fold = -np.degrees(np.arctan(slopes[0]) + np.arctan(slopes[1]))
+    return {"seg": pieces, "fold": fold, "edge": idx}
 
 
-def same_facet(Pa: np.ndarray, Pb: np.ndarray, tol: float = HEAD_DISTINCT_MM) -> bool:
-    """Two facet polygons are the same facet within tol (a tolerance, never a rounding): every node of either lies
-    < tol from the other's boundary, and every corner of either lies < tol from a node of the other. A node moved
-    >= tol in (d, y) (a corner, or off the other's boundary) makes them different; a rename, the polygon's start or
-    direction and a node added on an edge do not."""
-    if (boundary_distance(Pa, Pb) >= tol).any() or (boundary_distance(Pb, Pa) >= tol).any():
-        return False
-    for P, Q in ((Pa, Pb), (Pb, Pa)):
-        c = corners(P, tol)
-        if len(c) and (np.sqrt(((c[:, None, :] - Q[None, :, :]) ** 2).sum(-1)).min(1) >= tol).any():
-            return False
-    return True
+def _runs(pieces: dict, mask: np.ndarray) -> np.ndarray:
+    """(r, 2, 2) the pieces in mask merged into maximal runs of consecutive pieces of one edge (collinear)."""
+    idx = np.nonzero(mask)[0]
+    if not len(idx):
+        return np.zeros((0, 2, 2))
+    start = np.ones(len(idx), bool)
+    start[1:] = (np.diff(idx) != 1) | (np.diff(pieces["edge"][idx]) != 0)
+    first = np.nonzero(start)[0]
+    last = np.r_[first[1:], len(idx)] - 1
+    return np.stack([pieces["seg"][idx[first], 0], pieces["seg"][idx[last], 1]], axis=1)
 
 
-def facet_matching(a, b, tol: float = HEAD_DISTINCT_MM) -> dict | None:
-    """{facet of build a: the same facet of build b} (same_facet, one to one), or None when the facet sets differ
-    (a facet added or removed, or a node moved >= tol in (d, y))."""
-    fa, fb = sorted(a.spec.facets), sorted(b.spec.facets)
-    if len(fa) != len(fb):
-        return None
-    pa = {lb: facet_polygon(a.spec, lb) for lb in fa}
-    pb = {lb: facet_polygon(b.spec, lb) for lb in fb}
-
-    def cost(la, lb):
-        return max(float(boundary_distance(pa[la], pb[lb]).max()), float(boundary_distance(pb[lb], pa[la]).max()))
-    cand = {la: sorted((lb for lb in fb if same_facet(pa[la], pb[lb], tol)), key=lambda lb: cost(la, lb))
-            for la in fa}
-    owner: dict = {}                                    # facet of b -> facet of a (Kuhn's augmenting paths)
-
-    def augment(la, seen):
-        for lb in cand[la]:
-            if lb not in seen:
-                seen.add(lb)
-                if lb not in owner or augment(owner[lb], seen):
-                    owner[lb] = la
-                    return True
-        return False
-    for la in fa:
-        if not augment(la, set()):
-            return None
-    return {la: lb for lb, la in owner.items()}
+def _length(S: np.ndarray) -> float:
+    return float(np.hypot(*(S[:, 1] - S[:, 0]).T).sum()) if len(S) else 0.0
 
 
-def built_creases(tb, rename: dict | None = None) -> dict:
-    """{frozenset of the two regions: built shape} of every built crease (facet | facet and facet | base), the facet
-    labels renamed by ``rename``."""
-    rename = rename or {}
-    return {frozenset(rename.get(r, r) for r in c["regions"]): c["shape"]
-            for c in tb.tables["creases"] if c["kind"] == "crease"}
+def _samples(S: np.ndarray, step: float) -> np.ndarray:
+    """Points every <= step mm along each segment of S, both ends included."""
+    L = np.hypot(*(S[:, 1] - S[:, 0]).T)
+    k = np.maximum(1, np.ceil(L / step)).astype(np.int64)
+    idx = np.repeat(np.arange(len(S)), k + 1)
+    start = np.repeat(np.cumsum(k + 1) - (k + 1), k + 1)
+    t = (np.arange(len(idx)) - start) / k[idx]
+    return S[idx, 0] + t[:, None] * (S[idx, 1] - S[idx, 0])
 
 
-def layout_change(a, b, tol: float = HEAD_DISTINCT_MM) -> dict:
-    """§4.1 precondition 1's layout part, by geometry and never by label: facets_changed (the facet sets differ:
-    facet_matching), and, when they match, creases_changed (the facet adjacency changed: another pair of regions
-    meets, or a declared crease turned from ridge to valley or back; None when the facet sets differ)."""
-    m = facet_matching(a, b, tol)
-    if m is None:
-        return {"facets_changed": True, "creases_changed": None}
-    ca, cb = built_creases(a, m), built_creases(b)
-    declared = {frozenset(m.get(f, f) for f in c["facets"]) for c in a.spec.creases} | \
-        {frozenset(c["facets"]) for c in b.spec.creases}
-    flipped = any({ca[k], cb[k]} == {"ridge", "valley"} for k in declared if k in ca and k in cb)
-    return {"facets_changed": False, "creases_changed": set(ca) != set(cb) or flipped}
+def _point_segment_mm(P: np.ndarray, S: np.ndarray) -> np.ndarray:
+    """(len(P), len(S)) distances from the points P to the segments S."""
+    a = S[None, :, 0]
+    e = S[None, :, 1] - a
+    w = P[:, None, :] - a
+    t = np.clip((w * e).sum(-1) / np.maximum((e * e).sum(-1), 1e-30), 0.0, 1.0)
+    return np.hypot(w[..., 0] - t * e[..., 0], w[..., 1] - t * e[..., 1])
+
+
+def directed_mm(S: np.ndarray, T: np.ndarray, step: float = CREASE_SAMPLE_MM) -> float:
+    """The directed Hausdorff distance from the segments S to the segments T (non-empty), (d, y) mm: the largest
+    distance from a point of S (sampled every <= step mm, so short of the exact value by < step / 2) to T. A chunk of
+    nearby samples is measured against the segments of T within CREASE_NEAR_MM of its box; a sample farther than that
+    from all of them is measured against all of T (exact either way)."""
+    mid = S.mean(axis=1)
+    P = _samples(S[np.lexsort((mid[:, 1], mid[:, 0]))], step)       # spatially coherent chunks
+    lo_t, hi_t = T.min(axis=1), T.max(axis=1)
+    out, far = 0.0, []
+    for s in range(0, len(P), CREASE_CHUNK):
+        Q = P[s:s + CREASE_CHUNK]
+        lo, hi = Q.min(0) - CREASE_NEAR_MM, Q.max(0) + CREASE_NEAR_MM
+        near = np.nonzero(((lo_t <= hi) & (hi_t >= lo)).all(axis=1))[0]
+        d = _point_segment_mm(Q, T[near]).min(axis=1) if len(near) else np.full(len(Q), np.inf)
+        ok = d <= CREASE_NEAR_MM
+        if ok.any():
+            out = max(out, float(d[ok].max()))
+        if not ok.all():
+            far.append(Q[~ok])
+    for F in far:
+        for s in range(0, len(F), CREASE_CHUNK):
+            out = max(out, float(_point_segment_mm(F[s:s + CREASE_CHUNK], T).min(axis=1).max()))
+    return out
+
+
+def crease_delta(a, b) -> dict:
+    """The visible-crease part of §4.1 between two builds: per shape (ridge, valley), each head's set is its built
+    crease pieces of that shape folding >= FLAT_CREASE_DEG (crease_pieces); the two sets' symmetric Hausdorff distance
+    in (d, y), each set measured against the OTHER head's pieces of that shape from CREASE_MATCH_DEG on (hysteresis: a
+    crease at 1.9 deg in one head and 2.1 deg in the other is the same crease). A set against no pieces of its shape
+    at all differs (mm None) when it totals >= CREASE_EMPTY_MIN_MM, else counts nothing. Returns {shape: {"mm",
+    "length_mm": [a, b]}}: flat facets, coplanar splits, slivers and labels never enter a set; a ridge <-> valley flip
+    moves a whole crease from one set to the other."""
+    pieces = (crease_pieces(a), crease_pieces(b))
+    out = {}
+    for shape in ("ridge", "valley"):
+        sets = []
+        for p in pieces:
+            f = np.nan_to_num(p["fold"], nan=0.0) * (1.0 if shape == "ridge" else -1.0)
+            sets.append((_runs(p, f >= FLAT_CREASE_DEG), _runs(p, f >= CREASE_MATCH_DEG)))
+        (sa, la), (sb, lb) = sets
+        dirs = []
+        for s, other in ((sa, lb), (sb, la)):
+            if not len(s):
+                dirs.append(0.0)
+            elif not len(other):
+                dirs.append(None if _length(s) >= CREASE_EMPTY_MIN_MM else 0.0)
+            else:
+                dirs.append(directed_mm(s, other))
+        out[shape] = {"mm": None if None in dirs else round(max(dirs), 4),
+                      "length_mm": [round(_length(sa), 2), round(_length(sb), 2)]}
+    return out
 
 
 def geometry_delta(a, b, step: float = GRID_STEP_MM) -> dict:
-    """Between two builds: max |dX| over the common outline area (lattice step mm), the largest outline shift
-    (y_top / y_bot at every lattice d of the common range, and the end d), the layout change (layout_change) and
-    value_mm = max(max_dx_mm, outline_mm)."""
-    da, ya, Xa = surface_grid(a, step)
-    db, yb, Xb = surface_grid(b, step)
+    """Between two builds, by their built geometry only (module doc):
+        max_dx_mm    max |dX| of the outer surface (roll and chamfers included) on the common lattice (step mm) inside
+                     both outlines, each build sampled by barycentric lookup in its own triangulation (surface_grid)
+        surface_mm   the max NORMAL distance there: |dX| / sqrt(1 + |g|^2), g the mean of the two surfaces' gradients
+                     at the point (a nearly vertical roll band does not magnify an outline move)
+        outline_mm   the largest outline shift (y_top / y_bot at every lattice d of the common range, the end d0 / d1)
+        value_mm     max(surface_mm, outline_mm) (also finish precondition 2's variant spread)
+        creases      crease_delta; crease_mm the largest Hausdorff distance of the two shapes, crease_new the shapes
+                     whose crease set appeared or disappeared (mm None)."""
+    da, ya, Xa, Ga = surface_grid(a, step)
+    db, yb, Xb, Gb = surface_grid(b, step)
     dd = np.intersect1d(np.round(da / step).astype(int), np.round(db / step).astype(int))
     yy = np.intersect1d(np.round(ya / step).astype(int), np.round(yb / step).astype(int))
-    max_dx = 0.0
+    max_dx = surface = 0.0
     if len(dd) and len(yy):
         ia = np.searchsorted(np.round(da / step).astype(int), dd)
         ib = np.searchsorted(np.round(db / step).astype(int), dd)
         ja = np.searchsorted(np.round(ya / step).astype(int), yy)
         jb = np.searchsorted(np.round(yb / step).astype(int), yy)
         diff = np.abs(Xa[np.ix_(ia, ja)] - Xb[np.ix_(ib, jb)])
+        g = 0.5 * (Ga[np.ix_(ia, ja)] + Gb[np.ix_(ib, jb)])
+        normal = diff / np.sqrt(1.0 + (g * g).sum(-1))
         if np.isfinite(diff).any():
             max_dx = float(np.nanmax(diff))
+            surface = float(np.nanmax(normal))
     pa, pb = a.spec, b.spec
     lo, hi = max(pa.d0, pb.d0), min(pa.d1, pb.d1)
     outline = max(abs(pa.d0 - pb.d0), abs(pa.d1 - pb.d1))
@@ -546,15 +689,21 @@ def geometry_delta(a, b, step: float = GRID_STEP_MM) -> dict:
         ds = np.linspace(lo, hi, max(2, int((hi - lo) / step) + 1))
         outline = max(outline, float(np.abs(pa.y_top(ds) - pb.y_top(ds)).max()),
                       float(np.abs(pa.y_bot(ds) - pb.y_bot(ds)).max()))
-    return {"max_dx_mm": round(max_dx, 4), "outline_mm": round(outline, 4),
-            "value_mm": round(max(max_dx, outline), 4), **layout_change(a, b)}
+    creases = crease_delta(a, b)
+    return {"max_dx_mm": round(max_dx, 4), "surface_mm": round(surface, 4), "outline_mm": round(outline, 4),
+            "value_mm": round(max(surface, outline), 4), "creases": creases,
+            "crease_mm": max([c["mm"] for c in creases.values() if c["mm"] is not None], default=0.0),
+            "crease_new": [k for k, c in creases.items() if c["mm"] is None]}
 
 
 def distinct_heads(delta: dict) -> bool:
-    """§4.1 precondition 1: >= HEAD_DISTINCT_MM max |dX| (or outline shift), or a layout change (layout_change: a
-    facet added or removed, a node moved >= HEAD_DISTINCT_MM in (d, y), another adjacency, a declared crease
-    flipped). Nudges below HEAD_DISTINCT_MM never count."""
-    return bool(delta["value_mm"] >= HEAD_DISTINCT_MM or delta["facets_changed"] or delta["creases_changed"])
+    """THE head-distinctness rule (§4.1 finish preconditions 1 and 4), on the built temples only: the outer surface
+    moves >= HEAD_DISTINCT_MM along its normal somewhere, or the outline by that much (value_mm). Crease geometry is
+    reported (crease_delta) but never decides: every threshold on crease visibility had a knife edge that 0.05 mm
+    thickness nudges could cross (pf/gf/vc reviews, 2026-10-11), while a real layout change or ridge <-> valley flip
+    moves the surface itself. A rename, a reordered polygon, a corner outside the outline, a flat (flush or coplanar)
+    facet or split, and any nudge that moves the surface less than HEAD_DISTINCT_MM never count."""
+    return bool(delta["value_mm"] >= HEAD_DISTINCT_MM)
 
 
 def spread_triple(labels: list, pairs: dict) -> list | None:

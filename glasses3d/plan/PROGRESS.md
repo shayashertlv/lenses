@@ -11,7 +11,7 @@ are in [archive/20261008](archive/20261008/README.md). Archived files are eviden
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
 | WP4 | Complete and tested. The real-product proof is **stale** since the WP5 exporter change `10bf932`: 11 of 24 `test_seat_real` tests skip as stale. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
-| WP6 | **v2 in progress** per [WP6_FACETS.md](WP6_FACETS.md). v1 retired 2026-10-10 (tag `wp6-v1-final`) |
+| WP6 | **v2 built; awaiting the owner's OK for one paid Astra run** per [WP6_FACETS.md](WP6_FACETS.md). v1 retired 2026-10-10 (tag `wp6-v1-final`) |
 | WP2 | A–C verified; D–F not built |
 | WP7 | Design only ([WP7_DESIGN.md](WP7_DESIGN.md)) |
 | WP8 | Not started (paid; owner OK per run) |
@@ -31,6 +31,22 @@ Phase 1–2 results (2026-10-11):
   passes the size target but reverses the facet tone order. Details are in WP6_FACETS §3.2 (amended).
 - The builder `g3d.temple/2` is built: 268 tests, v1 equivalence 3e-14 mm, template p95 0.30 mm.
 - The v1 lab is broken until step 3 (it writes /1 specs).
+
+Phase 3 and pre-flight results (2026-10-11):
+- **Astra facet tools** (`agent/temple_lab`, rebuilt):
+  - 7 tools, the strict edits union, judgements and finish preconditions;
+  - the worker's non-mutating `temple_variants_render`;
+  - loop settings bound in the approval: tool_choice required, finish-gated stop, context guard, timeouts and E_BUSY;
+  - the six pending v1 relief modules are removed.
+- **T5 rehearsal** (MockTransport, real Blender, 0 network): 22/22 checks. **T5b**: the preferred layout is reached from
+  revision 0 in 23 edit ops.
+- **Finish rule "distinct head"** (preconditions 1 and 4): two attempts differ only when the built temple surface
+  (normal distance) or outline moves ≥ 0.2 mm. Five review rounds found ways to meet label-, layout- and
+  crease-threshold rules with near-zero geometry. Crease comparison is now reported, never decisive.
+- The light is the owner's choice C (`studio_dome_v1`). Sheet #2 is in `data/wp6v2/sheet2/`. The lighting sheet is in
+  `data/wp6v2/light_choice/owner/`.
+- **Estimate** (from T5 tool outputs): 40 replies $7.26 (cap $15); 60 replies $13.78, edit-heavy $16.56 (cap $20);
+  90 replies $22.19 (cap $50). Package: `data/wp6v2/lab/package`. The request `runs/facet-astra-001` is UNAPPROVED.
 
 No paid call is authorized now. The next one needs a cost estimate and the owner's explicit OK.
 
@@ -110,4 +126,7 @@ import, and the 7 Blender-only modules import in Blender 5.2.
   test without a reply cap; `62662f0` observed Astra test documented; `3ad4459` owner rejection and lessons
   (= `wp6-v1-final`).
 - `62b25e4` WP6 v2 facets design (owner-approved rebuild).
-- Next commits: the archive + docs step (track F), then the seeing track after its fixes.
+- `4d84cf1` archive WP6 v1 + start docs; `fa857b0` seeing (pose basis, matched compare, white balance, photo_env);
+  `04f8ceb` builder g3d.temple/2 + template + drawings + Blender layer; `c102efb` builder review fixes;
+  `cf9cf1a` Astra facet tools, loop finish settings, rehearsals, light choice; `831a8a2` pre-flight (owner light C,
+  gate/timeout fixes); next: surface-only distinct-head rule, rebuilt package and estimate.

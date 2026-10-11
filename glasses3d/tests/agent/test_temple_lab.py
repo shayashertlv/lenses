@@ -10,7 +10,6 @@ import json
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -382,9 +381,10 @@ def test_geometry_delta_distinct_rules():
     deeper["nodes"]["C"][2] += 1.0
     b = build_temple(deeper)
     d = G.geometry_delta(a, b)
-    assert d["max_dx_mm"] > 0.5 and d["outline_mm"] == 0.0 and G.distinct_heads(d)
+    assert d["surface_mm"] > 0.5 and d["outline_mm"] == 0.0 and G.distinct_heads(d)
     same = G.geometry_delta(a, build_temple(FX.prada_default()))
-    assert same["value_mm"] == 0.0 and not G.distinct_heads(same)
+    assert same["value_mm"] == 0.0 and same["crease_mm"] == 0.0 and same["crease_new"] == []
+    assert not G.distinct_heads(same)
     flip = FX.prada_default()
     flip["creases"] = [c for c in flip["creases"] if c["facets"] != ["F4", "base"]]
     assert not G.distinct_heads(G.geometry_delta(a, build_temple(flip)))      # a declaration alone: no change
@@ -392,74 +392,285 @@ def test_geometry_delta_distinct_rules():
     assert G.spread_triple(["A", "B", "C"], {("A", "B"): 0.2, ("A", "C"): 0.9, ("B", "C"): 0.5}) is None
 
 
-def test_topology_signature_is_geometry_not_labels():
-    """A pure rename of facets and nodes is no change (facets_changed / creases_changed False, not distinct); a facet
-    whose corner moves in (d, y), or a facet removed, is a topology change."""
+# the slab fixture's base is one plane over d 0-65 (fixtures module doc): a facet whose crease nodes are "base" and
+# whose rise follows the base is flush with it
+SLAB = FX.slab()
+SLAB_DXB = float(parse(SLAB).x_base(41.0, 0.0) - parse(SLAB).x_base(40.0, 0.0))     # the base's dX per mm of d
+
+
+def _node(name, d, y, t="base"):
+    """set_node; t "base", None (solve) or a thickness in mm."""
+    tt = {"mode": "base", "mm": None} if t == "base" else {"mode": "solve", "mm": None} if t is None else \
+        {"mode": "mm", "mm": float(t)}
+    return {"op": "set_node", "name": name, "d_mm": float(d), "y_mm": float(y), "t": tt}
+
+
+def _facet(label, poly, crease, rise):
+    return {"op": "set_facet", "label": label, "poly": list(poly), "fade": None,
+            "plane": {"mode": "crease", "crease": list(crease), "rise_per_mm": float(rise)}}
+
+
+def _rect(label, d0, y0, w, h, t="base", along_d=True):
+    """A w x h facet at (d0, y0) parallel to the base: its crease is the bottom edge (along_d) or the d0 edge, at t."""
+    p = [f"{label}{k}" for k in range(4)]
+    if along_d:
+        return [_node(p[0], d0, y0, t), _node(p[1], d0 + w, y0, t), _node(p[2], d0 + w, y0 + h, None),
+                _node(p[3], d0, y0 + h, None), _facet(label, p, (p[0], p[1]), 0.0)]
+    return [_node(p[0], d0, y0, t), _node(p[1], d0 + w, y0, None), _node(p[2], d0 + w, y0 + h, None),
+            _node(p[3], d0, y0 + h, t), _facet(label, p, (p[3], p[0]), SLAB_DXB)]
+
+
+def _roof(h, yc=0.0, w=3.0):
+    """Two facets meeting along y = yc (d 40-60), their outer edges w mm away on the base: the crease h mm above the
+    base is a ridge (h < 0: a valley) of 2 x atan(h / w)."""
+    return [_node("c0", 40.0, yc, FX.T_ZONE + h), _node("c1", 60.0, yc, FX.T_ZONE + h), _node("u0", 40.0, yc + w, None),
+            _node("u1", 60.0, yc + w, None), _node("l0", 40.0, yc - w, None), _node("l1", 60.0, yc - w, None),
+            _facet("U", ["c0", "c1", "u1", "u0"], ("c0", "c1"), -h / w),
+            _facet("D", ["l0", "l1", "c1", "c0"], ("c0", "c1"), -h / w)]
+
+
+def on_slab(edits):
+    return build_temple(G.apply_edits(SLAB, edits)[0])
+
+
+def _chain(builds) -> list:
+    """Precondition 1's count over these heads in order (state.unique_heads with distinct_heads)."""
+    return S.unique_heads(list(range(len(builds))),
+                          lambda i, j: G.distinct_heads(G.geometry_delta(builds[i], builds[j])))
+
+
+def test_crease_pieces_are_the_built_folds_never_the_table():
+    """The folds over the border band agree with the build's own crease table on the Prada fixture (every declared
+    ridge folds > 2 deg up, the F4|base valley down); the crease set reads the geometry only, so a rewritten crease
+    table (a "flip" or a lost crease with the same geometry) is no change."""
+    a = build_temple(FX.prada_default())
+    p = G.crease_pieces(a)
+    L = np.hypot(*(p["seg"][:, 1] - p["seg"][:, 0]).T)
+    f = np.nan_to_num(p["fold"])
+    ridge, valley = L[f >= 2.0].sum(), L[f <= -2.0].sum()
+    table = {tuple(c["regions"]): c for c in a.tables["creases"] if c["kind"] == "crease"}
+    assert table[("F4", "base")]["shape"] == "valley" and ridge > 120.0 and 19.0 < valley < 20.5
+    assert L[np.isnan(p["fold"])].sum() < 0.1 * L.sum()                 # unmeasurable only at the outline
+    b = build_temple(FX.prada_default())
+    b.tables = copy.deepcopy(b.tables)
+    next(c for c in b.tables["creases"] if c["regions"] == ["F1", "F2"])["shape"] = "valley"
+    b.tables["creases"] = [r for r in b.tables["creases"] if r["regions"] != ["F2", "F3"]]
+    d = G.geometry_delta(a, b)
+    assert d["value_mm"] == 0.0 and d["crease_mm"] == 0.0 and d["crease_new"] == [] and not G.distinct_heads(d)
+
+
+def test_a_pure_rename_is_no_change():
+    """A pure rename of facets and nodes builds the same temple: the same surface and the same crease sets."""
     a = build_temple(FX.prada_default())
     renamed = rename(FX.prada_default(), {"F1": "G1", "F2": "G2", "F3": "Q7", "F4": "Z"}, {"A": "N1", "B": "N2",
                                                                                          "C": "N3"})
     assert renamed != canonical(FX.prada_default()) and spec_sha256(renamed) != spec_sha256(FX.prada_default())
-    b = build_temple(renamed)
-    d = G.geometry_delta(a, b)
-    assert d["value_mm"] == 0.0 and not d["facets_changed"] and not d["creases_changed"] and not G.distinct_heads(d)
-    m = G.facet_matching(a, b)
-    assert m == {"F1": "G1", "F2": "G2", "F3": "Q7", "F4": "Z"}
-    assert G.built_creases(a, m) == G.built_creases(b)
-    assert frozenset({"F4", "base"}) in G.built_creases(a)              # a crease against the base keeps "base"
-    moved = canonical(FX.prada_default())
-    moved["nodes"]["C"][1] += 0.5                                       # C's y: the facets around C move
-    d = G.geometry_delta(a, build_temple(moved))
-    assert d["facets_changed"] and d["creases_changed"] is None and G.distinct_heads(d)
+    d = G.geometry_delta(a, build_temple(renamed))
+    assert d["value_mm"] == 0.0 and d["crease_mm"] == 0.0 and d["crease_new"] == [] and not G.distinct_heads(d)
+    assert d["creases"]["ridge"]["length_mm"][0] == d["creases"]["ridge"]["length_mm"][1] > 100.0
 
 
-def _with_free_node(spec: dict, name: str, d: float, y: float) -> dict:
+def _moved(spec: dict, name: str, dd: float = 0.0, dy: float = 0.0, dt: float = 0.0) -> dict:
     s = copy.deepcopy(canonical(spec))
-    s["nodes"][name] = [d, y, "base"]
+    s["nodes"][name][0] += dd
+    s["nodes"][name][1] += dy
+    if dt:
+        s["nodes"][name][2] += dt
     return canonical(s)
 
 
-@pytest.mark.parametrize("dd, dy, distinct", [(0.05, 0.0, False), (0.0, -0.05, False), (0.02, 0.04, False),
-                                              (0.0, 0.19, False), (0.3, 0.0, True), (0.0, 0.3, True),
-                                              (0.0, 0.21, True)])
-def test_head_distinctness_is_a_tolerance_not_a_rounding(dd, dy, distinct):
-    """§4.1 precondition 1 (p3f_review lab defect 1): a node nudged by less than HEAD_DISTINCT_MM in (d, y) (its X
-    change far below 0.2 mm) is no new head, whatever 0.01 mm rounding of the nodes would say; a move of
-    HEAD_DISTINCT_MM or more is. C is a corner of F1, F2 and F4."""
+@pytest.mark.parametrize("mm", [0.0, 1.0, 2.0, 3.0])
+def test_a_corner_outside_the_outline_moves_nothing_built(mm):
+    """pf_review defect 1: K_hi is a corner of F1 above the outline; moving it 0 / 1 / 2 / 3 mm moves nothing built
+    (same mesh), so it is never a new head (a declared polygon corner outside the outline counts for nothing)."""
+    base = canonical(FX.prada_default())
+    assert base["nodes"]["K_hi"][1] > max(y for _d, y in base["outline"]["top"])
+    a, b = build_temple(base), build_temple(_moved(base, "K_hi", dy=mm))
+    assert np.array_equal(a.V, b.V)
+    d = G.geometry_delta(a, b)
+    assert d["value_mm"] == 0.0 and d["crease_mm"] == 0.0 and d["crease_new"] == []
+    assert G.distinct_heads(d) is False
+
+
+@pytest.mark.parametrize("name, dd, dy", [("C", 0.05, 0.0), ("C", 0.0, -0.05), ("C", 0.02, 0.04), ("B", 0.05, 0.0),
+                                          ("B", 0.0, 0.1)])
+def test_a_node_nudge_that_moves_surface_and_creases_less_than_0_2_mm_is_no_new_head(name, dd, dy):
+    """§4.1 by the built temple: a node moved in (d, y) whose built surface (normal distance) and visible creases move
+    < HEAD_DISTINCT_MM is no new head."""
     a = build_temple(FX.prada_default())
-    moved = canonical(FX.prada_default())
-    moved["nodes"]["C"][0] += dd
-    moved["nodes"]["C"][1] += dy
-    d = G.geometry_delta(a, build_temple(moved))
-    if not distinct:
-        assert d["max_dx_mm"] < G.HEAD_DISTINCT_MM and d["outline_mm"] == 0.0
-        assert not d["facets_changed"] and not d["creases_changed"]
+    d = G.geometry_delta(a, build_temple(_moved(FX.prada_default(), name, dd, dy)))
+    assert d["surface_mm"] < 0.05 and d["outline_mm"] == 0.0 and d["crease_mm"] < G.HEAD_DISTINCT_MM
+    assert d["crease_new"] == [] and G.distinct_heads(d) is False, d
+
+
+@pytest.mark.parametrize("name, dd, dy", [("C", 0.3, 0.0), ("C", 0.0, 0.3), ("B", 0.0, 0.3)])
+def test_a_crease_move_that_hardly_moves_the_surface_is_reported_but_no_new_head(name, dd, dy):
+    """The same node 0.3 mm away moves a ridge's end by >= 0.2 mm but the surface < 0.2 mm: the crease distance is
+    reported, and only the surface / outline decides (crease thresholds had knife edges, 2026-10-11)."""
+    a = build_temple(FX.prada_default())
+    d = G.geometry_delta(a, build_temple(_moved(FX.prada_default(), name, dd, dy)))
+    assert d["value_mm"] < G.HEAD_DISTINCT_MM <= d["crease_mm"] and not G.distinct_heads(d), d
+
+
+@pytest.mark.parametrize("dt, distinct", [(0.05, False), (0.15, False), (0.3, True), (1.0, True)])
+def test_a_thickness_change_at_a_node_counts_from_0_2_mm(dt, distinct):
+    a = build_temple(FX.prada_default())
+    d = G.geometry_delta(a, build_temple(_moved(FX.prada_default(), "C", dt=dt)))
+    assert (d["surface_mm"] >= G.HEAD_DISTINCT_MM) is distinct and d["crease_mm"] < G.HEAD_DISTINCT_MM
     assert G.distinct_heads(d) is distinct, d
 
 
-def test_head_distinctness_ignores_labels_order_and_edge_nodes():
-    """A rename plus a rotated, reversed polygon is the same layout; so is a node added on a facet's edge (it shapes
-    nothing); a node added 0.3 mm off the edge is a new facet shape; deleting a facet is a new facet set."""
+def test_rename_reorder_and_a_node_on_an_edge_are_no_new_head():
+    """A rename plus a rotated, reversed polygon is the same built temple; so is a solved node added on a facet's
+    edge (it shapes nothing)."""
     a = build_temple(FX.prada_default())
     s = rename(FX.prada_default(), {"F1": "X1", "F2": "X2"}, {"A": "N1", "C": "N3"})
     s["facets"]["X1"]["poly"] = list(reversed(s["facets"]["X1"]["poly"]))
     s["facets"]["X2"]["poly"] = s["facets"]["X2"]["poly"][1:] + s["facets"]["X2"]["poly"][:1]
     d = G.geometry_delta(a, build_temple(canonical(s)))
-    assert not G.distinct_heads(d), d
-    poly = canonical(FX.prada_default())["facets"]["F4"]["poly"]
-    nodes = canonical(FX.prada_default())["nodes"]
-    p, q = (np.asarray(nodes[n][:2], float) for n in poly[:2])
-    mid = 0.5 * (p + q)
-    normal = np.array([-(q - p)[1], (q - p)[0]]) / np.linalg.norm(q - p)
-    for offset, distinct in ((0.0, False), (0.3, True)):
-        x = mid + offset * normal
-        e = _with_free_node(FX.prada_default(), "M", float(x[0]), float(x[1]))
-        e["facets"]["F4"]["poly"] = [poly[0], "M"] + poly[1:]
-        P = G.facet_polygon(parse(e), "F4")
-        assert G.same_facet(G.facet_polygon(a.spec, "F4"), P) is not distinct
+    assert not G.distinct_heads(d) and d["value_mm"] == 0.0 and d["crease_mm"] == 0.0, d
+    e = copy.deepcopy(canonical(FX.prada_default()))
+    poly = e["facets"]["F4"]["poly"]
+    p, q = (np.asarray(e["nodes"][n][:2], float) for n in poly[:2])
+    e["nodes"]["M"] = [*(0.5 * (p + q)).tolist(), None]
+    e["facets"]["F4"]["poly"] = [poly[0], "M"] + poly[1:]
+    d = G.geometry_delta(a, build_temple(canonical(e)))
+    assert not G.distinct_heads(d) and d["max_dx_mm"] < 1e-6 and d["crease_mm"] < 0.02, d
+
+
+def test_deleting_a_proud_facet_is_a_new_head():
+    a = build_temple(FX.prada_default())
     gone = canonical(FX.prada_default())
     del gone["facets"]["F3"]
     gone["creases"] = [c for c in gone["creases"] if "F3" not in c["facets"]]
-    assert G.facet_matching(a, SimpleNamespace(spec=parse(gone))) is None
+    assert G.distinct_heads(G.geometry_delta(a, build_temple(gone)))
+    proud = on_slab(_rect("F", 40.0, -2.0, 10.0, 4.0, FX.T_ZONE + 0.5))
+    d = G.geometry_delta(proud, build_temple(SLAB))
+    assert d["surface_mm"] > 0.45 and d["crease_new"] == ["ridge"] and G.distinct_heads(d)
+
+
+def test_layout_only_changes_with_the_same_surface_are_no_new_head():
+    """gf_review defect 1a: facets flush with the base (a hop of 3 mm, a 0.0067 mm apex move across the old 1 mm^2
+    cut, a shared edge 1.03 -> 0.97 mm) and coplanar splits of a 0.5 mm proud facet change no surface and no visible
+    crease: revision 0 plus any number of them counts 1 head."""
+    slab = build_temple(SLAB)
+    hops = [on_slab(_rect("F", 40.0, y0, 2.0, 6.0, along_d=False)) for y0 in (-4.0, -1.0, 2.0)]
+    assert _chain([slab] + hops) == [0]
+
+    def tri(w):                                          # a flush triangle of area 3 w mm^2
+        return on_slab([_node("T0", 40.0, -3.0), _node("T1", 40.0, 3.0), _node("T2", 40.0 + w, 0.0, None),
+                        _facet("T", ["T0", "T1", "T2"], ("T1", "T0"), SLAB_DXB)])
+
+    def adjacent(L):                                     # two flush facets sharing an edge L mm long
+        return on_slab(_rect("F1", 40.0, -3.0, 2.5, 6.0, along_d=False) +
+                       _rect("F2", 42.5, 3.0 - L, 2.5, 6.0, along_d=False))
+    assert _chain([slab, tri(0.3367), tri(0.33), adjacent(1.03), adjacent(0.97)]) == [0]
+    t = FX.T_ZONE + 0.5
+    whole = on_slab(_rect("F1", 40.0, -2.0, 10.0, 4.0, t))
+    splits = []
+    for ys in (-1.0, 0.0, 1.0):                          # F1 cut into two coplanar strips at y = ys
+        splits.append(on_slab([_node("A0", 40.0, -2.0, t), _node("A1", 50.0, -2.0, t), _node("M1", 50.0, ys, t),
+                               _node("M0", 40.0, ys, t), _node("A2", 50.0, 2.0, None), _node("A3", 40.0, 2.0, None),
+                               _facet("F1a", ["A0", "A1", "M1", "M0"], ("A0", "A1"), 0.0),
+                               _facet("F1b", ["M0", "M1", "A2", "A3"], ("M0", "M1"), 0.0)]))
+    assert _chain([whole] + splits) == [0]
+    d = G.geometry_delta(whole, splits[0])
+    assert d["value_mm"] < 1e-3 and d["crease_mm"] == 0.0
+
+
+def test_hairlines_slivers_and_a_balance_point_are_no_new_head():
+    """gf_review defect 1b: a 0.001 mm gap opened in a real 5.7 deg valley between two 0.5 mm proud facets, a
+    0.09 mm coplanar sliver inserted into it, and a facet proud at one end and sunk at the other moved across the
+    old majority flip of its facet|base crease (0.0016 mm of t) are no new head."""
+    t = FX.T_ZONE + 0.5
+
+    def two(gap=0.0, sliver=0.0):
+        """F1 [40, 50] x [-3, 1], 0.5 mm proud and flat; F2 from y = 1 + gap + sliver to 5, rising 0.1 / mm from
+        F1's level (a 5.7 deg valley with F1); a sliver S coplanar with F1 fills [1, 1 + sliver]."""
+        e = [_node("A0", 40.0, -3.0, t), _node("A1", 50.0, -3.0, t), _node("A2", 50.0, 1.0, t),
+             _node("A3", 40.0, 1.0, t), _facet("F1", ["A0", "A1", "A2", "A3"], ("A0", "A1"), 0.0)]
+        lo = ["A3", "A2"]
+        if sliver:
+            e += [_node("S2", 50.0, 1.0 + sliver, t), _node("S3", 40.0, 1.0 + sliver, t),
+                  _facet("S", ["A3", "A2", "S2", "S3"], ("A3", "A2"), 0.0)]
+            lo = ["S3", "S2"]
+        if gap:
+            e += [_node("G0", 40.0, 1.0 + gap, t), _node("G1", 50.0, 1.0 + gap, t)]
+            lo = ["G0", "G1"]
+        return on_slab(e + [_node("B2", 50.0, 5.0, None), _node("B3", 40.0, 5.0, None),
+                            _facet("F2", [lo[0], lo[1], "B2", "B3"], (lo[0], lo[1]), 0.1)])
+    shared = two()
+    assert [(c["shape"], round(c["mean_dihedral_deg"], 1)) for c in shared.tables["creases"]
+            if c["regions"] == ["F1", "F2"]] == [("valley", 5.7)]
+    for other in (two(gap=0.001), two(sliver=0.09)):
+        d = G.geometry_delta(shared, other)
+        assert d["creases"]["valley"]["mm"] is not None and d["crease_mm"] < 0.1 and not G.distinct_heads(d), d
+
+    def balance(dt):                                      # proud 0.3 mm at d 40, sunk 0.3 mm (+ dt) at d 50
+        b = on_slab([_node("E0", 40.0, -3.0, FX.T_ZONE + 0.3), _node("E1", 50.0, -3.0, FX.T_ZONE - 0.3 + dt),
+                     _node("E2", 50.0, 1.0, None), _node("E3", 40.0, 1.0, None),
+                     _facet("E", ["E0", "E1", "E2", "E3"], ("E0", "E1"), 0.0)])
+        return b, next(c["shape"] for c in b.tables["creases"] if c["regions"] == ["E", "base"])
+    lo, hi = -0.1, 0.1
+    assert balance(lo)[1] != balance(hi)[1]
+    while hi - lo > 0.002:                                # bisect the table's majority flip
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if balance(mid)[1] == balance(lo)[1] else (lo, mid)
+    (a, sa), (b, sb) = balance(lo), balance(hi)
+    d = G.geometry_delta(a, b)
+    assert sa != sb and d["crease_mm"] == 0.0 and not G.distinct_heads(d), d
+
+
+def test_crease_changes_are_reported_and_only_the_surface_decides():
+    """Crease thresholds had knife edges (a 0.05 mm thickness nudge could make a 2 deg fold appear), so the crease
+    comparison is reported but never decides (2026-10-11). Faint changes that move the surface < 0.2 mm - a crease
+    crossing 2 deg, a 3 deg ridge flipped to a valley, a new 3 deg crease, a crease moved 0.5 mm - are no new head;
+    the same flip on a 0.3 mm roof moves the surface >= 0.2 mm and is one."""
+    def proud(deg):
+        return on_slab(_rect("K", 40.0, -3.0, 10.0, 6.0, FX.T_ZONE + 2.0 * np.tan(np.radians(deg))))
+    d = G.geometry_delta(proud(0.9), proud(2.1))
+    assert d["value_mm"] < 0.05 and d["crease_new"] == ["ridge"] and not G.distinct_heads(d), d
+    ridge = on_slab(_roof(0.08))
+    assert [(c["shape"], round(c["mean_dihedral_deg"], 2)) for c in ridge.tables["creases"]
+            if c["regions"] == ["D", "U"]] == [("ridge", 3.05)]
+    flip = G.geometry_delta(ridge, on_slab(_roof(-0.08)))
+    assert flip["value_mm"] < G.HEAD_DISTINCT_MM and flip["creases"]["ridge"]["mm"] >= 1.0
+    assert not G.distinct_heads(flip)
+    new = G.geometry_delta(build_temple(SLAB), ridge)
+    assert new["value_mm"] < G.HEAD_DISTINCT_MM and "ridge" in new["crease_new"] and not G.distinct_heads(new)
+    moved = G.geometry_delta(ridge, on_slab(_roof(0.08, yc=0.5)))
+    assert abs(moved["crease_mm"] - 0.5) < 0.02 and not G.distinct_heads(moved)
+    big = G.geometry_delta(on_slab(_roof(0.3)), on_slab(_roof(-0.3)))
+    assert big["value_mm"] >= G.HEAD_DISTINCT_MM and G.distinct_heads(big), big
+
+
+def test_the_roll_band_does_not_magnify_an_outline_move():
+    """gf_review defect 2: on a rolled temple (roll 0.6 mm) outline.bottom moved 0.04 / 0.08 / 0.12 mm moves X by up
+    to 0.36 mm in the nearly vertical roll band but the surface along its normal by ~0.1 mm: one head, and the
+    variant spread (value_mm) is the outline's move. The roll itself (0 -> 0.6 mm) moves the corner 0.25 mm."""
+    rolled = copy.deepcopy(SLAB)
+    rolled["roll_mm"] = 0.6
+    heads = [build_temple(rolled)] + [
+        build_temple(G.apply_edits(rolled, [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 0.0,
+                                             "d_to_mm": 140.0, "delta_mm": -x, "taper_mm": 0.0}])[0])
+        for x in (0.04, 0.08, 0.12)]
+    d = G.geometry_delta(heads[0], heads[3])
+    assert d["max_dx_mm"] > 0.3 and d["surface_mm"] < 0.15 and d["value_mm"] == d["outline_mm"] == 0.12
+    assert not G.distinct_heads(d) and _chain(heads) == [0]
+    roll = G.geometry_delta(build_temple(SLAB), heads[0])
+    assert 0.2 <= roll["surface_mm"] < 0.3 and G.distinct_heads(roll)
+
+
+def test_the_head_comparison_is_fast():
+    """The comparison runs on every finish; < 0.5 s per pair (about 0.05 s on the Prada fixture, 0.15 s on the
+    preferred layout with a 0.4 mm roll)."""
+    for spec, node in ((FX.prada_default(), "C"), (FX.rolled(), "C")):
+        a = build_temple(spec)
+        b = build_temple(_moved(spec, node, dt=0.3))
+        G.geometry_delta(a, b)
+        t0 = time.perf_counter()
+        G.geometry_delta(a, b)
+        assert time.perf_counter() - t0 < 0.5
 
 
 # --------------------------------------------------------------------------------------------- tools
@@ -815,7 +1026,9 @@ def test_finish_refused_names_preconditions_then_accepted(lab, monkeypatch):
     tl = tools_of(lab, finish_k=3)
     body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": lab.s.head["id"],
                                                 "summary": "s", "judgement": None}))
-    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2]
+    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2, 3]
+    assert body["missing"][2]["photos"] == PHOTO_IDS                   # prepare's compares were never shown to Astra
+    assert S.DIFFERENT_ATTEMPT in body["missing"][0]["message"]
     cps = _distinct_heads_and_variants(lab, tl)
     best = cps[0]
     body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
@@ -887,6 +1100,81 @@ def test_finish_counts_a_renamed_or_repeated_head_once(lab, monkeypatch):
                                                 "summary": "s", "judgement": judgement(lab)}))
     pre1 = next(m for m in body["missing"] if m["precondition"] == 1)
     assert "2 of 3" in pre1["message"] and "revisions [1, 0]" in pre1["message"]
+
+
+def test_stuck_uses_the_one_head_rule(lab, monkeypatch):
+    """Precondition 4 counts heads with the same rule as precondition 1 (Lab.distinct, the built temples): judgements
+    on revision 1, revision 0 and a rename of revision 1 cover 2 distinct heads, not 3; one more real change makes
+    the last 3 judgements cover 3."""
+    import glasses3d.g3d_host.spec as GS
+    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
+                                                        "live_site_would_fail": []})
+    tl = tools_of(lab, finish_k=2)
+    spec = FX.prada_default()
+    renamed = rename(canonical(spec), {"F1": "G1", "F2": "G2", "F3": "G3", "F4": "G4"}, {"C": "Cx", "A": "Ax"})
+    renamed["nodes"]["Cx"][2] += 1.0                                        # revision 1's geometry, other names
+    for k, (edits, reset) in enumerate([([set_t("C", spec, 1.0)], False), ([], False),
+                                        (G.spec_to_edits(renamed), True)]):
+        body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": reset, "edits": edits,
+                                                  "note": "x", "apply": True, "photos": None,
+                                                  "judgement": judgement(lab) if k else None}))
+        assert body["status"] == "applied", body
+    assert [c["revision"] for c in S.seen_compares(lab.state)] == [1, 0, 2]
+    calls = []
+    distinct0 = lab.distinct
+    lab.distinct = lambda ra, rb: calls.append((ra, rb)) or distinct0(ra, rb)
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": lab.s.head["id"], "summary": "s",
+                                                "judgement": judgement(lab)}))
+    pre4 = next(m for m in body["missing"] if m["precondition"] == 4)
+    assert "cover 2 distinct heads" in pre4["message"] and (1, 2) in calls     # (1, 2): only precondition 4 asks it
+    assert [j["compare_revision"] for j in lab.state["judgements"]] == [1, 0, 2]
+    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "note": "x", "apply": True,
+                                              "edits": [set_t("C", spec, 2.0)], "photos": None, "judgement": None}))
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": lab.s.head["id"], "summary": "s",
+                                                "judgement": judgement(lab)}))
+    assert body["status"] == "refused" and 4 not in [m["precondition"] for m in body["missing"]], body
+
+
+def test_precondition_3_counts_only_compares_astra_saw():
+    """pf_review defect 3: prepare's compares and a timed-out call's compare (never shown) cover no photo."""
+    st = {"compares": [{"by": "prepare", "revision": 1, "photos": ["01", "02"]},
+                       {"by": "astra", "revision": 1, "photos": ["03"], "unseen": True},
+                       {"by": "astra", "revision": 1, "photos": ["04"]}],
+          "variants": [{"spread": ["A", "B", "C"]}], "judgements": []}
+    miss = S.finish_missing(st, status="matched", best_revision=1, k=1, distinct=lambda a, b: True,
+                            target_photos=["01", "02", "03", "04"])
+    assert [m["precondition"] for m in miss] == [3] and miss[0]["photos"] == ["01", "02", "03"]
+
+
+def test_the_state_lock_serialises_mark_unseen_and_save(lab, monkeypatch):
+    """pf_review defect 4: mark_unseen (on the event-loop thread, when the SDK times a call out) waits while the
+    worker thread saves the state; it never adds keys under json.dumps. The lock is re-entrant (a save inside a
+    mutation)."""
+    body, *_ = parsed(call(tools_of(lab)["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None},
+                           "call_r"))
+    entered, gate, done = threading.Event(), threading.Event(), threading.Event()
+    save0 = S.save
+
+    def slow_save(path, state):
+        entered.set()
+        gate.wait(10)
+        return save0(path, state)
+    monkeypatch.setattr(S, "save", slow_save)
+    saver = threading.Thread(target=lab.save)
+    saver.start()
+    assert entered.wait(10)
+    marker = threading.Thread(target=lambda: (lab.mark_unseen("call_r"), done.set()))
+    marker.start()
+    time.sleep(0.3)
+    assert not done.is_set() and "unseen" not in S.compare(lab.state, body["compare_id"])
+    gate.set()
+    saver.join(10)
+    marker.join(10)
+    assert done.is_set() and S.compare(lab.state, body["compare_id"])["unseen"] is True
+    monkeypatch.setattr(S, "save", save0)
+    with lab.state_lock:
+        lab.save()
+    assert json.loads(lab.state_path.read_text(encoding="utf-8"))["compares"][-1]["unseen"] is True
 
 
 def test_busy_lock_returns_at_once(lab):
@@ -1201,7 +1489,8 @@ def test_real_lab_prepare_edit_variants_restore(tmp_path):
         assert body["status"] == "ok" and body["revision"] == 0
         body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": r0_checkpoint,
                                                     "summary": "test", "judgement": None}, "c4"))
-        assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2]
+        assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2, 3]
+        assert body["missing"][2]["photos"] == PHOTO_IDS                # prepare's compares were never shown to Astra
         assert lab.exit_checkpoint()["verified"] is True
     finally:
         lab.close()
