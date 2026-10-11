@@ -175,6 +175,21 @@ information only since `2ca5be9`.
 - **Estimate:** output tokens per reply from runs 2-4 (1852 expected, 2064 high); up to 4 variant sheets.
 - T5 rehearsal 31/31; reviews: no P1 left. Owner, verbatim: "you may do a paid run, only when your ready, max 15$".
 
+**Paid run `facet-astra-005` (2026-10-11).** Approval in the owner's words: "you may do a paid run, only when your
+ready, max 15$". Cap $15 (guard), effort max, no reply cap, K 4; code `bf0b699`; T5 `t5_005` 31/31; estimate_005
+(40 replies $10.63, up to $13.78).
+- 19:3x–19:54, 30 requests, **$6.766442** settled. Astra finished on its own as **"stuck"**. Best checkpoint c0017
+  (revision 14); export `head-dd42b6a10e649032.glb` (sha 7895814159…); validate_spec ok.
+- Behaviour: the first compare included the angled view; Astra opened a crop of the black angled photo (B2) before
+  laying out; every one of its variant sheets included B2. **The top triangle stayed one face** (`crown` A-P-R-B, no
+  crease from the peak to the logo corner); one valley declared at the logo's back corner (`lower_sweep|tail_face`);
+  `crown|logo` declared a valley; two thin bands along the top edge (`top_front_band`, `top_rear_band`, under 0.5 mm
+  tall from the side) with a ridge at the peak. Roll 0.2 mm.
+- Still off, by Astra's summary and the images: from above, the front block is about 1.9-2.5 mm too slim at d30-40
+  (run 4 was closer there); a small lip at the crown in the front view.
+- Sheets: `data/wp6v2/result_facet-astra-005/` (top_triangle_run5.png, faces_run5.png, top_run5.png,
+  angled_run5.png, reference-0N.png); the 3D viewer's default is run 5. The owner's verdict is pending.
+
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
