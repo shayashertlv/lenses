@@ -308,6 +308,22 @@ mentioned above.."
 up to $13.84; runs 5 and 6 cost $6.77 and $5.08); `package_007` and the request `facet-astra-007` (cap $15 by the budget
 guard, effort max, no reply cap, K 4), unapproved until the owner's words are recorded.
 
+**Paid run `facet-astra-007` (2026-10-12).** Approval in the owner's words: "yes, run it with the $15 cap". Cap $15
+(budget guard), effort max, no reply cap, K 4; code `9fb64a5`; T5 `t5_007` 39/39; estimate_007 (40 replies $10.82,
+up to $13.84).
+- 08:11-08:27, 20 requests, **$3.846039** settled. Astra finished on its own as **"stuck"**. Best checkpoint c0007
+  (revision 7); export `head-0a4b0e841a2bfdb2.glb` (sha f5895ca520…); validate_spec ok.
+- Astra read every corner in B2 + B1 with `also` (the hinge corner: t 4.42 here, against run 6's 3.55). On
+  `E_FACET_NOT_PLANAR` it solved the logo back corner for the crown's plane (6.15; its readings 7.6-7.8) and kept
+  the crown whole, with the peak node at the triangulated position.
+- **No fades.** The top triangle (crown A-K-E-H) is one flat face to its tip. Every crease on the front block is a
+  ridge, including the hinge-side edge (logo|nose ridge 3.3°). As in runs 3-6, the edge between the two back
+  triangles is a valley (7.6°).
+- Still off, by Astra's summary: the logo's diagonals are too shallow; the top view is short near d 30-40 and wide
+  near d 80; the rear arm is broad around d 90-110.
+- Sheets: `data/wp6v2/result_facet-astra-007/` (top_triangle_run7.png, faces_run7.png, angled_run7.png, top_run7.png);
+  the 3D viewer's default is run 7. The owner's verdict is pending.
+
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
