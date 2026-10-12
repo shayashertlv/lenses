@@ -130,8 +130,11 @@ HARD_TIMEOUT_S = {
     # plus FACET_DEADLINE_MARGIN_S, so the SDK never answers E_TIMEOUT while a restore or export may still succeed:
     # restore = one checkpoint restore (journal.CHECKPOINT_DEADLINE_S 60 s) -> 90; finish = that restore and the
     # export (seeing.EXPORT_DEADLINE_S 120 s) -> 210 (test_loop_facet pins both against the imported deadlines).
-    "facet_inspect": 30, "photo_image": 30, "photo_compare": 40, "facet_edit": 60, "facet_variants": 90,
-    "facet_restore": 90, "facet_finish": 210,
+    # photo_read (WP6 v3, host only: readings.read_point + one pick sheet a reading, no worker): 0.1-0.2 s a reading
+    # measured on the Prada lab (v3p2-lab-e2), so 8 readings stay far under the 30 s floor. facet_restore is no
+    # longer registered in v3 (WP6_V3 §6); its row stays for the v2 rehearsal records.
+    "facet_inspect": 30, "photo_image": 30, "photo_read": 30, "photo_compare": 40, "facet_edit": 60,
+    "facet_variants": 90, "facet_restore": 90, "facet_finish": 210,
 }
 FACET_DEADLINE_MARGIN_S = 30.0      # host work after the worker calls and a warm-spare restart (Blender 3.1-4.5 s)
 FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S = 30.0, 2.5

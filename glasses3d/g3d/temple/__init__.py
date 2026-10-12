@@ -4,9 +4,11 @@ Blender 5.2 and on the host; nothing here imports bpy, open3d, scipy or cv2.
     spec      schema "g3d.temple/2", defaults, refusal / warning codes, canonical JSON + sha256, knot
               canonicalisation (snapping), validation into a ParsedSpec
     arrange   2D geometry in (d, y): clipping, the planar arrangement (half-edge faces), ear clipping
-    planes    exact plane propagation in world X (3 known values or crease + rise); no base seeding
-    build     border band, stations, values (facets, fades, ramps, base), chamfers, core roll, cells, sharp sets,
-              crease check, self-checks, mirror, opening
+    planes    exact surface propagation in world X (3 known values, crease + rise, a given coef plane, or a warp:
+              mean value coordinates over the corners); no base seeding
+    build     border band (soft: wider), stations, warp refinement, values (facets, warps, fades, ramps, base),
+              chamfers, core roll, cells, sharp sets, design corner normals, crease check, self-checks, mirror, opening,
+              model_edges (the creases per run with their signed angle per point, for the compares)
     measure   sections, bulges, single-plane share, facet table (information), decal / hinge-part rules
     report    the compact receipt (crease lines first; the 10 mm station table on request) and the full tables
     convert   g3d.temple/1 -> /2 (tests and owner sheets only; the only place a /1 spec is read)
@@ -20,9 +22,16 @@ Frame: scene mm, +Y up, +Z front. The spec describes the +X temple; the -X templ
 reversed). Parts are chosen by the sign of x, never by name. Station d = z_h - z at opening 0; X = |x|.
 """
 SCHEMA = "g3d.temple/2"
-CORE_VERSION = "wp6-core-2.3"      # 2.1 (2026-10-11): cells by fade weight, mixed fades (E_FADE_CLIFF, W_FADE_HOLD,
+CORE_VERSION = "wp6-core-3.0"      # 2.1 (2026-10-11): cells by fade weight, mixed fades (E_FADE_CLIFF, W_FADE_HOLD,
 #                                    W_FADE_INERT), standing faded creases sharp; 2.2 (2026-10-11): W_FADE_EARLY;
-#                                    2.3 (2026-10-12): E_FADE_CREASE, crease planes on a straight run of edges
+#                                    2.3 (2026-10-12): E_FADE_CREASE, crease planes on a straight run of edges;
+#                                    3.0 (2026-10-12, WP6_V3 §2): plane modes coef and warp, soft borders, one
+#                                    tolerance (planar_tol_mm), facet|base creases against the base surface (the
+#                                    fold across the border), warp refinement clear of slivers, facts-only refusals;
+#                                    3.0 (phase 2, uncommitted): crease means, shape votes and shares over the
+#                                    face-to-face edges as range_deg (roll and chamfer bands out), model_edges (soft
+#                                    only where the export shades it smooth), angles never rounded across the flat
+#                                    line (build.deg_round, flat_cut); geometry unchanged
 
 from .spec import TempleError, canonical, canonical_json, spec_sha256  # noqa: E402,F401
-from .build import build_temple, TempleBuild  # noqa: E402,F401
+from .build import build_temple, model_edges, TempleBuild  # noqa: E402,F401

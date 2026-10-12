@@ -436,9 +436,14 @@ def test_fade_cliff_refuses_a_held_wall(monkeypatch):
     assert f["at"] == pytest.approx(list(worst[4:]), abs=1e-9)
 
 
-def test_crease_shape_names_the_fade_for_a_faded_pair():
-    """E_CREASE_SHAPE on a declared crease that a fade flattens names a later fade start or end too (the reviewer's
-    defect 3, 2026-10-11); an unfaded pair keeps the node advice alone."""
+REMEDIES = ("fix the node values", "do not redeclare", "start the fade later", "keep ", "check the photos")
+
+
+def test_crease_shape_states_facts_only():
+    """E_CREASE_SHAPE states what was declared, what was built and over how much of the crease, and offers no remedy
+    (WP6_V3 P6; FINDINGS §3: "fix the node values, do not redeclare" and "start the fade later" were single offered
+    remedies Astra executed literally; review-builder-design F5): a crease a fade flattens, and one built with the
+    other shape."""
     s = FX.fade()
     for lab in ("N", "S"):
         s["facets"][lab]["fade"] = {"d0": 0.0, "d1": 4.0}               # the 17 deg ridge stands only over d 0-4
@@ -448,22 +453,26 @@ def test_crease_shape_names_the_fade_for_a_faded_pair():
     with pytest.raises(TempleError) as e, crease_fade_check_off():
         build_temple(s)
     assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["built"] == "flat"
-    assert e.value.message.endswith("; fix the node values, or start the fade later / end it later, do not redeclare")
+    assert e.value.message == ("crease N|S is declared ridge but built flat 1.18 deg (flat (< 2 deg): no ridge or "
+                               "valley)")
     with pytest.raises(TempleError) as e:
         build_temple(FX.refusal_cases()["E_CREASE_SHAPE"])
-    assert e.value.message.endswith("(built with the other shape); fix the node values, do not redeclare")
+    assert e.value.message == ("crease F2|F3 is declared valley but built ridge 7.8 deg (a ridge along 100% of its "
+                               "33.0 mm)")
+    assert not any(r in e.value.message for r in REMEDIES)
 
 
 STRAIGHT_HINT = ("facet X runs straight through node C, so the 4 creases there cannot all be ridges: one is a valley "
-                 "or two of those faces are one (check the photos or facet_variants); keep X whole")
+                 "or two of those faces are one")
 
 
 def test_crease_shape_names_a_node_a_facet_runs_straight_through():
     """Four creases at node C, which facet X's lower edge runs straight through (FX.straight_node), all declared
     ridges: no node values build that (a convex corner holding a straight line is a prism along it), so E_CREASE_SHAPE
-    leads with the refused crease there and says one is a valley (or two faces are one) and to keep X whole, not "fix
-    the node values, do not redeclare" (run 2 split the owner's face 4 under that advice, 2026-10-11). The same layout
-    with that one crease declared a valley builds as declared."""
+    leads with the refused crease there and states both ways it can be built: one is a valley, or two of those faces
+    are one (no single offered remedy: run 2 split the owner's face 4 under "fix the node values, do not redeclare",
+    2026-10-11; v3 drops "keep X whole" too, WP6_V3 P6). The same layout with that one crease declared a valley
+    builds as declared."""
     with pytest.raises(TempleError) as e:
         build_temple(FX.straight_node())
     f = e.value.fields
@@ -471,8 +480,8 @@ def test_crease_shape_names_a_node_a_facet_runs_straight_through():
     assert f["straight_node"] == {"node": "C", "facet": "X", "angle_deg": pytest.approx(180.0, abs=1e-9),
                                   "shape": "ridge", "creases": [["R1", "R2"], ["R1", "X"], ["R2", "R3"], ["R3", "X"]],
                                   "refused": ["R1", "R2"]}
-    assert e.value.message.endswith("(built with the other shape); " + STRAIGHT_HINT)
-    assert "do not redeclare" not in e.value.message
+    assert e.value.message.endswith("(a valley along 100% of its 15.4 mm); " + STRAIGHT_HINT)
+    assert not any(r in e.value.message for r in REMEDIES)
     json.dumps(e.value.to_dict())
     tb = build_temple(FX.straight_node(valley=True))
     built = {tuple(c["regions"]): (c["shape"], c["declared"]) for c in tb.tables["creases"] if c["kind"] == "crease"}
@@ -486,13 +495,14 @@ def test_crease_shape_names_a_node_a_facet_runs_straight_through():
 def test_straight_node_hint_needs_a_straight_or_reflex_corner(lift, how):
     """C lifted 0.5 mm: X's corner there is 181.3 deg, straight within STRAIGHT_NODE_DEG; lifted 2 mm: 185.1 deg,
     reflex (ridges all round are impossible there too); lowered 2 mm: 174.9 deg, a convex corner that ridges all round
-    can build, so the refusal keeps the node advice. Every node value is unchanged and one valley builds each."""
+    can build, so the refusal states the built crease alone. Every node value is unchanged and one valley builds
+    each."""
     with pytest.raises(TempleError) as e:
         build_temple(FX.straight_node(lift=lift))
     assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["facets"] == ["R1", "R2"]
     if how is None:
         assert "straight_node" not in e.value.fields
-        assert e.value.message.endswith("(built with the other shape); fix the node values, do not redeclare")
+        assert e.value.message.endswith("(a valley along 100% of its 13.6 mm)")
     else:
         assert e.value.message.endswith("; " + STRAIGHT_HINT.replace("runs straight through node C", how))
     build_temple(FX.straight_node(lift=lift, valley=True))
@@ -508,8 +518,7 @@ def test_straight_node_hint_for_valleys_all_round():
         build_temple(s)
     assert e.value.fields["straight_node"]["shape"] == "valley"
     assert e.value.message.endswith("; facet X runs straight through node C, so the 4 creases there cannot all be "
-                                    "valleys: one is a ridge or two of those faces are one (check the photos or "
-                                    "facet_variants); keep X whole")
+                                    "valleys: one is a ridge or two of those faces are one")
     for c in s["creases"]:
         if sorted(c["facets"]) == ["R1", "R2"]:
             c["shape"] = "ridge"
@@ -529,7 +538,7 @@ def test_straight_node_message_fits_the_lab_refusal_limit():
     with pytest.raises(TempleError) as e:
         build_temple(s)
     m = e.value.message
-    assert e.value.fields["straight_node"]["node"] == long["C"] and f"keep {long['X']} whole" in m
+    assert e.value.fields["straight_node"]["node"] == long["C"] and f"facet {long['X']} has a 185 deg corner" in m
     assert len(m) <= REFUSAL_MAX and brief(m) == m, len(m)
 
 
@@ -671,17 +680,18 @@ def test_astra_r0015_logo_fade_alone_is_inert():
     assert len(inert) == 1 and inert[0]["why"] == {"logo": "held by less-faded neighbours"}
 
 
-def test_astra_r0015_flattening_fades_name_the_fade(monkeypatch):
+def test_astra_r0015_flattening_fades_are_refused(monkeypatch):
     for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # every facet alike, early: the creases die
         with pytest.raises(TempleError) as e:                          # before the edge they reach: refused first
             build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
         assert e.value.code == "E_FADE_CREASE"
     _no_crease_fade_check(monkeypatch)
-    for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # the crease check still names the fade
-        with pytest.raises(TempleError) as e:
+    for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # the crease check: flat, facts only (it named
+        with pytest.raises(TempleError) as e:                          # the fade as the remedy before WP6_V3 P6)
             build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
         assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["built"] == "flat"
-        assert "fix the node values, or start the fade later / end it later, do not redeclare" in e.value.message
+        assert e.value.message.endswith("(flat (< 2 deg): no ridge or valley)")
+        assert not any(r in e.value.message for r in REMEDIES)
 
 
 @pytest.mark.parametrize("k", range(1, 17))
@@ -907,8 +917,9 @@ def test_refusal_codes_cover_the_design_list():
     core = set(FX.refusal_cases())
     blender_side = {"E_TARGET", "E_MULTI_MATERIAL"}
     internal = {"E_TRIANGULATE", "E_NOT_CLOSED"}              # arrangement / self-check guards (tested separately)
-    assert core | blender_side | internal == set(REFUSALS)
-    assert not core & (blender_side | internal)
+    fit = {"E_FIT_SHAPE", "E_FIT"}                            # WP6_V3 §2: fit.py raises them, TempleError accepts them
+    assert core | blender_side | internal | fit == set(REFUSALS)
+    assert not core & (blender_side | internal | fit)
 
 
 def test_not_closed_guard_fires_on_a_broken_mesh(monkeypatch):

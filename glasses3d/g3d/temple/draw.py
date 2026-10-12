@@ -2,8 +2,9 @@
 Blender.
 
     chart_image(spec, build=None, *, footprints=None, d_range=None, width=1200) -> PIL.Image
-        the (d, y) chart: cells filled (facets shaded by their lean against the local base normal, faded facets blended
-        toward the base, border-band ramps, chamfer and roll bands), thickness contours every CONTOUR_MM, crease edges
+        the (d, y) chart: cells filled (facets shaded by their lean against the local base normal, a warp facet by its
+        least-squares plane's lean under a diagonal WARP_HATCH, faded facets blended toward the base, border-band
+        ramps, chamfer and roll bands), thickness contours every CONTOUR_MM, crease edges
         coloured per edge (ridge orange, valley blue, flat grey dashed), nodes labelled "name t=" (t = thickness from
         the inner face; "base" and solved nodes say so), decal and hinge footprints when given:
         footprints = {"decals": [{"name", "points": [[d, y], ...]}], "hinge": [...]} (drawn as dashed hulls).
@@ -14,18 +15,22 @@ Blender.
         TempleBuild (its crease edges crossing the station are marked ridge orange / valley blue) or a chart mesh
         (V, F) / {"V", "F"} in local (d, y, X).
 
-Per-edge crease shape is the core's rule (build._tables): the edge between two outer polygons of different regions is a
-ridge when the second polygon's centroid lies below the first one's plane, "flat" below FLAT_CREASE_DEG.
+Per-edge crease shape is the core's rule, the one the crease tables aggregate (build.crease_edges / build.edge_folds):
+a facet|base edge by its fold across the border against the BASE surface (the receipt's facet|base angle; never the
+border band's ramp), any other edge between two outer polygons of different regions a ridge when the second polygon's
+centroid lies below the first one's plane; "flat" below FLAT_CREASE_DEG or without a fold. A soft facet's border with
+the base is drawn dashed in its shape's colour (legend "soft border" only on charts that have one).
 """
 from __future__ import annotations
 
 import math
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
+from . import build as BD
 from . import measure as MS
-from .build import OUTER_KINDS, build_temple, mesh_topology
+from .build import build_temple
 from .spec import FLAT_CREASE_DEG, ParsedSpec, smoothstep
 
 SS = 2                                  # supersampling factor (drawn at SS x, downsampled)
@@ -49,6 +54,9 @@ DECAL = (142, 36, 170)
 HINGE = (46, 125, 50)
 NODE = (200, 30, 30)
 CONTOUR_TEXT = (120, 96, 140)
+WARP_HATCH = (96, 64, 160)              # the diagonal hatch over a warp facet's cells (one smooth face, no plane)
+WARP_HATCH_PX = 9                       # hatch spacing (px)
+SOFT_DASH = (2 * SS, 3 * SS)            # a soft border's facet|base edges: short dashes (smooth-shaded)
 STYLES = [{"line": (25, 25, 25), "width": 2.0, "fill": None, "dash": None},
           {"line": (120, 120, 120), "width": 1.5, "fill": (214, 214, 214), "dash": None},
           {"line": (0, 137, 123), "width": 2.0, "fill": None, "dash": (7, 5)},
@@ -76,26 +84,13 @@ def _dash(dr: ImageDraw.ImageDraw, pts, fill, width: int, dash=(8, 6)) -> None:
 
 
 def crease_edges(tb) -> list:
-    """[(a, b, shape, dihedral deg)] of every edge between outer / roll polygons of different regions (labels before
-    '/'), a < b vertex ids of tb.V; shape 'ridge' | 'valley' | 'flat' per edge (module docstring)."""
-    topo = mesh_topology(tb.polys)
-    out = []
-    for (a, b), p1 in topo["directed"].items():
-        if a > b:
-            continue
-        p2 = topo["directed"].get((b, a))
-        if p2 is None or tb.poly_kind[p1] not in OUTER_KINDS or tb.poly_kind[p2] not in OUTER_KINDS:
-            continue
-        l1, l2 = tb.poly_region[p1].split("/")[0], tb.poly_region[p2].split("/")[0]
-        if l1 == l2:
-            continue
-        n1, n2 = tb.normals[p1], tb.normals[p2]
-        dih = math.degrees(math.acos(max(-1.0, min(1.0, float(n1 @ n2)))))
-        cen2 = tb.V[tb.polys[p2]].mean(axis=0)
-        s = float(n1 @ (cen2 - 0.5 * (tb.V[a] + tb.V[b])))
-        shape = "flat" if dih < FLAT_CREASE_DEG else ("ridge" if s < 0 else "valley")
-        out.append((a, b, shape, dih))
-    return out
+    """[(a, b, shape, deg)] of every edge between outer / roll polygons of different regions (labels before '/'),
+    a < b vertex ids of tb.V; shape 'ridge' | 'valley' | 'flat' per edge by the core's rule (module docstring)."""
+    return [(a, b, _edge_shape(deg, ridge), deg) for a, b, _pair, deg, ridge, _p1, _p2 in BD.crease_edges(tb)]
+
+
+def _edge_shape(deg: float, ridge) -> str:
+    return "flat" if ridge is None or deg < FLAT_CREASE_DEG else ("ridge" if ridge else "valley")
 
 
 def _shape_colour(shape: str):
@@ -186,9 +181,15 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
         dr.text((x - 4 * SS, y), f"{yv:g}", fill=GRID_TEXT, font=f_small, anchor="rm")
     lean = {f["label"]: f["lean_deg"] for f in tb.tables["facets"]}
     V2 = tb.arr.V
+    warp_mask = None
     for fi, face in enumerate(tb.arr.faces):
         lab, cell = tb.face_label[fi], tb.face_cell[fi]
-        if cell == "facet":
+        if cell == "warp":
+            col = _lean_colour(lean[lab])
+            if warp_mask is None:
+                warp_mask = Image.new("L", (W, H), 0)
+            ImageDraw.Draw(warp_mask).polygon([px(*V2[v]) for v in face], fill=255)
+        elif cell == "facet":
             col = _lean_colour(lean[lab])
         elif cell == "faded":
             fade = ps.facets[lab]["fade"]
@@ -204,6 +205,13 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
         elif tb.face_roll[fi]:
             col = _blend(col, ROLL, 0.5)
         dr.polygon([px(*V2[v]) for v in face], fill=col)
+    if warp_mask is not None:                        # the warp hatch: diagonal lines, only over warp cells
+        lines = Image.new("L", (W, H), 0)
+        ld = ImageDraw.Draw(lines)
+        step = WARP_HATCH_PX * SS
+        for x0 in range(-H, W, step):
+            ld.line([(x0, H), (x0 + H, 0)], fill=255, width=2 * SS)
+        img.paste(WARP_HATCH, (0, 0, W, H), ImageChops.multiply(lines, warp_mask))
     th = tb.thickness
     levels = [round(v, 6) for v in np.arange(math.ceil(th.min() / CONTOUR_MM) * CONTOUR_MM, th.max(), CONTOUR_MM)]
     for lv, segs in _contours(tb, levels).items():
@@ -215,10 +223,15 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
             x, y = px(*mids[k])
             dr.text((x, y), f"{lv:g}", fill=CONTOUR_TEXT, font=f_small, anchor="mm", stroke_width=SS,
                     stroke_fill=(255, 255, 255))
-    for a, b, shape, _ in crease_edges(tb):
+    soft = False
+    for a, b, pair, deg, ridge, _p1, _p2 in BD.crease_edges(tb):
         pa, pb = px(*tb.V[a, :2]), px(*tb.V[b, :2])
+        shape = _edge_shape(deg, ridge)
         if shape == "flat":
             _dash(dr, [pa, pb], FLAT, 2 * SS, (5 * SS, 4 * SS))
+        elif pair[1] == "base" and ps.facets[pair[0]].get("soft"):     # smooth-shaded: a dashed line of its shape
+            soft = True
+            _dash(dr, [pa, pb], _shape_colour(shape), 3 * SS, SOFT_DASH)
         else:
             dr.line([pa, pb], fill=_shape_colour(shape), width=3 * SS)
     loop = tb.arr.boundary_loop
@@ -264,7 +277,7 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
     head = title or (f"chart  d mm back from the hinge (right), y mm up  |  spec {ps.sha256[:8]}  |  thickness "
                      f"{th.min():.2f}-{th.max():.2f} mm (contours every {CONTOUR_MM:g} mm)")
     dr.text((ml * SS, 14 * SS), head, fill=(20, 20, 20), font=_font(13 * SS), anchor="lt")
-    _chart_legend(dr, ml * SS, (height - mb + 30) * SS, f_mid)
+    _chart_legend(dr, ml * SS, (height - mb + 30) * SS, f_mid, warp=warp_mask is not None, soft=soft)
     return img.resize((width, height), Image.LANCZOS)
 
 
@@ -285,16 +298,26 @@ def _label(dr, xy, text: str, font, fill, placed: list, size) -> None:
     dr.text((x, y + k * h), text, fill=fill, font=font, anchor="lb", stroke_width=SS, stroke_fill=(255, 255, 255))
 
 
-def _chart_legend(dr, x0: float, y0: float, font) -> None:
+def _chart_legend(dr, x0: float, y0: float, font, warp: bool = False, soft: bool = False) -> None:
     x = x0
     items = [("ridge", RIDGE, "line"), ("valley", VALLEY, "line"), ("flat < 2°", FLAT, "dash"),
              ("base", BASE, "box"), ("border ramp", RAMP, "box"), ("thickness contour", CONTOUR, "line"),
              ("decal", DECAL, "dash"), ("hinge part", HINGE, "dash"), ("node", NODE, "dot")]
+    if warp:                                         # only on a chart with a warp facet (others stay as they were)
+        items.insert(5, ("warp", WARP_HATCH, "hatch"))
+    if soft:                                         # ... and a soft border only on a chart with one
+        items.insert(3, ("soft border", RIDGE, "soft"))
     for label, col, kind in items:
         if kind == "line":
             dr.line([(x, y0), (x + 28 * SS, y0)], fill=col, width=3 * SS)
         elif kind == "dash":
             _dash(dr, [(x, y0), (x + 28 * SS, y0)], col, 2 * SS, (5 * SS, 4 * SS))
+        elif kind == "soft":
+            _dash(dr, [(x, y0), (x + 28 * SS, y0)], col, 3 * SS, SOFT_DASH)
+        elif kind == "hatch":
+            dr.rectangle([x, y0 - 7 * SS, x + 28 * SS, y0 + 7 * SS], fill=_lean_colour(10), outline=(160, 160, 160))
+            for k in (7, 14, 21):
+                dr.line([(x + (k - 7) * SS, y0 + 7 * SS), (x + (k + 7) * SS, y0 - 7 * SS)], fill=col, width=SS)
         elif kind == "box":
             dr.rectangle([x, y0 - 7 * SS, x + 28 * SS, y0 + 7 * SS], fill=col, outline=(160, 160, 160))
         else:

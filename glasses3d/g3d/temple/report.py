@@ -2,9 +2,18 @@
 
 `receipt(tb, include_stations=False)` is the compact receipt Astra reads (numbers rounded: mm 0.01, rise 0.001,
 deg 0.1):
-    lines         one line per crease first ("F1|F2 ridge 12.2° declared ridge"), then one per warning
-    creases       pair, built shape, length-weighted dihedral, declared shape
-    facets        lean against the local base normal, the crease rise relative to the local base gradient, fade
+    lines         one line per crease first ("F1|F2 ridge 12.2° declared ridge"; beside a warp facet with its range,
+                  on a soft border "soft", beside a W_BORDER_RAMP step the step: crease_line), then one per warning
+    creases       pair, built shape, length-weighted dihedral (facet|base: the fold across the border against the
+                  base surface, WP6_V3 §3's angle), declared shape; range [lo, hi] beside a warp, soft, step when set;
+                  the shape, the mean and the range over the same face-to-face edges (build.face_edge: roll and
+                  chamfer bands left out), so a printed mean lies inside its printed range under the word those
+                  edges vote; angles rounded by build.deg_round (never across the 2 deg flat line: "flat 1.9°",
+                  never "flat 2.0°")
+    facets        lean against the local base normal (a warp facet's: its least-squares plane's, with warp_mm = the
+                  largest corner distance from that plane, and with 4 corners corner_off = the fit's W_FACE_NOT_FLAT
+                  measure, "K +1.52 mm from the plane of A, E, H": build._corner_off), the crease rise relative to
+                  the local base gradient, fade, soft (only when true)
     thickness     min / max and where
     border_ramps  per facet/base border run: facet, d range, signed ramp height (+ = the facet stands proud of the
                   base, - = sunk below it), slope (deg) over border_band_mm, run length
@@ -14,6 +23,8 @@ deg 0.1):
     checks        closed, Euler, volume, planarity
 The Blender layer adds decal motion and the hinge leaf gap / knuckle contact per side, and de-duplicates lines across
 sides (`merge_lines`). `receipt_full(tb)` holds the unrounded tables for a file, never for Astra.
+`model_edges(tb)` (build.model_edges, WP6_V3 §5 interface I1) gives the build's creases per connected run with their
+signed angle per point, as the compares draw them.
 """
 from __future__ import annotations
 
@@ -21,6 +32,7 @@ import numpy as np
 
 from . import CORE_VERSION, SCHEMA
 from . import measure as MS
+from .build import deg_round, model_edges  # noqa: F401  (model_edges: the compares' crease runs)
 from .spec import plain
 
 RECEIPT_STATION_STEP_MM = 10.0
@@ -35,14 +47,29 @@ def _r(x, nd: int = 2):
     return round(float(x), nd) + 0.0                     # + 0.0: no "-0.0"
 
 
+def crease_line(c: dict) -> str:
+    """One crease record of build.tables["creases"] as a receipt line: "F1|F2 shape deg°", then beside a warp facet
+    its face-to-face range "(lo-hi)" (a crease beside a warp changes angle along its length: run 7's crown|logo 17.3
+    built over most of it, 27.4 beside K, review-builder-design F4; the mean is over the same edges, so it lies inside
+    the range: over every edge the roll band pulled crown|shoulder to "36.9° (37.7-39.3)", v3 probe1 §5.8), "soft" on
+    a soft facet's border, the step beside
+    a facet|base fold when W_BORDER_RAMP reports one "(sunk 1.24 mm: a 31.9° ramp)", and the declaration. Mean and
+    range by build.deg_round at 0.1: a flat crease at 1.9997 prints "flat 1.9°", never "flat 2.0°" (< 2;
+    review2-builder2-1 P3), and the printed mean still lies inside the printed range (deg_round never decreases)."""
+    line = f"{'|'.join(c['regions'])} {c['shape']} {deg_round(c['mean_dihedral_deg'], 1):.1f}°"
+    if c.get("warp_beside") and c.get("range_deg"):
+        line += f" ({deg_round(c['range_deg'][0], 1):.1f}-{deg_round(c['range_deg'][1], 1):.1f})"
+    if c.get("soft"):
+        line += " soft"
+    if c.get("step"):
+        st = c["step"]
+        line += (f" ({'proud' if st['height_mm'] > 0 else 'sunk'} {abs(st['height_mm']):.2f} mm: a "
+                 f"{st['slope_deg']:.1f}° ramp)")
+    return line + (f" declared {c['declared']}" if c.get("declared") else " undeclared")
+
+
 def crease_lines(tb) -> list[str]:
-    out = []
-    for c in tb.tables["creases"]:
-        if c["kind"] != "crease":
-            continue
-        dec = f"declared {c['declared']}" if c.get("declared") else "undeclared"
-        out.append(f"{'|'.join(c['regions'])} {c['shape']} {c['mean_dihedral_deg']:.1f}° {dec}")
-    return out
+    return [crease_line(c) for c in tb.tables["creases"] if c["kind"] == "crease"]
 
 
 def warning_lines(tb) -> list[str]:
@@ -75,8 +102,19 @@ def station_table(ps, step: float = RECEIPT_STATION_STEP_MM) -> list[list[float]
 def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False) -> dict:
     """The compact receipt (module docstring); the 10 mm station table only with include_stations."""
     t = tb.tables
-    creases = [{"pair": "|".join(c["regions"]), "shape": c["shape"], "deg": _r(c["mean_dihedral_deg"], 1),
-                "declared": c.get("declared")} for c in t["creases"] if c["kind"] == "crease"]
+    creases = []
+    for c in t["creases"]:
+        if c["kind"] != "crease":
+            continue
+        rec = {"pair": "|".join(c["regions"]), "shape": c["shape"], "deg": deg_round(c["mean_dihedral_deg"], 1),
+               "declared": c.get("declared")}
+        if c.get("warp_beside") and c.get("range_deg"):
+            rec["range_deg"] = [deg_round(x, 1) for x in c["range_deg"]]
+        if c.get("soft"):
+            rec["soft"] = True
+        if c.get("step"):
+            rec["step"] = {"height_mm": _r(c["step"]["height_mm"]), "slope_deg": _r(c["step"]["slope_deg"], 1)}
+        creases.append(rec)
     facets = []
     for f in t["facets"]:
         rec = {"label": f["label"], "lean_deg": _r(f["lean_deg"], 1)}
@@ -85,6 +123,13 @@ def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False)
             rec["rise_vs_base"] = _r(f["rise_rel_base_per_mm"], 3)
         if f["fade"] is not None:
             rec["fade"] = [_r(f["fade"]["d0"]), _r(f["fade"]["d1"])]
+        if "warp_mm" in f:
+            rec["warp_mm"] = _r(f["warp_mm"])
+            co = f.get("corner_off")
+            if co:
+                rec["corner_off"] = f"{co['node']} {co['mm']:+.2f} mm from the plane of {', '.join(co['plane_of'])}"
+        if f.get("soft"):
+            rec["soft"] = True
         facets.append(rec)
     th = t["thickness"]
     out = {"tool": "g3d.faceted_temple", "schema": SCHEMA, "core_version": CORE_VERSION,
@@ -98,7 +143,7 @@ def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False)
            "snaps": [{"what": s["what"], "from": _r(s["from"], 4), "to": _r(s["to"], 4)} for s in tb.spec.snaps],
            "checks": {"closed": tb.checks["closed"], "euler": tb.checks["euler"],
                       "volume_mm3": _r(tb.checks["volume_mm3"], 1),
-                      "planar": tb.checks["planarity_max_mm"] <= 1e-9},
+                      "planar": tb.checks["planarity_max_mm"] <= tb.spec.options["planar_tol_mm"]},
            "budget": {"core_ms": _r(core_ms, 1)}}
     if include_stations:
         out["stations"] = {"columns": STATION_COLUMNS, "rows": [_r(row) for row in station_table(tb.spec)]}
@@ -123,7 +168,7 @@ def receipt_full(tb, *, core_ms: float | None = None) -> dict:
 # --------------------------------------------------------------------------------------------- measures (information)
 def facet_planes_chart(tb) -> list:
     """[(label, unit normal, offset)] of the outer plane of every facet with a facet cell (fade weight 0) in the chart
-    (n . x = c)."""
+    (n . x = c); a warp facet has none (its cells are curved)."""
     out = []
     for label in sorted(tb.spec.facets):
         ids = [i for i, (k, rg, c) in enumerate(zip(tb.poly_kind, tb.poly_region, tb.poly_cell))

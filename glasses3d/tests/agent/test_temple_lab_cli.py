@@ -1,6 +1,9 @@
-"""The facet lab's package entry points (agent/temple_lab/cli.py; plan/WP6_FACETS.md §4.3-4.4): prepare with fakes
-(no Blender), the clean-package and binding refusals of make_spec, the approval request's settings binding, the
-instructions' contract and the facet-run estimate. The real-Blender path is T5 (tests/proofs/astra_temple_lab.py).
+"""The facet lab's package entry points (agent/temple_lab/cli.py; plan/WP6_V3.md §6, WP6_FACETS.md §4.3-4.4): prepare
+with fakes (no Blender), the clean-package and binding refusals of make_spec, the approval request's settings binding,
+the v3 prompt's contract (tool names, {K}, no job facts, no retired phrase, the length cap, the finish text against
+state.finish_missing), the v3 brief (camera lineage, reading precision, the theta lever, camera-model conflicts, the
+light, the scope, the side views' outline offsets) and the facet-run estimate with the v3 tool mix and images. The
+real-Blender path is T5 (tests/proofs/astra_temple_lab.py).
 """
 import hashlib
 import json
@@ -34,8 +37,9 @@ def sha(p) -> str:
 
 def sources(tmp: Path) -> dict:
     """A fake original scene, reference folder (manifest + 6 target photos), the pose basis and the black photos as
-    the real package has them: three colourway-variant basis images with supplied mattes and transported cameras, B1
-    side (beside the reference photos), B2 angled and B3 front (from another folder); no reference-only photo."""
+    the real package has them: three colourway-variant basis images with supplied mattes and transported cameras (the
+    basis's fit_status: B1 from 05, B2 from 02, B3 from 04, theta copied), B1 side (beside the reference photos), B2
+    angled and B3 front (from another folder); no reference-only photo."""
     ref = tmp / "reference"
     ref.mkdir(parents=True)
     scene = tmp / "scene.blend"
@@ -51,16 +55,20 @@ def sources(tmp: Path) -> dict:
     black = tmp / "black"
     black.mkdir()
     colourway = []
-    for pid, name, src, kind, yaw, pitch, size in (
-            ("B1", "black-side.png", ref / "black-side.png", "side", 90.0, 13.6, (30, 30)),
-            ("B2", "black-angled.png", black / "B2.png", "angled", 30.0, 11.4, (48, 32)),
-            ("B3", "black-front.png", black / "B3.png", "front", 0.0, 10.3, (48, 32))):
+    for pid, name, src, kind, yaw, pitch, size, fit in (
+            ("B1", "black-side.png", ref / "black-side.png", "side", 90.0, 13.6, (30, 30),
+             "camera transported from 05"),
+            ("B2", "black-angled.png", black / "B2.png", "angled", 30.0, 11.4, (48, 32),
+             "camera transported from 02 by image similarity (contour 0.82 px, IoU 0.992); theta copied from 02"),
+            ("B3", "black-front.png", black / "B3.png", "front", 0.0, 10.3, (48, 32),
+             "camera transported from 04 by image similarity (contour 1.09 px, IoU 0.992); theta copied from 04")):
         Image.new("RGB", size, (5, 5, 5 + len(kind))).save(src)
         matte = tmp / "mattes" / name
         Image.new("L", size, 255).save(matte)
         images[name] = {"image": str(src), "image_sha256": sha(src), "view_kind": kind, "colourway": "variant",
                         "camera": {"yaw": yaw, "pitch": pitch}, "matte_mode": "supplied",
-                        "matte_file": f"mattes/{name}", "matte_file_sha256": sha(matte)}
+                        "matte_file": f"mattes/{name}", "matte_file_sha256": sha(matte), "fit_status": fit,
+                        "theta_observed": {"+1": False, "-1": False}}
         colourway.append({"id": pid, "image": name, "colour": "black", "finish": "glossy", "sha256": sha(src)})
     (ref / "manifest.json").write_text(json.dumps({"name": "Test Frame 1", "files": files}), encoding="utf-8")
     basis = tmp / "cameras.json"
@@ -226,23 +234,39 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
     brief = (inputs / "brief.txt").read_text(encoding="utf-8")
     assert brief.startswith("Product: Test Frame 1. The target photos (01, 02, 03, 04, 05, 06) show the colourway to "
                             "match. Photos B1, B2, B3 show the same model in glossy black (the materials never change")
-    assert "- 05: side; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 deg;" in brief
+    assert ("- 05: side; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 deg); its "
+            "compares print the charted temple's bottom outline offsets (not its top: the view looks down on the top "
+            "face)") in brief
     assert ("- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, "
-            "square-on (14 deg; reading t with depths is unreliable here)") in brief      # a camera with no scale
+            "square-on (14 deg); its compares print the mirrored temple's bottom outline offsets") in brief
+    assert ("- B1: side, glossy black; camera yaw +90.0, pitch +13.6; the charted temple's outer face square-on (14 "
+            "deg); its compares print the charted temple's bottom outline offsets (not its top: the view looks down "
+            "on the top face); camera moved from 05's by matching the two photos' silhouettes, the temples' hinge "
+            "opening as in 05; not checked against the model") in brief
     assert ("- B2: angled, glossy black; camera yaw +30.0, pitch +11.4; the charted temple's outer face at a "
-            "moderate angle (61 deg; depths reads t here)") in brief
+            "moderate angle (61 deg); camera moved from 02's") in brief
     assert "Front and rear views look along creases that run front to back: 04, 06, B3 (cameras within 25 deg" in brief
     assert ("- 03: top; camera yaw +0.3, pitch +59.9; the outer faces edge-on (90 deg); faces that point straight up "
-            "at 30 deg from square-on; its compares print outer-edge offsets and the outline line") in brief
+            "at 30 deg from square-on\n") in brief                        # v3: the top view prints no numbers
     assert "two temples): 01, 05, B1 | 02, B2 | 03 | 04, B3 | 06." in brief       # B1/B2/B3 share 05/02/04's view
     assert ("square-on (under 30 deg): 01, 05, B1. At a moderate angle (30 to 75 deg): 02, B2. Edge-on (75 deg or "
             "more): 03, 04, 06, B3.") in brief
-    assert "Outer-edge offsets: 03, 06. Outline line: 03." in brief and "Glossy photos: B1, B2, B3." in brief
+    assert "Outline offsets (photo minus model, mm) are printed for 01, 05, B1 only." in brief
+    assert "Glossy photos: B1, B2, B3." in brief
     assert "No finish is given for 01, 02, 03, 04, 05, 06." in brief       # the targets are not called matte
-    assert f"The renders use the job's fixed light, photo_env: {cli.RIG_TEXT['photo_env']}." in brief  # the rig
+    assert (f"The renders use the job's fixed light, photo_env: {cli.RIG_TEXT['photo_env']}. The photos' light is "
+            "unknown. " + cli.LIGHT_TEXT) in brief                         # the rig and what it does not reproduce
+    assert ("Cameras: 01, 02, 03, 04, 05 and 06 each have a camera fitted on its own. The cameras of B1, B2 and B3 "
+            "were not fitted: each is another photo's camera (B1's from 05, B2's from 02 and B3's from 04)") in brief
+    # the job's data, as prepare passes it (CAMERA_CONFLICTS, READING_PRECISION), and the theta lever
+    for line in (cli.precision_text(cli.READING_PRECISION), cli.theta_text(),
+                 *(cli.conflict_text(c) for c in cli.CAMERA_CONFLICTS)):
+        assert line + "\n" in brief, line
+    assert "What you may change is the whole temple from the hinge to its tip" in brief
     assert "The real temples' edge rounding (roll_mm) is not known" in brief
-    for gone in ("reference only", "acetate", "far more clearly"):                 # no product claim in code strings
-        assert gone not in brief, gone
+    low = brief.lower()
+    for gone in ("reference only", "acetate", "far more clearly", "px per mm", "outer-edge") + cli.RETIRED_PHRASES:
+        assert gone not in low, gone                                     # no product claim, no retired line
     assert (inputs / "instructions.txt").read_bytes() == (cli.HERE / "instructions.txt").read_bytes()
 
 
@@ -406,282 +430,153 @@ def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------- instructions
-INSTRUCTION_NUMBERS = {"0", "1", "1.0", "2", "3", "4", "6", "10", "0.2", "0.3", "0003"}
+# WP6_V3 §6: the prompt is the coordinator's (it teaches the object and an order of reasoning); this file pins only the
+# v3 tool names, the {K} token, the absence of job facts and of v2's retired phrases, the length cap, and that the
+# FINISHING paragraph says what state.finish_missing checks. v2 pinned 96 phrases here (FINDINGS §0.6: "the prompt
+# reached 13,974 of a 14,000-character cap, with 96 phrases pinned by a test"); those pins are retired with v2.
+V3_TOOLS = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
+            "facet_finish")                     # WP6_V3 §6 / I5: facet_restore and photo_compare's depths removed
+INSTRUCTIONS_MAX = 9_000                        # WP6_V3 §6: target <= 9,000 characters
+# Product words of the Prada job (the brief carries the job's facts; its face labels in the v2 runs: crown, logo,
+# nose, shoulder, lower, tail; its materials and markings) and the colours of its photos.
+PRODUCT_WORDS = ("prada", "acetate", "logo", "crown", "nose", "shoulder", "milano", "hallmark", "lettering", "cream",
+                 "black", "tortoise", "havana", "pr 17ws", "prs 17ws")
+PHOTO_ID_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:0[1-9]|B[1-9])(?![A-Za-z0-9_])")
 
 
-def test_instructions_contract_and_finish_text(tmp_path):
-    """instructions.txt is general for any faceted temple and photo set (owner, 2026-10-11: "yes, build 1-3"; the
-    job's facts are in the brief): the tool contract, the finish preconditions verbatim, the lay-out-then-confirm
-    habit and the tool semantics in general phrases, no product or photo-set facts, no retired rule."""
-    raw = (cli.HERE / "instructions.txt").read_text(encoding="utf-8")
+def instructions_raw() -> str:
+    return (cli.HERE / "instructions.txt").read_text(encoding="utf-8")
+
+
+def finish_clauses(text: str) -> dict:
+    """The FINISHING paragraph's numbered preconditions {n: clause} (whitespace collapsed), and the text after them."""
+    fin = " ".join(text.split("FINISHING", 1)[1].split())
+    parts = re.split(r"\((\d)\)", fin)
+    return {int(n): clause for n, clause in zip(parts[1::2], parts[2::2])}
+
+
+def test_instructions_name_every_v3_tool_once_with_k_and_fit_the_cap(tmp_path):
+    """Every v3 tool is named (as loop.contract_problems finds a name), the run's K replaces the one {K} token, and the
+    prompt stays within WP6_V3's 9,000 characters."""
+    raw = instructions_raw()
+    for name in V3_TOOLS:
+        assert re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", raw), name
+    assert "facet_restore" not in raw
     assert raw.count(cli.K_TOKEN) == 1
     (tmp_path / "inputs").mkdir()
     (tmp_path / "inputs" / "instructions.txt").write_text(raw, encoding="utf-8")
     text = cli.instructions_text(tmp_path, 4)
+    assert cli.K_TOKEN not in text and "at least 4 distinct applied heads" in text
+    (tmp_path / "inputs" / "instructions.txt").write_text(raw.replace(cli.K_TOKEN, "4"), encoding="utf-8")
+    with pytest.raises(ValueError, match="once"):
+        cli.instructions_text(tmp_path, 4)
+    assert len(raw) <= INSTRUCTIONS_MAX, len(raw)
+
+
+def test_instructions_carry_no_job_facts():
+    """No photo id of a job (01..09, B1..B9) and no product word: the job's facts are the brief's (cli.brief_text)."""
+    raw = instructions_raw()
+    assert PHOTO_ID_RE.findall(raw) == []
+    low = raw.lower()
+    for word in PRODUCT_WORDS:
+        assert not re.search(rf"(?<![a-z]){re.escape(word)}", low), word
+
+
+def test_instructions_carry_no_retired_phrase():
+    """None of v2's removed tools and rules (cli.RETIRED_PHRASES: fades, crease+rise planes, the solve option that
+    "moves least", "do not redeclare", photo_compare's depths parameter, the top / rear outer-edge offset tables, the
+    "start" column and the outline line, W_CONDITIONING, lean_deg, the section strip, crease margins, facet_restore:
+    WP6_V3 §6 "removed from Astra's view")."""
+    low = " ".join(instructions_raw().split()).lower()
+    assert set(cli.RETIRED_PHRASES) >= {"fade", "rise_per_mm", "crease plane", "moves least", "do not redeclare",
+                                         "photo_compare's depths", "depths read", "with depths", "`depths`",
+                                         "outer-edge offset", "outline line", "offset table", "start column",
+                                         "\"start\" column", "facet_restore", "margins", "w_conditioning", "lean_deg",
+                                         "section strip"}
+    for phrase in cli.RETIRED_PHRASES:
+        assert phrase.lower() not in low, phrase
+    assert cli.tool_contract().removed_phrases == tuple(L.REMOVED_PHRASES) + cli.RETIRED_PHRASES
+
+
+def test_instructions_carry_no_removed_phrase():
+    """None of loop.REMOVED_PHRASES (the loop's own list, checked by make_spec's contract since v2: "hypothes" among
+    them), so make_spec can build a request from the instructions."""
+    low = " ".join(instructions_raw().split()).lower()
+    for phrase in L.REMOVED_PHRASES:
+        assert phrase.lower() not in low, phrase
+
+
+def test_retired_phrases_ban_the_depths_parameter_not_the_word():
+    """The retired depths item is photo_compare's v2 parameter: its forms in v2's prompt, brief and tool text are
+    banned ("Measure t with photo_compare's depths", "depths reads t", "measured with depths", `depths`), the plain
+    English plural is not (review 2026-10-12, P3: "two vertices at different depths" blocked every package); the
+    other names WP6_V3 §6 removes from Astra's view are banned (W_CONDITIONING, lean_deg, the section strip, the
+    "start" column, the 03/06 offset tables)."""
+    def hits(text):
+        return [p for p in cli.RETIRED_PHRASES if p.lower() in text.lower()]
+    assert hits("One corner in a side view can be two vertices at different depths") == []
+    assert hits("faces at several depths; a depth error shifts it") == []
+    for v2 in ("Measure t with photo_compare's depths in the moderate-angle views",
+               "depths reads t at about 3.1 px per mm", "a corner measured with depths", "pass `depths` for t",
+               "W_CONDITIONING: the fit is ill-conditioned", "lean_deg 1.3", "The section strip shows what the "
+               "model built", "the \"start\" column", "the start column", "the 03/06 offset tables"):
+        assert hits(v2), v2
+
+
+def test_instructions_finish_text_is_what_finish_missing_checks():
+    """The FINISHING paragraph states the preconditions state.finish_missing returns (1-4 for any finish, 5 for stuck
+    only), in the state's own terms: K and the one head-distinctness rule (state.DIFFERENT_ATTEMPT), the variants
+    spread (geometry.VARIANT_DISTINCT_MM), best_checkpoint compared at every photo with a camera (the
+    ``camera_photos`` it is given: a photo of another colour counts), the object note, and stuck's last STUCK_LAST
+    judgements on STUCK_LAST distinct heads with none "better" and a variants call after the latest applied head.
+    NOT pinned: (5)'s verb for that variants call. The instructions (and WP6_V3 §6) say it was "judged", while
+    state.finish_missing checks that one was "shown" (state.py: "a facet_variants result with a rendered variant
+    since the latest applied head"), and a judgement can name a compare_id only (state.check_judgement), so no variants
+    result can be judged (review 2026-10-12, P3). Pin the word here once lab-e1 and the coordinator settle it."""
+    from glasses3d.agent.temple_lab import geometry as G
+    from glasses3d.agent.temple_lab import state as S
+    pre = finish_clauses(instructions_raw())
+    assert sorted(pre) == [1, 2, 3, 4, 5]
+    st = S.new_state(cli.DEFAULT_RIG)
+    kw = dict(best_revision=0, k=4, distinct=lambda a, b: a != b, camera_photos=["01", "B1"], has_object=False)
+    assert [m["precondition"] for m in S.finish_missing(st, status="matched", **kw)] == [1, 2, 3, 4]
+    assert [m["precondition"] for m in S.finish_missing(st, status="stuck", **kw)] == [1, 2, 3, 4, 5]
+    assert cli.K_TOKEN in pre[1] and "distinct applied heads" in pre[1] and S.DIFFERENT_ATTEMPT in pre[1]
+    assert "facet_variants" in pre[2] and "at least 3 variants" in pre[2] and \
+        f"at least {G.VARIANT_DISTINCT_MM:g} mm apart" in pre[2]
+    assert f"at least {G.HEAD_DISTINCT_MM:g} mm" in S.DIFFERENT_ATTEMPT
+    assert "best_checkpoint" in pre[3] and "every photo with a camera" in pre[3]
+    assert "object note" in pre[4]
+    assert pre[5].lstrip().startswith("for stuck") and "facet_variants" in pre[5] and "latest applied head" in pre[5]
+    assert f"the last {S.STUCK_LAST} judgements cover {S.STUCK_LAST} distinct heads with none \"better\"" in pre[5]
+    assert "refused with the missing ones named" in pre[5]
+    # behind the words: a compare of best_checkpoint's revision at 01 only leaves the photo of another colour (B1)
+    # missing; an object note clears 4
+    st["compares"].append({"compare_id": "cmp001", "checkpoint": "c1", "fingerprint": "f1", "revision": 0,
+                           "photos": ["01"], "by": "astra", "call_id": "x", "report": {}, "seq": 1, "judged": True})
+    missing = S.finish_missing(st, status="matched", **{**kw, "has_object": True})
+    assert [m["precondition"] for m in missing] == [1, 2, 3]
+    assert next(m for m in missing if m["precondition"] == 3)["photos"] == ["B1"]
+
+
+def test_instructions_contract_with_the_registry(tmp_path):
+    """loop.contract_problems with the run's contract (cli.tool_contract) on the instructions, a package's brief and
+    the lab's registry: the instructions name exactly the registered tools (the v3 set) and no retired or removed
+    phrase appears anywhere Astra reads."""
+    assert set(T.TOOL_NAMES) == set(V3_TOOLS)
     root, _ = package(tmp_path / "p")
     tools = T.registry(lab_on(root), T.run_settings(effort="max", finish_k=4))
+    (tmp_path / "inputs").mkdir()
+    (tmp_path / "inputs" / "instructions.txt").write_text(instructions_raw(), encoding="utf-8")
+    text = cli.instructions_text(tmp_path, 4)
     brief = (root / "inputs" / "brief.txt").read_text(encoding="utf-8")
-    assert L.contract_problems(L.ToolContract(frozenset(T.TOOL_NAMES)), instructions=text, brief=brief,
-                               tools=tools) == []
-    finish = next(t for t in tools if t.name == "facet_finish").description
-    pre = " ".join(finish.split("Accepted only when: ", 1)[1].split("Otherwise")[0].split())
-    flat = " ".join(text.split())
-    low = flat.lower()
-    assert pre in flat                                                   # the preconditions verbatim, K = 4
-    for banned in ("wp6", "inspect every image", "again before concluding", "not been established", "failed",
-                   "owner", "earlier run", "v1",
-                   # product and photo-set facts belong in the brief (cli.brief_text), never in the instructions
-                   "acetate", "black photo", "almost flat", "far more clearly", "prada", "logo", "cream",
-                   "the top photo", "top and rear photos", "calibrated side views"):
-        assert banned not in low, banned
-    assert not re.search(r"\b(?:B\d|0\d)\b", text)                    # no photo ids of a job
-    for needed in (
-            # tool semantics (a refusal code names its cause; the compares' text as the tools print it)
-            "points_px", "E_CREASE_SHAPE", "E_JUDGEMENT", "E_BUSY", "E_TIMEOUT",
-            "t_min is 1.0", "station table", "at least three non-collinear (else E_FACET_UNDERDETERMINED)",
-            "spread wide (else E_ILL_CONDITIONED)", "E_FADE_CLIFF",
-            # the final pre-run review (P2-1): E_RELIEF_STEP names the closing rise of a crease-mode facet (lab.
-            # relief_rise), so the rules that route Astra through it (a solved corner, one-question brackets) close
-            "(else E_RELIEF_STEP, which names a crease-mode facet's rise_per_mm that does): change them together",
-            "one image line through the model's outermost point near that d", "+-1 mm", "largest",
-            "at every target photo", "facet_variants renders 2..6 edit lists on one revision beside the head "
-            "without changing the scene", "(drawn from 6 deg)",
-            "the charted temple, and the mirrored temple, its exact mirror (compares use these names)",
-            "on one plane (else E_FACET_NOT_PLANAR)",
-            # the evidence rules: two directions, a confirming view at a moderate angle, edge-on silence is no proof
-            "qualitative", "never set depth or ridge/valley from which face is brighter", "two different directions",
-            "at a moderate angle", "its lack of a line is no evidence", "the best evidence; say so in the note",
-            "a reflection moves", "On gloss a tone step can be a crease or the edge of a reflected light",
-            "A thin line brighter than both neighbours that stays on a crease from two directions supports a ridge; "
-            "its absence is no evidence",
-            # points_px reads (d, y); depths measures t (run 5's valley review: points_px's t is the model's)
-            "measure (d, y) in square-on views; elsewhere, only check", "its t is the model's, never a measurement",
-            "Measure t with photo_compare's depths in the moderate-angle views", "the brief gives their px per mm of t",
-            # a crease's corners, of both faces, in one photo: that camera's error is common to all of them (run-6
-            # review P3: 02's fit has a mean contour of 7.2 px, about 0.9 mm of t)
-            "reading a crease's corners, of both faces, in one photo, on the temple whose outer face it shows",
-            "the renders use the job's fixed light (the brief names it)",
-            # the habit (owner decision 1): lay out square-on, then confirm or REMOVE at a moderate angle (review of
-            # the build, P1: the first layout is provisional, so the confirming view can take a crease out)
-            "Lay out, then confirm", "That layout is provisional", "before refining depth",
-            "Keep a crease that view also shows, remove one it contradicts (no line although it clearly shows "
-            "neighbouring creases of similar angle), add one only where both views show it",
-            "where it cannot resolve the region, keep the square-on reading",
-            "a moderate-angle view and a glossy photo",
-            # the corner rule can be decided and keeps the face whole (final review, P2)
-            "two of those faces are one", "Keep that face whole",
-            "bracket the candidates with facet_variants (each with node values that build it)",
-            "Every facet_edit that changes which facets exist", "When those views disagree on where a crease runs",
-            # only a change prompted by a number needs both views (the pre-build skeptic's correction #9)
-            "A number (an offset or outline station) changes the layout only when both views show the new crease or "
-            "its absence", "never split a face that no photo shows divided",
-            "never merge two faces that a visible crease separates", "its own facet", "several creases meet",
-            # ridge or valley (run 5's valley review, owner: "the inward edge is the one thats really bugging me"):
-            # decided per crease from that crease's own evidence (its corners' depths, the views along it), before
-            # any other bracket; its corners measured, never solved; the strip is the model; the corner rule
-            "Ridge or valley: decide it per crease the photos show, from evidence about that crease, before and apart "
-            "from any bracket about something else", "the views that look along it (the brief says which): a valley "
-            "never forms an outline", "unless another face or part forms that outline",
-            "The section strip shows what the model built",
-            # run-6 review P1: the builder's planes are flat in X, not in t, so the margin is the host's (lab.
-            # crease_margins: facet_inspect, the receipt's margins), never a hand extrapolation of t; the measured
-            # values decide the declaration. P2: "never solve" is scoped to the crease being decided (its ends and each
-            # face's far corner as the host names them), with the by-design and unreadable corners exempt, and a
-            # solved far corner moves (the receipt's solved)
-            "the t of the corners that set it, its ends and each face's corner farthest across its line (as the host "
-            "names them), measured with depths; give these a measured t, never solve: a solved corner takes another "
-            "facet's plane, extrapolated, and can flip the crease (the margins name it)",
-            "Planes are flat in X = x_in(d) + t, not in t: never extrapolate t by hand; enter the measured values, "
-            "build with apply false, read the shape and margin the host prints (the receipt's crease lines and "
-            "margins; facet_inspect for the head) and declare the shape the measured values build",
-            "a margin within the readings' error leaves (1) open",
-            "A crease-mode facet's corners but its crease's ends are solved by design; a corner no view can read "
-            "stays solve, and the note says so",
-            # run 6's review (owner: "the top triangle is still not one piece and being smoothen and not flat"): one
-            # face's measured corners disagreed by up to 2 mm between cameras; E_FACET_NOT_PLANAR lists each corner's
-            # solve option (lab.solve_options) and the one that moves least is solved (run 6 kept the logo corner's
-            # thick reading and solved the crown's tip 4 mm proud of the arm, then faded it); never a fold or a split
-            # review of the build (P1): the corner solved for a plane stays solved (else E_CREASE_SHAPE's "measure
-            # it first" and E_FACET_NOT_PLANAR's "solve it" loop on it)
-            "If a face's measured corners fit no plane (E_FACET_NOT_PLANAR lists the t each takes when it alone is "
-            "solved), keep it whole: take the crease run or rise it names, else solve the one that moves least, named in the "
-            "note (it stays solved, though it sets creases; facet_inspect shows its value), and compare the faces it "
-            "bounds",
-            # a thin band along a straight edge: a crease plane through the ends of a straight run (spec.crease_run)
-            "Plane mode crease holds the line through two corners, an edge of the polygon or the ends of a straight "
-            "run of its edges (the corners between take the plane's value)",
-            "a band along a straight edge (its run's two ends)",
-            # corner readings (lab.corner_reading): run 6's hinge corner read 3.55 at an assumed d 0 in one photo
-            # (4.77 from two), which built the inward hinge-side edge
-            "One photo takes your (d, y) as exact, so an error in d becomes one in t (worst where the inner face "
-            "turns, as at the hinge): give each corner also in a photo from another direction (depths' also) and "
-            "enter the t it prints for your (d, y)", "Cameras differ by about a mm",
-            # E_FADE_CREASE and no fade for a thickness (run 6 faded the back faces from d 48 to hide a 4 mm wing)
-            # review round 2: ending a crease at a node and fading both from there rebuilds the smooth surface
-            # through a narrow base strip (or a trough), so it is no longer offered
-            "A crease between two facets stands to its ends (E_FADE_CREASE): fade a facet only from where its creases "
-            "with other faded facets end",
-            "never fade to fix a thickness: a face standing out at its end (an offset there, a step against the arm at "
-            "a moderate angle) has a wrong corner t: read that corner",
-            # run 6's hinge-side valley came from a one-photo reading; with corner readings that crease's margin lies
-            # within the readings' error, and the owner rejected an inward edge twice (runs 5 and 6): an open crease
-            # between outer faces is taken as a ridge unless a bracket shows the valley
-            # review of the build (P1): a crease built flat cannot be declared, so the tie-break enters values within
-            # the readings' error that build the ridge, and a flat crease stays undeclared
-            "With (1) and (2) open, enter values within the readings' error that build a ridge (outer faces mostly meet "
-            "convex) unless a bracket at the moderate-angle and glossy views shows a valley",
-            "Declare every crease but one built flat (W_FLAT_CREASE)",
-            "crease_vs_head", "Each must be one you decided from that crease's evidence",
-            "diff_vs_head",
-            "Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all "
-            "valleys): one has the other shape, or two of those faces are one",
-            # run-6 review P2: E_CREASE_SHAPE names the facets' solved corners (lab.refusal_solved): measure them
-            # first; a redeclaration is wrong only when it matches what values that were not measured build
-            "On E_CREASE_SHAPE, first give any solved corner that sets that crease (the refusal names them; not one "
-            "solved for a plane) a measured t; then declare the shape its measured corners build, or change the node t "
-            "values not measured that make the shape", "A depth wanted for another question that builds the other shape is evidence to weigh",
-            "when it says the creases at a corner cannot all have one shape, correct the declaration the photos "
-            "contradict there", "Never redeclare just to match what unmeasured values build (the refusal's \"do not "
-            "redeclare\")", "never split a face to get a refused declaration built",
-            # kept after the owner's run-2 remarks (barely noticeable, soft lines)
-            "barely distinct, the dihedral is probably too small", "several mm at the key nodes",
-            "keeps a standing neighbour's height along their shared crease",
-            "need no fade",
-            "Do not fade a facet whose edges the photos show crisp", "points mostly up",
-            # top bands (review P3): the side views show only where a band meets the outer face
-            "Top and bottom faces", "show only where it meets the outer face",
-            "Place and confirm the band's own creases, and judge its tilt, in views that see it at a moderate angle",
-            # the outline line and every offset are information only (2ca5be9): one view's silhouette
-            "Outline line", "like every offset it is information, one view's silhouette",
-            "never change the layout or a crease's shape for it alone: an outline offset measures how far out the "
-            "outermost face reaches, not the shape of a crease below it",
-            # one bracket answers one question (run 5: a five-change bracket redeclared the crease in every arm)
-            "One bracket answers one question: its arms differ only in the values that question is about",
-            # run-6 review P2: an arm that moves a corner t must also keep shared corners at one height (E_RELIEF_STEP;
-            # rise_per_mm "solve" is not built)
-            "(for a crease's shape: an arm of each shape, differing in that crease's corner t and declaration), plus "
-            "only the values the builder requires to keep shared corners at one height (E_RELIEF_STEP)",
-            "evidence to weigh, never a reason to redeclare",
-            # the job's facts come from the brief
-            "The brief says which photos show the charted temple",
-            "the brief names them", "the brief says which", "the brief describes it", "the brief lists them"):
-        assert needed in flat, needed
-    # tool semantics the instructions' TOOLS list no longer repeats (run 5 review: cut repetition): the tool
-    # descriptions Astra reads with every request state them
-    described = {t.name: " ".join(t.description.split()) for t in tools}
-    schema_text = {t.name: " ".join(" ".join(s for _p, s in L.schema_descriptions(t.params_json_schema)).split())
-                   for t in tools}
-    assert "\"start\" = the unedited model's" in described["photo_compare"]
-    assert "without the start model's offsets" in described["facet_edit"]
-    assert "gloss-black render" in described["photo_compare"] and "no native row" in described["photo_compare"]
-    # cut from the instructions after run 6's review (the length cap stays 14,000): what the tools state themselves
-    assert "photo minus model" in described["photo_compare"]                       # an offset's sign
-    assert "the edits apply in order, all or none" in described["facet_edit"]
-    assert "reset_layout clears nodes, facets and creases first" in described["facet_edit"]
-    assert "a refused edit returns at once with its index and code, a refused build with its code" in \
-        described["facet_edit"]
-    assert "that model's own crease lines from 6°" in described["facet_variants"]
-    assert "crease layouts can be compared side by side" in described["facet_variants"]
-    assert "Each built variant becomes a revision" in described["facet_variants"]
-    assert "Photo ids with a camera, each compared before; at most 3 target photos" in schema_text["facet_variants"]
-    assert "(negative falls toward the inner face)" in schema_text["facet_edit"]           # rise_per_mm
-    assert "d where the facet is fully its plane" in schema_text["facet_edit"]              # a fade's d0 / d1
-    assert "d where it has blended into the plain arm" in schema_text["facet_edit"]
-    # review of the build (P2): the fade's schema text no longer advises fading both facets of a crease to let it die
-    # out (E_FADE_CREASE); the corner reading names the value to enter
-    assert "fade both facets of a crease the same way" not in schema_text["facet_edit"]
-    assert "two facets never both fade along the crease they share: it stands to its ends (E_FADE_CREASE)" in \
-        schema_text["facet_edit"]
-    assert "prints first the t to enter at the depth's own (d, y)" in described["photo_compare"]
-    assert '"t 5.00 here"' in described["photo_compare"]          # a neutral example, never the product's own value
-    assert "prints its t at this d, y" in schema_text["photo_compare"]
-    from glasses3d.g3d.temple.spec import RUN_LINE_MM
-    assert f"within {RUN_LINE_MM:g} mm" in schema_text["facet_edit"]               # the crease run's tolerance
-    for name in ("facet_edit", "facet_variants", "facet_restore", "facet_finish"):          # the judgement's fields
-        assert "the largest visible difference in this photo" in schema_text[name], name
-        assert "where it is: d mm, or null" in schema_text[name], name
-        assert "the checkpoint of the best revision so far" in schema_text[name], name
-    # the margins the ridge/valley rule reads are the host's (lab.crease_margins), in the builder's terms
-    assert "planes are flat in X = x_in(d) + t, not in t" in described["facet_inspect"]
-    assert "margins (as facet_inspect's, only for creases flipped against the head, with a solved corner or with a " \
-           "margin under 1 mm" in described["facet_edit"]
-    assert "a t error that size at that corner flips it (when no end of the crease is solved)" in \
-        described["facet_inspect"]
-    assert "corners solved from a facet's plane (not by design) whose t moved from the head's" in \
-        described["facet_edit"]
-    assert "E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it" in described["facet_edit"]
-    assert "a refused variant's code and message (as facet_edit's)" in described["facet_variants"]
-    assert "margins (as facet_edit's)" in described["facet_variants"]
-    for retired in ("on its own", "no neighbour needs to share",          # a lone fade does not dissolve its creases
-                    "fewest faces", "redeclare it",                       # review of 2026-10-11 (skeptic B3)
-                    "one plane across it cannot make the corner", "a corner in the top photo's outline",
-                    "never from oblique views", "include b1", "a flat face has one tone", "those stations are shape",
-                    "include the top photo", "1..3", "well over 10 deg", "keep roll_mm small",
-                    # review of the build (2026-10-11): a station is not shape on its own (P2); a crease declaration
-                    # the photos contradict is corrected, not kept to the letter (the face-4 split); the light and the
-                    # top-face views come from the brief; any crease the first layout put in can be removed (P1)
-                    "a station that departs from it is shape", "whether or not the start model shows it too",
-                    "do not redeclare the crease", "one fixed studio light", "top faces: from above",
-                    "and the section strip. declare", "change the layout only when", "is not yet a crease",
-                    # run 5's valley review: ridge/valley no longer rests on edge-on silhouettes alone (an outline
-                    # shows a crease's shape only where that crease forms it), and points_px's t is never measured
-                    "from the silhouettes of views that see it edge-on", "a convex kink in the outline is a ridge",
-                    "when no silhouette shows it", "confirm it from silhouettes", "the brief gives how far per mm",
-                    "never change the layout for it alone",
-                    # run 6's review: the ridge test by hand in t (P1: the planes are flat in X; on run 5's crease at
-                    # C 8.0 it said valley where the builder builds an 8.5 deg ridge), "a far corner" (P2: the wrong one
-                    # flips the verdict), the unscoped never-solve / never-redeclare / change-the-t rules (P2), the
-                    # bracket that forbade the values E_RELIEF_STEP requires (P2), one face's corners per photo (P3),
-                    # "another part"
-                    "has a smaller t than the other face's plane", "a far corner of each face",
-                    "give the corners that set a decided crease", "receipts name it",
-                    "never redeclare just to match the build", "change the node t values that make the shape",
-                    "differing only in that crease's corner t", "reading a face's corners in one photo",
-                    "unless another part forms",
-                    # the final pre-run review (P2-2): no corner pushed "away from that crease", no fold suggested
-                    "solve a corner away from that crease", "no photo shows a fold", "fold",
-                    # run 6's review: the solved corner is the one that moves least, not "the photos constrain least";
-                    # a crease plane may hold a straight run; a crease dies out from a node inside the outline
-                    "constrain least", "goes through one edge of the polygon", "to let a crease die out, fade both",
-                    "off its crease edge",
-                    # review of the build: which printed t to enter; a crease stands to its ends, not only at the edge
-                    "the host finds (d, y, t) from both", "take a ridge (outer faces", "reaches the outline stands",
-                    "fade both facets", "the receipt's solved shows how far"):
-        assert retired not in low, retired
-    for number in re.findall(r"\d+(?:\.\d+)?", text):                    # no product coordinates: only rules' numbers
-        assert number in INSTRUCTION_NUMBERS, number
-    # about the length of the product-specific text it replaced (11,592 chars); the build review's fixes added the
-    # corner rule and the provisional layout (12,236 -> 12,462 chars); the final review gave the corner rule a way to
-    # decide it (variants at the moderate-angle and glossy views) and the coplanar case (-> 12,802 chars).
-    # Raised 13,000 -> 14,000 after run 5's valley review (owner: "ok, fix it and run again, max 15$"): the crease
-    # rules that run lacked (decide ridge/valley from the crease's own corners measured with depths and from the views
-    # along it, before any other bracket; measured corners, never solved, and the E_FACET_NOT_PLANAR way out; flips
-    # against the head; one question per bracket; an outline offset never decides a crease's shape; the gloss line;
-    # depths vs points_px) add ~1.9k; cutting repetition with the tool descriptions (the TOOLS list, the offsets'
-    # print format) and wordiness took back ~0.8k (-> 13,952 chars). Every remaining rule is a needed phrase above.
-    # Run 6's review (the ridge test in the builder's terms with the host's margin, scoped never-solve, the solved
-    # corners of an E_CREASE_SHAPE first, the bracket's E_RELIEF_STEP values) fitted under the same cap by cutting
-    # what the tools state themselves: the edit order and reset_layout, refusal indices, the offsets' sign, the
-    # variants' photos, panels and revisions, rise_per_mm's sign, the fade's ends and the judgement's fields (each
-    # checked above in a tool or parameter description), the outline line's parts and the footer (their printed text
-    # names them) -> 13,897 chars. The cap is not raised again: a new rule cuts text. The final pre-run review: the
-    # corner solved is the one the photos constrain least, without the fold clause, and E_RELIEF_STEP names the closing
-    # rise (-> 13,937 chars). Run 6's review (owner: "the top triangle is still not one piece and being smoothen and
-    # not flat ... please review evidence thoroughly and the tools and instructions") added corner readings in two
-    # photos, the straight-run crease plane, the solve option that moves least, E_FADE_CREASE and no fade for a
-    # thickness and an open crease taken as a ridge (+~0.9k), and cut the same from wording (the intro's revision
-    # sentence, the coordinates, the angles, roll, tool and judgement lines, the finish cap's arithmetic) -> 13,992
-    # chars, under the same cap. The build's review: which printed t to enter, flat creases undeclared, the corner
-    # solved for a plane stays solved, a crease stands to its ends; cut the overlay grid, gloss and outline-line
-    # wording -> 13,974. Review round 2: take the crease run the not-planar note names; fade only from where creases
-    # end; the not-planar note's rise -> 13,974.
-    assert len(raw) <= 14_000
+    assert L.contract_problems(cli.tool_contract(), instructions=text, brief=brief, tools=tools) == []
 
 
 # --------------------------------------------------------------------------------------------- brief
 def test_brief_geometry_helpers():
     """The brief's photo facts from cameras: the angle to the outer face (0 square-on, 90 edge-on), temple-relative
-    directions (a mirrored side view is the same direction), the bands and the camera fit texts."""
+    directions (a mirrored side view is the same direction), the bands, the camera lineage and fit texts."""
     side, mirrored = {"yaw": 90.0, "pitch": 0.0}, {"yaw": -90.0, "pitch": 0.0}
     angled, front, top = {"yaw": 30.0, "pitch": 0.0}, {"yaw": 0.0, "pitch": 0.0}, {"yaw": 0.0, "pitch": 60.0}
     assert cli.outer_face_deg(side) == pytest.approx(0.0, abs=1e-6)
@@ -696,10 +591,15 @@ def test_brief_geometry_helpers():
         "square-on", "square-on", "at a moderate angle", "at a moderate angle", "edge-on", "edge-on"]
     assert cli.temple_seen(mirrored) == "the mirrored temple, from its own side" and cli.temple_seen(side) == \
         "the charted temple" and cli.side_note({"camera": side}) == "it shows the charted temple"
+    assert cli.looks_along_deg({"yaw": 0.0, "pitch": 10.0}) == pytest.approx(10.0)
+    assert cli.looks_along_deg({"yaw": 180.0, "pitch": 0.0}) == pytest.approx(0.0, abs=1e-6)
+    assert cli.looks_along_deg({"yaw": 90.0, "pitch": 0.0}) == pytest.approx(90.0)
     assert cli._deg(-0.02) == "+0.0" and cli._deg(-90.81) == "-90.8"
-    ids = {"reference-02.webp": "02"}
+    ids = {"reference-02.webp": "02", "reference-05.png": "05"}
     moved = {"transport": {"source": "C:/x/reference-02.webp", "mask_iou_after_warp": 0.99243,
-                           "mean_bidirectional_px": 0.8233}, "theta_observed": {"+1": False, "-1": False}}
+                           "mean_bidirectional_px": 0.8233}, "theta_observed": {"+1": False, "-1": False},
+             "fit_status": "camera transported from 02 by image similarity (contour 0.82 px, IoU 0.992); theta "
+                           "copied from 02"}
     assert cli.camera_fit_text(moved, ids) == ("camera moved from 02's by matching the two photos' silhouettes (photo "
                                                "to photo, on its registration matte: IoU 0.992, mean contour 0.8 px), "
                                                "the temples' hinge opening as in 02; not checked against the model")
@@ -709,55 +609,164 @@ def test_brief_geometry_helpers():
                                                  "(photo to photo, on its registration matte: IoU 0.992, mean contour "
                                                  "0.8 px), the temples' hinge opening as in 02; starting model's "
                                                  "silhouette on the compare's raster: IoU 0.934, temple IoU 0.875")
+    # B1's record (tests/proofs/wp6v2_basis.py): no transport block, its source in fit_status, and the WP6 v1 all-views
+    # validation's IoU at the transported camera; it is a moved camera, never "fitted" (review 2026-10-12), and its
+    # check is labelled as that validation's, the one the target photos' fits print, never as the starting model's
+    # check B2 and B3 print (review 2026-10-12, P3)
+    b1 = {"fit_status": "camera transported from 05", "iou": 0.88325, "contour_mean_px": 7.2318,
+          "theta_observed": {"+1": False, "-1": False}}
+    assert cli.camera_fit_text(b1, ids) == ("camera moved from 05's by matching the two photos' silhouettes, the "
+                                            "temples' hinge opening as in 05; the model's silhouette at this camera "
+                                            "in the all-views validation that fitted the target photos' cameras: IoU "
+                                            "0.883, mean contour 7.2 px")
+    assert "starting model" not in cli.camera_fit_text(b1, ids)
+    assert "starting model's silhouette" in cli.camera_fit_text({**b1, "model_check": {"iou": 0.8467,
+                                                                                       "temple_iou": 0.8591}}, ids)
     assert cli.camera_fit_text({"iou": 0.87317, "contour_mean_px": 8.07}, ids) == \
         "camera fitted to the model's silhouette (all-views fit): IoU 0.873, mean contour 8.1 px"
     assert cli.camera_fit_text({}, ids) is None
-    assert cli.OFFSET_VIEWS is seeing.OFFSET_VIEWS                # one list: the views whose compares print offsets
+    assert [cli.camera_source(r, ids) for r in (moved, b1, {"fit_status": "fitted (all_views_validation: iou 0.9)"},
+                                                {"fit_status": "camera transported from reference-05.png"},
+                                                {"fit_status": "camera transported from 09"}, None)] == \
+        ["02", "05", None, "05", "a photo not in this job", None]
+    assert "hinge opening" not in cli.camera_fit_text({**b1, "theta_observed": {"+1": True}}, ids)   # not copied
+    assert cli.SIDE_VIEWS is seeing.SIDE_VIEWS                     # one list: the views whose compares print outlines
     assert cli.colour_text({"colour": "black", "finish": "glossy"}) == "glossy black"
     assert cli.colour_text({}) == "another colour"
 
 
-def test_brief_depth_reading_helpers():
-    """How finely photo_compare's depths reads t in a view (cli.t_px_per_mm): the image length of 1 mm along the outer
-    face's normal of the temple the camera sees, T_PX_BACK_MM behind its hinge; exact on an orthographic camera
-    (scale / extent x sin of the angle to the face), pose.line_depth's px per mm at t 0 on a perspective one, None
-    without a full camera or the basis's model record; square-on views say reading t is unreliable."""
-    from glasses3d.g3d_host import pose as PO
-    from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm
-    model ={"frame": {"center": [0.0, 0.0, -60.0], "extent": 100.0}, "front_pivot_mm": [0.0, -3.0, -3.0]}
-    ortho = {"yaw": 30.0, "pitch": 0.0, "roll": 0.0, "perspective": 0.0, "scale": 1000.0, "center_x": 500.0,
-             "center_y": 400.0}
-    assert cli.t_px_per_mm({"camera": ortho}, model) == pytest.approx(1000.0 / 100.0 * math.sin(math.radians(60.0)))
-    assert cli.t_px_per_mm({"camera": {**ortho, "yaw": -30.0}}, model) == pytest.approx(8.660254, abs=1e-6)
-    persp = {**ortho, "perspective": 0.25, "pitch": 11.0}
-    rec = {"camera": persp, "hinge_axis_xz_mm": {"+1": [64.0, -10.0], "-1": [-64.0, -10.0]}}
-    P = np.array([64.0, -3.0, -10.0 - cli.T_PX_BACK_MM])
-    cam, frame = Camera.from_dict(persp), NormFrame.from_dict(model["frame"])
-    reading = PO.line_depth(project_mm(P[None], cam, frame)[0], cam, frame, P, np.array([1.0, 0.0, 0.0]))
-    assert reading["t"] == pytest.approx(0.0, abs=1e-9)                  # the pixel of P itself: px per mm at t 0
-    exact = reading["px_per_mm"]
-    got = cli.t_px_per_mm(rec, model)
-    assert got == pytest.approx(exact, rel=1e-3) and got != pytest.approx(8.660254, rel=1e-2)  # perspective counts
-    assert cli.t_px_per_mm({"camera": {"yaw": 30.0, "pitch": 0.0}}, model) is None           # no scale
-    assert cli.t_px_per_mm({"camera": ortho}, None) is None and cli.t_px_per_mm({"camera": ortho}, {}) is None
-    assert cli.depth_text(62.0, 7.71) == "depths reads t at about 7.7 px per mm"
-    assert cli.depth_text(62.0, None) == "depths reads t here"
-    assert cli.depth_text(14.0, 2.07) == "reading t with depths is unreliable here: about 2.1 px per mm"
-    assert cli.depth_text(14.0, None) == "reading t with depths is unreliable here"
-    assert cli.looks_along_deg({"yaw": 0.0, "pitch": 10.0}) == pytest.approx(10.0)
-    assert cli.looks_along_deg({"yaw": 180.0, "pitch": 0.0}) == pytest.approx(0.0, abs=1e-6)
-    assert cli.looks_along_deg({"yaw": 90.0, "pitch": 0.0}) == pytest.approx(90.0)
-    photos = [{"id": "02", "path": "images/reference-02.png", "view": "angled", "role": "target"}]
-    brief = cli.brief_text("Frame X", photos, {"reference-02.png": {"camera": ortho}}, model=model)
-    assert "- 02: angled; camera yaw +30.0, pitch +0.0; the charted temple's outer face at a moderate angle (60 deg; " \
-           "depths reads t at about 8.7 px per mm)" in brief
-    assert "Front and rear views look along creases that run front to back: none (cameras within 25 deg" in brief
+def test_brief_outline_offsets_by_view():
+    """A side view's compares print the outline offsets of the temple whose outer face it sees (seeing._side_outline):
+    looking down on the temple (01 / 05 / B1 from 13.6-13.7 deg above) only the bottom outline, looking up only the
+    top, level both; no other view prints numbers (v3: no top / rear outer-edge offsets, no outline line)."""
+    assert cli.outline_text("side", {"yaw": 90.6, "pitch": 13.6}) == (
+        "its compares print the charted temple's bottom outline offsets (not its top: the view looks down on the top "
+        "face)")
+    assert cli.outline_text("side", {"yaw": -90.8, "pitch": 13.7}).startswith(
+        "its compares print the mirrored temple's bottom outline offsets")
+    assert cli.outline_text("side", {"yaw": 90.0, "pitch": -5.0}) == (
+        "its compares print the charted temple's top outline offsets (not its bottom: the view looks up at the "
+        "bottom face)")
+    assert cli.outline_text("side", {"yaw": 90.0, "pitch": 0.5}) == \
+        "its compares print the charted temple's top and bottom outline offsets"
+    for view, cam in (("angled", {"yaw": 30.0, "pitch": 11.0}), ("top", {"yaw": 0.0, "pitch": 60.0}),
+                      ("rear", {"yaw": 180.0, "pitch": 9.0}), ("front", {"yaw": 0.0, "pitch": 10.0})):
+        assert cli.outline_text(view, cam) is None, view
+
+
+def test_brief_lineage_precision_theta_and_conflict_texts():
+    """The v3 brief lines that are not per photo: which cameras were fitted on their own and which were moved from
+    another photo's with its theta (lineage_text), how precisely photo_read reads which kind of point (the job's
+    READING_PRECISION), the theta lever (readings.THETA_SD_DEG; d x pi / 180 mm per degree) and a camera-model
+    conflict worded as a limit of the camera model, never as doubt about the photo (owner rule)."""
+    from glasses3d.agent.temple_lab import readings as RD
+    ids = {"reference-05.png": "05", "reference-02.png": "02", "black-side.png": "B1"}
+    recs = {"05": {"camera": {"yaw": 90.0}}, "02": {"camera": {"yaw": 30.0}},
+            "B1": {"camera": {"yaw": 90.0}, "fit_status": "camera transported from 05"}, "R1": None}
+    assert cli.lineage_text(recs, ids) == (
+        "Cameras: 05 and 02 each have a camera fitted on its own. B1's camera was not fitted: it is 05's camera moved "
+        "onto its photo by an image similarity that matches the two photos' silhouettes, with the temples' hinge "
+        "opening (theta) copied, so it shares that camera's error and theta. Photos of one direction (above) read a "
+        "point only together with a photo of another direction.")
+    assert cli.lineage_text({"05": {"camera": {"yaw": 90.0}}}, ids) == \
+        "Cameras: 05 has a camera fitted on its own."
+    assert cli.lineage_text({"R1": None}, ids) is None
+    assert cli.precision_text(None) is None
+    p = cli.precision_text(cli.READING_PRECISION)
+    assert p.startswith("Readings (photo_read) on these photos: a crisp corner read from two directions is good to "
+                        "about 0.2-0.5 mm; a tip, or a point on an edge that runs along the line of sight between the "
+                        "photos, only to about 0.7-1.5 mm along that edge, even where a single pick of it prints less")
+    assert "Read as a crossing of two traced edges" in p and "smallest where the edges cross steeply" in p
+    # a back corner's absolute X carries the cameras' theta beside its pick error (review 2026-10-12, P2)
+    assert p.endswith("These are the picks' errors: a point far back from the hinge also carries the cameras' hinge "
+                      "opening in its absolute X (below).")
+    th = cli.theta_text()
+    assert f"taken as uncertain by {RD.THETA_SD_DEG:g} deg" in th
+    assert "X moves about 0.4 mm per degree at d 25, 0.9 at d 50, 1.4 at d 80" in th      # d x pi / 180
+    assert "turns the temple about its hinge as one rigid piece" in th
+    # one rigid turn only for readings of the same photos: readings.py moves each camera fit's theta separately and
+    # adds the fits in quadrature (review 2026-10-12, P3: "faces stay flat and edges straight" overclaimed)
+    assert th.endswith("the same for every reading made from the same photos, so such readings keep a flat face flat; "
+                       "readings from different photos carry their own theta.")
+    assert "faces stay flat" not in th and "edges straight" not in th
+    assert [round(d * math.pi / 180.0, 1) for d in (75, 85)] == [1.3, 1.5]            # WP6_V3 §0.3: ~1.3 at d 75-85
+    c = cli.conflict_text(cli.CAMERA_CONFLICTS[0])
+    assert c == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame rigid, "
+                 "each temple a rigid arm turned about its hinge), the outer outline that photo 03 shows at d 10-40 "
+                 "and the other photos cannot be matched together: they differ there by up to about 2.2 mm, 03's "
+                 "further out, on both temples. This is a limit of the camera model, not of the photo.")
+    back = cli.conflict_text(cli.CAMERA_CONFLICTS[1])
+    assert back == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame "
+                    "rigid, each temple a rigid arm turned about its hinge), the outer outline that photos 03 and 06 "
+                    "show near d 75 and the two-direction readings of the side and angled photos cannot be matched "
+                    "together: they differ there by up to about 2.7 mm, the readings further out, on the charted "
+                    "temple (the mirrored temple was not checked). This is a limit of the camera model, not of the "
+                    "photos.")
+    for text in (c, back):
+        for doubt in ("wrong", "error", "inconsistent", "unreliable", "bad", "fault", "distort", "trust", "ignore",
+                      "suspect", "not real"):
+            assert doubt not in text.lower(), doubt
+
+
+REVIEW = cli.G3D / "data/wp6v2/review_20261012"
+
+
+def test_camera_conflicts_and_reading_precision_are_job_data():
+    """CAMERA_CONFLICTS and READING_PRECISION are the Prada job's data beside COLOURWAY_PHOTOS (prepare passes them to
+    the brief; a brief without them has neither line). Where the investigation's evidence is present (git-ignored
+    data), the rows print what it measured (review 2026-10-12, P3: "up to about 2 mm" against +2.18, "1 mm or more"
+    against 0.7-1.5 mm; P2: the back-of-block conflict of 03 and 06 with the readings was missing)."""
+    assert [(tuple(c["photos"]), c["d_mm"], c["up_to_mm"], c["temples"], c["further_out"])
+            for c in cli.CAMERA_CONFLICTS] == [
+        (("03",), (10, 40), 2.2, "both temples", "03's further out"),
+        (("03", "06"), 75, 2.7, "the charted temple (the mirrored temple was not checked)",
+         "the readings further out")]
+    assert tuple(cli.READING_PRECISION["corner_mm"]) == (0.2, 0.5)
+    assert tuple(cli.READING_PRECISION["along_mm"]) == (0.7, 1.5)
+    # FINDINGS §0.5 (crisp corners) and §1 (tips); its §0.3 is photo 03's conflict, not the precision
+    assert cli.READING_PRECISION["evidence"].startswith("data/wp6v2/review_20261012/FINDINGS.md §0.5 and §1;")
+    import inspect
+    defaults = {k: v.default for k, v in inspect.signature(cli.prepare).parameters.items()}
+    assert defaults["camera_conflicts"] is cli.CAMERA_CONFLICTS and \
+        defaults["reading_precision"] is cli.READING_PRECISION
+    photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"}]
+    plain = cli.brief_text("Frame X", photos, {"reference-01.png": {"camera": {"yaw": 90.0, "pitch": 5.0}}})
+    assert "Camera-model conflict" not in plain and "Readings (photo_read)" not in plain
+    assert "Each camera fit includes the temples' hinge opening (theta)" in plain      # the theta lever is general
+    mid = cli.G3D / cli.CAMERA_CONFLICTS[0]["evidence"]
+    if mid.is_file():
+        text = mid.read_text(encoding="utf-8")
+        assert "photo 03's front-block outline cannot be matched by any shape the other eight photos allow" in text
+        row = next(line for line in text.splitlines() if line.lstrip().startswith("| excess, temple +1 / −1 (mm)"))
+        bins = [[float(v) for v in re.findall(r"[+−-]\d+\.\d+", cell.replace("−", "-"))]
+                for cell in row.split("|")[2:-1]]
+        assert len(bins) == 9                                                     # d 5-10 .. 45-48
+        assert round(max(max(b) for b in bins), 1) == cli.CAMERA_CONFLICTS[0]["up_to_mm"]      # +2.18 at d 20-25
+        assert all(min(b) > 0 for b in bins[1:7]) and max(bins[0]) < 0.3 and max(bins[7]) < 0   # d 10-40 only
+    theta_log = REVIEW / "w2/crown-geometry/theta_both.log"
+    if theta_log.is_file():                          # the tip read at each angled-photo theta (crown-geometry §2)
+        rows = {}
+        for line in theta_log.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"theta ([+-]\d+): .*E d ([\d.]+) t ([\d.]+) .*E in 06 u ([\d.]+) \(silhouette ~([\d.]+)\), "
+                         r"in 03 u ([\d.]+) \(silhouette ~([\d.]+)\)", line)
+            if m:
+                rows[int(m.group(1))] = [float(v) for v in m.groups()[1:]]
+        fitted, on = rows[0], rows[2]               # the fitted cameras; +2 deg: the tip on both silhouettes
+        assert fitted[2] < fitted[3] and fitted[4] > fitted[5]          # outside 06's and 03's outlines at the fit
+        assert abs(on[2] - on[3]) <= 4 and abs(on[4] - on[5]) <= 4      # on both at +2 deg (px)
+        assert round(fitted[1] - on[1], 1) == cli.CAMERA_CONFLICTS[1]["up_to_mm"]                # 7.03 - 4.34
+        assert abs(on[0] - cli.CAMERA_CONFLICTS[1]["d_mm"]) < 1 > abs(fitted[0] - cli.CAMERA_CONFLICTS[1]["d_mm"])
+    findings = REVIEW / "FINDINGS.md"
+    if findings.is_file():
+        text = findings.read_text(encoding="utf-8")
+        assert "within 0.23-0.37 mm of the settled values" in text                    # §0.5: crisp corners
+        assert "tip d only to ±0.7-1.5 mm" in text                                     # §1: along an edge
+        assert "by up to +2.2 mm" in text                                              # §0.3: photo 03
 
 
 def test_brief_of_a_job_without_another_colour_or_a_moderate_view():
     """A photo set with only target photos and no view at a moderate angle to the outer face: the brief says so
-    ("none"), names no other colour and no finish (the instructions' fallback: a line in two photos under
-    different light)."""
+    ("none"), names no other colour and no finish, every camera its own fit."""
     photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"},
               {"id": "02", "path": "images/reference-02.png", "view": "front", "role": "target"},
               {"id": "03", "path": "images/reference-03.png", "view": "rear", "role": "target"}]
@@ -766,18 +775,22 @@ def test_brief_of_a_job_without_another_colour_or_a_moderate_view():
             "reference-03.png": {"camera": {"yaw": 180.0, "pitch": 5.0}}}
     brief = cli.brief_text("Frame X", photos, cams)
     assert "At a moderate angle (30 to 75 deg): none." in brief and "two temples): 01 | 02 | 03." in brief
-    assert "Outer-edge offsets: 03. Outline line: none." in brief
+    assert "Outline offsets (photo minus model, mm) are printed for 01 only." in brief
     assert "Front and rear views look along creases that run front to back: 02, 03 (" in brief
-    assert "same model in" not in brief and "photos:" not in brief.split("Outline line")[1]
+    assert "same model in" not in brief and "photos:" not in brief.split("are printed for")[1]
     assert "No finish is given" not in brief                                # no photo row gives a finish
     assert "- 02: front; camera yaw +0.0, pitch +5.0; the outer faces edge-on (90 deg)" in brief
-    assert cli.brief_text("Frame X", photos).count("camera yaw") == 0      # no pose basis: views only
+    assert "Cameras: 01, 02 and 03 each have a camera fitted on its own." in brief and "were not fitted" not in brief
+    bare = cli.brief_text("Frame X", photos)
+    assert bare.count("camera yaw") == 0 and "Cameras:" not in bare and "hinge opening" not in bare   # views only
 
 
-def test_brief_names_the_light_the_temples_and_the_edge_rounding():
+def test_brief_names_the_light_the_temples_the_scope_and_the_edge_rounding():
     """The facts the instructions point to that are not per photo: the job's fixed render light (every rig the lab
-    takes has a description), the names the compares give the two temples, and the real temples' edge rounding,
-    "not known" unless the job knows it; finishes are listed only for the photo rows that give one."""
+    takes has a description) and what it does not reproduce (tone marks where an edge is, not its size or sign), the
+    names the compares give the two temples, revision 0 as it is, the scope (the whole temple to its tip, the outline
+    chains editable), and the real temples' edge rounding, "not known" unless the job knows it; finishes are listed
+    only for the photo rows that give one."""
     photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"},
               {"id": "B1", "path": "images/black-side.png", "view": "side", "role": "colourway", "colour": "black",
                "finish": "glossy"}]
@@ -785,19 +798,30 @@ def test_brief_names_the_light_the_temples_and_the_edge_rounding():
     for rig in seeing.MATCHED_RIGS:
         brief = cli.brief_text("Frame X", photos, rig=rig)
         assert f"The renders use the job's fixed light, {rig}: {cli.RIG_TEXT[rig]}. The photos' light is " \
-               "unknown." in brief
+               "unknown. " + cli.LIGHT_TEXT in brief
+    assert cli.LIGHT_TEXT.startswith("The render light does not reproduce the photos' tones") and \
+        cli.LIGHT_TEXT.endswith("in the photos a tone step marks where an edge is, not its size or sign.")
     brief = cli.brief_text("Frame X", photos)
     assert "fixed light, studio_dome_v1:" in brief                        # the default rig, the owner's choice
     assert "The charted temple is the one the spec's d, y and t chart; the mirrored temple is its mirror image" in brief
-    assert "compares print outer-edge offsets per temple under these names" in brief
+    assert "compares name the two temples so" in brief
     assert "Glossy photos: B1.\nNo finish is given for 01.\n" in brief
+    assert ("The scene holds revision 0, the starting model's temple measured into the spec: its outline (the top "
+            "and bottom chains and the tip's rounding) and inner face, and at every d an outer surface straight in y "
+            "(the base wedge); no faces, no edges, roll_mm 0. It is not the target.") in brief
+    assert ("What you may change is the whole temple from the hinge to its tip: its faces and edges, and its outline "
+            "(the outline chains are editable along the whole length).") in brief
     assert "The real temples' edge rounding (roll_mm) is not known: judge it from the photos' edges." in brief
     known = cli.brief_text("Frame X", photos, roll_mm=0.3)
     assert "The real temples' edge rounding is about 0.3 mm (roll_mm)." in known and "not known" not in known
+    low = brief.lower()
+    for phrase in cli.RETIRED_PHRASES + ("px per mm", "outer-edge", "points_px"):
+        assert phrase not in low, phrase
 
 
 def real_brief() -> str:
-    """The brief the package would get from the real pose basis (data/wp6v2/basis/cameras.json, git-ignored)."""
+    """The brief the package would get from the real pose basis (data/wp6v2/basis/cameras.json, git-ignored), with the
+    job's conflicts and reading precision as prepare passes them."""
     doc = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))
     photos = []
     for name in sorted(n for n, r in doc["images"].items() if r.get("colourway") == "target"):
@@ -807,50 +831,64 @@ def real_brief() -> str:
     for w in cli.COLOURWAY_PHOTOS:
         photos.append({"id": w["id"], "path": f"images/{w['image']}", "view": doc["images"][w["image"]]["view_kind"],
                        "role": "colourway", "colour": w["colour"], "finish": w["finish"]})
-    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"], model=doc.get("model"))
+    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"], conflicts=cli.CAMERA_CONFLICTS,
+                          precision=cli.READING_PRECISION)
 
 
 @pytest.mark.skipif(not cli.BASIS_JSON.is_file(), reason="the pose basis (git-ignored data) is absent")
 def test_brief_on_the_real_pose_basis():
-    """The Prada job's brief from its fitted cameras: B1 shares 05's direction and 01 is its mirror (one direction:
-    the review's one-view finding), B2 is 02's direction at 62 deg to the outer face (the moderate views that
-    confirm a layout), the edge-on views, the number lines, the transported cameras' fit with their check against
-    the starting model (the basis's model_check; B3 re-transported on its white-background matte, review of the
-    build P1) and every pointer the instructions make to the brief."""
+    """The Prada job's brief from its cameras: B1 shares 05's direction and 01 is its mirror, B2 is 02's direction at
+    62 deg to the outer face, the edge-on views; each camera's lineage as the basis records it (B1, B2, B3 moved from
+    05, 02, 04 with theta copied: B1 is never called an all-views fit, review 2026-10-12, data/wp6v2/basis/report.json
+    "camera transported from 05"; its check labelled as the all-views validation's); the side views' bottom outline
+    offsets; the reading precision and theta lever; both camera-model conflicts (03 at the front block; 03 and 06
+    against the readings near d 75); and every pointer the instructions make to the brief. No retired line."""
     brief = real_brief()
     assert "two temples): 01, 05, B1 | 02, B2 | 03 | 04, B3 | 06." in brief
     assert "square-on (under 30 deg): 01, 05, B1. At a moderate angle (30 to 75 deg): 02, B2. Edge-on (75 deg or " \
            "more): 03, 04, 06, B3." in brief
-    assert "Outer-edge offsets: 03, 06. Outline line: 03." in brief and "Glossy photos: B1, B2, B3." in brief
-    assert "No finish is given for 01, 02, 03, 04, 05, 06." in brief
-    # how finely depths reads t (cli.t_px_per_mm, 50 mm behind the hinge): run 5's own reading at B2's node B
-    # (d 47) was 7.87 px/mm, the photo review's 7.4-8.0 in 02 and B2
-    assert "- 02: angled; camera yaw +28.2, pitch +11.4; the charted temple's outer face at a moderate angle (62 deg;" \
-           " depths reads t at about 7.7 px per mm); camera fitted to the model's silhouette (all-views " \
-           "fit): IoU 0.926" in brief
-    assert "the charted temple's outer face at a moderate angle (62 deg; depths reads t at about 8.1 px per mm); " \
-           "camera moved from 02's" in brief                                  # B2
+    assert "Glossy photos: B1, B2, B3." in brief and "No finish is given for 01, 02, 03, 04, 05, 06." in brief
+    assert "- 02: angled; camera yaw +28.2, pitch +11.4; the charted temple's outer face at a moderate angle (62 " \
+           "deg); camera fitted to the model's silhouette (all-views fit): IoU 0.926" in brief
     assert "- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, " \
-           "square-on (14 deg; reading t with depths is unreliable here: about 2.1 px per mm)" in brief
-    assert "Front and rear views look along creases that run front to back: 04, 06, B3 (cameras within 25 deg of " \
-           "the temple's length)." in brief
-    assert "faces that point straight up at 30 deg from square-on; its compares print outer-edge offsets and the " \
-           "outline line" in brief
+           "square-on (14 deg); its compares print the mirrored temple's bottom outline offsets (not its top: the " \
+           "view looks down on the top face)" in brief
+    assert "- B1: side, glossy black; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 " \
+           "deg); its compares print the charted temple's bottom outline offsets (not its top: the view looks down " \
+           "on the top face); camera moved from 05's by matching the two photos' silhouettes, the temples' hinge " \
+           "opening as in 05; the model's silhouette at this camera in the all-views validation that fitted the " \
+           "target photos' cameras: IoU 0.883, mean contour 7.2 px" in brief
     assert "camera moved from 02's by matching the two photos' silhouettes (photo to photo, on its registration " \
            "matte: IoU 0.992, mean contour 0.8 px), the temples' hinge opening as in 02; starting model's silhouette " \
            "on the compare's raster: IoU 0.934, temple IoU 0.875" in brief
     assert "camera moved from 04's by matching the two photos' silhouettes (photo to photo, on its registration " \
            "matte: IoU 0.992, mean contour 1.1 px), the temples' hinge opening as in 04; starting model's silhouette " \
            "on the compare's raster: IoU 0.977, temple IoU 0.886" in brief
-    assert "not checked against the model" not in brief                  # every transported camera has its check
+    rows = {line[2:4]: line for line in brief.splitlines() if line.startswith("- ")}
+    assert all("all-views fit" in rows[p] for p in ("01", "02", "03", "04", "05", "06"))
+    assert not any("all-views fit" in rows[p] or "fitted to" in rows[p] for p in ("B1", "B2", "B3"))
+    assert "not checked against the model" not in brief                  # every moved camera has its check
+    assert "Cameras: 01, 02, 03, 04, 05 and 06 each have a camera fitted on its own. The cameras of B1, B2 and B3 " \
+           "were not fitted: each is another photo's camera (B1's from 05, B2's from 02 and B3's from 04)" in brief
+    doc = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))
+    for p, src in zip(cli.COLOURWAY_PHOTOS, ("05", "02", "04")):         # the lineage is the basis's own record
+        assert doc["images"][p["image"]]["fit_status"].startswith(f"camera transported from {src}")
+        assert not any(doc["images"][p["image"]]["theta_observed"].values())          # theta copied, not observed
+    assert "Outline offsets (photo minus model, mm) are printed for 01, 05, B1 only." in brief
+    assert not any("its compares print" in rows[p] for p in ("02", "03", "04", "06", "B2", "B3"))
+    assert cli.precision_text(cli.READING_PRECISION) in brief and cli.theta_text() in brief
+    for c in cli.CAMERA_CONFLICTS:                    # 03 at the front block; 03 and 06 against the readings at d 75
+        assert cli.conflict_text(c) + "\n" in brief
     for pointer in ("charted temple", "mirrored temple", "square-on", "at a moderate angle", "edge-on", "Directions",
-                    "depths reads t at about", "px per mm", "look along creases that run front to back",
-                    "Outer-edge offsets", "Outline line", "Glossy photos", "faces that point straight up",
-                    "revision 0", "glossy black", "fixed light, studio_dome_v1", "edge rounding"):
+                    "look along creases that run front to back", "Glossy photos", "faces that point straight up",
+                    "revision 0", "glossy black", "fixed light, studio_dome_v1", "edge rounding", "bottom outline",
+                    "Camera-model conflict", "were not fitted", "What you may change", "a tone step marks where an "
+                    "edge is"):
         assert pointer in brief, pointer                               # what the instructions say the brief gives
-    assert "acetate" not in brief and "far more clearly" not in brief
-    for gone in ("points_px moves", "mm of depth error"):              # replaced by how finely depths reads t
-        assert gone not in brief, gone
+    low = brief.lower()
+    for phrase in cli.RETIRED_PHRASES + tuple(L.REMOVED_PHRASES) + ("px per mm", "outer-edge", "acetate",
+                                                                    "far more clearly"):
+        assert phrase not in low, phrase
 
 
 # --------------------------------------------------------------------------------------------- estimate
@@ -858,12 +896,21 @@ def sample(tool, chars, images, status="ok", args=300):
     return {"tool": tool, "status": status, "text_chars": chars, "args_chars": args, "images": images}
 
 
+# A zoom grid as the lab registers it (kind "compare" with zoom=True, lab.py; seeing: 2 x 2 panels of a 380 x 220 box
+# at k 2, the size of probe 1's real zooms) and pick sheets of a 2- and a 4-photo reading (readings.pick_sheet).
+ZOOM = [1538, 946, "compare"]
+SHEET2, SHEET4 = [972, 728, "reading"], [972, 1412, "reading"]
+
+
 def rehearsal(scale: int = 1) -> dict:
     cmp_img = [512, 400 * scale, "compare"]
     return {"first_request": {"text_chars": 30_000, "image_sizes": [[1226, 682]] * 6},
             "tool_outputs": [sample("facet_inspect", 1800, [[1024, 454, "chart"], [1022, 576, "sections"]]),
                              sample("photo_image", 300, [[1024, 570, "photo"]]),
-                             sample("photo_compare", 1200, [cmp_img] * 3),
+                             sample("photo_read", 1400, [SHEET2, SHEET4], args=2400),
+                             sample("photo_read", 120, [], args=60),                       # a drop: no sheet
+                             sample("photo_compare", 1200 + 780, [cmp_img] * 3 + [ZOOM]),  # one zoom
+                             sample("photo_compare", 1100, [cmp_img] * 2),                # no zoom asked
                              sample("facet_edit", 1400, [[1024, 454, "chart"], [1022, 576, "sections"]] + [cmp_img] * 5,
                                     status="applied", args=1500),
                              sample("facet_edit", 200, [], status="refused"),
@@ -874,11 +921,123 @@ def rehearsal(scale: int = 1) -> dict:
 def test_token_formula_and_steps():
     assert cli.image_tokens(1024, 454) == pytest.approx(0.975 * 32 * 15 + 112)
     step = cli.mix_step(rehearsal()["tool_outputs"], {"facet_edit": 1})
-    edit = cli.call_tokens(rehearsal()["tool_outputs"][3])
+    edit = cli.call_tokens(rehearsal()["tool_outputs"][6])
     assert step["tokens"] == pytest.approx(edit["tokens"]) and step["results"] == 1.0    # refused edits are not priced
     assert edit["stubbable"] == pytest.approx(5 * cli.image_tokens(512, 400)) and edit["stub_images"] == 5
     with pytest.raises(ValueError, match="no successful"):
         cli.mix_step(rehearsal()["tool_outputs"], {"facet_restore": 1})
+
+
+def test_the_mixes_are_the_v3_tools():
+    """The typical mix is the method the v3 instructions teach (edits, zoomed compares, a photo_read now and then, a
+    variants bracket, a closer look, an inspect), every tool of every mix a v3 tool; the range's arms are every reply
+    an edit, the typical mix and a read-heavy one (the typical mix with photo_read 3 in 10 in place of two edits),
+    because every v3 weight is assumed (review 2026-10-12, P2)."""
+    assert all(set(mix) <= set(V3_TOOLS) for mix in cli.MIXES.values()) and "photo_read" in cli.MIXES["typical"]
+    assert sum(cli.MIXES["typical"].values()) == 10 and cli.MIXES["edit_heavy"] == {"facet_edit": 10}
+    typical, heavy = cli.MIXES["typical"], cli.MIXES["read_heavy"]
+    assert sum(heavy.values()) == 10 and heavy["photo_read"] == 3 and heavy["facet_edit"] == typical["facet_edit"] - 2
+    assert {k: v for k, v in heavy.items() if k not in ("photo_read", "facet_edit")} == \
+        {k: v for k, v in typical.items() if k not in ("photo_read", "facet_edit")}
+    assert cli.RANGE_MIXES == ("edit_heavy", "typical", "read_heavy") and set(cli.RANGE_MIXES) == set(cli.MIXES)
+    assert not any("facet_restore" in mix for mix in cli.MIXES.values())
+    assert cli.READ_POINTS_MAX == 8 and cli.ZOOM_MAX == seeing.ZOOM_MAX == 3
+    assert cli.high_text("read_heavy") == "a read-heavy mix (photo_read 3 in 10) at the high output"
+    assert "photo_read 3 in 10" in cli.MIX_ASSUMED and "no v3 run has been measured" in cli.MIX_ASSUMED
+
+
+def test_the_largest_images_are_the_tools(tmp_path):
+    """The images an image-heavy call is priced at are the largest the tool makes, not the rehearsal's (review
+    2026-10-12, P2): a pick sheet of PHOTOS_MAX photos (a real readings.pick_sheet of a 4-photo reading is
+    read_sheet_px: 972 x 1412) and a zoom grid of four compare.ZOOM_PANEL_PX panels (1538 x 1066: 2 x 760 + 3 gaps of
+    6; 2 x (500 + a 24 px label) + 3 gaps), which no zoom box passes (compare.zoom_scale) and which every real zoom
+    grid of probe 1 lies within (git-ignored data)."""
+    from glasses3d.agent.temple_lab import readings as RD
+    from glasses3d.g3d_host import compare as C
+
+    class Photos:
+        def photo(self, rid):
+            return np.full((600, 900, 3), 128, np.uint8)
+    n = RD.PHOTOS_MAX
+    rec = {"name": "E", "kind": "crossing", "d": 75.5, "sd_d": 1.2, "y": 9.4, "sd_y": 0.3, "X": 67.6, "sd_X": 0.9,
+           "photos": [f"0{i}" for i in range(1, n + 1)], "rids": [f"r{i}" for i in range(n)],
+           "picks": [{"edges": None}] * n, "uv": [[450.0, 300.0]] * n, "uv_fit": [[451.0, 300.5]] * n,
+           "res_px": [0.4] * n, "res_sd": [0.4] * n}
+    with Image.open(RD.pick_sheet(Photos(), rec, tmp_path / "sheet.png")) as im:
+        assert im.size == cli.read_sheet_px() == (972, 1412)
+    assert cli.image_tokens(*cli.read_sheet_px()) == pytest.approx(0.975 * 31 * 45 + 112)       # ~1,472
+    assert cli.zoom_grid_px() == (2 * 760 + 3 * 6, 2 * (500 + 24) + 3 * 6) == (1538, 1066)
+    assert tuple(C.ZOOM_PANEL_PX) == (760, 500) and max(cli.zoom_grid_px()) <= C.SHEET_MAX_PX
+    assert cli.image_tokens(*cli.zoom_grid_px()) == pytest.approx(0.975 * 49 * 34 + 112)        # ~1,736
+    for w, h in ((8, 8), (240, 160), (380, 220), (380, 250), (760, 500), (1200, 300), (200, 900), (1999, 1333)):
+        k = C.zoom_scale(w, h)
+        assert round(w * k) <= 760 and round(h * k) <= 500, (w, h)
+    grids = sorted((REVIEW / "v3/probe1/pkg/work/compare/cache").glob("*/zoom-*.png"))
+    for p in (g for g in grids if "_" not in g.name):
+        with Image.open(p) as im:
+            assert im.width <= cli.zoom_grid_px()[0] and im.height <= cli.zoom_grid_px()[1], p
+
+
+def test_v3_images_are_priced_at_the_most_one_call_returns(monkeypatch):
+    """photo_read is priced at READ_POINTS_MAX pick sheets of the largest size, its text and arguments scaled by the
+    same factor; a call with no pick sheet (a drop) is left out of photo_read's mean, so it never dilutes the price of
+    a read (review 2026-10-12, P2: one drop call halved it); photo_compare at its compare images plus ZOOM_MAX zoom
+    grids of the largest size and their text (its own zoom grids stay when the lab registers them as compare images,
+    and are replaced when it registers them under a kind of their own); the recorded call never changes; a rehearsal
+    without a pick sheet is refused while a mix prices photo_read, one without a zoom grid is not (the grid's size is
+    the tool's)."""
+    outs = rehearsal()["tool_outputs"]
+    read, drop, cmp_zoom, cmp_plain, edit = outs[2], outs[3], outs[4], outs[5], outs[6]
+    sheet, grid = [*cli.read_sheet_px(), "reading"], [*cli.zoom_grid_px(), cli.ZOOM_GRID_KIND]
+    p = cli.priced_sample(read, 4)
+    assert p["images"] == [sheet] * 8 and (p["text_chars"], p["args_chars"]) == (1400 * 4, 2400 * 4)
+    assert cli.call_tokens(p)["tokens"] == pytest.approx(0.42 * (1400 + 2400) * 4 + 8 * cli.image_tokens(972, 1412))
+    assert (read["images"], read["text_chars"], read["args_chars"]) == ([SHEET2, SHEET4], 1400, 2400)   # as recorded
+    d = cli.priced_sample(drop, 4)
+    assert d["unpriced"] is True and d["images"] == [] and "unpriced" not in drop
+    z = cli.priced_sample(cmp_zoom, 4)
+    assert z["images"] == cmp_zoom["images"] + [grid] * 3                    # its own zoom stays: priced up to 3 high
+    assert z["text_chars"] == cmp_zoom["text_chars"] + 3 * cli.ZOOM_TEXT_CHARS
+    assert cli.priced_sample(cmp_plain, 4)["images"] == cmp_plain["images"] + [grid] * 3
+    assert cli.priced_sample(edit, 4) is edit                                # facet_edit's compare has no zoom
+    # the guard replaces a compare's images with its zoom grids (lab.context_stubs); no pick sheet is counted stubbable
+    assert cli.call_tokens(z)["stub_images"] == 7 and cli.call_tokens(p)["stub_images"] == 0
+    # a drop does not dilute a read: photo_read's mean is the full call's, with or without the drop in the rehearsal
+    priced = cli.priced_samples(outs, 4)
+    full = cli.call_tokens(p)["tokens"]
+    assert cli.mix_step(priced, {"photo_read": 1})["tokens"] == pytest.approx(full)
+    assert cli.mix_step(cli.priced_samples([s for s in outs if s is not drop], 4), {"photo_read": 1}) == \
+        cli.mix_step(priced, {"photo_read": 1})
+    nosheet = [{**s, "images": [i for i in s["images"] if i[2] != "reading"]} for s in outs]
+    for bad in (nosheet, [s for s in outs if s is not read]):                    # only a drop: nothing to price
+        with pytest.raises(ValueError, match="no photo_read call with a pick sheet"):
+            cli.priced_samples(bad, 4)
+    nozoom = [{**s, "images": [i for i in s["images"] if i is not cmp_zoom["images"][-1]]} for s in outs]
+    assert cli.priced_samples(nozoom, 4)[4]["images"].count(grid) == 3          # priced from the tool's own size
+    # the typical step: each tool's mean priced call at its mix share (the drop left out of photo_read's)
+    t = cli.facet_estimate(rehearsal())
+    mix = cli.MIXES["typical"]
+    share = {k: v / sum(mix.values()) for k, v in mix.items()}
+
+    def tokens(s):
+        return cli.call_tokens(cli.priced_sample(s, 4))["tokens"]
+    want = (share["photo_read"] * tokens(read) + share["photo_compare"] * (tokens(cmp_zoom) + tokens(cmp_plain)) / 2
+            + share["facet_edit"] * tokens(edit) + share["facet_variants"] * tokens(outs[8])
+            + share["photo_image"] * tokens(outs[1]) + share["facet_inspect"] * tokens(outs[0]))
+    assert t["steps"]["typical"]["tokens"] == pytest.approx(want, abs=0.2)
+    assert (t["read_points"], t["zoom_grids"], t["mixes"], t["range_mixes"]) == (8, 3, cli.MIXES,
+                                                                                 list(cli.RANGE_MIXES))
+    assert (t["pick_sheet_px"], t["zoom_grid_px"], t["zoom_grid_kind"], t["zoom_text_chars"]) == \
+        ([972, 1412], [1538, 1066], cli.ZOOM_GRID_KIND, cli.ZOOM_TEXT_CHARS)
+    rows = t["tool_outputs"]["photo_read"]
+    assert rows[0]["images"] == [SHEET2, SHEET4] and "priced" not in rows[0]                   # as recorded
+    assert rows[1]["priced"] is False                                                           # the drop
+    # a lab that registers zoom grids under a kind of their own: the recorded grid is replaced, not added to
+    monkeypatch.setattr(cli, "ZOOM_GRID_KIND", "zoom")
+    own = sample("photo_compare", 1980, [[512, 400, "compare"]] * 3 + [[1538, 946, "zoom"]])
+    z2 = cli.priced_sample(own, 4)
+    assert z2["images"] == [[512, 400, "compare"]] * 3 + [[1538, 1066, "zoom"]] * 3
+    assert z2["text_chars"] == 1980 + 2 * cli.ZOOM_TEXT_CHARS
 
 
 def test_estimate_table_guard_and_long_context():
@@ -901,13 +1060,112 @@ def test_estimate_table_guard_and_long_context():
     assert first["expected_micro_usd"] > 0 and first["last_input_tokens"] == c0
 
 
+def test_the_range_top_is_the_costliest_listed_mix():
+    """range_top: the costliest of RANGE_MIXES (every reply an edit, the typical mix, the read-heavy mix) at the high
+    output; its cap the largest of theirs; the table's text names which (review 2026-10-12, P2: with only the typical
+    mix and edits, a run reading 2-3 in 10 passed the printed top)."""
+    t = cli.facet_estimate(rehearsal())
+    steps = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in t["steps"].items()}
+    c0 = t["first_request"]["tokens"]
+    runs = {m: cli.project(c0, steps[m], 60, output=cli.OUTPUT_TOKENS["high"], max_output_tokens=16_384)
+            for m in cli.RANGE_MIXES}
+    top = cli.range_top(c0, steps, 60, max_output_tokens=16_384)
+    want = max(runs, key=lambda m: runs[m]["expected_micro_usd"])
+    assert top["mix"] == want and top["expected_micro_usd"] == runs[want]["expected_micro_usd"]
+    assert top["required_cap_micro_usd"] == max(r["required_cap_micro_usd"] for r in runs.values())
+    # this rehearsal's edits are small beside 8 full pick sheets: the read-heavy arm is the top, above the typical
+    assert want == "read_heavy" and runs["read_heavy"]["expected_micro_usd"] > runs["typical"]["expected_micro_usd"]
+    assert all(r["text"].endswith("(a read-heavy mix (photo_read 3 in 10) at the high output)") for r in t["rows"])
+    big = rehearsal()             # edits of 9 large compare panels, before the guard: every reply an edit costs most
+    big["tool_outputs"][6] = {**big["tool_outputs"][6], "images": [[1024, 1024, "compare"]] * 9}
+    tb = cli.facet_estimate(big, requests=(20,))
+    assert all(r["high"]["context_guard_request"] is None for r in tb["rows"])
+    assert {r["high"]["mix"] for r in tb["rows"]} == {"edit_heavy"}
+    assert all(r["text"].endswith("(every reply an edit)") for r in tb["rows"])
+
+
+def test_a_run_that_reaches_the_input_limit_ends_there():
+    """A projected request whose input would pass the model's input limit is never sent (the budget guard refuses it),
+    so the modelled run ends before it: project names it and prices the requests before it, and the table's text and
+    the approval text say so instead of failing (a 90-reply run of large images reached it: PricingError before)."""
+    from glasses3d.agent.pricing import MODEL_MAX_INPUT_TOKENS
+    step = {"tokens": 15_000.0, "stubbable": 0.0, "results": 0.0, "stub_images": 0.0}
+    run = cli.project(30_000, step, 90, output=2_000, max_output_tokens=16_384)
+    at = run["input_limit_request"]
+    assert at is not None and 30_000 + (at - 2) * 15_000 <= MODEL_MAX_INPUT_TOKENS < 30_000 + (at - 1) * 15_000
+    before = cli.project(30_000, step, at - 1, output=2_000, max_output_tokens=16_384)
+    assert before["input_limit_request"] is None and run["expected_micro_usd"] == before["expected_micro_usd"]
+    assert run["peak_input_tokens"] <= MODEL_MAX_INPUT_TOKENS
+    assert cli.limit_text(run) == (f"; its context reaches the model's {MODEL_MAX_INPUT_TOKENS:,}-token input limit at "
+                                   f"request {at}, where such a run ends") and cli.limit_text(before) == ""
+    big = rehearsal()
+    big["tool_outputs"][6] = {**big["tool_outputs"][6], "images": [[1536, 1536, "compare"]] * 6}
+    rows = {r["requests"]: r for r in cli.facet_estimate(big)["rows"] if r["effort"] == "max"}
+    assert rows[90]["high"]["input_limit_request"] is not None and "input limit at request" in rows[90]["text"]
+    assert rows[40]["high"]["input_limit_request"] is None and "input limit" not in rows[40]["text"]
+
+
 def test_request_estimate_block(tmp_path):
+    """The approval block: 60 replies when the run has no reply cap, a cap rounded to $5, the text and limitation
+    saying the v3 mix is assumed and "up to" covers only the listed mixes (review 2026-10-12, P2), the image pricing
+    it was made with; a table made for another mix, range or image pricing is refused."""
     table = cli.facet_estimate(rehearsal())
     s = T.run_settings(effort="max", max_turns=None)
     block = cli.request_estimate(json.loads(json.dumps(table)), s, 30_000, [[1226, 682]] * 6)
     assert block["requests"] == 60 and block["text"].startswith("Illustrative 60-reply projection")
     assert int(block["suggested_cap_micro_usd"]) % 5_000_000 == 0 and "No approval" in block["limitation"]
+    assert block["text"].endswith(" at effort max. " + cli.MIX_ASSUMED) and cli.MIX_ASSUMED in block["limitation"]
+    assert "with a read-heavy mix (photo_read 3 in 10) at the high output)" in block["text"]
+    assert (block["source"]["read_points"], block["source"]["zoom_grids"], block["source"]["pick_sheet_px"],
+            block["source"]["zoom_grid_px"]) == (8, 3, [972, 1412], [1538, 1066])
     A.canonical_json(block)                                                           # plain JSON
+    # a table made for v2's tool mix, before the read-heavy arm, or at other image pricing is refused
+    v2 = {**table, "mixes": {"typical": {"facet_edit": 5, "facet_variants": 1, "photo_compare": 2, "photo_image": 1,
+                                         "facet_inspect": 1}, "edit_heavy": {"facet_edit": 10}}}
+    two = {**table, "mixes": {k: v for k, v in table["mixes"].items() if k != "read_heavy"},
+           "range_mixes": ["edit_heavy", "typical"]}
+    for old in (v2, two, {k: v for k, v in table.items() if k != "read_points"},
+                {k: v for k, v in table.items() if k != "zoom_grids"},
+                {k: v for k, v in table.items() if k != "range_mixes"},
+                {**table, "pick_sheet_px": [972, 728]}, {**table, "zoom_grid_px": [1538, 1006]},
+                {**table, "zoom_grid_kind": "zoom"}, {**table, "zoom_text_chars": 0}):
+        with pytest.raises(ValueError, match="another tool mix or image pricing"):
+            cli.request_estimate(old, s, 30_000, [[1226, 682]] * 6)
+
+
+def test_the_estimates_image_kinds_are_the_labs(tmp_path):
+    """The estimate's image kinds are a real Lab's (review 2026-10-12, P3): a photo_compare zoom grid is registered
+    under ZOOM_GRID_KIND, and context_stubs replaces the images of an old result exactly for STUBBED_KINDS among the
+    kinds the lab registers (compare images, zoom grids included, and variant sheets; never charts or photos), so the
+    projection stubs what the guard stubs. A pick sheet is replaced only once its reading was read again or dropped
+    (the stored reading's own sheet stays): the projection counts no pick sheet as stubbable, which prices a run
+    that re-reads a little high, never low."""
+    root, _ = package(tmp_path)
+    lab = lab_on(root)
+    before = set(lab.state["images"])
+    out = lab.compare("cmp-zoom", ["05"], None, [{"photo": "05", "box": [40, 60, 200, 140], "geometry": True}])
+    assert out["status"] == "ok"
+    new = {d: r for d, r in lab.state["images"].items() if d not in before}
+    zooms = [r for r in new.values() if r.get("zoom")]
+    assert zooms and {r["kind"] for r in zooms} == {cli.ZOOM_GRID_KIND}
+    kinds = ("compare", "variants", "chart", "photo", "zoom")
+    digests = {}
+
+    def image(name, kind, **meta):
+        p = root / "work" / f"kind-{name}.png"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (8, 8), (len(digests) * 20, 7, 9)).save(p)
+        lab._image(p, kind, **meta)
+        digests[name] = sha(p)
+    for kind in kinds:
+        image(kind, kind, ref="an-old-result", photo="05", revision=0)
+    lab.state["readings"] = {"E": {"id": "read009-E"}}
+    image("sheet-stored", "reading", ref="read009", reading="E", revision=0)       # the stored reading's own sheet
+    image("sheet-superseded", "reading", ref="read003", reading="E", revision=0)   # E read again since
+    stubbed = lab.context_stubs(list(digests.values()))
+    assert {k for k in kinds if digests[k] in stubbed} == set(cli.STUBBED_KINDS) & set(kinds)
+    assert digests["sheet-stored"] not in stubbed and digests["sheet-superseded"] in stubbed
+    assert cli.ZOOM_GRID_KIND in cli.STUBBED_KINDS and not set(cli.READING_KINDS) & set(cli.STUBBED_KINDS)
 
 
 PAID_FACET_RUNS = {"facet-astra-002": "package", "facet-astra-003": "package_003", "facet-astra-004": "package_004"}
@@ -947,8 +1205,8 @@ def test_facet_variants_is_priced_at_the_jobs_most_sheets(tmp_path):
     four = cli.priced_sample(two, 4)
     assert four["images"] == [[1280, 692, "variants"], [1280, 899, "variants"]] + [[1280, 899, "variants"]] * 2
     assert len(two["images"]) == 2 and cli.priced_sample(two, 2) is two      # the recorded call is not changed
-    edit = rehearsal()["tool_outputs"][3]
-    assert cli.priced_sample(edit, 4) is edit                                  # only facet_variants is padded
+    edit = rehearsal()["tool_outputs"][6]
+    assert cli.priced_sample(edit, 4) is edit                                  # facet_edit is never padded
     t3, t4 = cli.facet_estimate(rehearsal(), sheets=3), cli.facet_estimate(rehearsal())
     assert (t3["variant_sheets"], t4["variant_sheets"]) == (3, 4)
     share = cli.MIXES["typical"]["facet_variants"] / sum(cli.MIXES["typical"].values())

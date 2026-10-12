@@ -263,7 +263,10 @@ def test_iso_grid_offsets_overlay_and_layout():
     ov = np.asarray(C.overlay_matched(np.full((H, W, 3), 128, np.uint8), model, [], grid))
     assert (ov[:, 49] == C.OUTLINE_RGB).all(axis=1).any() and ov.shape == (H, W, 3)
     assert C.stack_scale(100, 50, 3) == 1.0                                     # never upscale
-    assert C.stack_scale(2000, 800, 4) == pytest.approx((1024 - 4 * 24 - 12) / 3200)
+    assert C.stack_scale(2000, 800, 4) == pytest.approx((1024 - 4 * 24 - 12 - 2) / 3200)   # 0.5 px a row: rounding
+    for w, h, n in ((1357, 418, 3), (1177, 540, 3), (1357, 418, 4), (900, 1000, 3), (2000, 333, 4), (640, 2001, 3)):
+        k = C.stack_scale(w, h, n)                                               # every stack fits, rows rounded
+        assert n * (round(h * k) + C.LABEL_PX) + 4 * (n - 1) <= 1024 and round(w * k) <= 1024, (w, h, n)
     st = C.stack_rows([("a", Image.new("RGB", (100, 40))), ("b", Image.new("RGB", (80, 30)))])
     assert st.size == (100, 40 + 30 + 2 * 24 + 4)
     t = np.zeros((100, 200), bool)

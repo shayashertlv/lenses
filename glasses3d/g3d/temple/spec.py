@@ -13,11 +13,20 @@ Spec keys (JSON):
               thickness is linear in y (a wedge)
     nodes     {name: [d, y, t]}: t = mm thickness from the inner face (X = x_in(d) + t), null (solved from the facet
               planes) or "base" (the base thickness at (d, y)). Virtual nodes outside the outline are allowed.
-    facets    {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm}, fade: null | {d0, d1}}}
-              (a bare list = poly with plane "nodes" and no fade). A crease plane holds the line n1-n2: an edge of the
+    facets    {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm} | {coef: [a, b, c]} | "warp",
+              fade: null | {d0, d1}, soft?: true}} (a bare list = poly with plane "nodes" and no fade). "nodes": flat
+              through its node values. A crease plane (legacy) holds the line n1-n2: an edge of the
               poly, or the ends of a straight run of its edges (crease_run: the corners between lie within RUN_LINE_MM
               of that line; like every corner off n1 and n2 they take the plane's value). rise_per_mm = mm of world X
-              gained per mm moved perpendicular from the crease into the facet (negative falls toward the inner face). A faded facet is
+              gained per mm moved perpendicular from the crease into the facet (negative falls toward the inner face).
+              {coef: [a, b, c]} (v3, the fit's output): the plane is X = a + b d + c y exactly; given corner values
+              must lie on it within planar_tol_mm (E_FACET_NOT_PLANAR), no conditioning check. "warp" (v3, WP6_V3
+              §2): X over the facet = the mean value coordinates (Floater 2003; Hormann & Floater 2006) interpolation
+              of its corner values in (d, y): needs >= WARP_MIN_CORNERS corners (E_SPEC), a simple polygon (E_SPEC)
+              and every corner value known (E_FACET_UNDERDETERMINED); linear along each edge (straight 3D edges),
+              smooth inside, the plane itself when the corner values are coplanar. soft (v3; default false, written
+              only when true): the facet's borders with the base are soft, a SOFT_BAND_MM border band and
+              smooth-shaded facet/ramp and ramp edges below SOFT_SHARP_DEG. A faded facet is
               (1 - s) plane + s base with s = smoothstep((d - d0) / (d1 - d0)): the plane at d0, the base at d1.
               Facets with different fades (or none) may share creases: a shared vertex takes the least-faded one. Where
               that holds a faded facet at least FADE_HOLD_MIN_MM from its own fade and one of its triangles tilts more
@@ -41,7 +50,8 @@ another table's knot to its d); a node, fade, chamfer end or second crossing the
 Every snap is reported (ParsedSpec.snaps); ParsedSpec.snapped is the snapped canonical spec (a fixed point of parse).
 
 The spec sha is the sha256 of the canonical JSON (before snapping). Every refusal is a TempleError(code, message,
-**fields): nothing is built, and the fields name the facet, node, point and numbers that failed.
+**fields): nothing is built, and the fields name the facet, node, point and numbers that failed. The v3 keys ({coef},
+"warp", soft) are written only when present, so every earlier spec keeps its canonical form, its sha256 and its build.
 """
 from __future__ import annotations
 
@@ -59,9 +69,12 @@ SCHEMA = "g3d.temple/2"
 REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED",
             "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
             "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN",
-            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_FADE_CREASE", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
+            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_FADE_CREASE", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED",
+            "E_FIT_SHAPE", "E_FIT")                       # E_FIT*: raised by fit.py (WP6_V3 §3), listed here
 WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT", "W_FADE_EARLY",
-            "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
+            "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION",
+            "W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # fit.py's (FIT_WARNINGS)
+            "W_WARP_CHORD")                                                          # a warp's chord error
 
 DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "kink_sharp_deg": 25.0,
                    "border_band_mm": 2.0, "snap_mm": 0.05}
@@ -97,6 +110,20 @@ ROUND_SEGMENTS_PER_90 = 8               # the round-corner rule: >= 8 points per
 COLLINEAR_AREA_MM2 = 1e-6               # three plane points spanning less than this are collinear
 ROLL_BANDS = 8                          # core roll: stacked chamfer sub-bands per quarter arc
 ROLL_HEIGHT_SHARE = 0.45                # roll_mm <= 0.45 x outline height - chamfer widths
+WARP_MIN_CORNERS = 4                    # a "warp" facet needs this many corners (three always lie on one plane)
+SOFT_BAND_MM = 6.0                      # a soft facet's border band with the base (others: border_band_mm)
+SOFT_SHARP_DEG = 25.0                   # a soft border's facet/ramp and ramp edges are sharp only at or above this
+PLANE_MODES = ("'nodes'", "'warp'", "{crease: [n1, n2], rise_per_mm: s}", "{coef: [a, b, c]}")
+PLANAR_TOL_MAX_MM = 1e-4                # options.planar_tol_mm cap: it is also the polygon self-check's tolerance
+#                                         (build.py step 7): looser, a facet n-gon Blender triangulates its own way
+#                                         would leave the core's triangles (review-builder-correctness P3-6)
+
+
+def plane_kind(plane) -> str:
+    """"nodes" | "crease" | "coef" | "warp" of a canonical facet plane."""
+    if isinstance(plane, str):
+        return plane
+    return "coef" if "coef" in plane else "crease"
 
 
 class TempleError(ValueError):
@@ -196,7 +223,7 @@ def run_conflicts(facets: dict, nodes: dict, snaps=()) -> None:
     when one moved a run corner (checked again after snapping)."""
     for label, f in facets.items():
         plane = f["plane"]
-        if plane == "nodes":
+        if plane_kind(plane) != "crease":
             continue
         n1, n2 = plane["crease"]
         r = crease_run(f["poly"], n1, n2, nodes)
@@ -293,7 +320,7 @@ def canonical(spec: dict) -> dict:
             f = {"poly": list(f)}
         if not isinstance(f, dict) or "poly" not in f:
             raise TempleError("E_SPEC", f"facet {label}: must be {{poly, plane, fade}} or a list of nodes", facet=label)
-        _keys(f, ("poly", "plane", "fade"), f"facet {label}")
+        _keys(f, ("poly", "plane", "fade", "soft"), f"facet {label}")
         poly = f["poly"]
         if not isinstance(poly, (list, tuple)) or len(poly) < 3 or not all(isinstance(n, str) for n in poly):
             raise TempleError("E_SPEC", f"facet {label}: poly must list >= 3 node names", facet=label)
@@ -303,10 +330,21 @@ def canonical(spec: dict) -> dict:
         if missing:
             raise TempleError("E_SPEC", f"facet {label}: unknown nodes {missing}", facet=label, missing=missing)
         plane = f.get("plane", "nodes")
-        if plane != "nodes":
+        if plane == "warp":
+            if len(poly) < WARP_MIN_CORNERS:
+                raise TempleError("E_SPEC", f"facet {label}: a warp facet needs >= {WARP_MIN_CORNERS} corners (three "
+                                  f"corners always lie on one plane), got {len(poly)}", facet=label,
+                                  corners=len(poly))
+        elif isinstance(plane, dict) and set(plane) == {"coef"}:
+            cf = plane["coef"]
+            if not isinstance(cf, (list, tuple)) or len(cf) != 3:
+                raise TempleError("E_SPEC", f"facet {label}: plane.coef must be [a, b, c] (X = a + b d + c y)",
+                                  facet=label)
+            plane = {"coef": [_num(v, f"facets.{label}.plane.coef[{k}]") for k, v in enumerate(cf)]}
+        elif plane != "nodes":
             if not isinstance(plane, dict) or set(plane) != {"crease", "rise_per_mm"}:
-                raise TempleError("E_SPEC", f"facet {label}: plane must be 'nodes' or {{crease: [n1, n2], "
-                                  f"rise_per_mm: s}}", facet=label)
+                raise TempleError("E_SPEC", f"facet {label}: plane must be one of {', '.join(PLANE_MODES)}",
+                                  facet=label)
             cr = plane["crease"]
             if not isinstance(cr, (list, tuple)) or len(cr) != 2 or cr[0] == cr[1]:
                 raise TempleError("E_SPEC", f"facet {label}: crease must name two different nodes", facet=label)
@@ -327,7 +365,12 @@ def canonical(spec: dict) -> dict:
                     "d1": _num(fade["d1"], f"facets.{label}.fade.d1")}
             if fade["d0"] == fade["d1"]:
                 raise TempleError("E_SPEC", f"facet {label}: fade d0 and d1 must differ", facet=label)
+        soft = f.get("soft", False)
+        if not isinstance(soft, bool):
+            raise TempleError("E_SPEC", f"facet {label}: soft must be true or false", facet=label)
         facets[label] = {"poly": [str(n) for n in poly], "plane": plane, "fade": fade}
+        if soft:                                      # written only when true: earlier specs keep their sha256
+            facets[label]["soft"] = True
     run_conflicts(facets, nodes)
     creases, seen = [], set()
     cin = spec.get("creases", []) or []
@@ -387,6 +430,9 @@ def canonical(spec: dict) -> dict:
     for k in ("t_min_mm", "station_step_mm", "planar_tol_mm", "border_band_mm"):
         if opts[k] <= 0:
             raise TempleError("E_SPEC", f"options.{k} must be > 0, got {opts[k]}", option=k)
+    if opts["planar_tol_mm"] > PLANAR_TOL_MAX_MM:
+        raise TempleError("E_SPEC", f"options.planar_tol_mm must be <= {PLANAR_TOL_MAX_MM:g}, got "
+                          f"{opts['planar_tol_mm']}", option="planar_tol_mm")
     if opts["snap_mm"] < 0:
         raise TempleError("E_SPEC", f"options.snap_mm must be >= 0, got {opts['snap_mm']}", option="snap_mm")
     if not 0 < opts["kink_sharp_deg"] < 180:

@@ -5,6 +5,11 @@ g3d/temple_bpy.py (plan/WP6_FACETS.md §2.5, §2.6) on a COPY of the Prada scene
 - the roll fixture (core roll, no Blender Bevel) is written closed and 2-manifold with its rolled polygons;
 - the fade fixture is written with planar face-normal cells before its fade, design-surface normals on its faded
   fans and no fan split;
+- v3 (WP6_V3 §2): a warp facet beside a soft flat facet (test_temple_warp.prada_warp) is written as the core's
+  polygons with its sharp set (Blender splits no fan), the warp's triangles carrying the design surface's normals and
+  the soft border's ramp the facet's normal; the exported GLB holds the core's vertices within 1e-4 mm, splits every
+  crease vertex and none inside the warp; the revert restores the scene; run 7's layout fitted with a warp crown is
+  written with every design normal and exported with Blender's normals within 0.5 deg at every crown vertex;
 - preferred-v2 (the owner-preferred spec through convert.v1_to_v2, the /2 default snapping) on the copy: dry run and
   refusals (E_RELIEF_STEP, E_TARGET, E_MULTI_MATERIAL) leave the scene unchanged; the written temples are the core's
   polygons with its sharp set and facet custom normals; decals move by chart transfer keeping their standoff (max
@@ -25,12 +30,14 @@ import pytest
 
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import fixtures as FX
-from glasses3d.g3d.temple.build import faded_corner_normals
+from glasses3d.g3d.temple.build import OUTER_KINDS, design_corner_normals, faded_corner_normals, mesh_topology
 from glasses3d.g3d.temple.convert import v1_to_v2
 from glasses3d.g3d.temple.sections import polygon_section
 from glasses3d.g3d.temple.spec import spec_sha256
 from glasses3d.g3d_host import blender
+from glasses3d.g3d_host import glb as GLB
 from glasses3d.g3d_host.spec import validate_spec
+from glasses3d.tests.test_temple_warp import prada_warp
 
 HERE = Path(__file__).resolve().parent
 RUN = HERE / "proofs" / "temple_bpy_run.py"
@@ -158,6 +165,168 @@ def fixtures_run(prada_copy):
               {"op": "unfaceted_temple", "object": RIGHT}, {"op": "unfaceted_temple", "object": LEFT},
               {"op": "scene_digest"}]
     return run_steps(tmp, blend, steps, "fixtures"), names
+
+
+@pytest.fixture(scope="module")
+def warp_run(prada_copy):
+    tmp, blend = prada_copy
+    glb = tmp / "warp.glb"
+    steps = [{"op": "scene_digest"},                                                         # 0
+             {"op": "core_dump", "spec": prada_warp()},                                      # 1
+             {"op": "faceted_temple", "spec": prada_warp()},                                 # 2
+             {"op": "dump_temples", "objects": [RIGHT, LEFT]},                               # 3
+             {"op": "export", "path": str(glb)},                                             # 4
+             {"op": "unfaceted_temple", "object": RIGHT},                                    # 5
+             {"op": "unfaceted_temple", "object": LEFT},                                     # 6
+             {"op": "scene_digest"}]                                                         # 7
+    return run_steps(tmp, blend, steps, "warp"), glb
+
+
+def _ang(c, n) -> float:
+    return math.degrees(math.acos(np.clip(np.dot(c, n) / (np.linalg.norm(c) * np.linalg.norm(n)), -1.0, 1.0)))
+
+
+def run7_warp_spec() -> dict:
+    from glasses3d.g3d.temple import fit as FT
+    from glasses3d.tests.test_temple_fit import run7_layout
+    return FT.fit_spec(run7_layout("warp")).spec
+
+
+@pytest.fixture(scope="module")
+def run7_warp_run(prada_copy):
+    tmp, blend = prada_copy
+    glb = tmp / "run7_warp.glb"
+    spec = run7_warp_spec()
+    steps = [{"op": "scene_digest"},                                                         # 0
+             {"op": "faceted_temple", "spec": spec},                                         # 1
+             {"op": "dump_temples", "objects": [RIGHT, LEFT]},                               # 2
+             {"op": "export", "path": str(glb)},                                             # 3
+             {"op": "unfaceted_temple", "object": RIGHT},                                    # 4
+             {"op": "unfaceted_temple", "object": LEFT},                                     # 5
+             {"op": "scene_digest"}]                                                         # 6
+    return run_steps(tmp, blend, steps, "run7_warp"), glb, spec
+
+
+def test_run7_warp_crown_exports_its_shading(run7_warp_run):
+    """Run 7's layout fitted with a warp crown (K 1.7 deg from straight, +1.5 mm; roll 0.25) written and exported:
+    every design custom normal (warp fans, K's cone mean, the roll's start line) is Blender's corner normal within
+    0.1 deg, and at every vertex of the crown the GLB (the owner's viewer) holds Blender's normals within 0.5 deg. The
+    v3 refinement's slivers beside the crown|logo edge (0.002 deg triangles) put the GLB 5.6 deg off Blender there
+    (review-builder-design F2: measured 0.07 deg after the clearance rule); the corner plane put K's normal 97 deg off
+    its triangles (review-builder-correctness P1-1)."""
+    st, glb, spec = run7_warp_run
+    tb = build_temple(spec)
+    assert st[1]["status"] == "ok", st[1]
+    t = next(t for t in st[2]["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)
+    W, polys, _ = tb.world(1)
+    assert t["polys"] == polys and len(t["sharp"]) == len(tb.sharp)
+    cn = np.array(t["corner_normals"])
+    starts = np.cumsum([0] + [len(p) for p in polys])
+    dn = design_corner_normals(tb)
+    want = {k: n for k, n in zip(dn, _world_dirs_plus_x(tb, np.array(list(dn.values()))))}
+    assert len(dn) > 1000
+    assert max(_ang(cn[starts[i] + polys[i].index(v)], want[(i, v)]) for (i, v) in dn) <= 0.1
+    assert st[3]["status"] == "exported", st[3]
+    g = GLB.load(glb)
+    prim = [p for p in g.primitives if p.node_name == RIGHT]
+    P = np.vstack([p.positions for p in prim]) * 1000.0
+    Nrm = np.vstack([p.normals for p in prim])
+    from scipy.spatial import cKDTree
+    tree = cKDTree(P)
+    loops: dict = {}
+    for pi, p in enumerate(polys):
+        for j, v in enumerate(p):
+            loops.setdefault(v, []).append(cn[starts[pi] + j])
+    crown = {v for i, p in enumerate(tb.polys) if tb.poly_region[i].partition("/")[0] == "crown" for v in p}
+    worst = 0.0
+    for v in crown:
+        gs = [Nrm[k] for k in tree.query_ball_point(W[v], 1e-4)]
+        assert gs, v
+        worst = max([worst] + [min(_ang(x, y) for y in gs) for x in loops[v]]
+                    + [min(_ang(x, y) for y in loops[v]) for x in gs])
+    assert worst <= 0.5, worst
+    assert st[4]["status"] == "ok" and st[5]["status"] == "ok" and st[6]["digest"] == st[0]["digest"]
+
+
+def test_warp_temple_is_written_and_exported(warp_run):
+    """WP6_V3 §2's Blender layer: a warp facet W (P3 1.5 mm off) beside a soft flat facet S. Written: the core's
+    polygons (the Blender numpy core = the host's), closed, Euler 2, every sharp edge and no more (no fan split); each
+    warp triangle corner carries the design surface's normal (design_corner_normals), each soft-border ramp corner the
+    facet's face normal, within 0.1 deg. Exported: every GLB vertex of the +X temple within 1e-4 mm of a core vertex
+    and every core vertex within 1e-4 mm of a GLB vertex; at every vertex of a W|S or W|base crease the GLB holds two
+    normals more than 1 deg apart (the sharp edge kept), at every vertex inside W exactly one (smooth). The revert
+    restores the scene."""
+    st, glb = warp_run
+    tb = build_temple(prada_warp())
+    same_core(st[1], tb)
+    assert st[2]["status"] == "ok", st[2]
+    assert any(f["label"] == "W" and "warp_mm" in f for f in st[2]["facets"])
+    t = next(t for t in st[3]["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)     # the +X temple
+    W, polys, _ = tb.world(1)
+    assert t["polys"] == polys and np.abs(np.array(t["V"]) - W).max() <= 1e-4
+    ok, chi = closed_manifold(t["polys"])
+    assert ok and chi == 2 and len(t["sharp"]) == len(tb.sharp)
+    cn = np.array(t["corner_normals"])
+    starts = np.cumsum([0] + [len(p) for p in polys])
+    dn = design_corner_normals(tb)
+    want = {k: n for k, n in zip(dn, _world_dirs_plus_x(tb, np.array(list(dn.values()))))}
+    warp_corners = [(i, v) for (i, v) in dn if tb.poly_cell[i] == "warp"]
+    soft_corners = [(i, v) for (i, v) in dn if tb.poly_region[i] == "base"]
+    assert len(warp_corners) > 500 and len(soft_corners) >= 10
+    worst = max(_ang(cn[starts[i] + polys[i].index(v)], want[(i, v)]) for (i, v) in warp_corners + soft_corners)
+    assert worst <= 0.1, worst
+    assert st[4]["status"] == "exported", st[4]
+    g = GLB.load(glb)
+    prim = [p for p in g.primitives if p.node_name == RIGHT]
+    assert prim, sorted({p.node_name for p in g.primitives})
+    P = np.vstack([p.positions for p in prim]) * 1000.0
+    Nrm = np.vstack([p.normals for p in prim])
+    from scipy.spatial import cKDTree
+    d1, _ = cKDTree(W).query(P)
+    d2, _ = cKDTree(P).query(W)
+    assert d1.max() <= 1e-4 and d2.max() <= 1e-4, (d1.max(), d2.max())
+    tree = cKDTree(P)
+
+    def distinct(ns, tol):
+        out = []
+        for n in ns:
+            if not any(_ang(n, o) <= tol for o in out):
+                out.append(n)
+        return out
+    loops: dict = {}                                                   # Blender's own corner normals per vertex
+    for pi, p in enumerate(polys):
+        for j, v in enumerate(p):
+            loops.setdefault(v, []).append(cn[starts[pi] + j])
+    topo = mesh_topology(tb.polys)
+    crease_v = set()
+    for (a, b), p1 in topo["directed"].items():
+        p2 = topo["directed"][(b, a)]
+        if a > b or tb.poly_kind[p1] not in OUTER_KINDS or tb.poly_kind[p2] not in OUTER_KINDS:
+            continue
+        if "W" in {tb.poly_region[p1], tb.poly_region[p2]} and tb.poly_region[p1] != tb.poly_region[p2] \
+                and (a, b) in set(tb.sharp):
+            crease_v |= {a, b}
+    at_v: dict = {}
+    for i, p in enumerate(tb.polys):
+        for v in p:
+            at_v.setdefault(v, []).append(i)
+    inside_v = {v for v, ps_ in at_v.items() if all(tb.poly_region[i] == "W" and tb.poly_kind[i] == "outer"
+                                                    for i in ps_)}           # (an outline vertex has a strip too)
+    assert len(crease_v) >= 20 and len(inside_v) >= 100
+    worst, split = 0.0, 0
+    w_verts = {v for i, p in enumerate(tb.polys) if tb.poly_region[i] == "W" for v in p}
+    for v in range(len(tb.arr.V)):
+        g = [Nrm[k] for k in tree.query_ball_point(W[v], 1e-4)]
+        b = distinct(loops[v], 0.05)
+        if v in w_verts:                                                 # the warp's custom normals survive export
+            worst = max([worst] + [min(_ang(x, y) for y in g) for x in b] + [min(_ang(x, y) for y in b) for x in g])
+        if v in inside_v:
+            assert len(distinct(g, 0.05)) == 1, v                       # smooth: one normal inside the warp
+        if v in crease_v and len(distinct(b, 1.0)) >= 2:                 # a crease whose sides differ by > 1 deg
+            assert len(distinct(g, 0.5)) >= 2, v                        # ... stays split in the GLB
+            split += 1
+    assert split >= 20 and worst <= 1.0, (split, worst)                 # export noise at the smallest triangles
+    assert st[5]["status"] == "ok" and st[6]["status"] == "ok" and st[7]["digest"] == st[0]["digest"]
 
 
 def test_every_fixture_plans_with_the_host_core(fixtures_run):

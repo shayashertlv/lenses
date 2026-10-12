@@ -17,13 +17,16 @@ scene, places the temples, writes once, and reports. Conventions:
   `targets` given ({"+x": name, "-x": name} or names whose x sign picks the side). Not a temple-role mesh, shape keys,
   or a modifier other than WeightedNormal: E_TARGET; more than one material slot: E_MULTI_MATERIAL (multi-material
   temples are deferred);
-- the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (base, faded, ramp)
-  as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the core's sharp
-  set; the facet-cell polygons (TempleBuild.flat_polys: every facet face at fade weight 0) carry their face normal
-  as custom normals, and so do the roll polygons' corners on the line where the roll leaves such a facet (tangent
-  there; one smooth fan holds one custom normal); every smooth fan of one faded region's outer / roll polygons holds
-  one normal, the design surface's (build.faded_corner_normals: the fade start's face normal, the roll never tilts
-  it); every other corner is auto-smoothed (zero);
+- the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (warp, base,
+  faded, ramp) as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the
+  core's sharp set; the facet-cell polygons (TempleBuild.flat_polys: every facet face at fade weight 0) carry their
+  face normal as custom normals, and so do the roll polygons' corners on the line where the roll leaves such a facet
+  (tangent there; one smooth fan holds one custom normal); every smooth fan of one faded region's outer / roll polygons
+  holds one normal, the design surface's (build.faded_corner_normals: the fade start's face normal, the roll never
+  tilts it); a warp facet's cells (v3: the core's triangles) carry its design surface's normal at every corner (at a
+  facet corner the mean of its cone's normals, planes.WarpSurface.corner_grad) and a soft border's fans (v3) the
+  facet's normal there, ramp included (build.design_corner_normals); like the faded fans these reach a roll band only
+  on its start line (tangent there); every other corner is auto-smoothed (zero);
 - plan fully (core, decals, hinge report), then write once: each target's mesh datablock is swapped in place (object
   name, transform, materials and other extras unchanged); the previous datablock stays as `<mesh> | g3d pre-temple`
   with a fake user (the earliest backup wins), WeightedNormal modifiers are removed and their settings kept in
@@ -496,8 +499,8 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
 
 def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
     """Per corner of `polys` (the core's polygons in the order and winding written) the custom normal: the face normal
-    on the flat polygons (tb.flat_polys); on a faded fan, `n_faded[(polygon, vertex)]` (the core's
-    faded_corner_normals in the object's frame: one normal per smooth fan of one faded region, the design surface's);
+    on the flat polygons (tb.flat_polys); on a faded, warp or soft fan, `n_faded[(polygon, vertex)]` (the core's
+    design_corner_normals in the object's frame: one normal per smooth fan, the design surface's);
     on a roll polygon, at a vertex it shares with a flat polygon of the same region, that polygon's normal (the
     quarter arc is tangent to the face there, and one smooth fan holds one custom normal: a different one would make
     Blender split the fan with a sharp edge); zero (auto-smoothed) elsewhere."""
@@ -635,7 +638,7 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
     M3, _ = _matrix(ob)
     pl = polys if np.linalg.det(M3) > 0 else [p[::-1] for p in polys]
     nloc = _local_normals(ob, Wn)
-    fc = TB.faded_corner_normals(tb)
+    fc = TB.design_corner_normals(tb)
     keys = list(fc)
     nf = _local_normals(ob, _world_dirs(tb, side, np.array([fc[k] for k in keys]))) if keys else []
     old_V, _, old_polys = mesh_arrays(ob, origin)

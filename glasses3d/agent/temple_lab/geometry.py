@@ -1,15 +1,41 @@
-"""Host geometry of the facet lab (plan/WP6_FACETS.md §4.1-4.2): the edits union on g3d.temple/2 specs, spec diffs,
-geometry deltas between builds, and revision 0 from the original's export. numpy only, no Blender.
+"""Host geometry of the facet lab (plan/WP6_V3.md §6 on WP6_FACETS.md §4.1-4.2): the edits union on design specs,
+design diffs, geometry deltas between builds, and revision 0 from the original's export. numpy only, no Blender.
 
-    apply_edits(spec, edits, reset_layout=False) -> (spec, notes)
-        the §4.2 edits (dicts of the strict tool union) applied in order to a COPY of a /2 spec, atomically: the first
-        failing edit raises EditError(code, message, index); node / facet references are checked after the last
-        edit (a node may be deleted together with the facets that use it). reset_layout clears nodes, facets and
-        creases first. Deleting a facet deletes its creases (a note says so).
+A design spec (WP6_V3 §3) is a g3d.temple/2 spec whose node t may also be a reading {"read": {...}} (fit.read_payload
+of a stored readings.read_point record); fit.fit_spec turns it into the pure /2 spec the builder takes.
+canonical_design / design_sha256 are spec.canonical / spec_sha256 with read dicts kept (a spec without readings is
+unchanged: its design sha is its spec sha).
+
+    apply_edits(spec, edits, *, reset_layout=False, readings=None) -> (design spec, notes)
+        the edits (dicts of the strict tool union, tools.EDIT_MODELS) applied in order to a COPY of a design spec,
+        atomically: the first failing edit raises EditError(code, message, index); node / facet references are checked
+        after the last edit (a node may be deleted together with the facets that use it). reset_layout clears nodes,
+        facets and creases first. Deleting a facet deletes its creases (a note says so).
+          set_node t {mode, mm}: "reading" (mm null) takes readings[name], the stored reading of the node's name
+            (EditError "there is no reading named X: read it with photo_read first"), and sets the node to [d, y,
+            read_t(rec)] with d, y = d_mm / y_mm, or the reading's where null; given numbers lie within READ_POSITION_MM
+            of where it was read, else EditError naming both (a reading is one point's X at its own (d, y): run 7's
+            tip carried 8-20 mm back, FINDINGS §0.2); "mm" (a typed t >= 0), "base", "solve" (mm null; d_mm, y_mm
+            given).
+          set_facet plane {mode}: "flat" -> the spec's "nodes" (a plane through its corners; the fit gives it coef),
+            "warp" -> "warp" (>= WARP_MIN_CORNERS corners); ``soft`` true -> the facet's "soft" key (written only when
+            true). Astra's union offers no fade and no crease + rise plane (WP6_V3 §6: fades and solved planes were
+            harmful tools, FINDINGS §0.7); this function still takes the v2 shapes (plane mode "nodes" / "crease"
+            with crease, rise_per_mm; fade {d0_mm, d1_mm}) from internal callers (fixtures, v2 tests, old
+            revisions), and fit.fit_spec refuses a fade (E_SPEC).
     spec_to_edits(spec) -> edits
-        the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse).
+        the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse): a
+        read t is mode "reading" at the node's own (d, y) (apply_edits needs that reading stored again), a warp
+        facet "warp", a fitted {"coef"} plane "flat" (the fit gives it again from the node values), soft as it is.
+        v3 designs give edits the strict union accepts; a legacy crease plane or fade gives its v2 shape.
     diff_specs(a, b) -> dict, diff_text(diff) -> str
-        what changed between two specs (nodes, facets, creases, chains, scalars), compact; a solved t reads "solve".
+        what changed between two specs (nodes, facets, creases, chains, scalars), compact; a solved t reads "solve", a
+        read t "read 7.75 +- 0.30" (its t = X - x_in(d) at the node's d, and its whole sd in X; an added node with a
+        reading prints it too: "K read 7.75 +- 0.30"), a facet's changes "poly", "flat->warp", "soft" / "not soft",
+        "coef" (a fitted plane's numbers), an added facet its non-default plane and soft ("crown warp soft").
+    stale_reads(spec, readings) -> {name: "replaced" | "dropped"}
+        the design's read nodes whose reading is no longer the stored one of their name: a node keeps the reading it
+        was set from (a snapshot in the design), so a re-read changes the model only through set_node mode reading.
     surface_grid / surface_at / crease_edges / crease_pieces / crease_delta / geometry_delta / distinct_heads
         between two BUILT temples (g3d.temple builds, never their specs, labels or node names): the outer surface X
         and its gradient on a (d, y) lattice, the max normal distance |dX| / sqrt(1 + |grad X|^2) over the lattice
@@ -27,19 +53,29 @@ geometry deltas between builds, and revision 0 from the original's export. numpy
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import math
 import re
 
 import numpy as np
 
+from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d.temple import measure as MS
 from glasses3d.g3d.temple import template as TT
 from glasses3d.g3d.temple.build import OUTER_KINDS
-from glasses3d.g3d.temple.spec import FLAT_CREASE_DEG, canonical
+from glasses3d.g3d.temple.spec import FLAT_CREASE_DEG, PL, WARP_MIN_CORNERS, TempleError, canonical
 
 CHAINS = ("outline.top", "outline.bottom", "inner", "base.top", "base.bottom")
+T_MODES = ("reading", "mm", "base", "solve")
+PLANE_MODES = {"flat": "nodes", "warp": "warp"}     # set_facet plane.mode -> the spec's plane (WP6_V3 §2, §6)
+READ_POSITION_MM = 0.5          # set_node mode reading: a given d_mm / y_mm lies within this of where the reading was
+#                                 read (= fit.OFF_POSITION_MM, the fit's own position fact line; a test pins it)
 SCALARS = ("roll_mm", "tip_round_mm")
-NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,23}$")
+NAME_MAX = 24                   # a node, facet, reading or variant name: at most this many characters (= readings
+#                                 NAME_MAX), NAME_RULE in the tool texts
+NAME_RE = re.compile(rf"^[A-Za-z][A-Za-z0-9_-]{{0,{NAME_MAX - 1}}}$")
+NAME_RULE = f"a letter, then up to {NAME_MAX - 1} letters, digits, _ or -"
 EDITS_MAX = 64
 CHAIN_POINTS_MAX = 160
 D_LIMIT_MM, Y_LIMIT_MM, T_LIMIT_MM = 400.0, 200.0, 40.0     # engineering bounds of a lab spec, not quality limits
@@ -107,8 +143,7 @@ def _num(x, what: str, i: int, limit: float | None = None) -> float:
 
 def _name(x, what: str, i: int) -> str:
     if not isinstance(x, str) or not NAME_RE.match(x) or x == "base":
-        raise EditError(f"{what} {x!r}: names start with a letter, then up to 23 letters, digits, _ or -, and are "
-                        "not 'base'", i)
+        raise EditError(f"{what} {x!r}: names are {NAME_RULE}, and not 'base'", i)
     return x
 
 
@@ -178,36 +213,180 @@ def _offset(pts: list, d_from: float, d_to: float, delta: float, taper: float, i
     return [[d, v + delta * w(d)] for d, v in out]
 
 
+# --------------------------------------------------------------------------------------------- design specs
+def _json_floats(x, where: str):
+    """A reading's payload with every number a finite float (key order left to json's sort_keys)."""
+    if isinstance(x, dict):
+        return {str(k): _json_floats(v, f"{where}.{k}") for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_json_floats(v, where) for v in x]
+    if isinstance(x, bool) or x is None or isinstance(x, str):
+        return x
+    if isinstance(x, (int, float, np.integer, np.floating)) and math.isfinite(float(x)):
+        return float(x)
+    raise TempleError("E_SPEC", f"{where}: {x!r} is not a finite number, text, true/false or null")
+
+
+def canonical_design(spec: dict) -> dict:
+    """The canonical form of a design spec (module doc): spec.canonical with every read t {"read": {...}} kept (its
+    numbers as floats). A spec without readings gives exactly canonical(spec). TempleError E_SPEC on a malformed spec
+    or a t dict that is not {"read": {...}}."""
+    nodes = spec.get("nodes") if isinstance(spec, dict) else None
+    reads = {}
+    if isinstance(nodes, dict):
+        for name, v in nodes.items():
+            if isinstance(v, (list, tuple)) and len(v) == 3 and isinstance(v[2], dict):
+                t = v[2]
+                if set(t) != {"read"} or not isinstance(t["read"], dict):
+                    raise TempleError("E_SPEC", f"node {name}: t must be a number, null, \"base\" or {{\"read\": "
+                                      "{...}}", node=name)
+                reads[name] = {"read": _json_floats(t["read"], f"nodes.{name}.read")}
+    if not reads:
+        return canonical(spec)
+    c = canonical({**spec, "nodes": {n: ([v[0], v[1], 0.0] if n in reads else v) for n, v in nodes.items()}})
+    for name, t in reads.items():
+        c["nodes"][name][2] = t
+    return c
+
+
+def design_sha256(spec: dict) -> str:
+    """sha256 of the canonical design as spec.canonical_json writes a spec (= spec_sha256 without readings)."""
+    text = json.dumps(canonical_design(spec), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def read_t(rec: dict) -> dict:
+    """A node's t for a stored reading (readings.read_point record): {"read": fit.read_payload(rec)'s reading} (I2:
+    read_payload returns the t value {"read": {...}}; a bare payload is wrapped)."""
+    p = FIT.read_payload(rec)
+    p = p if isinstance(p, dict) and set(p) == {"read"} else {"read": p}
+    return {"read": _json_floats(p["read"], f"reading {rec.get('name')}")}
+
+
+def is_read(t) -> bool:
+    return isinstance(t, dict) and set(t) == {"read"}
+
+
+def stale_reads(spec: dict, readings: dict | None) -> dict:
+    """The nodes of a design whose read t is not the stored reading of their name: {name: "replaced" (a reading of
+    that name was read again since: its payload differs) | "dropped" (none is stored)}. A node keeps the reading it
+    was set from (apply_edits copies it into the design, so the revision's fit and build never change under it); a
+    re-read takes effect only through set_node mode reading again (review 2026-10-12: Q re-read 2.4 sd away left the
+    head's Q, its fit and its report unchanged, with nothing saying so). The lab lists these where a reading is
+    replaced (photo_read) and in the head's node rows (facet_inspect)."""
+    out = {}
+    for name, v in (canonical_design(spec)["nodes"] or {}).items():
+        if not is_read(v[2]):
+            continue
+        rec = (readings or {}).get(name)
+        if rec is None:
+            out[name] = "dropped"
+        elif read_t(rec) != v[2]:
+            out[name] = "replaced"
+    return out
+
+
 # --------------------------------------------------------------------------------------------- edits
-def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False) -> tuple[dict, list[str]]:
-    """The edits applied to a copy of ``spec`` (module doc). Returns (canonical spec, notes); raises EditError."""
+def _set_node(e: dict, i: int, readings: dict | None) -> tuple[str, list]:
+    """One set_node edit as (name, [d, y, t]) (module doc)."""
+    name = _name(e.get("name"), "node", i)
+    t = e.get("t") or {}
+    mode, mm = (t.get("mode"), t.get("mm")) if isinstance(t, dict) else (None, None)
+    dv, yv = e.get("d_mm"), e.get("y_mm")
+    if mode == "reading":
+        if mm is not None:
+            raise EditError("t.mode 'reading' takes t.mm null (the reading gives the node's X)", i)
+        rec = (readings or {}).get(name)
+        if rec is None:
+            raise EditError(f"there is no reading named {name}: read it with photo_read first", i)
+        rd, ry = float(rec["d"]), float(rec["y"])
+        d = rd if dv is None else _num(dv, "d_mm", i, D_LIMIT_MM)
+        y = ry if yv is None else _num(yv, "y_mm", i, Y_LIMIT_MM)
+        off = math.hypot(d - rd, y - ry)
+        if off > READ_POSITION_MM:
+            raise EditError(f"node {name} at d {d:.2f}, y {y:.2f} lies {off:.2f} mm from where reading {name} was "
+                            f"read, d {rd:.2f}, y {ry:.2f}; a reading is used within {READ_POSITION_MM:g} mm of it",
+                            i, node=name, at=[d, y], read_at=[rd, ry])
+        return name, [d, y, read_t(rec)]
+    if mode not in T_MODES:
+        raise EditError("t.mode must be reading, mm, base or solve", i)
+    if dv is None or yv is None:
+        raise EditError(f"t.mode '{mode}' needs d_mm and y_mm (null takes the reading's d, y in mode reading only)", i)
+    d = _num(dv, "d_mm", i, D_LIMIT_MM)
+    y = _num(yv, "y_mm", i, Y_LIMIT_MM)
+    if mode == "mm":
+        if mm is None:
+            raise EditError("t.mode 'mm' needs t.mm (thickness from the inner face)", i)
+        tv = _num(mm, "t.mm", i, T_LIMIT_MM)
+        if tv < 0:
+            raise EditError("t.mm is a thickness from the inner face and cannot be negative", i)
+        return name, [d, y, tv]
+    if mm is not None:
+        raise EditError(f"t.mode '{mode}' takes t.mm null", i)
+    return name, [d, y, "base" if mode == "base" else None]
+
+
+def _set_facet(e: dict, i: int) -> tuple[str, dict]:
+    """One set_facet edit as (label, the spec's facet) (module doc: v3 plane modes flat / warp and soft; the v2
+    shapes from internal callers)."""
+    label = _name(e.get("label"), "facet", i)
+    poly = e.get("poly")
+    if not isinstance(poly, list) or not 3 <= len(poly) <= 32 or len(set(poly)) != len(poly):
+        raise EditError("poly must list 3..32 distinct node names", i)
+    for n in poly:
+        _name(n, "node", i)
+    plane = e.get("plane") or {}
+    mode = plane.get("mode") if isinstance(plane, dict) else None
+    legacy = {k: plane.get(k) for k in ("crease", "rise_per_mm")} if isinstance(plane, dict) else {}
+    if mode in PLANE_MODES or mode == "nodes":
+        if any(v is not None for v in legacy.values()):
+            raise EditError(f"plane.mode '{mode}' takes no crease and no rise_per_mm", i)
+        pl = PLANE_MODES.get(mode, "nodes")
+        if pl == "warp" and len(poly) < WARP_MIN_CORNERS:
+            raise EditError(f"a warp facet needs >= {WARP_MIN_CORNERS} corners (three always lie on one plane); "
+                            f"poly has {len(poly)}", i)
+    elif mode == "crease":                                  # v2 (internal callers only: module doc)
+        cr = legacy["crease"]
+        if not isinstance(cr, list) or len(cr) != 2 or cr[0] == cr[1] or any(n not in poly for n in cr):
+            raise EditError("plane.crease must name two different corners of poly", i)
+        if legacy["rise_per_mm"] is None:
+            raise EditError("plane.mode 'crease' needs rise_per_mm", i)
+        pl = {"crease": [cr[0], cr[1]], "rise_per_mm": _num(legacy["rise_per_mm"], "rise_per_mm", i, RISE_LIMIT)}
+    else:
+        raise EditError("plane.mode must be flat or warp", i)
+    fade = e.get("fade")
+    if fade is not None:                                    # v2 (internal callers only: module doc)
+        if not isinstance(fade, dict):
+            raise EditError("fade must be null", i)
+        f0 = _num(fade.get("d0_mm"), "fade.d0_mm", i, D_LIMIT_MM)
+        f1 = _num(fade.get("d1_mm"), "fade.d1_mm", i, D_LIMIT_MM)
+        if f0 == f1:
+            raise EditError("fade d0_mm and d1_mm must differ", i)
+        fade = {"d0": f0, "d1": f1}
+    soft = e.get("soft", False)
+    if not isinstance(soft, bool):
+        raise EditError("soft must be true or false", i)
+    out = {"poly": list(poly), "plane": pl, "fade": fade}
+    if soft:
+        out["soft"] = True
+    return label, out
+
+
+def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
+                readings: dict | None = None) -> tuple[dict, list[str]]:
+    """The edits applied to a copy of the design ``spec`` (module doc); ``readings`` = the stored readings by name
+    (state["readings"]) for set_node mode "reading". Returns (canonical design, notes); raises EditError."""
     if not isinstance(edits, list) or len(edits) > EDITS_MAX:
         raise EditError(f"edits must be a list of at most {EDITS_MAX} operations")
-    s = copy.deepcopy(canonical(spec))
+    s = copy.deepcopy(canonical_design(spec))
     if reset_layout:
         s["nodes"], s["facets"], s["creases"] = {}, {}, []
     notes, deleted_nodes, set_facets, set_creases = [], {}, {}, {}
     for i, e in enumerate(edits):
         op = e.get("op") if isinstance(e, dict) else None
         if op == "set_node":
-            name = _name(e["name"], "node", i)
-            d = _num(e["d_mm"], "d_mm", i, D_LIMIT_MM)
-            y = _num(e["y_mm"], "y_mm", i, Y_LIMIT_MM)
-            t = e.get("t") or {}
-            mode, mm = t.get("mode"), t.get("mm")
-            if mode == "mm":
-                if mm is None:
-                    raise EditError("t.mode 'mm' needs t.mm (thickness from the inner face)", i)
-                tv = _num(mm, "t.mm", i, T_LIMIT_MM)
-                if tv < 0:
-                    raise EditError("t.mm is a thickness from the inner face and cannot be negative", i)
-            elif mode in ("base", "solve"):
-                if mm is not None:
-                    raise EditError(f"t.mode '{mode}' takes t.mm null", i)
-                tv = "base" if mode == "base" else None
-            else:
-                raise EditError("t.mode must be mm, base or solve", i)
-            s["nodes"][name] = [d, y, tv]
+            name, node = _set_node(e, i, readings)
+            s["nodes"][name] = node
             deleted_nodes.pop(name, None)
         elif op == "delete_node":
             name = e.get("name")
@@ -216,35 +395,8 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False) -> tuple
             del s["nodes"][name]
             deleted_nodes[name] = i
         elif op == "set_facet":
-            label = _name(e["label"], "facet", i)
-            poly = e.get("poly")
-            if not isinstance(poly, list) or not 3 <= len(poly) <= 32 or len(set(poly)) != len(poly):
-                raise EditError("poly must list 3..32 distinct node names", i)
-            for n in poly:
-                _name(n, "node", i)
-            plane = e.get("plane") or {}
-            fade = e.get("fade")
-            if plane.get("mode") == "nodes":
-                if plane.get("crease") is not None or plane.get("rise_per_mm") is not None:
-                    raise EditError("plane.mode 'nodes' takes crease null and rise_per_mm null", i)
-                pl = "nodes"
-            elif plane.get("mode") == "crease":
-                cr = plane.get("crease")
-                if not isinstance(cr, list) or len(cr) != 2 or cr[0] == cr[1] or any(n not in poly for n in cr):
-                    raise EditError("plane.crease must name two different corners of poly", i)
-                if plane.get("rise_per_mm") is None:
-                    raise EditError("plane.mode 'crease' needs rise_per_mm", i)
-                pl = {"crease": [cr[0], cr[1]], "rise_per_mm": _num(plane["rise_per_mm"], "rise_per_mm", i,
-                                                                    RISE_LIMIT)}
-            else:
-                raise EditError("plane.mode must be nodes or crease", i)
-            if fade is not None:
-                f0 = _num(fade.get("d0_mm"), "fade.d0_mm", i, D_LIMIT_MM)
-                f1 = _num(fade.get("d1_mm"), "fade.d1_mm", i, D_LIMIT_MM)
-                if f0 == f1:
-                    raise EditError("fade d0_mm and d1_mm must differ", i)
-                fade = {"d0": f0, "d1": f1}
-            s["facets"][label] = {"poly": list(poly), "plane": pl, "fade": fade}
+            label, facet = _set_facet(e, i)
+            s["facets"][label] = facet
             set_facets[label] = i
         elif op == "delete_facet":
             label = e.get("label")
@@ -306,12 +458,12 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False) -> tuple
             if f != "base" and f not in s["facets"]:
                 raise EditError(f"crease {'|'.join(c['facets'])} names facet {f}, which does not exist",
                                 set_creases.get(_crease_key(c)))
-    return canonical(s), notes
+    return canonical_design(s), notes
 
 
 def spec_to_edits(spec: dict) -> list[dict]:
-    """Edits that rebuild ``spec``'s layout (with reset_layout), chains and scalars from any parent."""
-    s = canonical(spec)
+    """Edits that rebuild ``spec``'s layout (with reset_layout), chains and scalars from any parent (module doc)."""
+    s = canonical_design(spec)
     out = []
     for chain in CHAINS:
         pts = _chain(s, chain)
@@ -320,15 +472,24 @@ def spec_to_edits(spec: dict) -> list[dict]:
     out.append({"op": "set_scalar", "key": "roll_mm", "value": s["roll_mm"]})
     out.append({"op": "set_scalar", "key": "tip_round_mm", "value": s["outline"]["tip_round_mm"]})
     for name, (d, y, t) in s["nodes"].items():
-        tv = {"mode": "mm", "mm": t} if isinstance(t, float) else {"mode": "base" if t == "base" else "solve",
-                                                                    "mm": None}
+        if is_read(t):
+            tv = {"mode": "reading", "mm": None}
+        elif isinstance(t, float):
+            tv = {"mode": "mm", "mm": t}
+        else:
+            tv = {"mode": "base" if t == "base" else "solve", "mm": None}
         out.append({"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": tv})
     for label, f in s["facets"].items():
         pl = f["plane"]
-        plane = {"mode": "nodes", "crease": None, "rise_per_mm": None} if pl == "nodes" else \
-            {"mode": "crease", "crease": list(pl["crease"]), "rise_per_mm": pl["rise_per_mm"]}
-        fade = None if f["fade"] is None else {"d0_mm": f["fade"]["d0"], "d1_mm": f["fade"]["d1"]}
-        out.append({"op": "set_facet", "label": label, "poly": list(f["poly"]), "plane": plane, "fade": fade})
+        if isinstance(pl, dict) and "crease" in pl:                  # v2 shape (module doc)
+            plane = {"mode": "crease", "crease": list(pl["crease"]), "rise_per_mm": pl["rise_per_mm"]}
+        else:
+            plane = {"mode": "warp" if pl == "warp" else "flat"}
+        edit = {"op": "set_facet", "label": label, "poly": list(f["poly"]), "plane": plane,
+                "soft": bool(f.get("soft"))}
+        if f["fade"] is not None:                                    # v2 shape (module doc)
+            edit["fade"] = {"d0_mm": f["fade"]["d0"], "d1_mm": f["fade"]["d1"]}
+        out.append(edit)
     for c in s["creases"]:
         out.append({"op": "set_crease", "facets": list(c["facets"]), "shape": c["shape"]})
     return out
@@ -339,25 +500,76 @@ def _r(x, nd=2):
     return None if x is None else round(float(x), nd) + 0.0
 
 
+def read_sd(t: dict) -> float:
+    """A read t's whole sd in X: its pick sd and each camera fit's theta term (fit.read_payload "camera": dX per sd)
+    in quadrature, = the record's sd_X (readings.py: the two parts in quadrature)."""
+    r = t["read"]
+    cam = sum(float(v[2]) ** 2 for v in (r.get("camera") or {}).values())
+    return math.sqrt(float(r["sd"]) ** 2 + cam)
+
+
+def _t_text(t, inner: PL, d: float):
+    """A node's t as a diff prints it: a number (2 decimals), "solve", "base", or "read 7.75 +- 0.30" (the reading's
+    t = X - x_in(d) at the node's d, and its whole sd in X, read_sd)."""
+    if is_read(t):
+        return f"read {float(t['read']['X']) - float(inner(d)):.2f} +- {read_sd(t):.2f}"
+    return _r(t) if isinstance(t, float) else "solve" if t is None else t
+
+
+def _plane_kind(f: dict) -> str:
+    pl = f["plane"]
+    return "flat" if pl == "nodes" else "warp" if pl == "warp" else "coef" if "coef" in pl else "crease"
+
+
+def _facet_changes(fa: dict, fb: dict) -> list[str]:
+    """What changed in one facet (module doc); [] for a polygon listed from another start or the other way round."""
+    out = []
+    ra, rb = fa["poly"], fb["poly"]
+    if not (len(ra) == len(rb) and any(rb == ra[k:] + ra[:k] or rb[::-1] == ra[k:] + ra[:k] for k in range(len(ra)))):
+        out.append("poly")
+    ka, kb = _plane_kind(fa), _plane_kind(fb)
+    if ka != kb:
+        out.append(f"{ka}->{kb}")
+    elif fa["plane"] != fb["plane"]:
+        out.append(kb)
+    if bool(fa.get("soft")) != bool(fb.get("soft")):
+        out.append("soft" if fb.get("soft") else "not soft")
+    if fa["fade"] != fb["fade"]:
+        out.append("fade" if fb["fade"] else "no fade")
+    return out
+
+
 def diff_specs(a: dict, b: dict) -> dict:
-    """What changed from spec a to spec b (both canonical-able)."""
-    a, b = canonical(a), canonical(b)
+    """What changed from design a to design b (both canonical_design-able)."""
+    a, b = canonical_design(a), canonical_design(b)
     out: dict = {}
     na, nb = a["nodes"], b["nodes"]
-    nodes = {"added": sorted(set(nb) - set(na)), "removed": sorted(set(na) - set(nb)), "changed": []}
+    ia, ib = PL(a["inner"], "inner"), PL(b["inner"], "inner")
+    nodes = {"added": [n + (f" {_t_text(nb[n][2], ib, nb[n][0])}" if is_read(nb[n][2]) else "")
+                       for n in sorted(set(nb) - set(na))],
+             "removed": sorted(set(na) - set(nb)), "changed": []}
     for n in sorted(set(na) & set(nb)):
         (d0, y0, t0), (d1, y1, t1) = na[n], nb[n]
         parts = []
         if math.hypot(d1 - d0, y1 - y0) > 1e-9:
             parts.append(f"at {_r(d1)},{_r(y1)}")
         if t0 != t1:
-            ta, tb = (_r(t) if isinstance(t, float) else "solve" if t is None else t for t in (t0, t1))
-            parts.append(f"t {ta}->{tb}")
+            ta, tb = _t_text(t0, ia, d0), _t_text(t1, ib, d1)
+            same_text = ta == tb and is_read(t0) and is_read(t1)       # another reading that prints the same
+            parts.append(f"t {tb} re-read" if same_text else f"t {ta}->{tb}")
         if parts:
             nodes["changed"].append(f"{n} " + " ".join(parts))
     fa, fb = a["facets"], b["facets"]
-    facets = {"added": sorted(set(fb) - set(fa)), "removed": sorted(set(fa) - set(fb)),
-              "changed": sorted(k for k in set(fa) & set(fb) if fa[k] != fb[k])}
+    added = []
+    for k in sorted(set(fb) - set(fa)):
+        props = [p for p in (_plane_kind(fb[k]),) if p != "flat"] + (["soft"] if fb[k].get("soft") else [])
+        added.append(" ".join([k] + props))
+    changed = []
+    for k in sorted(set(fa) & set(fb)):
+        what = _facet_changes(fa[k], fb[k]) if fa[k] != fb[k] else []
+        if what:
+            changed.append(f"{k} " + " ".join(what))
+    facets = {"added": added, "removed": sorted(set(fa) - set(fb)), "changed": changed}
     ca = {_crease_key(c): c["shape"] for c in a["creases"]}
     cb = {_crease_key(c): c["shape"] for c in b["creases"]}
     creases = {"set": [f"{'|'.join(k)} {v}" for k, v in sorted(cb.items()) if ca.get(k) != v],

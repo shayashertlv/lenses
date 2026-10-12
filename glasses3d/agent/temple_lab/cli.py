@@ -1,55 +1,63 @@
-"""The facet lab's package and run entry points (plan/WP6_FACETS.md §4.3-4.4, §5). No paid call without the exact
-approval guard of agent/loop.py; prepare, estimate and request are $0.
+"""The facet lab's package and run entry points (plan/WP6_V3.md §6; WP6_FACETS.md §4.3-4.4, §5 for what v3 keeps). No
+paid call without the exact approval guard of agent/loop.py; prepare, estimate and request are $0.
 
     prepare  --job DIR [--rig studio_dome_v1 | photo_env | catalog_band_v1]
         a new isolated package: inputs/ = a byte copy of the original scene, the target photos (checked against the
-        reference manifest and the pose basis), the black photos (the same model in black acetate, sha-checked, each
-        with its camera in the pose basis: B1 side, B2 angled, B3 front), any reference-only photos (none for
-        Prada), brief.txt, instructions.txt and lab.json (g3d.temple_lab/2: the rig, every input's sha256, the photo
-        list with each photo's role, the pose basis); basis/cameras.json = the pose basis restricted to the target
-        and colourway photos (with their supplied mattes), imported as cameras/basis-NN (outside inputs/: every file
-        under inputs/ is sha-bound and every image under inputs/ is sent in the first message); then Lab.prepare():
-        the original compared at every target photo
-        (only with --rig photo_env does this fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh
-        of the original's +X temple, applied and compared. job.json binds the implementation (every .py of g3d,
-        g3d_host and agent, and instructions.txt), the rig and any frozen light. The default rig is the owner's choice
-        of 2026-10-11, studio_dome_v1 ("c is definitely the best").
+        reference manifest and the pose basis), the black photos (the same model in black, sha-checked, each with its
+        camera in the pose basis, transported from the target photo of the same pose: B1 side from 05, B2 angled from
+        02, B3 front from 04), any reference-only photos (none for Prada), brief.txt (brief_text with the job's
+        CAMERA_CONFLICTS and READING_PRECISION), instructions.txt and lab.json (g3d.temple_lab/2: the rig, every
+        input's sha256, the photo list with each photo's role, the pose basis); basis/cameras.json = the pose basis
+        restricted to the target and colourway photos (with their supplied mattes), imported as cameras/basis-NN
+        (outside inputs/: every file under inputs/ is sha-bound and every image under inputs/ is sent in the first
+        message); then Lab.prepare(): the original compared at every target photo (only with --rig photo_env does this
+        fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh of the original's +X temple, applied
+        and compared. job.json binds the implementation (every .py of g3d, g3d_host and agent, and instructions.txt),
+        the rig and any frozen light. The default rig is the owner's choice of 2026-10-11, studio_dome_v1 ("c is
+        definitely the best").
     estimate [--rehearsal FILE] [--out FILE]
-        the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py), with
-        facet_variants priced at the most sheets one call of the rehearsal's job can return (variant_sheets).
+        the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py), each
+        image-heavy call priced at the most one call returns (priced_sample): facet_variants at the job's sheets
+        (variant_sheets), photo_read at READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom grids, each
+        of the largest size the tool makes (read_sheet_px, zoom_grid_px); the range's top is the costliest of the
+        listed mixes at the high output (range_top), and the approval text says the v3 mix is assumed.
     request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4]
         writes runs/<ID>/approval-request.json for a clean package (nothing approved, nothing sent).
     run      the same arguments [--env-file FILE]: the paid run, refused without the owner's approval of exactly that
         request.
 
 The run settings are tools.run_settings: tool_choice required (kept after every call), final only on an accepted
-facet_finish (K = --k distinct compared heads), the context guard at 240k counted input tokens.
+facet_finish (K = --k distinct compared heads), the context guard at 240k counted input tokens. make_spec's tool
+contract also refuses any RETIRED_PHRASES (v2's removed tools and rules, WP6_V3 §6) in what Astra reads: the
+instructions, the brief and every tool and parameter description.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
 import math
 from pathlib import Path
 import shutil
 import sys
 
-import numpy as np
 from PIL import Image
 
 from glasses3d.agent import approvals as A
 from glasses3d.agent.estimate import cents_text, suggested_cap_micro
-from glasses3d.agent.loop import (RunRefused, RunSpec, ToolContract, contract_problems, instructions_sha256,
-                                  run_astra, tool_registry_sha256)
-from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, Tariff, usd_text
-from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, OFFSET_VIEWS
+from glasses3d.agent.loop import (REMOVED_PHRASES, RunRefused, RunSpec, ToolContract, contract_problems,
+                                  instructions_sha256, run_astra, tool_registry_sha256)
+from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, MODEL_MAX_INPUT_TOKENS, Tariff, usd_text
+from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, SIDE_VIEWS, ZOOM_MAX
 from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.g3d_host import compare as C
-from glasses3d.g3d_host.camera import CAMERA_FIELDS, Camera, NormFrame, project_mm
+from . import lab as LAB
+from . import readings as RD
 from .lab import (LAB_SCHEMA, VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX, Lab, data_url, read, sha,
                   write_json_atomic)
-from .state import OUTLINE_VIEW
+from .readings import THETA_SD_DEG, TRANSPORT_RE
+from .state import READ_POINTS_MAX
 from .tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, registry, run_settings
 
 REPO = Path(__file__).resolve().parents[3]
@@ -80,6 +88,55 @@ COLOURWAY_PHOTOS = ({"id": "B1", "image": "black-side.png", "colour": BLACK, "fi
                     {"id": "B3", "image": "black-front.webp", "colour": BLACK, "finish": GLOSSY,
                      "sha256": "e89d19f4101d6457a32274dc4a1b8b51a0de525ef09d2179b8657eb6c34621c3"})
 REFERENCE_PHOTOS = ()
+# The job's known camera-model conflicts (WP6_V3 P5: job data in the brief, worded as a limit of the camera model, never
+# as doubt about a photo: owner rule, every supplied image is a real photo). Each row (conflict_text): ``photos`` (whose
+# outline), ``what`` of them, ``d_mm`` (a range, or one d: "near d"), ``against`` (what cannot be matched with it),
+# ``up_to_mm`` (how far apart at most, about), ``temples`` and ``further_out`` (whose lies further out). Rows:
+# 1. photo 03's outer outline at the front block: under the pipeline's camera and rigid-temple model it passes outside
+#    the crown|logo ridge that every other photo fixes by +0.84 / +0.86 (d 10-15), +1.57 / +1.47 (15-20), +2.18 /
+#    +2.07 (20-25), +2.07 / +1.98 (25-30), +1.27 / +1.19 (30-35) and +0.44 / +0.40 mm (35-40) on the two temples (row
+#    spread about +-0.35 mm): up to about 2.2 mm (FINDINGS §0.3 and WP6_V3 §0.4 say +2.2); free focal length, lens
+#    distortion, a free centre, off-axis cameras, the temple pose, the station rule and the matte were each ruled out
+#    (data/wp6v2/review_20261012/w2/midblock-settled.md "Settled fact" 3-4). v2 printed it as shape and it drove the
+#    defects of runs 3, 4 and 5.
+# 2. photos 03 and 06 at the back of the faceted block (review 2026-10-12, P2): at the fitted cameras the side + angled
+#    readings put the crown's tip (d 75.4-75.6) at t 7.03 (bundle; probe 1's crossing 6.30, three readers' X 67.6-68.4:
+#    crown-settled §6), outside both silhouettes (06 u 235.7 against ~250, 03 u 1195.5 against ~1176); turning both
+#    angled photos' hinge opening by +2 deg puts it on both silhouettes (t 4.34: 2.7 mm in) but moves the corner at
+#    d 36 to t 3.99 against the front views' 5.23-5.58, so no single theta reconciles them (w2/crown-geometry.md §2,
+#    crown-geometry/theta_both.log; crown-settled.md §6 "still open"). Read on the charted temple only. Without this
+#    row the prompt's goal 5 ("outlines match ... except at a camera conflict the brief names") pointed Astra at
+#    closing that gap by moving the tip in: the defect class of runs 5 and 7 (K and E pushed in).
+CAMERA_CONFLICTS = ({"photos": ("03",), "what": "outer outline", "d_mm": (10, 40), "against": "the other photos",
+                     "up_to_mm": 2.2, "temples": "both temples", "further_out": "03's further out",
+                     "evidence": "data/wp6v2/review_20261012/w2/midblock-settled.md"},
+                    {"photos": ("03", "06"), "what": "outer outline", "d_mm": 75,
+                     "against": "the two-direction readings of the side and angled photos", "up_to_mm": 2.7,
+                     "temples": "the charted temple (the mirrored temple was not checked)",
+                     "further_out": "the readings further out",
+                     "evidence": "data/wp6v2/review_20261012/w2/crown-geometry.md §2 "
+                                 "(w2/crown-geometry/theta_both.log); w2/crown-settled.md §6"})
+# How well photo_read reads points on this job's photos (job data, measured): crisp corners read in two directions agree
+# with the settled values within 0.2-0.5 mm (FINDINGS §0.5: run 7's two-photo readings 0.23-0.37 mm; WP6_V3 §0.3; v3
+# probe 1: sd_X 0.18-0.29 at A, H, K, C, L); a tip or a point on an edge along the line of sight between the photos
+# only to about 0.7-1.5 mm along that edge (FINDINGS §1 "tip d only to +-0.7-1.5 mm"; crown-geometry §2: B1 band
+# 75.58 +- 0.70; v3 probe 1 §1: A as a crossing at 8.8 deg sd_d 0.82, the tip E as a crossing sd_d 1.24; E as a
+# single corner pick printed sd_d 0.17, a false precision: v3/v3-readings-fix.md).
+READING_PRECISION = {"corner_mm": (0.2, 0.5), "along_mm": (0.7, 1.5),
+                     "evidence": "data/wp6v2/review_20261012/FINDINGS.md §0.5 and §1; plan/WP6_V3.md §0.3; "
+                                 "data/wp6v2/review_20261012/v3/probe1.md §1"}
+# v2's removed tools and rules (WP6_V3 §1 P5-P6 and §6 "removed from Astra's view": fades, crease+rise planes, the
+# solve option that "moves least", the refusal recipe "do not redeclare", photo_compare's one-photo depths parameter,
+# the top / rear outer-edge offset tables, the "start" column and the outline line, W_CONDITIONING, lean_deg, the
+# section strip, crease margins, facet_restore). make_spec's tool contract refuses a package whose instructions, brief
+# or tool and parameter descriptions name any of them (case-insensitive substrings, as loop.contract_problems checks
+# loop.REMOVED_PHRASES); tests/agent/test_temple_lab_cli.py pins the instructions. The depths parameter is banned by
+# its forms (v2's prompt and brief: "photo_compare's depths", "depths reads t", "measured with depths", `depths`), not
+# by the plain word: "two vertices at different depths" is English, not the tool (review 2026-10-12, P3).
+RETIRED_PHRASES = ("facet_restore", "fade", "rise_per_mm", "crease plane", "moves least", "do not redeclare",
+                   "photo_compare's depths", "depths read", "with depths", "`depths`", "outer-edge offset",
+                   "outline line", "offset table", "start column", "\"start\" column", "margins", "w_conditioning",
+                   "lean_deg", "section strip")
 
 # The estimate (WP6_FACETS §4.3): tokens ~ 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112, fitted
 # on the 34 transport deltas of the v1 lab run owner-test-001 (median absolute residual 197 tokens). On that run's
@@ -98,12 +155,44 @@ OUTPUT_TOKENS = {"expected": 1852, "high": 2064}
 OUTPUT_TOKENS_SOURCE = ("mean output tokens per request of the paid facet runs at effort max (budget.json): "
                         "facet-astra-002 1635 (33 requests), -003 2064 (15), -004 1852 (32); expected = run 4, "
                         "high = the highest run mean (run 3)")
-# Tool calls per 10 requests. typical: the loop the instructions describe (edit and compare, now and then variants,
-# a closer look, an inspect); edit_heavy: every request an applied facet_edit with its default compare.
-MIXES = {"typical": {"facet_edit": 5, "facet_variants": 1, "photo_compare": 2, "photo_image": 1, "facet_inspect": 1},
-         "edit_heavy": {"facet_edit": 10}}
-STUBBED_KINDS = ("compare", "variants")         # the image kinds the context guard may replace (lab.context_stubs)
+# Tool calls per 10 requests. typical: the method the v3 instructions teach (look, write the object down and lay out,
+# read the vertices from two directions, build and read the fit, compare zoomed at native scale, bracket): edits and
+# their compares, a photo_read now and then (up to READ_POINTS_MAX points a call: a temple's 8-12 vertices take one or
+# two, then re-reads), zoomed compares, a variants bracket, a closer look and an inspect; edit_heavy: every request an
+# applied facet_edit with its default compare (v2's range top); read_heavy: the typical mix with photo_read 3 in 10 in
+# place of two edits (a run that re-reads much). No v3 run exists, so every v3 weight is an assumption (review
+# 2026-10-12, P2: photo_read at 2 or 3 in 10 priced a 90-reply run $40.12-$45.77 against the typical $34.10): the
+# range's top is the costliest of RANGE_MIXES at the high output (range_top) and the approval text says the mix is
+# assumed (MIX_ASSUMED). v2's typical mix had facet_edit 5 and no photo_read.
+MIXES = {"typical": {"facet_edit": 4, "photo_compare": 2, "photo_read": 1, "facet_variants": 1, "photo_image": 1,
+                     "facet_inspect": 1},
+         "edit_heavy": {"facet_edit": 10},
+         "read_heavy": {"facet_edit": 2, "photo_compare": 2, "photo_read": 3, "facet_variants": 1, "photo_image": 1,
+                        "facet_inspect": 1}}
+RANGE_MIXES = ("edit_heavy", "typical", "read_heavy")
+# The image kinds the context guard replaces in an old result (lab.context_stubs: compare images, zoom grids included
+# as lab registers them, and variant sheets): lab's own STUB_KINDS when it exports one (review 2026-10-12, P3: one
+# constant for the guard and the estimate), else the kinds context_stubs names today. A test pins it against a real
+# Lab's context_stubs. A pick sheet is replaced only once its reading was read again or dropped (the stored reading's
+# sheet stays); the projection counts none as stubbable, which prices a run that re-reads a little high, never low.
+STUBBED_KINDS = tuple(getattr(LAB, "STUB_KINDS", ("compare", "variants")))
 STUB_CHARS = 120                                 # one stub text
+# The v3 image-heavy outputs, each priced at the most one call returns (as facet_variants at variant_sheets), at the
+# largest image the tool makes, not the rehearsal's (review 2026-10-12, P2: a rehearsal of 2-photo readings or small
+# zoom boxes priced well below the most one call returns):
+# - photo_read: a pick sheet per reading (readings.pick_sheet: 972 px wide, TITLE_PX 40 + 342 px per photo of the
+#   reading + 4: 728 px at 2 photos, 1412 at PHOTOS_MAX 4; read_sheet_px, ~1,470 tokens), up to state.READ_POINTS_MAX
+#   8 a call, Lab._image kind READING_KINDS;
+# - photo_compare: one 2 x 2 zoom grid per zoom item, up to seeing.ZOOM_MAX 3 a call (each panel up to
+#   compare.ZOOM_PANEL_PX 760 x 500 under a 24 px label, 6 px gaps: 1538 x 1066 px, zoom_grid_px, ~1,740 tokens),
+#   registered by Lab._image as ZOOM_GRID_KIND ("compare" with zoom=True today, lab.py), so a recorded zoom grid is
+#   told from a compare panel only when that kind is not "compare"; each zoom adds ZOOM_TEXT_CHARS of text (seeing
+#   _zoom_text: 767-785 characters on probe 1's three real zooms with five labelled edges,
+#   v3/probe1/pkg/calls/0001-compare_to_photos/result.json).
+READING_KINDS = ("reading",)
+ZOOM_GRID_KIND = "compare"
+ZOOM_TEXT_CHARS = 800
+OK_STATUSES = ("ok", "applied", "accepted")     # a recorded call that counts in a tool's mean (mix_step)
 GUARD_KEEP_RESULTS = 3                           # the latest 2 compare / variant results and best_checkpoint's
 RUN_LENGTHS = (40, 60, 90)
 ESTIMATE_SCHEMA = "g3d.facet_estimate/1"
@@ -119,28 +208,37 @@ def implementation():
 
 
 # --------------------------------------------------------------------------------------------- brief
-# The brief carries the job's facts; instructions.txt is general (plan/WP6_FACETS.md §4.4, amended 2026-10-11). The
-# photo facts come from the job's pose basis (cameras.json records) and are information, never a rule. Directions are
-# temple-relative: one spec drives both temples as mirror images, so the -X temple seen from (yaw, pitch) is the
-# charted (+X) temple seen from (-yaw, pitch).
+# The brief carries the job's facts; instructions.txt is general (WP6_V3 §6; WP6_FACETS.md §4.4, amended 2026-10-11).
+# The photo facts come from the job's pose basis (cameras.json records) and are information, never a rule. Directions
+# are temple-relative: one spec drives both temples as mirror images, so the -X temple seen from (yaw, pitch) is the
+# charted (+X) temple seen from (-yaw, pitch). v3 (WP6_V3 P5) prints no line about photo_compare's one-photo depths,
+# the top / rear outer-edge offsets or the outline line (removed from the tools), states each camera's lineage as the
+# basis records it, how precisely photo_read reads which kind of point, the job's camera-model conflicts, how the
+# render light relates to the photos' tones, and the scope.
 SAME_DIRECTION_DEG = 10.0       # cameras whose temple-relative directions are closer than this are one direction
-SQUARE_ON_DEG = 30.0            # under this angle to the outer face's normal a view is square-on: 1 mm of depth error
-#                                 moves a points_px reading at most tan 30 deg = 0.58 mm along the face
+SQUARE_ON_DEG = 30.0            # under this angle to the outer face's normal a view is square-on: it shows where edges
+#                                 run in (d, y) at cos 30 deg = 0.87 of their size or more
 EDGE_ON_DEG = 75.0              # from this angle on the face shows at most cos 75 deg = 0.26 of its width: edge-on
-# photo_compare's depths reads t from a pixel (lab.depth_reading). The brief gives each view how finely it reads t:
-# image px per mm of t (pose.line_depth's px_per_mm) at a point T_PX_BACK_MM behind the hinge of the temple whose
-# outer face the camera sees, unposed (about mid-temple: run 5's own reading of node B, d 47, in B2 was 7.87 px/mm,
-# the brief's figure for B2 8.1). Square-on views read t at about a quarter of that: unreliable.
-T_PX_BACK_MM = 50.0
 ALONG_DEG = 25.0                # a camera within this of the temple's length (Z) looks along front-to-back creases
-# OFFSET_VIEWS (imported from agent/seeing.py): the view kinds whose compares print outer-edge offsets.
-# The job's render light, which the brief names (instructions.txt: "the job's fixed light (the brief names it)");
-# g3d/render.py describes each rig.
+SIDE_FACE_PITCH_DEG = 1.0       # a side view more than this above (below) the temple sees its top (bottom) face, so
+#                                 its compares measure only the bottom (top) outline: seeing._side_outline measures an
+#                                 edge where its face shows < SIDE_FACE_PX 1 px, and a ~7 mm thick temple at ~8 px/mm
+#                                 shows 1 px of face at tan(e) = 1/56, e ~ 1 deg (01 / 05 / B1 look 13.6-13.7 deg down)
+THETA_AT_D_MM = (25, 50, 80)    # the brief's theta lever, X moved per degree of hinge opening at these d: a rotation
+#                                 about the hinge axis (chart d about -0.5 on Prada, taken as 0) moves X by d x pi / 180
+#                                 per degree (1.3-1.5 mm at d 75-85: FINDINGS §0.3)
+# The job's render light, which the brief names (instructions.txt: "the render light"); g3d/render.py describes
+# each rig.
 RIG_TEXT = {MATCHED_RIG: "a studio light, one large soft key 55 deg above the horizon on the camera's side, a bright "
                          "sky from just above the horizon, a dark band just below it and a mid-grey ground",
             ENV_RIG: "a light fitted once to this job's photos on the front of the frame (the temples held out)",
             CATALOG_RIG: "a catalogue light, a bright band at the horizon over a dark ground and under a dimmer sky, "
                          "the same all round"}
+# Why tone is never a depth cue (FINDINGS §0.4: seven lights tested, a replica of the owner's viewer light among them;
+# none reproduces the photos' facet tone order, even on the unedited frame; faces 3-4 deg apart differ 6-15x in the
+# photos' brightness). Job-independent wording; the parenthesis is this pipeline's own test.
+LIGHT_TEXT = ("The render light does not reproduce the photos' tones (no light tried did, even on the starting "
+              "model's unedited frame); in the photos a tone step marks where an edge is, not its size or sign.")
 
 
 def toward(cam: dict) -> tuple:
@@ -152,27 +250,8 @@ def toward(cam: dict) -> tuple:
 
 def outer_face_deg(cam: dict) -> float:
     """The angle between a camera's view and the normal (+-X) of the outer face of the temple it sees best: 0 is
-    square-on, 90 edge-on. 1 mm of depth error moves a points_px reading tan(angle) mm along that face."""
+    square-on, 90 edge-on."""
     return math.degrees(math.acos(min(1.0, abs(toward(cam)[0]))))
-
-
-def t_px_per_mm(rec: dict, model: dict | None) -> float | None:
-    """Image px per mm of t in a photo (how finely photo_compare's depths reads t there): the projected length of
-    1 mm along the outer-face normal (+-X, the temple the camera sees) at T_PX_BACK_MM behind that temple's hinge
-    (the record's hinge_axis_xz_mm, else the model's front pivot) at the front pivot's height, through the record's
-    camera in the pose basis's NormFrame (``model``: the cameras.json model record, frame and front_pivot_mm). None
-    without a full camera or that model record."""
-    cam = (rec or {}).get("camera") or {}
-    if not model or not model.get("frame") or model.get("front_pivot_mm") is None or \
-            any(cam.get(k) is None for k in CAMERA_FIELDS):
-        return None
-    side = "+1" if toward(cam)[0] > 0 else "-1"
-    pivot = np.asarray(model["front_pivot_mm"], float)
-    hinge = ((rec.get("hinge_axis_xz_mm") or {}).get(side) or [pivot[0], pivot[2]])
-    P = np.array([float(hinge[0]), pivot[1], float(hinge[1]) - T_PX_BACK_MM])
-    n = np.array([1.0 if side == "+1" else -1.0, 0.0, 0.0])
-    q = project_mm(np.stack([P - 0.5 * n, P + 0.5 * n]), Camera.from_dict(cam), NormFrame.from_dict(model["frame"]))
-    return float(np.hypot(*(q[1] - q[0])))
 
 
 def looks_along_deg(cam: dict) -> float:
@@ -230,27 +309,67 @@ def colour_text(row: dict) -> str:
     return " ".join(x for x in (row.get("finish"), row.get("colour") or "another colour") if x)
 
 
+def camera_source(rec: dict | None, ids: dict) -> str | None:
+    """The photo id whose camera fit this record's camera was moved from, or None for a camera fitted on its own: a
+    transport block's "source" (an image file name, ``ids`` = {image file name: photo id}) or the fit_status "camera
+    transported from 05" (a photo id, a file name or its stem), as readings.camera_source reads the basis (the
+    readings' camera error and theta are shared along the same lineage). A source the job does not hold reads "a
+    photo not in this job"."""
+    rec = rec or {}
+    tokens = []
+    t = rec.get("transport")
+    if isinstance(t, dict) and t.get("source"):
+        tokens.append(str(t["source"]))
+    m = TRANSPORT_RE.search(str(rec.get("fit_status") or ""))
+    if m:
+        tokens.append(m.group(1).rstrip("."))
+    if not tokens:
+        return None
+    by_stem = {Path(name).stem: pid for name, pid in ids.items()}
+    pids = set(ids.values())
+    for tok in tokens:
+        name = Path(tok).name
+        for hit in (ids.get(name), by_stem.get(Path(name).stem), tok if tok in pids else None,
+                    by_stem.get(f"reference-{tok}")):
+            if hit:
+                return hit
+    return "a photo not in this job"
+
+
 def camera_fit_text(rec: dict, ids: dict) -> str | None:
-    """How the photo's camera was made and how well it fits, from its pose-basis record: a camera moved from another
-    photo's by an image similarity (``transport``: photo to photo) with, when the basis made one, its check against
-    the starting model (``model_check``: full and temple-region IoU, tests/proofs/wp6v2_basis.py), or a camera with
-    the model's silhouette checked against the photo (``iou``, ``contour_mean_px``)."""
-    t = rec.get("transport") or {}
-    if t:
-        src = ids.get(Path(str(t.get("source") or "")).name) or "another photo"
+    """How the photo's camera was made and how well it fits, from its pose-basis record. A camera moved from another
+    photo's (camera_source) says so first, with the temples' hinge opening (theta) copied from it, then, when the
+    record has them, the image registration's own numbers (``transport``: photo to photo) and its check against the
+    model: ``model_check`` (the starting model's silhouette on the compare's raster, tests/proofs/wp6v2_basis.py), else
+    the record's ``iou`` / ``contour_mean_px`` (B1's: the model's silhouette at that camera in the WP6 v1 all-views
+    validation, which fitted the target photos' cameras and transported B1's from 05: never "fitted", review
+    2026-10-12; labelled as that validation's, the check the target photos' lines print, so it is not read beside
+    B2's and B3's starting-model checks: review 2026-10-12, P3; once the basis writes B1's model_check, report.json
+    black-side IoU 0.8467 / temple 0.8591, that prints instead). A camera fitted on its own prints its fit's ``iou``
+    and ``contour_mean_px``."""
+    src = camera_source(rec, ids)
+    if src is not None:
+        t = rec.get("transport") if isinstance(rec.get("transport"), dict) else {}
         nums = [f"IoU {float(t['mask_iou_after_warp']):.3f}" if t.get("mask_iou_after_warp") is not None else None,
                 f"mean contour {float(t['mean_bidirectional_px']):.1f} px"
                 if t.get("mean_bidirectional_px") is not None else None]
         nums = ", ".join(n for n in nums if n)
         copied = not any((rec.get("theta_observed") or {}).values())
+        whose = f"{src}'s" if src != "a photo not in this job" else "that of a photo not in this job"
         mc = rec.get("model_check") or {}
-        check = "not checked against the model"
         if mc.get("iou") is not None:
             check = (f"starting model's silhouette on the compare's raster: IoU {float(mc['iou']):.3f}"
                      + (f", temple IoU {float(mc['temple_iou']):.3f}" if mc.get("temple_iou") is not None else ""))
-        return (f"camera moved from {src}'s by matching the two photos' silhouettes"
+        elif rec.get("iou") is not None:      # the check the target photos' fits print, not the starting model's
+            c = rec.get("contour_mean_px")
+            check = (f"the model's silhouette at this camera in the all-views validation that fitted the target "
+                     f"photos' cameras: IoU {float(rec['iou']):.3f}"
+                     + (f", mean contour {float(c):.1f} px" if c is not None else ""))
+        else:
+            check = "not checked against the model"
+        return (f"camera moved from {whose} by matching the two photos' silhouettes"
                 + (f" (photo to photo, on its registration matte: {nums})" if nums else "")
-                + (f", the temples' hinge opening as in {src}" if copied else "")
+                + (f", the temples' hinge opening as in {src}" if copied and src != "a photo not in this job" else "")
                 + f"; {check}")
     if rec.get("iou") is not None:
         c = rec.get("contour_mean_px")
@@ -259,18 +378,29 @@ def camera_fit_text(rec: dict, ids: dict) -> str | None:
     return None
 
 
-def depth_text(a: float, px: float | None) -> str:
-    """How finely photo_compare's depths reads t in a view at ``a`` deg to the outer face (``px``: t_px_per_mm, None
-    when unknown): measured at a moderate angle, unreliable square-on."""
-    if angle_band(a) == "square-on":
-        return "reading t with depths is unreliable here" + (f": about {px:.1f} px per mm" if px is not None else "")
-    return f"depths reads t at about {px:.1f} px per mm" if px is not None else "depths reads t here"
+def outline_text(view: str, cam: dict) -> str | None:
+    """What a photo's compares print as numbers: a side view (seeing.SIDE_VIEWS) the outline offsets of the temple
+    whose outer face it sees (seeing._side_outline: photo minus model, every 10 mm from d 10 to the tip), only the edge
+    on the far side of the view when it looks down (up) on the temple by more than SIDE_FACE_PITCH_DEG (the near edge's
+    silhouette is then the top (bottom) face's far edge, not the outline); other views print none (v3: the top / rear
+    outer-edge offsets and the outline line are not shown)."""
+    if view not in SIDE_VIEWS or outer_face_deg(cam) >= EDGE_ON_DEG:
+        return None
+    whose = "charted" if toward(cam)[0] > 0 else "mirrored"
+    pitch = float(cam.get("pitch") or 0.0)
+    if pitch > SIDE_FACE_PITCH_DEG:
+        edges = "bottom outline offsets (not its top: the view looks down on the top face)"
+    elif pitch < -SIDE_FACE_PITCH_DEG:
+        edges = "top outline offsets (not its bottom: the view looks up at the bottom face)"
+    else:
+        edges = "top and bottom outline offsets"
+    return f"its compares print the {whose} temple's {edges}"
 
 
-def photo_line(p: dict, rec: dict | None, ids: dict, model: dict | None = None) -> str:
+def photo_line(p: dict, rec: dict | None, ids: dict) -> str:
     """One photo of the brief: its view (and colour), then from its pose-basis record: the camera direction, the
-    temple it sees and how (with how finely depths reads t there: t_px_per_mm with ``model``, the pose basis's model
-    record), faces it sees from above or below, the number lines its compares print and the camera's fit."""
+    temple it sees and how, faces it sees from above or below, the numbers its compares print and its camera's
+    lineage and fit."""
     other = p.get("role", "target") != "target"
     head = f"- {p['id']}: {p['view']}" + (f", {colour_text(p)}" if other else "")
     cam = (rec or {}).get("camera") if p.get("role") != "reference" else None
@@ -284,31 +414,116 @@ def photo_line(p: dict, rec: dict | None, ids: dict, model: dict | None = None) 
     if a < EDGE_ON_DEG:
         whose = ("the charted temple's outer face" if toward(cam)[0] > 0
                  else "the mirrored temple's outer face, from its own side,")
-        bits.append(f"{whose} {angle_band(a)} ({a:.0f} deg; {depth_text(a, t_px_per_mm(rec, model))})")
+        bits.append(f"{whose} {angle_band(a)} ({a:.0f} deg)")
     else:
         bits.append(f"the outer faces edge-on ({a:.0f} deg)")
     if 90.0 - abs(pitch) < EDGE_ON_DEG:
         bits.append(f"faces that point straight {'up' if pitch > 0 else 'down'} at {90.0 - abs(pitch):.0f} deg from "
                     "square-on")
-    numbers = (["outer-edge offsets"] if p["view"] in OFFSET_VIEWS else []) + \
-        (["the outline line"] if not other and p["view"] == OUTLINE_VIEW else [])
+    numbers = outline_text(p["view"], cam)
     if numbers:
-        bits.append("its compares print " + " and ".join(numbers))
+        bits.append(numbers)
     fit = camera_fit_text(rec, ids)
     if fit:
         bits.append(fit)
     return head + "; " + "; ".join(bits)
 
 
+def _listed(ids_) -> str:
+    return ", ".join(ids_) if ids_ else "none"
+
+
+def _and(items) -> str:
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def lineage_text(recs: dict, ids: dict) -> str | None:
+    """The cameras' lineage (WP6_V3 §6): which photos have a camera fit of their own and which camera was moved from
+    which (camera_source; the theta copied with it), so which photos share their camera's error. None without a
+    camera."""
+    cams = [pid for pid, rec in recs.items() if rec and rec.get("camera")]
+    if not cams:
+        return None
+    moved = [(pid, camera_source(recs[pid], ids)) for pid in cams]
+    own = [pid for pid, src in moved if src is None]
+    moved = [(pid, src) for pid, src in moved if src is not None]
+    text = "Cameras:" + (f" {_and(own)} " + ("each have a camera" if len(own) > 1 else "has a camera")
+                         + " fitted on its own." if own else "")
+    how = ("moved onto its photo by an image similarity that matches the two photos' silhouettes, with the temples' "
+           "hinge opening (theta) copied, so it shares that camera's error and theta.")
+    if len(moved) == 1:
+        pid, src = moved[0]
+        of = f"{src}'s camera" if src != "a photo not in this job" else "the camera of a photo not in this job"
+        text += f" {pid}'s camera was not fitted: it is {of} {how}"
+    elif moved:
+        pairs = _and([f"{pid}'s from {src}" for pid, src in moved])
+        text += (f" The cameras of {_and([pid for pid, _s in moved])} were not fitted: each is another photo's camera "
+                 f"({pairs}) {how}")
+    return text + (" Photos of one direction (above) read a point only together with a photo of another direction."
+                   if len(cams) > 1 else "")
+
+
+def theta_text() -> str:
+    """The camera part of every reading (readings.THETA_SD_DEG): each camera fit's temple hinge opening; a theta error
+    turns the temple about its hinge as one rigid piece, moving X by about d x pi / 180 mm per degree (THETA_AT_D_MM).
+    readings.py moves each camera fit's theta separately and adds the fits in quadrature, so that turn is one and the
+    same only for readings made from the same photos (the same fits): those keep a flat face flat (crown-geometry §2:
+    K - plane stayed +1.45..+1.59 mm for theta -1..+2 deg, every reading on side + angled pairs); readings from other
+    photos carry their own fits' theta (review 2026-10-12, P3: about 0.4 mm at d 80 for 0.3 deg)."""
+    per = [f"{d * math.pi / 180.0:.1f}" for d in THETA_AT_D_MM]
+    at = ", ".join(f"{v} at d {d}" for v, d in zip(per[1:], THETA_AT_D_MM[1:]))
+    return (f"Each camera fit includes the temples' hinge opening (theta); a reading's camera part is its fits' theta "
+            f"taken as uncertain by {THETA_SD_DEG:g} deg. A theta error turns the temple about its hinge as one rigid "
+            f"piece: X moves about {per[0]} mm per degree at d {THETA_AT_D_MM[0]}, {at}, the same for every reading "
+            "made from the same photos, so such readings keep a flat face flat; readings from different photos carry "
+            "their own theta.")
+
+
+def precision_text(precision: dict | None) -> str | None:
+    """How precisely photo_read reads which kind of point on this job's photos (job data, READING_PRECISION), or
+    None; a point far back also carries the cameras' theta in its absolute X (theta_text, printed next; review
+    2026-10-12, P2: about 1.4 mm per degree at d 80)."""
+    if not precision:
+        return None
+    lo, hi = precision["corner_mm"]
+    a_lo, a_hi = precision["along_mm"]
+    return (f"Readings (photo_read) on these photos: a crisp corner read from two directions is good to about {lo:g}-"
+            f"{hi:g} mm; a tip, or a point on an edge that runs along the line of sight between the photos, only to "
+            f"about {a_lo:g}-{a_hi:g} mm along that edge, even where a single pick of it prints less. Read as a "
+            "crossing of two traced edges, such a point prints its full error, smallest where the edges cross steeply. "
+            "These are the picks' errors: a point far back from the hinge also carries the cameras' hinge opening in "
+            "its absolute X (below).")
+
+
+def conflict_text(c: dict) -> str:
+    """One known camera-model conflict of the job (CAMERA_CONFLICTS), as a limit of the camera model: the photos'
+    outline there and ``against`` (default: the other photos) cannot be matched together under it; how far apart and
+    whose lies further out; never a doubt about a photo (owner rule)."""
+    ids = list(c["photos"])
+    d = c["d_mm"]
+    where = f"near d {d:g}" if isinstance(d, (int, float)) else f"at d {d[0]:g}-{d[1]:g}"
+    many = len(ids) > 1
+    which = f"photo{'s' if many else ''} {_and(ids)} show{'' if many else 's'}"
+    further = f", {c['further_out']}" if c.get("further_out") else ""
+    return (f"Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame rigid, each "
+            f"temple a rigid arm turned about its hinge), the {c['what']} that {which} {where} and "
+            f"{c.get('against') or 'the other photos'} cannot be matched together: they differ there by up to about "
+            f"{c['up_to_mm']:g} mm{further}, on {c['temples']}. This is a limit of the camera model, not of the "
+            f"photo{'s' if many else ''}.")
+
+
 def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: str = DEFAULT_RIG,
-               roll_mm: float | None = None, model: dict | None = None) -> str:
+               roll_mm: float | None = None, conflicts=(), precision: dict | None = None) -> str:
     """The brief (the job's facts; instructions.txt is general): the target photos and any of another colour (role
-    colourway: a camera, photo_compare; role reference: photo_image only), the job's render light (``rig``) and the
-    two temples' names, one line per photo from its pose-basis record in ``cameras`` ({image file name: cameras.json
-    record}; the photo row's path names the file; ``model``: the pose basis's model record, for how finely depths
-    reads t in each view), then the photos grouped by direction, by how they see the outer face, the views that look
-    along front-to-back creases, the number lines and the finishes (listed only for the photo rows that give one),
-    revision 0 and the real temples' edge rounding (``roll_mm`` when the job knows it, else "not known")."""
+    colourway: a camera, photo_compare; role reference: photo_image only), the job's render light (``rig``) and what
+    it does not reproduce (LIGHT_TEXT), the two temples' names, one line per photo from its pose-basis record in
+    ``cameras`` ({image file name: cameras.json record}; the photo row's path names the file), then the photos grouped
+    by direction, by how they see the outer face, the views that look along front-to-back creases, the views whose
+    compares print outline offsets and the finishes (listed only for the photo rows that give one); the cameras'
+    lineage, how precisely photo_read reads (``precision``: the job's READING_PRECISION) and the theta lever, the job's
+    camera-model ``conflicts`` (CAMERA_CONFLICTS rows); revision 0, the scope and the real temples' edge rounding
+    (``roll_mm`` when the job knows it, else "not known")."""
     cameras = cameras or {}
     targets = [p for p in photos if p.get("role", "target") == "target"]
     others = [p for p in photos if p.get("role", "target") != "target"]
@@ -324,52 +539,56 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
             p.get("role") == "colourway" for p in others) else ".")
     light = (f"The renders use the job's fixed light, {rig}: {RIG_TEXT[rig]}. The photos' light is unknown."
              if rig in RIG_TEXT else f"The renders use the job's fixed light, {rig}. The photos' light is unknown.")
-    lines = [first, light, "The charted temple is the one the spec's d, y and t chart; the mirrored temple is its "
-             "mirror image on the other side; compares print outer-edge offsets per temple under these names.",
+    lines = [first, light + " " + LIGHT_TEXT, "The charted temple is the one the spec's d, y and t chart; the mirrored "
+             "temple is its mirror image on the other side; compares name the two temples so.",
              "", "Each photo: its view; the camera's yaw (0 from the front, +90 from the charted temple's side, "
              "-90 from the mirrored temple's, 180 from the rear) and pitch (+ from above); how it sees the temple's "
-             "outer face (0 deg square-on, 90 deg edge-on) and how finely photo_compare's depths reads t there; its "
-             "number lines; its camera's fit."]
-    lines += [photo_line(p, recs[p["id"]], ids, model) for p in targets + others]
+             "outer face (0 deg square-on, 90 deg edge-on); the numbers its compares print; its camera."]
+    lines += [photo_line(p, recs[p["id"]], ids) for p in targets + others]
     cams = {pid: rec["camera"] for pid, rec in recs.items() if rec and rec.get("camera")}
     if cams:
-        def listed(ids_):
-            return ", ".join(ids_) if ids_ else "none"
         band = {b: [pid for pid, c in cams.items() if angle_band(outer_face_deg(c)) == b]
                 for b in ("square-on", "at a moderate angle", "edge-on")}
         groups = " | ".join(", ".join(g) for g in direction_groups(cams))
+        offsets = [p["id"] for p in targets + others if p["id"] in cams and outline_text(p["view"], cams[p["id"]])]
         lines += ["", f"Directions (cameras within {SAME_DIRECTION_DEG:g} deg of each other count as one, and so do "
                       f"the side views of the two temples): {groups}.",
-                  f"The temple's outer face square-on (under {SQUARE_ON_DEG:g} deg): {listed(band['square-on'])}. At "
-                  f"a moderate angle ({SQUARE_ON_DEG:g} to {EDGE_ON_DEG:g} deg): {listed(band['at a moderate angle'])}"
-                  f". Edge-on ({EDGE_ON_DEG:g} deg or more): {listed(band['edge-on'])}.",
+                  f"The temple's outer face square-on (under {SQUARE_ON_DEG:g} deg): {_listed(band['square-on'])}. At "
+                  f"a moderate angle ({SQUARE_ON_DEG:g} to {EDGE_ON_DEG:g} deg): {_listed(band['at a moderate angle'])}"
+                  f". Edge-on ({EDGE_ON_DEG:g} deg or more): {_listed(band['edge-on'])}.",
                   "Front and rear views look along creases that run front to back: "
-                  f"{listed([pid for pid, c in cams.items() if looks_along_deg(c) < ALONG_DEG])} (cameras within "
-                  f"{ALONG_DEG:g} deg of the temple's length)."]
-        offsets = [p["id"] for p in targets + others if p["id"] in cams and p["view"] in OFFSET_VIEWS]
-        outline = [p["id"] for p in targets if p["id"] in cams and p["view"] == OUTLINE_VIEW]
-        lines.append(f"Outer-edge offsets: {listed(offsets)}. Outline line: {listed(outline)}.")
+                  f"{_listed([pid for pid, c in cams.items() if looks_along_deg(c) < ALONG_DEG])} (cameras within "
+                  f"{ALONG_DEG:g} deg of the temple's length).",
+                  f"Outline offsets (photo minus model, mm) are printed for {_listed(offsets)} only."]
     finishes = sorted({p["finish"] for p in photos if p.get("finish")})
     for f in finishes:
         lines.append(f"{f.capitalize()} photos: {', '.join(p['id'] for p in photos if p.get('finish') == f)}.")
     unstated = [p["id"] for p in photos if not p.get("finish")]
     if finishes and unstated:      # a photo without a finish is not matte: the job data only names none for it
         lines.append(f"No finish is given for {', '.join(unstated)}.")
+    if cams:
+        lines += [""] + [x for x in (lineage_text(recs, ids), precision_text(precision), theta_text()) if x]
+    lines += [conflict_text(c) for c in conflicts or ()]
     edge = (f"The real temples' edge rounding is about {float(roll_mm):g} mm (roll_mm)." if roll_mm is not None
             else "The real temples' edge rounding (roll_mm) is not known: judge it from the photos' edges.")
-    lines += ["", "The scene holds revision 0, a template fitted to the starting model's own temples: no facets, no "
-                  "creases, roll_mm 0, and at every d an outer face straight in y (the base wedge). " + edge
-              + " Make the temples look like the temples in these photos."]
+    lines += ["", "The scene holds revision 0, the starting model's temple measured into the spec: its outline (the "
+                  "top and bottom chains and the tip's rounding) and inner face, and at every d an outer surface "
+                  "straight in y (the base wedge); no faces, no edges, roll_mm 0. It is not the target. What you may "
+                  "change is the whole temple from the hinge to its tip: its faces and edges, and its outline (the "
+                  "outline chains are editable along the whole length). " + edge + " Make the temples look like the "
+                  "temples in these photos."]
     return "\n".join(lines) + "\n"
 
 
 def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sha256=SOURCE_SCENE_SHA256,
             reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json,
-            colourway_photos=COLOURWAY_PHOTOS, reference_photos=REFERENCE_PHOTOS) -> dict:
+            colourway_photos=COLOURWAY_PHOTOS, reference_photos=REFERENCE_PHOTOS, camera_conflicts=CAMERA_CONFLICTS,
+            reading_precision=READING_PRECISION) -> dict:
     """A new package (module doc). $0; ~1 min with studio_dome_v1 (the default), ~4 min with photo_env (its light
     fit). ``colourway_photos`` name pose-basis images of another colourway ({id, image, colour, finish?, sha256}:
     compared with photo_compare), ``reference_photos`` images without a camera ({id, view, colour, finish?, source,
-    path, sha256}); colour and finish are printed by the brief and the photo labels."""
+    path, sha256}); colour and finish are printed by the brief and the photo labels. ``camera_conflicts`` and
+    ``reading_precision`` are the job's (CAMERA_CONFLICTS, READING_PRECISION), printed by the brief."""
     root = Path(root).resolve()
     if root.exists():
         raise ValueError("use a new empty package directory")
@@ -440,7 +659,8 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     if len(set(ids)) != len(ids):
         raise ValueError(f"photo ids must be distinct: {ids}")
     (inputs / "brief.txt").write_text(brief_text(manifest.get("name") or reference.name, photos, doc["images"],
-                                                 rig=rig, model=doc.get("model")), encoding="utf-8")
+                                                 rig=rig, conflicts=camera_conflicts, precision=reading_precision),
+                                      encoding="utf-8")
     assets.append({"path": "brief.txt", "sha256": sha(inputs / "brief.txt")})
     copy(HERE / "instructions.txt", "instructions.txt")
     write_json_atomic(bdir / "cameras.json", {**doc, "images": {**targets, **variants}})
@@ -556,6 +776,13 @@ def references(lab) -> list:
     return out
 
 
+def tool_contract() -> ToolContract:
+    """The facet run's tool contract (loop.contract_problems): the instructions name exactly the registered tools, and
+    neither loop.REMOVED_PHRASES nor RETIRED_PHRASES appears in the instructions, the brief or any tool or parameter
+    description."""
+    return ToolContract(frozenset(TOOL_NAMES), removed_phrases=tuple(REMOVED_PHRASES) + RETIRED_PHRASES)
+
+
 def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, estimate_path=ESTIMATE, estimate=None):
     """The RunSpec of a paid run on a clean package (and, with write_request, its approval request with the facet
     estimate from estimate_path, or the given ``estimate`` block; nothing is approved here)."""
@@ -566,7 +793,7 @@ def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, est
     instructions = instructions_text(root, settings.finish_k)
     brief = (root / "inputs" / "brief.txt").read_text(encoding="utf-8")
     photos = references(lab)
-    contract = ToolContract(frozenset(TOOL_NAMES))
+    contract = tool_contract()
     problems = contract_problems(contract, instructions=instructions, brief=brief, tools=tools)
     if problems:
         raise ValueError(problems)
@@ -632,23 +859,84 @@ def rehearsal_variant_sheets(rehearsal: dict) -> int:
         return VARIANT_PHOTOS_MAX
 
 
-def priced_sample(sample: dict, sheets: int) -> dict:
-    """A recorded facet_variants call priced at ``sheets`` sheets: when it returned fewer, its largest sheet is
-    repeated (an upper bound: a 4th photo of another colour adds one sheet the size of the others, lab.py module
-    doc). Every other call is returned unchanged."""
+def read_sheet_px() -> tuple[int, int]:
+    """The largest pick sheet one reading returns: readings.pick_sheet's layout (two PANEL_W panels and three gaps
+    wide; the title, then a PANEL_H panel row with its label and a gap per photo, then a gap, tall) at
+    readings.PHOTOS_MAX photos: 972 x 1412 px. tests/agent/test_temple_lab_cli.py draws a real 4-photo sheet against
+    it."""
+    n = RD.PHOTOS_MAX
+    return (2 * RD.PANEL_W + 3 * RD.GAP_PX,
+            RD.TITLE_PX + n * (RD.PANEL_H + RD.LABEL_PX + RD.GAP_PX) + RD.GAP_PX)
+
+
+@functools.lru_cache(maxsize=1)
+def zoom_grid_px() -> tuple[int, int]:
+    """The largest zoom grid one zoom item returns: seeing's 2 x 2 compare.grid of compare.labelled(fit) panels, each at
+    compare.ZOOM_PANEL_PX (the largest compare.zoom_scale makes), composed by compare's own functions on blank panels
+    (1538 x 1066 px today)."""
+    panel = C.labelled(Image.new("RGB", tuple(C.ZOOM_PANEL_PX)), "", fit=True)
+    return tuple(C.grid([panel] * 4, 2, max_px=C.SHEET_MAX_PX).size)
+
+
+def priced_sample(sample: dict, sheets: int, *, readings: int = READ_POINTS_MAX, zooms: int = ZOOM_MAX) -> dict:
+    """A recorded call priced at the most images one call of its tool returns (an upper bound; the recorded call is
+    never changed):
+    - facet_variants: ``sheets`` sheets, its largest sheet repeated (a 4th photo of another colour adds one sheet the
+      size of the others, lab.py module doc);
+    - photo_read with a pick sheet: ``readings`` pick sheets of the largest size (read_sheet_px) in place of its own,
+      its text and arguments scaled by ``readings`` / its own sheets (each reading prints one text line of ~425-970
+      characters, readings.reading_text, and takes up to 4 photos x 2 traced edges of arguments); a call with no pick
+      sheet (a drop) is marked ``unpriced``: mix_step leaves it out of photo_read's mean, so a drop never dilutes the
+      price of a read (review 2026-10-12, P2: one drop call halved it, 7,274 against 14,472 tokens a call);
+    - photo_compare: ``zooms`` zoom grids of the largest size (zoom_grid_px, kind ZOOM_GRID_KIND) and ZOOM_TEXT_CHARS
+      of text each beside its compare images; its own zoom grids are replaced when their kind tells them from compare
+      panels (ZOOM_GRID_KIND is not "compare"), else they stay as recorded and such a call is priced up to ``zooms``
+      grids high (conservative).
+    Every other call is returned unchanged."""
+    tool = sample["tool"]
     imgs = [list(i) for i in sample["images"]]
-    shown = [i for i in imgs if i[2] == "variants"]
-    if sample["tool"] != "facet_variants" or not shown or len(shown) >= sheets:
-        return sample
-    big = max(shown, key=lambda i: image_tokens(i[0], i[1]))
-    return {**sample, "images": imgs + [list(big)] * (sheets - len(shown))}
+    if tool == "facet_variants":
+        shown = [i for i in imgs if i[2] == "variants"]
+        if not shown or len(shown) >= sheets:
+            return sample
+        big = max(shown, key=lambda i: image_tokens(i[0], i[1]))
+        return {**sample, "images": imgs + [list(big)] * (sheets - len(shown))}
+    if tool == "photo_read":
+        shown = [i for i in imgs if i[2] in READING_KINDS]
+        if not shown:
+            return {**sample, "unpriced": True}
+        f = readings / len(shown)
+        w, h = read_sheet_px()
+        rest = [i for i in imgs if i[2] not in READING_KINDS]
+        return {**sample, "images": rest + [[w, h, READING_KINDS[0]]] * readings,
+                "text_chars": round(sample["text_chars"] * f), "args_chars": round(sample["args_chars"] * f)}
+    if tool == "photo_compare":
+        own = [i for i in imgs if ZOOM_GRID_KIND != "compare" and i[2] == ZOOM_GRID_KIND]
+        w, h = zoom_grid_px()
+        return {**sample, "images": [i for i in imgs if i not in own] + [[w, h, ZOOM_GRID_KIND]] * zooms,
+                "text_chars": sample["text_chars"] + ZOOM_TEXT_CHARS * max(0, zooms - len(own))}
+    return sample
+
+
+def priced_samples(samples: list, sheets: int, mixes=None) -> list:
+    """Every recorded call priced (priced_sample). Refuses (ValueError) a rehearsal with no successful photo_read call
+    that returned a pick sheet while a mix prices photo_read: a read's text and arguments are priced from a real one
+    (run the estimate on a rehearsal of the current tools). The zoom grids need no recorded one: their size is the
+    tool's (zoom_grid_px)."""
+    tools = {t for mix in (mixes or MIXES).values() for t in mix}
+    if "photo_read" in tools and not any(s["tool"] == "photo_read" and s["status"] in OK_STATUSES
+                                         and any(i[2] in READING_KINDS for i in s["images"]) for s in samples):
+        raise ValueError(f"the rehearsal recorded no photo_read call with a pick sheet (image kind "
+                         f"{' / '.join(READING_KINDS)}) to price: run the estimate on a rehearsal of the current tools")
+    return [priced_sample(s, sheets) for s in samples]
 
 
 def mix_step(samples: list, mix: dict) -> dict:
-    """The mean growth per request of a call mix, from the rehearsal's successful calls of each tool."""
+    """The mean growth per request of a call mix, from the rehearsal's successful calls of each tool (a call
+    priced_sample marks ``unpriced`` is left out)."""
     by_tool: dict = {}
     for s in samples:
-        if s["status"] in ("ok", "applied", "accepted"):
+        if s["status"] in OK_STATUSES and not s.get("unpriced"):
             by_tool.setdefault(s["tool"], []).append(call_tokens(s))
     total = sum(mix.values())
     step = {"tokens": 0.0, "stubbable": 0.0, "results": 0.0, "stub_images": 0.0}
@@ -668,11 +956,14 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
     """One modelled run, request by request with the frozen tariff (the 272k step included): request i's input is
     the previous input (cached) plus the mean growth (written); once a counted input reaches the guard, the next
     request replaces the images of all but GUARD_KEEP_RESULTS compare / variant results by stubs and is written
-    afresh after the brief."""
+    afresh after the brief. A request whose input would pass the model's input limit (pricing.MODEL_MAX_INPUT_TOKENS)
+    is never sent (the budget guard refuses it, budget.reserve), so the run ends before it: "input_limit_request"
+    names it and the cost is that of the requests before it (a heavy mix's 90-reply run reaches it on a rehearsal of
+    large images; the estimate then says so instead of failing)."""
     tariff = tariff or Tariff.frozen()
     prev, spent, need = None, 0, 0
     results, armed = 0.0, False
-    guard_at = long_at = None
+    guard_at = long_at = limit_at = None
     peak = 0
     per_result = step["stubbable"] / step["results"] if step["results"] else 0.0
     imgs_per_result = step["stub_images"] / step["results"] if step["results"] else 0.0
@@ -687,6 +978,9 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
                 cached, armed, guard_at = c0, False, i + 1
             inp = math.ceil(new)
             results += step["results"]
+        if inp > MODEL_MAX_INPUT_TOKENS:
+            limit_at = i + 1
+            break
         cached = min(cached, inp)
         usage = {"input_tokens": inp, "output_tokens": output, "total_tokens": inp + output,
                  "input_tokens_details": {"cached_tokens": cached, "cache_write_tokens": inp - cached},
@@ -702,83 +996,159 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
         prev = inp
     return {"requests": requests, "expected_micro_usd": spent, "expected_usd": usd_text(spent),
             "required_cap_micro_usd": need, "last_input_tokens": prev, "peak_input_tokens": peak,
-            "context_guard_request": guard_at, "first_long_context_request": long_at}
+            "context_guard_request": guard_at, "first_long_context_request": long_at, "input_limit_request": limit_at}
+
+
+def limit_text(run: dict) -> str:
+    """A projected run's input-limit clause (project: the run ends before the request that would pass it), or ""."""
+    at = run.get("input_limit_request")
+    return (f"; its context reaches the model's {MODEL_MAX_INPUT_TOKENS:,}-token input limit at request {at}, where "
+            "such a run ends") if at else ""
+
+
+def high_text(mix: str) -> str:
+    """The range top's mix in words (the table's rows and the approval text)."""
+    if mix == "edit_heavy":
+        return "every reply an edit"
+    if mix == "typical":
+        return "the typical mix at the high output"
+    m = MIXES[mix]
+    return f"a read-heavy mix (photo_read {m['photo_read']} in {sum(m.values())}) at the high output"
+
+
+# The approval text's statement of what "up to" covers (review 2026-10-12, P2: the v3 mix is an unmeasured assumption,
+# and a read-heavier run than the typical one passed the old top).
+MIX_ASSUMED = ("The v3 tool mix is assumed (no v3 run has been measured): \"up to\" covers only the listed mixes, each "
+               "at the high output: the typical mix, every reply an edit, and a read-heavy mix (photo_read "
+               f"{MIXES['read_heavy']['photo_read']} in {sum(MIXES['read_heavy'].values())}).")
+
+
+def range_top(c0: int, steps: dict, requests: int, *, max_output_tokens: int,
+              guard_tokens: int | None = CONTEXT_GUARD_TOKENS) -> dict:
+    """The range's top: the costliest (expected cost) of RANGE_MIXES (every reply an edit, the typical mix and the
+    read-heavy one), each at the high output tokens, its "mix" named (high_text); "required_cap_micro_usd" is the
+    largest of their runs'. v2's top was always every reply an edit; v3's photo_read at READ_POINTS_MAX pick sheets and
+    photo_compare at ZOOM_MAX zoom grids can make a mix with more reads the costlier one, and the v3 weights are
+    assumed (MIXES), so the top is taken over a read-heavier mix too (review 2026-10-12, P2)."""
+    runs = {mix: project(c0, steps[mix], requests, output=OUTPUT_TOKENS["high"], max_output_tokens=max_output_tokens,
+                         guard_tokens=guard_tokens) for mix in RANGE_MIXES}
+    mix = max(runs, key=lambda m: (runs[m]["expected_micro_usd"], -RANGE_MIXES.index(m)))
+    return {**runs[mix], "mix": mix,
+            "required_cap_micro_usd": max(r["required_cap_micro_usd"] for r in runs.values())}
+
+
+def image_pricing() -> dict:
+    """The v3 image sizes and texts the table prices at (request_estimate refuses a table priced at others)."""
+    return {"read_points": READ_POINTS_MAX, "pick_sheet_px": list(read_sheet_px()), "zoom_grids": ZOOM_MAX,
+            "zoom_grid_px": list(zoom_grid_px()), "zoom_grid_kind": ZOOM_GRID_KIND, "zoom_text_chars": ZOOM_TEXT_CHARS}
 
 
 def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: int = 16_384,
                    sheets: int = VARIANT_PHOTOS_MAX) -> dict:
     """The estimate table (estimate.json): runs of ``requests`` replies at effort high and max, the typical mix at the
-    expected output and the edit-heavy mix at the high output (the range); facet_variants priced at ``sheets`` sheets
-    a call (priced_sample; main passes the rehearsal job's variant_sheets)."""
+    expected output and range_top (the range); facet_variants priced at ``sheets`` sheets a call (main passes the
+    rehearsal job's variant_sheets), photo_read at READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom
+    grids, each of the largest size the tool makes (priced_samples, image_pricing)."""
     first = rehearsal["first_request"]
     c0 = first_request_tokens(first["text_chars"], first["image_sizes"])
     samples = rehearsal["tool_outputs"]
-    steps = {name: mix_step([priced_sample(s, sheets) for s in samples], mix) for name, mix in MIXES.items()}
+    priced = priced_samples(samples, sheets)
+    steps = {name: mix_step(priced, mix) for name, mix in MIXES.items()}
     rows = []
     for n in requests:
         for effort in ("high", "max"):
             exp = project(c0, steps["typical"], n, output=OUTPUT_TOKENS["expected"],
                           max_output_tokens=max_output_tokens)
-            high = project(c0, steps["edit_heavy"], n, output=OUTPUT_TOKENS["high"],
-                           max_output_tokens=max_output_tokens)
+            high = range_top(c0, steps, n, max_output_tokens=max_output_tokens)
             out_share = Tariff.frozen().settle_micro({"input_tokens": 0, "output_tokens": OUTPUT_TOKENS["expected"] * n,
                                                       "total_tokens": OUTPUT_TOKENS["expected"] * n})
             rows.append({"requests": n, "effort": effort, "expected": exp, "high": high,
                          "suggested_cap_usd": usd_text(suggested_cap_micro(high["required_cap_micro_usd"])),
                          "output_micro_usd": out_share,
-                         "text": f"{n} replies at effort {effort}: expected {cents_text(exp['expected_micro_usd'])}, "
-                                 f"up to {cents_text(high['expected_micro_usd'])} (every reply an edit)"})
+                         "text": f"{n} replies at effort {effort}: expected {cents_text(exp['expected_micro_usd'])}"
+                                 f"{limit_text(exp)}, up to {cents_text(high['expected_micro_usd'])} "
+                                 f"({high_text(high['mix'])}){limit_text(high)}"})
     per_tool = {}
-    for s in samples:                       # as recorded, with the tokens it is priced at
-        t = call_tokens(priced_sample(s, sheets))
+    for s, p in zip(samples, priced):       # as recorded, with the tokens it is priced at
+        t = call_tokens(p)
         per_tool.setdefault(s["tool"], []).append({"status": s["status"], "text_chars": s["text_chars"],
                                                    "args_chars": s["args_chars"],
                                                    "images": [[w, h, k] for w, h, k in s["images"]],
-                                                   "tokens": round(t["tokens"]), "stubbable": round(t["stubbable"])})
+                                                   "tokens": round(t["tokens"]), "stubbable": round(t["stubbable"]),
+                                                   **({"priced": False} if p.get("unpriced") else {})})
+    sheet, grid = read_sheet_px(), zoom_grid_px()
     return {"schema": ESTIMATE_SCHEMA, "price_version": Tariff.frozen().price_version,
             "formula": "tokens = 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112",
             "first_request": {**first, "tokens": c0, "v1_check": V1_FIRST_REQUEST},
             "output_tokens_per_request": OUTPUT_TOKENS, "output_tokens_source": OUTPUT_TOKENS_SOURCE,
-            "variant_sheets": sheets, "mixes": MIXES,
+            "variant_sheets": sheets, **image_pricing(), "mixes": MIXES, "range_mixes": list(RANGE_MIXES),
             "steps": {k: {kk: round(vv, 1) for kk, vv in v.items()} for k, v in steps.items()},
             "context_guard_tokens": CONTEXT_GUARD_TOKENS, "long_context_tokens": LONG_CONTEXT_INPUT_TOKENS,
             "rows": rows, "tool_outputs": per_tool,
             "notes": ["No gpt-6-astra ledger at effort high exists; high is priced with the max numbers (an upper "
                       "bound). output_micro_usd is the whole expected output cost, the most effort high can save.",
-                      f"facet_variants is priced at {sheets} sheets a call: a recorded call with fewer sheets has "
-                      "its largest sheet repeated (tool_outputs lists the calls as recorded, at their priced tokens).",
+                      f"facet_variants is priced at {sheets} sheets a call (a call with fewer has its largest "
+                      f"repeated); photo_read at {READ_POINTS_MAX} pick sheets of the largest size "
+                      f"({sheet[0]} x {sheet[1]} px, 4 photos a reading), its text and arguments scaled alike, and a "
+                      "call with no pick sheet (a drop) left out of its mean; photo_compare at its compare images "
+                      f"plus {ZOOM_MAX} zoom grids of the largest size ({grid[0]} x {grid[1]} px) and "
+                      f"{ZOOM_TEXT_CHARS} characters of text each (tool_outputs lists the calls as recorded, at their "
+                      "priced tokens).",
+                      f"Zoom grids are registered as kind {ZOOM_GRID_KIND!r} (lab.py), so a recorded call's own zoom "
+                      "grids cannot be told from its compare panels and stay as recorded: such a call is priced up "
+                      f"to {ZOOM_MAX} grids high.",
+                      f"The context guard replaces images of kinds {', '.join(STUBBED_KINDS)} in old results "
+                      "(lab.context_stubs: compare images, zoom grids included, and variant sheets) and a pick sheet "
+                      "once its reading was read again or dropped; the projection counts no pick sheet as stubbable "
+                      "(a run that re-reads is priced a little high, never low).",
+                      MIX_ASSUMED,
+                      "A projected run whose next request would pass the model's input limit ends there (the budget "
+                      "guard never sends it): its cost is that of the requests before it, and its row says so.",
+                      "Output tokens per request are the v2 facet runs' means; a photo_read's arguments (up to "
+                      f"{READ_POINTS_MAX} points, each up to 4 photos of two traced edges) are output not in them.",
                       "The cap is enforced by the guard request by request, independently of this forecast."]}
 
 
 def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets: int | None = None) -> dict:
     """The approval request's estimate block: this package's first request and the run's turns (60 when the run has
     no reply cap) with the growth measured by the rehearsal (estimate.json). ``variant_sheets``: the most sheets one
-    facet_variants call of this package returns (Lab.variant_photos_max); a table that priced fewer is refused."""
+    facet_variants call of this package returns (Lab.variant_photos_max); a table that priced fewer is refused, and so
+    is one made for another tool mix or range (a v2 table has no photo_read) or at other image pricing
+    (image_pricing). The text names the range top's mix and says the v3 mix is assumed (MIX_ASSUMED)."""
     priced = table.get("variant_sheets")
     if variant_sheets is not None and (priced is None or int(priced) < int(variant_sheets)):
         raise ValueError(f"the estimate table prices facet_variants at {priced or 'the recorded'} sheets a call, this "
                          f"package's calls return up to {variant_sheets}: run estimate on a current rehearsal")
+    pricing = image_pricing()
+    if table.get("mixes") != MIXES or table.get("range_mixes") != list(RANGE_MIXES) or \
+            {k: table.get(k) for k in pricing} != pricing:
+        raise ValueError("the estimate table was made for another tool mix or image pricing (mixes "
+                         f"{sorted(table.get('mixes') or {})}, read_points {table.get('read_points')}, zoom_grids "
+                         f"{table.get('zoom_grids')}, pick sheet {table.get('pick_sheet_px')}, zoom grid "
+                         f"{table.get('zoom_grid_px')}): run estimate on a current rehearsal")
     c0 = first_request_tokens(chars, sizes)
     n = settings.max_turns or 60
     steps = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in table["steps"].items()}
     exp = project(c0, steps["typical"], n, output=OUTPUT_TOKENS["expected"],
                   max_output_tokens=settings.max_output_tokens, guard_tokens=settings.context_guard_tokens)
-    high = project(c0, steps["edit_heavy"], n, output=OUTPUT_TOKENS["high"],
-                   max_output_tokens=settings.max_output_tokens, guard_tokens=settings.context_guard_tokens)
+    high = range_top(c0, steps, n, max_output_tokens=settings.max_output_tokens,
+                     guard_tokens=settings.context_guard_tokens)
     suggested = suggested_cap_micro(high["required_cap_micro_usd"])
-    text = (f"Expected {cents_text(exp['expected_micro_usd'])} (up to {cents_text(high['expected_micro_usd'])} if "
-            f"every reply is an edit) for {n} Astra replies at effort {settings.effort}.")
+    text = (f"Expected {cents_text(exp['expected_micro_usd'])}{limit_text(exp)} (up to "
+            f"{cents_text(high['expected_micro_usd'])} with {high_text(high['mix'])}{limit_text(high)}) for {n} Astra "
+            f"replies at effort {settings.effort}. " + MIX_ASSUMED)
     if settings.max_turns is None:
         text = "Illustrative 60-reply projection; this run has no reply cap. " + text
     return {"schema": ESTIMATE_SCHEMA, "first_request_tokens": c0, "requests": n, "effort": settings.effort,
             "expected_micro_usd": exp["expected_micro_usd"], "expected_usd": exp["expected_usd"],
             "range_usd": [exp["expected_usd"], high["expected_usd"]], "expected": exp, "high": high,
             "suggested_cap_micro_usd": suggested, "suggested_cap_usd": usd_text(suggested),
-            "source": {"table": table.get("schema"), "steps": table["steps"], "variant_sheets": priced,
-                       "output_tokens": OUTPUT_TOKENS, "output_tokens_source": OUTPUT_TOKENS_SOURCE},
+            "source": {"table": table.get("schema"), "steps": table["steps"], "variant_sheets": priced, **pricing,
+                       "range_mixes": list(RANGE_MIXES), "output_tokens": OUTPUT_TOKENS,
+                       "output_tokens_source": OUTPUT_TOKENS_SOURCE},
             "text": text, "limitation": "A forecast from the rehearsal's tool outputs and the fitted token formula; "
-                                        "effort high is priced as max. The cap is enforced independently. No "
-                                        "approval has been recorded."}
+                                        "effort high is priced as max. " + MIX_ASSUMED + " The cap is enforced "
+                                        "independently. No approval has been recorded."}
 
 
 # --------------------------------------------------------------------------------------------- main

@@ -32,6 +32,41 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
   frozen per job in ``work/compare/env-<basis>.json`` with its weights, residuals and photo shas. Its smoothing
   strength is chosen ONCE, by leave-one-photo-out cross-validation on the iteration-0 system, and kept by the later
   iterations; each iteration's own CV choice is recorded beside it as information (``cv_lambda``), never used.
+  WP6 v3 (WP6_V3 §5), matched rigs only:
+  - rows per photo: ``passes`` names the TARGET photos' rows (native_linear always, gloss_black when named; the lab
+    asks native_linear only); a photo of another colour is rendered and shown in gloss_black only (its native render
+    was never shown). The stack scale counts the rows actually stacked (3 or 4).
+  - ``model_edges`` = [{pair "crown|logo", shape ridge | valley | flat, deg, pts [[d, y, X], ...], deg_at
+    (optional: the signed angle at each point), range (optional: [lo, hi] signed over the edge), soft (optional: true
+    on a soft facet|base border run the build smooth-shades: no sharp edge on it)}] (<= 64 edges; the builder's
+    model_edges(tb), WP6 v3 I1; seeing draws what the flag says and cannot see the build's sharp edges): the creases in
+    the +X temple's chart (its own vertices; opening 0; ``opening`` = the spec's hinge opening (deg, [x, z]) or its
+    hinge dict; needs ``hinge_z_mm``). Refused (E_ARGS) unless every edge lies on the head's +X temple (median <=
+    EDGE_ON_MODEL_MM from its vertices: another build, a wrong hinge_z_mm or a missing opening is caught), and unless
+    its deg and deg_at lie in its own range (the roll-band mix-up). Each is posed per photo on both temples
+    (pose.chart_to_posed: the spec's opening, then the photo's theta; side -1 = the mirrored temple), depth-tested by
+    ray against the posed model (compare.edge_runs) and drawn INSTEAD of the mesh's dihedral creases in every overlay
+    (compare.draw_edges: ridge orange, valley blue, flat grey, 2 px from 6 deg, 1 px below; with deg_at segment by
+    segment; a soft border dashed thin grey and never labelled with an angle: SOFT_TEXT); labels read the build's own
+    deg_at / range, never an angle seeing measures (EDGE_LABEL_TEXT: deg_at over the run the label sits on, else the
+    whole edge's range); the render rows carry the model's outline. Without it the mesh rule stays and the render
+    rows are bare (owner sheets).
+  - ``zoom`` = [{rid, box [x0, y0, x1, y1] native px, geometry bool}] (<= 3; the photo need not be among ``refs``,
+    which may then be []): per item one 2 x 2 image, every panel the box at k = compare.zoom_scale (<= 2, native or
+    larger when it fits 760 x 500), the render made at k and the photo resampled on its exact grid: photo | render
+    (target: native_linear; other colour: gloss_black; with the model's outline) / photo + model outline + model edges
+    with angle labels ("16", "-3", "24..33") | geometry (the worker's normal pass as compare.geometry_view) or the
+    render with the labelled edges; the stretch is the photo's compare stretch; text: the box, k, px/mm, the pixel
+    map, what of the model the box holds, the edges, the render's backdrop share.
+  - side views (view_kind "side"): ``outline_offsets_mm`` {charted | mirrored: {facing, elevation_deg, mm_per_px
+    [min, max], top, bottom: [{d_mm, offset_mm, reason, px_per_mm}]}} every 10 mm from d 10 to the tip, photo minus
+    model along the image's up (top) / down (bottom). Only edges a silhouette shows are measured
+    (``_side_outline``): a temple seen from inside is not ("seen from inside"), nor the top in a view from above,
+    where the silhouette is the top face's far edge ("top face in view"; 01 / 05 / B1 look 14-15 deg down); a
+    station without a number gives its reason.
+    The top / rear ``outer_edge_offsets_mm`` are still computed.
+  - the cache key holds the model edges' sha256, the opening, the zoom box, k, geometry flag and the stretch's crop
+    (MATCHED_SCHEMA /3).
 - ``pick_surface_point(view, points)``: up to 64 pixel centres on a frozen, canonical or manifest camera ->
   {hit, object, partRole, point_mm, asset_mm, normal, face, distance}.
 - ``fit_cameras(reason, images, views, refs=None)``: export the head, ``fit_views`` with 14 workers (EcoQoS opted
@@ -42,6 +77,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import numbers
 import re
 import time
 from collections import OrderedDict
@@ -50,6 +86,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+from scipy.spatial import cKDTree
 
 from ..g3d_host import blender_camera as BC
 from ..g3d_host import cameras as CAMS
@@ -82,8 +119,35 @@ CATALOG_RIG = "catalog_band_v1"
 MATCHED_RIGS = (MATCHED_RIG, ENV_RIG, CATALOG_RIG)
 FLOAT_RIGS = (ENV_RIG, CATALOG_RIG)          # rendered as unclipped float (the gain is applied after the render)
 MATCHED_PASSES = ("native_linear", "gloss_black")
-MATCHED_SCHEMA = "g3d.photo_compare/2"
-ENV_FIT_MAX_PX = 640           # calibration crops are rendered at <= this long side (the fit cells are ~1 mm)
+MATCHED_SCHEMA = "g3d.photo_compare/3"     # /3 (WP6 v3): model edges, zoom, side outline offsets, rows actually stacked
+ZOOM_MAX = 3
+ZOOM_MIN_PX = 8                 # a zoom box is at least 8 x 8 native px after clipping to the photo
+MODEL_EDGES_MAX = 64
+EDGE_POINTS_MAX = 4000          # points per model edge
+EDGE_RECORD_PX = 6.0            # a drawn edge's runs are recorded every ~6 image px (native photo px, 0.1)
+SIDE_VIEWS = ("side",)          # side views: outline_offsets_mm (_side_outline: which edges a view can measure)
+SIDE_NAMES = {1: "charted", -1: "mirrored"}     # the +X temple (the chart) and its mirror: outline and model edges
+SIDE_FACE_PX = 1.0              # a side view measures a temple's top (bottom) outline where its top (bottom) face shows
+                                # < 1 native px; from 14 deg above it shows 11-15 px and the silhouette is its far edge
+EDGE_ON_MODEL_MM = 0.05         # model edges lie on the head's +X temple: per edge median distance to its vertices
+OUTLINE_REASON_TEXT = {         # why a side-view outline station has no number (compare.OUTLINE_REASONS + seeing's)
+    "covered": "covered = the frame or the other temple lies at that edge",
+    "off image": "off image = the station or its edge lies outside the photo",
+    "off temple": "off temple = the station's centre misses the temple",
+    "no model edge": "no model edge = the temple does not end within 45 mm",
+    "no photo edge": "no photo edge = the photo has no edge within 6 mm of the model's",
+    "seen from inside": "seen from inside = the temple's outer face turns away from the camera",
+    "top face in view": "top face in view = the view shows the top face; the silhouette is its far edge",
+    "bottom face in view": "bottom face in view = the view shows the bottom face; the silhouette is its far edge"}
+SOFT_TEXT = ("dashed grey: smooth-shaded, drawn without an angle; the fold is listed with the build's creases")
+#               a soft facet|base border (I1: a soft facet's run with no sharp edge in the build) stays a crease in
+#               the builder's tables, with its angle, soft and its declared shape (review2-seeing2-1 P3-2: "no crease,
+#               no angle" contradicted the receipt's "shoulder|base valley 2.5° soft declared valley")
+EDGE_LABEL_TEXT = ("deg from the build; - = valley; a..b = least..largest angle along the drawn run the label sits on "
+                   "(along the whole edge when the build gives no angle per point)")
+#               compare.run_label: deg_at over the label's run (the lab always sends deg_at), else the edge's range
+#               (review2-seeing2-1 P3-1: "along the edge" was false on the lab's path: "16..20" for a 15.7..29.2 crease)
+ENV_FIT_MAX_PX = 640          # calibration crops are rendered at <= this long side (the fit cells are ~1 mm)
 ENV_ERODE_PX = 12.0            # front region erosion at native scale (at least; 2 x the front's registration error)
 ENV_SIGMA_MM, ENV_STEP_MM = 1.0, 1.0
 ENV_ITERATIONS = 3             # re-linearised fits, each rendered directly; the best direct residual is kept
@@ -453,17 +517,25 @@ class Seeing:
                           basis: str | None = None, call_id: str | None = None, *, rig: str = "photo_v1",
                           crop: str = "temple", points_px: dict | None = None, hinge_z_mm: float | None = None,
                           gains: dict | None = None, boxes: dict | None = None, use_cache: bool = True,
-                          env: dict | None = None, render_deadline_s: float | None = None) -> dict:
+                          env: dict | None = None, render_deadline_s: float | None = None, zoom: list | None = None,
+                          model_edges: list | None = None, opening=None) -> dict:
         """Module doc. Every failure is journaled: an unexpected exception becomes a recorded E_COMPARE.
         ``render_deadline_s`` (matched rigs) caps the worker deadline of the compare renders below RENDER_DEADLINE_S
-        (the facet lab passes its tool's hard timeout)."""
+        (the facet lab passes its tool's hard timeout). ``zoom``, ``model_edges`` and ``opening`` (WP6 v3, module doc)
+        exist for the matched rigs only."""
         call_id = self.s.new_call_id("compare_to_photos", call_id)
         try:
             if rig != "photo_v1":
                 return self._matched_compare(refs, passes, crop, basis, call_id, rig=rig, points_px=points_px,
                                              hinge_z_mm=hinge_z_mm, gains_override=gains, boxes=boxes,
                                              use_cache=use_cache, env_override=env,
-                                             render_deadline_s=render_deadline_s)
+                                             render_deadline_s=render_deadline_s, zoom=zoom,
+                                             model_edges=model_edges, opening=opening)
+            if zoom is not None or model_edges is not None or opening is not None:
+                out = _err(call_id, "E_ARGS", "zoom, model_edges and opening need a photo-matched rig "
+                                              f"{MATCHED_RIGS}, not photo_v1")
+                self.s.record_call("compare_to_photos", call_id, {"refs": refs, "rig": rig, "basis": basis}, out)
+                return out
             return self._compare_v1(refs, parts, passes, crops, size_px, basis, call_id)
         except Exception as exc:  # noqa: BLE001 - reported and journaled, never raised to the caller
             out = _err(call_id, "E_COMPARE", f"{type(exc).__name__}: {exc}"[:2000])
@@ -778,15 +850,15 @@ class Seeing:
 
     @staticmethod
     def photo_at(bs: C.Basis, rid: str, box, k: float, shape) -> tuple[np.ndarray, np.ndarray]:
-        """(photo, matte) of the box (x0, y0, x1, y1) of a basis photo at the scale k of a crop camera (LANCZOS for
-        the photo, area-like bilinear for the matte; never upscaled)."""
+        """(photo, matte) of the box (x0, y0, x1, y1) of a basis photo on the pixel grid of its crop camera at k and
+        ``shape`` (compare.resample_box: registered exactly with a render made at k, where a resize to round(w k) px
+        was up to 0.5 px off at the far edge; bilinear, which never overshoots, where LANCZOS rang beside edges after
+        the stretch; the matte bilinear > 0.5). At k 1 on the box's own size: the box itself."""
         x0, y0, x1, y1 = box
-        pc, mc = bs.photo(rid)[y0:y1, x0:x1], bs.matte(rid)[y0:y1, x0:x1]
-        if k < 1.0:
-            size = (shape[1], shape[0])
-            pc = np.asarray(Image.fromarray(pc).resize(size, Image.LANCZOS))
-            mc = np.asarray(Image.fromarray(mc.astype(np.float32)).resize(size, Image.BILINEAR)) > 0.5
-        return pc, mc
+        if k == 1.0 and tuple(shape) == (y1 - y0, x1 - x0):
+            return bs.photo(rid)[y0:y1, x0:x1], bs.matte(rid)[y0:y1, x0:x1]
+        return (C.resample_box(bs.photo(rid), box, k, shape),
+                C.resample_box(bs.matte(rid).astype(np.float32), box, k, shape) > 0.5)
 
     def _render_params(self, rig: str, env: dict | None, light_frame: dict | None) -> dict:
         """The worker parameters a matched rig needs (photo_env: the frozen lobe weights; photo_env and
@@ -1060,14 +1132,19 @@ class Seeing:
         return out
 
     def _matched_compare(self, refs, passes, crop, basis, call_id, *, rig, points_px, hinge_z_mm, gains_override,
-                         boxes=None, use_cache=True, env_override=None, render_deadline_s=None) -> dict:
+                         boxes=None, use_cache=True, env_override=None, render_deadline_s=None, zoom=None,
+                         model_edges=None, opening=None) -> dict:
         """The photo-matched compare (module doc). ``gains`` / ``env`` override the job's frozen gains /
         environment (one normalisation across jobs, e.g. an owner sheet); ``boxes`` = {photo: {"box": [x0, y0, x1,
         y1], "k": scale, "stretch": [lo, hi] (optional)}} fixes crops (and stretches) so several models share
-        them."""
+        them. ``zoom`` / ``model_edges`` / ``opening``: WP6 v3 (module doc), checked by ``_check_v3_args``."""
         args = {"refs": refs, "passes": list(passes or ()), "crop": crop, "basis": basis, "rig": rig,
                 "points_px": points_px, "hinge_z_mm": hinge_z_mm, "gains": "override" if gains_override else None,
-                "env": "override" if env_override else None, "boxes": boxes}
+                "env": "override" if env_override else None, "boxes": boxes, "zoom": zoom, "opening": opening,
+                "model_edges": None if model_edges is None else {
+                    "edges": len(model_edges) if isinstance(model_edges, list) else None,
+                    "sha256": hashlib.sha256(json.dumps(model_edges, sort_keys=True,
+                                                        default=str).encode()).hexdigest()}}
         t0 = time.perf_counter()
         secs = {}
         try:
@@ -1085,8 +1162,12 @@ class Seeing:
                 if bs.pose(rid) is None:
                     raise SeeingError("E_NO_POSE", f"{bs.id} has no temple pose for {rid}; the photo-matched compare "
                                                    "needs a WP6 basis (theta_deg, hinge_axis_xz_mm)")
-            want = "default" if refs in (None, "default") else self._ref_ids(bs, refs)
             self._check_matched_args(rig, hinge_z_mm, gains_override, boxes, env_override)
+            v3 = self._check_v3_args(bs, zoom, model_edges, opening, hinge_z_mm)
+            if v3["zoom"] and isinstance(refs, (list, tuple)) and not len(refs):
+                want = []                                 # zoom images only
+            else:
+                want = "default" if refs in (None, "default") else self._ref_ids(bs, refs)
             out_dir = self._prepare_work_dir(self.work / "compare" / call_id)
         except C.NoBasis as exc:
             out = _err(call_id, "E_NO_BASIS", str(exc))
@@ -1104,7 +1185,7 @@ class Seeing:
             else:
                 out = self._matched_body(bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override,
                                          boxes, use_cache, env_override, call_id, out_dir, t0, secs,
-                                         render_deadline_s=render_deadline_s)
+                                         render_deadline_s=render_deadline_s, v3=v3)
         except SeeingError as exc:
             out = _err(call_id, exc.code, str(exc))
         except Exception as exc:  # noqa: BLE001 - every failure after the arguments is a journaled E_COMPARE
@@ -1114,9 +1195,10 @@ class Seeing:
 
     @staticmethod
     def _check_matched_args(rig: str, hinge_z_mm, gains, boxes, env) -> None:
-        """Refuse malformed hinge_z_mm / gains / boxes / env overrides up front (E_ARGS)."""
+        """Refuse malformed hinge_z_mm / gains / boxes / env overrides up front (E_ARGS); numbers may be any real
+        type (numpy floats too), never bool."""
         def num(x) -> bool:
-            return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+            return isinstance(x, numbers.Real) and not isinstance(x, bool) and math.isfinite(x)
         if hinge_z_mm is not None and not num(hinge_z_mm):
             raise SeeingError("E_ARGS", "hinge_z_mm must be a finite number (the spec's hinge.z_mm) or None")
         if gains is not None:
@@ -1154,8 +1236,121 @@ class Seeing:
             if not ok:
                 raise SeeingError("E_ARGS", f"env must be {{weights: {L.N_LOBES} non-negative numbers}}")
 
+    @staticmethod
+    def _check_v3_args(bs: C.Basis, zoom, model_edges, opening, hinge_z_mm) -> dict:
+        """The WP6 v3 arguments checked and normalised (E_ARGS otherwise): {"zoom": [{rid, box (x0, y0, x1, y1) int,
+        clipped to the photo, >= ZOOM_MIN_PX a side), geometry}], "edges": [{pair, shape, deg, pts (K, 3), deg_at
+        (K,) | None, range (lo, hi) | None, soft bool}] | None, "edges_sha256", "opening": (deg, (|x|, z)) | None}.
+        Numbers may be any real type (numpy floats too), never bool. ``deg`` is unsigned with its shape, or signed
+        (+ ridge, - valley), so a ridge with a negative deg contradicts itself; ``deg_at`` (optional) is the signed
+        angle at each point, aligned with ``pts`` (along a warp face's crease the angle changes and may change sign);
+        ``range`` (optional, WP6 v3 I1) the signed [lo, hi] over the edge's own polygon edges; with it ``deg`` is
+        signed (I1: the length-weighted signed angle; the shape is the crease's vote, which a crease that changes
+        sign along a warp face may contradict, so no shape/sign check then), and deg and every deg_at must lie in the
+        range within EDGE_RANGE_TOL_DEG, else the edge mixes in other edges' angles (probe1: a mean with the roll
+        sub-bands beside a face-to-face range, "36.9 (37.7-39.3)"; a label then shows a number no face pair has);
+        ``soft`` (optional bool, I7) marks a soft facet|base border
+        (pair "facet|base": WP6_V3 §2, creases between two facets are never soft). The edges' sha256 is over their
+        canonical JSON (the cache key's; deg_at and range only when given, soft only when true, so an edge set
+        without them keeps its key)."""
+        def num(x) -> bool:
+            return isinstance(x, numbers.Real) and not isinstance(x, bool) and math.isfinite(x)
+        out = {"zoom": [], "edges": None, "edges_sha256": None, "opening": None}
+        if zoom is not None:
+            if not isinstance(zoom, list) or len(zoom) > ZOOM_MAX:
+                raise SeeingError("E_ARGS", f"zoom must be a list of <= {ZOOM_MAX} {{rid, box, geometry}}")
+            for i, z in enumerate(zoom):
+                try:
+                    rid = C.ref_id(str(z["rid"]))
+                    box = [float(v) for v in z["box"]]
+                    geom = z.get("geometry", False)
+                    ok = rid in bs.refs and len(box) == 4 and all(map(num, box)) and isinstance(geom, (bool, np.bool_))
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    ok = False
+                if not ok:
+                    raise SeeingError("E_ARGS", f"zoom[{i}] must be {{rid: one of {list(bs.refs)}, box: [x0, y0, x1, "
+                                                "y1] native px, geometry: true | false}")
+                H, W = bs.shape(rid)
+                x0, y0 = max(0, math.floor(box[0])), max(0, math.floor(box[1]))
+                x1, y1 = min(W, math.ceil(box[2])), min(H, math.ceil(box[3]))
+                if x1 - x0 < ZOOM_MIN_PX or y1 - y0 < ZOOM_MIN_PX:
+                    raise SeeingError("E_ARGS", f"zoom[{i}] box {z['box']} keeps less than {ZOOM_MIN_PX} x "
+                                                f"{ZOOM_MIN_PX} px inside the {W} x {H} photo {rid}")
+                out["zoom"].append({"rid": rid, "box": (x0, y0, x1, y1), "geometry": bool(geom)})
+        if model_edges is not None:
+            if hinge_z_mm is None:
+                raise SeeingError("E_ARGS", "model_edges need hinge_z_mm (the spec's hinge.z_mm: d = hinge_z - z)")
+            if not isinstance(model_edges, list) or len(model_edges) > MODEL_EDGES_MAX:
+                raise SeeingError("E_ARGS", f"model_edges must be a list of <= {MODEL_EDGES_MAX} edges")
+            edges = []
+            for i, e in enumerate(model_edges):
+                try:
+                    pts = np.asarray(e["pts"], float)
+                    at = None if e.get("deg_at") is None else np.asarray(e["deg_at"], float)
+                    rng = None if e.get("range") is None else [float(v) for v in e["range"]] \
+                        if all(map(num, e["range"])) else []
+                    soft = e.get("soft", False)
+                    ok = isinstance(e["pair"], str) and 0 < len(e["pair"]) <= 80 and e["shape"] in C.EDGE_SHAPES \
+                        and num(e["deg"]) and pts.ndim == 2 and pts.shape[1] == 3 \
+                        and 2 <= len(pts) <= EDGE_POINTS_MAX and np.isfinite(pts).all() \
+                        and (at is None or (at.shape == (len(pts),) and np.isfinite(at).all())) \
+                        and (rng is None or (len(rng) == 2 and rng[0] <= rng[1])) \
+                        and isinstance(soft, (bool, np.bool_))
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    ok = False
+                if not ok:
+                    raise SeeingError("E_ARGS", f"model_edges[{i}] must be {{pair: 'a|b', shape: one of "
+                                                f"{list(C.EDGE_SHAPES)}, deg: number, pts: 2..{EDGE_POINTS_MAX} "
+                                                "[d, y, X] in the +X temple's chart, deg_at (optional): a signed "
+                                                "angle per point, range (optional): [lo, hi] signed, lo <= hi, soft "
+                                                "(optional): true | false}")
+                if rng is None and e["shape"] == "ridge" and float(e["deg"]) < 0:
+                    raise SeeingError("E_ARGS", f"model_edges[{i}] {e['pair']!r} is shape ridge with deg "
+                                                f"{float(e['deg']):g}: deg is unsigned with its shape, or signed "
+                                                "(+ ridge, - valley)")
+                if soft and not e["pair"].endswith("|base"):
+                    raise SeeingError("E_ARGS", f"model_edges[{i}] {e['pair']!r} is soft: only a facet's border with "
+                                                "the base can be soft (pair 'facet|base'); an edge between two facets "
+                                                "never is")
+                if rng is not None:                 # I1: deg is signed (+ ridge) whatever the shape's vote
+                    lo, hi = rng[0] - C.EDGE_RANGE_TOL_DEG, rng[1] + C.EDGE_RANGE_TOL_DEG
+                    sd = float(e["deg"])
+                    out_at = [] if at is None else np.flatnonzero((at < lo) | (at > hi)).tolist()
+                    if not lo <= sd <= hi or out_at:
+                        what = f"deg {sd:+.2f}" if not lo <= sd <= hi else \
+                            f"deg_at[{out_at[0]}] {at[out_at[0]]:+.2f} ({len(out_at)} of {len(at)} points)"
+                        raise SeeingError("E_ARGS", f"model_edges[{i}] {e['pair']!r}: {what} lies outside its own "
+                                                    f"range {rng[0]:+.2f}..{rng[1]:+.2f} (signed, + ridge): an edge's "
+                                                    "deg, deg_at and range come from the same polygon edges")
+                edges.append({"pair": e["pair"], "shape": e["shape"], "deg": float(e["deg"]), "pts": pts,
+                              "deg_at": at, "range": None if rng is None else tuple(rng), "soft": bool(soft)})
+            out["edges"] = edges
+            out["edges_sha256"] = hashlib.sha256(json.dumps(
+                [{"pair": e["pair"], "shape": e["shape"], "deg": e["deg"], "pts": e["pts"].tolist(),
+                  **({} if e["deg_at"] is None else {"deg_at": e["deg_at"].tolist()}),
+                  **({} if e["range"] is None else {"range": list(e["range"])}),
+                  **({"soft": True} if e["soft"] else {})} for e in edges],
+                sort_keys=True).encode()).hexdigest()
+        if opening is not None:
+            try:
+                if isinstance(opening, dict):
+                    deg = float(opening.get("opening_deg", opening.get("deg")))
+                    ax = [float(v) for v in opening["axis_xz_mm"]] if deg else [0.0, 0.0]
+                else:
+                    deg, ax = float(opening[0]), [float(v) for v in opening[1]]
+                ok = math.isfinite(deg) and len(ax) == 2 and all(map(math.isfinite, ax)) and (not deg or ax[0] != 0)
+            except (KeyError, TypeError, ValueError, IndexError):
+                ok = False
+            if not ok:
+                raise SeeingError("E_ARGS", "opening must be the spec's hinge {opening_deg, axis_xz_mm} or (deg, "
+                                            "[x, z]) with a hinge axis off x = 0")
+            out["opening"] = (deg, (abs(ax[0]), ax[1])) if deg else None
+        return out
+
     def _matched_body(self, bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override, boxes,
-                      use_cache, env_override, call_id, out_dir, t0, secs, *, render_deadline_s=None) -> dict:
+                      use_cache, env_override, call_id, out_dir, t0, secs, *, render_deadline_s=None,
+                      v3: dict | None = None) -> dict:
+        v3 = v3 or {"zoom": [], "edges": None, "edges_sha256": None, "opening": None}
         mesh = self.fit_mesh(exp["path"], exp["sha256"], skip=bs.skip, frame=bs.frame)
         roles = PO.part_roles(exp["path"])
         gkey = C.geometry_key(mesh)
@@ -1165,11 +1360,18 @@ class Seeing:
             zs = [float(mesh.V[np.unique(mesh.F[mesh.part == b])][:, 2].max()) for b in bodies.values()
                   if b is not None]
             hinge_z_mm = float(np.mean(zs)) if zs else 0.0
+        hinge_z_mm = float(hinge_z_mm)
+        on_model = None
+        if v3["edges"] is not None:
+            on_model = self._check_edges_on_model(v3["edges"], mesh, bodies.get(1), hinge_z_mm, v3["opening"])
         t1 = time.perf_counter()
         if want == "default":
             rids, geo = self.default_refs(bs, mesh, roles)
         else:
             rids, geo = want, {rid: self._matched_geometry(bs, rid, mesh, roles) for rid in want}
+        for z in v3["zoom"]:
+            if z["rid"] not in geo:
+                geo[z["rid"]] = self._matched_geometry(bs, z["rid"], mesh, roles)
         points_px = self._check_points(bs, rids, points_px)
         secs["geometry"] = round(time.perf_counter() - t1, 3)
         t1 = time.perf_counter()
@@ -1181,28 +1383,19 @@ class Seeing:
         gains = gains_override or self._matched_gains(bs, mesh, roles, rig, origin, call_id, out_dir, gkey, env)
         secs["gains"] = round(time.perf_counter() - t1, 3)
         fid, acetate = self._acetate_ids(mesh, roles)
-        recs, todo = {}, []
+        # the opening sits in the key with or without model edges: the side outline places its stations with it
+        common = {"schema": MATCHED_SCHEMA, "geometry": gkey, "rig": rig, "hinge_z": round(hinge_z_mm, 6),
+                  "frame": bs.frame.to_dict(), "gains": gains.get("colourways"), "gloss": gains.get("gloss_black"),
+                  "light": gains.get("light_frame"), "env": None if env is None else L.weights_sha(env["weights"]),
+                  "opening": v3["opening"], "edges": v3["edges_sha256"]}
+        recs, todo, crops = {}, [], {}
         for rid in rids:
             g = geo[rid]
-            matte = bs.matte(rid)
-            if boxes and rid in boxes:
-                box, k = tuple(int(v) for v in boxes[rid]["box"]), min(1.0, float(boxes[rid]["k"]))
-            else:
-                box = C.crop_box(g["temple"], matte) if crop == "temple" else C._box(g["mask"] | matte, C.CROP_PAD,
-                                                                                        g["shape"])
-                if box is None:
-                    box = (0, 0, g["shape"][1], g["shape"][0])
-                k = C.stack_scale(box[2] - box[0], box[3] - box[1], 3 + (1 if "gloss_black" in passes else 0))
+            cr = crops[rid] = self._photo_crop(bs, rid, g, passes, crop, boxes)
+            box, k, vpasses = cr["box"], cr["k"], cr["passes"]
             x0, y0, x1, y1 = box
-            vpasses = passes if bs.colourway(rid) == "target" else list(MATCHED_PASSES)
-            key = hashlib.sha256(json.dumps(
-                {"schema": MATCHED_SCHEMA, "geometry": gkey, "rid": rid, "rig": rig, "passes": vpasses,
-                 "crop": crop, "box": box, "k": k, "stretch": (boxes or {}).get(rid, {}).get("stretch"),
-                 "pose": g["pose"], "hinge_z": round(hinge_z_mm, 6), "frame": bs.frame.to_dict(),
-                 "camera": bs.refs[rid]["camera"], "gains": gains.get("colourways"),
-                 "gloss": gains.get("gloss_black"), "light": gains.get("light_frame"),
-                 "env": None if env is None else L.weights_sha(env["weights"])},
-                sort_keys=True, default=C._json_default).encode()).hexdigest()[:24]
+            key = self._cache_key({**common, "rid": rid, "passes": vpasses, "crop": crop, "box": box, "k": k,
+                                   "stretch": cr["stretch"], "pose": g["pose"], "camera": bs.refs[rid]["camera"]})
             cdir = self.work / "compare" / "cache" / key
             rec = procs.read_json(cdir / "record.json") if use_cache else None
             if rec and Path(rec["image"]).is_file():
@@ -1212,13 +1405,36 @@ class Seeing:
             ccam = BC.crop_camera(g["cam"], x0, y0, k)
             cshape = (max(1, round((y1 - y0) * k)), max(1, round((x1 - x0) * k)))
             g.update(box=box, k=k, ccam=ccam, cshape=cshape, cdir=cdir, key=key, passes=vpasses,
-                     stretch=(boxes or {}).get(rid, {}).get("stretch"))
+                     stretch=cr["stretch"])
             todo.append(rid)
+        zooms, ztodo = [], []
+        for n, z in enumerate(v3["zoom"], 1):
+            g = geo[z["rid"]]
+            cr = crops.get(z["rid"]) or self._photo_crop(bs, z["rid"], g, passes, crop, boxes)
+            x0, y0, x1, y1 = z["box"]
+            k = C.zoom_scale(x1 - x0, y1 - y0)
+            zp = ["native_linear" if bs.colourway(z["rid"]) == "target" else "gloss_black"] + \
+                (["normal"] if z["geometry"] else [])
+            key = self._cache_key({**common, "zoom": True, "rid": z["rid"], "passes": zp, "box": z["box"], "k": k,
+                                   "stretch_of": {"crop": crop, "box": cr["box"], "k": cr["k"],
+                                                  "stretch": cr["stretch"]},
+                                   "pose": g["pose"], "camera": bs.refs[z["rid"]]["camera"]})
+            zs = {**z, "n": n, "k": k, "passes": zp, "key": key, "cdir": self.work / "compare" / "cache" / key,
+                  "cam": BC.crop_camera(g["cam"], x0, y0, k), "crop": cr,
+                  "shape": (max(1, round((y1 - y0) * k)), max(1, round((x1 - x0) * k))), "view": f"zoom{n}-{z['rid']}"}
+            zooms.append(zs)
+            rec = procs.read_json(zs["cdir"] / "record.json") if use_cache else None
+            if rec and Path(rec["image"]).is_file():
+                zs["rec"] = {**rec, "cached": True}
+            else:
+                ztodo.append(zs)
         t2 = time.perf_counter()
         files, render_meta = {}, None
-        if todo:
+        if todo or ztodo:
             views = [{"name": rid, "camera": BC.to_blender(geo[rid]["ccam"], bs.frame, origin, geo[rid]["cshape"]),
                       "passes": geo[rid]["passes"], "pose": geo[rid]["pose"]} for rid in todo]
+            views += [{"name": z["view"], "camera": BC.to_blender(z["cam"], bs.frame, origin, z["shape"]),
+                       "passes": z["passes"], "pose": geo[z["rid"]]["pose"]} for z in ztodo]
             rr = self.s.call_read("compare_to_photos", "render", {
                 "out_dir": str(out_dir / "renders"), "views": views,
                 **self._render_params(rig, env, gains.get("light_frame"))},
@@ -1231,12 +1447,32 @@ class Seeing:
                                                             "linear_format")}
         secs["renders"] = round(time.perf_counter() - t2, 3)
         t3 = time.perf_counter()
+        posed: dict = {}
+
+        def edges_at(rid):
+            """The model edges posed at a photo (both temples), once per photo; None without model edges."""
+            if v3["edges"] is None:
+                return None
+            if rid not in posed:
+                posed[rid] = self._edges_posed(v3["edges"], geo[rid]["pose"], hinge_z_mm, v3["opening"])
+            return posed[rid]
         for rid in todo:
             recs[rid] = self._matched_photo(bs, rid, geo[rid], mesh, roles, bodies, fid, acetate, gains,
-                                            geo[rid]["passes"], files[rid], hinge_z_mm)
+                                            geo[rid]["passes"], files[rid], hinge_z_mm, edges=edges_at(rid),
+                                            opening=v3["opening"])
             recs[rid]["render"] = render_meta
             C.write_json(geo[rid]["cdir"] / "record.json", recs[rid])
             recs[rid]["cached"] = False
+        for z in ztodo:
+            # the zoom shows the photo with the stretch its compare row has (the photo's record when it is in this
+            # call, else the same rule at the crop the compare would give it)
+            stretch = recs[z["rid"]]["stretch"] if z["rid"] in recs else \
+                self._crop_stretch(bs, z["rid"], geo[z["rid"]], z["crop"], acetate)
+            z["rec"] = self._zoom_photo(bs, z, geo[z["rid"]], bodies, acetate, gains, files[z["view"]],
+                                        edges_at(z["rid"]), stretch)
+            z["rec"]["render"] = render_meta
+            C.write_json(z["cdir"] / "record.json", z["rec"])
+            z["rec"]["cached"] = False
         for rid in rids:
             recs[rid]["compare_id"] = call_id
             start = self._start_offsets(bs, rid, exp, gkey, hinge_z_mm)
@@ -1245,6 +1481,11 @@ class Seeing:
             if rid in points_px:
                 g = geo[rid]
                 recs[rid]["points"] = PO.chart_at(points_px[rid], g["cam"], g["mesh"], g["pose"], roles, hinge_z_mm)
+        zoom_recs = []
+        for z in zooms:
+            z["rec"].update(compare_id=call_id, n=z["n"])
+            z["rec"]["text"] = self._zoom_text(z["rec"], call_id)
+            zoom_recs.append(z["rec"])
         secs["assemble"] = round(time.perf_counter() - t3, 3)
         secs["total"] = round(time.perf_counter() - t0, 3)
         report = {"schema": MATCHED_SCHEMA, "compare_id": call_id, "created": C._utc(), "basis": bs.summary(),
@@ -1253,7 +1494,12 @@ class Seeing:
                   "passes": passes, "crop": crop, "hinge_z_mm": hinge_z_mm, "gains": gains,
                   "environment": None if env is None else {k: env.get(k) for k in (
                       "weights", "weights_sha", "lambda", "chosen_iteration", "path", "calibration")},
-                  "temple_px": {rid: g["temple_px"] for rid, g in geo.items()}, "photos": recs,
+                  "model_edges": None if v3["edges"] is None else {
+                      "edges": len(v3["edges"]), "sha256": v3["edges_sha256"], "opening": v3["opening"],
+                      "pairs": sorted({e["pair"] for e in v3["edges"]}),
+                      "soft_pairs": sorted({e["pair"] for e in v3["edges"] if e["soft"]}),
+                      "on_model_mm": round(max(on_model), 6) if on_model else None},
+                  "temple_px": {rid: g["temple_px"] for rid, g in geo.items()}, "photos": recs, "zoom": zoom_recs,
                   "note": C.CAMERA_NOTE, "seconds": secs}
         rp = out_dir / "report.json"
         C.write_json(rp, report)
@@ -1262,13 +1508,92 @@ class Seeing:
                                                    "rows": recs[rid].get("rows"), "cached": recs[rid]["cached"],
                                                    **({"points": recs[rid]["points"]} if "points" in recs[rid]
                                                       else {})} for rid in rids},
+                "zoom": [{"rid": r["rid"], "image": r["image"], "text": r["text"], "panels": r["panels"],
+                          "cached": r["cached"]} for r in zoom_recs],
                 "note": C.CAMERA_NOTE, "report": str(rp), "seconds": secs}
+
+    @staticmethod
+    def _photo_crop(bs: C.Basis, rid: str, g: dict, passes, crop: str, boxes) -> dict:
+        """A photo's stacked crop in this compare: {box (x0, y0, x1, y1) native px, k, passes (its rows' render
+        passes: a target photo the asked ones, native_linear first; another colourway gloss_black only), stretch (the
+        ``boxes`` override's, or None)}. k = compare.stack_scale for the rows actually stacked (photo, native_linear
+        for a target, overlay, gloss_black when rendered: 3 or 4), unless ``boxes`` fixes box and k."""
+        target = bs.colourway(rid) == "target"
+        vpasses = list(passes) if target else ["gloss_black"]
+        n_rows = 2 + int(target) + int("gloss_black" in vpasses)     # photo, (native), overlay, (gloss_black)
+        if boxes and rid in boxes:
+            box, k = tuple(int(v) for v in boxes[rid]["box"]), min(1.0, float(boxes[rid]["k"]))
+        else:
+            matte = bs.matte(rid)
+            box = C.crop_box(g["temple"], matte) if crop == "temple" else C._box(g["mask"] | matte, C.CROP_PAD,
+                                                                                    g["shape"])
+            if box is None:
+                box = (0, 0, g["shape"][1], g["shape"][0])
+            k = C.stack_scale(box[2] - box[0], box[3] - box[1], n_rows)
+        return {"box": box, "k": k, "passes": vpasses, "stretch": (boxes or {}).get(rid, {}).get("stretch")}
+
+    @staticmethod
+    def _stretch_of(pc: np.ndarray, mc: np.ndarray, part: np.ndarray, mask: np.ndarray, acetate) -> tuple:
+        """A compare's photo stretch (lo, hi): the p2-p98 luma of the photo crop over the model's acetate first hits
+        inside the matte, eroded 2 px (fewer than 200 px: the matte where the model shows)."""
+        ac = C.erode_px(np.isin(part, acetate) & mc, 2)
+        if ac.sum() < 200:
+            ac = mc & mask
+        return C.stretch_range(pc, ac)
+
+    def _crop_stretch(self, bs: C.Basis, rid: str, g: dict, cr: dict, acetate) -> tuple:
+        """The stretch the compare gives a photo at its crop ``cr`` (``_photo_crop``), for a zoom of a photo that is
+        not in the call: the override, else ``_stretch_of`` at that crop's camera; (0, 255) when the crop has too
+        few acetate pixels for one."""
+        if cr["stretch"]:
+            return tuple(float(v) for v in cr["stretch"])
+        x0, y0, x1, y1 = cr["box"]
+        k = cr["k"]
+        shape = (max(1, round((y1 - y0) * k)), max(1, round((x1 - x0) * k)))
+        pc, mc = self.photo_at(bs, rid, cr["box"], k, shape)
+        r = g["mesh"].scene().render(BC.crop_camera(g["cam"], x0, y0, k), shape, 1)
+        part = np.full(shape, -1, np.int64)
+        part[r["mask"]] = g["mesh"].part[r["face_id"][r["mask"]]]
+        try:
+            return self._stretch_of(pc, mc, part, r["mask"], acetate)
+        except ValueError:
+            return 0.0, 255.0
+
+    @staticmethod
+    def _check_edges_on_model(edges: list, mesh, body, hinge_z: float, opening) -> list:
+        """Per model edge the median distance (mm) of its points, placed as the +X temple's chart at the spec's
+        opening (pose.chart_to_posed, no photo theta: the exported head carries its temples so), from the nearest
+        vertex of the head's +X temple body. The lab sends the build's own vertices, so the head they were built for
+        gives ~1e-5 mm (GLB export fidelity 2.1e-5 mm). Refuses E_ARGS when an edge's median exceeds EDGE_ON_MODEL_MM
+        (edges of another build, a wrong hinge_z_mm, an opening left out, the mirrored side's chart: tenths of a mm,
+        e.g. 0.63 mm with hinge_z off by 1 mm), naming the facts, or when the head has no +X temple body."""
+        if body is None:
+            raise SeeingError("E_ARGS", "model_edges are in the +X temple's chart, and the head has no +X temple body")
+        tree = cKDTree(mesh.V[np.unique(mesh.F[mesh.part == body])])
+        dist = [float(np.median(tree.query(PO.chart_to_posed(e["pts"], 1, hinge_z, None, opening))[0]))
+                for e in edges]
+        bad = [i for i, d in enumerate(dist) if d > EDGE_ON_MODEL_MM]
+        if bad:
+            i = max(bad, key=lambda j: dist[j])
+            raise SeeingError("E_ARGS", f"{len(bad)} of {len(edges)} model_edges do not lie on the head's +X temple: "
+                                        f"model_edges[{i}] {edges[i]['pair']!r} lies a median {dist[i]:.2f} mm from "
+                                        f"its vertices (a build's own vertices lie within {EDGE_ON_MODEL_MM} mm of "
+                                        f"the head built from it, placed with its hinge_z_mm and opening); this call "
+                                        f"has hinge_z_mm {hinge_z:g} and opening " + (
+                                            "0" if not opening else f"{opening[0]:g} deg about x {opening[1][0]:.2f}, "
+                                                                    f"z {opening[1][1]:.2f}"))
+        return dist
+
+    @staticmethod
+    def _cache_key(doc: dict) -> str:
+        return hashlib.sha256(json.dumps(doc, sort_keys=True, default=C._json_default).encode()).hexdigest()[:24]
 
     @staticmethod
     def _matched_text(rec: dict, start: dict | None, call_id: str) -> str:
         """The compact text of one photo (composed on every call, so a cached record names the current
         compare_id): scale of the image shown and the points_px frame, IoU, outer-edge offsets with the start
-        model's in brackets, the compare_id and the camera note."""
+        model's in brackets, a side view's outline offsets (``_outline_text``), the model edges shown, the share of
+        the model the render rows show in the backdrop's colour, the compare_id and the camera note."""
         x0, y0, x1, y1 = rec["crop"]["box"]
         k = rec["crop"]["k"]
         lines = [rec["text_head"],
@@ -1276,24 +1601,135 @@ class Seeing:
                  f"photo x crop scale {k:.3f}). points_px are native photo pixels; this image shows the native box "
                  f"[{x0},{y0},{x1},{y1}]: u_img = (u - {x0} + 0.5) x {k:.3f} - 0.5, v_img = (v - {y0} + 0.5) x "
                  f"{k:.3f} - 0.5"]
+
+        def fmt(v):
+            return "n/a" if v is None else f"{v:+.2f}"
         offs = rec.get("outer_edge_offsets_mm")
         if offs:
             for s, rows_ in offs.items():
                 srows = {r["d_mm"]: r["offset_mm"] for r in ((start or {}).get(s) or [])} if isinstance(
                     start, dict) and "missing" not in start else {}
-
-                def fmt(v):
-                    return "n/a" if v is None else f"{v:+.2f}"
                 vals = " ".join(f"{o['d_mm']:g}:{fmt(o['offset_mm'])}"
                                 f"({fmt(srows.get(o['d_mm'])) if srows else 'n/a'})" for o in rows_)
                 lines.append(f"outer edge, photo minus model (mm; start model in brackets) side {s} at d: {vals}")
+        for temple, o in (rec.get("outline_offsets_mm") or {}).items():
+            lines.append(Seeing._outline_text(temple, o))
+        if rec.get("model_edges") is not None:
+            shown, soft = Seeing._edge_pairs(rec["model_edges"])
+            lines.append("model edges (from the build): " + (", ".join(shown) if shown else "none visible here")
+                         + (f"; soft borders ({SOFT_TEXT}): {', '.join(soft)}" if soft else ""))
+        share = rec.get("render_backdrop_share")
+        if share:
+            lines.append("render rows: " + ", ".join(f"{v:.0%} ({p})" for p, v in share.items())
+                         + " of the model's pixels show in the backdrop's colour after the stretch; the model's "
+                           "outline is drawn on the render rows")
         lines.append(f"compare_id {call_id}. {C.CAMERA_NOTE}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _outline_text(temple: str, o: dict) -> str:
+        """One temple's outline line (``_side_outline``): stations every 10 mm, photo minus model to 0.1 mm (the
+        edges are whole native pixels, 0.12-0.17 mm here), a station without a number by its reason; an edge whose
+        face the view shows is not measured, with why; a temple seen from inside is not measured."""
+        if not (o.get("top") or o.get("bottom")):
+            return f"outline: the {temple} temple has no 10 mm station here"
+        if not o.get("facing"):
+            return (f"outline: the {temple} temple is seen from inside here (its outer face turns away from the "
+                    "camera): not measured")
+        e = o.get("elevation_deg") or 0.0
+        lo, hi = (f"{v:.2f}" for v in o["mm_per_px"])
+        head = (f"outline of the {temple} temple, photo minus model (mm; 1 px = {lo if lo == hi else lo + '-' + hi} "
+                f"mm; this view looks {abs(e):.0f} deg " + ("down onto" if e >= 0 else "up at") + " the temple)")
+        parts, seen = [], set()
+        for edge, sign in (("top", "+ = the photo's edge higher"), ("bottom", "+ = the photo's edge lower")):
+            rows = o.get(edge) or []
+            if rows and all(r["reason"] == f"{edge} face in view" for r in rows):
+                parts.append(f"{edge}: not measured (the view shows the {edge} face, so the {edge} silhouette is that "
+                             f"face's far edge, set by its width and lean, not the outline)")
+                continue
+            vals = []
+            for r in rows:
+                if r["offset_mm"] is not None:
+                    vals.append(f"{r['d_mm']:g} " + f"{r['offset_mm']:+.1f}".replace("-0.0", "+0.0"))
+                else:
+                    vals.append(f"{r['d_mm']:g} {r['reason']}")
+                    seen.add(r["reason"])
+            parts.append(f"{edge} ({sign}) at d: " + ", ".join(vals))
+        legend = [OUTLINE_REASON_TEXT[r] for r in OUTLINE_REASON_TEXT if r in seen]
+        return head + ": " + "; ".join(parts) + (" (" + "; ".join(legend) + ")" if legend else "")
+
+    @staticmethod
+    def _mesh_creases(mp, body_ids: list) -> dict:
+        """compare.crease_edges (>= 6 deg) of the temple bodies of a (posed) mesh, joined: the overlay's old rule."""
+        edges = [C.crease_edges(mp.V, mp.F[mp.part == b]) for b in body_ids]
+        if not edges:
+            return C.crease_edges(np.zeros((0, 3)), np.zeros((0, 3), int))
+        return {key: np.concatenate([e[key] for e in edges]) for key in edges[0]}
+
+    @staticmethod
+    def _edges_posed(edges: list, pose, hinge_z: float, opening) -> list:
+        """Each model edge on both temples, placed as the model is at a photo: [{pair, shape, deg, deg_at, range, soft,
+        side, P (K, 3) posed model mm}] (pose.chart_to_posed of the +X chart points: x = side X, z = hinge_z - d, then
+        the spec's opening, then the photo's theta; side -1 = the mirrored temple)."""
+        return [{"pair": e["pair"], "shape": e["shape"], "deg": e["deg"], "deg_at": e.get("deg_at"),
+                 "range": e.get("range"), "soft": bool(e.get("soft")), "side": s,
+                 "P": PO.chart_to_posed(e["pts"], s, hinge_z, pose, opening)} for e in edges for s in (1, -1)]
+
+    @staticmethod
+    def _edges_drawn(posed: list, cam, frame, scene, shape) -> list:
+        """The posed model edges' visible runs in one image (compare.edge_runs against the posed model's raster
+        scene; an edge with ``deg_at`` carries its signed angle per sample as a third column): [{pair, shape, deg,
+        side, runs, range?, soft?}] as compare.draw_edges takes them (compare.edges_with_runs)."""
+        vals = [e.get("deg_at") for e in posed]
+        runs = C.edge_runs([e["P"] for e in posed], cam, frame, scene, shape,
+                           values=vals if any(v is not None for v in vals) else None)
+        return C.edges_with_runs(posed, runs)
+
+    @staticmethod
+    def _edge_records(drawn: list, box, k: float) -> list:
+        """The drawn model edges for the record: {pair, shape, deg, side (SIDE_NAMES: "charted" | "mirrored", as
+        outline_offsets_mm), shown_px (image px drawn), runs_px (each run every ~EDGE_RECORD_PX image px and its end,
+        in NATIVE photo px to 0.1), deg_shown ([min, max] signed angle over the drawn samples, when the edge has
+        deg_at and is not soft), range (as given), soft (true on a soft border, drawn dashed with no angle)}."""
+        x0, y0 = box[0], box[1]
+        out = []
+        for e in drawn:
+            runs, shown, vals = [], 0.0, []
+            for run in e["runs"]:
+                run = np.asarray(run, float)
+                cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(run[:, :2], axis=0), axis=1))]
+                shown += float(cum[-1])
+                idx = np.unique(np.r_[np.searchsorted(cum, np.arange(0.0, cum[-1], EDGE_RECORD_PX)), len(run) - 1])
+                nat = (run[idx, :2] + 0.5) / k - 0.5 + np.array([x0, y0], float)
+                runs.append(np.round(nat, 1).tolist())
+                if run.shape[1] >= 3:
+                    vals.append(run[:, 2][np.isfinite(run[:, 2])])
+            rec = {"pair": e["pair"], "shape": e["shape"], "deg": e["deg"], "side": SIDE_NAMES[e["side"]],
+                   "shown_px": round(shown, 1), "runs_px": runs}
+            if e.get("range") is not None:
+                rec["range"] = [float(v) for v in e["range"]]
+            v = np.concatenate(vals) if vals else np.zeros(0)
+            if e.get("soft"):
+                rec["soft"] = True
+            elif len(v):
+                rec["deg_shown"] = [round(float(v.min()), 2), round(float(v.max()), 2)]
+            out.append(rec)
+        return out
+
+    @staticmethod
+    def _edge_pairs(records: list) -> tuple[list, list]:
+        """(crease pairs, soft border pairs) that show in an image's edge records (any run drawn), sorted."""
+        shown = [e for e in records or [] if e["runs_px"]]
+        return (sorted({e["pair"] for e in shown if not e.get("soft")}),
+                sorted({e["pair"] for e in shown if e.get("soft")}))
+
     def _matched_photo(self, bs: C.Basis, rid: str, g: dict, mesh, roles, bodies, fid, acetate, gains, passes,
-                       files: dict, hinge_z: float) -> dict:
+                       files: dict, hinge_z: float, *, edges: list | None = None, opening=None) -> dict:
         """One photo's stacked image (photo / render / overlay / gloss_black; a variant-colourway photo has no
-        native row, the model's material being the target colourway) and its compact numbers."""
+        native row, the model's material being the target colourway) and its compact numbers. ``edges``: the model
+        edges posed at this photo (``_edges_posed``), drawn instead of the mesh creases; with them (the v3 compare)
+        the render rows also carry the model's outline, since a face the stretch clips to the backdrop's colour (05's
+        white top face on the white floor: 13 % of the model) would otherwise lose its edge there."""
         x0, y0, x1, y1 = g["box"]
         k, ccam, cshape = g["k"], g["ccam"], g["cshape"]
         photo, matte = bs.photo(rid), bs.matte(rid)
@@ -1304,23 +1740,32 @@ class Seeing:
         part[r["mask"]] = mp.part[r["face_id"][r["mask"]]]
         cw = bs.colourway(rid)
         gcw = gains["colourways"].get(cw) or gains["colourways"].get("target")
-        ac = C.erode_px(np.isin(part, acetate) & mc, 2)
-        if ac.sum() < 200:
-            ac = mc & r["mask"]
         if g.get("stretch"):
             lo, hi = (float(v) for v in g["stretch"])
         else:
-            lo, hi = C.stretch_range(pc, ac)
+            lo, hi = self._stretch_of(pc, mc, part, r["mask"], acetate)
         bg = C.photo_background(photo, matte)
+        v3 = edges is not None
+        share = {}
+
+        def render_row(shown: np.ndarray, alpha: np.ndarray, rlo: float, rhi: float, name: str) -> Image.Image:
+            """A render row as shown; in the v3 compare with the model's outline and its backdrop share."""
+            if not v3:
+                return Image.fromarray(shown)
+            share[name] = round(C.backdrop_share(shown, alpha, C.apply_stretch(np.asarray([[bg]], np.uint8), rlo,
+                                                                                rhi)[0, 0]), 3)
+            return C.overlay_matched(shown, r["mask"], [], None)
         rows = [("photo", f"{rid} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(C.apply_stretch(pc, lo, hi)))]
         gain = gains["colourways"]["target"]["native_linear"]["gain"]
         native = cw == "target"
         if native:
             nat = C.read_linear(files["native_linear"]["path"])
             rows.append(("native_linear", "render native_linear (white-balanced gain R/G/B "
-                         + "/".join(f"{v:.2f}" for v in np.atleast_1d(gain)) + "), same stretch",
-                         Image.fromarray(C.apply_stretch(C.composite_render(nat[0], nat[1], gain, bg), lo, hi))))
-        # chart grid on the temple bodies and creases of the temple bodies
+                         + "/".join(f"{v:.2f}" for v in np.atleast_1d(gain)) + "), same stretch"
+                         + (", outline magenta" if v3 else ""),
+                         render_row(C.apply_stretch(C.composite_render(nat[0], nat[1], gain, bg), lo, hi), nat[1],
+                                    lo, hi, "native_linear")))
+        # chart grid on the temple bodies; the model edges (or the mesh's creases) of the temple bodies
         side_c = np.zeros(cshape, np.int8)
         body_ids = [b for b in bodies.values() if b is not None]
         for s, b in bodies.items():
@@ -1329,13 +1774,19 @@ class Seeing:
         Q = PO.unpose_points(np.nan_to_num(r["points"].reshape(-1, 3)), side_c.ravel(), g["pose"])
         ch = PO.chart_of(Q, side_c.ravel(), hinge_z).reshape(cshape + (3,))
         grid = C.iso_lines(ch[..., 0], ch[..., 1], side_c != 0, side_c)
-        edges = [C.crease_edges(mp.V, mp.F[mp.part == b]) for b in body_ids]
-        edges = {key: np.concatenate([e[key] for e in edges]) for key in edges[0]} if edges else \
-            C.crease_edges(np.zeros((0, 3)), np.zeros((0, 3), int))
-        polys = C.crease_polylines(edges, ccam, bs.frame, r["depth"])
         base = C.apply_stretch(pc, lo, hi)
-        rows.append(("overlay", "overlay: outline magenta, ridge orange, valley blue, grid d/10 mm y/5 mm",
-                     C.overlay_matched(base, r["mask"], polys, grid)))
+        polys, drawn = [], None
+        if v3:
+            drawn = self._edges_drawn(edges, ccam, bs.frame, mp.scene(), cshape)
+            soft = any(e.get("soft") and e["runs"] for e in drawn)
+            rows.append(("overlay", "overlay: outline magenta, model edges ridge orange / valley blue / flat grey "
+                                    "(2 px >= 6 deg)" + (", soft border dashed grey" if soft else "")
+                                    + ", grid d/10 mm y/5 mm",
+                         C.overlay_matched(base, r["mask"], [], grid, edges=drawn)))
+        else:
+            polys = C.crease_polylines(self._mesh_creases(mp, body_ids), ccam, bs.frame, r["depth"])
+            rows.append(("overlay", "overlay: outline magenta, ridge orange, valley blue, grid d/10 mm y/5 mm",
+                         C.overlay_matched(base, r["mask"], polys, grid)))
         gl_rec = gains["gloss_black"]
         gloss_used = None
         if "gloss_black" in passes:
@@ -1344,9 +1795,9 @@ class Seeing:
             glo, ghi = (lo, hi) if dark else tuple(gl_rec["stretch"])
             gloss_used = {"gain": gl_rec["gain"], "stretch": [glo, ghi], "stretch_is_photo": dark}
             rows.append(("gloss_black", f"render gloss_black (gain {gl_rec['gain']:.2f}, stretch {glo:.0f}-{ghi:.0f}"
-                         f"{' = the photo' if dark else ' fixed for the job'})",
-                         Image.fromarray(C.apply_stretch(C.composite_render(gl[0], gl[1], gl_rec["gain"], bg),
-                                                         glo, ghi))))
+                         f"{' = the photo' if dark else ' fixed for the job'})" + (", outline" if v3 else ""),
+                         render_row(C.apply_stretch(C.composite_render(gl[0], gl[1], gl_rec["gain"], bg), glo, ghi),
+                                    gl[1], glo, ghi, "gloss_black")))
         img = C.stack_rows([(label, im) for _n, label, im in rows])
         g["cdir"].mkdir(parents=True, exist_ok=True)
         ip = g["cdir"] / f"{rid}.png"
@@ -1362,21 +1813,232 @@ class Seeing:
         region = ndimage.binary_dilation(g["temple"], iterations=TEMPLE_REGION_PX)
         a, b = g["mask"] & region, matte & region
         iou = float((a & b).sum() / max(1, (a | b).sum()))
-        offsets = None
-        if (bs.refs[rid].get("view_kind") or "") in OFFSET_VIEWS:
-            offsets = self._outer_offsets(bs, rid, g, mesh, bodies, hinge_z)
+        view_kind = bs.refs[rid].get("view_kind") or ""
+        offsets = self._outer_offsets(bs, rid, g, mesh, bodies, hinge_z) if view_kind in OFFSET_VIEWS else None
+        outline = self._side_outline(bs, rid, g, mesh, roles, bodies, hinge_z, opening) if view_kind in SIDE_VIEWS \
+            else None
         head = (f"{rid} ({bs.refs[rid].get('view_kind')}, {cw}, {bs.refs[rid].get('fit_status') or 'fitted'}): "
                 f"temple IoU {iou:.3f}" + ("" if native else "; no native row (the model's material is the target "
                                                                "colourway, this photo is a variant)"))
+        if drawn is not None:
+            shown = [e for e in drawn if e["runs"]]
+            creases = {s: sum(1 for e in shown if e["shape"] == s and not e.get("soft")) for s in C.EDGE_SHAPES}
+            creases["soft"] = sum(1 for e in shown if e.get("soft"))
+            creases["source"] = "model edges"
+        else:
+            creases = {"ridge": int(sum(1 for _, s in polys if s > 0)),
+                       "valley": int(sum(1 for _, s in polys if s < 0)), "source": "mesh dihedrals"}
         return {"image": str(ip), "rows": row_files, "text_head": head, "rid": rid,
                 "view_kind": bs.refs[rid].get("view_kind"),
                 "colourway": cw, "pose": g["pose"], "crop": {"box": [x0, y0, x1, y1], "k": k,
                                                               "camera": ccam.to_dict(), "shape": list(cshape)},
                 "px_per_mm": ppm, "px_per_mm_shown": ppm * k, "temple_iou": iou, "outer_edge_offsets_mm": offsets,
+                "outline_offsets_mm": outline,
                 "gain": gain, "stretch": [lo, hi], "gloss": gloss_used, "background": list(bg),
-                "creases": {"ridge": int(sum(1 for _, s in polys if s > 0)),
-                            "valley": int(sum(1 for _, s in polys if s < 0))},
+                "creases": creases, "render_backdrop_share": share or None,
+                "model_edges": None if drawn is None else self._edge_records(drawn, (x0, y0), k),
                 "renders": files}
+
+    def _zoom_photo(self, bs: C.Basis, z: dict, g: dict, bodies, acetate, gains, files: dict,
+                    edges: list | None, stretch) -> dict:
+        """One zoom (module doc): the box at k (the photo on the crop camera's exact grid, compare.resample_box:
+        bilinear, never overshooting; the render made at k), a 2 x 2 image photo | render / photo + model outline +
+        model edges | geometry or the render with edges, the edges labelled with their angle (no model edges: the
+        mesh creases, unlabelled). Both render panels carry the model's outline (a face the stretch clips to the
+        backdrop's colour loses its edge there; the share is recorded). The outline is not drawn along a panel's
+        border (the model goes on past it). ``stretch`` = the compare's stretch of this photo (``_matched_body``),
+        applied to photo and render; the geometry panel is stretched over this panel's temple pixels."""
+        rid = z["rid"]
+        x0, y0, x1, y1 = z["box"]
+        k, cam, shape = z["k"], z["cam"], tuple(z["shape"])
+        photo, matte = bs.photo(rid), bs.matte(rid)
+        pc = C.resample_box(photo, z["box"], k, shape)
+        mp = g["mesh"]
+        r = mp.scene().render(cam, shape, 1, want_points=True)
+        part = np.full(shape, -1, np.int64)
+        part[r["mask"]] = mp.part[r["face_id"][r["mask"]]]
+        cw = bs.colourway(rid)
+        target = cw == "target"
+        lo, hi = (float(v) for v in stretch)
+        bg = C.photo_background(photo, matte)
+        base = C.apply_stretch(pc, lo, hi)
+        if target:
+            gain = gains["colourways"]["target"]["native_linear"]["gain"]
+            nat = C.read_linear(files["native_linear"]["path"])
+            render, alpha, (rlo, rhi) = C.apply_stretch(C.composite_render(nat[0], nat[1], gain, bg), lo, hi), \
+                nat[1], (lo, hi)
+            rlabel = "render native_linear (same stretch) + outline"
+        else:
+            gl_rec = gains["gloss_black"]
+            gcw = gains["colourways"].get(cw) or gains["colourways"].get("target")
+            dark = bool(gcw.get("dark"))
+            rlo, rhi = (lo, hi) if dark else tuple(gl_rec["stretch"])
+            gl = C.read_linear(files["gloss_black"]["path"])
+            render, alpha = C.apply_stretch(C.composite_render(gl[0], gl[1], gl_rec["gain"], bg), rlo, rhi), gl[1]
+            rlabel = f"render gloss_black (stretch {rlo:.0f}-{rhi:.0f}{' = the photo' if dark else ''}) + outline"
+        share = C.backdrop_share(render, alpha, C.apply_stretch(np.asarray([[bg]], np.uint8), rlo, rhi)[0, 0])
+        rimg = C.overlay_matched(render, r["mask"], [], None, open_border=True)
+        body_ids = [b for b in bodies.values() if b is not None]
+        drawn, labels, polys = None, [], []
+        soft = ""
+        if edges is not None:
+            drawn = self._edges_drawn(edges, cam, bs.frame, mp.scene(), shape)
+            soft = "; dashed grey = soft border" if any(e.get("soft") and e["runs"] for e in drawn) else ""
+            ov = C.overlay_matched(base, r["mask"], [], None, open_border=True)   # the outline, then the edges
+            labels = C.draw_edges(ov, drawn, labels=True)
+            olabel = "photo + outline + model edges (deg, - = valley" + soft + ")"
+        else:
+            polys = C.crease_polylines(self._mesh_creases(mp, body_ids), cam, bs.frame, r["depth"])
+            ov = C.overlay_matched(base, r["mask"], polys, None, open_border=True)
+            olabel = "photo + outline + mesh creases >= 6 deg"
+        if z["geometry"]:
+            nrm = np.asarray(Image.open(files["normal"]["path"]).convert("RGBA"))
+            p4 = Image.fromarray(C.geometry_view(nrm, region=np.isin(part, body_ids)))
+            l4 = "geometry: surface direction as colour (no light)"
+        else:
+            p4 = rimg.copy()
+            if drawn is not None:
+                C.draw_edges(p4, drawn, labels=True)
+                l4 = "render + outline + model edges" + (" (dashed grey = soft border)" if soft else "")
+            else:
+                p4 = C.overlay_matched(render, r["mask"], polys, None, open_border=True)
+                l4 = "render + outline + mesh creases"
+        panels = {"photo": (f"{rid} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(base)),
+                  "render": (rlabel, rimg), "overlay": (olabel, ov),
+                  ("geometry" if z["geometry"] else "render_edges"): (l4, p4)}
+        sheet = C.grid([C.labelled(im, label, fit=True) for label, im in panels.values()], 2, max_px=C.SHEET_MAX_PX)
+        z["cdir"].mkdir(parents=True, exist_ok=True)
+        ip = z["cdir"] / f"zoom-{rid}.png"
+        sheet.convert("RGB").save(ip)
+        paths = {}
+        for name, (_label, im) in panels.items():
+            paths[name] = str(z["cdir"] / f"zoom-{rid}_{name}.png")
+            im.convert("RGB").save(paths[name])
+        body = np.isin(part, body_ids)
+        in_box = "temple" if body.any() else "model" if r["mask"].any() else "none"
+        pts = r["points"][body] if in_box == "temple" else r["points"][r["mask"]] if in_box == "model" else \
+            (mp.V[np.unique(mp.F[np.isin(mp.part, body_ids)])] if body_ids else mp.V)
+        ppm = CAMS.px_per_mm_at(g["cam"], bs.frame, np.median(pts, axis=0))
+        return {"image": str(ip), "panels": paths, "rid": rid, "view_kind": bs.refs[rid].get("view_kind"),
+                "colourway": cw, "box": [x0, y0, x1, y1], "k": k, "geometry": z["geometry"],
+                "camera": cam.to_dict(), "shape": list(shape), "px_per_mm": ppm, "px_per_mm_shown": ppm * k,
+                "in_box": in_box, "stretch": [lo, hi], "render_backdrop_share": round(share, 3),
+                "panel_labels": {n: lab for n, (lab, _im) in panels.items()},
+                "edge_labels": [{"pair": p, "text": t, "uv": [round(u, 1), round(v, 1)]} for p, t, (u, v) in labels],
+                "model_edges": None if drawn is None else self._edge_records(drawn, (x0, y0), k),
+                "creases": None if drawn is not None else {"ridge": int(sum(1 for _, s in polys if s > 0)),
+                                                           "valley": int(sum(1 for _, s in polys if s < 0))}}
+
+    @staticmethod
+    def _zoom_text(rec: dict, call_id: str) -> str:
+        """A zoom's compact text (composed on every call): the box, k, px/mm shown, the pixel map, the panels, what
+        of the model the box holds, the edges labelled, the render's backdrop share and the compare_id."""
+        x0, y0, x1, y1 = rec["box"]
+        k = rec["k"]
+        lab = rec["panel_labels"]
+        fourth = lab.get("geometry") or lab.get("render_edges")
+        where = {"temple": "", "model": " (the temple is not in this box: px/mm at the model in it)",
+                 "none": " (the model is not in this box: px/mm at the temple)"}[rec.get("in_box", "temple")]
+        lines = [f"zoom {rec.get('n', 1)} on {rec['rid']} ({rec.get('view_kind')}, {rec['colourway']}): native box "
+                 f"[{x0},{y0},{x1},{y1}] at k {k:.2f}: {rec['px_per_mm'] * k:.2f} px/mm in this image "
+                 f"({rec['px_per_mm']:.2f} native){where}; u_img = (u - {x0} + 0.5) x {k:.2f} - 0.5, v_img = (v - "
+                 f"{y0} + 0.5) x {k:.2f} - 0.5 in each panel",
+                 f"panels: {lab['photo']} | {lab['render']} / {lab['overlay']} | {fourth}"
+                 + ("; the geometry colours compare within this panel only" if lab.get("geometry") else "")]
+        if rec.get("model_edges") is not None:
+            items = [f"{e['pair']} {e['text']}" for e in rec.get("edge_labels") or []]
+            soft = Seeing._edge_pairs(rec["model_edges"])[1]
+            lines.append(f"model edges shown ({EDGE_LABEL_TEXT}): " + (", ".join(items) if items else "none here")
+                         + (f"; soft borders shown ({SOFT_TEXT}): {', '.join(soft)}" if soft else ""))
+        if rec.get("render_backdrop_share"):
+            lines.append(f"render: {rec['render_backdrop_share']:.0%} of the model's pixels show in the backdrop's "
+                         "colour after the stretch (the outline marks the model's edge)")
+        lines.append(f"compare_id {call_id}.")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _side_outline(bs: C.Basis, rid: str, g: dict, mesh, roles, bodies: dict, hinge_z: float, opening,
+                      matte: np.ndarray | None = None) -> dict:
+        """outline_offsets_mm of a side view (module doc): per temple (SIDE_NAMES) {facing, elevation_deg,
+        mm_per_px [min, max], top, bottom ([{d_mm, offset_mm, reason, px_per_mm (native, along the line)}] at every
+        10 mm station from d 10 to the tip - 2 mm, compare.outline_offsets at native size against ``matte``, default
+        the photo's), top_silhouette / bottom_silhouette (when that face is in view: the silhouette's offsets,
+        information only, never printed)}.
+        A station's line starts at the temple's centre at d (the chart point (d, the middle y of the body's vertices
+        within 1 mm of d, their largest X), placed as the model is: the spec's opening, the photo's theta) and runs
+        along the image's vertical; its px per mm is the image height of 1 mm of the chart's y there. What a
+        silhouette edge is depends on the view (2026-10-12 review of v3 seeing):
+        - a temple whose outward x turns away from the camera at a station (pose.faces_camera: the far temple of a
+          side view) is seen from inside: its silhouette is its inner face's and top face's, set by the unobserved
+          theta and the inner face (05 / 01: -2.0..-2.5 mm at d 10 decaying to 0 by d 80 on both physical temples,
+          the same shift top and bottom), never the outline: reason "seen from inside";
+        - the camera's elevation e over the temple there (atan2 of the toward-camera vector's components along the
+          chart's up and the temple's outward x; + = from above): a view from above shows the top face, about
+          thickness x tan(e) x px/mm px (05 / B1 / 01: e 14-15 deg, 11-15 px), so the top silhouette is the top
+          face's far (inner) edge, set by the top face's width and lean, not the outline's top (its offsets read
+          -0.5..-0.8 mm on the three photos and -1.5 mm on the model's own render under the photo's matte rule):
+          reason "top face in view", its silhouette offsets kept as top_silhouette; a view from below likewise for
+          the bottom. An edge is measured where its face shows < SIDE_FACE_PX, and on the far side of the view (the
+          bottom of a view from above is the outer-bottom edge: 0.00 at every station on the model's own render)."""
+        matte = bs.matte(rid) if matte is None else matte
+        cam = g["cam"]
+        out = {}
+        for s, b in bodies.items():
+            if b is None:
+                continue
+            V0 = mesh.V[np.unique(mesh.F[mesh.part == b])]
+            if opening:
+                V0 = PO.rot_about_hinge(V0, s, -opening[0], opening[1])
+            ch = PO.chart_of(V0, np.full(len(V0), s, np.int8), hinge_z)
+            temple = np.isin(g["part"], PO.temple_parts(g["mesh"], s, roles))
+            st = []
+            for d in np.arange(GRID_STATION_MM, ch[:, 0].max() - 2.0, GRID_STATION_MM):
+                near = np.abs(ch[:, 0] - d) <= 1.0
+                if not near.any():
+                    continue
+                y, X = float(ch[near, 1].min() + ch[near, 1].max()) / 2, float(ch[near, 2].max())
+                thick = float(ch[near, 2].max() - ch[near, 2].min())
+                P = PO.chart_to_posed([[d, y, X], [d, y + 1.0, X], [d, y, X + 1.0]], s, hinge_z, g["pose"], opening)
+                up, outward = P[1] - P[0], P[2] - P[0]
+                tw = PO.toward_camera(P[:1], cam, bs.frame)[0]
+                e = math.degrees(math.atan2(float(tw @ up), float(tw @ outward)))
+                uv = project_mm(P[:2], cam, bs.frame)
+                ppm = abs(float(uv[1][1] - uv[0][1]))
+                if ppm > 1e-6:
+                    st.append({"d_mm": float(d), "uv": uv[0], "px_per_mm": ppm, "elev": e,
+                               "facing": bool(PO.faces_camera(P[:1], outward[None], cam, bs.frame)[0]),
+                               "face_px": thick * math.tan(math.radians(min(abs(e), 89.0))) * ppm})
+            rec = {"facing": any(q["facing"] for q in st), "elevation_deg": None, "mm_per_px": None}
+            facing = [q for q in st if q["facing"]]
+            if facing:
+                rec["elevation_deg"] = round(float(np.median([q["elev"] for q in facing])), 1)
+                ppms = [q["px_per_mm"] for q in facing]
+                rec["mm_per_px"] = [round(1.0 / max(ppms), 3), round(1.0 / min(ppms), 3)]
+            for edge, sign, vdir in (("top", 1.0, -1.0), ("bottom", -1.0, 1.0)):
+                rows, todo, sil = [None] * len(st), [], []
+                for i, q in enumerate(st):
+                    if not q["facing"]:
+                        rows[i] = {"d_mm": q["d_mm"], "offset_mm": None, "reason": "seen from inside"}
+                    elif sign * q["elev"] > 0 and q["face_px"] >= SIDE_FACE_PX:
+                        rows[i] = {"d_mm": q["d_mm"], "offset_mm": None, "reason": f"{edge} face in view"}
+                        sil.append(i)
+                    else:
+                        todo.append(i)
+
+                def offsets(idx):
+                    return C.outline_offsets([{"d_mm": st[i]["d_mm"], "uv": st[i]["uv"], "dir": (0.0, vdir),
+                                               "px_per_mm": st[i]["px_per_mm"]} for i in idx], g["mask"], temple,
+                                             matte)
+                for i, r in zip(todo, offsets(todo)):
+                    rows[i] = r
+                for i, r in enumerate(rows):
+                    r["px_per_mm"] = round(st[i]["px_per_mm"], 3)
+                rec[edge] = rows
+                if sil:
+                    rec[f"{edge}_silhouette"] = [{**r, "px_per_mm": round(st[i]["px_per_mm"], 3)}
+                                                 for i, r in zip(sil, offsets(sil))]
+            out[SIDE_NAMES[s]] = rec
+        return out
 
     @staticmethod
     def _outer_offsets(bs: C.Basis, rid: str, g: dict, mesh, bodies: dict, hinge_z: float) -> dict:

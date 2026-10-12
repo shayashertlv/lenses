@@ -1,6 +1,8 @@
-"""The facet lab and its seven tools (plan/WP6_FACETS.md §4.1-4.5) with a fake scene and a fake compare: no Blender,
-no network, no model. The geometry is real (g3d.temple /2 core on the fixtures; prada_default is the Prada-layout
-fixture the text budgets are asserted on); the Blender side of facet_variants is test_wp2_worker's
+"""The facet lab, WP6 v3 (plan/WP6_V3.md §6, phase-2 interface I6) with a fake scene and a fake compare: no Blender,
+no network, no model. The geometry is real (the g3d.temple /2 core and fit.py on the fixtures; prada_default is the
+Prada-layout fixture), and so are the readings (readings.read_point on the synthetic rig of
+tests/agent/test_temple_readings.py). The tools' schemas and their mapping onto the Lab methods are
+tests/agent/test_temple_lab_v3.py's (track lab-e1); the Blender side of facet_variants is test_wp2_worker's
 test_temple_variants_render_builds_renders_and_leaves_the_scene_unchanged.
 """
 import asyncio
@@ -22,30 +24,42 @@ from agents.tool_context import ToolContext  # noqa: E402
 from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent.journal import WorkerFailed  # noqa: E402
 from glasses3d.agent.offline import disable_sdk_tracing  # noqa: E402
+from glasses3d.agent.seeing import MATCHED_RIG, Seeing  # noqa: E402
 from glasses3d.agent.temple_lab import geometry as G  # noqa: E402
 from glasses3d.agent.temple_lab import lab as LB  # noqa: E402
+from glasses3d.agent.temple_lab import readings as RD  # noqa: E402
 from glasses3d.agent.temple_lab import sheets as SH  # noqa: E402
 from glasses3d.agent.temple_lab import state as S  # noqa: E402
 from glasses3d.agent.temple_lab import tools as T  # noqa: E402
 from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab, render_safe_name  # noqa: E402
+from glasses3d.g3d.temple import build as BLD  # noqa: E402
 from glasses3d.g3d.temple import build_temple  # noqa: E402
+from glasses3d.g3d.temple import fit as FIT  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
 from glasses3d.g3d.temple import report as RP  # noqa: E402
 from glasses3d.g3d.temple.spec import TempleError, canonical, parse, spec_sha256  # noqa: E402
 from glasses3d.g3d_host import compare as GC  # noqa: E402
 from glasses3d.g3d_host import pose as PO  # noqa: E402
-from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm  # noqa: E402
+from glasses3d.g3d_host.camera import Camera, NormFrame  # noqa: E402
+from glasses3d.tests.agent.test_temple_readings import SynthBasis, corner_picks, point  # noqa: E402
 
-# the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt (run 7:
-# a crease plane may hold the ends of a straight run of its poly's edges, the Plane descriptions say so; the fade's
-# d1 text: two facets never both fade along the crease they share, E_FADE_CREASE)
-EDITS_SCHEMA_SHA256 = "b2decb5fb9d2ef6a58e5d86e04b34fca453eef3d35b6508bf6009c7b6715c590"
 PHOTO_IDS = ["01", "02", "03", "04", "05", "06"]
 BLACK_IDS = ["B1", "B2", "B3"]          # B1: a calibrated colourway photo (basis black-side); B2, B3: synthetic
 #                                        reference-only photos (the generic reference role; lab_photos)
+CAMERA_IDS = PHOTO_IDS + ["B1"]         # the photos with a camera (Lab.compare_ids)
 KINDS = {"01": "side", "02": "angled", "03": "top", "04": "front", "05": "side", "06": "rear"}
 DEFAULT = ["01", "02", "05"]
+OBJECT = "TOOL TEST: faces F1-F4 of the fixture; F1|F2 a ridge (the readings), F4 ends at E; nothing uncertain"
+REMEDY_WORDS = ("solved corners", "rise_per_mm", "solve instead", "one solved", "meets it", "do not redeclare",
+                "crease plane can hold", "facet_restore", "restore it")     # v2 refusal notes and removed tools
 disable_sdk_tracing()                  # the SDK's error path would build a trace exporter (a network client)
+
+
+@pytest.fixture(autouse=True)
+def photo_read_timeout(monkeypatch):
+    """loop.HARD_TIMEOUT_S does not name photo_read yet (its owner's table; tests/agent/test_temple_lab_v3.py does
+    the same): 30 s, the facet tools' floor, so the registry can be built."""
+    monkeypatch.setitem(L.HARD_TIMEOUT_S, "photo_read", L.HARD_TIMEOUT_S.get("photo_read", 30))
 
 
 # --------------------------------------------------------------------------------------------- fakes
@@ -80,6 +94,36 @@ class FakeBasis:
                 "-1": {"theta_deg": 2.0, "axis_xz_mm": [-64.6, -10.1]}}
 
 
+class ReadBasis(FakeBasis):
+    """FakeBasis on the readings tests' synthetic rig (test_temple_readings.SynthBasis: perspective cameras around the
+    Prada-sized temple pair, 640 x 480 photos; 05 square-on, 02 angled, black-side = 05's camera moved): photo_read
+    reads real points here."""
+
+    def __init__(self):
+        super().__init__()
+        self.synth = SynthBasis()
+        self.frame = self.synth.frame
+        for rid in self.refs:
+            self.refs[rid].update(self.synth.refs[rid])
+
+    def camera(self, rid):
+        return self.synth.camera(rid)
+
+    def shape(self, rid):
+        return self.synth.shape(rid)
+
+    def pose(self, rid):
+        return self.synth.pose(rid)
+
+    def photo(self, rid):
+        return self.synth.photo(rid)
+
+    def matte(self, rid):
+        m = np.zeros((480, 640), bool)
+        m[150:330, 60:600] = True
+        return m
+
+
 class FakeIndex:
     def __init__(self, rows):
         self.rows = rows
@@ -90,9 +134,10 @@ class FakeIndex:
 
 class FakeSession:
     """An in-memory checkpoint chain: a temple_lab_build checkpoints a fingerprint named by the spec sha and answers
-    the core receipt lines plus ``blender_lines`` (the Blender layer's own) with the decal move and hinge leaf gap;
-    a variant render writes float renders whose brightness depends on the variant (labels in ``refuse_variants`` are
-    refused by "Blender"; ``render_error`` fails the whole render)."""
+    the core receipt lines plus ``blender_lines`` (the Blender layer's own) with the decal move and hinge leaf gap
+    (``built`` keeps every spec it was given: the fitted spec, I6); a variant render writes float renders whose
+    brightness depends on the variant (labels in ``refuse_variants`` are refused by "Blender"; ``render_error`` fails
+    the whole render)."""
 
     def __init__(self, root):
         self.root = Path(root)
@@ -101,6 +146,7 @@ class FakeSession:
         self.index = FakeIndex(self.rows)
         self.worker = None
         self.calls = []
+        self.built = []
         self.fail_build = None
         self.read_fingerprints = []
         self.blender_lines = ["W_DECAL_SPANS_CREASE: decal PRADA spans F1|F2"]
@@ -145,6 +191,7 @@ class FakeSession:
         if self.fail_build:
             return {"status": "refused", "call_id": call_id, "result": {"status": "refused", "code": self.fail_build,
                                                                         "message": "injected"}}
+        self.built.append(params["spec"])
         row = self._new("fp-" + spec_sha256(params["spec"])[:12], "save")
         core = RP.receipt(build_temple(params["spec"]))["lines"]          # the Blender layer repeats the core's
         return {"status": "ok", "call_id": call_id, "checkpoint": row["id"], "result": {
@@ -183,11 +230,23 @@ class FakeSession:
                                                                "render": {"views": views}, "unchanged": True}}
 
 
+def side_outline(facing: bool) -> dict:
+    """seeing's outline_offsets_mm record of one temple in a side view from above (seeing._side_outline): the top not
+    measured (its face is in view), the bottom measured every 10 mm with one covered station."""
+    rows = [{"d_mm": float(d), "offset_mm": None, "reason": "top face in view", "px_per_mm": 7.5} for d in (10, 20, 30)]
+    bottom = [{"d_mm": 10.0, "offset_mm": 0.12, "reason": None, "px_per_mm": 7.5},
+              {"d_mm": 20.0, "offset_mm": None, "reason": "covered", "px_per_mm": 7.5},
+              {"d_mm": 30.0, "offset_mm": -0.43, "reason": None, "px_per_mm": 7.5}]
+    return {"facing": facing, "elevation_deg": 14.2, "mm_per_px": [0.13, 0.14], "top": rows, "bottom": bottom}
+
+
 class FakeSeeing:
-    """compare_to_photos writes a stacked image and a report.json per call (the fields the lab reads; ``records``
-    replaces a photo's synthetic record, e.g. by one recorded on the real lab). ``slow_s`` sleeps that long first.
+    """compare_to_photos writes a stacked image per photo and per zoom and a report.json per call (the fields the lab
+    reads: side views carry seeing's outline_offsets_mm, the charted temple facing, the mirrored seen from inside; top
+    and rear photos the v2 outer-edge offsets, which the v3 lab never prints; ``records`` replaces a photo's synthetic
+    record). Every call's arguments are kept (zoom, model_edges, opening). ``slow_s`` sleeps that long first.
     export_head writes ``scene_glb`` (default: the box glasses of tests/glbfab, part roles on the nodes; the lab's
-    variant crease lines take their occluder from it through fit_mesh)."""
+    variant edges take their occluder from it through fit_mesh)."""
 
     def __init__(self, session, root):
         self.s, self.root = session, Path(root)
@@ -217,16 +276,17 @@ class FakeSeeing:
         return fitmesh.load_fit_mesh(glb, skip=tuple(skip), frame=frame)
 
     def compare_to_photos(self, refs=None, passes=(), rig=None, crop="temple", points_px=None, hinge_z_mm=None,
-                          call_id=None, render_deadline_s=None):
+                          call_id=None, render_deadline_s=None, zoom=None, model_edges=None, opening=None):
         self.calls.append({"refs": refs, "passes": list(passes), "rig": rig, "crop": crop, "points_px": points_px,
-                           "hinge_z_mm": hinge_z_mm, "call_id": call_id, "render_deadline_s": render_deadline_s})
+                           "hinge_z_mm": hinge_z_mm, "call_id": call_id, "render_deadline_s": render_deadline_s,
+                           "zoom": zoom, "model_edges": model_edges, "opening": opening})
         if self.slow_s:
             time.sleep(self.slow_s)
         rids = [f"reference-{p}" for p in DEFAULT] if refs == "default" else list(refs)
         d = self.root / "work" / "compare" / call_id
         d.mkdir(parents=True, exist_ok=True)
         photos, rep = {}, {}
-        for i, rid in enumerate(rids):
+        for rid in rids:
             img = d / f"{rid}.png"
             tint = hashlib.sha256(f"{call_id}{rid}".encode()).digest()
             Image.new("RGB", (300, 400), tuple(tint[:3])).save(img)
@@ -238,18 +298,34 @@ class FakeSeeing:
             rep[rid] = {"view_kind": vk, "temple_iou": 0.912, "px_per_mm": 8.17,
                         "crop": {"box": [20, 30, 300, 210], "k": 0.493}, "outer_edge_offsets_mm": offs,
                         "start_offsets_mm": offs, "stretch": [60.0, 240.0], "background": [255, 255, 255],
+                        "outline_offsets_mm": {"charted": side_outline(True), "mirrored": side_outline(False)}
+                        if vk == "side" else None,
+                        "model_edges": None if model_edges is None else [
+                            {"pair": e["pair"], "shape": e["shape"], "runs_px": [[[10.0, 10.0], [20.0, 12.0]]]}
+                            for e in model_edges],
                         **black, **self.records.get(rid, {})}
             photos[rid] = {"image": str(img), "text": "x", "cached": False}
             if points_px and rid in points_px:
                 photos[rid]["points"] = [{"uv": [u, v], "hit": True, "side": 1, "d_mm": 20.0, "y_mm": 1.5,
                                           "X_mm": 70.0} for u, v in points_px[rid]]
+        zooms = []
+        for n, z in enumerate(zoom or [], 1):
+            img = d / f"zoom{n}-{z['rid']}.png"
+            Image.new("RGB", (200, 120), (n * 40, 90, 90)).save(img)
+            x0, y0, x1, y1 = z["box"]
+            cw = "variant" if z["rid"] == "black-side" else "target"         # seeing's word for another colourway
+            text = (f"zoom {n} on {z['rid']} (side, {cw}): native box [{x0:g},{y0:g},{x1:g},{y1:g}] at k 2.00: 16.34 "
+                    f"px/mm in this image (8.17 native)\npanels: photo | render / overlay | "
+                    f"{'geometry' if z['geometry'] else 'render with edges'}\nmodel edges shown (deg; - = valley): "
+                    f"F1|F2 14\ncompare_id {call_id}.")
+            zooms.append({"rid": z["rid"], "image": str(img), "text": text, "panels": {}, "cached": False})
         gains = {"colourways": {"target": {"native_linear": {"gain": [0.9, 0.95, 1.1]}}},
                  "gloss_black": {"gain": 3.0, "stretch": [0.0, 128.0]},
                  "light_frame": {"center": [0, 0, 0], "radius": 80.0}}
-        (d / "report.json").write_text(json.dumps({"photos": rep, "gains": gains, "environment": None}),
-                                       encoding="utf-8")
+        (d / "report.json").write_text(json.dumps({"photos": rep, "gains": gains, "environment": None,
+                                                   "zoom": [{"rid": z["rid"]} for z in zooms]}), encoding="utf-8")
         return {"status": "ok", "compare_id": call_id, "checkpoint": self.s.head["id"], "photos": photos,
-                "report": str(d / "report.json")}
+                "zoom": zooms, "report": str(d / "report.json")}
 
 
 def lab_photos(root: Path) -> list:
@@ -269,9 +345,10 @@ def lab_photos(root: Path) -> list:
     return rows
 
 
-def make_lab(root: Path, spec=None, **session) -> Lab:
-    """A prepared lab: revision 0 = spec (default prada_default) applied on the fake original and compared at every
-    target photo by the prepare step (``session``: FakeSession attributes for that apply, e.g. blender_lines)."""
+def make_lab(root: Path, spec=None, basis=None, **session) -> Lab:
+    """A prepared lab, as Lab.prepare makes it: revision 0 = spec (default prada_default) through the fit, applied on
+    the fake original (the worker gets the fitted spec) and compared at every target photo by the prepare step
+    (``session``: FakeSession attributes for that apply, e.g. blender_lines; ``basis``: default FakeBasis)."""
     (root / "inputs").mkdir(parents=True, exist_ok=True)
     (root / "inputs" / "lab.json").write_text(json.dumps({"schema": LAB_SCHEMA, "rig": "studio_dome_v1",
                                                           "assets": [], "photos": lab_photos(root)}),
@@ -280,10 +357,11 @@ def make_lab(root: Path, spec=None, **session) -> Lab:
     for k, v in session.items():
         setattr(s, k, v)
     lab = Lab(root, session=s, seeing=FakeSeeing(s, root))
-    lab._basis = FakeBasis()
+    lab._basis = basis or FakeBasis()
     lab.state["start_checkpoint"], lab.state["start_fingerprint"] = "c0000", "fp-original"
     lab.state["original"] = {"footprints": {"decals": [], "hinge": []}, "chart_mesh": None}
-    rid, _ = lab._register(spec or FX.prada_default(), parent=None, kind="template", label="revision 0")
+    design = spec or FX.prada_default()
+    rid, _ = lab._register(design, parent=None, kind="template", label="revision 0", fit=FIT.fit_spec(design))
     assert lab._apply("prepare-r0", rid, tool="prepare")["status"] == "ok"
     assert lab._compare("prepare-r0", lab.photo_ids(), by="prepare")["status"] == "ok"
     lab.save()
@@ -311,11 +389,22 @@ def tools_of(lab, **settings):
 
 
 def judgement(lab, best=None, overall="mixed"):
+    """The judgement of the latest compare Astra saw (one entry per photo, one difference each, state v3's form)."""
     c = S.seen_compares(lab.state)[-1]
     return {"compare_id": c["compare_id"], "versus_compare_id": None, "overall": overall,
-            "photos": [{"photo": p, "verdict": overall, "largest_difference": "upper facet too dark at the logo",
-                        "at_d_mm": 30.0, "at_y_mm": 5.0} for p in c["photos"]],
+            "photos": [{"photo": p, "verdict": overall, "differences": [
+                {"what": "upper facet too dark at the logo", "d_mm": 30.0, "y_mm": 5.0}]} for p in c["photos"]],
             "best_checkpoint": best or lab.s.head["id"]}
+
+
+def edit_args(parent=0, edits=(), *, judge=None, note="x", obj=None, apply=True, photos=None, reset=False) -> dict:
+    """facet_edit's arguments (I5: every one named)."""
+    return {"parent_revision": parent, "reset_layout": reset, "edits": list(edits), "judgement": judge, "note": note,
+            "object": obj, "apply": apply, "photos": photos}
+
+
+def compare_args(photos=None, crop=None, zoom=None, points=None) -> dict:
+    return {"photos": photos, "crop": crop, "zoom": zoom, "points_px": points}
 
 
 def enums(schema) -> list:
@@ -357,30 +446,28 @@ def rename(spec: dict, facets: dict, nodes: dict) -> dict:
     return canonical(s)
 
 
+def no_remedy(text: str) -> bool:
+    """True when ``text`` carries none of v2's remedy phrases or removed tools' names (WP6_V3 P6)."""
+    return not any(w in text for w in REMEDY_WORDS)
+
+
 # --------------------------------------------------------------------------------------------- edits union
-def test_edits_schema_is_pinned_and_strict():
-    schema = T.edits_schema()
-    digest = hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    assert digest == EDITS_SCHEMA_SHA256, digest
-    members = schema["properties"]["edits"]["items"]["anyOf"]
-    ops = [schema["$defs"][m["$ref"].split("/")[-1]]["properties"]["op"]["const"] for m in members]
-    assert ops == ["set_node", "delete_node", "set_facet", "delete_facet", "set_crease", "delete_crease",
-                   "splice_chain", "offset_chain", "set_scalar"]
-    for d in schema["$defs"].values():
-        assert d["additionalProperties"] is False and set(d["required"]) == set(d["properties"])
-    assert "discriminator" not in json.dumps(schema) and '"title"' not in json.dumps(schema)
-
-
 @pytest.mark.parametrize("name", sorted(FX.FIXTURES))
 def test_edits_round_trip_every_fixture(name):
-    """From another parent (the slab's chains, no layout; the target's chamfers, which §4.2 has no op for) the
-    edits of spec_to_edits rebuild the spec exactly."""
+    """From another parent (the slab's chains, no layout; the target's chamfers, which the edits have no op for) the
+    edits of spec_to_edits rebuild the spec exactly; the strict v3 union takes them unless the fixture has a v2 crease
+    + rise plane or a fade (internal callers only, geometry module doc; WP6_V3 §6 offers Astra neither)."""
     spec = FX.FIXTURES[name]()
     parent = {**canonical(FX.slab()), "chamfers": canonical(spec)["chamfers"]}
     out, notes = G.apply_edits(parent, G.spec_to_edits(spec), reset_layout=True)
     assert out == canonical(spec) and notes == []
-    validated = T.EditList.model_validate({"edits": G.spec_to_edits(spec)})      # the strict models accept them
-    assert [e.model_dump() for e in validated.edits] == G.spec_to_edits(spec)
+    v2 = any(isinstance(f["plane"], dict) or f["fade"] for f in canonical(spec)["facets"].values())
+    if v2:
+        with pytest.raises(Exception):
+            T.EditList.model_validate({"edits": G.spec_to_edits(spec)})
+    else:
+        validated = T.EditList.model_validate({"edits": G.spec_to_edits(spec)})      # the strict models accept them
+        assert [e.model_dump() for e in validated.edits] == G.spec_to_edits(spec)
 
 
 def test_edit_refusals_name_the_edit_index():
@@ -391,10 +478,10 @@ def test_edit_refusals_name_the_edit_index():
         ([{"op": "set_node", "name": "Z", "d_mm": 1, "y_mm": 1, "t": {"mode": "base", "mm": 2.0}}], 0, "null"),
         ([{"op": "set_node", "name": "Z", "d_mm": 1, "y_mm": 1, "t": {"mode": "mm", "mm": -1.0}}], 0, "negative"),
         ([set_t("C", base, 0.1), {"op": "delete_facet", "label": "NOPE"}], 1, "no facet"),
-        ([{"op": "set_facet", "label": "F9", "poly": ["A", "B", "Q"],
-           "plane": {"mode": "nodes", "crease": None, "rise_per_mm": None}, "fade": None}], 0, "does not exist"),
-        ([{"op": "set_facet", "label": "F9", "poly": ["A", "B", "C"],
-           "plane": {"mode": "crease", "crease": ["A", "B"], "rise_per_mm": None}, "fade": None}], 0, "rise"),
+        ([{"op": "set_facet", "label": "F9", "poly": ["A", "B", "Q"], "plane": {"mode": "flat"}, "soft": False}], 0,
+         "does not exist"),
+        ([{"op": "set_facet", "label": "F9", "poly": ["A", "B", "C"], "plane": {"mode": "warp"}, "soft": False}], 0,
+         "warp facet needs"),
         ([{"op": "set_crease", "facets": ["F1", "F7"], "shape": "ridge"}], 0, "F7"),
         ([{"op": "delete_crease", "facets": ["F1", "F3"]}], 0, "no declared crease"),
         ([{"op": "splice_chain", "chain": "inner", "d_from_mm": 5, "d_to_mm": 1, "points": []}], 0, "d_from"),
@@ -641,8 +728,10 @@ def test_layout_only_changes_with_the_same_surface_are_no_new_head():
 
 def test_hairlines_slivers_and_a_balance_point_are_no_new_head():
     """gf_review defect 1b: a 0.001 mm gap opened in a real 5.7 deg valley between two 0.5 mm proud facets, a
-    0.09 mm coplanar sliver inserted into it, and a facet proud at one end and sunk at the other moved across the
-    old majority flip of its facet|base crease (0.0016 mm of t) are no new head."""
+    0.09 mm coplanar sliver inserted into it, and a facet whose border with the base folds as a ridge along one part
+    and a valley along another moved across its table's majority flip (a warp facet, its fold changing sign along
+    the border, one corner 0.002 mm; v2's flat facet proud at one end and sunk at the other no longer flips: the v3
+    builder judges a facet|base border by its fold against the base, v3-builder-fix P2-3) are no new head."""
     t = FX.T_ZONE + 0.5
 
     def two(gap=0.0, sliver=0.0):
@@ -667,14 +756,15 @@ def test_hairlines_slivers_and_a_balance_point_are_no_new_head():
         d = G.geometry_delta(shared, other)
         assert d["creases"]["valley"]["mm"] is not None and d["crease_mm"] < 0.1 and not G.distinct_heads(d), d
 
-    def balance(dt):                                      # proud 0.3 mm at d 40, sunk 0.3 mm (+ dt) at d 50
-        b = on_slab([_node("E0", 40.0, -3.0, FX.T_ZONE + 0.3), _node("E1", 50.0, -3.0, FX.T_ZONE - 0.3 + dt),
-                     _node("E2", 50.0, 1.0, None), _node("E3", 40.0, 1.0, None),
-                     _facet("E", ["E0", "E1", "E2", "E3"], ("E0", "E1"), 0.0)])
+    def balance(dt):                                      # a warp twisted 1 mm: E2 +1 (+ dt), E3 -1 mm
+        b = on_slab([_node("E0", 40.0, -3.0, FX.T_ZONE), _node("E1", 50.0, -3.0, FX.T_ZONE),
+                     _node("E2", 50.0, 1.0, FX.T_ZONE + 1.0 + dt), _node("E3", 40.0, 1.0, FX.T_ZONE - 1.0),
+                     {"op": "set_facet", "label": "E", "poly": ["E0", "E1", "E2", "E3"], "plane": {"mode": "warp"},
+                      "soft": False}])
         return b, next(c["shape"] for c in b.tables["creases"] if c["regions"] == ["E", "base"])
-    lo, hi = -0.1, 0.1
+    lo, hi = -0.004, 0.004
     assert balance(lo)[1] != balance(hi)[1]
-    while hi - lo > 0.002:                                # bisect the table's majority flip
+    while hi - lo > 0.0005:                               # bisect the table's majority flip
         mid = 0.5 * (lo + hi)
         lo, hi = (mid, hi) if balance(mid)[1] == balance(lo)[1] else (lo, mid)
     (a, sa), (b, sb) = balance(lo), balance(hi)
@@ -734,1101 +824,7 @@ def test_the_head_comparison_is_fast():
         assert time.perf_counter() - t0 < 0.5
 
 
-# --------------------------------------------------------------------------------------------- tools
-def test_registry_seven_strict_tools_timeouts_and_contract(lab):
-    tools = T.registry(lab)
-    assert tuple(t.name for t in tools) == T.TOOL_NAMES
-    for t in tools:
-        assert t.strict_json_schema and t.params_json_schema["additionalProperties"] is False
-        assert t.timeout_seconds == L.HARD_TIMEOUT_S[t.name] + L.SDK_TIMEOUT_MARGIN_S
-    text = "Tools: " + ", ".join(T.TOOL_NAMES) + "."
-    assert L.contract_problems(L.ToolContract(frozenset(T.TOOL_NAMES)), instructions=text, brief="b", tools=tools) == []
-    enum = tools[1].params_json_schema["properties"]["photo"]["enum"]
-    assert enum == PHOTO_IDS + BLACK_IDS                              # photo_image: every photo
-    by = {t.name: t.params_json_schema for t in tools}
-    assert enums(by["photo_compare"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]   # the photos with a camera
-    assert enums(by["facet_edit"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]
-    assert enums(by["facet_variants"]["properties"]["photos"]) == [PHOTO_IDS + ["B1"]]   # photos with a camera
-    assert by["facet_variants"]["properties"]["photos"]["maxItems"] == 4                   # 3 targets + 1 black
-    assert PHOTO_IDS + ["B1"] in enums(by["facet_edit"]) and PHOTO_IDS + BLACK_IDS not in enums(by["facet_edit"])
-    finish = next(t for t in T.registry(lab, L.RunSettings(effort="max", finish_k=6)) if t.name == "facet_finish")
-    assert "at least 6" in finish.description and "at every target photo" in finish.description
-
-
-def test_facet_inspect_echoes_the_spec_once_with_station_table(lab):
-    out = call(tools_of(lab)["facet_inspect"], {})
-    body, footer, images, text = parsed(out)
-    assert body["status"] == "ok" and body["head"]["revision"] == 0
-    assert body["spec"]["stations"]["columns"] == ["d", "y_top", "y_bot", "x_in", "t_top", "t_bot"]
-    assert set(body["spec"]["nodes"]) >= {"A", "B", "C"} and body["spec"]["facets"]["F1"]["poly"]
-    assert body["receipt"]["lines"][0].startswith("F1|F2 ridge")
-    assert footer == "settled n/a / cap n/a · context n/a tokens"
-    assert [i.detail for i in images] == ["high", "high"]
-    assert len(text) <= 6000, len(text)
-    for im in images:
-        raw = __import__("base64").b64decode(im.image_url.split(",", 1)[1])
-        assert S.load(lab.state_path, "x")["images"][hashlib.sha256(raw).hexdigest()]["kind"] in ("chart", "sections")
-
-
-def test_photo_image_native_crop_and_refusal(lab):
-    t = tools_of(lab)["photo_image"]
-    body, _f, images, _t = parsed(call(t, {"photo": "05", "crop": [10, 20, 110, 70]}))
-    assert body["transform"]["box"] == [10, 20, 110, 70] and body["transform"]["k"] == 1.0
-    assert len(images) == 1
-    body, *_ = parsed(call(t, {"photo": "05", "crop": [0, 0, 999, 10]}))
-    assert body["status"] == "refused" and body["code"] == "E_ARGS"
-    out = call(t, {"photo": "07", "crop": None})                       # not in the enum: the SDK's schema refusal
-    assert isinstance(out, str) and "Invalid JSON input for tool photo_image" in out
-
-
-def test_photo_compare_returns_compare_id_and_charts_points(lab):
-    t = tools_of(lab)["photo_compare"]
-    body, _f, images, text = parsed(call(t, {"photos": ["05", "03"], "crop": None,
-                                             "points_px": [{"photo": "05", "points": [[100.0, 120.0]]}]}))
-    assert body["status"] == "ok" and body["compare_id"].startswith("cmp") and len(images) == 2
-    assert lab.seeing.calls[-1]["passes"] == ["native_linear", "gloss_black"]
-    assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1" and lab.seeing.calls[-1]["hinge_z_mm"] == -10.6
-    assert "d 20.00 y 1.50 t " in body["photos"]["05"]
-    assert "charted [" in body["photos"]["03"] and "mirrored [" in body["photos"]["03"]      # pose.SIDE_KEYS +1 / -1
-    assert "start [" in body["photos"]["03"] and "+1 [" not in body["photos"]["03"]
-    assert "| offsets mm d 10..130:" in body["photos"]["03"]             # the 10 mm station step is not printed
-    assert S.pending_compare(lab.state)["compare_id"] == body["compare_id"]
-    body, *_ = parsed(call(t, {"photos": ["05"], "crop": None, "points_px": [{"photo": "03", "points": [[1, 1]]}]}))
-    assert body["status"] == "refused" and body["code"] == "E_ARGS"
-
-
-def test_black_photos_image_compare_judge_and_refusals(lab):
-    """The black photos: B1 (a calibrated colourway photo) is shown and compared (seeing gets its basis reference,
-    the text names its rows) and judged like any photo; B2 and B3 (no camera) are photo_image only, and every
-    compare path refuses them with a message naming photo_image (facet_variants too); finish precondition 3 and the
-    default compare set stay the six target photos."""
-    assert lab.photo_ids() == PHOTO_IDS and lab.compare_ids() == PHOTO_IDS + ["B1"]
-    assert lab.image_ids() == PHOTO_IDS + BLACK_IDS and lab.pid("black-side") == "B1" and lab.rid("B1") == "black-side"
-    tl = tools_of(lab)
-    for pid, view in (("B2", "angled"), ("B3", "front"), ("B1", "side")):
-        body, _f, images, _t = parsed(call(tl["photo_image"], {"photo": pid, "crop": [0, 0, 64, 40]}))
-        assert body["status"] == "ok" and body["view"] == view and body["colour"] == "black" and len(images) == 1
-    body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None}))
-    assert "colour" not in body
-    body, _f, images, _t = parsed(call(tl["photo_compare"], {"photos": ["B1", "05"], "crop": None, "points_px": [
-        {"photo": "B1", "points": [[100.0, 120.0]]}]}))
-    assert body["status"] == "ok" and list(body["photos"]) == ["B1", "05"] and len(images) == 2
-    assert lab.seeing.calls[-1]["refs"] == ["black-side", "reference-05"]
-    assert set(lab.seeing.calls[-1]["points_px"]) == {"black-side"}
-    assert body["photos"]["B1"].startswith("side black: rows photo/overlay/gloss-black IoU ")
-    assert "d 20.00 y 1.50 t " in body["photos"]["B1"] and "black" not in body["photos"]["05"]
-    assert S.pending_compare(lab.state)["photos"] == ["B1", "05"]
-    j = judgement(lab)
-    assert [p["photo"] for p in j["photos"]] == ["B1", "05"]
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": j,
-                                              "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x",
-                                              "apply": True, "photos": ["B1"]}))
-    assert body["status"] == "applied" and list(body["photos"]) == ["B1"] and lab.state["judgements"][-1]["photos"]
-    # B2 / B3: outside the compare enums (the SDK refuses the arguments), and the lab names photo_image
-    out = call(tl["photo_compare"], {"photos": ["B2"], "crop": None, "points_px": None})
-    assert isinstance(out, str) and "Invalid JSON input for tool photo_compare" in out
-    for fn in (lambda: lab.compare("x", ["B2"]), lambda: lab.compare("x", ["05"], None, [{"photo": "B3",
-                                                                                        "points": [[1, 1]]}])):
-        with pytest.raises(S.LabRefusal, match="photo_image only") as e:
-            fn()
-        assert e.value.code == "E_ARGS"
-    # facet_variants: B1 (gloss-black panels, test_variant_sheets_at_a_black_photo_draw_gloss_and_crease_lines);
-    # B2 / B3 have no camera
-    out = call(tl["facet_variants"], {"parent_revision": 0, "photos": ["B2"], "judgement": judgement(lab),
-                                      "variants": [{"label": "A", "edits": []}, {"label": "B", "edits": []}]})
-    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
-    with pytest.raises(S.LabRefusal, match="photo_image only"):
-        lab.variants("x", 0, [{"label": "A", "edits": []}, {"label": "B", "edits": []}], ["B3"], judgement(lab))
-    body, *_ = parsed(call(tl["facet_inspect"], {}))
-    assert body["photos"]["B1"] == "side, black, photo_compare" and body["photos"]["B2"] == \
-        "angled, black, photo_image only" and body["photos"]["05"] == "side"
-    # the default set and finish precondition 3 are the target photos
-    parsed(call(tl["photo_compare"], {"photos": None, "crop": None, "points_px": None}))
-    assert lab.seeing.calls[-1]["refs"] == "default"
-    miss = S.finish_missing(lab.state, status="matched", best_revision=1, k=1, distinct=lab.distinct,
-                            target_photos=lab.photo_ids())
-    assert next(m for m in miss if m["precondition"] == 3)["photos"] == ["03", "04", "06"]     # B1 never needed
-    # a reference-only photo whose bytes changed is refused
-    (lab.root / "inputs" / "images" / "black-front.png").write_bytes(b"changed")
-    body, *_ = parsed(call(tl["photo_image"], {"photo": "B3", "crop": None}))
-    assert body["status"] == "refused" and body["code"] == "E_STATE"
-
-
-def test_facet_edit_refusals_return_at_once_and_change_nothing(lab):
-    t = tools_of(lab)["facet_edit"]
-    n_rev, head = len(lab.state["revisions"]), lab.s.head["id"]
-    body, *_ = parsed(call(t, {"parent_revision": 0, "reset_layout": False, "judgement": None, "note": "x",
-                               "apply": True, "photos": None,
-                               "edits": [set_t("C", FX.prada_default(), 0.2), {"op": "delete_node", "name": "B"}]}))
-    assert body["status"] == "refused" and body["edit"] == 1 and body["code"] == "E_EDIT"
-    body, *_ = parsed(call(t, {"parent_revision": 0, "reset_layout": False, "judgement": None, "note": "x",
-                               "apply": True, "photos": None, "edits": [set_t("A", FX.prada_default(), 5.0)]}))
-    assert body["status"] == "refused" and body["stage"] == "build" and body["code"].startswith("E_")
-    body, *_ = parsed(call(t, {"parent_revision": 9, "reset_layout": False, "judgement": None, "note": "x",
-                               "apply": True, "photos": None, "edits": []}))
-    assert body["code"] == "E_REVISION"
-    assert len(lab.state["revisions"]) == n_rev and lab.s.head["id"] == head
-
-
-def test_facet_edit_applies_compares_and_fits_the_text_budget(lab):
-    t = tools_of(lab)["facet_edit"]
-    edits = [set_t("C", FX.prada_default(), 0.6), {"op": "set_scalar", "key": "roll_mm", "value": 0.3}]
-    body, footer, images, text = parsed(call(t, {"parent_revision": 0, "reset_layout": False, "edits": edits,
-                                                 "judgement": None, "note": "deeper C, rolled edges", "apply": True,
-                                                 "photos": None}, "call_e1"))
-    assert body["status"] == "applied" and body["revision"] == 1 and body["parent"] == 0
-    assert body["diff"].startswith("~node C t 8.0->8.6") and "roll_mm 0.0->0.3" in body["diff"]
-    assert body["receipt"]["lines"][0].startswith("F1|F2 ridge") and body["blender"]["decal_max_move_mm"] == 0.61
-    assert body["compare_id"] and list(body["photos"]) == DEFAULT
-    assert len(images) == 2 + 3 and footer.startswith("settled ")
-    assert len(text) <= 1500, len(text)                                   # §4.5 on the Prada-layout fixture
-    head = S.head_by_fingerprint(lab.state, lab.s.head["fingerprint"])
-    assert head["revision"] == 1 and lab.state["events"][-1]["tool"] == "facet_edit"
-    # the top and rear photos carry the offsets: still within the budget
-    body, _f, _i, text = parsed(call(t, {"parent_revision": 1, "reset_layout": False, "judgement": judgement(lab),
-                                         "edits": [set_t("C", FX.prada_default(), 0.9)], "note": "x", "apply": True,
-                                         "photos": ["03", "06"]}))
-    assert body["status"] == "applied" and len(text) <= 1500, len(text)
-
-
-# Recorded on the real lab (T5 rehearsal 2026-10-11, data/wp6v2/lab/t5): the compare of the two-facet roof edit H3
-# (cmp012; view, temple IoU, px/mm, crop box and k, outer-edge offsets photo minus model at d 10..130 every 10 mm) and
-# the Blender layer's own lines of its apply and of prepare's revision 0 (lab_calls 0002, 0011). Its facet_edit text
-# was 2,006 characters before the §4.5 trim.
-T5_PHOTOS = {
-    "01": ("side", 0.870, 8.171, [0, 50, 1298, 647], 0.3836, None),
-    "02": ("angled", 0.879, 8.436, [303, 426, 1860, 890], 0.4935, None),
-    "03": ("top", 0.817, 7.387, [88, 0, 1360, 895], 0.2559,
-           {"+1": [-0.66, 1.21, 2.85, 1.92, -0.41, -0.42, -1.2, -0.99, -0.72, -0.87, -0.29, None, None],
-            "-1": [-0.8, 1.07, 2.71, 1.99, -0.54, -0.56, -0.99, -1.0, -0.57, -0.87, -0.3, None, None]}),
-    "04": ("front", 0.890, 7.320, [0, 35, 1190, 373], 0.6775, None),      # T5's compare_all (cmp017)
-    "05": ("side", 0.877, 7.473, [49, 30, 1226, 572], 0.4225, None),
-    "06": ("rear", 0.782, 6.572, [154, 47, 1364, 543], 0.4617,
-           {"+1": [None, None, -0.94, -1.56, -0.47, -3.56, -3.39, -3.22, -3.36, -3.65, -3.03, -0.9, 0.0],
-            "-1": [None, None, -0.94, -1.56, -0.62, -3.71, -3.39, -3.22, -3.21, -3.65, -2.57, -0.75, 0.15]}),
-}
-T5_PREPARE_LINES = ["W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 61.5 deg (> 30.0)",
-                    "W_HINGE_LEAF: hinge leaf Hinge right | temple mounting leaf embedded 0.84 mm",
-                    "W_HINGE_LEAF: hinge leaf Hinge left | temple mounting leaf embedded 0.84 mm"]
-T5_EDIT_LINES = ["W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 61.5 deg (> 30.0)",
-                 "W_DECAL_SPANS_CREASE: decal Temple right | PRADA gold hallmark spans D|U",
-                 "W_HINGE_LEAF: hinge leaf Hinge right | temple mounting leaf embedded 0.84 mm",
-                 "W_DECAL_SPANS_CREASE: decal Temple left | PRADA gold hallmark spans D|U",
-                 "W_HINGE_LEAF: hinge leaf Hinge left | temple mounting leaf embedded 0.84 mm"]
-T5_GAP_MM = -0.836
-
-
-def t5_records() -> dict:
-    out = {}
-    for pid, (kind, iou, ppm, box, k, offs) in T5_PHOTOS.items():
-        rows = None if offs is None else {side: [{"d_mm": 10.0 * (i + 1), "offset_mm": v} for i, v in enumerate(vals)]
-                                          for side, vals in offs.items()}
-        out[f"reference-{pid}"] = {"view_kind": kind, "temple_iou": iou, "px_per_mm": ppm,
-                                   "crop": {"box": box, "k": k}, "outer_edge_offsets_mm": rows,
-                                   "start_offsets_mm": rows}
-    return out
-
-
-def roof_edits(r0: dict, rise: float) -> list:
-    """T5's scripted two-facet roof (H3 / H4) on revision 0's chains: four W_BORDER_RAMP runs."""
-    from glasses3d.g3d.temple.spec import parse
-    ps = parse(r0)
-
-    def node(name, d, y, t):
-        mode = "mm" if isinstance(t, float) else "solve"
-        return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
-                "t": {"mode": mode, "mm": t if mode == "mm" else None}}
-
-    def facet(label, poly):
-        return {"op": "set_facet", "label": label, "poly": poly, "fade": None,
-                "plane": {"mode": "crease", "crease": ["P", "Q"], "rise_per_mm": rise}}
-    return [node("P", 8.0, 1.0, round(float(ps.base_t(8.0, 1.0)) + 0.8, 3)),
-            node("Q", 45.0, 0.0, round(float(ps.base_t(45.0, 0.0)) + 0.8, 3)),
-            node("PT", 8.0, 30.0, None), node("QT", 45.0, 30.0, None), node("PB", 8.0, -30.0, None),
-            node("QB", 45.0, -30.0, None), facet("U", ["P", "Q", "QT", "PT"]), facet("D", ["Q", "P", "PB", "QB"]),
-            {"op": "set_crease", "facets": ["D", "U"], "shape": "ridge"}]
-
-
-class WorstFooter:
-    """The longest footer a facet run prints (a two-digit spend, a three-digit cap, a six-digit context)."""
-
-    def footer(self):
-        return L.footer_text(99.99, 100.0, 999_999)
-
-
-@pytest.mark.parametrize("photos", [PHOTO_IDS, ["01", "02", "03", "05", "06"], ["03", "06"]])
-def test_facet_edit_text_budget_on_recorded_t5_outputs(tmp_path, photos):
-    """§4.5 on the real T5 numbers: the H3 roof edit's facet_edit text with the recorded compare records (all six
-    photos, the default five, top and rear), Blender lines, revision-0 warnings and the longest footer is <= 1500
-    characters; the border ramps are one line; the warnings inherited from revision 0 (W_ARM_NORMAL_SPREAD,
-    W_HINGE_LEAF, the leaf gap) are left out; the layout reset_layout cleared is counted, not named."""
-    lab = make_lab(tmp_path, blender_lines=T5_PREPARE_LINES, gap_mm=T5_GAP_MM)
-    lab.seeing.records = t5_records()
-    lab.s.blender_lines = T5_EDIT_LINES
-    body, footer, images, text = parsed(call(tools_of(lab)["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": roof_edits(lab.spec(0), -0.12), "judgement": None,
-        "note": "TOOL TEST: the T5 roof", "apply": True, "photos": photos}, context=WorstFooter()))
-    assert body["status"] == "applied", body
-    assert footer == WorstFooter().footer() and list(body["photos"]) == photos
-    assert len(text) <= 1500, (len(text), text)
-    assert "-4 facets" in body["diff"] and "-5 creases" in body["diff"] and "F1|F2" not in body["diff"]
-    lines = body["receipt"]["lines"]
-    ramps = [ln for ln in lines if ln.startswith("W_BORDER_RAMP")]
-    assert len(ramps) == 1 and ramps[0].count(";") >= 1, lines
-    blob = json.dumps(body, ensure_ascii=False)
-    assert "W_ARM_NORMAL_SPREAD" not in blob and "W_HINGE_LEAF" not in blob and "hinge_leaf_gap_mm" not in blob
-    assert body["blender"]["lines"] == ["W_DECAL_SPANS_CREASE: decal Temple right | PRADA gold hallmark spans D|U (x2)"]
-    assert "charted [-0.7 +1.2 +2.9 +1.9" in body["photos"]["03"] and "d 10..110:" in body["photos"]["03"]
-    assert "mirrored [-0.8 +1.1 +2.7 +2.0" in body["photos"]["03"] and "-1 [" not in body["photos"]["03"]
-    if "06" in photos:
-        assert "d 30..130: charted [" in body["photos"]["06"] and " na" not in body["photos"]["06"]
-
-
-def test_t5_recorded_rehearsal_text_budget():
-    """§4.5 asserted on the latest recorded T5 rehearsal (data/wp6v2/lab/t5/rehearsal.json) when it exists."""
-    path = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "t5" / "rehearsal.json"
-    if not path.is_file():
-        pytest.skip("no recorded T5 rehearsal")
-    rec = json.loads(path.read_text(encoding="utf-8"))
-    budget = {"facet_edit": 1500, "facet_variants": 1500, "facet_restore": 1000}
-    over = [(s["step"], s["text_chars"]) for s in rec["steps"] if s["tool"] in budget
-            and s["text_chars"] > budget[s["tool"]]]
-    assert not over, over
-
-
-# --------------------------------------------------------------------------------------------- solved corners, flips
-def _crown_logo(pt: float, shape: str | None = None) -> list:
-    """Run 5's mechanism on the Prada fixture's chains (a TOOL TEST layout, not a product): a crown A P R B whose
-    corner B is solved (from the crown's plane) and a logo A B C; the crown|logo crease along A-B builds a ridge at P t
-    3 and a valley at P t 7 only because B follows the crown's tilt (B t 5.51 and 3.09)."""
-    def node(name, d, y, t):
-        return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
-                "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": float(t)}}
-    plane = {"mode": "nodes", "crease": None, "rise_per_mm": None}
-    out = [node("A", 2.0, 9.0, 4.5), node("P", 35.0, 14.5, pt), node("R", 80.0, 1.0, 4.5),
-           node("B", 47.0, -1.0, None), node("C", 22.0, -12.0, 4.0),
-           {"op": "set_facet", "label": "crown", "poly": ["A", "P", "R", "B"], "plane": plane, "fade": None},
-           {"op": "set_facet", "label": "logo", "poly": ["A", "B", "C"], "plane": plane, "fade": None}]
-    return out + ([{"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}] if shape else [])
-
-
-def _p_t(t: float) -> dict:
-    return {"op": "set_node", "name": "P", "d_mm": 35.0, "y_mm": 14.5, "t": {"mode": "mm", "mm": float(t)}}
-
-
-def _shape(shape: str) -> dict:
-    return {"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}
-
-
-FLIP = "crown|logo ridge 13.5° -> valley 16.2°"
-
-
-def test_solved_corners_margins_and_crease_flips_against_the_head(lab):
-    """T1/T2 and the run-6 margins (run 5's inward edge): facet_inspect prints a solved t as "solve -> value" and every
-    crease between two facets with its margin (each face's far corner across it and that corner's mm from the other
-    face's plane, + = ridge) and the solved corners that set it; a receipt lists only the margins of creases with such
-    a solved corner (or under 1 mm), grouped by those corners, and the solved corners whose t moved from the HEAD's;
-    facet_variants items and facet_edit state the creases built with the other shape than in the head (crease_vs_head),
-    also when a variant is applied with no edits (its diff against the variant says "no change"; diff_vs_head shows
-    the change), and facet_restore against the head it replaces, naming the solved corner; the texts stay within
-    §4.5."""
-    tl = tools_of(lab)
-    b0 = LB.node_ts(lab.build(0))["B"]                                 # revision 0's B (a base node)
-    body, _f, _i, text = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(3.0, "ridge"), "judgement": None,
-        "note": "TOOL TEST: crown and logo", "apply": True, "photos": ["05"]}))
-    assert body["status"] == "applied", body
-    r1, cp1 = body["revision"], body["checkpoint"]
-    assert "B at 47.0,-1.0 t base->solve" in body["diff"]                  # a solved t reads "solve", never None
-    rc = body["receipt"]
-    assert "crown|logo ridge 13.5° declared" in rc["lines"] and not any("solved" in ln for ln in rc["lines"])
-    assert rc["margins"] == "B solved: crown|logo P +3.0/C +3.8"           # B sets it: an end of the crease
-    assert rc["solved"] == f"B 5.51 (head {b0:.2f})" and list(rc)[:3] == ["lines", "margins", "solved"]
-    assert "crease_vs_head" not in body and "diff_vs_head" not in body    # no pair in common with revision 0
-    ins, *_ = parsed(call(tl["facet_inspect"], {}))
-    assert ins["spec"]["nodes"]["B"] == [47.0, -1.0, "solve -> 5.51"] and ins["spec"]["nodes"]["P"][2] == 3.0
-    lines = ins["receipt"]["lines"]
-    assert "crown|logo ridge 13.5° declared; P +3.0 / C +3.8 mm across; B solved from crown" in lines
-    assert "crown|base valley 32.6° undeclared" in lines                  # a crease with the base has no margin
-    assert "solved" not in ins["receipt"] and "margins" not in ins["receipt"]
-    # the bracket: one arm of each shape, built by moving P's t only
-    body, _f, _i, text = parsed(call(tl["facet_variants"], {
-        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
-        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0), _shape("valley")]}]}))
-    assert body["status"] == "ok" and len(text) <= 1500, len(text)
-    by = {v["label"]: v for v in body["variants"]}
-    assert "crease_vs_head" not in by["Pr"] and by["Pr"]["solved"] == "B 5.21 (head 5.51)"
-    assert by["Pr"]["margins"] == "B solved: crown|logo P +2.2/C +2.8"
-    assert by["Pv"]["crease_vs_head"] == "crown|base valley 32.6° -> ridge 37.0°; " + FLIP
-    assert by["Pv"]["margins"] == "B solved: crown|logo P -3.6/C -4.7"    # - = a valley by that corner
-    assert by["Pv"]["solved"] == "B 3.09 (head 5.51)"
-    # applying the valley arm with no edits: the diff against the variant is empty, against the head it is not
-    body, _f, _i, text = parsed(call(tl["facet_edit"], {
-        "parent_revision": by["Pv"]["revision"], "reset_layout": False, "edits": [], "judgement": None,
-        "note": "TOOL TEST: apply the valley arm", "apply": True, "photos": ["05"]}))
-    assert body["status"] == "applied" and body["diff"] == "no change" and len(text) <= 1500, len(text)
-    assert body["diff_vs_head"] == f"r{r1}: ~node P t 3.0->7.0; +crease crown|logo valley"
-    assert body["crease_vs_head"] == f"r{r1}: crown|base valley 32.6° -> ridge 37.0°; " + FLIP
-    assert body["receipt"]["solved"] == "B 3.09 (head 5.51)"
-    assert body["receipt"]["margins"] == "B solved: crown|logo P -3.6/C -4.7"
-    assert "crown|logo valley 16.2° declared" in body["receipt"]["lines"]
-    assert list(body)[:7] == ["status", "revision", "parent", "spec", "diff", "diff_vs_head", "crease_vs_head"]
-    # an edit of the head itself: no diff_vs_head, the flip back stated
-    rv = body["revision"]
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": rv, "reset_layout": False, "edits": [_p_t(3.0), _shape("ridge")],
-        "judgement": judgement(lab), "note": "TOOL TEST: back", "apply": False, "photos": None}))
-    assert body["status"] == "built" and "diff_vs_head" not in body and body["revision"] == r1
-    assert body["crease_vs_head"] == f"r{rv}: crown|base ridge 37.0° -> valley 32.6°; crown|logo valley 16.2° -> " \
-                                     "ridge 13.5°"
-    assert body["receipt"]["solved"] == "B 5.51 (head 3.09)"
-    # restoring the ridge head: the flips against the head it replaces, the solved corner named (no margins there)
-    body, _f, _i, text = parsed(call(tl["facet_restore"], {"checkpoint": cp1, "judgement": None}))
-    assert body["status"] == "ok" and body["revision"] == r1 and len(text) <= 1000, len(text)
-    assert body["crease_vs_head"] == f"r{rv}: crown|base ridge 37.0° -> valley 32.6°; crown|logo valley 16.2° -> " \
-                                     "ridge 13.5° (B solved)"
-    body, *_ = parsed(call(tl["facet_restore"], {"checkpoint": cp1, "judgement": None}))
-    assert body["changed"] is False and "crease_vs_head" not in body
-
-
-def _crown_logo_build(pt: float = 3.0, edits: tuple = ()):
-    spec, _ = G.apply_edits(FX.prada_default(), _crown_logo(pt) + list(edits), reset_layout=True)
-    return spec, build_temple(spec)
-
-
-def _c_t(t: float) -> dict:
-    return {"op": "set_node", "name": "C", "d_mm": 22.0, "y_mm": -12.0, "t": {"mode": "mm", "mm": float(t)}}
-
-
-def test_crease_margins_are_the_builders_planes():
-    """A margin is in the builder's terms: C is a defining corner of the logo (A, B, C), so moving C's t by its margin
-    puts C on the crown's plane, extended, and the crease builds flat; 1 mm less keeps the shape, 1 mm more flips
-    it; across a P sweep the margin's sign is the built shape's. The far corner is the face's farthest across the
-    crease's line on its own side (P for the crown: R lies on the logo's side of A-B extended), the ends are A, B."""
-    _s, tb = _crown_logo_build(3.0)
-    m = LB.crease_margins(tb)[("crown", "logo")]
-    (p, c) = m["corners"]
-    assert (p["node"], c["node"], m["ends"], m["solved"], m["from"]) == ("P", "C", ["A", "B"], ["B"], {"B": "crown"})
-    sol = tb.sol
-    assert c["mm"] == pytest.approx(float(sol.planes["crown"].X(22.0, -12.0) - sol.planes["logo"].X(22.0, -12.0)))
-    assert p["mm"] > 0 and c["mm"] > 0 and m["shape"] == "ridge" and m["flip_mm"] == pytest.approx(p["mm"])
-    t_c = 4.0                                                             # _crown_logo's C
-    for dt, shape in ((-1.0, "ridge"), (0.0, "flat"), (1.0, "valley")):
-        _s, tb2 = _crown_logo_build(3.0, [_c_t(t_c + c["mm"] + dt)])
-        built = next(x for x in tb2.tables["creases"] if x["regions"] == ["crown", "logo"])
-        assert built["shape"] == shape, (dt, built["shape"], built["mean_dihedral_deg"])
-        if shape == "flat":
-            assert built["mean_dihedral_deg"] < 0.01
-    for pt in (2.0, 3.0, 4.0, 5.0, 6.0, 7.0):                            # B follows the crown's tilt (run 5)
-        _s, tb3 = _crown_logo_build(pt)
-        m3 = LB.crease_margins(tb3)[("crown", "logo")]
-        if m3["shape"] != "flat":
-            assert all((x["mm"] > 0) == (m3["shape"] == "ridge") for x in m3["corners"]), (pt, m3)
-
-
-def test_crease_margin_helpers_exempt_corners_solved_by_design_and_cap_the_receipt():
-    """The Prada fixture's K is solved (from F1) but F1 is a crease + rise facet, so K is solved by design: never a
-    solved corner that sets a crease; virtual nodes outside the outline are never named (an unnamed vertex where the
-    outline cuts the facet off stands in, "(35,16)", and counts for no flip margin); no crease of the fixture is
-    listed in a receipt. margins_summary: flips first, then the smallest flip margin, grouped by solved corners,
-    capped with the rest counted (naming any other solved corner); crease_changes ignores a flat crease and pairs only
-    one build has."""
-    spec = FX.prada_default()
-    assert LB.by_design(canonical(spec)["facets"]) == {"K", "K_hi", "A_hi", "A_l"}
-    tb = build_temple(spec)
-    solved = LB.solved_corners(tb)
-    assert list(solved) == ["K"] and solved["K"][1] == "F1" and solved["K"][0] == pytest.approx(5.0, abs=1e-6)
-    margins = LB.crease_margins(tb)
-    assert sorted(margins) == [("F1", "F2"), ("F2", "F3"), ("F2", "F4")]             # never a crease with the base
-    assert all(not m["solved"] for m in margins.values())
-    f12 = margins[("F1", "F2")]
-    assert [c["node"] for c in f12["corners"]] == [None, None] and f12["flip_mm"] == float("inf")
-    assert LB.margin_text(f12) == "(35,16) +1.2/(21,-15) +6.9"
-    assert LB.margins_summary(margins, LB.MARGIN_ITEMS_MAX) == ""
-    assert LB.crease_changes(tb, tb) == [] and LB.solved_moves(tb, tb) == "" and LB.flips(tb, tb) == []
-    other = build_temple(rename(FX.prada_default(), {"F1": "G1"}, {}))
-    assert LB.crease_changes(tb, other) == []                            # F1|F2 and G1|F2 are different pairs
-
-    def mg(mm, solved, flip):
-        return {"corners": [{"node": "P", "d": 0.0, "y": 0.0, "mm": mm}, {"node": "C", "d": 0.0, "y": 0.0,
-                                                                          "mm": 2 * mm}],
-                "solved": solved, "flip_mm": flip}
-    ms = {("a", "b"): mg(2.0, ["B"], 2.0), ("a", "c"): mg(-0.5, ["B"], 0.5), ("c", "d"): mg(0.3, [], 0.3),
-          ("d", "e"): mg(4.0, ["L"], 4.0), ("e", "f"): mg(3.0, [], 3.0)}
-    assert LB.margins_summary(ms, 3) == "c|d P +0.3/C +0.6; B solved: a|c P -0.5/C -1.0, a|b P +2.0/C +4.0; " \
-                                        "+1 more (L solved)"
-    assert LB.margins_summary(ms, 1, [("d", "e")]) == "L solved: d|e P +4.0/C +8.0; +3 more (B solved)"
-    assert LB.margins_summary(ms, 9).count("|") == 4                     # e|f: no solved corner, 3 mm: not listed
-
-
-def test_crease_shape_refusals_name_the_solved_corners(lab, monkeypatch):
-    """E_CREASE_SHAPE (the build never finished, so from the spec) names the t-solve corners of the two facets inside
-    or on the outline, in facet_edit and in facet_variants (within REFUSAL_MAX), never those solved by design or
-    outside the outline."""
-    tl = tools_of(lab)
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(7.0, "ridge"), "judgement": None,
-        "note": "TOOL TEST", "apply": False, "photos": None}))
-    assert body["code"] == "E_CREASE_SHAPE" and body["message"].endswith("do not redeclare; solved corners: B"), body
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo(3.0, "ridge"), "judgement": None,
-        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
-    r1 = body["revision"]
-    body, *_ = parsed(call(tl["facet_variants"], {
-        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
-        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0)]}]}))
-    pv = next(v for v in body["variants"] if v["label"] == "Pv")
-    assert pv["code"] == "E_CREASE_SHAPE" and pv["message"].endswith("; solved corners: B")
-    spec = FX.prada_default()
-    assert LB.refusal_solved(spec, ["F1", "F2"]) == ""                    # K: by design
-    assert LB.refusal_solved(spec, ["F2", "F3"]) == ""                    # H_lo, C_lo: outside the outline
-    assert LB.refusal_solved(G.apply_edits(spec, _crown_logo(3.0), reset_layout=True)[0], ["crown", "logo"]) == \
-        "; solved corners: B"
-    # a long core message is cut at a clause end before the note, which always fits
-    real = LB.build_temple
-
-    def refusing(s):
-        if s["nodes"]["P"][2] == 7.0:
-            raise TempleError("E_CREASE_SHAPE", "crease crown|logo is declared ridge; " + "a clause; " * 60 + "end",
-                              facets=["crown", "logo"])
-        return real(s)
-    monkeypatch.setattr(LB, "build_temple", refusing)
-    body, *_ = parsed(call(tl["facet_variants"], {
-        "parent_revision": r1, "photos": ["05"], "judgement": None,
-        "variants": [{"label": "Pr", "edits": [_p_t(3.5)]}, {"label": "Pv", "edits": [_p_t(7.0)]}]}))
-    pv = next(v for v in body["variants"] if v["label"] == "Pv")
-    assert len(pv["message"]) <= LB.REFUSAL_MAX and pv["message"].endswith(" ...; solved corners: B"), pv["message"]
-
-
-# --------------------------------------------------------------------------------------------- the final pre-run review
-NODES_PLANE = {"mode": "nodes", "crease": None, "rise_per_mm": None}
-RISE_RE = re.compile(r"; rise_per_mm (\S+) meets it$")
-
-
-def _set(name: str, d: float, y: float, t) -> dict:
-    """set_node with a measured t (mm) or t None (solve)."""
-    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
-            "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": float(t)}}
-
-
-def _facet_op(label: str, poly: list, plane=None) -> dict:
-    return {"op": "set_facet", "label": label, "poly": poly, "plane": plane or NODES_PLANE, "fade": None}
-
-
-def _band_facet(rise: float) -> dict:
-    return _facet_op("top_band", ["P", "U", "R"], {"mode": "crease", "crease": ["P", "U"], "rise_per_mm": rise})
-
-
-def _band(b_t: float, rise: float) -> list:
-    """A TOOL TEST layout on the Prada fixture's chains (not a product): a crown A P R B whose corner R is solved
-    from the crown (visited first), a logo A B C, and a crease-mode top band P U R (crease P-U, U a virtual node above
-    the outline) whose off-crease corner R (solved by design) the crown sets: any change of the crown (B's t) moves R,
-    so the band's rise must follow it or the build is refused E_RELIEF_STEP (run 5's top-rear band)."""
-    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
-            _set("B", 47.0, -1.0, b_t), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5),
-            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"]), _band_facet(rise)]
-
-
-def _significant(text: str) -> int:
-    return len(re.sub(r"\D", "", text.split("e")[0]).lstrip("0"))
-
-
-def test_relief_step_names_the_rise_that_meets_it_in_edit_and_variants(lab):
-    """The final pre-run review's P2-1: E_RELIEF_STEP on a crease-mode facet ends "; rise_per_mm <value> meets it"
-    (at least 7 significant digits; more only while the rounding alone misses the builder's tolerances), within
-    REFUSAL_MAX, in facet_edit and in facet_variants, and that value builds: the band's rise missing the crown's R,
-    then the band's corner R moving with B (two arms of a bracket, then facet_edit on the head). Not a crease-mode
-    facet: the misfit is printed with 6 significant digits (the core prints 3)."""
-    tl = tools_of(lab)
-    base = {"reset_layout": True, "judgement": None, "note": "TOOL TEST: band", "photos": None}
-    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": _band(5.5, -0.1), "apply": False}))
-    assert body["status"] == "refused" and body["code"] == "E_RELIEF_STEP" and body["stage"] == "build", body
-    msg = body["message"]
-    assert msg.startswith("facet top_band cannot meet facet(s) ['crown'] without a step: +2.29 mm at (d, y)"), msg
-    assert len(msg) <= LB.REFUSAL_MAX and RISE_RE.search(msg) and _significant(RISE_RE.search(msg)[1]) >= 7, msg
-    rise = float(RISE_RE.search(msg)[1])
-    assert rise == pytest.approx(0.0416384, abs=1e-6)                   # the root of the misfit, linear in the rise
-    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": _band(5.5, rise), "apply": True,
-                                              "photos": ["05"]}))
-    assert body["status"] == "applied", body
-    r1 = body["revision"]
-    # the band's corner moves: B measured deeper tilts the crown and moves R; each arm is refused with its own rise
-    arms = {"Bd": 6.5, "Bdd": 7.25}
-    body, *_ = parsed(call(tl["facet_variants"], {
-        "parent_revision": r1, "photos": ["05"], "judgement": judgement(lab),
-        "variants": [{"label": lb, "edits": [_set("B", 47.0, -1.0, bt)]} for lb, bt in arms.items()]}))
-    rises = {}
-    for v in body["variants"]:
-        assert v["revision"] is None and v["code"] == "E_RELIEF_STEP" and len(v["message"]) <= LB.REFUSAL_MAX, v
-        m = RISE_RE.search(v["message"])
-        assert m and _significant(m[1]) >= 7, v["message"]
-        rises[v["label"]] = float(m[1])
-    assert rises["Bd"] != pytest.approx(rise, abs=0.01) and rises["Bdd"] != pytest.approx(rises["Bd"], abs=0.01)
-    body, *_ = parsed(call(tl["facet_variants"], {
-        "parent_revision": r1, "photos": ["05"], "judgement": None,
-        "variants": [{"label": lb, "edits": [_set("B", 47.0, -1.0, bt), _band_facet(rises[lb])]}
-                     for lb, bt in arms.items()]}))
-    assert all(v["revision"] is not None and "code" not in v for v in body["variants"]), body["variants"]
-    # facet_edit on the head: the same corner move, the same rise named, and it builds
-    edit = {**base, "reset_layout": False, "parent_revision": r1, "apply": False}
-    body, *_ = parsed(call(tl["facet_edit"], {**edit, "edits": [_set("B", 47.0, -1.0, 6.5)]}))
-    assert body["code"] == "E_RELIEF_STEP" and float(RISE_RE.search(body["message"])[1]) == rises["Bd"], body
-    body, *_ = parsed(call(tl["facet_edit"], {**edit, "edits": [_set("B", 47.0, -1.0, 6.5), _band_facet(rises["Bd"])]}))
-    assert body["status"] == "built", body
-    # R, solved by design (the band's off-crease corner), moved 1.2 mm with B and the rise: never a receipt's solved
-    r_head, r_new = (LB.solved_corners(lab.build(r))["R"][0] for r in (r1, body["revision"]))
-    assert abs(r_new - r_head) > 1.0 and "R " not in body["receipt"].get("solved", "")
-    # a nodes-mode facet where the crease-mode band was: no rise to name; the misfit to 6 significant digits
-    edits = _band(5.5, rise)[:-1] + [_set("U", 50.0, 30.0, 3.5), _set("V", 92.0, 20.0, 3.2),
-                                      _facet_op("top_band", ["P", "U", "V", "R"])]
-    body, *_ = parsed(call(tl["facet_edit"], {**base, "parent_revision": 0, "edits": edits, "apply": False}))
-    assert body["code"] == "E_RELIEF_STEP" and "meets it" not in body["message"], body
-    spec, _ = G.apply_edits(FX.prada_default(), edits, reset_layout=True)
-    with pytest.raises(TempleError) as e:
-        build_temple(spec)
-    worst = max(e.value.fields["misfits"], key=lambda x: abs(x["misfit_mm"]))["misfit_mm"]
-    assert f"{worst:+.3g} mm at (d, y)" in e.value.message and f"{worst:+.3g}" != f"{worst:+.6g}"
-    assert body["message"] == e.value.message.replace(f"{worst:+.3g} mm", f"{worst:+.6g} mm")
-    assert LB.relief_rise(spec, e.value) == ""
-
-
-def _crown_logo_r(pt: float) -> list:
-    """_crown_logo with B measured (5.5) and R solved from the crown instead: R is neither an end of crown|logo (A, B)
-    nor the crown's far corner across it (P), so no solved corner sets that crease."""
-    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, pt), _set("R", 80.0, 1.0, None),
-            _set("B", 47.0, -1.0, 5.5), _set("C", 22.0, -12.0, 4.0),
-            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
-
-
-def test_receipt_margins_list_a_flip_with_no_solved_corner_and_a_wide_margin(lab):
-    """P3-2: a crease flipped against the head is listed in the receipt's margins even when no solved corner sets it
-    and its margin is wide (crown|logo, ridge at P 3 -> valley at P 9: P -3.0 / C -3.9); with no flip, that crease is
-    not listed. R, solved from the crown but setting no crease, is the receipt's solved."""
-    tl = tools_of(lab)
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _crown_logo_r(3.0), "judgement": None,
-        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
-    assert body["status"] == "applied" and "margins" not in body["receipt"], body
-    m = LB.crease_margins(lab.build(body["revision"]))[("crown", "logo")]
-    assert m["shape"] == "ridge" and not m["solved"] and m["flip_mm"] > LB.MARGIN_FRAGILE_MM
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": body["revision"], "reset_layout": False, "edits": [_p_t(9.0)], "judgement": judgement(lab),
-        "note": "TOOL TEST", "apply": False, "photos": None}))
-    assert body["status"] == "built" and "crown|logo ridge 13.4° -> valley 13.4°" in body["crease_vs_head"], body
-    assert body["receipt"]["margins"] == "crown|logo P -3.0/C -3.9"            # no "solved:" group: none sets it
-    assert body["receipt"]["solved"] == "R 8.85 (head 4.49)"
-    ms = {("a", "b"): {"corners": [{"node": "P", "d": 0.0, "y": 0.0, "mm": 3.0},
-                                   {"node": "C", "d": 0.0, "y": 0.0, "mm": 6.0}], "solved": [], "flip_mm": 3.0}}
-    assert LB.margins_summary(ms, 3) == "" and LB.margins_summary(ms, 3, [("a", "b")]) == "a|b P +3.0/C +6.0"
-
-
-def _aft_layout(shape: str) -> list:
-    """A TOOL TEST layout: an aft facet P U V R (visited first; U, V virtual nodes above the outline) sets R, the crown
-    A P R B takes R from it and sets B, the logo A B C takes B: B (an end of crown|logo) and R (a crown corner that sets
-    no crease of the logo) are both solved."""
-    return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
-            _set("B", 47.0, -1.0, None), _set("C", 22.0, -12.0, 4.0), _set("U", 50.0, 30.0, 3.5),
-            _set("V", 92.0, 20.0, 3.2), _facet_op("aft", ["P", "U", "V", "R"]),
-            _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"]),
-            {"op": "set_crease", "facets": ["crown", "logo"], "shape": shape}]
-
-
-def test_crease_shape_refusal_names_only_the_corners_that_set_the_crease(lab):
-    """P3-3: E_CREASE_SHAPE names the solved corners that set the refused crease (its ends and far corners, as
-    crease_margins names them), not every solved corner of its two faces: crown|logo declared valley where the build
-    makes a ridge names B (its end, solved from the crown), never R (a crown corner solved from the aft facet), in
-    facet_edit and facet_variants."""
-    tl = tools_of(lab)
-    spec, _ = G.apply_edits(FX.prada_default(), _aft_layout("ridge"), reset_layout=True)
-    tb = build_temple(spec)
-    assert sorted(LB.solved_corners(tb)) == ["B", "R"] and LB.solved_corners(tb)["R"][1] == "aft"
-    assert LB.crease_margins(tb)[("crown", "logo")]["solved"] == ["B"]
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _aft_layout("valley"), "judgement": None,
-        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
-    assert body["code"] == "E_CREASE_SHAPE" and body["message"].endswith("do not redeclare; solved corners: B"), body
-    body, *_ = parsed(call(tl["facet_edit"], {
-        "parent_revision": 0, "reset_layout": True, "edits": _aft_layout("ridge"), "judgement": None,
-        "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
-    assert body["status"] == "applied", body
-    body, *_ = parsed(call(tl["facet_variants"], {
-        "parent_revision": body["revision"], "photos": ["05"], "judgement": judgement(lab),
-        "variants": [{"label": "V", "edits": [{"op": "set_crease", "facets": ["crown", "logo"], "shape": "valley"}]},
-                     {"label": "Pr", "edits": [_p_t(3.5)]}]}))
-    v = next(x for x in body["variants"] if x["label"] == "V")
-    assert v["code"] == "E_CREASE_SHAPE" and v["message"].endswith("; solved corners: B"), v
-    # a crease with the base has no margin: the facet's own solved corners inside the outline
-    assert LB.refusal_solved(spec, ["crown", "base"]) == "; solved corners: B, R"
-
-
-def _a_band(rise: float) -> dict:
-    return _facet_op("a_band", ["P", "U", "R"], {"mode": "crease", "crease": ["P", "U"], "rise_per_mm": rise})
-
-
-def test_relief_step_names_a_neighbours_rise(lab):
-    """P2-1 when the crease-mode facet is a neighbour: the band a_band (visited first) sets the crown's corner R by
-    design; with B measured the crown's plane through A, P and R misses B (E_RELIEF_STEP on the crown, at node B), and
-    the refusal names the band's rise that moves R until the crown meets B, "; a_band rise_per_mm ... meets it",
-    which builds."""
-    def layout(rise):
-        return [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
-                _set("B", 47.0, -1.0, 5.0), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5), _a_band(rise),
-                _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
-    args = {"parent_revision": 0, "reset_layout": True, "judgement": None, "note": "TOOL TEST", "apply": False,
-            "photos": None}
-    body, *_ = parsed(call(tools_of(lab)["facet_edit"], {**args, "edits": layout(-0.1)}))
-    assert body["code"] == "E_RELIEF_STEP" and body["message"].startswith("facet crown cannot meet facet(s) ['a_band']")
-    m = re.search(r"; a_band rise_per_mm (\S+) meets it$", body["message"])
-    assert m and _significant(m[1]) >= 7 and float(m[1]) == pytest.approx(0.0045347, abs=1e-6), body["message"]
-    body, *_ = parsed(call(tools_of(lab)["facet_edit"], {**args, "edits": layout(float(m[1]))}))
-    assert body["status"] == "built", body
-
-
-def test_receipts_leave_out_corners_solved_by_design(lab):
-    """P3-4: a crease + rise facet's other corners are solved by design and move with its rise: the receipt's solved
-    never lists them. A TOOL TEST layout: the band a_band P U R (visited first) sets R by design, the crown A P R B
-    takes R and sets B (solved, not by design), the logo A B C takes B; the band's rise -0.1 -> 0.05 moves R 2.19 ->
-    4.62 (not listed) and B 3.59 -> 5.61 (listed); solved_corners still has R (facet_inspect prints it)."""
-    tl = tools_of(lab)
-    layout = [_set("A", 2.0, 9.0, 4.5), _set("P", 35.0, 14.5, 3.0), _set("R", 80.0, 1.0, None),
-              _set("B", 47.0, -1.0, None), _set("C", 22.0, -12.0, 4.0), _set("U", 60.0, 16.0, 3.5), _a_band(-0.1),
-              _facet_op("crown", ["A", "P", "R", "B"]), _facet_op("logo", ["A", "B", "C"])]
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": True, "edits": layout,
-                                              "judgement": None, "note": "TOOL TEST", "apply": True, "photos": ["05"]}))
-    assert body["status"] == "applied" and body["receipt"]["solved"].startswith("B 3.59 (head "), body
-    assert "R " not in body["receipt"]["solved"]
-    r1 = body["revision"]
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": r1, "reset_layout": False, "edits": [_a_band(0.05)],
-                                              "judgement": judgement(lab), "note": "TOOL TEST", "apply": False,
-                                              "photos": None}))
-    assert body["status"] == "built" and body["receipt"]["solved"] == "B 5.61 (head 3.59)", body
-    r_head, r_new = (LB.solved_corners(lab.build(r))["R"] for r in (r1, body["revision"]))
-    assert r_head[1] == r_new[1] == "a_band" and r_new[0] - r_head[0] == pytest.approx(2.43, abs=0.01)
-    assert LB.by_design(lab.spec(r1)["facets"]) == {"R"}
-
-
-def test_inspect_crease_lines_cut_the_margin_first(lab):
-    """P3-6: a crease line with its margin longer than LINE_MAX keeps the crease whole and cuts the margin at a clause
-    end (the 24-character names the edits allow: the solved-from clause goes, "mm across" stays); fit_line's rules."""
-    spec, _ = G.apply_edits(FX.prada_default(), _crown_logo(3.0, "ridge"), reset_layout=True)
-    names = {"crown": "C" + "c" * 23, "logo": "L" + "l" * 23}
-    long = rename(spec, names, {"P": "P" + "p" * 23, "C": "K" + "k" * 23, "B": "B" + "b" * 23})
-    tb = build_temple(long)
-    m = LB.crease_margins(tb)[tuple(sorted(names.values()))]
-    head = f"{names['crown']}|{names['logo']} ridge {m['deg']:.1f}° declared"
-    full = f"{head}; {LB.margin_text(m, full=True)}"
-    assert len(full) > LB.LINE_MAX
-    line = next(ln for ln in lab._receipt(tb, full=True)["lines"] if ln.startswith(head))
-    assert line == f"{head}; {full[len(head) + 2:].split('; ')[0]} ...", line
-    assert line.endswith("mm across ...") and len(line) <= LB.LINE_MAX
-    assert LB.fit_line("h" * 60, "; " + "x" * 50) == "h" * 60 + "; " + "x" * 50
-    assert LB.fit_line("h" * 160, "; P -1.1 / C -4.0 mm across") == "h" * 160 + "; ..."
-    assert LB.fit_line("h" * 200, "; x") == "h" * LB.LINE_MAX and LB.fit_line("h" * 10) == "h" * 10
-    cut = LB.fit_line("h" * 100, "; P -1.1 / C -4.0 mm across; B solved from crown, D solved from logo, E solved "
-                                 "from logo")
-    assert cut == "h" * 100 + "; P -1.1 / C -4.0 mm across; B solved from crown ...", cut
-
-
-def test_receipt_groups_conditioning_and_ramps_in_one_line_each(lab):
-    """§4.5 after the final pre-run review (its margins head printed 1,577 characters; run 5's applied facet_edit texts
-    were 1,470-2,228): every W_CONDITIONING in one line where the first stood, its phrase once; the W_BORDER_RAMP
-    line without the sign legend, which facet_edit's description carries."""
-    tb = copy.copy(build_temple(FX.prada_default()))
-    cond = [{"code": "W_CONDITIONING", "facet": f, "deg_per_mm": x,
-             "message": f"facet {f} tilts {x:.1f} deg per mm of node error"} for f, x in (("F2", 7.14), ("F4", 6.5))]
-    ramp = {"code": "W_BORDER_RAMP", "facet": "F4", "height_mm": -0.42, "slope_deg": 12.3, "d_mm": [40.0, 55.0],
-            "message": "x"}
-    tb.warnings = [cond[0], {"code": "W_FLAT_CREASE", "message": "crease F2|F3 is flat"}, ramp, cond[1]]
-    lines = lab._receipt(tb)["lines"]
-    warn = [ln for ln in lines if ln.startswith("W_")]
-    assert warn == ["W_CONDITIONING (deg per mm of node error): F2 7.1, F4 6.5", "W_FLAT_CREASE: crease F2|F3 is flat",
-                    "W_BORDER_RAMP >8°: F4 -0.42 12.3° d 40.0-55.0"], warn
-    assert "height mm: + proud of the base, - below it" in " ".join(tools_of(lab)["facet_edit"].description.split())
-
-
-# --------------------------------------------------------------------------------------------- depth readings (T3)
-class AngledBasis(FakeBasis):
-    """FakeBasis with perspective cameras that see the temples' outer faces at a moderate angle: 02 from the charted
-    temple's side (yaw +50), 01 from the mirrored temple's (yaw -50); 320 x 240 photos."""
-    CAMS = {"reference-02": Camera(50.0, 10.0, 0.0, 0.2, 150.0, 160.0, 120.0),
-            "reference-01": Camera(-50.0, 10.0, 0.0, 0.2, 150.0, 160.0, 120.0)}
-
-    def camera(self, rid):
-        return self.CAMS.get(rid) or super().camera(rid)
-
-
-def _uv(lab, rid: str, side: int, d: float, y: float, t: float) -> list:
-    """The pixel where photo rid shows the head's point (d, y, t) on the side's temple (placed as the lab builds it,
-    opened by the photo's pose)."""
-    tb = lab.build(lab.head_record()["revision"])
-    P = PO.chart_to_posed([[d, y, LB._inner_x(tb, d) + t]], side, tb.spec.hinge["z_mm"], lab.basis.pose(rid))
-    return project_mm(P, lab.basis.camera(rid), lab.basis.frame)[0].tolist()
-
-
-def test_photo_compare_depths_read_t_from_a_pixel(lab):
-    """T3: a depth reading returns the t whose point the photo's camera shows at the pixel (the exact inverse of a
-    projected point), on the temple whose outer face the camera sees (charted at yaw +50, mirrored at yaw -50), with
-    the model's t there, the px per mm of t and the perpendicular miss (a pixel off the depth line); refusals: a uv
-    outside the photo, a photo the compare does not show, a photo without a camera (E_ARGS); a photo the default set
-    leaves out gets its readings on their own; the readings are kept in the compare record."""
-    lab._basis = AngledBasis()
-    tl = tools_of(lab)
-    uv2, uv1 = _uv(lab, "reference-02", 1, 40.0, 2.0, 6.0), _uv(lab, "reference-01", -1, 40.0, 2.0, 7.5)
-    assert all(0 <= u < 320 and 0 <= v < 240 for u, v in (uv2, uv1))
-    e = np.subtract(_uv(lab, "reference-02", 1, 40.0, 2.0, 7.0), uv2)      # 1 mm of t in the image of 02
-    off = (np.asarray(uv2) + 5.0 * np.array([-e[1], e[0]]) / np.hypot(*e)).tolist()   # 5 px off the depth line
-    model = lab.depths([{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2}])[0]["model_t_mm"]
-    body, _f, images, text = parsed(call(tl["photo_compare"], {
-        "photos": ["02", "01"], "crop": None, "points_px": None,
-        "depths": [{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2},
-                   {"photo": "01", "d_mm": 40.0, "y_mm": 2.0, "uv": uv1},
-                   {"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": off}]}))
-    assert body["status"] == "ok" and len(images) == 2
-    t02, t01 = body["photos"]["02"], body["photos"]["01"]
-    assert f"| depths d 40 y 2: t 6.00 (model {model:.2f}) " in t02 and " px/mm, miss 0.0 px charted;" in t02
-    assert "| depths d 40 y 2: t 7.50 (model " in t01 and t01.endswith("miss 0.0 px mirrored")
-    rec = lab.state["compares"][-1]["depths"]
-    assert [r["side"] for r in rec] == [1, -1, 1] and rec[0]["t_mm"] == pytest.approx(6.0, abs=1e-3)
-    assert rec[2]["miss_px"] == pytest.approx(5.0, abs=0.01) and rec[2]["t_mm"] == pytest.approx(6.0, abs=0.05)
-    assert rec[0]["px_per_mm"] == pytest.approx(float(np.hypot(*e)), rel=0.02)     # ~0.5: tiny synthetic photos
-    assert len(t02) - len(t02.split(" | depths ")[0]) <= 2 * 80          # about 60-75 characters per reading
-    # refusals (nothing compared)
-    n = len(lab.state["compares"])
-    for depths, photos, what in (([{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": [400.0, 10.0]}], ["02"],
-                                  "inside the native 320 x 240 photo 02"),
-                                 ([{"photo": "05", "d_mm": 40.0, "y_mm": 2.0, "uv": [10.0, 10.0]}], ["02"],
-                                  "which this compare does not show"),
-                                 ([{"photo": "B2", "d_mm": 40.0, "y_mm": 2.0, "uv": [10.0, 10.0]}], None,
-                                  "photo_image only")):
-        with pytest.raises(S.LabRefusal, match=what) as e:
-            lab.compare("x", photos, None, None, depths)
-        assert e.value.code == "E_ARGS"
-    out = call(tl["photo_compare"], {"photos": ["02"], "crop": None, "points_px": None,
-                                     "depths": [{"photo": "B2", "d_mm": 40.0, "y_mm": 2.0, "uv": [1.0, 1.0]}]})
-    assert isinstance(out, str) and "Invalid JSON input for tool photo_compare" in out
-    assert len(lab.state["compares"]) == n
-    # the default set (01, 02, 05 here) leaves 04 out: its reading comes on its own
-    body, *_ = parsed(call(tl["photo_compare"], {"photos": None, "crop": None, "points_px": None,
-                                                 "depths": [{"photo": "04", "d_mm": 40.0, "y_mm": 2.0,
-                                                             "uv": [100.0, 100.0]}]}))
-    assert list(body["depths"]) == ["04"] and body["depths"]["04"].startswith("d 40 y 2: t ")
-    assert all("depths" not in v for v in body["photos"].values())
-
-
-class FrontBasis(FakeBasis):
-    """FakeBasis with front and rear cameras: 04 from the front (perspective: neither temple's outer face faces it),
-    06 from the rear and 03 an orthographic front view (both outer faces face it, opened 2 deg); 320 x 240 photos.
-    Both temples' depth lines fall near one image row, so a pixel's perpendicular miss cannot tell them apart."""
-    CAMS = {"reference-04": Camera(0.0, 8.0, 0.0, 0.2, 150.0, 160.0, 120.0),
-            "reference-06": Camera(180.0, 8.0, 0.0, 0.2, 150.0, 160.0, 120.0),
-            "reference-03": Camera(0.0, 8.0, 0.0, 0.0, 150.0, 160.0, 120.0)}
-
-    def camera(self, rid):
-        return self.CAMS.get(rid) or super().camera(rid)
-
-
-def _depth_line(lab, rid, side, d, y):
-    tb = lab.build(lab.head_record()["revision"])
-    P = PO.chart_to_posed([[d, y, LB._inner_x(tb, d)], [d, y, LB._inner_x(tb, d) + 1.0]], side,
-                          tb.spec.hinge["z_mm"], lab.basis.pose(rid))
-    return P[0], P[1] - P[0]
-
-
-def test_depth_reading_in_front_and_rear_views_takes_the_temple_nearest_at_the_model_t(lab):
-    """Run 5's front views (04, B3) read about half of all pixels on the wrong temple (t ~ -131): when both or neither
-    outer face faces the camera, both temples' depth lines lie near one image row and the smaller perpendicular miss
-    was a coin flip. The temple whose point at the model's t projects nearest the pixel is taken instead: every pixel
-    1-3 px off the line on either side, at t from the model's -2 to +2, at five points of the head (one below its
-    outline: the base t there) and on both temples, reads its own temple and t (the miss rule alone gets some of them
-    wrong here, so the test can fail)."""
-    lab._basis = FrontBasis()
-    tb = lab.build(lab.head_record()["revision"])
-    bs = lab.basis
-    wrong_by_miss = total = 0
-    for rid in ("reference-04", "reference-06", "reference-03"):
-        cam, pose = bs.camera(rid), bs.pose(rid)
-        for d, y in ((10.0, 2.0), (40.0, 2.0), (47.0, -1.0), (90.0, 4.0), (90.0, 0.0)):
-            model = LB.depth_reading(tb, cam, bs.frame, pose, d, y, (0.0, 0.0))["model_t_mm"]
-            if model is None:                                       # (90, 0) lies below the outline: its base t
-                assert (d, y) == (90.0, 0.0)
-                model = float(tb.spec.base_t(d, y))
-            for side in (1, -1):
-                P0, n = _depth_line(lab, rid, side, d, y)
-                faces = bool(PO.faces_camera(P0[None], n, cam, bs.frame)[0])
-                assert faces == (rid == "reference-03"), rid      # neither (perspective front, rear) or both
-                for dt in (-2.0, 0.0, 2.0):
-                    t = model + dt
-                    uv = project_mm((P0 + t * n)[None], cam, bs.frame)[0]
-                    e = project_mm((P0 + (t + 1.0) * n)[None], cam, bs.frame)[0] - uv
-                    perp = np.array([-e[1], e[0]]) / np.hypot(*e)
-                    for off in (-3.0, -2.0, -1.0, 1.0, 2.0, 3.0):
-                        px = uv + off * perp
-                        r = LB.depth_reading(tb, cam, bs.frame, pose, d, y, px)
-                        total += 1
-                        assert r["side"] == side and r["t_mm"] == pytest.approx(t, abs=0.05), (rid, d, y, side, off)
-                        assert r["miss_px"] == pytest.approx(abs(off), abs=0.05)
-                        other = PO.line_depth(px, cam, bs.frame, *_depth_line(lab, rid, -side, d, y))
-                        wrong_by_miss += other["miss_px"] < r["miss_px"]
-    assert total == 3 * 5 * 2 * 3 * 6 and wrong_by_miss > 0, wrong_by_miss
-    # through the tool: the text names the temple read
-    uv = project_mm((lambda P0, n: (P0 + 6.0 * n)[None])(*_depth_line(lab, "reference-04", -1, 40.0, 2.0)),
-                    bs.camera("reference-04"), bs.frame)[0] + [0.0, 1.5]
-    reading = lab.depths([{"photo": "04", "d_mm": 40.0, "y_mm": 2.0, "uv": uv.tolist()}])[0]
-    assert reading["side"] == -1 and reading["t_mm"] == pytest.approx(6.0, abs=0.1)
-    assert LB.depth_text(reading).endswith(" px mirrored")
-
-
-def test_depth_text_prints_one_recorded_number_one_way():
-    """A reading's t at the rounding boundary (float noise either side of 8.365) prints as one number, the one its
-    record keeps to 0.001 (rounded half up); never "-0.00"."""
-    assert LB.fixed(8.364999999, 2) == LB.fixed(8.365000001, 2) == LB.fixed(8.365, 2) == "8.37"
-    assert LB.fixed(2.675, 2) == "2.68" and LB.fixed(-0.0004, 2) == "0.00" and LB.fixed(7.87, 1) == "7.9"
-    recs = [{"d_mm": 45.0, "y_mm": 0.0, "t_mm": t, "model_t_mm": 7.365, "px_per_mm": 7.887, "miss_px": 0.04999,
-             "side": 1} for t in (8.364999999, 8.365000001)]
-    texts = {LB.depth_text(r) for r in LB._r_depths(recs)} | {LB.depth_text(r) for r in recs}
-    assert texts == {"d 45 y 0: t 8.37 (model 7.37) 7.9 px/mm, miss 0.1 px charted"}, texts
-
-
-PACKAGE_005 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_005"
-
-
-def _resolved_rise(spec: dict, facet: str) -> dict:
-    """The spec with ``facet``'s rise_per_mm re-solved so it meets its neighbours with no step (X is linear in the
-    rise: two E_RELIEF_STEP misfits give the root); a TOOL TEST helper (the T6 'solve' the builder lacks)."""
-    def misfit(rise):
-        s = copy.deepcopy(spec)
-        s["facets"][facet]["plane"]["rise_per_mm"] = rise
-        try:
-            build_temple(s)
-            return 0.0, s
-        except TempleError as e:
-            if e.code != "E_RELIEF_STEP":
-                raise
-            return max(e.fields["misfits"], key=lambda m: abs(m["misfit_mm"]))["misfit_mm"], s
-    r0 = spec["facets"][facet]["plane"]["rise_per_mm"]
-    m0, s0 = misfit(r0)
-    if m0 == 0.0:
-        return s0
-    m1, _ = misfit(r0 + 0.01)
-    return misfit(r0 - m0 * 0.01 / (m1 - m0))[1]
-
-
-def _no_crease_fade_check(monkeypatch):
-    """Runs 3-6 faded both facets of a crease where it reaches the outline (E_FADE_CREASE since run 7): the tests that
-    read those recorded heads for something else turn that guard off."""
-    from glasses3d.g3d.temple import build as BD
-    monkeypatch.setattr(BD, "_check_fade_creases", lambda *a, **k: None)
-
-
-def test_run5_inward_edge_on_the_real_package(monkeypatch):
-    """On run 5's package (read-only; skipped without it): r0014's B is solved from the crown at 5.41 (r0002, the
-    ridge head var013 edited: 7.06), the crown|logo crease flipped ridge -> valley against r0002 with B named; its
-    margin is P -0.9 / C -3.4 (the crown plane extended to C gives 5.56 against C's 9.0); with the photos' B 7.25 and
-    C 7.65 (R solved, the top-rear band's rise re-solved) it is a 9.4 deg ridge at P +1.1 / C +4.0 mm in the builder's
-    planes, with no solved corner setting it. In the black angled
-    photo (B2) a depth reading of B inverts its projection on the charted temple at ~7.8 px per mm of t (the photo
-    agent's reading: 7.4-8.0); in the side photo 01 the mirrored temple is the one seen; in the front photos (B3, 04)
-    every pixel 1-3 px off a corner's depth line reads its own temple (run 5's diagnosis pixel in B3: t 7.03)."""
-    rev = PACKAGE_005 / "work" / "temple_lab" / "revisions"
-    if not (rev / "r0014.json").is_file() or not (rev / "r0002.json").is_file():
-        pytest.skip("package_005 is not on this machine")
-    _no_crease_fade_check(monkeypatch)        # r0014 fades crown and tail_face across their crease at the outline
-    try:
-        bs = GC.load_basis(PACKAGE_005)
-    except Exception as exc:  # noqa: BLE001 - a missing or moved basis
-        pytest.skip(f"package_005 has no camera basis: {exc}")
-    s14 = json.loads((rev / "r0014.json").read_text(encoding="utf-8"))
-    tb2, tb14 = build_temple(json.loads((rev / "r0002.json").read_text(encoding="utf-8"))), build_temple(s14)
-    b_t, b_from = LB.solved_corners(tb14)["B"]
-    assert b_from == "crown" and b_t == pytest.approx(5.41, abs=0.01)
-    assert "B 5.41 (head 7.06)" in LB.solved_moves(tb14, tb2)
-    assert LB.crease_changes(tb2, tb14) == ["crown|logo ridge 43.3° -> valley 8.0° (B solved)"]
-    m14 = LB.crease_margins(tb14)
-    assert LB.margin_text(m14[("crown", "logo")], full=True) == "P -0.9 / C -3.4 mm across; B solved from crown"
-    assert not m14[("crown", "top_front_band")]["solved"]                 # Pt: solved by design (crease + rise)
-    s = copy.deepcopy(s14)
-    s["nodes"]["B"][2], s["nodes"]["C"][2], s["nodes"]["R"][2] = 7.25, 7.65, None
-    s["creases"] = [c for c in s["creases"] if c["facets"] not in (
-        ["crown", "logo"], ["crown", "tail_face"], ["lower_sweep", "tail_face"], ["tail_face", "base"])]
-    m = LB.crease_margins(build_temple(_resolved_rise(s, "top_rear_band")))[("crown", "logo")]
-    assert (m["shape"], round(m["deg"], 1), LB.margin_text(m)) == ("ridge", 9.4, "P +1.1/C +4.0") and not m["solved"]
-    kept = copy.deepcopy(s14)                 # the head's declarations kept (crown|logo valley, now contradicted):
-    kept["nodes"]["B"][2], kept["nodes"]["C"][2], kept["nodes"]["R"][2] = 7.25, 7.65, None     # the rise still named
-    with pytest.raises(TempleError) as e:
-        build_temple(kept)
-    assert e.value.code == "E_RELIEF_STEP"
-    hint = LB.relief_rise(kept, e.value)
-    assert "rise_per_mm -1.501113" in hint and hint.endswith(" meets it"), hint
-    d, y, _t = tb14.spec.nodes["B"]
-    for rid, side, view in (("black-angled", 1, "B2"), ("reference-01", -1, "01")):
-        cam, pose = bs.camera(rid), bs.pose(rid)
-        P = PO.chart_to_posed([[d, y, LB._inner_x(tb14, d) + 7.25]], side, tb14.spec.hinge["z_mm"], pose)
-        r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, project_mm(P, cam, bs.frame)[0])
-        assert r["side"] == side and r["t_mm"] == pytest.approx(7.25, abs=1e-3) and r["miss_px"] < 1e-3, view
-        assert r["model_t_mm"] == pytest.approx(5.41, abs=0.05)
-        if view == "B2":
-            assert 7.4 <= r["px_per_mm"] <= 8.2
-    cam, pose = bs.camera("black-front"), bs.pose("black-front")
-    r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, (1583.0, 513.0))
-    assert r["side"] == 1 and r["t_mm"] == pytest.approx(7.03, abs=0.02)
-    ts = LB.node_ts(tb14)
-    for rid in ("black-front", "reference-04"):
-        cam, pose = bs.camera(rid), bs.pose(rid)
-        for node in ("A", "B", "C", "P", "R"):
-            d, y, _t = tb14.spec.nodes[node]
-            for side in (1, -1):
-                P0, P1 = PO.chart_to_posed([[d, y, LB._inner_x(tb14, d)], [d, y, LB._inner_x(tb14, d) + 1.0]], side,
-                                           tb14.spec.hinge["z_mm"], pose)
-                for t in (ts[node] - 2.0, ts[node], ts[node] + 2.0):
-                    uv = project_mm((P0 + t * (P1 - P0))[None], cam, bs.frame)[0]
-                    e = project_mm((P0 + (t + 1.0) * (P1 - P0))[None], cam, bs.frame)[0] - uv
-                    for off in (-3.0, -1.0, 1.0, 3.0):
-                        px = uv + off * np.array([-e[1], e[0]]) / np.hypot(*e)
-                        r = LB.depth_reading(tb14, cam, bs.frame, pose, d, y, px)
-                        assert r["side"] == side and r["t_mm"] == pytest.approx(t, abs=0.05), (rid, node, side, off)
-
-
-def test_inherited_warnings_reported_once_and_shown_again_when_they_change(tmp_path):
-    lab = make_lab(tmp_path, blender_lines=T5_PREPARE_LINES, gap_mm=T5_GAP_MM)
-    assert lab.state["inherited"]["blender"] == T5_PREPARE_LINES and lab.state["inherited"]["hinge_leaf_gap_mm"] == \
-        pytest.approx(-0.84)
-    tl = tools_of(lab)
-    body, *_ = parsed(call(tl["facet_inspect"], {}))
-    inh = body["inherited_from_revision_0"]
-    assert inh[0] == T5_PREPARE_LINES[0] and inh[1] == T5_PREPARE_LINES[1] + " (x2)"
-    assert inh[2].startswith("hinge_leaf_gap_mm -0.84")
-    lab.s.blender_lines, lab.s.gap_mm = T5_PREPARE_LINES[:1] + [ln.replace("0.84", "0.86") for ln in
-                                                                T5_PREPARE_LINES[1:]], -0.858
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": None,
-                                              "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x",
-                                              "apply": True, "photos": ["05"]}))
-    assert "lines" not in body["blender"] and "hinge_leaf_gap_mm" not in body["blender"]       # within tolerance
-    lab.s.blender_lines, lab.s.gap_mm = [ln.replace("0.84", "1.50").replace("61.5", "75.0")
-                                         for ln in T5_PREPARE_LINES], -1.5
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False,
-                                              "judgement": judgement(lab), "edits": [set_t("C", FX.prada_default(),
-                                                                                           0.9)],
-                                              "note": "x", "apply": True, "photos": ["05"]}))
-    assert body["blender"]["hinge_leaf_gap_mm"] == -1.5
-    assert body["blender"]["lines"] == ["W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 75.0 deg (> 30.0)",
-                                        "W_HINGE_LEAF: hinge leaf Hinge right | temple mounting leaf embedded 1.50 mm "
-                                        "(x2)"]
-    from glasses3d.agent.temple_lab.lab import same_warning
-    ref = "W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 61.5 deg (> 30.0)"
-    assert same_warning(ref.replace("61.5", "64.0"), ref) and not same_warning(ref.replace("61.5", "68.0"), ref)
-    assert not same_warning(ref.replace("smooth", "sharp"), ref)
-
-
-def test_judgement_rule(lab):
-    tl = tools_of(lab)
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": None,
-                                              "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x",
-                                              "apply": True, "photos": None}))
-    cid = body["compare_id"]
-    base = {"parent_revision": 1, "reset_layout": False, "edits": [], "note": "x", "apply": False, "photos": None}
-    body, *_ = parsed(call(tl["facet_edit"], {**base, "judgement": None}))
-    assert body["code"] == "E_JUDGEMENT" and cid in body["message"]
-    wrong = judgement(lab)
-    wrong["compare_id"] = "cmp001"
-    assert parsed(call(tl["facet_edit"], {**base, "judgement": wrong}))[0]["code"] == "E_JUDGEMENT"
-    short = judgement(lab)
-    short["photos"] = short["photos"][:1]
-    body, *_ = parsed(call(tl["facet_restore"], {"checkpoint": lab.s.head["id"], "judgement": short}))
-    assert body["code"] == "E_JUDGEMENT" and body["missing"] == ["02", "05"]
-    bad_best = judgement(lab, best="c9999")
-    assert parsed(call(tl["facet_variants"], {"parent_revision": 1, "photos": ["05"], "judgement": bad_best,
-                                              "variants": [{"label": "A", "edits": []}, {"label": "B", "edits": []}]}
-                       ))[0]["code"] == "E_JUDGEMENT"
-    assert not lab.state["judgements"]
-    body, *_ = parsed(call(tl["facet_edit"], {**base, "judgement": judgement(lab, overall="better")}))
-    assert body["status"] == "built" and lab.state["judgements"][-1]["compare_id"] == cid
-    assert lab.state["best_checkpoint"] == lab.s.head["id"] and S.pending_compare(lab.state) is None
-    # photo_compare and facet_inspect are not action tools: no judgement needed before them
-    assert parsed(call(tl["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None}))[0]["status"] == "ok"
-    assert parsed(call(tl["facet_inspect"], {}))[0]["status"] == "ok"
-
-
-def test_facet_variants_sheets_revisions_and_unchanged_scene(lab):
-    tl = tools_of(lab)
-    spec = FX.prada_default()
-    head_fp = lab.s.head["fingerprint"]
-    variants = [{"label": "A", "edits": [set_t("C", spec, -1.0)]}, {"label": "B", "edits": [set_t("C", spec, 0.5)]},
-                {"label": "C", "edits": [set_t("C", spec, 1.5)]}, {"label": "Z", "edits": [set_t("A", spec, 5.0)]}]
-    body, _f, images, text = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants,
-                                                                "photos": ["05", "03"], "judgement": None}))
-    assert body["status"] == "ok" and body["spread_ok"] is True and len(images) == 2
-    by = {v["label"]: v for v in body["variants"]}
-    assert by["Z"]["revision"] is None and by["Z"]["code"].startswith("E_")
-    assert all(by[x]["revision"] is not None and by[x]["vs_head_mm"] > 0.3 for x in "ABC")
-    assert lab.state["revisions"][by["B"]["revision"]]["kind"] == "variant"
-    assert lab.s.read_fingerprints == [head_fp] and lab.s.head["fingerprint"] == head_fp
-    assert len(text) <= 1500, len(text)
-    for im in images:
-        raw = __import__("base64").b64decode(im.image_url.split(",", 1)[1])
-        sheet = Image.open(__import__("io").BytesIO(raw))
-        assert sheet.width <= SH.SHEET_W and sheet.height <= SH.SHEET_H
-    # a variant becomes the head through facet_edit with no edits
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": by["B"]["revision"], "reset_layout": False,
-                                              "edits": [], "judgement": None, "note": "apply B", "apply": True,
-                                              "photos": ["05"]}))
-    assert body["status"] == "applied" and body["revision"] == by["B"]["revision"] and body["diff"] == "no change"
-
-
-def test_variant_spread_counts_only_rendered_variants(lab):
-    """Precondition 2's spread is over the variants rendered at every photo: one refused by Blender leaves two (no
-    spread); a failed render leaves none; three rendered ones count."""
-    tl = tools_of(lab)
-    spec = FX.prada_default()
-    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
-    args = {"parent_revision": 0, "variants": variants, "photos": ["05", "02"], "judgement": None}
-    lab.s.refuse_variants = {"B"}
-    body, _f, images, _t = parsed(call(tl["facet_variants"], args))
-    assert body["status"] == "ok" and body["spread_ok"] is False and len(images) == 2
-    assert all(v["revision"] is not None for v in body["variants"])       # all three built on the host
-    assert body["render"]["blender_refused"]["B"].startswith("E_RELIEF_STEP")
-    assert lab.state["variants"][-1]["rendered"] == ["A", "C"] and lab.state["variants"][-1]["spread"] is None
-    lab.s.refuse_variants, lab.s.render_error = set(), True
-    body, _f, images, _t = parsed(call(tl["facet_variants"], args))
-    assert body["spread_ok"] is False and images == [] and body["render"]["status"] == "error"
-    assert lab.state["variants"][-1]["rendered"] == []
-    assert [m["precondition"] for m in S.finish_missing(lab.state, status="matched", best_revision=0, k=0,
-                                                        distinct=lambda a, b: True, target_photos=[])] == [2]
-    lab.s.render_error = False
-    body, *_ = parsed(call(tl["facet_variants"], args))
-    assert body["spread_ok"] is True and lab.state["variants"][-1]["spread"] == ["A", "B", "C"]
-    assert lab.s.calls[-1][2] <= L.HARD_TIMEOUT_S["facet_variants"] - L.FACET_VARIANTS_HOST_MARGIN_S   # worker
-
-
-def test_variant_sheet_layout_and_refused_panel(tmp_path):
-    img = Image.new("RGB", (600, 180), (200, 180, 160))
-    panels = [("photo 05", img, None), ("head", img, None)] + [(f"V{i}", img, None) for i in range(5)] + \
-             [("Z: refused E_RELIEF_STEP", None, "Z refused E_RELIEF_STEP: facet F2 meets F1 with a step")]
-    sheet = SH.variant_sheet(panels, "variants")
-    assert sheet.size[0] <= 1280 and sheet.size[1] <= 900
-    cols, pw, ph = SH.variant_layout(8)
-    assert cols == 2 and pw <= 640 and ph > 100
-    sheet.save(tmp_path / "sheet.png")
-
-
-def test_variant_layout_picks_columns_by_the_crop_aspect():
-    """A wide side-view crop keeps 2 columns; Prada's top-photo crop (aspect 1.43) is shown larger in 3; labels and
-    the title are cut to fit; crease lines are 1 px below CREASE_THIN_PX_PER_MM, else 2 px."""
-    assert SH.variant_layout(5) == SH.variant_layout(5, None) == SH._box(5, 2)
-    assert SH.variant_layout(5, 1357 / 435)[0] == 2 and SH.variant_layout(8, 1357 / 435)[0] == 2      # B1, 05
-    for n in (5, 8):
-        three, two = SH.variant_layout(n, 1281 / 895), SH._box(n, 2)                                   # 03
-        assert three[0] == 3 and min(three[1] / 1.43, three[2]) > 1.1 * min(two[1] / 1.43, two[2])
-    lay = SH.variant_layout(5, 1281 / 895)
-    img = Image.new("RGB", (lay[1], lay[2]), (90, 90, 90))
-    sheet = SH.variant_sheet([("W" * 90, img, None)] * 4 + [("Z refused", None, "note")], "T" * 200, layout=lay)
-    assert sheet.width <= SH.SHEET_W and sheet.height <= SH.SHEET_H
-    assert SH.crease_width(2.2) == 1 and SH.crease_width(4.4) == 2 and SH.crease_width(None) == 2
-    from glasses3d.g3d_host import compare as C
-    drawn = np.asarray(SH.with_creases(Image.new("RGB", (40, 20), (0, 0, 0)), [
-        (np.array([[2.0, 5.0], [38.0, 5.0]]), 1), (np.array([[2.0, 15.0], [38.0, 15.0]]), -1)], width=1))
-    assert tuple(drawn[5, 20]) == C.RIDGE_RGB and tuple(drawn[15, 20]) == C.VALLEY_RGB and drawn[10, 20].sum() == 0
-
-
+# --------------------------------------------------------------------------------------------- compare internals
 @pytest.mark.parametrize("yaw,pitch,persp", [(90.0, 13.6, 0.25), (28.2, 11.4, 0.26), (0.3, 59.9, 0.29),
                                              (-90.0, 0.0, 0.0), (180.0, 8.8, 0.07)])
 def test_crease_polylines_fast_is_the_overlay_rule(yaw, pitch, persp):
@@ -1856,416 +852,8 @@ def test_crease_polylines_fast_is_the_overlay_rule(yaw, pitch, persp):
         assert all(s == t and np.array_equal(p, q) for (p, s), (q, t) in zip(ref, got))
 
 
-def test_variant_sheets_at_a_black_photo_draw_gloss_and_crease_lines(lab, monkeypatch):
-    """facet_variants at three target photos and the black B1 (the 4th photo): B1's views render the gloss_black
-    pass only (the targets' native_linear) and its panels use the gloss gain and stretch of B1's latest compare; the
-    head and every variant panel at every photo carry that model's own crease lines (the photo panel none),
-    depth-tested against the head's exported scene; a variant that moves a crease node draws other lines than the
-    head; the worker deadline scales with the 4 x 4 renders (4 x 7 is capped at the table value)."""
-    from glasses3d.g3d_host import compare as C
-    tl = tools_of(lab)
-    parsed(call(tl["photo_compare"], {"photos": ["B1"], "crop": None, "points_px": None}))
-    spec = FX.prada_default()
-    d, y, t = spec["nodes"]["C"]
-    variants = [{"label": "deep", "edits": [set_t("C", spec, 1.0)]},
-                {"label": "C_fwd", "edits": [{"op": "set_node", "name": "C", "d_mm": d - 8.0, "y_mm": y,
-                                              "t": {"mode": "mm", "mm": float(t)}}]},
-                {"label": "shallow", "edits": [set_t("C", spec, -1.0)]}]
-    gains, drawn = [], []
-    real_composite, real_creases = C.composite_render, SH.with_creases
-
-    def composite(rgb, alpha, gain, bg, **kw):
-        gains.append(np.atleast_1d(gain).tolist())
-        return real_composite(rgb, alpha, gain, bg, **kw)
-
-    def creases(img, polylines, width=2):
-        drawn.append(polylines)
-        return real_creases(img, polylines, width)
-    monkeypatch.setattr(C, "composite_render", composite)
-    monkeypatch.setattr(SH, "with_creases", creases)
-    body, _f, images, text = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants,
-                                                                "photos": ["05", "03", "02", "B1"],
-                                                                "judgement": judgement(lab)}))
-    assert body["status"] == "ok" and len(images) == 4 and body["spread_ok"] is True, body
-    assert "render" not in body and len(text) <= 1500
-    views = {v["name"]: v for v in lab.s.read_params[-1]["views"]}
-    assert views["B1"]["passes"] == ["gloss_black"] and all(views[p]["passes"] == ["native_linear"]
-                                                            for p in ("05", "03", "02"))
-    assert gains.count([0.83]) == 4 and gains.count([0.9, 0.95, 1.1]) == 12            # B1: head + 3 variants
-    rec = lab.state["variants"][-1]
-    assert rec["photos"] == ["05", "03", "02", "B1"] and rec["crease_occlusion"] == "scene"
-    assert set(rec["creases"]) == {"05", "03", "02", "B1"}
-    assert all(n and n > 0 for row in rec["creases"].values() for n in row.values()), rec["creases"]
-    assert len(drawn) == 16                                                              # 4 photos x (head + 3)
-    head05, deep05, fwd05 = drawn[0], drawn[1], drawn[2]                                  # photo 05: head, deep, C_fwd
-
-    from PIL import ImageDraw
-
-    def pixels(pl):
-        im = Image.new("L", (800, 400), 0)
-        dr = ImageDraw.Draw(im)
-        for pts, _s in pl:
-            dr.line([tuple(map(float, p)) for p in pts], fill=255, width=1)
-        return np.asarray(im) > 0
-    moved = (pixels(head05) ^ pixels(fwd05)).sum() / max(1, pixels(head05).sum())
-    assert moved > 0.2, moved                                                            # the crease node moved
-    assert lab.s.calls[-1][2] == L.hard_timeout_s("facet_variants", variants=3, photos=4) == 70.0
-    capped = L.HARD_TIMEOUT_S["facet_variants"] - L.FACET_VARIANTS_HOST_MARGIN_S             # the host's margin
-    assert L.hard_timeout_s("facet_variants", variants=6, photos=4) == capped == 75.0
-    assert deep05 is not None
-
-
-def test_variant_photo_limits_labels_and_a_lab_without_black_photos(lab):
-    """At most 3 target photos per call, a 4th only of another colour (the schema allows 4, the lab names the
-    rule); labels must differ ignoring case and never be 'head' (the render files share a folder on a
-    case-insensitive file system); a lab without photos of another colour takes 3. Crease lines degrade to the
-    temples' own depth (named in the text) when the head's scene cannot be read."""
-    tl = tools_of(lab)
-    two = [{"label": "A", "edits": []}, {"label": "B", "edits": []}]
-    with pytest.raises(S.LabRefusal, match="at most 3 target photos"):
-        lab.variants("x", 0, two, ["01", "02", "03", "05"], None)
-    out = call(tl["facet_variants"], {"parent_revision": 0, "variants": two, "judgement": None,
-                                      "photos": ["01", "02", "03", "B1", "05"]})
-    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
-    for labels in (["Head", "B"], ["a", "A"]):
-        with pytest.raises(S.LabRefusal, match="ignoring case"):
-            lab.variants("x", 0, [{"label": lb, "edits": []} for lb in labels], ["05"], None)
-    with pytest.raises(S.LabRefusal, match="never compared"):
-        lab.variants("x", 0, two, ["05", "B1"], None)                   # B1 needs a compare for its gloss record
-    lab.seeing.scene_glb = b"glTF fake"
-    spec = FX.prada_default()
-    two = [{"label": "A", "edits": [set_t("C", spec, 1)]}, {"label": "B", "edits": []}]
-    body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": 0, "judgement": None,
-                                                             "photos": ["05"], "variants": two}))
-    assert body["status"] == "ok" and len(images) == 1
-    assert body["render"]["crease_lines"].startswith("depth-tested on the temples only")
-    assert lab.state["variants"][-1]["creases"]["05"]["A"] > 0
-    lab.manifest["photos"] = [r for r in lab.manifest["photos"] if r.get("role") != "colourway"]
-    assert lab.variant_photos_max() == 3
-    schema = {t.name: t.params_json_schema for t in T.registry(lab)}["facet_variants"]
-    assert schema["properties"]["photos"]["maxItems"] == 3 and enums(schema["properties"]["photos"]) == [PHOTO_IDS]
-
-
-def test_variant_labels_are_their_render_file_names(lab):
-    """The worker names a variant's render files by g3d/render.py safe_name(label) and the lab looks them up by the
-    label, so a label that is not its own safe name ('deep_', 'A_') is refused E_ARGS before any build or render
-    (before: built, registered, rendered, then shown 'refused None'; 'A_' beside 'a' wrote one file); the
-    distinct-ignoring-case rule runs on the safe names; a label ending in '-' is its own safe name and renders.
-    lab.render_safe_name is render.py's rule: that module imports bpy, so its NAME_RE and safe_name are read from the
-    source here and compared on sample names."""
-    import ast
-    import re
-    import glasses3d.agent.temple_lab.lab as LB
-    src = (Path(LB.__file__).resolve().parents[2] / "g3d" / "render.py").read_text(encoding="utf-8")
-    keep = [n for n in ast.parse(src).body
-            if (isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "NAME_RE" for t in n.targets))
-            or (isinstance(n, ast.FunctionDef) and n.name == "safe_name")]
-    assert len(keep) == 2
-    ns = {"re": re, "RenderRefused": ValueError}
-    exec(compile(ast.Module(body=keep, type_ignores=[]), "g3d/render.py", "exec"), ns)       # noqa: S102
-    assert ns["NAME_RE"].pattern == LB.RENDER_NAME_RE.pattern
-    for name in ("deep", "deep_", "A_", "a__", "_a_", "a.b", "x y", "Zz-9_x", "C_fwd", "deep-", "N" * 90, "é"):
-        try:
-            want = ns["safe_name"](name)
-        except ValueError:                          # no usable character: render.py refuses, the lab's gives ""
-            want = ""
-        assert render_safe_name(name) == want, name
-    spec = FX.prada_default()
-    n_rev, n_calls, seq = len(lab.state["revisions"]), len(lab.s.calls), lab.state["seq"]
-    for labels in (["deep_", "deep"], ["a", "A_"]):
-        with pytest.raises(S.LabRefusal, match="not ending in _") as e:
-            lab.variants("x", 0, [{"label": lb, "edits": [set_t("C", spec, 0.5)]} for lb in labels], ["05"], None)
-        assert e.value.code == "E_ARGS"
-    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
-                                                             "variants": [{"label": "deep_", "edits": []},
-                                                                          {"label": "B", "edits": []}]}))
-    assert body["status"] == "refused" and body["code"] == "E_ARGS" and "not ending in _" in body["message"]
-    assert len(lab.state["revisions"]) == n_rev and len(lab.s.calls) == n_calls and lab.state["seq"] == seq
-    with pytest.raises(S.LabRefusal, match="ignoring case"):
-        lab.variants("x", 0, [{"label": lb, "edits": []} for lb in ("Deep-", "deep-")], ["05"], None)
-    dash = [{"label": "deep-", "edits": [set_t("C", spec, 1.0)]}, {"label": "B", "edits": []}]
-    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
-                                                             "variants": dash}))
-    assert body["status"] == "ok" and "render" not in body and lab.state["variants"][-1]["rendered"] == ["deep-", "B"]
-
-
-def test_a_dead_worker_in_the_variant_crease_export_stays_fatal(lab, monkeypatch):
-    """_variant_creases re-raises journal.WorkerFailed from the head's export (the worker died and was not recovered),
-    so the run ends failed_worker as from any tool; any other export failure only degrades the lines to the temples'
-    own depth (test_variant_photo_limits_labels_and_a_lab_without_black_photos)."""
-    def dead(call_id=None):
-        raise WorkerFailed("injected: the worker died during the head's export", lab.s.head)
-    monkeypatch.setattr(lab.seeing, "export_head", dead)
-    two = [{"label": "A", "edits": [set_t("C", FX.prada_default(), 1)]}, {"label": "B", "edits": []}]
-    with pytest.raises(WorkerFailed):
-        call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "judgement": None, "photos": ["05"],
-                                               "variants": two})
-
-
-def test_variant_sheet_titles_and_the_tool_say_creases_are_drawn_from_6_deg(lab, monkeypatch):
-    """A crease under compare.CREASE_MIN_DEG shows on no panel, so every sheet's title says where the lines start (and
-    is not cut at the sheet's width) and so does facet_variants' description."""
-    from PIL import ImageDraw
-    from glasses3d.g3d_host import compare as C
-    legend = f"creases from {C.CREASE_MIN_DEG:g}°"
-    titles, real = [], SH.variant_sheet
-
-    def sheet(panels, title, layout=None):
-        titles.append((title, layout))
-        return real(panels, title, layout=layout)
-    monkeypatch.setattr(SH, "variant_sheet", sheet)
-    tl = tools_of(lab)
-    parsed(call(tl["photo_compare"], {"photos": ["B1"], "crop": None, "points_px": None}))
-    spec = FX.prada_default()
-    two = [{"label": "A", "edits": [set_t("C", spec, 1)]}, {"label": "B", "edits": [set_t("C", spec, -1)]}]
-    body, *_ = parsed(call(tl["facet_variants"], {"parent_revision": 0, "judgement": judgement(lab),
-                                                  "photos": ["05", "03", "B1"], "variants": two}))
-    assert body["status"] == "ok" and len(titles) == 3
-    dr = ImageDraw.Draw(Image.new("RGB", (8, 8)))
-    for title, (cols, pw, _ph) in titles:
-        assert legend + " (ridge orange, valley blue), photo outline magenta" in title, title
-        width = cols * pw + (cols + 1) * SH.GAP_PX - 2 * SH.GAP_PX - 4            # variant_sheet's title width
-        assert len(title) <= SH.TITLE_MAX and dr.textlength(title, font=SH._font(SH.TITLE_FONT_PX)) <= width, title
-    assert f"crease lines from {C.CREASE_MIN_DEG:g}°" in " ".join(tl["facet_variants"].description.split())
-
-
-PACKAGE_004 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_004"
-
-
-def _line_mask(polylines, shape) -> np.ndarray:
-    """Crease polylines drawn 1 px wide (ridge 255, valley 128) into an image of ``shape``, to count pixels."""
-    from PIL import ImageDraw
-    im = Image.new("L", (shape[1], shape[0]), 0)
-    dr = ImageDraw.Draw(im)
-    for pts, s in polylines:
-        dr.line([tuple(map(float, p)) for p in pts], fill=255 if s > 0 else 128, width=1)
-    return np.asarray(im)
-
-
-def _overlay_creases(mesh, roles: dict, pose, cam, frame, shape) -> list:
-    """The compare overlay's crease lines of an exported head (seeing._matched_photo): compare.crease_edges of its
-    temple bodies after pose.posed (the temple-role parts by side), depth-tested on the raster of the whole posed
-    scene with compare.crease_polylines (the reference implementation, not the lab's fast path)."""
-    from glasses3d.g3d_host import compare as C
-    from glasses3d.g3d_host import pose as PO
-    bodies = [PO.temple_body(mesh, s, roles) for s in (1, -1)]
-    mp = PO.posed(mesh, pose, roles) if pose else mesh
-    parts = [C.crease_edges(mp.V, mp.F[mp.part == b]) for b in bodies]
-    edges = {k: np.concatenate([e[k] for e in parts]) for k in parts[0]}
-    return C.crease_polylines(edges, cam, frame, mp.scene().render(cam, shape, 1)["depth"])
-
-
-def test_variant_crease_lines_are_the_overlay_rule_on_the_fixture(tmp_path):
-    """Lab._variant_creases (its own path: the head's export through the lab's seeing, the export's temple bodies
-    swapped for the model's, each side placed and opened by that side's pose, the fast polylines) draws exactly the
-    compare overlay's lines of an export whose temple bodies ARE that model: the box-glasses fixture with the
-    Prada-layout temples built in, six camera angles, an asymmetric pose. The rest of the scene hides lines at the
-    angled and front views (the occluder is used), and the same call with the pose's sides swapped draws other lines
-    at every view (the check sees a side mix-up). Fixture data only."""
-    from dataclasses import replace
-    from glasses3d.g3d_host import fitmesh, raster
-    from glasses3d.g3d_host import pose as PO
-    lab = make_lab(tmp_path)
-    bs, tb = lab.basis, lab.build(0)
-    exp = lab.seeing.export_head("fixture")
-    mesh = fitmesh.load_fit_mesh(exp["path"], frame=bs.frame)
-    roles = PO.part_roles(exp["path"])
-    bodies = [PO.temple_body(mesh, s, roles) for s in (1, -1)]
-    keep = ~np.isin(mesh.part, bodies)
-    Vs, Fs, Ps, n = [mesh.V], [mesh.F[keep]], [mesh.part[keep]], len(mesh.V)
-    for s, b in zip((1, -1), bodies):                       # the worker builds the spec into both temple bodies
-        W, _polys, tris = tb.world(s)
-        Vs.append(W)
-        Fs.append(np.asarray(tris, np.int64) + n)
-        Ps.append(np.full(len(tris), b, mesh.part.dtype))
-        n += len(W)
-    head = replace(mesh, V=np.concatenate(Vs), F=np.concatenate(Fs), part=np.concatenate(Ps))
-    temples = replace(head, F=head.F[np.isin(head.part, bodies)], part=head.part[np.isin(head.part, bodies)])
-
-    def pose(a, b):                                       # opening degrees of the +X and -X temples
-        return {"+1": {"theta_deg": a, "axis_xz_mm": [64.6, -10.1]},
-                "-1": {"theta_deg": b, "axis_xz_mm": [-64.6, -10.1]}}
-    shape = (360, 640)
-    views = {"side": (90.0, 13.6, 0.25), "angled": (28.2, 11.4, 0.26), "top": (0.3, 59.9, 0.29),
-             "mirrored-side": (-90.0, 0.0, 0.0), "rear": (180.0, 8.8, 0.07), "front": (0.0, 5.0, 0.2)}
-    photos = {name: {"pose": pose(9.0, 3.0), "shape": shape,
-                     "ccam": raster.view_camera(bs.frame, yaw, pitch, 3.0, shape, perspective=persp,
-                                                center_mm=np.array([0.0, 0.0, -60.0]))}
-              for name, (yaw, pitch, persp) in views.items()}
-    got, info = lab._variant_creases(photos, {"head": tb}, "fixture")
-    swapped, _ = lab._variant_creases({k: {**c, "pose": pose(3.0, 9.0)} for k, c in photos.items()}, {"head": tb},
-                                      "fixture")
-    assert info == {"occlusion": "scene"}
-    hidden = set()
-    for name, c in photos.items():
-        ref = _line_mask(_overlay_creases(head, roles, c["pose"], c["ccam"], bs.frame, shape), shape)
-        lab_px = _line_mask(got[(name, "head")], shape)
-        assert (ref > 0).sum() > 300 and (ref != lab_px).sum() == 0, (name, int((ref != lab_px).sum()))
-        assert (ref != _line_mask(swapped[(name, "head")], shape)).sum() > 0.3 * (ref > 0).sum(), name
-        bare = _line_mask(_overlay_creases(temples, roles, c["pose"], c["ccam"], bs.frame, shape), shape)
-        if (bare > 0).sum() > (ref > 0).sum():
-            hidden.add(name)
-    assert {"angled", "front"} <= hidden, hidden
-
-
-def test_variant_crease_lines_match_the_compare_overlay_on_the_prada_package(monkeypatch):
-    """On the recorded Prada package (read-only): Lab._variant_creases of revision 17, handed cmp030's exported head
-    by a stub seeing, draws the compare overlay's lines of that export at cmp030's crop cameras and poses (all seven
-    photos): at most 0.5 % of the line pixels differ (the 2026-10-11 review measured 0 at six photos and 2 of 2905
-    at black-side). The fixture test above runs the same check without package data."""
-    report = PACKAGE_004 / "work" / "compare" / "cmp030" / "report.json"
-    revision = PACKAGE_004 / "work" / "temple_lab" / "revisions" / "r0017.json"
-    if not (report.is_file() and revision.is_file()):
-        pytest.skip("package_004 (git-ignored data) is not on this machine")
-    _no_crease_fade_check(monkeypatch)        # r0017 fades tail and upper_rear across their crease at the outline
-    from glasses3d.g3d_host import compare as C
-    from glasses3d.g3d_host import fitmesh
-    from glasses3d.g3d_host import pose as PO
-    rep = json.loads(report.read_text(encoding="utf-8"))
-    glb = PACKAGE_004 / "work" / "exports" / Path(rep["glb"]["path"].replace("\\", "/")).name
-    assert hashlib.sha256(glb.read_bytes()).hexdigest() == rep["glb"]["sha256"]
-    bs = C.load_basis(PACKAGE_004)
-
-    class PackageSeeing:                       # the lab's seeing, read-only: the export cmp030 compared
-        def export_head(self, call_id=None):
-            return {"status": "exported", "path": str(glb), "sha256": rep["glb"]["sha256"]}
-
-        def fit_mesh(self, path, sha, *, skip=(), frame=None):
-            return fitmesh.load_fit_mesh(path, skip=tuple(skip), frame=frame)
-    lab = Lab.__new__(Lab)                     # no __init__: nothing is written into the package
-    lab._basis, lab.seeing = bs, PackageSeeing()
-    photos = {rid: {"pose": bs.pose(rid), "ccam": Camera(**prec["crop"]["camera"]),
-                    "shape": tuple(prec["crop"]["shape"])} for rid, prec in rep["photos"].items()}
-    tb = build_temple(json.loads(revision.read_text(encoding="utf-8")))
-    got, info = lab._variant_creases(photos, {"head": tb}, "package")
-    assert info == {"occlusion": "scene"} and len(photos) == 7
-    mesh = fitmesh.load_fit_mesh(glb, skip=bs.skip, frame=bs.frame)
-    roles = PO.part_roles(glb)
-    for rid, c in photos.items():
-        a = _line_mask(_overlay_creases(mesh, roles, c["pose"], c["ccam"], bs.frame, c["shape"]), c["shape"])
-        b = _line_mask(got[(rid, "head")], c["shape"])
-        assert (a > 0).sum() > 500 and (a != b).sum() <= 0.005 * (a > 0).sum(), (rid, int((a != b).sum()))
-
-
-LONG = {"N": "N" + "n" * 23, "S": "S" + "s" * 23}       # the longest facet names the edits allow (24 characters)
-
-
-def test_variant_refusals_keep_the_whole_message(lab, monkeypatch):
-    """facet_variants returns a core refusal whole (E_FADE_CLIFF with 24-character facet names is longer than a
-    receipt line) and cuts a longer text only at a clause end, never mid-sentence (the reviewer's defect 4,
-    2026-10-11: "...or end the cr")."""
-    import glasses3d.agent.temple_lab.lab as LB
-    with pytest.raises(TempleError) as e:
-        build_temple(rename(FX.refusal_cases()["E_FADE_CLIFF"], LONG, {}))
-    cliff = e.value
-    assert cliff.code == "E_FADE_CLIFF" and LB.LINE_MAX < len(cliff.message) <= LB.REFUSAL_MAX
-    real = LB.build_temple
-
-    def refusing(spec):
-        try:
-            return real(spec)
-        except TempleError:
-            raise cliff from None
-    monkeypatch.setattr(LB, "build_temple", refusing)
-    spec = FX.prada_default()
-    variants = [{"label": "A", "edits": [set_t("C", spec, -1.0)]}, {"label": "B", "edits": [set_t("C", spec, 0.5)]},
-                {"label": "Z", "edits": [set_t("A", spec, 5.0)]}]
-    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "variants": variants,
-                                                             "photos": ["05"], "judgement": None}))
-    z = next(v for v in body["variants"] if v["label"] == "Z")
-    assert z["code"] == "E_FADE_CLIFF" and z["message"] == cliff.message
-    assert z["message"].endswith("; start the fade where the crease ends")
-    text = "the first clause; the second clause. " * 30
-    out = LB.brief(text)
-    assert len(out) <= LB.REFUSAL_MAX and out.endswith(" ...") and out[:-4].endswith("clause")
-    assert LB.brief("one " * 200).endswith("one ...") and LB.brief(cliff.message) == cliff.message
-
-
-def test_fade_warning_lines_fit_a_receipt_line():
-    """W_FADE_HOLD and W_FADE_INERT with 24-character facet names fit LINE_MAX whole, W_FADE_HOLD with 3 characters to
-    spare (3-digit d, a 2-digit hold), so the receipt never cuts their advice; W_FADE_INERT counts the facets past
-    its budget ("+N more")."""
-    import glasses3d.agent.temple_lab.lab as LB
-    tb = build_temple(rename(FX.fade_one_side(proud=3.0, edge=0.0), LONG, {}))
-    lines = {ln.split(":", 1)[0]: ln for ln in RP.warning_lines(tb)}
-    assert len(lines["W_FADE_HOLD"]) + 3 <= LB.LINE_MAX and lines["W_FADE_HOLD"].endswith("(>= 10; > 25 is refused)")
-    assert lines["W_FADE_INERT"].endswith(f"{LONG['N']} (held by less-faded neighbours)")
-    s = canonical(FX.pyramid())
-    for f in s["facets"].values():
-        f["fade"] = {"d0": 110.0, "d1": 130.0}                         # beyond every facet: three inert fades
-    s = rename(s, {k: k + "x" * 22 for k in s["facets"]}, {})
-    w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_INERT"]
-    assert len(w) == 1 and len(w[0]["facets"]) == 3 and w[0]["message"].endswith("; +1 more")
-    assert len(f"W_FADE_INERT: {w[0]['message']}") <= LB.LINE_MAX
-    s = rename(FX.fade(ridge_from=104.0, ridge_to=108.0), LONG, {})   # 3-digit d: both facets fade early ...
-    for f in s["facets"].values():
-        f["fade"] = {"d0": 104.0, "d1": 30.0}                          # ... toward the hinge, flat over d 104-108
-    s["nodes"]["R1"][0] = s["nodes"]["N1"][0] = s["nodes"]["S1"][0] = 108.0
-    s["creases"] = []
-    w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_EARLY"]
-    assert len(w) == 1 and len(w[0]["facets"]) == 2 and "; +1 more; fade later" in w[0]["message"]   # one shown
-    assert "at its back (d 108.0)" in w[0]["message"]
-    assert len(f"W_FADE_EARLY: {w[0]['message']}") <= LB.LINE_MAX
-
-
-def test_facet_restore(lab):
-    tl = tools_of(lab)
-    first = lab.s.head["id"]
-    call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "edits": [set_t("C", FX.prada_default(), 1)],
-                            "judgement": None, "note": "x", "apply": True, "photos": None})
-    body, *_ = parsed(call(tl["facet_restore"], {"checkpoint": "c0000", "judgement": judgement(lab)}))
-    assert body["code"] == "E_ARGS"                                       # the original holds no applied revision
-    body, footer, _i, text = parsed(call(tl["facet_restore"], {"checkpoint": first, "judgement": None}))
-    assert body["status"] == "ok" and body["revision"] == 0 and body["restored_from"] == first
-    assert S.head_by_fingerprint(lab.state, lab.s.head["fingerprint"])["revision"] == 0
-    assert len(text) <= 1000 and lab.state["events"][-1]["tool"] == "facet_restore"
-
-
-def _distinct_heads_and_variants(lab, tl):
-    spec = FX.prada_default()
-    cps = []
-    for k, dt in enumerate((0.5, 1.0, 1.5)):
-        body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False,
-                                                  "edits": [set_t("C", spec, dt)], "note": "x", "apply": True,
-                                                  "photos": None, "judgement": judgement(lab) if k else None}))
-        cps.append(body["checkpoint"])
-    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
-    body, *_ = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants, "photos": ["05"],
-                                                  "judgement": judgement(lab, best=cps[0])}))
-    assert body["spread_ok"]
-    return cps
-
-
-def test_finish_refused_names_preconditions_then_accepted(lab, monkeypatch):
-    import glasses3d.g3d_host.spec as GS
-    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": ["w1"],
-                                                        "live_site_would_fail": []})
-    tl = tools_of(lab, finish_k=3)
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": lab.s.head["id"],
-                                                "summary": "s", "judgement": None}))
-    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2, 3]
-    assert body["missing"][2]["photos"] == PHOTO_IDS                   # prepare's compares were never shown to Astra
-    assert S.DIFFERENT_ATTEMPT in body["missing"][0]["message"]
-    cps = _distinct_heads_and_variants(lab, tl)
-    best = cps[0]
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
-                                                "judgement": None}))
-    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [3]
-    assert set(body["missing"][0]["photos"]) == {"03", "04", "06"}
-    parsed(call(tl["facet_restore"], {"checkpoint": best, "judgement": None}))
-    parsed(call(tl["photo_compare"], {"photos": PHOTO_IDS, "crop": None, "points_px": None}))
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": best, "summary": "s",
-                                                "judgement": judgement(lab, best=best, overall="better")}))
-    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [4]
-    body, footer, images, text = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best,
-                                                                  "summary": "s", "judgement": None}))
-    assert body["status"] == "accepted" and body["validate_spec"]["ok"] is True and body["revision"] == 1
-    assert lab.state["finish"]["checkpoint"] == lab.s.head["id"] and len(text) <= 1500
-    assert L.tool_result_status(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best,
-                                                          "summary": "s", "judgement": None})) == "accepted"
-
-
 # --------------------------------------------------------------------------------------------- the outline line
+# (v3 leaves it out of Astra's view, WP6_V3 P5; state keeps it for owner sheets)
 RUN3_TOP = {"+1": [-0.4, 0.1, 1.5, 0.7, -1.8, -2.1, -1.5, -0.8, -0.6, -0.7, -0.3, None, None],    # facet-astra-003's
             "-1": [-0.5, 0.0, 1.5, 0.6, -1.6, -2.1, -1.4, -0.8, -0.6, -0.9, -0.3, None, None]}    # best head, photo 03
 
@@ -2306,39 +894,6 @@ def test_outline_check_names_shape_beyond_the_common_offset():
     assert S.outline_text(many) == "outline: common +0.0; >1 mm: d70 +2.0 d80 +2.0 d90 +2.0 d100 +2.0 (+1 more)"
 
 
-def test_top_outline_line_is_information_only(lab, monkeypatch):
-    """The top photo's outline line (owner 2026-10-11: information only): photo 03's compare text names the stations
-    beyond 1 mm of the common offset (no other photo carries an outline line) and the compare record keeps the check,
-    but facet_finish never refuses on it: matched is accepted with the outline off."""
-    import glasses3d.g3d_host.spec as GS
-    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
-                                                        "live_site_would_fail": []})
-    tl = tools_of(lab, finish_k=3)
-    lab.seeing.records["reference-03"] = {"outer_edge_offsets_mm": offsets(RUN3_TOP)}
-    best = _distinct_heads_and_variants(lab, tl)[0]
-    parsed(call(tl["facet_restore"], {"checkpoint": best, "judgement": None}))
-    body, *_ = parsed(call(tl["photo_compare"], {"photos": PHOTO_IDS + ["B1"], "crop": None, "points_px": None}))
-    assert body["photos"]["03"].endswith("| outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5")
-    assert [p for p, t in body["photos"].items() if "outline" in t] == ["03"]
-    assert lab.state["compares"][-1]["outline"] == {"03": S.outline_check(offsets(RUN3_TOP))}
-    assert S.finish_missing(lab.state, status="matched", best_revision=1, k=0, distinct=lab.distinct,
-                            target_photos=PHOTO_IDS) == []
-    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
-                                                "judgement": judgement(lab, best=best, overall="same")}))
-    assert body["status"] == "accepted" and body["revision"] == 1
-
-
-def test_stuck_needs_three_distinct_heads_none_better(lab):
-    st = {"judgements": [{"compare_revision": r, "overall": o, "compare_id": f"c{r}"}
-                         for r, o in ((1, "same"), (2, "worse"), (3, "mixed"))], "compares": [], "variants": [{
-                             "spread": ["A", "B", "C"]}], "revisions": []}
-    miss = S.finish_missing(st, status="stuck", best_revision=1, k=0, distinct=lambda a, b: True, target_photos=[])
-    assert miss == []
-    st["judgements"][1]["compare_revision"] = 1
-    miss = S.finish_missing(st, status="stuck", best_revision=1, k=0, distinct=lambda a, b: True, target_photos=[])
-    assert [m["precondition"] for m in miss] == [4]
-
-
 def test_distinct_heads_chain_counts_unique_heads_only():
     """Precondition 1 counts a head only when it is distinct from EVERY head counted before it: alternating two
     revisions A, B, A, B is 2 heads, not 4; a head near any counted one never counts."""
@@ -2354,8 +909,1247 @@ def test_distinct_heads_chain_counts_unique_heads_only():
     unseen["compares"][1]["unseen"] = True                  # a compare Astra never saw counts nothing
     assert S.distinct_compared_heads(unseen, lambda a, b: True) == [1, 3]
     miss = S.finish_missing({**st((1, 2, 1, 2)), "variants": [{"spread": ["A", "B", "C"]}], "judgements": []},
-                            status="matched", best_revision=1, k=4, distinct=lambda a, b: True, target_photos=[])
+                            status="matched", best_revision=1, k=4, distinct=lambda a, b: True, camera_photos=[],
+                            has_object=True)
     assert [m["precondition"] for m in miss] == [1] and "2 of 4" in miss[0]["message"]
+
+
+# --------------------------------------------------------------------------------------------- revisions and the fit
+def test_registry_names_the_v3_tools_and_the_labs_photo_ids(lab):
+    """The registry over the real Lab (its schemas are test_temple_lab_v3's): the seven v3 tools, photo_image takes
+    every photo, photo_read / photo_compare / facet_edit / facet_variants the photos with a camera, the variants at
+    most 3 targets + 1 black; facet_finish names the precondition count K."""
+    tools = T.registry(lab)
+    assert tuple(t.name for t in tools) == T.TOOL_NAMES == (
+        "facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants", "facet_finish")
+    by = {t.name: t.params_json_schema for t in tools}
+    assert enums(by["photo_image"]["properties"]["photo"]) == [PHOTO_IDS + BLACK_IDS]
+    for name in ("photo_read", "photo_compare", "facet_edit", "facet_variants"):
+        assert CAMERA_IDS in enums(by[name]) and PHOTO_IDS + BLACK_IDS not in enums(by[name]), name
+    assert by["facet_variants"]["properties"]["photos"]["maxItems"] == 4
+    finish = next(t for t in T.registry(lab, L.RunSettings(effort="max", finish_k=6)) if t.name == "facet_finish")
+    assert "at least 6" in finish.description and "object note" in finish.description
+
+
+def test_revision_zero_is_fitted_and_the_worker_builds_the_fitted_spec(lab):
+    """I6: a revision is its design (revisions/rNNNN.json) and its fit (rNNNN.fit.json: the FitResult and the fitted
+    spec); Lab.design / Lab.spec / Lab.build; the worker gets the fitted spec, never the design. A pure /2 design keeps
+    its spec sha as its key."""
+    rec = lab.state["revisions"][0]
+    design, spec = lab.design(0), lab.spec(0)
+    assert rec["file"] == "revisions/r0000.json" and rec["fit_file"] == "revisions/r0000.fit.json"
+    assert design == canonical(FX.prada_default()) and rec["sha256"] == spec_sha256(FX.prada_default())
+    fr = json.loads((lab.work / rec["fit_file"]).read_text(encoding="utf-8"))
+    assert fr["schema"] == LB.FIT_RECORD_SCHEMA and fr["design_sha256"] == rec["sha256"]
+    assert fr["spec_sha256"] == rec["spec_sha256"] == spec_sha256(spec) and fr["fit"]["spec"] == spec
+    assert spec["facets"]["F2"]["plane"] == {"coef": spec["facets"]["F2"]["plane"]["coef"]}      # flat: its plane
+    assert all(isinstance(v[2], float) for n, v in spec["nodes"].items() if n in ("A", "B", "C", "K"))
+    assert spec["nodes"]["K"][2] == pytest.approx(5.0, abs=0.01)                    # solved by the fit (W_FIT_SOLVED)
+    assert lab.s.built == [spec] and lab.build(0).spec.sha256 == spec_sha256(spec)
+    assert isinstance(lab.fit_result(0), FIT.FitResult) and lab.fit_result(0).chi2 == pytest.approx(0.0, abs=1e-9)
+    assert lab.state["heads"][0]["seq"] == 0                                     # the order precondition 5 reads
+
+
+def test_a_design_is_its_revision_and_a_new_reading_a_new_design(tmp_path):
+    """The same design is the same revision (a variant applied with no edits); a design whose reading was read again
+    (other numbers) is a new revision; the design file keeps the read dict, the fit file its numbers."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    read_c(lab, 9.0)
+    edits = [{"op": "set_node", "name": "C", "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}]
+    b1 = lab.edit("e1", 0, False, edits, None, "x", OBJECT, False, None)
+    b2 = lab.edit("e2", 0, False, edits, None, "x", None, False, None)
+    assert b1["status"] == b2["status"] == "built" and b1["revision"] == b2["revision"] == 1
+    assert b2["note"] == "this design is revision 1 already"
+    t = lab.design(1)["nodes"]["C"][2]
+    assert G.is_read(t) and t["read"]["X"] == pytest.approx(lab.readings()["C"]["X"], abs=1e-6)
+    assert isinstance(lab.spec(1)["nodes"]["C"][2], float)
+    read_c(lab, 9.4)
+    b3 = lab.edit("e3", 0, False, edits, None, "x", None, False, None)
+    assert b3["revision"] == 2 and lab.state["revisions"][2]["sha256"] != lab.state["revisions"][1]["sha256"]
+    assert lab.spec(2)["nodes"]["C"][2] == pytest.approx(lab.spec(1)["nodes"]["C"][2] + 0.4, abs=0.05)
+
+
+# --------------------------------------------------------------------------------------------- readings
+def picks_at(lab, name, d, y, t, photos=("05", "02")) -> dict:
+    """A corner reading of the head's chart point (d, y, t) in ``photos`` (exact projections on the synthetic rig)."""
+    tb = lab.build(lab.head_record()["revision"])
+    return {"name": name, "kind": "corner", "picks": corner_picks(lab.basis.synth, point(tb, d, y, t), list(photos))}
+
+
+def read_c(lab, t: float) -> dict:
+    """Read node C of the Prada fixture (d 22.6, y -16.3) at thickness t in 05 + 02."""
+    return lab.read("read-c", [picks_at(lab, "C", 22.6, -16.3, t)], [])
+
+
+def test_photo_read_stores_replaces_and_drops_by_name_with_a_history(tmp_path):
+    """photo_read (I6): readings.read_point on the head's build, stored by name in state["readings"] (a reading of the
+    same name replaces the stored one; drop removes one), every change in state["reading_log"] with the call and the
+    replaced record; each reading returns readings.reading_text and one pick sheet, registered like every image."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    out = lab.read("call_r1", [picks_at(lab, "Q", 40.0, 2.0, 6.0), picks_at(lab, "R", 50.0, 4.0, 7.0)], [])
+    assert out["status"] == "ok" and out["stored"] == ["Q", "R"] and list(out["readings"]) == ["Q", "R"]
+    q = lab.readings()["Q"]
+    assert (q["d"], q["y"], q["t"]) == (pytest.approx(40.0, abs=1e-3), pytest.approx(2.0, abs=1e-3),
+                                        pytest.approx(6.0, abs=1e-3))
+    assert q["call_id"] == "call_r1" and q["id"] == f"{out['read_id']}-Q" and q["revision"] == 0
+    assert out["readings"]["Q"] == RD.reading_text(q)
+    assert len(out["images"]) == 2
+    first = [hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in out["images"]]
+    for p, digest in zip(out["images"], first):
+        rec = lab.state["images"][digest]
+        assert rec["kind"] == "reading" and rec["ref"] == out["read_id"] and Path(p).is_relative_to(lab.work)
+    assert lab.context_stubs(first) == {}                                # both readings are the stored ones
+    q0 = dict(lab.readings()["Q"])
+    out = lab.read("call_r2", [picks_at(lab, "Q", 40.0, 2.0, 6.5)], ["R"])
+    assert list(out["replaced"]) == ["Q"] and out["dropped"] == ["R"] and out["stored"] == ["Q"]
+    assert lab.readings()["Q"]["t"] == pytest.approx(6.5, abs=1e-3)
+    # the replaced reading's change is printed (review2-lab-e2-2 P3-10): the old one, then X, d, y moves
+    assert out["replaced"]["Q"] == LB.reading_change(q0, lab.readings()["Q"])
+    assert out["replaced"]["Q"].startswith(f"was X {RD.fixed(q0['X'], 2)} +- {RD.fixed(q0['sd_X'], 2)} at d 40.00 "
+                                           f"y 2.00 ({q0['id']}); X +0.50 mm (+") \
+        and out["replaced"]["Q"].endswith(" sd of the difference), d +0.00, y +0.00")
+    assert "head_nodes" not in out                                      # no node of the head holds Q or R
+    second = hashlib.sha256(Path(out["images"][0]).read_bytes()).hexdigest()
+    stubs = lab.context_stubs(first + [second])                         # the context guard: superseded sheets go
+    assert set(stubs) == set(first) and "read again since" in stubs[first[0]] and "dropped since" in stubs[first[1]]
+    log = lab.state["reading_log"]
+    assert [(e["action"], e["name"], e["call_id"]) for e in log] == [
+        ("read", "Q", "call_r1"), ("read", "R", "call_r1"), ("dropped", "R", "call_r2"), ("replaced", "Q", "call_r2")]
+    assert log[3]["was"]["t"] == pytest.approx(6.0, abs=1e-3) and log[2]["was"]["name"] == "R"
+    out = lab.read("call_r3", [], ["Q"])
+    assert out["stored"] == [] and "images" in out and out["images"] == [] and not lab.is_clean()
+    assert second in lab.context_stubs([second])
+
+
+def test_photo_read_refusals_store_nothing(tmp_path):
+    """All or none: readings' ValueErrors (one direction seen twice, a pick outside the photo), a photo without a
+    camera (named for photo_image), an unknown name to drop, a name read and dropped, repeated names and an empty call
+    are E_ARGS, and nothing is stored."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    good = picks_at(lab, "Q", 40.0, 2.0, 6.0)
+    cases = [([good, picks_at(lab, "R", 40.0, 2.0, 6.0, ("05", "B1"))], [], "along nearly one line"),
+             ([good, {"name": "R", "kind": "corner", "picks": [{"photo": "05", "uv": [900.0, 10.0], "edges": None,
+                                                                "sd_px": None}, good["picks"][1]]}], [],
+              "inside the native 640 x 480 photo 05"),
+             ([{**good, "picks": [{**good["picks"][0], "photo": "B2"}, good["picks"][1]]}], [], "photo_image only"),
+             ([good], ["Z"], "no reading named 'Z'"),
+             ([good], ["Q"], "both read and dropped"),
+             ([good, good], [], "repeat a name"),
+             ([], [], "name points to read")]
+    for points, drop, words in cases:
+        with pytest.raises(S.LabRefusal, match=re.escape(words)) as e:
+            lab.read("x", points, drop)
+        assert e.value.code == "E_ARGS"
+        assert lab.readings() == {} and not lab.state.get("reading_log")
+    assert lab.is_clean()
+
+
+def test_a_replaced_or_dropped_reading_is_named_on_the_heads_nodes(tmp_path):
+    """A node keeps the reading it was set from (geometry.stale_reads): photo_read names the head's nodes that hold a
+    reading it replaced or dropped (with the reading's id and X), and facet_inspect's node rows mark them (review2-
+    lab-e2-1 P2-1, review2-lab-e2-2 P2-1: a re-read 0.5 mm out and a dropped reading left the head's nodes, fit and
+    receipts on the old ones with nothing saying so); set_node mode reading again makes them current."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    tb0 = lab.build(0)
+    tB = float(tb0.spec.base_t(46.8, 11.8))                              # B is "base": read on the arm
+    lab.read("r1", [picks_at(lab, "C", 22.6, -16.3, 9.0), picks_at(lab, "B", 46.8, 11.8, tB)], [])
+    old = {n: dict(r) for n, r in lab.readings().items()}
+    reading = [{"op": "set_node", "name": n, "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}
+               for n in ("B", "C")]
+    body = lab.edit("e1", 0, False, reading, None, "x", OBJECT, True, ["05"])
+    assert body["status"] == "applied" and body["revision"] == 1
+    assert [r[2] for n, r in lab.inspect()["spec"]["nodes"]["rows"].items() if n in ("B", "C")] == ["read", "read"]
+    out = lab.read("r2", [picks_at(lab, "C", 22.6, -16.3, 9.5)], ["B"])
+    assert out["head_nodes"] == (f"head r1: node B holds reading B ({old['B']['id']}, X {RD.fixed(old['B']['X'], 2)}), "
+                                 f"now dropped; node C holds the earlier reading C ({old['C']['id']}, X "
+                                 f"{RD.fixed(old['C']['X'], 2)})")
+    rows = lab.inspect()["spec"]["nodes"]["rows"]
+    assert rows["C"][2] == "read (replaced since)" and rows["B"][2] == "read (dropped since)"
+    assert rows["C"][3] == pytest.approx(9.0, abs=0.05)                  # the head still holds the old reading
+    assert "head_nodes" not in lab.read("r3", [picks_at(lab, "Q", 40.0, 2.0, 6.0)], [])       # no node Q
+    body = lab.edit("e2", 1, False, reading[1:], judgement(lab), "x", None, True, ["05"])
+    assert body["status"] == "applied"
+    assert lab.inspect()["spec"]["nodes"]["rows"]["C"][2] == "read"
+
+
+def test_pick_sheets_of_names_that_differ_only_in_case_are_two_files(tmp_path):
+    """Reading names are case-sensitive ("Q" and "q" are two nodes); on a case-insensitive file system their pick
+    sheets were one file, the second overwriting the first (review2-lab-e2-1 P2-2): each sheet's file carries its
+    index in the call, so both are kept, sent and indexed."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    out = lab.read("r1", [picks_at(lab, "Q", 40.0, 2.0, 6.0), picks_at(lab, "q", 50.0, 4.0, 7.0)], [])
+    paths = [Path(p) for p in out["images"]]
+    assert len({p.name.lower() for p in paths}) == 2 and all(p.is_file() for p in paths)
+    digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
+    assert len(set(digests)) == 2 and [lab.state["images"][d]["reading"] for d in digests] == ["Q", "q"]
+    assert lab.context_stubs(digests) == {} and out["stored"] == ["Q", "q"]
+
+
+# --------------------------------------------------------------------------------------------- facet_edit
+def test_facet_edit_fits_readings_and_builds_the_fitted_spec(tmp_path):
+    """The edit flow (I6): apply_edits(readings) -> design (C's t its reading) -> fit_spec -> the fitted spec, which is
+    the revision's spec, the build and what the worker applies; the receipt's fit lines count the reading; the
+    compare is of the fitted head (its model edges)."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    read_c(lab, 9.0)
+    edits = [{"op": "set_node", "name": "C", "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}]
+    body, *_ = parsed(call(tools_of(lab)["facet_edit"], edit_args(0, edits, obj=OBJECT, photos=["05"])))
+    assert body["status"] == "applied", body
+    rid = body["revision"]
+    spec = lab.spec(rid)
+    fit = lab.fit_result(rid)
+    assert fit.nodes["C"]["source"] == "read" and spec["nodes"]["C"][2] == pytest.approx(9.0, abs=0.05)
+    assert lab.s.built[-1] == spec and lab.build(rid).spec.sha256 == spec_sha256(spec)
+    assert body["receipt"]["fit"][0].startswith("fit: chi2 ") and "from 1 readings" in body["receipt"]["fit"][0]
+    assert body["diff"].startswith("~node C t 8.0->read ")
+    assert lab.seeing.calls[-1]["model_edges"] == LB.capped_edges(BLD.model_edges(lab.build(rid)))
+
+
+def test_facet_edit_receipt_order_and_crease_lines(lab):
+    """The receipt (WP6_V3 §6): fit lines first (the fit report without its crease lines), then one line per built
+    crease (the builder's shape and angle, then the fit's angle +- sd and certain / open), then the builder's
+    warnings; then solved / crease_vs_head / diff_vs_head against the head. No margins block, no lean, no remedy text.
+    The crease line is report.crease_line plus the fit's part, cut at LINE_MAX (the fit's part first)."""
+    body = lab.edit("e1", 0, False, [set_t("A", FX.prada_default(), 0.6)], None, "x", OBJECT, False, None)
+    assert body["status"] == "built", body
+    rc = body["receipt"]
+    assert list(rc)[:2] == ["fit", "creases"] and "margins" not in rc and "lean_deg" not in rc
+    tb, fit = lab.build(body["revision"]), lab.fit_result(body["revision"])
+    assert rc["fit"] == fit.report_lines(limit=LB.FIT_LINES_MAX, creases=False)
+    assert rc["creases"] == LB.crease_lines(tb, fit, BLD.model_edges(tb)) == LB.crease_lines(tb, fit)
+    line = next(ln for ln in rc["creases"] if ln.startswith("F2|F4 "))
+    assert line.startswith(RP.crease_line(next(c for c in tb.tables["creases"] if c["regions"] == ["F2", "F4"])))
+    assert re.search(r"; fit \+\d+\.\d \+- \d+\.\d, certain$", line), line
+    assert next(ln for ln in rc["creases"] if ln.startswith("F4|base ")).count("; fit fold -") == 1
+    keys = list(body)
+    assert keys.index("receipt") < keys.index("solved") and "crease_vs_head" not in body
+    assert "H_lo 4.24 (head 5.75), K 4.82 (head 5.00)" in body["solved"]
+    assert no_remedy(json.dumps(body))
+    f = {"deg": 16.12, "sd_deg": 3.8, "certain": True, "declared": "ridge", "dchi2": 2.4, "free_deg": 11.0,
+         "free_sd_deg": 2.0, "held": False}
+    assert LB.fit_crease_text(f, False) == "fit +16.1 +- 3.8, certain (readings-only +11.0 +- 2.0, cost +2.4)"
+    assert LB.fit_crease_text({**f, "held": True, "deg": 2.5, "dchi2": 0.0}, True) == \
+        "fit fold +2.5 (held at the declared minimum), certain"
+    assert LB.fit_crease_text({**f, "deg": -0.01, "certain": False, "declared": None}, False) == "fit +0.0 +- 3.8, open"
+
+
+def test_crease_lines_keep_the_fits_part_and_say_where_a_border_folds_both_ways():
+    """compose drops the highest-ranked parts first and never the rank-0 ones (the builder's shape and angle, the
+    fit's angle, sd and certain / open); a 170-character cut of the tail lost the fit's whole part (review2-lab-e2-2
+    P3-8). A facet|base border that folds both ways prints the table's shares over its face edges and the signed
+    extremes of its model edges, so the builder's "ridge" and the fit's valley fold read as one border (review2-lab-
+    e2-1 P2-4, the lab's part); the ramp's d is in the step clause."""
+    parts = [("h" * 150, 0), ("; fit fold -2.3 +- 1.1", 0), (" at d 27.0 y 4.0", 3), (", certain", 0),
+             (", the thickness bound holds A (the sd is without it)", 4),
+             (" (readings-only -2.0 +- 1.0, cost +2.4)", 1)]
+    assert LB.compose(parts, 300) == "".join(t for t, _r in parts)
+    assert LB.compose(parts, 260) == "h" * 150 + "; fit fold -2.3 +- 1.1 at d 27.0 y 4.0, certain (readings-only " \
+                                              "-2.0 +- 1.0, cost +2.4) ..."
+    assert LB.compose(parts, 230) == "h" * 150 + "; fit fold -2.3 +- 1.1, certain (readings-only -2.0 +- 1.0, " \
+                                              "cost +2.4) ..."
+    assert LB.compose(parts, 200) == "h" * 150 + "; fit fold -2.3 +- 1.1, certain ..."
+    assert LB.compose([("h" * 300, 0), ("; fit +1.0 +- 0.5", 0)], 260) == "h" * 260
+    c = {"regions": ["shoulder", "base"], "kind": "crease", "shape": "ridge", "mean_dihedral_deg": 6.2,
+         "warp_beside": True, "range_deg": [4.1, 9.8], "soft": True, "declared": "ridge",
+         "step": {"height_mm": 0.8, "slope_deg": 21.8, "d_mm": [75.5, 76.8]},
+         "ridge_share": 0.53, "valley_share": 0.47, "face_length_mm": 64.2, "length_mm": 70.0}
+    f = {"pair": ["shoulder", "base"], "deg": -6.2, "sd_deg": 1.7, "at": [25.0, 6.0], "certain": True, "held": False,
+         "declared": "ridge", "dchi2": 3.1, "free_deg": -6.0, "free_sd_deg": 1.7, "borders": 1, "bound": ["K"]}
+
+    class Build:
+        tables = {"creases": [c]}
+
+    class Fit:
+        creases = [f]
+    edges = [{"pair": "shoulder|base", "shape": "flat", "deg": 0.6, "range": [-4.38, 9.8]}]
+    line = LB.crease_lines(Build, Fit, edges)[0]
+    assert line == ("shoulder|base ridge 6.2° (4.1-9.8) soft (proud 0.80 mm: a 21.8° ramp at d 75.5-76.8) declared "
+                    "ridge, ridge along 53 % and valley along 47 % of its 64.2 mm (-4.4 to +9.8°); fit fold -6.2 "
+                    "+- 1.7 at d 25.0 y 6.0, certain (readings-only -6.0 +- 1.7, cost +3.1) ..."), line
+    assert len(line) <= LB.CREASE_LINE_MAX
+    assert LB.mixed_text(c, (0.5, 9.8)) == ", ridge along 53 % and valley along 47 % of its 64.2 mm"   # one sign
+    assert LB.mixed_text({**c, "valley_share": 0.03, "ridge_share": 0.97}, (-4.4, 9.8)) == ""          # < 5 %
+
+
+def test_a_ramp_is_printed_once_and_snaps_are_explained(lab):
+    """A facet standing 1 mm proud of the arm (a 26.6° ramp over the 2 mm border band): its W_BORDER_RAMP run is the
+    crease line's step, printed there with its d and not again in the warnings (review2-lab-e2-2 P3-10); the spec's
+    knot snaps are a sentence with the largest move, not a bare count."""
+    z = FX.T_ZONE
+
+    def node(n, d, y):
+        return {"op": "set_node", "name": n, "d_mm": d, "y_mm": y, "t": {"mode": "mm", "mm": z + 1.0}}
+    edits = [node("P0", 40.0, -2.0), node("P1", 60.0, -2.0), node("P2", 60.0, 2.0), node("P3", 40.03, 2.0),
+             {"op": "set_facet", "label": "P", "poly": ["P0", "P1", "P2", "P3"], "plane": {"mode": "flat"},
+              "soft": False}]
+    design = G.apply_edits(SLAB, edits)[0]
+    fit = FIT.fit_spec(design)
+    tb = build_temple(fit.spec)
+    assert [w["code"] for w in tb.warnings] == ["W_BORDER_RAMP"]
+    rc = lab._receipt(tb, fit, BLD.model_edges(tb))
+    assert rc["creases"][0].startswith("P|base flat 0.0° (proud 1.00 mm: a 26.6° ramp at d 40.0-60.0) undeclared; "
+                                       "fit fold +0.0 +- ")
+    assert "warnings" not in rc
+    assert rc["snaps"] == "1 knot or node value moved up to 0.03 mm onto a shared d or the outline edge (the spec's " \
+                          "canonical form)"
+    tb.warnings = tb.warnings + [{**tb.warnings[0], "d_mm": [62.0, 70.0], "height_mm": 0.5, "slope_deg": 14.0}]
+    assert lab._receipt(tb, fit)["warnings"] == ["W_BORDER_RAMP >8°: P +0.50 14.0° d 62.0-70.0"]   # another run
+
+
+def test_fit_and_build_refusals_return_their_facts_only(lab, monkeypatch):
+    """A declaration the readings and typed values contradict is the fit's E_FIT_SHAPE (stage fit; its facts:
+    readings-only angle, cost, the values most against it); a builder refusal is the builder's message (stage
+    build); neither has a remedy added (WP6_V3 P6), and neither makes a revision."""
+    n = len(lab.state["revisions"])
+    body = lab.edit("e1", 0, False, [{"op": "set_crease", "facets": ["F2", "F4"], "shape": "valley"}], None, "x",
+                    OBJECT, False, None)
+    assert body["status"] == "refused" and body["code"] == "E_FIT_SHAPE" and body["stage"] == "fit"
+    assert body["message"].startswith("the declared crease shapes: they cost chi2 +") and "readings-only +6.6" in \
+        body["message"] and no_remedy(body["message"]) and len(body["message"]) <= LB.FIT_REFUSAL_MAX
+    real = LB.build_temple
+
+    def refusing(spec):
+        raise TempleError("E_TOO_THIN", "the temple is 0.41 mm thick at d 12.0 y 3.0 (t_min 0.8)", facet="F2")
+    monkeypatch.setattr(LB, "build_temple", refusing)
+    body = lab.edit("e2", 0, False, [set_t("C", FX.prada_default(), 0.5)], None, "x", None, True, None)
+    monkeypatch.setattr(LB, "build_temple", real)
+    assert body == {"status": "refused", "code": "E_TOO_THIN", "stage": "build", "edit": None,
+                    "message": "the temple is 0.41 mm thick at d 12.0 y 3.0 (t_min 0.8)", "fields": {"facet": "F2"},
+                    "parent": 0}
+    assert len(lab.state["revisions"]) == n and lab.s.built == [lab.spec(0)]
+
+
+def test_the_object_note_rule_in_facet_edit(lab):
+    """E_OBJECT (state.check_object, WP6_V3 §6): a facet_edit without a note while none exists is refused, before any
+    fit or build; a note is recorded with its design's layout (facet_inspect shows it); a later change of t needs
+    none; a new layout needs a new one; a note too long is E_ARGS."""
+    tl = tools_of(lab)
+    n = len(lab.state["revisions"])
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.5)], apply=False)))
+    assert body == {"status": "refused", "code": "E_OBJECT", "message": S.OBJECT_REFUSAL}
+    assert len(lab.state["revisions"]) == n and S.object_text(lab.state) is None
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.5)], obj=OBJECT,
+                                                       apply=False)))
+    assert body["status"] == "built" and body["object"] == "recorded" and S.object_text(lab.state) == OBJECT
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(body["revision"], [set_t("C", FX.prada_default(), 0.9)],
+                                                       apply=False)))
+    assert body["status"] == "built" and "object" not in body
+    split = [{"op": "set_node", "name": "M", "d_mm": 30.0, "y_mm": 0.0, "t": {"mode": "solve", "mm": None}}]
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, split, apply=False)))
+    assert body["code"] == "E_OBJECT"
+    with pytest.raises(S.LabRefusal, match="object must be text of 1..3000 characters") as e:
+        lab.edit("x", 0, False, split, None, "x", "x" * (S.OBJECT_MAX + 1), False, None)
+    assert e.value.code == "E_ARGS"
+    assert lab.inspect()["object"] == OBJECT
+
+
+def test_a_judgement_given_is_stated_when_not_stored_or_when_the_call_is_refused(lab):
+    """A judgement given is recorded before the call can be refused; a retry's judgement (none due) is not stored,
+    and the result says so (state.judgement_not_due), refusals raised (E_OBJECT, E_STATE) or returned (E_EDIT) say
+    "judgement of cmpX stored" (review2-lab-e2-1 P3-1, review2-lab-e2-2 P3-5: a resent judgement with another
+    best_checkpoint was dropped silently); a call with no judgement, or a built one with its judgement stored, says
+    nothing."""
+    tl = tools_of(lab)
+    spec = FX.prada_default()
+    c1 = parsed(call(tl["photo_compare"], compare_args(["05"])))[0]["compare_id"]
+    first = judgement(lab)
+    body = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 0.5)], judge=first, apply=False)))[0]
+    assert body["code"] == "E_OBJECT" and body["judgement"] == f"judgement of {c1} stored"
+    again = {**first, "overall": "better"}
+    body = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 0.5)], judge=again, obj=OBJECT, apply=False),
+                       "call_retry"))[0]
+    assert body["status"] == "built" and body["judgement"] == f"compare {c1} was judged already (call call_x); this " \
+                                                                "judgement was not stored"
+    assert [j["overall"] for j in lab.state["judgements"]] == ["mixed"]
+    c2 = parsed(call(tl["photo_compare"], compare_args(["05"])))[0]["compare_id"]
+    body = parsed(call(tl["facet_edit"], edit_args(0, [{"op": "delete_node", "name": "Z"}], judge=judgement(lab),
+                                                   apply=False)))[0]
+    assert body["code"] == "E_EDIT" and body["judgement"] == f"judgement of {c2} stored"
+    c3 = parsed(call(tl["photo_compare"], compare_args(["05"])))[0]["compare_id"]
+    two = [{"label": "A", "edits": []}, {"label": "B", "edits": []}]
+    body = parsed(call(tl["facet_variants"], {"parent_revision": 0, "photos": ["B1"], "judgement": judgement(lab),
+                                              "variants": two}))[0]
+    assert body["code"] == "E_STATE" and body["judgement"] == f"judgement of {c3} stored"
+    assert "a full photo_compare of it, or photos without it" in body["message"]          # both ways out
+    body = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 0.7)], apply=False)))[0]
+    assert body["status"] == "built" and "judgement" not in body
+
+
+def test_a_fit_or_build_that_raises_is_the_calls_refusal_and_inspect_names_the_notes_layout(lab, monkeypatch):
+    """Any exception of the fit or the build other than a TempleError is this call's refusal with its type and text
+    (E_FIT / E_BUILD at stage fit / build), the object note given is still "recorded", the state keeps it in
+    host_errors, and in facet_variants only that arm is refused (review2-lab-e2-1 P3-2: the SDK's generic error lost
+    the result). facet_inspect says when the latest note was written for another layout than the head's (review2-
+    lab-e2-1 P3-3, review2-lab-e2-2 P3-1)."""
+    tl = tools_of(lab)
+    spec = FX.prada_default()
+    real = FIT.fit_spec
+
+    def failing(design, readings=None):
+        if "M" in design["nodes"]:
+            raise RuntimeError("nnls: no convergence")
+        return real(design, readings=readings)
+    monkeypatch.setattr(LB.FIT, "fit_spec", failing)
+    split = [{"op": "set_node", "name": "M", "d_mm": 30.0, "y_mm": 0.0, "t": {"mode": "solve", "mm": None}}]
+    body = parsed(call(tl["facet_edit"], edit_args(0, split, obj="NOTE: a layout with M", apply=False)))[0]
+    assert body == {"status": "refused", "code": "E_FIT", "stage": "fit", "edit": None,
+                    "message": "the fit raised RuntimeError: nnls: no convergence", "parent": 0, "object": "recorded"}
+    assert lab.state["host_errors"][-1] == {"call_id": "call_x", "stage": "fit", "message": body["message"]}
+    ins = lab.inspect()
+    assert ins["object"] == "NOTE: a layout with M" and ins["object_layout"] == \
+        "call call_x wrote it for another layout; the head: -node M"
+    variants = [{"label": "A", "edits": [set_t("C", spec, 0.5)]}, {"label": "M", "edits": split}]
+    body = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants, "photos": ["05"],
+                                              "judgement": None}))[0]
+    by = {v["label"]: v for v in body["variants"]}
+    assert (by["M"]["stage"], by["M"]["code"]) == ("fit", "E_FIT") and by["A"]["revision"] is not None
+    assert lab.state["variants"][-1]["rendered"] == ["A"]
+    monkeypatch.setattr(LB, "build_temple", lambda s: (_ for _ in ()).throw(np.linalg.LinAlgError("singular")))
+    body = lab.edit("e3", 0, False, [set_t("C", spec, 0.9)], None, "x", OBJECT, False, None)
+    assert (body["code"], body["stage"], body["object"]) == ("E_BUILD", "build", "recorded")
+    assert body["message"] == "the build raised LinAlgError: singular"
+    assert "object_layout" not in lab.inspect()                     # the latest note is for the head's layout
+
+
+def test_a_typed_t_off_its_reading_is_a_fact_in_the_fit_lines(tmp_path):
+    """W_FIT_OFF_READING: a t typed on a node that has a stored reading of its name, more than 2 sd from it, is
+    printed as a fact in the receipt's fit lines ("typed C 7.00: its reading 9.00 +- 0.58 (-3.4 sd)"); 1.7 sd off
+    is not."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    read_c(lab, 9.0)
+    sd = lab.readings()["C"]["sd_X"]
+    assert 0.4 < sd < 0.8
+    body = lab.edit("e1", 0, False, [set_t("C", FX.prada_default(), -1.0)], None, "x", OBJECT, False, None)
+    line = next(ln for ln in body["receipt"]["fit"] if ln.startswith("W_FIT_OFF_READING"))
+    assert line == f"W_FIT_OFF_READING: typed C 7.00: its reading 9.00 +- {sd:.2f} ({-2.0 / sd:+.1f} sd)", line
+    body = lab.edit("e2", 0, False, [set_t("C", FX.prada_default(), 0.0)], None, "x", None, False, None)
+    assert not any(ln.startswith("W_FIT_OFF_READING") for ln in body["receipt"]["fit"])
+    assert no_remedy(line)
+
+
+def test_solved_moves_flips_and_diff_against_the_head(lab):
+    """Against the CURRENT head: solved (fitted nodes with no reading or typed value whose t moved >= 0.1 mm),
+    crease_vs_head (a crease built with the other shape) and diff_vs_head (the parent is not the head), in that
+    order after the receipt."""
+    spec = FX.prada_default()
+    keep = [{"op": "delete_crease", "facets": ["F2", "F4"]}, {"op": "delete_crease", "facets": ["F4", "base"]},
+            {"op": "delete_crease", "facets": ["F2", "F3"]}]
+    body = lab.edit("e1", 0, False, keep, None, "x", OBJECT, True, ["05"])
+    assert body["status"] == "applied" and "solved" not in body and "crease_vs_head" not in body
+    r1 = body["revision"]
+    body = lab.edit("e2", r1, False, [set_t("C", spec, -4.0)], judgement(lab), "x", None, False, None)
+    assert body["status"] == "built", body
+    assert body["crease_vs_head"] == "r1: F2|F3 ridge 8.7° -> valley 3.5°", body["crease_vs_head"]
+    body = lab.edit("e3", 0, False, [set_t("A", spec, 0.6)], None, "x", None, False, None)
+    keys = list(body)
+    assert keys.index("solved") < keys.index("diff_vs_head") and body["diff_vs_head"].startswith("r1: ~node A t ")
+    assert "+crease F2|F3 ridge" in body["diff_vs_head"]
+    assert "K 4.82 (head 5.00)" in body["solved"]
+
+
+# --------------------------------------------------------------------------------------------- photo_compare
+def test_photo_compare_sends_the_heads_model_edges_and_prints_v3_texts(lab):
+    """photo_compare (I6 / WP6_V3 §5-6): seeing gets passes native_linear, the head's model edges (build.model_edges by
+    identity), its hinge_z and opening; per photo the lab's text: view, IoU, px/mm, box and k, a side view's outline
+    offsets for the temple whose outer face it sees (seeing's text: bottom measured, top not), the charted points; no
+    top / rear offsets, no start column, no outline line, no camera note."""
+    t = tools_of(lab)["photo_compare"]
+    body, _f, images, text = parsed(call(t, compare_args(["05", "03", "06"], points=[
+        {"photo": "05", "points": [[100.0, 120.0]]}])))
+    assert body["status"] == "ok" and body["compare_id"].startswith("cmp") and len(images) == 3
+    c = lab.seeing.calls[-1]
+    assert c["passes"] == ["native_linear"] and c["rig"] == MATCHED_RIG and c["hinge_z_mm"] == -10.6
+    assert c["opening"] == lab.spec(0)["hinge"] and c["zoom"] is None
+    assert c["model_edges"] == LB.capped_edges(BLD.model_edges(lab.build(0))) and c["model_edges"]
+    t05 = body["photos"]["05"]
+    assert t05.startswith("side (rows photo / render / overlay); temple IoU 0.912, 4.03 px/mm in this image (8.17 "
+                          "native), box [20,30,300,210] k 0.493 | outline of the charted temple, photo minus model")
+    assert "bottom (+ = the photo's edge lower) at d: 10 +0.1, 20 covered, 30 -0.4" in t05 and "mirrored" not in t05
+    assert "| points (100,120) d 20.00 y 1.50 t " in t05
+    for pid in ("03", "06"):
+        assert body["photos"][pid] == f"{KINDS[pid]} (rows photo / render / overlay); temple IoU 0.912, 4.03 px/mm " \
+                                      "in this image (8.17 native), box [20,30,300,210] k 0.493"
+    for gone in ("offsets", "start", "outline: common", GC.CAMERA_NOTE[:30], "camera error", "depths"):
+        assert gone not in text, gone
+    rec = lab.state["compares"][-1]
+    assert rec["photos"] == rec["stacked"] == ["05", "03", "06"] and "outline" not in rec
+    assert S.pending_compare(lab.state)["compare_id"] == body["compare_id"]
+
+
+def test_zooms_are_checked_shown_and_judged(lab):
+    """zoom [{photo, box, geometry}] (<= 3): photo ids become basis references for seeing, boxes are native px inside
+    the photo; each zoom's text is seeing's naming the lab's photo id (its trailing compare_id line left out: the result
+    carries it); photos [] with a zoom is a zoom-only compare whose zoomed photos are judged, and precondition 3 is
+    left to the full compares ("stacked")."""
+    tl = tools_of(lab)
+    z = [{"photo": "05", "box": [40, 60, 200, 140], "geometry": True}, {"photo": "B1", "box": [0, 0, 64, 40],
+                                                                        "geometry": False}]
+    body, _f, images, _t = parsed(call(tl["photo_compare"], compare_args(["05"], zoom=z)))
+    assert body["status"] == "ok" and len(images) == 3 and list(body["photos"]) == ["05"]
+    assert lab.seeing.calls[-1]["zoom"] == [{"rid": "reference-05", "box": [40.0, 60.0, 200.0, 140.0],
+                                             "geometry": True},
+                                            {"rid": "black-side", "box": [0.0, 0.0, 64.0, 40.0], "geometry": False}]
+    assert body["zoom"][0].startswith("zoom 1 on 05 (side, target): native box [40,60,200,140] at k 2.00")
+    assert body["zoom"][1].startswith("zoom 2 on B1 (") and "compare_id" not in " ".join(body["zoom"])
+    rec = lab.state["compares"][-1]
+    assert rec["photos"] == ["05", "B1"] and rec["stacked"] == ["05"] and rec["zoom"][1]["photo"] == "B1"
+    assert [p["photo"] for p in judgement(lab)["photos"]] == ["05", "B1"]
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.4)], obj=OBJECT,
+                                                       apply=False, judge=judgement(lab))))
+    assert body["status"] == "built"
+    body, _f, images, _t = parsed(call(tl["photo_compare"], compare_args([], zoom=z[:1])))
+    assert body["status"] == "ok" and body["photos"] == {} and len(images) == 1
+    assert lab.seeing.calls[-1]["refs"] == [] and lab.state["compares"][-1]["photos"] == ["05"]
+    for zoom, words in (([{"photo": "05", "box": [0, 0, 999, 10], "geometry": False}],
+                         "inside the native 320 x 240 photo 05"),
+                        ([{"photo": "05", "box": [10, 10, 14, 40], "geometry": False}], "at least 8 x 8"),
+                        ([{"photo": "B2", "box": [0, 0, 20, 20], "geometry": False}], "photo_image only"),
+                        ([{"photo": "05", "box": [0, 0, 20, 20], "geometry": False}] * 4, "at most 3")):
+        with pytest.raises(S.LabRefusal, match=re.escape(words)):
+            lab.compare("x", ["05"], None, zoom, None)
+    with pytest.raises(S.LabRefusal, match="shows nothing"):
+        lab.compare("x", [], None, None, None)
+
+
+def test_compare_states_points_not_charted_the_default_set_backdrop_and_colour(lab):
+    """points_px are charted on the photos a compare shows in full: points on a photo shown in a zoom only, or not
+    shown, are named in "points_not_charted" and the compare (its zooms) is still made (review2-lab-e2-2 P3-4: a
+    zoom-only compare was refused with a false message and its zooms lost); with photos null the set is seeing's,
+    chosen at compare time, so points need named photos (E_ARGS, both ways out; review2-lab-e2-1 P3-4: they were
+    dropped silently), and the result names the target photos the default set left out (review2-lab-e2-2 P3-3). A
+    render whose model shows >= 10 % in the backdrop colour says so (review2-lab-e2-2 P3-2); a zoom of a photo of
+    another colour names its colour, not seeing's "variant" (P3-10)."""
+    tl = tools_of(lab)
+    body = parsed(call(tl["photo_compare"], compare_args()))[0]
+    assert body["left_out"] == "03, 04, 06: the default set is the target photos whose temple shows at least 40,000 " \
+                               "native px"
+    with pytest.raises(S.LabRefusal, match=re.escape("name the photos, or points_px null")) as e:
+        lab.compare("x", None, None, None, [{"photo": "05", "points": [[1.0, 2.0]]}])
+    assert e.value.code == "E_ARGS"
+    z = [{"photo": "05", "box": [40, 60, 200, 140], "geometry": False}]
+    body, _f, images, _t = parsed(call(tl["photo_compare"], compare_args([], zoom=z, points=[
+        {"photo": "05", "points": [[100.0, 120.0]]}])))
+    assert body["status"] == "ok" and len(images) == 1 and lab.seeing.calls[-1]["points_px"] is None
+    assert body["points_not_charted"] == "points_px are charted on the photos a compare shows in full: 05 (shown in " \
+                                         "a zoom only)"
+    body = parsed(call(tl["photo_compare"], compare_args(["05"], points=[{"photo": "05", "points": [[100.0, 120.0]]},
+                                                                         {"photo": "02", "points": [[5.0, 5.0]]}])))[0]
+    assert "| points (100,120) d 20.00" in body["photos"]["05"] and "left_out" not in body
+    assert body["points_not_charted"].endswith(": 02 (not in this compare)")
+    assert list(lab.seeing.calls[-1]["points_px"]) == ["reference-05"]
+    lab.seeing.records["reference-03"] = {"render_backdrop_share": {"native_linear": 0.515}}
+    lab.seeing.records["reference-01"] = {"render_backdrop_share": {"native_linear": 0.08}}
+    body = parsed(call(tl["photo_compare"], compare_args(["03", "01"])))[0]
+    assert body["photos"]["03"].endswith(" | render: 52% of the model's pixels show in the backdrop's colour (the "
+                                         "outline marks the model's edge)")
+    assert "backdrop" not in body["photos"]["01"]
+    body = parsed(call(tl["photo_compare"], compare_args(["05"], zoom=[{"photo": "B1", "box": [0, 0, 64, 40],
+                                                                        "geometry": False}])))[0]
+    assert body["zoom"][0].startswith("zoom 1 on B1 (side, black): native box [0,0,64,40]")
+
+
+def test_variant_arm_fit_lines_name_each_warning_once_and_the_solved_moves():
+    """fit_brief: the fit and misfit lines, each warning code with its subjects once (a node's value and position
+    W_FIT_OFF_READING are one item), and the solved nodes that moved against the head's fit (review2-lab-e2-2 P3-9:
+    "W_FIT_OFF_READING L, W_FIT_OFF_READING L" and no "K 6.53 (head 7.72)")."""
+    class Fit:
+        warnings = [{"code": "W_FIT_PRIOR", "node": "K"}, {"code": "W_FIT_OFF_READING", "node": "K"},
+                    {"code": "W_FIT_OFF_READING", "node": "L"}, {"code": "W_FIT_OFF_READING", "node": "L"},
+                    {"code": "W_FACE_NOT_FLAT", "face": "crown"}]
+        nodes = {"K": {"source": "solve", "t": 6.53}, "L": {"source": "read", "t": 4.6}, "M": {"source": "solve",
+                                                                                         "t": 3.0}}
+
+        @staticmethod
+        def report_lines(limit=12, creases=True):
+            return ["fit: chi2 9.1, dof 4", "camera turn per fit: 05 +0.10 +- 0.90", "misfit beyond 1 sd: L +0.40 mm"]
+    assert LB.fit_brief(Fit, {"K": {"t": 7.72}, "M": {"t": 3.02}}) == [
+        "fit: chi2 9.1, dof 4", "misfit beyond 1 sd: L +0.40 mm",
+        "warnings: W_FIT_PRIOR K; W_FIT_OFF_READING K, L; W_FACE_NOT_FLAT crown", "solved: K 6.53 (head 7.72)"]
+    assert LB.fit_brief(Fit)[-1].startswith("warnings: ")
+
+
+def test_variant_arm_fit_lines_keep_where_the_fit_put_read_corners():
+    """v3-integrate-2 (interface fit2 -> lab): the joint fit moves read corners along their readings and says so in
+    its fit lines; a variant arm's fit_brief keeps those lines with their wrapped continuations (session2's flat-crown
+    arm moved the tip E 2.90 mm forward, 2.8 sd, while its misfit line read only "E +0.41 mm (1.1 sd)"), and still
+    leaves out the camera line and the settling notes."""
+    class Fit:
+        warnings = [{"code": "W_FACE_NOT_FLAT", "face": "crown"}]
+        nodes = {}
+
+        @staticmethod
+        def report_lines(limit=12, creases=True):
+            return ["fit: chi2 10.5, dof 1", "camera turn per fit: 02 +0.31 +- 1.00",
+                    "corners the fit placed off the design (fitted - design, d y mm; fitted - read in its sd): E "
+                    "-2.90 +0.90 (2.8 sd),", "  K +0.08 -0.04 (0.6 sd)",
+                    "corners held at their move limit (4 sd of the reading along a direction): E",
+                    "kept at the design position (the fitted one lay where the builder would snap it): D",
+                    "the pinned-direction gradients did not settle in 30 passes", "misfit beyond 1 sd: E +0.41 mm",
+                    "face crown flat (A K E H): chi2 10.5", "W_FACE_NOT_FLAT: face crown: ...", "  ways (unranked)"]
+    out = LB.fit_brief(Fit)
+    assert out[:6] == ["fit: chi2 10.5, dof 1", Fit.report_lines()[2], "  K +0.08 -0.04 (0.6 sd)",
+                       Fit.report_lines()[4], Fit.report_lines()[5], "misfit beyond 1 sd: E +0.41 mm"]
+    assert out[6:] == ["warnings: W_FACE_NOT_FLAT crown"]
+
+
+def test_variant_crease_brief_never_rounds_a_flat_crease_to_2():
+    """v3-integrate-2 (interface builder2 -> lab): a variant arm's crease string rounds as report.crease_line does
+    (build.deg_round): a flat crease at 1.97 prints "f1.9", never "f2.0" next to its shape word "flat" (< 2 deg)."""
+    class Tb:
+        tables = {"creases": [{"kind": "crease", "regions": ["L", "R"], "shape": "flat", "mean_dihedral_deg": 1.97},
+                              {"kind": "crease", "regions": ["F", "base"], "shape": "valley",
+                               "mean_dihedral_deg": 5.04},
+                              {"kind": "chamfer", "regions": ["F", "G"], "shape": "ridge", "mean_dihedral_deg": 9.0}]}
+    assert LB.Lab._crease_brief(Tb) == "L|R f1.9 F|base v5.0"
+
+
+def test_crease_lines_print_the_fits_state_in_its_words():
+    """v3-integrate-2 (interface fit2 -> lab): a crease the fit calls "flat" (|angle| + 2 sd < MIN_CREASE_DEG: no
+    declaration builds within the readings) prints fit.STATE_TEXT's "flat within 2 sd", never "open", which would
+    invite a declaration the fit then refuses; certain and open are unchanged; a record without state falls back to
+    certain."""
+    base = {"deg": 0.4, "sd_deg": 0.5, "held": False, "declared": None}
+    texts = {s: LB.fit_crease_text({**base, "state": s, "certain": s == "certain"}, False)
+             for s in ("certain", "open", "flat")}
+    assert texts == {"certain": "fit +0.4 +- 0.5, certain", "open": "fit +0.4 +- 0.5, open",
+                     "flat": "fit +0.4 +- 0.5, flat within 2 sd"}
+    assert LB.fit_crease_text({**base, "certain": True}, False).endswith(", certain")
+    assert LB.fit_crease_text({**base, "certain": False}, False).endswith(", open")
+
+
+def test_model_edges_are_capped_for_seeing():
+    """seeing takes at most MODEL_EDGES_MAX edges of at most EDGE_POINTS_MAX points: the longest runs are kept in
+    their order, a longer run is thinned evenly with its deg_at; the builder's own edges pass unchanged."""
+    from glasses3d.agent import seeing as SEE
+    edges = BLD.model_edges(build_temple(FX.prada_default()))
+    assert edges and LB.capped_edges(edges) == edges
+    many = [{"pair": f"F{i}|base", "shape": "flat", "deg": 0.0, "pts": [[0, 0, 0], [i + 1.0, 0, 0]],
+             "deg_at": [0.0, 0.0]} for i in range(SEE.MODEL_EDGES_MAX + 5)]
+    kept = LB.capped_edges(many)
+    assert len(kept) == SEE.MODEL_EDGES_MAX and kept == many[5:]
+    long = {"pair": "A|B", "shape": "ridge", "deg": 5.0, "pts": [[float(i), 0.0, 0.0] for i in range(9000)],
+            "deg_at": [5.0] * 9000}
+    one = LB.capped_edges([long])[0]
+    assert len(one["pts"]) == len(one["deg_at"]) <= SEE.EDGE_POINTS_MAX and one["pts"][-1] == long["pts"][-1]
+
+
+def test_black_photos_image_compare_judge_and_refusals(lab):
+    """The black photos: B1 (a calibrated colourway photo) is shown and compared (seeing gets its basis reference,
+    the text names its rows) and judged like any photo; B2 and B3 (no camera) are photo_image only, and every
+    compare path refuses them with a message naming photo_image; finish precondition 3 covers every photo with a
+    camera (B1 included); the default compare set stays seeing's."""
+    assert lab.photo_ids() == PHOTO_IDS and lab.compare_ids() == CAMERA_IDS
+    assert lab.image_ids() == PHOTO_IDS + BLACK_IDS and lab.pid("black-side") == "B1" and lab.rid("B1") == "black-side"
+    tl = tools_of(lab)
+    for pid, view in (("B2", "angled"), ("B3", "front"), ("B1", "side")):
+        body, _f, images, _t = parsed(call(tl["photo_image"], {"photo": pid, "crop": [0, 0, 64, 40], "enhance": False,
+                                                               "scale": 1}))
+        assert body["status"] == "ok" and body["view"] == view and body["colour"] == "black" and len(images) == 1
+    body, _f, images, _t = parsed(call(tl["photo_compare"], compare_args(["B1", "05"], points=[
+        {"photo": "B1", "points": [[100.0, 120.0]]}])))
+    assert body["status"] == "ok" and list(body["photos"]) == ["B1", "05"] and len(images) == 2
+    assert lab.seeing.calls[-1]["refs"] == ["black-side", "reference-05"]
+    assert body["photos"]["B1"].startswith("side black (rows photo / overlay / gloss-black render); temple IoU ")
+    assert "d 20.00 y 1.50 t " in body["photos"]["B1"] and "black" not in body["photos"]["05"]
+    for fn in (lambda: lab.compare("x", ["B2"]), lambda: lab.compare("x", ["05"], None, None, [
+            {"photo": "B3", "points": [[1, 1]]}])):
+        with pytest.raises(S.LabRefusal, match="photo_image only") as e:
+            fn()
+        assert e.value.code == "E_ARGS"
+    with pytest.raises(S.LabRefusal, match="photo_image only"):
+        lab.variants("x", 0, [{"label": "A", "edits": []}, {"label": "B", "edits": []}], ["B3"], judgement(lab))
+    body, *_ = parsed(call(tl["facet_inspect"], {}))
+    assert body["photos"]["B1"] == "side, black, camera" and body["photos"]["B2"] == \
+        "angled, black, photo_image only" and body["photos"]["05"] == "side"         # v2's "photo_compare" wording
+    parsed(call(tl["photo_compare"], compare_args()))
+    assert lab.seeing.calls[-1]["refs"] == "default"
+    miss = S.finish_missing(lab.state, status="matched", best_revision=0, k=1, distinct=lab.distinct,
+                            camera_photos=lab.compare_ids(), has_object=False)
+    assert next(m for m in miss if m["precondition"] == 3)["photos"] == ["03", "04", "06"]
+    (lab.root / "inputs" / "images" / "black-front.png").write_bytes(b"changed")
+    body, *_ = parsed(call(tl["photo_image"], {"photo": "B3", "crop": None, "enhance": False, "scale": 1}))
+    assert body["status"] == "refused" and body["code"] == "E_STATE"
+
+
+def test_photo_image_native_crop_enhance_scale_and_refusals(lab):
+    """photo_image: a native crop (k 1), a small crop scaled up to 3 x on the exact pixel grid (the transform maps
+    back), enhance = a contrast stretch of the crop (its luma range printed); refusals E_ARGS."""
+    t = tools_of(lab)["photo_image"]
+    body, _f, images, _t = parsed(call(t, {"photo": "05", "crop": [10, 20, 110, 70], "enhance": False, "scale": 1}))
+    assert body["transform"]["box"] == [10, 20, 110, 70] and body["transform"]["k"] == 1.0 and len(images) == 1
+    body, _f, images, _t = parsed(call(t, {"photo": "05", "crop": [10, 20, 50, 40], "enhance": True, "scale": 3}))
+    tr = body["transform"]
+    assert tr["k"] == 3.0 and tr["stretch"][0] < tr["stretch"][1]
+    raw = __import__("base64").b64decode(images[0].image_url.split(",", 1)[1])
+    im = Image.open(__import__("io").BytesIO(raw))
+    assert im.size == (120, 60)
+    native = lab.basis.photo("reference-05")[20:40, 10:50]
+    shown = np.asarray(SH.photo_view(lab.basis.photo("reference-05"), [10, 20, 50, 40], scale=3.0)[0])
+    assert np.abs(shown[1::3, 1::3].astype(int) - native.astype(int)).max() <= 1      # pixel centres: native values
+    im_big, tr_big = SH.photo_view(np.zeros((900, 1500, 3), np.uint8), None, scale=3.0)
+    assert max(im_big.size) <= SH.IMAGE_MAX and tr_big["k"] < 1.0                     # never past the long-side cap
+    for args, words in (({"crop": [0, 0, 999, 10]}, "inside the 320 x 240"), ({"scale": 4}, "scale must be 1..3"),
+                        ({"enhance": "yes"}, "enhance must be")):
+        with pytest.raises(S.LabRefusal, match=re.escape(words)):
+            lab.photo(**{"photo": "05", "crop": None, "enhance": False, "scale": 1, **args})
+    out = call(t, {"photo": "07", "crop": None, "enhance": False, "scale": 1})      # not in the enum: the SDK refuses
+    assert isinstance(out, str) and "Invalid JSON input for tool photo_image" in out
+
+
+# --------------------------------------------------------------------------------------------- facet_inspect
+def test_facet_inspect_shows_design_fit_readings_object_and_the_chart(tmp_path):
+    """facet_inspect (WP6_V3 §6): per node its design t (a number, "base", "solve", "read") and fitted value (t, X,
+    source, residual mm and sd, sd_X); the readings table (refreshed on the head); the object note; the receipt (fit
+    lines, merged crease lines, builder warnings); the chart image only (no section strip); no lean, no inherited
+    warnings."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    read_c(lab, 9.0)
+    edits = [{"op": "set_node", "name": "C", "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}]
+    lab.edit("e1", 0, False, edits, None, "x", OBJECT, True, ["05"])
+    body, footer, images, text = parsed(call(tools_of(lab)["facet_inspect"], {}))
+    assert body["status"] == "ok" and body["head"]["revision"] == 1
+    nodes = body["spec"]["nodes"]
+    assert nodes["columns"] == ["d", "y", "design", "t", "X", "source", "residual_mm", "residual_sd", "sd_X",
+                                "fitted_at"]          # fitted_at: v3-integrate-2 (the fit moves read corners)
+    c, a, k, b = (nodes["rows"][n] for n in ("C", "A", "K", "B"))
+    assert c[2] == "read" and c[5] == "read" and c[3] == pytest.approx(9.0, abs=0.05)
+    assert all(r[9] is None for r in nodes["rows"].values())                   # no corner moved here
+    assert a[2] == 4.83 and a[5] == "typed" and k[2] == "solve" and k[5] == "solve" and b[2] == "base"
+    assert body["readings"]["columns"][:6] == ["kind", "d", "y", "X", "sd_X", "t"]
+    row = body["readings"]["rows"]["C"]
+    assert row[0] == "corner" and row[1:3] == [22.6, -16.3] and row[5] == pytest.approx(9.0, abs=0.006)
+    assert all(v == round(v, 2) for v in row[1:7] if v is not None)       # 0.01 mm, as the node rows (P3-10)
+    assert body["object"] == OBJECT and body["spec"]["facets"]["F2"] == {"poly": ["A", "C", "B"], "plane": "flat"}
+    rc = body["receipt"]
+    assert rc["fit"][0].startswith("fit: chi2 ") and rc["creases"][0].startswith("F1|F2 ridge ")
+    assert "inherited_from_revision_0" not in body and "lean_deg" not in text and "margins" not in rc
+    assert [i.detail for i in images] == ["high"] and footer == "settled n/a / cap n/a · context n/a tokens"
+    raw = __import__("base64").b64decode(images[0].image_url.split(",", 1)[1])
+    assert S.load(lab.state_path, "x")["images"][hashlib.sha256(raw).hexdigest()]["kind"] == "chart"
+    assert len(text) <= 9000, len(text)
+
+
+def test_facet_inspect_says_where_the_fit_moved_a_read_corner(tmp_path, monkeypatch):
+    """v3-integrate-2 (interface fit2 -> lab): the joint fit moves a read corner along its reading (FitResult.nodes
+    d, y, move_mm) and its t and X are there; the node row keeps the design's (d, y) and adds fitted_at = the fitted
+    [d, y] from fit.MOVE_SHOWN_MM of move (session2's flat-crown head: E designed at d 76.75, fitted at 73.85)."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    read_c(lab, 9.0)
+    edits = [{"op": "set_node", "name": "C", "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}]
+    lab.edit("e1", 0, False, edits, None, "x", OBJECT, True, ["05"])
+    real = lab._fit_now
+
+    def moved(rid):
+        fr = real(rid)
+        c = fr.nodes["C"]
+        c.update(d=c["d"] - 2.9, y=c["y"] + 0.9, move_mm=[-2.9, 0.9])
+        fr.nodes["A"]["move_mm"] = [0.01, 0.0]                      # under MOVE_SHOWN_MM: not shown
+        return fr
+    monkeypatch.setattr(lab, "_fit_now", moved)
+    rows = lab.inspect()["spec"]["nodes"]["rows"]
+    d, y = rows["C"][0], rows["C"][1]
+    assert rows["C"][9] == [round(d - 2.9, 2), round(y + 0.9, 2)] and rows["A"][9] is None
+
+
+def test_refusal_messages_are_cut_only_at_a_clause_end():
+    """lab.brief (a builder refusal within REFUSAL_MAX, a fit refusal within FIT_REFUSAL_MAX): whole when it fits, else
+    cut at its last clause end and marked " ...", never mid-sentence (the reviewer's defect 4, 2026-10-11: "...or end
+    the cr")."""
+    text = "the first clause; the second clause. " * 30
+    out = LB.brief(text)
+    assert len(out) <= LB.REFUSAL_MAX and out.endswith(" ...") and out[:-4].endswith("clause")
+    assert LB.brief("one " * 200).endswith("one ...") and LB.brief("short; whole") == "short; whole"
+    assert LB.brief(text, LB.FIT_REFUSAL_MAX) == text
+    assert len(LB.brief(text * 2, LB.FIT_REFUSAL_MAX)) <= LB.FIT_REFUSAL_MAX < len(text * 2)
+
+
+def test_receipt_groups_ramps_in_one_line_and_leaves_out_conditioning(lab):
+    """The builder's warnings in a receipt: every W_BORDER_RAMP in one line last, W_CONDITIONING left out (a fitted
+    spec's coef planes never raise it; WP6_V3 §6 removes it from Astra's view), the others whole."""
+    tb = copy.copy(build_temple(FX.prada_default()))
+    cond = {"code": "W_CONDITIONING", "facet": "F2", "deg_per_mm": 7.14, "message": "facet F2 tilts 7.1 deg per mm"}
+    ramp = {"code": "W_BORDER_RAMP", "facet": "F4", "height_mm": -0.42, "slope_deg": 12.3, "d_mm": [40.0, 55.0],
+            "message": "x"}
+    tb.warnings = [cond, {"code": "W_FLAT_CREASE", "message": "crease F2|F3 is flat"}, ramp]
+    assert lab._receipt(tb, None)["warnings"] == ["W_FLAT_CREASE: crease F2|F3 is flat",
+                                                  "W_BORDER_RAMP >8°: F4 -0.42 12.3° d 40.0-55.0"]
+
+
+def test_inherited_warnings_stay_out_of_receipts_until_they_change(tmp_path):
+    """Revision 0's warnings (its core and Blender lines at prepare) are left out of later receipts while their
+    numbers stay within MATERIAL_ABS / MATERIAL_REL, and shown again when they move; facet_inspect no longer lists
+    them (WP6_V3 §6)."""
+    prep = ["W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 61.5 deg (> 30.0)",
+            "W_HINGE_LEAF: hinge leaf Hinge right | temple mounting leaf embedded 0.84 mm",
+            "W_HINGE_LEAF: hinge leaf Hinge left | temple mounting leaf embedded 0.84 mm"]
+    lab = make_lab(tmp_path, blender_lines=prep, gap_mm=-0.836)
+    lab.state["inherited"] = lab._inherited_of(0, {"lines": prep, "sides": {"+x": {"hinge": {"leaves": [
+        {"gap_mm": -0.836}]}}}})
+    assert "inherited_from_revision_0" not in lab.inspect()
+    lab.s.blender_lines, lab.s.gap_mm = prep[:1] + [ln.replace("0.84", "0.86") for ln in prep[1:]], -0.858
+    body = lab.edit("e1", 0, False, [set_t("C", FX.prada_default(), 0.5)], None, "x", OBJECT, True, ["05"])
+    assert "lines" not in body["blender"] and "hinge_leaf_gap_mm" not in body["blender"]       # within tolerance
+    lab.s.blender_lines, lab.s.gap_mm = [ln.replace("0.84", "1.50").replace("61.5", "75.0") for ln in prep], -1.5
+    body = lab.edit("e2", 0, False, [set_t("C", FX.prada_default(), 0.9)], judgement(lab), "x", None, True, ["05"])
+    assert body["blender"]["hinge_leaf_gap_mm"] == -1.5
+    assert body["blender"]["lines"] == ["W_ARM_NORMAL_SPREAD: smooth outer edges bend up to 75.0 deg (> 30.0)",
+                                        "W_HINGE_LEAF: hinge leaf Hinge right | temple mounting leaf embedded 1.50 mm "
+                                        "(x2)"]
+    ref = prep[0]
+    assert LB.same_warning(ref.replace("61.5", "64.0"), ref) and not LB.same_warning(ref.replace("61.5", "68.0"), ref)
+
+
+# --------------------------------------------------------------------------------------------- procedure
+def test_judgement_rule(lab):
+    tl = tools_of(lab)
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.5)], obj=OBJECT)))
+    cid = body["compare_id"]
+    base = edit_args(1, apply=False)
+    body, *_ = parsed(call(tl["facet_edit"], base))
+    assert body["code"] == "E_JUDGEMENT" and cid in body["message"]
+    wrong = judgement(lab)
+    wrong["compare_id"] = "cmp001"
+    assert parsed(call(tl["facet_edit"], {**base, "judgement": wrong}))[0]["code"] == "E_JUDGEMENT"
+    short = judgement(lab)
+    short["photos"] = short["photos"][:1]
+    body, *_ = parsed(call(tl["facet_edit"], {**base, "judgement": short}))
+    assert body["code"] == "E_JUDGEMENT" and body["missing"] == ["02", "05"]
+    bad_best = judgement(lab, best="c9999")
+    assert parsed(call(tl["facet_variants"], {"parent_revision": 1, "photos": ["05"], "judgement": bad_best,
+                                              "variants": [{"label": "A", "edits": []}, {"label": "B", "edits": []}]}
+                       ))[0]["code"] == "E_JUDGEMENT"
+    assert not lab.state["judgements"]
+    body, *_ = parsed(call(tl["facet_edit"], {**base, "judgement": judgement(lab, overall="better")}))
+    assert body["status"] == "built" and lab.state["judgements"][-1]["compare_id"] == cid
+    assert lab.state["best_checkpoint"] == lab.s.head["id"] and S.pending_compare(lab.state) is None
+    # photo_compare, photo_read and facet_inspect are not action tools: no judgement needed before them
+    assert parsed(call(tl["photo_compare"], compare_args(["05"])))[0]["status"] == "ok"
+    assert parsed(call(tl["facet_inspect"], {}))[0]["status"] == "ok"
+
+
+def test_facet_edit_refusals_return_at_once_and_change_nothing(lab):
+    t = tools_of(lab)["facet_edit"]
+    n_rev, head = len(lab.state["revisions"]), lab.s.head["id"]
+    body, *_ = parsed(call(t, edit_args(0, [set_t("C", FX.prada_default(), 0.2), {"op": "delete_node", "name": "B"}],
+                                        obj=OBJECT)))
+    assert body["status"] == "refused" and body["edit"] == 1 and body["code"] == "E_EDIT"
+    body, *_ = parsed(call(t, edit_args(0, [{"op": "set_node", "name": "C", "d_mm": None, "y_mm": None,
+                                             "t": {"mode": "reading", "mm": None}}], obj=OBJECT)))
+    assert body["code"] == "E_EDIT" and "there is no reading named C: read it with photo_read first" in body["message"]
+    body, *_ = parsed(call(t, edit_args(9)))
+    assert body["code"] == "E_REVISION"
+    assert len(lab.state["revisions"]) == n_rev and lab.s.head["id"] == head
+
+
+def test_facet_edit_applies_compares_and_fits_the_text_budget(lab):
+    """An applied edit: the revision, the Blender layer's news, a compare of the default set with the fitted head's
+    model edges, the chart and the compare images; the text stays within 3,000 characters on the Prada fixture with
+    the default photos (v2's 1,500 had no fit lines and no outline text; the fit report is at most 12 lines of 140)."""
+    t = tools_of(lab)["facet_edit"]
+    edits = [set_t("C", FX.prada_default(), 0.6), {"op": "set_scalar", "key": "roll_mm", "value": 0.3}]
+    body, footer, images, text = parsed(call(t, edit_args(0, edits, obj=OBJECT, note="deeper C, rolled edges"),
+                                             "call_e1"))
+    assert body["status"] == "applied" and body["revision"] == 1 and body["parent"] == 0
+    assert body["diff"].startswith("~node C t 8.0->8.6") and "roll_mm 0.0->0.3" in body["diff"]
+    assert body["receipt"]["creases"][0].startswith("F1|F2 ridge") and body["blender"]["decal_max_move_mm"] == 0.61
+    assert body["compare_id"] and list(body["photos"]) == DEFAULT
+    assert len(images) == 1 + 3 and footer.startswith("settled ")
+    assert len(text) <= 3000, len(text)
+    head = S.head_by_fingerprint(lab.state, lab.s.head["fingerprint"])
+    assert head["revision"] == 1 and lab.state["events"][-1]["tool"] == "facet_edit"
+
+
+# --------------------------------------------------------------------------------------------- facet_variants
+def test_facet_variants_fit_each_arm_and_name_refusals(lab):
+    """Each arm is fitted and built as facet_edit's: a built arm is a revision with its fit lines (short), creases and
+    distance from the head; an arm the fit refuses (E_FIT_SHAPE) or apply_edits refuses (E_EDIT) carries its stage,
+    code and facts; the scene never changes; a built variant becomes the head through facet_edit with no edits."""
+    tl = tools_of(lab)
+    spec = FX.prada_default()
+    head_fp = lab.s.head["fingerprint"]
+    variants = [{"label": "A", "edits": [set_t("C", spec, -1.0)]}, {"label": "B", "edits": [set_t("C", spec, 0.5)]},
+                {"label": "C", "edits": [set_t("C", spec, 1.5)]},
+                {"label": "V", "edits": [{"op": "set_crease", "facets": ["F2", "F4"], "shape": "valley"}]},
+                {"label": "Z", "edits": [{"op": "delete_node", "name": "B"}]}]
+    parsed(call(tl["photo_compare"], compare_args(["05", "03"])))
+    body, _f, images, text = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants,
+                                                                "photos": ["05", "03"], "judgement": judgement(lab)}))
+    assert body["status"] == "ok" and body["spread_ok"] is True and len(images) >= 2
+    by = {v["label"]: v for v in body["variants"]}
+    assert (by["V"]["revision"], by["V"]["stage"], by["V"]["code"]) == (None, "fit", "E_FIT_SHAPE")
+    assert no_remedy(by["V"]["message"]) and "readings-only" in by["V"]["message"]
+    assert (by["Z"]["stage"], by["Z"]["code"], by["Z"]["edit"]) == ("edit", "E_EDIT", 0)
+    for x in "ABC":
+        v = by[x]
+        assert v["revision"] is not None and v["vs_head_mm"] > 0.3 and v["fit"][0].startswith("fit: chi2 ")
+        assert v["creases"].startswith("F1|F2 r") and lab.state["revisions"][v["revision"]]["fit_file"]
+    assert lab.state["revisions"][by["B"]["revision"]]["kind"] == "variant"
+    assert lab.s.read_fingerprints == [head_fp] and lab.s.head["fingerprint"] == head_fp
+    assert [v["spec"]["nodes"]["C"][2] for v in lab.s.read_params[-1]["variants"]] == \
+        [lab.spec(by[x]["revision"])["nodes"]["C"][2] for x in "ABC"]                  # the worker gets fitted specs
+    assert len(text) <= 3000, len(text)
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(by["B"]["revision"], obj=OBJECT, photos=["05"])))
+    assert body["status"] == "applied" and body["revision"] == by["B"]["revision"] and body["diff"] == "no change"
+
+
+def test_variant_pages_crop_to_the_charted_temple_with_clean_and_lined_panels(lab, monkeypatch):
+    """facet_variants' pages (WP6_V3 §6, scorecard #29): per photo the box is the charted temple's faceted zone (inside
+    the photo, smaller than the compare's crop of both temples), at sheets.variant_scale (<= 2) for the models DRAWN;
+    a photo row (the photo | the photo with the head's edges) and per model drawn a clean panel beside the lined one
+    (the photo outline and that model's model edges); an arm refused or equal to the head has no panels and is named
+    on the page's notes line, and an arm equal to the head is not rendered again but counts as rendered (review2-lab-
+    e2-1 P2-3: such arms took a page slot each); pages within SHEET_W x SHEET_H, as many as
+    sheets.variant_page_count; the record counts each model's edges drawn per photo."""
+    rows_seen = []
+    real = SH.variant_pages
+
+    def pages(photo_row, rows, title, notes=""):
+        rows_seen.append((photo_row, rows, title, notes))
+        return real(photo_row, rows, title, notes)
+    monkeypatch.setattr(SH, "variant_pages", pages)
+    tl = tools_of(lab)
+    parsed(call(tl["photo_compare"], compare_args(["05", "B1"])))
+    spec = FX.prada_default()
+    variants = [{"label": "deep", "edits": [set_t("C", spec, 1.0)]}, {"label": "shallow", "edits": [set_t("C", spec,
+                                                                                                         -1.0)]},
+                {"label": "Z", "edits": [{"op": "delete_node", "name": "B"}]}, {"label": "same", "edits": []}]
+    body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants,
+                                                              "photos": ["05", "B1"], "judgement": judgement(lab)}))
+    assert body["status"] == "ok" and "render" not in body, body
+    by = {v["label"]: v for v in body["variants"]}
+    assert by["same"] == {"label": "same", "revision": 0, "design": by["same"]["design"], "vs_head_mm": 0.0,
+                          "same_as": "head"}
+    assert [v["label"] for v in lab.s.read_params[-1]["variants"]] == ["deep", "shallow"]   # not rendered again
+    views = {v["name"]: v for v in lab.s.read_params[-1]["views"]}
+    assert views["B1"]["passes"] == ["gloss_black"] and views["05"]["passes"] == ["native_linear"]
+    assert len(rows_seen) == 2
+    for photo_row, rows, title, notes in rows_seen:
+        assert photo_row[0].startswith("photo ") and photo_row[2] == "photo + the head's edges"
+        assert [r[0].split(":")[0].split(" ")[0] for r in rows] == ["head", "deep", "shallow"]
+        for label, clean, lined, note in rows:
+            assert clean.size == lined.size and np.asarray(clean).tolist() != np.asarray(lined).tolist(), label
+        assert notes == "no panels of their own (facts in the text): Z refused E_EDIT; same = head"
+        assert "box [" in title and "(where the arms differ) k " in title and "legend" not in title
+    rec = lab.state["variants"][-1]
+    assert rec["rendered"] == ["deep", "shallow", "same"] and set(rec["spread"]) == {"deep", "shallow", "same"}
+    assert rec["edge_occlusion"] == "scene" and set(rec["edges"]) == {"05", "B1"}
+    assert all(n is not None for row in rec["edges"].values() for n in row.values())
+    assert set(rec["edges"]["05"]) == {"head", "deep", "shallow"}
+    models = {"head": lab.build(0), "deep": lab.build(by["deep"]["revision"]),
+              "shallow": lab.build(by["shallow"]["revision"])}
+    want = 0
+    for pid in ("05", "B1"):
+        c = lab._variant_views([pid], models, "x", pairs=3)[1]["photos"][pid]
+        want += SH.variant_page_count(c["box"][2] - c["box"][0], c["box"][3] - c["box"][1], 3)
+    assert len(images) == want
+    c = lab._variant_views(["05"], {"head": lab.build(0)}, "x")[1]["photos"]["05"]
+    x0, y0, x1, y1 = c["box"]
+    assert 0 <= x0 < x1 <= 320 and 0 <= y0 < y1 <= 240 and c["k"] <= SH.VARIANT_K_MAX
+    assert c["k"] == SH.variant_scale(x1 - x0, y1 - y0, 1) and c["side"] == 1 and c["shows"] == "the faceted zone"
+    for p in images:
+        raw = __import__("base64").b64decode(p.image_url.split(",", 1)[1])
+        page = Image.open(__import__("io").BytesIO(raw))
+        assert page.width <= SH.SHEET_W and page.height <= SH.SHEET_H
+
+
+def test_variant_page_layout_limits():
+    """sheets.variant_pages: (clean, lined) pairs of the models drawn, side by side as many to a row as fit SHEET_W,
+    or stacked (clean above lined) when side by side a page holds at most 3 pairs and stacked more; the photo pair
+    first on every page; pages within SHEET_W x SHEET_H whatever the panel size; the header's title starts with
+    "page i/n: " (a 922 px page cut it off the end, review2-lab-e2-2 P3-6), the legend on its own line (it was cut on
+    900 px pages, review2-lab-e2-1 P3-6), the notes on the next; a narrow pair's label takes two lines.
+    variant_scale: <= 2 and never past a cell, at least native when a cell allows, and within that the largest that
+    needs the fewest pages (the real 05 box of 309 x 275 with 3 models: 1 page at 1.02, where the cell's 1.39 takes
+    3; 7 models of a 470 x 187 box: 3 pages at 1.01; 02's 348 x 307 box stacks: 4 pages for 7 models, not 7)."""
+    assert SH.variant_scale(100, 40) == SH.VARIANT_K_MAX and SH.variant_scale(1268, 200) == pytest.approx(0.5)
+    assert SH.variant_scale(300, 802) == pytest.approx(SH.CELL_H_MAX / 802)
+    assert SH.variant_scale(470, 187, 4) == pytest.approx(1.31) and SH.variant_page_count(470, 187, 4) == 2
+
+    def pages(w, h, m, k):
+        return -(-m // SH._per_page(round(w * k), round(h * k)))
+    k3 = SH.variant_scale(309, 275, 3)
+    k_cell = min(SH.VARIANT_K_MAX, SH.CELL_W / 309, SH.CELL_H_MAX / 275)
+    assert 1.0 <= k3 < 1.1 and pages(309, 275, 3, k3) == 1 < pages(309, 275, 3, k_cell) == 3
+    assert SH.variant_scale(470, 187, 7) == pytest.approx(1.01) and SH.variant_page_count(470, 187, 7) == 3
+    assert SH.variant_page_count(348, 307, 7) == 4 and SH._vertical(421, 371)             # 02's box at k 1.21
+    assert SH.variant_page_count(429, 276, 7) == 7 and SH.variant_page_count(429, 276, 3) == 3   # B1's: worst case
+    assert SH._grid(120, 40) == (5, 10) and SH._grid(634, SH.CELL_H_MAX) == (1, 2)
+    assert SH._shape(67, 382, False)[2] == SH.LABEL_PX2 and SH._shape(400, 200, False)[2] == SH.LABEL_PX
+    for w, h in ((634, SH.CELL_H_MAX), (421, 371), (300, 120), (120, 40), (67, 382)):
+        img = Image.new("RGB", (w, h), (90, 90, 90))
+        rows = [(f"V{i}: r{i}, 0.52 mm from head", img, img, "") for i in range(6)]
+        out = SH.variant_pages(("photo 05", img, "photo + the head's edges", img), rows, "T" * 260, "Z refused")
+        assert all(p.width <= SH.SHEET_W and p.height <= SH.SHEET_H for p in out), [p.size for p in out]
+        assert len(out) == -(-6 // SH._per_page(w, h)), (w, h, len(out))
+    dr = __import__("PIL.ImageDraw", fromlist=["x"]).Draw(Image.new("RGB", (8, 8)))
+    lines = SH.header_lines(dr, "variants var003 of r0 at 05 (side): " + "x " * 200, "Z refused E_EDIT", 2, 3, 900,
+                            False)
+    assert lines[0].startswith("page 2/3: variants var003") and len(lines) == SH.HEADER_LINES
+    assert lines[2] == SH.edge_legend(False) and lines[3] == "Z refused E_EDIT"
+    assert SH.header_lines(dr, "t", "", 1, 1, 900, True)[:3] == ["t", "", SH.edge_legend(True)]
+
+
+def test_variant_region_is_where_the_arms_differ():
+    """The variant panels show the (d, y) box where an arm's surface differs from the head's (or its outline: a chain
+    edit), widened; arms equal to the head show the faceted zone; a temple without facets shows whole."""
+    s = FX.prada_default()
+    head = build_temple(s)
+    deep, flat = copy.deepcopy(s), copy.deepcopy(s)
+    deep["nodes"]["C"][2] += 1.0
+    flat["nodes"]["C"][2] -= 1.0
+    P, what = Lab._variant_region({"head": head, "A": build_temple(deep), "B": build_temple(flat)})
+    assert what == "where the arms differ" and P[:, 0].max() < 60.0 and P.shape[1] == 3 and np.isfinite(P).all()
+    P, what = Lab._variant_region({"head": head, "A": build_temple(s)})
+    assert what == "the faceted zone" and 60.0 < P[:, 0].max() < 70.0
+    arm, _ = G.apply_edits(s, [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 100.0, "d_to_mm": 110.0,
+                                "delta_mm": -0.5, "taper_mm": 2.0}])
+    P, what = Lab._variant_region({"head": head, "C": build_temple(arm)})
+    assert what == "where the arms differ" and 90.0 < P[:, 0].min() and P[:, 0].max() < 120.0
+    P, what = Lab._variant_region({"head": build_temple(FX.slab())})
+    assert what == "the whole temple" and P[:, 0].max() > 130.0
+
+
+def _head_with(mesh, roles, tb):
+    """The box-glasses fixture's export with its two temple bodies replaced by tb's (as the worker builds the spec
+    into both temples)."""
+    from dataclasses import replace
+    bodies = [PO.temple_body(mesh, s, roles) for s in (1, -1)]
+    keep = ~np.isin(mesh.part, bodies)
+    Vs, Fs, Ps, n = [mesh.V], [mesh.F[keep]], [mesh.part[keep]], len(mesh.V)
+    for s, b in zip((1, -1), bodies):
+        W, _polys, tris = tb.world(s)
+        Vs.append(W)
+        Fs.append(np.asarray(tris, np.int64) + n)
+        Ps.append(np.full(len(tris), b, mesh.part.dtype))
+        n += len(W)
+    return replace(mesh, V=np.concatenate(Vs), F=np.concatenate(Fs), part=np.concatenate(Ps))
+
+
+def _run_mask(edges, shape) -> np.ndarray:
+    """The visible runs of drawn model edges, 1 px wide, as a boolean image (to count pixels)."""
+    from PIL import ImageDraw
+    im = Image.new("L", (shape[1], shape[0]), 0)
+    dr = ImageDraw.Draw(im)
+    for e in edges:
+        for run in e["runs"]:
+            dr.line([tuple(map(float, q[:2])) for q in run], fill=255, width=1)
+    return np.asarray(im) > 0
+
+
+def test_variant_edges_are_the_compare_rule_on_the_fixture(tmp_path):
+    """Lab._variant_edges (the head's export through the lab's seeing, its temple bodies swapped for the model's, the
+    edges posed by pose.chart_to_posed and depth-tested by compare.edge_runs_posed) draws exactly seeing's model edges
+    of an export whose temple bodies ARE that model (Seeing._edges_posed + _edges_drawn on the posed scene, the
+    compare overlay's rule): the box-glasses fixture with the Prada-layout temples built in, six camera angles, an
+    asymmetric pose; the same call with the pose's sides swapped draws other runs. Fixture data only."""
+    from glasses3d.g3d_host import fitmesh, raster
+    lab = make_lab(tmp_path)
+    bs, tb = lab.basis, lab.build(0)
+    exp = lab.seeing.export_head("fixture")
+    mesh = fitmesh.load_fit_mesh(exp["path"], frame=bs.frame)
+    roles = PO.part_roles(exp["path"])
+    head = _head_with(mesh, roles, tb)
+
+    def pose(a, b):                                       # opening degrees of the +X and -X temples
+        return {"+1": {"theta_deg": a, "axis_xz_mm": [64.6, -10.1]},
+                "-1": {"theta_deg": b, "axis_xz_mm": [-64.6, -10.1]}}
+    shape = (360, 640)
+    views = {"side": (90.0, 13.6, 0.25), "angled": (28.2, 11.4, 0.26), "top": (0.3, 59.9, 0.29),
+             "mirrored-side": (-90.0, 0.0, 0.0), "rear": (180.0, 8.8, 0.07), "front": (0.0, 5.0, 0.2)}
+    photos = {name: {"pose": pose(9.0, 3.0), "shape": shape,
+                     "ccam": raster.view_camera(bs.frame, yaw, pitch, 3.0, shape, perspective=persp,
+                                                center_mm=np.array([0.0, 0.0, -60.0]))}
+              for name, (yaw, pitch, persp) in views.items()}
+    got, info = lab._variant_edges(photos, {"head": tb}, "fixture")
+    swapped, _ = lab._variant_edges({k: {**c, "pose": pose(3.0, 9.0)} for k, c in photos.items()}, {"head": tb},
+                                    "fixture")
+    assert info == {"occlusion": "scene"}
+    edges = LB.capped_edges(BLD.model_edges(tb))
+    shown = 0
+    for name, c in photos.items():
+        mp = PO.posed(head, c["pose"], roles)
+        ref = Seeing._edges_drawn(Seeing._edges_posed([{**e, "pts": np.asarray(e["pts"], float),
+                                                        "deg_at": np.asarray(e["deg_at"], float)} for e in edges],
+                                                      c["pose"], tb.spec.hinge["z_mm"], None),
+                                  c["ccam"], bs.frame, mp.scene(), shape)
+        mine = got[(name, "head")]
+        assert len(mine) == len(ref) == 2 * len(edges)
+        for a, b in zip(mine, ref):
+            assert (a["pair"], a["side"]) == (b["pair"], b["side"]) and len(a["runs"]) == len(b["runs"]), name
+            for ra, rb in zip(a["runs"], b["runs"]):
+                assert np.allclose(np.asarray(ra, float)[:, :2], np.asarray(rb, float)[:, :2], atol=1e-6), name
+            shown += sum(len(r) for r in a["runs"])
+        a, b = _run_mask(mine, shape), _run_mask(swapped[(name, "head")], shape)
+        assert a.sum() > 40 and (a != b).sum() > 0.3 * a.sum(), (name, int(a.sum()), int((a != b).sum()))
+    assert shown > 1000
+
+
+def test_variant_spread_counts_only_rendered_variants(lab):
+    """Precondition 2's spread is over the variants rendered at every photo: one refused by Blender leaves two (no
+    spread); a failed render leaves none; three rendered ones count. (B is C + 0.3 mm: an arm equal to the head is
+    not rendered again, so Blender could not refuse it.)"""
+    tl = tools_of(lab)
+    parsed(call(tl["photo_compare"], compare_args(["05", "02"])))
+    spec = FX.prada_default()
+    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.3), ("C", 1.0))]
+    args = {"parent_revision": 0, "variants": variants, "photos": ["05", "02"], "judgement": judgement(lab)}
+    lab.s.refuse_variants = {"B"}
+    body, _f, images, _t = parsed(call(tl["facet_variants"], args))
+    assert body["status"] == "ok" and body["spread_ok"] is False and len(images) >= 2
+    assert all(v["revision"] is not None for v in body["variants"])       # all three built on the host
+    assert body["render"]["blender_refused"]["B"].startswith("E_RELIEF_STEP")
+    assert lab.state["variants"][-1]["rendered"] == ["A", "C"] and lab.state["variants"][-1]["spread"] is None
+    lab.s.refuse_variants, lab.s.render_error = set(), True
+    args["judgement"] = None
+    body, _f, images, _t = parsed(call(tl["facet_variants"], args))
+    assert body["spread_ok"] is False and images == [] and body["render"]["status"] == "error"
+    assert lab.state["variants"][-1]["rendered"] == []
+    assert [m["precondition"] for m in S.finish_missing(lab.state, status="matched", best_revision=0, k=0,
+                                                        distinct=lambda a, b: True, camera_photos=[],
+                                                        has_object=True)] == [2]
+    lab.s.render_error = False
+    body, *_ = parsed(call(tl["facet_variants"], args))
+    assert body["spread_ok"] is True and lab.state["variants"][-1]["spread"] == ["A", "B", "C"]
+    assert lab.s.calls[-1][2] <= L.HARD_TIMEOUT_S["facet_variants"] - L.FACET_VARIANTS_HOST_MARGIN_S   # worker
+
+
+def test_variant_photo_limits_labels_and_a_lab_without_black_photos(lab):
+    """At most 3 target photos per call, a 4th only of another colour; labels must differ ignoring case and never be
+    'head'; every photo needs a full compare first (a zoom-only compare is not one); a lab without photos of another
+    colour takes 3. Edges degrade to the temples' own depth (named in the text) when the head's scene cannot be
+    read."""
+    tl = tools_of(lab)
+    two = [{"label": "A", "edits": []}, {"label": "B", "edits": []}]
+    with pytest.raises(S.LabRefusal, match="at most 3 target photos"):
+        lab.variants("x", 0, two, ["01", "02", "03", "05"], None)
+    out = call(tl["facet_variants"], {"parent_revision": 0, "variants": two, "judgement": None,
+                                      "photos": ["01", "02", "03", "B1", "05"]})
+    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
+    for labels in (["Head", "B"], ["a", "A"]):
+        with pytest.raises(S.LabRefusal, match="ignoring case"):
+            lab.variants("x", 0, [{"label": lb, "edits": []} for lb in labels], ["05"], None)
+    with pytest.raises(S.LabRefusal, match="never compared in full") as e:
+        lab.variants("x", 0, two, ["05", "B1"], None)                    # B1 needs a compare for its gloss record
+    assert e.value.message.endswith("a full photo_compare of it, or photos without it")   # both ways out (P3-10)
+    lab.compare("z", [], None, [{"photo": "B1", "box": [0, 0, 40, 40], "geometry": False}], None)
+    with pytest.raises(S.LabRefusal, match="never compared in full"):
+        lab.variants("x", 0, two, ["05", "B1"], judgement(lab))
+    lab.seeing.scene_glb = b"glTF fake"
+    spec = FX.prada_default()
+    two = [{"label": "A", "edits": [set_t("C", spec, 1)]}, {"label": "B", "edits": []}]
+    body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": 0, "judgement": None,
+                                                             "photos": ["05"], "variants": two}))
+    assert body["status"] == "ok" and len(images) >= 1
+    assert body["render"]["edges"].startswith("depth-tested on the temples only")
+    assert lab.state["variants"][-1]["edges"]["05"]["A"] > 0
+    lab.manifest["photos"] = [r for r in lab.manifest["photos"] if r.get("role") != "colourway"]
+    assert lab.variant_photos_max() == 3
+    schema = {t.name: t.params_json_schema for t in T.registry(lab)}["facet_variants"]
+    assert schema["properties"]["photos"]["maxItems"] == 3 and enums(schema["properties"]["photos"]) == [PHOTO_IDS]
+
+
+def test_variant_labels_are_their_render_file_names(lab):
+    """The worker names a variant's render files by g3d/render.py safe_name(label) and the lab looks them up by the
+    label, so a label that is not its own safe name ('deep_', 'A_') is refused E_ARGS before any build or render; the
+    distinct-ignoring-case rule runs on the safe names; a label ending in '-' is its own safe name and renders.
+    lab.render_safe_name is render.py's rule: that module imports bpy, so its NAME_RE and safe_name are read from the
+    source here and compared on sample names."""
+    import ast
+    src = (Path(LB.__file__).resolve().parents[2] / "g3d" / "render.py").read_text(encoding="utf-8")
+    keep = [n for n in ast.parse(src).body
+            if (isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "NAME_RE" for t in n.targets))
+            or (isinstance(n, ast.FunctionDef) and n.name == "safe_name")]
+    assert len(keep) == 2
+    ns = {"re": re, "RenderRefused": ValueError}
+    exec(compile(ast.Module(body=keep, type_ignores=[]), "g3d/render.py", "exec"), ns)       # noqa: S102
+    assert ns["NAME_RE"].pattern == LB.RENDER_NAME_RE.pattern
+    for name in ("deep", "deep_", "A_", "a__", "_a_", "a.b", "x y", "Zz-9_x", "C_fwd", "deep-", "N" * 90, "é"):
+        try:
+            want = ns["safe_name"](name)
+        except ValueError:                          # no usable character: render.py refuses, the lab's gives ""
+            want = ""
+        assert render_safe_name(name) == want, name
+    spec = FX.prada_default()
+    n_rev, n_calls, seq = len(lab.state["revisions"]), len(lab.s.calls), lab.state["seq"]
+    for labels in (["deep_", "deep"], ["a", "A_"]):
+        with pytest.raises(S.LabRefusal, match="not ending in _") as e:
+            lab.variants("x", 0, [{"label": lb, "edits": [set_t("C", spec, 0.5)]} for lb in labels], ["05"], None)
+        assert e.value.code == "E_ARGS"
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
+                                                             "variants": [{"label": "deep_", "edits": []},
+                                                                          {"label": "B", "edits": []}]}))
+    assert body["status"] == "refused" and body["code"] == "E_ARGS" and "not ending in _" in body["message"]
+    assert len(lab.state["revisions"]) == n_rev and len(lab.s.calls) == n_calls and lab.state["seq"] == seq
+    with pytest.raises(S.LabRefusal, match="ignoring case"):
+        lab.variants("x", 0, [{"label": lb, "edits": []} for lb in ("Deep-", "deep-")], ["05"], None)
+    dash = [{"label": "deep-", "edits": [set_t("C", spec, 1.0)]}, {"label": "B", "edits": []}]
+    body, *_ = parsed(call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": None,
+                                                             "variants": dash}))
+    assert body["status"] == "ok" and "render" not in body and lab.state["variants"][-1]["rendered"] == ["deep-", "B"]
+
+
+def test_a_dead_worker_in_the_variant_edge_export_stays_fatal(lab, monkeypatch):
+    """_variant_edges re-raises journal.WorkerFailed from the head's export (the worker died and was not recovered),
+    so the run ends failed_worker as from any tool; any other export failure only degrades the edges to the temples'
+    own depth (test_variant_photo_limits_labels_and_a_lab_without_black_photos)."""
+    def dead(call_id=None):
+        raise WorkerFailed("injected: the worker died during the head's export", lab.s.head)
+    monkeypatch.setattr(lab.seeing, "export_head", dead)
+    two = [{"label": "A", "edits": [set_t("C", FX.prada_default(), 1)]}, {"label": "B", "edits": []}]
+    with pytest.raises(WorkerFailed):
+        call(tools_of(lab)["facet_variants"], {"parent_revision": 0, "judgement": None, "photos": ["05"],
+                                               "variants": two})
+
+
+# --------------------------------------------------------------------------------------------- facet_finish
+def _distinct_heads_and_variants(lab, tl, obj=OBJECT):
+    """Three applied heads (C + 0.5 / 1.0 / 1.5 mm, the first with the object note) compared at the default set, then
+    a facet_variants call with a spread: [the three checkpoints]."""
+    spec = FX.prada_default()
+    cps = []
+    for k, dt in enumerate((0.5, 1.0, 1.5)):
+        body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, dt)], obj=obj if not k else None,
+                                                           judge=judgement(lab) if k else None)))
+        assert body["status"] == "applied", body
+        cps.append(body["checkpoint"])
+    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
+    body, *_ = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants, "photos": ["05"],
+                                                  "judgement": judgement(lab, best=cps[0])}))
+    assert body["spread_ok"]
+    return cps
+
+
+def test_finish_preconditions_through_the_lab(lab, monkeypatch):
+    """facet_finish passes the lab's facts to state.finish_missing: camera_photos = every photo with a camera (B1
+    too), has_object = a note exists; refused with the missing ones named (no removed tool in any message), then
+    accepted once they hold; a finish needs no restore tool: best_checkpoint's revision is restored by the finish
+    itself."""
+    import glasses3d.g3d_host.spec as GS
+    monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": ["w1"],
+                                                        "live_site_would_fail": []})
+    tl = tools_of(lab, finish_k=3)
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": lab.s.head["id"],
+                                                "summary": "s", "judgement": None}))
+    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2, 3, 4]
+    assert body["missing"][2]["photos"] == CAMERA_IDS                   # prepare's compares were never shown to Astra
+    assert no_remedy(json.dumps(body)) and S.DIFFERENT_ATTEMPT in body["missing"][0]["message"]
+    cps = _distinct_heads_and_variants(lab, tl)
+    best = cps[0]
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best, "summary": "s",
+                                                "judgement": None}))
+    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [3]
+    assert set(body["missing"][0]["photos"]) == {"03", "04", "06", "B1"}
+    first = lab.state["heads"][1]["revision"]                         # best's revision, applied again with no edits
+    parsed(call(tl["facet_edit"], edit_args(first, judge=judgement(lab, best=best), photos=CAMERA_IDS)))
+    body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": best, "summary": "s",
+                                                "judgement": judgement(lab, best=best, overall="better")}))
+    assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [5]
+    body, footer, images, text = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best,
+                                                                  "summary": "s", "judgement": None}))
+    assert body["status"] == "accepted" and body["validate_spec"]["ok"] is True and body["revision"] == first
+    assert lab.state["finish"]["checkpoint"] == lab.s.head["id"] and len(text) <= 1500
+    assert L.tool_result_status(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": best,
+                                                          "summary": "s", "judgement": None})) == "accepted"
 
 
 def test_finish_counts_a_renamed_or_repeated_head_once(lab, monkeypatch):
@@ -2368,11 +2162,10 @@ def test_finish_counts_a_renamed_or_repeated_head_once(lab, monkeypatch):
     renamed = rename(canonical(spec), {"F1": "G1", "F2": "G2", "F3": "G3", "F4": "G4"}, {"C": "Cx", "A": "Ax"})
     renamed["nodes"]["Cx"][2] += 1.0                                        # = B's C + 1 mm, under new names
     steps = [(0, [set_t("C", spec, 1.0)]), (0, []), (1, []), (0, []), (0, G.spec_to_edits(renamed))]
-    for k, (parent, edits) in enumerate(steps):
-        body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": parent, "reset_layout": parent == 0 and k == 4,
-                                                  "edits": edits, "note": "x", "apply": True, "photos": None,
-                                                  "judgement": judgement(lab) if k else None}))
-        assert body["status"] == "applied", body
+    for k, (parent, edits) in enumerate(steps):          # the Lab method (the rename's v2 crease plane is an
+        body = lab.edit(f"e{k}", parent, parent == 0 and k == 4, edits, judgement(lab) if k else None, "x",  # edit
+                        OBJECT if k in (0, 4) else None, True, None)          # the strict union leaves to internal
+        assert body["status"] == "applied", body                            # callers, geometry module doc)
     revs = [c["revision"] for c in S.seen_compares(lab.state)]
     assert revs == [1, 0, 1, 0, 2] and lab.state["revisions"][2]["sha256"] != lab.state["revisions"][1]["sha256"]
     assert not G.distinct_heads(lab.delta(1, 2))                       # the rename: no change by geometry
@@ -2383,9 +2176,9 @@ def test_finish_counts_a_renamed_or_repeated_head_once(lab, monkeypatch):
 
 
 def test_stuck_uses_the_one_head_rule(lab, monkeypatch):
-    """Precondition 4 counts heads with the same rule as precondition 1 (Lab.distinct, the built temples): judgements
-    on revision 1, revision 0 and a rename of revision 1 cover 2 distinct heads, not 3; one more real change makes
-    the last 3 judgements cover 3."""
+    """Precondition 5 counts heads with the same rule as precondition 1 (Lab.distinct, the built temples): judgements
+    on revision 1, revision 0 and a rename of revision 1 cover 2 distinct heads, not 3; one more real change (and a
+    facet_variants result after it) makes the last 3 judgements cover 3."""
     import glasses3d.g3d_host.spec as GS
     monkeypatch.setattr(GS, "validate_spec", lambda p: {"ok": True, "errors": [], "warnings": [],
                                                         "live_site_would_fail": []})
@@ -2394,10 +2187,9 @@ def test_stuck_uses_the_one_head_rule(lab, monkeypatch):
     renamed = rename(canonical(spec), {"F1": "G1", "F2": "G2", "F3": "G3", "F4": "G4"}, {"C": "Cx", "A": "Ax"})
     renamed["nodes"]["Cx"][2] += 1.0                                        # revision 1's geometry, other names
     for k, (edits, reset) in enumerate([([set_t("C", spec, 1.0)], False), ([], False),
-                                        (G.spec_to_edits(renamed), True)]):
-        body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": reset, "edits": edits,
-                                                  "note": "x", "apply": True, "photos": None,
-                                                  "judgement": judgement(lab) if k else None}))
+                                        (G.spec_to_edits(renamed), True)]):     # the Lab method, as above
+        body = lab.edit(f"e{k}", 0, reset, edits, judgement(lab) if k else None, "x",
+                        OBJECT if k in (0, 2) else None, True, None)
         assert body["status"] == "applied", body
     assert [c["revision"] for c in S.seen_compares(lab.state)] == [1, 0, 2]
     calls = []
@@ -2405,33 +2197,41 @@ def test_stuck_uses_the_one_head_rule(lab, monkeypatch):
     lab.distinct = lambda ra, rb: calls.append((ra, rb)) or distinct0(ra, rb)
     body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": lab.s.head["id"], "summary": "s",
                                                 "judgement": judgement(lab)}))
-    pre4 = next(m for m in body["missing"] if m["precondition"] == 4)
-    assert "cover 2 distinct heads" in pre4["message"] and (1, 2) in calls     # (1, 2): only precondition 4 asks it
+    pre5 = next(m for m in body["missing"] if m["precondition"] == 5)
+    assert "cover 2 distinct heads" in pre5["message"] and (1, 2) in calls     # (1, 2): only precondition 5 asks it
     assert [j["compare_revision"] for j in lab.state["judgements"]] == [1, 0, 2]
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "note": "x", "apply": True,
-                                              "edits": [set_t("C", spec, 2.0)], "photos": None, "judgement": None}))
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 2.0)])))
+    assert body["code"] == "E_OBJECT"                    # the latest note describes the renamed layout (state rule)
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 2.0)], obj=OBJECT)))
+    assert body["status"] == "applied", body
+    variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
+    body, *_ = parsed(call(tl["facet_variants"], {"parent_revision": 0, "variants": variants, "photos": ["05"],
+                                                  "judgement": judgement(lab)}))
+    assert body["status"] == "ok" and lab.state["variants"][-1]["rendered"], body
     body, *_ = parsed(call(tl["facet_finish"], {"status": "stuck", "best_checkpoint": lab.s.head["id"], "summary": "s",
-                                                "judgement": judgement(lab)}))
-    assert body["status"] == "refused" and 4 not in [m["precondition"] for m in body["missing"]], body
+                                                "judgement": None}))
+    assert body["status"] == "refused" and 5 not in [m["precondition"] for m in body["missing"]], body
 
 
-def test_precondition_3_counts_only_compares_astra_saw():
-    """pf_review defect 3: prepare's compares and a timed-out call's compare (never shown) cover no photo."""
-    st = {"compares": [{"by": "prepare", "revision": 1, "photos": ["01", "02"]},
-                       {"by": "astra", "revision": 1, "photos": ["03"], "unseen": True},
-                       {"by": "astra", "revision": 1, "photos": ["04"]}],
-          "variants": [{"spread": ["A", "B", "C"]}], "judgements": []}
-    miss = S.finish_missing(st, status="matched", best_revision=1, k=1, distinct=lambda a, b: True,
-                            target_photos=["01", "02", "03", "04"])
-    assert [m["precondition"] for m in miss] == [3] and miss[0]["photos"] == ["01", "02", "03"]
+def test_is_clean_until_a_reading_a_note_or_a_compare(tmp_path):
+    """A paid run starts only from a clean package: a stored reading (or its log), an object note or Astra's compare
+    each makes it not clean."""
+    lab = make_lab(tmp_path, basis=ReadBasis())
+    assert lab.is_clean()
+    read_c(lab, 9.0)
+    assert not lab.is_clean()
+    lab.read("drop", [], ["C"])
+    assert lab.readings() == {} and not lab.is_clean()                 # the log keeps the reading
+    lab2 = make_lab(tmp_path / "b")
+    S.record_object(lab2.state, OBJECT, "c1")
+    assert not lab2.is_clean()
 
 
+# --------------------------------------------------------------------------------------------- plumbing
 def test_the_state_lock_serialises_mark_unseen_and_save(lab, monkeypatch):
-    """pf_review defect 4: mark_unseen (on the event-loop thread, when the SDK times a call out) waits while the
-    worker thread saves the state; it never adds keys under json.dumps. The lock is re-entrant (a save inside a
-    mutation)."""
-    body, *_ = parsed(call(tools_of(lab)["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None},
-                           "call_r"))
+    """mark_unseen (on the event-loop thread, when the SDK times a call out) waits while the worker thread saves the
+    state; it never adds keys under json.dumps. The lock is re-entrant (a save inside a mutation)."""
+    body, *_ = parsed(call(tools_of(lab)["photo_compare"], compare_args(["05"]), "call_r"))
     entered, gate, done = threading.Event(), threading.Event(), threading.Event()
     save0 = S.save
 
@@ -2471,12 +2271,13 @@ def test_busy_lock_returns_at_once(lab):
     th.start()
     assert entered.wait(10)
     t0 = time.perf_counter()
-    body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None}))
+    body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None, "enhance": False, "scale": 1}))
     assert time.perf_counter() - t0 < 2.0
     assert body["status"] == "busy" and body["code"] == "E_BUSY" and body["running"]["tool"] == "facet_inspect"
     gate.set()
     th.join(10)
-    assert parsed(call(tl["photo_image"], {"photo": "05", "crop": None}))[0]["status"] == "ok"
+    assert parsed(call(tl["photo_image"], {"photo": "05", "crop": None, "enhance": False, "scale": 1}))[0]["status"] \
+        == "ok"
 
 
 def sdk_call(tool, args: dict, call_id: str, timeout_s: float, context=None):
@@ -2495,9 +2296,8 @@ def test_sdk_timeout_text_has_the_footer_and_the_unseen_compare_needs_no_judgeme
             return L.footer_text(2.5, 25.0, 31_000)
     tl = tools_of(lab)
     lab.seeing.slow_s = 1.5
-    out = sdk_call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": None, "note": "x",
-                                      "edits": [set_t("C", FX.prada_default(), 0.7)], "apply": True,
-                                      "photos": ["05"]}, "call_slow", 0.3, context=Status())
+    out = sdk_call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.7)], obj=OBJECT, photos=["05"]),
+                   "call_slow", 0.3, context=Status())
     assert isinstance(out, str)                                        # asyncio.run waited for the worker thread
     body, footer = json.loads(out.rsplit("\n", 1)[0]), out.rsplit("\n", 1)[1]
     assert body["status"] == "timeout" and body["code"] == "E_TIMEOUT" and "timed out after 0.3 s" in body["message"]
@@ -2507,16 +2307,14 @@ def test_sdk_timeout_text_has_the_footer_and_the_unseen_compare_needs_no_judgeme
     assert len(made) == 1 and made[0]["unseen"] is True and made[0]["judged"] is True
     assert S.pending_compare(lab.state) is None and S.seen_compares(lab.state) == []
     assert lab.head_record()["revision"] == 1                          # the apply happened
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 1, "reset_layout": False, "judgement": None,
-                                              "edits": [set_t("C", FX.prada_default(), 1.4)], "note": "x",
-                                              "apply": True, "photos": ["05"]}))
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(1, [set_t("C", FX.prada_default(), 1.4)], photos=["05"])))
     assert body["status"] == "applied"                                 # no E_JUDGEMENT for the unseen compare
 
 
 def test_timed_out_variants_never_meet_precondition_2(lab):
-    """p3f_review lab defect 2: a facet_variants call the SDK times out still renders in its thread, but Astra never
-    saw its sheets: the result is recorded unseen and finish precondition 2 stays missing (both orders: the SDK
-    gives up before or after the result is recorded); a later call that returns counts."""
+    """A facet_variants call the SDK times out still renders in its thread, but Astra never saw its sheets: the result
+    is recorded unseen and finish precondition 2 stays missing (both orders: the SDK gives up before or after the
+    result is recorded); a later call that returns counts."""
     tl = tools_of(lab)
     spec = FX.prada_default()
     variants = [{"label": lb, "edits": [set_t("C", spec, dt)]} for lb, dt in (("A", -1.0), ("B", 0.0), ("C", 1.0))]
@@ -2536,7 +2334,8 @@ def test_timed_out_variants_never_meet_precondition_2(lab):
 
     def missing():
         return [m["precondition"] for m in S.finish_missing(lab.state, status="matched", best_revision=0, k=0,
-                                                            distinct=lambda a, b: True, target_photos=[])]
+                                                            distinct=lambda a, b: True, camera_photos=[],
+                                                            has_object=True)]
     assert missing() == [2]
     body, *_ = parsed(call(tools_of(lab)["facet_variants"], args, "call_var_late"))
     assert body["spread_ok"] is True and missing() == []
@@ -2554,7 +2353,7 @@ def test_timed_out_finish_never_records_the_finish(lab, monkeypatch):
                                                         "live_site_would_fail": []})
     tl = tools_of(lab, finish_k=3)
     cps = _distinct_heads_and_variants(lab, tl)
-    parsed(call(tl["photo_compare"], {"photos": PHOTO_IDS, "crop": None, "points_px": None}))
+    parsed(call(tl["photo_compare"], compare_args(CAMERA_IDS)))
     args = {"status": "matched", "best_checkpoint": cps[-1], "summary": "s", "judgement": judgement(lab, cps[-1])}
     lab.seeing.slow_s = 1.5
     out = sdk_call(tl["facet_finish"], args, "call_fin_slow", 0.3)
@@ -2570,17 +2369,15 @@ def test_timed_out_finish_never_records_the_finish(lab, monkeypatch):
 
 def test_the_job_rig_lights_every_compare_and_variant_render(lab):
     """The lab's rig (lab.json; studio_dome_v1, the owner's choice of 2026-10-11, is the package default) lights
-    photo_compare and facet_edit's compares (native_linear and gloss_black) and facet_variants' renders."""
-    from glasses3d.agent.seeing import MATCHED_RIG
+    photo_compare and facet_edit's compares (native_linear: a photo of another colour is seeing's gloss_black) and
+    facet_variants' renders."""
     from glasses3d.agent.temple_lab import cli
     assert cli.DEFAULT_RIG == MATCHED_RIG == lab.rig == "studio_dome_v1"
     tl = tools_of(lab)
-    parsed(call(tl["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None}))
-    assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1"
-    assert lab.seeing.calls[-1]["passes"] == ["native_linear", "gloss_black"]
-    parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": judgement(lab),
-                                   "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x", "apply": True,
-                                   "photos": ["05"]}))
+    parsed(call(tl["photo_compare"], compare_args(["05"])))
+    assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1" and lab.seeing.calls[-1]["passes"] == ["native_linear"]
+    parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.5)], obj=OBJECT,
+                                            judge=judgement(lab), photos=["05"])))
     assert lab.seeing.calls[-1]["rig"] == "studio_dome_v1"
     spec = FX.prada_default()
     parsed(call(tl["facet_variants"], {"parent_revision": 0, "photos": ["05"], "judgement": judgement(lab),
@@ -2591,8 +2388,7 @@ def test_the_job_rig_lights_every_compare_and_variant_render(lab):
 
 def test_mark_unseen_after_the_compare_was_recorded(lab):
     """The other order: the call's compare is recorded first, then the SDK gives up on the call."""
-    body, *_ = parsed(call(tools_of(lab)["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None},
-                           "call_late"))
+    body, *_ = parsed(call(tools_of(lab)["photo_compare"], compare_args(["05"]), "call_late"))
     assert S.pending_compare(lab.state)["compare_id"] == body["compare_id"]
     lab.mark_unseen("call_late")
     assert S.pending_compare(lab.state) is None and S.compare(lab.state, body["compare_id"])["unseen"] is True
@@ -2601,26 +2397,24 @@ def test_mark_unseen_after_the_compare_was_recorded(lab):
 def test_compare_render_deadline_is_the_tool_hard_timeout(lab):
     assert lab.seeing.calls[-1]["render_deadline_s"] is None              # prepare's compare: seeing's default
     tl = tools_of(lab)
-    parsed(call(tl["photo_compare"], {"photos": ["05"], "crop": None, "points_px": None}))
+    parsed(call(tl["photo_compare"], compare_args(["05"])))
     assert lab.seeing.calls[-1]["render_deadline_s"] == L.hard_timeout_s("photo_compare") < \
         L.sdk_timeout_s("photo_compare")
-    parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": judgement(lab),
-                                   "edits": [set_t("C", FX.prada_default(), 0.5)], "note": "x", "apply": True,
-                                   "photos": ["05"]}))
+    parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.5)], obj=OBJECT,
+                                            judge=judgement(lab), photos=["05"])))
     assert lab.seeing.calls[-1]["render_deadline_s"] == L.hard_timeout_s("facet_edit") < L.sdk_timeout_s("facet_edit")
 
 
 def test_the_scene_lock_is_the_labs_and_teardown_waits_for_it(lab, monkeypatch):
     """tools.py uses Lab.lock; exit_checkpoint and close wait for a call still holding it (a timed-out one), and
     give up after LOCK_WAIT_S with an error (close still closes the worker)."""
-    import glasses3d.agent.temple_lab.lab as LB
     tl = tools_of(lab)
     lab.s.ck_dir.mkdir(parents=True, exist_ok=True)
     (lab.s.ck_dir / lab.s.head["file"]).write_bytes(b"")
     lab.s.head["sha256"] = hashlib.sha256(b"").hexdigest()
     assert lab.lock.acquire(timeout=1)
     try:
-        body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None}))
+        body, *_ = parsed(call(tl["photo_image"], {"photo": "05", "crop": None, "enhance": False, "scale": 1}))
         assert body["code"] == "E_BUSY"
         threading.Timer(0.4, lab.lock.release).start()
         t0 = time.perf_counter()
@@ -2646,16 +2440,12 @@ def test_worker_failure_stays_fatal_and_build_failure_rolls_back(lab):
     tl = tools_of(lab)
     head = lab.s.head["id"]
     lab.s.fail_build = "E_MULTI_MATERIAL"
-    body, *_ = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False,
-                                              "edits": [set_t("C", FX.prada_default(), 1)], "judgement": None,
-                                              "note": "x", "apply": True, "photos": None}))
+    body, *_ = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 1)], obj=OBJECT)))
     assert body["status"] == "refused" and body["stage"] == "blender" and body["code"] == "E_MULTI_MATERIAL"
     assert lab.s.head["fingerprint"] == lab.s.index.get(head)["fingerprint"]
     lab.s.fail_build = "raise"
     with pytest.raises(WorkerFailed):
-        call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False,
-                                "edits": [set_t("C", FX.prada_default(), 2)], "judgement": None, "note": "x",
-                                "apply": True, "photos": None})
+        call(tl["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 2)]))
     assert lab.s.head["fingerprint"] == lab.s.index.get(head)["fingerprint"]
 
 
@@ -2663,7 +2453,8 @@ def test_footer_from_the_run_context(lab):
     class Status:
         def footer(self):
             return L.footer_text(1.234, 20.0, 123456)
-    body, footer, *_ = parsed(call(tools_of(lab)["photo_image"], {"photo": "05", "crop": None}, context=Status()))
+    body, footer, *_ = parsed(call(tools_of(lab)["photo_image"], {"photo": "05", "crop": None, "enhance": False,
+                                                                  "scale": 1}, context=Status()))
     assert footer == "settled $1.23 / cap $20.00 · context 123456 tokens"
 
 
@@ -2672,10 +2463,10 @@ def test_context_stubs_keep_latest_two_and_best(lab):
     spec = FX.prada_default()
     shas = []
     for k, dt in enumerate((0.5, 1.0, 1.5, 2.0)):
-        out = call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False, "edits": [set_t("C", spec, dt)],
-                                      "note": "x", "apply": True, "photos": ["05"],
-                                      "judgement": judgement(lab, best=lab.state["heads"][1]["checkpoint"]
-                                                             if k > 1 else None) if k else None})
+        out = call(tl["facet_edit"], edit_args(0, [set_t("C", spec, dt)], obj=OBJECT if not k else None,
+                                               photos=["05"], judge=judgement(
+                                                   lab, best=lab.state["heads"][1]["checkpoint"] if k > 1 else None)
+                                               if k else None))
         shas.append([hashlib.sha256(__import__("base64").b64decode(i.image_url.split(",", 1)[1])).hexdigest()
                      for i in out[1:]])
     stubs = lab.context_stubs([s for row in shas for s in row])
@@ -2683,8 +2474,80 @@ def test_context_stubs_keep_latest_two_and_best(lab):
     charts = [s for row in shas for s in row[:-1]]
     assert compares[1] in stubs and compares[0] not in stubs           # compares[0] = best_checkpoint's revision
     assert compares[2] not in stubs and compares[3] not in stubs      # the latest two
-    assert not set(charts) & set(stubs)                                 # charts and strips are never stubbed
+    assert not set(charts) & set(stubs)                                 # charts are never stubbed
     assert "superseded" in stubs[compares[1]]
+
+
+def test_resume_rollback_ignores_prepare_and_finds_the_lost_apply(lab):
+    """loop.plan_rollback over the lab journal: prepare's apply is never rolled back; an apply whose turn was not
+    recorded in the session is."""
+    assert L.plan_rollback([], lab.journal_entries()) is None and lab.is_clean()
+    before = lab.s.head["id"]
+    call(tools_of(lab)["facet_edit"], edit_args(0, [set_t("C", FX.prada_default(), 0.4)], obj=OBJECT), "call_lost")
+    plan = L.plan_rollback([], lab.journal_entries())
+    assert plan["call_id"] == "call_lost" and plan["checkpoint_before"] == before and not lab.is_clean()
+    recorded = [{"type": "function_call", "call_id": "call_lost"},
+                {"type": "function_call_output", "call_id": "call_lost", "output": "x"}]
+    assert L.plan_rollback(recorded, lab.journal_entries()) is None
+
+
+def test_facet_run_settings():
+    s = T.run_settings(effort="max", max_turns=None, finish_k=5)
+    assert s.behavior() == {"tool_choice": "required", "reset_tool_choice": False,
+                            "finish": {"tool": "facet_finish", "behavior": L.FINISH_BEHAVIOR, "k": 5},
+                            "context_guard": {"input_tokens": 240_000, "filter": L.CONTEXT_GUARD}}
+
+
+# --------------------------------------------------------------------------------------------- recorded packages
+PACKAGE_004 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_004"
+
+
+def test_variant_edges_match_the_compare_on_the_prada_package(monkeypatch):
+    """On the recorded Prada package (read-only): Lab._variant_edges of revision 17 (its declarations left out: they
+    shape nothing), handed cmp030's exported head by a stub seeing, draws seeing's model edges of that export
+    (Seeing._edges_posed + _edges_drawn on the posed scene, the v3 compare overlay) at cmp030's crop cameras and
+    poses (all seven photos): at most 0.5 % of the line pixels differ. The fixture test above runs the same check
+    without package data."""
+    report = PACKAGE_004 / "work" / "compare" / "cmp030" / "report.json"
+    revision = PACKAGE_004 / "work" / "temple_lab" / "revisions" / "r0017.json"
+    if not (report.is_file() and revision.is_file()):
+        pytest.skip("package_004 (git-ignored data) is not on this machine")
+    monkeypatch.setattr(BLD, "_check_fade_creases", lambda *a, **k: None)     # r0017 fades a crease's two facets
+    from glasses3d.g3d_host import fitmesh
+    rep = json.loads(report.read_text(encoding="utf-8"))
+    glb = PACKAGE_004 / "work" / "exports" / Path(rep["glb"]["path"].replace("\\", "/")).name
+    assert hashlib.sha256(glb.read_bytes()).hexdigest() == rep["glb"]["sha256"]
+    bs = GC.load_basis(PACKAGE_004)
+
+    class PackageSeeing:                       # the lab's seeing, read-only: the export cmp030 compared
+        def export_head(self, call_id=None):
+            return {"status": "exported", "path": str(glb), "sha256": rep["glb"]["sha256"]}
+
+        def fit_mesh(self, path, sha, *, skip=(), frame=None):
+            return fitmesh.load_fit_mesh(path, skip=tuple(skip), frame=frame)
+    lab = Lab.__new__(Lab)                     # no __init__: nothing is written into the package
+    lab._basis, lab.seeing = bs, PackageSeeing()
+    photos = {rid: {"pose": bs.pose(rid), "ccam": Camera(**prec["crop"]["camera"]),
+                    "shape": tuple(prec["crop"]["shape"])} for rid, prec in rep["photos"].items()}
+    spec = json.loads(revision.read_text(encoding="utf-8"))
+    spec["creases"] = []
+    tb = build_temple(spec)
+    got, info = lab._variant_edges(photos, {"head": tb}, "package")
+    assert info == {"occlusion": "scene"} and len(photos) == 7
+    mesh = fitmesh.load_fit_mesh(glb, skip=bs.skip, frame=bs.frame)
+    roles = PO.part_roles(glb)
+    edges = [{**e, "pts": np.asarray(e["pts"], float), "deg_at": np.asarray(e["deg_at"], float)}
+             for e in LB.capped_edges(BLD.model_edges(tb))]
+    hz = float(tb.spec.hinge["z_mm"])
+    total = 0
+    for rid, c in photos.items():
+        mp = PO.posed(mesh, c["pose"], roles)
+        ref = Seeing._edges_drawn(Seeing._edges_posed(edges, c["pose"], hz, None), c["ccam"], bs.frame, mp.scene(),
+                                  c["shape"])
+        a, b = _run_mask(ref, c["shape"]), _run_mask(got[(rid, "head")], c["shape"])
+        assert a.sum() > 50 and (a != b).sum() <= 0.005 * a.sum(), (rid, int(a.sum()), int((a != b).sum()))
+        total += int(a.sum())
+    assert total > 3000, total
 
 
 # --------------------------------------------------------------------------------------------- real Blender
@@ -2698,7 +2561,6 @@ REFERENCE = REPO / "glasses3d/data/reference/prada"
 def real_job(root: Path, rig: str = "studio_dome_v1") -> Path:
     """A facet-lab job on a byte copy of the Prada original with the six target photos and the pose basis."""
     import shutil
-    from glasses3d.g3d_host import compare as C
     (root / "inputs" / "images").mkdir(parents=True)
     shutil.copy2(SCENE, root / "inputs" / "scene.blend")
     assert hashlib.sha256((root / "inputs" / "scene.blend").read_bytes()).hexdigest() == SCENE_SHA
@@ -2710,63 +2572,54 @@ def real_job(root: Path, rig: str = "studio_dome_v1") -> Path:
         shutil.copy2(REFERENCE / name, photos[name])
         assert hashlib.sha256(photos[name].read_bytes()).hexdigest() == rec["image_sha256"]
     (root / "inputs" / "cameras.json").write_text(json.dumps(doc), encoding="utf-8")
-    C.import_cameras_json(root, root / "inputs" / "cameras.json", photos, reason="facet lab test")
+    GC.import_cameras_json(root, root / "inputs" / "cameras.json", photos, reason="facet lab test")
     (root / "inputs" / "lab.json").write_text(json.dumps({"schema": LAB_SCHEMA, "rig": rig, "assets": [
         {"path": "scene.blend", "sha256": SCENE_SHA}]}), encoding="utf-8")
     return root
 
 
 @pytest.mark.slow
-def test_real_lab_prepare_edit_variants_restore(tmp_path):
-    """On real Blender (a copy of Prada, studio_dome_v1): prepare makes revision 0 from the original's export and
-    compares the original and revision 0 at all six photos; facet_edit applies a facet and compares; facet_variants
-    renders without changing the scene; facet_restore returns to revision 0; facet_finish names what is missing."""
+def test_real_lab_prepare_edit_variants_finish(tmp_path):
+    """On real Blender (a copy of Prada, studio_dome_v1): prepare fits revision 0 (the original's template) and
+    compares the original and revision 0 at all six photos; facet_edit fits and applies a facet (the worker builds
+    the fitted spec) and compares it with its model edges; facet_variants renders without changing the scene;
+    facet_finish names what is missing."""
     from glasses3d.g3d_host import blender
     if blender.blender_exe() is None or not SCENE.exists() or not BASIS.exists():
         pytest.skip("Blender 5.2, the Prada scene or the pose basis is not available")
-    from glasses3d.g3d.temple.spec import parse
     root = real_job(tmp_path / "job")
     lab = Lab(root)
     try:
         prep = lab.prepare()
     finally:
         lab.close()
-    assert prep["status"] == "prepared" and len(lab.state["compares"]) == 2
-    assert all(c["photos"] == PHOTO_IDS for c in lab.state["compares"]) and lab.is_clean()
+    assert prep["status"] == "prepared" and len(lab.state["compares"]) == 2 and lab.is_clean()
+    assert all(c["photos"] == PHOTO_IDS for c in lab.state["compares"])
+    assert lab.state["revisions"][0]["fit_file"] and lab.spec(0)["facets"] == {}
     lab = Lab(root)
     lab.start()
     try:
         tl = tools_of(lab)
-        r0 = lab.spec(0)
-        t_r = float(parse(r0).base_t(25.0, -12.0)) + 0.8
+        t_r = float(parse(lab.spec(0)).base_t(25.0, -12.0)) + 0.8
         node = {"op": "set_node", "name": "R", "d_mm": 25.0, "y_mm": -12.0, "t": {"mode": "mm", "mm": t_r}}
         edits = [{"op": "set_node", "name": "P", "d_mm": 10.0, "y_mm": 6.0, "t": {"mode": "base", "mm": None}},
                  {"op": "set_node", "name": "Q", "d_mm": 40.0, "y_mm": 6.0, "t": {"mode": "base", "mm": None}}, node,
-                 {"op": "set_facet", "label": "F1", "poly": ["P", "R", "Q"],
-                  "plane": {"mode": "nodes", "crease": None, "rise_per_mm": None}, "fade": None}]
+                 {"op": "set_facet", "label": "F1", "poly": ["P", "R", "Q"], "plane": {"mode": "flat"},
+                  "soft": False}]
         r0_checkpoint = lab.s.head["id"]
-        reads, call_read = [], lab.s.call_read
-
-        def recording_read(tool, method, params, *, deadline_s, call_id):
-            reads.append((method, deadline_s))
-            return call_read(tool, method, params, deadline_s=deadline_s, call_id=call_id)
-        lab.s.call_read = recording_read
-        body, _f, images, text = parsed(call(tl["facet_edit"], {"parent_revision": 0, "reset_layout": False,
-                                                                "edits": edits, "judgement": None, "note": "test",
-                                                                "apply": True, "photos": ["05", "03"]}, "c1"))
-        assert body["status"] == "applied" and body["compare_id"] and len(images) == 4, body
-        assert len(text) <= 1500
-        assert ("render", L.hard_timeout_s("facet_edit")) in reads, reads      # the compare's renders, capped
+        body, _f, images, text = parsed(call(tl["facet_edit"], edit_args(0, edits, obj=OBJECT, note="test",
+                                                                         photos=["05", "03"]), "c1"))
+        assert body["status"] == "applied" and body["compare_id"] and len(images) == 3, body
+        rep = json.loads(Path(lab.state["compares"][-1]["report"]).read_text(encoding="utf-8"))
+        assert rep["model_edges"]["edges"] == len(lab.model_edges(body["revision"]))
         fp = lab.s.head["fingerprint"]
         variants = [{"label": lb, "edits": [{**node, "t": {"mode": "mm", "mm": t_r + dt}}]}
                     for lb, dt in (("A", -0.5), ("B", 0.5))]
         body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": body["revision"],
                                                                   "variants": variants, "photos": ["05"],
                                                                   "judgement": judgement(lab)}, "c2"))
-        assert body["status"] == "ok" and len(images) == 1 and lab.s.head["fingerprint"] == fp
+        assert body["status"] == "ok" and len(images) >= 1 and lab.s.head["fingerprint"] == fp
         assert lab.s.fingerprint() == fp                         # the worker's scene, not just the index
-        body, *_ = parsed(call(tl["facet_restore"], {"checkpoint": r0_checkpoint, "judgement": None}, "c3"))
-        assert body["status"] == "ok" and body["revision"] == 0
         body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": r0_checkpoint,
                                                     "summary": "test", "judgement": None}, "c4"))
         assert body["status"] == "refused" and [m["precondition"] for m in body["missing"]] == [1, 2, 3]
@@ -2774,247 +2627,3 @@ def test_real_lab_prepare_edit_variants_restore(tmp_path):
         assert lab.exit_checkpoint()["verified"] is True
     finally:
         lab.close()
-
-
-def test_facet_run_settings():
-    s = T.run_settings(effort="max", max_turns=None, finish_k=5)
-    assert s.behavior() == {"tool_choice": "required", "reset_tool_choice": False,
-                            "finish": {"tool": "facet_finish", "behavior": L.FINISH_BEHAVIOR, "k": 5},
-                            "context_guard": {"input_tokens": 240_000, "filter": L.CONTEXT_GUARD}}
-
-
-def test_resume_rollback_ignores_prepare_and_finds_the_lost_apply(lab):
-    """loop.plan_rollback over the lab journal: prepare's apply is never rolled back; an apply whose turn was not
-    recorded in the session is."""
-    assert L.plan_rollback([], lab.journal_entries()) is None and lab.is_clean()
-    before = lab.s.head["id"]
-    call(tools_of(lab)["facet_edit"], {"parent_revision": 0, "reset_layout": False, "judgement": None, "note": "x",
-                                       "edits": [set_t("C", FX.prada_default(), 0.4)], "apply": True,
-                                       "photos": None}, "call_lost")
-    plan = L.plan_rollback([], lab.journal_entries())
-    assert plan["call_id"] == "call_lost" and plan["checkpoint_before"] == before and not lab.is_clean()
-    recorded = [{"type": "function_call", "call_id": "call_lost"},
-                {"type": "function_call_output", "call_id": "call_lost", "output": "x"}]
-    assert L.plan_rollback(recorded, lab.journal_entries()) is None
-
-
-# --------------------------------------------------------------------------------------------- run 7
-PACKAGE_006 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_006"
-
-
-def test_corner_reading_finds_a_point_from_two_photos(lab):
-    """A one-photo reading takes its (d, y) as exact, so an error in d becomes one in t (run 6's hinge corner). A
-    reading with also (the same point in more photos) finds (d, y, t) from every pixel: a projected point comes back
-    exactly, with zero residuals, from a wrong starting (d, y); its t at the reading's own (d, y) keeps that X; the
-    record keeps the corner and the picks, rounded; refusals: a repeated photo, a photo without a camera, a uv outside
-    the photo, more than 3 picks (E_ARGS), nothing compared."""
-    lab._basis = AngledBasis()
-    tl = tools_of(lab)
-    uv2, uv5 = _uv(lab, "reference-02", 1, 40.0, 2.0, 6.0), _uv(lab, "reference-05", 1, 40.0, 2.0, 6.0)
-    assert all(0 <= u < 320 and 0 <= v < 240 for u, v in (uv2, uv5))
-    body, *_ = parsed(call(tl["photo_compare"], {
-        "photos": ["02"], "crop": None, "points_px": None,
-        "depths": [{"photo": "02", "d_mm": 37.0, "y_mm": 3.0, "uv": uv2, "also": [{"photo": "05", "uv": uv5}]}]}))
-    rec = lab.state["compares"][-1]["depths"][0]
-    c = rec["corner"]
-    assert (c["d_mm"], c["y_mm"], c["t_mm"]) == (pytest.approx(40.0, abs=1e-3), pytest.approx(2.0, abs=1e-3),
-                                                 pytest.approx(6.0, abs=1e-3))
-    assert max(c["res_px"]) <= 1e-3 and 0.0 < c["sd_t_mm"] < 10.0 and c["sides"] == [1, 1]
-    tb = lab.build(lab.head_record()["revision"])
-    assert c["t_at_mm"] == pytest.approx(c["X_mm"] - LB._inner_x(tb, 37.0), abs=2e-3)
-    assert rec["also"] == [{"photo": "05", "uv": LB._r(uv5, 3)}]
-    text = body["photos"]["02"]
-    assert f"| depths d 37 y 3 with 05: t {LB.fixed(c['t_at_mm'], 2)} here (+-" in text, text
-    assert "; the point the pixels show is at d 40.00 y 2.00 (t 6.00 there, model " in text
-    assert "; it lies 3.2 mm from d 37 y 3: check the picks; residual px 02 0.0, 05 0.0" in text
-    n = len(lab.state["compares"])
-    for also, what in (([{"photo": "02", "uv": uv2}], "repeats photo 02"),
-                       ([{"photo": "05", "uv": [400.0, 10.0]}], "inside the native 320 x 240 photo 05"),
-                       ([{"photo": "B2", "uv": [1.0, 1.0]}], "photo_image only"),
-                       ([{"photo": p, "uv": uv5} for p in ("05", "01", "04", "06")], "1..3")):
-        with pytest.raises(S.LabRefusal, match=re.escape(what)) as e:
-            lab.compare("x", ["02"], None, None, [{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2,
-                                                   "also": also}])
-        assert e.value.code == "E_ARGS"
-    assert len(lab.state["compares"]) == n
-
-
-def test_depth_text_notes_a_turning_inner_face():
-    """Where the inner face turns fast (|dx_in/dd| >= TURN_NOTE) a one-photo reading says so: its t follows any error
-    in its d (run 6: 0.78 mm per mm at the hinge)."""
-    rec = {"d_mm": 0.0, "y_mm": 10.2, "t_mm": 3.83, "model_t_mm": 3.33, "px_per_mm": 8.3, "miss_px": 0.1, "side": 1}
-    assert LB.depth_text({**rec, "turn": 0.78}) == ("d 0 y 10.2: t 3.83 (model 3.33) 8.3 px/mm, miss 0.1 px charted; "
-                                                    "inner face turns 0.78 mm per mm of d here: read it in two photos "
-                                                    "(also)")
-    assert LB.depth_text({**rec, "turn": 0.29}) == LB.depth_text(rec) == \
-        "d 0 y 10.2: t 3.83 (model 3.33) 8.3 px/mm, miss 0.1 px charted"
-
-
-def test_not_planar_refusal_lists_each_corner_solved_alone():
-    """E_FACET_NOT_PLANAR (a facet's own given values fit no plane) lists, per given corner of that facet, the t it
-    takes solved alone and its move, smallest move first: setting that corner to solve gives the facet a plane through
-    the others, at that t (its printed value is information: typed back to 0.01 mm it misses the plane by its
-    rounding, more than planar_tol)."""
-    s = FX.refusal_cases()["E_FACET_NOT_PLANAR"]
-    with pytest.raises(TempleError) as e:
-        build_temple(s)
-    label = e.value.fields["facet"]
-    msg = LB.refusal_message(s, e.value)
-    note = msg.split("; one solved instead: ", 1)[1]
-    items = re.findall(r"(\w+) -> (-?\d+\.\d\d) \(([+-]\d+\.\d\d)\)", note)
-    assert items and len(items) <= LB.SOLVE_OPTIONS_MAX and len(msg) <= LB.REFUSAL_MAX
-    moves = [abs(float(mv)) for _n, _t, mv in items]
-    assert moves == sorted(moves)
-    ps = parse(s)
-    for name, t, mv in items:
-        was = float(ps.node_X(name)) - float(np.asarray(ps.inner(ps.nodes[name][0]), float))
-        assert float(t) == pytest.approx(was + float(mv), abs=0.011)
-        trial = copy.deepcopy(s)
-        trial["nodes"][name][2] = None
-        trial["creases"] = []
-        tps, sol = LB.solve_planes(trial)
-        assert label in sol.planes
-        solved = float(sol.node_X[name]) - float(np.asarray(tps.inner(tps.nodes[name][0]), float))
-        assert solved == pytest.approx(float(t), abs=0.006)
-
-
-def test_not_planar_note_names_the_run_and_the_meeting_rise():
-    """E_FACET_NOT_PLANAR's note (review round 2): a nodes plane over a straight run of its edges names the run a
-    crease + rise plane can hold; a crease-mode facet whose one given corner off its line misses the plane names the
-    rise_per_mm that meets it (entering it builds)."""
-    band = FX.crease_run_band()
-    band["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}            # on its nodes, four values not coplanar
-    band["nodes"]["U0"][2], band["nodes"]["U1"][2] = FX.PRISM["T"] - 2.0, FX.PRISM["T"] - 4.0
-    with pytest.raises(TempleError) as e:
-        build_temple(band)
-    assert e.value.code == "E_FACET_NOT_PLANAR"
-    assert LB.refusal_message(band, e.value).endswith("; or a crease plane on the run L-R (through M)")
-    tilt = FX.crease_run_band()                                        # U0 given 3 mm above the plane's value there
-    tilt["nodes"]["U0"][2] = FX.PRISM["T"] + 2.0 - 0.6 * 26.0 + 3.0
-    with pytest.raises(TempleError) as e:
-        build_temple(tilt)
-    msg = LB.refusal_message(tilt, e.value)
-    rise = float(msg.rsplit("; or rise_per_mm ", 1)[1].split(" meets U0")[0])
-    assert msg.endswith(" meets U0") and rise == pytest.approx(-0.6 + 3.0 / 26.0, abs=1e-4)
-    tilt["facets"]["B"]["plane"]["rise_per_mm"] = rise
-    build_temple(tilt)
-    steep = FX.crease_run_band()                         # a steep band (|rise| >= 1): the printed rise still builds
-    steep["nodes"]["U0"][2] = FX.PRISM["T"] + 2.0 - 1.37 * 26.0 + 0.123457
-    steep["facets"]["B"]["plane"]["rise_per_mm"] = -1.37
-    steep["nodes"]["L"][2] = steep["nodes"]["R"][2] = FX.PRISM["T"] + 40.0
-    with pytest.raises(TempleError) as e:
-        build_temple(steep)
-    msg = LB.refusal_message(steep, e.value)
-    steep["facets"]["B"]["plane"]["rise_per_mm"] = float(msg.rsplit("; or rise_per_mm ", 1)[1].split(" meets U0")[0])
-    LB.solve_planes(steep)                                              # the planes now hold U0 as given
-    ends = FX.crease_run_band()                           # a run whose ends have no value: the note says to give them
-    ends["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}
-    ends["nodes"]["U0"][2], ends["nodes"]["U1"][2] = FX.PRISM["T"] - 2.0, FX.PRISM["T"] - 4.0
-    ends["nodes"]["M"][2] = FX.PRISM["T"] + 1.0
-    ends["nodes"]["L"][2] = None
-    ps = parse(ends)
-    assert LB._longer_run(ps, "B") == "; or a crease plane on the run L-R (through M; give L a value)"
-
-
-def test_conditioning_hint_names_the_corners_without_a_value_and_the_runs():
-    """E_ILL_CONDITIONED's note (no package data): the fixture's F1 (a near-collinear triangle) names its corners
-    without a value; the straight-run band names the run its crease plane can hold."""
-    s = FX.refusal_cases()["E_ILL_CONDITIONED"]
-    with pytest.raises(TempleError) as e:
-        build_temple(s)
-    assert LB.refusal_message(s, e.value).endswith("; corners without a value: G_hi, A_hi")
-    band = FX.crease_run_band()
-    band["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}            # on its nodes: M, U0, U1 without a value
-    assert LB.conditioning_hint(band, "B") == ("; corners without a value: M, U1, U0; a crease + rise plane can hold "
-                                                "L-R (through M)")
-
-
-def test_run6_refusals_name_the_way_out_on_the_real_package():
-    """On run 6's package (read-only; skipped without it): the hinge corner A read in B2 alone at the assumed (d 0,
-    y 10.2) gives 3.83 with the turning-face note; read in B2 and B1 it sits at d -1.6 with X 70.71, t 4.77 at d 0
-    (run 6 entered 3.55 and built the inward hinge-side edge). Astra's first crown (A, T, C measured, E solved)
-    refused E_ILL_CONDITIONED now names E and the run A-E through C; the crown with A, T, E and C measured lists
-    solving C (-1.9) before E (+3.2); the crown on that run with A and E measured builds crown|logo and crown|tail as
-    ridges with no fade, and front|logo on the ridge side within the readings' error (the owner's two complaints)."""
-    rev = PACKAGE_006 / "work" / "temple_lab" / "revisions"
-    if not (rev / "r0013.json").is_file():
-        pytest.skip("package_006 is not on this machine")
-    try:
-        bs = GC.load_basis(PACKAGE_006)
-    except Exception as exc:  # noqa: BLE001 - a missing or moved basis
-        pytest.skip(f"package_006 has no camera basis: {exc}")
-    base = json.loads((rev / "r0013.json").read_text(encoding="utf-8"))      # run 6's best head, its fades off
-    for f in base["facets"].values():
-        f["fade"] = None
-    base["creases"] = []
-    tb = build_temple(base)
-
-    def view(rid, uv):
-        return (bs.camera(rid), bs.frame, bs.pose(rid), uv)
-    # a square-on view and the opposite one (05 sees the charted temple, 01 the mirrored, mirrored back): one line,
-    # the review's 05+01 and B1+01 (condition number ~940 against 1.9 for B2+B1), on exact projections of a point
-    h = tb.spec.hinge
-    P = (20.0, 0.0, LB._inner_x(tb, 20.0) + 6.0)
-
-    def px(rid, side):
-        Q = PO.chart_to_posed([P], side, float(h["z_mm"]), bs.pose(rid), None)
-        return tuple(project_mm(Q, bs.camera(rid), bs.frame)[0])
-    for a, b in (("reference-05", "reference-01"), ("black-side", "reference-01")):
-        with pytest.raises(ValueError, match="along nearly one line"):
-            LB.corner_reading(tb, [view(a, px(a, 1)), view(b, px(b, -1))], 20.0, 0.0)
-    for a, b in (("black-angled", "reference-02"), ("black-side", "reference-05")):   # one direction: never "no point"
-        for off in ((1.0, -1.0), (-1.0, 1.0), (0.7, 0.4)):
-            uvb = tuple(np.add(px(b, 1), off))
-            with pytest.raises(ValueError, match="along nearly one line"):
-                LB.corner_reading(tb, [view(a, px(a, 1)), view(b, uvb)], 20.0, 0.0)
-    good = LB.corner_reading(tb, [view("black-angled", px("black-angled", 1)), view("black-side", px("black-side", 1))],
-                             18.0, 1.0)
-    assert (good["d_mm"], good["y_mm"], good["t_mm"]) == (pytest.approx(20.0, abs=1e-3), pytest.approx(0.0, abs=1e-3),
-                                                          pytest.approx(6.0, abs=1e-3))
-    one = LB.depth_reading(tb, bs.camera("black-angled"), bs.frame, bs.pose("black-angled"), 0.0, 10.2, (1313, 598))
-    assert one["t_mm"] == pytest.approx(3.83, abs=0.02) and LB.inner_turn(tb, 0.0) == pytest.approx(0.78, abs=0.02)
-    c = LB.corner_reading(tb, [view("black-angled", (1313, 598)), view("black-side", (305, 131))], 0.0, 10.2)
-    assert c["d_mm"] == pytest.approx(-1.58, abs=0.02) and c["X_mm"] == pytest.approx(70.71, abs=0.02)
-    assert c["t_at_mm"] == pytest.approx(4.77, abs=0.02) and max(c["res_px"]) < 0.1
-
-    def node(name, d, y, t):
-        return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
-                "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": t}}
-
-    def facet(label, poly, plane=None):
-        return {"op": "set_facet", "label": label, "poly": poly, "fade": None,
-                "plane": plane or {"mode": "nodes", "crease": None, "rise_per_mm": None}}
-    common = [node("A", 0, 10.2, 4.77), node("H", 0, -9.2, 4.82), node("D", 22.4, -15.2, 6.92),
-              node("F", 75, -0.9, 4.54), facet("Front", ["A", "D", "H"]), facet("Logo", ["A", "C", "D"]),
-              facet("Lower", ["D", "C", "F"]), facet("Tail", ["C", "E", "G", "F"])]
-
-    def refused(edits, code):
-        spec, _ = G.apply_edits(copy.deepcopy(base), edits)
-        with pytest.raises(TempleError) as e:
-            build_temple(spec)
-        assert e.value.code == code
-        return LB.refusal_message(spec, e.value)
-    msg = refused(common + [node("T", 36, 14.2, 5.47), node("E", 90, 8, None), node("C", 47.3, 9.1, 7.49),
-                            facet("Crown", ["A", "T", "E", "C"])], "E_ILL_CONDITIONED")
-    assert msg.endswith("; corners without a value: E; a crease + rise plane can hold A-E (through C)"), msg
-    msg = refused(common + [node("T", 36.2, 15.25, 3.49), node("E", 80.8, 8.5, 5.25), node("C", 47.3, 9.1, 7.74),
-                            facet("Crown", ["A", "T", "E", "C"])], "E_FACET_NOT_PLANAR")
-    assert msg.endswith("; one solved instead: C -> 5.84 (-1.90), E -> 8.45 (+3.20); or a crease plane on the run "
-                        "A-E (through C)"), msg
-    # run 6's own crown (crease on the edge A-C of the straight A-C-E) with the tip measured: only E can be solved
-    # (the wing); the note names the run A-E as well
-    msg = refused(common + [node("T", 36.2, 15.25, None), node("E", 80.8, 9.06, 5.25), node("C", 47.3, 9.1, 7.49),
-                            facet("Crown", ["A", "T", "E", "C"], {"mode": "crease", "crease": ["A", "C"],
-                                                                  "rise_per_mm": -0.47})], "E_FACET_NOT_PLANAR")
-    assert "; one solved instead: E -> " in msg and msg.endswith("; or a crease plane on the run A-E (through C)"), msg
-    spec, _ = G.apply_edits(copy.deepcopy(base), common + [
-        node("T", 36.2, 15.25, None), node("E", 80.8, 8.5, 5.25), node("C", 47.3, 9.1, None),
-        facet("Crown", ["A", "T", "E", "C"], {"mode": "crease", "crease": ["A", "E"], "rise_per_mm": -0.54})])
-    m = LB.crease_margins(build_temple(spec))
-    shapes = {k: v["shape"] for k, v in m.items()}
-    assert shapes[("Crown", "Logo")] == shapes[("Crown", "Tail")] == "ridge", shapes
-    # front|logo from the two-photo hinge readings: no longer run 6's valley (H -1.6 / C -4.3 from the one-photo
-    # A 3.55) but a shallow crease on the ridge side, its margin within the readings' error (the instructions: then
-    # (1) is open and the views along it and the glossy photos decide)
-    front = m[("Front", "Logo")]
-    assert front["shape"] in ("ridge", "flat") and LB.margin_text(front) == "H +0.4/C +1.1", LB.margin_text(front)

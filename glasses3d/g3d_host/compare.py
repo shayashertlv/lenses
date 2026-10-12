@@ -41,6 +41,30 @@ Photo-matched compare (WP6_FACETS §3.3; the pieces agent/seeing.py assembles, a
 - ``outer_edge_offsets``: per side and 10 mm station, the photo's outer silhouette edge minus the model's along the
   image direction of the temple's outward x (mm; + = the photo reaches further out);
 - ``stack_rows``: one labelled image per photo, rows photo / render / overlay (/ gloss_black).
+
+WP6 v3 (WP6_V3 §5, P4: geometry is judged geometrically):
+
+- model edges: the creases the lab sends from the build, by identity (``{pair, shape, deg, pts}``), not mesh dihedrals.
+  ``edge_runs`` projects posed 3D polylines and keeps the samples the model does not hide (``raster.cast`` at each
+  sample's own sub-pixel position, so the frame and the other temple hide them as in the render; ``edge_runs_posed``
+  builds that scene from swapped temple bodies, as ``crease_polylines_posed`` does for variants), optionally carrying a
+  per-point value (a signed angle) along each run; ``draw_edges`` draws them ridge orange / valley blue / flat grey,
+  2 px from EDGE_WIDE_DEG 6 deg and 1 px below (a run with per-sample angles segment by segment, ``edge_shape_of``),
+  and labels each pair once at its longest visible run (``run_label`` of the build's own angles, deg_at or range:
+  "16", "-3", "24..33"; negative = valley); a soft facet|base border (``soft``) dashed thin grey and never labelled;
+  lines go on whole pixels (``line_px``: 1 px on the nearest, 2 px on floor and floor + 1);
+  ``edges_with_runs`` pairs edges with their runs for it; ``overlay_matched(..., edges=...)`` draws them instead of
+  the mesh crease polylines;
+- ``outline_offsets``: a side view's top / bottom outline, photo minus model along the image's up / down direction,
+  per 10 mm station of one temple, None with its reason (OUTLINE_REASONS) where it is not measured;
+- ``geometry_view``: the worker's ``normal`` pass (world normal x 0.5 + 0.5) as a light-free false-colour panel, each
+  channel stretched over a region (the zoom: the temple bodies' pixels) at most 8 x (a colour step is where the
+  surface turns; tone is never a depth cue);
+- ``zoom_scale``: a zoom panel's scale k = min(ZOOM_MAX_K 2, ZOOM_PANEL_PX / w, / h): native or larger when the box
+  fits the panel, the render made at k (never an upscaled render); ``resample_box``: a photo box on a crop camera's
+  exact pixel grid at k (bilinear: no ringing after a stretch);
+- ``backdrop_share``: the share of the model a render panel shows in the backdrop's colour (the compare then draws
+  the model's outline on its render panels).
 """
 from __future__ import annotations
 
@@ -434,12 +458,25 @@ def _font(size: int):
         return ImageFont.load_default()
 
 
-def labelled(img: Image.Image, label: str, size: int = 16) -> Image.Image:
+def labelled(img: Image.Image, label: str, size: int = 16, *, fit: bool = False) -> Image.Image:
+    """``img`` under a one-line label. ``fit``: the label's font shrinks (down to 10 px) until it fits the image's
+    width, and a label still too wide ends in "..." (a zoom panel can be narrower than its label; the full label is in
+    the call's text)."""
     img = img.convert("RGBA")
     pad = size + 8
     out = Image.new("RGBA", (img.width, img.height + pad), (255, 255, 255, 255))
     out.paste(img, (0, pad), img)
-    ImageDraw.Draw(out).text((4, 3), label, fill=(20, 20, 20, 255), font=_font(size))
+    dr = ImageDraw.Draw(out)
+    font = _font(size)
+    if fit:
+        room = img.width - 8
+        for px in range(size, 9, -1):
+            font = _font(px)
+            if dr.textlength(label, font=font) <= room:
+                break
+        while len(label) > 3 and dr.textlength(label, font=font) > room:
+            label = label[:-4].rstrip() + "..."
+    dr.text((4, 3), label, fill=(20, 20, 20, 255), font=font)
     return out
 
 
@@ -542,7 +579,27 @@ ISO_MIN_LABEL_PX = 12
 LABEL_GAP_PX, LABEL_CHAR_PX = 12, 6          # labels closer than 12 px vertically and their text width apart: drop
 OUTER_REACH_MM = 6.0
 OUTLINE_RGB, RIDGE_RGB, VALLEY_RGB = (255, 0, 255), (255, 128, 0), (0, 110, 255)
+FLAT_RGB = (160, 160, 160)
+EDGE_RGB = {"ridge": RIDGE_RGB, "valley": VALLEY_RGB, "flat": FLAT_RGB}
+EDGE_SHAPES = tuple(EDGE_RGB)
+EDGE_WIDE_DEG = 6.0             # a model edge of at least this angle is drawn 2 px wide, below it 1 px (WP6_V3 §5)
+EDGE_FLAT_DEG = 2.0             # a per-point signed angle below this is drawn flat (= g3d/temple/spec FLAT_CREASE_DEG)
+EDGE_RANGE_DEG = 2.0            # a label reads "min..max" when the angle along its visible run spans >= 2 deg
+EDGE_STEP_PX = 1.0              # model edges are sampled (and depth-tested) at <= 1 image px
+EDGE_LABEL_PX = 14
+SOFT_RGB = FLAT_RGB             # a soft facet|base border (I1: a soft facet's run with no sharp edge, so smooth-shaded
+SOFT_DASH_PX = (4.0, 3.0)       # in the build, WP6_V3 §2): dashed thin grey, 1 px, 4 px on / 3 px off along the run;
+#                                 never labelled with an angle (WP6 v3 I7; its fold is in the build's crease lines)
+EDGE_RANGE_TOL_DEG = 0.1        # a model edge's deg / deg_at lie in its own range within this (values printed to 0.1);
+#                                 more is the roll-band mix-up of probe1 ("crown|shoulder 36.9 (37.7-39.3)", "1..39")
+CLIP_LEVELS = 3                 # a render pixel within 3 levels of the backdrop (every channel) reads as backdrop
 GRID_RGB, LABEL_RGB = (0, 150, 90), (0, 90, 50)
+ZOOM_MAX_K = 2.0                # a zoom panel is never more than 2 x native (WP6_V3 §5)
+ZOOM_PANEL_PX = (760, 500)      # a zoom panel's largest (w, h); the 2 x 2 grid stays under SHEET_MAX_PX
+GEOMETRY_MIN_SPAN = 32.0        # geometry_view: a channel's stretch never exceeds 255 / 32 = 8 x (8-bit noise)
+GEOMETRY_BG = (118, 118, 118)
+OUTLINE_WALK_MM = 45.0          # outline_offsets walks this far from a temple's centre for its edge (> half its height)
+OUTLINE_REASONS = ("off image", "covered", "off temple", "no model edge", "no photo edge")   # outline_offsets' Nones
 CAMERA_NOTE = ("A shift shared by the outline, the creases and the grid against the photo is camera error, not "
                "shape. So is an outer-edge offset with the same sign on both sides at every d that the start model "
                "shows too: read the change from the start value, not the value itself.")
@@ -867,18 +924,26 @@ def iso_lines(d: np.ndarray, y: np.ndarray, valid: np.ndarray, side: np.ndarray 
     return out
 
 
-def overlay_matched(base8: np.ndarray, model_mask: np.ndarray, polylines: list, grid: dict | None) -> Image.Image:
-    """The (stretched) photo with the chart grid (green, mm labels), the model outline (magenta) and the crease
-    polylines (orange ridge, blue valley) on top."""
+def overlay_matched(base8: np.ndarray, model_mask: np.ndarray | None, polylines: list, grid: dict | None,
+                    edges: list | None = None, labels: bool = False, open_border: bool = False) -> Image.Image:
+    """The (stretched) photo with the chart grid (green, mm labels), the model outline (magenta; None: no outline)
+    and on top either the mesh crease polylines (orange ridge, blue valley) or, when ``edges`` is given (WP6 v3), the
+    model's own edges instead (``draw_edges``; ``labels``: their angle labels). ``open_border``: the model goes on
+    past the image's border (a zoom), so no outline is drawn along it."""
     img = np.array(base8[..., :3], np.uint8, copy=True)
     if grid is not None:
         g = grid["d_mask"] | grid["y_mask"]
         img[g] = (0.45 * img[g] + 0.55 * np.array(GRID_RGB)).astype(np.uint8)
-    img[cameras._edge(np.asarray(model_mask, bool))] = OUTLINE_RGB
+    if model_mask is not None:
+        m = np.asarray(model_mask, bool)
+        img[cameras._edge(np.pad(m, 1, mode="edge"))[1:-1, 1:-1] if open_border else cameras._edge(m)] = OUTLINE_RGB
     im = Image.fromarray(img)
     dr = ImageDraw.Draw(im)
-    for pts, shape in polylines:
-        dr.line([tuple(map(float, p)) for p in pts], fill=RIDGE_RGB if shape > 0 else VALLEY_RGB, width=2)
+    if edges is not None:
+        draw_edges(im, edges, labels=labels)
+    else:
+        for pts, shape in polylines:
+            dr.line(line_px(pts, 2), fill=RIDGE_RGB if shape > 0 else VALLEY_RGB, width=2)
     if grid is not None:
         f = _font(11)
         for u, v, text in grid["labels"]:
@@ -920,8 +985,9 @@ def outer_edge_offsets(stations: list, model_mask: np.ndarray, matte: np.ndarray
 
 
 def stack_rows(rows: list, gap: int = 4) -> Image.Image:
-    """One image: each (label, image) row labelled above it, stacked top to bottom on white."""
-    tiles = [labelled(im, label) for label, im in rows]
+    """One image: each (label, image) row labelled above it (the label fitted to the row's width: a narrow crop
+    shrinks its font, then shortens it), stacked top to bottom on white."""
+    tiles = [labelled(im, label, fit=True) for label, im in rows]
     W = max(t.width for t in tiles)
     H = sum(t.height for t in tiles) + gap * (len(tiles) - 1)
     out = Image.new("RGB", (W, H), (255, 255, 255))
@@ -934,8 +1000,10 @@ def stack_rows(rows: list, gap: int = 4) -> Image.Image:
 
 def stack_scale(crop_w: int, crop_h: int, n_rows: int, max_px: int = STACK_MAX_PX, label_px: int = LABEL_PX,
                 gap: int = 4) -> float:
-    """The downscale k (<= 1, never up) at which n_rows labelled crop rows stack within max_px on both sides."""
-    k_h = (max_px - n_rows * label_px - gap * (n_rows - 1)) / max(1, n_rows * crop_h)
+    """The downscale k (<= 1, never up) at which n_rows labelled crop rows stack within max_px on both sides. Each row
+    is round(crop_h x k) px tall, up to 0.5 px more than crop_h x k, so n_rows x 0.5 px are kept for the rounding (a
+    3-row black-side stack came out 1025 px tall without it)."""
+    k_h = (max_px - n_rows * label_px - gap * (n_rows - 1) - 0.5 * n_rows) / max(1, n_rows * crop_h)
     return float(min(1.0, max_px / max(1, crop_w), k_h))
 
 
@@ -951,3 +1019,349 @@ def crop_box(temple_mask: np.ndarray, matte: np.ndarray, pad: float = CROP_PAD, 
     mx, my = int(math.ceil(pad * w)), int(math.ceil(pad * h))
     return (int(max(0, xs.min() - mx)), int(max(0, ys.min() - my)), int(min(W, xs.max() + 1 + mx)),
             int(min(H, ys.max() + 1 + my)))
+
+
+# ------------------------------------------------------------------------------------------------ WP6 v3 seeing
+def edge_runs(polylines: list, cam: Camera, frame: NormFrame, scene, shape: tuple[int, int],
+              tol_mm: float = CREASE_DEPTH_TOL_MM, step_px: float = EDGE_STEP_PX, values: list | None = None) -> list:
+    """Per polyline ((K, 3) posed model mm, K >= 2) its visible runs [(M, 2) image px, M >= 2] in the camera's image
+    of ``shape`` (H, W). Every segment is sampled in 3D at <= step_px of image length (its ends exact); a sample shows
+    when it projects inside the image and the first hit of the ray through its own sub-pixel position (``scene.cast``,
+    the posed model the image shows) is not nearer than the sample's depth less tol_mm, or nothing is hit (a sample on
+    the silhouette). A model edge lies on the surface, so its own ray meets the surface there unless something nearer
+    hides it: the frame, the other temple, or the temple's own body when the camera sees the face from inside. The
+    exact ray (not the depth image's pixel centre) keeps a valley seen at a grazing angle from being hidden by its own
+    faces' slope across half a pixel. ``values`` (per polyline None or (K,) numbers aligned with its points, e.g. a
+    signed crease angle per point): every run then has a third column, the value interpolated linearly along each
+    segment (nan for a polyline without values)."""
+    H, W = shape
+    if not polylines:
+        return []
+    P_all, owner, val_all = [], [], []
+    for i, P in enumerate(polylines):
+        P = np.asarray(P, float).reshape(-1, 3)
+        uv = project_mm(P, cam, frame)
+        n = np.maximum(1, np.ceil(np.linalg.norm(np.diff(uv, axis=0), axis=1) / step_px).astype(int))
+        seg = np.repeat(np.arange(len(P) - 1), n)
+        t = (np.arange(len(seg)) - np.repeat(np.cumsum(n) - n, n)) / np.repeat(n, n)
+        S = np.vstack([P[seg] + t[:, None] * (P[seg + 1] - P[seg]), P[-1:]])
+        P_all.append(S)
+        owner.append(np.full(len(S), i))
+        if values is not None:
+            v = None if values[i] is None else np.asarray(values[i], float).reshape(-1)
+            val_all.append(np.full(len(S), np.nan) if v is None else np.r_[v[seg] + t * (v[seg + 1] - v[seg]), v[-1:]])
+    S, owner = np.vstack(P_all), np.concatenate(owner)
+    uv = project_mm(S, cam, frame)
+    if values is not None:
+        uv = np.column_stack([uv, np.concatenate(val_all)])
+    inside = (uv[:, 0] >= -0.5) & (uv[:, 0] <= W - 0.5) & (uv[:, 1] >= -0.5) & (uv[:, 1] <= H - 0.5)
+    vis = np.zeros(len(S), bool)
+    if inside.any():
+        r = scene.cast(cam, uv[inside, 0], uv[inside, 1])
+        d = to_norm_depth(S[inside], cam, frame)
+        vis[inside] = ~r["hit"] | (d <= r["depth"].astype(np.float64) + tol_mm)
+    same = np.r_[False, owner[1:] == owner[:-1]]
+    prev = np.r_[False, vis[:-1]] & same
+    nxt = np.r_[vis[1:], False] & np.r_[same[1:], False]
+    out = [[] for _ in polylines]
+    for s, e in zip(np.flatnonzero(vis & ~prev).tolist(), (np.flatnonzero(vis & ~nxt) + 1).tolist()):
+        if e - s >= 2:
+            out[int(owner[s])].append(uv[s:e])
+    return out
+
+
+def edge_runs_posed(polylines: list, bodies: list, occluder, cam: Camera, frame: NormFrame,
+                    shape: tuple[int, int], values: list | None = None) -> list:
+    """``edge_runs`` against a scene built here (never in raster.get_scene's LRU cache) of temple bodies [(V mm,
+    triangles)] already posed in the camera's scene plus ``occluder`` (V mm, triangles: the rest of the scene posed the
+    same way; None = the bodies alone): the model edges of a variant whose bodies are not the head's (the lab's
+    facet_variants sheets; ``crease_polylines_posed``'s v3 counterpart); ``values`` as edge_runs'."""
+    Vs, Fs, n = [], [], 0
+    for V, F in list(bodies) + ([occluder] if occluder is not None else []):
+        Vs.append(np.asarray(V, np.float64))
+        Fs.append(np.asarray(F, np.int64) + n)
+        n += len(V)
+    if not n:
+        return [[] for _ in polylines]
+    return edge_runs(polylines, cam, frame, raster.RasterScene(np.concatenate(Vs), np.concatenate(Fs), frame), shape,
+                     values=values)
+
+
+def edges_with_runs(edges: list, runs: list) -> list:
+    """The model edges ``draw_edges`` takes: each edge {pair, shape, deg, range?, soft?, side?} with its visible runs
+    (``edge_runs`` / ``edge_runs_posed``, aligned with ``edges``): {pair, shape, deg, side, runs} plus range and soft
+    when given (soft only when true). The lab's variant panels and seeing's overlays build them alike, so a soft border
+    is dashed and a label reads the build's own angles in both."""
+    out = []
+    for e, rr in zip(edges, runs):
+        d = {"pair": e["pair"], "shape": e["shape"], "deg": e["deg"], "side": e.get("side"), "runs": rr}
+        if e.get("range") is not None:
+            d["range"] = e["range"]
+        if e.get("soft"):
+            d["soft"] = True
+        out.append(d)
+    return out
+
+
+def edge_label(deg: float, shape: str) -> str:
+    """A model edge's angle label in whole degrees, negative for a valley ("16", "-3"): a signed angle is shown as
+    given, an unsigned valley's negated."""
+    v = -abs(float(deg)) if shape == "valley" else float(deg)
+    return str(int(round(v)))
+
+
+def edge_shape_of(deg) -> np.ndarray:
+    """The shape of signed angles (+ ridge): "ridge" from +EDGE_FLAT_DEG, "valley" from -EDGE_FLAT_DEG, else "flat"
+    (the builder's crease classes)."""
+    d = np.asarray(deg, float)
+    return np.where(d >= EDGE_FLAT_DEG, "ridge", np.where(d <= -EDGE_FLAT_DEG, "valley", "flat"))
+
+
+def run_label(run, deg: float, shape: str, rng=None) -> tuple[str, str]:
+    """(text, shape) of a model edge's label at one visible run, from the build's own angles only (WP6 v3 I1/I7: never
+    an angle seeing measures, so no roll-band edge can enter it): with a signed angle per sample (a run's third
+    column, ``edge_runs(values=...)``: the edge's ``deg_at``) "min..max" in whole degrees when it spans >=
+    EDGE_RANGE_DEG along the run ("24..33", "-8..-3"), else the run's mean ("25"), shaped by the mean; without one,
+    an edge with a ``rng`` [lo, hi] (I1's form: signed over its whole length, ``deg`` signed too) reads "lo..hi" when
+    it spans >= EDGE_RANGE_DEG, else its deg as given, shaped by deg (``edge_shape_of``: the crease's vote may differ
+    in sign); else ``edge_label`` of the edge's own angle and shape."""
+    run = np.asarray(run, float)
+    if run.shape[1] >= 3 and np.isfinite(run[:, 2]).all():
+        lo, hi, mean = float(run[:, 2].min()), float(run[:, 2].max()), float(run[:, 2].mean())
+        sh = str(edge_shape_of(mean))
+        if hi - lo >= EDGE_RANGE_DEG:
+            return f"{int(round(lo))}..{int(round(hi))}", sh
+        return str(int(round(mean))), sh
+    if rng is not None:
+        sh = str(edge_shape_of(float(deg)))
+        if float(rng[1]) - float(rng[0]) >= EDGE_RANGE_DEG:
+            return f"{int(round(float(rng[0])))}..{int(round(float(rng[1])))}", sh
+        return str(int(round(float(deg)))), sh
+    return edge_label(deg, shape), shape
+
+
+def line_px(pts, width: int) -> list:
+    """Whole-pixel (u, v) points for ``ImageDraw.line`` (pixel centres at integers: the compare's map u_img = (u - x0
+    + 0.5) k - 0.5). Pillow (12.3) truncates float points toward zero, so a 1 px line at v 30.6 or 30.9 went on row 30
+    (0.5 px up-left on average, up to 0.9 px; a v in (-1, -0.5) on row 0) and a 2 px line at v in (-1, 0) on rows 0-1:
+    width 1 goes on the nearest pixel, floor(v + 0.5); wider (2 px, which Pillow draws on p and p + 1) on floor(v),
+    so it covers rows floor(v) and floor(v) + 1, centred within 0.5 px of v. The computed points (records, checks)
+    keep their sub-pixel values; only the pixels drawn change."""
+    P = np.asarray(pts, float)
+    if not P.size:
+        return []
+    P = np.floor(P.reshape(len(P), -1)[:, :2] + (0.5 if width <= 1 else 0.0)).astype(np.int64)
+    return [(int(u), int(v)) for u, v in P]
+
+
+def dashed_line(dr: ImageDraw.ImageDraw, pts, fill, width: int = 1, dash=SOFT_DASH_PX) -> None:
+    """A polyline drawn dashed: ``dash`` = (on, off) image px measured along it from its first point, each dash cut
+    exactly at its ends (the runs are sampled at <= 1 px, so a dash follows the line's own bends), then put on whole
+    pixels (``line_px``)."""
+    P = np.asarray(pts, float)[:, :2]
+    if len(P) < 2:
+        return
+    cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))]
+    on, off = (float(v) for v in dash)
+    for s0 in np.arange(0.0, cum[-1], on + off):
+        s1 = min(s0 + on, float(cum[-1]))
+        inner = P[(cum > s0) & (cum < s1)]
+        ends = [(float(np.interp(s, cum, P[:, 0])), float(np.interp(s, cum, P[:, 1]))) for s in (s0, s1)]
+        dr.line(line_px(np.vstack([ends[:1], inner.reshape(-1, 2), ends[1:]]), width), fill=fill, width=width)
+
+
+def draw_edges(im: Image.Image, edges: list, *, labels: bool = False, font_px: int = EDGE_LABEL_PX) -> list:
+    """Draw model edges [{pair, shape (ridge | valley | flat), deg, runs [(M, 2) px], range? [lo, hi], soft?}] on
+    ``im`` (in place): ridge orange, valley blue, flat grey; 2 px wide from EDGE_WIDE_DEG, 1 px below; the weaker drawn
+    first. A run with a signed angle per sample (third column, ``edge_runs(values=...)``) is drawn segment by segment,
+    each by its own angle's sign and size (``edge_shape_of``; a warp face's crease changes along its length, and may
+    change sign). A soft edge (``soft`` true: I1 marks only a soft facet's base border run with no sharp edge, so it is
+    smooth-shaded in the build, WP6_V3 §2) is drawn first, dashed thin grey (SOFT_RGB, 1 px, SOFT_DASH_PX) whatever its
+    shape and angles, and never labelled: the render shows no line there, and an angle beside it would read as a
+    crease's (probe1 drew shoulder|base soft as a valley "-5..1"); its fold stays in the build's crease lines. Every
+    line goes on whole pixels (``line_px``). ``labels``: each other pair labelled once (``run_label`` of the build's
+    angles: "16", "-3", "24..33") at the middle of its longest visible run, beside the line (the first of a few
+    positions along it and on either side that stays inside the image and clear of the labels already placed; else the
+    middle), in its shape's colour outlined black. Returns [(pair, text, (u, v) the label's centre)]."""
+    dr = ImageDraw.Draw(im)
+    for e in sorted(edges, key=lambda e: (not e.get("soft"), e["shape"] != "flat", abs(float(e["deg"])))):
+        w = 2 if abs(float(e["deg"])) >= EDGE_WIDE_DEG else 1
+        for run in e["runs"]:
+            run = np.asarray(run, float)
+            if e.get("soft"):
+                dashed_line(dr, run, SOFT_RGB, 1, SOFT_DASH_PX)
+            elif run.shape[1] >= 3 and np.isfinite(run[:, 2]).all():
+                segv = (run[:-1, 2] + run[1:, 2]) / 2
+                cls = [(str(sh), 2 if abs(v) >= EDGE_WIDE_DEG else 1) for sh, v in zip(edge_shape_of(segv), segv)]
+                j = 0
+                while j < len(cls):                       # consecutive segments of one class as one polyline
+                    k = j
+                    while k + 1 < len(cls) and cls[k + 1] == cls[j]:
+                        k += 1
+                    dr.line(line_px(run[j:k + 2], cls[j][1]), fill=EDGE_RGB[cls[j][0]], width=cls[j][1])
+                    j = k + 1
+            else:
+                dr.line(line_px(run, w), fill=EDGE_RGB.get(e["shape"], FLAT_RGB), width=w)
+    if not labels:
+        return []
+    best: dict = {}
+    for e in edges:
+        if e.get("soft"):
+            continue
+        for run in e["runs"]:
+            L = float(np.linalg.norm(np.diff(np.asarray(run, float)[:, :2], axis=0), axis=1).sum())
+            if L > 0 and (e["pair"] not in best or L > best[e["pair"]][0]):
+                best[e["pair"]] = (L, np.asarray(run, float), e)
+    f = _font(font_px)
+    placed, out = [], []
+    for pair, (L, run, e) in sorted(best.items(), key=lambda kv: -kv[1][0]):
+        text, lshape = run_label(run, e["deg"], e["shape"], e.get("range"))
+        run = run[:, :2]
+        x0, y0, x1, y1 = dr.textbbox((0, 0), text, font=f, stroke_width=2)
+        tw, th = x1 - x0, y1 - y0
+        cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(run, axis=0), axis=1))]
+        cands = []
+        for frac in (0.5, 0.35, 0.65, 0.2, 0.8):
+            j = int(np.clip(np.searchsorted(cum, frac * L), 1, len(run) - 1))
+            p, q = run[j - 1], run[j]
+            dv = q - p
+            dv = dv / max(float(np.hypot(*dv)), 1e-9)
+            n = np.array([-dv[1], dv[0]])
+            gap = 5.0 + 0.5 * (abs(n[0]) * tw + abs(n[1]) * th)
+            cands += [(p + q) / 2 + s * gap * n for s in (1.0, -1.0)]
+        box = None
+        for c in cands:
+            b = (c[0] - tw / 2, c[1] - th / 2, c[0] + tw / 2, c[1] + th / 2)
+            if b[0] >= 0 and b[1] >= 0 and b[2] <= im.width and b[3] <= im.height and not any(
+                    b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3] for o in placed):
+                box = b
+                break
+        box = box or (cands[0][0] - tw / 2, cands[0][1] - th / 2, cands[0][0] + tw / 2, cands[0][1] + th / 2)
+        placed.append(box)
+        dr.text((box[0] - x0, box[1] - y0), text, fill=EDGE_RGB.get(lshape, FLAT_RGB), font=f, stroke_width=2,
+                stroke_fill=(0, 0, 0))
+        out.append((pair, text, ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)))
+    return out
+
+
+def outline_offsets(stations: list, model_mask: np.ndarray, temple_mask: np.ndarray, matte: np.ndarray,
+                    reach_mm: float = OUTER_REACH_MM, walk_mm: float = OUTLINE_WALK_MM) -> list:
+    """A side view's outline offsets of one temple: per station {d_mm, offset_mm, reason}. A station is {d_mm, uv (a
+    point inside that temple at d), dir (unit image px, outward: the image's up for the top edge, down for the
+    bottom), px_per_mm (mm along dir)}: walk from uv along dir; the model's edge is where that temple's own pixels end
+    (``temple_mask``: first hits on its parts). The photo's edge is the matte's end along the line nearest the
+    model's (within reach_mm): offset_mm = (photo - model) / px_per_mm, + = the photo reaches further out (higher for
+    top, lower for bottom), reason None. Otherwise offset_mm None and the reason (OUTLINE_REASONS): "off image" (uv,
+    or the line before the temple ends, leaves the image), "covered" (another part of the model lies on uv, or the
+    model mask goes on within 1.5 px past the temple's end: the frame or the other temple), "off temple" (uv misses
+    the model), "no model edge" (the temple does not end within the walk), "no photo edge" (the matte has no end
+    within reach_mm of the model's). The line is sampled every 0.25 px into the pixel it falls in (round half up for
+    both masks alike), so an edge is placed within 0.125 px and a difference of two edges carries no rounding bias."""
+    H, W = model_mask.shape
+    model_mask, temple_mask, matte = (np.asarray(m, bool) for m in (model_mask, temple_mask, matte))
+    out = []
+    for st in stations:
+        rec = {"d_mm": st["d_mm"], "offset_mm": None, "reason": None}
+        out.append(rec)
+        uv, e, ppm = np.asarray(st["uv"], float), np.asarray(st["dir"], float), float(st["px_per_mm"])
+        t = np.arange(0.0, (walk_mm + reach_mm) * ppm + 0.125, 0.25)
+        pts = uv[None] + t[:, None] * e[None]
+        iu, iv = np.floor(pts[:, 0] + 0.5).astype(int), np.floor(pts[:, 1] + 0.5).astype(int)
+        ok = (iu >= 0) & (iu < W) & (iv >= 0) & (iv < H)
+
+        def along(mask):
+            s = np.zeros(len(t), bool)
+            s[ok] = mask[iv[ok], iu[ok]]
+            return s
+        tem, mod = along(temple_mask), along(model_mask)
+        if not tem[0]:
+            rec["reason"] = "off image" if not ok[0] else "covered" if mod[0] else "off temple"
+            continue
+        j = int(np.argmin(tem))                      # the first sample off the temple
+        if tem[j] or not ok[j]:
+            rec["reason"] = "off image" if not ok[j] else "no model edge"
+            continue
+        tm = (t[j - 1] + t[j]) / 2
+        if (mod & (t > tm) & (t <= tm + 1.5)).any():
+            rec["reason"] = "covered"
+            continue
+        s = along(matte)
+        ends = np.nonzero(s[:-1] & ~s[1:] & ok[:-1] & ok[1:])[0]
+        te = (t[ends] + t[ends + 1]) / 2
+        te = te[np.abs(te - tm) <= reach_mm * ppm]
+        if len(te):
+            rec["offset_mm"] = round(float(te[np.argmin(np.abs(te - tm))] - tm) / ppm, 2)
+        else:
+            rec["reason"] = "no photo edge"
+    return out
+
+
+def geometry_view(rgba8: np.ndarray, region: np.ndarray | None = None, min_span: float = GEOMETRY_MIN_SPAN,
+                  bg=GEOMETRY_BG) -> np.ndarray:
+    """The worker's ``normal`` pass (8-bit RGBA, world normal x 0.5 + 0.5) as a light-free false-colour panel: each
+    channel stretched from its p2 to its p98 over ``region`` (e.g. the temple bodies' pixels, so the frame and the
+    rolled rim, whose normals differ most, do not take the range; with fewer than 100 pixels or None: the model's
+    pixels, alpha > 0.5), the span never under min_span levels (at most 255 / min_span x: 8-bit steps stay small),
+    over a neutral grey; what lies outside the range is clipped. A flat face is one colour, a crease a colour step, a
+    warped face a gradient; nothing depends on a light."""
+    a = np.asarray(rgba8)
+    rgb = a[..., :3].astype(np.float64)
+    alpha = (a[..., 3].astype(np.float64) / 255.0)[..., None] if a.shape[-1] == 4 else np.ones(a.shape[:2] + (1,))
+    m = alpha[..., 0] > 0.5
+    if region is not None and (np.asarray(region, bool) & m).sum() >= 100:
+        m = np.asarray(region, bool) & m
+    out = rgb.copy()
+    if m.sum() >= 10:
+        for c in range(3):
+            lo, hi = (float(v) for v in np.percentile(rgb[..., c][m], (2.0, 98.0)))
+            if hi - lo < min_span:
+                mid = (lo + hi) / 2
+                lo, hi = mid - min_span / 2, mid + min_span / 2
+            out[..., c] = np.clip((rgb[..., c] - lo) * 255.0 / (hi - lo), 0.0, 255.0)
+    comp = out * alpha + np.asarray(bg, np.float64) * (1.0 - alpha)
+    return np.round(comp).astype(np.uint8)
+
+
+def zoom_scale(w: int, h: int, max_k: float = ZOOM_MAX_K, panel=ZOOM_PANEL_PX) -> float:
+    """A zoom panel's scale for a native box w x h: min(max_k, panel w / w, panel h / h) (>= 1 whenever the box fits
+    the panel; the render is made at this scale)."""
+    return float(min(max_k, panel[0] / max(1, w), panel[1] / max(1, h)))
+
+
+def resample_box(a: np.ndarray, box, k: float, shape: tuple[int, int], resample=None) -> np.ndarray:
+    """The native box (x0, y0, x1, y1) of an image at scale k on a crop camera's exact pixel grid (blender_camera
+    crop_camera, cameras.resized_camera): output pixel (i, j) of ``shape`` (H, W) samples native (x0 + (j + 0.5) / k -
+    0.5, y0 + (i + 0.5) / k - 0.5), so a photo and a render made at k register exactly (resizing the box to round(w k)
+    px scales it by round(w k) / w, up to 0.5 output px off at the far edge). ``resample`` defaults to BILINEAR, whose
+    kernel is never negative, so a stretched photo shows no ringing halo beside an edge (LANCZOS overshoots up to 43
+    levels after the stretch at k 2); Pillow scales its support when it shrinks (area-like) and it keeps the grid
+    within 0.08 native px at k 0.37-0.93 (BOX, which drops partial pixels, moves it up to 0.46 px). At k 1 on the
+    box's own size: the box itself. Beyond the image the edge pixels repeat. ``a``: uint8 (H, W, 3) or float32
+    (H, W)."""
+    x0, y0, x1, y1 = (int(v) for v in box)
+    H, W = (int(v) for v in shape)
+    if k == 1.0 and (x1 - x0, y1 - y0) == (W, H):
+        return np.asarray(a[y0:y1, x0:x1])
+    Ha, Wa = a.shape[:2]
+    bw, bh = W / k, H / k
+    sx0, sy0 = max(0, x0 - 2), max(0, y0 - 2)
+    sx1, sy1 = min(Wa, math.ceil(x0 + bw) + 2), min(Ha, math.ceil(y0 + bh) + 2)
+    px, py = max(0, math.ceil(x0 + bw) - Wa), max(0, math.ceil(y0 + bh) - Ha)
+    sub = np.asarray(a[sy0:sy1, sx0:sx1])
+    if px or py:
+        sub = np.pad(sub, ((0, py), (0, px)) + ((0, 0),) * (sub.ndim - 2), mode="edge")
+    im = Image.fromarray(np.ascontiguousarray(sub))
+    out = im.resize((W, H), Image.BILINEAR if resample is None else resample,
+                    box=(x0 - sx0, y0 - sy0, x0 - sx0 + bw, y0 - sy0 + bh))
+    return np.asarray(out)
+
+
+def backdrop_share(shown8: np.ndarray, alpha: np.ndarray, bg_shown8, levels: int = CLIP_LEVELS) -> float:
+    """The share of the model's pixels (alpha > 0.5) shown within ``levels`` of the shown backdrop in every channel:
+    a render face the stretch clips to the backdrop's colour (a white top face on a white floor) loses its edge there,
+    so the compare draws the model's outline on its render panels and states this share."""
+    m = np.asarray(alpha, float) > 0.5
+    if not m.any():
+        return 0.0
+    d = np.abs(np.asarray(shown8, np.int64)[..., :3][m] - np.asarray(bg_shown8, np.int64)[:3]).max(axis=1)
+    return float((d <= levels).mean())
