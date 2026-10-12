@@ -11,7 +11,7 @@ are in [archive/20261008](archive/20261008/README.md). Archived files are eviden
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
 | WP4 | Complete and tested. The real-product proof is **stale** since the WP5 exporter change `10bf932`: 11 of 24 `test_seat_real` tests skip as stale. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
-| WP6 | **v2 built; awaiting the owner's OK for one paid Astra run** per [WP6_FACETS.md](WP6_FACETS.md). v1 retired 2026-10-10 (tag `wp6-v1-final`) |
+| WP6 | **Stopped by the owner 2026-10-12 after paid run 7** (Decisions below): no further paid runs or work on this approach. v1 retired 2026-10-10 (tag `wp6-v1-final`) |
 | WP2 | A–C verified; D–F not built |
 | WP7 | Design only ([WP7_DESIGN.md](WP7_DESIGN.md)) |
 | WP8 | Not started (paid; owner OK per run) |
@@ -327,6 +327,14 @@ up to $13.84).
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
+
+- **2026-10-12, after run 7: STOP.** Owner, verbatim: "its not fucking good. i dont now what to tell you anymore, i dont
+  think this is fucking possible anymore and youve given me zero reasons to believe that you can make it work. every
+  model has an other defect this is fucking exhausting", then, on the offer of one $0 feasibility check: "it sounds
+  stupid, because how can we improve on astras understanding?????? we cant so stop fucking easting my money and
+  time?!!!!!!!!!!!!!!!!". WP6 Astra facet runs are stopped: no further paid runs, no further work on this approach,
+  no new proposals unless the owner asks. Runs 2-7 each fixed the defect named last and showed another; the
+  underlying limit was camera disagreement of 1-2 mm per corner against facets whose shape hinges on that much.
 
 - **2026-10-11, light for photo-matched renders:** "c is definitely the best". The owner was shown A/B/C on the
   preferred and original models at all 7 photos, with neutral letters and identical lenses. C = `studio_dome_v1`
