@@ -304,6 +304,10 @@ mentioned above.."
     for the fade-value tests with the guard off.
   - Recorded runs 2-6 revisions with both-faded creases are now `E_FADE_CREASE`.
 
+**Prepared for run 7 ($0, code `9fb64a5`):** T5 `t5_007` 39/39; `estimate_007` (40 replies at effort max: expected $10.82,
+up to $13.84; runs 5 and 6 cost $6.77 and $5.08); `package_007` and the request `facet-astra-007` (cap $15 by the budget
+guard, effort max, no reply cap, K 4), unapproved until the owner's words are recorded.
+
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)
