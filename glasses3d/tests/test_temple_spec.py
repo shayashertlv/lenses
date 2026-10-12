@@ -210,6 +210,9 @@ def test_two_knots_of_one_table_within_snap_are_short_edges():
         S.parse(FX.refusal_cases()["E_SHORT_EDGE"])
     assert e.value.code == "E_SHORT_EDGE" and e.value.fields["table"] == "inner"
     assert e.value.fields["knots"] == [1, 2]
+    # facts and every way out (v3p3-review-e2e P3-2: "remove one or move it at least 0.05 mm away")
+    assert e.value.message == ("inner knots 1 (d 30) and 2 (d 30.02) lie within snap_mm 0.05 of d 30, one station; "
+                               "ways: delete either knot, or move either at least 0.05 mm in d from the other")
 
 
 def test_a_node_near_the_outline_is_resnapped_onto_it():
@@ -254,6 +257,34 @@ def test_a_crossing_near_a_node_that_cannot_move_is_a_short_edge():
     with pytest.raises(TempleError) as e:
         S.parse(s)
     assert e.value.code == "E_SHORT_EDGE" and "node J" in e.value.fields["refs"]
+    # v3p3-review-e2e P1-1 / P3-2: "which cannot move: move a node at least snap_mm 0.05 away", followed along d (0.06
+    # mm a step), never cleared: the crossing moves with the node. Now the edge, the station, and every way out.
+    assert e.value.fields["edges"] == [["T", "W", "U"]]
+    assert e.value.message == (
+        "facet edge U-W (T) crosses the top outline at d 15.030, 0.030 mm from d 15, where node J stands (the parse "
+        "moves only outline, inner and base knots onto a crossing): stations under snap_mm 0.05 apart have no build; "
+        "ways: a node of that edge moved so the crossing lies at d 15 or at least 0.05 mm from it (a node near the "
+        "outline put onto it, within snap_mm, or the outline through it, is no crossing; moved in d, the crossing "
+        "moves with it), node J at least 0.05 mm from the crossing in d, or a layout without that crossing")
+
+
+def test_two_crossings_within_snap_name_their_edges_and_every_way_out():
+    """v3p3-review-e2e P3-2: "two facet edges cross the outline at d ... (< snap_mm 0.05 apart): move a node" named
+    neither edge and one remedy. T's edge U-W crosses the top at d 15.03 and T2's U2-W2 at d 15.06."""
+    s, _ = _crossing_spec()
+    yt = 13.43 + (14.09 - 13.43) / 5.0 * 0.06
+    U2 = np.array([12.0, 9.0])
+    W2 = U2 + 3.0 * (np.array([15.06, yt]) - U2)
+    s["nodes"].update({"U2": [12.0, 9.0, "base"], "W2": [float(W2[0]), float(W2[1]), None], "M2": [11.0, 11.0, "base"]})
+    s["facets"]["T2"] = ["U2", "W2", "M2"]
+    with pytest.raises(TempleError) as e:
+        S.parse(s)
+    assert e.value.code == "E_SHORT_EDGE" and e.value.fields["edges"] == [[["T", "W", "U"]], [["T2", "U2", "W2"]]]
+    assert e.value.message == (
+        "facet edges U-W (T) and U2-W2 (T2) cross the outline at d 15.030 and 15.060, 0.030 mm apart: stations under "
+        "snap_mm 0.05 apart have no build; ways: a node of either edge moved so the two crossings lie at least 0.05 mm "
+        "apart in d or at one point (a node near the outline put onto it, within snap_mm, or the outline through it, "
+        "is no crossing), or a layout without one of them")
 
 
 def _many_crossings_spec(n_near: int, n_fac: int = 5) -> dict:

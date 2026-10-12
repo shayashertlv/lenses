@@ -128,6 +128,14 @@ def test_roll_limit_and_proximity_refusals():
     with pytest.raises(TempleError) as e:
         build_temple(s)
     assert e.value.code == "E_ROLL" and e.value.fields["reason"] == "proximity" and "B" in e.value.fields["nodes"]
+    # facts and every way out, the roll itself one of them (v3p3-review-e2e P3-2: "move them onto the outline (within
+    # snap_mm) or at least roll_mm away"; the brief invites roll_mm)
+    assert e.value.message == ("roll_mm 0.6: 1 facet corner(s) or edge crossing(s) lie off the top or bottom outline "
+                               "but within roll_mm of it (closest 0.40 mm at d 46.80, y 13.98; nodes B 0.40 mm): the "
+                               "roll band holds no facet corner; ways: each onto the outline (within snap_mm 0.05) or "
+                               "at least roll_mm from it, roll_mm at most 0.40, or a layout without them")
+    s["roll_mm"] = 0.4                                                       # the way it names: B 0.40 mm from it
+    assert build_temple(s).checks["closed"]
 
 
 def _preferred() -> dict:

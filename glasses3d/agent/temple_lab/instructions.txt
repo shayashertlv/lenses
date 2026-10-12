@@ -21,8 +21,8 @@ THE OBJECT
 A faceted temple is a solid bar whose outer side is cut into a few faces. Two faces meet along a straight edge; three or
 more meet at a vertex, one point they all share. An edge is a ridge (convex) or a valley (concave); the readings of the
 corners that set it decide which. Where they leave it open (the fit says "open"), your declaration sets it: say in the
-object note that it is unmeasured. An edge the fit calls flat within its error, or builds flat (under 2 deg), is not
-declared.
+object note that it is unmeasured; undeclared, it builds where the readings put it. An edge the fit calls flat within
+its error is not declared.
 A face that narrows to a point ends where its two edges cross, not where its tone or crest dies out, and not where one
 edge meets the outline. An edge ends at a vertex, at the outline, or where its faces meet the plain arm.
 A face can read as one face and still not be flat: its corners can miss one plane by more than their readings' error,
@@ -36,28 +36,27 @@ A face meets the plain arm with a crisp edge, or, where the photos show only a s
 
 WHAT EACH VIEW SHOWS
 - Square-on to the outer side: where each edge runs in (d, y), not depth. An edge straight here can bend in depth. They
-  print bottom outline offsets (photo minus model, mm).
+  print outline offsets (photo minus model, mm).
 - At a moderate angle: depth. A bend in depth shows as a kink in an edge.
 - Along the temple or from above: outlines. An outline is formed by the outermost ridge or rim, never by a valley; it
   shows how far that reaches, not the faces below it.
-- Photos from one direction are one view, whatever their colour (the brief says which cameras share a fit).
+- Photos from one direction are one view, whatever their colour (the brief says which share a camera fit).
 - Glossy photos: each flat face is one reflection region. An edge is a tone step that stays at one place on the temple
   from two directions; a reflection moves. Tone shows where an edge is, never how deep it is or which way it turns.
-- A line faint in a light-coloured photo can be crisp in a glossy one.
 - Renders use a fixed light, not the photos': compare where edges and outlines are, never which face is brighter or
-  where a highlight falls. The geometry view (a zoom with geometry) shows the model's faces without light.
+  where a highlight is. The geometry view (a zoom with geometry) shows the model's faces without light.
 - A thin strip along the top or bottom edge seen from slightly above or below is usually the arm's top or bottom
   surface; it is an outer face only where a moderate-angle view shows its own edge.
 
 WHAT YOU CAN MEASURE
-Depth comes from photo_read: the same point picked in two or more photos from different directions. Read crisp points on
-the same feature in every photo. A vertex where two edges meet, and every tip, is read as a crossing: trace each edge in
+Depth comes from photo_read: the same point picked in two or more photos from different directions. Read crisp points, the
+same feature in every photo. A vertex where two edges meet, and every tip, is read as a crossing: trace each edge in
 each photo and the host intersects them. A shallow crossing is uncertain along its edges, so read a tip also in a view
 where its edges cross more steeply. A pick on one edge can slide along it unseen (the reading says how far per pixel); a
 silhouette is not a face's edge. Check each pick sheet: every pick sits on the feature you meant. Two readings of
 one point that differ by more than their errors are different features: pick the sharper one again. Never move a pick to
 make a shape build. A t you type is a guess, not a reading: bracket it and say why. The fit may move a read corner
-within its reading's error (in d and y too); the fit report says where and by how much.
+(in d and y too); the fit report gives each move in sd of its reading.
 
 WHEN EVIDENCE DISAGREES
 Rank it: what the photos clearly show from two directions (faces, edges, where they end); then two-direction readings,
@@ -80,7 +79,8 @@ METHOD
    is certain, warps, anything not held.
 6. Compare at the views that show the change, zoomed at native scale when it is small. Name up to three differences per
    photo in the goal's order, each with its (d, y).
-7. Bracket what the readings leave open with facet_variants, one question per bracket, compared where the arms differ.
+7. Bracket what the readings leave open with facet_variants, one question per bracket, compared where they differ
+   (finish rule 2's spread can be its own call). Applying an arm with another layout needs its object note too.
 8. Finish matched when every goal item holds in every photo. Finish stuck only after facet_variants has shown the
    alternatives behind the largest remaining difference; name what blocks it.
 
@@ -90,8 +90,8 @@ points from photos and keeps them; photo_compare renders the model at the photos
 a revision (with apply, applies and compares it); facet_variants renders alternatives without changing the model;
 facet_finish ends the run. After every compare, the next facet_edit, facet_variants or facet_finish carries a judgement of
 that compare_id, else it is refused with E_JUDGEMENT and nothing changes. The host ends the run without a finish when the
-next request could pass the money cap, so finish before then. E_BUSY: call again. E_TIMEOUT: the call may still finish;
-facet_inspect shows the model afterwards.
+next request could pass the money cap, so finish before then. E_BUSY: call again. E_TIMEOUT: it may
+still finish (facet_inspect).
 
 FINISHING
 facet_finish is accepted only when: (1) at least {K} distinct applied heads were compared in full; a head counts only

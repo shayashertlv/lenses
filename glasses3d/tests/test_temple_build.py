@@ -22,7 +22,7 @@ from glasses3d.g3d.temple import build_temple, report
 from glasses3d.g3d.temple import fixtures as FX
 from glasses3d.g3d.temple.build import (design_normal, fade_weight, faded_corner_normals, mesh_topology, station_list,
                                          to_local, to_world)
-from glasses3d.g3d.temple.spec import FADE_HOLD_MIN_MM, REFUSALS, TempleError, smoothstep
+from glasses3d.g3d.temple.spec import FADE_HOLD_MIN_MM, FLAT_CREASE_DEG, REFUSALS, TempleError, smoothstep
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURE_NAMES = sorted(FX.FIXTURES)
@@ -681,17 +681,39 @@ def test_astra_r0015_logo_fade_alone_is_inert():
 
 
 def test_astra_r0015_flattening_fades_are_refused(monkeypatch):
-    for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # every facet alike, early: the creases die
+    """Run 2's r0015 with every facet fading alike, early. E_FADE_CREASE refuses each first: the creases die before
+    the edge they reach. With that guard off, the crease check refuses a fade that flattens a declared ridge: flat,
+    facts only (it named the fade as the remedy before WP6_V3 P6). (25, 65) flattens rear_bevel|tail_flank to 1.07
+    deg; (20, 60) flattens crown|rear_bevel to 1.95 (and rear_bevel|tail_flank to 0.41).
+    (30, 70) was the rear_bevel|tail_flank case until v3 phase 2. Since then the crease mean is taken face to face
+    (build.face_edge, the edges range_deg uses; v3p2-builder2, its request 1). There the crease is a 2.14 deg ridge
+    over its 40.3 mm of face edges, so it builds as declared. Over all 47.8 mm, roll band included, it is the 1.80
+    the check refused before. (25, 65) keeps the refusal of that crease."""
+    from glasses3d.g3d.temple import build as BD
+    cases = {(30.0, 70.0): None, (25.0, 65.0): ["rear_bevel", "tail_flank"], (20.0, 60.0): ["crown", "rear_bevel"]}
+    for a, b in cases:                                                 # every facet alike, early: the creases die
         with pytest.raises(TempleError) as e:                          # before the edge they reach: refused first
             build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
         assert e.value.code == "E_FADE_CREASE"
     _no_crease_fade_check(monkeypatch)
-    for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # the crease check: flat, facts only (it named
-        with pytest.raises(TempleError) as e:                          # the fade as the remedy before WP6_V3 P6)
+    for (a, b), first in cases.items():                                # the crease check: flat, facts only
+        if first is None:
+            continue
+        with pytest.raises(TempleError) as e:
             build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
         assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["built"] == "flat"
+        assert e.value.fields["facets"] == first and e.value.fields["dihedral_deg"] < FLAT_CREASE_DEG
         assert e.value.message.endswith("(flat (< 2 deg): no ridge or valley)")
         assert not any(r in e.value.message for r in REMEDIES)
+    tb = build_temple(_r0015({k: (30.0, 70.0) for k in R15_FACETS}))   # face to face: a 2.1 deg ridge, as declared
+    c = next(c for c in tb.tables["creases"] if c["regions"] == ["rear_bevel", "tail_flank"])
+    assert c["shape"] == c["declared"] == "ridge" and FLAT_CREASE_DEG <= c["mean_dihedral_deg"] < 2.3
+    signed = [(float(np.linalg.norm(tb.V[p] - tb.V[q])), 0.0 if ridge is None else (deg if ridge else -deg))
+              for p, q, pair, deg, ridge, _p1, _p2 in BD.crease_edges(tb) if pair == ("rear_bevel", "tail_flank")]
+    every = sum(L * s for L, s in signed) / sum(L for L, _ in signed)
+    assert sum(L for L, _ in signed) == pytest.approx(c["length_mm"], abs=1e-9)
+    assert c["length_mm"] > c["face_length_mm"] + 5.0                  # 47.8 mm, 40.3 face to face
+    assert 1.7 < every < FLAT_CREASE_DEG                               # 1.80 with its roll-band edges: flat
 
 
 @pytest.mark.parametrize("k", range(1, 17))
@@ -789,6 +811,26 @@ def test_border_ramps_are_reported_per_run():
     r = report.receipt(tb)["border_ramps"]
     assert r == [{"facet": "band", "d_mm": [20.0, 20.0], "height_mm": 0.3, "slope_deg": 8.5, "length_mm": 20.0},
                  {"facet": "band", "d_mm": [30.0, 30.0], "height_mm": -0.3, "slope_deg": 8.5, "length_mm": 20.0}]
+    texts = ["band proud 0.30 mm: a 8.5° ramp at d 20.0", "band sunk 0.30 mm: a 8.5° ramp at d 30.0"]
+    assert [report.ramp_text(x) for x in r] == texts                 # the receipt's rows, the tables' rows and the
+    assert [report.ramp_text(x) for x in tb.tables["border_ramps"]] == texts                  # warnings: one text
+    assert [report.ramp_text(w) for w in tb.warnings if w["code"] == "W_BORDER_RAMP"] == texts
+
+
+def test_border_ramp_text_has_units_and_words():
+    """report.ramp_text / ramp_clause: a border-ramp run in words and units, the form of crease_line's step clause.
+    v3 session2 item 8: the lab printed "shoulder +0.81 7.7° d 75.5-76.7" (a bare signed number) beside the crease
+    line "proud 0.81 mm: a 7.7° ramp" of the same run. The step clause in crease_line is unchanged (the lab finds it
+    there: lab.step_text, crease_head)."""
+    run = {"facet": "shoulder", "d_mm": [75.5, 76.7], "height_mm": 0.81, "slope_deg": 7.7, "length_mm": 1.4}
+    assert report.ramp_text(run) == "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7"
+    assert report.ramp_text({**run, "height_mm": -1.244, "d_mm": [40.04, 39.96]}) == \
+        "shoulder sunk 1.24 mm: a 7.7° ramp at d 40.0"                # one d when both ends print alike
+    assert report.ramp_clause(-1.0, 26.6) == "sunk 1.00 mm: a 26.6° ramp"
+    c = {"regions": ["F", "base"], "shape": "ridge", "mean_dihedral_deg": 2.9, "declared": None,
+         "step": {"height_mm": -1.0, "slope_deg": 26.6}}
+    assert report.crease_line(c) == "F|base ridge 2.9° (sunk 1.00 mm: a 26.6° ramp) undeclared"
+    assert f" ({report.ramp_clause(-1.0, 26.6)})" in report.crease_line(c)
 
 
 def test_wedge_base_values(builds):
@@ -1122,6 +1164,9 @@ def test_crease_plane_holds_a_straight_run_of_edges():
     with pytest.raises(TempleError) as e:
         build_temple(snap)
     assert e.value.code == "E_SPEC" and "no longer a straight run" in e.value.message and "node M y" in e.value.message
+    # every way out (v3p3-review-e2e P3-2: "move the corners between onto the line" was the one remedy)
+    assert e.value.message.endswith("; ways: the corners between onto the line (within 0.5 mm), the crease on one edge "
+                                    "of the facet, or another plane")
     with pytest.raises(TempleError) as e:                              # U0-R: neither run between them is straight
         bad = FX.crease_run_band()
         bad["facets"]["B"]["plane"]["crease"] = ["U0", "R"]

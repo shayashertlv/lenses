@@ -26,8 +26,9 @@ photo; a /2 state is refused by load, its revisions carry no fit):
                 an unseen result (a call the SDK timed out) never meets finish precondition 2 or 5
     readings    {name: readings.read_point record}: photo_read's stored readings (a reading replaces one of its name;
                 set_node t mode "reading" takes the one of the node's name, geometry.apply_edits)
-    objects     [{text, call_id, layout}]: every object note in order (record_object); object_text = the latest;
-                layout = layout_key of the design the call made, or null
+    objects     [{text, call_id, layout, parent?, revision?}]: every object note in order (record_object);
+                object_text = the latest; layout = layout_key of the design the call made, or null; parent = the
+                revision the call edited, revision = the revision its design became (object_origin)
     images      {sha256: {kind, ref, revision, file}} of every image returned to Astra (the context guard's index)
     inherited   {revision, core, blender, hinge_leaf_gap_mm}: revision 0's warnings at prepare (lab.py module doc)
     events      SceneHooks journal entries; finish (the accepted facet_finish; finish_unseen: one the SDK timed
@@ -42,8 +43,8 @@ facet_edit of it with no edits), so the note facet_inspect shows describes the h
 (``layout_key``) is the node names and each facet's label and polygon (a polygon read the same from any start or
 either way round); node moves, t values, plane modes, soft borders and crease declarations are not layout (they are
 what readings and brackets settle, and a refusal for each would cost a call: 22 % of v2 spend went on refused calls,
-FINDINGS §0.7). E_OBJECT carries ``latest_object``: which call wrote the latest note and how this design's layout
-differs from it (layout_diff).
+FINDINGS §0.7). E_OBJECT carries ``latest_object``: the revision the latest note was given with (object_origin; an
+SDK call id named nothing Astra could map) and how this design's layout differs from it (layout_diff).
 """
 from __future__ import annotations
 
@@ -123,6 +124,21 @@ def head_by_fingerprint(state: dict, fingerprint: str | None) -> dict | None:
         if h["fingerprint"] == fingerprint:
             return h
     return None
+
+
+def head_of_checkpoint(state: dict, checkpoint, fingerprint_of) -> dict | None:
+    """The applied head a checkpoint id names (best_checkpoint in a judgement or a finish): the latest heads entry made
+    AT that checkpoint, else (a checkpoint no apply made, e.g. a restore's) the latest entry with its fingerprint
+    (head_by_fingerprint; ``fingerprint_of(checkpoint id)`` -> its fingerprint or None). Why (v3p3 e2e P3-1): two
+    designs with one fitted spec build one scene, so their checkpoints share a fingerprint; resolved by fingerprint,
+    c0015 (revision 6, compared at all 9 photos) named revision 10, a re-read applied later at c0017, and the finish
+    was refused for want of a full compare of revision 10."""
+    if not isinstance(checkpoint, str):
+        return None
+    for h in reversed(state["heads"]):
+        if h["checkpoint"] == checkpoint:
+            return h
+    return head_by_fingerprint(state, fingerprint_of(checkpoint))
 
 
 def astra_compares(state: dict) -> list[dict]:
@@ -219,7 +235,7 @@ def check_judgement(state: dict, judgement: dict | None, *, fingerprint_of) -> d
         raise LabRefusal("E_JUDGEMENT", f"judgement.photos misses {missing} of {latest['compare_id']}",
                          missing=missing)
     best = judgement.get("best_checkpoint")
-    head = head_by_fingerprint(state, fingerprint_of(best)) if isinstance(best, str) else None
+    head = head_of_checkpoint(state, best, fingerprint_of)
     if head is None:
         raise LabRefusal("E_JUDGEMENT", f"best_checkpoint {best!r} is not a checkpoint holding an applied revision; "
                                         f"applied (latest): {applied_checkpoints(state)[-12:]}")
@@ -306,14 +322,30 @@ def layout_diff(old: dict | None, new: dict | None) -> str:
     return "; ".join(parts)
 
 
-def record_object(state: dict, text, call_id: str, *, spec: dict | None = None) -> dict:
+def record_object(state: dict, text, call_id: str, *, spec: dict | None = None, parent: int | None = None) -> dict:
     """Store an object note (OBJECT_MAX characters, not blank; E_ARGS otherwise) as the latest, with the layout of
-    ``spec`` (the design the call made; None when it made none) for object_due. Returns the entry."""
+    ``spec`` (the design the call made; None when it made none) for object_due and the revision the call edited
+    (``parent``); the lab adds "revision" once the call's design is a revision (object_origin). Returns the entry."""
     if not isinstance(text, str) or not text.strip() or len(text) > OBJECT_MAX:
         raise LabRefusal("E_ARGS", f"object must be text of 1..{OBJECT_MAX} characters, or null")
     entry = {"text": text, "call_id": call_id, "layout": layout_key(spec)}
+    if parent is not None:
+        entry["parent"] = parent
     state.setdefault("objects", []).append(entry)
     return entry
+
+
+def object_origin(entry: dict) -> str:
+    """Which call gave an object note, in the revisions Astra knows: "given with revision 4" (the call's design is
+    revision 4), "given in a facet_edit of revision 3 that made no revision" (its fit or build was refused), or, for an
+    entry recorded without either (an older state), "of call X". Why (v3p3 astra P3-5): E_OBJECT and facet_inspect
+    named the SDK call id ("call s04 wrote the latest object note"), a call_... token in a paid run that Astra cannot
+    map to any note it wrote."""
+    if entry.get("revision") is not None:
+        return f"given with revision {entry['revision']}"
+    if entry.get("parent") is not None:
+        return f"given in a facet_edit of revision {entry['parent']} that made no revision"
+    return f"of call {entry.get('call_id')}"
 
 
 def object_text(state: dict) -> str | None:
@@ -345,9 +377,9 @@ def object_due(state: dict, prev_spec: dict | None, new_spec: dict, text=None) -
 
 def check_object(state: dict, prev_spec: dict | None, new_spec: dict, text=None) -> None:
     """object_due as the refusal: LabRefusal E_OBJECT (OBJECT_REFUSAL, the fixed text of I4) with the fact behind it
-    when a note exists, ``latest_object``: which call wrote the latest note and how this design's layout differs from
-    the one it was written for (layout_diff; for a note without a layout, from the parent's), so a refused Astra that
-    wrote a note can tell why."""
+    when a note exists, ``latest_object``: which revision the latest note was given with (object_origin) and how this
+    design's layout differs from the one it was written for (layout_diff; for a note without a layout, from the
+    parent's), so a refused Astra that wrote a note can tell why."""
     if not object_due(state, prev_spec, new_spec, text):
         return
     objects = state.get("objects") or []
@@ -355,10 +387,10 @@ def check_object(state: dict, prev_spec: dict | None, new_spec: dict, text=None)
         raise LabRefusal("E_OBJECT", OBJECT_REFUSAL)
     last = objects[-1]
     if last.get("layout") is None:
-        fact = (f"call {last.get('call_id')} wrote the latest object note with no design; this design's layout "
-                f"differs from its parent's: {layout_diff(layout_key(prev_spec), layout_key(new_spec))}")
+        fact = (f"the latest object note ({object_origin(last)}) has no design; this design's layout differs from its "
+                f"parent's: {layout_diff(layout_key(prev_spec), layout_key(new_spec))}")
     else:
-        fact = (f"call {last.get('call_id')} wrote the latest object note for another layout; this design: "
+        fact = (f"the latest object note ({object_origin(last)}) was written for another layout; this design: "
                 f"{layout_diff(last['layout'], layout_key(new_spec))}")
     raise LabRefusal("E_OBJECT", OBJECT_REFUSAL, latest_object=fact)
 

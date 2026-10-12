@@ -38,17 +38,22 @@ Photo ids (lab.json ``photos``, each with a role; rows without one are target ph
     target      "01".."06" = the basis' reference-01..06 (target colourway): photo_image, photo_read, photo_compare
                 (the default set, native_linear rows), facet_variants (native_linear panels);
     colourway   a basis image of another colourway with a calibrated camera (``basis_ref``; the Prada job's B1, B2, B3
-                = black-side, black-angled, black-front): photo_image, photo_read, photo_compare (photo / overlay /
-                gloss_black, no native row: seeing's variant-colourway compare) and facet_variants (gloss_black
-                panels with that compare's gloss gain and stretch); never the default set;
+                = black-side, black-angled, black-front): photo_image, photo_read, photo_compare (photo /
+                gloss_black render / overlay, no native row: seeing's variant-colourway compare, one row order for
+                every colour) and facet_variants (gloss_black panels with that compare's gloss gain and stretch);
+                never the default set;
     reference   an image without a camera under inputs/ (``path``, ``sha256``): photo_image only.
 ``compare_ids`` = target + colourway (the photos with a camera); ``image_ids`` = all of them.
 
 Tool methods (each returns a dict for tools.py; "images" lists image files, never sent as paths; WP6_V3 §6):
     inspect()                                   head: design and fitted value per node (t, X, source, residual mm
-                                                and sd, fitted_at = the corner where the joint fit moved it along
-                                                its reading; a read node whose reading was replaced or dropped since says
-                                                so: geometry.stale_reads), the readings table (0.01 mm), the object
+                                                and sd against its reading or typed value, a solved or base node's
+                                                NO_RESIDUAL words instead, fitted_at = the corner where the joint fit
+                                                moved it along its reading; a read node whose reading was replaced or
+                                                dropped since says so: geometry.stale_reads), the readings table (0.01
+                                                mm; model_t "outside the model's outline" where it has none), each
+                                                stored reading no node is named for against its nearest node
+                                                (unused_readings: jointly in d, y, X), the object
                                                 note (and, when it was written for another layout, which), the fit
                                                 report, the creases, the chart (no section strip, no lean, no inherited
                                                 warnings)
@@ -57,7 +62,9 @@ Tool methods (each returns a dict for tools.py; "images" lists image files, neve
                                                 replaced or dropped by name (state "readings", history
                                                 "reading_log"); each with its text and pick sheet; a replaced one's
                                                 change (reading_change); the head's nodes that still hold a reading
-                                                it replaced or dropped (head_nodes)
+                                                it replaced or dropped (head_nodes); a new reading no node of the head
+                                                is named for, whose nearest node holds a reading (no_node:
+                                                unused_readings)
     compare(call_id, photos, crop, zoom, points)  the photo-matched compare of the head with its model edges, zooms
                                                 at native scale -> compare_id
     edit(call_id, parent_revision, reset_layout, edits, judgement, note, object, apply, photos)
@@ -72,8 +79,9 @@ with the edit's index); the object note: a call without one is refused E_OBJECT 
 latest note was written for another layout (facets and node names) than the design's (state.check_object: going
 back to an older revision or applying a variant arm is a facet_edit, so the latest note decides, not the parent); a
 note given is recorded with the design's layout (state.record_object), also when the fit or the build then refuses;
-fit.fit_spec (E_FIT_SHAPE, E_FIT, E_SPEC: their facts, nothing added); build_temple of the fitted spec (any builder
-refusal: its facts, nothing added); the revision; with apply, the worker builds the fitted spec on both temples from
+fit.fit_spec (stage "fit": E_FIT_SHAPE, E_FIT; stage "spec": the parse's E_SHORT_EDGE, E_SPEC...: their facts and
+fields, an E_SHORT_EDGE node's outline_facts); build_temple of the fitted spec (any builder refusal: its facts, nothing
+added); the revision; with apply, the worker builds the fitted spec on both temples from
 the original and the head is compared. A fit or build that raises anything but a TempleError is this call's refusal
 (E_FIT / E_BUILD, the exception's type and text, kept in state "host_errors"), never the SDK's generic error. Every
 action tool (facet_edit, facet_variants, facet_finish) records its judgement first (_judged) and states what became of
@@ -84,10 +92,15 @@ W_FACE_NOT_FLAT, W_FIT_SOLVED, W_FIT_PRIOR and W_FIT_OFF_READING "typed E 6.50: 
 then one line per built crease (``crease_lines``: the builder's shape, angle and range beside a warp, soft, step with
 its d, its declaration, a two-way share with its model edges' signed extremes, then the fit's angle with its sd and
 certain / open, a declaration's cost; at most CREASE_LINE_MAX, the fit's angle, sd and certain / open always kept),
-then the builder's warnings (those revision 0 already had, unchanged, left out: same_warning; a W_BORDER_RAMP run a
-crease line prints, left out), the spec's knot snaps as a sentence, then against the CURRENT HEAD: ``solved`` (fitted
+then the builder's warnings (never one revision 0 already had: ``inherited_changed`` below; a W_BORDER_RAMP run a
+crease line prints, left out; W_ARM_NORMAL_SPREAD with its place, arm_spread_at), ``inherited_changed``, the thickness
+in mm, border ramps in the crease line's words (ramp_text), the spec's knot snaps as a sentence, then against the
+CURRENT HEAD: ``solved`` (fitted
 nodes with no reading or typed value whose t moved SOLVED_MOVE_MM or more), ``crease_vs_head`` (creases built with
-the other shape) and ``diff_vs_head`` (when the parent is not the head). There is no margins block (the fit's sd and
+the other shape; a solved corner of that edge with a stored reading off it says so: solved_corners_text),
+``edges_vs_head`` (creases that appear or go flat: edge_changes) and ``diff_vs_head`` (when the parent is not the
+head); before them ``unused_readings`` when they changed against the parent's (unused_readings) and ``notes`` (the
+outline knots apply_edits moved with a corner, geometry module doc). There is no margins block (the fit's sd and
 certain / open replace it) and no remedy text anywhere: Astra took a refusal's listed remedy in 12 of 14 refusals.
 
 photo_compare (WP6_V3 §5, §6): ``photos`` (null = seeing's default set, the target photos whose temple shows at least
@@ -96,28 +109,36 @@ box [x0, y0, x1, y1] native px, geometry}] (<= ZOOM_MAX), ``points`` (charted on
 another photo are named in "points_not_charted"; with photos null, refused: the set is chosen at compare time and
 seeing refuses a point beyond it); seeing gets the head's model edges
 (``model_edges``: build.model_edges of the head's build, by identity, at most seeing.MODEL_EDGES_MAX runs), its
-hinge_z and opening, passes native_linear (a photo of another colour is gloss_black only, seeing's rule). Per photo
+hinge_z and opening, passes native_linear (a photo of another colour is gloss_black only, seeing's rule), and
+``photo_names`` (every photo with a camera by the lab's id: the images' titles and seeing's texts say "02", "B1",
+never the basis names "reference-02", "black-side"). Rows, for every colour: photo, render, overlay. Per photo
 the text is the lab's (``_photo_text``): view (a colourway photo: its colour and rows), temple IoU, px/mm, the crop
-box and its scale, a side view's outline offsets for each temple whose outer face it sees (seeing's own text:
-bottom measured, top "not measured" in a view from above), the render's backdrop share from BACKDROP_SHOWN (a face
-clipped to the backdrop colour is not a missing face), the charted points_px. No top / rear offsets, no "start"
-column, no outline line, no camera note (FINDINGS §3). Each zoom's text is seeing's with the lab's photo id (and a
+box and its scale, a side view's outline offsets for each temple whose outer face it sees (seeing's own text: in a
+view from above the bottom outline as measured and the top face's far edge minus its median, the only number on the
+arm's top there; from below the other way round), the render's backdrop share from BACKDROP_SHOWN (a face clipped
+to the backdrop colour is not a missing face), the charted points_px. No top / rear offsets, no "start" column, no
+outline line, no camera note (FINDINGS §3). Each zoom's text is seeing's, which names the lab's photo id (with a
 photo of another colour's colour in place of seeing's "variant"). The
 compare record's ``photos`` are every photo shown (stacked and zoomed: the judgement covers them), ``stacked`` the
 full compares (variant sheets need one).
 
 facet_variants (WP6_V3 §6): each arm is fitted and built as facet_edit's (a refusal: its stage, code and facts);
-built arms are revisions; each item carries its fit lines (short: ``fit_brief``, with the solved moves against the
-head), creases and crease_vs_head; an arm whose design is the head's or an earlier arm's says ``same_as`` and is not
-rendered again. One page set per photo (sheets.variant_pages): the crop is the charted temple where the arms differ
-from the head (_variant_region; the temple whose outer face the camera sees), every panel at scale
-sheets.variant_scale for the models drawn (<= 2, native or larger when it fits, the fewest pages); a photo pair (the
-photo | the photo with the head's edges) and per model drawn a CLEAN render panel beside (or above) the LINED one (the
-photo's outline green and that model's own model edges, labelled with their angles, depth-tested against the head's
-scene: ``_variant_edges``); an arm refused or equal to another model has no panels, the notes line names it. Run 6's
-fade was chosen on a sheet at 3.46 px/mm where the lines covered 83-96 % of the shading differences (scorecard #29).
-Pages per photo: sheets.variant_page_count; at native scale a box near a whole cell holds one model a page, so the
-worst case is 1 + the arms drawn (7 at 6 arms) a photo.
+built arms are revisions; each item carries vs_head_mm (the surface or outline) and creases_vs_head_mm (its ridges'
+and valleys' distance from the head's: crease_shift), its fit lines (short: ``fit_brief``: the off-reading and not-flat
+warnings with their first clause, the solved moves against the head), creases (a 0.5 mm border step with its ramp),
+crease_vs_head and edges_vs_head, and its notes; a refused arm its stage, code, facts and outline_facts; an arm whose
+design is the head's or an earlier arm's says ``same_as`` and is not rendered again, and one equal to the head is no
+rendered variant (finish preconditions 2 and 5). ONE sheet per photo (sheets.variant_sheet; the cost estimate
+prices one a photo, cli.variant_sheets; session2's 3-arm call on 3 photos returned 8 pages, v3p3-clean-lab): the crop
+is the charted temple where the arms
+differ from the head (_variant_region; the temple whose outer face the camera sees), every panel at scale
+sheets.variant_scale for the models drawn (<= 2: the largest at which the photo pair and every model drawn fit the one
+sheet); a photo pair (the photo | the photo with the head's edges) and per model drawn a CLEAN render panel beside (or
+above) the LINED one (the photo's outline green and that model's own model edges, labelled with their angles,
+depth-tested against the head's scene: ``_variant_edges``); an arm refused or equal to another model has no panels,
+its facts are in the text and the notes line names it. Run 6's fade was chosen on a sheet at 3.46 px/mm where the
+lines covered 83-96 % of the shading differences (scorecard #29): the clean panel is beside the lined one, and the
+sheet's title gives k.
 
 The scene lock (``Lab.lock``) serialises every use of the worker: tools.py takes it with timeout 0 for each tool call
 (E_BUSY when held), and exit_checkpoint / close wait for it (a call the SDK timed out may still be running). A call the
@@ -130,20 +151,22 @@ mutation or the write, never across a fit, build or render.
 per pair) for finish preconditions 1 and 5.
 
 Warnings revision 0 already has (its core warnings and the Blender layer's lines at prepare, e.g. W_HINGE_LEAF,
-W_ARM_NORMAL_SPREAD; state "inherited") are left out of later receipts while their numbers stay within MATERIAL_ABS /
-MATERIAL_REL of revision 0's; facet_inspect no longer lists them (WP6_V3 §6).
+W_ARM_NORMAL_SPREAD; state "inherited"; the same words, numbers aside: inherited_ref) are never news in a later receipt
+(WP6_V3 §6): left out while their numbers stay within MATERIAL_ABS / MATERIAL_REL of revision 0's, and once they move
+beyond it listed under ``inherited_changed`` (the receipt's, or the Blender layer's) with their place and revision 0's
+numbers ("W_ARM_NORMAL_SPREAD: ... up to 49.9 deg (> 30.0) at d 136.0 y -22.8 (over 30° only at d 136.0); revision 0
+had it with 61.5": session2 step 11 printed it as news, with no d, because the tip edit IMPROVED it).
 
-Removed in v3 (unreachable from the tools): photo_compare depths and one-photo depth readings, facet_restore, the
-crease margins block, solve options, relief_rise, refusal_solved, conditioning hints and crease-run notes, the outline
-line, the start column, the section strip, lean_deg. The v2 relics at the end of this module (crease_margins,
-margins_summary, corner_reading) are kept only because tests/proofs/astra_temple_lab.py (the v2 T5 rehearsal) and
-tests/agent/test_temple_readings.py import them.
+Removed in v3: photo_compare depths and one-photo depth readings, facet_restore, the crease margins block, solve
+options, relief_rise, refusal_solved, conditioning hints and crease-run notes, the outline line, the start column, the
+section strip, lean_deg. Their code is gone too (v3-final: crease_margins, margins_summary and the MARGIN_* constants
+had no reader once the T5 rehearsal was rewritten for v3; v2's one-photo / multi-photo corner_reading lives on only
+as the independent reference tests/agent/test_temple_readings.py checks readings.read_point against).
 """
 from __future__ import annotations
 
 import base64
 import hashlib
-import itertools
 import json
 import math
 import os
@@ -158,7 +181,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.optimize import least_squares
 
 from glasses3d.agent.journal import BlenderSession, WorkerFailed
 from glasses3d.agent.loop import SceneHooks, hard_timeout_s
@@ -170,7 +192,8 @@ from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import draw as DR
 from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d.temple import report as RP
-from glasses3d.g3d.temple.spec import BORDER_RAMP_WARN_DEG, TempleError, plain, spec_sha256
+from glasses3d.g3d.temple.spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, SHARP_DIHEDRAL_DEG, TempleError,
+                                       plain, spec_sha256)
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
@@ -185,7 +208,10 @@ from .state import LabRefusal
 LAB_SCHEMA = "g3d.temple_lab/2"
 FIT_RECORD_SCHEMA = "g3d.temple_lab_fit/1"
 COMPARE_PASSES = ("native_linear",)       # target photos' rows (WP6_V3 §5); another colour is gloss_black (seeing)
-VARIANTS_MIN, VARIANTS_MAX = 2, 6
+VARIANTS_MIN, VARIANTS_MAX = 2, 4     # arms a facet_variants call (v3-final, was 6: ONE sheet per photo holds the
+#                                       head and every arm, sheets.variant_scale; session2's B1 box with 3 / 4 / 6
+#                                       arms: k 0.43 / 0.38 / 0.37, 3.65 / 3.2 / 3.1 px/mm; fewer, larger panels and
+#                                       less arm text a call)
 VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX = 4, 3     # facet_variants photos (WP6_FACETS §4.1: 3 targets + 1 black)
 CREASE_THREADS = max(1, min(8, (os.cpu_count() or 2) // 2))   # host model-edge runs: one task per photo and model
 NOTE_MAX, SUMMARY_MAX = 1000, 2000
@@ -196,11 +222,20 @@ CREASE_LINE_MAX = 260            # a crease line: the builder's part and the fit
 #                                  a range, a ramp, a two-way share, a declaration and a bound reaches 310: the bound
 #                                  goes, review2-lab-e2-2 P3-8)
 REFUSAL_MAX = 400                # a builder refusal's message (the core's longest are about 250)
+REFUSAL_FIELDS = ("facet", "node", "nodes", "pair", "point", "d", "y", "facets", "refs", "at")
+#                                  a refusal's fields kept in its result (a build refusal: the first 8)
 FIT_REFUSAL_MAX = 1200           # a fit refusal's message: E_FIT_SHAPE names per costly crease its readings-only
 #                                  angle, cost and the 3 readings most against it (about 200 characters a crease)
 FIT_LINES_MAX = 12               # the fit report's lines in a receipt (FitResult.report_lines' limit)
-BRIEF_FIT_LINES = ("fit:", "corners the fit placed", "corners held", "kept at the design", "misfit")
-#                                  a variant arm's fit lines (fit_brief): the fit, where it put read corners, misfits
+BRIEF_FIT_LINES = ("fit:", "camera turn of", "corners the fit placed", "corners held", "kept at the design",
+                   "misfit", "at the thickness bound")
+#                                  a variant arm's fit lines (fit_brief): the fit, the camera turns the data moved (the
+#                                  misfit line then says "after the camera turn", which named a turn no arm line
+#                                  printed), where it put read corners, misfits, the nodes held at t_min (v3p3 e2e
+#                                  P3-5: an arm held there read like a free fit)
+BRIEF_FACT_CODES = ("W_FIT_OFF_READING", "W_FACE_NOT_FLAT")   # fit_brief keeps these warnings' first clause ...
+BRIEF_FACT_MAX = 220             # ... in at most this many characters (W_FACE_NOT_FLAT's chi2 and the four corners'
+#                                  deviations from the others' plane: about 210 on session2's crown)
 BUILD_CACHE = 24
 CONTEXT_KEEP_LATEST = 2          # the context guard keeps the images of the latest 2 compare / variants results
 STUB_KINDS = ("compare", "variants")     # the image kinds context_stubs replaces in an old result (cli.STUBBED_KINDS;
@@ -211,8 +246,15 @@ BACKDROP_SHOWN = 0.10            # a compare's photo text names the render's bac
 LOCK_WAIT_S = 600.0              # exit_checkpoint / close wait this long for a tool call still holding the scene
 MATERIAL_ABS, MATERIAL_REL = 0.1, 0.1     # an inherited warning shows again when a number moves more than this
 RAMP_ITEMS_MAX = 8               # border-ramp runs listed per receipt (then "+N more")
+RAMP_BRIEF_MM = 0.5              # a variant arm's crease string adds a facet|base step this high (_crease_brief)
 SOLVED_MOVE_MM = 0.1             # a fitted node with no reading or typed value is listed when its t moved this much
 SOLVED_ITEMS_MAX = 6             # ... listed per receipt (then "+N more")
+UNUSED_ITEMS_MAX = 8             # stored readings no node is named for, listed against their nearest node (then "+N")
+UNUSED_NEAR_MM = 3.0             # ... compared jointly with that node's reading when the two lie this close in (d, y)
+#                                  (2.4 x the largest corner sd_d read, the tip E's 1.24 mm; session2's A2 to A: 1.06)
+NO_RESIDUAL = {"solve": "set by the fit; no reading", "base": "on the base surface; no reading"}
+#                                  facet_inspect's residual_mm of a node with no reading or typed value (its
+#                                  residual_sd null)
 MIXED_SHARE = 0.05               # a crease line names both shares when ridge and valley each fold this much of it
 VARIANT_DIFF_MM = 0.05           # facet_variants crop: an arm differs from the head where its outer surface X moves
 #                                  this much (geometry.surface_grid's 0.5 mm lattice; a lattice point inside one
@@ -266,6 +308,24 @@ def same_warning(line: str, ref: str) -> bool:
         all(_close(a, b) for a, b in zip(nums, refs))
 
 
+def inherited_ref(line: str, refs: list) -> str | None:
+    """The revision-0 warning line (of ``refs``) that ``line`` repeats: the same words, numbers aside (NUMBER_RE), the
+    nearest in its numbers when several share the words; None for a warning revision 0 did not have."""
+    nums = [float(v) for v in NUMBER_RE.findall(line)]
+    cands = [r for r in refs if NUMBER_RE.sub("#", r) == NUMBER_RE.sub("#", line)
+             and len(NUMBER_RE.findall(r)) == len(nums)]
+    return min(cands, key=lambda r: sum(abs(a - float(b)) for a, b in zip(nums, NUMBER_RE.findall(r))),
+               default=None)
+
+
+def inherited_note(line: str, ref: str) -> str:
+    """"; revision 0 had it with 61.5": the numbers of revision 0's line where ``line``'s moved beyond the material
+    tolerance (all of them if none did)."""
+    pairs = list(zip(NUMBER_RE.findall(line), NUMBER_RE.findall(ref)))
+    moved = [b for a, b in pairs if not _close(a, b)] or [b for _a, b in pairs]
+    return f"; revision 0 had it with {', '.join(moved)}"
+
+
 def brief(text: str, limit: int = REFUSAL_MAX) -> str:
     """text whole when it fits in limit characters, else cut at its last clause end ("; " or ". ") before the limit
     (at the last space when it has none) and marked " ...": never mid-word, never mid-clause when it has clauses."""
@@ -293,15 +353,22 @@ def compose(parts: list, limit: int = CREASE_LINE_MAX) -> str:
     return ("".join(t for t, _r in keep) + (" ..." if dropped else ""))[:limit]
 
 
+def ramp_text(facet: str, height_mm: float, slope_deg: float, d_mm) -> str:
+    """One border ramp in a crease line's step words (report.crease_line, crease_head): "shoulder proud 0.81 mm: a
+    7.7° ramp at d 75.5-76.7" (proud of the base or sunk below it; the slope over the border band; d a point or a
+    range)."""
+    a, b = (f"{float(x):.1f}" for x in d_mm)
+    side = "proud" if float(height_mm) > 0 else "sunk"
+    return (f"{facet} {side} {abs(float(height_mm)):.2f} mm: a {float(slope_deg):.1f}° ramp at d "
+            f"{a if a == b else f'{a}-{b}'}")
+
+
 def ramp_line(warnings: list) -> str:
-    """Every W_BORDER_RAMP of a build in one line: facet, signed height in mm (+ proud of the base, - below it),
-    slope over the border band, d (a point or a range)."""
-    items = []
-    for w in warnings[:RAMP_ITEMS_MAX]:
-        a, b = (f"{x:.1f}" for x in w["d_mm"])
-        items.append(f"{w['facet']} {w['height_mm']:+.2f} {w['slope_deg']:.1f}° d {a if a == b else f'{a}-{b}'}")
+    """Every W_BORDER_RAMP of a build in one line (ramp_text each): "W_BORDER_RAMP (steeper than 8°): F4 sunk 0.42
+    mm: a 12.3° ramp at d 40.0-55.0" (session2's form "F4 -0.42 12.3° d 40.0-55.0" had no unit or words)."""
+    items = [ramp_text(w["facet"], w["height_mm"], w["slope_deg"], w["d_mm"]) for w in warnings[:RAMP_ITEMS_MAX]]
     more = f"; +{len(warnings) - RAMP_ITEMS_MAX} more" if len(warnings) > RAMP_ITEMS_MAX else ""
-    return f"W_BORDER_RAMP >{BORDER_RAMP_WARN_DEG:g}°: " + "; ".join(items) + more
+    return f"W_BORDER_RAMP (steeper than {BORDER_RAMP_WARN_DEG:g}°): " + "; ".join(items) + more
 
 
 def fixed(x: float, nd: int) -> str:
@@ -314,7 +381,9 @@ def fixed(x: float, nd: int) -> str:
 # --------------------------------------------------------------------------------------------- receipt texts
 def fit_crease_parts(f: dict, base: bool) -> list[tuple[str, int]]:
     """The fit's part of a crease line as compose parts [(text, rank)]: its angle at the longest piece's midpoint with
-    the readings' sd ("fit fold" for a facet|base pair: the fold across the border, WP6_V3 §3; rank 0), where that is
+    the readings' sd ("border fit -2.3 +- 1.1°" for a facet|base pair: the fit's angle across the border, WP6_V3 §3;
+    it read "fit fold", which collided with the prompt's fold bracket of two faces, v3p3 astra P3-9; "border fit" is
+    2 characters longer, so the longest line keeps its two-way share within CREASE_LINE_MAX; rank 0), where that is
     (a facet|base pair or a pair sharing several pieces: a border turns, and its fold with it; the smoke test's
     triangle on the arm folded -6.2 along its long side and +5 along the two short ones, built "ridge" by length;
     rank 3), its state in the fit's own words (fit.STATE_TEXT of the crease's ``state``: certain = |angle| > 2 sd and
@@ -322,15 +391,16 @@ def fit_crease_parts(f: dict, base: bool) -> list[tuple[str, int]]:
     within the readings; else open: a declaration then sets it; rank 0; v3-integrate-2: the lab printed "open" for
     a "flat within 2 sd" crease, inviting a declaration the fit then refuses), held by a declaration (no sd: the
     declaration sets it), the bound it rests on (rank 4), and a
-    declaration's readings-only angle and cost when it costs (rank 1). The fit's own range along the edge is left
-    out: the builder's range is printed (one range per crease, v3-integrate-1)."""
-    what = "fit fold" if base else "fit"
+    declaration's readings-only angle and its chi2 cost when it costs (rank 1). The fit's own range along the edge is
+    left out: the builder's range is printed (one range per crease, v3-integrate-1). Angles carry their unit ("fit
+    +16.0 +- 2.7°"; session2's "fit +16.0 +- 2.7" beside the builder's "17.3°" had none; v3p3-clean-lab)."""
+    what = "border fit" if base else "fit"
     if f.get("held"):
         at_min = abs(abs(float(f["deg"])) - FIT.MIN_CREASE_DEG) <= 0.01
-        parts = [(f"; {what} {RD.signed(f['deg'], 1)}" + (" (held at the declared minimum)" if at_min else
-                                                         " (held by its declaration)"), 0)]
+        parts = [(f"; {what} {RD.signed(f['deg'], 1)}°" + (" (held at the declared minimum)" if at_min else
+                                                          " (held by its declaration)"), 0)]
     else:
-        parts = [(f"; {what} {RD.signed(f['deg'], 1)} +- {f['sd_deg']:.1f}", 0)]
+        parts = [(f"; {what} {RD.signed(f['deg'], 1)} +- {f['sd_deg']:.1f}°", 0)]
     if f.get("at") and (base or (f.get("borders") or 1) > 1):
         parts.append((f" at d {f['at'][0]:.1f} y {f['at'][1]:.1f}", 3))
     state = f.get("state") or ("certain" if f.get("certain") else "open")
@@ -338,8 +408,8 @@ def fit_crease_parts(f: dict, base: bool) -> list[tuple[str, int]]:
     if f.get("bound"):
         parts.append((f", the thickness bound holds {', '.join(f['bound'][:3])} (the sd is without it)", 4))
     if f.get("declared") and (f.get("dchi2") is None or f["dchi2"] > FIT.COST_SHOWN) and f.get("free_deg") is not None:
-        cost = "cannot hold" if f.get("dchi2") is None else f"cost +{f['dchi2']:.1f}"
-        parts.append((f" (readings-only {RD.signed(f['free_deg'], 1)} +- {f['free_sd_deg']:.1f}, {cost})", 1))
+        cost = "cannot hold" if f.get("dchi2") is None else f"cost chi2 +{f['dchi2']:.1f}"
+        parts.append((f" (readings-only {RD.signed(f['free_deg'], 1)} +- {f['free_sd_deg']:.1f}°, {cost})", 1))
     return parts
 
 
@@ -406,9 +476,11 @@ def crease_lines(tb, fit=None, edges=None) -> list[str]:
     """One line per built crease (WP6_V3 §6): the builder's report.crease_line (pair, shape, length-weighted angle,
     its face-to-face range beside a warp, soft, the step of a facet|base W_BORDER_RAMP with its d: crease_head,
     declared or undeclared) and its two-way share with the signed extremes of its model edges (mixed_text; ``edges``
-    = build.model_edges of tb), then the fit's part (fit_crease_parts) when ``fit`` (a FitResult) has that pair; at
-    most CREASE_LINE_MAX characters (compose: the bound, the place, the share and a declaration's cost go in that
-    order, never the angles, the sd or certain / open)."""
+    = build.model_edges of tb), then the fit's part (fit_crease_parts) when ``fit`` (a FitResult) has that pair, then
+    the corners of that edge the fit solved although a stored reading of their name lies off them (solved_corners_text:
+    a declaration held at its minimum, or a "certain" angle, that rests on such a corner says so); at most
+    CREASE_LINE_MAX characters (compose: the bound, the place, the share, the solved corners and a declaration's cost go
+    in that order, never the angles, the sd or certain / open)."""
     fits = {tuple(c["pair"]): c for c in (fit.creases if fit is not None else []) if c.get("deg") is not None}
     signed = signed_extremes(edges)
     out = []
@@ -422,19 +494,57 @@ def crease_lines(tb, fit=None, edges=None) -> list[str]:
         f = fits.get(tuple(c["regions"]))
         if f:
             parts += fit_crease_parts(f, c["regions"][1] == "base")
+            solved = solved_corners_text(tb, fit, tuple(c["regions"]))
+            if solved:                    # held at a declaration or "certain" on a corner the fit solved (P2-3)
+                parts.append((solved, 1))
         out.append(compose(parts))
     return out
 
 
+def first_clause(message: str, limit: int = BRIEF_FACT_MAX) -> str:
+    """A warning message's first clause: the text before its first top-level "; " (a "; " inside brackets belongs to
+    the bracket's clause, which is closed: "(8.27 mm away; its X carried ...)" -> "(8.27 mm away)"), cut when longer
+    than ``limit`` characters at its last ", " (else ": ", else a space) that fits, open brackets closed, " ..." marking
+    the cut: never mid-number (fit.py's W_FACE_NOT_FLAT of 2026-10-12 has no ", " before its corner list)."""
+    depth, cut = 0, len(message)
+    for k, ch in enumerate(message):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(depth - 1, 0)
+        elif ch == ";" and message[k + 1:k + 2] == " ":
+            if depth == 0:
+                cut = k
+                break
+            text = message[:k]
+            return first_clause(text + ")" * depth, limit)
+    text = message[:cut]
+    if len(text) <= limit:
+        return text
+    k_max = limit - 4 - text[:limit].count("(")        # head + its closing brackets + " ..." fit the limit
+    for sep in (", ", ": ", " "):                       # never inside a number
+        k = text.rfind(sep, 0, k_max + len(sep))
+        if k > 0:
+            break
+    head = text[:k] if k > 0 else text[:limit - 4]
+    return head + ")" * max(head.count("(") - head.count(")"), 0) + " ..."
+
+
 def fit_brief(fit, before: dict | None = None) -> list[str]:
     """A variant arm's fit in a few lines: the fit line ("fit: chi2 ..., dof ..., from ... readings ..."), the misfit
-    line when any reading or typed value lies beyond 1 sd, its warnings by code with their subjects, each (code,
-    subject) once ("W_FIT_OFF_READING K, L": one node's value and position warnings are one item), and the solved
-    nodes that moved against the head's fit (solved_moves; ``before`` = the head's fit nodes): facet_edit's "solved"
-    for an arm (review2-lab-e2-2 P3-9: "K 6.53 (head 7.72)" was printed by facet_edit, not by the bracket). The
-    fit's position lines are kept too (BRIEF_FIT_LINES, each with its wrapped continuation lines): the joint fit
-    moves read corners along their readings (fit.py, v3p2-fit2-fix), and on the session2 tool test the flat-crown arm
-    put the tip E 2.90 mm forward (2.8 sd) while its misfit line read only "E +0.41 mm (1.1 sd)" (v3-integrate-2)."""
+    line when any reading or typed value lies beyond 1 sd, each W_FIT_OFF_READING and W_FACE_NOT_FLAT with the first
+    clause of its message (BRIEF_FACT_CODES, first_clause: "W_FIT_OFF_READING: typed K 6.40: its reading 7.72 +- 0.29
+    (-4.5 sd)"; one line per warning, so a node's value and position facts are both kept), the other warnings by code
+    with their subjects, each (code, subject) once, and the solved nodes that moved against the head's fit
+    (solved_moves; ``before`` = the head's fit nodes): facet_edit's "solved" for an arm (review2-lab-e2-2 P3-9: "K 6.53
+    (head 7.72)" was printed by facet_edit, not by the bracket). Why the facts (v3p3 astra P2-2, verify-3): a bracket of
+    a typed t is where its distance from the reading decides, and the arm read "W_FIT_OFF_READING K" where facet_edit
+    said "-4.5 sd", "W_FIT_OFF_READING E" where it said "(8.27 mm away)", and "W_FACE_NOT_FLAT crown" with no chi2. A
+    warning without a message (an older record) stays code and subject. The fit's camera and position lines are kept
+    too (BRIEF_FIT_LINES, each with its wrapped continuation lines): the joint fit moves read corners along their
+    readings (fit.py, v3p2-fit2-fix), and on the session2 tool test the flat-crown arm put the tip E 2.90 mm forward
+    (2.8 sd) while its misfit line read only "E +0.41 mm (1.1 sd)" (v3-integrate-2); an arm's misfit line says "after
+    the camera turn" only when the fit printed one, so that line goes with it (v3-final)."""
     lines = fit.report_lines(limit=99, creases=False)
     out, keep = [], False
     for ln in lines:
@@ -446,13 +556,20 @@ def fit_brief(fit, before: dict | None = None) -> list[str]:
         if keep:
             out.append(ln)
     by: dict = {}
+    facts = []
     for w in fit.warnings:
+        if w["code"] in BRIEF_FACT_CODES and w.get("message"):
+            line = f"{w['code']}: {first_clause(str(w['message']))}"
+            if line not in facts:
+                facts.append(line)
+            continue
         subj = str(w.get("face") or w.get("node") or "")
         if subj not in by.setdefault(w["code"], []):
             by[w["code"]].append(subj)
     if by:
         out.append("warnings: " + "; ".join(f"{code} {', '.join(s for s in subjects if s)}".strip()
                                             for code, subjects in by.items()))
+    out += facts
     moved = solved_moves(fit, before) if before is not None else ""
     if moved:
         out.append(f"solved: {moved}")
@@ -484,40 +601,265 @@ def reading_change(was: dict, now: dict) -> str:
             f"d {RD.signed(dd, 2)}, y {RD.signed(dy, 2)}")
 
 
+def outline_facts(design: dict, refs) -> list[str]:
+    """Each node a refusal names (``refs`` items "node E", spec._ref_name's form) against the outline edge nearer to it
+    at its d: "node E at d 76.75, y 9.36 lies 0.20 mm above the top edge, with no knot of it within 0.05 mm; set_node
+    outline top puts that edge's knot at the node" (geometry.outline_edge's rule: within snap_mm it would lie on the
+    edge). Facts with the way the tools offer beside the builder's own ("move a node at least snap_mm away"): v3p3 e2e
+    P1-1, verify-0: the first Prada layout was refused E_SHORT_EDGE at node E, 0.20 mm off the top outline, and its one
+    remedy, read as a move in d, looped until E_EDIT. A node outside the outline's d range, or not in the design, says
+    nothing."""
+    nodes = design.get("nodes") or {}
+    snap = G.snap_of(design)
+    out = []
+    for ref in refs or []:
+        n = str(ref)[5:] if str(ref).startswith("node ") else None
+        if n not in nodes:
+            continue
+        d, y = float(nodes[n][0]), float(nodes[n][1])
+        best = None
+        for edge in G.OUTLINE_EDGES:
+            P = np.asarray(design["outline"][edge], float)
+            if P[0, 0] <= d <= P[-1, 0]:
+                yv = float(np.interp(d, P[:, 0], P[:, 1]))
+                if best is None or abs(y - yv) < abs(y - best[1]):
+                    best = (edge, yv, P)
+        if best is None:
+            continue
+        edge, yv, P = best
+        knot = bool(np.any(np.hypot(P[:, 0] - d, P[:, 1] - y) <= snap))
+        out.append(f"node {n} at d {d:.2f}, y {y:.2f} lies {abs(y - yv):.2f} mm {'above' if y > yv else 'below'} the "
+                   f"{edge} edge" + ("" if knot else f", with no knot of it within {snap:g} mm") +
+                   f"; set_node outline {edge} puts that edge's knot at the node")
+    return out
+
+
+def _payload_parts(p: dict) -> tuple[np.ndarray, np.ndarray, dict]:
+    """((d, y, X), the 3 x 3 (d, y, X) pick covariance, {camera fit: (dd, dy, dX) per sd of its theta}) of a read t
+    payload (fit.read_payload's "read": cov, else sd_d / sd_y / sd on the diagonal)."""
+    v = np.array([float(p["d"]), float(p["y"]), float(p["X"])])
+    if p.get("cov") is not None:
+        C = np.array(p["cov"], float)
+    else:
+        C = np.diag([float(p.get("sd_d") or 0.0) ** 2, float(p.get("sd_y") or 0.0) ** 2, float(p["sd"]) ** 2])
+    return v, C, {str(f): np.array(x, float) for f, x in (p.get("camera") or {}).items()}
+
+
+def readings_apart(a: dict, b: dict) -> dict:
+    """Two read t payloads (fit.read_payload's "read") compared jointly: the difference a - b in (d, y, X) mm, its
+    covariance (the two pick parts, separate picks, plus per camera fit the difference of their camera shifts: one
+    theta per fit moves both; reading_change's rule), each axis in sd of its own variance, chi2 over the three for 3
+    dof (pinv: a reading without a (d, y) error has rank 1), and b's X at a's (d, y) by b's pick-part conditional
+    (readings.conditional_x): {"diff", "z", "chi2", "x_at", "sd_at"}. Why jointly (v3p3 verify-7): A2 against A read
+    X +0.77 mm (2.7 sd) alone, but the two differ by chi2 18.1 for 3 dof, almost all of it in d (-4.1 sd), and A's
+    reading at A2's (d, y) gives X 69.23 +- 0.16, only 0.26 mm inside A2: an X-only fact was false precision."""
+    va, Ca, ka = _payload_parts(a)
+    vb, Cb, kb = _payload_parts(b)
+    D = va - vb
+    C = Ca + Cb
+    for f in set(ka) | set(kb):
+        s = ka.get(f, np.zeros(3)) - kb.get(f, np.zeros(3))
+        C = C + np.outer(s, s)
+    sd = np.sqrt(np.maximum(np.diag(C), 0.0))
+    z = np.divide(D, sd, out=np.zeros(3), where=sd > 0.0)
+    k = Cb[2, :2] @ np.linalg.pinv(Cb[:2, :2])
+    return {"diff": D, "z": z, "chi2": float(D @ np.linalg.pinv(C) @ D),
+            "x_at": float(vb[2] + k @ (va[:2] - vb[:2])), "sd_at": math.sqrt(max(float(Cb[2, 2] - k @ Cb[:2, 2]), 0.0))}
+
+
+def unused_readings(design: dict, fit, readings: dict, *, near_read: bool = False) -> list[str]:
+    """Each stored reading no node of the design is named for, against the design's node nearest to it in (d, y) as
+    built (the fit's node position, else the design's), as facts with no remedy (v3p3 owner P1-2 -> P2/P3 by verify-7:
+    A2, the logo's front corner read beside the crown vertex A, printed only "outside the model's outline", and no text
+    related it to A): "A2: no node A2; 0.67 mm from node A as built; against the reading node A holds (read004-A): d
+    -1.04 (-4.1 sd), y +0.18 (+1.0 sd), X +0.77 mm (+2.7 sd), chi2 18.1 for 3 dof; at A2's d, y it gives X 69.23 +-
+    0.16 (A2 +0.26 mm)" (readings_apart: the joint comparison, made only when the two readings lie within
+    UNUSED_NEAR_MM in (d, y): two points farther apart are two points, and their difference in sd says nothing); a
+    nearest node without a reading says its source. At most UNUSED_ITEMS_MAX, then "+N more". A reading whose node
+    holds another of its name is geometry.stale_reads'; one whose node is typed, solved or base is the fit's
+    W_FIT_OFF_READING. ``near_read``: only the readings within UNUSED_NEAR_MM of the reading their nearest node holds
+    (photo_read: a first read on revision 0's template, whose nodes hold none, would list every point)."""
+    nodes = design.get("nodes") or {}
+    fnodes = fit.nodes if fit is not None else {}
+    out = []
+    for name, rec in sorted(readings.items()):
+        if name in nodes or not nodes:
+            continue
+        try:
+            a = FIT.read_payload(rec)["read"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        pos = {}
+        for n, v in nodes.items():
+            f = fnodes.get(n) or {}
+            pos[n] = (float(f.get("d", v[0])), float(f.get("y", v[1])))
+        n = min(pos, key=lambda m: (math.hypot(pos[m][0] - a["d"], pos[m][1] - a["y"]), m))
+        text = f"{name}: no node {name}; {math.hypot(pos[n][0] - a['d'], pos[n][1] - a['y']):.2f} mm from node {n} " \
+               f"as built"
+        t = nodes[n][2]
+        near = G.is_read(t) and \
+            math.hypot(float(t["read"]["d"]) - a["d"], float(t["read"]["y"]) - a["y"]) <= UNUSED_NEAR_MM
+        if near_read and not near:
+            continue
+        if near:
+            r = readings_apart(a, t["read"])
+            (dd, dy, dX), (zd, zy, zX) = r["diff"], r["z"]
+            text += (f"; against the reading node {n} holds ({t['read'].get('id') or n}): d {RD.signed(dd, 2)} "
+                     f"({RD.signed(zd, 1)} sd), y {RD.signed(dy, 2)} ({RD.signed(zy, 1)} sd), X {RD.signed(dX, 2)} mm "
+                     f"({RD.signed(zX, 1)} sd), chi2 {r['chi2']:.1f} for 3 dof; at {name}'s d, y it gives X "
+                     f"{RD.fixed(r['x_at'], 2)} +- {RD.fixed(r['sd_at'], 2)} ({name} "
+                     f"{RD.signed(float(a['X']) - r['x_at'], 2)} mm)")
+        elif G.is_read(t):
+            text += f" (the reading node {n} holds lies over {UNUSED_NEAR_MM:g} mm away)"
+        else:
+            what = "solved" if t is None else "the plain arm's t" if t == "base" else f"typed t {RD.fixed(t, 2)} mm"
+            text += f" (node {n} holds no reading: {what})"
+        out.append(text)
+    if len(out) > UNUSED_ITEMS_MAX:
+        out = out[:UNUSED_ITEMS_MAX - 1] + [f"+{len(out) - UNUSED_ITEMS_MAX + 1} more"]
+    return out
+
+
 def solved_moves(fit, before: dict) -> str:
     """The fitted nodes with no reading or typed value (source "solve") whose t differs from the reference's (the
-    head's fit, ``before`` = {node: {t}}) by SOLVED_MOVE_MM or more, or that the reference does not have: "B 5.41
-    (head 7.06), D 3.10 (new)"; "" when none moved. A node the fit splits per facet (outside the outline) has no t."""
+    head's fit, ``before`` = {node: {t}}) by SOLVED_MOVE_MM or more, or that the reference does not have: "B t 5.41
+    mm (head 7.06), D t 3.10 mm (not in the head)" (session2 printed "L0 4.64 (new)": no quantity, no unit); "" when
+    none moved. A node the fit splits per facet (outside the outline) has no t ("(the head's has no single t)")."""
     items = []
     for n, r in sorted(fit.nodes.items()):
         if r.get("source") != "solve" or r.get("t") is None:
             continue
         t, b = float(r["t"]), (before.get(n) or {}).get("t")
         if b is None:
-            items.append(f"{n} {t:.2f} (new)")
+            why = "not in the head" if n not in before else "the head's has no single t"
+            items.append(f"{n} t {RD.fixed(t, 2)} mm ({why})")
         elif abs(t - float(b)) >= SOLVED_MOVE_MM:
-            items.append(f"{n} {t:.2f} (head {float(b):.2f})")
+            items.append(f"{n} t {RD.fixed(t, 2)} mm (head {RD.fixed(float(b), 2)})")
     if len(items) > SOLVED_ITEMS_MAX:
         items = items[:SOLVED_ITEMS_MAX - 1] + [f"+{len(items) - SOLVED_ITEMS_MAX + 1} more"]
     return ", ".join(items)
 
 
+def _shapes(x) -> dict:
+    """{pair: (shape, mean dihedral)} of a build's built creases (kind "crease")."""
+    return {tuple(c["regions"]): (c["shape"], c["mean_dihedral_deg"]) for c in x.tables["creases"]
+            if c["kind"] == "crease"}
+
+
 def flips(ref, tb) -> list[tuple]:
     """[(pair, (shape, deg) in ref, (shape, deg) in tb)] of the built creases (facet pairs both builds have) that are
     a ridge in one and a valley in the other."""
-    def shapes(x):
-        return {tuple(c["regions"]): (c["shape"], c["mean_dihedral_deg"]) for c in x.tables["creases"]
-                if c["kind"] == "crease"}
-    a, b = shapes(ref), shapes(tb)
+    a, b = _shapes(ref), _shapes(tb)
     return [(k, a[k], b[k]) for k in sorted(set(a) & set(b))
             if a[k][0] != b[k][0] and "flat" not in (a[k][0], b[k][0])]
 
 
-def crease_changes(ref, tb) -> list[str]:
+def _deg(x: float) -> str:
+    """A built crease's angle as report.crease_line prints it (build.deg_round: a flat 1.97 is "1.9", never "2.0")."""
+    return f"{RP.deg_round(x, 1):.1f}"
+
+
+def crease_changes(ref, tb, fit=None) -> list[str]:
     """The flips of ``tb`` against the reference (the head), the reference first: "crown|logo ridge 21.0° -> valley
-    8.0°". A declared crease is always built as declared, so this is every change of a declared shape too; a crease
-    of a pair only one build has is the diff's."""
-    return [f"{'|'.join(key)} {sa} {da:.1f}° -> {sb} {db:.1f}°" for key, (sa, da), (sb, db) in flips(ref, tb)]
+    8.0°", with the solved corners of that edge whose stored reading the fit compared (solved_corners_text, ``fit`` =
+    tb's FitResult). A declared crease is always built as declared, so this is every change of a declared shape too; a
+    crease of a pair only one build has is the diff's; one that appears or goes flat is edge_changes'."""
+    return [f"{'|'.join(key)} {sa} {_deg(da)}° -> {sb} {_deg(db)}°" + solved_corners_text(tb, fit, key)
+            for key, (sa, da), (sb, db) in flips(ref, tb)]
+
+
+def edge_changes(ref, tb) -> list[str]:
+    """The built creases of ``tb`` (facet pairs both builds have) that are flat in the reference (the head) and a
+    ridge or valley here, or the other way round: "shoulder|base flat 1.2° -> ridge 9.7° (an edge appears)",
+    "lower|shoulder valley 4.3° -> flat 1.1° (the edge goes flat)". Why (v3p3 astra P3-4): crease_vs_head names
+    ridge <-> valley flips only, and applying session2's r4 over head r6 added a shoulder|base edge (flat 1.2° ->
+    ridge 9.7°, 3.2 mm proud) with no text saying so; GOAL 1-2 are judged on exactly these changes. Kept apart from
+    crease_vs_head, whose contract is the flips (the T5 rehearsal checks it states exactly those)."""
+    a, b = _shapes(ref), _shapes(tb)
+    out = []
+    for k in sorted(set(a) & set(b)):
+        (sa, da), (sb, db) = a[k], b[k]
+        if sa != sb and "flat" in (sa, sb):
+            what = "an edge appears" if sa == "flat" else "the edge goes flat"
+            out.append(f"{'|'.join(k)} {sa} {_deg(da)}° -> {sb} {_deg(db)}° ({what})")
+    return out
+
+
+def solved_corners_text(tb, fit, pair) -> str:
+    """" (corner K: solved K 6.15: its reading 7.72 +- 0.29 (-5.4 sd))": the corners both facets of a crease pair
+    share that the fit solved (source "solve") while a stored reading of their name lies more than fit.OFF_READING_SD
+    from them (the first clause of that node's W_FIT_OFF_READING value warning); "" for none, a facet|base pair or no
+    fit. Why (v3p3 owner P2-3, verify-12): mode solve drops the node's own reading, and with a flat crown the fit
+    carried the crown's plane 12 mm from H into K (-6.8 sd off K's reading); a declared crown|logo ridge then cost chi2
+    +0.7 and was built at the 2.5° minimum, and an undeclared one flipped to a 2.1° valley, with nothing tying either
+    to K."""
+    if fit is None or "base" in pair:
+        return ""
+    facets = getattr(getattr(tb, "spec", None), "facets", None) or {}
+    if any(f not in facets for f in pair):
+        return ""
+    shared = set(facets[pair[0]]["poly"]) & set(facets[pair[1]]["poly"])
+    msgs = {w.get("node"): str(w.get("message") or "") for w in getattr(fit, "warnings", None) or []
+            if w.get("code") == "W_FIT_OFF_READING" and w.get("kind") == "solve"}
+    nodes = getattr(fit, "nodes", None) or {}
+    items = [f"corner {n}: {first_clause(msgs[n])}" for n in sorted(shared)
+             if msgs.get(n) and (nodes.get(n) or {}).get("source") == "solve"]
+    return f" ({'; '.join(items)})" if items else ""
+
+
+def crease_shift(delta: dict, head_first: bool = True) -> str:
+    """How far a model's visible creases lie from the head's, per shape (geometry.crease_delta: the symmetric Hausdorff
+    distance in (d, y) of the built creases folding >= FLAT_CREASE_DEG, mm): "ridge 0.10, valley 8.37"; a shape only
+    one of the two has (crease_delta's mm None): "valley: none in the head (12.3 mm here)" or "ridge: none here (the
+    head's 30.1 mm)"; a shape neither has is left out. ``head_first``: the delta's first build is the head (Lab.delta
+    orders the pair by revision). Why (v3p3 astra P2-2, verify-3): vs_head_mm (geometry_delta's value_mm, the surface
+    along its normal or the outline) read 0.60 for an arm whose tip edge D-E met the top outline 7.9 mm further back
+    (its valleys 8.37 mm from the head's); value_mm stays the distinctness and spread measure, this is text."""
+    parts = []
+    for shape in ("ridge", "valley"):
+        c = delta["creases"][shape]
+        la, lb = c["length_mm"]
+        lh, lm = (la, lb) if head_first else (lb, la)
+        if c["mm"] is None:
+            parts.append(f"{shape}: none in the head ({lm:.1f} mm here)" if lm > lh else
+                         f"{shape}: none here (the head's {lh:.1f} mm)")
+        elif lh > 0.0 and lm > 0.0:
+            parts.append(f"{shape} {c['mm']:.2f}")
+    return ", ".join(parts)
+
+
+def arm_spread_at(tb, deg: float) -> str:
+    """Where a build's W_ARM_NORMAL_SPREAD bends (the builder's message gives only the largest angle, ``deg``; session2
+    step 11 printed it with no d, so nothing could act on it): " at d 136.0 y -22.8 (over 30° only at d 136.0)" (the
+    session's revision 6: the tip's rounding), the midpoint of the smooth outer edge folding ``deg`` and the d range
+    of every smooth edge folding more than spec.ARM_NORMAL_SPREAD_DEG ("along d 1.0-136.0" at revision 0). A smooth
+    edge is build._sharp_edges' last branch: two outer polygons of one region and band (not the roll, not a soft
+    border's ramp, no faded or ramp cell; a chamfer band's edge under SHARP_DIHEDRAL_DEG). "" when no smooth edge
+    folds ``deg`` within 0.05° (a builder rule this copy does not follow: no place rather than a wrong one)."""
+    D = BLD.mesh_topology(tb.polys)["directed"]
+    kind, region, cell = tb.poly_kind, tb.poly_region, tb.poly_cell
+    ramp = [tb.face_ramp[f] if f >= 0 and f < len(tb.face_ramp) else None for f in tb.poly_face]
+    N, V = np.asarray(tb.normals, float), np.asarray(tb.V, float)
+    rows = []
+    for (a, b), p1 in D.items():
+        p2 = D.get((b, a))
+        if a > b or p2 is None or kind[p1] != "outer" or kind[p2] != "outer" or region[p1] != region[p2]:
+            continue
+        if {ramp[p1], ramp[p2]} - {None} == {"soft"} or {cell[p1], cell[p2]} & {"faded", "ramp"}:
+            continue
+        dih = math.degrees(math.acos(max(-1.0, min(1.0, float(N[p1] @ N[p2])))))
+        if "/" in region[p1] and dih >= SHARP_DIHEDRAL_DEG:
+            continue
+        rows.append((dih, 0.5 * (V[a, :2] + V[b, :2])))
+    if not rows:
+        return ""
+    top = max(rows, key=lambda r: r[0])
+    if abs(top[0] - float(deg)) > 0.05:
+        return ""
+    over = [f"{m[0]:.1f}" for dih, m in rows if dih > ARM_NORMAL_SPREAD_DEG]
+    lo, hi = min(over, key=float), max(over, key=float)
+    return f" at d {top[1][0]:.1f} y {top[1][1]:.1f} (over {ARM_NORMAL_SPREAD_DEG:g}° " + \
+        (f"along d {lo}-{hi})" if lo != hi else f"only at d {lo})")
 
 
 def capped_edges(edges: list) -> list:
@@ -622,6 +964,12 @@ class Lab(SceneHooks):
     def image_ids(self) -> list[str]:
         """The photos photo_image takes: the compare photos, then the reference-only photos (no camera)."""
         return self.compare_ids() + [r["id"] for r in self._rows("reference")]
+
+    def photo_names(self) -> dict:
+        """{basis reference: the lab's photo id} of every photo with a camera: seeing's ``photo_names``, so a
+        compare's image titles and texts name "02" and "B1" (v3p3-fix-seeing: they read "reference-02 photo" and
+        "black-side photo", names no lab text uses)."""
+        return {self.rid(p): p for p in self.compare_ids()}
 
     def pid(self, rid: str) -> str:
         for pid, ref in self.colourway_refs().items():
@@ -847,10 +1195,12 @@ class Lab(SceneHooks):
     def mark_unseen(self, call_id: str) -> None:
         """A tool call Astra stopped waiting for (the SDK timed it out; its thread may still run): a compare it made
         or still makes is recorded unseen and never demands a judgement; its facet_variants sheets are unseen and
-        never meet finish precondition 2; a finish it accepted is moved to ``finish_unseen`` (Astra was told
+        never meet finish precondition 2; the readings its photo_read stored are undone (_unread) and one it still
+        makes stores nothing; a finish it accepted is moved to ``finish_unseen`` (Astra was told
         E_TIMEOUT and the run goes on). Under the state lock: the call's thread may still be mutating or saving."""
         with self.state_lock:
             self._unseen.add(call_id)
+            self._unread(call_id)
             for c in self.state["compares"]:
                 if c.get("call_id") == call_id and c["by"] == "astra":
                     c.update(unseen=True, judged=True)
@@ -861,6 +1211,24 @@ class Lab(SceneHooks):
             if fin and fin.get("call_id") == call_id:
                 self.state.setdefault("finish_unseen", []).append(fin)
                 self.state["finish"] = None
+
+    def _unread(self, call_id: str) -> None:
+        """A photo_read the SDK timed out stored readings Astra never saw (v3p3 safety P3-2: a later set_node mode
+        reading then used one): undo its reading_log entries, latest first, while the stored record is still that
+        call's (a read removed, a replaced or dropped one put back), each entry marked unseen. Under the state lock
+        (mark_unseen); a photo_read the SDK gave up on before it stored anything stores nothing (Lab.read)."""
+        st = self.state.setdefault("readings", {})
+        for e in reversed([e for e in self.state.get("reading_log") or [] if e.get("call_id") == call_id
+                           and e.get("action") in ("read", "replaced", "dropped") and not e.get("unseen")]):
+            n, cur = e["name"], st.get(e["name"])
+            if e["action"] == "dropped" and cur is None:
+                st[n] = e["was"]
+            elif e["action"] in ("read", "replaced") and cur is not None and cur.get("call_id") == call_id:
+                if e["action"] == "read":
+                    st.pop(n)
+                else:
+                    st[n] = e["was"]
+            e["unseen"] = True
 
     def restore(self, checkpoint_id, *, reason):
         before = self.s.head["id"]
@@ -878,7 +1246,7 @@ class Lab(SceneHooks):
         with self.state_lock:
             results = [("compare", c["compare_id"], c["seq"]) for c in S.seen_compares(self.state)] + \
                       [("variants", v["id"], v["seq"]) for v in S.seen_variants(self.state)]
-            best = S.head_by_fingerprint(self.state, self.fingerprint_of(self.state.get("best_checkpoint")))
+            best = S.head_of_checkpoint(self.state, self.state.get("best_checkpoint"), self.fingerprint_of)
             best_compares = {c["compare_id"] for c in self.state["compares"]
                              if best is not None and c["revision"] == best["revision"]}
             images = {digest: dict(self.state["images"][digest]) for digest in image_sha256s
@@ -1038,7 +1406,8 @@ class Lab(SceneHooks):
             kw["zoom"] = [{"rid": z["rid"], "box": z["box"], "geometry": z["geometry"]} for z in zoom]
         res = self.seeing.compare_to_photos(refs=refs, passes=COMPARE_PASSES, rig=self.rig, crop=crop,
                                             points_px=points_px, hinge_z_mm=hinge_z, call_id=cid,
-                                            render_deadline_s=hard_timeout_s(tool) if tool else None, **kw)
+                                            render_deadline_s=hard_timeout_s(tool) if tool else None,
+                                            photo_names=self.photo_names(), **kw)
         if res.get("status") != "ok":
             self.save()
             return {"status": "error", "code": res.get("code", "E_COMPARE"), "message": res.get("message")}
@@ -1056,17 +1425,17 @@ class Lab(SceneHooks):
             if by == "astra" and call_id in self._unseen:          # the SDK stopped waiting: Astra never sees it
                 rec.update(unseen=True, judged=True)
             self.state["compares"].append(rec)
-        texts, images = {}, []
+        texts, images, said = {}, [], set()
         for r in rids:
             pid = self.pid(r)
             texts[pid] = self._photo_text(report["photos"].get(r, {}), res["photos"][r].get("points"), spec,
-                                          colour=self._colour(pid))
+                                          colour=self._colour(pid), said=said)
             images.append(self._image(res["photos"][r]["image"], "compare", ref=cid, photo=pid,
                                       revision=rec["revision"]))
         ztexts = []
         for z in zrecs:
             pid = self.pid(z["rid"])
-            lines = str(z.get("text") or "").replace(z["rid"], pid).split("\n")        # the lab's photo id
+            lines = str(z.get("text") or "").split("\n")            # seeing names the lab's id (photo_names)
             colour = self._colour(pid)
             if colour and lines:            # seeing names another colourway "variant": the lab says its colour
                 lines[0] = lines[0].replace(f", {self.basis.colourway(z['rid'])})", f", {colour})", 1)
@@ -1092,16 +1461,17 @@ class Lab(SceneHooks):
         out["images"] = images
         return out
 
-    def _photo_text(self, rec: dict, points, spec, colour: str | None = None) -> str:
+    def _photo_text(self, rec: dict, points, spec, colour: str | None = None, said: set | None = None) -> str:
         """One photo of a compare, compact (module doc): view (a colourway photo: its colour and rows), temple IoU,
         px/mm of the image shown and native, the crop box and scale k (u_img = (u - x0 + 0.5) k - 0.5), each facing
         temple's side-view outline offsets (seeing's text), the render's backdrop share from BACKDROP_SHOWN (seeing's
         render_backdrop_share: at 05 the crown rendered white on white), points_px charted (t = X - x_in(d) of the
-        head)."""
+        head). ``said`` (one set per result): a clause explained once, its later photos give the share only (v3p3
+        astra P3-6: "(the outline marks the model's edge)" repeated in every such photo of every compare)."""
         crop = rec.get("crop") or {}
         k = float(crop.get("k") or 1.0)
         ppm = rec.get("px_per_mm")
-        rows = "rows photo / overlay / gloss-black render" if colour else "rows photo / render / overlay"
+        rows = "rows photo / gloss-black render / overlay" if colour else "rows photo / render / overlay"
         text = f"{rec.get('view_kind')}" + (f" {colour}" if colour else "") + f" ({rows}); temple IoU " \
             f"{float(rec.get('temple_iou', float('nan'))):.3f}"
         if ppm is not None and np.isfinite(ppm):
@@ -1113,8 +1483,11 @@ class Lab(SceneHooks):
                 text += " | " + Seeing._outline_text(temple, o)
         share = max((float(v) for v in (rec.get("render_backdrop_share") or {}).values()), default=0.0)
         if share >= BACKDROP_SHOWN:                # a face clipped to the backdrop colour is not a missing face
-            text += (f" | render: {share:.0%} of the model's pixels show in the backdrop's colour (the outline marks "
-                     "the model's edge)")
+            text += f" | render: {share:.0%} of the model's pixels show in the backdrop's colour"
+            if said is None or "backdrop" not in said:
+                text += " (the outline marks the model's edge)"
+                if said is not None:
+                    said.add("backdrop")
         if points:
             pts = []
             inner = np.asarray(spec["inner"], float) if spec is not None else None
@@ -1146,45 +1519,74 @@ class Lab(SceneHooks):
     def _inherited(self) -> dict:
         return self.state.get("inherited") or {"revision": 0, "core": [], "blender": [], "hinge_leaf_gap_mm": None}
 
-    def _is_inherited(self, line: str) -> bool:
+    def _inherited_ref(self, line: str) -> str | None:
+        """The revision-0 warning ``line`` repeats (inherited_ref over the core and Blender lines at prepare)."""
         inh = self._inherited()
-        return any(same_warning(line, ref) for ref in inh["core"] + inh["blender"])
+        return inherited_ref(line, inh["core"] + inh["blender"])
 
-    def _builder_warnings(self, tb) -> list[str]:
-        """The build's warning lines for a receipt: those revision 0 already had (unchanged) left out, W_CONDITIONING
-        left out (WP6_V3 §6: a fitted spec has coef planes, which it never concerns), every W_BORDER_RAMP in one line
-        last (ramp_line) except the runs a crease line prints as its step (printed_steps: printed once)."""
-        lines, ramps = [], []
+    @staticmethod
+    def _where(tb, w: dict) -> str:
+        """The place a core warning leaves out: W_ARM_NORMAL_SPREAD's (arm_spread_at); "" for the others (they name
+        their facet, crease or d)."""
+        if w.get("code") == "W_ARM_NORMAL_SPREAD" and tb is not None and w.get("deg") is not None:
+            return arm_spread_at(tb, float(w["deg"]))
+        return ""
+
+    def _builder_warnings(self, tb) -> tuple[list[str], list[str]]:
+        """(warning lines, changed inherited lines) of a build for a receipt: W_CONDITIONING left out (WP6_V3 §6: a
+        fitted spec has coef planes, which it never concerns); W_FLAT_CREASE left out for a pair whose crease line is
+        printed flat (crease_lines prints every built crease: "shoulder|base flat 1.2° soft undeclared" beside
+        "W_FLAT_CREASE: crease shoulder|base bends only 1.23 deg (< 2.0)" in every receipt from session2's step 06, a
+        repeat that read as a request for more angle at a border the photos show soft; v3p3 astra P3-1, P3-6); a
+        warning revision 0 had (inherited_ref) never in the
+        lines: unchanged it is left out, changed beyond the material tolerance it is a changed inherited line with its
+        place and revision 0's numbers ("...; revision 0 had it with 61.5": session2 step 11 printed W_ARM_NORMAL_SPREAD
+        as news because it IMPROVED, 61.5 -> 49.9, with no d); every W_BORDER_RAMP in one line last (ramp_line) except
+        the runs a crease line prints as its step (printed_steps: printed once)."""
+        lines, ramps, changed = [], [], []
         steps = printed_steps(tb)
+        flat = {tuple(c["regions"]) for c in tb.tables["creases"] if c["kind"] == "crease" and c["shape"] == "flat"}
         for w in tb.warnings:
+            if w["code"] == "W_CONDITIONING":
+                continue
+            if w["code"] == "W_FLAT_CREASE" and tuple(w.get("regions") or ()) in flat:
+                continue                    # its crease line says "flat 1.2°" already (v3p3 astra P3-1, P3-6)
             line = f"{w['code']}: {w['message']}"
-            if w["code"] == "W_CONDITIONING" or self._is_inherited(line):
+            ref = self._inherited_ref(line)
+            if ref is not None:
+                if not same_warning(line, ref):
+                    note = inherited_note(line, ref)
+                    changed.append((line + self._where(tb, w))[:LINE_MAX - len(note)] + note)
                 continue
             if w["code"] == "W_BORDER_RAMP":
                 if (w.get("facet"), tuple(_r(w.get("d_mm") or [], 1))) not in steps:
                     ramps.append(w)
             else:
-                lines.append(line[:LINE_MAX])
-        return lines + ([ramp_line(ramps)] if ramps else [])
+                lines.append((line + self._where(tb, w))[:LINE_MAX])
+        return lines + ([ramp_line(ramps)] if ramps else []), changed
 
     def _receipt(self, tb, fit, edges=None) -> dict:
         """The receipt (module doc), in order: the fit report without its crease lines (FitResult.report_lines, at
         most FIT_LINES_MAX lines), one line per built crease (crease_lines: the builder's and the fit's; ``edges`` =
         build.model_edges of tb, for the signed extremes of a crease that folds both ways), the builder's warnings
-        (_builder_warnings), thickness, border ramps that raised no W_BORDER_RAMP ("facet height slope d"), the knot
-        snaps of the spec's canonical form, and the roll."""
+        (_builder_warnings) and revision 0's warnings that changed (``inherited_changed``), the thickness ("min 2.78 mm
+        at d 0.0 y 10.1; max 7.88 mm at ..."), border ramps that raised no W_BORDER_RAMP in the crease line's words
+        (ramp_text: "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7"; session2 printed "shoulder +0.81 7.7° d
+        75.5-76.7" and a thickness with no unit), the knot snaps of the spec's canonical form, and the roll."""
         rc = RP.receipt(tb)
         th = rc["thickness"]
         out = {"fit": fit.report_lines(limit=FIT_LINES_MAX, creases=False) if fit is not None else [],
                "creases": crease_lines(tb, fit, edges)}
-        warns = self._builder_warnings(tb)
+        warns, changed = self._builder_warnings(tb)
         if warns:
             out["warnings"] = warns
-        out["thickness"] = (f"{th['min_mm']:.2f} at d {th['min_at'][0]:.1f} y {th['min_at'][1]:.1f} .. "
-                            f"{th['max_mm']:.2f} at d {th['max_at'][0]:.1f} y {th['max_at'][1]:.1f}")
+        if changed:
+            out["inherited_changed"] = changed
+        out["thickness"] = (f"min {th['min_mm']:.2f} mm at d {th['min_at'][0]:.1f} y {th['min_at'][1]:.1f}; max "
+                            f"{th['max_mm']:.2f} mm at d {th['max_at'][0]:.1f} y {th['max_at'][1]:.1f}")
         warned = {(w.get("facet"), tuple(_r(w.get("d_mm") or [], 1))) for w in tb.warnings
                   if w["code"] == "W_BORDER_RAMP"}
-        quiet = [f"{r['facet']} {r['height_mm']:+.2f} {r['slope_deg']:.1f}° d {r['d_mm'][0]:.1f}-{r['d_mm'][1]:.1f}"
+        quiet = [ramp_text(r["facet"], r["height_mm"], r["slope_deg"], r["d_mm"])
                  for r in rc["border_ramps"] if abs(r["height_mm"]) >= 0.01
                  and (r["facet"], tuple(_r(r["d_mm"], 1))) not in warned]
         if quiet:
@@ -1203,17 +1605,31 @@ class Lab(SceneHooks):
 
     @staticmethod
     def _crease_brief(tb) -> str:
-        """Built creases in one short string: "F1|F2 r12.6 F4|base v5.1" (r ridge, v valley, f flat; mean dihedral
-        deg, build.deg_round as report.crease_line: a flat crease at 1.95-1.999 prints "f1.9", never "f2.0";
-        v3-integrate-2, builder2's request). A declared shape always matches here: a mismatch is refused
+        """Built creases in one string, in report.crease_line's words: "F1|F2 ridge 12.6°, F4|base valley 5.1°" (the
+        shape and the mean dihedral, build.deg_round as report.crease_line: a flat crease at 1.95-1.999 prints "flat
+        1.9°", never 2.0; v3-integrate-2, builder2's request; session2's "crown|logo r14.5" coded the shape in one
+        letter that no text explained). A facet|base border whose step stands RAMP_BRIEF_MM or more proud or sunk adds
+        its ramp in the receipt's words (report.ramp_clause: "shoulder|base ridge 9.7° (proud 3.20 mm: a 28.1° ramp at
+        d 73.8-75.4)"; v3p3 owner P3-1: a flat-crown arm read "shoulder|base ridge 9.7°" while its shoulder stood 3.2 mm
+        proud, run 7's hard join, seen in the render only). A declared shape always matches here: a mismatch is refused
         (E_CREASE_SHAPE) before."""
-        return " ".join(f"{'|'.join(c['regions'])} {c['shape'][0]}{RP.deg_round(c['mean_dihedral_deg'], 1):.1f}"
-                        for c in tb.tables["creases"] if c["kind"] == "crease")
+        items = []
+        for c in tb.tables["creases"]:
+            if c["kind"] != "crease":
+                continue
+            text = f"{'|'.join(c['regions'])} {c['shape']} {RP.deg_round(c['mean_dihedral_deg'], 1):.1f}°"
+            st = c.get("step")
+            if st and abs(float(st["height_mm"])) >= RAMP_BRIEF_MM:
+                text += f" ({RP.ramp_clause(float(st['height_mm']), float(st['slope_deg']), st.get('d_mm'))})"
+            items.append(text)
+        return ", ".join(items)
 
-    def _blender_receipt(self, result: dict, core_lines: list) -> dict:
+    def _blender_receipt(self, result: dict, core_lines: list, tb=None) -> dict:
         """The Blender layer's own news, compact: decal motion, the hinge leaf gap (negative = embedded) when it
-        moved from revision 0's, and its warning lines not in the core receipt and not inherited unchanged from
-        revision 0, one per code (the first message, "(xN)" when the sides repeat it)."""
+        moved from revision 0's, and its warning lines not in the core receipt, one per code (the first message,
+        "(xN)" when the sides repeat it): "lines" those revision 0 did not have; "inherited_changed" those it had whose
+        numbers moved beyond the material tolerance, with revision 0's numbers (inherited_note; a W_ARM_NORMAL_SPREAD
+        with its place in ``tb``, the build applied, when tb has that very line); one it had unchanged is left out."""
         sides = result.get("sides") or {}
         moves = [d["max_move_mm"] for s in sides.values() for d in s.get("decals", [])]
         out = {}
@@ -1224,13 +1640,28 @@ class Lab(SceneHooks):
         ref = self._inherited().get("hinge_leaf_gap_mm")
         if gaps and (ref is None or not _close(max(gaps, key=abs), ref)):
             out["hinge_leaf_gap_mm"] = _r(max(gaps, key=abs))
-        by_code: dict = {}
+        news: dict = {}
+        changed: dict = {}
         for ln in result.get("lines", []):
-            if ln not in core_lines and not self._is_inherited(ln):
-                by_code.setdefault(ln.split(":", 1)[0], []).append(ln)
-        if by_code:
+            if ln in core_lines:
+                continue
+            ref = self._inherited_ref(ln)
+            if ref is None:
+                news.setdefault(ln.split(":", 1)[0], []).append(ln)
+            elif not same_warning(ln, ref):
+                changed.setdefault(ln.split(":", 1)[0], []).append((ln, ref))
+        if news:
             out["lines"] = [rows[0][:LINE_MAX] + (f" (x{len(rows)})" if len(rows) > 1 else "")
-                            for rows in list(by_code.values())[:6]]
+                            for rows in list(news.values())[:6]]
+        if changed:
+            items = []
+            for rows in list(changed.values())[:6]:
+                ln, ref = rows[0]
+                w = next((w for w in (tb.warnings if tb is not None else []) if f"{w['code']}: {w['message']}" == ln),
+                         {})
+                note = (f" (x{len(rows)})" if len(rows) > 1 else "") + inherited_note(ln, ref)
+                items.append((ln + self._where(tb, w))[:LINE_MAX - len(note)] + note)
+            out["inherited_changed"] = items
         return out
 
     def _chart_image(self, rid: int, tb, tag: str) -> str:
@@ -1280,13 +1711,20 @@ class Lab(SceneHooks):
             if not mv or math.hypot(*mv) < FIT.MOVE_SHOWN_MM:
                 return None
             return _r([f["d"], f["y"]])
+        def residual(f):
+            """(residual_mm, residual_sd) of a node row: a read or typed node's against its reading or typed value;
+            a solved or base node has none (NO_RESIDUAL: session2's solve node L0 printed 0.21 mm, 0.0 sd, its
+            distance from the fit's weak 5 mm prior toward the base, which read as a misfit)."""
+            if f.get("source") in NO_RESIDUAL:
+                return NO_RESIDUAL[f["source"]], None
+            return _r(f.get("residual_mm")), _r(f.get("residual_sd"), 1)
         nodes = {}
         for n, (d, y, t) in sorted(design["nodes"].items()):
             f = fnodes.get(n)
             row = [_r(d), _r(y), design_t(n, t)]
             if f is not None:
-                row += [_r(f.get("t")), _r(f.get("X")), f.get("source"), _r(f.get("residual_mm")),
-                        _r(f.get("residual_sd"), 1), _r(f.get("sd_X")), moved_to(f)]
+                row += [_r(f.get("t")), _r(f.get("X")), f.get("source"), *residual(f), _r(f.get("sd_X")),
+                        moved_to(f)]
             nodes[n] = row
         facets = {}
         for label, f in design["facets"].items():
@@ -1297,7 +1735,8 @@ class Lab(SceneHooks):
         readings = {}
         for n, r in sorted(self.readings().items()):          # to 0.01 mm, as the node rows and reading texts
             rr = RD.refresh(r, tb)
-            readings[n] = [rr["kind"], *_r([rr["d"], rr["y"], rr["X"], rr["sd_X"], rr["t"]]), _r(rr["model_t"]),
+            mt = RD.OUTSIDE_MODEL if rr["model_t"] is None else _r(rr["model_t"])     # as readings.reading_text says
+            readings[n] = [rr["kind"], *_r([rr["d"], rr["y"], rr["X"], rr["sd_X"], rr["t"]]), mt,
                            " ".join(rr["photos"]), " ".join(w["code"] for w in rr.get("warnings") or [])]
         revs = self.state["revisions"]
         rows = [[r["id"], r["parent"], r["kind"], r["sha256"][:8]] + ([r["label"]] if r.get("label") and
@@ -1316,6 +1755,7 @@ class Lab(SceneHooks):
                         "creases": [f"{'|'.join(c['facets'])} {c['shape']}" for c in design["creases"]]},
                "readings": {"columns": ["kind", "d", "y", "X", "sd_X", "t", "model_t", "photos", "warnings"],
                             "rows": readings},
+               **({"unused_readings": unused} if (unused := unused_readings(design, fit, self.readings())) else {}),
                "object": S.object_text(self.state) or None,
                **self._object_layout(design),
                "receipt": self._receipt(tb, fit, self.raw_edges(rid)),
@@ -1333,7 +1773,8 @@ class Lab(SceneHooks):
         """facet_inspect's fact beside the object note when the latest note was written for another layout than the
         head's (state.object_due: the latest note decides, so a facet_edit of the head's own layout then needs a new
         note; review2-lab-e2-1 P3-3: a note recorded by a refused call for a layout with M showed as the head's):
-        {"object_layout": "call s22 wrote it for another layout; the head: -node Q; -facet extra"}; {} otherwise."""
+        {"object_layout": "the note (given with revision 4) was written for another layout; the head: -node Q; -facet
+        extra"} (state.object_origin: the revision, never the SDK call id, v3p3 astra P3-5); {} otherwise."""
         objects = self.state.get("objects") or []
         if not objects or objects[-1].get("layout") is None:
             return {}
@@ -1341,12 +1782,14 @@ class Lab(SceneHooks):
         diff = S.layout_diff(last["layout"], S.layout_key(design))
         if not diff:
             return {}
-        return {"object_layout": f"call {last.get('call_id')} wrote it for another layout; the head: {diff}"}
+        return {"object_layout": f"the note ({S.object_origin(last)}) was written for another layout; the head: "
+                                 f"{diff}"}
 
     def _photo_list(self) -> dict:
-        """facet_inspect's photo list: id -> view (a photo of another colourway: its colour and "camera", the tools
-        that take a photo with a camera; a reference photo: "photo_image only")."""
-        out = {pid: self.basis.refs[self.rid(pid)].get("view_kind") for pid in self.photo_ids()}
+        """facet_inspect's photo list: id -> view and "camera" for every photo with a camera (the tools that take one:
+        a target photo; a photo of another colourway with its colour), "photo_image only" for a reference photo with
+        its colour (v3p3 astra P3-9: only B1-B3 said "camera", while 01-06 have cameras too)."""
+        out = {pid: f"{self.basis.refs[self.rid(pid)].get('view_kind')}, camera" for pid in self.photo_ids()}
         for pid, ref in self.colourway_refs().items():
             out[pid] = f"{self.basis.refs[ref].get('view_kind')}, {self._colour(pid)}, camera"
         for row in self._rows("reference"):
@@ -1442,6 +1885,10 @@ class Lab(SceneHooks):
         with self.state_lock:
             st = self.state.setdefault("readings", {})
             log = self.state.setdefault("reading_log", [])
+            if call_id in self._unseen:         # the SDK stopped waiting: Astra never sees these (mark_unseen)
+                log.append({"call_id": call_id, "id": tag, "action": "unseen", "names": [r["name"] for r in recs],
+                            "drop": list(drop)})
+                drop, recs = [], []
             for n in drop:
                 log.append({"call_id": call_id, "id": tag, "action": "dropped", "name": n, "was": st.pop(n)})
             for rec in recs:
@@ -1463,6 +1910,10 @@ class Lab(SceneHooks):
         held = self._held_readings(head["revision"], set(replaced) | set(drop), now)
         if held:
             out["head_nodes"] = held
+        lone = unused_readings(self.design(head["revision"]), self.fit_result(head["revision"]),
+                               {rec["name"]: now[rec["name"]] for rec in recs}, near_read=True)
+        if lone:                    # a reading no node of the head is named for, against its nearest node
+            out["no_node"] = lone
         out["stored"] = names_now
         out["images"] = images
         return out
@@ -1538,14 +1989,24 @@ class Lab(SceneHooks):
         return {"status": "refused", "code": code, "stage": stage, "edit": None, "message": msg}
 
     def _fit_build(self, design: dict, call_id: str | None = None) -> tuple:
-        """(FitResult, build) of a design, or a refusal dict: the fit's (stage "fit": E_FIT_SHAPE, E_FIT, E_SPEC) or
-        the builder's (stage "build") with its facts only (no remedy added, WP6_V3 P6); any other exception of either
-        is _host_error's (E_FIT / E_BUILD; WorkerFailed stays fatal, though neither calls the worker)."""
+        """(FitResult, build) of a design, or a refusal dict: the fit's own (stage "fit": E_FIT_SHAPE, E_FIT) or the
+        spec's parse inside the fit (stage "spec": E_SHORT_EDGE, E_SPEC, E_OUTLINE...; v3p3 e2e P3-2: a parse refusal
+        read as stage "fit"), with its fields (REFUSAL_FIELDS) and, for a node it names (an E_SHORT_EDGE crossing at a
+        node that "cannot move"), outline_facts; or the builder's (stage "build") with its facts only (no remedy
+        added, WP6_V3 P6); any other exception of either is _host_error's (E_FIT / E_BUILD; WorkerFailed stays fatal,
+        though neither calls the worker)."""
         try:
             fit = FIT.fit_spec(design, readings=self.readings())
         except TempleError as e:
-            return {"status": "refused", "code": e.code, "stage": "fit", "edit": None,
-                    "message": brief(e.message, FIT_REFUSAL_MAX)}, None
+            out = {"status": "refused", "code": e.code, "stage": "fit" if e.code.startswith("E_FIT") else "spec",
+                   "edit": None, "message": brief(e.message, FIT_REFUSAL_MAX)}
+            fields = {k: v for k, v in e.fields.items() if k in REFUSAL_FIELDS}
+            if fields:
+                out["fields"] = fields
+            facts = outline_facts(design, e.fields.get("refs") or []) if e.code == "E_SHORT_EDGE" else []
+            if facts:
+                out["outline"] = facts
+            return out, None
         except WorkerFailed:
             raise
         except Exception as e:  # noqa: BLE001 - stated as this call's refusal, never the SDK's generic error
@@ -1554,8 +2015,7 @@ class Lab(SceneHooks):
             tb = build_temple(fit.spec)
         except TempleError as e:
             return {"status": "refused", "code": e.code, "stage": "build", "edit": None, "message": brief(e.message),
-                    "fields": {k: v for k, v in e.fields.items() if k in ("facet", "node", "nodes", "pair", "point",
-                                                                          "d", "y", "facets")}}, None
+                    "fields": {k: v for k, v in e.fields.items() if k in REFUSAL_FIELDS[:8]}}, None
         except WorkerFailed:
             raise
         except Exception as e:  # noqa: BLE001 - as the fit's
@@ -1583,9 +2043,10 @@ class Lab(SceneHooks):
         except TempleError as e:
             return {"status": "refused", "code": e.code, "edit": None, "stage": "spec", "message": e.message}
         S.check_object(self.state, base, design, object)             # E_OBJECT (state.object_due)
+        entry = None
         if object is not None:
             with self.state_lock:
-                S.record_object(self.state, object, call_id, spec=design)
+                entry = S.record_object(self.state, object, call_id, spec=design, parent=parent["id"])
             self.save()
         fit, tb = self._fit_build(design, call_id)
         if tb is None:
@@ -1593,6 +2054,9 @@ class Lab(SceneHooks):
             return {**fit, "parent": parent["id"], **({"object": "recorded"} if object is not None else {})}
         rid, new = self._register(design, parent=parent["id"], kind="edit", ops=len(edits), note=note,
                                   call_id=call_id, fit=fit)
+        if entry is not None:
+            with self.state_lock:                     # the note's revision (state.object_origin)
+                entry["revision"] = rid
         self._cache_build(rid, tb)
         out = {"status": "built", "revision": rid, "parent": parent["id"],
                "design": self.state["revisions"][rid]["sha256"][:8],
@@ -1604,6 +2068,9 @@ class Lab(SceneHooks):
         if notes:
             out["notes"] = notes
         out["receipt"] = self._receipt(tb, fit, self.raw_edges(rid))
+        unused = unused_readings(design, fit, self.readings())
+        if unused and unused != unused_readings(base, self.fit_result(parent["id"]), self.readings()):
+            out["unused_readings"] = unused         # what changed against the parent (facet_inspect lists them all)
         out.update(self._vs_head(design, tb, fit, parent["id"]))
         tag = self._next("edit")
         images = [self._chart_image(rid, tb, tag)]
@@ -1620,7 +2087,7 @@ class Lab(SceneHooks):
                 self.save()
                 return out
             out.update(status="applied", checkpoint=self.s.head["id"],
-                       blender=self._blender_receipt(r.get("result") or {}, RP.receipt(tb)["lines"]))
+                       blender=self._blender_receipt(r.get("result") or {}, RP.receipt(tb)["lines"], tb))
             cmp = self._compare(call_id, photos, by="astra", tool="facet_edit")
             if cmp["status"] == "ok":
                 out["compare_id"] = cmp["compare_id"]
@@ -1637,8 +2104,10 @@ class Lab(SceneHooks):
     def _vs_head(self, design: dict, tb, fit, parent: int) -> dict:
         """What a new revision changes against the CURRENT HEAD's revision (not its parent; applying a variant with no
         edits diffs "no change" against the variant), in the receipt's order: ``solved`` (solved_moves),
-        ``crease_vs_head`` (creases built with the other shape than in the head) and ``diff_vs_head`` (when the
-        parent is not the head); {} when the scene holds no applied revision or nothing changed."""
+        ``crease_vs_head`` (creases built with the other shape than in the head: crease_changes, with a solved corner
+        whose stored reading the fit compared), ``edges_vs_head`` (creases that appear or go flat: edge_changes) and
+        ``diff_vs_head`` (when the parent is not the head); {} when the scene holds no applied revision or nothing
+        changed."""
         head = self.head_record()
         if head is None:
             return {}
@@ -1647,9 +2116,12 @@ class Lab(SceneHooks):
         moved = solved_moves(fit, self._fit_nodes(hr))
         if moved:
             out["solved"] = moved
-        changes = crease_changes(self.build(hr), tb)
+        changes = crease_changes(self.build(hr), tb, fit)
         if changes:
             out["crease_vs_head"] = f"r{hr}: " + "; ".join(changes)
+        edges = edge_changes(self.build(hr), tb)
+        if edges:
+            out["edges_vs_head"] = f"r{hr}: " + "; ".join(edges)
         if parent != hr:
             out["diff_vs_head"] = f"r{hr}: " + G.diff_text(G.diff_specs(self.design(hr), design))
         return out
@@ -1694,7 +2166,8 @@ class Lab(SceneHooks):
                 continue
             fit, tb = self._fit_build(design, call_id)
             if tb is None:
-                item.update(revision=None, stage=fit["stage"], code=fit["code"], edit=None, message=fit["message"])
+                item.update(revision=None, stage=fit["stage"], code=fit["code"], edit=None, message=fit["message"],
+                            **({"outline": fit["outline"]} if fit.get("outline") else {}))
                 items.append(item)
                 continue
             rid, _new = self._register(design, parent=parent["id"], kind="variant", label=v["label"],
@@ -1710,10 +2183,18 @@ class Lab(SceneHooks):
                 item["same_as"] = twin
                 same[v["label"]] = twin
             else:
+                shift = crease_shift(d, head["revision"] <= rid)
+                if shift:                 # the creases beside vs_head_mm (v3p3 astra P2-2: 0.60 for an 8.37 mm move)
+                    item["creases_vs_head_mm"] = shift
                 item.update(fit=fit_brief(fit, head_nodes), creases=self._crease_brief(tb))
-                changes = crease_changes(head_tb, tb)
+                changes = crease_changes(head_tb, tb, fit)
                 if changes:               # against the head, as facet_edit's crease_vs_head
                     item["crease_vs_head"] = "; ".join(changes)
+                edges = edge_changes(head_tb, tb)
+                if edges:                 # ... and its edges_vs_head
+                    item["edges_vs_head"] = "; ".join(edges)
+                if _notes:                # the outline knots apply_edits moved with a corner (geometry module doc)
+                    item["notes"] = _notes
             built[v["label"]] = (rid, self.spec(rid), tb)
             items.append(item)
         pairs = {}
@@ -1827,8 +2308,8 @@ class Lab(SceneHooks):
     def _variant_views(self, pids: list, models: dict, call_id: str, pairs: int | None = None) -> tuple[list, dict]:
         """Worker views (crop camera with the photo's pose, one pass) and the compositing record of each photo: the
         box of _variant_box over _variant_region (else the latest full compare's crop box) at sheets.variant_scale
-        for ``pairs`` model pairs on a page (default one per model of ``models``: the head and the arms drawn; a
-        refused arm or one equal to another model has no pair); the photo
+        for ``pairs`` model pairs on the photo's one sheet (default one per model of ``models``: the head and the arms
+        drawn; a refused arm or one equal to another model has no pair); the photo
         stretch, background, gains and environment of the latest full compare that showed it. A target photo's panels
         are the native_linear pass with the job's white-balanced target gain and the photo's stretch; a photo of another
         colour's are the gloss_black pass with the gloss gain and stretch that compare used for it (its record's
@@ -1972,14 +2453,15 @@ class Lab(SceneHooks):
                         items: list, same: dict) -> tuple[list, dict | None, list, dict]:
         """The worker's read-only render of the head and the built variants that are models of their own (``same``
         = {label: "head" or an earlier label} for an arm whose design is that one's: not rendered again; one pass per
-        photo: _variant_views), composited into pages per photo (sheets.variant_pages): the photo pair (the photo |
-        the photo with the head's edges) and per model drawn a pair, its clean render beside (or above) the lined one
-        (the photo's outline green and that model's own model edges labelled with their angles: _variant_edges). An
-        arm refused (by the host or Blender) or equal to another model has no panels: the page's notes line names it,
-        its facts are in the text (review2-lab-e2-1 P2-3: such arms took a model slot each, B1 7 pages for 6 arms with
-        3 refused and 1 equal to the head). Returns (page paths, a render-status note or None, the labels rendered at
-        every photo (an arm equal to the head or to a rendered arm counts: its model is on the pages), {edges: {photo:
-        {model: edges drawn | None}}, edge_occlusion} for the state record)."""
+        photo: _variant_views), composited into ONE sheet per photo (sheets.variant_sheet): the photo pair (the photo
+        | the photo with the head's edges) and per model drawn a pair, its clean render beside (or above) the lined
+        one (the photo's outline green and that model's own model edges labelled with their angles: _variant_edges).
+        An arm refused (by the host or Blender) or equal to another model has no panels: the sheet's notes line names
+        it, its facts are in the text (review2-lab-e2-1 P2-3: such arms took a model slot each). The title gives the
+        box, k and the px/mm shown. Returns (sheet paths, a render-status note or None, the labels rendered at every
+        photo (an arm equal to a rendered arm counts: its model is on the sheet; an arm equal to the head never does:
+        it shows no alternative, so it cannot make a spread or a stuck finish), {edges: {photo: {model: edges drawn |
+        None}}, edge_occlusion} for the state record)."""
         unique = {lb: b for lb, b in built.items() if lb not in same}
         models = {"head": self.build(head["revision"]), **{lb: tb for lb, (_rid, _spec, tb) in unique.items()}}
         views, comp = self._variant_views(photos, models, call_id, pairs=len(models))
@@ -2005,7 +2487,10 @@ class Lab(SceneHooks):
                  and all(f"{pid}--{lb}" in files for pid in photos)}
         if all(f"{pid}--head" in files for pid in photos):
             shown.add("head")
-        rendered = [lb for lb in built if lb in shown or same.get(lb) in shown]
+        # an arm equal to the head shows no alternative: never a rendered variant (finish preconditions 2 and 5;
+        # v3p3 e2e P3-4, safety P3-1: a no-op arm stood in for the head in the spread, and arms that all equal the
+        # head opened the stuck finish); one equal to a rendered arm is that model on the sheet
+        rendered = [lb for lb in built if same.get(lb) != "head" and (lb in shown or same.get(lb) in shown)]
         status = None
         blender = {lb: b for lb, b in res["variants"].items() if b.get("status") != "ok"}
         if blender:
@@ -2014,7 +2499,7 @@ class Lab(SceneHooks):
         drawn_models = {"head": models["head"],
                         **{lb: tb for lb, (_rid, _spec, tb) in unique.items() if lb in res["variants"]
                            and res["variants"][lb].get("status") == "ok"}}
-        left = []                           # the arms with no panels of their own, named on every page
+        left = []                           # the arms with no panels of their own, named on every sheet
         for it in items:
             lb = it["label"]
             if lb in same:
@@ -2062,15 +2547,17 @@ class Lab(SceneHooks):
             for it in items:
                 lb = it["label"]
                 if lb in shown:
-                    rows.append(model_row(lb, f"{lb}: r{it['revision']}, {it['vs_head_mm']:.2f} mm from head"))
+                    cm = self.delta(head["revision"], it["revision"])["crease_mm"]
+                    rows.append(model_row(lb, f"{lb}: r{it['revision']}, {it['vs_head_mm']:.2f} mm from head"
+                                          + (f", creases up to {cm:.1f} mm" if cm >= it["vs_head_mm"] + 0.5 else "")))
             view = str(bs.refs[c["rid"]].get("view_kind") or "view") + (f", {c['colour']}" if c["colour"] else "")
             x0, y0, x1, y1 = c["box"]
+            ppm = f", {c['px_per_mm']:.1f} px/mm" if c.get("px_per_mm") else ""
             title = (f"variants {vid} of r{parent} at {pid} ({view}): {c['what']}; box [{x0},{y0},{x1},{y1}] "
-                     f"({c['shows']}) k {c['k']:.2f}")
-            for n, page in enumerate(SH.variant_pages(photo_row, rows, title, page_notes), 1):
-                p = out_dir / f"sheet-{pid}-{n}.png"
-                page.save(p)
-                paths.append(self._image(p, "variants", ref=vid, photo=pid, revision=head["revision"]))
+                     f"({c['shows']}) k {c['k']:.2f}{ppm}")
+            p = out_dir / f"sheet-{pid}.png"
+            SH.variant_sheet(photo_row, rows, title, page_notes).save(p)
+            paths.append(self._image(p, "variants", ref=vid, photo=pid, revision=head["revision"]))
         lines = {"edges": {pid: {name: None if edges.get((pid, name)) is None else
                                  sum(1 for e in edges[(pid, name)] if e["runs"]) for name in drawn_models}
                            for pid in photos},
@@ -2086,7 +2573,7 @@ class Lab(SceneHooks):
             raise LabRefusal("E_ARGS", "status must be matched or stuck")
         if not isinstance(summary, str) or not summary.strip() or len(summary) > SUMMARY_MAX:
             raise LabRefusal("E_ARGS", f"summary must be 1..{SUMMARY_MAX} characters")
-        best = S.head_by_fingerprint(self.state, self.fingerprint_of(best_checkpoint))
+        best = S.head_of_checkpoint(self.state, best_checkpoint, self.fingerprint_of)
         if best is None:
             raise LabRefusal("E_ARGS", f"best_checkpoint {best_checkpoint!r} holds no applied revision; applied: "
                                        f"{S.applied_checkpoints(self.state)[-12:]}")
@@ -2131,204 +2618,3 @@ class Lab(SceneHooks):
                 "validate_spec": {"ok": v["ok"], "errors": v["errors"][:3], "warnings": len(v["warnings"]),
                                   "live_site_would_fail": v.get("live_site_would_fail", [])[:3]}}
 
-
-# --------------------------------------------------------------------------------------------- v2 relics
-# Unreachable from the v3 tools (module doc). tests/proofs/astra_temple_lab.py (the v2 T5 rehearsal, to be rewritten
-# for v3, WP6_V3 §7.2) reads crease_margins / margins_summary / MARGIN_ITEMS_MAX, and tests/agent/
-# test_temple_readings.py checks readings.read_point against corner_reading. Delete them with those uses.
-MARGIN_FRAGILE_MM = 1.0          # v2: a crease margin under this was listed in receipts
-MARGIN_ITEMS_MAX = 3             # v2: crease margins shown per facet_edit receipt
-CORNER_ON_LINE_MM = 1e-3         # v2: a corner this close to a crease's line is one of its ends
-FAR_NAMED_SHARE = 0.9            # v2: a named corner this share as far across a crease as its facet reaches
-CORNER_COND_MAX = 20.0           # = readings.COND_MAX (test_temple_readings pins it)
-
-
-def _inner_x(tb, d: float) -> float:
-    return float(np.asarray(tb.spec.inner(d), float))
-
-
-def solved_corners(tb) -> dict:
-    """v2: {node: (t, facet)}: a build's solved nodes (t "solve") on an arrangement vertex, with the plane value its
-    vertex took and the facet whose plane gave it."""
-    sol, out = tb.sol, {}
-    for name, (d, _y, t) in tb.spec.nodes.items():
-        v = sol.node_vertex.get(name)
-        if t is not None or v is None:
-            continue
-        src, X = sol.source_vertex[v] or "", float(sol.X_vertex[v])
-        if src.startswith("facet ") and np.isfinite(X):
-            out[name] = (X - _inner_x(tb, d), src[len("facet "):])
-    return out
-
-
-def by_design(facets: dict) -> set:
-    """v2: the corners of a crease + rise facet other than its two crease nodes (that plane fixes them)."""
-    out = set()
-    for f in facets.values():
-        if f["plane"] not in ("nodes", "warp") and isinstance(f["plane"], dict) and "crease" in f["plane"]:
-            out |= set(f["poly"]) - set(f["plane"]["crease"])
-    return out
-
-
-def _crease_lines(tb) -> dict:
-    """v2: {(F1, F2): (origin, unit direction)} in (d, y) of every crease between two facets of a build."""
-    arr, lab = tb.arr, tb.face_label
-    ef = arr.edge_faces()
-    acc: dict = {}
-    for (a, b), f in ef.items():
-        g = ef.get((b, a))
-        if g is None:
-            continue
-        la, lb = lab[f], lab[g]
-        if la != lb and "base" not in (la, lb) and la < lb:
-            acc.setdefault((la, lb), []).append((a, b))
-    out = {}
-    V = np.asarray(arr.V, float)
-    for key, es in acc.items():
-        vec = sum((V[b] - V[a] for a, b in es), np.zeros(2))
-        L = float(np.hypot(*vec))
-        if L > 1e-12:
-            out[key] = (V[[v for e in es for v in e]].mean(axis=0), vec / L)
-    return out
-
-
-def crease_margins(tb) -> dict:
-    """v2: {(F1, F2): margin} of every built crease between two flat facets: each face's corner farthest across the
-    crease's line and that corner's offset in X from the other face's plane, extended (+ = a ridge by that corner);
-    margin = {shape, deg, declared, corners [{node, d, y, mm}], ends, solved, from, flip_mm, design_ends}. A warp
-    facet has no plane: its creases have no margin."""
-    ps, sol = tb.spec, tb.sol
-    lines = _crease_lines(tb)
-    solved = solved_corners(tb)
-    design = by_design(ps.facets)
-    V = np.asarray(tb.arr.V, float)
-    verts: dict = {}
-    for fi, f in enumerate(tb.arr.faces):
-        verts.setdefault(tb.face_label[fi], set()).update(f)
-    out = {}
-    for c in tb.tables["creases"]:
-        key = tuple(c["regions"])
-        if c["kind"] != "crease" or key not in lines or any(ps.facets[f]["plane"] == "warp" for f in key):
-            continue
-        o, u = lines[key]
-        nl = np.array([-u[1], u[0]])
-
-        def across(d, y, sign):
-            return sign * float((np.array([d, y], float) - o) @ nl)
-        polys = [ps.facets[f]["poly"] for f in key]
-        ends = sorted(n for n in set(polys[0]) & set(polys[1])
-                      if abs(across(*ps.nodes[n][:2], 1.0)) <= CORNER_ON_LINE_MM)
-        corners = []
-        for own, other, sign, poly in ((key[0], key[1], 1.0, polys[0]), (key[1], key[0], -1.0, polys[1])):
-            vs = sorted(verts.get(own, ()))
-            if not vs:
-                break
-            s_max, k = max((across(V[v, 0], V[v, 1], sign), v) for v in vs)
-            if s_max <= CORNER_ON_LINE_MM:
-                break
-            named = [(across(*ps.nodes[n][:2], sign), n) for n in poly if n in sol.node_vertex]
-            named = [r for r in named if r[0] >= FAR_NAMED_SHARE * s_max]
-            if named:
-                _s, node = max(named)
-                d, y = (float(v) for v in ps.nodes[node][:2])
-            else:
-                node, d, y = None, float(V[k, 0]), float(V[k, 1])
-            corners.append({"node": node, "d": d, "y": y,
-                            "mm": float(sol.planes[other].X(d, y) - sol.planes[own].X(d, y))})
-        if len(corners) != 2:
-            continue
-        setting = set(ends) | {x["node"] for x in corners if x["node"]}
-        sv = sorted(n for n in setting if n in solved and n not in design)
-        free = [abs(x["mm"]) for x in corners if x["node"] and x["node"] not in design]
-        out[key] = {"shape": c["shape"], "deg": c["mean_dihedral_deg"], "declared": c.get("declared"),
-                    "corners": corners, "ends": ends, "solved": sv, "from": {n: solved[n][1] for n in sv},
-                    "flip_mm": min(free) if free else float("inf"),
-                    "design_ends": [n for n in ends if n in design and ps.nodes[n][2] is None]}
-    return out
-
-
-def _corner_name(c: dict) -> str:
-    return c["node"] if c["node"] else f"({c['d']:.0f},{c['y']:.0f})"
-
-
-def margin_text(m: dict) -> str:
-    """v2: a crease's margin, compact: "P -1.1/C -4.0"."""
-    a, b = m["corners"]
-    return f"{_corner_name(a)} {a['mm']:+.1f}/{_corner_name(b)} {b['mm']:+.1f}"
-
-
-def margins_summary(margins: dict, cap: int, first=()) -> str:
-    """v2: the receipts' margins, one compact string (flips first, then solved corners or margins under
-    MARGIN_FRAGILE_MM), at most ``cap`` grouped by their solved corners, the rest counted; "" for none."""
-    keys = sorted((k for k, m in margins.items() if k in first or m["solved"] or m["flip_mm"] < MARGIN_FRAGILE_MM),
-                  key=lambda k: (k not in first, margins[k]["flip_mm"], k))
-    shown, rest = keys[:cap], keys[cap:]
-    groups: dict = {}
-    for k in shown:
-        groups.setdefault(tuple(margins[k]["solved"]), []).append(f"{'|'.join(k)} {margin_text(margins[k])}")
-    parts = [(f"{', '.join(sv)} solved: " if sv else "") + ", ".join(its) for sv, its in groups.items()]
-    if rest:
-        extra = sorted({n for k in rest for n in margins[k]["solved"]} - {n for sv in groups for n in sv})
-        parts.append(f"+{len(rest)} more" + (f" ({', '.join(extra)} solved)" if extra else ""))
-    return "; ".join(parts)
-
-
-def _photo_sides(tb, camera, frame, pose, d: float, y: float, X: float, opening) -> list:
-    """v2: the temple(s) to try for a photo: the one whose outer face the camera sees at (d, y, X), else both."""
-    h = tb.spec.hinge
-    seen = []
-    for side in (1, -1):
-        P = PO.chart_to_posed([[d, y, X], [d, y, X + 1.0]], side, float(h["z_mm"]), pose, opening)
-        seen.append(bool(PO.faces_camera(P[:1], P[1] - P[0], camera, frame)[0]))
-    return [1] if seen == [True, False] else ([-1] if seen == [False, True] else [1, -1])
-
-
-def corner_reading(tb, views: list, d0: float, y0: float) -> dict:
-    """v2 (photo_compare depths with ``also``; v3: readings.read_point): a point read from 2..4 photos, views =
-    [(camera, frame, pose, (u, v))], by least squares from (d0, y0) at the model's t there. Returns {d_mm, y_mm, X_mm,
-    t_mm, res_px, sd_t_mm, t_at_mm, sd_t_at_mm, model_t_mm, sides}. Raises ValueError when no point fits the pixels or
-    the views see it along nearly one line (condition number over CORNER_COND_MAX)."""
-    h = tb.spec.hinge
-    opening = _opening(h)
-    X0, _reg = G.surface_at(tb, np.array([[d0, y0]], float))
-    x0 = float(X0[0]) if np.isfinite(X0[0]) else _inner_x(tb, d0) + float(tb.spec.base_t(d0, y0))
-    start = np.array([d0, y0, x0], float)
-    targets = [np.asarray(v[3], float).reshape(2) for v in views]
-    sides = [_photo_sides(tb, cam, fr, pose, d0, y0, x0, opening) for cam, fr, pose, _uv in views]
-
-    def residual(p, combo):
-        out = []
-        for (cam, fr, pose, _uv), side, tgt in zip(views, combo, targets):
-            P = PO.chart_to_posed([p], side, float(h["z_mm"]), pose, opening)
-            out.append(project_mm(P, cam, fr)[0] - tgt)
-        return np.concatenate(out)
-    best = None
-    for combo in itertools.product(*sides):
-        try:
-            r = least_squares(residual, start, args=(combo,), x_scale=[10.0, 10.0, 3.0], method="lm")
-        except ValueError:
-            continue
-        if np.all(np.isfinite(r.fun)) and (best is None or r.cost < best[0].cost):
-            best = (r, combo)
-    if best is None:
-        raise ValueError("no point fits these pixels: pick the same corner in each photo")
-    r, combo = best
-    J = np.asarray(r.jac, float)
-    d, y, X = (float(v) for v in r.x)
-    g = np.array([-(_inner_x(tb, d + 0.5) - _inner_x(tb, d - 0.5)), 0.0, 1.0])
-    try:
-        cov = np.linalg.inv(J.T @ J)
-        sd = float(np.sqrt(max(g @ cov @ g, 0.0)))
-        sd_at = float(np.sqrt(max(cov[2, 2], 0.0)))
-    except np.linalg.LinAlgError:
-        sd = sd_at = float("inf")
-    sv = np.linalg.svd(J, compute_uv=False)
-    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else float("inf")
-    if not np.isfinite(cond) or cond > CORNER_COND_MAX:
-        raise ValueError(f"these photos see the point along nearly one line (t would move {max(sd, sd_at):.1f} mm "
-                         f"per px of pick error): pick it in a photo from another direction")
-    Xm, _reg = G.surface_at(tb, np.array([[d, y]], float))
-    res = np.asarray(r.fun, float).reshape(-1, 2)
-    return {"d_mm": d, "y_mm": y, "X_mm": X, "t_mm": X - _inner_x(tb, d), "t_at_mm": X - _inner_x(tb, d0),
-            "res_px": [float(np.hypot(*e)) for e in res], "sd_t_mm": sd, "sd_t_at_mm": sd_at,
-            "model_t_mm": float(Xm[0]) - _inner_x(tb, d) if np.isfinite(Xm[0]) else None, "sides": list(combo)}

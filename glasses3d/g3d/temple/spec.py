@@ -74,6 +74,7 @@ REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NO
 WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT", "W_FADE_EARLY",
             "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION",
             "W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # fit.py's (FIT_WARNINGS)
+            "W_WARP_TWIST",                                                          # ... a warp's turn
             "W_WARP_CHORD")                                                          # a warp's chord error
 
 DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-6, "kink_sharp_deg": 25.0,
@@ -702,9 +703,11 @@ def _snap_d(c: dict, snap: float, snaps: list) -> None:
             key = (ref[0], best)
             if key in used:
                 i0 = used[key]
-                raise TempleError("E_SHORT_EDGE", f"{ref[0]} knots {i0} and {ref[1]} lie within snap_mm {snap:g} of "
-                                  f"d {best:g}: remove one or move it at least {snap:g} mm away", table=ref[0],
-                                  knots=[i0, ref[1]], d=[_table(c, ref[0])[i0][0], d], snap_mm=snap)
+                d_i0 = _table(c, ref[0])[i0][0]
+                raise TempleError("E_SHORT_EDGE", f"{ref[0]} knots {i0} (d {d_i0:g}) and {ref[1]} (d {d:g}) lie within "
+                                  f"snap_mm {snap:g} of d {best:g}, one station; ways: delete either knot, or move "
+                                  f"either at least {snap:g} mm in d from the other", table=ref[0],
+                                  knots=[i0, ref[1]], d=[d_i0, d], snap_mm=snap)
             used[key] = ref[1]
         if best != d:
             _set_d(c, ref, best)
@@ -760,6 +763,30 @@ def _facet_crossings(c: dict, top, bot) -> list:
     return out
 
 
+def _edges_at(c: dict, p) -> list:
+    """The facet edges [label, n1, n2] that pass within 1e-6 mm of the point p (an outline crossing)."""
+    p = np.asarray(p, np.float64)
+    out = []
+    for label, f in sorted(c["facets"].items()):
+        poly = f["poly"]
+        for n1, n2 in zip(poly, poly[1:] + poly[:1]):
+            a, b = np.array(c["nodes"][n1][:2], np.float64), np.array(c["nodes"][n2][:2], np.float64)
+            v = b - a
+            L2 = float(v @ v)
+            t = 0.0 if L2 <= 0.0 else min(max(float((p - a) @ v) / L2, 0.0), 1.0)
+            if float(np.hypot(*(a + t * v - p))) <= 1e-6:
+                out.append([label, n1, n2])
+    return out
+
+
+def _edge_names(edges: list) -> str:
+    """"K-E (crown, shoulder)": each distinct edge once, its facets beside it."""
+    by: dict = {}
+    for label, n1, n2 in edges:
+        by.setdefault(tuple(sorted((n1, n2))), []).append(label)
+    return " and ".join(f"{a}-{b} ({', '.join(ls)})" for (a, b), ls in sorted(by.items())) or "(none found)"
+
+
 def _station_refs(c: dict, top, bot) -> dict:
     """d -> refs of the given values that become stations (outline incl. tip-round points, tables, nodes, fades,
     chamfer breaks) inside the outline's d range."""
@@ -813,9 +840,14 @@ def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.n
         for i, (dc, yc, chain) in enumerate(cross):
             for dj, yj, _ in cross[i + 1:]:
                 if 1e-6 < abs(dj - dc) <= snap:
-                    raise TempleError("E_SHORT_EDGE", f"two facet edges cross the outline at d {dc:.4f} and {dj:.4f} "
-                                      f"(< snap_mm {snap:g} apart): move a node", at=[[dc, yc], [dj, yj]],
-                                      snap_mm=snap)
+                    e1, e2 = _edges_at(c, (dc, yc)), _edges_at(c, (dj, yj))
+                    raise TempleError("E_SHORT_EDGE", f"facet edges {_edge_names(e1)} and {_edge_names(e2)} cross "
+                                      f"the outline at d {dc:.3f} and {dj:.3f}, {abs(dj - dc):.3f} mm apart: stations "
+                                      f"under snap_mm {snap:g} apart have no build; ways: a node of either edge moved "
+                                      f"so the two crossings lie at least {snap:g} mm apart in d or at one point (a "
+                                      f"node near the outline put onto it, within snap_mm, or the outline through it, "
+                                      f"is no crossing), or a layout without one of them",
+                                      at=[[dc, yc], [dj, yj]], edges=[e1, e2], snap_mm=snap)
             k = bisect.bisect_left(keys, dc)
             near = [keys[j] for j in (k - 1, k) if 0 <= j < len(keys) and 1e-6 < abs(keys[j] - dc) <= snap]
             if any(s in taken for s in near):
@@ -825,10 +857,21 @@ def _snap_crossings(c: dict, snap: float, snaps: list) -> tuple[np.ndarray, np.n
                 caps = [r for r in refs[s] if r[0].startswith("outline")
                         and r[1] in (0, len(c["outline"][r[0].split(".")[1]]) - 1)]
                 if fixed or caps:
+                    # facts and every way out (v3p3-review-e2e P1-1 / P3-2: "move a node at least snap_mm away",
+                    # followed along d 0.06 mm a step, never cleared it: the crossing moves with the node)
                     what = [_ref_name(r) for r in fixed + caps]
-                    raise TempleError("E_SHORT_EDGE", f"a facet edge crosses the {chain} edge at d {dc:.4f}, "
-                                      f"{abs(dc - s):.4f} mm from d {s:g} ({what}), which cannot move: move a node "
-                                      f"at least snap_mm {snap:g} away", at=[dc, yc], d=s, refs=what, snap_mm=snap)
+                    edges = _edges_at(c, (dc, yc))
+                    movable = [w for w in what if w.startswith("node ")]
+                    raise TempleError("E_SHORT_EDGE", f"facet edge {_edge_names(edges)} crosses the {chain} outline at "
+                                      f"d {dc:.3f}, {abs(dc - s):.3f} mm from d {s:g}, where {', '.join(what)} stands "
+                                      f"(the parse moves only outline, inner and base knots onto a crossing): stations "
+                                      f"under snap_mm {snap:g} apart have no build; ways: a node of that edge moved so "
+                                      f"the crossing lies at d {s:g} or at least {snap:g} mm from it (a node near the "
+                                      f"outline put onto it, within snap_mm, or the outline through it, is no "
+                                      f"crossing; moved in d, the crossing moves with it)"
+                                      + (f", {', '.join(movable)} at least {snap:g} mm from the crossing in d"
+                                         if movable else "") + ", or a layout without that crossing",
+                                      at=[dc, yc], d=s, refs=what, edges=edges, snap_mm=snap)
                 for r in refs[s]:
                     row = _table(c, r[0])[r[1]]
                     if r[0] == f"outline.{chain}":

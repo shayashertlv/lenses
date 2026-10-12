@@ -938,6 +938,23 @@ def test_a_stepped_flat_facet_base_pair_is_a_plateau_not_a_flat_crease():
     assert any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in tb.warnings)
 
 
+def test_a_soft_flat_facet_base_border_gives_no_flat_crease_warning():
+    """v3p3-review-astra P3-1: a border made soft (the photos show only a tone change there) built flat printed
+    "W_FLAT_CREASE: crease shoulder|base bends only 1.23 deg (< 2.0)" beside "shoulder|base flat 1.2° soft" in every
+    session2 receipt from step 06 (soft had removed the step that suppressed it), read as a request for more angle. A
+    soft border is meant to read as no line: no warning; its crease line still says flat and soft. The same border
+    not soft keeps the warning (the facet's other pairs are unaffected)."""
+    s = lean_spec(0.0, 0.0, off=0.0)
+    s["facets"]["F"]["soft"] = True
+    tb = build_temple(s)
+    assert not any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in tb.warnings)
+    c = next(c for c in tb.tables["creases"] if c["kind"] == "crease" and c["regions"] == ["F", "base"])
+    assert c["shape"] == "flat" and c.get("soft") is True
+    assert any(ln.startswith("F|base flat") and "soft" in ln for ln in RP.crease_lines(tb))
+    s["facets"]["F"]["soft"] = False
+    assert any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in build_temple(s).warnings)
+
+
 def test_touch_of_a_point_segment():
     """arrange._touch with a zero-length segment (two coincident corners) is a point test: it divided by zero and
     returned "no touch" through NaN comparisons (a RuntimeWarning in the v3-builder-fix fuzz)."""

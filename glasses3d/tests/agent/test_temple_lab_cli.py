@@ -21,7 +21,9 @@ pytest.importorskip("agents")
 from glasses3d.agent import approvals as A  # noqa: E402
 from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent import seeing  # noqa: E402
+from glasses3d.agent import budget as B  # noqa: E402
 from glasses3d.agent.temple_lab import cli  # noqa: E402
+from glasses3d.agent.temple_lab import sheets as SH  # noqa: E402
 from glasses3d.agent.temple_lab import tools as T  # noqa: E402
 from glasses3d.agent.temple_lab.lab import LAB_SCHEMA, Lab  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
@@ -235,14 +237,14 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
     assert brief.startswith("Product: Test Frame 1. The target photos (01, 02, 03, 04, 05, 06) show the colourway to "
                             "match. Photos B1, B2, B3 show the same model in glossy black (the materials never change")
     assert ("- 05: side; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 deg); its "
-            "compares print the charted temple's bottom outline offsets (not its top: the view looks down on the top "
-            "face)") in brief
+            "compares print the charted temple's bottom outline offsets and, for its top, the top face's far edge "
+            "minus its median (the view looks down on the top face)") in brief
     assert ("- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, "
             "square-on (14 deg); its compares print the mirrored temple's bottom outline offsets") in brief
     assert ("- B1: side, glossy black; camera yaw +90.0, pitch +13.6; the charted temple's outer face square-on (14 "
-            "deg); its compares print the charted temple's bottom outline offsets (not its top: the view looks down "
-            "on the top face); camera moved from 05's by matching the two photos' silhouettes, the temples' hinge "
-            "opening as in 05; not checked against the model") in brief
+            "deg); its compares print the charted temple's bottom outline offsets and, for its top, the top face's "
+            "far edge minus its median (the view looks down on the top face); camera moved from 05's by matching the "
+            "two photos' silhouettes, the temples' hinge opening as in 05; not checked against the model") in brief
     assert ("- B2: angled, glossy black; camera yaw +30.0, pitch +11.4; the charted temple's outer face at a "
             "moderate angle (61 deg); camera moved from 02's") in brief
     assert "Front and rear views look along creases that run front to back: 04, 06, B3 (cameras within 25 deg" in brief
@@ -637,16 +639,18 @@ def test_brief_geometry_helpers():
 
 def test_brief_outline_offsets_by_view():
     """A side view's compares print the outline offsets of the temple whose outer face it sees (seeing._side_outline):
-    looking down on the temple (01 / 05 / B1 from 13.6-13.7 deg above) only the bottom outline, looking up only the
-    top, level both; no other view prints numbers (v3: no top / rear outer-edge offsets, no outline line)."""
+    looking down on the temple (01 / 05 / B1 from 13.6-13.7 deg above) the bottom outline and, for the top, the top
+    face's far edge minus its median (seeing._far_edge_text, v3p3-fix-seeing: "not its top" hid the arm's top 2-4 mm
+    low behind d 100, which seeing now prints); looking up the other way round; level both outlines; no other view
+    prints numbers (v3: no top / rear outer-edge offsets, no outline line)."""
     assert cli.outline_text("side", {"yaw": 90.6, "pitch": 13.6}) == (
-        "its compares print the charted temple's bottom outline offsets (not its top: the view looks down on the top "
-        "face)")
+        "its compares print the charted temple's bottom outline offsets and, for its top, the top face's far edge "
+        "minus its median (the view looks down on the top face)")
     assert cli.outline_text("side", {"yaw": -90.8, "pitch": 13.7}).startswith(
         "its compares print the mirrored temple's bottom outline offsets")
     assert cli.outline_text("side", {"yaw": 90.0, "pitch": -5.0}) == (
-        "its compares print the charted temple's top outline offsets (not its bottom: the view looks up at the "
-        "bottom face)")
+        "its compares print the charted temple's top outline offsets and, for its bottom, the bottom face's far edge "
+        "minus its median (the view looks up at the bottom face)")
     assert cli.outline_text("side", {"yaw": 90.0, "pitch": 0.5}) == \
         "its compares print the charted temple's top and bottom outline offsets"
     for view, cam in (("angled", {"yaw": 30.0, "pitch": 11.0}), ("top", {"yaw": 0.0, "pitch": 60.0}),
@@ -841,8 +845,9 @@ def test_brief_on_the_real_pose_basis():
     62 deg to the outer face, the edge-on views; each camera's lineage as the basis records it (B1, B2, B3 moved from
     05, 02, 04 with theta copied: B1 is never called an all-views fit, review 2026-10-12, data/wp6v2/basis/report.json
     "camera transported from 05"; its check labelled as the all-views validation's); the side views' bottom outline
-    offsets; the reading precision and theta lever; both camera-model conflicts (03 at the front block; 03 and 06
-    against the readings near d 75); and every pointer the instructions make to the brief. No retired line."""
+    offsets and top face's far edge; the reading precision and theta lever; both camera-model conflicts (03 at the
+    front block; 03 and 06 against the readings near d 75); and every pointer the instructions make to the brief. No
+    retired line."""
     brief = real_brief()
     assert "two temples): 01, 05, B1 | 02, B2 | 03 | 04, B3 | 06." in brief
     assert "square-on (under 30 deg): 01, 05, B1. At a moderate angle (30 to 75 deg): 02, B2. Edge-on (75 deg or " \
@@ -851,11 +856,12 @@ def test_brief_on_the_real_pose_basis():
     assert "- 02: angled; camera yaw +28.2, pitch +11.4; the charted temple's outer face at a moderate angle (62 " \
            "deg); camera fitted to the model's silhouette (all-views fit): IoU 0.926" in brief
     assert "- 01: side; camera yaw -90.8, pitch +13.7; the mirrored temple's outer face, from its own side, " \
-           "square-on (14 deg); its compares print the mirrored temple's bottom outline offsets (not its top: the " \
-           "view looks down on the top face)" in brief
+           "square-on (14 deg); its compares print the mirrored temple's bottom outline offsets and, for its top, " \
+           "the top face's far edge minus its median (the view looks down on the top face)" in brief
     assert "- B1: side, glossy black; camera yaw +90.6, pitch +13.6; the charted temple's outer face square-on (14 " \
-           "deg); its compares print the charted temple's bottom outline offsets (not its top: the view looks down " \
-           "on the top face); camera moved from 05's by matching the two photos' silhouettes, the temples' hinge " \
+           "deg); its compares print the charted temple's bottom outline offsets and, for its top, the top face's " \
+           "far edge minus its median (the view looks down on the top face); camera moved from 05's by matching the " \
+           "two photos' silhouettes, the temples' hinge " \
            "opening as in 05; the model's silhouette at this camera in the all-views validation that fitted the " \
            "target photos' cameras: IoU 0.883, mean contour 7.2 px" in brief
     assert "camera moved from 02's by matching the two photos' silhouettes (photo to photo, on its registration " \
@@ -896,9 +902,11 @@ def sample(tool, chars, images, status="ok", args=300):
     return {"tool": tool, "status": status, "text_chars": chars, "args_chars": args, "images": images}
 
 
-# A zoom grid as the lab registers it (kind "compare" with zoom=True, lab.py; seeing: 2 x 2 panels of a 380 x 220 box
-# at k 2, the size of probe 1's real zooms) and pick sheets of a 2- and a 4-photo reading (readings.pick_sheet).
-ZOOM = [1538, 946, "compare"]
+# A zoom grid as the v3 rehearsal records it (cli.record_kind; the lab registers it as kind "compare" with zoom=True,
+# lab.py; seeing: 2 x 2 panels of a 380 x 220 box at k 2, the size of probe 1's real zooms), the same grid as a
+# rehearsal recorded it before record_kind (a "compare" image), and pick sheets of a 2- and a 4-photo reading
+# (readings.pick_sheet).
+ZOOM, ZOOM_AS_COMPARE = [1538, 946, cli.ZOOM_GRID_KIND], [1538, 946, "compare"]
 SHEET2, SHEET4 = [972, 728, "reading"], [972, 1412, "reading"]
 
 
@@ -978,14 +986,15 @@ def test_the_largest_images_are_the_tools(tmp_path):
             assert im.width <= cli.zoom_grid_px()[0] and im.height <= cli.zoom_grid_px()[1], p
 
 
-def test_v3_images_are_priced_at_the_most_one_call_returns(monkeypatch):
+def test_v3_images_are_priced_at_the_most_one_call_returns():
     """photo_read is priced at READ_POINTS_MAX pick sheets of the largest size, its text and arguments scaled by the
     same factor; a call with no pick sheet (a drop) is left out of photo_read's mean, so it never dilutes the price of
     a read (review 2026-10-12, P2: one drop call halved it); photo_compare at its compare images plus ZOOM_MAX zoom
-    grids of the largest size and their text (its own zoom grids stay when the lab registers them as compare images,
-    and are replaced when it registers them under a kind of their own); the recorded call never changes; a rehearsal
-    without a pick sheet is refused while a mix prices photo_read, one without a zoom grid is not (the grid's size is
-    the tool's)."""
+    grids of the largest size and the text of each zoom beyond its own: its own zoom grids (recorded as
+    ZOOM_GRID_KIND, cli.record_kind) are replaced, never added to (v3p3-t5: recorded as "compare", a 2-zoom call was
+    priced at 5 grids); a call recorded before record_kind (its grids "compare" images) keeps them and is priced up to
+    ZOOM_MAX grids high; the recorded call never changes; a rehearsal without a pick sheet is refused while a mix prices
+    photo_read, one without a zoom grid is not (the grid's size is the tool's)."""
     outs = rehearsal()["tool_outputs"]
     read, drop, cmp_zoom, cmp_plain, edit = outs[2], outs[3], outs[4], outs[5], outs[6]
     sheet, grid = [*cli.read_sheet_px(), "reading"], [*cli.zoom_grid_px(), cli.ZOOM_GRID_KIND]
@@ -996,12 +1005,18 @@ def test_v3_images_are_priced_at_the_most_one_call_returns(monkeypatch):
     d = cli.priced_sample(drop, 4)
     assert d["unpriced"] is True and d["images"] == [] and "unpriced" not in drop
     z = cli.priced_sample(cmp_zoom, 4)
-    assert z["images"] == cmp_zoom["images"] + [grid] * 3                    # its own zoom stays: priced up to 3 high
-    assert z["text_chars"] == cmp_zoom["text_chars"] + 3 * cli.ZOOM_TEXT_CHARS
+    assert z["images"] == cmp_zoom["images"][:3] + [grid] * 3                # its own zoom replaced by the 3 priced
+    assert z["text_chars"] == cmp_zoom["text_chars"] + 2 * cli.ZOOM_TEXT_CHARS
+    assert cmp_zoom["images"][3] == ZOOM and len(cmp_zoom["images"]) == 4     # as recorded
+    old = {**cmp_zoom, "images": cmp_zoom["images"][:3] + [ZOOM_AS_COMPARE]}  # a rehearsal before record_kind
+    zo = cli.priced_sample(old, 4)
+    assert zo["images"] == old["images"] + [grid] * 3                       # its grid stays: priced up to 3 high
+    assert zo["text_chars"] == old["text_chars"] + 3 * cli.ZOOM_TEXT_CHARS
     assert cli.priced_sample(cmp_plain, 4)["images"] == cmp_plain["images"] + [grid] * 3
     assert cli.priced_sample(edit, 4) is edit                                # facet_edit's compare has no zoom
-    # the guard replaces a compare's images with its zoom grids (lab.context_stubs); no pick sheet is counted stubbable
-    assert cli.call_tokens(z)["stub_images"] == 7 and cli.call_tokens(p)["stub_images"] == 0
+    # the guard replaces a compare's panels and its zoom grids (lab.context_stubs); no pick sheet is counted stubbable
+    assert cli.call_tokens(z)["stub_images"] == 6 and cli.call_tokens(zo)["stub_images"] == 7
+    assert cli.call_tokens(p)["stub_images"] == 0
     # a drop does not dilute a read: photo_read's mean is the full call's, with or without the drop in the rehearsal
     priced = cli.priced_samples(outs, 4)
     full = cli.call_tokens(p)["tokens"]
@@ -1032,12 +1047,12 @@ def test_v3_images_are_priced_at_the_most_one_call_returns(monkeypatch):
     rows = t["tool_outputs"]["photo_read"]
     assert rows[0]["images"] == [SHEET2, SHEET4] and "priced" not in rows[0]                   # as recorded
     assert rows[1]["priced"] is False                                                           # the drop
-    # a lab that registers zoom grids under a kind of their own: the recorded grid is replaced, not added to
-    monkeypatch.setattr(cli, "ZOOM_GRID_KIND", "zoom")
-    own = sample("photo_compare", 1980, [[512, 400, "compare"]] * 3 + [[1538, 946, "zoom"]])
-    z2 = cli.priced_sample(own, 4)
-    assert z2["images"] == [[512, 400, "compare"]] * 3 + [[1538, 1066, "zoom"]] * 3
-    assert z2["text_chars"] == 1980 + 2 * cli.ZOOM_TEXT_CHARS
+    assert t["tool_outputs"]["photo_compare"][0]["images"] == cmp_zoom["images"]                # as recorded
+    # three own zooms: all three replaced, no text added
+    three = sample("photo_compare", 1980, [[512, 400, "compare"]] * 3 + [ZOOM] * 3)
+    z3 = cli.priced_sample(three, 4)
+    assert z3["images"] == [[512, 400, "compare"]] * 3 + [[1538, 1066, cli.ZOOM_GRID_KIND]] * 3
+    assert z3["text_chars"] == 1980
 
 
 def test_estimate_table_guard_and_long_context():
@@ -1076,10 +1091,11 @@ def test_the_range_top_is_the_costliest_listed_mix():
     # this rehearsal's edits are small beside 8 full pick sheets: the read-heavy arm is the top, above the typical
     assert want == "read_heavy" and runs["read_heavy"]["expected_micro_usd"] > runs["typical"]["expected_micro_usd"]
     assert all(r["text"].endswith("(a read-heavy mix (photo_read 3 in 10) at the high output)") for r in t["rows"])
-    big = rehearsal()             # edits of 9 large compare panels, before the guard: every reply an edit costs most
+    big = rehearsal()             # edits of 9 large compare panels, before the guard (its token epoch and its byte
+    #                               rung, 256 MB: these 20 requests reach about 90 MB): every reply an edit costs most
     big["tool_outputs"][6] = {**big["tool_outputs"][6], "images": [[1024, 1024, "compare"]] * 9}
     tb = cli.facet_estimate(big, requests=(20,))
-    assert all(r["high"]["context_guard_request"] is None for r in tb["rows"])
+    assert all(r["high"]["context_guard_request"] is None and r["high"]["peak_request_mb"] < 256 for r in tb["rows"])
     assert {r["high"]["mix"] for r in tb["rows"]} == {"edit_heavy"}
     assert all(r["text"].endswith("(every reply an edit)") for r in tb["rows"])
 
@@ -1098,8 +1114,10 @@ def test_a_run_that_reaches_the_input_limit_ends_there():
     assert run["peak_input_tokens"] <= MODEL_MAX_INPUT_TOKENS
     assert cli.limit_text(run) == (f"; its context reaches the model's {MODEL_MAX_INPUT_TOKENS:,}-token input limit at "
                                    f"request {at}, where such a run ends") and cli.limit_text(before) == ""
-    big = rehearsal()
-    big["tool_outputs"][6] = {**big["tool_outputs"][6], "images": [[1536, 1536, "compare"]] * 6}
+    big = rehearsal()           # 8 large edit images: the 90-reply top reaches the limit at request 84 (6 images were a
+    #                             knife edge: once the zoom compare's own grid was no longer priced twice, record_kind,
+    #                             that run peaked at 921,645 tokens, 355 under the limit)
+    big["tool_outputs"][6] = {**big["tool_outputs"][6], "images": [[1536, 1536, "compare"]] * 8}
     rows = {r["requests"]: r for r in cli.facet_estimate(big)["rows"] if r["effort"] == "max"}
     assert rows[90]["high"]["input_limit_request"] is not None and "input limit at request" in rows[90]["text"]
     assert rows[40]["high"]["input_limit_request"] is None and "input limit" not in rows[40]["text"]
@@ -1128,27 +1146,38 @@ def test_request_estimate_block(tmp_path):
                 {k: v for k, v in table.items() if k != "zoom_grids"},
                 {k: v for k, v in table.items() if k != "range_mixes"},
                 {**table, "pick_sheet_px": [972, 728]}, {**table, "zoom_grid_px": [1538, 1006]},
-                {**table, "zoom_grid_kind": "zoom"}, {**table, "zoom_text_chars": 0}):
+                {**table, "zoom_grid_kind": "compare"}, {**table, "zoom_text_chars": 0}):    # compare: before record_kind
         with pytest.raises(ValueError, match="another tool mix or image pricing"):
             cli.request_estimate(old, s, 30_000, [[1226, 682]] * 6)
 
 
 def test_the_estimates_image_kinds_are_the_labs(tmp_path):
-    """The estimate's image kinds are a real Lab's (review 2026-10-12, P3): a photo_compare zoom grid is registered
-    under ZOOM_GRID_KIND, and context_stubs replaces the images of an old result exactly for STUBBED_KINDS among the
-    kinds the lab registers (compare images, zoom grids included, and variant sheets; never charts or photos), so the
-    projection stubs what the guard stubs. A pick sheet is replaced only once its reading was read again or dropped
-    (the stored reading's own sheet stays): the projection counts no pick sheet as stubbable, which prices a run
-    that re-reads a little high, never low."""
+    """The estimate's image kinds are a real Lab's (review 2026-10-12, P3): a real photo_compare's zoom grid is
+    recorded as ZOOM_GRID_KIND and its panels as "compare" (cli.record_kind of the lab's index entries), and once
+    that compare is an old result (two later results, not best_checkpoint's) context_stubs replaces each exactly when
+    its recorded kind is in STUBBED_KINDS; among the kinds the lab registers, it replaces exactly LAB_STUB_KINDS
+    (compare images and variant sheets; never charts or photos), and STUBBED_KINDS adds nothing but the zoom grids:
+    the projection stubs what the guard stubs. A pick sheet is replaced only once its reading was read again or
+    dropped (the stored reading's own sheet stays): the projection counts no pick sheet as stubbable, which prices a
+    run that re-reads a little high, never low."""
     root, _ = package(tmp_path)
     lab = lab_on(root)
     before = set(lab.state["images"])
     out = lab.compare("cmp-zoom", ["05"], None, [{"photo": "05", "box": [40, 60, 200, 140], "geometry": True}])
     assert out["status"] == "ok"
     new = {d: r for d, r in lab.state["images"].items() if d not in before}
-    zooms = [r for r in new.values() if r.get("zoom")]
-    assert zooms and {r["kind"] for r in zooms} == {cli.ZOOM_GRID_KIND}
-    kinds = ("compare", "variants", "chart", "photo", "zoom")
+    zooms = {d: r for d, r in new.items() if r.get("zoom")}
+    panels = {d: r for d, r in new.items() if not r.get("zoom")}
+    assert zooms and {cli.record_kind(r) for r in zooms.values()} == {cli.ZOOM_GRID_KIND}
+    assert panels and {cli.record_kind(r) for r in panels.values()} == {"compare"}
+    for cid, pid in (("cmp-later-1", "01"), ("cmp-later-2", "02")):           # the zoomed compare becomes old
+        assert lab.compare(cid, [pid], None, None)["status"] == "ok"
+    assert lab.state.get("best_checkpoint") is None
+    real = lab.context_stubs(list(zooms) + list(panels))
+    assert {d for d in zooms if d in real} == ({*zooms} if cli.ZOOM_GRID_KIND in cli.STUBBED_KINDS else set())
+    assert {d for d in panels if d in real} == ({*panels} if "compare" in cli.STUBBED_KINDS else set())
+    assert set(cli.STUBBED_KINDS) - set(cli.LAB_STUB_KINDS) <= {cli.ZOOM_GRID_KIND}
+    kinds = ("compare", "variants", "chart", "photo")
     digests = {}
 
     def image(name, kind, **meta):
@@ -1163,7 +1192,8 @@ def test_the_estimates_image_kinds_are_the_labs(tmp_path):
     image("sheet-stored", "reading", ref="read009", reading="E", revision=0)       # the stored reading's own sheet
     image("sheet-superseded", "reading", ref="read003", reading="E", revision=0)   # E read again since
     stubbed = lab.context_stubs(list(digests.values()))
-    assert {k for k in kinds if digests[k] in stubbed} == set(cli.STUBBED_KINDS) & set(kinds)
+    assert {k for k in kinds if digests[k] in stubbed} == set(cli.LAB_STUB_KINDS) & set(kinds) == \
+        set(cli.STUBBED_KINDS) & set(kinds)
     assert digests["sheet-stored"] not in stubbed and digests["sheet-superseded"] in stubbed
     assert cli.ZOOM_GRID_KIND in cli.STUBBED_KINDS and not set(cli.READING_KINDS) & set(cli.STUBBED_KINDS)
 
@@ -1195,23 +1225,25 @@ def test_output_tokens_are_the_paid_facet_runs():
 def test_facet_variants_is_priced_at_the_jobs_most_sheets(tmp_path):
     """One facet_variants call returns one sheet per photo, up to 4 when the job has photos of another colour with a
     camera (3 target photos + 1), else 3 (Lab.variant_photos_max). The rehearsal's call is priced at that many
-    sheets (its largest sheet repeated), and a request for a package whose calls can return more sheets than the
-    estimate table priced is refused."""
+    sheets of the largest page (sheets.SHEET_W x SHEET_H, review 2026-10-12 P3: not the rehearsal's own sheet), and a
+    request for a package whose calls can return more sheets than the estimate table priced is refused."""
     targets = [{"role": "target"}] * 6
     assert cli.variant_sheets(targets) == 3 and cli.variant_sheets(targets + [{"role": "reference"}]) == 3
     assert cli.variant_sheets(targets + [{"role": "colourway"}]) == 4 == cli.variant_sheets(
         targets + [{"role": "colourway"}] * 3)
     two = sample("facet_variants", 700, [[1280, 692, "variants"], [1280, 899, "variants"]])
     four = cli.priced_sample(two, 4)
-    assert four["images"] == [[1280, 692, "variants"], [1280, 899, "variants"]] + [[1280, 899, "variants"]] * 2
-    assert len(two["images"]) == 2 and cli.priced_sample(two, 2) is two      # the recorded call is not changed
+    page = [SH.SHEET_W, SH.SHEET_H, "variants"]
+    assert four["images"] == [page] * 4 and page[:2] == [1280, 900]
+    assert cli.priced_sample(two, 2)["images"] == [page] * 2
+    assert two["images"] == [[1280, 692, "variants"], [1280, 899, "variants"]]   # the recorded call is not changed
     edit = rehearsal()["tool_outputs"][6]
     assert cli.priced_sample(edit, 4) is edit                                  # facet_edit is never padded
     t3, t4 = cli.facet_estimate(rehearsal(), sheets=3), cli.facet_estimate(rehearsal())
     assert (t3["variant_sheets"], t4["variant_sheets"]) == (3, 4)
     share = cli.MIXES["typical"]["facet_variants"] / sum(cli.MIXES["typical"].values())
     grow = t4["steps"]["typical"]["tokens"] - t3["steps"]["typical"]["tokens"]
-    assert grow == pytest.approx(share * cli.image_tokens(1280, 899), abs=0.2)  # one more sheet, at its mix share
+    assert grow == pytest.approx(share * cli.image_tokens(1280, 900), abs=0.2)  # one more sheet, at its mix share
     assert t4["steps"]["edit_heavy"] == t3["steps"]["edit_heavy"]               # that mix has no variants call
     assert t4["tool_outputs"]["facet_variants"][0]["images"] == [[1280, 899, "variants"]] * 2   # as recorded
     # the rehearsal's job: its own package's photo rows (4 with another colour, 3 without, the most when unreadable)
@@ -1245,6 +1277,180 @@ def test_facet_variants_is_priced_at_the_jobs_most_sheets(tmp_path):
     cli.make_spec(root, "r4", s, "20", write_request=True, lab=lab, estimate_path=tmp_path / "t4.json")
     doc = json.loads((root / "runs" / "r4" / "approval-request.json").read_text(encoding="utf-8"))
     assert doc["estimate"]["source"]["variant_sheets"] == 4
+
+
+def test_facet_variants_text_is_priced_at_the_most_arms_and_inspect_at_its_largest():
+    """Review 2026-10-12, P3 (checked on the T5 v3 rehearsal and session2): facet_variants' text and arguments are
+    priced at VARIANTS_MAX arms (by VARIANTS_MAX / its own arms when the rehearsal records them, as recorded or from
+    the report's outputs; else VARIANTS_MAX / VARIANTS_MIN: high), and facet_inspect at its largest successful call
+    (its text grows with the stored readings: revision 0's inspect priced the T5 v3 mean at 1,682 tokens against
+    session2's 2,908-3,167); every other inspect is left out of the mean, never the recorded calls changed."""
+    from glasses3d.agent.temple_lab.lab import VARIANTS_MAX, VARIANTS_MIN
+    v = sample("facet_variants", 1500, [[1060, 898, "variants"]] * 2, args=1400)
+    assert (VARIANTS_MIN, VARIANTS_MAX) == (2, 4)          # v3-final: 6 -> 4 (one sheet per photo, sheets.py)
+    three_arms = cli.priced_sample({**v, "arms": 3}, 4)
+    assert (three_arms["text_chars"], three_arms["args_chars"]) == (2000, 1867)                      # x 4 / 3
+    unknown = cli.priced_sample(v, 4)
+    assert (unknown["text_chars"], unknown["args_chars"]) == (3000, 2800)                            # x 4 / 2
+    assert cli.priced_sample({**v, "arms": 4}, 4)["text_chars"] == 1500 == v["text_chars"]
+    assert cli.priced_sample({**v, "arms": 6}, 4)["text_chars"] == 1500     # an older record's 6 arms: never below
+    assert cli.priced_sample({**v, "arms": 3}, 4)["images"] == [[1280, 900, "variants"]] * 4        # the largest page
+    none = sample("facet_variants", 300, [])                                    # every arm refused: no sheet
+    assert cli.priced_sample(none, 4) is none
+    reh = rehearsal()
+    reh["tool_outputs"].append(sample("facet_variants", 900, [[1280, 899, "variants"]]))
+    reh["steps"] = [{"step": f"s{k}"} for k in range(len(reh["tool_outputs"]))]
+    reh["outputs"] = {f"s{len(reh['tool_outputs']) - 1}": {"variants": [{"label": "a"}, {"label": "b"},
+                                                                        {"label": "c"}]}}
+    got = cli.rehearsal_samples(reh)
+    assert got[-1]["arms"] == 3 and "arms" not in got[8] and "arms" not in reh["tool_outputs"][-1]
+    # facet_inspect: the largest successful call prices it; a smaller one is listed unpriced
+    small, big = sample("facet_inspect", 1657, [[1024, 430, "chart"]]), sample("facet_inspect", 3732,
+                                                                                [[1024, 430, "chart"]])
+    timed_out = sample("facet_inspect", 302, [], status="timeout")
+    outs = [s for s in rehearsal()["tool_outputs"] if s["tool"] != "facet_inspect"] + [small, big, timed_out]
+    priced = cli.priced_samples(outs, 4)
+    flags = [p.get("unpriced", False) for p in priced if p["tool"] == "facet_inspect"]
+    assert flags == [True, False, False]
+    assert cli.mix_step(priced, {"facet_inspect": 1})["tokens"] == pytest.approx(cli.call_tokens(big)["tokens"])
+    assert cli.LARGEST_PRICED == ("facet_inspect",) and "unpriced" not in small
+    table = cli.facet_estimate({**rehearsal(), "tool_outputs": outs})
+    assert [r.get("priced", True) for r in table["tool_outputs"]["facet_inspect"]] == [False, True, True]
+    assert table["variant_sheet_px"] == [1280, 900] and table["variant_arms"] == 4
+    assert table["largest_priced"] == ["facet_inspect"]
+
+
+def test_request_bytes_model_and_the_guards_byte_rungs():
+    """Review 2026-10-12, P2 (v3p3-verify-15): every projected run carries its request bytes and images (each image at
+    its kind's largest measured bytes per token, text at 1.1 bytes a character, REQUEST_OVERHEAD_BYTES a request),
+    its peak, the count's modelled time there beside its timeout (budget.count_timeout_s), the guard's epochs (the
+    token epoch once, then byte rungs at k x guard_bytes: loop.ContextGuard) and the request where the provider's
+    per-request limit would end it (budget.PAYLOAD_LIMIT_BYTES / _IMAGES)."""
+    assert cli.BYTES_PER_IMAGE_TOKEN == {"chart": 353, "compare": 412, "photo": 214, "reading": 230,
+                                         "variants": 414, "zoom": 324} and cli.BYTES_PER_IMAGE_TOKEN_MAX == 414
+    assert cli.image_bytes(1024, 454, "chart") == pytest.approx(cli.image_tokens(1024, 454) * 353)
+    assert cli.image_bytes(1024, 454, "sections") == pytest.approx(cli.image_tokens(1024, 454) * 414)
+    edit = sample("facet_edit", 1400, [[1024, 454, "chart"]] + [[512, 400, "compare"]] * 5, status="applied",
+                  args=1500)
+    t = cli.call_tokens(edit)
+    assert t["bytes"] == pytest.approx(1.1 * 2900 + cli.image_bytes(1024, 454, "chart")
+                                       + 5 * cli.image_bytes(512, 400, "compare"))
+    assert t["stub_bytes"] == pytest.approx(5 * cli.image_bytes(512, 400, "compare")) and t["images"] == 6
+    assert cli.first_request_bytes(1000, [[100, 100]]) == round(1100 + 24_000 + cli.image_bytes(100, 100))
+    assert cli.first_request_bytes(1000, [[100, 100]], [5000]) == 1100 + 24_000 + 5000
+    # no bytes known: the bytes fields are None and the byte rungs off (the token projection unchanged)
+    step = {"tokens": 10_000.0, "stubbable": 6_000.0, "results": 1.0, "stub_images": 5.0, "bytes": 3_000_000.0,
+            "stub_bytes": 2_500_000.0, "images": 6.0}
+    plain = cli.project(30_000, {k: step[k] for k in ("tokens", "stubbable", "results", "stub_images")}, 60,
+                        output=2_000, max_output_tokens=16_384)
+    assert plain["peak_request_mb"] is plain["peak_images"] is plain["peak_count_s"] is None
+    assert plain["context_guard_requests"] == [plain["context_guard_request"]]                       # one token epoch
+    sized = cli.project(30_000, step, 60, output=2_000, max_output_tokens=16_384, c0_bytes=2_650_000, c0_images=9,
+                        guard_bytes=None)
+    assert sized["expected_micro_usd"] == plain["expected_micro_usd"] and sized["context_guard_requests"] == \
+        plain["context_guard_requests"]
+    g = sized["context_guard_request"]                                     # images regrow after the token epoch
+    drop = (g - 2) - cli.GUARD_KEEP_RESULTS                                # results before it, but the kept ones
+    assert g == 23 and sized["peak_images"] == math.ceil(9 + 59 * 6 - drop * 5)      # the last request is the peak
+    assert sized["peak_count_s"] == round(cli.COUNT_S_BASE + cli.COUNT_S_PER_MB * sized["peak_request_mb"], 1)
+    assert abs(sized["count_timeout_s_at_peak"] - B.count_timeout_s(sized["peak_request_mb"] * 1e6)) <= 1
+    # byte rungs: with a 40 MB rung the guard also fires on bytes, each rung once, never on tokens again
+    rungs = cli.project(30_000, step, 60, output=2_000, max_output_tokens=16_384, c0_bytes=2_650_000, c0_images=9,
+                        guard_bytes=40_000_000)
+    assert len(rungs["context_guard_requests"]) >= 2 and rungs["context_guard_request"] < g
+    assert rungs["peak_request_mb"] < sized["peak_request_mb"]
+    # the provider's per-request limit ends the run before the request that would pass it
+    big = {**step, "images": 100.0}
+    capped = cli.project(30_000, big, 60, output=2_000, max_output_tokens=16_384, c0_bytes=2_650_000, c0_images=9,
+                         guard_tokens=None)
+    at = capped["payload_limit_request"]
+    assert at is not None and 9 + (at - 2) * 100 <= B.PAYLOAD_LIMIT_IMAGES < 9 + (at - 1) * 100
+    before = cli.project(30_000, big, at - 1, output=2_000, max_output_tokens=16_384, c0_bytes=2_650_000,
+                         c0_images=9, guard_tokens=None)
+    assert before["payload_limit_request"] is None and before["expected_micro_usd"] == capped["expected_micro_usd"]
+    assert cli.limit_text(capped) == (f"; its requests reach the provider's per-request limit (512 MB or 1,500 images) "
+                                      f"at request {at}, where such a run ends") and cli.limit_text(before) == ""
+
+
+def test_the_table_and_the_approval_carry_request_bytes(tmp_path):
+    """The table projects every row's bytes (the first request's recorded bytes when the rehearsal has them, else the
+    bytes model) and the approval block uses the package's own photo bytes and the settings' guard."""
+    reh = rehearsal()
+    table = cli.facet_estimate(reh)
+    assert table["first_request"]["bytes_from"] == "bytes model" and table["context_guard_bytes"] == \
+        L.CONTEXT_GUARD_BYTES
+    reh["first_request"]["bytes"] = 2_650_000
+    recorded = cli.facet_estimate(reh)
+    assert recorded["first_request"]["request_bytes"] == 2_650_000 and recorded["first_request"]["bytes_from"] == \
+        "recorded" and table["first_request"]["request_bytes"] == cli.first_request_bytes(30_000, [[1226, 682]] * 6)
+    for r in recorded["rows"]:
+        for run in (r["expected"], r["high"]):
+            assert run["peak_request_mb"] > 2.65 and run["peak_images"] >= 6 and run["peak_count_s"] > 0
+    for k in ("variant_sheet_px", "variant_arms", "largest_priced", "bytes_per_image_token", "text_bytes_per_char",
+              "request_overhead_bytes", "context_guard"):
+        assert recorded[k] == cli.image_pricing()[k]
+        with pytest.raises(ValueError, match="another tool mix or image pricing"):
+            cli.request_estimate({kk: v for kk, v in recorded.items() if kk != k}, T.run_settings(effort="max",
+                                                                                                  max_turns=40),
+                                 30_000, [[1226, 682]] * 6)
+    s = T.run_settings(effort="max", max_turns=40)
+    block = cli.request_estimate(recorded, s, 30_000, [[1226, 682]] * 6, image_bytes=[300_000] * 6)
+    assert block["first_request_bytes"] == 33_000 + 24_000 + 1_800_000
+    assert block["expected"]["peak_request_mb"] is not None and block["high"]["peak_images"] is not None
+    # make_spec gives the package's own photo bytes (each data URL's length)
+    root, _ = package(tmp_path)
+    lab = lab_on(root)
+    (tmp_path / "t.json").write_text(json.dumps(recorded), encoding="utf-8")
+    spec, _ = cli.make_spec(root, "r1", s, "20", write_request=True, lab=lab, estimate_path=tmp_path / "t.json")
+    doc = json.loads((root / "runs" / "r1" / "approval-request.json").read_text(encoding="utf-8"))
+    chars = cli.c0_chars(spec.instructions, spec.brief, spec.tools, spec.photos)
+    assert doc["estimate"]["first_request_bytes"] == cli.first_request_bytes(
+        chars, [p.size_px for p in spec.photos], [len(p.image_url) for p in spec.photos])
+
+
+def test_request_defaults_to_the_v3_table_and_refuses_without_a_traceback(tmp_path, capsys, monkeypatch):
+    """Review 2026-10-12, P3 (T5 open item 2): `cli request` defaulted to the v2 table (estimate.json), which
+    request_estimate refuses, and main let the ValueError out as a traceback. The default is now the v3 table, and a
+    package or table refusal prints {"status": "refused"} and exits 2 (nothing is written or sent)."""
+    assert cli.ESTIMATE == cli.LAB_DATA / "estimate_v3.json"
+    root, _ = package(tmp_path)
+    monkeypatch.setattr(cli, "Lab", lambda _root: lab_on(root))          # a real Lab on fakes (no Blender)
+    v2 = tmp_path / "v2.json"
+    v2.write_text(json.dumps({"variant_sheets": 4, "mixes": {"typical": {"facet_edit": 5}}, "steps": {}}),
+                  encoding="utf-8")
+    with pytest.raises(SystemExit) as stop:
+        cli.main(["request", "--job", str(root), "--effort", "max", "--turns", "40", "--cap", "20", "--estimate",
+                  str(v2), "--run-id", "r-v2"])
+    out = json.loads(capsys.readouterr().out)
+    assert stop.value.code == 2 and out["status"] == "refused" and out["type"] == "ValueError"
+    assert "another tool mix or image pricing" in out["message"]
+    assert not (root / "runs" / "r-v2" / "approval-request.json").exists()
+    if cli.ESTIMATE.is_file():          # git-ignored data: the current v3 table is one request_estimate accepts
+        s = T.run_settings(effort="max", max_turns=40)
+        block = cli.request_estimate(json.loads(cli.ESTIMATE.read_text(encoding="utf-8")), s, 30_000,
+                                     [[1226, 682]] * 6, variant_sheets=4)
+        assert block["expected"]["peak_request_mb"] is not None
+
+
+def test_run_checks_the_machine_load_unless_told_to_ignore_it(tmp_path, monkeypatch):
+    """Review 2026-10-12, P2 (v3p3-verify-16): `cli run` gives the run loop.machine_load, so a run refuses at preflight
+    while other Blender or pytest work runs (before the scene's worker starts) and reports load that starts later;
+    --ignore-load runs anyway, still reporting."""
+    seen = []
+
+    def fake_spec(job, run_id, settings, cap, *, write_request=False, estimate_path=None):
+        return L.RunSpec(job_dir=job, run_id=run_id, instructions="i", tools=[], brief="b",
+                         current_request_sha256="0" * 64, settings=settings), object()
+
+    async def fake_run(spec, *, scene=None):
+        seen.append((spec.load_check, spec.refuse_on_load))
+        return {"status": "completed"}
+    monkeypatch.setattr(cli, "make_spec", fake_spec)
+    monkeypatch.setattr(cli, "run_astra", fake_run)
+    base = ["run", "--job", str(tmp_path), "--effort", "max", "--turns", "40", "--cap", "20"]
+    cli.main(base)
+    cli.main(base + ["--ignore-load"])
+    assert seen == [(L.machine_load, True), (L.machine_load, False)]
 
 
 def test_main_requires_the_owner_settings(tmp_path):

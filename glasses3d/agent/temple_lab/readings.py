@@ -8,9 +8,10 @@ their residual. Back corners also carry a camera theta term (~1.3 mm of X per de
 a corner pick or the crossing of two traced edges, its error has a pick part and a camera part, and the text says where
 the residual cannot see a slide, for both kinds (review 2026-10-12, v3/v3-readings-fix.md).
 
-Model (= lab.corner_reading's, which this module does not import: lab imports it): the chart point p = (d, y, X) of the
-+X temple at opening 0 is placed as the lab builds it (the spec's hinge opening; the -X temple is its mirror), opened
-by each photo's temple pose (pose.chart_to_posed) and projected by the photo's camera (camera.project_mm). Each photo is
+Model (= v2's lab.corner_reading's, now the reference in tests/agent/test_temple_readings.py): the chart point p =
+(d, y, X) of the +X temple at opening 0 is placed as the lab builds it (the spec's hinge opening; the -X temple is its
+mirror), opened by each photo's temple pose (pose.chart_to_posed) and projected by the photo's camera
+(camera.project_mm). Each photo is
 on the temple whose outer face it sees at p (both or neither, e.g. a front view: both tried, the smaller cost kept).
 That map is projective, so each photo is a 3 x 4 matrix (``camera_matrix``; every solution is checked against
 project_mm to SELF_CHECK_PX): a linear (DLT) triangulation starts every side combination, so a reading needs no start
@@ -57,7 +58,7 @@ Refusals (ValueError; the lab returns them as E_ARGS): a bad name, kind or pick;
 photos, a repeated photo or one without a camera; a pixel or edge point outside the photo; parallel edges or a crossing
 outside the photo; no point in front of the cameras that fits the pixels within the engineering bounds; and a pixel
 Jacobian (px per mm of d, y, X, unweighted) whose condition number exceeds COND_MAX 20 (the photos see the point along
-nearly one line: = lab.CORNER_COND_MAX; run-6 cameras B2+B1 1.9, 05+01 ~940).
+nearly one line: = v2's lab.CORNER_COND_MAX, the test's REF_COND_MAX; run-6 cameras B2+B1 1.9, 05+01 ~940).
 
 Directions and the slide line: photos whose lines of sight at the point lie within SAME_DIR_DEG 2 of each other are one
 direction (a twin and its source exactly: B1 and 05 see one line). ``lines`` gives each photo's epipolar line to every
@@ -98,14 +99,15 @@ given), rids (basis references), fits (each photo's camera fit, a lab photo id),
 projection), res_px, res_sd (each photo's residual in sd of its own stated pixel error), chi2 and dof (W_RESIDUAL's
 statistic), crossing_deg (per photo; null for a corner reading), edge_epipolar_deg (per photo [edge 1, edge 2] the
 smallest angle to a line to another direction; null for a corner reading), lines, slide (null unless two directions),
-cond, warnings, model_t (the build's t at (d, y); null outside its outline), picks (the input, rounded)}; every other
-float rounded to 0.001 (as
-lab._r_depths), and the text prints from those numbers (``fixed`` = lab.fixed). t and model_t are the build's at read
-time: ``refresh`` recomputes them from a later build (X, d, y do not depend on it).
+cond, warnings, model_t (the build's t at (d, y), ``model_t``: within MODEL_EDGE_MM outside the outline the nearest
+probe's; null farther out), picks (the input, rounded)}; every other float rounded to 0.001 (as v2's depth records), and the
+text prints from those numbers (``fixed`` = lab.fixed). t and model_t are the build's at read time: ``refresh``
+recomputes them from a later build (X, d, y do not depend on it).
 
 ``reading_text(rec)`` one line (the Prada crown's K, 4-photo crossing, tests/agent/test_temple_readings.py): name, kind
-and photos; d, y, X with sd (X's pick part, its camera part per fit); t at that d (model t); residual px (sd) per photo;
-crossing deg; condition; the slide line (two directions); then each warning as "; CODE message".
+and photos; d, y, X with sd in mm (X's pick part, its camera part per fit); t in mm at that d ("model t 6.50", or
+"outside the model's outline"); residual px (in sd of the photo's stated pixel error) per photo; crossing deg; the
+condition number with its limit; the slide line (two directions); then each warning as "; CODE message".
 
 ``pick_sheet(basis, rec, out_path)``: one image per reading, a row per photo: the clean crop and the same crop drawn
 (both at one scale, centred on the pixel used, at least BOX_MIN_W x BOX_MIN_H native px so a tip's closing band and
@@ -141,7 +143,7 @@ SD_PX_MIN, SD_PX_MAX = 0.1, 20.0
 CAMERA_PX_SD = 1.0              # a fitted camera's error in px at a point (both ways), added to the pick's
 TRANSPORT_PX_DEFAULT = 1.0      # a transported camera's own error when its record names no contour residual (px)
 THETA_SD_DEG = 0.3              # each camera fit's temple theta error (deg): the camera term
-COND_MAX = 20.0                 # = lab.CORNER_COND_MAX (a test pins it)
+COND_MAX = 20.0                 # = v2's lab.CORNER_COND_MAX (test_temple_readings pins it)
 COND_PRINT_MAX = 1e4            # a larger condition number prints as "above 10000" (one direction twice: ~1e16)
 CROSS_MIN_DEG = 1.0             # two edges closer to parallel do not cross at one pixel: refused
 SHALLOW_DEG = 15.0              # W_SHALLOW_CROSSING below this crossing angle
@@ -153,6 +155,12 @@ REF_D_MM, REF_T_MM = 40.0, 5.0  # the temple point (d, y 0, t) where a refusal's
 SELF_CHECK_PX = 1e-5            # camera_matrix against project_mm at every solution (a code defect otherwise)
 LSQ_TOL = 1e-12
 NAME_MAX = 24                   # = geometry.NAME_RE (a node's name)
+MODEL_EDGE_MM = 0.05            # model_t: a reading this close outside the build's outline takes the surface's t at
+#                                 the nearest probe inside (a corner read ON the outline lies a few microns out once
+#                                 the fit moves its node: session2's C 0.006 mm and D 0.029 mm below revision 4's
+#                                 bottom outline printed "model out"); farther out it has none
+EDGE_PROBES = 16                # model_t: probes per ring (rings at 1/4, 1/2 and all of MODEL_EDGE_MM)
+OUTSIDE_MODEL = "outside the model's outline"   # reading_text (and facet_inspect's readings) where model_t is null
 TRANSPORT_RE = re.compile(r"camera transported from ([A-Za-z0-9_.-]+)")
 CONTOUR_RE = re.compile(r"contour ([0-9]+(?:\.[0-9]+)?) px")
 REF_PREFIX = "reference-"
@@ -191,6 +199,19 @@ def _r(x, nd: int = 3):
 
 def _inner_x(tb, d: float) -> float:
     return float(np.asarray(tb.spec.inner(d), float))
+
+
+def model_t(tb, d: float, y: float) -> float | None:
+    """The build's t (outer surface X - x_in(d)) at (d, y) (geometry.surface_at); a point outside the outline by at
+    most MODEL_EDGE_MM takes the X of the nearest probe inside (EDGE_PROBES on rings of a quarter, a half and all of
+    MODEL_EDGE_MM; t from the reading's own d's inner face); None farther out (the text: "outside the model's
+    outline")."""
+    ang = np.linspace(0.0, 2.0 * math.pi, EDGE_PROBES, endpoint=False)
+    ring = np.column_stack([np.cos(ang), np.sin(ang)])
+    P = np.vstack([[[d, y]]] + [np.array([d, y]) + f * MODEL_EDGE_MM * ring for f in (0.25, 0.5, 1.0)])
+    X, _reg = G.surface_at(tb, P)
+    hit = np.nonzero(np.isfinite(X))[0]
+    return float(X[hit[0]]) - _inner_x(tb, d) if len(hit) else None
 
 
 def _opening(tb):
@@ -309,7 +330,8 @@ def _solve(Hs: list, uvs: list, Linv: np.ndarray, x0) -> tuple[np.ndarray, float
 
 
 def _facing(cam, frame, pose, p, hinge_z: float, opening) -> list:
-    """= lab._photo_sides at p: the temple whose outer face the camera sees there, else both."""
+    """= v2's lab._photo_sides at p (test_temple_readings.ref_photo_sides): the temple whose outer face the camera
+    sees there, else both."""
     seen = []
     for side in (1, -1):
         P = PO.chart_to_posed([p, np.asarray(p, float) + [0.0, 0.0, 1.0]], side, hinge_z, pose, opening)
@@ -678,8 +700,7 @@ def read_point(tb, basis, name: str, picks: list, *, kind: str, refs: dict | Non
                                     f"{fixed(chi2, 1)} for {dof} degrees of freedom (its {100 * (1 - RESIDUAL_P):g} % "
                                     f"point is {fixed(limit, 1)})"})
     d, y, X = (float(v) for v in p)
-    Xm, _reg = G.surface_at(tb, np.array([[d, y]], float))
-    xin = _inner_x(tb, d)
+    xin, mt = _inner_x(tb, d), model_t(tb, d, y)
     return {"name": name, "kind": kind, "d": _r(d), "y": _r(y), "X": _r(X), "t": _r(X - xin),
             "sd_X": _r(sd[2]), "sd_X_pick": _r(sd_pick[2]), "sd_X_camera": _r(sd_cam[2]),
             "sd_d": _r(sd[0]), "sd_d_pick": _r(sd_pick[0]), "sd_d_camera": _r(sd_cam[0]),
@@ -692,7 +713,7 @@ def read_point(tb, basis, name: str, picks: list, *, kind: str, refs: dict | Non
             "crossing_deg": [_r(r["crossing_deg"]) for r in P] if kind == "crossing" else None,
             "edge_epipolar_deg": [_r(e) for e in epi] if kind == "crossing" else None,
             "lines": lines, "slide": slide, "cond": _r(cond), "warnings": warnings,
-            "model_t": _r(float(Xm[0]) - xin) if np.isfinite(Xm[0]) else None,
+            "model_t": _r(mt),
             "picks": [{"photo": r["photo"], "uv": _r(r["uv_in"], 2) if r["uv_in"] is not None else None,
                        "edges": _r(r["edges_in"], 2) if r["edges_in"] is not None else None, "sd_px": _r(r["sd_px"])}
                       for r in P]}
@@ -702,9 +723,7 @@ def refresh(rec: dict, tb) -> dict:
     """A stored reading against a later build: t and model_t recomputed from tb's inner face and surface at the
     reading's (d, y) (they are the build's at read time; X, d, y and the errors do not depend on it). A new dict."""
     d, y, X = float(rec["d"]), float(rec["y"]), float(rec["X"])
-    Xm, _reg = G.surface_at(tb, np.array([[d, y]], float))
-    xin = _inner_x(tb, d)
-    return {**rec, "t": _r(X - xin), "model_t": _r(float(Xm[0]) - xin) if np.isfinite(Xm[0]) else None}
+    return {**rec, "t": _r(X - _inner_x(tb, d)), "model_t": _r(model_t(tb, d, y))}
 
 
 def conditional_x(rec: dict, d: float, y: float) -> tuple[float, float]:
@@ -719,8 +738,11 @@ def conditional_x(rec: dict, d: float, y: float) -> tuple[float, float]:
 
 
 def reading_text(rec: dict) -> str:
-    """One reading as one line (module doc), its numbers through ``fixed`` from the record's."""
-    m = "out" if rec.get("model_t") is None else fixed(rec["model_t"], 2)
+    """One reading as one line (module doc), its numbers through ``fixed`` from the record's: d, y, X in mm, t in mm
+    with the model's t at that (d, y) ("outside the model's outline" when it has none there: session2 printed "model
+    out", unexplained), each photo's residual in px and in sd of that photo's stated pixel error (res_sd; "residual px
+    (sd)" did not say whose sd, v3p3 astra P3-9), the pixel Jacobian's condition number with its limit."""
+    m = OUTSIDE_MODEL if rec.get("model_t") is None else f"model t {fixed(rec['model_t'], 2)}"
     res = ", ".join(f"{pid} {fixed(v, 1)} ({fixed(s, 1)})"
                     for pid, v, s in zip(rec["photos"], rec["res_px"], rec["res_sd"]))
     cross = ("; crossing deg " + ", ".join(f"{pid} {fixed(a, 1)}" for pid, a in zip(rec["photos"], rec["crossing_deg"]))
@@ -730,9 +752,10 @@ def reading_text(rec: dict) -> str:
     cam = ", ".join(f"{f} {fixed(abs(v[2]), 2)}" for f, v in shift.items() if f == big or fixed(abs(v[2]), 2) != "0.00")
     text = (f"{rec['name']} ({rec['kind']}; {', '.join(rec['photos'])}): d {fixed(rec['d'], 2)} +-"
             f"{fixed(rec['sd_d'], 2)}, y {fixed(rec['y'], 2)} +-{fixed(rec['sd_y'], 2)}, X {fixed(rec['X'], 2)} +-"
-            f"{fixed(rec['sd_X'], 2)} (pick {fixed(rec['sd_X_pick'], 2)}; camera {fixed(rec['sd_X_camera'], 2)}: "
-            f"theta +-{THETA_SD_DEG:g}° of fit {cam}); t {fixed(rec['t'], 2)} at that d (model {m}); residual px (sd) "
-            f"{res}{cross}; condition {fixed(rec['cond'], 1)}")
+            f"{fixed(rec['sd_X'], 2)} mm (pick {fixed(rec['sd_X_pick'], 2)}; camera {fixed(rec['sd_X_camera'], 2)}: "
+            f"theta +-{THETA_SD_DEG:g}° of fit {cam}); t {fixed(rec['t'], 2)} mm at that d ({m}); residual px (in sd "
+            f"of the photo's stated pixel error) {res}{cross}; condition number {fixed(rec['cond'], 1)} (limit "
+            f"{COND_MAX:g})")
     sl = rec.get("slide")
     if sl:
         ix = {pid: i for i, pid in enumerate(rec["photos"])}

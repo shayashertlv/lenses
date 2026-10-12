@@ -51,8 +51,9 @@ WP6 v3 (WP6_V3 §5, P4: geometry is judged geometrically):
   per-point value (a signed angle) along each run; ``draw_edges`` draws them ridge orange / valley blue / flat grey,
   2 px from EDGE_WIDE_DEG 6 deg and 1 px below (a run with per-sample angles segment by segment, ``edge_shape_of``),
   and labels each pair once at its longest visible run (``run_label`` of the build's own angles, deg_at or range:
-  "16", "-3", "24..33"; negative = valley); a soft facet|base border (``soft``) dashed thin grey and never labelled;
-  lines go on whole pixels (``line_px``: 1 px on the nearest, 2 px on floor and floor + 1);
+  "16°", "-3°", "24-33°", "-8 to -3°"; negative = valley; ``deg_text``); a soft facet|base border (``soft``) dashed
+  thin grey and never labelled; lines go on whole pixels (``line_px``: 1 px on the nearest, 2 px on floor and
+  floor + 1);
   ``edges_with_runs`` pairs edges with their runs for it; ``overlay_matched(..., edges=...)`` draws them instead of
   the mesh crease polylines;
 - ``outline_offsets``: a side view's top / bottom outline, photo minus model along the image's up / down direction,
@@ -584,7 +585,7 @@ EDGE_RGB = {"ridge": RIDGE_RGB, "valley": VALLEY_RGB, "flat": FLAT_RGB}
 EDGE_SHAPES = tuple(EDGE_RGB)
 EDGE_WIDE_DEG = 6.0             # a model edge of at least this angle is drawn 2 px wide, below it 1 px (WP6_V3 §5)
 EDGE_FLAT_DEG = 2.0             # a per-point signed angle below this is drawn flat (= g3d/temple/spec FLAT_CREASE_DEG)
-EDGE_RANGE_DEG = 2.0            # a label reads "min..max" when the angle along its visible run spans >= 2 deg
+EDGE_RANGE_DEG = 2.0            # a label reads "min-max°" when the angle along its visible run spans >= 2 deg
 EDGE_STEP_PX = 1.0              # model edges are sampled (and depth-tested) at <= 1 image px
 EDGE_LABEL_PX = 14
 SOFT_RGB = FLAT_RGB             # a soft facet|base border (I1: a soft facet's run with no sharp edge, so smooth-shaded
@@ -1103,11 +1104,23 @@ def edges_with_runs(edges: list, runs: list) -> list:
     return out
 
 
+def deg_text(lo: float, hi: float | None = None) -> str:
+    """An angle label in whole degrees with its unit: one angle "16°", "-3°"; a range lo..hi (least-largest) "16-29°"
+    when lo >= 0, else "-8 to -3°" / "-9 to 4°" (a hyphen between two signed numbers would read as a minus). Why: the
+    old "16..29" read as "16.29" at the size Astra is sent the zoom (the two dots ~2 px apart in a 1218 px image,
+    v3p3 review), beside the receipt's "(15.7-29.2)" and the fit's "+- 2.7°" for the same crease."""
+    a = int(round(float(lo)))
+    if hi is None:
+        return f"{a}°"
+    b = int(round(float(hi)))
+    return f"{a}-{b}°" if a >= 0 else f"{a} to {b}°"
+
+
 def edge_label(deg: float, shape: str) -> str:
-    """A model edge's angle label in whole degrees, negative for a valley ("16", "-3"): a signed angle is shown as
+    """A model edge's angle label in whole degrees, negative for a valley ("16°", "-3°"): a signed angle is shown as
     given, an unsigned valley's negated."""
     v = -abs(float(deg)) if shape == "valley" else float(deg)
-    return str(int(round(v)))
+    return deg_text(v)
 
 
 def edge_shape_of(deg) -> np.ndarray:
@@ -1120,23 +1133,23 @@ def edge_shape_of(deg) -> np.ndarray:
 def run_label(run, deg: float, shape: str, rng=None) -> tuple[str, str]:
     """(text, shape) of a model edge's label at one visible run, from the build's own angles only (WP6 v3 I1/I7: never
     an angle seeing measures, so no roll-band edge can enter it): with a signed angle per sample (a run's third
-    column, ``edge_runs(values=...)``: the edge's ``deg_at``) "min..max" in whole degrees when it spans >=
-    EDGE_RANGE_DEG along the run ("24..33", "-8..-3"), else the run's mean ("25"), shaped by the mean; without one,
-    an edge with a ``rng`` [lo, hi] (I1's form: signed over its whole length, ``deg`` signed too) reads "lo..hi" when
-    it spans >= EDGE_RANGE_DEG, else its deg as given, shaped by deg (``edge_shape_of``: the crease's vote may differ
-    in sign); else ``edge_label`` of the edge's own angle and shape."""
+    column, ``edge_runs(values=...)``: the edge's ``deg_at``) its least-largest in whole degrees when it spans >=
+    EDGE_RANGE_DEG along the run ("24-33°", "-8 to -3°": ``deg_text``), else the run's mean ("25°"), shaped by the
+    mean; without one, an edge with a ``rng`` [lo, hi] (I1's form: signed over its whole length, ``deg`` signed too)
+    reads lo-hi when it spans >= EDGE_RANGE_DEG, else its deg as given, shaped by deg (``edge_shape_of``: the
+    crease's vote may differ in sign); else ``edge_label`` of the edge's own angle and shape."""
     run = np.asarray(run, float)
     if run.shape[1] >= 3 and np.isfinite(run[:, 2]).all():
         lo, hi, mean = float(run[:, 2].min()), float(run[:, 2].max()), float(run[:, 2].mean())
         sh = str(edge_shape_of(mean))
         if hi - lo >= EDGE_RANGE_DEG:
-            return f"{int(round(lo))}..{int(round(hi))}", sh
-        return str(int(round(mean))), sh
+            return deg_text(lo, hi), sh
+        return deg_text(mean), sh
     if rng is not None:
         sh = str(edge_shape_of(float(deg)))
         if float(rng[1]) - float(rng[0]) >= EDGE_RANGE_DEG:
-            return f"{int(round(float(rng[0])))}..{int(round(float(rng[1])))}", sh
-        return str(int(round(float(deg)))), sh
+            return deg_text(rng[0], rng[1]), sh
+        return deg_text(deg), sh
     return edge_label(deg, shape), shape
 
 
@@ -1180,9 +1193,10 @@ def draw_edges(im: Image.Image, edges: list, *, labels: bool = False, font_px: i
     shape and angles, and never labelled: the render shows no line there, and an angle beside it would read as a
     crease's (probe1 drew shoulder|base soft as a valley "-5..1"); its fold stays in the build's crease lines. Every
     line goes on whole pixels (``line_px``). ``labels``: each other pair labelled once (``run_label`` of the build's
-    angles: "16", "-3", "24..33") at the middle of its longest visible run, beside the line (the first of a few
-    positions along it and on either side that stays inside the image and clear of the labels already placed; else the
-    middle), in its shape's colour outlined black. Returns [(pair, text, (u, v) the label's centre)]."""
+    angles: "16°", "-3°", "24-33°", "-8 to -3°") at the middle of its longest visible run, beside the line (the first
+    of a few positions along it and on either side that stays inside the image and clear of the labels already
+    placed; else the middle), in its shape's colour outlined black. Returns [(pair, text, (u, v) the label's
+    centre)]."""
     dr = ImageDraw.Draw(im)
     for e in sorted(edges, key=lambda e: (not e.get("soft"), e["shape"] != "flat", abs(float(e["deg"])))):
         w = 2 if abs(float(e["deg"])) >= EDGE_WIDE_DEG else 1

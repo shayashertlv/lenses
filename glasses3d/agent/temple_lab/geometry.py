@@ -17,6 +17,24 @@ unchanged: its design sha is its spec sha).
             of where it was read, else EditError naming both (a reading is one point's X at its own (d, y): run 7's
             tip carried 8-20 mm back, FINDINGS §0.2); "mm" (a typed t >= 0), "base", "solve" (mm null; d_mm, y_mm
             given).
+          set_node outline (the node's relation to the outline; the strict union's SetNode.outline, absent = null): a
+            node lies ON an outline edge (outline_edge, the parse's rule) within snap_mm 0.05 of one of that chain's
+            knots or vertically of its line. "top" / "bottom" put that chain's knot at the node's (d, y) (the inner knot
+            within snap_mm of where the node was moves there, else one is inserted; an end knot keeps its d and takes
+            y); "none" leaves both chains as they are; null keeps the edge the node lay on before this edit (a new
+            node, or one on neither edge, leaves the chains). Every knot so placed is a note ("outline.top has its
+            knot at node E, d 76.80 y 9.20 (...)") and the diff's chain change, and the other nodes on that edge move
+            with it as in a chain edit (a T-junction on the line beside the knot stays on it). splice_chain /
+            offset_chain of an outline chain move every node that lay on that edge before the edit with it, in y to the
+            new chain at its d (a note each); a node holding a reading moves at most READ_POSITION_MM from where it was
+            read (EditError with the range the edge may move there, else). Why (v3p3 e2e P1-1, verify-0): a corner read
+            on the outline stayed on the built outline only while a knot sat at it, and set_node / offset_chain /
+            splice_chain changed one without the other: on Prada every corner but K is on the outline (A, H, E top;
+            L, C, D bottom), the first layout without a hand splice was refused E_SHORT_EDGE in 215 of 300 jittered
+            layouts, and a re-read 0.1-0.3 mm off left the knot behind (6 of 20 refused, 10 of 20 built a false
+            "certain" facet|base border). A knot only at the corner does not straighten the outline between two
+            corners: where the photos put a facet edge along the outline, the outline between is the chain's own
+            shape (splice_chain), and a base strip between them is built and printed as the misfit it is.
           set_facet plane {mode}: "flat" -> the spec's "nodes" (a plane through its corners; the fit gives it coef),
             "warp" -> "warp" (>= WARP_MIN_CORNERS corners); ``soft`` true -> the facet's "soft" key (written only when
             true). Astra's union offers no fade and no crease + rise plane (WP6_V3 §6: fades and solved planes were
@@ -25,17 +43,21 @@ unchanged: its design sha is its spec sha).
             revisions), and fit.fit_spec refuses a fade (E_SPEC).
     spec_to_edits(spec) -> edits
         the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse): a
-        read t is mode "reading" at the node's own (d, y) (apply_edits needs that reading stored again), a warp
+        read t is mode "reading" at the node's own (d, y) (apply_edits needs that reading stored again), outline null
+        (the chains are spliced whole first; after the reset every node is new, so null leaves them), a warp
         facet "warp", a fitted {"coef"} plane "flat" (the fit gives it again from the node values), soft as it is.
         v3 designs give edits the strict union accepts; a legacy crease plane or fade gives its v2 shape.
     diff_specs(a, b) -> dict, diff_text(diff) -> str
         what changed between two specs (nodes, facets, creases, chains, scalars), compact; a solved t reads "solve", a
         read t "read 7.75 +- 0.30" (its t = X - x_in(d) at the node's d, and its whole sd in X; an added node with a
-        reading prints it too: "K read 7.75 +- 0.30"), a facet's changes "poly", "flat->warp", "soft" / "not soft",
-        "coef" (a fitted plane's numbers), an added facet its non-default plane and soft ("crown warp soft").
+        reading prints it too: "K t read 7.75 +- 0.30"), a facet's changes "poly", "flat->warp", "soft" / "not soft",
+        "coef" (a fitted plane's numbers), an added facet its non-default plane and soft ("crown warp soft"); a chain
+        the d spans where its shape changed and by how much ("outline.bottom d 77.0-117.0 (up to 1.30 mm)",
+        chain_changes: the two chains compared as lines, never knot by knot).
     stale_reads(spec, readings) -> {name: "replaced" | "dropped"}
-        the design's read nodes whose reading is no longer the stored one of their name: a node keeps the reading it
-        was set from (a snapshot in the design), so a re-read changes the model only through set_node mode reading.
+        the design's read nodes whose reading is no longer the stored one of their name (other numbers: a re-read with
+        the same numbers is not "replaced"): a node keeps the reading it was set from (a snapshot in the design), so a
+        re-read changes the model only through set_node mode reading.
     surface_grid / surface_at / crease_edges / crease_pieces / crease_delta / geometry_delta / distinct_heads
         between two BUILT temples (g3d.temple builds, never their specs, labels or node names): the outer surface X
         and its gradient on a (d, y) lattice, the max normal distance |dX| / sqrt(1 + |grad X|^2) over the lattice
@@ -64,9 +86,11 @@ from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d.temple import measure as MS
 from glasses3d.g3d.temple import template as TT
 from glasses3d.g3d.temple.build import OUTER_KINDS
-from glasses3d.g3d.temple.spec import FLAT_CREASE_DEG, PL, WARP_MIN_CORNERS, TempleError, canonical
+from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, FLAT_CREASE_DEG, PL, WARP_MIN_CORNERS, TempleError, canonical
 
 CHAINS = ("outline.top", "outline.bottom", "inner", "base.top", "base.bottom")
+OUTLINE_EDGES = ("top", "bottom")
+OUTLINE_SET = ("top", "bottom", "none", None)   # set_node outline: an edge, "none", or null (as before the edit)
 T_MODES = ("reading", "mm", "base", "solve")
 PLANE_MODES = {"flat": "nodes", "warp": "warp"}     # set_facet plane.mode -> the spec's plane (WP6_V3 §2, §6)
 READ_POSITION_MM = 0.5          # set_node mode reading: a given d_mm / y_mm lies within this of where the reading was
@@ -213,6 +237,127 @@ def _offset(pts: list, d_from: float, d_to: float, delta: float, taper: float, i
     return [[d, v + delta * w(d)] for d, v in out]
 
 
+# --------------------------------------------------------------------------------------------- nodes on the outline
+def snap_of(spec: dict) -> float:
+    """The design's snap_mm (its options, else spec.DEFAULT_OPTIONS), at least fit.ON_MM: the distance within which
+    the builder's parse puts a node onto an outline edge (spec._snap_nodes_onto_outline)."""
+    opts = spec.get("options") or {}
+    return max(float(opts.get("snap_mm", DEFAULT_OPTIONS["snap_mm"])), FIT.ON_MM)
+
+
+def outline_edge(spec: dict, d: float, y: float) -> str | None:
+    """"top" / "bottom": the outline edge the point (d, y) of a design lies on, by the parse's rule
+    (spec._snap_nodes_onto_outline): within snap_of(spec) of one of that chain's knots, or within it vertically of the
+    chain's line at d (d inside the chain's d range); the nearer edge when both (top on a tie, as the parse); None
+    otherwise. The chains as written (the tip's rounding aside)."""
+    snap, best = snap_of(spec), None
+    for edge in OUTLINE_EDGES:
+        P = np.asarray(_chain(spec, f"outline.{edge}"), float)
+        dist = float(np.min(np.hypot(P[:, 0] - d, P[:, 1] - y)))
+        if P[0, 0] <= d <= P[-1, 0]:
+            dist = min(dist, abs(y - float(np.interp(d, P[:, 0], P[:, 1]))))
+        if dist <= snap and (best is None or dist < best[0]):
+            best = (dist, edge)
+    return best[1] if best else None
+
+
+def _knot_to(pts: list, old, d: float, y: float, snap: float) -> list:
+    """A chain with its knot at a node's (d, y) (apply_edits, set_node outline): the inner knot within snap of the
+    node's ``old`` (d, y) is removed (the corner moved; the two end knots are never removed and keep their d: the caps
+    are shared by both chains), then the end knot within snap of d takes y, else the inner knot nearest d within snap
+    moves to (d, y), else a knot is inserted at (d, y). The caller checks that d lies in the chain's d range."""
+    P = [[float(p[0]), float(p[1])] for p in pts]
+    if old is not None:
+        inner = [(math.hypot(P[k][0] - old[0], P[k][1] - old[1]), k) for k in range(1, len(P) - 1)]
+        near = [r for r in inner if r[0] <= snap]
+        if near:
+            del P[min(near)[1]]
+    for end in (0, len(P) - 1):
+        if abs(P[end][0] - d) <= snap:
+            P[end][1] = y
+            return P
+    near = [(abs(P[k][0] - d), k) for k in range(1, len(P) - 1) if abs(P[k][0] - d) <= snap]
+    if near:
+        P[min(near)[1]] = [d, y]
+    else:
+        P.append([d, y])
+        P.sort(key=lambda p: p[0])
+    return P
+
+
+def _outline_node(s: dict, name: str, old, edge_arg, node: list, i: int) -> str | None:
+    """set_node's ``outline`` (module doc) on the design s, the node already at ``node`` = [d, y, t]: "top" / "bottom"
+    put that chain's knot at (d, y) (_knot_to; a knot the node held on the other chain is removed), "none" leaves both
+    chains, null keeps the node's edge from before the edit (``old`` = its [d, y, t] then, or None for a new node:
+    outline_edge) as "top" / "bottom". Returns the note when a chain changed, else None; EditError for a d outside
+    the chain's d range or an unknown value."""
+    if edge_arg not in OUTLINE_SET:
+        raise EditError("outline must be top, bottom, none or null", i)
+    snap = snap_of(s)
+    was = outline_edge(s, old[0], old[1]) if old is not None else None
+    edge = was if edge_arg is None else None if edge_arg == "none" else edge_arg
+    if edge is None:
+        return None
+    d, y = float(node[0]), float(node[1])
+    chain = f"outline.{edge}"
+    P = _chain(s, chain)
+    if not P[0][0] - snap <= d <= P[-1][0] + snap:
+        raise EditError(f"node {name} at d {d:.2f} lies outside the outline's d range {P[0][0]:.2f}-{P[-1][0]:.2f}, so "
+                        f"it cannot lie on the {edge} edge", i, node=name, at=[d, y])
+    new = _knot_to(P, old[:2] if was == edge else None, d, y, snap)
+    changed = new != [list(map(float, p)) for p in P]
+    if changed:
+        _set_chain(s, chain, new)
+    if was is not None and was != edge:                   # the node left the other edge: its inner knot there goes
+        Q = _chain(s, f"outline.{was}")
+        drop = [(math.hypot(Q[k][0] - old[0], Q[k][1] - old[1]), k) for k in range(1, len(Q) - 1)]
+        drop = [r for r in drop if r[0] <= snap]
+        if drop:
+            _set_chain(s, f"outline.{was}", [p for k, p in enumerate(Q) if k != min(drop)[1]])
+            changed = True
+    if not changed:
+        return None
+    why = "as before this edit: it lay on that edge" if edge_arg is None else f"outline {edge}"
+    return f"outline.{edge} has its knot at node {name}, d {d:.2f} y {y:.2f} ({why})"
+
+
+def _carry(s: dict, chain: str, names: list, what: str, i: int, before: list) -> list[str]:
+    """An outline chain changed by ``what`` (splice_chain / offset_chain, or the knot a set_node put at its corner:
+    module doc; ``before`` = the chain before it): each node of ``names`` (on that edge before the edit, outline_edge)
+    moves with the edge in y to the new chain's value at its d. A node holding a reading moves at most
+    READ_POSITION_MM from where it was read: else EditError with how far the edge may move there from where it was
+    (to 0.001 mm: a node within snap_mm beside the line lands on it, so the edge's room is not the node's; session2's
+    C, 0.002 mm under the bottom line, read "0.50 mm ... from -0.50 to +0.50" for a +0.50 offset). Returns the
+    notes."""
+    P = np.asarray(_chain(s, chain), float)
+    B = np.asarray(before, float)
+    notes = []
+    for n in names:
+        d, y, t = s["nodes"][n]
+        if not P[0, 0] <= d <= P[-1, 0]:
+            continue
+        ny = float(np.interp(d, P[:, 0], P[:, 1]))
+        if abs(ny - y) <= 1e-9:
+            continue
+        if is_read(t):
+            rd, ry = float(t["read"]["d"]), float(t["read"]["y"])
+            off = math.hypot(d - rd, ny - ry)
+            if off > READ_POSITION_MM + 1e-6:          # a carried value, not a typed one: float noise at the limit
+                reach = math.sqrt(max(READ_POSITION_MM ** 2 - (d - rd) ** 2, 0.0))
+                was = float(np.interp(d, B[:, 0], B[:, 1]))
+                lo, hi = ry - reach - was, ry + reach - was
+                span = (f"the edge may move there from {lo:+.3f} to {hi:+.3f} mm with {n} on it" if lo <= hi and
+                        abs(d - rd) <= READ_POSITION_MM else f"{n} lies {abs(d - rd):.3f} mm from it in d alone")
+                raise EditError(f"{what} moves node {n}, which lies on that edge, to y {ny:.3f} at d {d:.2f}: "
+                                f"{off:.3f} mm from where reading {n} was read (d {rd:.3f}, y {ry:.3f}); a reading is "
+                                f"used within {READ_POSITION_MM:g} mm of it, so {span}", i, node=n, at=[d, ny],
+                                read_at=[rd, ry], chain=chain)
+        s["nodes"][n] = [d, ny, t]
+        notes.append(f"node {n} moved with {chain} to y {ny:.2f} at d {d:.2f} ({ny - y:+.2f} mm; it lies on that "
+                     f"edge)")
+    return notes
+
+
 # --------------------------------------------------------------------------------------------- design specs
 def _json_floats(x, where: str):
     """A reading's payload with every number a finite float (key order left to json's sort_keys)."""
@@ -267,13 +412,21 @@ def is_read(t) -> bool:
     return isinstance(t, dict) and set(t) == {"read"}
 
 
+def _numbers(t: dict) -> dict:
+    """A read t's payload without its record id: the numbers (and photos) a fit uses."""
+    return {k: v for k, v in t["read"].items() if k != "id"}
+
+
 def stale_reads(spec: dict, readings: dict | None) -> dict:
     """The nodes of a design whose read t is not the stored reading of their name: {name: "replaced" (a reading of
-    that name was read again since: its payload differs) | "dropped" (none is stored)}. A node keeps the reading it
+    that name was read again since and its numbers differ) | "dropped" (none is stored)}. A node keeps the reading it
     was set from (apply_edits copies it into the design, so the revision's fit and build never change under it); a
     re-read takes effect only through set_node mode reading again (review 2026-10-12: Q re-read 2.4 sd away left the
-    head's Q, its fit and its report unchanged, with nothing saying so). The lab lists these where a reading is
-    replaced (photo_read) and in the head's node rows (facet_inspect)."""
+    head's Q, its fit and its report unchanged, with nothing saying so). A re-read with the same numbers (the same
+    picks again, e.g. after an E_TIMEOUT) is not "replaced": only its record id differs, and the text invited a
+    set_node that made a second revision with the head's fitted spec (v3p3 e2e P3-1: "node K holds the earlier
+    reading K" at "X +0.00 mm (+0.0 sd of the difference)"). The lab lists these where a reading is replaced
+    (photo_read) and in the head's node rows (facet_inspect)."""
     out = {}
     for name, v in (canonical_design(spec)["nodes"] or {}).items():
         if not is_read(v[2]):
@@ -281,7 +434,7 @@ def stale_reads(spec: dict, readings: dict | None) -> dict:
         rec = (readings or {}).get(name)
         if rec is None:
             out[name] = "dropped"
-        elif read_t(rec) != v[2]:
+        elif _numbers(read_t(rec)) != _numbers(v[2]):
             out[name] = "replaced"
     return out
 
@@ -386,7 +539,17 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
         op = e.get("op") if isinstance(e, dict) else None
         if op == "set_node":
             name, node = _set_node(e, i, readings)
+            old = s["nodes"].get(name)
+            riding = {edge: [n for n, v in s["nodes"].items() if n != name and outline_edge(s, v[0], v[1]) == edge]
+                      for edge in OUTLINE_EDGES}
+            chains = {edge: [list(p) for p in _chain(s, f"outline.{edge}")] for edge in OUTLINE_EDGES}
             s["nodes"][name] = node
+            note = _outline_node(s, name, old, e.get("outline"), node, i)
+            if note:                    # the knot moved: the other nodes on that edge stay on it (module doc)
+                notes.append(note)
+                for edge in OUTLINE_EDGES:
+                    notes += _carry(s, f"outline.{edge}", riding[edge], f"the knot set_node {name} put on "
+                                    f"outline.{edge}", i, chains[edge])
             deleted_nodes.pop(name, None)
         elif op == "delete_node":
             name = e.get("name")
@@ -426,6 +589,9 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
             d_from = _num(e.get("d_from_mm"), "d_from_mm", i, D_LIMIT_MM)
             d_to = _num(e.get("d_to_mm"), "d_to_mm", i, D_LIMIT_MM)
             pts = [list(p) for p in _chain(s, chain)]
+            pts_before = [list(p) for p in pts]
+            edge = chain.split(".")[1] if chain.startswith("outline.") else None
+            riding = [n for n, v in s["nodes"].items() if edge and outline_edge(s, v[0], v[1]) == edge]
             if op == "splice_chain":
                 pts = e.get("points")
                 if not isinstance(pts, list) or len(pts) > CHAIN_POINTS_MAX:
@@ -435,6 +601,7 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
                 delta = _num(e.get("delta_mm"), "delta_mm", i, DELTA_LIMIT_MM)
                 taper = _num(e.get("taper_mm"), "taper_mm", i, D_LIMIT_MM)
                 _set_chain(s, chain, _offset(pts, d_from, d_to, delta, taper, i))
+            notes += _carry(s, chain, riding, f"{op} {chain}", i, [list(p) for p in pts_before])
         elif op == "set_scalar":
             key = e.get("key")
             value = _num(e.get("value"), "value", i, SCALAR_LIMIT_MM)
@@ -478,7 +645,7 @@ def spec_to_edits(spec: dict) -> list[dict]:
             tv = {"mode": "mm", "mm": t}
         else:
             tv = {"mode": "base" if t == "base" else "solve", "mm": None}
-        out.append({"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": tv})
+        out.append({"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": tv, "outline": None})
     for label, f in s["facets"].items():
         pl = f["plane"]
         if isinstance(pl, dict) and "crease" in pl:                  # v2 shape (module doc)
@@ -539,13 +706,55 @@ def _facet_changes(fa: dict, fb: dict) -> list[str]:
     return out
 
 
+def chain_changes(pa: list, pb: list) -> tuple[list, float]:
+    """Where two versions of one chain ([[d, value], ...], strictly increasing d; each piecewise linear in d between
+    its knots) differ: ([(d_lo, d_hi)] the merged d spans, the largest |value change| in mm). On the union U of both
+    knot sets the two are linear between consecutive knots, so they differ exactly on the open intervals beside a
+    union knot where they differ (or that one chain's d range covers and the other's does not): a knot u_k that
+    differs makes [u_(k-1), u_(k+1)] changed (clipped to U's ends). A knot added on the old line (offset_chain's
+    breakpoints) changes nothing. Session2 (v3-integrate-2): pairing the knots by index printed "d 0.0-136.0" for a
+    splice of d 0-77 (every knot after a change of knot count read as changed) and "122.0-134.0" for a change over
+    d 122-136 (a shifted pair hid the end knot)."""
+    A, B = np.asarray(pa, float).reshape(-1, 2), np.asarray(pb, float).reshape(-1, 2)
+    U = np.unique(np.concatenate([A[:, 0], B[:, 0]]))
+    ina = (U >= A[0, 0]) & (U <= A[-1, 0])
+    inb = (U >= B[0, 0]) & (U <= B[-1, 0])
+    fa, fb = np.interp(U, A[:, 0], A[:, 1]), np.interp(U, B[:, 0], B[:, 1])
+    both = ina & inb
+    dv = np.where(both, np.abs(fa - fb), 0.0)
+    diff = (ina != inb) | (dv > 1e-9)
+    spans: list = []
+    for k in np.nonzero(diff)[0]:
+        lo, hi = float(U[max(k - 1, 0)]), float(U[min(k + 1, len(U) - 1)])
+        if spans and lo <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], hi))
+        else:
+            spans.append((lo, hi))
+    return spans, float(dv.max()) if len(dv) else 0.0
+
+
+def chain_change_text(pa: list, pb: list) -> str:
+    """A chain's change for diff_text (chain_changes): "d 77.0-117.0 (up to 1.30 mm)", several spans comma-separated;
+    a move under 0.005 mm is "under 0.01 mm", never "0.00"; a changed d range adds "its d range 0.0-136.0 ->
+    0.0-130.0"; "knots only (no shape change)" when only knots on the old line were added or removed."""
+    spans, mm = chain_changes(pa, pb)
+    if not spans:
+        return "knots only (no shape change)"
+    parts = [f"up to {mm:.2f} mm" if mm >= 0.005 else "under 0.01 mm"] if mm > 1e-9 else []
+    ra, rb = (_r(pa[0][0], 1), _r(pa[-1][0], 1)), (_r(pb[0][0], 1), _r(pb[-1][0], 1))
+    if ra != rb:                                    # as printed: 0.01 -> 0.0 is no range change to 0.1 mm
+        parts.append(f"its d range {ra[0]}-{ra[1]} -> {rb[0]}-{rb[1]}")
+    return "d " + ", ".join(f"{_r(lo, 1)}-{_r(hi, 1)}" for lo, hi in spans) + (f" ({', '.join(parts)})" if parts
+                                                                                else "")
+
+
 def diff_specs(a: dict, b: dict) -> dict:
     """What changed from design a to design b (both canonical_design-able)."""
     a, b = canonical_design(a), canonical_design(b)
     out: dict = {}
     na, nb = a["nodes"], b["nodes"]
     ia, ib = PL(a["inner"], "inner"), PL(b["inner"], "inner")
-    nodes = {"added": [n + (f" {_t_text(nb[n][2], ib, nb[n][0])}" if is_read(nb[n][2]) else "")
+    nodes = {"added": [n + (f" t {_t_text(nb[n][2], ib, nb[n][0])}" if is_read(nb[n][2]) else "")
                        for n in sorted(set(nb) - set(na))],
              "removed": sorted(set(na) - set(nb)), "changed": []}
     for n in sorted(set(na) & set(nb)):
@@ -578,8 +787,7 @@ def diff_specs(a: dict, b: dict) -> dict:
     for chain in CHAINS:
         pa, pb = _chain(a, chain), _chain(b, chain)
         if pa != pb:
-            ds = sorted({p[0] for p in pa} ^ {p[0] for p in pb} | {q[0] for p, q in zip(pa, pb) if p != q})
-            chains.append(f"{chain} d {_r(ds[0], 1)}-{_r(ds[-1], 1)}" if ds else chain)
+            chains.append(f"{chain} {chain_change_text(pa, pb)}")
     scalars = [f"{k} {_r(x)}->{_r(y)}" for k, x, y in (("roll_mm", a["roll_mm"], b["roll_mm"]),
                                                          ("tip_round_mm", a["outline"]["tip_round_mm"],
                                                           b["outline"]["tip_round_mm"])) if x != y]

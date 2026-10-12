@@ -15,9 +15,9 @@ shape.
 | `facet_inspect` | the head: design and fitted value per node, the readings, the object note, the fit report, the creases, the chart |
 | `photo_image` | a photo or a native crop, `enhance` (contrast stretch), `scale` up to 3 for a small crop |
 | `photo_read` | named readings (`readings.py`): up to 8 points a call, each a `corner` (a pixel per photo) or a `crossing` (two traced edges per photo, intersected by the host), in 2-4 photos from at least two directions; each stored by name with its error (pick and camera parts), warnings and a pick sheet |
-| `photo_compare` | the head rendered at the photos' cameras with its own creases drawn by identity, angle and sign; up to 3 zooms at native scale (photo, render, edges, a light-free geometry panel); side views print their outline offsets |
+| `photo_compare` | the head rendered at the photos' cameras with its own creases drawn by identity, angle and sign (rows photo, render, overlay for every colour; images titled with the lab's photo ids); up to 3 zooms at native scale (photo, render, edges, a light-free geometry panel); side views print their outline offsets, and a view from above the top face's far edge minus its median instead of the top outline |
 | `facet_edit` | an edit list on a revision's design, then the host's joint fit (`g3d/temple/fit.py`), the build and, with `apply`, a compare; `object` = the object note (required on the first edit and whenever the layout changes); judgements name up to 3 differences per photo |
-| `facet_variants` | 2-6 edit lists fitted, built and rendered beside the head without changing the scene |
+| `facet_variants` | 2-4 edit lists fitted, built and rendered beside the head without changing the scene, one sheet per photo |
 | `facet_finish` | ends the run when its preconditions hold (`state.finish_missing`) |
 
 The flow of one edit: `geometry.apply_edits` (a node's t is a stored reading, a typed mm, the base, or solved by the
@@ -61,7 +61,8 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
   the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`).
 - **The brief** (`cli.brief_text`) carries the job's facts; `instructions.txt` names no photo and no product. Per
   photo: view, camera direction, the angle to the outer face, what its compares print (side views: the bottom outline
-  offsets; looking down 14 deg they do not measure the top) and its camera (B1's check is labelled as the all-views
+  offsets and, looking down 14 deg, the top face's far edge minus its median in place of the top outline) and its
+  camera (B1's check is labelled as the all-views
   validation's, the check the target photos print, not the starting-model check B2 and B3 print). Then the direction
   groups; the cameras' lineage (01-06 fitted on their own; B1, B2, B3 moved from 05, 02, 04 with theta copied, as the
   basis records it); reading precision (crisp corners 0.2-0.5 mm; tips and edges along the line of sight about
@@ -73,12 +74,13 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
   photos, w2/crown-geometry.md §2); the render light and what it does not reproduce (tone marks where an edge is,
   not its size or sign); revision 0 and the scope (the whole temple to its tip, outline chains editable).
 - **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's recorded tool outputs
-  (`--out`, default `data/wp6v2/lab/estimate.json`). The typical mix (`cli.MIXES`) is the method the instructions
-  teach. Each image-heavy call is priced at the most one call returns, at the largest image the tool makes:
-  facet_variants at the job's sheets; photo_read at 8 pick sheets of 972 x 1412 px (4 photos a reading), its text
-  and arguments scaled alike, a drop-only call left out of its mean; photo_compare at 3 zoom grids of 1538 x 1066 px
-  and their text beside its compare images (the lab registers zoom grids as compare images, so a recorded call's own
-  zooms stay and it is priced up to 3 grids high). The range's top is the costliest of every reply an edit, the
+  (`--out`, default `data/wp6v2/lab/estimate_v3.json`, `cli.ESTIMATE`). The typical mix (`cli.MIXES`) is the method
+  the instructions teach. Each image-heavy call is priced at the most one call returns, at the largest image the tool
+  makes: facet_variants at the job's sheets (one a photo) of 1280 x 900 px and 4 arms of text; photo_read at 8 pick
+  sheets of 972 x 1412 px (4 photos a reading), its text and arguments scaled alike, a drop-only call left out of its
+  mean; photo_compare at 3 zoom grids of 1538 x 1066 px and their text beside its compare images (a call's own grids,
+  recorded as kind "zoom", are replaced; a rehearsal recorded before that is priced up to 3 grids high);
+  facet_inspect at its largest recorded call. The range's top is the costliest of every reply an edit, the
   typical mix and a read-heavy mix (photo_read 3 in 10), each at the high output (`range_top`), and the approval text
   says the v3 mix is assumed (no v3 run exists). A projected run whose context would pass the model's input limit
   ends at that request, and its row says so. Output tokens per request are the v2 paid runs' means

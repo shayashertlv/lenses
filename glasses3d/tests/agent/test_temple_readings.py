@@ -239,14 +239,96 @@ def test_a_crossing_of_two_projected_lines_is_read_back_exactly(tb, bs, photos):
             assert np.linalg.eigvalsh(np.asarray(cov))[0] > 0
 
 
+# --------------------------------------------------------------------------------------------- the v2 reference
+# v2's lab.corner_reading (photo_compare depths with ``also``), moved here from agent/temple_lab/lab.py at v3-final,
+# where nothing reached it any more: an independent least squares (scipy, started from the model's surface, every
+# temple combination tried) that readings.read_point (a linear triangulation, then its own weighted fit) must agree
+# with. Unchanged but for its names.
+REF_COND_MAX = 20.0          # v2's lab.CORNER_COND_MAX: readings.COND_MAX must equal it
+
+
+def _ref_inner_x(tb, d: float) -> float:
+    return float(np.asarray(tb.spec.inner(d), float))
+
+
+def _ref_opening(spec_hinge) -> tuple | None:
+    deg = float(spec_hinge.get("opening_deg") or 0.0)
+    if not deg:
+        return None
+    ax = spec_hinge["axis_xz_mm"]
+    return deg, (abs(float(ax[0])), float(ax[1]))
+
+
+def ref_photo_sides(tb, camera, frame, pose, d: float, y: float, X: float, opening) -> list:
+    """The temple(s) to try for a photo: the one whose outer face the camera sees at (d, y, X), else both."""
+    h = tb.spec.hinge
+    seen = []
+    for side in (1, -1):
+        P = PO.chart_to_posed([[d, y, X], [d, y, X + 1.0]], side, float(h["z_mm"]), pose, opening)
+        seen.append(bool(PO.faces_camera(P[:1], P[1] - P[0], camera, frame)[0]))
+    return [1] if seen == [True, False] else ([-1] if seen == [False, True] else [1, -1])
+
+
+def corner_reading(tb, views: list, d0: float, y0: float) -> dict:
+    """A point read from 2..4 photos, views = [(camera, frame, pose, (u, v))], by least squares from (d0, y0) at the
+    model's t there: {d_mm, y_mm, X_mm, t_mm, res_px, sd_t_mm, t_at_mm, sd_t_at_mm, model_t_mm, sides}. Raises
+    ValueError when no point fits the pixels or the views see it along nearly one line (condition number over
+    REF_COND_MAX)."""
+    from scipy.optimize import least_squares
+    h = tb.spec.hinge
+    opening = _ref_opening(h)
+    X0, _reg = G.surface_at(tb, np.array([[d0, y0]], float))
+    x0 = float(X0[0]) if np.isfinite(X0[0]) else _ref_inner_x(tb, d0) + float(tb.spec.base_t(d0, y0))
+    start = np.array([d0, y0, x0], float)
+    targets = [np.asarray(v[3], float).reshape(2) for v in views]
+    sides = [ref_photo_sides(tb, cam, fr, pose, d0, y0, x0, opening) for cam, fr, pose, _uv in views]
+
+    def residual(p, combo):
+        out = []
+        for (cam, fr, pose, _uv), side, tgt in zip(views, combo, targets):
+            P = PO.chart_to_posed([p], side, float(h["z_mm"]), pose, opening)
+            out.append(project_mm(P, cam, fr)[0] - tgt)
+        return np.concatenate(out)
+    best = None
+    for combo in itertools.product(*sides):
+        try:
+            r = least_squares(residual, start, args=(combo,), x_scale=[10.0, 10.0, 3.0], method="lm")
+        except ValueError:
+            continue
+        if np.all(np.isfinite(r.fun)) and (best is None or r.cost < best[0].cost):
+            best = (r, combo)
+    if best is None:
+        raise ValueError("no point fits these pixels: pick the same corner in each photo")
+    r, combo = best
+    J = np.asarray(r.jac, float)
+    d, y, X = (float(v) for v in r.x)
+    g = np.array([-(_ref_inner_x(tb, d + 0.5) - _ref_inner_x(tb, d - 0.5)), 0.0, 1.0])
+    try:
+        cov = np.linalg.inv(J.T @ J)
+        sd = float(np.sqrt(max(g @ cov @ g, 0.0)))
+        sd_at = float(np.sqrt(max(cov[2, 2], 0.0)))
+    except np.linalg.LinAlgError:
+        sd = sd_at = float("inf")
+    sv = np.linalg.svd(J, compute_uv=False)
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else float("inf")
+    if not np.isfinite(cond) or cond > REF_COND_MAX:
+        raise ValueError(f"these photos see the point along nearly one line (t would move {max(sd, sd_at):.1f} mm "
+                         f"per px of pick error): pick it in a photo from another direction")
+    Xm, _reg = G.surface_at(tb, np.array([[d, y]], float))
+    res = np.asarray(r.fun, float).reshape(-1, 2)
+    return {"d_mm": d, "y_mm": y, "X_mm": X, "t_mm": X - _ref_inner_x(tb, d), "t_at_mm": X - _ref_inner_x(tb, d0),
+            "res_px": [float(np.hypot(*e)) for e in res], "sd_t_mm": sd, "sd_t_at_mm": sd_at,
+            "model_t_mm": float(Xm[0]) - _ref_inner_x(tb, d) if np.isfinite(Xm[0]) else None, "sides": list(combo)}
+
+
 def test_matches_lab_corner_reading(tb, bs):
-    """With equal pick sd and independent cameras the weighted fit is the lab's least squares (lab.corner_reading,
-    which starts from the model): the same point from 2 and 3 photos, read with noisy pixels. Pins the constants that
-    must equal the lab's: COND_MAX, fixed, the temple choice and the node-name rule, and the engineering bounds the
-    ghost bound uses."""
+    """With equal pick sd and independent cameras the weighted fit is v2's least squares (corner_reading above, v2's
+    lab.corner_reading, which starts from the model): the same point from 2 and 3 photos, read with noisy pixels.
+    Pins the constants that must equal the lab's or v2's: COND_MAX, fixed, the temple choice and the node-name rule,
+    and the engineering bounds the ghost bound uses."""
     pytest.importorskip("agents")
     from glasses3d.agent.temple_lab import lab as LB
-    assert RD.COND_MAX == LB.CORNER_COND_MAX
+    assert RD.COND_MAX == REF_COND_MAX == 20.0 and not hasattr(LB, "corner_reading")
     assert (G.D_LIMIT_MM, G.Y_LIMIT_MM, G.T_LIMIT_MM) == (400.0, 200.0, 40.0)
     for x in (8.365, 8.36499999, -0.004, 0.0, 70.071, -1.25):
         for nd in (1, 2):
@@ -260,14 +342,14 @@ def test_matches_lab_corner_reading(tb, bs):
             pk["uv"] = (np.asarray(pk["uv"]) + rng.normal(0, 1.5, 2)).tolist()
         rec = RD.read_point(tb, bs, "Q", picks, kind="corner")
         views = [(bs.camera(_rid(pk["photo"])), bs.frame, bs.pose(_rid(pk["photo"])), pk["uv"]) for pk in picks]
-        lab = LB.corner_reading(tb, views, 60.0, -3.0)
+        lab = corner_reading(tb, views, 60.0, -3.0)
         assert (rec["d"], rec["y"], rec["X"]) == (pytest.approx(lab["d_mm"], abs=2e-3),
                                                   pytest.approx(lab["y_mm"], abs=2e-3),
                                                   pytest.approx(lab["X_mm"], abs=2e-3))
         assert rec["res_px"] == pytest.approx(lab["res_px"], abs=2e-3) and rec["sides"] == lab["sides"]
         for c, (cam, fr, pose, _uv) in zip(rec["photos"], views):
             assert RD._facing(cam, fr, pose, [rec["d"], rec["y"], rec["X"]], -10.6, None) == \
-                LB._photo_sides(tb, cam, fr, pose, rec["d"], rec["y"], rec["X"], None)
+                ref_photo_sides(tb, cam, fr, pose, rec["d"], rec["y"], rec["X"], None)
 
 
 # --------------------------------------------------------------------------------------------- the ghost
@@ -479,6 +561,28 @@ def test_refresh_recomputes_t_from_a_later_build(tb, bs):
         {k: v for k, v in rec.items() if k not in ("t", "model_t")}
 
 
+def test_model_t_holds_at_the_outline_edge(tb, bs):
+    """model_t (v3p3-clean-lab): a reading a few microns outside the build's outline (a corner read ON the outline,
+    once the fit moved its node: session2's C 0.006 mm and D 0.029 mm below revision 4's bottom outline printed
+    "model out" where revision 3 printed 7.49) takes the surface's t within MODEL_EDGE_MM; farther out it has none,
+    and the text says "outside the model's outline"; inside, it is the surface's t at the point itself."""
+    d = 40.0
+    y_bot = float(tb.spec.y_bot(np.array([d]))[0])
+    inner = float(tb.spec.inner(d))
+    Xe, _r = G.surface_at(tb, np.array([[d, y_bot + 1e-6]]))
+    for off in (0.006, 0.029, 0.9 * RD.MODEL_EDGE_MM):
+        assert np.isnan(G.surface_at(tb, np.array([[d, y_bot - off]]))[0][0])        # the point itself: no surface
+        assert RD.model_t(tb, d, y_bot - off) == pytest.approx(float(Xe[0]) - inner, abs=0.02), off
+    assert RD.model_t(tb, d, y_bot - 1.5 * RD.MODEL_EDGE_MM) is None
+    Xm, _r = G.surface_at(tb, np.array([[d, 2.0]]))
+    assert RD.model_t(tb, d, 2.0) == pytest.approx(float(Xm[0]) - inner, abs=1e-12)
+    rec = RD.read_point(tb, bs, "K", corner_picks(bs, point(tb, 47.0, 3.0, 6.0), ["05", "02"]), kind="corner")
+    out = RD.refresh({**rec, "y": y_bot - 0.02, "d": d}, tb)
+    assert out["model_t"] == pytest.approx(float(Xe[0]) - inner, abs=0.02)
+    out = RD.refresh({**rec, "y": y_bot - 1.0, "d": d}, tb)
+    assert out["model_t"] is None and f"({RD.OUTSIDE_MODEL}); residual px" in RD.reading_text(out)
+
+
 # --------------------------------------------------------------------------------------------- the slide line
 def test_a_corner_pick_carries_the_slide_line(tb, bs):
     """A two-direction reading cannot check where its pixels lie along the epipolar line between the directions; the
@@ -586,7 +690,7 @@ def test_shallow_crossing_and_residual_warnings(tb, bs):
                             f"{RD.fixed(rec['chi2'], 1)} for 3 degrees of freedom (its 99.7 % point is "
                             f"{RD.fixed(limit, 1)})")
     assert rec["res_sd"][2] == max(rec["res_sd"]) > 2.0
-    assert "residual px (sd) 05 " in RD.reading_text(rec)
+    assert "residual px (in sd of the photo's stated pixel error) 05 " in RD.reading_text(rec)
     assert RD.read_point(tb, bs, "P", corner_picks(bs, P, ["05", "02", "03"]), kind="corner")["warnings"] == []
 
 
@@ -680,9 +784,12 @@ def test_bad_picks_are_refused(tb, bs, monkeypatch):
 
 # --------------------------------------------------------------------------------------------- text and sheet
 def test_reading_text_prints_the_record():
-    """One line, every number from the record through fixed (half up from 0.001): d, y, X with sd, X's pick part and
-    its camera part per fit (fits that move X under 0.01 left out, the largest kept), t (model t), each photo's
-    residual in px and sd, the crossing angles, the condition, the slide line, then the warnings in order."""
+    """One line, every number from the record through fixed (half up from 0.001): d, y, X with sd in mm, X's pick part
+    and its camera part per fit (fits that move X under 0.01 left out, the largest kept), t in mm with the model's t
+    there ("outside the model's outline" where it has none: v3p3-clean-lab, session2 printed "model out"), each
+    photo's residual in px and in sd of that photo's stated pixel error (it read "residual px (sd)", whose sd unsaid:
+    v3p3 astra P3-9), the crossing angles, the condition number with its limit (it was a bare
+    "condition 2.0"), the slide line, then the warnings in order."""
     rec = {"name": "E", "kind": "crossing", "d": 75.795, "y": 9.381, "X": 68.293, "t": 7.005, "sd_X": 0.891,
            "sd_X_pick": 0.792, "sd_X_camera": 0.408, "sd_d": 1.081, "sd_y": 0.289, "photos": ["B1", "B2"],
            "camera_shift": {"05": [-0.006, 0.047, -0.002], "02": [0.027, -0.047, -0.408]},
@@ -691,16 +798,19 @@ def test_reading_text_prints_the_record():
                                       "mm_per_px": [[0.119, -0.025, -0.06], [-0.002, 0.032, 0.13]]},
            "warnings": [{"code": "W_SHALLOW_CROSSING", "message": "the edges cross at 8.2° in B1: ..."}]}
     assert RD.reading_text(rec) == (
-        "E (crossing; B1, B2): d 75.80 +-1.08, y 9.38 +-0.29, X 68.29 +-0.89 (pick 0.79; camera 0.41: theta +-0.3° of "
-        "fit 02 0.41); t 7.01 at that d (model out); residual px (sd) B1 2.4 (1.0), B2 1.6 (1.0); crossing deg B1 8.2, "
-        "B2 18.9; condition 2.0; slide line (+ rises to the right; a slide along it does not show in the residual; per "
-        "px to the right the point moves): B1 -3.6°: d +0.12 y -0.03 X -0.06 mm (B1); B2 +9.3°: d +0.00 y +0.03 X "
-        "+0.13 mm (B2); W_SHALLOW_CROSSING the edges cross at 8.2° in B1: ...")
+        "E (crossing; B1, B2): d 75.80 +-1.08, y 9.38 +-0.29, X 68.29 +-0.89 mm (pick 0.79; camera 0.41: theta +-0.3° "
+        "of fit 02 0.41); t 7.01 mm at that d (outside the model's outline); residual px (in sd of the photo's stated "
+        "pixel error) B1 2.4 (1.0), B2 1.6 (1.0); crossing deg B1 8.2, B2 18.9; condition number 2.0 (limit 20); "
+        "slide line (+ rises to the right; a slide along it does not show in the residual; per px to the right the "
+        "point moves): B1 -3.6°: d +0.12 y -0.03 "
+        "X -0.06 mm (B1); B2 +9.3°: d +0.00 y +0.03 X +0.13 mm (B2); W_SHALLOW_CROSSING the edges cross at 8.2° in B1: "
+        "...")
     rec.update(kind="corner", crossing_deg=None, warnings=[], model_t=5.0, slide=None,
                camera_shift={"05": [0.0, 0.0, 0.2], "02": [0.0, 0.0, -0.35]})
-    assert RD.reading_text(rec).endswith("(pick 0.79; camera 0.41: theta +-0.3° of fit 05 0.20, 02 0.35); t 7.01 at "
-                                         "that d (model 5.00); residual px (sd) B1 2.4 (1.0), B2 1.6 (1.0); "
-                                         "condition 2.0")
+    assert RD.reading_text(rec).endswith("(pick 0.79; camera 0.41: theta +-0.3° of fit 05 0.20, 02 0.35); t 7.01 mm "
+                                         "at that d (model t 5.00); residual px (in sd of the photo's stated pixel "
+                                         "error) B1 2.4 (1.0), B2 1.6 (1.0); condition number 2.0 (limit 20)")
+    assert f"(limit {RD.COND_MAX:g})" in RD.reading_text(rec) and "model out" not in RD.reading_text(rec)
     assert RD.signed(-0.004, 2) == "+0.00" and RD.signed(-0.006, 2) == "-0.01" and RD.signed(0.12, 2) == "+0.12"
 
 
@@ -785,7 +895,7 @@ def test_real_pick_copy_matches_picks_json():
 
 def test_real_cameras_read_the_crown_corner_K(tb, real_basis):
     """K (the logo's back corner) on the Prada basis: as a corner in B1, B2, 05, 02, X 70.09 against the
-    investigation's bundle 70.07 +- 0.13 (4-photo joint 70.08; lab.corner_reading); as the crossing of the traced
+    investigation's bundle 70.07 +- 0.13 (4-photo joint 70.08; v2's lab.corner_reading); as the crossing of the traced
     4|1 and 1|3 creases in the same photos, the crossing pixels are picks.json's and X ~70.05. The camera lineage is
     the basis's (B1 <- 05 with no contour number, B2 <- 02 at 0.82 px, B3 <- 04 at 1.09 px); two directions, so the
     slide line runs 3.7 deg down to the right in B1 and 9.4 up in B2; the crossing names the near-horizontal 4|1
@@ -825,8 +935,8 @@ def test_real_cameras_put_the_crown_tip_E_where_the_photos_end_it(tb, real_basis
     photos' 75.5-77.2 (every v2 run put it at d 85-96.5). The reading says why it is the weakest point: B1's edges
     cross at 8.2 deg (7.1 px along them per px), both lie 3.6-4.5 deg from the slide line in B1 and edge 1 7.9 in B2,
     and the crossing slides 7.0 px along it per px of an edge's offset (d > 0.6 mm per px, against K's < 0.3); its d is
-    good to about 1-1.6 mm. The corner pick of the same pixels is within 0.03 of lab.corner_reading (d 75.59, y 9.43,
-    X 68.41: tri.log B1+B2; changed from 0.01: the twins' camera errors now differ, B1's is 05's mapped plus its
+    good to about 1-1.6 mm. The corner pick of the same pixels is within 0.03 of v2's lab.corner_reading (d 75.59, y
+    9.43, X 68.41: tri.log B1+B2; changed from 0.01: the twins' camera errors now differ, B1's is 05's mapped plus its
     transport), claims sd_d 0.22, and carries the same slide line: 0.12 mm of d per px in B1, so its 16 px slide back
     along the top edge (the v2 failure) moves d ~1.9 with a residual that shrinks and no warning."""
     rec = RD.read_point(tb, real_basis, "E", [{"photo": p, "edges": [real_edges(p, "T4b"), real_edges(p, "KE")]}

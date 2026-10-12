@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 import time
 
 import numpy as np
@@ -133,7 +134,7 @@ def test_exact_recovery_on_consistent_data():
 
 def test_output_is_a_pure_v2_spec_and_the_rest_is_copied():
     design = layout1()
-    design["nodes"]["Z"] = [10.0, 5.0, read(63.5, 0.2)]               # a reading on a node in no facet
+    design["nodes"]["Z"] = [110.0, 5.0, read(63.5, 0.2)]              # a reading on a node in no facet's polygon
     design["facets"]["R"] = {"poly": FACETS["R"], "plane": "nodes", "soft": True}
     before = json.dumps(design, sort_keys=True)
     res = FT.fit_spec(design)
@@ -217,12 +218,14 @@ def test_least_squares_spreads_a_non_coplanar_flat_face_with_the_right_residuals
     assert f["misfit_at"] == fit[0] and f["flat_misfit_mm"] == pytest.approx(res.nodes[fit[0]]["residual_mm"])
     (w0,) = [x for x in res.warnings if x["code"] == "W_FACE_NOT_FLAT"]
     devs = ", ".join(f"{n} {loo[n]['mm']:+.2f} +- {loo[n]['sd_mm']:.2f}{' mm' if n == 'A' else ''}" for n in "AKE")
-    built = ", ".join(f"{n} {res.nodes[n]['residual_mm']:+.2f}{' mm' if k == 0 else ''} "
-                      f"({abs(res.nodes[n]['residual_sd']):.1f} sd)" for k, n in enumerate(fit))
-    assert w0["message"] == (f"face crown: its corners do not fit one flat face (chi2 {chi2:.1f} for 1 extra corner, "
-                             f"{math.sqrt(chi2):.1f} sd): each corner from the plane of the other three: {devs}, H "
-                             f"(others nearly in line); the flat fit: {built}; ways (unranked): warp (one face, no "
-                             f"line), a fold (two faces), another reading of a corner")
+    built = ", ".join(f"{n} X {res.nodes[n]['residual_mm']:+.2f} mm ({abs(res.nodes[n]['residual_sd']):.1f} sd)"
+                      for n in fit)                                 # read with no (d, y): its X row is its residual
+    assert w0["message"] == (f"face crown: its corners do not fit one flat face (chi2 {chi2:.1f} for 1 extra corner): "
+                             f"each corner {math.sqrt(chi2):.1f} sd from the plane of the other three (with one extra "
+                             f"corner the readings cannot say which corner is off): {devs}, H (others nearly in line); "
+                             f"the flat fit (fitted - read): {built}; ways (unranked): warp (one face, no line), a "
+                             f"fold (two faces), another reading of a corner, a corner that is two vertices (one per "
+                             f"face)")
     # within FLAT_CHI2_PER_CORNER: flat, no warning
     small = 1.9 * loo["K"]["sd_mm"]                                          # chi2 = 3.61 < 4 per extra corner
     res = FT.fit_spec(crown_design(small)[0])
@@ -351,7 +354,7 @@ def test_a_declaration_within_accept_dchi2_is_built_and_its_cost_reported():
     assert res.chi2 - res.chi2_free == pytest.approx(c["dchi2"], abs=1e-12)
     assert res.chi2_free <= 1e-15
     line = next(ln for ln in res.report_lines(limit=40) if ln.startswith("D|U"))
-    assert f"readings-only -1.0 +- {c['free_sd_deg']:.1f}, cost +{c['dchi2']:.1f}" in line
+    assert f"readings-only -1.0 +- {c['free_sd_deg']:.1f} deg, cost +{c['dchi2']:.1f}" in line   # v3p3: deg said
 
 
 def test_a_declaration_beyond_accept_dchi2_is_refused_with_facts_only():
@@ -519,8 +522,8 @@ def test_prior_only_node_warns_prior_and_a_face_determined_one_warns_solved():
     s = res.nodes["S"]
     assert w["code"] == "W_FIT_SOLVED" and w["faces"] == ["T"] and w["through"] == ["P", "Q", "R"]
     assert w["nearest"] == "P" and w["nearest_mm"] == pytest.approx(12.0) and not w["at_bound"]
-    assert w["message"] == (f"node S: no reading or typed value; X 64.50 +- {s['sd_X']:.2f} (t 4.50) from face T "
-                            f"through P, Q, R, 12.0 mm from its nearest observed corner P")
+    assert w["message"] == (f"node S: no reading or typed value; X 64.50 +- {s['sd_X']:.2f} mm (t 4.50 mm) from face "
+                            f"T through P, Q, R, 12.0 mm from its nearest observed corner P")     # v3p3: mm said
 
 
 def test_a_far_virtual_corner_of_a_read_face_is_set_by_the_face_not_the_prior():
@@ -551,17 +554,32 @@ def test_report_lines_are_compact_ordered_and_keep_warnings():
     lines = res.report_lines(limit=40)
     assert all(len(ln) <= FT.REPORT_CHARS for ln in lines)
     assert lines[0].startswith("fit: chi2 21.5, dof 1, from 7 readings and 0 typed values")
-    assert lines[1] == "misfit beyond 1 sd (fitted - read): E +1.72 mm (3.9 sd), K -0.24 (1.8 sd), A +0.52 (1.7 sd)"
-    assert lines[2] == ("face crown flat (A K E H): chi2 21.5 for 1 extra corner, not one plane; the fit puts E +1.72 "
-                        "mm (3.9 sd) off its reading")
-    assert lines[3] == "flat faces with no extra corner: logo, lower, nose, shoulder"
+    assert lines[1] == ("misfit beyond 1 sd (fitted - read): E X +1.72 mm (3.9 sd), K X -0.24 mm (1.8 sd), A X +0.52 "
+                        "mm (1.7 sd)")
+    assert lines[2] == ("face crown flat (A K E H): chi2 21.5 for 1 extra corner, not one plane; its largest misfit "
+                        "(fitted - read): E X +1.72 mm (3.9 sd)")
+    # v3p3-clean-fit: "flat faces with no extra corner" said what "extra" means nowhere on its own line
+    assert lines[3] == ("flat faces with fewer than 4 read, typed or base corners (no flatness test): logo, lower, "
+                        "nose, shoulder")
     kinds = ["fit" if ln.startswith(("fit", "misfit", "at the thickness")) else "face"
              if ln.startswith(("face", "flat faces")) else "warn" if ln.startswith("W_")
              else "cont" if ln.startswith("  ") else "crease" for ln in lines]
     order = [k for k in kinds if k != "cont"]
     assert order == sorted(order, key=["fit", "face", "crease", "warn"].index)
     short = res.report_lines(limit=8)
-    assert len(short) == 8 and short[:2] == lines[:2] and short[-1].startswith("(+")
+    assert len(short) == 8 and short[:2] == lines[:2]
+    # the last line says what was left out, by kind (v3p3-clean-fit: "(+N more lines in the fit report)" named a
+    # report no tool shows)
+    of = [k if k != "cont" else None for k in kinds]
+    for i in range(1, len(of)):
+        of[i] = of[i] or of[i - 1]                   # a wrapped line belongs to the line it continues
+    left = {}
+    for ln, k in zip(lines, of):
+        if ln not in short[:-1]:
+            left[k] = left.get(k, 0) + 1
+    assert set(left) <= {"face", "crease"} and left.get("crease", 0) > 0
+    assert short[-1] == "(left out for length: " + ", ".join(
+        f"{left[k]} {k} line{'s' if left[k] > 1 else ''}" for k in ("face", "crease") if k in left) + ")"
     assert any(ln.startswith("W_FACE_NOT_FLAT: face crown") for ln in short)
     assert any(ln.startswith("  ways (unranked): warp (one face, no line)") for ln in short)
     assert not any(ln.startswith("crown|logo") for ln in res.report_lines(limit=40, creases=False))
@@ -683,10 +701,11 @@ def test_real_run7_flat_crown_is_not_flat():
     assert 1.3 <= dev["K"]["mm"] <= 1.8 and dev["H"]["in_line"]
     assert dev["A"]["sigma"] == pytest.approx(dev["K"]["sigma"], rel=1e-9) == pytest.approx(dev["E"]["sigma"])
     assert dev["K"]["sigma"] == pytest.approx(math.sqrt(w["chi2"]), rel=1e-9) and dev["K"]["sigma"] > 3.0
-    assert w["message"].startswith("face crown: its corners do not fit one flat face (chi2 21.5 for 1 extra corner, "
-                                   "4.6 sd): each corner from the plane of the other three: A -3.96 +- 0.85 mm, K "
-                                   "+1.52 +- 0.33, E -2.42 +- 0.52, H (others nearly in line); the flat fit: E +1.72 "
-                                   "mm (3.9 sd), K -0.24 (1.8 sd), A +0.52 (1.7 sd), H -0.01 (0.0 sd); ")
+    assert w["message"].startswith("face crown: its corners do not fit one flat face (chi2 21.5 for 1 extra corner): "
+                                   "each corner 4.6 sd from the plane of the other three (with one extra corner the "
+                                   "readings cannot say which corner is off): A -3.96 +- 0.85 mm, K +1.52 +- 0.33, E "
+                                   "-2.42 +- 0.52, H (others nearly in line); the flat fit (fitted - read): E X +1.72 "
+                                   "mm (3.9 sd), K X -0.24 mm (1.8 sd), A X +0.52 mm (1.7 sd), H X -0.01 mm (0.0 sd); ")
     assert w["message"].endswith(FT.WAYS)
     assert [x["node"] for x in w["fit"]] == ["E", "K", "A", "H"]
     assert res.faces["crown"]["not_flat"] and res.dof == 1
@@ -897,7 +916,8 @@ def test_flat_face_misfit_names_no_single_corner():
     (w,) = res.warnings
     sig = [x["sigma"] for x in w["deviations"] if not x["in_line"]]
     assert len(sig) == 3 and max(sig) - min(sig) < 1e-9 and w["fit"][0]["node"] == "E"
-    assert "each corner from the plane of the other three: A " in w["message"]
+    assert ("each corner 3.8 sd from the plane of the other three (with one extra corner the readings cannot say which "
+            "corner is off): A ") in w["message"]
     pl = lambda d, y: 64.0 + 0.02 * d - 0.05 * y                               # noqa: E731
     P = {"P1": (20.0, -6.0), "P2": (40.0, -7.0), "P3": (60.0, -5.0), "P4": (55.0, 6.0), "P5": (25.0, 7.0)}
     nodes = {n: [*p, read(pl(*p) + (1.5 if n == "P3" else 0.0), 0.2)] for n, p in P.items()}
@@ -923,8 +943,8 @@ def test_solved_corner_inside_the_outline_is_a_fact():
     assert set(w) == {"W_FIT_SOLVED", "W_FIT_OFF_READING"}
     sv = w["W_FIT_SOLVED"]
     assert sv["node"] == "E" and sv["faces"] == ["crown", "shoulder"] and sv["through"] == ["A", "D", "H", "K"]
-    assert sv["message"] == (f"node E: no reading or typed value; X {e['X']:.2f} +- {e['sd_X']:.2f} (t {e['t']:.2f}) "
-                             f"from faces crown, shoulder through A, D, H, K, {sv['nearest_mm']:.1f} mm from its "
+    assert sv["message"] == (f"node E: no reading or typed value; X {e['X']:.2f} +- {e['sd_X']:.2f} mm (t {e['t']:.2f} "
+                             f"mm) from faces crown, shoulder through A, D, H, K, {sv['nearest_mm']:.1f} mm from its "
                              f"nearest observed corner D")
     t_read = RUN7_READ["E"][2] - (e["X"] - e["t"])
     assert w["W_FIT_OFF_READING"]["message"] == (f"solved E {e['t']:.2f}: its reading {t_read:.2f} +- 0.44 "
@@ -936,7 +956,7 @@ def test_solved_corner_inside_the_outline_is_a_fact():
     assert h["at_bound"] and h["t"] == pytest.approx(1.25, abs=2e-6)          # t_min 1 + roll_mm 0.25 (F2)
     (sv,) = [x for x in res.warnings if x["code"] == "W_FIT_SOLVED"]
     assert sv["at_bound"] and sv["message"].startswith("node H: no reading or typed value; the thickness bound holds "
-                                                       "it at t 1.25 (from face crown through A, E, K, ")
+                                                       "it at t 1.25 mm (from face crown through A, E, K, ")
     lines = res.report_lines(limit=60)
     assert "at the thickness bound: H (solved)" in lines and res.dof == 1    # P3-3: the held bound counts
     cr = {c["name"]: c for c in res.creases}
@@ -1379,11 +1399,16 @@ def test_a_shared_camera_turn_never_reads_as_a_warp_or_moves_a_crease():
     assert FT.fit_spec(cam_face({}, "ignored", lift={"C": 1.5})).faces["T"]["flat_chi2"] > 25.0
     ign = {x["name"]: x for x in FT.fit_spec(cam_pair({"02": -2.5}, "ignored", ridge_deg=3.0)).creases}["D|U"]
     assert ign["shape"] == "flat" and ign["deg"] < 1.0                      # the turn read as a 2.3 deg change
+    # the report (v3p3-clean-fit): a turn the data moved, in words and unsigned; one the data left at its prior's 0
+    # (here ~1e-3 sd: one photo set, the turn is a plane) prints nothing, and the misfits are then not "after" one
     lines = FT.fit_spec(cam_face({"02": 2.5})).report_lines(limit=40)
-    assert lines[1] == ("camera turn per fit (in sd of its theta error, one for all its readings): 02 +0.96 +- 0.79, "
-                        "05 -0.96 +- 0.79")
-    lines = FT.fit_spec(cam_face({}, lift={"C": 1.5}, w02=0.9)).report_lines(limit=40)
-    assert lines[2].startswith("misfit beyond 1 sd (fitted - read, after the camera turn): C -")
+    assert lines[1] == ("camera turn of fit 02: 1.0 sd, of fit 05: 1.0 sd (in sd of that camera fit's theta error; "
+                        "one turn for all of its readings)")
+    one_set = FT.fit_spec(cam_face({}, lift={"C": 1.5}, w02=0.9))
+    assert all(abs(v["u"]) < 0.01 for v in one_set.camera.values())
+    lines = one_set.report_lines(limit=40)
+    assert not any(ln.startswith("camera") for ln in lines)
+    assert lines[1].startswith("misfit beyond 1 sd (fitted - read): C (d, y) 0.03 mm (0.2 sd) and X -0.58 mm (3.2 sd)")
 
 
 def test_camera_turns_and_effective_sds_are_calibrated_monte_carlo():
@@ -1865,8 +1890,10 @@ def test_oscillating_passes_are_damped_and_an_unsettled_one_is_said(monkeypatch)
     monkeypatch.setattr(FT, "WEIGHT_DAMP_MIN", 1.0)
     res = FT.fit_spec(s)
     assert not res.model["weights_settled"] and res.model["weight_passes"] == FT.WEIGHT_PASSES
-    assert any(ln.startswith(f"the pinned-direction gradients did not settle in {FT.WEIGHT_PASSES} passes (the last "
-                             f"moved an X row by ") for ln in res.report_lines(limit=40))
+    assert res.model["weight_change"] == pytest.approx(0.12, abs=1e-9)            # the cycle's half-swing, material
+    # (v3p3-clean-fit wording: "the pinned-direction gradients ... moved an X row" named no thing Astra knows)
+    assert (f"the readings-only fit did not settle in {FT.WEIGHT_PASSES} passes: its last pass still moved a reading's "
+            f"X, carried to its corner, by 0.12 of its sd") in res.report_lines(limit=40)
 
 
 def test_crease_states_and_the_refusals_camera_wording():
@@ -1938,3 +1965,430 @@ def test_a_corner_beside_a_station_is_held_where_the_declaration_needs_it():
     assert (ps.nodes["E"][0], ps.nodes["E"][1]) == pytest.approx((E["d"], E["y"]), abs=1e-12)
     c = {x["name"]: x for x in res.creases}["shoulder|base"]
     assert c["deg"] >= FT.MIN_CREASE_DEG and c["mean_dihedral_deg"] >= FT.FLAT_CREASE_DEG + FT.MEAN_MARGIN_DEG - 1e-6
+
+
+# --------------------------------------------------------------------------------------------- report text (v3p3)
+# v3-integrate-2 / session2.md (the v3 lab driven through its tools on a copy of package_007): the fit report said
+# "did not settle" at 4.7e-08 sd, printed the camera prior "+0.00 +- 1.00" as a result on every dof-0 fit, and "-0.00".
+# The records below carry session2's stored values (v3/session2/pkg/work/temple_lab/revisions/rNNNN.fit.json, which
+# the lab reads back as FitResult(**record["fit"])).
+S2_R0004_NODES = {      # session2 r0004 (the flat-crown variant arm): (move_mm, pos_sd, residual_mm, residual_sd)
+    "A": ([0.0, 0.014091178306431473], 0.17478698557787287, 0.05568294315144949, 0.3262215012772458),
+    "C": ([0.007253836953367454, 0.0018822455031877183], 2.4e-13, -1.1342105369356485e-14, -5.7e-14),
+    "D": ([-0.003986430011607922, 0.02809310772992768], 4.1e-13, -2.4186007047958867e-14, -1.1e-13),
+    "E": ([-2.9012278373548526, 0.8977652633434374], 2.8232431104926183, 0.40825384133104803, 1.1374023548409298),
+    "H": ([0.0168080879535637, 0.0067497947371606415], 0.05272110115686065, -0.011815178262662467, -0.0723),
+    "K": ([0.08356885436734274, -0.042645576221412185], 0.5664414897925276, -0.12528104415846197, -0.7622625651646331),
+    "L": ([0.0039570810161215775, -0.007458694603807103], 1.4e-13, -1.1106571237171265e-14, -5.7e-14)}
+S2_SETTLED = {"weight_passes": 5, "weights_settled": True, "weight_change": 1.968230870770605e-11,
+              "position_passes": 5, "positions_settled": True, "position_step": 4.569308067025054e-15,
+              "snap_reverted": [], "angle_passes": 0, "position_unknowns": 13}
+
+
+def stored_fit(camera: dict, model: dict, nodes: dict | None = None, faces: dict | None = None, creases=(),
+               chi2: float = 10.478822932706858, dof: int = 1) -> FT.FitResult:
+    """A FitResult as the lab rebuilds a stored record (FitResult(**rec["fit"])): read corners {name: (move_mm, pos_sd,
+    residual_mm, residual_sd)}, camera {fit: u} (sd 1, as on a dof-0 fit), the model's settle fields."""
+    nodes = S2_R0004_NODES if nodes is None else nodes
+    rec = {n: {"source": "read", "move_mm": mv, "pos_sd": ps, "residual_mm": rm, "residual_sd": rs, "at_bound": False,
+               "at_cap": False} for n, (mv, ps, rm, rs) in nodes.items()}
+    return FT.FitResult(spec={}, nodes=rec, faces=faces or {}, creases=list(creases), chi2=chi2, chi2_free=chi2,
+                        n_obs=len(rec), dof=dof, counts={"read": len(rec), "typed": 0, "base": 0, "solve": 0},
+                        camera={f: {"u": u, "sd": 1.0, "free_u": u, "readings": sorted(rec)}
+                                for f, u in camera.items()},
+                        model=dict(model))
+
+
+def test_the_report_says_no_unsettled_pass_below_a_printed_digit(monkeypatch):
+    """session2 step 12 (r0004, the flat crown): "the pinned-direction gradients did not settle in 30 passes (the last
+    moved an X row by 4.7e-08 of its sd)": settled for every printed number (WEIGHT_TOL is 1e-9 sd), read as a fit
+    failure, and it pushed two face lines out of the 12-line receipt. A pass is said only where it still moves a
+    reading's carried X WEIGHT_SHOWN_SD (1e-3) of its sd or a corner POS_SHOWN_MM (1e-3 mm): under the damping's 0.9
+    contraction what remains is < 0.01 sd / 0.01 mm. FitResult.model keeps the solver's own flags. The stored receipt
+    is now session2's facts only, the camera turns in words."""
+    s2 = dict(S2_SETTLED, weight_passes=30, weights_settled=False, weight_change=4.6807804188864956e-08,
+              position_passes=30, position_step=1.1629763818632455e-10)
+    res = stored_fit({"02": 0.31483686781539166, "05": -0.26161223281999946}, s2)
+    assert res.model["weights_settled"] is False
+    assert res.report_lines(limit=12, creases=False) == [
+        "fit: chi2 10.5, dof 1, from 7 readings and 0 typed values; readings-only chi2 10.5",
+        "camera turn of fit 02: 0.3 sd, of fit 05: 0.3 sd (in sd of that camera fit's theta error; one turn for all of "
+        "its readings)",
+        "corners the fit placed off the design (fitted - design, d y mm; fitted - read in its sd): E -2.90 +0.90 (2.8 "
+        "sd), K +0.08 -0.04 (0.6 sd)",
+        "misfit beyond 1 sd (fitted - read, after the camera turns): E (d, y) 2.8 sd and X +0.41 mm (1.1 sd)"]
+    for key, step, said in (("weight", FT.WEIGHT_SHOWN_SD, "moved a reading's X, carried to its corner, by 0.001 of "
+                                                           "its sd"),
+                            ("position", FT.POS_SHOWN_MM, "moved a corner 0.001 mm")):
+        field = "weight_change" if key == "weight" else "position_step"
+        flag = "weights_settled" if key == "weight" else "positions_settled"
+        below = stored_fit({}, dict(S2_SETTLED, **{flag: False, field: 0.999 * step, f"{key}_passes": 30}))
+        assert not any("did not settle" in ln for ln in below.report_lines(limit=40)), key
+        at = stored_fit({}, dict(S2_SETTLED, **{flag: False, field: step, f"{key}_passes": 30}))
+        assert (f"the readings-only fit did not settle in 30 passes: its last pass still {said}"
+                in at.report_lines(limit=40)), key
+        settled = stored_fit({}, dict(S2_SETTLED, **{field: 0.5}))         # settled by the solver: never said
+        assert not any("did not settle" in ln for ln in settled.report_lines(limit=40)), key
+    # a real fit held to a tolerance it cannot meet: both flags False at changes ~1e-13; the report is the settled one's
+    plain = FT.fit_spec(probe1_design("nodes")).report_lines(limit=40)
+    monkeypatch.setattr(FT, "WEIGHT_TOL", 1e-300)
+    monkeypatch.setattr(FT, "POS_TOL_MM", 1e-300)
+    res = FT.fit_spec(probe1_design("nodes"))
+    assert not res.model["weights_settled"] and not res.model["positions_settled"]
+    assert res.model["weight_change"] < 1e-9 and res.model["position_step"] < 1e-9
+    assert res.report_lines(limit=40) == plain and not any("did not settle" in ln for ln in plain)
+
+
+def test_the_report_prints_a_camera_turn_only_where_the_data_moved_it():
+    """session2 printed "camera turn per fit (...): 02 +0.00 +- 1.00, 05 +0.00 +- 1.00" on every dof-0 fit (r0001
+    stored u 1.9e-13 / 7.7e-14) and "02 -0.00" (r0005, -1.6e-13): the prior read as a result. A turn is printed where
+    the data moved it at least CAMERA_SHOWN_SD (it prints to 0.1 sd), unsigned and in words as E_FIT_SHAPE says it,
+    and the misfit line says "after the camera turn(s)" only beside a printed one. probe1's warp crown (dof 0) prints
+    none; its flat crown (dof 1) turns both fits 0.3 sd."""
+    for cam in ({"02": 1.9051419864002737e-13, "05": 7.727144048322786e-14},
+                {"02": -1.5987212411065974e-13, "05": 1.2079266186459173e-13}):
+        lines = stored_fit(cam, S2_SETTLED, nodes={}, chi2=0.0, dof=0).report_lines(limit=40)
+        assert lines == ["fit: chi2 0.0, dof 0, from 0 readings and 0 typed values; readings-only chi2 0.0"], cam
+    one = stored_fit({"02": -0.4, "05": 0.049}, S2_SETTLED).report_lines(limit=40)
+    assert one[1] == ("camera turn of fit 02: 0.4 sd (in sd of that camera fit's theta error; one turn for all of its "
+                      "readings)")
+    assert "misfit beyond 1 sd (fitted - read, after the camera turn): E (d, y) 2.8 sd and X +0.41 mm (1.1 sd)" in one
+    none = stored_fit({"02": 0.049, "05": -0.049}, S2_SETTLED).report_lines(limit=40)
+    assert not any(ln.startswith("camera") for ln in none)
+    assert "misfit beyond 1 sd (fitted - read): E (d, y) 2.8 sd and X +0.41 mm (1.1 sd)" in none
+    warp = FT.fit_spec(probe1_design("warp"))
+    assert warp.dof == 0 and all(abs(v["u"]) < 1e-9 and v["sd"] == pytest.approx(1.0) for v in warp.camera.values())
+    assert not any(ln.startswith("camera") for ln in warp.report_lines(limit=40))
+    flat = FT.fit_spec(probe1_design("nodes")).report_lines(limit=40)
+    assert flat[1] == ("camera turn of fit 02: 0.3 sd, of fit 05: 0.3 sd (in sd of that camera fit's theta error; one "
+                       "turn for all of its readings)")
+    assert ("misfit beyond 1 sd (fitted - read, after the camera turns): E (d, y) 2.99 mm (2.8 sd) and X +0.41 mm (1.1 "
+            "sd)") in flat
+
+
+def test_no_report_text_prints_a_signed_zero():
+    """"-0.00" (session2's camera line) is never printed: _signed gives a value that rounds to zero a "+", _fixed no
+    sign. A synthetic record with every signed field just below zero (the misfit of a reading read to 0.003 mm, a
+    node at the thickness bound, a flat crease and its range, a face's flat misfit, a corner's move), and the real
+    fits of this module's fixtures, print no "-0.0"."""
+    assert FT._signed(-0.004) == "+0.00" and FT._signed(-1e-13, 1) == "+0.0" and FT._signed(0.0) == "+0.00"
+    assert FT._signed(-0.006) == "-0.01" and FT._signed(0.004, 3) == "+0.004" and FT._signed(-2.9) == "-2.90"
+    assert FT._fixed(-0.001) == "0.00" and FT._fixed(-0.01) == "-0.01" and FT._fixed(4.6349) == "4.63"
+    nodes = {"E": ([-0.004, -0.001], 0.2, -0.004, -1.3), "K": ([0.06, -0.002], 0.3, -0.001, -0.2)}
+    face = {"kind": "flat", "corners": ["E", "K", "P", "Q"], "known": ["E", "K", "P", "Q"], "extra": 1,
+            "flat_chi2": 1.7, "not_flat": False, "misfit_at": "E", "flat_misfit_mm": -0.004, "misfit_sd": 1.3}
+    crease = {"pair": ["T", "U"], "name": "T|U", "deg": -0.04, "sd_deg": 1.2, "held": False, "range_deg": [-0.04, 0.9],
+              "shape": "flat", "state": "open", "certain": False, "normal_deg": 0.04, "bound": [], "declared": "ridge",
+              "dchi2": 0.4, "free_deg": -0.02, "free_sd_deg": 1.2}
+    res = stored_fit({"02": -0.3}, S2_SETTLED, nodes=nodes, faces={"T": face}, creases=[crease])
+    res.nodes["K"]["at_bound"] = True
+    lines = res.report_lines(limit=40)
+    assert "misfit beyond 1 sd (fitted - read, after the camera turn): E (d, y) 0.2 sd and X +0.00 mm (1.3 sd)" in lines
+    assert "at the thickness bound: K (+0.00 mm from its reading)" in lines
+    assert ("face T flat (E K P Q): chi2 1.7 for 1 extra corner; its largest misfit (fitted - read): E (d, y) 0.2 sd "
+            "and X +0.00 mm (1.3 sd)" in lines)
+    assert ("T|U flat +0.0 +- 1.2 deg at mid, +0.0..+0.9 along the edge, open, declared ridge (readings-only +0.0 +- "
+            "1.2 deg, cost +0.4)") in lines
+    assert ("corners the fit placed off the design (fitted - design, d y mm; fitted - read in its sd): K +0.06 +0.00 "
+            "(0.3 sd)") in lines
+    real = [FT.fit_spec(probe1_design(c)) for c in ("nodes", "warp")] + [
+        FT.fit_spec(cam_face({"02": 2.5})), FT.fit_spec(cam_face({}, lift={"C": 1.5}, w02=0.9)),
+        FT.fit_spec(run7_layout("nodes")), FT.fit_spec(run7_layout("warp"))]
+    for r in real + [res]:
+        for ln in r.report_lines(limit=99):
+            assert not re.search(r"-0\.0+(?![0-9])", ln), ln
+
+
+def test_the_report_says_what_it_left_out_and_why_a_face_is_untested():
+    """The receipt's last line was "(+2 more lines in the fit report)" (session2 step 12): no tool shows a longer
+    report. It now names what was left out, by kind and count, singular where one. "flat faces with no extra corner"
+    named "extra" nowhere on its own line: a flat face with fewer than 4 read, typed or base corners has no flatness
+    test (3 set its plane); one whose 4 or more lie in one line has none either, and says so."""
+    faces = {"V": {"kind": "warp", "corners": ["E", "K", "P", "Q"], "warp_mm": 1.34, "corner_chi2": 0.0},
+             "T": {"kind": "flat", "corners": ["E", "K", "P"], "known": ["E", "K"], "extra": 0},
+             "U": {"kind": "flat", "corners": ["E", "K", "P", "Q"], "known": ["E", "K", "P", "Q"], "extra": 0}}
+    res = stored_fit({}, S2_SETTLED, faces=faces)
+    lines = res.report_lines(limit=40)
+    assert lines[-3:] == ["face V warp (E K P Q): 1.34 mm off one plane; corner residuals chi2 0.0",
+                          "flat faces with fewer than 4 read, typed or base corners (no flatness test): T",
+                          "flat faces whose read, typed and base corners lie in one line (no flatness test): U"]
+    assert res.report_lines(limit=len(lines)) == lines
+    assert res.report_lines(limit=len(lines) - 1) == lines[:-3] + ["face V warp (E K P Q): 1.34 mm off one plane; "
+                                                                   "corner residuals chi2 0.0",
+                                                                   "(left out for length: 2 face lines)"]
+    assert res.report_lines(limit=len(lines) - 2) == lines[:-3] + ["(left out for length: 3 face lines)"]
+    crease = {"pair": ["T", "U"], "name": "T|U", "deg": 12.0, "sd_deg": 1.2, "held": False, "range_deg": None,
+              "shape": "ridge", "state": "certain", "certain": True, "normal_deg": 12.0, "bound": [], "declared": None,
+              "dchi2": None, "free_deg": 12.0, "free_sd_deg": 1.2}
+    one = stored_fit({}, S2_SETTLED, faces={"T": faces["T"]}, creases=[crease])
+    full = one.report_lines(limit=40)
+    assert full[-1] == "T|U ridge +12.0 +- 1.2 deg, certain" and len(full) == 5
+    assert one.report_lines(limit=4) == full[:3] + ["(left out for length: 1 face line, 1 crease line)"]
+    tight = stored_fit({"02": 0.4}, dict(S2_SETTLED, weights_settled=False, weight_change=0.2, weight_passes=30),
+                       faces={"T": faces["T"]})
+    full = tight.report_lines(limit=40)
+    assert len(full) == 6 and tight.report_lines(limit=3) == full[:2] + ["(left out for length: 3 fit lines, 1 face "
+                                                                         "line)"]
+
+
+# --------------------------------------------------------------------------------------------- v3p3-fix-core
+def test_chi2_tail_is_the_chi_square_upper_tail():
+    """fit.chi2_tail (the misfit and position-warning probabilities): the closed forms for 1, 2 and 3 dof, below and
+    above the series / continued-fraction switch (x / 2 = k / 2 + 1), and the two-sided normal tails at 1 and 2 sd."""
+    for x in (1e-6, 0.01, 0.5, 1.0, 2.3, 3.0, 4.0, 5.0, 9.26, 30.0, 80.0):
+        q1 = math.erfc(math.sqrt(x / 2.0))
+        assert FT.chi2_tail(x, 1) == pytest.approx(q1, rel=1e-10, abs=1e-300), x
+        assert FT.chi2_tail(x, 2) == pytest.approx(math.exp(-x / 2.0), rel=1e-10, abs=1e-300), x
+        q3 = q1 + math.sqrt(2.0 * x / math.pi) * math.exp(-x / 2.0)
+        assert FT.chi2_tail(x, 3) == pytest.approx(q3, rel=1e-10, abs=1e-300), x
+    assert FT.chi2_tail(0.0, 3) == 1.0
+    assert FT.chi2_tail(1.0, 1) == pytest.approx(0.3173105, abs=1e-7)
+    assert FT.chi2_tail(4.0, 1) == pytest.approx(0.0455003, abs=1e-7)
+
+
+def test_a_corner_the_fit_slides_is_reported_by_its_whole_residual():
+    """v3p3 P1 (review-astra P1-1, review-owner P1-1; verify-1, verify-6): on probe1's flat crown (session2 r0004,
+    every corner read) the fit slides the tip E 3.04 mm along its reading (2.82 sd of its position rows) and its X row
+    is 1.14 sd: chi2 9.26 of the fit's 10.48. The misfit line, the face line and W_FACE_NOT_FLAT's flat fit said only
+    "E +0.41 mm (1.1 sd)" ("off its reading"), and nothing said the top outline knot moved with E (0.42 mm higher at d
+    70). Now: each says E's (d, y) part (mm along its free directions after the camera turns, and sd) and its X part;
+    the moved line names the knot; W_FIT_OFF_READING (kind "fitted") says where the fit put E, how far from its reading
+    and in sd, and the knot's move. pos_mm is checked against the reading's own (d, y) covariance and camera terms."""
+    s = probe1_design("nodes")
+    res = FT.fit_spec(s)
+    E = res.nodes["E"]
+    assert E["free_dims"] == 2 and E["knots"] == ["top"] and not E["at_cap"]
+    assert E["pos_sd"] == pytest.approx(2.823, abs=2e-3) and E["residual_sd"] == pytest.approx(1.137, abs=2e-3)
+    assert E["chi2"] == pytest.approx(E["pos_sd"] ** 2 + E["residual_sd"] ** 2, rel=1e-9)
+    rec = s["nodes"]["E"][2]["read"]
+    C = FT._full_cov(rec, float(rec["sd"]))[:2, :2]
+    v = np.array([E["d"] - rec["d"], E["y"] - rec["y"]]) + sum(
+        res.camera[f]["u"] * np.asarray(c[:2], float) for f, c in rec["camera"].items())
+    assert E["pos_mm"] == pytest.approx(float(np.hypot(*v)), rel=1e-6)                 # fitted - read, turns in
+    assert E["pos_sd"] == pytest.approx(math.sqrt(float(v @ np.linalg.solve(C, v))), rel=1e-6)
+    assert FT.chi2_tail(E["chi2"], 3) == pytest.approx(0.026, abs=1e-3)
+    lines = res.report_lines(limit=40)
+    assert ("misfit beyond 1 sd (fitted - read, after the camera turns): E (d, y) 2.99 mm (2.8 sd) and X +0.41 mm (1.1 "
+            "sd)") in lines
+    face = [ln.strip() for k, ln in enumerate(lines) if ln.startswith("face crown")
+            or (ln.startswith("  ") and lines[k - 1].startswith("face crown"))]
+    assert " ".join(face) == ("face crown flat (A K E H): chi2 10.5 for 1 extra corner, not one plane; its largest "
+                              "misfit (fitted - read): E (d, y) 2.99 mm (2.8 sd) and X +0.41 mm (1.1 sd)")
+    assert not any("off its reading" in ln for ln in lines)
+    assert any("E -2.90 +0.90 (2.8 sd, its top outline knot with it)" in ln for ln in lines)
+    nf = next(w for w in res.warnings if w["code"] == "W_FACE_NOT_FLAT")
+    assert ("the flat fit (fitted - read): E (d, y) 2.99 mm (2.8 sd) and X +0.41 mm (1.1 sd), K (d, y) 0.09 mm (0.6 "
+            "sd) and X -0.13 mm (0.8 sd), A ") in nf["message"]
+    assert nf["fit"][0]["node"] == "E" and nf["fit"][0]["chi2"] == pytest.approx(E["chi2"])
+    (w,) = [w for w in res.warnings if w["code"] == "W_FIT_OFF_READING" and w["kind"] == "fitted"]
+    assert w["node"] == "E" and w["knots"] == ["top"]
+    assert w["message"] == ("node E at d 73.85, y 10.06: the fit placed it 3.03 mm from its reading at d 76.75 +- "
+                            "1.23, y 9.16 +- 0.31 (2.8 sd along the directions it may move); the top outline knot it "
+                            "lies on moved with it (-2.90 +0.90 mm in d y)")
+    assert (E["d"], E["y"]) in {tuple(p) for p in res.spec["outline"]["top"]}   # the knot it names moved with E
+    # the warp crown leaves E where it was read: no slide, no fitted-position warning
+    warp = FT.fit_spec(probe1_design("warp"))
+    assert warp.nodes["E"]["pos_sd"] < 0.01
+    assert not any(w["code"] == "W_FIT_OFF_READING" and w["kind"] == "fitted" for w in warp.warnings)
+
+
+def test_a_misfit_is_selected_and_ranked_by_its_whole_residual():
+    """v3p3 P1 (verify-6's latent gap): a corner whose X row is under 1 sd dropped out of the misfit line whatever its
+    position rows said (X 0.84 sd with position 2.82 sd printed nothing). A reading is a misfit when its X row or its
+    whole residual lies beyond 1 sd's probability for its rows, and the list is ranked by that probability: E's three
+    rows at chi2 8.66 (p 0.034) before a pinned K's X at 1.5 sd (p 0.134), whose X is the larger. A stored record
+    without pos_mm (session2's) prints its position part in sd only; a position part that prints no digit is left
+    out."""
+    nodes = {"E": ([-2.9, 0.9], 2.82, 0.30, 0.84), "K": ([0.0, 0.0], 0.0, -0.20, -1.5)}
+    res = stored_fit({}, S2_SETTLED, nodes=nodes)
+    res.nodes["K"]["free_dims"] = 0
+    assert res.report_lines(limit=40)[-1] == ("misfit beyond 1 sd (fitted - read): E (d, y) 2.8 sd and X +0.30 mm (0.8 "
+                                              "sd), K X -0.20 mm (1.5 sd)")
+    res.nodes["E"].update(pos_mm=3.04, free_dims=2)
+    assert res.report_lines(limit=40)[-1].startswith("misfit beyond 1 sd (fitted - read): E (d, y) 3.04 mm (2.8 sd) "
+                                                     "and X +0.30 mm (0.8 sd), K X")
+    res.nodes["E"].update(pos_sd=0.5, chi2=0.5 ** 2 + 0.84 ** 2)          # 0.96 for 3 rows: within 1 sd
+    assert res.report_lines(limit=40)[-1] == "misfit beyond 1 sd (fitted - read): K X -0.20 mm (1.5 sd)"
+    res.nodes["E"].update(pos_sd=0.04, pos_mm=0.004, residual_sd=1.2, residual_mm=0.43, chi2=0.04 ** 2 + 1.2 ** 2)
+    assert "E X +0.43 mm (1.2 sd)" in res.report_lines(limit=40)[-1]
+
+
+def test_one_extra_corner_says_its_one_sigma_for_every_corner():
+    """v3p3-verify-2: with one extra corner every corner's deviation from the plane of the other three has the one
+    sigma sqrt(chi2), but the warning printed only mm, and the mm rank the corners by lever arm: a lift at K alone (the
+    defect FINDINGS §0.1 puts there) prints A, 31 mm in front of K and H, the largest. The warning now says the sigma
+    per corner and that the readings cannot single one out; the head no longer carries it."""
+    s, _ = crown_design(2.0)
+    w = next(x for x in FT.fit_spec(s).warnings if x["code"] == "W_FACE_NOT_FLAT")
+    dev = {x["node"]: x for x in w["deviations"]}
+    sig = math.sqrt(w["chi2"])
+    assert all(x["sigma"] == pytest.approx(sig, rel=1e-9) for x in dev.values())
+    assert abs(dev["A"]["mm"]) > abs(dev["K"]["mm"])                       # the lever arm, not the data
+    assert w["message"].startswith(f"face crown: its corners do not fit one flat face (chi2 {w['chi2']:.1f} for 1 "
+                                   f"extra corner): each corner {sig:.1f} sd from the plane of the other three (with "
+                                   f"one extra corner the readings cannot say which corner is off): A ")
+
+
+def warp_quad(dX: float) -> dict:
+    """An A/A2-like warp W (A2 C K A): A2 0.67 mm from the hinge corner A, behind the hinge plane, dX mm proud of A
+    (the split's logo: 0.64)."""
+    rd_ = (lambda X: {"read": {"X": float(X), "sd": 0.1}})                 # noqa: E731
+    nodes = {"A2": [-0.65, 5.18, rd_(64.0 + dX)], "C": [22.0, -8.0, rd_(65.5)], "K": [47.0, 4.5, rd_(65.2)],
+             "A": [0.0, 5.0, rd_(64.0)]}
+    return FX.straight(nodes=nodes, facets={"W": {"poly": ["A2", "C", "K", "A"], "plane": "warp"}})
+
+
+def test_a_warp_reports_how_far_it_turns_and_warns_beyond_the_crowns_scale():
+    """v3p3 P2 (review-owner P1-4, verify-9): a warp had no report of its turn; following the prompt, the A/A2 split's
+    warped logo turned ~60 deg at the hinge corner and the fit said "0.33 mm off one plane". Each warp now gives its
+    largest sampled turn from its area-mean normal and where; W_WARP_TWIST above WARP_TWIST_WARN_DEG. The crowns stay
+    under it (probe1's warp crown 9.0 deg near K, run 7's 6.7). Checked independently: the mean normal from a 0.1 mm
+    grid of central differences of planes.mvc, the normal at the reported point (an edge point 0.05 mm from A) by
+    second-order one-sided differences from inside, and no interior point farther than 0.2 mm from a corner turning
+    more than the fit says."""
+    from glasses3d.g3d.temple import spec as S
+    for design, deg in ((probe1_design("warp"), 8.96), (run7_layout("warp"), 6.69)):
+        res = FT.fit_spec(design)
+        f = res.faces["crown"]
+        assert f["twist_deg"] == pytest.approx(deg, abs=0.05) and f["twist_near"] == "K"
+        assert not any(w["code"] == "W_WARP_TWIST" for w in res.warnings)
+        assert any(f"its largest sampled turn from its mean plane is {deg:.0f} deg" in ln
+                   for ln in res.report_lines(limit=40))
+    res = FT.fit_spec(warp_quad(0.64))
+    f = res.faces["W"]
+    (w,) = [w for w in res.warnings if w["code"] == "W_WARP_TWIST"]
+    assert w["face"] == "W" and w["near"] == "A" and f["twist_near_mm"] == pytest.approx(FT.CORNER_NEAR_MM, abs=1e-6)
+    assert w["message"] == (f"face W warp (A2 C K A): its largest sampled turn from its mean plane is "
+                            f"{f['twist_deg']:.0f} deg, at d 0.05, y 5.00 (0.05 mm from corner A) (over 15 deg)")
+    P = np.array([[-0.65, 5.18], [22.0, -8.0], [47.0, 4.5], [0.0, 5.0]])
+    F = np.array([res.nodes[n]["X"] for n in ("A2", "C", "K", "A")])
+    if (P[1, 0] - P[0, 0]) * (P[2, 1] - P[0, 1]) - (P[1, 1] - P[0, 1]) * (P[2, 0] - P[0, 0]) < 0:
+        P, F = P[::-1].copy(), F[::-1].copy()
+    g, h = 0.1, 1e-4
+    Q = np.stack(np.meshgrid(np.arange(-0.65 + g / 2, 47.0, g), np.arange(-8.0 + g / 2, 5.18, g)), -1).reshape(-1, 2)
+    Q = Q[points_in_poly(Q, P) & (Q[:, 0] >= 0.0)]                        # the outline starts at d 0
+    gd = (mvc(P, F, Q[:, 0] + h, Q[:, 1]) - mvc(P, F, Q[:, 0] - h, Q[:, 1])) / (2 * h)
+    gy = (mvc(P, F, Q[:, 0], Q[:, 1] + h) - mvc(P, F, Q[:, 0], Q[:, 1] - h)) / (2 * h)
+    gm = np.array([gd.mean(), gy.mean()])
+    nm = np.array([-gm[0], -gm[1], 1.0]) / math.sqrt(1.0 + gm @ gm)
+
+    def turn_of(grad):
+        nv = np.array([-grad[0], -grad[1], 1.0]) / math.sqrt(1.0 + grad @ grad)
+        return math.degrees(math.acos(min(1.0, float(nv @ nm))))
+    m = np.array(f["twist_at"])
+    A, K = np.array([0.0, 5.0]), np.array([47.0, 4.5])
+    u = (K - A) / np.hypot(*(K - A))
+    n_in = np.array([-u[1], u[0]])
+    if not points_in_poly((m + 0.01 * n_in)[None], P)[0]:
+        n_in = -n_in
+    t = 1e-3
+    X0 = float(mvc(P, F, m[0], m[1]))
+    cross = (4.0 * float(mvc(P, F, *(m + t * n_in))) - float(mvc(P, F, *(m + 2 * t * n_in))) - 3.0 * X0) / (2 * t)
+    along = (float(res.nodes["K"]["X"]) - float(res.nodes["A"]["X"])) / float(np.hypot(*(K - A)))
+    grad = np.linalg.solve(np.array([u, n_in]), np.array([along, cross]))
+    assert f["twist_deg"] == pytest.approx(turn_of(grad), abs=0.5)
+    far = np.min(np.hypot(Q[:, None, 0] - P[None, :, 0], Q[:, None, 1] - P[None, :, 1]), axis=1) > 0.2
+    assert max(turn_of(np.array([a, b])) for a, b in zip(gd[far], gy[far])) <= f["twist_deg"] + 0.5
+    assert FT.fit_spec(warp_quad(0.0)).faces["W"]["twist_deg"] < FT.WARP_TWIST_WARN_DEG
+    assert "W_WARP_TWIST" in S.WARNINGS and "W_WARP_TWIST" in FT.FIT_WARNINGS
+
+
+def test_a_valued_node_no_facet_lists_is_refused_inside_a_facet():
+    """v3p3 P2 (review-owner P2-4, verify-13): L dropped from nose [A, L0, C] with L kept (read, on the bottom outline
+    knot inside nose's polygon): the fit left L's reading out and accepted, then the builder refused E_RELIEF_STEP at
+    nose's fitted plane to 6 digits; a typed node strictly inside a facet was dropped by both, silently. A read, typed
+    or base node no facet lists, inside the outline and inside or on a facet's polygon, is refused at the fit, in
+    words, with every way out; one on the plain arm (in no facet's polygon) or outside the outline keeps its value as
+    its t (every package's revision 0 has no facets)."""
+    for node, what, where in (([10.0, 5.0, read(63.5, 0.2)], "a reading", "on the edge of facets N, W (d 10.00, y "
+                                                                          "5.00)"),
+                              ([85.0, 2.0, 4.0], "a typed t", "inside facet R (d 85.00, y 2.00)"),
+                              ([85.0, 2.0, "base"], "t base", "inside facet R (d 85.00, y 2.00)")):
+        d = layout1()
+        d["nodes"]["Z"] = node
+        with pytest.raises(TempleError) as e:
+            FT.fit_spec(d)
+        assert e.value.code == "E_SPEC" and e.value.fields["node"] == "Z"
+        assert e.value.message == (f"node Z has {what} and lies {where}, but no facet lists it among its corners: the "
+                                   f"fit takes a node's value only at a facet's corner; ways: list Z among a facet's "
+                                   f"corners, give it no value (t solve), or delete node Z")
+    for p in ([110.0, 5.0], [10.0, 15.0]):                                  # the plain arm; outside the outline
+        d = layout1()
+        d["nodes"]["Z"] = [*p, read(63.5, 0.2)]
+        assert FT.fit_spec(d).spec["nodes"]["Z"][2] == pytest.approx(3.5, abs=1e-12)
+    d = layout1()
+    d["nodes"]["Z"] = [10.0, 5.0, None]                                     # no value: nothing to bind
+    assert "Z" not in FT.fit_spec(d).nodes
+
+
+def test_the_builder_names_a_stray_known_value_without_the_plane_equation():
+    """v3p3-verify-13: the builder's refusal printed "off its plane X = 69.5513 + -0.00772868 d + -0.0826772 y", the
+    fit's own plane to 6 digits (no tool sets it), and never said L is no corner of nose. Now: the facts in the units
+    the tools set, and that the node is not the facet's corner; the coefficients stay in the fields. T's corners P, Q
+    lie below the outline, so the bottom outline knot at d 40, where the typed node L sits 0.5 mm off T's plane, is a
+    vertex of T's built region."""
+    from glasses3d.g3d.temple import build_temple
+    s = FX.straight(nodes={"P": [20.0, -12.0, 4.0], "Q": [60.0, -12.0, 4.0], "R": [40.0, 6.0, 4.0],
+                           "L": [40.0, -10.0, 4.5]},
+                    facets={"T": {"poly": ["P", "Q", "R"], "plane": {"coef": [64.0, 0.0, 0.0]}}})
+    s["outline"]["bottom"] = [[0.0, -10.0], [40.0, -10.0], [120.0, -10.0]]
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    x = e.value
+    assert x.code == "E_RELIEF_STEP" and "X = " not in x.message and "+ -" not in x.message
+    assert x.message == ("facet T: 1 known value(s) off its plane (worst +0.5 mm at node L, which is not a corner of "
+                         "T, (d, y) (40.00, -10.00))")
+    assert x.fields["coef"] == pytest.approx([64.0, 0.0, 0.0])
+
+
+def test_crosses_sees_a_touch_on_a_sloped_outline_edge():
+    """v3p3-review-e2e P3-3 (probe 4 seed 1874): builder_point reverts a corner whose move touches an outline edge, but
+    the orientation signs saw a point put onto a sloped edge by interpolation on either side at random (153 of 200
+    such points on a Prada-like first top edge): the readings-only fit snapped A onto the top outline, the crown's edge
+    A-H then lay outside it, and the declared crown|base valley "held" on a piece the builder did not build
+    (E_CREASE_SHAPE after the fit accepted). Touching is now a distance: every such point reverts."""
+    top = [[0.0, 10.13], [36.24, 15.16]] + [p for p in FX.TOP if p[0] >= 50.0]
+    rd_ = {"read": {"X": 65.0, "sd": 0.1, "d": 5.0, "y": 10.0, "sd_d": 0.2, "sd_y": 0.2}}
+    s = FX.base_spec(nodes={"A": [5.0, 10.0, rd_], "K": [30.0, 0.0, read(65.0, 0.1)],
+                            "P": [3.0, -5.0, read(65.0, 0.1)]},
+                     facets={"F": ["A", "P", "K"]}, outline={"top": top, "bottom": FX.BOTTOM, "tip_round_mm": 0.0})
+    pb = FT._Problem(s)
+    qs = [(d, float(pb.ps.y_top(d))) for d in np.linspace(1.0, 20.0, 200)]
+    signs = [bool(np.any(FT._meets(np.array([pb.nodes["A"]]), np.array([q]), None, *pb._others("A")[1:]))) for q in qs]
+    assert 0 < sum(signs) < len(qs)                                         # the orientation signs alone: at random
+    assert all(pb._crosses("A", q) for q in qs)
+
+
+def lost_pair_design() -> dict:
+    """crown [A K E H] on the straight slab with H 0.3 mm above the top outline and A 0.15 mm below it, read 0.02 mm
+    below it: crown|base shares only the inside part of A-H (11.6 mm); logo [A P K] and sh [K Q E] on the plain arm."""
+    rd_ = (lambda X, **p: {"read": {"X": float(X), "sd": 0.1, **p}})       # noqa: E731
+    cr = (lambda d, y: 65.5 - 0.08 * y)                                     # noqa: E731
+    nodes = {"A": [5.2, 9.85, rd_(cr(5.2, 9.98), d=5.2, y=9.98, sd_d=0.2, sd_y=0.05)], "K": [30.0, 0.0, rd_(cr(30, 0))],
+             "E": [60.0, 10.0, rd_(cr(60, 10))], "H": [40.0, 10.3, rd_(cr(40, 10.3))], "P": [3.0, -5.0, rd_(65.0)],
+             "Q": [60.0, -5.0, rd_(65.0)]}
+    return FX.straight(nodes=nodes, facets={"crown": ["A", "K", "E", "H"], "logo": ["A", "P", "K"],
+                                            "sh": ["K", "Q", "E"]},
+                       creases=[{"facets": ["crown", "base"], "shape": "valley"}])
+
+
+def test_a_declared_pair_the_fitted_corners_no_longer_share_is_refused(monkeypatch):
+    """v3p3-review-e2e P3-3: the crease pieces are fixed at the design, so a corner the fit moves could take a
+    declared pair's only shared edge outside the outline unseen; the builder then refused E_CREASE_SHAPE "declared
+    valley but built none". The fitted spec is read again and such a pair is refused E_FIT_SHAPE with the fact and the
+    moves. Here the fit keeps A at its design (its snap onto the outline touches the edge: reverted), the pair holds
+    and builds; with the touch test disabled the fit puts A onto the outline, and the check refuses."""
+    from glasses3d.g3d.temple import build_temple
+    s = lost_pair_design()
+    res = FT.fit_spec(s)
+    assert res.model["snap_reverted"] == ["A"] and math.hypot(*res.nodes["A"]["move_mm"]) < 1e-9
+    assert any(c["regions"] == ["crown", "base"] and c["shape"] == "valley"
+               for c in build_temple(res.spec).tables["creases"] if c["kind"] == "crease")
+    monkeypatch.setattr(FT._Problem, "_crosses", lambda self, n, q: False)
+    with pytest.raises(TempleError) as e:
+        FT.fit_spec(s)
+    x = e.value
+    assert x.code == "E_FIT_SHAPE" and x.fields["creases"][0]["reason"] == "no shared edge after the fit"
+    assert x.message == ("the declared crease shapes: crown|base declared valley: crown and base share no edge inside "
+                         "the outline where the fit puts the corners (11.60 mm at the design's); the fit moved (d y "
+                         "mm) A +0.00 +0.15")

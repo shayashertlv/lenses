@@ -1,61 +1,85 @@
-"""T5 (plan/WP6_FACETS.md §5): the $0 scripted rehearsal of a facet run. SCRIPTED OFFLINE TOOL TEST: the edits
-below are arbitrary controls, never Astra or product output.
+"""T5 for WP6 v3 (plan/WP6_V3.md §7.2; plan/WP6_FACETS.md §5 T5): the $0 scripted rehearsal of a v3 facet run.
+SCRIPTED OFFLINE TOOL TEST: every pick, layout, edit and judgement below is an arbitrary control, never Astra or
+product output.
 
 A fresh package (temple_lab.cli.prepare: a byte copy of the original Prada scene, the six target photos, the three
-black photos B1-B3, the pose basis with B1-B3 (colourway photos, each with a camera transported from the target photo
-of its pose: B1 from 05, B2 from 02, B3 from 04), revision 0 applied) runs through agent/loop.run_astra with the pinned
-Agents SDK, the real Blender worker and the seven facet tools, while api.openai.com is a MockTransport
-(agent/replay.ScriptedOpenAI) whose replies are scripted
-calls built from the live lab state; LoopbackOnly and the production-transport tripwire are active throughout. The
-run settings are exactly a paid run's (tools.run_settings: required tool choice kept, final only on an accepted
-facet_finish with K 4, the context guard at 240k counted input); only the approval is a synthetic OFFLINE ONLY record.
+black photos B1-B3 with their transported cameras, the pose basis, revision 0 fitted and applied) runs through
+agent/loop.run_astra with the pinned Agents SDK, the real Blender worker and the seven v3 tools (tools.TOOL_NAMES),
+while api.openai.com is a MockTransport (agent/replay.ScriptedOpenAI) whose replies are scripted calls built from the
+live lab state; LoopbackOnly and the production-transport tripwire are active throughout. The run settings are exactly
+a paid run's (tools.run_settings: required tool choice kept, final only on an accepted facet_finish with K 4, the
+context guard at 240k counted input); only the approval is a synthetic OFFLINE ONLY record.
 
-The script passes every tool and checks: the missing approval is refused before any request; every request has
-tool_choice required; images of a tool output reach the next request; a facet_edit without the due judgement is
-refused E_JUDGEMENT; H1's facet_edit compare takes a black photo (the default set plus B1); a simulated stuck call
-(facet_inspect made to outlast a shortened SDK timeout) answers E_TIMEOUT with the footer and makes the next call
-E_BUSY; a facet_edit timed out the same way still applies in its thread, and its compare (never shown) demands no
-judgement of the next action; an early facet_finish is refused E_FINISH and the run goes on; one scripted count above
-the guard threshold makes the next request replace the superseded compare images by stubs; facet_variants at 05 and
-B1 leaves the worker's scene fingerprint unchanged, renders 05's panels native and B1's gloss_black, and every render
-panel of both sheets carries that model's own crease lines (computed for every panel, depth-tested on the head's
-scene, drawn in the overlay colours: counted per panel on the sheet); the top photo's compare text carries its outline
-line (information only); after one more distinct head (judging compare_all), the accepted "stuck" finish ends the run
-(status completed, no further request) with an export that validates; the §4.5 text budgets hold on every real
-output; instructions-sent.txt is byte for byte the bound instructions; no network. The first request carries every
-photo (6 target + 3 black, the black ones role colourway with their basis images); photo_image shows a black photo
-(B2); photo_compare on B2 and B3 (points_px on B2, one on the temple, one off it) shows photo / overlay / gloss_black
-and no native row, and the job's gloss_black gain still comes from black-side (seeing.gain_view_rank: a transported
-camera never displaces a fitted gain view). It records every tool output's text and image sizes (the estimate's
-input), where the job's gloss_black gain came from, and each variant sheet's path, pass and per-panel crease lines.
+The controls (tests/proofs/wp6v3_rehearsal_checks.py): six chart points CTRL (d, y, t above revision 0's base surface)
+picked in the photos by projecting them through the lab's own cameras, so every reading has an exact answer: A, H, K
+as corners in B1 B2 05 02 (two directions: B1 is 05's camera moved, B2 02's), the tip E as a crossing of the traced
+images of the chart segments E-H and E-K (shallow in the side views beside their slide line), C and X1 as corners in
+two photos. The layout: crown A H E K (warp: K lies off the plane of A H E), logo A K C (soft border), all from the
+readings; crown|logo builds a certain ridge, so declaring it a valley is refused E_FIT_SHAPE.
 
-Run 5's inward edge (a crease flipped ridge -> valley by applying a variant, unseen; a solved corner; no way to read t
-from a photo) is rehearsed with the same step count up to the context guard: photo_compare's depths read t from a
-pixel (compare_points: a B2 reading the default set leaves out comes under "depths", at the model's own t;
-compare_black: B2 at H3's crease corner Q, the projection of t = model + DEPTH_DT and the same pixel DEPTH_OFF_PX off
-its depth line, each the exact inverse: t, the model's t, px per mm of t against a finite difference, miss, the charted
-temple, in the text and the compare record); the "sunk" variant (H1's R below the base) builds F1|base a valley where
-H1 builds a ridge, so its variant item and the facet_edit that applies it with no edits ("diff": "no change") state
-crease_vs_head and diff_vs_head against H1; every built facet_edit states crease_vs_head exactly when a facet pair both
-builds have changed shape against the head it replaced (checked on the builds' own crease tables), and diff_vs_head
-exactly when its parent is not that head; one more facet_inspect on the roof H3 (after the guard) prints its solved
-nodes as "solve -> value" (the build's node table), while no receipt lists them as solved corners (outside the
-outline: they bind nothing). After the guard, one scripted head (HM, edit_margins: a crown whose corner B is solved
-from its plane and a logo that takes B, run 5's mechanism as a TOOL TEST layout) makes a receipt carry "margins" (the
-crease's margin with its solved corner, exactly lab.margins_summary of the build) and "solved" (B's t), so the cost
-estimate (cli estimate, priced from these outputs) prices a facet_edit with them.
+The script (23 requests, one tool call each) and what it checks:
+    inspect          facet_inspect of revision 0: one chart image, the v3 node columns (fitted_at)
+    photo_image      a 05 crop at scale 2, enhanced: k 2, the stretch
+    photo_black      B2 whole: a black photo, its colour
+    read             photo_read A H K E C X1: each reading within READ_TOL_MM of its control with a zero residual, E a
+                     crossing with W_SHALLOW_CROSSING and W_ALONG_LINE, one pick sheet a reading (kind reading) of the
+                     size its photos make
+    edit_no_object   the layout without an object note: E_OBJECT, nothing registered
+    edit_h1          H1 = the layout from the readings (warp crown, soft logo) with the object note: applied, the fit's
+                     warp line, a soft crease line, compared at the default set
+    compare_zoom     B1 and B2 in full, a zoom at B1 with the geometry view and one at 05 without, points_px at B2 (one
+                     on the temple at a control (d, y), one off it): black rows (photo / gloss-black render /
+                     overlay), the lab's photo ids in the images' titles (photo_names), the zoom texts and grids
+    edit_unjudged    E_JUDGEMENT naming that compare
+    edit_fit_refused crown|logo declared valley, judging the zoom compare (its zoomed photo 05 included): E_FIT_SHAPE
+                     (stage fit, the readings against it), "judgement of cmpN stored"
+    reread           A read again from B1 and B2 with B2's pick 2 px off, X1 dropped: replaced, dropped, and the head's
+                     node A holding the earlier reading (head_nodes)
+    inspect_stale    the head's node A row "read (replaced since)", the readings table
+    edit_h2          H2 = H1 with A set from the new reading and the bottom outline offset
+    variants         of H2 at 05 (native panels) and B1 (gloss_black panels): flat crown, K typed 1 mm out, the tail
+                     outline, and the refused valley arm; the scene unchanged, each model's edges drawn, the spread;
+                     its count is scripted above the guard threshold
+    edit_h3          the flat arm applied with no edits (the guard's request: its decision is checked, below)
+    reapply_h1       H1 applied again with no edits, after the guard's epoch (v3 has no restore): its default compare
+                     hits seeing's compare cache, so its panels are the very bytes the guard stubbed in edit_h1's
+                     output, and they must reach the next request as images (review 2026-10-12, P1, v3p3-verify-14:
+                     context guard /1 stubbed them by bytes; /2 scopes each epoch's choice to the outputs present then)
+    finish_early     matched, judging reapply_h1's compare: E_FINISH naming exactly preconditions 1 and 3, the run goes
+                     on
+    inspect_slow     facet_inspect made to outlast a shortened SDK timeout: E_TIMEOUT with the footer ...
+    busy             ... so the next call answers E_BUSY at once
+    edit_slow        H4 under the same short timeout: E_TIMEOUT; its thread still applies and compares (unseen)
+    back_to_h2       H2 again with no edits, compared at every photo with a camera (needs no judgement: the unseen
+                     compare demands none): side views' outline offsets, black rows, no top-view outline line
+    edit_h5          H5 = H2 with C typed 2 mm out of its reading (judging back_to_h2's compare): logo|base flips
+                     valley -> ridge (crease_vs_head states it), the fit weighs the typed C against its reading
+                     (W_FIT_OFF_READING)
+    variants_h5      two arms of H5 at 05 (precondition 5's variants since the latest head)
+    finish           stuck with H2: accepted, exported, validated; no request after it
+and across the run: every tool called, tool_choice required on every request, each output's images in the next
+request, every result's footer, no retired v2 phrase in any output, every photo in the first request (6 target + 3
+black), instructions-sent.txt byte for byte the bound text, crease_vs_head exactly where the builds flip a crease and
+diff_vs_head exactly where the parent is not the head, no network, the worker's own refusals.
 
-Writes <out>/rehearsal.json (and <out>-run.json, the process receipt).
+The context guard's decision (wp6v3_rehearsal_checks module doc): compare panels, zoom grids and variant sheets of a
+superseded result (older than the latest 2, not a compare of best_checkpoint's revision) may be stubbed, and a pick
+sheet only once its reading was read again or dropped; photo views, charts and the stored readings' pick sheets stay.
+At edit_h3's request the guard's real choice must equal expected_stubs on the state it chose from, with every class
+present (an old compare panel, an old zoom grid, the re-read and the dropped reading's sheets stubbed; the stored
+readings' sheets, the photo views, the charts, the latest results and best's compare kept), and every later request
+must carry the same stubs and no stub in any output that arrived after it.
+
+Writes <out>/rehearsal.json (and <out>-run.json, the process receipt); the cost estimate (cli estimate) prices its
+tool_outputs ([W, H, cli.record_kind], each facet_variants call with its "arms") and its first request's serialized
+bytes (first_request "bytes", from the run's events.jsonl).
 Run: glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.astra_temple_lab rehearse --out DIR [--rig RIG]
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 from datetime import datetime, timezone
-import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -69,20 +93,17 @@ from PIL import Image
 
 from glasses3d.agent import approvals as A
 from glasses3d.agent import replay as R
-from glasses3d.agent.loop import run_astra
+from glasses3d.agent.loop import REMOVED_PHRASES, run_astra
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
-from glasses3d.agent.session_inputs import image_identity
 from glasses3d.agent.temple_lab import geometry as G
 from glasses3d.agent.temple_lab import lab as LB
-from glasses3d.agent.temple_lab import sheets as SH
+from glasses3d.agent.temple_lab import readings as RD
 from glasses3d.agent.temple_lab import state as S
-from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, make_spec, prepare
+from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, RETIRED_PHRASES, make_spec, prepare, record_kind
 from glasses3d.agent.temple_lab.lab import read, sha, write_json_atomic
 from glasses3d.agent.temple_lab.tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, run_settings
-from glasses3d.g3d.temple.spec import parse
-from glasses3d.g3d_host import pose as PO
-from glasses3d.g3d_host.camera import project_mm
 from glasses3d.g3d_host.compare import RIDGE_RGB, VALLEY_RGB
+from glasses3d.tests.proofs import wp6v3_rehearsal_checks as CH
 
 RUN_ID = "offline-rehearsal"
 CAP = "100"
@@ -90,198 +111,94 @@ LABEL = "SCRIPTED OFFLINE TOOL TEST, NOT ASTRA OUTPUT"
 SLOW_INSPECT_S = 8.0           # the simulated stuck call: facet_inspect sleeps this long ...
 SHORT_TIMEOUT_S = 3.0          # ... under this SDK timeout, so the next call finds the scene lock held
 SLOW_EDIT_S = 5.0              # the timed-out apply: facet_edit starts this late under the same short timeout
-TEXT_BUDGET = {"facet_edit": 1500, "facet_variants": 1500, "facet_restore": 1000}      # §4.5
 GUARD_COUNT = CONTEXT_GUARD_TOKENS + 1_000      # one scripted count above the guard: it fires on the next request
-CROP_05 = [300, 150, 900, 450]
-POINTS_05 = [[600.0, 300.0], [700.0, 320.0]]
-# native px of black-angled (1920 x 1280): on the temple (charted d 30.8 at revision 0 by the B2/B3 cameras' own
-# $0 lab check) and the corner, off it
-POINTS_B2 = [[1456.0, 615.0], [5.0, 5.0]]
-BLACK_IDS = ["B1", "B2", "B3"]                    # cli.COLOURWAY_PHOTOS: each a colourway photo with a camera
-BLACK_REFS = ["black-side", "black-angled", "black-front"]
-# H1's facet_edit compare: the default set (compare_points') plus this black photo, which facet_variants then takes (it
-# needs each photo compared first); never fewer photos than the default, since the estimate prices facet_edit by the
-# mean of these outputs
-EDIT_H1_BLACK = "B1"
-VARIANT_PHOTOS = ["05", "B1"]      # a target photo (native panels) and a black one (gloss_black panels)
-VARIANT_PASSES = {"05": ["native_linear"], "B1": ["gloss_black"]}
-BLACK_COMPARE = ["B2", "B3"]
-BLACK_ROWS = {"photo", "overlay", "gloss_black"}  # a variant-colourway photo's compare rows (no native row)
 FOOTER = re.compile(r"\nsettled \$\d+\.\d\d / cap \$\d+\.\d\d · context \S+ tokens$")
 CONTROL = "SCRIPTED CONTROL, not a visual judgement"
-# depth readings (photo_compare depths): TOOL TEST pixels, each the projection of a chart point at a chosen t
-DEPTH_PHOTO = "B2"                 # the black angled photo (run 5's photo agent read B there at ~7.4-8.0 px per mm)
-DEPTH_AT_R0 = (30.0, 0.0)          # compare_points (revision 0): this (d, y) at the model's own t
-DEPTH_NODE = "Q"                   # compare_black (H3): this crease corner ...
-DEPTH_DT = 1.0                     # ... at the model's t + DEPTH_DT (an arbitrary control thickness) ...
-DEPTH_OFF_PX = 5.0                 # ... and the same pixel moved this far off its depth line
-DEPTH_RE = re.compile(r"d (\S+) y (\S+): t (\S+) \(model (\S+)\) (\S+) px/mm, miss (\S+) px (charted|mirrored)")
-CORNER_ALSO = "B1"                 # compare_black's corner reading: Q at the model's t + DEPTH_DT in B2 and this photo,
-CORNER_DD = 2.0                    # given this many mm off in d (a one-photo reading would take it as exact)
-EDIT_H2_VARIANT = "sunk"           # the variant edit_h2 applies with no edits: F1|base ridge (H1) -> valley
-FLIP_H2 = [("F1|base", "ridge", "valley")]
-# the facet_edit steps that build
-EDITS_BUILT = ["edit_h1", "edit_h2", "edit_margins", "edit_h3", "edit_h4", "edit_h6"]
-HM_SOLVED = "B"                    # the margins head's corner solved from the crown's plane (an end of crown|logo)
+# the control points: (d, y, t mm above revision 0's base surface at (d, y)); K stands 1.1-1.5 mm off the plane of
+# A, H, E (a warp crown, 0.44 mm off one plane in the fit) and C low, so crown|logo builds a certain ~10 deg ridge
+# (host pre-check on revision 0: readings-only +9.3 +- 2.8 deg)
+CTRL = {"A": (5.0, 6.0, 0.6), "H": (30.0, 10.5, 0.9), "E": (68.0, 7.5, 0.5), "K": (44.0, 4.0, 2.0),
+        "C": (20.0, -8.0, 0.2), "X1": (55.0, 2.0, 0.3)}
+FOUR, TWO = ["B1", "B2", "05", "02"], ["B1", "B2"]
+READ_PHOTOS = {"A": FOUR, "H": FOUR, "K": FOUR, "E": FOUR, "C": TWO, "X1": ["05", "02"]}
+CROSSING = {"E": ("H", "K")}          # E read as the crossing of the traced segments toward H and K
+TRACE_S = (0.04, 0.12, 0.2, 0.28, 0.36)   # the traced points, as fractions of the way toward each of those corners
+REREAD = ("A", TWO, {"B2": (2.0, 0.0)})   # A read again from B1 and B2, B2's pick 2 px right (another feature)
+DROP = "X1"
+READ_TOL_MM = 0.005            # a control reading's d, y, X against its chart point (the picks are rounded to 0.001 px)
+READ_RES_PX = 0.05             # ... and its residuals
+CROP_05, SCALE_05 = [380, 250, 740, 430], 2       # photo_image: a 360 x 180 crop at k 2 (720 x 360 <= IMAGE_MAX)
+COMPARE_PHOTOS = ["B1", "B2"]                      # compare_zoom: two black photos in full ...
+ZOOMS = (("B1", (56.0, 5.75), (380, 220), True), ("05", (25.0, 5.0), (300, 200), False))   # ... zooms (photo, d y,
+#                                                    box w h, geometry), centred on the head's surface at (d, y)
+POINT_B2 = (35.0, -4.0)        # points_px at B2: the head's surface point at this (d, y) (the plain arm) ...
+OFF_B2 = [5.0, 5.0]            # ... and a pixel off the temple
+POINT_TOL_MM = 0.3             # a charted point against the control's (d, y); its t against the head's t there
+VARIANT_PHOTOS = ["05", "B1"]  # a target photo (native panels) and a black one (gloss_black panels)
+VARIANT_PASSES = {"05": ["native_linear"], "B1": ["gloss_black"]}
+H5_VARIANT_PHOTOS = ["05"]
+BLACK_IDS, BLACK_REFS = ["B1", "B2", "B3"], ["black-side", "black-angled", "black-front"]
+BLACK_ROWS = {"photo", "overlay", "gloss_black"}   # a colourway photo's compare rows (no native row)
+SIDE_TEXT = {"01": "outline of the mirrored temple", "05": "outline of the charted temple",
+             "B1": "outline of the charted temple"}  # the side views' outline offsets (seeing._outline_text)
+OBJECT_NOTE = (
+    "SCRIPTED CONTROL (offline tool test). Two faces on the outer side of the temple, from near the hinge to d 68, the "
+    "plain arm around and behind them. crown (A H E K): the top face, one face to its tip E with no line inside it; "
+    "its corners need not lie on one plane, so it is a warp. logo (A K C): the face below it, flat, its borders with "
+    "the plain arm soft. Edges: crown|logo A-K a ridge; crown|base A-H-E-K and logo|base A-C-K. Vertices read from "
+    "two directions: A, H, K in B1 B2 05 02, the tip E as the crossing of its two edges (shallow in the side views), "
+    "C in B1 B2. Uncertain: E along its edges.")
 
 
 # --------------------------------------------------------------------------------------------- scripted edits
-def t_base(spec: dict, d: float, y: float, dt: float = 0.0) -> float:
-    return round(float(parse(spec).base_t(d, y)) + dt, 3)
+def node_read(name: str) -> dict:
+    return {"op": "set_node", "name": name, "d_mm": None, "y_mm": None, "t": {"mode": "reading", "mm": None}}
 
 
-def set_node(name: str, d: float, y: float, t) -> dict:
-    """t: a number (mm), "base" or None (solve)."""
-    mode = "mm" if isinstance(t, float) else ("base" if t == "base" else "solve")
-    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
-            "t": {"mode": mode, "mm": t if mode == "mm" else None}}
+def node_mm(name: str, d: float, y: float, t: float) -> dict:
+    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": {"mode": "mm", "mm": t}}
 
 
-def facet(label: str, poly: list, crease=None, rise=None) -> dict:
-    plane = {"mode": "crease", "crease": crease, "rise_per_mm": rise} if crease else \
-        {"mode": "nodes", "crease": None, "rise_per_mm": None}
-    return {"op": "set_facet", "label": label, "poly": poly, "plane": plane, "fade": None}
+def facet(label: str, poly: list, mode: str = "flat", soft: bool = False) -> dict:
+    return {"op": "set_facet", "label": label, "poly": poly, "plane": {"mode": mode}, "soft": soft}
 
 
-def head_edits(name: str, r0: dict) -> tuple[list, bool]:
-    """The scripted heads (edits, reset_layout) on revision 0's chains: H1 one raised triangle; HM a crown A P R B
-    whose corner B is solved (from the crown's plane) and a logo A B C that takes B, so the crown|logo crease has a
-    solved corner that sets it (its margin in the receipt; the crown's given corners span a wide triangle: the first
-    try, A at (3, 8), tilted 7.1 deg per mm and added a W_CONDITIONING line, t5_wip6c); H3 a two-facet roof with a
-    declared ridge (a new layout); H4 the roof with steeper sides; H5 between them (the timed-out apply); H6 steeper
-    still (the third distinct head of the stuck finish)."""
-    if name == "HM":
-        return [set_node("A", 3.0, -3.0, t_base(r0, 3.0, -3.0, 0.8)),
-                set_node("P", 30.0, 14.0, t_base(r0, 30.0, 14.0, 1.2)),
-                set_node("R", 78.0, 1.5, t_base(r0, 78.0, 1.5, 0.6)), set_node(HM_SOLVED, 45.0, -2.0, None),
-                set_node("C", 20.0, -13.0, t_base(r0, 20.0, -13.0, 0.5)),
-                facet("crown", ["A", "P", "R", HM_SOLVED]), facet("logo", ["A", HM_SOLVED, "C"])], True
-    if name == "H1":
-        return [set_node("P", 10.0, 4.0, "base"), set_node("Q", 40.0, 4.0, "base"),
-                set_node("R", 25.0, -12.0, t_base(r0, 25.0, -12.0, 0.8)), facet("F1", ["P", "R", "Q"])], False
-    rise = {"H3": -0.12, "H4": -0.2, "H5": -0.16, "H6": -0.28}[name]
-    return [set_node("P", 8.0, 1.0, t_base(r0, 8.0, 1.0, 0.8)), set_node("Q", 45.0, 0.0, t_base(r0, 45.0, 0.0, 0.8)),
-            set_node("PT", 8.0, 30.0, None), set_node("QT", 45.0, 30.0, None),
-            set_node("PB", 8.0, -30.0, None), set_node("QB", 45.0, -30.0, None),
-            facet("U", ["P", "Q", "QT", "PT"], ["P", "Q"], rise), facet("D", ["Q", "P", "PB", "QB"], ["P", "Q"], rise),
-            {"op": "set_crease", "facets": ["D", "U"], "shape": "ridge"}], True
+def offset(chain: str, a: float, b: float, delta: float, taper: float) -> dict:
+    return {"op": "offset_chain", "chain": chain, "d_from_mm": a, "d_to_mm": b, "delta_mm": delta, "taper_mm": taper}
 
 
-def variant_edits(r0: dict) -> list:
-    """Three depths of H1's node R (its parent is H1's revision): "sunk" sets R below the base, so F1|base is built a
-    valley where H1 (R 0.8 mm proud) builds a ridge (8.0° against 11.4° on the Prada original): a crease flip against
-    the head, as run 5's applied variant; deep and deeper keep the ridge."""
-    return [{"label": lb, "edits": [set_node("R", 25.0, -12.0, t_base(r0, 25.0, -12.0, dt))]}
-            for lb, dt in (("sunk", -0.8), ("deep", 1.4), ("deeper", 2.0))]
+CROWN, LOGO = ["A", "H", "E", "K"], ["A", "K", "C"]
+H1_EDITS = [node_read(n) for n in ("A", "H", "K", "E", "C")] + [facet("crown", CROWN, "warp"),
+                                                                facet("logo", LOGO, soft=True)]
+VALLEY = {"op": "set_crease", "facets": ["crown", "logo"], "shape": "valley"}
+H2_EDITS = [node_read("A"), offset("outline.bottom", 100.0, 115.0, -0.8, 5.0)]
+H4_EDITS = [offset("outline.bottom", 118.0, 128.0, 0.7, 4.0)]
+C_UP_MM = 2.0                  # H5 types C this far out of its reading: logo|base flips valley -> ridge (host pre-check
+#                                on H2: readings-only +4.3 +- 2.0 deg, certain; 1.5 mm already flips it, 1.0 does not)
 
 
-def built_flips(ref, tb) -> list[tuple[str, str, str]]:
-    """The facet pairs both builds have whose built crease (the build's own crease table, kind "crease") is a ridge in
-    one and a valley in the other: [(pair, shape in ref, shape in tb)] (the rehearsal's own reading of the tables)."""
-    def shapes(x):
-        return {"|".join(c["regions"]): c["shape"] for c in x.tables["creases"] if c["kind"] == "crease"}
-    a, b = shapes(ref), shapes(tb)
-    return [(k, a[k], b[k]) for k in sorted(set(a) & set(b)) if a[k] != b[k] and "flat" not in (a[k], b[k])]
+def arms(readings: dict, labels=("flat", "kdeep", "tail", "valley")) -> list:
+    """The variant arms (each edits the parent): flat crown; K typed 1 mm further out than its reading (the fit weighs
+    it against the reading: W_FIT_OFF_READING); the tail's top outline 0.6 mm out; crown|logo declared a valley
+    (refused E_FIT_SHAPE). Host pre-check on H2: pairwise 0.84-1.08 mm between the first three."""
+    k = readings["K"]
+    all_ = {"flat": [facet("crown", CROWN, "flat")],
+            "kdeep": [node_mm("K", round(float(k["d"]), 3), round(float(k["y"]), 3), round(float(k["t"]) + 1.0, 3))],
+            "tail": [offset("outline.top", 90.0, 110.0, 0.6, 5.0)],
+            "valley": [VALLEY]}
+    return [{"label": lb, "edits": all_[lb]} for lb in labels]
 
 
-def flips_stated(text, flips: list, prefix: str = "") -> bool:
-    """crease_vs_head states exactly these flips (absent when there are none)."""
-    if not flips:
-        return text is None
-    return isinstance(text, str) and text.startswith(prefix) and text.count(" -> ") == len(flips) and all(
-        re.search(rf"(^|; |: ){re.escape(k)} {a} [\d.]+° -> {b} [\d.]+°", text) for k, a, b in flips)
-
-
-def depth_rows(text: str) -> list[dict]:
-    """The depth readings of a compare text (lab.depth_text)."""
-    return [{"d": float(m[1]), "y": float(m[2]), "t": float(m[3]), "model": float(m[4]), "ppm": float(m[5]),
-             "miss": float(m[6]), "side": m[7]} for m in DEPTH_RE.finditer(str(text))]
-
-
-def judgement(lab, best: str | None = None, overall: str = "mixed") -> dict:
-    c = S.seen_compares(lab.state)[-1]
-    return {"compare_id": c["compare_id"], "versus_compare_id": None, "overall": overall,
-            "photos": [{"photo": p, "verdict": overall, "largest_difference": CONTROL, "at_d_mm": None,
-                        "at_y_mm": None} for p in c["photos"]],
-            "best_checkpoint": best or lab.s.head["id"]}
-
-
-# --------------------------------------------------------------------------------------------- request bodies
-def _parts(item) -> list:
-    out = item.get("output")
-    return out if isinstance(out, list) else [{"type": "input_text", "text": out}] if isinstance(out, str) else []
-
-
-def _image(url: str) -> tuple[str, tuple[int, int]]:
-    raw = base64.b64decode(url.split(",", 1)[1])
-    with Image.open(io.BytesIO(raw)) as im:
-        return hashlib.sha256(raw).hexdigest(), im.size
-
-
-def call_records(creates: list, images_index: dict) -> list:
-    """Every tool call in order, from the first request that carries its output: name, arguments, the output's text
-    and images (size and the lab's kind), the request index it appeared in."""
-    seen, out = set(), []
-    for n, body in enumerate(creates):
-        items = [i for i in body.get("input", []) if isinstance(i, dict)]
-        calls = {i["call_id"]: i for i in items if i.get("type") == "function_call"}
-        for item in items:
-            if item.get("type") != "function_call_output" or item["call_id"] in seen:
-                continue
-            seen.add(item["call_id"])
-            fc = calls.get(item["call_id"], {})
-            text = "".join(p.get("text", "") for p in _parts(item) if p.get("type") == "input_text")
-            imgs = []
-            for p in _parts(item):
-                if p.get("type") == "input_image":
-                    digest, (w, h) = _image(p["image_url"])
-                    imgs.append([w, h, (images_index.get(digest) or {}).get("kind", "unknown"), p.get("detail"),
-                                 digest])
-            try:
-                body_json, _end = json.JSONDecoder().raw_decode(text)
-            except ValueError:
-                body_json = {"status": "sdk_text"}
-            out.append({"call_id": item["call_id"], "tool": fc.get("name"), "request": n,
-                        "args_chars": len(fc.get("arguments") or ""), "text_chars": len(text), "text": text,
-                        "status": body_json.get("status"), "code": body_json.get("code"), "body": body_json,
-                        "images": imgs})
-    return out
-
-
-def first_request(body: dict) -> dict:
-    """The first request's text characters (input, instructions, tool schemas; images stripped) and image sizes."""
-    sizes = []
-
-    def strip(v):
-        if isinstance(v, dict):
-            if v.get("type") == "input_image":
-                sizes.append(list(_image(v["image_url"])[1]))
-                return {"type": "input_image"}
-            return {k: strip(x) for k, x in v.items()}
-        if isinstance(v, list):
-            return [strip(x) for x in v]
-        return v
-    kept = strip({k: body.get(k) for k in ("input", "instructions", "tools")})
-    return {"text_chars": len(json.dumps(kept, ensure_ascii=False, separators=(",", ":"))), "image_sizes": sizes}
-
-
-def sheet_crease_px(path, layout, shape, n_panels: int) -> list[int]:
-    """The crease-colour pixels (exactly compare.RIDGE_RGB or VALLEY_RGB) inside each panel image of a variant sheet,
-    in panel order (photo, head, variants), the cells placed as sheets.variant_sheet places them when every panel is
-    an image of the same ``shape`` (H, W) (no refused panel)."""
-    cols, pw, _ph = layout
-    h, w = shape
+def crease_px(path) -> int:
+    """Pixels of exactly the ridge or valley colour on an image (the crease lines drawn on a variant page)."""
     a = np.asarray(Image.open(path).convert("RGB"))
     hit = np.zeros(a.shape[:2], bool)
     for rgb in (RIDGE_RGB, VALLEY_RGB):
         hit |= np.all(a == np.asarray(rgb, np.uint8), axis=-1)
-    out = []
-    for n in range(n_panels):
-        r, c = divmod(n, cols)
-        x = SH.GAP_PX + c * (pw + SH.GAP_PX)
-        y = SH.TITLE_PX + SH.GAP_PX + r * (h + SH.LABEL_PX + SH.GAP_PX) + SH.LABEL_PX
-        out.append(int(hit[y:y + h, x:x + w].sum()))
-    return out
+    return int(hit.sum())
+
+
+POINTS_RE = re.compile(r"\| points \((\S+),(\S+)\) d (\S+) y (\S+) t (\S+); \((\S+),(\S+)\) no temple hit")
 
 
 # --------------------------------------------------------------------------------------------- the rehearsal
@@ -308,13 +225,15 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                      owner_words="SYNTHETIC OFFLINE CONTROL ONLY; no authorization for a paid call",
                      recorded_by="offline proof over MockTransport")
     r0 = lab.spec(0)
+    ctrl = {n: CH.chart_point(r0, *v) for n, v in CTRL.items()}
     tools = {t.name: t for t in spec.tools}
     timeout0 = tools["facet_inspect"].timeout_seconds
     edit_timeout0 = tools["facet_edit"].timeout_seconds
-    st: dict = {"fingerprints": [], "variant_views": [], "edit_heads": {}, "depths": {}}
+    st: dict = {"fingerprints": [], "variant_views": [], "edit_heads": {}}
     slow = {"armed": False, "done": threading.Event()}
     slow_edit = {"armed": False, "done": threading.Event()}
-    inspect0, variants0, edit0, views0 = lab.inspect, lab.variants, lab.edit, lab._variant_views
+    inspect0, variants0, edit0, views0, stubs0 = (lab.inspect, lab.variants, lab.edit, lab._variant_views,
+                                                  lab.context_stubs)
 
     def inspect():
         if not slow["armed"]:
@@ -333,11 +252,11 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         return out
 
     def variant_views(*args, **kwargs):
-        """The worker views of a facet_variants render (each photo's pass) and each sheet's layout (observed only)."""
+        """The worker views of a facet_variants render (each photo's pass) and each photo's panel box (observed)."""
         views, comp = views0(*args, **kwargs)
         st["variant_views"].append({
             "passes": {v["name"]: list(v.get("passes") or []) for v in views},
-            "photos": {pid: {"layout": list(c["layout"]), "shape": list(c["shape"]), "what": c.get("what")}
+            "photos": {pid: {k: (list(c[k]) if isinstance(c[k], tuple) else c[k]) for k in ("box", "k", "what", "shows")}
                        for pid, c in comp["photos"].items()}})
         return views, comp
 
@@ -352,7 +271,24 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             return edit0(*args, **kwargs)
         finally:
             slow_edit["done"].set()
+
+    def context_stubs(shas):
+        """The guard's one choice, with a snapshot of the state it chose from (for expected_stubs)."""
+        with lab.state_lock:
+            s_ = lab.state
+            best = S.head_by_fingerprint(s_, lab.fingerprint_of(s_.get("best_checkpoint")))
+            snap = {"shas": list(shas), "images": json.loads(json.dumps(s_["images"])),
+                    "results": [[c["compare_id"], c["seq"]] for c in S.seen_compares(s_)]
+                               + [[v["id"], v["seq"]] for v in S.seen_variants(s_)],
+                    "best_compares": [c["compare_id"] for c in s_["compares"]
+                                      if best is not None and c["revision"] == best["revision"]],
+                    "stored": {n: r.get("id") for n, r in (s_.get("readings") or {}).items()},
+                    "best_checkpoint": s_.get("best_checkpoint"), "best_revision": best["revision"] if best else None}
+        out = stubs0(shas)
+        st["guard"] = {"snapshot": snap, "chosen": dict(out)}
+        return out
     lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect, variants, edit_fn, variant_views
+    lab.context_stubs = context_stubs            # the loop binds scene.context_stubs when the run starts
 
     def settle(done: threading.Event, timeout_s: float) -> None:
         """A timed-out call's thread has finished and released the scene lock."""
@@ -361,153 +297,152 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         while lab.lock.locked() and time.perf_counter() - t < 30:
             time.sleep(0.05)
 
-    def edit(parent, edits, reset=False, judged=None, photos=None):
-        return {"parent_revision": parent, "reset_layout": reset, "edits": edits, "judgement": judged,
-                "note": CONTROL, "apply": True, "photos": photos}
-
-    def variant_rev(label):
-        return next(i["revision"] for i in lab.state["variants"][-1]["items"] if i["label"] == label)
-
-    def head_rev():
+    def head_rev() -> int:
         return lab.head_record()["revision"]
 
-    def depth_control(pid: str, d: float, y: float, dt: float, off_px: float = 0.0, side: int = 1) -> dict:
-        """A TOOL TEST depth reading of the head: the native pixel where photo pid shows the point (d, y, t = the
-        model's t there + dt) of the side's temple, placed as the lab builds it (the spec's hinge opening) and opened
-        by the photo's pose, moved off_px perpendicular to the image of its depth line; and what the reading must
-        return: that t (the exact inverse), the model's t, the px per mm of t (a finite difference) and off_px."""
-        rev = head_rev()
-        tb, rid = lab.build(rev), lab.rid(pid)
-        cam, frame, pose = lab.basis.camera(rid), lab.basis.frame, lab.basis.pose(rid)
-        h = tb.spec.hinge
-        deg = float(h.get("opening_deg") or 0.0)
-        opening = (deg, (abs(float(h["axis_xz_mm"][0])), float(h["axis_xz_mm"][1]))) if deg else None
-        x_in = float(np.asarray(tb.spec.inner(d), float))
-        model = float(G.surface_at(tb, np.array([[d, y]], float))[0][0]) - x_in
-        t = model + dt
+    def head_spec() -> dict:
+        return lab.spec(head_rev())
 
-        def uv(tt):
-            return project_mm(PO.chart_to_posed([[d, y, x_in + tt]], side, float(h["z_mm"]), pose, opening), cam,
-                              frame)[0]
-        e = uv(t + 0.01) - uv(t - 0.01)
-        at = uv(t) + off_px * np.array([-e[1], e[0]]) / float(np.hypot(*e))
-        return {"arg": {"photo": pid, "d_mm": d, "y_mm": y, "uv": [round(float(at[0]), 3), round(float(at[1]), 3)]},
-                "expect": {"photo": pid, "revision": rev, "side": side, "d_mm": d, "y_mm": y, "t_mm": t,
-                           "model_t_mm": model, "px_per_mm": float(np.hypot(*e)) / 0.02, "miss_px": off_px}}
+    def judgement(best: str | None = None, overall: str = "mixed") -> dict:
+        c = S.seen_compares(lab.state)[-1]
+        return {"compare_id": c["compare_id"], "versus_compare_id": None, "overall": overall,
+                "photos": [{"photo": p, "verdict": overall,
+                            "differences": [{"what": CONTROL, "d_mm": 40.0, "y_mm": 0.0}]} for p in c["photos"]],
+                "best_checkpoint": best or lab.s.head["id"]}
 
-    def compare_points():
-        """The default set with points_px at 05 and a depth reading at B2, which that set leaves out (its reading
-        comes under "depths"): the model's own surface point, so t reads the model's t."""
-        c = depth_control(DEPTH_PHOTO, *DEPTH_AT_R0, 0.0)
-        st["depths"]["compare_points"] = [c["expect"]]
-        return R.tool_call("photo_compare", {"photos": None, "crop": None, "points_px": [
-            {"photo": "05", "points": POINTS_05}], "depths": [c["arg"]]})
+    def edit(parent, edits, *, judged=None, obj=None, photos=None) -> dict:
+        return {"parent_revision": parent, "reset_layout": False, "edits": edits, "judgement": judged,
+                "note": CONTROL, "object": obj, "apply": True, "photos": photos}
 
-    def compare_black():
-        """B2 and B3, points_px at B2, two depth readings at B2 of H3's crease corner Q: on its depth line at the
-        model's t + DEPTH_DT and DEPTH_OFF_PX off it."""
-        d, y = (float(v) for v in lab.spec(head_rev())["nodes"][DEPTH_NODE][:2])
-        rows = [depth_control(DEPTH_PHOTO, d, y, DEPTH_DT, off_px=o) for o in (0.0, DEPTH_OFF_PX)]
-        st["depths"]["compare_black"] = [r["expect"] for r in rows]
-        also = depth_control(CORNER_ALSO, d, y, DEPTH_DT)               # the same point in B1 (charted, square-on)
-        corner = {**rows[0]["arg"], "d_mm": d + CORNER_DD, "also": [{"photo": CORNER_ALSO, "uv": also["arg"]["uv"]}]}
-        st["corner"] = {"d_mm": d, "y_mm": y, "t_mm": rows[0]["expect"]["t_mm"], "arg": corner}
-        return R.tool_call("photo_compare", {"photos": BLACK_COMPARE, "crop": None, "points_px": [
-            {"photo": "B2", "points": POINTS_B2}], "depths": [r["arg"] for r in rows] + [corner]})
+    def point(name, photos, shift=None) -> dict:
+        if name in CROSSING:
+            return CH.crossing_point(lab, r0, name, ctrl[name], [ctrl[n] for n in CROSSING[name]], photos, TRACE_S)
+        return CH.corner_point(lab, r0, name, ctrl[name], photos, shift)
 
-    def inspect_roof():
-        """facet_inspect on H3 (a roof whose PT, QT, PB, QB are solved): after the context guard."""
-        st["roof_revision"] = head_rev()
-        return R.tool_call("facet_inspect", {})
+    def surface_point(spec_, d, y) -> np.ndarray:
+        tb = lab.build(head_rev())
+        return np.array([d, y, float(G.surface_at(tb, np.array([[d, y]], float))[0][0])])
 
-    def arm_slow():
+    def step_read():
+        return R.tool_call("photo_read", {"points": [point(n, READ_PHOTOS[n]) for n in CTRL], "drop": []})
+
+    def step_edit_no_object():
+        st["readings_read"] = json.loads(json.dumps(lab.readings()))          # the first readings, as stored
+        st["revisions_before_object"] = len(lab.state["revisions"])
+        return R.tool_call("facet_edit", edit(0, H1_EDITS))
+
+    def step_compare_zoom():
+        st["h1"], st["h1_ck"] = head_rev(), lab.s.head["id"]
+        sp = head_spec()
+        zooms = [{"photo": pid, "box": CH.box_around(lab, sp, pid, surface_point(sp, *dy), *wh), "geometry": geo}
+                 for pid, dy, wh, geo in ZOOMS]
+        p = surface_point(sp, *POINT_B2)
+        on = [round(float(v), 1) for v in CH.pixel(lab, sp, "B2", p)]
+        st["point_b2"] = {"uv": on, "d": POINT_B2[0], "y": POINT_B2[1],
+                          "t_model": float(p[2]) - float(np.interp(POINT_B2[0], *np.asarray(sp["inner"], float).T))}
+        st["zooms"] = zooms
+        return R.tool_call("photo_compare", {"photos": COMPARE_PHOTOS, "crop": None, "zoom": zooms,
+                                             "points_px": [{"photo": "B2", "points": [on, OFF_B2]}]})
+
+    def step_edit_unjudged():
+        st["zoom_compare"] = S.seen_compares(lab.state)[-1]["compare_id"]
+        return R.tool_call("facet_edit", edit(st["h1"], [VALLEY]))
+
+    def step_reread():
+        name, photos, shift = REREAD
+        return R.tool_call("photo_read", {"points": [point(name, photos, shift)], "drop": [DROP]})
+
+    def step_edit_h2():
+        return R.tool_call("facet_edit", edit(st["h1"], H2_EDITS))
+
+    def step_variants():
+        st["h2"], st["h2_ck"] = head_rev(), lab.s.head["id"]
+        return R.tool_call("facet_variants", {"parent_revision": st["h2"], "variants": arms(lab.readings()),
+                                              "photos": VARIANT_PHOTOS, "judgement": judgement(best=st["h2_ck"])},
+                           counted=GUARD_COUNT)
+
+    def variant_rev(label: str, n: int = -1) -> int | None:
+        return next((i["revision"] for v in lab.state["variants"][n:][:1] for i in v["items"] if i["label"] == label),
+                    None)
+
+    def step_edit_h3():
+        st["flat"] = variant_rev("flat")
+        return R.tool_call("facet_edit", edit(st["flat"], []))
+
+    def step_reapply_h1():
+        """H1 again after the guard's epoch, judging edit_h3's compare: the compare cache returns edit_h1's panels."""
+        st["h3"], st["h3_ck"] = head_rev(), lab.s.head["id"]
+        return R.tool_call("facet_edit", edit(st["h1"], [], judged=judgement(best=st["h2_ck"])))
+
+    def step_finish_early():
+        return R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": st["h3_ck"], "summary": CONTROL,
+                                            "judgement": judgement(best=st["h2_ck"], overall="worse")})
+
+    def step_inspect_slow():
         slow["armed"] = True
         tools["facet_inspect"].timeout_seconds = SHORT_TIMEOUT_S
         return R.tool_call("facet_inspect", {})
 
-    def busy():
+    def step_busy():
         tools["facet_inspect"].timeout_seconds = timeout0
-        return R.tool_call("photo_image", {"photo": "05", "crop": None})
+        return R.tool_call("photo_image", {"photo": "05", "crop": None, "enhance": False, "scale": 1})
 
-    def edit_h1():
-        """H1, judging compare_points; its compare shows that compare's photos (the default set) and a black photo."""
-        st["default_photos"] = list(S.seen_compares(lab.state)[-1]["photos"])
-        st["h1_photos"] = st["default_photos"] + [EDIT_H1_BLACK]
-        return R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0], judged=judgement(lab),
-                                              photos=st["h1_photos"]))
-
-    def variants_call():
-        st["h1"], st["h1_revision"] = lab.s.head["id"], head_rev()
-        return R.tool_call("facet_variants", {"parent_revision": st["h1_revision"], "variants": variant_edits(r0),
-                                              "photos": VARIANT_PHOTOS, "judgement": judgement(lab, best=st["h1"])},
-                           counted=GUARD_COUNT)
-
-    def edit_margins():
-        """HM (after the context guard), judging edit_h2's compare: its receipt carries margins and solved."""
-        edits, reset = head_edits("HM", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits, reset, judged=judgement(lab)))
-
-    def edit_h3():
+    def step_edit_slow():
+        """H4 under a 3 s SDK timeout, starting 5 s late: E_TIMEOUT, then its thread applies and compares."""
         settle(slow["done"], 60)
-        st["h2"] = lab.s.head["id"]
-        edits, reset = head_edits("H3", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits, reset))
-
-    def edit_h4():
-        st["h3"] = lab.s.head["id"]
-        st["h3_revision"] = head_rev()
-        edits, _ = head_edits("H4", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1], judged=judgement(lab, best=st["h3"])))
-
-    def edit_slow():
-        """H5 under a 3 s SDK timeout, starting 5 s late: E_TIMEOUT, then its thread applies and compares."""
         slow_edit["armed"] = True
         tools["facet_edit"].timeout_seconds = SHORT_TIMEOUT_S
-        edits, _ = head_edits("H5", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1], judged=judgement(lab, best=st["h3"],
-                                                                                         overall="worse")))
+        return R.tool_call("facet_edit", edit(st["h3"], H4_EDITS))
 
-    def edit_h6():
-        """A third distinct head; its judgement covers compare_all (H3), so the stuck finish's last three judgements
-        are on H4, H3 and H6."""
-        edits, _ = head_edits("H6", r0)
-        return R.tool_call("facet_edit", edit(head_rev(), edits[-3:-1], judged=judgement(lab, best=st["h3"],
-                                                                                         overall="same")))
-
-    def restore_h3():
+    def step_back_to_h2():
         """After the timed-out apply has finished: no judgement is due (its compare was never shown)."""
         settle(slow_edit["done"], 120)
         tools["facet_edit"].timeout_seconds = edit_timeout0
         st["unseen"] = [c["compare_id"] for c in lab.state["compares"] if c.get("unseen")]
-        st["h5_revision"] = head_rev()
-        return R.tool_call("facet_restore", {"checkpoint": st["h3"], "judgement": None})
+        st["h4"] = head_rev()
+        return R.tool_call("facet_edit", edit(st["h2"], [], photos=lab.compare_ids()))
+
+    def step_edit_h5():
+        st["h2_all_ck"] = lab.s.head["id"]
+        c = lab.readings()["C"]
+        up = node_mm("C", round(float(c["d"]), 3), round(float(c["y"]), 3), round(float(c["t"]) + C_UP_MM, 3))
+        return R.tool_call("facet_edit", edit(st["h2"], [up], judged=judgement(best=st["h2_all_ck"],
+                                                                              overall="same")))
+
+    def step_variants_h5():
+        st["h5"] = head_rev()
+        return R.tool_call("facet_variants", {
+            "parent_revision": st["h5"], "variants": arms(lab.readings(), ("flat", "kdeep")),
+            "photos": H5_VARIANT_PHOTOS, "judgement": judgement(best=st["h2_all_ck"], overall="worse")})
 
     steps = [
         ("inspect", lambda: R.tool_call("facet_inspect", {})),
-        ("photo_image", lambda: R.tool_call("photo_image", {"photo": "05", "crop": CROP_05})),
-        ("photo_black", lambda: R.tool_call("photo_image", {"photo": "B2", "crop": None})),
-        ("compare_points", compare_points),
-        ("edit_unjudged", lambda: R.tool_call("facet_edit", edit(0, head_edits("H1", r0)[0]))),
-        ("edit_h1", edit_h1),
-        ("variants", variants_call),
-        ("edit_h2", lambda: R.tool_call("facet_edit", edit(variant_rev(EDIT_H2_VARIANT), []))),
-        ("edit_margins", edit_margins),
-        ("finish_early", lambda: R.tool_call("facet_finish", {"status": "matched", "best_checkpoint": lab.s.head["id"],
-                                                              "summary": CONTROL, "judgement": judgement(lab)})),
-        ("inspect_slow", arm_slow),
-        ("busy", busy),
-        ("edit_h3", edit_h3),
-        ("inspect_roof", inspect_roof),
-        ("edit_h4", edit_h4),
-        ("edit_slow", edit_slow),
-        ("restore_h3", restore_h3),
-        ("compare_black", compare_black),
-        ("compare_all", lambda: R.tool_call("photo_compare", {"photos": lab.photo_ids(), "crop": "temple",
-                                                              "points_px": None, "depths": None})),
-        ("edit_h6", edit_h6),
-        ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h3"],
-                                                        "summary": CONTROL, "judgement": judgement(
-                                                            lab, best=st["h3"], overall="worse")})),
+        ("photo_image", lambda: R.tool_call("photo_image", {"photo": "05", "crop": CROP_05, "enhance": True,
+                                                            "scale": SCALE_05})),
+        ("photo_black", lambda: R.tool_call("photo_image", {"photo": "B2", "crop": None, "enhance": False,
+                                                            "scale": 1})),
+        ("read", step_read),
+        ("edit_no_object", step_edit_no_object),
+        ("edit_h1", lambda: R.tool_call("facet_edit", edit(0, H1_EDITS, obj=OBJECT_NOTE))),
+        ("compare_zoom", step_compare_zoom),
+        ("edit_unjudged", step_edit_unjudged),
+        ("edit_fit_refused", lambda: R.tool_call("facet_edit", edit(st["h1"], [VALLEY], judged=judgement(
+            best=st["h1_ck"])))),
+        ("reread", step_reread),
+        ("inspect_stale", lambda: R.tool_call("facet_inspect", {})),
+        ("edit_h2", step_edit_h2),
+        ("variants", step_variants),
+        ("edit_h3", step_edit_h3),
+        ("reapply_h1", step_reapply_h1),
+        ("finish_early", step_finish_early),
+        ("inspect_slow", step_inspect_slow),
+        ("busy", step_busy),
+        ("edit_slow", step_edit_slow),
+        ("back_to_h2", step_back_to_h2),
+        ("edit_h5", step_edit_h5),
+        ("variants_h5", step_variants_h5),
+        ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h2_all_ck"],
+                                                        "summary": CONTROL, "judgement": None})),
     ]
     names = [n for n, _ in steps]
     transport = R.ScriptedOpenAI([])
@@ -525,8 +460,9 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     with LoopbackOnly() as network, ProductionTransportTripwire() as tripwire:
         result = asyncio.run(run_astra(spec, scene=lab))
     t_run = time.perf_counter() - t1
-    lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect0, variants0, edit0, views0
-    records = call_records(transport.creates, lab.state["images"])
+    lab.inspect, lab.variants, lab.edit, lab._variant_views, lab.context_stubs = (inspect0, variants0, edit0, views0,
+                                                                                  stubs0)
+    records = CH.call_records(transport.creates, lab.state["images"], record_kind)
     if len(records) == len(transport.creates) - 1:          # the accepted finish: its output is the final output
         fc = next(o for o in transport.replies[len(transport.creates) - 1].output if o["type"] == "function_call")
         text = result.get("final_output") or ""
@@ -536,8 +472,10 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             body_json = {}
         records.append({"call_id": None, "tool": fc["name"], "request": None, "args_chars": len(fc["arguments"]),
                         "text_chars": len(text), "text": text, "status": body_json.get("status"),
-                        "code": body_json.get("code"), "body": body_json, "images": []})
-    by = {names[i]: rec for i, rec in enumerate(records)}
+                        "code": body_json.get("code"), "body": body_json, "images": [], "stubs": []})
+    by = {n: {"call_id": None, "tool": None, "request": None, "args_chars": 0, "text_chars": 0, "text": "",
+              "status": None, "code": None, "body": {}, "images": [], "stubs": []} for n in names}
+    by.update({names[i]: rec for i, rec in enumerate(records)})       # a step the run never reached keeps the blank
     # the worker's own refusals of malformed lab specs (outside the loop, after it)
     lab.start()
     try:
@@ -549,166 +487,17 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     finally:
         lab.close()
     lab.verify_inputs()
-    first = transport.creates[0]
-    first_content = [x for item in first["input"] for x in (item.get("content") or []) if isinstance(x, dict)]
-    image_hashes = [image_identity(x["image_url"])[0] for x in first_content if x.get("type") == "input_image"]
-    guard_req = next((n for n, body in enumerate(transport.creates)
-                      if any(p.get("type") == "input_text" and p.get("text", "").startswith("[image removed")
-                             for i in body["input"] if isinstance(i, dict) and i.get("type") == "function_call_output"
-                             for p in _parts(i))), None)
-    stubbed = sorted({rec["call_id"] for rec in records for body in transport.creates[guard_req:guard_req + 1]
-                      for i in body["input"] if isinstance(i, dict) and i.get("call_id") == rec["call_id"]
-                      and i.get("type") == "function_call_output"
-                      for p in _parts(i) if p.get("type") == "input_text" and p["text"].startswith("[image removed")}) \
-        if guard_req is not None else []
-    expected_images = {"inspect": 2, "photo_image": 1, "photo_black": 1,
-                       "compare_points": len(by["compare_points"]["body"]["photos"]),
-                       "edit_h1": 2 + len(by["edit_h1"]["body"].get("photos") or {}), "variants": len(VARIANT_PHOTOS),
-                       "compare_black": len(BLACK_COMPARE), "inspect_roof": 2,
-                       "edit_margins": 2 + len(by["edit_margins"]["body"].get("photos") or {})}
-    cw_refs = lab.colourway_refs()
-    black_view = {pid: lab.basis.refs[ref].get("view_kind") for pid, ref in cw_refs.items()}
-
-    def black_text_ok(text, pid) -> bool:
-        return str(text).startswith(f"{black_view.get(pid)} black: rows photo/overlay/gloss-black IoU ")
-    black_id = by["compare_black"]["body"].get("compare_id")
-    black_cmp = next((c for c in lab.state["compares"] if c["compare_id"] == black_id), None)
-    black_report = read(black_cmp["report"]) if black_cmp else {}
-    black_rows = {pid: sorted(((black_report.get("photos") or {}).get(cw_refs.get(pid)) or {}).get("rows") or {})
-                  for pid in BLACK_COMPARE}
-    black_texts = {pid: str((by["compare_black"]["body"].get("photos") or {}).get(pid)) for pid in BLACK_COMPARE}
-    gloss_from = (black_report.get("gains") or {}).get("gloss_black", {}).get("from")
-    h1_texts = by["edit_h1"]["body"].get("photos") or {}
-    # facet_variants at a target and a black photo: each photo's pass, the state record's crease lines per panel and
-    # the crease-colour pixels inside each panel of the sheet the call returned
-    vbody = by["variants"]["body"]
-    vid = vbody.get("variants_id")
-    vrec = next((v for v in lab.state["variants"] if v["id"] == vid), {})
-    vviews = st["variant_views"][-1] if st["variant_views"] else {"passes": {}, "photos": {}}
-    labels = [v["label"] for v in variant_edits(r0)]
-    models = ["head"] + labels
-    sheets = {}
-    for pid in VARIANT_PHOTOS:
-        path = lab.root / "work" / "temple_lab" / "variants" / str(vid) / f"sheet-{pid}.png"
-        geo = vviews["photos"].get(pid)
-        px = sheet_crease_px(path, geo["layout"], geo["shape"], 1 + len(models)) if geo and path.is_file() else None
-        lines = (vrec.get("creases") or {}).get(pid) or {}
-        sheets[pid] = {"path": str(path), "what": (geo or {}).get("what"), "record_models": sorted(lines),
-                       "photo_panel_crease_px": px[0] if px else None,
-                       "panels": {m: {"lines": lines.get(m), "crease_px": px[1 + i] if px else None}
-                                  for i, m in enumerate(models)}}
-
-    def sheet_ok(s) -> bool:
-        panels = s["panels"].values()
-        return (s["record_models"] == sorted(models)
-                and all(isinstance(p["lines"], int) and isinstance(p["crease_px"], int)
-                        and (p["lines"] > 0) == (p["crease_px"] > 0) for p in panels)
-                and s["panels"]["head"]["lines"] > 0
-                and len({p["crease_px"] for p in panels}) > 1)            # each panel draws its own model's lines
-
-    # depth readings: the compare record (rounded to 0.001) and the text Astra read, against each control's inverse
-    def near(a, b, tol) -> bool:
-        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) <= tol
-
-    def depth_check(step: str, text) -> dict:
-        exp = st["depths"].get(step) or []
-        cid = by[step]["body"].get("compare_id")
-        got = next((c.get("depths") or [] for c in lab.state["compares"] if c["compare_id"] == cid), [])
-        got = [g for g in got if not g.get("corner")]                     # corner readings: corner_check
-        txt = depth_rows(text)
-        ok = bool(exp) and len(got) == len(txt) == len(exp) and all(
-            g.get("photo") == e["photo"] and g.get("revision") == e["revision"] and g.get("side") == e["side"]
-            and near(g.get("t_mm"), e["t_mm"], 0.005) and near(g.get("model_t_mm"), e["model_t_mm"], 0.005)
-            and near(g.get("px_per_mm"), e["px_per_mm"], 0.01 * e["px_per_mm"])
-            and near(g.get("miss_px"), e["miss_px"], 0.01)
-            and x["d"] == e["d_mm"] and x["y"] == e["y_mm"] and near(x["t"], e["t_mm"], 0.006)
-            and near(x["model"], e["model_t_mm"], 0.006)
-            and near(x["ppm"], e["px_per_mm"], 0.06 + 0.01 * e["px_per_mm"]) and near(x["miss"], e["miss_px"], 0.06)
-            and x["side"] == {1: "charted", -1: "mirrored"}[e["side"]]
-            for e, g, x in zip(exp, got, txt))
-        return {"ok": ok, "expected": exp, "recorded": got, "text": text}
-    cp_body = by["compare_points"]["body"]
-    cp_photos = cp_body.get("photos") or {}
-    depths_points = depth_check("compare_points", (cp_body.get("depths") or {}).get(DEPTH_PHOTO))
-    depths_black = depth_check("compare_black", black_texts["B2"].split(" | depths ", 1)[1]
-                               if " | depths " in black_texts["B2"] else "")
-    # the corner reading (also): the point found from B2 and B1 although its d was given 2 mm off, zero residuals
-    cb_id = by["compare_black"]["body"].get("compare_id")
-    corner_rec = next((r for c in lab.state["compares"] if c["compare_id"] == cb_id for r in (c.get("depths") or [])
-                       if r.get("corner")), None)
-    exp_c = st.get("corner") or {}
-    cr = (corner_rec or {}).get("corner") or {}
-    corner_ok = bool(cr) and near(cr.get("d_mm"), exp_c.get("d_mm"), 0.01) and near(cr.get("y_mm"),
-                exp_c.get("y_mm"), 0.01) and near(cr.get("t_mm"), exp_c.get("t_mm"), 0.01) \
-        and max(cr.get("res_px") or [99.0]) < 0.05 and (corner_rec or {}).get("also") == exp_c["arg"]["also"] \
-        and f" with {CORNER_ALSO}: t " in black_texts["B2"] and "; the point the pixels show is at d " in black_texts["B2"]
-    # crease shapes against the head: every built facet_edit (crease_vs_head exactly on the builds' own flips against
-    # the head it faced, diff_vs_head exactly when its parent is not that head) and every variant item (against H1)
-    edits_vs_head = []
-    for i, r in enumerate(records):
-        b = r["body"]
-        if r["tool"] != "facet_edit" or r["status"] not in ("applied", "built"):
-            continue
-        head = st["edit_heads"].get(r["call_id"])
-        flips = built_flips(lab.build(head), lab.build(b["revision"])) if head is not None else None
-        edits_vs_head.append({
-            "step": names[i], "head": head, "parent": b.get("parent"), "revision": b.get("revision"), "flips": flips,
-            "crease_vs_head": b.get("crease_vs_head"), "diff_vs_head": b.get("diff_vs_head"),
-            "ok": head is not None and flips_stated(b.get("crease_vs_head"), flips, f"r{head}: ")
-                  and ("diff_vs_head" in b) == (b.get("parent") != head)})
-    v_items = {v["label"]: v for v in vbody.get("variants") or []}
-    v_head = vbody.get("head_revision")
-    variant_flips = {lb: built_flips(lab.build(v_head), lab.build(v["revision"])) for lb, v in v_items.items()
-                     if v_head is not None and "revision" in v}
-    b2 = by["edit_h2"]["body"]
-    h2_head = st["edit_heads"].get(by["edit_h2"]["call_id"])
-    sunk = v_items.get(EDIT_H2_VARIANT, {}).get("revision")
-    # facet_inspect on the roof H3: its solved nodes as "solve -> value" (the build's node table); they lie outside the
-    # outline (y +-30 mm), so no receipt lists them as solved corners
-    roof = st.get("roof_revision")
-    ins = by["inspect_roof"]["body"]
-    roof_nodes = lab.spec(roof)["nodes"] if roof is not None else {}
-    roof_table = lab.build(roof).tables["nodes"] if roof is not None else {}
-    roof_solved = sorted(n for n, (_d, _y, t) in roof_nodes.items() if t is None)
-    shown = (ins.get("spec") or {}).get("nodes") or {}
-    h3_receipt = by["edit_h3"]["body"].get("receipt") or {}
-    roof_ok = (ins.get("status") == "ok" and roof is not None and roof == st.get("h3_revision")
-               and (ins.get("head") or {}).get("revision") == roof and bool(roof_solved)
-               and all((shown.get(n) or [None] * 3)[2] == f"solve -> {float(roof_table[n]['t']):.2f}"
-                       for n in roof_solved)
-               and all(isinstance((shown.get(n) or [None] * 3)[2], float) for n in roof_nodes if n not in roof_solved)
-               and "solved" not in h3_receipt
-               and not any("solved from" in ln for ln in (h3_receipt.get("lines") or [])
-                           + ((ins.get("receipt") or {}).get("lines") or [])))
-    h2_vs_head = None if None in (h2_head, sunk) else \
-        f"r{h2_head}: " + G.diff_text(G.diff_specs(lab.spec(h2_head), lab.spec(sunk)))
-    applied_flip_ok = (b2.get("status") == "applied" and b2.get("diff") == "no change" and sunk is not None
-                       and b2.get("parent") == b2.get("revision") == sunk and h2_head == st.get("h1_revision")
-                       and b2.get("diff_vs_head") == h2_vs_head and "~node R t " in str(h2_vs_head)
-                       and built_flips(lab.build(h2_head), lab.build(sunk)) == FLIP_H2
-                       and flips_stated(b2.get("crease_vs_head"), FLIP_H2, f"r{h2_head}: ")
-                       and list(b2).index("crease_vs_head") < list(b2).index("receipt"))
-    # the margins head: its receipt's margins are exactly the host's summary of its build against the head it faced
-    # (B, solved from the crown, sets crown|logo), and its solved names B
-    hm = by["edit_margins"]["body"]
-    hm_head, hm_rev = st["edit_heads"].get(by["edit_margins"]["call_id"]), hm.get("revision")
-    hm_receipt = hm.get("receipt") or {}
-    hm_expect = None if None in (hm_head, hm_rev) else LB.margins_summary(
-        LB.crease_margins(lab.build(hm_rev)), LB.MARGIN_ITEMS_MAX,
-        [k for k, *_ in LB.flips(lab.build(hm_head), lab.build(hm_rev))])
-    margins_ok = (hm.get("status") == "applied" and hm_expect is not None and hm_receipt.get("margins") == hm_expect
-                  and hm_expect.startswith(f"{HM_SOLVED} solved: crown|logo ")
-                  and str(hm_receipt.get("solved")).startswith(f"{HM_SOLVED} ")
-                  and by["edit_margins"]["text_chars"] <= TEXT_BUDGET["facet_edit"])
+    try:
+        checks, detail = check_run(lab, st, by, names, records, transport, result, ctrl)
+        checks["checks_ran"] = True
+    except Exception:  # noqa: BLE001 - a run that ended early still writes its report, with the traceback
+        checks, detail = {"checks_ran": False}, {"check_error": traceback.format_exc()}
     rows = lab.manifest["photos"]
     roles = [r.get("role", "target") for r in rows]
-    final = json.loads((result.get("final_output") or "{}").split("\n", 1)[0] or "{}")
     request = read(root / "runs" / RUN_ID / "approval-request.json")["request"]
     sent = root / "runs" / RUN_ID / "instructions-sent.txt"
-    over_budget = [(names[i], r["tool"], r["text_chars"]) for i, r in enumerate(records)
-                   if r["tool"] in TEXT_BUDGET and r["text_chars"] > TEXT_BUDGET[r["tool"]]]
-    slow_edit_call = by["edit_slow"]["call_id"]
-    checks = {
+    final = json.loads((result.get("final_output") or "{}").split("\n", 1)[0] or "{}")
+    checks.update({
         "completed_by_accepted_finish": result["status"] == "completed" and final.get("status") == "accepted",
         "no_request_after_the_accepted_finish": len(transport.creates) == len(steps),
         "missing_approval_refused_before_network": missing_approval_refused and not blocked_network.attempts
@@ -717,119 +506,43 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         "no_api_contract_violations": not transport.violations and not transport.unexpected,
         "every_tool_called": {r["tool"] for r in records} == set(TOOL_NAMES),
         "tool_choice_required_on_every_request": all(b.get("tool_choice") == "required" for b in transport.creates),
-        "images_reach_the_next_request": all(
-            sum(1 for im in by[n]["images"] if im[3] == "high") == k and by[n]["request"] == names.index(n) + 1
-            for n, k in expected_images.items()),
-        "e_judgement": by["edit_unjudged"]["code"] == "E_JUDGEMENT",
-        "sdk_timeout_then_e_busy": by["inspect_slow"]["code"] == "E_TIMEOUT" and "timed out" in by["inspect_slow"][
-            "text"] and bool(FOOTER.search(by["inspect_slow"]["text"])) and by["busy"]["code"] == "E_BUSY",
-        "timed_out_apply_needs_no_judgement": by["edit_slow"]["code"] == "E_TIMEOUT"
-                                              and by["restore_h3"]["status"] == "ok"
-                                              and st.get("h5_revision") not in (None, st.get("h3_revision"))
-                                              and [c["compare_id"] for c in lab.state["compares"]
-                                                   if c["call_id"] == slow_edit_call] == st.get("unseen"),
-        "text_budget_on_every_real_output": not over_budget,
         "instructions_sent_is_the_bound_text": sha(sent) == request["instructions_sha256"]
                                                and b"\r" not in sent.read_bytes(),
-        "refused_finish_keeps_the_run_going": by["finish_early"]["code"] == "E_FINISH"
-                                              and len(transport.creates) > names.index("finish_early") + 1,
-        "context_guard_fired": bool((result.get("context_guard") or {}).get("epoch"))
-                               and guard_req == names.index("variants") + 1
-                               and stubbed == [by["compare_points"]["call_id"]],
-        "variants_left_the_scene_unchanged": bool(st["fingerprints"]) and all(a == b for a, b in st["fingerprints"])
-                                             and by["variants"]["body"].get("spread_ok") is True,
-        "export_validates": by["finish"]["body"].get("validate_spec", {}).get("ok") is True,
-        "top_photo_compare_has_the_outline_line": "| outline: common " in str(
-            (by["compare_all"]["body"].get("photos") or {}).get("03")) and ">1 mm: d" in str(
-            (by["compare_all"]["body"].get("photos") or {}).get("03")),
-        "stuck_finish_accepted": by["finish"]["body"].get("finish") == "stuck",
-        "every_result_has_the_footer": all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text"),
-        "first_request_carries_every_photo": image_hashes == [p["sha256"] for p in rows]
+        "first_request_carries_every_photo": CH.first_request_images(transport.creates[0]) == [p["sha256"] for p
+                                                                                               in rows]
                                              and roles == ["target"] * 6 + ["colourway"] * 3
                                              and [r["id"] for r in rows[6:]] == BLACK_IDS
                                              and [r.get("basis_ref") for r in rows[6:]] == BLACK_REFS
                                              and lab.compare_ids() == lab.photo_ids() + BLACK_IDS
                                              and lab.image_ids() == lab.compare_ids(),
-        "photo_image_shows_a_black_photo": by["photo_black"]["status"] == "ok"
-                                           and by["photo_black"]["body"].get("photo") == "B2"
-                                           and by["photo_black"]["body"].get("colour") == "black",
-        "edit_compare_takes_a_black_photo": by["edit_h1"]["status"] == "applied"
-                                            and list(h1_texts) == st.get("h1_photos")
-                                            and st.get("default_photos") == list(
-                                                by["compare_points"]["body"].get("photos") or {})
-                                            and EDIT_H1_BLACK not in st["default_photos"]
-                                            and black_text_ok(h1_texts.get(EDIT_H1_BLACK), EDIT_H1_BLACK)
-                                            and not any("black" in str(h1_texts.get(p))
-                                                        for p in st["default_photos"]),
-        "variants_at_a_black_photo_render_gloss_black": by["variants"]["status"] == "ok"
-                                                        and vrec.get("photos") == VARIANT_PHOTOS
-                                                        and vrec.get("rendered") == labels
-                                                        and vviews["passes"] == VARIANT_PASSES
-                                                        and str(sheets["B1"]["what"]).startswith("gloss-black render")
-                                                        and str(sheets["05"]["what"]).startswith("native render"),
-        "variant_sheets_draw_each_models_crease_lines": vrec.get("crease_occlusion") == "scene"
-                                                        and "render" not in vbody
-                                                        and all(sheet_ok(s) for s in sheets.values()),
-        "black_compare_is_gloss_without_native": by["compare_black"]["status"] == "ok"
-                                                 and black_cmp is not None and black_cmp["photos"] == BLACK_COMPARE
-                                                 and all(set(black_rows[p]) == BLACK_ROWS for p in BLACK_COMPARE)
-                                                 and all(black_text_ok(black_texts[p], p) for p in BLACK_COMPARE),
-        "black_points_charted": "| points (1456,615) d " in black_texts["B2"]
-                                and "; (5,5) no temple hit" in black_texts["B2"]
-                                and "| points " not in black_texts["B3"],
-        "gloss_gain_still_from_black_side": str(gloss_from).startswith("the dark variant photo black-side "),
-        "depth_reading_outside_the_default_set": depths_points["ok"] and list(cp_body.get("depths") or {}) == [
-            DEPTH_PHOTO] and DEPTH_PHOTO not in cp_photos and not any(" | depths " in str(v)
-                                                                      for v in cp_photos.values()),
-        "black_depths_read_t_px_per_mm_and_miss": depths_black["ok"] and len(depths_black["expected"]) == 2
-                                                  and " | depths " not in black_texts["B3"],
-        "corner_reading_from_two_photos": corner_ok,
-        "applied_variant_states_the_flip_against_the_head": applied_flip_ok,
-        "crease_vs_head_exactly_on_flips": all(e["ok"] for e in edits_vs_head)
-                                           and [e["step"] for e in edits_vs_head] == EDITS_BUILT
-                                           and [e["step"] for e in edits_vs_head if e["flips"]] == ["edit_h2"],
-        "variant_items_state_their_flips": sorted(variant_flips) == sorted(labels)
-                                           and all(flips_stated(v_items[lb].get("crease_vs_head"), f)
-                                                   for lb, f in variant_flips.items())
-                                           and [lb for lb in labels if variant_flips[lb]] == [EDIT_H2_VARIANT],
-        "inspect_prints_solved_values": roof_ok,
-        "edit_receipt_carries_margins": margins_ok,
         "exit_checkpoint_verified": (result.get("exit_checkpoint") or {}).get("verified") is True,
         "worker_refuses_a_path_spec": path_refusal["status"] == "refused",
         "worker_failed_build_leaves_the_scene": native_rollback,
-    }
+    })
     durations = [round(b - a, 2) for a, b in zip(stamps, stamps[1:])]
     report = {"label": LABEL, "checks": checks, "passed": all(checks.values()), "rig": rig, "paid_calls": 0,
               "prepared": prepared, "seconds": {"prepare": round(t_prepare, 1), "run": round(t_run, 1)},
+              "controls": {n: [float(v) for v in p] for n, p in ctrl.items()},
               "result": {k: result.get(k) for k in ("status", "error", "requests", "turns_used", "tool_calls",
                                                     "finish_notes", "context_guard", "exit_checkpoint", "settings",
                                                     "final_output")},
               "steps": [{"step": names[i], "tool": r["tool"], "status": r["status"], "code": r["code"],
-                         "text_chars": r["text_chars"], "images": [im[:3] for im in r["images"]],
+                         "request": r["request"], "text_chars": r["text_chars"], "args_chars": r["args_chars"],
+                         "images": [im[:3] for im in r["images"]], "stubs_when_first_sent": len(r["stubs"]),
                          "seconds_until_next_request": durations[i] if i < len(durations) else None}
                         for i, r in enumerate(records)],
-              "context_guard": {"request": guard_req, "stubbed_call_ids": stubbed},
-              "black_compare": {"compare_id": black_id, "rows": black_rows, "texts": black_texts,
-                                "gloss_black_gain_from": gloss_from},
-              "variants_sheets": {"variants_id": vid, "passes": vviews["passes"],
-                                  "crease_occlusion": vrec.get("crease_occlusion"), "sheets": sheets},
-              "depth_readings": {"compare_points": depths_points, "compare_black": depths_black,
-                                 "corner": {"expected": exp_c, "recorded": corner_rec}},
-              "crease_vs_head": {"edits": edits_vs_head,
-                                 "variants": {lb: {"revision": v.get("revision"), "flips": variant_flips.get(lb),
-                                                   "crease_vs_head": v.get("crease_vs_head"),
-                                                   "solved": v.get("solved")} for lb, v in v_items.items()}},
-              "inspect_roof": {"revision": roof, "solved": roof_solved, "nodes": shown},
-              "margins_head": {"revision": hm_rev, "head": hm_head, "receipt": hm_receipt, "expected": hm_expect},
-              "text_budget": {"limits": TEXT_BUDGET, "over": over_budget,
-                              "largest": {t: max((r["text_chars"] for r in records if r["tool"] == t), default=None)
-                                          for t in TEXT_BUDGET}},
-              "unseen_compares": st.get("unseen"),
+              **detail,
               "variants_fingerprints": st["fingerprints"], "violations": transport.violations,
               "network_attempts": network.attempts, "transport_constructions": tripwire.constructions,
-              "request_count": len(transport.creates), "first_request": first_request(first),
+              "request_count": len(transport.creates),
+              "first_request": {**CH.first_request(transport.creates[0]), **first_request_bytes(root)},
+              "text_chars": {t: {"largest": max((r["text_chars"] for r in records if r["tool"] == t), default=None),
+                                 "mean": round(float(np.mean([r["text_chars"] for r in records if r["tool"] == t])))
+                                 if any(r["tool"] == t for r in records) else None} for t in TOOL_NAMES},
               "tool_outputs": [{"tool": r["tool"], "status": r["status"], "text_chars": r["text_chars"],
-                                "args_chars": r["args_chars"], "images": [im[:3] for im in r["images"]]}
+                                "args_chars": r["args_chars"], "images": [im[:3] for im in r["images"]],
+                                **({"arms": len(r["body"]["variants"])} if r["tool"] == "facet_variants"
+                                   and isinstance(r["body"].get("variants"), list) else {})}
                                for r in records],
               "outputs": {names[i]: r["body"] for i, r in enumerate(records)},
               "native_refusals": [path_refusal, bad_refusal]}
@@ -837,6 +550,332 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     if not report["passed"]:
         raise AssertionError({k: v for k, v in checks.items() if not v})
     return {"passed": True, "report": str(root / "rehearsal.json"), "paid_calls": 0}
+
+
+def first_request_bytes(root: Path) -> dict:
+    """{"bytes": the first request's serialized bytes} from the run's events.jsonl (ReviewLog's api_request event), or
+    {} when it is not there (the estimate then uses its bytes model)."""
+    try:
+        for line in (root / "runs" / RUN_ID / "events.jsonl").read_text(encoding="utf-8").splitlines():
+            ev = json.loads(line)
+            if ev.get("event") == "api_request" and ev.get("request_seq") == 1:
+                return {"bytes": int(ev["serialized_bytes"])}
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return {}
+
+
+# --------------------------------------------------------------------------------------------- the checks
+def check_run(lab, st: dict, by: dict, names: list, records: list, transport, result, ctrl: dict):
+    """The rehearsal's checks of the tools' outputs and the lab state (module doc): (checks {name: bool}, detail for
+    the report)."""
+    checks, detail = {}, {}
+    images = lab.state["images"]
+
+    def near(a, b, tol) -> bool:
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(float(a) - float(b)) <= tol
+
+    def kinds_of(step) -> list:
+        return [im[2] for im in by[step]["images"]]
+
+    # every result: the footer; no retired v2 phrase in any text Astra read from a tool
+    checks["every_result_has_the_footer"] = all(FOOTER.search(r["text"]) for r in records if r["status"] != "sdk_text")
+    banned = [p.lower() for p in tuple(RETIRED_PHRASES) + tuple(REMOVED_PHRASES)]
+    hits = sorted({(names[i], p) for i, r in enumerate(records) for p in banned if p in r["text"].lower()})
+    checks["no_retired_phrase_in_any_output"] = not hits
+    detail["retired_phrase_hits"] = hits
+    # images: each output's images in the request right after its call, all detail high
+    pages = {}
+    for step in ("variants", "variants_h5"):
+        vid = by[step]["body"].get("variants_id")
+        pages[step] = sorted(str(p) for p in (lab.root / "work" / "temple_lab" / "variants" / str(vid)).glob(
+            "sheet-*.png")) if vid else []
+    expect = {"inspect": 1, "photo_image": 1, "photo_black": 1, "read": len(CTRL), "reread": 1, "inspect_stale": 1,
+              "compare_zoom": len(COMPARE_PHOTOS) + len(ZOOMS), "variants": len(pages["variants"]),
+              "variants_h5": len(pages["variants_h5"])}
+    for step in ("edit_h1", "edit_h2", "edit_h3", "reapply_h1", "back_to_h2", "edit_h5"):
+        expect[step] = 1 + len(by[step]["body"].get("photos") or {})
+    reach = {n: [sum(1 for im in by[n]["images"] if im[3] == "high"), k, by[n]["request"], names.index(n) + 1]
+             for n, k in expect.items()}
+    checks["images_reach_the_next_request"] = all(a == b and c == d for a, b, c, d in reach.values()) \
+        and all(k > 0 for k in expect.values())
+    detail["images_reach"] = reach
+    # facet_inspect of revision 0
+    ins = by["inspect"]["body"]
+    checks["inspect_shows_revision_0"] = ins.get("status") == "ok" and (ins.get("head") or {}).get("revision") == 0 \
+        and kinds_of("inspect") == ["chart"] and "fitted_at" in ins["spec"]["nodes"]["columns"] \
+        and ins.get("readings", {}).get("rows") == {} and set(ins.get("photos") or {}) == set(lab.compare_ids())
+    # photo_image: a crop at k 2, enhanced; a black photo whole
+    pi = by["photo_image"]["body"]
+    tr = pi.get("transform") or {}
+    w, h = (CROP_05[2] - CROP_05[0]) * SCALE_05, (CROP_05[3] - CROP_05[1]) * SCALE_05
+    checks["photo_image_crop_scale_enhance"] = pi.get("status") == "ok" and tr.get("box") == CROP_05 \
+        and tr.get("k") == SCALE_05 and "stretch" in tr and by["photo_image"]["images"][0][:2] == [w, h]
+    pb = by["photo_black"]["body"]
+    checks["photo_image_shows_a_black_photo"] = pb.get("status") == "ok" and pb.get("photo") == "B2" \
+        and pb.get("colour") == "black"
+    # photo_read: each reading at its control, exact picks, one pick sheet a reading of its photos' size
+    first = st.get("readings_read") or {}
+    rbody = by["read"]["body"]
+    sheet_recs = [images.get(im[4]) or {} for im in by["read"]["images"]]
+    rows = {}
+    for n, p in ctrl.items():
+        rec = first.get(n) or {}
+        rows[n] = {"err_mm": [round(float(rec.get(k, np.nan)) - float(v), 4) for k, v in zip(("d", "y", "X"), p)],
+                   "res_px": rec.get("res_px"), "kind": rec.get("kind"), "photos": rec.get("photos"),
+                   "sd": [rec.get("sd_d"), rec.get("sd_y"), rec.get("sd_X")],
+                   "warnings": [w_["code"] for w_ in rec.get("warnings") or []],
+                   "crossing_deg": rec.get("crossing_deg")}
+    n_px = {n: (2 * RD.PANEL_W + 3 * RD.GAP_PX, RD.TITLE_PX + len(READ_PHOTOS[n]) * (RD.PANEL_H + RD.LABEL_PX
+                                                                                     + RD.GAP_PX) + RD.GAP_PX)
+            for n in CTRL}
+    checks["readings_recover_the_controls"] = rbody.get("status") == "ok" and set(first) == set(CTRL) and all(
+        all(near(e, 0.0, READ_TOL_MM) for e in r["err_mm"]) and max(r["res_px"] or [99]) < READ_RES_PX
+        and r["photos"] == READ_PHOTOS[n] and r["kind"] == ("crossing" if n in CROSSING else "corner")
+        for n, r in rows.items())
+    checks["readings_texts_and_pick_sheets"] = list(rbody.get("readings") or {}) == list(CTRL) and all(
+        rbody["readings"][n] == RD.reading_text(first[n]) for n in CTRL) and [
+        (s.get("kind"), s.get("reading")) for s in sheet_recs] == [("reading", n) for n in CTRL] and [
+        tuple(im[:2]) for im in by["read"]["images"]] == [n_px[n] for n in CTRL]
+    e = rows["E"]
+    checks["crossing_states_its_limits"] = {"W_ALONG_LINE", "W_SHALLOW_CROSSING"} <= set(e["warnings"]) \
+        and len(e["crossing_deg"] or []) == len(READ_PHOTOS["E"]) and "slide line" in rbody["readings"]["E"] \
+        and all(rows[n]["crossing_deg"] is None for n in CTRL if n not in CROSSING)
+    detail["readings"] = rows
+    # E_OBJECT on the first facet_edit without a note: nothing registered
+    eo = by["edit_no_object"]["body"]
+    checks["e_object_on_the_first_edit"] = eo.get("code") == "E_OBJECT" and eo.get("message") == S.OBJECT_REFUSAL \
+        and "latest_object" not in eo and st.get("revisions_before_object") == 1 \
+        and lab.state["revisions"][1]["call_id"] != by["edit_no_object"]["call_id"]
+    # H1: the layout from the readings, warp crown, soft logo, the object note
+    b1 = by["edit_h1"]["body"]
+    h1 = st.get("h1")
+    d1 = lab.design(h1) if h1 is not None else {"nodes": {}, "facets": {}}
+    read_ids = {n: (t.get("read") or {}).get("id") for n, (_d, _y, t) in d1["nodes"].items() if G.is_read(t)}
+    rc1 = b1.get("receipt") or {}
+    checks["edit_builds_readings_warp_soft_with_the_note"] = b1.get("status") == "applied" \
+        and b1.get("object") == "recorded" and b1.get("revision") == h1 \
+        and read_ids == {n: first[n]["id"] for n in ("A", "H", "K", "E", "C")} \
+        and d1["facets"]["crown"]["plane"] == "warp" and d1["facets"]["logo"].get("soft") is True \
+        and any(ln.startswith("face crown warp") for ln in rc1.get("fit") or []) \
+        and any(ln.startswith("logo|base") and " soft" in ln for ln in rc1.get("creases") or []) \
+        and any(ln.startswith("crown|logo ridge") for ln in rc1.get("creases") or []) \
+        and bool(b1.get("compare_id")) and kinds_of("edit_h1")[0] == "chart" \
+        and set(kinds_of("edit_h1")[1:]) == {"compare"} and S.object_text(lab.state) == OBJECT_NOTE
+    # the zoom compare: B1, B2 in full (black rows), two zooms (geometry at B1 only), points at B2
+    cz = by["compare_zoom"]["body"]
+    zid = cz.get("compare_id")
+    zrec = S.compare(lab.state, zid) or {}
+    zimg = [images.get(im[4]) or {} for im in by["compare_zoom"]["images"]]
+    ztexts = cz.get("zoom") or []
+    m = POINTS_RE.search(str((cz.get("photos") or {}).get("B2")))
+    pt = st.get("point_b2") or {}
+    zreport = read(zrec["report"]) if zrec.get("report") else {}
+    # the images are titled with the lab's photo ids (photo_names; v3p3-fix-seeing: "black-side photo")
+    znames = [((zreport.get("photos") or {}).get(lab.rid(p)) or {}).get("name") for p in COMPARE_PHOTOS] + \
+        [z.get("name") for z in zreport.get("zoom") or []]
+    checks["compare_zoom_geometry_and_points"] = cz.get("status") == "ok" and list(cz.get("photos") or {}) == \
+        COMPARE_PHOTOS and zrec.get("photos") == COMPARE_PHOTOS + ["05"] and zrec.get("stacked") == COMPARE_PHOTOS \
+        and znames == COMPARE_PHOTOS + ["B1", "05"] \
+        and [z.get("zoom", False) for z in zimg] == [False, False, True, True] \
+        and kinds_of("compare_zoom") == ["compare", "compare", "zoom", "zoom"] \
+        and len(ztexts) == 2 and ztexts[0].startswith("zoom 1 on B1 (side, black)") \
+        and ztexts[1].startswith("zoom 2 on 05 (side, target)") and "geometry colours" in ztexts[0] \
+        and "geometry colours" not in ztexts[1] and "crown|logo" in ztexts[0] \
+        and m is not None and near(float(m[3]), pt.get("d"), POINT_TOL_MM) \
+        and near(float(m[4]), pt.get("y"), POINT_TOL_MM) and near(float(m[5]), pt.get("t_model"), POINT_TOL_MM)
+    detail["compare_zoom"] = {"compare_id": zid, "zooms": st.get("zooms"), "point_b2": pt,
+                              "charted": list(m.groups()) if m else None, "zoom_texts": ztexts, "names": znames}
+    black_ok = {pid: str((cz.get("photos") or {}).get(pid)).startswith(
+        f"{lab.basis.refs[lab.rid(pid)].get('view_kind')} black (rows photo / gloss-black render / overlay)")
+        for pid in COMPARE_PHOTOS}
+    zrows = {pid: sorted(((zreport.get("photos") or {}).get(lab.rid(pid)) or {}).get("rows") or {})
+             for pid in COMPARE_PHOTOS}
+    gloss_from = (zreport.get("gains") or {}).get("gloss_black", {}).get("from")
+    checks["black_compare_is_gloss_without_native"] = all(black_ok.values()) and all(
+        set(r) == BLACK_ROWS for r in zrows.values())
+    checks["gloss_gain_still_from_black_side"] = str(gloss_from).startswith("the dark variant photo black-side ")
+    detail["black_compare"] = {"rows": zrows, "gloss_black_gain_from": gloss_from}
+    # E_JUDGEMENT; the fit refusal judging the zoom compare (its zoomed photo included)
+    ej = by["edit_unjudged"]["body"]
+    checks["e_judgement"] = ej.get("code") == "E_JUDGEMENT" and ej.get("compare_id") == zid
+    ef = by["edit_fit_refused"]["body"]
+    jz = next((j for j in lab.state["judgements"] if j["compare_id"] == zid), {})
+    checks["fit_refusal_e_fit_shape"] = ef.get("status") == "refused" and ef.get("code") == "E_FIT_SHAPE" \
+        and ef.get("stage") == "fit" and "crown|logo declared valley" in str(ef.get("message")) \
+        and "against the readings of" in str(ef.get("message")) and ef.get("judgement") == f"judgement of {zid} stored" \
+        and [p["photo"] for p in jz.get("photos") or []] == COMPARE_PHOTOS + ["05"] \
+        and len(lab.state["revisions"]) > (h1 or 0) and all(r["call_id"] != by["edit_fit_refused"]["call_id"]
+                                                            for r in lab.state["revisions"])
+    # the re-read and the drop; the head's node keeps the reading it was set from
+    rr = by["reread"]["body"]
+    new_a = lab.readings().get("A") or {}
+    checks["reread_replaces_drops_and_names_the_held_node"] = rr.get("status") == "ok" \
+        and str((rr.get("replaced") or {}).get("A")).startswith("was X ") \
+        and f"({first['A']['id']})" in str((rr.get("replaced") or {}).get("A")) and rr.get("dropped") == [DROP] \
+        and f"r{h1}: node A holds the earlier reading A" in str(rr.get("head_nodes")) \
+        and rr.get("stored") == sorted(n for n in CTRL if n != DROP) \
+        and abs(float(new_a.get("X", 0.0)) - float(first["A"]["X"])) > 0.01 and new_a.get("photos") == REREAD[1]
+    si = by["inspect_stale"]["body"]
+    srows = (si.get("spec") or {}).get("nodes", {}).get("rows") or {}
+    checks["inspect_states_a_held_earlier_reading"] = si.get("status") == "ok" \
+        and (si.get("head") or {}).get("revision") == h1 and (srows.get("A") or [None] * 3)[2] == \
+        "read (replaced since)" and all((srows.get(n) or [None] * 3)[2] == "read" for n in ("H", "K", "E", "C")) \
+        and set((si.get("readings") or {}).get("rows") or {}) == {n for n in CTRL if n != DROP} \
+        and si.get("object") == OBJECT_NOTE
+    # facet_variants of H2 at a target and a black photo
+    vb = by["variants"]["body"]
+    vrec = next((v for v in lab.state["variants"] if v["id"] == vb.get("variants_id")), {})
+    vviews = st["variant_views"][0] if st["variant_views"] else {"passes": {}, "photos": {}}
+    items = {i["label"]: i for i in vb.get("variants") or []}
+    edges = vrec.get("edges") or {}
+    page_px = [crease_px(p) for p in pages["variants"]]
+    checks["variants_at_a_target_and_a_black_photo"] = vb.get("status") == "ok" and vrec.get("photos") == \
+        VARIANT_PHOTOS and vviews["passes"] == VARIANT_PASSES and vrec.get("rendered") == ["flat", "kdeep", "tail"] \
+        and str((vviews["photos"].get("B1") or {}).get("what")).startswith("gloss-black render") \
+        and str((vviews["photos"].get("05") or {}).get("what")).startswith("native render") \
+        and vb.get("spread_ok") is True and "render" not in vb
+    checks["variant_arm_fit_refusal_and_fit_lines"] = items.get("valley", {}).get("code") == "E_FIT_SHAPE" \
+        and items["valley"].get("stage") == "fit" and items["valley"].get("revision") is None \
+        and all(isinstance(items.get(lb, {}).get("fit"), list) and items[lb]["fit"] for lb in ("flat", "kdeep", "tail")) \
+        and any("W_FACE_NOT_FLAT" in ln for ln in items["flat"]["fit"]) \
+        and any("W_FIT_OFF_READING" in ln for ln in items["kdeep"]["fit"])
+    checks["variant_pages_draw_each_models_edges"] = vrec.get("edge_occlusion") == "scene" and set(edges) == \
+        set(VARIANT_PHOTOS) and all(set(edges[p]) == {"head", "flat", "kdeep", "tail"} and all(
+            isinstance(v, int) and v > 0 for v in edges[p].values()) for p in VARIANT_PHOTOS) \
+        and bool(page_px) and all(px > 0 for px in page_px)
+    checks["variants_left_the_scene_unchanged"] = len(st["fingerprints"]) == 2 and all(
+        a == b for a, b in st["fingerprints"])
+    detail["variants"] = {"variants_id": vb.get("variants_id"), "passes": vviews["passes"],
+                          "photos": vviews["photos"], "edges": edges, "pages": pages["variants"],
+                          "page_crease_px": page_px, "items": vb.get("variants"), "pairwise_mm": vb.get("pairwise_mm")}
+    # the guard: fired once at edit_h3's request, its choice = the decision on the state it chose from, every class of
+    # the decision present, the same stubs on every later request
+    guard_req = next((n for n, body in enumerate(transport.creates) if CH.stubbed_in(body)), None)
+    g = st.get("guard") or {}
+    snap = g.get("snapshot") or {}
+    expected = CH.expected_stubs(snap) if snap else {}
+    chosen = g.get("chosen") or {}
+    sent = CH.stubbed_in(transport.creates[guard_req]) if guard_req is not None else {}
+    want_per_call = {}
+    for r in records:
+        k = sum(1 for im in r["images"] if im[4] in expected)
+        if k and r["request"] is not None and r["request"] < (guard_req or 0):
+            want_per_call[r["call_id"]] = k
+    kept = [im for r in records if r["request"] is not None and r["request"] < (guard_req or 0)
+            for im in r["images"] if im[4] not in expected]
+    why = list(expected.values())
+    classes = {"old compare panel": "superseded model" in why,
+               "old zoom grid": "superseded model (zoom grid)" in why,
+               "re-read pick sheet": "pick sheet of a reading read again" in why,
+               "dropped pick sheet": "pick sheet of a reading dropped" in why,
+               "stored pick sheets kept": sum(1 for im in kept if im[2] == "reading") == len(CTRL) - 1,
+               "photo views kept": sum(1 for im in kept if im[2] == "photo") == 2,
+               "charts kept": sum(1 for im in kept if im[2] == "chart") >= 4,
+               "latest results and best's compare kept": all(
+                   im[4] not in expected for n in ("edit_h2", "variants") for im in by[n]["images"]
+                   if im[2] != "chart")}
+    later = [CH.stubbed_in(b) for b in transport.creates[(guard_req or 0) + 1:]]
+    checks["context_guard_fired_once_at_the_guard_request"] = bool((result.get("context_guard") or {}).get("epoch")) \
+        and guard_req == names.index("variants") + 1 and CH.KEEP_LATEST == LB.CONTEXT_KEEP_LATEST
+    checks["context_guard_decision_holds"] = bool(expected) and set(chosen) == set(expected) and all(classes.values()) \
+        and {cid: len(v) for cid, v in sent.items()} == want_per_call \
+        and all(all(s.get(cid) == v for cid, v in sent.items()) for s in later) \
+        and all(set(s) <= set(sent) for s in later)              # no output that arrived after the epoch is stubbed
+    # the re-applied H1 (after the epoch): its compare panels are the bytes the guard stubbed in edit_h1's output (the
+    # compare cache), and they reach the next request as images (review 2026-10-12, P1, v3p3-verify-14)
+    ra, ra_body = by["reapply_h1"], by["reapply_h1"]["body"]
+    ra_panels = [im[4] for im in ra["images"] if im[2] == "compare"]
+    h1_panels = [im[4] for im in by["edit_h1"]["images"] if im[2] == "compare"]
+    checks["reapplied_stubbed_revision_arrives_as_images"] = ra_body.get("status") == "applied" \
+        and ra_body.get("revision") == st.get("h1") and bool(ra_panels) and set(ra_panels) <= set(expected) \
+        and set(ra_panels) <= set(h1_panels) and not ra["stubs"] and ra["request"] is not None \
+        and ra["request"] > (guard_req or 1 << 30) and len(ra["images"]) == 1 + len(ra_body.get("photos") or {}) \
+        and all(ra["call_id"] not in s for s in later)
+    detail["reapply_h1"] = {"revision": ra_body.get("revision"), "compare_id": ra_body.get("compare_id"),
+                            "panels": len(ra_panels), "panels_stubbed_at_the_epoch": sum(1 for d in ra_panels
+                                                                                         if d in expected),
+                            "stubs_when_sent": len(ra["stubs"]), "request": ra["request"]}
+    detail["context_guard"] = {"request": guard_req, "best_checkpoint": snap.get("best_checkpoint"),
+                               "best_revision": snap.get("best_revision"), "results": snap.get("results"),
+                               "expected": {k[:12]: (snap["images"].get(k) or {}) | {"why": v} for k, v in
+                                            expected.items()} if snap else {},
+                               "chosen_texts": sorted(chosen.values()), "per_call": want_per_call, "classes": classes,
+                               "kept_kinds": sorted({im[2] for im in kept})}
+    # the applied variant arm (no edits) and the crease / diff statements against the head
+    b3 = by["edit_h3"]["body"]
+    checks["applied_variant_is_its_revision"] = b3.get("status") == "applied" and b3.get("diff") == "no change" \
+        and b3.get("parent") == b3.get("revision") == st.get("flat") \
+        and str(b3.get("diff_vs_head")).startswith(f"r{st.get('h2')}: ")
+    vs = []
+    for i, r in enumerate(records):
+        b = r["body"]
+        if r["tool"] != "facet_edit" or r["status"] not in ("applied", "built"):
+            continue
+        head = st["edit_heads"].get(r["call_id"])
+        flips = CH.built_flips(lab.build(head), lab.build(b["revision"])) if head is not None else None
+        vs.append({"step": names[i], "head": head, "parent": b.get("parent"), "revision": b.get("revision"),
+                   "flips": flips, "crease_vs_head": b.get("crease_vs_head"), "diff_vs_head": b.get("diff_vs_head"),
+                   "ok": head is not None and CH.flips_stated(b.get("crease_vs_head"), flips, f"r{head}: ")
+                   and ("diff_vs_head" in b) == (b.get("parent") != head)})
+    checks["crease_vs_head_exactly_on_flips"] = all(v["ok"] for v in vs) and [v["step"] for v in vs] == [
+        "edit_h1", "edit_h2", "edit_h3", "reapply_h1", "back_to_h2", "edit_h5"] and [(v["step"], v["flips"]) for v in vs
+                                                                       if v["flips"]] == [
+        ("edit_h5", [("logo|base", "valley", "ridge")])]
+    # each built variant arm states its flips against the head (crease_vs_head, the head not named)
+    arm_flips = []
+    for step in ("variants", "variants_h5"):
+        vbody = by[step]["body"]
+        hr = vbody.get("head_revision")
+        for it in vbody.get("variants") or []:
+            if it.get("revision") is not None and "same_as" not in it and hr is not None:
+                f = CH.built_flips(lab.build(hr), lab.build(it["revision"]))
+                arm_flips.append({"step": step, "label": it["label"], "flips": f,
+                                  "crease_vs_head": it.get("crease_vs_head"),
+                                  "ok": CH.flips_stated(it.get("crease_vs_head"), f)})
+    checks["variant_items_state_their_flips"] = len(arm_flips) == 5 and all(a["ok"] for a in arm_flips)
+    detail["crease_vs_head"] = {"edits": vs, "variant_arms": arm_flips}
+    # the refused finish, the timeout and E_BUSY, the timed-out apply
+    fe = by["finish_early"]["body"]
+    checks["refused_finish_names_its_preconditions"] = fe.get("code") == "E_FINISH" and [
+        x["precondition"] for x in fe.get("missing") or []] == [1, 3] and by["finish_early"]["request"] is not None
+    checks["sdk_timeout_then_e_busy"] = by["inspect_slow"]["code"] == "E_TIMEOUT" \
+        and "timed out" in by["inspect_slow"]["text"] and bool(FOOTER.search(by["inspect_slow"]["text"])) \
+        and by["busy"]["code"] == "E_BUSY"
+    slow_call = by["edit_slow"]["call_id"]
+    bh = by["back_to_h2"]["body"]
+    checks["timed_out_apply_needs_no_judgement"] = by["edit_slow"]["code"] == "E_TIMEOUT" \
+        and bh.get("status") == "applied" and st.get("h4") not in (None, st.get("h3")) \
+        and [c["compare_id"] for c in lab.state["compares"] if c["call_id"] == slow_call] == st.get("unseen") \
+        and bool(st.get("unseen")) and bh.get("diff") == "no change" and bh.get("revision") == st.get("h2") \
+        and str(bh.get("diff_vs_head")).startswith(f"r{st.get('h4')}: ")
+    # H2 at every photo with a camera: the side views' outline offsets, black rows, no top-view outline line
+    texts = bh.get("photos") or {}
+    checks["every_photo_compare_texts"] = list(texts) == lab.compare_ids() \
+        and all(SIDE_TEXT[p] in str(texts.get(p)) for p in SIDE_TEXT) \
+        and all(str(texts.get(p)).startswith(f"{lab.basis.refs[lab.rid(p)].get('view_kind')} black (rows photo / "
+                                             f"gloss-black render / overlay)") for p in BLACK_IDS) \
+        and all("rows photo / render / overlay" in str(texts.get(p)) for p in lab.photo_ids()) \
+        and "outline:" not in str(texts.get("03")) and "outline of the" not in str(texts.get("03"))
+    detail["every_photo_texts"] = texts
+    # the last head and the stuck finish
+    b5 = by["edit_h5"]["body"]
+    v5 = by["variants_h5"]["body"]
+    v5rec = next((v for v in lab.state["variants"] if v["id"] == v5.get("variants_id")), {})
+    fin = by["finish"]["body"]
+    chain = S.distinct_compared_heads(lab.state, lab.distinct)
+    checks["typed_value_against_its_reading"] = b5.get("status") == "applied" and any(
+        ln.startswith("W_FIT_OFF_READING") and "C" in ln for ln in (b5.get("receipt") or {}).get("fit") or [])
+    checks["stuck_finish_accepted_and_exported"] = b5.get("status") == "applied" \
+        and v5.get("status") == "ok" and bool(v5rec.get("rendered")) and fin.get("status") == "accepted" \
+        and fin.get("finish") == "stuck" and fin.get("revision") == st.get("h2") \
+        and (fin.get("validate_spec") or {}).get("ok") is True and len(chain) >= 4 \
+        and [j["compare_revision"] for j in S.last_judgements(lab.state)] == [st.get("h1"), st.get("h2"),
+                                                                              b5.get("revision")]
+    detail["finish"] = {"distinct_heads": chain, "early_missing": fe.get("missing"), "accepted": fin,
+                        "heads": {k: st.get(k) for k in ("h1", "h2", "flat", "h3", "h4", "h5")},
+                        "unseen_compares": st.get("unseen")}
+    return checks, detail
 
 
 def main():

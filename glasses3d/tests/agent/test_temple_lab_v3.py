@@ -34,13 +34,15 @@ from glasses3d.agent.temple_lab import tools as T  # noqa: E402
 from glasses3d.g3d.temple import build_temple  # noqa: E402
 from glasses3d.g3d.temple import fit as FIT  # noqa: E402
 from glasses3d.g3d.temple import fixtures as FX  # noqa: E402
-from glasses3d.g3d.temple.spec import WARP_MIN_CORNERS, canonical, spec_sha256  # noqa: E402
+from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, WARP_MIN_CORNERS, canonical, spec_sha256  # noqa: E402
 from glasses3d.tests.agent.test_temple_readings import SynthBasis, corner_picks, point  # noqa: E402
 
 # the pinned v3 edits union (tools.edits_schema()): change it only together with the tool layer and the prompt
 # (re-pinned 2026-10-12, v3p2-lab-e1-fix: descriptions only, the name rule, typed t's sd, set_crease shape, chains,
-# set_scalar; the structure is unchanged)
-EDITS_SCHEMA_SHA256 = "283de0b1e5d3da91de2a2f321c84dd7c5e220101ea6cae697ac22886236b6a0c"
+# set_scalar; the structure is unchanged; re-pinned 2026-10-12, v3p3-fix-lab: set_node gained outline (top | bottom
+# | none | null, e2e P1-1), the solve and chain texts state what the code does (owner P2-3, e2e P1-1), and the schema
+# is the SDK's strict form, as Astra sees it)
+EDITS_SCHEMA_SHA256 = "4a1c5478b98cc714b5b1cee635f65a604dccfabdf2fc114e6c1c100d39264a9e"
 READ_AT = {"Q": (40.0, 0.0, 6.4), "R": (40.0, 8.0, 7.4)}      # synthetic reading points (d, y, t) on the slab
 REMEDY_WORDS = ("apply", "restore", "then ", "photo_compare", "first", "should", "try", "instead")
 HERE = Path(__file__).resolve()
@@ -62,7 +64,8 @@ def recs(slab_tb):
 
 
 def node(name, d, y, mode, mm=None) -> dict:
-    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": {"mode": mode, "mm": mm}}
+    """set_node as Astra sends it (the strict schema requires outline; null: as before the edit)."""
+    return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y, "t": {"mode": mode, "mm": mm}, "outline": None}
 
 
 def facet(label, poly, mode="flat", soft=False) -> dict:
@@ -223,7 +226,7 @@ def test_diff_texts_print_readings_warp_soft_and_coef(recs, slab_tb):
     assert G.diff_text(G.diff_specs(read, typed)) == \
         f"~node Q t read {q['t']:.2f} +- {q['sd_X']:.2f}->6.4; ~facet crown warp->flat not soft"
     assert G.diff_text(G.diff_specs(FX.slab(), read)) == \
-        f"+node P, Q read {q['t']:.2f} +- {q['sd_X']:.2f}, R, S; +facet crown warp soft"
+        f"+node P, Q t read {q['t']:.2f} +- {q['sd_X']:.2f}, R, S; +facet crown warp soft"     # "t": v3p3-clean-lab
     # the same reading name read again from other photos: the node's t changes, the text says so
     bs = SynthBasis()
     again = {"Q": RD.read_point(slab_tb, bs, "Q", corner_picks(bs, point(slab_tb, 40.0, 0.0, 6.4), ["05", "03"]),
@@ -241,6 +244,57 @@ def test_diff_texts_print_readings_warp_soft_and_coef(recs, slab_tb):
     b["facets"]["crown"]["plane"]["coef"][0] = 1.5
     assert G.diff_text(G.diff_specs(a, b)) == "~facet crown coef"
     assert G.diff_text(G.diff_specs(typed, a)) == "~facet crown flat->coef"
+
+
+def test_chain_diffs_print_the_true_changed_span():
+    """diff_specs compares a chain's two versions as lines over d (geometry.chain_changes), never knot by knot
+    (v3p3-clean-lab; session2 printed "outline.top d 0.0-136.0" for a splice of d 0-77, "77.0-131.0" for a change over
+    77-117 and "122.0-134.0" for one over 122-136, the knots paired by index): the span runs from the last knot where
+    the lines agree to the next one where they agree again (a splice changes the segment to the next kept knot), an
+    offset_chain's change is its taper's span, an end knot moved is in it, two separate changes are two spans, the
+    largest move is in mm, a changed d range is said, and a knot added on the line changes nothing."""
+    base = canonical(FX.prada_default())
+    top = base["outline"]["top"]
+    after = min(p[0] for p in top if p[0] > 77.0)
+
+    def chains(edits):
+        return G.diff_specs(base, G.apply_edits(base, edits)[0]).get("chains")
+    # a splice of d 0-77 with fewer knots: the change ends at the first knot kept after 77
+    pts = [[top[0][0], top[0][1] + 0.5], [40.0, 13.0], [77.0, float(np.interp(77.0, *np.asarray(top).T)) + 0.3]]
+    new = G.apply_edits(base, [{"op": "splice_chain", "chain": "outline.top", "d_from_mm": 0.0, "d_to_mm": 77.0,
+                                "points": pts}])[0]["outline"]["top"]
+    dd = np.linspace(top[0][0], top[-1][0], 136001)                       # dense samples: an independent reference
+    gap = np.abs(np.interp(dd, *np.asarray(new).T) - np.interp(dd, *np.asarray(top).T))
+    assert dd[gap > 1e-9].max() < after and dd[gap > 1e-9].max() > 77.0      # the change runs on past the splice
+    assert chains([{"op": "splice_chain", "chain": "outline.top", "d_from_mm": 0.0, "d_to_mm": 77.0,
+                    "points": pts}]) == [f"outline.top d {top[0][0]:.1f}-{after:.1f} (up to {gap.max():.2f} mm)"]
+    # two tapered offsets that touch (session2 step 07: -1.3 mm over 84-96, taper 7; +0.85 over 108-112, taper 5)
+    off = [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 84.0, "d_to_mm": 96.0, "delta_mm": -1.3,
+            "taper_mm": 7.0},
+           {"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 108.0, "d_to_mm": 112.0, "delta_mm": 0.85,
+            "taper_mm": 5.0}]
+    assert chains(off) == ["outline.bottom d 77.0-117.0 (up to 1.30 mm)"]
+    # an offset over the end knot (step 11: -3.5 mm over 128-136, taper 6): the end knot is in the span
+    end = base["outline"]["bottom"][-1][0]
+    assert chains([{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 128.0, "d_to_mm": end,
+                    "delta_mm": -3.5, "taper_mm": 6.0}]) == [f"outline.bottom d 122.0-{end:.1f} (up to 3.50 mm)"]
+    # two separate changes are two spans
+    two = [{"op": "offset_chain", "chain": "inner", "d_from_mm": 20.0, "d_to_mm": 30.0, "delta_mm": 0.2,
+            "taper_mm": 2.0},
+           {"op": "offset_chain", "chain": "inner", "d_from_mm": 90.0, "d_to_mm": 95.0, "delta_mm": -0.004,
+            "taper_mm": 1.0}]
+    assert chains(two) == ["inner d 18.0-32.0, 89.0-96.0 (up to 0.20 mm)"]
+    assert chains(two[1:]) == ["inner d 89.0-96.0 (under 0.01 mm)"]
+    # knots on the old line only (a zero offset inserts its breakpoints): no shape change
+    assert chains([{**off[0], "delta_mm": 0.0}]) == ["outline.bottom knots only (no shape change)"]
+    # a shortened chain: its end range is said
+    bot = base["outline"]["bottom"]
+    cut = [p for p in bot if p[0] <= 130.0]
+    spans, mm = G.chain_changes(bot, cut)
+    assert spans == [(cut[-1][0], bot[-1][0])] and mm == 0.0
+    assert G.chain_change_text(bot, cut) == (f"d {cut[-1][0]:.1f}-{bot[-1][0]:.1f} (its d range {bot[0][0]:.1f}-"
+                                             f"{bot[-1][0]:.1f} -> {cut[0][0]:.1f}-{cut[-1][0]:.1f})")
+    assert G.chain_changes(bot, bot) == ([], 0.0)
 
 
 def test_spec_to_edits_round_trips_a_v3_design(recs):
@@ -269,6 +323,9 @@ def test_edits_schema_is_pinned_and_strict():
                    "splice_chain", "offset_chain", "set_scalar"]
     assert not strict(schema) and "discriminator" not in json.dumps(schema) and '"title"' not in json.dumps(schema)
     assert defs["Thickness"]["properties"]["mode"]["enum"] == ["reading", "mm", "base", "solve"]
+    outline = defs["SetNode"]["properties"]["outline"]                      # v3p3 e2e P1-1: required, nullable
+    assert {"enum": ["top", "bottom", "none"], "type": "string"} in outline["anyOf"] and {"type": "null"} in \
+        outline["anyOf"] and "outline" in defs["SetNode"]["required"] and "default" not in outline
     assert defs["Plane"]["properties"] == {"mode": defs["Plane"]["properties"]["mode"]}
     assert defs["Plane"]["properties"]["mode"]["enum"] == ["flat", "warp"]
     assert set(defs["SetFacet"]["properties"]) == {"op", "label", "poly", "plane", "soft"}
@@ -470,7 +527,7 @@ def test_description_numbers_are_the_codes(timeouts):
     assert f"outline offsets every {SEE.GRID_STATION_MM:g} mm" in flat["photo_compare"]
     # facet_variants: the lab's counts and targets, sheets.variant_scale's cap and cell, the spread
     var = tools["facet_variants"].params_json_schema["properties"]["variants"]
-    assert (var["minItems"], var["maxItems"]) == (LAB.VARIANTS_MIN, LAB.VARIANTS_MAX)
+    assert (var["minItems"], var["maxItems"]) == (LAB.VARIANTS_MIN, LAB.VARIANTS_MAX) == (2, 4)   # v3-final: 6 -> 4
     assert f"Build {LAB.VARIANTS_MIN} to {LAB.VARIANTS_MAX} variants" in flat["facet_variants"]
     assert f"{LAB.VARIANTS_MIN} to {LAB.VARIANTS_MAX} labelled edit lists" in params("facet_variants")["variants"]
     assert f"at most {LAB.VARIANT_TARGETS_MAX} of them target photos" in params("facet_variants")["photos"]
@@ -492,6 +549,11 @@ def test_description_numbers_are_the_codes(timeouts):
     assert f"within {G.READ_POSITION_MM:g} mm" in schema and f"({WARP_MIN_CORNERS} or more corners)" in schema
     assert "a 6 mm band, smooth where it folds under 25 deg" in schema
     assert f"an observation of sd {FIT.TYPED_SD_MM:g} mm" in schema
+    snap = DEFAULT_OPTIONS["snap_mm"]                                     # set_node outline, the chains (e2e P1-1)
+    assert f"a node within {snap:g} mm of an outline edge lies on it" in schema and snap == G.snap_of(FX.slab())
+    assert f"a node on it, within {snap:g} mm, moves with it in y, a node set from a reading at most " \
+           f"{G.READ_POSITION_MM:g} mm from where it was read" in schema
+    assert f"a weak prior of sd {FIT.PRIOR_SD_MM:g} mm toward the plain arm" in schema      # solve (owner P2-3)
     assert f"folding at least {FIT.MIN_CREASE_DEG:g} deg, or refuses E_FIT_SHAPE" in schema
     assert f"chi2 more than {FIT.ACCEPT_DCHI2:g} above" in schema
     assert f"mm, 0 to {G.SCALAR_LIMIT_MM:g}" in schema
@@ -510,8 +572,9 @@ def test_tool_texts_state_what_the_code_does(timeouts):
     flat = {name: " ".join(t.description.split()) for name, t in tools.items()}
     params = {name: {p: " ".join(x.split()) for p, x in L.schema_descriptions(t.params_json_schema)}
               for name, t in tools.items()}
-    target = "null for the target photos (a photo of another colour only when named)"
-    assert target in params["photo_compare"]["$.properties.photos"]
+    target = (f"null for the target photos whose temple shows at least {SEE.TEMPLE_ROI_MIN_PX:,} native px (the "
+              "result's left_out names the others; a photo of another colour only when named)")   # v3p3 astra P3-9:
+    assert target in params["photo_compare"]["$.properties.photos"]       # "null for the target photos" left out 04
     assert target in params["facet_edit"]["$.properties.photos"]
     assert "default set" not in json.dumps([flat, params])
     assert "on the temple whose outer face that photo sees (charted or mirrored)" in flat["facet_variants"]
@@ -532,6 +595,18 @@ def test_tool_texts_state_what_the_code_does(timeouts):
     assert all(c in T.CHAIN_TEXT for c in G.CHAINS)
     assert "roll_mm" in edits["$.$defs.SetScalar.properties.key"] and \
         "tip_round_mm" in edits["$.$defs.SetScalar.properties.key"]
+    # v3p3-fix-lab: solve is what the fit does (owner P2-3: "set by the faces and readings around it" was false on a
+    # warp and hid that its own reading is dropped); the outline relation (e2e P1-1); the variant and edit texts
+    mode = edits["$.$defs.Thickness.properties.mode"]
+    assert "a stored reading of its name is not used (W_FIT_OFF_READING says how far it lies)" in mode
+    assert "the faces and readings around it" not in mode
+    assert edits["$.$defs.SetNode.properties.outline"] == " ".join(T.OUTLINE_TEXT.split())
+    assert "null: as before this edit (a node on an edge keeps the edge's knot under it" in T.OUTLINE_TEXT
+    assert "an arm that builds the head's own design is no variant" in flat["facet_variants"]
+    assert "how far its ridges and valleys lie from the head's (mm)" in flat["facet_variants"]
+    assert "crease_vs_head (ridge <-> valley) and edges_vs_head (a crease that appears or goes flat)" in \
+        flat["facet_edit"]
+    assert "the stored readings (one no node is named for: against its nearest node)" in flat["facet_inspect"]
 
 
 def test_the_prompt_states_the_finish_rule_finish_checks():
@@ -754,15 +829,19 @@ def test_the_object_rule_follows_the_latest_note_not_the_parent():
     with pytest.raises(S.LabRefusal) as info:
         S.check_object(st, b, b, None)
     assert (info.value.code, info.value.message) == ("E_OBJECT", S.OBJECT_REFUSAL)
-    assert info.value.to_dict()["latest_object"] == ("call e1 wrote the latest object note for another layout; this "
-                                                     "design: +node M; -facet F2")
-    S.record_object(st, "three faces", "e2", spec=b)
+    assert info.value.to_dict()["latest_object"] == ("the latest object note (of call e1) was written for another "
+                                                     "layout; this design: +node M; -facet F2")   # an older entry
+    entry = S.record_object(st, "three faces", "e2", spec=b, parent=3)
+    assert entry["parent"] == 3
+    assert S.object_origin(entry) == "given in a facet_edit of revision 3 that made no revision"   # refused fit
+    entry["revision"] = 4                                                  # the lab: the call's design became r4
     assert not S.object_due(st, b, b)
     assert S.object_due(st, a, a)                                          # back to the four-face revision
     with pytest.raises(S.LabRefusal) as info:
         S.check_object(st, a, a)
-    assert info.value.fields == {"latest_object": "call e2 wrote the latest object note for another layout; this "
-                                                  "design: -node M; +facet F2"}
+    assert info.value.fields == {"latest_object": "the latest object note (given with revision 4) was written for "
+                                                  "another layout; this design: -node M; +facet F2"}
+    assert "e2" not in json.dumps(info.value.fields)       # the SDK call id names nothing Astra can map (P3-5)
     S.record_object(st, "four faces again", "e3", spec=a)
     assert not S.object_due(st, b, a)                                      # a value edit of b's parent lands on a
     c = copy.deepcopy(a)
@@ -772,11 +851,12 @@ def test_the_object_rule_follows_the_latest_note_not_the_parent():
     assert S.layout_diff(S.layout_key(a), S.layout_key(a)) == ""
     many = {"nodes": [f"N{i}" for i in range(9)], "facets": {}}
     assert S.layout_diff(None, many) == "+node N0, N1, N2, N3, N4, +4 more"
-    S.record_object(st, "a note with no design", "e4")                     # layout None: the parent decides
+    S.record_object(st, "a note with no design", "e4", parent=5)           # layout None: the parent decides
     with pytest.raises(S.LabRefusal) as info:
         S.check_object(st, a, c)
-    assert info.value.fields["latest_object"] == ("call e4 wrote the latest object note with no design; this "
-                                                  "design's layout differs from its parent's: +node M; ~facet F2 poly")
+    assert info.value.fields["latest_object"] == ("the latest object note (given in a facet_edit of revision 5 that "
+                                                  "made no revision) has no design; this design's layout differs from "
+                                                  "its parent's: +node M; ~facet F2 poly")
     assert not any(w in info.value.fields["latest_object"] for w in REMEDY_WORDS)
 
 
@@ -828,6 +908,113 @@ def test_a_node_keeps_the_reading_it_was_set_from(recs, slab_tb):
     assert G.stale_reads(roundtrip, json.loads(json.dumps(recs))) == {}
     reread, _ = G.apply_edits(design, [node("Q", None, None, "reading")], readings=again)
     assert G.stale_reads(reread, again) == {} and reread["nodes"]["Q"][2] != design["nodes"]["Q"][2]
+    # the same picks read again (e.g. after an E_TIMEOUT): only the record id differs, so it is not "replaced" (v3p3
+    # e2e P3-1: "node K holds the earlier reading K" at X +0.00 invited a set_node that made a second revision with
+    # the head's fitted spec); other numbers still are
+    same = {**recs, "Q": {**recs["Q"], "id": "read009-Q", "call_id": "call_again"}}
+    with_ids = G.apply_edits(FX.slab(), quad(read=("Q", "R")), readings={n: {**r, "id": f"read001-{n}"}
+                                                                          for n, r in recs.items()})[0]
+    assert G.stale_reads(with_ids, same) == {} and G.stale_reads(with_ids, again) == {"Q": "replaced"}
+
+
+# --------------------------------------------------------------------------------------------- I3: the outline relation
+TOP_D = 66.0                         # between the slab's top knots at d 60 and 70
+
+
+@pytest.fixture(scope="module")
+def edge_recs(slab_tb):
+    """Readings of a corner on the slab's top outline edge, 0.2 mm below it at d 66 ("T"), and the same corner read
+    again 0.12 mm lower and 0.05 mm back ("T2", stored under the name T for a re-read)."""
+    bs = SynthBasis()
+    yt = G._interp(canonical(FX.slab())["outline"]["top"], TOP_D)
+    out = {}
+    for key, (d, y) in {"T": (TOP_D, yt - 0.2), "T2": (TOP_D + 0.05, yt - 0.32)}.items():
+        out[key] = RD.read_point(slab_tb, bs, "T", corner_picks(bs, point(slab_tb, d, y, 6.0), ["05", "02"]),
+                                 kind="corner")
+    return out
+
+
+def knots_near(spec, d, chain="top", mm=0.3) -> list:
+    return [p for p in G.canonical_design(spec)["outline"][chain] if abs(p[0] - d) <= mm]
+
+
+def test_set_node_outline_puts_the_edges_knot_at_a_corner_and_keeps_it(edge_recs):
+    """v3p3 e2e P1-1 (verify-0): a corner read on the outline stayed on the built outline only while a knot sat at it,
+    and set_node changed the node without the knot. set_node outline top / bottom puts that chain's knot at the node
+    (a note and the diff say so); null keeps the edge the node lay on before the edit, so a re-read carries the knot
+    (the old one goes, one knot at the new reading); none leaves the chains; a new node with null leaves them; an
+    edge change moves the knot to the other chain; a d outside the outline is refused, naming the node."""
+    recs = {"T": edge_recs["T"]}
+    t = edge_recs["T"]
+    slab = canonical(FX.slab())
+    first = node("T", None, None, "reading") | {"outline": None}
+    plain, notes = G.apply_edits(slab, [first], readings=recs)            # a new node, null: the chains stay
+    assert plain["outline"] == slab["outline"] and notes == []
+    assert G.outline_edge(plain, t["d"], t["y"]) is None                   # 0.2 mm off: not on the edge
+    on, notes = G.apply_edits(slab, [first | {"outline": "top"}], readings=recs)
+    assert [t["d"], t["y"]] in on["outline"]["top"] and on["outline"]["bottom"] == slab["outline"]["bottom"]
+    assert notes == [f"outline.top has its knot at node T, d {t['d']:.2f} y {t['y']:.2f} (outline top)"]
+    assert G.outline_edge(on, t["d"], t["y"]) == "top"
+    assert "outline.top d 60.0-70.0 (up to 0.20 mm)" in G.diff_text(G.diff_specs(slab, on))
+    # a re-read 0.12 mm lower, set by mode reading with outline null: the knot moves with the corner
+    t2 = edge_recs["T2"]
+    reread, notes = G.apply_edits(on, [first], readings={"T": t2})
+    assert knots_near(reread, TOP_D) == [[t2["d"], t2["y"]]]
+    assert notes == [f"outline.top has its knot at node T, d {t2['d']:.2f} y {t2['y']:.2f} (as before this edit: "
+                     "it lay on that edge)"]
+    kept, notes = G.apply_edits(on, [first | {"outline": "none"}], readings={"T": t2})    # none: the knot stays
+    assert knots_near(kept, TOP_D) == [[t["d"], t["y"]]] and notes == []
+    moved, notes = G.apply_edits(on, [node("T", 66.0, -1.0, "mm", 6.0) | {"outline": "bottom"}])
+    assert knots_near(moved, TOP_D) == [] and [66.0, -1.0] in moved["outline"]["bottom"]      # left the top edge
+    # the cap knot keeps its d: a corner on it moves it in y only, one off it adds a knot beside it
+    cap = slab["outline"]["top"][0]
+    capped, _ = G.apply_edits(slab, [node("A", cap[0], cap[1], "mm", 5.0)])
+    capped2, _ = G.apply_edits(capped, [node("A", 0.0, cap[1] + 0.2, "mm", 5.0)])
+    assert capped2["outline"]["top"][0] == [0.0, cap[1] + 0.2]
+    capped3, _ = G.apply_edits(capped, [node("A", 0.4, cap[1] + 0.2, "mm", 5.0)])
+    assert capped3["outline"]["top"][:2] == [cap, [0.4, cap[1] + 0.2]]
+    err = refused(slab, [node("Z", -2.0, 10.0, "mm", 5.0) | {"outline": "top"}])
+    assert err.index == 0 and "node Z at d -2.00 lies outside the outline's d range 0.00-136.50" in err.message
+    assert refused(slab, [node("Z", 5.0, 10.0, "mm", 5.0) | {"outline": "left"}]).message == \
+        "outline must be top, bottom, none or null"
+
+
+def test_chain_edits_carry_a_corner_on_the_edge_within_its_reading(edge_recs):
+    """v3p3 e2e P1-1: offset_chain / splice_chain moved the knot and left the corner (an offset across a corner was
+    refused E_SHORT_EDGE or built a false border). A node on an outline edge before the edit moves with it in y (a
+    note each); a node holding a reading at most READ_POSITION_MM from where it was read, else EditError with the
+    range the edge may move there (facts, no remedy); a node off the edge, and the other chains, are left alone."""
+    recs = {"T": edge_recs["T"]}
+    t = edge_recs["T"]
+    on, _ = G.apply_edits(canonical(FX.slab()), [node("T", None, None, "reading") | {"outline": "top"},
+                                                 node("B", 40.0, 0.0, "mm", 6.0)], readings=recs)
+    up, notes = G.apply_edits(on, [{"op": "offset_chain", "chain": "outline.top", "d_from_mm": 60.0, "d_to_mm": 70.0,
+                                    "delta_mm": 0.3, "taper_mm": 2.0}])
+    assert up["nodes"]["T"][:2] == [t["d"], pytest.approx(t["y"] + 0.3)] and up["nodes"]["B"] == on["nodes"]["B"]
+    assert notes == [f"node T moved with outline.top to y {t['y'] + 0.3:.2f} at d {t['d']:.2f} (+0.30 mm; it lies "
+                     "on that edge)"]
+    assert G.outline_edge(up, *up["nodes"]["T"][:2]) == "top"
+    err = refused(on, [{"op": "offset_chain", "chain": "outline.top", "d_from_mm": 60.0, "d_to_mm": 70.0,
+                        "delta_mm": 0.6, "taper_mm": 0.0}])
+    assert err.index == 0 and err.fields["node"] == "T" and err.fields["chain"] == "outline.top"
+    assert "moves node T, which lies on that edge" in err.message and "0.600 mm from where reading T was read" in \
+        err.message and "the edge may move there from -0.500 to +0.500 mm with T on it" in err.message
+    # the edge's room is counted from where the edge was at the node's d (a node within snap_mm beside the line lands
+    # on it): session2's C, 0.002 mm under the bottom line, read "0.50 mm ... from -0.50 to +0.50" for +0.50 refused
+    beside = copy.deepcopy(on)
+    next(p for p in beside["outline"]["top"] if p[0] == t["d"])[1] += 0.002          # the edge 0.002 mm above T
+    assert G.outline_edge(beside, *beside["nodes"]["T"][:2]) == "top"
+    err = refused(beside, [{"op": "offset_chain", "chain": "outline.top", "d_from_mm": 60.0, "d_to_mm": 70.0,
+                            "delta_mm": 0.5, "taper_mm": 0.0}])
+    assert "0.502 mm from where reading T was read" in err.message and "from -0.502 to +0.498 mm" in err.message
+    assert not any(w in err.message for w in REMEDY_WORDS)
+    pts = [[60.0, 12.42], [TOP_D, t["y"] - 0.1], [70.0, 10.74]]           # a splice through the corner 0.1 lower
+    spliced, notes = G.apply_edits(on, [{"op": "splice_chain", "chain": "outline.top", "d_from_mm": 60.0,
+                                         "d_to_mm": 70.0, "points": pts}])
+    assert spliced["nodes"]["T"][1] == pytest.approx(t["y"] - 0.1, abs=1e-3) and len(notes) == 1
+    other, notes = G.apply_edits(on, [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 60.0,
+                                       "d_to_mm": 70.0, "delta_mm": 0.6, "taper_mm": 0.0}])
+    assert other["nodes"] == on["nodes"] and notes == []                    # T is on the top edge, not the bottom
 
 
 # --------------------------------------------------------------------------------------------- I4: finish

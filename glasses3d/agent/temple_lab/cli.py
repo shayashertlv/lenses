@@ -18,18 +18,25 @@ paid call without the exact approval guard of agent/loop.py; prepare, estimate a
     estimate [--rehearsal FILE] [--out FILE]
         the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py), each
         image-heavy call priced at the most one call returns (priced_sample): facet_variants at the job's sheets
-        (variant_sheets), photo_read at READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom grids, each
-        of the largest size the tool makes (read_sheet_px, zoom_grid_px); the range's top is the costliest of the
-        listed mixes at the high output (range_top), and the approval text says the v3 mix is assumed.
-    request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4]
-        writes runs/<ID>/approval-request.json for a clean package (nothing approved, nothing sent).
-    run      the same arguments [--env-file FILE]: the paid run, refused without the owner's approval of exactly that
-        request.
+        (variant_sheets) of the largest size (sheets.SHEET_W x SHEET_H) and VARIANTS_MAX arms of text, photo_read at
+        READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom grids, each of the largest size the tool makes
+        (read_sheet_px, zoom_grid_px), and facet_inspect at its largest recorded call; each run row also projects the
+        request bytes and images (project, BYTES_PER_IMAGE_TOKEN: the context guard's byte rungs, the provider's
+        per-request limit, the count's time); the range's top is the costliest of the listed mixes at the high output
+        (range_top), and the approval text says the v3 mix is assumed. --out defaults to ESTIMATE.
+    request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4] [--estimate FILE]
+        writes runs/<ID>/approval-request.json for a clean package (nothing approved, nothing sent), priced from the
+        estimate table (default ESTIMATE, the v3 table).
+    run      the same arguments [--env-file FILE] [--ignore-load]: the paid run, refused without the owner's approval of
+        exactly that request, and refused while other Blender or pytest work runs on the machine (loop.machine_load;
+        --ignore-load runs anyway; load that starts later is reported by loop.LoadWatch).
+A refusal before anything is sent (a package, estimate or approval problem) prints {"status": "refused", ...} and
+exits 2 (3 for the approval).
 
 The run settings are tools.run_settings: tool_choice required (kept after every call), final only on an accepted
-facet_finish (K = --k distinct compared heads), the context guard at 240k counted input tokens. make_spec's tool
-contract also refuses any RETIRED_PHRASES (v2's removed tools and rules, WP6_V3 §6) in what Astra reads: the
-instructions, the brief and every tool and parameter description.
+facet_finish (K = --k distinct compared heads), the context guard at 240k counted input tokens (once) and its byte
+rungs (loop.CONTEXT_GUARD_BYTES). make_spec's tool contract also refuses any RETIRED_PHRASES (v2's removed tools and
+rules, WP6_V3 §6) in what Astra reads: the instructions, the brief and every tool and parameter description.
 """
 from __future__ import annotations
 
@@ -45,17 +52,20 @@ import sys
 from PIL import Image
 
 from glasses3d.agent import approvals as A
+from glasses3d.agent.budget import PAYLOAD_LIMIT_BYTES, PAYLOAD_LIMIT_IMAGES, count_timeout_s
 from glasses3d.agent.estimate import cents_text, suggested_cap_micro
-from glasses3d.agent.loop import (REMOVED_PHRASES, RunRefused, RunSpec, ToolContract, contract_problems,
-                                  instructions_sha256, run_astra, tool_registry_sha256)
+from glasses3d.agent.loop import (CONTEXT_GUARD, CONTEXT_GUARD_BYTES, REMOVED_PHRASES, RunRefused, RunSpec,
+                                  ToolContract, contract_problems, instructions_sha256, machine_load, run_astra,
+                                  tool_registry_sha256)
 from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, MODEL_MAX_INPUT_TOKENS, Tariff, usd_text
 from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, SIDE_VIEWS, ZOOM_MAX
 from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.g3d_host import compare as C
 from . import lab as LAB
 from . import readings as RD
-from .lab import (LAB_SCHEMA, VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX, Lab, data_url, read, sha,
-                  write_json_atomic)
+from . import sheets as SH
+from .lab import (LAB_SCHEMA, VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX, VARIANTS_MAX, VARIANTS_MIN, Lab, data_url, read,
+                  sha, write_json_atomic)
 from .readings import THETA_SD_DEG, TRANSPORT_RE
 from .state import READ_POINTS_MAX
 from .tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, registry, run_settings
@@ -68,7 +78,10 @@ SOURCE_SCENE_SHA256 = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d
 REFERENCE = G3D / "data/reference/prada"
 BASIS_JSON = G3D / "data/wp6v2/basis/cameras.json"
 LAB_DATA = G3D / "data/wp6v2/lab"
-ESTIMATE = LAB_DATA / "estimate.json"
+# The current (v3) estimate table: request's --estimate and estimate's --out default. estimate.json is the v2 table,
+# which request_estimate refuses (no photo_read, v2 image pricing): as the default it stopped `cli request` with a
+# traceback (review 2026-10-12, P3; T5 open item 2).
+ESTIMATE = LAB_DATA / "estimate_v3.json"
 DEFAULT_RIG = MATCHED_RIG          # the job rig: the owner's light choice of 2026-10-11 (plan/PROGRESS.md decisions)
 K_TOKEN = "{K}"                     # instructions.txt states finish precondition 1 with the run's K
 # The same model in black acetate (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos
@@ -170,12 +183,23 @@ MIXES = {"typical": {"facet_edit": 4, "photo_compare": 2, "photo_read": 1, "face
          "read_heavy": {"facet_edit": 2, "photo_compare": 2, "photo_read": 3, "facet_variants": 1, "photo_image": 1,
                         "facet_inspect": 1}}
 RANGE_MIXES = ("edit_heavy", "typical", "read_heavy")
-# The image kinds the context guard replaces in an old result (lab.context_stubs: compare images, zoom grids included
-# as lab registers them, and variant sheets): lab's own STUB_KINDS when it exports one (review 2026-10-12, P3: one
-# constant for the guard and the estimate), else the kinds context_stubs names today. A test pins it against a real
-# Lab's context_stubs. A pick sheet is replaced only once its reading was read again or dropped (the stored reading's
-# sheet stays); the projection counts none as stubbable, which prices a run that re-reads a little high, never low.
-STUBBED_KINDS = tuple(getattr(LAB, "STUB_KINDS", ("compare", "variants")))
+# A recorded image's kind (the rehearsal's tool_outputs [W, H, kind]) is record_kind of the lab's image index entry
+# (Lab._image: {kind, ref, ...}): the lab's own kind, except a zoom grid, which the lab registers as kind "compare"
+# with zoom=True (lab.py) and the rehearsal records as ZOOM_GRID_KIND. So the estimate tells a photo_compare call's own
+# zoom grids from its compare panels and prices the call at its compare panels plus ZOOM_MAX grids (v3p3-t5: with both
+# recorded "compare", a call's own grids stayed and ZOOM_MAX more were added, 5 grids for a 2-zoom call).
+ZOOM_GRID_KIND = "zoom"
+# The record kinds the context guard replaces in an old result (lab.context_stubs: compare panels, zoom grids and
+# variant sheets of a result older than the latest 2 and not best_checkpoint's; the v3 T5 rehearsal states and checks
+# that decision, tests/proofs/wp6v3_rehearsal_checks.py): lab's own STUB_KINDS (review 2026-10-12, P3: one constant
+# for the guard and the estimate), else the kinds context_stubs names today, plus ZOOM_GRID_KIND while the lab
+# registers zoom grids as compare images (they go with their compare). A test pins it against a real Lab's
+# context_stubs and a real zoom grid. A pick sheet is replaced only once its reading was read again or dropped (the
+# stored reading's sheet is evidence and stays); the projection counts none as stubbable, which prices a run that
+# re-reads a little high, never low.
+LAB_STUB_KINDS = tuple(getattr(LAB, "STUB_KINDS", ("compare", "variants")))
+STUBBED_KINDS = LAB_STUB_KINDS + ((ZOOM_GRID_KIND,) if "compare" in LAB_STUB_KINDS
+                                  and ZOOM_GRID_KIND not in LAB_STUB_KINDS else ())
 STUB_CHARS = 120                                 # one stub text
 # The v3 image-heavy outputs, each priced at the most one call returns (as facet_variants at variant_sheets), at the
 # largest image the tool makes, not the rehearsal's (review 2026-10-12, P2: a rehearsal of 2-photo readings or small
@@ -185,17 +209,40 @@ STUB_CHARS = 120                                 # one stub text
 #   8 a call, Lab._image kind READING_KINDS;
 # - photo_compare: one 2 x 2 zoom grid per zoom item, up to seeing.ZOOM_MAX 3 a call (each panel up to
 #   compare.ZOOM_PANEL_PX 760 x 500 under a 24 px label, 6 px gaps: 1538 x 1066 px, zoom_grid_px, ~1,740 tokens),
-#   registered by Lab._image as ZOOM_GRID_KIND ("compare" with zoom=True today, lab.py), so a recorded zoom grid is
-#   told from a compare panel only when that kind is not "compare"; each zoom adds ZOOM_TEXT_CHARS of text (seeing
-#   _zoom_text: 767-785 characters on probe 1's three real zooms with five labelled edges,
-#   v3/probe1/pkg/calls/0001-compare_to_photos/result.json).
+#   recorded as ZOOM_GRID_KIND (record_kind); a rehearsal recorded before record_kind holds its grids as "compare"
+#   images, which stay as recorded beside the ZOOM_MAX priced (up to ZOOM_MAX grids high); each zoom adds
+#   ZOOM_TEXT_CHARS of text (seeing _zoom_text: 767-785 characters on probe 1's three real zooms with five labelled
+#   edges, v3/probe1/pkg/calls/0001-compare_to_photos/result.json).
+# - facet_variants: one sheet per photo (sheets.py: every model on one page), up to variant_sheets a call, each priced
+#   at the largest page, sheets.SHEET_W x SHEET_H (1280 x 900, ~1,243 tokens; the T5 v3 rehearsal's 2-arm-photo pages
+#   were 1060-1066 x 898, ~1,073), and its text and arguments scaled to VARIANTS_MAX arms (each arm prints its fit,
+#   crease and diff lines and takes its edits as arguments): by VARIANTS_MAX / the call's own arms when the
+#   rehearsal records them ("arms"), else by VARIANTS_MAX / VARIANTS_MIN (high, never low). Review 2026-10-12, P3:
+#   priced at the rehearsal's sheet, 5,052 tokens a call against the tool's ~6.8k.
+# - facet_inspect at its largest recorded call (LARGEST_PRICED): its text grows with the stored readings and the
+#   design (T5 v3: revision 0 with no reading 1,657 characters, 5 stored readings 3,732; session2's heads with 8
+#   readings took 2,908-3,167 tokens against the 1,682 a call the mean of both priced; review 2026-10-12, P3).
 READING_KINDS = ("reading",)
-ZOOM_GRID_KIND = "compare"
 ZOOM_TEXT_CHARS = 800
+LARGEST_PRICED = ("facet_inspect",)
 OK_STATUSES = ("ok", "applied", "accepted")     # a recorded call that counts in a tool's mean (mix_step)
 GUARD_KEEP_RESULTS = 3                           # the latest 2 compare / variant results and best_checkpoint's
 RUN_LENGTHS = (40, 60, 90)
 ESTIMATE_SCHEMA = "g3d.facet_estimate/1"
+# The request bytes model (review 2026-10-12, P2; v3p3-verify-15): images are 96.5-97.9 % of a paid run's body. Each
+# image is priced at its kind's LARGEST measured base64 bytes per formula token, on 121 real v3 tool images (the T5 v3
+# rehearsal and session2; v3/probes3/verify-15/byte_probe.log B: chart 352.2, compare 411.3, photo 213.7, reading
+# 229.2, variants 413.8, zoom 323.7, rounded up; their means are 154-348); an unmeasured kind (a first request's
+# photos, unless the package's own bytes are given) at the largest of them. Text at TEXT_BYTES_PER_CHAR (JSON
+# escapes), and every request adds REQUEST_OVERHEAD_BYTES: the paid v2 runs' whole non-image growth a request (16.4-23.7
+# KB, mean 20.5: reasoning items, call items and the tool texts, which are counted again beside the texts: high).
+# The count's time is the paid runs' fit, COUNT_S_BASE + COUNT_S_PER_MB per MB (156 requests, residual sd 0.66 s, one
+# network, fitted up to 30.8 MB), beside budget.count_timeout_s.
+BYTES_PER_IMAGE_TOKEN = {"chart": 353, "compare": 412, "photo": 214, "reading": 230, "variants": 414, "zoom": 324}
+BYTES_PER_IMAGE_TOKEN_MAX = max(BYTES_PER_IMAGE_TOKEN.values())
+TEXT_BYTES_PER_CHAR = 1.1
+REQUEST_OVERHEAD_BYTES = 24_000
+COUNT_S_BASE, COUNT_S_PER_MB = 1.27, 0.316
 
 
 # --------------------------------------------------------------------------------------------- package
@@ -380,18 +427,22 @@ def camera_fit_text(rec: dict, ids: dict) -> str | None:
 
 def outline_text(view: str, cam: dict) -> str | None:
     """What a photo's compares print as numbers: a side view (seeing.SIDE_VIEWS) the outline offsets of the temple
-    whose outer face it sees (seeing._side_outline: photo minus model, every 10 mm from d 10 to the tip), only the edge
-    on the far side of the view when it looks down (up) on the temple by more than SIDE_FACE_PITCH_DEG (the near edge's
-    silhouette is then the top (bottom) face's far edge, not the outline); other views print none (v3: the top / rear
-    outer-edge offsets and the outline line are not shown)."""
+    whose outer face it sees (seeing._side_outline: photo minus model, every 10 mm from d 10 to the tip), the outline
+    only on the far side of the view when it looks down (up) on the temple by more than SIDE_FACE_PITCH_DEG; the near
+    edge's silhouette is then the top (bottom) face's far edge, which seeing prints minus its median over the stations
+    (seeing._far_edge_text, v3p3-fix-seeing: in 01 / 05 / B1 the only number on the arm's top, where session2's head
+    sat 2-4 mm low behind d 100 and the brief said its top was not measured); other views print none (v3: the top /
+    rear outer-edge offsets and the outline line are not shown)."""
     if view not in SIDE_VIEWS or outer_face_deg(cam) >= EDGE_ON_DEG:
         return None
     whose = "charted" if toward(cam)[0] > 0 else "mirrored"
     pitch = float(cam.get("pitch") or 0.0)
     if pitch > SIDE_FACE_PITCH_DEG:
-        edges = "bottom outline offsets (not its top: the view looks down on the top face)"
+        edges = ("bottom outline offsets and, for its top, the top face's far edge minus its median (the view looks "
+                 "down on the top face)")
     elif pitch < -SIDE_FACE_PITCH_DEG:
-        edges = "top outline offsets (not its bottom: the view looks up at the bottom face)"
+        edges = ("top outline offsets and, for its bottom, the bottom face's far edge minus its median (the view "
+                 "looks up at the bottom face)")
     else:
         edges = "top and bottom outline offsets"
     return f"its compares print the {whose} temple's {edges}"
@@ -805,7 +856,7 @@ def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, est
         run_dir = root / "runs" / run_id
         cost = estimate if estimate is not None else request_estimate(
             read(estimate_path), settings, c0_chars(instructions, brief, tools, photos), [p.size_px for p in photos],
-            variant_sheets=lab.variant_photos_max())
+            variant_sheets=lab.variant_photos_max(), image_bytes=[len(p.image_url) for p in photos])
         A.write_approval_request(run_dir, job_id=root.name, request=request, estimate=cost, suggested_cap_usd=cap)
         # the exact text sent (its sha256 is the request's instructions_sha256): LF, never the platform's newline
         (run_dir / "instructions-sent.txt").write_text(instructions, encoding="utf-8", newline="\n")
@@ -817,6 +868,12 @@ def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, est
 
 
 # --------------------------------------------------------------------------------------------- estimate
+def record_kind(rec: dict) -> str:
+    """The kind a rehearsal records for an image of the lab's index (Lab._image's {kind, ref, ...}): ZOOM_GRID_KIND
+    for a zoom grid (registered as kind "compare" with zoom=True), else the lab's kind."""
+    return ZOOM_GRID_KIND if rec.get("zoom") else str(rec.get("kind"))
+
+
 def image_tokens(w: int, h: int) -> float:
     return TOKENS_PER_PATCH * math.ceil(w / PATCH_PX) * math.ceil(h / PATCH_PX) + TOKENS_PER_IMAGE
 
@@ -832,13 +889,29 @@ def first_request_tokens(chars: int, sizes) -> int:
     return math.ceil(TOKENS_PER_CHAR * chars + sum(image_tokens(w, h) for w, h in sizes))
 
 
+def image_bytes(w: int, h: int, kind: str | None = None) -> float:
+    """An image's bytes in a request (base64 data URL) by the bytes model: its formula tokens x its kind's largest
+    measured bytes per token (BYTES_PER_IMAGE_TOKEN; an unmeasured kind at the largest)."""
+    return image_tokens(w, h) * BYTES_PER_IMAGE_TOKEN.get(kind, BYTES_PER_IMAGE_TOKEN_MAX)
+
+
+def first_request_bytes(chars: int, sizes, image_sizes_bytes=None) -> int:
+    """A first request's bytes: its text, the per-request overhead and its photos, at their own data URLs' bytes when
+    given (request_estimate: the package's photos), else by the bytes model (an unmeasured kind: high)."""
+    images = sum(image_sizes_bytes) if image_sizes_bytes is not None else sum(image_bytes(w, h) for w, h in sizes)
+    return round(TEXT_BYTES_PER_CHAR * chars + REQUEST_OVERHEAD_BYTES + images)
+
+
 def call_tokens(sample: dict) -> dict:
     """One recorded tool call: its growth of the context (arguments and output text, every image) and the part in
-    images the context guard may replace."""
+    images the context guard may replace, in tokens and in request bytes (image_bytes), with its image counts."""
     imgs = [image_tokens(w, h) for w, h, _kind in sample["images"]]
-    stub = [t for t, (_w, _h, kind) in zip(imgs, sample["images"]) if kind in STUBBED_KINDS]
-    return {"tokens": TOKENS_PER_CHAR * (sample["text_chars"] + sample["args_chars"]) + sum(imgs),
-            "stubbable": sum(stub), "stub_images": len(stub)}
+    sizes = [image_bytes(w, h, kind) for w, h, kind in sample["images"]]
+    stub = [k for k, (_w, _h, kind) in enumerate(sample["images"]) if kind in STUBBED_KINDS]
+    text = sample["text_chars"] + sample["args_chars"]
+    return {"tokens": TOKENS_PER_CHAR * text + sum(imgs), "stubbable": sum(imgs[k] for k in stub),
+            "stub_images": len(stub), "bytes": TEXT_BYTES_PER_CHAR * text + sum(sizes),
+            "stub_bytes": sum(sizes[k] for k in stub), "images": len(imgs)}
 
 
 def variant_sheets(rows: list) -> int:
@@ -881,26 +954,31 @@ def zoom_grid_px() -> tuple[int, int]:
 def priced_sample(sample: dict, sheets: int, *, readings: int = READ_POINTS_MAX, zooms: int = ZOOM_MAX) -> dict:
     """A recorded call priced at the most images one call of its tool returns (an upper bound; the recorded call is
     never changed):
-    - facet_variants: ``sheets`` sheets, its largest sheet repeated (a 4th photo of another colour adds one sheet the
-      size of the others, lab.py module doc);
     - photo_read with a pick sheet: ``readings`` pick sheets of the largest size (read_sheet_px) in place of its own,
       its text and arguments scaled by ``readings`` / its own sheets (each reading prints one text line of ~425-970
       characters, readings.reading_text, and takes up to 4 photos x 2 traced edges of arguments); a call with no pick
       sheet (a drop) is marked ``unpriced``: mix_step leaves it out of photo_read's mean, so a drop never dilutes the
       price of a read (review 2026-10-12, P2: one drop call halved it, 7,274 against 14,472 tokens a call);
     - photo_compare: ``zooms`` zoom grids of the largest size (zoom_grid_px, kind ZOOM_GRID_KIND) and ZOOM_TEXT_CHARS
-      of text each beside its compare images; its own zoom grids are replaced when their kind tells them from compare
-      panels (ZOOM_GRID_KIND is not "compare"), else they stay as recorded and such a call is priced up to ``zooms``
-      grids high (conservative).
-    Every other call is returned unchanged."""
+      of text for each zoom beyond its own, beside its compare images; its own zoom grids (recorded as ZOOM_GRID_KIND,
+      record_kind) are replaced; a call recorded with its grids as "compare" images (before record_kind) keeps them
+      as recorded and is priced up to ``zooms`` grids high (conservative).
+    - facet_variants: ``sheets`` sheets (or its own count, if more) of the largest page, sheets.SHEET_W x SHEET_H, in
+      place of its own, its text and arguments scaled to VARIANTS_MAX arms (by VARIANTS_MAX / its "arms" when the
+      rehearsal records them, else VARIANTS_MAX / VARIANTS_MIN; never below as recorded); a call with no sheet (every
+      arm refused) is unchanged.
+    Every other call is returned unchanged (facet_inspect is priced at its largest recorded call by priced_samples)."""
     tool = sample["tool"]
     imgs = [list(i) for i in sample["images"]]
     if tool == "facet_variants":
         shown = [i for i in imgs if i[2] == "variants"]
-        if not shown or len(shown) >= sheets:
+        if not shown:
             return sample
-        big = max(shown, key=lambda i: image_tokens(i[0], i[1]))
-        return {**sample, "images": imgs + [list(big)] * (sheets - len(shown))}
+        arms = sample.get("arms")
+        f = max(1.0, VARIANTS_MAX / (int(arms) if arms else VARIANTS_MIN))
+        rest = [i for i in imgs if i[2] != "variants"]
+        return {**sample, "images": rest + [[SH.SHEET_W, SH.SHEET_H, "variants"]] * max(sheets, len(shown)),
+                "text_chars": round(sample["text_chars"] * f), "args_chars": round(sample["args_chars"] * f)}
     if tool == "photo_read":
         shown = [i for i in imgs if i[2] in READING_KINDS]
         if not shown:
@@ -911,7 +989,7 @@ def priced_sample(sample: dict, sheets: int, *, readings: int = READ_POINTS_MAX,
         return {**sample, "images": rest + [[w, h, READING_KINDS[0]]] * readings,
                 "text_chars": round(sample["text_chars"] * f), "args_chars": round(sample["args_chars"] * f)}
     if tool == "photo_compare":
-        own = [i for i in imgs if ZOOM_GRID_KIND != "compare" and i[2] == ZOOM_GRID_KIND]
+        own = [i for i in imgs if i[2] == ZOOM_GRID_KIND]
         w, h = zoom_grid_px()
         return {**sample, "images": [i for i in imgs if i not in own] + [[w, h, ZOOM_GRID_KIND]] * zooms,
                 "text_chars": sample["text_chars"] + ZOOM_TEXT_CHARS * max(0, zooms - len(own))}
@@ -919,7 +997,8 @@ def priced_sample(sample: dict, sheets: int, *, readings: int = READ_POINTS_MAX,
 
 
 def priced_samples(samples: list, sheets: int, mixes=None) -> list:
-    """Every recorded call priced (priced_sample). Refuses (ValueError) a rehearsal with no successful photo_read call
+    """Every recorded call priced (priced_sample), and facet_inspect (LARGEST_PRICED) at its largest successful call:
+    the others are marked ``unpriced``. Refuses (ValueError) a rehearsal with no successful photo_read call
     that returned a pick sheet while a mix prices photo_read: a read's text and arguments are priced from a real one
     (run the estimate on a rehearsal of the current tools). The zoom grids need no recorded one: their size is the
     tool's (zoom_grid_px)."""
@@ -928,58 +1007,99 @@ def priced_samples(samples: list, sheets: int, mixes=None) -> list:
                                          and any(i[2] in READING_KINDS for i in s["images"]) for s in samples):
         raise ValueError(f"the rehearsal recorded no photo_read call with a pick sheet (image kind "
                          f"{' / '.join(READING_KINDS)}) to price: run the estimate on a rehearsal of the current tools")
-    return [priced_sample(s, sheets) for s in samples]
+    priced = [priced_sample(s, sheets) for s in samples]
+    for tool in LARGEST_PRICED:         # every successful call but the largest is left out of the tool's mean
+        rows = [k for k, s in enumerate(priced) if s["tool"] == tool and s["status"] in OK_STATUSES]
+        if rows:
+            top = max(rows, key=lambda k: call_tokens(priced[k])["tokens"])
+            priced = [{**s, "unpriced": True} if k in rows and k != top else s for k, s in enumerate(priced)]
+    return priced
 
 
 def mix_step(samples: list, mix: dict) -> dict:
     """The mean growth per request of a call mix, from the rehearsal's successful calls of each tool (a call
-    priced_sample marks ``unpriced`` is left out)."""
+    priced_sample or priced_samples marks ``unpriced`` is left out), in tokens and in request bytes and images
+    (call_tokens; the per-request overhead is project's)."""
     by_tool: dict = {}
     for s in samples:
         if s["status"] in OK_STATUSES and not s.get("unpriced"):
             by_tool.setdefault(s["tool"], []).append(call_tokens(s))
     total = sum(mix.values())
-    step = {"tokens": 0.0, "stubbable": 0.0, "results": 0.0, "stub_images": 0.0}
+    keys = ("tokens", "stubbable", "stub_images", "bytes", "stub_bytes", "images")
+    step = {"tokens": 0.0, "stubbable": 0.0, "results": 0.0, "stub_images": 0.0, "bytes": 0.0, "stub_bytes": 0.0,
+            "images": 0.0}
     for tool, weight in mix.items():
         rows = by_tool.get(tool)
         if not rows:
             raise ValueError(f"the rehearsal has no successful {tool} call to price")
         share = weight / total
-        for key in ("tokens", "stubbable", "stub_images"):
+        for key in keys:
             step[key] += share * sum(r[key] for r in rows) / len(rows)
         step["results"] += share * sum(1 for r in rows if r["stub_images"]) / len(rows)
     return step
 
 
 def project(c0: int, step: dict, requests: int, *, output: int, max_output_tokens: int,
-            guard_tokens: int | None = CONTEXT_GUARD_TOKENS, tariff: Tariff | None = None) -> dict:
+            guard_tokens: int | None = CONTEXT_GUARD_TOKENS, guard_bytes: int | None = CONTEXT_GUARD_BYTES,
+            c0_bytes: int | None = None, c0_images: int | None = None, tariff: Tariff | None = None) -> dict:
     """One modelled run, request by request with the frozen tariff (the 272k step included): request i's input is
-    the previous input (cached) plus the mean growth (written); once a counted input reaches the guard, the next
-    request replaces the images of all but GUARD_KEEP_RESULTS compare / variant results by stubs and is written
-    afresh after the brief. A request whose input would pass the model's input limit (pricing.MODEL_MAX_INPUT_TOKENS)
-    is never sent (the budget guard refuses it, budget.reserve), so the run ends before it: "input_limit_request"
-    names it and the cost is that of the requests before it (a heavy mix's 90-reply run reaches it on a rehearsal of
-    large images; the estimate then says so instead of failing)."""
+    the previous input (cached) plus the mean growth (written).
+
+    The context guard (loop.ContextGuard, CONTEXT_GUARD /2; off with guard_tokens None, as a run without
+    context_guard_tokens): once a request reaches guard_tokens input tokens (once) or the next byte rung, k x
+    guard_bytes request bytes, the next request replaces the images of all compare / variant results but
+    GUARD_KEEP_RESULTS (those not replaced at an earlier epoch) by stubs and is written afresh after the brief; the next
+    byte rung is the first above that request ("context_guard_requests" lists the epochs, "context_guard_request" the
+    first).
+
+    With ``c0_bytes`` (a first request's bytes, first_request_bytes) and a step that has "bytes" (mix_step), the run
+    also carries its request bytes and images (the bytes model, BYTES_PER_IMAGE_TOKEN; each request adds
+    REQUEST_OVERHEAD_BYTES): "peak_request_mb", "peak_images", the count's modelled time at that peak
+    ("peak_count_s", COUNT_S_BASE + COUNT_S_PER_MB per MB) beside its timeout ("count_timeout_s_at_peak",
+    budget.count_timeout_s); else those are None and the byte rungs are off.
+
+    A request whose input would pass the model's input limit (pricing.MODEL_MAX_INPUT_TOKENS) is never sent (the budget
+    guard refuses it, budget.reserve), and neither is one over the provider's documented per-request limit
+    (budget.PAYLOAD_LIMIT_BYTES / PAYLOAD_LIMIT_IMAGES: PayloadTooLarge), so the run ends before it:
+    "input_limit_request" / "payload_limit_request" names it and the cost is that of the requests before it (a heavy
+    mix's 90-reply run reaches the input limit on a rehearsal of large images; the estimate then says so instead of
+    failing)."""
     tariff = tariff or Tariff.frozen()
-    prev, spent, need = None, 0, 0
-    results, armed = 0.0, False
-    guard_at = long_at = limit_at = None
-    peak = 0
-    per_result = step["stubbable"] / step["results"] if step["results"] else 0.0
-    imgs_per_result = step["stub_images"] / step["results"] if step["results"] else 0.0
+    sized = c0_bytes is not None and "bytes" in step
+    prev = prev_bytes = prev_images = None
+    spent, need = 0, 0
+    results, stubbed, armed, token_due, byte_rung = 0.0, 0.0, False, True, 1
+    guards: list = []
+    long_at = limit_at = payload_at = None
+    peak, peak_bytes, peak_images = 0, 0.0, 0.0
+    res = step["results"]
+    per_result = step["stubbable"] / res if res else 0.0
+    imgs_per_result = step["stub_images"] / res if res else 0.0
+    bytes_per_result = step.get("stub_bytes", 0.0) / res if res else 0.0
     for i in range(requests):
         if prev is None:
             inp, cached = c0, 0
+            size, images = (float(c0_bytes), float(c0_images or 0)) if sized else (None, None)
         else:
             new, cached = prev + step["tokens"], prev
+            if sized:
+                size, images = prev_bytes + step["bytes"] + REQUEST_OVERHEAD_BYTES, prev_images + step["images"]
             if armed:
-                drop = max(0.0, results - GUARD_KEEP_RESULTS)
+                drop = max(0.0, results - GUARD_KEEP_RESULTS - stubbed)
+                stubbed += drop
                 new -= drop * (per_result - imgs_per_result * TOKENS_PER_CHAR * STUB_CHARS)
-                cached, armed, guard_at = c0, False, i + 1
+                if sized:
+                    size -= drop * (bytes_per_result - imgs_per_result * TEXT_BYTES_PER_CHAR * STUB_CHARS)
+                    images -= drop * imgs_per_result
+                cached, armed = c0, False
+                guards.append(i + 1)
             inp = math.ceil(new)
             results += step["results"]
         if inp > MODEL_MAX_INPUT_TOKENS:
             limit_at = i + 1
+            break
+        if sized and (size > PAYLOAD_LIMIT_BYTES or images > PAYLOAD_LIMIT_IMAGES):
+            payload_at = i + 1
             break
         cached = min(cached, inp)
         usage = {"input_tokens": inp, "output_tokens": output, "total_tokens": inp + output,
@@ -989,21 +1109,37 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
         need = max(need, spent + hold)
         spent += settled
         peak = max(peak, inp)
+        if sized:
+            peak_bytes, peak_images = max(peak_bytes, size), max(peak_images, images)
         if long_at is None and inp > LONG_CONTEXT_INPUT_TOKENS:
             long_at = i + 1
-        if guard_tokens is not None and guard_at is None and not armed and inp >= guard_tokens:
-            armed = True
-        prev = inp
+        if guard_tokens is not None and not armed:
+            by_bytes = sized and guard_bytes and size >= byte_rung * guard_bytes
+            if (token_due and inp >= guard_tokens) or by_bytes:
+                armed, token_due = True, token_due and inp < guard_tokens
+                if sized and guard_bytes:
+                    byte_rung = max(byte_rung, math.floor(size / guard_bytes) + 1)
+        prev, prev_bytes, prev_images = inp, size, (images if sized else None)
+    mb = peak_bytes / 1e6 if sized else None
     return {"requests": requests, "expected_micro_usd": spent, "expected_usd": usd_text(spent),
             "required_cap_micro_usd": need, "last_input_tokens": prev, "peak_input_tokens": peak,
-            "context_guard_request": guard_at, "first_long_context_request": long_at, "input_limit_request": limit_at}
+            "context_guard_request": guards[0] if guards else None, "context_guard_requests": guards,
+            "first_long_context_request": long_at, "input_limit_request": limit_at,
+            "payload_limit_request": payload_at, "peak_request_mb": round(mb, 1) if sized else None,
+            "peak_images": math.ceil(peak_images) if sized else None,
+            "peak_count_s": round(COUNT_S_BASE + COUNT_S_PER_MB * mb, 1) if sized else None,
+            "count_timeout_s_at_peak": round(count_timeout_s(peak_bytes)) if sized else None}
 
 
 def limit_text(run: dict) -> str:
-    """A projected run's input-limit clause (project: the run ends before the request that would pass it), or ""."""
+    """A projected run's input-limit clause (project: the run ends before the request that would pass it), and its
+    request-size clause (payload_limit_request: the provider's documented per-request limit), or ""."""
     at = run.get("input_limit_request")
-    return (f"; its context reaches the model's {MODEL_MAX_INPUT_TOKENS:,}-token input limit at request {at}, where "
-            "such a run ends") if at else ""
+    out = (f"; its context reaches the model's {MODEL_MAX_INPUT_TOKENS:,}-token input limit at request {at}, where "
+           "such a run ends") if at else ""
+    at = run.get("payload_limit_request")
+    return out + ((f"; its requests reach the provider's per-request limit ({PAYLOAD_LIMIT_BYTES / 1e6:.0f} MB or "
+                   f"{PAYLOAD_LIMIT_IMAGES:,} images) at request {at}, where such a run ends") if at else "")
 
 
 def high_text(mix: str) -> str:
@@ -1024,42 +1160,69 @@ MIX_ASSUMED = ("The v3 tool mix is assumed (no v3 run has been measured): \"up t
 
 
 def range_top(c0: int, steps: dict, requests: int, *, max_output_tokens: int,
-              guard_tokens: int | None = CONTEXT_GUARD_TOKENS) -> dict:
+              guard_tokens: int | None = CONTEXT_GUARD_TOKENS, guard_bytes: int | None = CONTEXT_GUARD_BYTES,
+              c0_bytes: int | None = None, c0_images: int | None = None) -> dict:
     """The range's top: the costliest (expected cost) of RANGE_MIXES (every reply an edit, the typical mix and the
     read-heavy one), each at the high output tokens, its "mix" named (high_text); "required_cap_micro_usd" is the
     largest of their runs'. v2's top was always every reply an edit; v3's photo_read at READ_POINTS_MAX pick sheets and
     photo_compare at ZOOM_MAX zoom grids can make a mix with more reads the costlier one, and the v3 weights are
     assumed (MIXES), so the top is taken over a read-heavier mix too (review 2026-10-12, P2)."""
     runs = {mix: project(c0, steps[mix], requests, output=OUTPUT_TOKENS["high"], max_output_tokens=max_output_tokens,
-                         guard_tokens=guard_tokens) for mix in RANGE_MIXES}
+                         guard_tokens=guard_tokens, guard_bytes=guard_bytes, c0_bytes=c0_bytes, c0_images=c0_images)
+            for mix in RANGE_MIXES}
     mix = max(runs, key=lambda m: (runs[m]["expected_micro_usd"], -RANGE_MIXES.index(m)))
     return {**runs[mix], "mix": mix,
             "required_cap_micro_usd": max(r["required_cap_micro_usd"] for r in runs.values())}
 
 
 def image_pricing() -> dict:
-    """The v3 image sizes and texts the table prices at (request_estimate refuses a table priced at others)."""
+    """The v3 image sizes, texts and request bytes the table prices at, and the guard it models (request_estimate
+    refuses a table priced at others)."""
     return {"read_points": READ_POINTS_MAX, "pick_sheet_px": list(read_sheet_px()), "zoom_grids": ZOOM_MAX,
-            "zoom_grid_px": list(zoom_grid_px()), "zoom_grid_kind": ZOOM_GRID_KIND, "zoom_text_chars": ZOOM_TEXT_CHARS}
+            "zoom_grid_px": list(zoom_grid_px()), "zoom_grid_kind": ZOOM_GRID_KIND, "zoom_text_chars": ZOOM_TEXT_CHARS,
+            "variant_sheet_px": [SH.SHEET_W, SH.SHEET_H], "variant_arms": VARIANTS_MAX,
+            "largest_priced": list(LARGEST_PRICED), "bytes_per_image_token": BYTES_PER_IMAGE_TOKEN,
+            "text_bytes_per_char": TEXT_BYTES_PER_CHAR, "request_overhead_bytes": REQUEST_OVERHEAD_BYTES,
+            "context_guard": CONTEXT_GUARD}
+
+
+def rehearsal_samples(rehearsal: dict) -> list:
+    """The rehearsal's tool_outputs, each facet_variants call with its "arms" (the arms it was asked for): as
+    recorded, else from the report's steps and outputs (the variants body's items), else left out (priced_sample then
+    scales its text from VARIANTS_MIN arms)."""
+    samples = [dict(s) for s in rehearsal["tool_outputs"]]
+    steps, outputs = rehearsal.get("steps") or [], rehearsal.get("outputs") or {}
+    for k, s in enumerate(samples):
+        if s["tool"] == "facet_variants" and not s.get("arms") and k < len(steps):
+            items = (outputs.get(steps[k].get("step")) or {}).get("variants")
+            if isinstance(items, list) and items:
+                s["arms"] = len(items)
+    return samples
 
 
 def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: int = 16_384,
                    sheets: int = VARIANT_PHOTOS_MAX) -> dict:
     """The estimate table (estimate.json): runs of ``requests`` replies at effort high and max, the typical mix at the
     expected output and range_top (the range); facet_variants priced at ``sheets`` sheets a call (main passes the
-    rehearsal job's variant_sheets), photo_read at READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom
-    grids, each of the largest size the tool makes (priced_samples, image_pricing)."""
+    rehearsal job's variant_sheets) of the largest page with VARIANTS_MAX arms of text, photo_read at READ_POINTS_MAX
+    pick sheets and photo_compare at ZOOM_MAX zoom grids, each of the largest size the tool makes, facet_inspect at its
+    largest recorded call (priced_samples, image_pricing); each run with its request bytes and images (project: the
+    first request's recorded bytes, else the bytes model)."""
     first = rehearsal["first_request"]
     c0 = first_request_tokens(first["text_chars"], first["image_sizes"])
-    samples = rehearsal["tool_outputs"]
+    c0_bytes = int(first["bytes"]) if first.get("bytes") else first_request_bytes(first["text_chars"],
+                                                                                  first["image_sizes"])
+    c0_images = len(first["image_sizes"])
+    sized = {"c0_bytes": c0_bytes, "c0_images": c0_images}
+    samples = rehearsal_samples(rehearsal)
     priced = priced_samples(samples, sheets)
     steps = {name: mix_step(priced, mix) for name, mix in MIXES.items()}
     rows = []
     for n in requests:
         for effort in ("high", "max"):
             exp = project(c0, steps["typical"], n, output=OUTPUT_TOKENS["expected"],
-                          max_output_tokens=max_output_tokens)
-            high = range_top(c0, steps, n, max_output_tokens=max_output_tokens)
+                          max_output_tokens=max_output_tokens, **sized)
+            high = range_top(c0, steps, n, max_output_tokens=max_output_tokens, **sized)
             out_share = Tariff.frozen().settle_micro({"input_tokens": 0, "output_tokens": OUTPUT_TOKENS["expected"] * n,
                                                       "total_tokens": OUTPUT_TOKENS["expected"] * n})
             rows.append({"requests": n, "effort": effort, "expected": exp, "high": high,
@@ -1069,52 +1232,71 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
                                  f"{limit_text(exp)}, up to {cents_text(high['expected_micro_usd'])} "
                                  f"({high_text(high['mix'])}){limit_text(high)}"})
     per_tool = {}
-    for s, p in zip(samples, priced):       # as recorded, with the tokens it is priced at
+    for s, p in zip(samples, priced):       # as recorded, with the tokens and bytes it is priced at
         t = call_tokens(p)
         per_tool.setdefault(s["tool"], []).append({"status": s["status"], "text_chars": s["text_chars"],
                                                    "args_chars": s["args_chars"],
                                                    "images": [[w, h, k] for w, h, k in s["images"]],
+                                                   **({"arms": s["arms"]} if s.get("arms") else {}),
                                                    "tokens": round(t["tokens"]), "stubbable": round(t["stubbable"]),
+                                                   "bytes": round(t["bytes"]),
                                                    **({"priced": False} if p.get("unpriced") else {})})
     sheet, grid = read_sheet_px(), zoom_grid_px()
     return {"schema": ESTIMATE_SCHEMA, "price_version": Tariff.frozen().price_version,
             "formula": "tokens = 0.42 x text chars + per image 0.975 x ceil(W/32) x ceil(H/32) + 112",
-            "first_request": {**first, "tokens": c0, "v1_check": V1_FIRST_REQUEST},
+            "first_request": {**first, "tokens": c0, "request_bytes": c0_bytes,
+                              "bytes_from": "recorded" if first.get("bytes") else "bytes model",
+                              "v1_check": V1_FIRST_REQUEST},
             "output_tokens_per_request": OUTPUT_TOKENS, "output_tokens_source": OUTPUT_TOKENS_SOURCE,
             "variant_sheets": sheets, **image_pricing(), "mixes": MIXES, "range_mixes": list(RANGE_MIXES),
             "steps": {k: {kk: round(vv, 1) for kk, vv in v.items()} for k, v in steps.items()},
-            "context_guard_tokens": CONTEXT_GUARD_TOKENS, "long_context_tokens": LONG_CONTEXT_INPUT_TOKENS,
+            "context_guard_tokens": CONTEXT_GUARD_TOKENS, "context_guard_bytes": CONTEXT_GUARD_BYTES,
+            "long_context_tokens": LONG_CONTEXT_INPUT_TOKENS,
             "rows": rows, "tool_outputs": per_tool,
             "notes": ["No gpt-6-astra ledger at effort high exists; high is priced with the max numbers (an upper "
                       "bound). output_micro_usd is the whole expected output cost, the most effort high can save.",
-                      f"facet_variants is priced at {sheets} sheets a call (a call with fewer has its largest "
-                      f"repeated); photo_read at {READ_POINTS_MAX} pick sheets of the largest size "
+                      f"facet_variants is priced at {sheets} sheets a call of the largest page "
+                      f"({SH.SHEET_W} x {SH.SHEET_H} px) and {VARIANTS_MAX} arms of text; facet_inspect at its largest "
+                      "recorded call (its text grows with the stored readings); photo_read at "
+                      f"{READ_POINTS_MAX} pick sheets of the largest size "
                       f"({sheet[0]} x {sheet[1]} px, 4 photos a reading), its text and arguments scaled alike, and a "
                       "call with no pick sheet (a drop) left out of its mean; photo_compare at its compare images "
                       f"plus {ZOOM_MAX} zoom grids of the largest size ({grid[0]} x {grid[1]} px) and "
                       f"{ZOOM_TEXT_CHARS} characters of text each (tool_outputs lists the calls as recorded, at their "
                       "priced tokens).",
-                      f"Zoom grids are registered as kind {ZOOM_GRID_KIND!r} (lab.py), so a recorded call's own zoom "
-                      "grids cannot be told from its compare panels and stay as recorded: such a call is priced up "
-                      f"to {ZOOM_MAX} grids high.",
+                      f"A zoom grid (the lab's kind 'compare' with zoom) is recorded as kind {ZOOM_GRID_KIND!r} "
+                      f"(record_kind): a call's own grids are replaced by the {ZOOM_MAX} priced; a call recorded "
+                      f"with its grids as 'compare' images is priced up to {ZOOM_MAX} grids high.",
                       f"The context guard replaces images of kinds {', '.join(STUBBED_KINDS)} in old results "
-                      "(lab.context_stubs: compare images, zoom grids included, and variant sheets) and a pick sheet "
-                      "once its reading was read again or dropped; the projection counts no pick sheet as stubbable "
-                      "(a run that re-reads is priced a little high, never low).",
+                      "(lab.context_stubs: compare panels, zoom grids and variant sheets of a superseded model) and a "
+                      "pick sheet once its reading was read again or dropped; the projection counts no pick sheet "
+                      "as stubbable (a run that re-reads is priced a little high, never low).",
                       MIX_ASSUMED,
-                      "A projected run whose next request would pass the model's input limit ends there (the budget "
-                      "guard never sends it): its cost is that of the requests before it, and its row says so.",
+                      "A projected run whose next request would pass the model's input limit, or the provider's "
+                      f"per-request limit ({PAYLOAD_LIMIT_BYTES / 1e6:.0f} MB, {PAYLOAD_LIMIT_IMAGES:,} images), ends "
+                      "there (the budget guard never sends it): its cost is that of the requests before it, and its "
+                      "row says so.",
+                      "Request bytes are modelled (peak_request_mb, peak_images, peak_count_s): each image at its "
+                      "kind's largest measured bytes per token (bytes_per_image_token, 121 real v3 tool images), "
+                      f"text at {TEXT_BYTES_PER_CHAR} bytes a character and {REQUEST_OVERHEAD_BYTES:,} bytes a request "
+                      f"(the paid runs' whole non-image growth); the context guard (filter {CONTEXT_GUARD}) fires once "
+                      f"at {CONTEXT_GUARD_TOKENS:,} counted tokens and at k x {CONTEXT_GUARD_BYTES / 1e6:.0f} MB; the "
+                      f"count's time is the paid runs' fit ({COUNT_S_BASE} s + {COUNT_S_PER_MB} s per MB, one network, "
+                      "fitted up to 30.8 MB) beside its timeout (budget.count_timeout_s).",
                       "Output tokens per request are the v2 facet runs' means; a photo_read's arguments (up to "
                       f"{READ_POINTS_MAX} points, each up to 4 photos of two traced edges) are output not in them.",
                       "The cap is enforced by the guard request by request, independently of this forecast."]}
 
 
-def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets: int | None = None) -> dict:
+def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets: int | None = None,
+                     image_bytes: list | None = None) -> dict:
     """The approval request's estimate block: this package's first request and the run's turns (60 when the run has
     no reply cap) with the growth measured by the rehearsal (estimate.json). ``variant_sheets``: the most sheets one
     facet_variants call of this package returns (Lab.variant_photos_max); a table that priced fewer is refused, and so
     is one made for another tool mix or range (a v2 table has no photo_read) or at other image pricing
-    (image_pricing). The text names the range top's mix and says the v3 mix is assumed (MIX_ASSUMED)."""
+    (image_pricing). The text names the range top's mix and says the v3 mix is assumed (MIX_ASSUMED). The first
+    request's bytes are the package's photos' own (``image_bytes``: each data URL's length; make_spec gives them),
+    else the bytes model's; the run's guard rungs are the settings' (context_guard_tokens, guard_bytes)."""
     priced = table.get("variant_sheets")
     if variant_sheets is not None and (priced is None or int(priced) < int(variant_sheets)):
         raise ValueError(f"the estimate table prices facet_variants at {priced or 'the recorded'} sheets a call, this "
@@ -1127,19 +1309,21 @@ def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets
                          f"{table.get('zoom_grids')}, pick sheet {table.get('pick_sheet_px')}, zoom grid "
                          f"{table.get('zoom_grid_px')}): run estimate on a current rehearsal")
     c0 = first_request_tokens(chars, sizes)
+    sized = {"c0_bytes": first_request_bytes(chars, sizes, image_bytes), "c0_images": len(list(sizes)),
+             "guard_tokens": settings.context_guard_tokens, "guard_bytes": settings.guard_bytes()}
     n = settings.max_turns or 60
     steps = {k: {kk: float(vv) for kk, vv in v.items()} for k, v in table["steps"].items()}
     exp = project(c0, steps["typical"], n, output=OUTPUT_TOKENS["expected"],
-                  max_output_tokens=settings.max_output_tokens, guard_tokens=settings.context_guard_tokens)
-    high = range_top(c0, steps, n, max_output_tokens=settings.max_output_tokens,
-                     guard_tokens=settings.context_guard_tokens)
+                  max_output_tokens=settings.max_output_tokens, **sized)
+    high = range_top(c0, steps, n, max_output_tokens=settings.max_output_tokens, **sized)
     suggested = suggested_cap_micro(high["required_cap_micro_usd"])
     text = (f"Expected {cents_text(exp['expected_micro_usd'])}{limit_text(exp)} (up to "
             f"{cents_text(high['expected_micro_usd'])} with {high_text(high['mix'])}{limit_text(high)}) for {n} Astra "
             f"replies at effort {settings.effort}. " + MIX_ASSUMED)
     if settings.max_turns is None:
         text = "Illustrative 60-reply projection; this run has no reply cap. " + text
-    return {"schema": ESTIMATE_SCHEMA, "first_request_tokens": c0, "requests": n, "effort": settings.effort,
+    return {"schema": ESTIMATE_SCHEMA, "first_request_tokens": c0, "first_request_bytes": sized["c0_bytes"],
+            "requests": n, "effort": settings.effort,
             "expected_micro_usd": exp["expected_micro_usd"], "expected_usd": exp["expected_usd"],
             "range_usd": [exp["expected_usd"], high["expected_usd"]], "expected": exp, "high": high,
             "suggested_cap_micro_usd": suggested, "suggested_cap_usd": usd_text(suggested),
@@ -1170,6 +1354,9 @@ def main(argv=None):
     p.add_argument("--fit-output-to-budget", action="store_true",
                    help="Reduce the next response ceiling when needed to use the remaining cap without a fixed reserve")
     p.add_argument("--env-file", type=Path, help="Explicit local credential file; its contents are never logged")
+    p.add_argument("--ignore-load", action="store_true",
+                   help="run: start even while other Blender or pytest work runs on this machine (reported, not "
+                        "refused)")
     a = p.parse_args(argv)
     try:
         if a.action == "prepare":
@@ -1192,12 +1379,16 @@ def main(argv=None):
             spec, lab = make_spec(a.job, a.run_id, settings, a.cap, write_request=a.action == "request",
                                   estimate_path=a.estimate)
             spec.env_file = a.env_file
+            spec.load_check, spec.refuse_on_load = machine_load, not a.ignore_load
             result = {"status": "approval_request_ready", "request_sha256": spec.current_request_sha256,
                       "run_dir": str(Path(a.job).resolve() / "runs" / a.run_id), "approved": False} \
                 if a.action == "request" else asyncio.run(run_astra(spec, scene=lab))
     except (A.ApprovalRefused, RunRefused) as exc:
         print(json.dumps({"status": "refused", "type": type(exc).__name__, "message": str(exc)}, indent=2))
         sys.exit(exc.exit_code)
+    except ValueError as exc:      # a package or estimate-table refusal (check_package, request_estimate): nothing sent
+        print(json.dumps({"status": "refused", "type": type(exc).__name__, "message": str(exc)}, indent=2))
+        sys.exit(2)
     print(json.dumps(result, indent=2, default=str))
 
 

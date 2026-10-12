@@ -90,7 +90,7 @@ Steps:
     compares (WP6_V3 §5, interface I1; soft only where the export shades the run smooth); each
     declared pair must share an edge inside the outline and be built with its declared shape (E_CREASE_SHAPE: facts
     only, no remedy); pairs below 2 deg, or with no edge that folds, are "flat" (a declaration on them is refused, an
-    undeclared one warns W_FLAT_CREASE). Where a facet runs
+    undeclared one warns W_FLAT_CREASE, but a facet|base pair with a step or a soft border). Where a facet runs
     straight (within STRAIGHT_NODE_DEG) through an inside node, or bends back there, and three or more creases meet
     there all declared with one shape, no node values build it (a convex corner holding a straight line is a prism
     along it): the refusal says one of them has the other shape or two of those faces are one (field
@@ -441,8 +441,16 @@ def _check_roll_proximity(ps: ParsedSpec, arr0: Arrangement) -> None:
     if not on_facet_edges:
         return
     pts = [[round(float(V[v, 0]), 4), round(float(V[v, 1]), 4)] for v, _, _ in on_facet_edges]
-    raise TempleError("E_ROLL", f"roll_mm {r:g}: {len(pts)} facet corner(s) or crossing(s) lie within the roll band "
-                      f"(nodes {sorted(nodes)}); move them onto the outline (within snap_mm) or at least roll_mm away",
+    gaps = [min(a if a > 1e-9 else np.inf, b if b > 1e-9 else np.inf) for _, a, b in on_facet_edges]
+    k = int(np.argmin(gaps))
+    # facts and every way out (v3p3-review-e2e P3-2: one remedy, "move them onto the outline ... or at least roll_mm
+    # away"; the roll itself is a way, and the brief invites it, 39 of 2,000 fuzz designs)
+    at = ", ".join(f"{n} {g:.2f} mm" for n, g in sorted(nodes.items()))
+    raise TempleError("E_ROLL", f"roll_mm {r:g}: {len(pts)} facet corner(s) or edge crossing(s) lie off the top or "
+                      f"bottom outline but within roll_mm of it (closest {gaps[k]:.2f} mm at d {pts[k][0]:.2f}, y "
+                      f"{pts[k][1]:.2f}" + (f"; nodes {at}" if at else "") + "): the roll band holds no facet corner; "
+                      f"ways: each onto the outline (within snap_mm {ps.options['snap_mm']:g}) or at least roll_mm "
+                      f"from it, roll_mm at most {math.floor(gaps[k] * 100.0) / 100.0:.2f}, or a layout without them",
                       roll_mm=r, nodes=nodes, points=pts[:12], reason="proximity")
 
 
@@ -1755,8 +1763,12 @@ def _tables(tb: TempleBuild, edge_info: dict, B: np.ndarray, prep: Prep, roll_in
             rec["declared"] = declared.get(tuple(rec["regions"]))
             faded_end = "base" in rec["regions"] and ps.facets[rec["regions"][0]]["fade"] is not None
             # a facet|base pair with a step (its crease line states it: "flat 0.2° (proud 2.00 mm: a 45.0° ramp)")
-            # is a plateau, not a crease that fails to read: no "bends only 0.18 deg" beside a 45 deg ramp
-            if rec["shape"] == "flat" and rec["declared"] is None and not faded_end and not rec.get("step"):
+            # is a plateau, not a crease that fails to read: no "bends only 0.18 deg" beside a 45 deg ramp; a soft
+            # border is meant to read as no line (v3p3-review-astra P3-1: session2's steps 06-16 printed "bends only
+            # 1.23 deg" beside "shoulder|base flat 1.2° soft", once soft had removed the step, read as a request for
+            # more angle at a border the photos show soft)
+            if (rec["shape"] == "flat" and rec["declared"] is None and not faded_end and not rec.get("step")
+                    and not rec.get("soft")):
                 tb.warnings.append({"code": "W_FLAT_CREASE", "regions": rec["regions"],
                                     "deg": rec["mean_dihedral_deg"],
                                     "message": f"crease {'|'.join(rec['regions'])} bends only "

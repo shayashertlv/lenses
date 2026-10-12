@@ -16,7 +16,9 @@ deg 0.1):
                   the local base gradient, fade, soft (only when true)
     thickness     min / max and where
     border_ramps  per facet/base border run: facet, d range, signed ramp height (+ = the facet stands proud of the
-                  base, - = sunk below it), slope (deg) over border_band_mm, run length
+                  base, - = sunk below it), slope (deg) over border_band_mm, run length; as text (a receipt line):
+                  ramp_text, "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7" (ramp_clause: crease_line's step
+                  clause, with the d)
     stations      only with include_stations=True (facet_inspect; §4.5 keeps edit receipts short): a 10 mm table of
                   d, y_top, y_bot, x_in, t_top, t_bot
     snaps         every knot canonicalisation move
@@ -62,10 +64,27 @@ def crease_line(c: dict) -> str:
     if c.get("soft"):
         line += " soft"
     if c.get("step"):
-        st = c["step"]
-        line += (f" ({'proud' if st['height_mm'] > 0 else 'sunk'} {abs(st['height_mm']):.2f} mm: a "
-                 f"{st['slope_deg']:.1f}° ramp)")
+        line += f" ({ramp_clause(c['step']['height_mm'], c['step']['slope_deg'])})"
     return line + (f" declared {c['declared']}" if c.get("declared") else " undeclared")
+
+
+def ramp_clause(height_mm: float, slope_deg: float, d_mm=None) -> str:
+    """A border ramp in words and units, the one form every ramp text uses: "proud 0.81 mm: a 7.7° ramp" (+ = the
+    facet stands proud of the base, else "sunk" below it), with d_mm [d0, d1] "... at d 75.5-76.7" (one d when the
+    two print alike: "at d 75.5"). crease_line's step clause is this in brackets. Why: the lab printed its ramp runs
+    as "shoulder +0.81 7.7° d 75.5-76.7", a bare signed number and an angle with no unit or word, beside crease lines
+    that say "proud 0.81 mm: a 7.7° ramp" of the same run (v3 session2 item 8)."""
+    text = f"{'proud' if height_mm > 0 else 'sunk'} {abs(height_mm):.2f} mm: a {slope_deg:.1f}° ramp"
+    if d_mm is not None and len(d_mm):
+        a, b = f"{float(d_mm[0]):.1f}", f"{float(d_mm[-1]):.1f}"
+        text += f" at d {a if a == b else f'{a}-{b}'}"
+    return text
+
+
+def ramp_text(r: dict) -> str:
+    """One border-ramp run (a build.tables["border_ramps"] row, a receipt()["border_ramps"] row or a W_BORDER_RAMP
+    warning: facet, height_mm, slope_deg, d_mm) as "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7"."""
+    return f"{r['facet']} {ramp_clause(r['height_mm'], r['slope_deg'], r.get('d_mm'))}"
 
 
 def crease_lines(tb) -> list[str]:

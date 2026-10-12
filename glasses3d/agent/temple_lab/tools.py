@@ -26,7 +26,12 @@ their to_dict; ValueError / KeyError / TypeError return E_LAB_ARGS.
 
 The edits are a strict anyOf union (EDIT_MODELS; its JSON schema, edits_schema(), is pinned by sha in
 tests/agent/test_temple_lab_v3.py): set_node t {mode: reading | mm | base | solve, mm} with d_mm / y_mm null for the
-reading's own position; set_facet {plane: {mode: flat | warp}, soft}; no fade and no crease + rise plane (WP6_V3 §6:
+reading's own position, and outline (top | bottom | none | null: the outline knot at a corner on an edge, kept through
+re-reads and chain edits by geometry.apply_edits; v3p3 e2e P1-1: nothing kept or said it, and the first Prada layout
+without a hand splice was refused E_SHORT_EDGE); solve stated as what the fit does (the flat faces' planes carried to
+the node and a weak prior; its stored reading unused: v3p3 owner P2-3, a flat crown carried K 12 mm from H, -6.8 sd off
+its reading, while the text said "set by the faces and readings around it"); set_facet {plane: {mode: flat | warp},
+soft}; no fade and no crease + rise plane (WP6_V3 §6:
 both were harmful tools, FINDINGS §0.7); geometry.apply_edits converts them to the design spec. Judgements name up to
 state.DIFFERENCES_MAX differences per photo, each at its (d, y) (WP6_V3 §6); one given when none is due is not stored
 (state.check_judgement).
@@ -34,9 +39,11 @@ state.DIFFERENCES_MAX differences per photo, each at its (d, y) (WP6_V3 §6); on
 Photo ids (lab.py module doc): photo_image takes every photo (Lab.image_ids: target, colourway = another colour with a
 calibrated camera, reference = no camera); photo_read picks, photo_compare (photos, zoom, points_px), facet_edit's
 compare and judgements take the photos with a camera (Lab.compare_ids); facet_variants takes those too, at most
-Lab.variant_photos_max() of them. ``photos`` null is the target photos (seeing's default set; a photo of another
-colour only when named), and the texts say so: finish precondition 3 needs the photos it leaves out. The tool texts
-name no photo id: the enums and facet_inspect's photo list carry the job's.
+Lab.variant_photos_max() of them. ``photos`` null is seeing's default set, the target photos whose temple shows at
+least seeing.TEMPLE_ROI_MIN_PX native px (a photo of another colour only when named), and the texts say so with that
+number (v3p3 astra P3-9: "null for the target photos" while the result's left_out named 04): finish precondition 3
+needs the photos it leaves out. The tool texts name no photo id: the enums and facet_inspect's photo list carry the
+job's.
 
 Descriptions are short neutral facts (WP6_V3 P6). Every number in them is formatted from the constant the code
 enforces (the *_DOC texts below, set as docstrings by ``doc``; test_description_numbers_are_the_codes ties each), and
@@ -57,15 +64,16 @@ from functools import partial
 from typing import Annotated, Literal, Union
 
 from agents import function_tool
+from agents.strict_schema import ensure_strict_json_schema
 from agents.tool import ToolOutputImage, ToolOutputText
 from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field
 
 from glasses3d.agent.journal import WorkerFailed
 from glasses3d.agent.loop import RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
-from glasses3d.agent.seeing import GRID_STATION_MM, ZOOM_MIN_PX
+from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
 from glasses3d.g3d.temple import fit as FIT
-from glasses3d.g3d.temple.spec import SOFT_BAND_MM, SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError
+from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, SOFT_BAND_MM, SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError
 from glasses3d.g3d_host import compare as C
 from . import geometry as G
 from . import readings as RD
@@ -78,11 +86,20 @@ CONTEXT_GUARD_TOKENS = 240_000          # §4.3: the one-epoch image filter from
 TOOL_NAMES = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
               "facet_finish")
 Chain = Literal["outline.top", "outline.bottom", "inner", "base.top", "base.bottom"]
-CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (value y); inner: the inner face (value "
-              "x_in); base.top / base.bottom: the plain arm's t at the top / bottom edge (linear in y between)")
+SNAP_MM = DEFAULT_OPTIONS["snap_mm"]    # a node within this of an outline edge lies on it (the parse snaps it there)
+CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (value y; a node on it, within "
+              f"{SNAP_MM:g} mm, moves with it in y, a node set from a reading at most {G.READ_POSITION_MM:g} mm from "
+              "where it was read); inner: the inner face (value x_in); base.top / base.bottom: the plain arm's t at "
+              "the top / bottom edge (linear in y between)")
+OUTLINE_TEXT = (f"a node within {SNAP_MM:g} mm of an outline edge lies on it (the build puts it there). top / "
+                "bottom: a corner on that edge: the edge's knot is put at (d, y) (the knot where the node was moves, "
+                "else one is added; the edge between two corners keeps its own shape, which splice_chain sets); none: "
+                "the edges stay as they are; null: as before this edit (a node on an edge keeps the edge's knot under "
+                "it; a new node leaves the edges)")
 NAME_TEXT = f"{G.NAME_RULE}; not 'base'"
 PAIR_TEXT = "two facet labels, or a facet and 'base' (the plain arm)"
-DEFAULT_PHOTOS = "null for the target photos (a photo of another colour only when named)"
+DEFAULT_PHOTOS = (f"null for the target photos whose temple shows at least {TEMPLE_ROI_MIN_PX:,} native px (the "
+                  "result's left_out names the others; a photo of another colour only when named)")
 JUDGEMENT_TEXT = ("The judgement of the latest compare when one is due, else null (a judgement when none is due is "
                   "not stored).")
 Verdict = Literal["better", "same", "worse", "mixed"]
@@ -100,8 +117,10 @@ class Thickness(Input):
         description=f"reading: the stored reading of the node's name (photo_read), the node within "
                     f"{G.READ_POSITION_MM:g} mm of where it was read; mm: a typed t, which the fit weighs with the "
                     f"readings as an observation of sd {FIT.TYPED_SD_MM:g} mm (the built t can differ from it, and it "
-                    f"can move readings near it); base: the plain arm's t at (d, y); solve: set by the faces and "
-                    f"readings around it")
+                    f"can move readings near it); base: the plain arm's t at (d, y); solve: no value of its own: the "
+                    f"fit sets it from the flat faces through it (their planes through their other corners, carried "
+                    f"to it) and a weak prior of sd {FIT.PRIOR_SD_MM:g} mm toward the plain arm; a stored reading of "
+                    f"its name is not used (W_FIT_OFF_READING says how far it lies)")
     mm: float | None = Field(description="t mm from the inner face for mode mm, else null")
 
 
@@ -111,6 +130,7 @@ class SetNode(Input):
     d_mm: float | None = Field(description="mm back from the hinge; null: the reading's d (mode reading only)")
     y_mm: float | None = Field(description="mm up; null: the reading's y (mode reading only)")
     t: Thickness
+    outline: Literal["top", "bottom", "none"] | None = Field(default=None, description=OUTLINE_TEXT)
 
 
 class DeleteNode(Input):
@@ -203,8 +223,11 @@ def without_titles(schema):
 
 
 def edits_schema() -> dict:
-    """The edits union as Astra sees it (EditList without titles)."""
-    return without_titles(EditList.model_json_schema())
+    """The edits union as Astra sees it: EditList's JSON schema made strict as the SDK makes a tool's parameters
+    (agents.strict_schema.ensure_strict_json_schema: every property required, a null default dropped; SetNode.outline
+    defaults to null for internal callers, fixtures and the T5 rehearsal's scripted edits, while Astra must give it),
+    without titles."""
+    return without_titles(ensure_strict_json_schema(EditList.model_json_schema()))
 
 
 # --------------------------------------------------------------------------------------------- photo-dependent models
@@ -338,11 +361,13 @@ PHOTO_READ_DOC = f"""Read named points from photos and keep them. Each point is 
 PHOTO_COMPARE_DOC = f"""Compare the applied head with photos at their fitted cameras and temple poses: per photo one
     image of the photo, the render, and the photo with the model's outline (magenta) and its own creases (ridge
     orange, valley blue, flat grey, a soft border dashed grey). Side views print the outline offsets every
-    {GRID_STATION_MM:g} mm (photo minus model, mm; an edge the silhouette does not show is not measured, with the
-    reason). zoom: per box one 2 x 2 image, every panel at k = min({C.ZOOM_MAX_K:g}, {C.ZOOM_PANEL_PX[0]} / box
-    width, {C.ZOOM_PANEL_PX[1]} / box height) (native or larger for a box up to {C.ZOOM_PANEL_PX[0]} x
-    {C.ZOOM_PANEL_PX[1]} native px, smaller beyond; the text gives k): photo | render / photo with the model's outline
-    and its creases labelled with their angles | the geometry view or the render with the creases. points_px: pixels
+    {GRID_STATION_MM:g} mm (photo minus model, mm; a station not measured gives its reason); a view from above shows
+    the top face, so for the top it prints that face's far edge, photo minus model, minus its median over the stations
+    (from below, the bottom face's). zoom: per box one 2 x 2 image, every panel at k = min({C.ZOOM_MAX_K:g},
+    {C.ZOOM_PANEL_PX[0]} / box width, {C.ZOOM_PANEL_PX[1]} / box height) (native or larger for a box up to
+    {C.ZOOM_PANEL_PX[0]} x {C.ZOOM_PANEL_PX[1]} native px, smaller beyond; the text gives k): photo | render / photo
+    with the model's outline and its creases labelled with their angles | the geometry view or the render with the
+    creases. points_px: pixels
     charted to (d, y, t) on the model. Returns a compare_id; the next facet_edit, facet_variants or facet_finish
     carries a judgement of it, one entry per photo shown (zoomed photos included). facet_variants and facet_finish
     count a photo as compared only when it was shown in full, not by a zoom alone.
@@ -357,8 +382,11 @@ PHOTO_COMPARE_DOC = f"""Compare the applied head with photos at their fitted cam
 FACET_EDIT_DOC = f"""Make a new revision from parent_revision. The edits apply in order, all or none: a refused edit
     returns its index and code. The host fits the design to the readings (every face jointly, weighted by their
     errors) and builds the fitted temple; a refused fit or build returns its code and facts. The receipt: the fit
-    lines (misfits in mm and sd, faces, warps), every built crease (shape, angle, the fit's sd, declared or not),
-    warnings, the diff against the parent, and diff_vs_head and crease_vs_head against the head. An object note is
+    lines (misfits in mm and sd, faces, warps), every built crease (shape, angle, the fit's sd, declared or not;
+    beside a warp face also its angle's range along the edge in brackets, "(least-largest)"), warnings, the diff
+    against the parent (notes: outline knots that moved with a corner), unused_readings when they
+    changed, and against the head diff_vs_head, crease_vs_head (ridge <-> valley) and edges_vs_head (a crease that
+    appears or goes flat). An object note is
     required on the first facet_edit and whenever the design's layout (facets or node names) differs from the layout
     the latest note was written for, whatever the parent (a variant or an older revision too), else E_OBJECT; a note
     in a refused call is kept only when the result says "object": "recorded". With apply true the revision is built
@@ -382,10 +410,12 @@ FACET_VARIANTS_DOC = f"""Build {VARIANTS_MIN} to {VARIANTS_MAX} variants of pare
     whose outer face that photo sees (charted or mirrored), at k up to {SH.VARIANT_K_MAX:g} (native or larger when
     that part fits a {SH.CELL_W} x {SH.CELL_H_MAX} px panel, smaller beyond; the sheet's title gives k): the photo
     beside the photo with the head's creases, and per model a clean render beside one with the photo's outline and
-    that model's creases labelled with their angles. Text per variant: its revision, its distance from the head (mm),
-    its fit lines and creases, or a refused variant's stage, code and facts; the pairwise distances (mm) and spread_ok
-    ({ST.SPREAD_VARIANTS} rendered variants pairwise >= {G.VARIANT_DISTINCT_MM:g} mm apart). A built variant is a
-    revision facet_edit can apply with no edits. The sheets have no compare_id.
+    that model's creases labelled with their angles. Text per variant: its revision, its distance from the head (mm:
+    the surface along its normal or the outline), how far its ridges and valleys lie from the head's (mm), its fit
+    lines and creases, or a refused variant's stage, code and facts; the pairwise distances (mm) and spread_ok
+    ({ST.SPREAD_VARIANTS} rendered variants pairwise >= {G.VARIANT_DISTINCT_MM:g} mm apart); an arm that builds the
+    head's own design is no variant. A built variant is a revision facet_edit can apply with no edits. The sheets
+    have no compare_id.
 
     Args:
         parent_revision: The revision the variants edit.
@@ -491,7 +521,8 @@ def registry(lab, settings=None) -> list:
     async def facet_inspect(ctx: ToolContext):
         """The applied head: its design (nodes [d, y, t] with t typed, "base", "solve" or a stored reading; facets
         with their plane and soft borders; declared creases), the fitted values and the fit report (misfits in mm and
-        sd, faces, each crease's angle with its sd), the built creases, the stored readings, the object note, recent
+        sd, faces, each crease's angle with its sd), the built creases, the stored readings (one no node is named
+        for: against its nearest node), the object note, recent
         revisions and applied checkpoints, the photo ids, the latest compare and any judgement due. Image: the chart
         of the head (facets labelled)."""
         return await call(ctx, "facet_inspect", lambda cid: lab.inspect())

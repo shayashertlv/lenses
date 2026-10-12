@@ -21,9 +21,10 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
   WP6_FACETS §3.3 (``_matched_compare``): each photo's temple pose from the basis, the rig, the native_linear (and
   optional gloss_black) pass, a white-balanced (per-channel, linear) native gain and a luma gloss_black gain per job,
   frozen in ``work/compare/gains-<basis>.json`` with the light frame, the photo's acetate p2-p98 stretch on photo and
-  render, a temple crop, one stacked image per photo (photo / render / overlay with the model outline, crease
-  polylines and the chart grid / gloss_black; a variant-colourway photo gets no native row), compact text (the px/mm
-  of the image shown, the points_px frame, outer-edge offsets beside the job's start model's, the current
+  render, a temple crop, one stacked image per photo (photo / native render / gloss_black render / overlay with the
+  model outline, crease polylines and the chart grid: the renders asked, always above the overlay; a
+  variant-colourway photo gets no native row), compact text (the px/mm of the image shown, the points_px frame,
+  outer-edge offsets beside the job's start model's, the current
   compare_id), ``points_px`` charted through the posed raster, and a per-(geometry, photo, rig, passes, environment)
   cache. Photos, in both paths: "all" = every target-colourway photo; "default" = the target photos whose posed
   temple ROI is >= 40k px; a list names photos; None = "all" for photo_v1 and "default" for a matched rig. Every
@@ -35,7 +36,12 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
   WP6 v3 (WP6_V3 §5), matched rigs only:
   - rows per photo: ``passes`` names the TARGET photos' rows (native_linear always, gloss_black when named; the lab
     asks native_linear only); a photo of another colour is rendered and shown in gloss_black only (its native render
-    was never shown). The stack scale counts the rows actually stacked (3 or 4).
+    was never shown). The stack scale counts the rows actually stacked (3 or 4). One row order for every colour:
+    photo, the render(s), the overlay last (v3p3 review: a colourway photo stacked photo / overlay / render, a target
+    photo / render / overlay, and the lab's texts said so in two orders).
+  - ``photo_names`` {rid: name} (optional): the name a photo's image titles and texts give it (the lab's ids "02",
+    "B1"; default the basis name, "reference-02", "black-side", which the lab's texts never use: v3p3 review); in the
+    cache key, since the titles are drawn into the images.
   - ``model_edges`` = [{pair "crown|logo", shape ridge | valley | flat, deg, pts [[d, y, X], ...], deg_at
     (optional: the signed angle at each point), range (optional: [lo, hi] signed over the edge), soft (optional: true
     on a soft facet|base border run the build smooth-shades: no sharp edge on it)}] (<= 64 edges; the builder's
@@ -55,18 +61,21 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
     which may then be []): per item one 2 x 2 image, every panel the box at k = compare.zoom_scale (<= 2, native or
     larger when it fits 760 x 500), the render made at k and the photo resampled on its exact grid: photo | render
     (target: native_linear; other colour: gloss_black; with the model's outline) / photo + model outline + model edges
-    with angle labels ("16", "-3", "24..33") | geometry (the worker's normal pass as compare.geometry_view) or the
-    render with the labelled edges; the stretch is the photo's compare stretch; text: the box, k, px/mm, the pixel
-    map, what of the model the box holds, the edges, the render's backdrop share.
+    with angle labels ("16°", "-3°", "24-33°", "-8 to -3°") | geometry (the worker's normal pass as
+    compare.geometry_view) or the render with the labelled edges; the stretch is the photo's compare stretch; text:
+    the box, k, px/mm, the pixel map, what of the model the box holds, the edges, the render's backdrop share.
   - side views (view_kind "side"): ``outline_offsets_mm`` {charted | mirrored: {facing, elevation_deg, mm_per_px
     [min, max], top, bottom: [{d_mm, offset_mm, reason, px_per_mm}]}} every 10 mm from d 10 to the tip, photo minus
     model along the image's up (top) / down (bottom). Only edges a silhouette shows are measured
     (``_side_outline``): a temple seen from inside is not ("seen from inside"), nor the top in a view from above,
     where the silhouette is the top face's far edge ("top face in view"; 01 / 05 / B1 look 14-15 deg down); a
-    station without a number gives its reason.
+    station without a number gives its reason. That far edge is measured on photo and model alike
+    (``top_silhouette``) and printed minus its median over the stations (``_far_edge_text``): behind the facets it
+    is the only number on the arm's top in those views (session2's head, r6 of run 7's package: +2.3..+2.6 mm at
+    d 110, +3.5..+3.8 at d 120 against the d 40-90 level).
     The top / rear ``outer_edge_offsets_mm`` are still computed.
-  - the cache key holds the model edges' sha256, the opening, the zoom box, k, geometry flag and the stretch's crop
-    (MATCHED_SCHEMA /3).
+  - the cache key holds the model edges' sha256, the opening, the zoom box, k, geometry flag, the stretch's crop and
+    the photo's name (MATCHED_SCHEMA /4: /3's rows were photo / overlay / render for a colourway photo).
 - ``pick_surface_point(view, points)``: up to 64 pixel centres on a frozen, canonical or manifest camera ->
   {hit, object, partRole, point_mm, asset_mm, normal, face, distance}.
 - ``fit_cameras(reason, images, views, refs=None)``: export the head, ``fit_views`` with 14 workers (EcoQoS opted
@@ -119,7 +128,9 @@ CATALOG_RIG = "catalog_band_v1"
 MATCHED_RIGS = (MATCHED_RIG, ENV_RIG, CATALOG_RIG)
 FLOAT_RIGS = (ENV_RIG, CATALOG_RIG)          # rendered as unclipped float (the gain is applied after the render)
 MATCHED_PASSES = ("native_linear", "gloss_black")
-MATCHED_SCHEMA = "g3d.photo_compare/3"     # /3 (WP6 v3): model edges, zoom, side outline offsets, rows actually stacked
+MATCHED_SCHEMA = "g3d.photo_compare/4"     # /3 (WP6 v3): model edges, zoom, side outline offsets, rows actually stacked
+#                                            /4 (v3p3): one row order (photo, renders, overlay), photo_names
+#                                            (record "name"), so no /3 image is served from the cache
 ZOOM_MAX = 3
 ZOOM_MIN_PX = 8                 # a zoom box is at least 8 x 8 native px after clipping to the photo
 MODEL_EDGES_MAX = 64
@@ -129,6 +140,14 @@ SIDE_VIEWS = ("side",)          # side views: outline_offsets_mm (_side_outline:
 SIDE_NAMES = {1: "charted", -1: "mirrored"}     # the +X temple (the chart) and its mirror: outline and model edges
 SIDE_FACE_PX = 1.0              # a side view measures a temple's top (bottom) outline where its top (bottom) face shows
                                 # < 1 native px; from 14 deg above it shows 11-15 px and the silhouette is its far edge
+FAR_EDGE_LEVEL_MIN = 5          # a face-in-view far edge is printed minus its median over >= 5 measured stations
+#                                 (fewer: as measured). Why a level: the far edge carries the matte's cut at a lit face
+#                                 (session2's head: -0.7..-1.0 mm at d 40-90; the model's own render under the photo's
+#                                 rule -0.8..-1.1) and the faces' width difference x tan(elevation), alike along an arm.
+#                                 Why the median of all stations, not the start model's (it has the rear-arm defect
+#                                 too: 0 there) or a fixed d band (d 50-70 moves ~1.4 mm with crown edits; the plain
+#                                 zone's d range is the design's): v3p3-verify-8. 5: two stepped stations of five still
+#                                 leave the median on the level.
 EDGE_ON_MODEL_MM = 0.05         # model edges lie on the head's +X temple: per edge median distance to its vertices
 OUTLINE_REASON_TEXT = {         # why a side-view outline station has no number (compare.OUTLINE_REASONS + seeing's)
     "covered": "covered = the frame or the other temple lies at that edge",
@@ -143,10 +162,12 @@ SOFT_TEXT = ("dashed grey: smooth-shaded, drawn without an angle; the fold is li
 #               a soft facet|base border (I1: a soft facet's run with no sharp edge in the build) stays a crease in
 #               the builder's tables, with its angle, soft and its declared shape (review2-seeing2-1 P3-2: "no crease,
 #               no angle" contradicted the receipt's "shoulder|base valley 2.5° soft declared valley")
-EDGE_LABEL_TEXT = ("deg from the build; - = valley; a..b = least..largest angle along the drawn run the label sits on "
-                   "(along the whole edge when the build gives no angle per point)")
+EDGE_LABEL_TEXT = ("deg from the build; - = valley; a-b° (a to b° when a is negative) = least-largest angle along "
+                   "the drawn run the label sits on (along the whole edge when the build gives no angle per point)")
 #               compare.run_label: deg_at over the label's run (the lab always sends deg_at), else the edge's range
-#               (review2-seeing2-1 P3-1: "along the edge" was false on the lab's path: "16..20" for a 15.7..29.2 crease)
+#               (review2-seeing2-1 P3-1: "along the edge" was false on the lab's path: "16..20" for a 15.7..29.2 crease;
+#               v3p3 review: "16..29" read as "16.29" at the size Astra gets the image, beside the receipt's
+#               "15.7-29.2")
 ENV_FIT_MAX_PX = 640          # calibration crops are rendered at <= this long side (the fit cells are ~1 mm)
 ENV_ERODE_PX = 12.0            # front region erosion at native scale (at least; 2 x the front's registration error)
 ENV_SIGMA_MM, ENV_STEP_MM = 1.0, 1.0
@@ -518,11 +539,11 @@ class Seeing:
                           crop: str = "temple", points_px: dict | None = None, hinge_z_mm: float | None = None,
                           gains: dict | None = None, boxes: dict | None = None, use_cache: bool = True,
                           env: dict | None = None, render_deadline_s: float | None = None, zoom: list | None = None,
-                          model_edges: list | None = None, opening=None) -> dict:
+                          model_edges: list | None = None, opening=None, photo_names: dict | None = None) -> dict:
         """Module doc. Every failure is journaled: an unexpected exception becomes a recorded E_COMPARE.
         ``render_deadline_s`` (matched rigs) caps the worker deadline of the compare renders below RENDER_DEADLINE_S
-        (the facet lab passes its tool's hard timeout). ``zoom``, ``model_edges`` and ``opening`` (WP6 v3, module doc)
-        exist for the matched rigs only."""
+        (the facet lab passes its tool's hard timeout). ``zoom``, ``model_edges``, ``opening`` and ``photo_names``
+        (WP6 v3, module doc) exist for the matched rigs only."""
         call_id = self.s.new_call_id("compare_to_photos", call_id)
         try:
             if rig != "photo_v1":
@@ -530,9 +551,9 @@ class Seeing:
                                              hinge_z_mm=hinge_z_mm, gains_override=gains, boxes=boxes,
                                              use_cache=use_cache, env_override=env,
                                              render_deadline_s=render_deadline_s, zoom=zoom,
-                                             model_edges=model_edges, opening=opening)
-            if zoom is not None or model_edges is not None or opening is not None:
-                out = _err(call_id, "E_ARGS", "zoom, model_edges and opening need a photo-matched rig "
+                                             model_edges=model_edges, opening=opening, photo_names=photo_names)
+            if zoom is not None or model_edges is not None or opening is not None or photo_names is not None:
+                out = _err(call_id, "E_ARGS", "zoom, model_edges, opening and photo_names need a photo-matched rig "
                                               f"{MATCHED_RIGS}, not photo_v1")
                 self.s.record_call("compare_to_photos", call_id, {"refs": refs, "rig": rig, "basis": basis}, out)
                 return out
@@ -1133,14 +1154,16 @@ class Seeing:
 
     def _matched_compare(self, refs, passes, crop, basis, call_id, *, rig, points_px, hinge_z_mm, gains_override,
                          boxes=None, use_cache=True, env_override=None, render_deadline_s=None, zoom=None,
-                         model_edges=None, opening=None) -> dict:
+                         model_edges=None, opening=None, photo_names=None) -> dict:
         """The photo-matched compare (module doc). ``gains`` / ``env`` override the job's frozen gains /
         environment (one normalisation across jobs, e.g. an owner sheet); ``boxes`` = {photo: {"box": [x0, y0, x1,
         y1], "k": scale, "stretch": [lo, hi] (optional)}} fixes crops (and stretches) so several models share
-        them. ``zoom`` / ``model_edges`` / ``opening``: WP6 v3 (module doc), checked by ``_check_v3_args``."""
+        them. ``zoom`` / ``model_edges`` / ``opening`` / ``photo_names``: WP6 v3 (module doc), checked by
+        ``_check_v3_args``."""
         args = {"refs": refs, "passes": list(passes or ()), "crop": crop, "basis": basis, "rig": rig,
                 "points_px": points_px, "hinge_z_mm": hinge_z_mm, "gains": "override" if gains_override else None,
                 "env": "override" if env_override else None, "boxes": boxes, "zoom": zoom, "opening": opening,
+                "photo_names": photo_names,
                 "model_edges": None if model_edges is None else {
                     "edges": len(model_edges) if isinstance(model_edges, list) else None,
                     "sha256": hashlib.sha256(json.dumps(model_edges, sort_keys=True,
@@ -1163,7 +1186,7 @@ class Seeing:
                     raise SeeingError("E_NO_POSE", f"{bs.id} has no temple pose for {rid}; the photo-matched compare "
                                                    "needs a WP6 basis (theta_deg, hinge_axis_xz_mm)")
             self._check_matched_args(rig, hinge_z_mm, gains_override, boxes, env_override)
-            v3 = self._check_v3_args(bs, zoom, model_edges, opening, hinge_z_mm)
+            v3 = self._check_v3_args(bs, zoom, model_edges, opening, hinge_z_mm, photo_names)
             if v3["zoom"] and isinstance(refs, (list, tuple)) and not len(refs):
                 want = []                                 # zoom images only
             else:
@@ -1237,10 +1260,12 @@ class Seeing:
                 raise SeeingError("E_ARGS", f"env must be {{weights: {L.N_LOBES} non-negative numbers}}")
 
     @staticmethod
-    def _check_v3_args(bs: C.Basis, zoom, model_edges, opening, hinge_z_mm) -> dict:
+    def _check_v3_args(bs: C.Basis, zoom, model_edges, opening, hinge_z_mm, names=None) -> dict:
         """The WP6 v3 arguments checked and normalised (E_ARGS otherwise): {"zoom": [{rid, box (x0, y0, x1, y1) int,
         clipped to the photo, >= ZOOM_MIN_PX a side), geometry}], "edges": [{pair, shape, deg, pts (K, 3), deg_at
-        (K,) | None, range (lo, hi) | None, soft bool}] | None, "edges_sha256", "opening": (deg, (|x|, z)) | None}.
+        (K,) | None, range (lo, hi) | None, soft bool}] | None, "edges_sha256", "opening": (deg, (|x|, z)) | None,
+        "names": {rid: name}} (``names`` = photo_names: each key a photo of the basis, each name NAME_RE; the
+        titles and texts of the photos it leaves out keep the basis name).
         Numbers may be any real type (numpy floats too), never bool. ``deg`` is unsigned with its shape, or signed
         (+ ridge, - valley), so a ridge with a negative deg contradicts itself; ``deg_at`` (optional) is the signed
         angle at each point, aligned with ``pts`` (along a warp face's crease the angle changes and may change sign);
@@ -1255,7 +1280,18 @@ class Seeing:
         without them keeps its key)."""
         def num(x) -> bool:
             return isinstance(x, numbers.Real) and not isinstance(x, bool) and math.isfinite(x)
-        out = {"zoom": [], "edges": None, "edges_sha256": None, "opening": None}
+        out = {"zoom": [], "edges": None, "edges_sha256": None, "opening": None, "names": {}}
+        if names is not None:
+            if not isinstance(names, dict):
+                raise SeeingError("E_ARGS", "photo_names must be {photo: name}")
+            for rid, nm in names.items():
+                if not isinstance(rid, str) or C.ref_id(rid) not in bs.refs:
+                    raise SeeingError("E_ARGS", f"photo_names names {rid!r}, not a photo of {bs.id} "
+                                                f"({', '.join(bs.refs)})")
+                if not isinstance(nm, str) or not NAME_RE.match(nm):
+                    raise SeeingError("E_ARGS", f"photo_names[{rid!r}] must be 1-60 characters of letters, digits, "
+                                                "'_', '.' and '-'")
+                out["names"][C.ref_id(rid)] = nm
         if zoom is not None:
             if not isinstance(zoom, list) or len(zoom) > ZOOM_MAX:
                 raise SeeingError("E_ARGS", f"zoom must be a list of <= {ZOOM_MAX} {{rid, box, geometry}}")
@@ -1350,7 +1386,8 @@ class Seeing:
     def _matched_body(self, bs, exp, want, passes, crop, rig, points_px, hinge_z_mm, gains_override, boxes,
                       use_cache, env_override, call_id, out_dir, t0, secs, *, render_deadline_s=None,
                       v3: dict | None = None) -> dict:
-        v3 = v3 or {"zoom": [], "edges": None, "edges_sha256": None, "opening": None}
+        v3 = v3 or {"zoom": [], "edges": None, "edges_sha256": None, "opening": None, "names": {}}
+        names = v3.get("names") or {}
         mesh = self.fit_mesh(exp["path"], exp["sha256"], skip=bs.skip, frame=bs.frame)
         roles = PO.part_roles(exp["path"])
         gkey = C.geometry_key(mesh)
@@ -1395,7 +1432,8 @@ class Seeing:
             box, k, vpasses = cr["box"], cr["k"], cr["passes"]
             x0, y0, x1, y1 = box
             key = self._cache_key({**common, "rid": rid, "passes": vpasses, "crop": crop, "box": box, "k": k,
-                                   "stretch": cr["stretch"], "pose": g["pose"], "camera": bs.refs[rid]["camera"]})
+                                   "stretch": cr["stretch"], "pose": g["pose"], "camera": bs.refs[rid]["camera"],
+                                   "name": names.get(rid, rid)})
             cdir = self.work / "compare" / "cache" / key
             rec = procs.read_json(cdir / "record.json") if use_cache else None
             if rec and Path(rec["image"]).is_file():
@@ -1418,8 +1456,10 @@ class Seeing:
             key = self._cache_key({**common, "zoom": True, "rid": z["rid"], "passes": zp, "box": z["box"], "k": k,
                                    "stretch_of": {"crop": crop, "box": cr["box"], "k": cr["k"],
                                                   "stretch": cr["stretch"]},
-                                   "pose": g["pose"], "camera": bs.refs[z["rid"]]["camera"]})
+                                   "pose": g["pose"], "camera": bs.refs[z["rid"]]["camera"],
+                                   "name": names.get(z["rid"], z["rid"])})
             zs = {**z, "n": n, "k": k, "passes": zp, "key": key, "cdir": self.work / "compare" / "cache" / key,
+                  "name": names.get(z["rid"], z["rid"]),
                   "cam": BC.crop_camera(g["cam"], x0, y0, k), "crop": cr,
                   "shape": (max(1, round((y1 - y0) * k)), max(1, round((x1 - x0) * k))), "view": f"zoom{n}-{z['rid']}"}
             zooms.append(zs)
@@ -1459,7 +1499,7 @@ class Seeing:
         for rid in todo:
             recs[rid] = self._matched_photo(bs, rid, geo[rid], mesh, roles, bodies, fid, acetate, gains,
                                             geo[rid]["passes"], files[rid], hinge_z_mm, edges=edges_at(rid),
-                                            opening=v3["opening"])
+                                            opening=v3["opening"], name=names.get(rid, rid))
             recs[rid]["render"] = render_meta
             C.write_json(geo[rid]["cdir"] / "record.json", recs[rid])
             recs[rid]["cached"] = False
@@ -1517,10 +1557,10 @@ class Seeing:
         """A photo's stacked crop in this compare: {box (x0, y0, x1, y1) native px, k, passes (its rows' render
         passes: a target photo the asked ones, native_linear first; another colourway gloss_black only), stretch (the
         ``boxes`` override's, or None)}. k = compare.stack_scale for the rows actually stacked (photo, native_linear
-        for a target, overlay, gloss_black when rendered: 3 or 4), unless ``boxes`` fixes box and k."""
+        for a target, gloss_black when rendered, overlay: 3 or 4), unless ``boxes`` fixes box and k."""
         target = bs.colourway(rid) == "target"
         vpasses = list(passes) if target else ["gloss_black"]
-        n_rows = 2 + int(target) + int("gloss_black" in vpasses)     # photo, (native), overlay, (gloss_black)
+        n_rows = 2 + int(target) + int("gloss_black" in vpasses)     # photo, (native), (gloss_black), overlay
         if boxes and rid in boxes:
             box, k = tuple(int(v) for v in boxes[rid]["box"]), min(1.0, float(boxes[rid]["k"]))
         else:
@@ -1629,8 +1669,16 @@ class Seeing:
     @staticmethod
     def _outline_text(temple: str, o: dict) -> str:
         """One temple's outline line (``_side_outline``): stations every 10 mm, photo minus model to 0.1 mm (the
-        edges are whole native pixels, 0.12-0.17 mm here), a station without a number by its reason; an edge whose
-        face the view shows is not measured, with why; a temple seen from inside is not measured."""
+        edges are whole native pixels, 0.12-0.17 mm here), a station without a number by its reason; where the view
+        shows an edge's face, the outline there is not measured and that face's far edge (``{edge}_silhouette``,
+        photo and model alike) is printed minus its median (``_far_edge_text``; one list with the other stations'
+        reasons when no station of that edge is measured, else beside the outline's list); a temple seen from inside
+        is not measured. Why the far edge is printed (v3p3-verify-8, owner P1): in 01, 05 and B1 (14.7-14.8 deg from
+        above) the arm top behind the facets of session2's head (r6 of run 7's package) sits 2.3-2.6 mm below the
+        photo's at d 110 and 3.5-3.8 mm at d 120 against the d 40-90 level (the model's own render under the photo's
+        matte rule agrees: +2.3..+3.6), inherited unchanged from revision 0 (run7-residual: run 7's head too), and the
+        line said only "top: not measured (... set by its width and lean, not the outline)": no text showed a step the
+        overlay row shows by eye. A record without the silhouette (an older compare) keeps "not measured"."""
         if not (o.get("top") or o.get("bottom")):
             return f"outline: the {temple} temple has no 10 mm station here"
         if not o.get("facing"):
@@ -1643,20 +1691,59 @@ class Seeing:
         parts, seen = [], set()
         for edge, sign in (("top", "+ = the photo's edge higher"), ("bottom", "+ = the photo's edge lower")):
             rows = o.get(edge) or []
-            if rows and all(r["reason"] == f"{edge} face in view" for r in rows):
-                parts.append(f"{edge}: not measured (the view shows the {edge} face, so the {edge} silhouette is that "
-                             f"face's far edge, set by its width and lean, not the outline)")
+            sil = o.get(f"{edge}_silhouette")
+            if sil and not any(r["offset_mm"] is not None for r in rows):
+                far = {r["d_mm"]: r for r in sil}                   # one list: the far edge, other stations' reasons
+                parts.append(Seeing._far_edge_text(edge, sign, [far.get(r["d_mm"], r) for r in rows], e, seen))
                 continue
-            vals = []
-            for r in rows:
-                if r["offset_mm"] is not None:
-                    vals.append(f"{r['d_mm']:g} " + f"{r['offset_mm']:+.1f}".replace("-0.0", "+0.0"))
-                else:
-                    vals.append(f"{r['d_mm']:g} {r['reason']}")
-                    seen.add(r["reason"])
-            parts.append(f"{edge} ({sign}) at d: " + ", ".join(vals))
+            if not (rows and all(r["reason"] == f"{edge} face in view" for r in rows)):
+                vals = []
+                for r in rows:
+                    if r["offset_mm"] is not None:
+                        vals.append(f"{r['d_mm']:g} " + f"{r['offset_mm']:+.1f}".replace("-0.0", "+0.0"))
+                    else:
+                        vals.append(f"{r['d_mm']:g} {r['reason']}")
+                        seen.add(r["reason"])
+                parts.append(f"{edge} ({sign}) at d: " + ", ".join(vals))
+            elif not sil:
+                parts.append(f"{edge}: not measured (the view shows the {edge} face, so the {edge} silhouette is that "
+                             f"face's far edge)")
+            if sil:
+                parts.append(Seeing._far_edge_text(edge, sign, sil, e, seen))
         legend = [OUTLINE_REASON_TEXT[r] for r in OUTLINE_REASON_TEXT if r in seen]
         return head + ": " + "; ".join(parts) + (" (" + "; ".join(legend) + ")" if legend else "")
+
+    @staticmethod
+    def _far_edge_text(edge: str, sign: str, sil: list, elevation_deg: float, seen: set) -> str:
+        """The far edge of a face the view shows (``{edge}_silhouette`` rows of ``_side_outline``), photo minus model:
+        photo and model both show that face's far edge there, so a station reads the arm's height difference plus the
+        face's width difference x tan(elevation) (+ = wider in the photo, its far edge further away) and lean, plus the
+        matte's cut at that edge. With >= FAR_EDGE_LEVEL_MIN measured stations each is printed minus their median (the
+        median and the count are printed), so a step along the arm reads as a number: session2's head (r6 of run 7's
+        package, cmp022) at 05 prints "110 +2.5, 120 +3.4" against a median of -0.7 where the raw offsets read +1.8 /
+        +2.7; with fewer, as measured.
+        Stations without a number print their reason (added to ``seen`` for the legend). tan(elevation) is printed per
+        mm of width so that a step the face's width cannot make (3 mm needs 11 mm more width at 15 deg) reads as one."""
+        got = [float(r["offset_mm"]) for r in sil if r["offset_mm"] is not None]
+        level = float(np.median(got)) if len(got) >= FAR_EDGE_LEVEL_MIN else None
+        vals = []
+        for r in sil:
+            if r["offset_mm"] is None:
+                vals.append(f"{r['d_mm']:g} {r['reason']}")
+                seen.add(r["reason"])
+            else:
+                v = float(r["offset_mm"]) - (level or 0.0)
+                vals.append(f"{r['d_mm']:g} " + f"{v:+.1f}".replace("-0.0", "+0.0"))
+        what = (f"{edge} face's far edge ({sign}; the view shows the {edge} face, so photo and model alike show its "
+                f"far edge, not the outline's {edge})")
+        why = (f"a value is a difference in the arm's {edge} height, in the {edge} face's width (+"
+               f"{math.tan(math.radians(min(abs(elevation_deg), 89.0))):.2f} per mm wider in the photo) or lean, or "
+               "in the matte's cut there")
+        if level is None:
+            how = f"as measured ({len(got)} stations, under {FAR_EDGE_LEVEL_MIN} for a median): {why}"
+        else:
+            how = f"minus its median {level:+.1f} over {len(got)} stations: beyond what the stations share, {why}"
+        return f"{what}, {how}; at d: " + ", ".join(vals)
 
     @staticmethod
     def _mesh_creases(mp, body_ids: list) -> dict:
@@ -1724,9 +1811,12 @@ class Seeing:
                 sorted({e["pair"] for e in shown if e.get("soft")}))
 
     def _matched_photo(self, bs: C.Basis, rid: str, g: dict, mesh, roles, bodies, fid, acetate, gains, passes,
-                       files: dict, hinge_z: float, *, edges: list | None = None, opening=None) -> dict:
-        """One photo's stacked image (photo / render / overlay / gloss_black; a variant-colourway photo has no
-        native row, the model's material being the target colourway) and its compact numbers. ``edges``: the model
+                       files: dict, hinge_z: float, *, edges: list | None = None, opening=None,
+                       name: str | None = None) -> dict:
+        """One photo's stacked image (photo / native_linear render / gloss_black render / overlay: the renders asked,
+        the overlay last, for every colour; a variant-colourway photo has no native row, the model's material being
+        the target colourway) and its compact numbers; ``name`` (default the basis name) titles the photo row and
+        heads the text (the lab's id: ``photo_names``). ``edges``: the model
         edges posed at this photo (``_edges_posed``), drawn instead of the mesh creases; with them (the v3 compare)
         the render rows also carry the model's outline, since a face the stretch clips to the backdrop's colour (05's
         white top face on the white floor: 13 % of the model) would otherwise lose its edge there."""
@@ -1755,7 +1845,8 @@ class Seeing:
             share[name] = round(C.backdrop_share(shown, alpha, C.apply_stretch(np.asarray([[bg]], np.uint8), rlo,
                                                                                 rhi)[0, 0]), 3)
             return C.overlay_matched(shown, r["mask"], [], None)
-        rows = [("photo", f"{rid} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(C.apply_stretch(pc, lo, hi)))]
+        pname = name or rid             # not "name": the row-file loop below reuses that name
+        rows = [("photo", f"{pname} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(C.apply_stretch(pc, lo, hi)))]
         gain = gains["colourways"]["target"]["native_linear"]["gain"]
         native = cw == "target"
         if native:
@@ -1779,14 +1870,14 @@ class Seeing:
         if v3:
             drawn = self._edges_drawn(edges, ccam, bs.frame, mp.scene(), cshape)
             soft = any(e.get("soft") and e["runs"] for e in drawn)
-            rows.append(("overlay", "overlay: outline magenta, model edges ridge orange / valley blue / flat grey "
-                                    "(2 px >= 6 deg)" + (", soft border dashed grey" if soft else "")
-                                    + ", grid d/10 mm y/5 mm",
-                         C.overlay_matched(base, r["mask"], [], grid, edges=drawn)))
+            overlay = ("overlay", "overlay: outline magenta, model edges ridge orange / valley blue / flat grey "
+                                  "(2 px >= 6 deg)" + (", soft border dashed grey" if soft else "")
+                                  + ", grid d/10 mm y/5 mm",
+                       C.overlay_matched(base, r["mask"], [], grid, edges=drawn))
         else:
             polys = C.crease_polylines(self._mesh_creases(mp, body_ids), ccam, bs.frame, r["depth"])
-            rows.append(("overlay", "overlay: outline magenta, ridge orange, valley blue, grid d/10 mm y/5 mm",
-                         C.overlay_matched(base, r["mask"], polys, grid)))
+            overlay = ("overlay", "overlay: outline magenta, ridge orange, valley blue, grid d/10 mm y/5 mm",
+                       C.overlay_matched(base, r["mask"], polys, grid))
         gl_rec = gains["gloss_black"]
         gloss_used = None
         if "gloss_black" in passes:
@@ -1798,6 +1889,7 @@ class Seeing:
                          f"{' = the photo' if dark else ' fixed for the job'})" + (", outline" if v3 else ""),
                          render_row(C.apply_stretch(C.composite_render(gl[0], gl[1], gl_rec["gain"], bg), glo, ghi),
                                     gl[1], glo, ghi, "gloss_black")))
+        rows.append(overlay)            # one order for every colour: photo, the renders, the overlay (v3p3 review)
         img = C.stack_rows([(label, im) for _n, label, im in rows])
         g["cdir"].mkdir(parents=True, exist_ok=True)
         ip = g["cdir"] / f"{rid}.png"
@@ -1817,7 +1909,7 @@ class Seeing:
         offsets = self._outer_offsets(bs, rid, g, mesh, bodies, hinge_z) if view_kind in OFFSET_VIEWS else None
         outline = self._side_outline(bs, rid, g, mesh, roles, bodies, hinge_z, opening) if view_kind in SIDE_VIEWS \
             else None
-        head = (f"{rid} ({bs.refs[rid].get('view_kind')}, {cw}, {bs.refs[rid].get('fit_status') or 'fitted'}): "
+        head = (f"{pname} ({bs.refs[rid].get('view_kind')}, {cw}, {bs.refs[rid].get('fit_status') or 'fitted'}): "
                 f"temple IoU {iou:.3f}" + ("" if native else "; no native row (the model's material is the target "
                                                                "colourway, this photo is a variant)"))
         if drawn is not None:
@@ -1828,7 +1920,7 @@ class Seeing:
         else:
             creases = {"ridge": int(sum(1 for _, s in polys if s > 0)),
                        "valley": int(sum(1 for _, s in polys if s < 0)), "source": "mesh dihedrals"}
-        return {"image": str(ip), "rows": row_files, "text_head": head, "rid": rid,
+        return {"image": str(ip), "rows": row_files, "text_head": head, "rid": rid, "name": pname,
                 "view_kind": bs.refs[rid].get("view_kind"),
                 "colourway": cw, "pose": g["pose"], "crop": {"box": [x0, y0, x1, y1], "k": k,
                                                               "camera": ccam.to_dict(), "shape": list(cshape)},
@@ -1847,8 +1939,10 @@ class Seeing:
         mesh creases, unlabelled). Both render panels carry the model's outline (a face the stretch clips to the
         backdrop's colour loses its edge there; the share is recorded). The outline is not drawn along a panel's
         border (the model goes on past it). ``stretch`` = the compare's stretch of this photo (``_matched_body``),
-        applied to photo and render; the geometry panel is stretched over this panel's temple pixels."""
+        applied to photo and render; the geometry panel is stretched over this panel's temple pixels. ``z["name"]``
+        (default the basis name) titles the photo panel and the text."""
         rid = z["rid"]
+        pname = z.get("name") or rid
         x0, y0, x1, y1 = z["box"]
         k, cam, shape = z["k"], z["cam"], tuple(z["shape"])
         photo, matte = bs.photo(rid), bs.matte(rid)
@@ -1903,7 +1997,7 @@ class Seeing:
             else:
                 p4 = C.overlay_matched(render, r["mask"], polys, None, open_border=True)
                 l4 = "render + outline + mesh creases"
-        panels = {"photo": (f"{rid} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(base)),
+        panels = {"photo": (f"{pname} photo (stretch {lo:.0f}-{hi:.0f})", Image.fromarray(base)),
                   "render": (rlabel, rimg), "overlay": (olabel, ov),
                   ("geometry" if z["geometry"] else "render_edges"): (l4, p4)}
         sheet = C.grid([C.labelled(im, label, fit=True) for label, im in panels.values()], 2, max_px=C.SHEET_MAX_PX)
@@ -1919,7 +2013,8 @@ class Seeing:
         pts = r["points"][body] if in_box == "temple" else r["points"][r["mask"]] if in_box == "model" else \
             (mp.V[np.unique(mp.F[np.isin(mp.part, body_ids)])] if body_ids else mp.V)
         ppm = CAMS.px_per_mm_at(g["cam"], bs.frame, np.median(pts, axis=0))
-        return {"image": str(ip), "panels": paths, "rid": rid, "view_kind": bs.refs[rid].get("view_kind"),
+        return {"image": str(ip), "panels": paths, "rid": rid, "name": pname,
+                "view_kind": bs.refs[rid].get("view_kind"),
                 "colourway": cw, "box": [x0, y0, x1, y1], "k": k, "geometry": z["geometry"],
                 "camera": cam.to_dict(), "shape": list(shape), "px_per_mm": ppm, "px_per_mm_shown": ppm * k,
                 "in_box": in_box, "stretch": [lo, hi], "render_backdrop_share": round(share, 3),
@@ -1939,7 +2034,8 @@ class Seeing:
         fourth = lab.get("geometry") or lab.get("render_edges")
         where = {"temple": "", "model": " (the temple is not in this box: px/mm at the model in it)",
                  "none": " (the model is not in this box: px/mm at the temple)"}[rec.get("in_box", "temple")]
-        lines = [f"zoom {rec.get('n', 1)} on {rec['rid']} ({rec.get('view_kind')}, {rec['colourway']}): native box "
+        lines = [f"zoom {rec.get('n', 1)} on {rec.get('name') or rec['rid']} ({rec.get('view_kind')}, "
+                 f"{rec['colourway']}): native box "
                  f"[{x0},{y0},{x1},{y1}] at k {k:.2f}: {rec['px_per_mm'] * k:.2f} px/mm in this image "
                  f"({rec['px_per_mm']:.2f} native){where}; u_img = (u - {x0} + 0.5) x {k:.2f} - 0.5, v_img = (v - "
                  f"{y0} + 0.5) x {k:.2f} - 0.5 in each panel",
@@ -1962,8 +2058,8 @@ class Seeing:
         """outline_offsets_mm of a side view (module doc): per temple (SIDE_NAMES) {facing, elevation_deg,
         mm_per_px [min, max], top, bottom ([{d_mm, offset_mm, reason, px_per_mm (native, along the line)}] at every
         10 mm station from d 10 to the tip - 2 mm, compare.outline_offsets at native size against ``matte``, default
-        the photo's), top_silhouette / bottom_silhouette (when that face is in view: the silhouette's offsets,
-        information only, never printed)}.
+        the photo's), top_silhouette / bottom_silhouette (when that face is in view: the silhouette's offsets, the
+        far edge on photo and model alike, printed minus their median by ``_far_edge_text``)}.
         A station's line starts at the temple's centre at d (the chart point (d, the middle y of the body's vertices
         within 1 mm of d, their largest X), placed as the model is: the spec's opening, the photo's theta) and runs
         along the image's vertical; its px per mm is the image height of 1 mm of the chart's y there. What a
@@ -1975,9 +2071,11 @@ class Seeing:
         - the camera's elevation e over the temple there (atan2 of the toward-camera vector's components along the
           chart's up and the temple's outward x; + = from above): a view from above shows the top face, about
           thickness x tan(e) x px/mm px (05 / B1 / 01: e 14-15 deg, 11-15 px), so the top silhouette is the top
-          face's far (inner) edge, set by the top face's width and lean, not the outline's top (its offsets read
-          -0.5..-0.8 mm on the three photos and -1.5 mm on the model's own render under the photo's matte rule):
-          reason "top face in view", its silhouette offsets kept as top_silhouette; a view from below likewise for
+          face's far (inner) edge on photo and model alike, not the outline's top: its offsets carry the top
+          faces' width difference x tan(e), their lean and the matte's cut at a lit edge (-0.7..-1.0 mm at d 40-90 on
+          the three photos, -0.8..-1.1 on the model's own render under the photo's matte rule), and a step in the
+          arm's top beyond that (session2's head: +2.3..+3.8 mm at d 110-120, v3p3-verify-8): reason "top face in
+          view", its silhouette offsets kept as top_silhouette; a view from below likewise for
           the bottom. An edge is measured where its face shows < SIDE_FACE_PX, and on the far side of the view (the
           bottom of a view from above is the outer-bottom edge: 0.00 at every station on the model's own render)."""
         matte = bs.matte(rid) if matte is None else matte

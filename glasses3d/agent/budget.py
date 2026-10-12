@@ -4,9 +4,11 @@
 is an httpx2 request hook (``before_request``) and response hook (``after_response``) on the inference client, plus an
 ``on_llm_end`` cross-check for the Agents SDK lifecycle:
 
-* before a request: refuse anything unpriced, count the exact serialized payload with a separate counting client,
-  reserve the worst case (every input token at the cache-write rate plus the whole output cap), persist the row
-  (fsync, then an atomic replace) and only then let the request go;
+* before a request: refuse anything unpriced, refuse a body over the provider's documented per-request limit
+  (``PayloadTooLarge``: PAYLOAD_LIMIT_BYTES / PAYLOAD_LIMIT_IMAGES, before counting, $0), count the exact serialized
+  payload with a separate counting client under a timeout scaled to the body (``count_timeout_s``), reserve the worst
+  case (every input token at the cache-write rate plus the whole output cap), persist the row (fsync, then an atomic
+  replace) and only then let the request go;
 * one open request at a time: a new request is refused while the previous row is ``held``;
 * after a response: every 200 that names gpt-6-astra with an id and status completed or incomplete is settled from its
   own usage (``settled_from: transport``); a 4xx (429 included) settles at $0 (``rejected_4xx``); a 5xx, a non-JSON or
@@ -15,7 +17,8 @@ is an httpx2 request hook (``before_request``) and response hook (``after_respon
   blocks further inference on any mismatch;
 * the owner reconciles an unknown hold (``reconcile_unknown``: dashboard usage or an explicit no-charge statement;
   ``reconcile_from_transport``: an archived 200 whose id and usage match the request);
-* ``planning()`` returns numbers only (the Studio's prose steered Astra, RULES_AUDIT);
+* ``planning()`` returns numbers only (the Studio's prose steered Astra, RULES_AUDIT): the last counted request's
+  tokens, serialized bytes, images and count time among them (the loop's context guard fires on tokens or bytes);
 * every replace is retried on the Windows sharing errors 5/32/33 after .01, .025, .05, .1, .2, .4, .8 and 1.6 s.
 
 ``RunLedger`` is ``runs/<run>/budget.json`` (``g3d.run_budget/1``): created exclusively, re-priced and tamper-checked
@@ -90,6 +93,24 @@ WINDOWS = os.name == "nt"
 _REPLACE_DELAYS = (.01, .025, .05, .1, .2, .4, .8, 1.6)
 _TRANSIENT_WINDOWS_REPLACE_ERRORS = frozenset({5, 32, 33})
 
+# The provider's documented per-request limits (OpenAI's "Images and vision" guide, read 2026-10-12 for
+# v3p3-verify-15: "Up to 512 MB total payload per request", "Up to 1,500 images per request"; nothing separate is
+# published for /responses/input_tokens; MB read as 10^6 bytes, the smaller reading). A body over either is refused
+# before it is counted (PayloadTooLarge, run status payload_limit, $0): uploading it twice (count, then inference) only
+# to be rejected would cost minutes. The largest body this pipeline has sent is 30.78 MB / 134 images (run 4,
+# request 32); the v3 projections peak at 46-161 MB and 469 images (v3p3-verify-15), so neither limit is near.
+PAYLOAD_LIMIT_BYTES = 512_000_000
+PAYLOAD_LIMIT_IMAGES = 1_500
+# The count client's timeout for one request: COUNT_TIMEOUT_S + COUNT_TIMEOUT_PER_MB_S per MB (10^6 bytes) of the
+# body. httpcore2 writes a one-chunk JSON body inside ONE write timeout (httpcore2 _backends/anyio.py:41-52,
+# _async/http11.py:141-156), so the fixed 60 s bounded the whole upload: the paid runs' counts took 1.27 s + 0.316 s
+# per MB (156 requests, residual sd 0.66 s, longest 12.31 s at 30.8 MB), so 60 s was reached near 186 MB, and the v3
+# projections' 90-reply peaks (108-161 MB) came within 8-25 s of it (v3p3-verify-15: a 15-70 % slower uplink would have
+# ended such a run "failed" with no finish, after about $30-45 settled). 1 s per MB keeps about 3x the measured rate
+# at every size (161 MB: 221 s against about 52 s).
+COUNT_TIMEOUT_S = 60.0
+COUNT_TIMEOUT_PER_MB_S = 1.0
+
 _TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,256}")
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,95}")
 
@@ -100,6 +121,11 @@ class BudgetGuardError(RuntimeError):
 
 class BudgetExceeded(BudgetGuardError):
     """The next reservation would exceed this run's dollar cap."""
+
+
+class PayloadTooLarge(BudgetGuardError):
+    """The next request's body passes the provider's documented per-request limit (PAYLOAD_LIMIT_BYTES or
+    PAYLOAD_LIMIT_IMAGES); it is neither counted nor sent."""
 
 
 class LedgerPersistError(BudgetGuardError):
@@ -756,6 +782,20 @@ def _error_tokens(payload) -> str:
     return " ".join(parts)
 
 
+def count_timeout_s(body_bytes: int) -> float:
+    """The count client's timeout for a body of ``body_bytes`` (COUNT_TIMEOUT_S + COUNT_TIMEOUT_PER_MB_S per MB)."""
+    return COUNT_TIMEOUT_S + COUNT_TIMEOUT_PER_MB_S * max(0, int(body_bytes)) / 1e6
+
+
+def payload_images(value) -> int:
+    """The input_image parts anywhere inside a request's input (messages and function_call_outputs)."""
+    if isinstance(value, dict):
+        return int(value.get("type") == "input_image") + sum(payload_images(v) for v in value.values())
+    if isinstance(value, list):
+        return sum(payload_images(v) for v in value)
+    return 0
+
+
 def _check_counter(client_for_count) -> None:
     if str(client_for_count.base_url) != COUNT_BASE_URL:
         raise BudgetGuardError("Token counter must use the global OpenAI API endpoint")
@@ -797,6 +837,7 @@ class BudgetGuard:
         self.blocked_kind: str | None = None
         self._fatal_error: str | None = None
         self._last_request_size: tuple[int, int] | None = None
+        self._last_request_body: tuple[int, int, int] | None = None     # (serialized bytes, images, count ms)
         self._open_request = None
         self.fit_output_to_budget = False
 
@@ -844,7 +885,9 @@ class BudgetGuard:
         }
 
     def planning(self) -> dict:
-        """Edit (5): numbers only, never prose or a status word. Exact counting still gates every request."""
+        """Edit (5): numbers only, never prose or a status word. Exact counting still gates every request. The last
+        counted request's serialized bytes, input images and count time (ms) are recorded beside its tokens
+        (v3p3-verify-15: bytes and images were only logged; the loop's context guard fires on tokens or bytes)."""
         totals = self.ledger.totals()
         remaining = max(0, self.ledger.maximum_micro - totals["committed_micro_usd"])
         settled = [row["settled_micro_usd"] for row in self.ledger.rows if row["outcome"] == "settled"]
@@ -853,17 +896,21 @@ class BudgetGuard:
         else:
             input_tokens, output_limit = self._last_request_size
             next_hold = self.tariff.reserve_micro(input_tokens, output_limit)
+        body_bytes, images, count_ms = self._last_request_body or (None, None, None)
         return {"last_counted_input_tokens": input_tokens, "max_output_tokens": output_limit,
                 "next_hold_micro_usd": next_hold, "remaining_micro_usd": remaining,
                 "last_settled_micro_usd": settled[-1] if settled else None,
                 "recent_high_settled_micro_usd": max(settled[-3:]) if settled else None,
-                "requests": totals["requests"]}
+                "requests": totals["requests"], "last_request_bytes": body_bytes, "last_request_images": images,
+                "last_count_ms": count_ms}
 
     def status_hint(self) -> str | None:
-        """The run status the money state implies (the loop's result.json): budget_limit, provider_unknown,
-        provider_rejected, or None."""
+        """The run status the money state implies (the loop's result.json): budget_limit, payload_limit,
+        provider_unknown, provider_rejected, or None."""
         if self.blocked_kind == "BudgetExceeded":
             return "budget_limit"
+        if self.blocked_kind == "PayloadTooLarge":
+            return "payload_limit"
         outcomes = [row["outcome"] for row in self.ledger.rows]
         if "unknown" in outcomes or "held" in outcomes:
             return "provider_unknown"
@@ -886,8 +933,9 @@ class BudgetGuard:
             raise BudgetGuardError("Only POST to the global OpenAI /v1/responses endpoint is priced")
         if request.headers.get("x-stainless-retry-count", "0") != "0":
             raise BudgetGuardError("Automatic inference retries must be disabled")
+        body = await request.aread()
         try:
-            payload = json.loads(await request.aread())
+            payload = json.loads(body)
         except (ValueError, UnicodeError):
             raise BudgetGuardError("Inference request must contain a JSON object") from None
         if not isinstance(payload, dict):
@@ -913,6 +961,11 @@ class BudgetGuard:
             self.tariff.reserve_micro(0, output_limit)
         except PricingError:
             raise BudgetGuardError("An explicit, valid max_output_tokens is required") from None
+        body_bytes, images = len(body), payload_images(payload.get("input"))
+        if body_bytes > PAYLOAD_LIMIT_BYTES or images > PAYLOAD_LIMIT_IMAGES:
+            raise PayloadTooLarge(f"The next request is {body_bytes / 1e6:.1f} MB with {images} images; the "
+                                  f"provider's documented limit is {PAYLOAD_LIMIT_BYTES / 1e6:.0f} MB and "
+                                  f"{PAYLOAD_LIMIT_IMAGES:,} images per request; inference was not sent")
 
         async with self._lock:
             if self._fatal_error or self.ledger.violation:
@@ -923,12 +976,15 @@ class BudgetGuard:
                 # Edit (4): the previous request has no recorded outcome; never send a second one beside it.
                 raise BudgetGuardError(f"Request {open_row['sequence']} has no recorded outcome yet; "
                                        "one request at a time")
+            started = time.perf_counter()
             try:
                 count = await self.client_for_count.responses.input_tokens.count(
-                    **{key: value for key, value in payload.items() if key in COUNT_FIELDS})
+                    **{key: value for key, value in payload.items() if key in COUNT_FIELDS},
+                    timeout=count_timeout_s(body_bytes))
             except Exception:
                 # Provider errors may contain the original prompt, images or key.
                 raise BudgetGuardError("Token counting failed; inference was not sent") from None
+            count_ms = round((time.perf_counter() - started) * 1000)
             input_tokens = getattr(count, "input_tokens", None)
             try:
                 self.tariff.reserve_micro(input_tokens, output_limit)
@@ -958,7 +1014,9 @@ class BudgetGuard:
                     request._content = replacement.content
                     request.headers["content-length"] = str(len(replacement.content))
                     request.headers.pop("transfer-encoding", None)
+                    body_bytes = len(replacement.content)
             self._last_request_size = (input_tokens, output_limit)
+            self._last_request_body = (body_bytes, images, count_ms)
             try:
                 self.ledger.reserve(input_tokens, output_limit)
             except LedgerPersistError as error:

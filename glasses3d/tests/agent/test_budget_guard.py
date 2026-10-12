@@ -104,16 +104,21 @@ def test_planning_reports_numbers_before_the_cliff_without_changing_cap_or_holds
     guard = BudgetGuard(env.client, env.path, "0.022")
     assert guard.planning() == {"last_counted_input_tokens": None, "max_output_tokens": None,
                                 "next_hold_micro_usd": None, "remaining_micro_usd": 22_000,
-                                "last_settled_micro_usd": None, "recent_high_settled_micro_usd": None, "requests": 0}
+                                "last_settled_micro_usd": None, "recent_high_settled_micro_usd": None, "requests": 0,
+                                "last_request_bytes": None, "last_request_images": None, "last_count_ms": None}
 
     async def flow():
-        await guard.before_request(request())
+        sent = request()
+        await guard.before_request(sent)
         await guard.after_response(response(body=provider_body(usage_block=usage(cached=1000, output=40))))  # $0.003
         before = env.path.read_bytes()
         planning = guard.summary()["planning"]
+        count_ms = planning.pop("last_count_ms")
+        assert type(count_ms) is int and 0 <= count_ms < 5_000
         assert planning == {"last_counted_input_tokens": 1000, "max_output_tokens": 100, "next_hold_micro_usd": 17_500,
                             "remaining_micro_usd": 19_000, "last_settled_micro_usd": 3_000,
-                            "recent_high_settled_micro_usd": 3_000, "requests": 1}
+                            "recent_high_settled_micro_usd": 3_000, "requests": 1,
+                            "last_request_bytes": len(sent.content), "last_request_images": 0}
         assert env.path.read_bytes() == before          # planning never writes, holds or refunds
         await guard.before_request(request())           # numbers are advisory: affordable work goes on
         await guard.after_response(response(body=provider_body(response_id="resp_test_2",
@@ -155,6 +160,51 @@ def test_transport_sees_durable_reservation_and_never_sees_blocked_request(env):
     assert seen == [(17_500, "held")]
     assert guard.summary()["remaining_usd"] == "0.016450"
     assert guard.summary()["blocked_kind"] == "BudgetExceeded" and guard.status_hint() == "budget_limit"
+
+
+def test_payload_over_the_providers_limit_is_refused_before_counting(env, monkeypatch):
+    """A body over the provider's documented per-request limit (PAYLOAD_LIMIT_BYTES 512 MB or PAYLOAD_LIMIT_IMAGES
+    1,500, OpenAI's vision guide, v3p3-verify-15) is neither counted nor reserved: PayloadTooLarge, status hint
+    payload_limit, $0 (review 2026-10-12, P2: request bytes and images were neither modelled nor guarded). The limits
+    are the module's; the test lowers them to this request's own size."""
+    assert (B.PAYLOAD_LIMIT_BYTES, B.PAYLOAD_LIMIT_IMAGES) == (512_000_000, 1_500)
+    image = {"type": "input_image", "detail": "high", "image_url": "data:image/png;base64," + "A" * 4000}
+    items = [{"role": "user", "content": [image, image]},
+             {"type": "function_call_output", "call_id": "c1", "output": [image, {"type": "input_text", "text": "t"}]}]
+    sent = request(input=items)
+    assert B.payload_images(json.loads(sent.content)["input"]) == 3
+    for limits, ok in (((len(sent.content), 3), True), ((len(sent.content) - 1, 3), False),
+                       ((len(sent.content), 2), False)):
+        monkeypatch.setattr(B, "PAYLOAD_LIMIT_BYTES", limits[0])
+        monkeypatch.setattr(B, "PAYLOAD_LIMIT_IMAGES", limits[1])
+        path = env.tmp / f"limit-{limits[0]}-{limits[1]}.json"
+        guard = BudgetGuard(env.client, path, "1")
+        calls = env.count.call_count
+        if ok:                                       # at the limit: counted and reserved
+            run(guard.before_request(request(input=items)))
+            assert env.count.call_count == calls + 1 and len(ledger(path)["rows"]) == 1
+            assert guard.planning()["last_request_images"] == 3
+            continue
+        with pytest.raises(B.PayloadTooLarge, match="documented limit .* inference was not sent"):
+            run(guard.before_request(request(input=items)))
+        assert env.count.call_count == calls and ledger(path)["rows"] == []
+        assert guard.blocked_kind == "PayloadTooLarge" and guard.status_hint() == "payload_limit"
+
+
+def test_count_timeout_scales_with_the_body(env):
+    """The count's timeout is COUNT_TIMEOUT_S + COUNT_TIMEOUT_PER_MB_S per MB of the body (httpcore2 writes a one-chunk
+    body inside one write timeout, so a fixed 60 s bounded the whole upload: the paid runs' counts took 1.27 s + 0.316
+    s per MB, 60 s near 186 MB, and the v3 projections reach 108-161 MB; v3p3-verify-15). The count is sent with the
+    timeout of this body, about 3 x the measured rate at every size."""
+    assert (B.COUNT_TIMEOUT_S, B.COUNT_TIMEOUT_PER_MB_S) == (60.0, 1.0)
+    assert B.count_timeout_s(0) == 60.0 and B.count_timeout_s(30_780_000) == pytest.approx(90.78)
+    for mb in (30.8, 100, 161, 512):
+        assert B.count_timeout_s(mb * 1e6) >= 3 * (1.27 + 0.316 * mb)
+    guard = BudgetGuard(env.client, env.path, "1")
+    sent = request(input="x" * 2_000_000)
+    run(guard.before_request(sent))
+    assert env.count.call_args.kwargs["timeout"] == pytest.approx(B.count_timeout_s(len(sent.content)))
+    assert guard.planning()["last_request_bytes"] == len(sent.content) > 2_000_000
 
 
 def test_concurrent_requests_share_one_ceiling_and_one_open_request(env):

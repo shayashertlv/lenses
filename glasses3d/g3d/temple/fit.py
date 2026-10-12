@@ -10,7 +10,9 @@ fit, below). Facet planes are "nodes" (flat), "warp", a fixed {"coef": [a, b, c]
 surface, so a faded design's crease report, costs and bounds would describe a surface the builder does not build
 (review F6; v3 offers none). FitResult.spec is a pure /2 spec: every node in a facet has a numeric t (but a null node
 outside the outline that unbound flat facets list stays null, below); flat facets carry {"coef": [a, b, c]} (X = a + b d
-+ c y), warp facets "warp"; a reading on a node in no facet becomes its t; a read corner with a position unknown is
++ c y), warp facets "warp"; a reading on a node in no facet becomes its t (outside every facet's polygon: one inside
+or on a facet's polygon and the outline, which the builder would bind there, is refused E_SPEC, _Problem._orphans,
+v3p3-verify-13); a read corner with a position unknown is
 written where the fit put it (its design's parsed position when it did not move), with the outline knot it lies on
 (below); everything else (the other nodes' d / y, outline, inner, base, creases, chamfers, roll, options, soft) is
 copied, and the corners are a fixed point of the builder's snapping (_Problem.builder_point), so the builder builds
@@ -154,8 +156,12 @@ gives chi2 > FLAT_CHI2_PER_CORNER 4 per extra corner is W_FACE_NOT_FLAT (fixed w
 extra corner every leave-one-out sigma is the same, so the data cannot single a corner out (naming one picked the
 best-read corner, K, whatever the readings said, review P1-2): it lists every corner's deviation from the plane of the
 other three, mm +- sd (a corner whose others lie nearly in line, its sd > IN_LINE_RATIO x its own: "(others nearly in
-line)"); with more, the three largest in sigma. It then says where the flat fit puts the misfit: each observed
-corner's fitted minus read value (after the fitted camera turns), mm and sd. Each face's test is its own (_flat_inputs):
+line)"), after that one sigma and "the readings cannot say which corner is off" (v3p3-verify-2: the mm alone rank the
+corners by lever arm, the hinge corner A always first); with more, the three largest in sigma. It then says where the
+flat fit puts the misfit: each observed corner's whole residual (fitted - read, after the fitted camera turns: a corner
+the fit may move, its (d, y) part along those directions and its X part, each in mm and sd; _misfit_text), ranked by
+its tail probability for its rows (v3p3 P1: "the flat fit: E +0.41 mm (1.1 sd)" while the fit slid E 3.04 mm, 2.8 sd,
+along its reading). Each face's test is its own (_flat_inputs):
 a reading at the point where it was read, its sd v' C v with this face's gradient (review 2026-10-12 P3: the mean over
 every face through the corner over-fired 1.3x), its camera coefficient dX - g . (dd, dy) with the same g; the
 gradient the readings-only fit's. With camera terms each camera fit's turn
@@ -165,7 +171,9 @@ shared by its readings never reads as the face's misfit (tests: a flat face read
 10.3). The other side, by the data: from different photo sets one fit's turn moves the corners its photos dominate,
 which looks like a lift there (a 1.5 mm lift at such a far corner is explained by a 1.55 sd turn, chi2 6.25 against
 26.8); from one photo set, as probe1's crown corners, the turn is a plane and absorbs nothing. A warp facet reports its
-warp: the largest corner distance in X from its least-squares plane.
+warp: the largest corner distance in X from its least-squares plane, and its largest turn: the angle between its
+surface normal and its area-mean normal, where (_warp_twist; v3p3-verify-9: the A/A2 split's warped logo turned 62.6
+deg at the hinge corner and said only "0.33 mm off one plane").
 
 Warnings (facts only): W_FACE_NOT_FLAT; W_FIT_SOLVED, a null (solve) node inside the outline, which no reading sets:
 the faces that set it and how far it lies from their nearest observed corner, X +- sd, or that the thickness bound
@@ -175,19 +183,29 @@ W_FIT_OFF_READING, a typed, solved or base value more than OFF_READING_SD off it
 and a node more than max(OFF_POSITION_MM, OFF_POSITION_SD x the reading's sd_d / sd_y) from where its reading was taken
 (the tip 8-20 mm back in every v2 run, FINDINGS §0.2; review P1-3), or whose X a face through it changes by more than
 OFF_CARRY_SD of its sd between the read point and the node in a pinned direction (the carry and the faces' spread
-said; review 2026-10-12 P2). A free corner placed off its reading returns toward it (the moved line says so).
+said; review 2026-10-12 P2); and (kind "fitted") a read corner the fit placed beyond OFF_POSITION_SD sd of its reading
+along the directions it may move (that many sd's probability for their count), with the outline knots it carried
+(v3p3 P1: the flat crown slid the tip E 3.04 mm, 2.82 sd, and the top outline knot with it, and no fact said so);
+W_WARP_TWIST, a warp turning more than WARP_TWIST_WARN_DEG from its area-mean normal (information).
 
 chi2 / chi2_free are the minimised objective over the readings, typed values and camera turns (a prior adds only where
 a thickness bound holds a node no reading sees) and the corners' position rows; n_obs counts readings and typed
 values. A read node: d, y where the solution puts it (design_at its design's parsed (d, y), move_mm the difference,
 free_dims its position unknowns), X, t at it; its X residual = fitted + its camera turns' share - the reading's X
 carried to the fitted corner (residual_mm; residual_sd in its X row's sd obs_sd, the conditional one; obs_X; gap_mm =
-fitted - read X; camera_mm the share; read_sd the reading's own X sd), pos_sd its position rows' whitened norm, chi2
-its rows' squares (= the Mahalanobis distance of its whole (d, y, X) residual for a free corner). FitResult.camera
+fitted - read X; camera_mm the share; read_sd the reading's own X sd), pos_sd its position rows' whitened norm (pos_mm
+the same rows in mm: fitted - read along its free directions, the turns in), chi2 its rows' squares (= the Mahalanobis
+distance of its whole (d, y, X) residual for a free corner), knots the outline chains whose knot moves with it. A
+misfit (the report's misfit line, a face's largest misfit, the flat fit's list) is a reading or typed value whose X row
+or whole residual lies beyond MISFIT_SD sd's probability for its rows (_is_misfit). FitResult.camera
 {fit: {u, sd, free_u, readings}}: each turn in sd, the declared fit's and the readings-only fit's; FitResult.model
 {weight_passes, weights_settled, weight_change, position_passes, positions_settled, position_step, snap_reverted,
-angle_passes, position_unknowns}; report_lines prints the corners the fit placed off the design, those it kept at
-the design for the builder's snapping, and anything that did not settle.
+angle_passes, position_unknowns}; report_lines prints the camera turns the data moved (CAMERA_SHOWN_SD, in words:
+"camera turn of fit 05: 0.4 sd"; a dof-0 fit's turns are its prior's 0 +- 1 and print nothing), the corners the fit
+placed off the design, those it kept at the design for the builder's snapping, and anything that did not settle by
+more than a printed digit (WEIGHT_SHOWN_SD, POS_SHOWN_MM; `model` keeps the solver's own flags). Its numbers are
+named (chi2, dof, cost) or carry mm, deg or sd (but W_FIT_OFF_READING's typed / solved / base t, whose form a lab test
+pins), to the digits they hold, and never "-0.00" (_signed / _fixed; v3-integrate-2).
 """
 from __future__ import annotations
 
@@ -270,12 +288,32 @@ EQ_TOL_MM = 1e-9                # hard values that cannot all hold within this: 
 ACTIVE_TOL = 1e-9               # an inequality within this (normalised) of its bound is active
 COST_SHOWN = 0.05               # E_FIT_SHAPE names the declared creases whose own cost exceeds this
 REPORT_CHARS = 140              # report_lines width
-WAYS = "ways (unranked): warp (one face, no line), a fold (two faces), another reading of a corner"
+CAMERA_SHOWN_SD = 0.05          # the report prints a camera fit's turn when the data moved it this far (in sd of its
+#                                 theta error; printed to 0.1 sd, so below this it would read "0.0": session2's dof-0
+#                                 fits turned 1.9e-13 / -1.6e-13 and printed the prior as "+0.00 +- 1.00", "-0.00")
+WEIGHT_SHOWN_SD = 1e-3          # ... says the readings-only fit did not settle only where its last pass still moved a
+POS_SHOWN_MM = 1e-3             # ... reading's carried X this share of its sd, or a corner this far: at the damping's
+#                                 0.9 contraction what remains is under 10x the last change, < 0.01 sd and < 0.01 mm,
+#                                 below every printed digit (session2's flat crown: "did not settle in 30 passes" at
+#                                 4.7e-08 sd, WEIGHT_TOL being 1e-9, which cost a receipt line; v3-integrate-2)
+WARP_TWIST_WARN_DEG = 15.0      # W_WARP_TWIST: a warp whose surface normal turns more than this from its area-mean
+#                                 normal (information, never a gate; v3p3-verify-9 / -fix-core: session2's warp crown
+#                                 r6, probe1's data, turns 9.0 near its corner K, run 7's warp crown 6.7; the A/A2
+#                                 split's warped logo 52 at 0.05 mm from the hinge corner A, 0.67 mm from A2 (62.6 at
+#                                 0.03 mm), where it built a bright streak 3 mm long; from the least-squares plane
+#                                 instead, r6's crown reads 23)
+TWIST_GRID_MM = 0.25            # ... its interior sampled on this grid (central differences, TWIST_STEP_MM), with
+TWIST_STEP_MM = 1e-4            # ... each corner inside or on the outline taken at its corner plane (the MVC surface
+#                                 tends to the plane of its two edges there: the largest turn of a warp is at a corner
+#                                 in every case above) and its edges at EDGE_AT (mvc_edge_gradient)
+WAYS = ("ways (unranked): warp (one face, no line), a fold (two faces), another reading of a corner, a corner that is "
+        "two vertices (one per face)")
 STATE_TEXT = {"certain": "certain", "open": "open", "flat": "flat within 2 sd"}   # a crease's readings-only state
 TABLE_KNOTS = ("inner[", "base.top[", "base.bottom[")                             # parse's snap names of table knots
 
 FIT_REFUSALS = ("E_FIT_SHAPE", "E_FIT")                                                  # in spec.REFUSALS (§2)
-FIT_WARNINGS = ("W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING")   # in spec.WARNINGS
+FIT_WARNINGS = ("W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # in spec.WARNINGS
+                "W_WARP_TWIST")
 
 READ_KEYS = ("id", "X", "sd", "d", "y", "photos", "sd_d", "sd_y", "cov", "camera")
 FACET_KEYS = ("poly", "plane", "fade", "soft")
@@ -545,23 +583,45 @@ class FitResult:
                       "camera": self.camera, "model": self.model})
 
     def report_lines(self, limit: int = 12, creases: bool = True) -> list[str]:
-        """Compact lines (<= REPORT_CHARS each): the fit line, the camera turns (with camera terms: each fit's turn
-        +- sd, in sd of its theta error) and the misfit lines, then face lines, then crease lines, then warnings (a
-        long one wraps onto indented lines). Over `limit` lines, crease lines go first (undeclared before declared),
-        then face lines, and a last line counts what was left out; the fit lines and warnings stay."""
+        """Compact lines (<= REPORT_CHARS each): the fit line, the camera turns the data moved, where the fit put read
+        corners, anything that did not settle by a printed amount and the misfit lines, then face lines, then crease
+        lines, then warnings (a long one wraps onto indented lines). Over `limit` lines, crease lines go first
+        (undeclared before declared), then face lines, and a last line says what was left out, by kind; the fit lines
+        and warnings stay. Every number is named (chi2, dof, a declaration's chi2 cost) or carries mm, deg or sd (but
+        W_FIT_OFF_READING's typed / solved / base t), with no more digits than it holds (a declared crease's
+        readings-only angle now says "deg", W_FIT_SOLVED its X and t "mm"); a signed zero prints "+" (_signed, never
+        "-0.00").
+        - Camera (v3-integrate-2, session2): a turn is printed only where the data moved it, |u| >= CAMERA_SHOWN_SD,
+          unsigned, in words, "camera turn of fit 05: 0.4 sd" (as E_FIT_SHAPE's "turns the camera of fit 02 by 5.6
+          sd"): on a dof-0 fit the turns stay at the prior's 0 +- 1 (session2 printed "02 +0.00 +- 1.00" on every
+          such fit, and "-0.00"), and the misfit line says "after the camera turn(s)" only when one is printed.
+        - Settling (v3-integrate-2): a readings-only pass that did not settle at the solver's tolerance (WEIGHT_TOL
+          1e-9 sd, POS_TOL_MM 1e-6) is said only beyond WEIGHT_SHOWN_SD / POS_SHOWN_MM: session2's flat crown read
+          "did not settle in 30 passes" at 4.7e-08 sd and lost a receipt line for it (FitResult.model keeps the
+          solver's own flags).
+        - Misfits (v3p3 P1, session2 r0004): the misfit line, a flat face's largest misfit and W_FACE_NOT_FLAT's flat
+          fit give each node's whole residual, ranked by it: a corner the fit may move "E (d, y) 3.04 mm (2.8 sd) and
+          X +0.41 mm (1.1 sd)" (the X row alone read "E +0.41 mm (1.1 sd)", and the face line "the fit puts E +0.41
+          mm (1.1 sd) off its reading", while E sat 3.04 mm from where it was read: 9.26 of the fit's chi2 10.48); a
+          stored record without pos_mm prints its position part in sd only. The moved line names the outline knot a
+          corner carried."""
         c = self.counts
         fit = [f"fit: chi2 {self.chi2:.1f}, dof {self.dof}, from {c.get('read', 0)} readings and {c.get('typed', 0)} "
                f"typed values; readings-only chi2 {self.chi2_free:.1f}"]
-        if self.camera:
-            fit.append("camera turn per fit (in sd of its theta error, one for all its readings): " + ", ".join(
-                f"{f} {v['u']:+.2f} +- {v['sd']:.2f}" for f, v in sorted(self.camera.items())))
+        turned = [(f, abs(float(v.get("u") or 0.0))) for f, v in sorted(self.camera.items())
+                  if abs(float(v.get("u") or 0.0)) >= CAMERA_SHOWN_SD]
+        if turned:
+            fit.append("camera turn " + ", ".join(f"of fit {f}: {u:.1f} sd" for f, u in turned)
+                       + " (in sd of that camera fit's theta error; one turn for all of its readings)")
         moved = sorted(((r.get("pos_sd") or 0.0, n, r) for n, r in self.nodes.items()
                         if r.get("move_mm") and math.hypot(*r["move_mm"]) >= MOVE_SHOWN_MM),
                        key=lambda x: (-x[0], x[1]))
-        if moved:
+        if moved:           # an outline knot the corner carried is named (v3p3 P1: the top outline rose 0.42 mm at d 70
+            #                 with E, and no text said so)
             fit.append("corners the fit placed off the design (fitted - design, d y mm; fitted - read in its sd): "
-                       + ", ".join(f"{n} {_mm(r['move_mm'][0])} {_mm(r['move_mm'][1])} ({a:.1f} sd)"
-                                   for a, n, r in moved))
+                       + ", ".join(f"{n} {_mm(r['move_mm'][0])} {_mm(r['move_mm'][1])} ({a:.1f} sd"
+                                   + (f", its {' and '.join(r['knots'])} outline knot with it" if r.get("knots")
+                                      else "") + ")" for a, n, r in moved))
         capped = sorted(n for n, r in self.nodes.items() if r.get("at_cap"))
         if capped:
             fit.append(f"corners held at their move limit ({POS_MAX_SD:g} sd of the reading along a direction): "
@@ -570,42 +630,50 @@ class FitResult:
         if m.get("snap_reverted"):
             fit.append("kept at the design position (the fitted one lay where the builder would snap it): "
                        + ", ".join(m["snap_reverted"]))
-        if m.get("weights_settled") is False:
-            fit.append(f"the pinned-direction gradients did not settle in {m.get('weight_passes')} passes (the last "
-                       f"moved an X row by {m.get('weight_change', 0.0):.2g} of its sd)")
-        if m.get("positions_settled") is False:
-            fit.append(f"the corner positions did not settle in {m.get('position_passes')} passes (the last moved a "
-                       f"corner {m.get('position_step', 0.0):.2g} mm)")
-        off = sorted(((abs(r["residual_sd"]), n, r) for n, r in self.nodes.items()
-                      if r["source"] in ("read", "typed") and r["residual_sd"] is not None
-                      and abs(r["residual_sd"]) > MISFIT_SD), key=lambda x: (-x[0], x[1]))
+        w_change, p_step = float(m.get("weight_change") or 0.0), float(m.get("position_step") or 0.0)
+        if m.get("weights_settled") is False and w_change >= WEIGHT_SHOWN_SD:
+            fit.append(f"the readings-only fit did not settle in {m.get('weight_passes')} passes: its last pass still "
+                       f"moved a reading's X, carried to its corner, by {w_change:.2g} of its sd")
+        if m.get("positions_settled") is False and p_step >= POS_SHOWN_MM:
+            fit.append(f"the readings-only fit did not settle in {m.get('position_passes')} passes: its last pass "
+                       f"still moved a corner {p_step:.2g} mm")
+        off = sorted((n for n, r in self.nodes.items() if _is_misfit(r)), key=lambda n: _misfit_key(n, self.nodes[n]))
         if off:
-            fit.append(f"misfit beyond 1 sd (fitted - read{', after the camera turn' if self.camera else ''}): "
-                       + ", ".join(f"{n}{' typed' if r['source'] == 'typed' else ''} {r['residual_mm']:+.2f}"
-                                   f"{' mm' if k == 0 else ''} ({a:.1f} sd)" for k, (a, n, r) in enumerate(off)))
+            after = f", after the camera turn{'s' if len(turned) > 1 else ''}" if turned else ""
+            fit.append(f"misfit beyond 1 sd (fitted - read{after}): "
+                       + ", ".join(_misfit_text(n, self.nodes[n]) for n in off))
         held = [_held_text(n, r) for n, r in sorted(self.nodes.items()) if r.get("at_bound")]
         other = sum(1 for b in self.bounds if b["what"] != "node")
         if held or other:
             fit.append("at the thickness bound: " + ", ".join(held + ([f"{other} facet point{'s' if other > 1 else ''}"]
                                                                        if other else [])))
-        faces, plain3 = [], []
+        faces, plain3, in_line = [], [], []
         for label, f in self.faces.items():
             corners = " ".join(f["corners"])
             if f["kind"] == "warp":
-                faces.append(f"face {label} warp ({corners}): {f['warp_mm']:.2f} mm off one plane; corner residuals "
-                             f"chi2 {f['corner_chi2']:.1f}")
+                line = (f"face {label} warp ({corners}): {f['warp_mm']:.2f} mm off one plane; corner residuals "
+                        f"chi2 {f['corner_chi2']:.1f}")
+                if f.get("twist_deg") is not None:
+                    line += f"; {_twist_text(f)}"
+                faces.append(line)
             elif f.get("extra", 0) > 0:
                 line = (f"face {label} flat ({corners}): chi2 {f['flat_chi2']:.1f} for {f['extra']} extra corner"
                         f"{'s' if f['extra'] > 1 else ''}{', not one plane' if f['not_flat'] else ''}")
-                if f.get("misfit_sd") is not None and f["misfit_sd"] > MISFIT_SD:
-                    what = "reading" if self.nodes[f["misfit_at"]]["source"] == "read" else "typed value"
-                    line += (f"; the fit puts {f['misfit_at']} {f['flat_misfit_mm']:+.2f} mm ({f['misfit_sd']:.1f} sd) "
-                             f"off its {what}")
+                # its largest misfit by the whole residual (v3p3 P1: "the fit puts E +0.41 mm (1.1 sd) off its
+                # reading" while E sat 3.04 mm, 2.8 sd, from where it was read)
+                obs = [n for n in f["corners"] if n in self.nodes and _is_misfit(self.nodes[n])]
+                if obs:
+                    n = min(obs, key=lambda m: _misfit_key(m, self.nodes[m]))
+                    line += f"; its largest misfit (fitted - read): {_misfit_text(n, self.nodes[n])}"
                 faces.append(line)
-            else:
-                plain3.append(label)
-        if plain3:
-            faces.append(f"flat faces with no extra corner: {', '.join(plain3)}")
+            else:                                    # no flatness test: under 4 known corners, or all in one line
+                (in_line if len(f.get("known") or ()) >= 4 else plain3).append(label)
+        if plain3:          # (was "with no extra corner": "extra" is defined only by a tested face's line)
+            faces.append(f"flat faces with fewer than 4 read, typed or base corners (no flatness test): "
+                         f"{', '.join(plain3)}")
+        if in_line:
+            faces.append(f"flat faces whose read, typed and base corners lie in one line (no flatness test): "
+                         f"{', '.join(in_line)}")
         decl, other_c = [], []
         for cr in self.creases if creases else []:
             if cr["deg"] is None:
@@ -628,14 +696,110 @@ class FitResult:
                 if keep[k] and items[k][0] == kind:
                     keep[k] = False
                     total -= len(items[k][1])
-        out = [ln for k, (_, x) in enumerate(items) if keep[k] for ln in x][:max(limit - 1, 0)]
-        left = sum(len(x) for _, x in items) - len(out)
-        return out + [f"(+{left} more lines in the fit report)"]
+        # the last line says what was left out, by kind (was "(+2 more lines in the fit report)": no tool shows more)
+        tagged = [(kind, ln) for k, (kind, x) in enumerate(items) if keep[k] for ln in x]
+        out, cut = tagged[:max(limit - 1, 0)], tagged[max(limit - 1, 0):]
+        word = {"fit": "fit", "face": "face", "crease": "crease", "crease_u": "crease", "warn": "warning"}
+        left: dict = {}
+        for kind, n in [(kind, len(x)) for k, (kind, x) in enumerate(items) if not keep[k]] + [(k, 1) for k, _ in cut]:
+            left[word[kind]] = left.get(word[kind], 0) + n
+        return [ln for _, ln in out] + ["(left out for length: " + ", ".join(
+            f"{left[k]} {k} line{'s' if left[k] > 1 else ''}" for k in ("fit", "face", "crease", "warning")
+            if k in left) + ")"]
+
+
+def _signed(x: float, nd: int = 2) -> str:
+    """x signed to nd decimals; a value that rounds to zero prints "+0.00", never "-0.00" (session2's camera line
+    printed "02 -0.00")."""
+    s = f"{x:+.{nd}f}"
+    return "+" + s[1:] if float(s) == 0.0 else s
+
+
+def _fixed(x: float, nd: int = 2) -> str:
+    """x to nd decimals, never "-0.00" (a coordinate or thickness that rounds to zero)."""
+    s = f"{x:.{nd}f}"
+    return s.lstrip("-") if float(s) == 0.0 else s
 
 
 def _mm(x: float) -> str:
     """A signed mm to 2 decimals, never "-0.00"."""
-    return f"{0.0 if abs(x) < 0.005 else x:+.2f}"
+    return _signed(x, 2)
+
+
+def chi2_tail(x: float, k: int) -> float:
+    """P(chi2 with k dof > x): the regularised upper incomplete gamma Q(k / 2, x / 2) (Numerical Recipes 6.2: the
+    series below a + 1, the continued fraction above). k 1: the two-sided normal tail at sqrt(x) sd."""
+    a, t = 0.5 * k, 0.5 * max(float(x), 0.0)
+    if t <= 0.0:
+        return 1.0
+    pre = math.exp(-t + a * math.log(t) - math.lgamma(a))
+    if t < a + 1.0:
+        term = total = 1.0 / a
+        ap = a
+        for _ in range(500):
+            ap += 1.0
+            term *= t / ap
+            total += term
+            if abs(term) < abs(total) * 1e-15:
+                break
+        return max(0.0, 1.0 - total * pre)
+    b, c, d = t + 1.0 - a, 1.0 / 1e-300, 1.0 / (t + 1.0 - a)
+    h = d
+    for i in range(1, 500):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        d = 1.0 / (d if abs(d) > 1e-300 else 1e-300)
+        c = b + an / c
+        c = c if abs(c) > 1e-300 else 1e-300
+        h *= d * c
+        if abs(d * c - 1.0) < 1e-15:
+            break
+    return min(1.0, h * pre)
+
+
+def _rows(r: dict) -> int:
+    """A read or typed node's residual rows: its X row and, for a read corner the fit may move, one position row per
+    free direction (free_dims; a stored record without it: two where it has position rows)."""
+    if r.get("source") != "read":
+        return 1
+    k = r.get("free_dims")
+    return 1 + (int(k) if k is not None else 2 if r.get("pos_sd") else 0)
+
+
+def _whole_chi2(r: dict) -> float:
+    """A node's whole residual, its rows' chi2 (a read corner: its X row and position rows together)."""
+    c = r.get("chi2")
+    return float(c) if c is not None else float(r.get("residual_sd") or 0.0) ** 2 + float(r.get("pos_sd") or 0.0) ** 2
+
+
+def _misfit_key(n: str, r: dict) -> tuple:
+    """Misfits ranked by their whole residual's tail probability for its rows (a 3-row residual's chi2 9.3 is p 0.026,
+    a 1-row one's 4.0 is p 0.046), then chi2, then name."""
+    c = _whole_chi2(r)
+    return chi2_tail(c, _rows(r)), -c, n
+
+
+def _is_misfit(r: dict) -> bool:
+    """A reading or typed value the fit leaves beyond MISFIT_SD: its X row, or its whole residual (X and position rows)
+    beyond the probability of MISFIT_SD sd for its rows (review 2026-10-12 v3p3 P1: the flat crown slid E 2.82 sd along
+    its reading, X 1.14 sd, chi2 9.26 of the fit's 10.48, and the misfit lines said only "E +0.41 mm (1.1 sd)")."""
+    if r.get("source") not in ("read", "typed") or r.get("residual_sd") is None:
+        return False
+    return abs(r["residual_sd"]) > MISFIT_SD or chi2_tail(_whole_chi2(r), _rows(r)) < chi2_tail(MISFIT_SD ** 2, 1)
+
+
+def _misfit_text(n: str, r: dict) -> str:
+    """One node's misfit (fitted - read, after the camera turns): a read corner the fit may move, its (d, y) part along
+    the directions it may move (mm and sd, where either prints a digit) and its X part; else its X (a typed value: its
+    t). Both parts, never one sqrt(chi2) of rows of different kinds as "sd"."""
+    x = f"{_signed(r['residual_mm'])} mm ({abs(r['residual_sd']):.1f} sd)"
+    if r.get("source") == "typed":
+        return f"{n} typed {x}"
+    ps_, pm = float(r.get("pos_sd") or 0.0), r.get("pos_mm")
+    if _rows(r) > 1 and (ps_ >= 0.05 or (pm is not None and pm >= 0.005)):
+        return f"{n} (d, y) " + (f"{pm:.2f} mm ({ps_:.1f} sd)" if pm is not None else f"{ps_:.1f} sd") + f" and X {x}"
+    return f"{n} X {x}"
 
 
 def _held_text(n: str, r: dict) -> str:
@@ -643,7 +807,7 @@ def _held_text(n: str, r: dict) -> str:
     if r["source"] in ("solve", "base"):
         return f"{n} ({'solved' if r['source'] == 'solve' else 'base'})"
     what = "reading" if r["source"] == "read" else "typed value"
-    return f"{n} ({r['residual_mm']:+.2f} mm from its {what})"
+    return f"{n} ({_signed(r['residual_mm'])} mm from its {what})"
 
 
 def _crease_line(cr: dict) -> str:
@@ -652,9 +816,9 @@ def _crease_line(cr: dict) -> str:
     declaration holding it at the minimum instead of a sd), certain / open, the bound it rests on, and the declaration
     with its readings-only angle and cost."""
     base = cr["pair"][1] == "base"
-    ang = f"{cr['deg']:+.1f} deg" if cr.get("held") else f"{cr['deg']:+.1f} +- {cr['sd_deg']:.1f} deg"
+    ang = f"{_signed(cr['deg'], 1)} deg" if cr.get("held") else f"{_signed(cr['deg'], 1)} +- {cr['sd_deg']:.1f} deg"
     rng = cr.get("range_deg")
-    along = (f" at mid, {rng[0]:+.1f}..{rng[1]:+.1f} along {'it' if base else 'the edge'}"
+    along = (f" at mid, {_signed(rng[0], 1)}..{_signed(rng[1], 1)} along {'it' if base else 'the edge'}"
              if rng is not None and rng[1] - rng[0] > 0.5 else "")
     if cr.get("held"):
         at_min = abs(abs(cr["deg"]) - MIN_CREASE_DEG) <= 0.01
@@ -673,7 +837,7 @@ def _crease_line(cr: dict) -> str:
         line += f", declared {cr['declared']}"
         if cr["dchi2"] is None or cr["dchi2"] > COST_SHOWN:
             cost = "cannot hold" if cr["dchi2"] is None else f"cost +{cr['dchi2']:.1f}"
-            line += f" (readings-only {cr['free_deg']:+.1f} +- {cr['free_sd_deg']:.1f}, {cost})"
+            line += f" (readings-only {_signed(cr['free_deg'], 1)} +- {cr['free_sd_deg']:.1f} deg, {cost})"
     return line
 
 
@@ -969,6 +1133,7 @@ class _Problem:
         self.flat = [l for l in self.labels if self.mode[l] != "warp"]
         self.warps = [l for l in self.labels if self.mode[l] == "warp"]
         self.names = sorted({n for l in self.labels for n in self.poly[l]})
+        self._orphans()
         XY = np.array([self.nodes[n] for n in self.names]).reshape(-1, 2)
         ins = points_in_poly(XY, self.boundary) | (_dists_to_edges(XY, self.boundary) <= ON_MM)
         self.inside = {n: bool(v) for n, v in zip(self.names, ins)}
@@ -1014,6 +1179,37 @@ class _Problem:
         self.set_point(np.zeros(self.NZ))
 
     # ----------------------------------------------------------------------------------------- structure
+    def _orphans(self) -> None:
+        """E_SPEC: a node with a value (read, typed or base) that no facet lists, inside or on the outline and inside
+        or on a facet's polygon (after the parse's snaps). The fit fits a value only at a facet's corner, and the
+        builder binds a node's value at any arrangement vertex it sits on: v3p3-verify-13 dropped L from nose [A, L0,
+        C] with L kept (read, on the bottom outline knot inside nose's polygon): the fit left L's reading out ("from 6
+        readings") and accepted, then the builder refused E_RELIEF_STEP at nose's plane, 0.191 mm off at L; a typed
+        node strictly inside a facet was dropped by both, silently. No stored lab revision had such a node (11,066
+        scanned). Facts and every way out. A node in no facet's polygon (the plain arm, a design with no facets: every
+        package's revision 0) or outside the outline binds nothing in either; its reading becomes its t."""
+        orphans = sorted(n for n in self.nodes if n not in set(self.names)
+                         and self.src.get(n, ("solve",))[0] in ("read", "typed", "base"))
+        if not orphans:
+            return
+        B = self.boundary
+        for n in orphans:
+            p = np.array([self.nodes[n]], np.float64)
+            if not (points_in_poly(p, B)[0] or _dists_to_edges(p, B)[0] <= ON_MM):
+                continue
+            on = [l for l in self.labels if _dists_to_edges(p, self.P[l])[0] <= ON_MM]
+            ins = [l for l in self.labels if l not in on and points_in_poly(p, self.P[l])[0]]
+            if not on and not ins:
+                continue
+            where = ("on the edge of facet" + ("s " if len(on) > 1 else " ") + ", ".join(on) if on else
+                     "inside facet" + ("s " if len(ins) > 1 else " ") + ", ".join(ins))
+            what = {"read": "a reading", "typed": "a typed t", "base": "t base"}[self.src[n][0]]
+            raise TempleError("E_SPEC", f"node {n} has {what} and lies {where} (d {_fixed(p[0, 0])}, y "
+                              f"{_fixed(p[0, 1])}), but no facet lists it among its corners: the fit takes a node's "
+                              f"value only at a facet's corner; ways: list {n} among a facet's corners, give it no "
+                              f"value (t solve), or delete node {n}", node=n, facets=on + ins,
+                              at=[float(p[0, 0]), float(p[0, 1])])
+
     def _split(self) -> None:
         """self.split {node: [one facet per group]} and self.group {(node, facet): its group's facet}: a null node
         outside the outline listed by several flat facets (none a warp), one unknown per group of facets joined by a
@@ -1483,11 +1679,18 @@ class _Problem:
 
     def _crosses(self, n: str, q) -> bool:
         """Corner n's move from its design position to q passes over another node or knot, or crosses or touches an
-        edge it must keep clear of (_others): the layout the fit is linearised about would change."""
+        edge it must keep clear of (_others): the layout the fit is linearised about would change. Touching is a
+        distance (q within ON_MM of such an edge): _meets' orientation signs see a point put onto a sloped outline
+        edge by interpolation on either side at random (v3p3-review-e2e probe 4 seed 1874: the readings-only fit
+        snapped the inside corner A onto the top outline, which a level edge reverts; the crown's edge A-H then lay
+        outside the outline, and the declared crown|base valley "held" on a piece the builder never built,
+        E_CREASE_SHAPE; _check_fitted_pairs is the net)."""
         p = np.asarray(self.nodes[n], np.float64)
         q = np.asarray(q, np.float64)
         pts, A, Bq = self._others(n)
         if len(pts) and float(_dists_to_segments(pts, p[None], q[None]).min()) <= ON_MM:
+            return True
+        if len(A) and float(_dists_to_segments(q[None], A, Bq).min()) <= ON_MM:
             return True
         return bool(len(A)) and bool(np.any(_meets(np.array([p]), np.array([q]), None, A, Bq)))
 
@@ -2607,7 +2810,7 @@ def _point_name(b: tuple) -> str:
     if b[0] == "node":
         return f"node {b[1]}"
     where = {"edge": "on an edge", "outline": "on the outline", "inside": "inside"}[b[0]]
-    return f"facet {b[1]} {where} at (d, y) ({b[2][0]:.2f}, {b[2][1]:.2f})"
+    return f"facet {b[1]} {where} at (d, y) ({_fixed(b[2][0])}, {_fixed(b[2][1])})"
 
 
 def _fit_error(pb: _Problem, x: Infeasible, what: str) -> TempleError:
@@ -2636,7 +2839,7 @@ def _fit_error(pb: _Problem, x: Infeasible, what: str) -> TempleError:
             pass
         finally:
             pb.pinned = was
-        thin ="; ".join(f"{_point_name(b)} t {t:.2f} mm" for b, t in pts)
+        thin = "; ".join(f"{_point_name(b)} t {_fixed(t)} mm" for b, t in pts)
         return TempleError("E_FIT", f"{what}: no fit keeps every node and facet point at least t_min {pb.tmin:g} mm "
                            f"thick with the hard values (base nodes, coef planes)"
                            + (f"; without the bound the thinnest would be {thin}" if thin else ""), reason="bounds",
@@ -2652,9 +2855,9 @@ def _fit_error(pb: _Problem, x: Infeasible, what: str) -> TempleError:
         def short_by(v, need, shape):                # the shortfall, said, where printing alone would hide it
             gap = need - (v if shape == "ridge" else -v)
             return f" ({gap:.2g} short)" if gap > 1e-6 else ""      # the exact check's tolerance
-        pieces = "; ".join(f"{s['pair']} declared {s['shape']}: fold {s['fold_deg']:+.3f} deg at mid"
+        pieces = "; ".join(f"{s['pair']} declared {s['shape']}: fold {_signed(s['fold_deg'], 3)} deg at mid"
                            f"{short_by(s['fold_deg'], MIN_CREASE_DEG, s['shape'])}, mean dihedral "
-                           f"{s['mean_dihedral_deg']:+.3f} deg"
+                           f"{_signed(s['mean_dihedral_deg'], 3)} deg"
                            f"{short_by(s['mean_dihedral_deg'], FLAT_CREASE_DEG + MEAN_MARGIN_DEG, s['shape'])}"
                            for s in short)
         if short:
@@ -2799,7 +3002,7 @@ def fit_spec(design: dict, *, readings: dict | None = None) -> FitResult:
                 for sd, mm, n, src in sorted(mv, key=lambda m_: (-abs(m_[0]), m_[3] == "camera", m_[2]))[:3]:
                     if abs(sd) >= 0.01:
                         moves.append({"node": n, "source": src, "mm": mm, "sd": sd})
-            text = f"{'|'.join(pair)} declared {shape}: readings-only {fdeg:+.1f} +- {fsd:.1f} deg, "
+            text = f"{'|'.join(pair)} declared {shape}: readings-only {_signed(fdeg, 1)} +- {fsd:.1f} deg, "
             text += ("it cannot be built with the hard values (base nodes, coef planes) and t_min" if cost is None
                      else f"cost +{cost:.1f}" + (f", {_against(moves)}" if moves else ""))
             parts.append(text)
@@ -2810,7 +3013,44 @@ def fit_spec(design: dict, *, readings: dict | None = None) -> FitResult:
         raise TempleError("E_FIT_SHAPE", f"the declared crease shapes: {total}: {'; '.join(parts)}",
                           dchi2=None if sol is None else dchi2, accept_dchi2=ACCEPT_DCHI2, creases=recs,
                           chi2_free=free.chi2)
-    return _result(pb, free, sol, declared, single, readings, model)
+    res = _result(pb, free, sol, declared, single, readings, model)
+    _check_fitted_pairs(pb, res, declared)
+    return res
+
+
+def _check_fitted_pairs(pb: _Problem, res: FitResult, declared: list) -> None:
+    """E_FIT_SHAPE: a declared pair that shares an edge inside the outline at the design's corners but not at the
+    fitted ones. The crease pieces are fixed at the design (module docstring), so a corner the fit moves can take a
+    pair's shared edge outside the outline unseen: v3p3-review-e2e probe 4 seed 1874 declared crown|base a valley with H
+    0.13 mm outside the outline; the readings-only fit put A 0.14 mm up, onto the top outline, the crown's edge A-H
+    then lay outside it, the declaration "held" on its design piece, and the builder refused E_CREASE_SHAPE "declared
+    valley but built none" (1 of 605 fuzz designs that built). The fitted spec is read again as the builder will
+    (_Problem's parse and pieces) where a corner moved (else its pieces are the design's: the 30-node strip fits in
+    under 50 ms); facts only, as the pre-solve check."""
+    if not declared or not any(r.get("move_mm") and max(abs(v) for v in r["move_mm"]) > 0.0
+                               for r in res.nodes.values()):
+        return
+    try:
+        segs = _Problem(res.spec).segs
+    except TempleError:
+        return                                       # the builder states it
+    lost = [(p, s) for p, s in declared if not segs.get(p)]
+    if not lost:
+        return
+    parts, recs = [], []
+    for p, s in lost:
+        corners = sorted({n for l in p if l in pb.poly for n in pb.poly[l]})
+        mv = [(n, res.nodes[n]["move_mm"]) for n in corners
+              if res.nodes.get(n, {}).get("move_mm") and math.hypot(*res.nodes[n]["move_mm"]) >= 0.005]
+        was = sum(s_.length for s_ in pb.segs.get(p, []))
+        parts.append(f"{'|'.join(p)} declared {s}: {p[0]} and {p[1]} share no edge inside the outline where the fit "
+                     f"puts the corners ({was:.2f} mm at the design's)"
+                     + (f"; the fit moved (d y mm) {', '.join(f'{n} {_mm(m[0])} {_mm(m[1])}' for n, m in mv)}"
+                        if mv else ""))
+        recs.append({"pair": list(p), "declared": s, "free_deg": None, "free_sd_deg": None, "dchi2": None, "moves": [],
+                     "reason": "no shared edge after the fit", "moved": {n: list(m) for n, m in mv}})
+    raise TempleError("E_FIT_SHAPE", "the declared crease shapes: " + "; ".join(parts), dchi2=None,
+                      accept_dchi2=ACCEPT_DCHI2, chi2_free=res.chi2_free, creases=recs)
 
 
 def _solved_warning(pb: _Problem, n: str, rec: dict) -> dict:
@@ -2822,9 +3062,10 @@ def _solved_warning(pb: _Problem, n: str, rec: dict) -> dict:
     dist = {m: float(np.hypot(*(np.array(pb.nodes[m]) - p))) for m in seen if pb.src[m][0] in ("read", "typed")}
     near = min(dist, key=lambda m: (dist[m], m)) if dist else None
     if rec["at_bound"]:
-        msg = f"node {n}: no reading or typed value; the thickness bound holds it at t {rec['t']:.2f}"
-    else:
-        msg = f"node {n}: no reading or typed value; X {rec['X']:.2f} +- {rec['sd_X']:.2f} (t {rec['t']:.2f})"
+        msg = f"node {n}: no reading or typed value; the thickness bound holds it at t {_fixed(rec['t'])} mm"
+    else:                                            # (mm said: session2 printed "X 70.57 +- 0.25 (t 4.64)")
+        msg = (f"node {n}: no reading or typed value; X {rec['X']:.2f} +- {rec['sd_X']:.2f} mm "
+               f"(t {_fixed(rec['t'])} mm)")
     if faces:
         msg += (f"{' (' if rec['at_bound'] else ' '}from face{'s' if len(faces) > 1 else ''} {', '.join(faces)}"
                 + (f" through {', '.join(seen)}" if seen else ""))
@@ -2836,30 +3077,133 @@ def _solved_warning(pb: _Problem, n: str, rec: dict) -> dict:
             "sd_mm": rec["sd_X"], "message": msg}
 
 
+def _warp_twist(pb: _Problem, label: str, F: np.ndarray) -> dict:
+    """How far a fitted warp's surface turns (module docstring, Flatness): the largest angle between its normal (-grad
+    X, 1) and its area-mean normal, over the part inside the outline, and where. The area-mean normal over (d, y) is
+    (-g_mean, 1) (the surface's area element cancels its normal's length), g_mean the mean gradient over a TWIST_GRID_MM
+    grid (central differences over TWIST_STEP_MM, points nearer the polygon's edges than 2 steps left out); the
+    candidates are those grid points and each edge's points at EDGE_AT and CORNER_NEAR_MM from its ends (the MVC
+    boundary gradient, mvc_edge_gradient: the surface near a corner tends to the plane of its two edges, which the
+    interior grid misses). Why (v3p3-verify-9): following the prompt, the A/A2 split's warped logo turned 62.6 deg
+    0.03 mm from A (52 at this sampling's 0.05 mm; built 57.5, a bright streak 3 mm long), reported only as "0.33 mm
+    off one plane"; the least-squares plane is no reference (r6's crown turns 23 from it, 9.0 from its area-mean
+    normal). Information: W_WARP_TWIST above WARP_TWIST_WARN_DEG."""
+    P = np.asarray(pb.Pcur[label], np.float64)
+    names = pb.poly[label]
+    B = np.asarray(pb.cur_ps.boundary(), np.float64)
+    F = np.asarray(F, np.float64)
+    lo, hi, g, h = P.min(axis=0), P.max(axis=0), TWIST_GRID_MM, TWIST_STEP_MM
+    Q = np.stack(np.meshgrid(np.arange(lo[0] + g / 2, hi[0], g), np.arange(lo[1] + g / 2, hi[1], g)),
+                 axis=-1).reshape(-1, 2)
+
+    def inside(X):
+        X = np.asarray(X, np.float64).reshape(-1, 2)
+        return (points_in_poly(X, B) | (_dists_to_edges(X, B) <= ON_MM)) if len(X) else np.zeros(0, bool)
+    if len(Q):
+        Q = Q[points_in_poly(Q, P) & (_dists_to_edges(Q, P) > 2.0 * h)]
+    if len(Q):
+        Q = Q[inside(Q)]
+    grads = []
+    if len(Q):
+        gd = (mvc(P, F, Q[:, 0] + h, Q[:, 1]) - mvc(P, F, Q[:, 0] - h, Q[:, 1])) / (2.0 * h)
+        gy = (mvc(P, F, Q[:, 0], Q[:, 1] + h) - mvc(P, F, Q[:, 0], Q[:, 1] - h)) / (2.0 * h)
+        grads = [np.stack([gd, gy], axis=1)]
+    pts = [Q] if len(Q) else []
+    m = len(P)
+    for i in range(m):
+        a, b = P[i], P[(i + 1) % m]
+        L = float(np.hypot(*(b - a)))
+        if L <= 2.0 * CORNER_NEAR_MM:
+            continue
+        fr = sorted(set(EDGE_AT) | {CORNER_NEAR_MM / L, 1.0 - CORNER_NEAR_MM / L})
+        E = np.array([a + s * (b - a) for s in fr])
+        E = E[inside(E)]
+        if len(E):
+            pts.append(E)
+            grads.append(np.array([mvc_edge_gradient(P, i, e) @ F for e in E]))
+    if not pts:
+        return {"twist_deg": None, "twist_at": None, "twist_near": None, "twist_near_mm": None}
+    X, G = np.vstack(pts), np.vstack(grads)
+    gm = (grads[0].mean(axis=0) if len(Q) else G.mean(axis=0))   # the interior's area mean (else the edges')
+    nm = np.array([-gm[0], -gm[1], 1.0]) / math.sqrt(1.0 + float(gm @ gm))
+    nv = np.c_[-G, np.ones(len(G))]
+    nv /= np.linalg.norm(nv, axis=1, keepdims=True)
+    ang = np.degrees(np.arccos(np.clip(nv @ nm, -1.0, 1.0)))
+    k = int(np.argmax(ang))
+    dist = np.hypot(*(P - X[k]).T)
+    j = int(np.argmin(dist))
+    return {"twist_deg": float(ang[k]), "twist_at": [float(X[k, 0]), float(X[k, 1])], "twist_near": names[j],
+            "twist_near_mm": float(dist[j])}
+
+
+def _twist_text(f: dict) -> str:
+    """A warp's largest sampled turn from its mean plane, in whole degrees, where, and its nearest corner. "Sampled":
+    nearer a corner whose two edges run nearly straight on, the surface turns further (the A/A2 logo: 52 deg at 0.05
+    mm from A, 62.6 at 0.03 mm, built 57.5 on the builder's triangles), so the number is a fact about these points,
+    never the surface's limit."""
+    d, y = f["twist_at"]
+    return (f"its largest sampled turn from its mean plane is {f['twist_deg']:.0f} deg, at d {_fixed(d)}, y "
+            f"{_fixed(y)} ({f['twist_near_mm']:.2f} mm from corner {f['twist_near']})")
+
+
+def _fitted_off_warning(n: str, rec: dict, dr: float, yr: float, sdd: float, sdy: float) -> dict | None:
+    """W_FIT_OFF_READING kind "fitted": a read corner the fit placed beyond OFF_POSITION_SD sd of where it was read
+    along the directions it may move (its position rows' chi2 beyond the probability of OFF_POSITION_SD sd for their
+    count: 2.45 sd in two directions), where, how far and in sd, and the outline knots it carried with their move. Why
+    (v3p3 P1, session2 r0004): the flat crown slid the tip E 3.04 mm forward, 2.82 sd, outside its reading's 95 %
+    ellipse, the top outline knot with it (0.42 mm higher at d 70), and no fact said so: the position test above
+    compares the design's node, which sat 0.004 mm from the reading. The fit may move a corner up to POS_MAX_SD per
+    direction (the prompt said "within its reading's error")."""
+    k = int(rec.get("free_dims") or 0)
+    ps_ = float(rec.get("pos_sd") or 0.0)
+    if not k or chi2_tail(ps_ ** 2, k) >= chi2_tail(OFF_POSITION_SD ** 2, 1):
+        return None
+    d, y = float(rec["d"]), float(rec["y"])
+    off = math.hypot(d - dr, y - yr)
+    pm = (lambda v: f" +- {v:.2f}" if v > 0.0 else "")
+    knots = list(rec.get("knots") or [])
+    mv = rec.get("move_mm") or [0.0, 0.0]
+    msg = (f"node {n} at d {_fixed(d)}, y {_fixed(y)}: the fit placed it {off:.2f} mm from its reading at d "
+           f"{_fixed(dr)}{pm(sdd)}, y {_fixed(yr)}{pm(sdy)} ({ps_:.1f} sd along the directions it may move"
+           + (", at its move limit" if rec.get("at_cap") else "") + ")")
+    if knots:
+        msg += (f"; the {' and '.join(knots)} outline knot{'s' if len(knots) > 1 else ''} it lies on moved with it "
+                f"({_mm(mv[0])} {_mm(mv[1])} mm in d y)")
+    return {"code": "W_FIT_OFF_READING", "node": n, "kind": "fitted", "off_mm": off, "at": [d, y], "read_at": [dr, yr],
+            "pos_sd": ps_, "knots": knots, "message": msg}
+
+
 def _not_flat_warning(label: str, test: dict, obs: list, nodes: dict) -> dict:
     """W_FACE_NOT_FLAT (module docstring): fixed wording, facts only, the ways unranked."""
     dev = [x for x in test["loo"]]
     if test["extra"] == 1:
+        # one extra corner: every deviation has the one sigma sqrt(chi2), said per corner, and that the readings cannot
+        # single one out (v3p3-verify-2: the mm rank the corners by lever arm, A at d 0.4 always largest, 36 mm in front
+        # of K, E, H; a 2 mm lift at K alone printed A -5.27, E -3.34, K +2.00)
         parts, unit = [], " mm"
         for x in dev:
             if x["in_line"]:
                 parts.append(f"{x['node']} (others nearly in line)")
             else:
-                parts.append(f"{x['node']} {x['mm']:+.2f} +- {x['sd_mm']:.2f}{unit}")
+                parts.append(f"{x['node']} {_signed(x['mm'])} +- {x['sd_mm']:.2f}{unit}")
                 unit = ""
-        devs = "each corner from the plane of the other three: " + ", ".join(parts)
+        devs = (f"each corner {math.sqrt(test['flat_chi2']):.1f} sd from the plane of the other three (with one extra "
+                f"corner the readings cannot say which corner is off): " + ", ".join(parts))
     else:
         top = sorted((x for x in dev if not x["in_line"]), key=lambda x: (-x["sigma"], x["node"]))[:3]
         devs = "largest from the plane of the others: " + ", ".join(
-            f"{x['node']} {x['mm']:+.2f} +- {x['sd_mm']:.2f} mm ({x['sigma']:.1f} sd)" for x in top)
-    fit = sorted(obs, key=lambda m: (-abs(nodes[m]["residual_sd"]), m))
-    built = "the flat fit: " + ", ".join(f"{m} {nodes[m]['residual_mm']:+.2f}{' mm' if i == 0 else ''} "
-                                         f"({abs(nodes[m]['residual_sd']):.1f} sd)" for i, m in enumerate(fit))
+            f"{x['node']} {_signed(x['mm'])} +- {x['sd_mm']:.2f} mm ({x['sigma']:.1f} sd)" for x in top)
+    # where the flat fit puts the misfit: each observed corner's whole residual, ranked by it (v3p3 P1: "the flat fit:
+    # E +0.41 mm (1.1 sd)" while the fit slid E 3.04 mm, 2.8 sd, along its reading)
+    fit = sorted(obs, key=lambda m: _misfit_key(m, nodes[m]))
+    built = "the flat fit (fitted - read): " + ", ".join(_misfit_text(m, nodes[m]) for m in fit)
     e = test["extra"]
     head = (f"face {label}: its corners do not fit one flat face (chi2 {test['flat_chi2']:.1f} for {e} extra corner"
-            f"{'s' if e > 1 else ''}" + (f", {math.sqrt(test['flat_chi2']):.1f} sd" if e == 1 else "") + ")")
+            f"{'s' if e > 1 else ''})")
     return {"code": "W_FACE_NOT_FLAT", "face": label, "chi2": test["flat_chi2"], "extra": e, "deviations": dev,
-            "fit": [{"node": m, "mm": nodes[m]["residual_mm"], "sd": nodes[m]["residual_sd"]} for m in fit],
+            "fit": [{"node": m, "mm": nodes[m]["residual_mm"], "sd": nodes[m]["residual_sd"],
+                     "pos_mm": nodes[m].get("pos_mm"), "pos_sd": nodes[m].get("pos_sd"),
+                     "chi2": _whole_chi2(nodes[m])} for m in fit],
             "message": f"{head}: {devs}; {built}; {WAYS}" if fit else f"{head}: {devs}; {WAYS}"}
 
 
@@ -2952,12 +3296,16 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
             rec = {"d": d, "y": y, "X": X, "t": X - pb.x_in(d), "sd_X": float(sdX[i]), "source": src, "obs_X": oX,
                    "obs_sd": osd, "residual_mm": res, "residual_sd": None if osd == 0.0 else res / osd,
                    "prior": bool(flag[i]), "inside": pb.inside[n], "at_bound": n in at_bound}
-            if src == "read":
-                rec.update({"pos_sd": float(np.linalg.norm(rv[1:])), "chi2": float(rv @ rv)})
+            if src == "read":                        # pos_mm: its position rows in mm (L rows, L L' its free
+                Bm = pb.Bn[n]                        # directions' covariance): fitted - read along them, turns in
+                pos_mm = (float(np.linalg.norm(np.linalg.cholesky(Bm.T @ pb.read_cov[n][:2, :2] @ Bm) @ rv[1:]))
+                          if Bm.shape[1] else 0.0)
+                rec.update({"pos_sd": float(np.linalg.norm(rv[1:])), "pos_mm": pos_mm, "chi2": float(rv @ rv)})
         if src == "read":
             r = pb.src[n][3]
             rec.update({"read_sd": float(pb.src[n][2]), "camera_mm": cam, "gap_mm": rec["X"] - float(pb.src[n][1]),
                         "design_at": [d0, y0], "move_mm": [d - d0, y - y0], "free_dims": len(pb.cidx[n]),
+                        "knots": [ch for ch, _ in pb.knots[n]],          # the outline knots that move with it
                         "at_cap": any(abs(float(z[pb.N + j]) - pb.coords[j]["off"]) >= pb.coords[j]["cap"] - 1e-9
                                       for j in pb.cidx[n])})
             rec["reading"] = {k: r[k] for k in READ_KEYS if k in r}
@@ -2991,10 +3339,12 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
                 zs = (t_node - t_read) / sd
                 if abs(zs) > OFF_READING_SD:
                     what = {"typed": "typed", "solve": "solved", "base": "base"}[kind]
+                    # t values without "mm" (unlike W_FIT_SOLVED's X and t): tests/agent/test_temple_lab.py pins this
+                    # form; a unit here is a request to lab-e2 (v3p3-clean-fit)
                     warnings.append({"code": "W_FIT_OFF_READING", "node": n, "kind": kind, "typed_t": t_node,
                                      "node_t": t_node, "read_t": t_read, "sd_mm": sd,
-                                     "message": f"{what} {n} {t_node:.2f}: its reading {t_read:.2f} +- {sd:.2f} "
-                                                f"({zs:+.1f} sd)"})
+                                     "message": f"{what} {n} {_fixed(t_node)}: its reading {_fixed(t_read)} +- "
+                                                f"{sd:.2f} ({_signed(zs, 1)} sd)"})
         rd = pb.src[n][3] if kind == "read" else st
         if rd is not None and "d" in rd and "y" in rd:
             try:
@@ -3013,14 +3363,19 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
             far = off > max(OFF_POSITION_MM, OFF_POSITION_SD * max(sdd, sdy))
             if far or (each and max(abs(c) for c in each) > OFF_CARRY_SD * pb.sig[n]):
                 pm = (lambda v: f" +- {v:.2f}" if v > 0.0 else "")
-                spread = (f" (the faces through it {min(each):+.2f}..{max(each):+.2f})"
+                spread = (f" (the faces through it {_signed(min(each))}..{_signed(max(each))})"
                           if len(each) > 1 and max(each) - min(each) >= 0.005 else "")
-                msg = (f"node {n} at d {dn:.2f}, y {yn:.2f}: its reading at d {dr:.2f}{pm(sdd)}, y {yr:.2f}{pm(sdy)} "
-                       f"({off:.2f} mm away" + (f"; its X carried {carry:+.2f} mm along the faces to the node{spread}"
-                                                if each and max(abs(c) for c in each) >= 0.005 else "") + ")")
+                msg = (f"node {n} at d {_fixed(dn)}, y {_fixed(yn)}: its reading at d {_fixed(dr)}{pm(sdd)}, y "
+                       f"{_fixed(yr)}{pm(sdy)} ({off:.2f} mm away"
+                       + (f"; its X carried {_signed(carry)} mm along the faces to the node{spread}"
+                          if each and max(abs(c) for c in each) >= 0.005 else "") + ")")
                 warnings.append({"code": "W_FIT_OFF_READING", "node": n, "kind": "position", "off_mm": off,
                                  "at": [dn, yn], "read_at": [dr, yr], "carried_mm": carry, "faces_mm": each,
                                  "message": msg})
+            if kind == "read" and pb.cidx[n]:          # where the fit put the corner (v3p3 P1)
+                w = _fitted_off_warning(n, nodes[n], dr, yr, sdd, sdy)
+                if w is not None:
+                    warnings.append(w)
     faces, coefs = {}, {}
     for label in pb.labels:
         poly = pb.poly[label]
@@ -3036,7 +3391,7 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
             P_, X_, sd_, Acam = _flat_inputs(pb, label, known, fgrad[label])
             test = _flat_test(known, P_, X_, sd_, Acam)
             plane = pb.mode[label]
-            mis = max(obs, key=lambda n: (abs(nodes[n]["residual_sd"]), n)) if obs else None
+            mis = min(obs, key=lambda n: _misfit_key(n, nodes[n])) if obs else None     # by the whole residual
             rec = {"kind": "flat", "plane": plane if isinstance(plane, str) else next(iter(plane)), "corners": poly,
                    "known": known, "coef": coefs[label], "chi2": corner_chi2, "corner_chi2": corner_chi2,
                    "flat_chi2": None, "extra": 0, "loo": [], "not_flat": False, "misfit_at": mis,
@@ -3054,6 +3409,12 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
             rec = {"kind": "warp", "plane": "warp", "corners": poly, "coef": [float(v) for v in ls],
                    "warp_mm": float(abs(res[k])), "warp_at": poly[k], "warp_signed_mm": float(res[k]),
                    "chi2": corner_chi2, "corner_chi2": corner_chi2, "not_flat": False}
+            rec.update(_warp_twist(pb, label, Xc))
+            if rec["twist_deg"] is not None and rec["twist_deg"] > WARP_TWIST_WARN_DEG:
+                warnings.append({"code": "W_WARP_TWIST", "face": label, "deg": rec["twist_deg"],
+                                 "at": rec["twist_at"], "near": rec["twist_near"],
+                                 "message": f"face {label} warp ({' '.join(poly)}): {_twist_text(rec)} (over "
+                                            f"{WARP_TWIST_WARN_DEG:g} deg)"})
         faces[label] = rec
     warnings.sort(key=lambda w: (FIT_WARNINGS.index(w["code"]), w.get("face", ""), w.get("node", "")))
     creases = []

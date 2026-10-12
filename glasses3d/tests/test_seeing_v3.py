@@ -5,14 +5,18 @@ Unit (synthetic, always run):
 * compare.edge_runs projects posed polylines exactly (the samples are project_mm of the 3D points), keeps the runs a
   plate in front hides out, hides an edge seen through the body, keeps a valley seen at a grazing angle (the exact
   ray, not the depth image's pixel centre), and carries a per-point value (a signed angle) along its runs;
-* edge_label / run_label / edge_shape_of / draw_edges: "16" / "-3" / "24..33", colours by shape, 2 px from 6 deg and
+* edge_label / run_label / edge_shape_of / draw_edges: "16°" / "-3°" / "24-33°" / "-9 to 4°" (compare.deg_text: the
+  v3p3 review's "16..29" read as "16.29" at the size Astra gets a zoom), colours by shape, 2 px from 6 deg and
   1 px below, a run with per-sample angles drawn segment by segment, one label per pair at its longest run, labels
   inside the image and never overlapping; overlay_matched draws the edges INSTEAD of the mesh polylines;
 * outline_offsets on synthetic masks: top / bottom photo minus model, None with its reason (covered, off temple, off
   image, no model edge, no photo edge);
 * Seeing._side_outline on two synthetic box temples: only the temple whose outer face faces the camera is measured
   ("seen from inside" otherwise), the top is not measured in a view from above ("top face in view": the silhouette
-  is the top face's far edge) and the bottom not in a view from below, both in a square-on view; the outline text;
+  is the top face's far edge) and the bottom not in a view from below, both in a square-on view; the outline text,
+  which prints that far edge (photo and model alike) minus its median (v3p3-verify-8: session2's 2.3-3.8 mm low
+  rear arm top at d 110-120 printed nowhere): a step along the arm reads as one, fewer than FAR_EDGE_LEVEL_MIN
+  stations as measured, other stations' reasons in the same list, a record without the silhouette "not measured";
 * geometry_view, zoom_scale, the 2 x 2 zoom grid, labelled(fit=True); resample_box registers a box on the crop
   camera's exact grid (k up and down, at the image border) and never overshoots (LANCZOS does); backdrop_share;
 * Seeing._check_v3_args (refusals, numpy reals, deg_at, a ridge with a negative deg), _check_edges_on_model (edges
@@ -24,7 +28,7 @@ Unit (synthetic, always run):
   the edge's own range: the roll-band mix-up "36.9 (37.7-39.3)" is refused; soft only on a facet|base pair; the
   sha holds them only when given), the records mark soft and the texts list soft borders apart from the creases.
 * The 2026-10-12 review of that (review2-seeing2-1): the texts say what the drawing means (a soft border is drawn
-  without an angle and its fold is listed with the build's creases, not "no crease"; a..b is over the drawn run the
+  without an angle and its fold is listed with the build's creases, not "no crease"; a-b° is over the drawn run the
   label sits on); lines go on whole pixels (compare.line_px: 1 px on the nearest, so a soft dash at v 30.6 is on row
   31, not 30); I1's soft means smooth-shaded in the build: a soft facet's border run built sharp (the builder's own
   steep and straddling fixtures) goes out as an ordinary, labelled crease, and no soft run has a sharp edge.
@@ -38,26 +42,31 @@ soft is drawn dashed grey with no label and listed as a soft border (plumbing: r
 border, sharp in the build, marked soft in the edge set; I1's soft flag itself is tested without Blender).
 * One matched compare at B1 (black-side) and 05 with model edges and two zooms (05 geometry, B1 render + edges):
   rows actually stacked (3 each, k from 3 rows), the edges drawn instead of the mesh creases, the render rows with
-  the model's outline and their backdrop share; the far (mirrored) temple's edges hidden by its own body in 05 (seen
+  the model's outline and their backdrop share, in one row order for every colour (photo, render, overlay: the
+  stacked image's rows are the row files in that order), titled with ``photo_names`` (the lab's ids) when given and
+  keyed by them; the far (mirrored) temple's edges hidden by its own body in 05 (seen
   from inside) and off the image in B1; logo|lower and crown|logo on their photo lines (the investigation's traced
   lines KC and AK, w2/crown-geometry/picks.json) within 2 and 4 px; side outline: the charted temple faces the
-  camera, its top is not measured (the views look 14-15 deg down), its bottom within 0.5 mm at d 10-70, the mirrored
-  temple seen from inside; zoom sizes, panels, labels (a deg_at ramp labels "a..b"), the zoom's stretch = its photo's
+  camera, its top is not measured (the views look 14-15 deg down) and its top face's far edge is printed minus its
+  median, its bottom within 0.5 mm at d 10-70, the mirrored temple seen from inside; zoom sizes, panels, labels (a
+  deg_at ramp labels "a-b°"), the zoom's stretch = its photo's
   compare stretch (also in a zoom-only call); the cache (the opening is in the key without model edges too) and the
   old mesh rule without model edges.
 * The instrument on the model itself (review F1): rendered at 05's and 01's own cameras at k 1, composited as the
   compare row and matted with the photos' own rule (glossy_floor), the side outline reads every measured station
-  within 1 native px; the top silhouette it does not print reads <= -1 mm (the white top face lost to the matte).
+  within 1 native px; the top silhouette reads <= -1 mm (the white top face lost to the matte) and, printed minus
+  its median, stays within 1 mm at every station: a printed step of 2-4 mm is the photo's, not the matte's.
 * Another part hides edges on the real head: at 02 the front and the left lens are the first hit for most of the
   mirrored temple's edge vertices (no photo can show one temple hiding the other's outer-face edges).
 * Refusals journaled: model edges without hinge_z_mm, with a wrong hinge_z_mm or an opening the head does not have,
-  bad zoom boxes, photo_v1.
+  bad zoom boxes, photo_names naming a photo the basis lacks, photo_v1 (with model edges or photo_names).
 The images go under the test's tmp folder; G3D_SEEING_IMAGES=<dir> also copies them there for a review."""
 from __future__ import annotations
 
 import json
 import math
 import os
+import re
 import shutil
 import stat
 from collections import defaultdict
@@ -67,7 +76,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from glasses3d.agent.seeing import SIDE_FACE_PX, SOFT_TEXT, Seeing, SeeingError
+from glasses3d.agent.seeing import FAR_EDGE_LEVEL_MIN, SIDE_FACE_PX, SOFT_TEXT, Seeing, SeeingError
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import fitmesh
 from glasses3d.g3d_host import pose as PO
@@ -165,9 +174,9 @@ def test_edge_runs_keep_a_grazing_valley():
 
 # ------------------------------------------------------------------------------------------------ drawing
 def test_edge_labels_and_drawing():
-    assert C.edge_label(16.2, "ridge") == "16" and C.edge_label(3.4, "valley") == "-3"
-    assert C.edge_label(-3.4, "valley") == "-3" and C.edge_label(1.7, "flat") == "2"
-    assert C.edge_label(-0.4, "flat") == "0" and C.edge_label(-1.6, "flat") == "-2"
+    assert C.edge_label(16.2, "ridge") == "16°" and C.edge_label(3.4, "valley") == "-3°"
+    assert C.edge_label(-3.4, "valley") == "-3°" and C.edge_label(1.7, "flat") == "2°"
+    assert C.edge_label(-0.4, "flat") == "0°" and C.edge_label(-1.6, "flat") == "-2°"
     im = Image.new("RGB", (200, 120), (255, 255, 255))
     edges = [{"pair": "crown|logo", "shape": "ridge", "deg": 10.8,
               "runs": [np.array([[10.0, 20.0], [190.0, 20.0]]), np.array([[10.0, 40.0], [60.0, 40.0]])]},
@@ -181,7 +190,7 @@ def test_edge_labels_and_drawing():
     assert np.flatnonzero((a[:, 150] == C.FLAT_RGB).all(axis=1)).tolist() == [80]   # 1 px below 6 deg
     assert len(np.flatnonzero((a[100] == C.VALLEY_RGB).all(axis=1))) == 2
     assert sorted(p for p, _t, _c in labels) == ["crown|logo", "logo|lower", "lower|shoulder"]   # once per pair
-    assert {p: t for p, t, _c in labels} == {"crown|logo": "11", "logo|lower": "3", "lower|shoulder": "-8"}
+    assert {p: t for p, t, _c in labels} == {"crown|logo": "11°", "logo|lower": "3°", "lower|shoulder": "-8°"}
     crown = next(c for p, _t, c in labels if p == "crown|logo")
     assert abs(crown[1] - 20.0) < 20 and 60 < crown[0] < 140                   # at the longest run's middle
     boxes = []
@@ -220,10 +229,10 @@ def test_per_segment_angles_and_range_labels():
     warp = np.column_stack([u, np.full_like(u, 20.0), np.linspace(24.4, 33.0, 181)])
     flip = np.column_stack([u, np.full_like(u, 60.0), np.linspace(4.0, -9.0, 181)])     # +4 -> -9 deg
     level = np.column_stack([u, np.full_like(u, 100.0), np.linspace(24.6, 25.4, 181)])
-    assert C.run_label(warp, 25.0, "ridge") == ("24..33", "ridge")
-    assert C.run_label(level, 0.0, "flat") == ("25", "ridge")                   # spread < 2: the run's mean
-    assert C.run_label(warp[:, :2], 25.16, "ridge") == ("25", "ridge")           # no values: the edge's own deg
-    assert C.run_label(flip, 3.0, "valley") == ("-9..4", "valley")               # min..max, shaped by the mean
+    assert C.run_label(warp, 25.0, "ridge") == ("24-33°", "ridge")
+    assert C.run_label(level, 0.0, "flat") == ("25°", "ridge")                  # spread < 2: the run's mean
+    assert C.run_label(warp[:, :2], 25.16, "ridge") == ("25°", "ridge")          # no values: the edge's own deg
+    assert C.run_label(flip, 3.0, "valley") == ("-9 to 4°", "valley")            # min to max, shaped by the mean
     im = Image.new("RGB", (200, 120), (255, 255, 255))
     labels = C.draw_edges(im, [{"pair": "crown|logo", "shape": "ridge", "deg": 25.16, "runs": [warp]},
                                {"pair": "logo|nose", "shape": "valley", "deg": 2.0, "runs": [flip]}], labels=True)
@@ -237,7 +246,7 @@ def test_per_segment_angles_and_range_labels():
     assert col(80, C.FLAT_RGB) == [60]                                           # -1.1 deg: grey 1 px
     assert col(130, C.VALLEY_RGB) == [60]                                        # -4.7 deg: blue 1 px
     assert len(col(180, C.VALLEY_RGB)) == 2                                      # -8.3 deg: blue 2 px
-    assert {p: t for p, t, _c in labels} == {"crown|logo": "24..33", "logo|nose": "-9..4"}
+    assert {p: t for p, t, _c in labels} == {"crown|logo": "24-33°", "logo|nose": "-9 to 4°"}
 
 
 def test_soft_borders_are_dashed_thin_grey_and_unlabelled():
@@ -254,7 +263,7 @@ def test_soft_borders_are_dashed_thin_grey_and_unlabelled():
               "runs": [soft]}]
     labels = C.draw_edges(im, edges, labels=True)
     a = np.asarray(im)
-    assert [(p, t) for p, t, _c in labels] == [("crown|shoulder", "37")]               # the soft one: no label
+    assert [(p, t) for p, t, _c in labels] == [("crown|shoulder", "37°")]              # the soft one: no label
     lit = (a[60] == C.SOFT_RGB).all(axis=1)
     assert not (a == C.VALLEY_RGB).all(axis=2).any() and not (a == C.RIDGE_RGB).all(axis=2)[:, :120].any()
     assert not (a[59] == C.SOFT_RGB).all(axis=1).any() and not (a[61] == C.SOFT_RGB).all(axis=1).any()   # 1 px
@@ -321,16 +330,40 @@ def test_labels_read_the_builds_deg_at_then_range_then_deg():
     vote (a warp crease that changes sign)."""
     xy = np.column_stack([np.linspace(10.0, 100.0, 91), np.full(91, 20.0)])
     vals = np.column_stack([xy, np.linspace(24.4, 33.0, 91)])
-    assert C.run_label(xy, 17.1, "ridge", (15.7, 29.2)) == ("16..29", "ridge")         # a warp crease, no deg_at
-    assert C.run_label(xy, 38.4, "ridge", (37.7, 39.3)) == ("38", "ridge")             # spans < 2: deg
-    assert C.run_label(xy, -2.2, "ridge", (-10.0, 3.0)) == ("-10..3", "valley")        # signed deg, not the vote
-    assert C.run_label(xy, 1.4, "valley", (1.2, 1.8)) == ("1", "flat")
-    assert C.run_label(vals, 25.0, "ridge", (0.0, 50.0)) == ("24..33", "ridge")        # deg_at wins
-    assert C.run_label(xy, 3.4, "valley") == ("-3", "valley")                           # legacy: unsigned + shape
+    assert C.run_label(xy, 17.1, "ridge", (15.7, 29.2)) == ("16-29°", "ridge")         # a warp crease, no deg_at
+    assert C.run_label(xy, 38.4, "ridge", (37.7, 39.3)) == ("38°", "ridge")            # spans < 2: deg
+    assert C.run_label(xy, -2.2, "ridge", (-10.0, 3.0)) == ("-10 to 3°", "valley")     # signed deg, not the vote
+    assert C.run_label(xy, 1.4, "valley", (1.2, 1.8)) == ("1°", "flat")
+    assert C.run_label(vals, 25.0, "ridge", (0.0, 50.0)) == ("24-33°", "ridge")        # deg_at wins
+    assert C.run_label(xy, 3.4, "valley") == ("-3°", "valley")                          # legacy: unsigned + shape
     im = Image.new("RGB", (120, 60), (255, 255, 255))
     labels = C.draw_edges(im, [{"pair": "crown|logo", "shape": "ridge", "deg": 17.1, "range": [15.7, 29.2],
                                 "runs": [xy]}], labels=True)
-    assert [t for _p, t, _c in labels] == ["16..29"]
+    assert [t for _p, t, _c in labels] == ["16-29°"]
+
+
+def test_label_notation_is_one_and_never_reads_as_a_decimal():
+    """v3p3 review (P3, checked: compare.run_label printed "16..29" and "17..29"; probes3/astra/zoom_label_b2.png:
+    the two dots ~2 px apart in a 1218 px image read as "16.29"; the receipt prints "(15.7-29.2)" for the same
+    crease): one notation, deg_text, everywhere a label is drawn: "a°", "a-b°" (lo >= 0), "a to b°" (lo < 0: a hyphen
+    between signed numbers reads as a minus). No label holds "..", and every label's numbers parse back (the
+    integration's _label_values)."""
+    assert C.deg_text(16.4) == "16°" and C.deg_text(-3.4) == "-3°" and C.deg_text(-0.4) == "0°"
+    assert C.deg_text(15.7, 29.2) == "16-29°" and C.deg_text(0.0, 4.0) == "0-4°"
+    assert C.deg_text(-8.2, -3.1) == "-8 to -3°" and C.deg_text(-9.0, 4.0) == "-9 to 4°"
+    u = np.linspace(10.0, 190.0, 181)
+    cases = [(np.column_stack([u, np.full_like(u, 20.0), np.linspace(a, b, 181)]), a, b)
+             for a, b in ((15.7, 29.2), (-8.2, -3.1), (-9.0, 4.0), (24.6, 25.4))]
+    for run, a, b in cases:
+        text, _shape = C.run_label(run, (a + b) / 2, "ridge")
+        assert ".." not in text and text.endswith("°")
+        assert _label_values(text) == ([round(a), round(b)] if b - a >= C.EDGE_RANGE_DEG else [round((a + b) / 2)])
+    im = Image.new("RGB", (200, 60), (255, 255, 255))
+    labels = C.draw_edges(im, [{"pair": "crown|logo", "shape": "ridge", "deg": 17.1, "range": [15.7, 29.2],
+                                "runs": [cases[0][0][:, :2]]}], labels=True)
+    assert [t for _p, t, _c in labels] == ["16-29°"]
+    from glasses3d.agent.seeing import EDGE_LABEL_TEXT
+    assert "a-b°" in EDGE_LABEL_TEXT and "a to b°" in EDGE_LABEL_TEXT and ".." not in EDGE_LABEL_TEXT
 
 
 # ------------------------------------------------------------------------------------------------ outline offsets
@@ -445,8 +478,41 @@ def test_side_outline_measures_only_what_a_silhouette_shows():
     assert all(r["reason"] == "seen from inside" for r in mi["top"] + mi["bottom"])
     text = Seeing._outline_text("charted", ch)
     assert "this view looks 14 deg down onto the temple" in text and f"1 px = {1 / ppm_y:.2f} mm" in text
-    assert "top: not measured (the view shows the top face" in text
+    assert "not measured" not in text and "top (" not in text                    # no outline list for the top
+    assert ("top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
+            "alike show its far edge, not the outline's top), minus its median +0.0 over 11 stations" in text)
+    assert "(+0.25 per mm wider in the photo)" in text                           # tan(14 deg)
+    assert "; at d: 10 +0.0, 20 +0.0, 30 +0.0" in text and "110 +0.0; bottom" in text
     assert "bottom (+ = the photo's edge lower) at d: 10 +0.5, 20 +0.5" in text and "n/a" not in text
+    # the photo's top raised by ~2 mm (whole px) on the near temple: over the whole arm the median takes it off (it
+    # prints as the median: "+2.0 over 11 stations"); behind d 75 only (4 of 11 stations: the run-7 rear arm) the
+    # median stays on the level and d 80-110 print the step; the bottom is untouched
+    v2 = int(round(2.0 * ppm_y))
+    near_t = g["part"] == 0
+    u_of = {d: float(project_mm(PO.chart_to_posed([[d, 0.0, 66.0]], 1, HZ, None, None), g["cam"], SIDE_FRAME)[0][0])
+            for d in (10.0 * i for i in range(1, 12))}
+    u75 = float(np.interp(75.0, sorted(u_of), [u_of[d] for d in sorted(u_of)]))
+
+    def raised(behind_75: bool) -> np.ndarray:
+        m = matte.copy()
+        for c in np.flatnonzero(near_t.any(axis=0)):
+            if behind_75 and (c - u75) * (u_of[110.0] - u_of[10.0]) < 0:
+                continue
+            top = int(np.flatnonzero(near_t[:, c])[0])
+            m[max(0, top - v2):top, c] = True
+        return m
+    whole = Seeing._side_outline(_SideBasis(raised(False)), "x", g, mesh, roles, bodies, HZ, None)["charted"]
+    assert all(r["offset_mm"] == pytest.approx(v2 / ppm_y, abs=0.01) for r in whole["top_silhouette"])
+    tw = Seeing._outline_text("charted", whole)
+    assert f"minus its median {v2 / ppm_y:+.1f} over 11 stations" in tw and "110 +0.0; bottom" in tw
+    rear = Seeing._side_outline(_SideBasis(raised(True)), "x", g, mesh, roles, bodies, HZ, None)["charted"]
+    got = {r["d_mm"]: r["offset_mm"] for r in rear["top_silhouette"]}
+    assert all(got[d] == pytest.approx(v2 / ppm_y if d >= 80 else 0.0, abs=0.01) for d in got), got
+    tr = Seeing._outline_text("charted", rear)
+    s2 = f"+{v2 / ppm_y:.1f}"
+    assert "minus its median +0.0 over 11 stations" in tr
+    assert f"70 +0.0, 80 {s2}, 90 {s2}, 100 {s2}, 110 {s2}; bottom" in tr     # 4 of 11 stepped: the level holds
+    assert rear["bottom"] == ch["bottom"]
     assert Seeing._outline_text("mirrored", mi).startswith("outline: the mirrored temple is seen from inside here")
     # square-on (pitch 0): both edges are silhouettes; the far temple stays unmeasured
     g0 = _side_view(mesh, 90.0, 0.0)
@@ -474,6 +540,84 @@ def test_side_outline_measures_only_what_a_silhouette_shows():
     gs["mask"] = gs["part"] == 0
     outs = Seeing._side_outline(_SideBasis(gs["mask"]), "x", gs, mesh, roles, bodies, HZ, None)["charted"]
     assert all(r["reason"] is None and r["offset_mm"] == 0.0 for r in outs["top"] + outs["bottom"])
+
+
+# session2's compare cmp022 (head c0015 = r6 of run 7's package, a tool test; v3p3-verify-8): the top silhouette of the
+# camera-facing temple, photo minus model, + = the photo's edge higher (None: covered / no photo edge). Identical
+# from cmp001 (revision 0) at d 110-130: the original's rear arm.
+SESSION2_TOP_SIL = {
+    "01": (14.8, [None, -0.63, None, -0.88, -0.88, -0.75, -0.88, -1.01, -0.88, -0.25, 1.40, 2.84, 0.65]),
+    "05": (14.7, [None, -0.41, None, -0.69, -0.82, -0.69, -0.82, -0.82, -0.96, -0.14, 1.81, 2.69, 0.86]),
+    "B1": (14.7, [None, -0.49, None, -0.73, -0.85, -0.73, -0.73, -0.73, -0.86, -0.37, 1.86, 3.02, 1.02])}
+
+
+def _sil_record(elev: float, vals: list, reason_none: str = "covered") -> dict:
+    """An outline_offsets_mm record of a view from above as _side_outline writes it: every top station "top face in
+    view", the far edge in top_silhouette, a bottom measured at 0."""
+    d = [10.0 * (i + 1) for i in range(len(vals))]
+    top = [{"d_mm": x, "offset_mm": None, "reason": "top face in view", "px_per_mm": 7.5} for x in d]
+    sil = [{"d_mm": x, "offset_mm": v, "reason": None if v is not None else reason_none, "px_per_mm": 7.5}
+           for x, v in zip(d, vals)]
+    bottom = [{"d_mm": x, "offset_mm": 0.0, "reason": None, "px_per_mm": 7.5} for x in d]
+    return {"facing": True, "elevation_deg": elev, "mm_per_px": [0.125, 0.131], "top": top, "bottom": bottom,
+            "top_silhouette": sil}
+
+
+def test_far_edge_text_prints_session2s_low_rear_arm():
+    """v3p3-verify-8 (owner P1, confirmed): in 01, 05 and B1 (14.7-14.8 deg from above) session2's head prints
+    "top: not measured" while its arm top behind the facets sits 2.3-2.6 mm below the photo's at d 110 and 3.5-3.8 at
+    d 120 against the d 40-90 level (the model's own render under the photo's matte rule agrees). The line now prints
+    the top face's far edge, photo and model alike, minus its median over the stations: d 110 / 120 read +2.1..+2.6 /
+    +3.4..+3.8 in all three, d 40-90 within 0.3 of 0, with the median, the count, tan(elevation) per mm of width and
+    the other stations' reasons; no "not measured" for the top."""
+    want = {"01": ("-0.8", "100 +0.5, 110 +2.1, 120 +3.6, 130 +1.4"),
+            "05": ("-0.7", "100 +0.5, 110 +2.5, 120 +3.4, 130 +1.5"),
+            "B1": ("-0.7", "100 +0.4, 110 +2.6, 120 +3.8, 130 +1.8")}
+    for pid, (elev, vals) in SESSION2_TOP_SIL.items():
+        o = _sil_record(elev, vals)
+        o["top_silhouette"][2]["reason"] = "no photo edge" if pid == "01" else "covered"
+        text = Seeing._outline_text("charted", o)
+        med, tail = want[pid]
+        assert "not measured" not in text, pid
+        assert (f"top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
+                f"alike show its far edge, not the outline's top), minus its median {med} over 11 stations: beyond "
+                "what the stations share, a value is a difference in the arm's top height, in the top face's width "
+                "(+0.26 per mm wider in the photo) or lean, or in the matte's cut there; at d: 10 covered, 20 ") in text
+        assert tail + "; bottom (+ = the photo's edge lower) at d: 10 +0.0" in text, (pid, text)
+        level = float(np.median([v for v in vals if v is not None]))
+        assert all(abs(v - level) <= 0.3 for v in vals[3:9])                     # d 40-90: on the level
+        assert "(covered = the frame or the other temple lies at that edge" in text
+        assert ("no photo edge = the photo has no edge" in text) == (pid == "01")
+    # under FAR_EDGE_LEVEL_MIN stations: as measured, said so
+    few = _sil_record(14.7, [None, -0.4, None, None, 1.8, 2.7] + [None] * 7)
+    t = Seeing._outline_text("charted", few)
+    assert FAR_EDGE_LEVEL_MIN == 5 and "as measured (3 stations, under 5 for a median): a value is a difference" in t
+    assert "20 -0.4, 30 covered, 40 covered, 50 +1.8, 60 +2.7, 70 covered" in t
+    # a station whose top is measured (its face shows < 1 px there): the outline's list, then the far edge's
+    mixed = _sil_record(14.7, SESSION2_TOP_SIL["05"][1])
+    mixed["top"][0] = {"d_mm": 10.0, "offset_mm": 0.12, "reason": None, "px_per_mm": 7.5}
+    mixed["top_silhouette"] = mixed["top_silhouette"][1:]
+    t = Seeing._outline_text("charted", mixed)
+    assert "top (+ = the photo's edge higher) at d: 10 +0.1, 20 top face in view, 30 top face in view" in t
+    assert "minus its median -0.7 over 11 stations" in t and "; at d: 20 +0.3, 30 covered, 40 +0.0" in t
+    assert "top face in view = the view shows the top face; the silhouette is its far edge" in t
+    # an older record (no silhouette kept): "not measured", without the false "set by its width and lean"
+    old = _sil_record(14.7, SESSION2_TOP_SIL["05"][1])
+    del old["top_silhouette"]
+    t = Seeing._outline_text("charted", old)
+    assert "top: not measured (the view shows the top face, so the top silhouette is that face's far edge); " in t
+    assert "width and lean" not in t
+    # a view from below: the bottom face's far edge, + = the photo's edge lower
+    up = {**_sil_record(-14.0, SESSION2_TOP_SIL["05"][1]), "elevation_deg": -14.0}
+    up["bottom_silhouette"] = up.pop("top_silhouette")
+    up["top"], up["bottom"] = up["bottom"], up["top"]
+    for r in up["bottom"]:
+        r["reason"] = "bottom face in view"
+    t = Seeing._outline_text("charted", up)
+    assert "looks 14 deg up at the temple" in t and "top (+ = the photo's edge higher) at d: 10 +0.0" in t
+    assert ("bottom face's far edge (+ = the photo's edge lower; the view shows the bottom face, so photo and model "
+            "alike show its far edge, not the outline's bottom), minus its median -0.7 over 11 stations") in t
+    assert "(+0.25 per mm wider in the photo)" in t
 
 
 # ------------------------------------------------------------------------------------------------ geometry, zoom
@@ -544,6 +688,7 @@ def test_resample_box_registers_on_the_crop_grid_and_never_overshoots():
 
 # ------------------------------------------------------------------------------------------------ Seeing helpers
 class _Basis:
+    id = "basis-1"
     refs = {"reference-05": {}, "black-side": {}}
 
     @staticmethod
@@ -597,6 +742,15 @@ def test_check_v3_args_refusals_and_forms():
         assert ei.value.code == "E_ARGS", kw
     with pytest.raises(SeeingError, match="ridge with deg -5"):
         Seeing._check_v3_args(_Basis, None, [{**edge, "deg": -5.0}], None, 0.0)
+    # photo_names (v3p3 review: the images said "black-side photo", the texts "B1"): the lab's ids, checked
+    nm = Seeing._check_v3_args(_Basis, None, None, None, None, {"black-side.png": "B1", "reference-05": "05"})
+    assert nm["names"] == {"black-side": "B1", "reference-05": "05"} and ok["names"] == {}
+    for names, words in (({"reference-09": "09"}, "not a photo of basis-1"), (["B1"], "must be {photo: name}"),
+                         ({"black-side": "B 1"}, "1-60 characters"), ({"black-side": ""}, "1-60 characters"),
+                         ({"black-side": 7}, "1-60 characters")):
+        with pytest.raises(SeeingError, match=re.escape(words)) as ei:
+            Seeing._check_v3_args(_Basis, None, None, None, None, names)
+        assert ei.value.code == "E_ARGS"
     Seeing._check_matched_args("studio_dome_v1", np.float32(-10.6), None, None, None)   # a numpy hinge_z_mm
 
 
@@ -663,13 +817,16 @@ def test_soft_records_and_texts():
     zrec = {"rid": "reference-05", "view_kind": "side", "colourway": "target", "box": [0, 0, 40, 40], "k": 2.0,
             "px_per_mm": 7.3, "in_box": "temple", "panel_labels": {"photo": "p", "render": "r", "overlay": "o",
                                                                    "render_edges": "e"},
-            "model_edges": rec, "edge_labels": [{"pair": "crown|logo", "text": "11", "uv": [5.0, 5.0]}]}
+            "model_edges": rec, "edge_labels": [{"pair": "crown|logo", "text": "11°", "uv": [5.0, 5.0]}]}
     zt = Seeing._zoom_text(zrec, "cmp004")
-    assert ("model edges shown (deg from the build; - = valley; a..b = least..largest angle along the drawn run the "
-            "label sits on (along the whole edge when the build gives no angle per point)): crown|logo 11; soft "
+    assert ("model edges shown (deg from the build; - = valley; a-b° (a to b° when a is negative) = least-largest "
+            "angle along the drawn run the label sits on (along the whole edge when the build gives no angle per "
+            "point)): crown|logo 11°; soft "
             "borders shown (dashed grey: smooth-shaded, drawn without an angle; the fold is listed with the build's "
             "creases): shoulder|base") in zt
     assert "-5" not in zt and "-4.5" not in zt
+    assert zt.startswith("zoom 1 on reference-05 (side, target): native box")      # no name: the basis name
+    assert Seeing._zoom_text({**zrec, "name": "05"}, "cmp004").startswith("zoom 1 on 05 (side, target): native box")
 
 
 def test_check_edges_on_model():
@@ -745,8 +902,9 @@ def test_edges_posed_records_and_text():
             "model_edges": [], "edge_labels": [], "render_backdrop_share": 0.0}
     zt = Seeing._zoom_text(zrec, "cmp002")
     assert "the model is not in this box" in zt and "nan" not in zt and "this panel only" in zt
-    assert ("model edges shown (deg from the build; - = valley; a..b = least..largest angle along the drawn run the "
-            "label sits on (along the whole edge when the build gives no angle per point)): none here") in zt
+    assert ("model edges shown (deg from the build; - = valley; a-b° (a to b° when a is negative) = least-largest "
+            "angle along the drawn run the label sits on (along the whole edge when the build gives no angle per "
+            "point)): none here") in zt
     assert "soft borders" not in zt
 
 
@@ -779,8 +937,11 @@ def _soft(edges: list, pair: str) -> list:
 
 
 def _label_values(text: str) -> list:
-    """The whole degrees a label shows: "16" -> [16], "-9..4" -> [-9, 4]."""
-    return [int(x) for x in text.split("..")]
+    """The whole degrees a label shows (compare.deg_text, the whole label or an assertion error): "16°" -> [16],
+    "16-29°" -> [16, 29], "-9 to 4°" -> [-9, 4]."""
+    m = re.fullmatch(r"(-?\d+)(?:-(\d+)| to (-?\d+))?°", text)
+    assert m, text
+    return [int(x) for x in m.groups() if x is not None]
 
 
 PROBE1_HOST = G3D / "data" / "wp6v2" / "review_20261012" / "v3" / "probe1" / "host.json"
@@ -792,8 +953,8 @@ def test_builder_model_edges_meet_the_seeing_contract(case):
     crown (v3/probe1/host.json: crown|logo bends 15.7 -> 29.2 deg along its length), each also with the shoulder soft,
     pass _check_v3_args (deg and every deg_at inside the run's own range; soft only on shoulder|base, and there only
     on a run the build smooth-shades: no edge of it sharp); the label a whole run would get reads inside its range:
-    the warp's crown|logo "16..29", crown|shoulder "38" (37.7-39.3; the roll sub-bands' edges, which fold to ~0 at the
-    outline, gave "1..39" in probe1), revision 7's "11" / "20"."""
+    the warp's crown|logo "16-29°", crown|shoulder "38°" (37.7-39.3; the roll sub-bands' edges, which fold to ~0 at
+    the outline, gave "1..39" in probe1), revision 7's "11°" / "20°"."""
     from glasses3d.g3d.temple import build_temple
     if case.startswith("r0007"):
         rp = PACKAGE / "work" / "temple_lab" / "revisions" / "r0007.json"
@@ -818,9 +979,9 @@ def test_builder_model_edges_meet_the_seeing_contract(case):
         assert all(round(e["range"][0]) <= v <= round(e["range"][1]) for v in _label_values(text)), (e["pair"], text)
         whole.setdefault(e["pair"], []).append(text)
     if case.startswith("r0007"):
-        assert whole["crown|logo"] == ["11"] and whole["crown|shoulder"] == ["20"]
+        assert whole["crown|logo"] == ["11°"] and whole["crown|shoulder"] == ["20°"]
     else:
-        assert whole["crown|logo"] == ["16..29"] and whole["crown|shoulder"] == ["38"]
+        assert whole["crown|logo"] == ["16-29°"] and whole["crown|shoulder"] == ["38°"]
 
 
 def _sharp_on_run(tb, e) -> tuple:
@@ -958,6 +1119,19 @@ ZOOM_END = {"rid": "black-side", "box": [900, 100, 1100, 240], "geometry": False
 #                                                                                      (u 965-1039, v 137-202 unposed)
 
 
+def _assert_stacked_in_order(image: str, row_files: list) -> None:
+    """The stacked compare image holds the row files top to bottom in that order (compare.stack_rows: each row under
+    a LABEL_PX label strip, 4 px apart), pixel for pixel."""
+    st = np.asarray(Image.open(image).convert("RGB"))
+    y = 0
+    for f in row_files:
+        row = np.asarray(Image.open(f).convert("RGB"))
+        h, w = row.shape[:2]
+        assert np.array_equal(st[y + C.LABEL_PX:y + C.LABEL_PX + h, :w], row), (image, f, y)
+        y += C.LABEL_PX + h + 4
+    assert y - 4 == st.shape[0]
+
+
 def _head(see, bs):
     exp = see.export_head()
     mesh = see.fit_mesh(exp["path"], exp["sha256"], skip=bs.skip, frame=bs.frame)
@@ -984,11 +1158,15 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
                               zoom=zooms)
     assert r["status"] == "ok", r
     rep = json.loads(Path(r["report"]).read_text(encoding="utf-8"))
-    assert rep["schema"] == "g3d.photo_compare/3" and rep["model_edges"]["edges"] == len(edges)
+    assert rep["schema"] == "g3d.photo_compare/4" and rep["model_edges"]["edges"] == len(edges)
     assert rep["model_edges"]["on_model_mm"] < 1e-3                              # the edges lie on the head
     assert rep["model_edges"]["soft_pairs"] == ["shoulder|base"]
     assert set(r["photos"]["reference-05"]["rows"]) == {"photo", "native_linear", "overlay"}       # target
     assert set(r["photos"]["black-side"]["rows"]) == {"photo", "overlay", "gloss_black"}           # other colour
+    for rid, order in (("reference-05", ["photo", "native_linear", "overlay"]),        # one row order (v3p3 review:
+                       ("black-side", ["photo", "gloss_black", "overlay"])):           # B1 stacked photo / overlay /
+        assert list(r["photos"][rid]["rows"]) == order                                 # render)
+        _assert_stacked_in_order(r["photos"][rid]["image"], [r["photos"][rid]["rows"][n] for n in order])
     for rid, render_row in (("black-side", "gloss_black"), ("reference-05", "native_linear")):
         rec = rep["photos"][rid]
         x0, y0, x1, y1 = rec["crop"]["box"]
@@ -1025,13 +1203,22 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
             ch["mm_per_px"][1] < 0.16
         assert [o["d_mm"] for o in ch["bottom"]][:3] == [10.0, 20.0, 30.0] and len(ch["bottom"]) >= 12
         assert all(o["offset_mm"] is None and o["reason"] == "top face in view" for o in ch["top"])
-        assert sum(o["offset_mm"] is not None for o in ch["top_silhouette"]) >= len(ch["top"]) - 3   # kept, unprinted
+        assert sum(o["offset_mm"] is not None for o in ch["top_silhouette"]) >= len(ch["top"]) - 3   # kept, printed
         bottom = [o["offset_mm"] for o in ch["bottom"][:7]]                       # d 10-70: the facet block
         assert sum(v is not None for v in bottom) >= 6 and all(abs(v) <= 0.5 for v in bottom if v is not None), \
             (rid, bottom)
         assert not mi["facing"] and all(o["reason"] == "seen from inside" for o in mi["top"] + mi["bottom"])
         text = r["photos"][rid]["text"]
-        assert "outline of the charted temple" in text and "top: not measured" in text and "n/a" not in text
+        assert "outline of the charted temple" in text and "top: not measured" not in text and "n/a" not in text
+        assert ("top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
+                "alike show its far edge, not the outline's top), minus its median ") in text
+        # run 7's head (revision 7 = the original's rear arm, run7-residual §2): the far edge steps 2-4 mm behind
+        # d 100 (B1 +2.5 / +3.6, 05 +2.4 / +3.2 at d 110 / 120) and the text prints it; d 40-90 on the level
+        far = {o["d_mm"]: o["offset_mm"] for o in ch["top_silhouette"] if o["offset_mm"] is not None}
+        level = float(np.median(list(far.values())))
+        assert all(abs(far[d] - level) <= 0.3 for d in (40.0, 50.0, 60.0, 70.0, 80.0, 90.0)), (rid, far)
+        assert far[110.0] - level >= 2.0 and far[120.0] - level >= 3.0, (rid, far)
+        assert f"110 {far[110.0] - level:+.1f}, 120 {far[120.0] - level:+.1f}" in text
         assert "outline: the mirrored temple is seen from inside here" in text
     # known creases on their photo lines (the traced KC and AK lines in B1 and 05)
     for rid, lines in PHOTO_LINES.items():
@@ -1062,7 +1249,7 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
         for p, t in labels.items():                                              # the build's own angles, as given:
             lo, hi = round(min(rng[p])), round(max(rng[p]))                      # never a roll-band number
             assert all(lo <= v <= hi for v in _label_values(t)), (zq["box"], p, t, rng[p])
-        assert labels.get("crown|logo", "11") == "11" and labels.get("crown|shoulder", "20") == "20"
+        assert labels.get("crown|logo", "11°") == "11°" and labels.get("crown|shoulder", "20°") == "20°"
         for e in zr["model_edges"]:
             if "deg_shown" in e:
                 assert e["range"][0] - 0.0051 <= e["deg_shown"][0] <= e["deg_shown"][1] <= e["range"][1] + 0.0051, e
@@ -1085,6 +1272,24 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
         assert near[C.SOFT_RGB] >= 0.6 and near[C.VALLEY_RGB] <= 0.3, (panel, near)
     for zr in rep["zoom"][:2]:                                                   # not in the boxes around K
         assert "soft borders" not in zr["text"] and "dashed grey" not in zr["panel_labels"]["overlay"]
+    # photo_names (v3p3 review: the image said "black-side photo" where the lab's texts say B1): the name titles the
+    # photo row and zoom panel and heads the texts, the rest of the image is unchanged, and it is in the cache key
+    named = see.compare_to_photos(["black-side"], passes=("native_linear",), rig="studio_dome_v1",
+                                  hinge_z_mm=spec["hinge"]["z_mm"], model_edges=soft, opening=spec["hinge"],
+                                  zoom=[ZOOMS[1]], photo_names={"black-side": "B1", "reference-05": "05"})
+    assert named["status"] == "ok" and not named["photos"]["black-side"]["cached"] and not named["zoom"][0]["cached"]
+    nrep = json.loads(Path(named["report"]).read_text(encoding="utf-8"))
+    nb = nrep["photos"]["black-side"]
+    assert nb["name"] == "B1" and nb["rid"] == "black-side" and nb["text_head"].startswith("B1 (side, ")
+    assert rep["photos"]["black-side"]["name"] == "black-side"                   # none given: the basis name
+    a = np.asarray(Image.open(named["photos"]["black-side"]["image"]).convert("RGB")).astype(int)
+    b = np.asarray(Image.open(r["photos"]["black-side"]["image"]).convert("RGB")).astype(int)
+    diff = np.flatnonzero((a != b).any(axis=(1, 2)))
+    assert a.shape == b.shape and len(diff) and diff.max() < C.LABEL_PX       # only the photo row's title differs
+    nz = nrep["zoom"][0]
+    assert nz["name"] == "B1" and nz["panel_labels"]["photo"].startswith("B1 photo (stretch ")
+    assert named["zoom"][0]["text"].startswith("zoom 1 on B1 (side, ") and "black-side" not in named["zoom"][0]["text"]
+    assert rep["zoom"][1]["panel_labels"]["photo"].startswith("black-side photo (stretch ")
     # the cache: same call -> cached, texts name the new compare
     again = see.compare_to_photos(["black-side", "reference-05"], passes=("native_linear",), rig="studio_dome_v1",
                                   hinge_z_mm=spec["hinge"]["z_mm"], model_edges=soft, opening=spec["hinge"],
@@ -1092,14 +1297,14 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
     assert again["status"] == "ok" and all(p["cached"] for p in again["photos"].values())
     assert all(z["cached"] for z in again["zoom"]) and all(f"compare_id {again['compare_id']}." in z["text"]
                                                           for z in again["zoom"])
-    # a zoom-only call: edges in the key, a per-point angle labelled "a..b", the stretch = the photo's compare one
+    # a zoom-only call: edges in the key, a per-point angle labelled "a-b°", the stretch = the photo's compare one
     other = see.compare_to_photos([], passes=("native_linear",), rig="studio_dome_v1",
                                   hinge_z_mm=spec["hinge"]["z_mm"], model_edges=ramp, zoom=ZOOMS[:1])
     assert other["status"] == "ok" and other["photos"] == {} and not other["zoom"][0]["cached"]
     orep = json.loads(Path(other["report"]).read_text(encoding="utf-8"))["zoom"][0]
     assert orep["stretch"] == rep["photos"]["reference-05"]["stretch"]
     lab = {e["pair"]: e["text"] for e in orep["edge_labels"]}
-    lo, hi = (int(v) for v in lab["crown|logo"].split(".."))
+    lo, hi = _label_values(lab["crown|logo"])
     assert 10 <= lo < hi <= 40 and hi - lo >= 2, lab                             # the visible part of the ramp
     cl = [e for e in orep["model_edges"] if e["pair"] == "crown|logo" and e["side"] == "charted"]
     assert cl and 10.0 <= cl[0]["deg_shown"][0] < cl[0]["deg_shown"][1] <= 40.0
@@ -1140,9 +1345,10 @@ def test_side_outline_reads_zero_on_the_models_own_render(v3job):
     """Review F1's self-test: the instrument on the model itself. Rendered at 05's and 01's own cameras at k 1 (the
     whole photo), composited over the photo's backdrop with the job's gain as the compare row is, and matted with the
     photo's own matte rule (glossy_floor), the side outline must read every station it measures within 1 native px
-    (only the camera-facing temple's bottom here: the views look 14-15 deg down). The top silhouette, which it keeps
-    unprinted, reads <= -1 mm there (the white top face lost to the matte) and 0 against the render's own alpha: the
-    reason the top is not measured."""
+    (only the camera-facing temple's bottom here: the views look 14-15 deg down). The top silhouette reads <= -1 mm
+    there (the white top face lost to the matte) and 0 against the render's own alpha: the reason the top is not
+    measured as an outline. Minus its median (what ``_far_edge_text`` prints, v3p3-verify-8) it reads within 1 mm at
+    every station under both: the matte's cut is shared along the arm, so a printed 2-4 mm step is the photo's."""
     from glasses3d.g3d_host import matte as M
     see, spec, edges = v3job["seeing"], v3job["spec"], v3job["edges"]
     bs = C.load_basis(v3job["root"])
@@ -1172,6 +1378,10 @@ def test_side_outline_reads_zero_on_the_models_own_render(v3job):
             assert all(abs(x["offset_mm"]) <= 1.0 / x["px_per_mm"] + 0.005 + 1e-9 for x in got), (rid, own_alpha, got)
             sil = float(np.median([x["offset_mm"] for x in o["top_silhouette"] if x["offset_mm"] is not None]))
             assert (abs(sil) <= o["mm_per_px"][1] + 0.005) if own_alpha else sil <= -1.0, (rid, own_alpha, sil)
+            # what _far_edge_text prints: minus the median, the model against itself reads within 1 mm at every
+            # station (the matte's cut is shared along the arm), so the photos' +2.4..+3.6 at d 110-120 is the arm
+            dev = {x["d_mm"]: round(x["offset_mm"] - sil, 2) for x in o["top_silhouette"] if x["offset_mm"] is not None}
+            assert len(dev) >= 8 and all(abs(v) <= 1.0 for v in dev.values()), (rid, own_alpha, sil, dev)
             checked += len(got)
     assert checked >= 40
 
@@ -1215,7 +1425,8 @@ def test_v3_arguments_are_refused_and_journaled(v3job):
     hz = spec["hinge"]["z_mm"]
     for kw in (dict(model_edges=edge), dict(zoom=[{"rid": "reference-05", "box": [0, 0, 4, 4]}]),
                dict(zoom=[{"rid": "nope", "box": [0, 0, 40, 40]}]), dict(rig="photo_v1", model_edges=edge,
-                                                                       hinge_z_mm=-10.6)):
+                                                                       hinge_z_mm=-10.6),
+               dict(photo_names={"nope": "N1"}), dict(rig="photo_v1", photo_names={"reference-05": "05"})):
         kw = {"rig": "studio_dome_v1", **kw}
         r = see.compare_to_photos(["reference-05"], **kw)
         assert r["status"] == "error" and r["code"] == "E_ARGS", (kw, r)
@@ -1223,5 +1434,5 @@ def test_v3_arguments_are_refused_and_journaled(v3job):
     for kw in (dict(hinge_z_mm=hz + 1.0), dict(hinge_z_mm=hz, opening=(5.0, spec["hinge"]["axis_xz_mm"]))):
         r = see.compare_to_photos(["reference-05"], rig="studio_dome_v1", model_edges=v3job["edges"], **kw)
         assert r["status"] == "error" and r["code"] == "E_ARGS" and "do not lie on the head" in r["message"], r
-    assert len(list(tools.iterdir())) == n0 + 6
+    assert len(list(tools.iterdir())) == n0 + 8
     assert math.isfinite(hz)

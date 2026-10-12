@@ -39,8 +39,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .arrange import poly_area
-from .spec import (COLLINEAR_AREA_MM2, CONDITIONING_WARN_DEG_PER_MM, ILL_CONDITIONED_DEG_PER_MM, TempleError,
-                   crease_run, plane_kind)
+from .spec import (COLLINEAR_AREA_MM2, CONDITIONING_WARN_DEG_PER_MM, ILL_CONDITIONED_DEG_PER_MM, RUN_LINE_MM,
+                   TempleError, crease_run, plane_kind)
 
 NODE_ON_VERTEX_MM = 1e-6
 MVC_VERTEX_MM = 1e-12              # a point this close to a warp corner takes the corner's value exactly
@@ -299,13 +299,19 @@ def solve(ps, arr, face_label: list) -> PlaneSolution:
                     own = [m for m in misfits if m["source"].startswith("node ") and m["source"][5:] in fac["poly"]]
                     code = "E_FACET_NOT_PLANAR" if own and len(own) == len(misfits) else "E_RELIEF_STEP"
                     worst = max(misfits, key=lambda m: abs(m["misfit_mm"]))
-                    fields = {"facet": label, "misfits": misfits, "defining_points": []}
+                    fields = {"facet": label, "misfits": misfits, "defining_points": [],
+                              "coef": [float(v) for v in coef]}
                     if code == "E_RELIEF_STEP":
                         fields["neighbours"] = sorted({_src(p[3])[6:] for p in pts if p[3][0] == "facet"})
-                    raise TempleError(code, f"facet {label}: {len(misfits)} known value(s) off its plane X = "
-                                      f"{coef[0]:.6g} + {coef[1]:.6g} d + {coef[2]:.6g} y (worst "
-                                      f"{worst['misfit_mm']:+.3g} mm at {worst['source']}, (d, y) "
-                                      f"({worst['at'][0]:.3f}, {worst['at'][1]:.3f}))", **fields)
+                    # facts in the units the tools set (v3p3-verify-13: "X = 69.5513 + -0.00772868 d + -0.0826772 y",
+                    # the fit's own plane to 6 digits, which no tool sets, and nothing said L is no corner of nose);
+                    # the coefficients stay in the fields
+                    src = worst["source"]
+                    stray = (f", which is not a corner of {label}" if src.startswith("node ")
+                             and src[5:] not in fac["poly"] else "")
+                    raise TempleError(code, f"facet {label}: {len(misfits)} known value(s) off its plane (worst "
+                                      f"{worst['misfit_mm']:+.3g} mm at {src}{stray}, (d, y) ({worst['at'][0]:.2f}, "
+                                      f"{worst['at'][1]:.2f}))", **fields)
                 planes[label] = FacetPlane(label, coef, "coef", [], 0.0, None)
                 order.append(label)
                 _hand_on(planes[label], label, poly, ps, V, fverts, vr, nr, node_vertex)
@@ -320,8 +326,9 @@ def solve(ps, arr, face_label: list) -> PlaneSolution:
                     moved = [f"{x['what']} {x['field']} {x['from']:g}->{x['to']:g}" for x in ps.snaps
                              if str(x.get("what", "")).startswith("node ") and x["what"][5:] in poly]
                     raise TempleError("E_SPEC", f"facet {label}: crease {[n1, n2]} is no longer a straight run of its "
-                                      f"edges once its nodes snap to the outline and knots ({'; '.join(moved)}); move "
-                                      f"the corners between onto the line", facet=label)
+                                      f"edges once its nodes snap to the outline and knots ({'; '.join(moved)}); "
+                                      f"ways: the corners between onto the line (within {RUN_LINE_MM:g} mm), the "
+                                      f"crease on one edge of the facet, or another plane", facet=label)
                 left = run[0] > 0
                 coef, cond = crease_plane(ps.nodes[n1], ps.nodes[n2], nr[n1][0], nr[n2][0], plane["rise_per_mm"], left)
                 u, n_in, _ = crease_frame(ps.nodes[n1], ps.nodes[n2], left)

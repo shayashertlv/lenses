@@ -6,8 +6,10 @@ Order of one run (``run_astra``):
    missing, stale, consumed or below cap refuses with ``ApprovalRefused``, exit code 3, 0 requests) and the
    instructions, tool registry and settings this loop will send equal the ones the approval was estimated for; the
    required two-way tool contract; the session file agrees with ``resume``; disk space; the clients can
-   be built (an API key, or the offline proof conditions) without building them; a stale ``stop.requested`` is
-   removed; the scene starts on its expected checkpoint. Any other refusal is ``RunRefused`` (exit code 2).
+   be built (an API key, or the offline proof conditions) without building them; with ``RunSpec.load_check`` and
+   ``refuse_on_load``, no other Blender or pytest work runs on the machine (before the scene's own worker starts); a
+   stale ``stop.requested`` is removed; the scene starts on its expected checkpoint. Any other refusal is
+   ``RunRefused`` (exit code 2).
 2. **Resume planning** ($0) on a resumed session: identify journaled mutating calls whose turn was not recorded.
    Read history and plan the rollback without restoring the scene or repairing the session yet.
 3. **Consume the approval** (``JobLedger.open_paid_run``: exclusive ``budget.json`` + the machine-wide paid-run lock).
@@ -23,15 +25,20 @@ Order of one run (``run_astra``):
    facet runs of WP6_FACETS §4.3) the run is final only when that tool's result has status "accepted"
    (``FinishOnAccepted``); a text reply without it continues with one factual host note, up to ``max_continuations``
    notes, then ends ``ended_without_finish``. ``tool_choice`` / ``reset_tool_choice`` set the model's tool choice;
-   ``context_guard_tokens`` adds the one-epoch image filter (``ContextGuard``). All of them default off, are bound
-   into the approval settings and the tool-registry sha, and leave a default run's requests unchanged.
+   ``context_guard_tokens`` adds the image filter (``ContextGuard``: one epoch on counted tokens, more at rungs of
+   request bytes, each scoped to the tool outputs present at its firing). All of them default off, are bound into the
+   approval settings and the tool-registry sha, and leave a default run's requests unchanged. ``RunSpec.load_check``
+   (the facet CLI sets it) refuses a run at preflight while other Blender or pytest work runs, and reports load that
+   starts later (``LoadWatch``).
 6. **Always**: an open request becomes unknown (``guard.transport_failed`` in the except clause for a connection
    error or timeout, ``guard.mark_unknown`` in finally), the exit checkpoint (head sha re-verified) is taken before the
    worker closes, the paid run is closed (``JobLedger.close_paid_run``), ``result.json`` is written.
 
 Statuses: completed, turn_limit, budget_limit, stopped, provider_rejected (4xx, $0), provider_unknown (5xx, non-JSON,
 connection error or timeout; the full hold kept), output_limit, failed_worker, failed (with the exception type),
-ended_without_finish (a finish-gated run whose replies kept ending without the accepted finish).
+ended_without_finish (a finish-gated run whose replies kept ending without the accepted finish), payload_limit (the
+next request's body passed the provider's documented per-request limit, budget.PAYLOAD_LIMIT_BYTES / _IMAGES: refused
+before counting, $0).
 
 The scene (stage A's ``BlenderSession`` behind stage D's tools) is reached only through ``SceneHooks``; tools are
 injected (stage D builds the registry). Tools receive a ``RunStatus`` as the SDK run context (``ctx.context``): money
@@ -47,6 +54,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -68,7 +76,8 @@ from openai import APIConnectionError
 from openai.types.shared import Reasoning
 
 from .approvals import ApprovalRefused, build_request, canonical_json, request_sha256, run_input_binding
-from .budget import BudgetGuard, JobLedger, unlink_with_retry
+from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTES, BudgetGuard, JobLedger,
+                     unlink_with_retry)
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
 from .pricing import MODEL, usd_text
@@ -82,18 +91,35 @@ RESULT_SCHEMA = "g3d.run_result/1"
 RUN_CONFIG_SCHEMA = "g3d.run_config/1"
 HEARTBEAT_SCHEMA = "g3d.heartbeat/1"
 STATUSES = ("completed", "turn_limit", "budget_limit", "stopped", "provider_rejected", "provider_unknown",
-            "output_limit", "failed_worker", "failed", "ended_without_finish")
+            "output_limit", "failed_worker", "failed", "ended_without_finish", "payload_limit")
 EFFORTS = ("high", "max")
 TOOL_CHOICES = ("auto", "required")
 FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and version bound into the approval)
-CONTEXT_GUARD = "g3d.context_guard/1"              # ContextGuard
+# ContextGuard. /2 (review 2026-10-12, v3p3-verify-14/-15): each epoch's choice applies only inside the tool outputs
+# present at its firing (by call_id), and besides its one token epoch the guard fires on request bytes, at k x
+# CONTEXT_GUARD_BYTES (k = 1, 2, ...); /1 had one token-triggered choice, applied to every later output too.
+CONTEXT_GUARD = "g3d.context_guard/2"
+# The guard's byte rung (serialized request bytes, budget.planning's last_request_bytes): a ceiling that keeps a run
+# alive, not a routine trigger, at half the provider's documented per-request limit (budget.PAYLOAD_LIMIT_BYTES 512
+# MB, where a run ends payload_limit). Every epoch rewrites the prompt cache and a late one costs more than it saves
+# (the estimate's projection on the v3 T5 steps, 2026-10-12): a second epoch at 2 x 240k tokens cost $8 more over a
+# 60-reply read-heavy run (fired at request 59) and saved $4 over a 90-reply edit-heavy one; a 128 MB byte rung fired
+# at request 84 of the 90-reply typical run for $4.17 more; a 64 MB one fired with the token epoch, one request earlier
+# on the edit-heavy mix, for $0.46. So the token epoch fires once (the long-context step, as /1), and the byte rung
+# sits above every projected run (peaks 108-168 MB at 90 replies with that one epoch, v3p3-verify-15 and the
+# estimate): it fires only for a body that grows toward the provider's limit (an image-dense run near the token input
+# limit, 922k tokens at up to 414 B a token is 382 MB). The count's timeout scales with the body
+# (budget.count_timeout_s), so a large body no longer risks the count. Part of the filter's definition (CONTEXT_GUARD
+# /2): RunSettings.context_guard_bytes overrides it and is then bound into the approval.
+CONTEXT_GUARD_BYTES = PAYLOAD_LIMIT_BYTES // 2
 CONTINUATION_NOTE = ("Your previous response was cut off at the output limit and was not recorded. Continue.")
 FINISH_NOTE = "Your reply called no tool. The run ends only when `{tool}` returns status accepted."
 DANGLING_OUTPUT = ("interrupted: the run ended before this call returned; it has no result and any effect it had on "
                    "the scene was rolled back")
 INFERENCE_TIMEOUT_S = 900.0         # the model-wait ceiling (observed maximum 165 s)
-COUNT_TIMEOUT_S = 60.0
+# COUNT_TIMEOUT_S (budget.py): the count client's base timeout; budget.count_timeout_s adds 1 s per MB of each body
 HEARTBEAT_INTERVAL_S = 2.0
+LOAD_WATCH_INTERVAL_S = 30.0        # LoadWatch: how often a run looks for other Blender / pytest work
 STATUS_LINE_AFTER_S = 30.0
 STOP_FILE = "stop.requested"
 
@@ -122,9 +148,10 @@ HARD_TIMEOUT_S = {
     # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached);
     # facet_variants 0.82 s per render + 2.9 s (21 renders 20.0 s) -> its table value 90 s = FACET_VARIANTS_BASE_S +
     # FACET_VARIANTS_PER_RENDER_S x 3 x 7 renders (82.5 s) rounded up. Its worker deadline (hard_timeout_s with
-    # photos and variants) scales with the renders, photos x (variants + 1), up to 4 x 7 = 28 (lab.py module doc),
-    # capped at the table value minus FACET_VARIANTS_HOST_MARGIN_S (75 s: 3.75 x the measured 21 renders, about
-    # 2.9 x the 26 s estimated for 28), so the host's builds before it and crease lines and sheets after it keep
+    # photos and variants) scales with the renders, photos x (variants + 1), up to 4 x 5 = 20 (lab.VARIANT_PHOTOS_MAX
+    # and VARIANTS_MAX 4 since v3-final; 4 x 7 = 28 with the earlier 6), capped at the table value minus
+    # FACET_VARIANTS_HOST_MARGIN_S (75 s: 3.75 x the measured 21 renders, about 3.9 x the 19.3 s estimated for 20),
+    # so the host's builds before it and crease lines and sheets after it keep
     # 15 s inside the hard timeout, plus the SDK's 10 s (the measured whole call took 12.8 s).
     # facet_restore and facet_finish (measured 0.3 s and 0.2 s) are set above their worst declared inner deadlines
     # plus FACET_DEADLINE_MARGIN_S, so the SDK never answers E_TIMEOUT while a restore or export may still succeed:
@@ -223,8 +250,10 @@ class RunSettings:
 
     The facet runs (WP6_FACETS §4.3) add: ``tool_choice`` "required" (every reply calls a tool), ``reset_tool_choice``
     False (the SDK keeps that choice after the first tool call), ``finish_tool`` (the run is final only when this
-    tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads) and
-    ``context_guard_tokens`` (the one-epoch image filter threshold). Their defaults change nothing."""
+    tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads),
+    ``context_guard_tokens`` (the image filter's token epoch; the guard is on only with it) and
+    ``context_guard_bytes`` (its byte rungs; None: CONTEXT_GUARD_BYTES, the filter's own). Their defaults change
+    nothing."""
 
     effort: str | None = None  # paid runs require the owner's explicit high/max choice
     max_output_tokens: int = 16_384
@@ -236,10 +265,19 @@ class RunSettings:
     finish_tool: str | None = None
     finish_k: int = 4
     context_guard_tokens: int | None = None
+    context_guard_bytes: int | None = None
+
+    def guard_bytes(self) -> int | None:
+        """The context guard's byte rung in force: None while the guard is off, else context_guard_bytes or the
+        filter's CONTEXT_GUARD_BYTES."""
+        if self.context_guard_tokens is None:
+            return None
+        return CONTEXT_GUARD_BYTES if self.context_guard_bytes is None else self.context_guard_bytes
 
     def behavior(self) -> dict:
         """The non-default agent behaviour, bound into the approval settings and the tool-registry sha ({} when
-        every new setting has its default)."""
+        every new setting has its default). The guard's default byte rung is part of its filter (CONTEXT_GUARD names
+        the version); an explicit context_guard_bytes is bound as request_bytes."""
         out: dict = {}
         if self.tool_choice != "auto":
             out["tool_choice"] = self.tool_choice
@@ -248,7 +286,9 @@ class RunSettings:
         if self.finish_tool is not None:
             out["finish"] = {"tool": self.finish_tool, "behavior": FINISH_BEHAVIOR, "k": self.finish_k}
         if self.context_guard_tokens is not None:
-            out["context_guard"] = {"input_tokens": self.context_guard_tokens, "filter": CONTEXT_GUARD}
+            out["context_guard"] = {"input_tokens": self.context_guard_tokens, "filter": CONTEXT_GUARD,
+                                    **({"request_bytes": self.context_guard_bytes}
+                                       if self.context_guard_bytes is not None else {})}
         return out
 
     def approval_settings(self) -> dict:
@@ -262,7 +302,10 @@ class RunSettings:
 @dataclass
 class RunSpec:
     """One paid run of one job. ``brief``, ``photos`` and ``owner_notes`` come from the job (stage E composes them);
-    ``tools`` from the registry (stage D). ``offline_handler`` is the MockTransport handler of the $0 proofs."""
+    ``tools`` from the registry (stage D). ``offline_handler`` is the MockTransport handler of the $0 proofs.
+    ``load_check`` (e.g. machine_load) returns the other work on the machine that slows the scene's worker: with
+    ``refuse_on_load`` a non-empty answer at preflight refuses the run (RunRefused, nothing consumed), and LoadWatch
+    asks it every ``load_watch_interval_s`` during the run and reports a change (printed, and in result.json)."""
 
     job_dir: Path
     run_id: str
@@ -284,6 +327,112 @@ class RunSpec:
     echo: bool = False
     contract: ToolContract | None = None
     min_free_bytes: int = MIN_FREE_BYTES
+    load_check: Callable[[], list] | None = None
+    refuse_on_load: bool = True
+    load_watch_interval_s: float = LOAD_WATCH_INTERVAL_S
+
+
+# --------------------------------------------------------------------------- other load on the machine
+
+
+def load_rows(rows: Iterable[dict], mine: set) -> list[dict]:
+    """The other work among process rows ({pid, name, cmdline}) outside ``mine`` (this process's tree): every
+    background Blender (a blender executable with -b / --background in its command line: suite, rehearsal and lab
+    workers) and every pytest process (python -m pytest, pytest.exe or py.test: its xdist workers are its children, so
+    it is named once). An open Blender window (the owner's GUI or MCP session) is not counted: idle, it takes no render
+    time. [{pid, kind, name}] in pid order."""
+    out = []
+    for row in rows:
+        pid = row.get("pid")
+        if pid in mine:
+            continue
+        name = str(row.get("name") or "")
+        args = [str(a) for a in (row.get("cmdline") or [])]
+        low = [a.lower() for a in args]
+        bases = {re.split(r"[\\/]", a)[-1].removesuffix(".exe") for a in low}
+        if name.lower().startswith("blender") and ({"-b", "--background"} & set(low)):
+            out.append({"pid": pid, "kind": "background Blender", "name": name})
+        elif {"pytest", "py.test"} & bases or any(a == "-m" and b in ("pytest", "py.test")
+                                                  for a, b in zip(low, low[1:])):
+            out.append({"pid": pid, "kind": "pytest", "name": name})
+    return sorted(out, key=lambda r: r["pid"] or 0)
+
+
+def machine_load() -> list[dict]:
+    """load_rows over this machine's processes (psutil; rows that deny access are read as far as they allow), outside
+    this process, its ancestors and its descendants (the scene's own worker and warm spare)."""
+    import psutil
+    me = psutil.Process(os.getpid())
+    mine = {me.pid}
+    for get in (me.parents, lambda: me.children(recursive=True)):
+        try:
+            mine |= {p.pid for p in get()}
+        except psutil.Error:
+            pass
+    return load_rows((p.info for p in psutil.process_iter(["pid", "name", "cmdline"])), mine)
+
+
+def load_text(rows: list[dict]) -> str:
+    """The other work in words: each kind with its count and pids."""
+    kinds: dict = {}
+    for r in rows:
+        kinds.setdefault(r["kind"], []).append(str(r["pid"]))
+    return ", ".join(f"{len(p)} {k} (pid{'s' if len(p) > 1 else ''} {', '.join(p)})" for k, p in kinds.items())
+
+
+LOAD_REFUSAL = ("other work is running on this machine: {load}. Under such load the scene's renders pass their "
+                "deadlines (2026-10-12: photo_compare 43.5 s against 40 s, facet_edit's compare 67.8 s against 60 s, "
+                "4.4 s and 6.5-8.0 s without it; v3p3-verify-16) and each failed compare wastes the paid reply that "
+                "asked for it. Ways out: wait until it ends or stop it, then run again; or run with the load accepted "
+                "(refuse_on_load off; the facet CLI's --ignore-load).")
+
+
+class LoadWatch:
+    """A daemon thread asking ``check`` every ``interval_s`` for other work on the machine during a run (load that
+    starts after the preflight, v3p3-verify-16): each change of the set of pids is recorded (``changes``: {time,
+    load}) and printed as one line for the host ("other work started ..." / "... ended"); Astra is never told. A failed
+    check is counted, never fatal."""
+
+    def __init__(self, check: Callable[[], list], *, run_id: str, interval_s: float = LOAD_WATCH_INTERVAL_S,
+                 printer: Callable[[str], None] = print, initial: list | None = None):
+        self.check, self.run_id, self.interval_s, self.printer = check, run_id, float(interval_s), printer
+        self.current = {r["pid"]: r for r in initial or []}
+        self.changes: list[dict] = []
+        self.failures = 0
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def poll(self) -> None:
+        try:
+            rows = list(self.check() or [])
+        except Exception:  # noqa: BLE001 - a watch never fails the run
+            self.failures += 1
+            return
+        now = {r["pid"]: r for r in rows}
+        if set(now) == set(self.current):
+            return
+        self.current = now
+        self.changes.append({"time": _iso(), "load": rows})
+        line = (f"[astra {self.run_id}] other work started on this machine: {load_text(rows)}; tool calls may pass "
+                "their deadlines while it runs" if rows else f"[astra {self.run_id}] the other work on this machine "
+                "ended")
+        try:
+            self.printer(line)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval_s):
+            self.poll()
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, name="g3d-load-watch", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5.0)          # a daemon: a check still scanning never holds the run's end
 
 
 class SceneHooks:
@@ -312,8 +461,9 @@ class SceneHooks:
         return {}
 
     def context_stubs(self, image_sha256s: list[str]) -> dict[str, str]:
-        """The context guard's one choice: {image sha256: text stub} for the tool-output images (sha256 of the
-        image bytes, in input order) that may be replaced; {} keeps every image."""
+        """The context guard's choice at one epoch: {image sha256: text stub} for the tool-output images (sha256 of
+        the image bytes, in input order) that may be replaced in the tool outputs present now; {} keeps every
+        image."""
         return {}
 
     def close(self) -> None:
@@ -431,39 +581,75 @@ def tool_output_images(items) -> list[str]:
 
 
 class ContextGuard:
-    """``RunConfig.call_model_input_filter`` (WP6_FACETS §4.3): once the last counted request reached ``threshold``
-    input tokens, ask ``choose`` ONCE which tool-output images to replace with text stubs ({sha256: stub}), then apply
-    that same choice to this and every later request of the run (one prompt-cache rewrite, then a stable prefix).
-    Brief images and images ``choose`` does not name are never touched; the session keeps every image."""
+    """``RunConfig.call_model_input_filter`` (WP6_FACETS §4.3; CONTEXT_GUARD /2, review 2026-10-12).
+
+    An epoch fires when the last counted request (budget.planning's last_counted_input_tokens and last_request_bytes)
+    reached ``threshold`` counted input tokens for the first time (the token epoch fires once: a later one rewrites a
+    long-context prefix for little, CONTEXT_GUARD_BYTES' comment), or the next byte rung, k x ``byte_threshold``
+    serialized request bytes (k = 1, 2, ...; after any firing the next byte rung is the first above that request, so
+    one reading never fires twice). At a firing ``choose`` is asked which tool-output images to replace with text
+    stubs ({sha256: stub}, over every tool-output image present). That choice applies to this and every later
+    request, but ONLY inside the function_call_outputs present at the firing (their call_ids): an output that arrives
+    later reaches the model whole, even when it repeats a stubbed image's bytes. v3p3-verify-14: keyed by bytes alone,
+    /1 stubbed those too;
+    seeing's compare cache returns the same panel file for the same build, photo and crop, so a revision re-applied
+    after the firing (facet_edit with apply: v3 has no restore) reached Astra as "superseded" stubs of the old
+    compare, which E_JUDGEMENT still asked it to judge and finish precondition 3 counted as shown. Each epoch is one
+    prompt-cache rewrite, then a stable prefix (earlier outputs keep their stubs or get the new choice's; later
+    outputs are never rewritten). Brief images and images ``choose`` does not name are never touched; the session
+    keeps every image. ``epochs`` lists every firing, ``epoch`` the latest."""
 
     name = CONTEXT_GUARD
 
     def __init__(self, threshold: int, *, counted: Callable[[], int | None], choose: Callable[[list], dict],
-                 notify: Callable[[dict], None] | None = None):
+                 notify: Callable[[dict], None] | None = None, byte_threshold: int | None = None,
+                 sent_bytes: Callable[[], int | None] | None = None):
         self.threshold = int(threshold)
-        self.counted, self.choose, self.notify = counted, choose, notify
+        self.byte_threshold = int(byte_threshold) if byte_threshold is not None else None
+        self.counted, self.sent_bytes, self.choose, self.notify = counted, sent_bytes, choose, notify
         self.stubs: dict | None = None
+        self.scope: frozenset = frozenset()          # the call_ids of the outputs present at the latest firing
+        self.token_due = True                         # the token epoch has not fired yet
+        self.byte_rung = 1
         self.epoch: dict | None = None
+        self.epochs: list[dict] = []
         self.replaced = 0
+
+    def due(self) -> tuple[int | None, int | None, str | None]:
+        """(counted tokens, request bytes, the trigger that fires now or None) of the last counted request."""
+        tokens = self.counted()
+        size = self.sent_bytes() if self.sent_bytes is not None and self.byte_threshold else None
+        if self.token_due and tokens is not None and tokens >= self.threshold:
+            return tokens, size, "input_tokens"
+        if size is not None and size >= self.byte_rung * self.byte_threshold:
+            return tokens, size, "request_bytes"
+        return tokens, size, None
 
     def __call__(self, data) -> ModelInputData:
         model_data = data.model_data
-        if self.stubs is None:
-            tokens = self.counted()
-            if tokens is None or tokens < self.threshold:
-                return model_data
+        tokens, size, trigger = self.due()
+        fired = trigger is not None
+        if fired:
             shas = tool_output_images(model_data.input)
             present = set(shas)
             self.stubs = {sha: str(text) for sha, text in (self.choose(shas) or {}).items() if sha in present}
-            self.epoch = {"at_counted_input_tokens": tokens, "tool_images": len(shas), "stubbed": len(self.stubs)}
-            if self.notify is not None:
-                self.notify(dict(self.epoch))
+            self.scope = frozenset(item["call_id"] for item in model_data.input
+                                   if isinstance(item, dict) and item.get("type") == "function_call_output"
+                                   and isinstance(item.get("call_id"), str))
+            if tokens is not None and tokens >= self.threshold:
+                self.token_due = False
+            if size is not None:
+                self.byte_rung = max(self.byte_rung, math.floor(size / self.byte_threshold) + 1)
+            self.epoch = {"epoch": len(self.epochs) + 1, "trigger": trigger, "at_counted_input_tokens": tokens,
+                          "at_request_bytes": size, "tool_images": len(shas), "stubbed": 0,
+                          "tool_outputs": len(self.scope)}
         if not self.stubs:
+            self._fired(fired, 0)
             return model_data
         items, replaced = [], 0
         for item in model_data.input:
             if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(
-                    item.get("output"), list):
+                    item.get("output"), list) and item.get("call_id") in self.scope:
                 parts = []
                 for part in item["output"]:
                     sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and \
@@ -476,7 +662,27 @@ class ContextGuard:
                 item = {**item, "output": parts}
             items.append(item)
         self.replaced = replaced
+        self._fired(fired, replaced)
         return ModelInputData(input=items, instructions=model_data.instructions)
+
+    def _fired(self, fired: bool, replaced: int) -> None:
+        """Record and report a firing: "stubbed" is the images replaced in its request (every occurrence)."""
+        if not fired:
+            return
+        self.epoch["stubbed"] = replaced
+        self.epochs.append(dict(self.epoch))
+        if self.notify is not None:
+            self.notify(dict(self.epoch))
+
+
+def epoch_text(epoch: dict) -> str:
+    """The transcript note of one context guard epoch (ContextGuard.epoch): facts only."""
+    size = epoch.get("at_request_bytes")
+    return (f"Context guard epoch {epoch['epoch']}: {epoch['stubbed']} of {epoch['tool_images']} tool images replaced "
+            f"by text stubs in the {epoch['tool_outputs']} tool outputs present, at "
+            f"{epoch['at_counted_input_tokens']} counted input tokens and "
+            + ("an unrecorded request size" if size is None else f"{size / 1e6:.1f} MB")
+            + f" (fired on {'counted input tokens' if epoch['trigger'] == 'input_tokens' else 'request bytes'}).")
 
 
 class RunStatus:
@@ -897,6 +1103,8 @@ def classify_failure(error: BaseException, *, log: ReviewLog | None, guard: Budg
         return "stopped"
     if guard is not None and guard.blocked_kind == "BudgetExceeded":
         return "budget_limit"
+    if guard is not None and guard.blocked_kind == "PayloadTooLarge":
+        return "payload_limit"
     if isinstance(error, MaxTurnsExceeded):
         return "turn_limit"
     hint = guard.status_hint() if guard is not None else None
@@ -947,6 +1155,10 @@ def _validate_spec(spec: RunSpec) -> None:
     if settings.context_guard_tokens is not None and (type(settings.context_guard_tokens) is not int
                                                       or settings.context_guard_tokens < 1):
         raise RunRefused("context_guard_tokens must be a positive integer or None")
+    if settings.context_guard_bytes is not None and (type(settings.context_guard_bytes) is not int
+                                                     or settings.context_guard_bytes < 1
+                                                     or settings.context_guard_tokens is None):
+        raise RunRefused("context_guard_bytes must be a positive integer, and only with context_guard_tokens")
     if not isinstance(spec.instructions, str) or not spec.instructions.strip():
         raise RunRefused("the instructions are empty")
     if not isinstance(spec.brief, str) or not spec.brief.strip():
@@ -1064,6 +1276,10 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
         if free < spec.min_free_bytes:
             raise RunRefused(f"only {free // (1 << 20)} MiB free on the job's drive; a run needs "
                              f"{spec.min_free_bytes // (1 << 20)} MiB for checkpoints and receipts")
+        # other work on the machine, before scene.start(): the scene's own worker is not running yet
+        preflight_load = list(spec.load_check() or []) if spec.load_check is not None else None
+        if preflight_load and spec.refuse_on_load:
+            raise RunRefused(LOAD_REFUSAL.format(load=load_text(preflight_load)))
         clients = clients if clients is not None else model_clients(spec)
         cleaner = Cleaner(blobs, clients.secrets)
         stale_stop = stop_file.exists()
@@ -1098,6 +1314,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
 
         heartbeat = Heartbeat(job_dir / "heartbeat.json", run_id=spec.run_id, interval_s=spec.heartbeat_interval_s,
                               report_after_s=spec.status_line_after_s, worker_info=scene.worker_info)
+        load_watch = LoadWatch(spec.load_check, run_id=spec.run_id, interval_s=spec.load_watch_interval_s,
+                               initial=preflight_load) if spec.load_check is not None else None
         state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
         counter = client = guard = log = context_guard = None
@@ -1138,6 +1356,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "tracing_disabled": True, "use_responses": True, "use_responses_websocket": False, "client": {
                     "kind": clients.kind, "base_url": BASE_URL, "max_retries": 0,
                     "inference_timeout_s": INFERENCE_TIMEOUT_S, "count_timeout_s": COUNT_TIMEOUT_S,
+                    "count_timeout_per_mb_s": COUNT_TIMEOUT_PER_MB_S,
                     "follow_redirects": False},
                 "cap_micro_usd": approved.requested_cap_micro, "cap_usd": usd_text(approved.requested_cap_micro),
                 "approval_sha256": approved.approval_sha256, "request_sha256": approved.request_sha256,
@@ -1158,16 +1377,16 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             if rollback is not None:
                 log.note(rollback_sentence(rollback), rollback=rollback)
             heartbeat.start()
+            if load_watch is not None:
+                load_watch.start()
             agent = build_agent(spec.instructions, spec.tools, spec.settings)
             if spec.settings.context_guard_tokens is not None:
                 run_guard = guard
                 context_guard = ContextGuard(
-                    spec.settings.context_guard_tokens,
-                    counted=lambda: run_guard.planning()["last_counted_input_tokens"], choose=scene.context_stubs,
-                    notify=lambda epoch: log.note(f"Context guard: {epoch['stubbed']} of {epoch['tool_images']} "
-                                                  f"tool images replaced by text stubs at "
-                                                  f"{epoch['at_counted_input_tokens']} counted input tokens.",
-                                                  context_guard=epoch))
+                    spec.settings.context_guard_tokens, byte_threshold=spec.settings.guard_bytes(),
+                    counted=lambda: run_guard.planning()["last_counted_input_tokens"],
+                    sent_bytes=lambda: run_guard.planning()["last_request_bytes"], choose=scene.context_stubs,
+                    notify=lambda epoch: log.note(epoch_text(epoch), context_guard=epoch))
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
                                                 run_config=build_run_config(client, input_filter=context_guard),
@@ -1211,6 +1430,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                         teardown_errors.append({"step": "client.close", "type": type(failure).__name__,
                                                 "message": str(failure)[:2000]})
             attempt("heartbeat.stop", lambda: heartbeat.stop(final_state=status))
+            if load_watch is not None:
+                attempt("load_watch.stop", load_watch.stop)
 
             def close_paid_run():
                 nonlocal scan
@@ -1242,8 +1463,15 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             if spec.settings.finish_tool is not None:
                 result["finish_notes"] = state["finish_notes"]
             if spec.settings.context_guard_tokens is not None:
-                result["context_guard"] = {"epoch": context_guard.epoch if context_guard else None,
+                result["context_guard"] = {"input_tokens": spec.settings.context_guard_tokens,
+                                           "request_bytes": spec.settings.guard_bytes(),
+                                           "epoch": context_guard.epoch if context_guard else None,
+                                           "epochs": list(context_guard.epochs) if context_guard else [],
                                            "replaced_last_request": context_guard.replaced if context_guard else 0}
+            if spec.load_check is not None:
+                result["machine_load"] = {"preflight": preflight_load, "refuse_on_load": spec.refuse_on_load,
+                                          "changes": list(load_watch.changes) if load_watch else [],
+                                          "check_failures": load_watch.failures if load_watch else 0}
             result = cleaner(result)
             if log is not None:
                 try:
