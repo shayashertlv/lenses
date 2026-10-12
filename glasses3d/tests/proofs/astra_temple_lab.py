@@ -116,6 +116,8 @@ DEPTH_NODE = "Q"                   # compare_black (H3): this crease corner ...
 DEPTH_DT = 1.0                     # ... at the model's t + DEPTH_DT (an arbitrary control thickness) ...
 DEPTH_OFF_PX = 5.0                 # ... and the same pixel moved this far off its depth line
 DEPTH_RE = re.compile(r"d (\S+) y (\S+): t (\S+) \(model (\S+)\) (\S+) px/mm, miss (\S+) px (charted|mirrored)")
+CORNER_ALSO = "B1"                 # compare_black's corner reading: Q at the model's t + DEPTH_DT in B2 and this photo,
+CORNER_DD = 2.0                    # given this many mm off in d (a one-photo reading would take it as exact)
 EDIT_H2_VARIANT = "sunk"           # the variant edit_h2 applies with no edits: F1|base ridge (H1) -> valley
 FLIP_H2 = [("F1|base", "ridge", "valley")]
 # the facet_edit steps that build
@@ -407,8 +409,11 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         d, y = (float(v) for v in lab.spec(head_rev())["nodes"][DEPTH_NODE][:2])
         rows = [depth_control(DEPTH_PHOTO, d, y, DEPTH_DT, off_px=o) for o in (0.0, DEPTH_OFF_PX)]
         st["depths"]["compare_black"] = [r["expect"] for r in rows]
+        also = depth_control(CORNER_ALSO, d, y, DEPTH_DT)               # the same point in B1 (charted, square-on)
+        corner = {**rows[0]["arg"], "d_mm": d + CORNER_DD, "also": [{"photo": CORNER_ALSO, "uv": also["arg"]["uv"]}]}
+        st["corner"] = {"d_mm": d, "y_mm": y, "t_mm": rows[0]["expect"]["t_mm"], "arg": corner}
         return R.tool_call("photo_compare", {"photos": BLACK_COMPARE, "crop": None, "points_px": [
-            {"photo": "B2", "points": POINTS_B2}], "depths": [r["arg"] for r in rows]})
+            {"photo": "B2", "points": POINTS_B2}], "depths": [r["arg"] for r in rows] + [corner]})
 
     def inspect_roof():
         """facet_inspect on H3 (a roof whose PT, QT, PB, QB are solved): after the context guard."""
@@ -609,6 +614,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         exp = st["depths"].get(step) or []
         cid = by[step]["body"].get("compare_id")
         got = next((c.get("depths") or [] for c in lab.state["compares"] if c["compare_id"] == cid), [])
+        got = [g for g in got if not g.get("corner")]                     # corner readings: corner_check
         txt = depth_rows(text)
         ok = bool(exp) and len(got) == len(txt) == len(exp) and all(
             g.get("photo") == e["photo"] and g.get("revision") == e["revision"] and g.get("side") == e["side"]
@@ -626,6 +632,16 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     depths_points = depth_check("compare_points", (cp_body.get("depths") or {}).get(DEPTH_PHOTO))
     depths_black = depth_check("compare_black", black_texts["B2"].split(" | depths ", 1)[1]
                                if " | depths " in black_texts["B2"] else "")
+    # the corner reading (also): the point found from B2 and B1 although its d was given 2 mm off, zero residuals
+    cb_id = by["compare_black"]["body"].get("compare_id")
+    corner_rec = next((r for c in lab.state["compares"] if c["compare_id"] == cb_id for r in (c.get("depths") or [])
+                       if r.get("corner")), None)
+    exp_c = st.get("corner") or {}
+    cr = (corner_rec or {}).get("corner") or {}
+    corner_ok = bool(cr) and near(cr.get("d_mm"), exp_c.get("d_mm"), 0.01) and near(cr.get("y_mm"),
+                exp_c.get("y_mm"), 0.01) and near(cr.get("t_mm"), exp_c.get("t_mm"), 0.01) \
+        and max(cr.get("res_px") or [99.0]) < 0.05 and (corner_rec or {}).get("also") == exp_c["arg"]["also"] \
+        and f" with {CORNER_ALSO}: t " in black_texts["B2"] and "; the point the pixels show is at d " in black_texts["B2"]
     # crease shapes against the head: every built facet_edit (crease_vs_head exactly on the builds' own flips against
     # the head it faced, diff_vs_head exactly when its parent is not that head) and every variant item (against H1)
     edits_vs_head = []
@@ -767,6 +783,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                                                       for v in cp_photos.values()),
         "black_depths_read_t_px_per_mm_and_miss": depths_black["ok"] and len(depths_black["expected"]) == 2
                                                   and " | depths " not in black_texts["B3"],
+        "corner_reading_from_two_photos": corner_ok,
         "applied_variant_states_the_flip_against_the_head": applied_flip_ok,
         "crease_vs_head_exactly_on_flips": all(e["ok"] for e in edits_vs_head)
                                            and [e["step"] for e in edits_vs_head] == EDITS_BUILT
@@ -796,7 +813,8 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                 "gloss_black_gain_from": gloss_from},
               "variants_sheets": {"variants_id": vid, "passes": vviews["passes"],
                                   "crease_occlusion": vrec.get("crease_occlusion"), "sheets": sheets},
-              "depth_readings": {"compare_points": depths_points, "compare_black": depths_black},
+              "depth_readings": {"compare_points": depths_points, "compare_black": depths_black,
+                                 "corner": {"expected": exp_c, "recorded": corner_rec}},
               "crease_vs_head": {"edits": edits_vs_head,
                                  "variants": {lb: {"revision": v.get("revision"), "flips": variant_flips.get(lb),
                                                    "crease_vs_head": v.get("crease_vs_head"),

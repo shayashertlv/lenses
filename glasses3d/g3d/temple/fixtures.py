@@ -208,12 +208,17 @@ def analytic_prism(h: float = PRISM["h"]) -> dict:
                             "W": ["SW", "O", "NW"]})
 
 
-def fade(d0: float = 30.0, d1: float = 60.0, proud: float = 1.5) -> dict:
-    """A ridge along y = 0 from the hinge-end cap that dies out in a fade: N and S facets (ridge `proud` mm above the
-    base, their outer corners on it) carry the same fade, the plane at d0, the base at d1."""
+def fade(d0: float = 30.0, d1: float = 60.0, proud: float = 1.5, ridge_from: float = 0.0,
+         ridge_to: float | None = None) -> dict:
+    """N and S facets over d 0-d1 (y 0-10 and -10-0, their outer corners on the base) meeting in a ridge along y = 0
+    `proud` mm above the base, from d ridge_from to ridge_to (default d0, where the fade starts), carry the same fade:
+    the plane at d0, the base at d1. A crease stands to its ends (E_FADE_CREASE, run 7): beyond ridge_to the base lies
+    between them. ridge_to = d1 is the former ridge that dies out in the fade (refused since run 7); ridge_from > 0
+    starts the ridge inside the outline, base ahead of it."""
     f = {"d0": d0, "d1": d1}
     t = PRISM["T"] + proud
-    return straight(nodes={"R0": [0.0, 0.0, t], "R1": [d1, 0.0, t], "N0": [0.0, 10.0, "base"],
+    end = d0 if ridge_to is None else ridge_to
+    return straight(nodes={"R0": [ridge_from, 0.0, t], "R1": [end, 0.0, t], "N0": [0.0, 10.0, "base"],
                            "N1": [d1, 10.0, "base"], "S0": [0.0, -10.0, "base"], "S1": [d1, -10.0, "base"]},
                     facets={"N": {"poly": ["R0", "R1", "N1", "N0"], "fade": f},
                             "S": {"poly": ["S0", "S1", "R1", "R0"], "fade": f}},
@@ -227,11 +232,28 @@ def fade_one_side(d0: float = 30.0, d1: float = 60.0, proud: float = 1.5, edge: 
     `proud` mm above N's fade and N's 10 mm wide triangles tilt about atan(proud / 10) off it: 8.5 deg as is,
     W_FADE_HOLD (>= 10 deg) at proud 3, E_FADE_CLIFF (> 25 deg) at proud 6 (edge 0; N's outer edge then lies on the
     base, so its fade also moves no vertex: W_FADE_INERT)."""
-    s = fade(d0, d1, proud)
+    s = fade(d0, d1, proud, ridge_to=d1)
     s["facets"]["S"]["fade"] = None
     for n in ("N0", "N1"):
         s["nodes"][n][2] = PRISM["T"] + edge
     return s
+
+
+def crease_run_band(rise: float = -0.6, mid_off: float = 0.0, t_end: tuple = (2.0, 1.0)) -> dict:
+    """A thin band B over the slab whose lower edge L-M-R is one straight line (L on the hinge-end cap at y 4, M at
+    d 60, R at d 120; M `mid_off` mm off the line L-R) and whose top is the outline's top edge (U0, U1 above it): a
+    crease + rise plane through the ends of that run, {crease: [L, R]} (spec.crease_run), with L and R `t_end` mm proud
+    of the base; M takes the plane's value. Below the band: W, a crease + rise plane through the same run (rise 0.1
+    into W): B|W is a ridge."""
+    tl, tr = PRISM["T"] + t_end[0], PRISM["T"] + t_end[1]
+    return straight(nodes={"L": [0.0, 4.0, tl], "M": [60.0, 4.0 + mid_off, None], "R": [120.0, 4.0, tr],
+                           "U0": [0.0, 30.0, None], "U1": [120.0, 30.0, None],
+                           "B0": [0.0, -30.0, None], "B1": [120.0, -30.0, None]},
+                    facets={"B": {"poly": ["L", "M", "R", "U1", "U0"],
+                                  "plane": {"crease": ["L", "R"], "rise_per_mm": rise}},
+                            "W": {"poly": ["B0", "B1", "R", "M", "L"],
+                                  "plane": {"crease": ["R", "L"], "rise_per_mm": 0.1}}},
+                    creases=[])
 
 
 def border_ramp(proud_b: float = 0.6) -> dict:
@@ -334,6 +356,7 @@ def refusal_cases() -> dict:
     out["E_CHAMFER"] = s
     out["E_ROLL"] = rolled(roll_mm=3.5)
     out["E_FADE_CLIFF"] = fade_one_side(proud=6.0, edge=0.0)   # S holds N's ridge 6 mm above its fade: 31.0 deg
+    out["E_FADE_CREASE"] = fade(ridge_to=60.0)                 # the ridge runs on through N's and S's fade
     s = pyramid()
     s["creases"] = [{"facets": ["F2", "F3"], "shape": "valley"}]
     out["E_CREASE_SHAPE"] = s

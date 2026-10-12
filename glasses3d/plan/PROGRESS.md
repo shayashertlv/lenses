@@ -227,6 +227,83 @@ effort max, no reply cap, K 4; code `7631a31`; T5 `t5_006` 38/38; estimate_006 (
 - Sheets: `data/wp6v2/result_facet-astra-006/` (top_triangle_run6.png, faces_run6.png, angled_run6.png, top_run6.png);
   the 3D viewer's default is run 6. The owner's verdict is pending.
 
+**Owner feedback on facet-astra-006, verbatim:** "run 6 looks closer, but as you said theres this inward issue and the
+top triangle is still not one piece and being smoothen and not flat. please review evidence thoroughly and the tools
+and instructions. please plan heavily for yourself (no need to stop to share the plan) and fix, after the fixes come
+back when youre ready for a paid run and illl authorize it. run 6 is better than run 5 but there are still issues as
+mentioned above.."
+
+**Found ($0; corners triangulated from photo pairs with the job's own cameras; `data/wp6v2/tooltest_run7/`):**
+- The smoothed, "not one piece" top triangle is the fade. Crown, Lower and Tail fade over d 48-82, so the crown is
+  flat only over d 0-48 and blends into the arm behind. Astra faded to hide a wing:
+  - the crown's tip E was solved from the crown's plane at t 9.8 (d 90), about 4 mm proud of the arm;
+  - top view −3.2 / −4.3 mm at d 70 / 80; B2 "an over-raised wing";
+  - the crown's lower edge A-C-E is one straight line, so with A 3.55 and C 7.49 the tip took C's height.
+- A 3.55 was a one-photo reading at an assumed (d 0, y 10.2).
+  - In B2 a d error moves the pixel along the depth line, and the inner face turns 0.78 mm per mm of d at the hinge.
+  - The same corner picked in B2 and B1 sits at d −1.58, X 70.71: t 4.77 at d 0.
+  - The hinge-bottom corner H reads 4.8-5.4 the same way (Astra 5.52).
+- The inward hinge-side edge (Front|Logo valley, H 1.6 mm outside the logo's plane) came from the same A reading.
+  With A and H read in two photos and C solved from one flat crown, it is a 1.9° crease on the ridge side
+  (H +0.4 / C +1.2), within the readings' error.
+- Readings of one corner differ by 1-2 mm between cameras (02's fit: mean contour 7.2 px).
+  - C reads 7.5-7.9 from the angled photos and at most 6.9 from the top photo's outline.
+  - One flat crown through A, T and the measured tip (t 5.25 at d 81) solves C at 5.8.
+  - The top view then has no wing (d 60-110 within 0.7 mm).
+- My run-6 rule "measure, never solve, the corners that set a crease" pushed C's thick reading in and the tip out.
+- Every paid run (2-6) faded the faces on both sides of a crease that runs on (the crown's back crease near d 90;
+  runs 3 and 6 from d 47-48). The owner's earlier remarks match: run 2 "the each triangle line is very soft", run 6
+  "smoothen and not flat".
+
+**Built for run 7 ($0):**
+- photo_compare `depths` items take `also`: the same point in 1-3 more photos with a camera (`lab.corner_reading`).
+  - The host finds the point by least squares over the pixels.
+  - It prints first the t to enter at the reading's own (d, y) ("t 4.77 here"), then where the point is, then each
+    photo's residual.
+  - It refuses photo pairs that see the point along nearly one line, using the pixel Jacobian's condition number
+    over 20 (B2+B1 1.9; the opposite side views 05+01 about 940).
+  - A one-photo reading says where the inner face turns fast.
+- Builder (core `wp6-core-2.3`):
+  - A crease + rise plane may hold the ends of a straight run of its polygon's edges (`spec.crease_run`, corners
+    within 0.5 mm). This is how a thin band such as the crown gets its tilt from a rise, with both ends measured.
+  - A run corner off the line that another facet meets on both run edges is `E_SPEC`, checked before and after snaps.
+  - `E_FADE_CREASE`: a crease stands to its ends. Two facets both faded anywhere along their shared crease are
+    refused. The fix offered: start the fades where it ends, or let one stand.
+  - `E_FADE_CLIFF` and `W_FADE_EARLY` no longer advise fading both facets of a crease alike.
+- Refusal notes:
+  - `E_FACET_NOT_PLANAR` lists each given corner solved alone and its move, smallest first ("C -> 5.84 (−1.90),
+    E -> 8.45 (+3.20)"). It also names the straight run a crease plane can hold ("; or a crease plane on the run A-E
+    (through C)"). For one given corner well off a crease line, it names the rise_per_mm that meets it.
+  - `E_ILL_CONDITIONED` names the corners without a value and the straight runs.
+- Instructions (13,974 chars, under the 14,000 cap by cutting wording):
+  - read corners also in a photo from another direction, and enter the t printed for your (d, y);
+  - a crease plane on a straight run's two ends;
+  - when a face's measured corners fit no plane, take the run or rise named, else solve the corner that moves least,
+    and keep it solved;
+  - a crease stands to its ends; never fade to fix a thickness (read the end corner instead);
+  - a crease left open by its readings and by the views along it: enter values within the readings' error that
+    build a ridge, unless a bracket shows a valley;
+  - a crease built flat stays undeclared.
+- Tool test (labelled copy of package_006, local Blender): run 6's layout with the two-photo corners, the crown on
+  A-E and no fades, builds. In the black side view the top triangle is one flat band to its tip and the back faces are
+  crisp (`tooltest_run7/owner_top_triangle.png`).
+- Reviews:
+  - round 1 (4 reviewers, 4 verifiers): 3 P1 and about 10 P2, all fixed. The P1s were:
+    - the guard could be passed by moving a crease end inside the outline;
+    - the corner text printed the misleading t first;
+    - the tie-break, flat-crease and solve rules looped;
+  - round 2 (2 + 2): 1 P1 (the "end it at a node, fade from there" advice rebuilt the smooth surface through a base
+    strip) and 7 P2/P3, all fixed;
+  - a final check of the round-2 fixes: 1 P1 (a printed rise missed by rounding), 1 P2 (the run named with no values
+    at its ends) and 2 P3, all fixed.
+- Tests:
+  - T5 `t5_wip7b` 39/39 (new: `corner_reading_from_two_photos`).
+  - Full suite from the repo root: 2295 passed. 4 failed: the stale WP5 test and three load-sensitive tests, which
+    pass alone. Builder, lab and CLI suites rerun after the final fixes: 379 passed.
+  - `FX.fade`'s ridge now ends where its fade starts. The former dying ridge (`ridge_to=60`, `legacy_fade`) is kept
+    for the fade-value tests with the guard off.
+  - Recorded runs 2-6 revisions with both-faded creases are now `E_FADE_CREASE`.
+
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
 ## Decisions (owner's words verbatim)

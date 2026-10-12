@@ -5,6 +5,7 @@ stations, sharp sets, crease check, compact receipt, mirror and opening, bit-ide
 budget."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -31,6 +32,27 @@ R0015 = REPO / "glasses3d/data/wp6v2/lab/package/work/temple_lab/revisions/r0015
 @pytest.fixture(scope="module")
 def builds():
     return {n: build_temple(FX.FIXTURES[n]()) for n in FIXTURE_NAMES}
+
+
+@contextlib.contextmanager
+def crease_fade_check_off():
+    """E_FADE_CREASE (run 7) turned off: for the tests of fade values, cells and sharpness on a crease both facets
+    fade along (refused since run 7; the same code serves mixed fades, where one facet stands)."""
+    from glasses3d.g3d.temple import build as BD
+    real = BD._check_fade_creases
+    BD._check_fade_creases = lambda *a, **k: None
+    try:
+        yield
+    finally:
+        BD._check_fade_creases = real
+
+
+@pytest.fixture(scope="module")
+def legacy_fade():
+    """FX.fade(ridge_to=60): the N|S ridge dies out in N's and S's fade (FX.fade's default before run 7), built with
+    the crease guard off (crease_fade_check_off)."""
+    with crease_fade_check_off():
+        return build_temple(FX.fade(ridge_to=60.0))
 
 
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
@@ -154,8 +176,8 @@ def _fade_ridge_design_deg(ps, d) -> np.ndarray:
     return np.degrees(2.0 * np.arctan((1.0 - s) * 0.15 / np.hypot(1.0, 1.5 * ds)))
 
 
-def test_faded_creases_are_sharp_while_they_stand(builds):
-    tb = builds["fade"]
+def test_faded_creases_are_sharp_while_they_stand(legacy_fade):
+    tb = legacy_fade
     topo = mesh_topology(tb.polys)
     sharp = set(tb.sharp)
     n, cross, cross_faded, cross_soft = 0, 0, 0, 0
@@ -194,8 +216,8 @@ def test_facet_corners_take_the_face_normal(builds):
     assert all(len(fd.polys[i]) == 3 for i, c in enumerate(fd.poly_cell) if c == "faded")      # auto-smoothed
 
 
-def test_fade_values_blend_plane_and_base(builds):
-    tb = builds["fade"]
+def test_fade_values_blend_plane_and_base(legacy_fade):
+    tb = legacy_fade
     ps, V = tb.spec, tb.arr.V
     f = ps.facets["N"]["fade"]
     for lab in ("N", "S"):
@@ -214,12 +236,16 @@ def test_fade_stations_are_dense_and_fades_may_run_forward():
     st = np.asarray(station_list(build_temple(s).spec))
     inside = st[(st >= 40.0 - 1e-9) & (st <= 46.0 + 1e-9)]
     assert np.max(np.diff(inside)) <= 1.0 + 1e-9                # <= (d1 - d0) / 6
-    r = FX.fade()
+    r = FX.fade(ridge_from=35.0, ridge_to=60.0)    # the ridge (d 35-60) lies beyond the fade toward the hinge
     for lab in ("N", "S"):                                       # the plane at d 30, the base at d 0: fading forward
         r["facets"][lab]["fade"] = {"d0": 30.0, "d1": 0.0}
     tb = build_temple(r)
-    v0 = [v for v in range(tb.n2) if tb.arr.V[v, 0] == 0.0 and abs(tb.arr.V[v, 1]) < 1e-9][0]
-    assert tb.X_surface[v0] == pytest.approx(float(tb.spec.x_base(0.0, 0.0)), abs=1e-12)
+    ps, V = tb.spec, tb.arr.V
+    for lab in ("N", "S"):                  # every vertex of N and S: (1 - s) plane + s base, s growing toward d 0
+        vs = sorted({v for fi, face in enumerate(tb.arr.faces) if tb.face_label[fi] == lab for v in face})
+        s = fade_weight(ps, lab, V[vs, 0])
+        want = (1 - s) * tb.sol.planes[lab].X(V[vs, 0], V[vs, 1]) + s * ps.x_base(V[vs, 0], V[vs, 1])
+        assert np.max(np.abs(tb.X_surface[vs] - want)) <= 1e-12 and s.max() > 0.9 and s.min() == 0.0
 
 
 @pytest.mark.parametrize("name", ["fade", "fade_one_side"])
@@ -310,9 +336,13 @@ def test_a_facet_fades_beside_a_plane(builds):
 
 def test_former_fade_neighbour_refusals_build():
     assert "E_FADE_NEIGHBOUR" not in REFUSALS
-    s = FX.fade()
+    s = FX.fade(ridge_to=60.0)
     s["facets"]["S"]["fade"] = {"d0": 20.0, "d1": 50.0}                    # two different fades on one crease
-    tb = build_temple(s)
+    with pytest.raises(TempleError) as e:                                  # both fade along it: refused since run 7
+        build_temple(s)
+    assert e.value.code == "E_FADE_CREASE"
+    with crease_fade_check_off():                                          # the values the less-faded one keeps
+        tb = build_temple(s)
     V = tb.arr.V
     ridge = [v for v in range(tb.n2) if abs(V[v, 1]) < 1e-9 and V[v, 0] <= 60.0]
     sN = fade_weight(tb.spec, "N", V[ridge, 0])                              # N fades later: N is the less faded
@@ -398,8 +428,8 @@ def test_fade_cliff_refuses_a_held_wall(monkeypatch):
     assert f["min_hold_mm"] == FADE_HOLD_MIN_MM == 0.05
     assert f["tilt_deg"] == pytest.approx(math.degrees(math.atan(0.6)), abs=1e-6)       # 6 mm over 10 mm wide cells
     assert e.value.message == (f"facet N fades but S holds it 6.00 mm up on their crease at d 50.0-60.0 (worst at d "
-                               f"{f['at'][0]:.1f} y {f['at'][1]:.1f}): a wall 31 deg off its fade (> 25); fade S the "
-                               f"same way, start the fade where the crease ends, or end the crease at a node")
+                               f"{f['at'][0]:.1f} y {f['at'][1]:.1f}): a wall 31 deg off its fade (> 25); start the fade "
+                               f"where the crease ends")
     _no_fade_check(monkeypatch)                                        # the same build unchecked: the tilt is real
     worst = max(_counted(build_temple(spec)), key=lambda x: x[0])
     assert f["tilt_deg"] == pytest.approx(worst[0], abs=1e-9) and worst[0] > 25.0 and worst[2] == "N"
@@ -412,7 +442,10 @@ def test_crease_shape_names_the_fade_for_a_faded_pair():
     s = FX.fade()
     for lab in ("N", "S"):
         s["facets"][lab]["fade"] = {"d0": 0.0, "d1": 4.0}               # the 17 deg ridge stands only over d 0-4
-    with pytest.raises(TempleError) as e:
+    with pytest.raises(TempleError) as e:                              # since run 7 the crease guard refuses first
+        build_temple(s)
+    assert e.value.code == "E_FADE_CREASE"
+    with pytest.raises(TempleError) as e, crease_fade_check_off():
         build_temple(s)
     assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["built"] == "flat"
     assert e.value.message.endswith("; fix the node values, or start the fade later / end it later, do not redeclare")
@@ -529,13 +562,13 @@ def test_early_fade_warns_in_one_line():
     assert len(w) == 1 and w[0]["facets"] == ["N", "S"] and w[0]["share"] == {"N": 0.067, "S": 0.067}
     assert w[0]["flat_mm"] == {"N": 4.0, "S": 4.0}
     assert w[0]["message"] == ("barely flat before their fade: N flat 4.0 mm at its front (d 0.0); S flat 4.0 mm at "
-                               "its front (d 0.0); fade later (alike across a shared crease)")
+                               "its front (d 0.0); fade later, from where its creases end")   # never "alike across"
     assert [ln for ln in report.receipt(tb)["lines"] if ln.startswith("W_FADE_EARLY")] == \
         [f"W_FADE_EARLY: {w[0]['message']}"]
     assert not any(x["code"] == "W_FADE_EARLY" for x in build_temple(FX.fade()).warnings)     # d0 30 of d 0-60
     assert not any(x["code"] == "W_FADE_EARLY" for x in build_temple(FX.fade(d0=5.0, d1=60.0)).warnings)  # 5 mm
     for d0, warned in ((56.0, True), (40.0, False)):   # toward the hinge: N and S (d 0-60) stand only over d d0-60
-        back = FX.fade()
+        back = FX.fade(ridge_from=d0, ridge_to=60.0)      # the ridge (d0-60) stands (else E_FADE_CREASE)
         back["creases"] = []                              # the ridge fades out ahead of d0 (undeclared, not refused)
         for f in back["facets"].values():
             f["fade"] = {"d0": d0, "d1": 10.0}
@@ -566,6 +599,14 @@ R15_BUILDS = [            # (case, fades or None = r0015 as is, W_FADE_HOLD expe
     ("C2 tail_flank 40-90", {**REST, "tail_flank": (40.0, 90.0)}, False)]
 
 
+def _no_crease_fade_check(monkeypatch):
+    """Run 2's r0015 fades every facet together across creases that reach the outline (E_FADE_CREASE since run 7,
+    test_run2_and_run6_fades_die_before_the_edge): these probes test the hold, cliff, inert and planarity mechanics
+    on that layout, so they turn the crease guard off."""
+    from glasses3d.g3d.temple import build as BD
+    monkeypatch.setattr(BD, "_check_fade_creases", lambda *a, **k: None)
+
+
 def _r0015(fades) -> dict:
     if not R0015.exists():
         pytest.skip("facet-astra-002 revision r0015 not present (local evidence)")
@@ -582,14 +623,14 @@ def test_astra_r0015_held_walls_are_refused(monkeypatch, case, fades, facet, nei
     """A facet fading while a neighbour stands (or fades later) hides a wall in one row of triangles: E_FADE_CLIFF with
     the facet, the neighbour holding it, the d range, the worst point, the hold and the tilt. The three roll cases are
     walls in the roll band only (the reviewer's defect 2: an outer-only check built them)."""
+    _no_crease_fade_check(monkeypatch)
     spec = _r0015(fades)
     with pytest.raises(TempleError) as e:
         build_temple(spec)
     f = e.value.fields
     assert e.value.code == "E_FADE_CLIFF" and (f["facet"], f["neighbour"]) == (facet, neighbour)
     assert e.value.message.startswith(f"facet {facet} fades but {neighbour} holds it {abs(f['hold_mm']):.2f} mm ")
-    assert e.value.message.endswith(f"fade {neighbour} the same way, start the fade where the crease ends, or end "
-                                    f"the crease at a node")
+    assert e.value.message.endswith("; start the fade where the crease ends")   # never "fade the neighbour too"
     assert f["d_mm"][0] <= f["at"][0] <= f["d_mm"][1]
     _no_fade_check(monkeypatch)
     rows = _tilts(build_temple(spec))
@@ -605,10 +646,11 @@ def test_astra_r0015_held_walls_are_refused(monkeypatch, case, fades, facet, nei
 
 
 @pytest.mark.parametrize("case, fades, warns", R15_BUILDS, ids=[c[0] for c in R15_BUILDS])
-def test_astra_r0015_fades_that_build(case, fades, warns):
-    """Fades alike or nearly alike build: no counted tilt over 25 deg; W_FADE_HOLD where the largest counted tilt is
-    >= 10 deg (B: 16 deg on a 0.07 mm hold). B and C2 keep the micron-wide slivers the reviewer found (> 25 deg on
-    holds under 0.05 mm, defect 1): invisible, never counted."""
+def test_astra_r0015_fades_that_build(monkeypatch, case, fades, warns):
+    """Fades alike or nearly alike build (the crease guard off: _no_crease_fade_check): no counted tilt over 25 deg;
+    W_FADE_HOLD where the largest counted tilt is >= 10 deg (B: 16 deg on a 0.07 mm hold). B and C2 keep the
+    micron-wide slivers the reviewer found (> 25 deg on holds under 0.05 mm, defect 1): invisible, never counted."""
+    _no_crease_fade_check(monkeypatch)
     tb = build_temple(_r0015(fades))
     rows = _tilts(tb)
     counted = [x for x in rows if x[1] >= FADE_HOLD_MIN_MM]
@@ -629,8 +671,13 @@ def test_astra_r0015_logo_fade_alone_is_inert():
     assert len(inert) == 1 and inert[0]["why"] == {"logo": "held by less-faded neighbours"}
 
 
-def test_astra_r0015_flattening_fades_name_the_fade():
+def test_astra_r0015_flattening_fades_name_the_fade(monkeypatch):
     for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # every facet alike, early: the creases die
+        with pytest.raises(TempleError) as e:                          # before the edge they reach: refused first
+            build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
+        assert e.value.code == "E_FADE_CREASE"
+    _no_crease_fade_check(monkeypatch)
+    for a, b in ((30.0, 70.0), (20.0, 60.0)):                          # the crease check still names the fade
         with pytest.raises(TempleError) as e:
             build_temple(_r0015({k: (a, b) for k in R15_FACETS}))
         assert e.value.code == "E_CREASE_SHAPE" and e.value.fields["built"] == "flat"
@@ -638,20 +685,30 @@ def test_astra_r0015_flattening_fades_name_the_fade():
 
 
 @pytest.mark.parametrize("k", range(1, 17))
-def test_facet_astra_002_revisions_build(k):
+def test_facet_astra_002_revisions_build(monkeypatch, k):
+    """Run 2's revisions: 1-10 build; 11-16 fade every facet together (40-85) across creases that run on into the
+    fade (rear_bevel|tail_flank to the top outline near d 94, crown|rear_bevel, ...): E_FADE_CREASE since run 7. With
+    that guard off every one still builds closed without W_FADE_HOLD (the builder's own regression on real specs)."""
     p = R0015.parent / f"r{k:04d}.json"
     if not p.exists():
         pytest.skip(f"facet-astra-002 revision r{k:04d} not present (local evidence)")
-    tb = build_temple(json.loads(p.read_text(encoding="utf-8")))
+    spec = json.loads(p.read_text(encoding="utf-8"))
+    if k >= 11:
+        with pytest.raises(TempleError) as e:
+            build_temple(spec)
+        assert e.value.code == "E_FADE_CREASE" and ["rear_bevel", "tail_flank"] in e.value.fields["creases"]
+        _no_crease_fade_check(monkeypatch)
+    tb = build_temple(spec)
     assert tb.checks["closed"] and not any(w["code"] == "W_FADE_HOLD" for w in tb.warnings)
 
 
-def test_astra_r0015_facets_are_planar_before_the_fade():
-    """The paid run facet-astra-002's final spec (every facet fades over d 40-85): its logo, crown and hinge_flank
-    cells before d 40 are planar facet cells with face normals (not auto-smoothed triangles), and every crease between
-    two facets is sharp wherever it stands."""
+def test_astra_r0015_facets_are_planar_before_the_fade(monkeypatch):
+    """The paid run facet-astra-002's final spec (every facet fades over d 40-85; the crease guard off,
+    _no_crease_fade_check): its logo, crown and hinge_flank cells before d 40 are planar facet cells with face normals
+    (not auto-smoothed triangles), and every crease between two facets is sharp wherever it stands."""
     if not R0015.exists():
         pytest.skip("facet-astra-002 revision r0015 not present (local evidence)")
+    _no_crease_fade_check(monkeypatch)
     tb = build_temple(json.loads(R0015.read_text(encoding="utf-8")))
     V = tb.arr.V
     flat = set(tb.flat_polys)
@@ -909,3 +966,164 @@ def test_tip_round_builds(builds):
     s["outline"]["tip_round_mm"] = 1.2
     tb = build_temple(s)
     assert tb.checks["closed"] and tb.checks["euler"] == 2
+
+
+# --------------------------------------------------------------------------------------------- run 7
+R6_REV13 = REPO / "glasses3d/data/wp6v2/lab/package_006/work/temple_lab/revisions/r0013.json"
+PRISM_T = FX.PRISM["T"]
+
+
+def test_fade_crease_refuses_a_crease_that_dies_before_the_edge_it_reaches():
+    """E_FADE_CREASE (run 6: the back faces faded from d 48 across creases running to d 75-90, and the top triangle
+    read smooth, not one flat piece; the owner, run 2: "the each triangle line is very soft"): two facets both faded
+    (weight >= FADE_CREASE_WEIGHT) anywhere along their shared crease are refused, naming the crease, its d span, the
+    point, both fades and the fix. The review's evasion (the crease's end moved just inside the outline, the fades
+    unchanged) is refused too. One facet standing, or fades that start where the crease ends, build; the weight rule
+    is the smaller weight of the two, at FADE_CREASE_WEIGHT."""
+    with pytest.raises(TempleError) as e:
+        build_temple(FX.refusal_cases()["E_FADE_CREASE"])              # the ridge runs on through the fade
+    f = e.value.fields
+    assert e.value.code == "E_FADE_CREASE" and f["facets"] == ["N", "S"] and 30.0 < f["at"][0] < 36.0
+    assert f["span_d"] == pytest.approx([0.0, 60.0]) and f["creases"] == [["N", "S"]]
+    assert e.value.message.startswith("crease N|S (d 0.0-60.0) fades out along its length: both facets fade at (d, y) (")
+    assert e.value.message.endswith("(N 30-60, S 30-60); a crease stands to its ends: start the fades where it ends, "
+                                    "or let one of them stand")          # never "end it at a node" (review round 2)
+    rev = FX.fade(ridge_to=60.0)                                       # fading toward the hinge: named where it starts
+    for lab in ("N", "S"):
+        rev["facets"][lab]["fade"] = {"d0": 60.0, "d1": 30.0}
+    rev["creases"] = []
+    with pytest.raises(TempleError) as e:
+        build_temple(rev)
+    assert 54.0 < e.value.fields["at"][0] < 60.0 and e.value.fields["weight"] < 0.2
+    for ridge_from in (0.25, 5.0):                                     # the end moved inside: still fading along it
+        inside = FX.fade(ridge_from=ridge_from)                        # (ridge to d 30, fading toward d 0)
+        for lab in ("N", "S"):
+            inside["facets"][lab]["fade"] = {"d0": 30.0, "d1": 0.0}
+        inside["creases"] = []
+        with pytest.raises(TempleError) as e:
+            build_temple(inside)
+        assert e.value.code == "E_FADE_CREASE"
+    one = FX.fade_one_side()                                           # S stands: the ridge stands to the cap
+    one["facets"]["N"]["fade"] = {"d0": 30.0, "d1": 0.0}
+    build_temple(one)
+    later = FX.fade(ridge_to=60.0)                     # both faded facets, S from where the ridge ends: the smaller
+    later["facets"]["S"]["fade"] = {"d0": 60.0, "d1": 90.0}            # weight along it is S's, 0 (never the larger)
+    build_temple(later)
+    ends = FX.fade(ridge_from=30.0, ridge_to=60.0)                     # the fades start where the ridge ends
+    for lab in ("N", "S"):
+        ends["facets"][lab]["fade"] = {"d0": 30.0, "d1": 0.0}
+    build_temple(ends)
+    build_temple(FX.fade())                                            # the ridge ends at d 30, where they fade
+    # the weight rule: the smaller weight of the two at FADE_CREASE_WEIGHT (smoothstep 3x^2 - 2x^3 of x = d / 30)
+    from glasses3d.g3d.temple.spec import FADE_CREASE_WEIGHT
+    x = np.linspace(0.0, 0.5, 100001)
+    xc = float(x[np.argmax(3 * x ** 2 - 2 * x ** 3 >= FADE_CREASE_WEIGHT)])
+    for N0, ok in ((30.0 * xc - 0.1, True), (30.0 * xc + 0.3, False)):  # N fades 0->30 forward; S from N0 later
+        s = FX.fade(ridge_to=60.0)
+        s["facets"]["N"]["fade"] = {"d0": 60.0 - N0, "d1": 90.0 - N0}   # the ridge ends at d 60
+        s["facets"]["S"]["fade"] = {"d0": 60.0 - N0, "d1": 90.0 - N0}
+        s["creases"] = []
+        if ok:
+            build_temple(s)
+        else:
+            with pytest.raises(TempleError) as e:
+                build_temple(s)
+            assert e.value.code == "E_FADE_CREASE"
+
+
+def test_run2_and_run6_fades_die_before_the_edge():
+    """Run 6's best revision faded Crown, Lower and Tail 48-82 across Lower|Tail (d 47-75) and Crown|Tail (to d 90):
+    refused now (local evidence; run 2's r0011-16 in test_facet_astra_002_revisions_build)."""
+    if not R6_REV13.exists():
+        pytest.skip("facet-astra-006 revision r0013 not present (local evidence)")
+    with pytest.raises(TempleError) as e:
+        build_temple(json.loads(R6_REV13.read_text(encoding="utf-8")))
+    assert e.value.code == "E_FADE_CREASE" and e.value.fields["creases"] == [["Lower", "Tail"], ["Crown", "Tail"]]
+    assert e.value.fields["span_d"] == pytest.approx([47.3, 75.0], abs=1e-6)
+
+
+def test_crease_plane_holds_a_straight_run_of_edges():
+    """A crease + rise plane through the ends of a straight run of the poly's edges (spec.crease_run; run 6's crown,
+    a thin band whose lower edge A-C-E runs straight through the logo corner C): the plane holds the 3D line L-R and
+    rises into the facet whichever way the poly is listed; the corner M on the run takes the plane's value (solved by
+    design); a run bent more than RUN_LINE_MM is refused E_SPEC; an edge stays a crease as before."""
+    from glasses3d.g3d.temple.spec import RUN_LINE_MM, crease_run, parse
+    s = FX.crease_run_band()
+    tb = build_temple(s)
+    ps, pl = tb.spec, tb.sol.planes["B"]
+    XL, XR = ps.node_X("L"), ps.node_X("R")
+    for d in (0.0, 30.0, 60.0, 120.0):                                 # the line L-R at y 4
+        assert pl.X(d, 4.0) == pytest.approx(XL + (XR - XL) * d / 120.0, abs=1e-9)
+    assert pl.X(60.0, 14.0) - pl.X(60.0, 4.0) == pytest.approx(-0.6 * 10.0, abs=1e-9)   # rise into the band (up)
+    assert tb.sol.node_X["M"] == pytest.approx(pl.X(60.0, 4.0), abs=1e-9)
+    rev = FX.crease_run_band()
+    rev["facets"]["B"]["poly"] = rev["facets"]["B"]["poly"][::-1]    # clockwise listing: the same plane
+    assert build_temple(rev).sol.planes["B"].coef == pytest.approx(pl.coef, abs=1e-12)
+    rev = FX.crease_run_band()
+    rev["facets"]["B"]["plane"]["crease"] = ["R", "L"]                 # the ends named the other way: the same plane
+    assert build_temple(rev).sol.planes["B"].coef == pytest.approx(pl.coef, abs=1e-12)
+    assert crease_run(["L", "M", "R", "U1", "U0"], "L", "R", ps.nodes) == (1, ["M"])
+    assert crease_run(["L", "M", "R", "U1", "U0"], "R", "L", ps.nodes) == (-1, ["M"])
+    assert crease_run(["L", "M", "R", "U1", "U0"], "L", "M", ps.nodes) == (1, [])
+    one = FX.crease_run_band(mid_off=0.9 * RUN_LINE_MM)               # a run within RUN_LINE_MM is one line for B
+    del one["facets"]["W"]                                             # alone (base below it)
+    for n in ("B0", "B1"):
+        del one["nodes"][n]
+    parse(one)
+    for w_plane in ({"crease": ["R", "L"], "rise_per_mm": 0.1}, "nodes", {"crease": ["R", "M"], "rise_per_mm": 0.1}):
+        both = FX.crease_run_band(mid_off=0.3)                         # W meets B along L-M-R (a run, its nodes, an
+        both["facets"]["W"]["plane"] = w_plane                         # edge crease): they could only be one plane
+        with pytest.raises(TempleError) as e:
+            parse(both)
+        assert e.value.code == "E_SPEC" and e.value.fields["node"] == "M" and e.value.fields["facets"] == ["B", "W"]
+        assert e.value.message.endswith("whose corner M lies 0.3 mm off its line: they could only be one plane; put M "
+                                        "on the line L-R")
+    tiny = FX.crease_run_band(mid_off=1e-4)                            # never printed as "0.000 mm"
+    with pytest.raises(TempleError) as e:
+        parse(tiny)
+    assert "whose corner M lies 0.0001 mm off its line" in e.value.message
+    # the same check after the node snaps: M exactly on the line until its d snaps to a knot (K's d)
+    snapped = FX.crease_run_band()
+    snapped["nodes"]["R"] = [120.0, 10.0, FX.PRISM["T"] + 1.0]
+    snapped["nodes"]["M"] = [60.03, 4.0 + 6.0 * 60.03 / 120.0, None]
+    snapped["nodes"]["K"] = [60.0, -5.0, None]
+    with pytest.raises(TempleError) as e:
+        parse(snapped)
+    assert e.value.code == "E_SPEC" and "after the snaps (node M d 60.03->60)" in e.value.message
+    with pytest.raises(TempleError) as e:
+        parse(FX.crease_run_band(mid_off=1.1 * RUN_LINE_MM))
+    assert e.value.code == "E_SPEC" and "a straight run of its edges" in e.value.message
+    # a band thinner than RUN_LINE_MM: both runs between L and R are straight; the closer one is the crease's, so the
+    # rise points into the band whichever way the ends are named or the poly listed
+    nodes = {"L": [0.0, 4.0], "M": [60.0, 4.0], "R": [120.0, 4.0], "U1": [120.0, 4.4], "U0": [0.0, 4.4]}
+    poly = ["L", "M", "R", "U1", "U0"]
+    assert crease_run(poly, "L", "R", nodes) == (1, ["M"]) and crease_run(poly, "R", "L", nodes) == (-1, ["M"])
+    assert crease_run(poly[::-1], "L", "R", nodes) == (-1, ["M"]) and crease_run(poly[::-1], "R", "L", nodes) == \
+        (1, ["M"])
+    tie = {**nodes, "M": [60.0, 3.8], "U1": [120.0, 4.2], "U0": [0.0, 4.2]}  # both runs 0.2 mm off: the same run
+    assert {tuple(crease_run(pl, a, b, tie)[1]) for pl in (poly, poly[::-1]) for a, b in (("L", "R"), ("R", "L"))} \
+        == {("M",)}
+    # a node snap that bends a run past RUN_LINE_MM after the spec's own check: E_SPEC, never a TypeError
+    snap = FX.straight(nodes={"L": [0.0, -9.48, PRISM_T + 1.0], "M": [60.0, -9.955, None],
+                              "R": [120.0, -9.48, PRISM_T + 1.0], "U0": [0.0, 30.0, None], "U1": [120.0, 30.0, None]},
+                       facets={"B": {"poly": ["L", "M", "R", "U1", "U0"],
+                                     "plane": {"crease": ["L", "R"], "rise_per_mm": -0.2}}})
+    with pytest.raises(TempleError) as e:
+        build_temple(snap)
+    assert e.value.code == "E_SPEC" and "no longer a straight run" in e.value.message and "node M y" in e.value.message
+    with pytest.raises(TempleError) as e:                              # U0-R: neither run between them is straight
+        bad = FX.crease_run_band()
+        bad["facets"]["B"]["plane"]["crease"] = ["U0", "R"]
+        parse(bad)
+    assert e.value.code == "E_SPEC"
+
+
+def test_solve_planes_matches_the_build():
+    """solve_planes (the lab's refusal notes) gives the build's own planes and node values."""
+    from glasses3d.g3d.temple.build import solve_planes
+    for s in (FX.pyramid(), FX.crease_run_band(), FX.solved_node()):
+        tb = build_temple(s)
+        _ps, sol = solve_planes(s)
+        assert sol.node_X == pytest.approx(tb.sol.node_X, abs=0.0)
+        for lab, plane in tb.sol.planes.items():
+            assert sol.planes[lab].coef == pytest.approx(plane.coef, abs=0.0)

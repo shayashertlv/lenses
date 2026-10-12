@@ -70,8 +70,10 @@ class DeleteNode(Input):
 
 class Plane(Input):
     mode: Literal["nodes", "crease"] = Field(description="nodes: through the facet's own node values; crease: "
-                                                         "through the crease edge, rising rise_per_mm into the facet")
-    crease: list[str] | None = Field(description="the two crease nodes (adjacent corners of poly), or null",
+                                                         "through the crease line, rising rise_per_mm into the facet")
+    crease: list[str] | None = Field(description="the two crease nodes: adjacent corners of poly, or the ends of a "
+                                                 "straight run of its edges (the corners between lie on their line "
+                                                 "within 0.5 mm and take the plane's value); or null",
                                      min_length=2, max_length=2)
     rise_per_mm: float | None = Field(description="mm of X gained per mm moved from the crease into the facet "
                                                   "(negative falls toward the inner face), or null")
@@ -80,9 +82,9 @@ class Plane(Input):
 class Fade(Input):
     d0_mm: float = Field(description="d where the facet is fully its plane")
     d1_mm: float = Field(description="d where it has blended into the plain arm away from its creases; along a "
-                                     "crease with a standing neighbour it keeps that neighbour's height (fade both "
-                                     "facets of a crease the same way to let it die out; a step against a standing "
-                                     "neighbour is refused, E_FADE_CLIFF)")
+                                     "crease with a standing neighbour it keeps that neighbour's height (a step "
+                                     "against it is refused, E_FADE_CLIFF); two facets never both fade along the "
+                                     "crease they share: it stands to its ends (E_FADE_CREASE)")
 
 
 class SetFacet(Input):
@@ -189,19 +191,29 @@ def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids
         photo: PhotoId
         points: list[list[float]] = Field(min_length=1, max_length=16, description="native photo pixels [[u, v]]")
 
+    class Pick(Input):
+        photo: PhotoId
+        uv: list[float] = Field(min_length=2, max_length=2,
+                                description="native photo pixel [u, v] where this photo shows the same point")
+
     class Depth(Input):
         photo: PhotoId
         d_mm: float = Field(description="d of the point (e.g. a node), mm")
         y_mm: float = Field(description="y of the point, mm")
         uv: list[float] = Field(min_length=2, max_length=2,
                                 description="native photo pixel [u, v] where the photo shows that point")
+        also: list[Pick] | None = Field(default=None, description="the same point in 1-3 more photos with a "
+                                                                  "camera from another direction, or null: the host "
+                                                                  "then finds the point from all the pixels and "
+                                                                  "prints its t at this d, y", min_length=1,
+                                        max_length=3)
 
     class Variant(Input):
         label: str = Field(description="a short name: a letter, then letters, digits, _ or -, not ending in _")
         edits: list[Edit] = Field(max_length=G.EDITS_MAX)
 
     return {"PhotoId": PhotoId, "TargetId": TargetId, "ImageId": ImageId, "Judgement": Judgement,
-            "PhotoPoints": PhotoPoints, "Variant": Variant, "Depth": Depth}
+            "PhotoPoints": PhotoPoints, "Variant": Variant, "Depth": Depth, "Pick": Pick}
 
 
 # --------------------------------------------------------------------------------------------- output
@@ -352,7 +364,11 @@ def registry(lab, settings=None) -> list:
         photos; per temple: charted, mirrored; "start" = the unedited model's), points_px charted to (d, y, t) (t is
         the model's) and depths read (t measured from the photo, the model's t there, px per mm of t, the pixel's
         miss from the point's depth line in px: large means the (d, y) is not the point shown, small does not
-        confirm d, which runs at an angle to the depth line; which temple).
+        confirm d, which runs at an angle to the depth line; which temple; where the inner face turns fast, how
+        much t moves per mm of d). A depth with also is a corner reading: the point found from all its pixels; it
+        prints first the t to enter at the depth's own (d, y) ("t 5.00 here", that point's X there) with t's error
+        per px of pick error, then where the point is and its own t there, and each photo's residual in px (large:
+        the pixels are not one point).
         Returns a compare_id; the next facet_edit, facet_variants, facet_restore or facet_finish must carry a
         judgement of it. A photo without a calibrated camera cannot be compared (photo_image shows it).
 
@@ -361,7 +377,7 @@ def registry(lab, settings=None) -> list:
             crop: temple (default) or full.
             points_px: Native photo pixels to chart through the model, or null.
             depths: Thickness readings, or null: for a point (d, y), the t whose point (d, y, t) the photo's camera
-                shows nearest the pixel uv, independent of the model's depth.
+                shows nearest the pixel uv, independent of the model's depth; with also, from two or more photos.
         """
         return await call(ctx, "photo_compare", lambda cid: lab.compare(cid, photos, crop, dumped(points_px),
                                                                          dumped(depths)))
@@ -371,7 +387,10 @@ def registry(lab, settings=None) -> list:
                          judgement: Judgement | None, note: str, apply: bool, photos: list[PhotoId] | None):
         """Make a new revision from parent_revision: the edits apply in order, all or none; a refused edit returns
         at once with its index and code, a refused build with its code (E_CREASE_SHAPE names the solved corners that
-        set that crease; E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it). reset_layout
+        set that crease; E_RELIEF_STEP on a crease-mode facet names the rise_per_mm that meets it;
+        E_FACET_NOT_PLANAR lists the t each of that facet's corners takes when it alone is solved, and its move,
+        and a straight run of its edges a crease plane can hold, or the rise_per_mm that meets its one off-line corner;
+        E_ILL_CONDITIONED names the facet's corners without a value and the straight runs a crease plane can hold). reset_layout
         clears nodes, facets and creases first. diff is against the parent; against the scene's head revision:
         diff_vs_head (when the parent is another revision) and crease_vs_head (creases built with the other shape
         than in the head). The receipt lists every built crease (shape, dihedral, declared or undeclared), margins

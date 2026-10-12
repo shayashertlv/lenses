@@ -51,8 +51,9 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
   a facet_edit compare, facet_variants at a target and a black photo (gloss_black panels, each model's crease lines
   counted per panel, the scene unchanged), the B2/B3 compare (photo / overlay / gloss_black) with `points_px`, the
   gloss gain still from black-side, photo_compare's `depths` (a B2 reading outside the default set, two on a black
-  photo), the flips against the head (`crease_vs_head`, `diff_vs_head` of an applied variant) and inspect's solved
-  values. It writes `rehearsal.json` with its checks (37 on `t5_wip6b`) and the size of every tool output.
+  photo, and a corner reading of one point in B2 and B1 with `also`, its d given 2 mm off), the flips against the head
+  (`crease_vs_head`, `diff_vs_head` of an applied variant) and inspect's solved values. It writes `rehearsal.json`
+  with its checks (39 on `t5_wip7a`) and the size of every tool output.
 - **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's tool outputs
   (`--out`, default `data/wp6v2/lab/estimate.json`). Output tokens per request are the paid facet runs' means at
   effort max (`cli.OUTPUT_TOKENS`: expected 1,852 = run 4, high 2,064 = run 3). facet_variants is priced at the most

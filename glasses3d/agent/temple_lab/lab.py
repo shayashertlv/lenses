@@ -84,7 +84,18 @@ Depth readings (photo_compare ``depths``, ``Lab.depths`` / ``depth_reading``): a
 the thickness t of a chart point (d, y) along its depth line (pose.line_depth), independent of the model's depth (a
 points_px t is the model's), with the model's t there, the px per mm of t and the pixel's miss from the line, on the
 temple whose outer face the camera sees (both or neither, e.g. a front view: the temple whose point at the model's t
-projects nearest the pixel); the compare record and the text print the same rounded numbers (``fixed``).
+projects nearest the pixel); the compare record and the text print the same rounded numbers (``fixed``). Where the
+inner face turns fast (|dx_in/dd| >= TURN_NOTE, e.g. at the hinge) a single reading's t follows any error in its d,
+and the text says so. A reading with ``also`` (the same point in 1..CORNER_ALSO_MAX more photos with cameras) is a
+corner reading (``corner_reading``): the chart point (d, y, X) seen at all those pixels, by least squares, with each
+photo's pixel residual, t's standard error per px of pick error and the t at the reading's own (d, y) for that X (the
+node's value when the node sits there): run 6's hinge corner read 3.55 at an assumed d 0 in one photo; read in two it
+sits at d -1.58 with X 1.22 mm farther out (t 4.77 at d 0), and the inward hinge-side edge came from the single reading.
+
+Refusals that list choices: E_FACET_NOT_PLANAR (a facet's own given values fit no plane) lists, per given corner of
+that facet, the t it takes when it alone is solved and its move (``solve_options``, smallest move first);
+E_ILL_CONDITIONED names the facet's corners without a value and the straight runs of its edges a crease + rise plane
+can hold (``conditioning_hint``).
 
 ``Lab.distinct(ra, rb)`` is the one head-distinctness rule (geometry.distinct_heads of the two BUILT temples, cached
 per pair) for finish preconditions 1 and 4.
@@ -106,9 +117,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+import itertools
 import time
 
 import numpy as np
+from scipy.optimize import least_squares
 from PIL import Image
 
 from glasses3d.agent.journal import BlenderSession, WorkerFailed
@@ -118,8 +131,9 @@ from glasses3d.agent.seeing import GRID_STATION_MM, MATCHED_RIGS, Seeing
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import draw as DR
 from glasses3d.g3d.temple import report as RP
-from glasses3d.g3d.temple.build import points_in_poly
-from glasses3d.g3d.temple.spec import BORDER_RAMP_WARN_DEG, TempleError, canonical, parse, plain, spec_sha256
+from glasses3d.g3d.temple.build import points_in_poly, solve_planes
+from glasses3d.g3d.temple.spec import (BORDER_RAMP_WARN_DEG, TempleError, canonical, crease_run, parse, plain,
+                                       spec_sha256)
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
@@ -158,6 +172,14 @@ ROUNDING_MISS_MM = 1e-4          # ... a refusal by less than this at a printed 
 CORNER_ON_LINE_MM = 1e-3         # a corner this close to a crease's line is one of its ends, never a far corner
 FAR_NAMED_SHARE = 0.9            # a named corner this share as far across a crease as its facet reaches: the far corner
 DEPTHS_MAX = 12                  # photo_compare depth readings per call
+CORNER_ALSO_MAX = 3              # a corner reading: its photo plus up to this many more (depths "also")
+TURN_NOTE = 0.3                  # a single reading notes an inner face turning this many mm of x_in per mm of d
+SOLVE_OPTIONS_MAX = 4            # E_FACET_NOT_PLANAR: solve options listed (smallest move first)
+CORNER_COND_MAX = 20.0           # a corner reading whose pixel Jacobian (px per mm of d, y, X) has a larger condition
+#                                  number is refused: the photos see the point along nearly one line (run-6 cameras:
+#                                  B2+B1 1.9, 02+05 1.9, 03+05 1.4; 05+01 or B1+01, the opposite side views, ~940)
+CORNER_FAR_MM = 2.0              # ... one whose point lies farther than this from the reading's own (d, y): noted
+MEET_RISE_MIN_MM = 2.0           # E_FACET_NOT_PLANAR's meeting rise: only for a corner this far from the crease line
 NUMBER_RE = re.compile(r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?![\w.])")
 RENDER_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")   # = g3d/render.py NAME_RE (that module imports bpy; a test pins it)
 SIDE_TEXT = {PO.SIDE_KEYS[1]: "charted", PO.SIDE_KEYS[-1]: "mirrored"}     # compare text per temple (module doc)
@@ -355,7 +377,8 @@ def crease_margins(tb) -> dict:
         free = [abs(x["mm"]) for x in corners if x["node"] and x["node"] not in design]
         out[key] = {"shape": c["shape"], "deg": c["mean_dihedral_deg"], "declared": c.get("declared"),
                     "corners": corners, "ends": ends, "solved": sv, "from": {n: solved[n][1] for n in sv},
-                    "flip_mm": min(free) if free else float("inf")}
+                    "flip_mm": min(free) if free else float("inf"),
+                    "design_ends": [n for n in ends if n in design and ps.nodes[n][2] is None]}
     return out
 
 
@@ -370,7 +393,8 @@ def margin_text(m: dict, full: bool = False) -> str:
     if not full:
         return f"{_corner_name(a)} {a['mm']:+.1f}/{_corner_name(b)} {b['mm']:+.1f}"
     text = f"{_corner_name(a)} {a['mm']:+.1f} / {_corner_name(b)} {b['mm']:+.1f} mm across"
-    return text + ("; " + ", ".join(f"{n} solved from {m['from'][n]}" for n in m["solved"]) if m["solved"] else "")
+    text += ("; " + ", ".join(f"{n} solved from {m['from'][n]}" for n in m["solved"]) if m["solved"] else "")
+    return text + (f"; {', '.join(m['design_ends'])} on a crease plane" if m.get("design_ends") else "")
 
 
 def fit_line(head: str, tail: str = "", limit: int = LINE_MAX) -> str:
@@ -526,13 +550,167 @@ def _rounding_miss(err: TempleError) -> bool:
     return err.code == "E_TRIANGULATE" and float(err.fields.get("planarity_mm") or np.inf) < ROUNDING_MISS_MM
 
 
+def solve_options(spec: dict, label) -> str:
+    """For an E_FACET_NOT_PLANAR of facet ``label`` (its own given values fit no plane: run 6's measured corners
+    disagreed by up to 2 mm between cameras): each corner of that facet with a value of its own (a number or "base"),
+    solved alone (t null, everything else as given; the spec's planes only, solve_planes, so no later check hides
+    the answer), with the t it then takes and its move: "; one solved instead: C -> 5.58 (-1.91), E -> 9.80 (+4.90)",
+    smallest move first, at most SOLVE_OPTIONS_MAX; a corner whose solving leaves the facet without a plane or refused
+    is left out. "" when none solves it."""
+    try:
+        ps = parse(spec)
+        poly = ps.facets[label]["poly"]
+    except (TempleError, KeyError, TypeError):
+        return ""
+    rows = []
+    for n in poly:
+        given = ps.nodes[n][2]
+        if given is None:
+            continue
+        trial = json.loads(json.dumps(spec))
+        trial["nodes"][n][2] = None
+        trial["creases"] = []
+        try:
+            tps, sol = solve_planes(trial)
+        except (TempleError, KeyError, TypeError, ValueError, FloatingPointError):
+            continue
+        if label not in sol.planes or n not in sol.node_X:
+            continue
+        d = float(ps.nodes[n][0])
+        t = float(sol.node_X[n]) - float(np.asarray(tps.inner(d), float))
+        was = float(ps.node_X(n)) - float(np.asarray(ps.inner(d), float))
+        rows.append((abs(t - was), n, t, t - was))
+    alt = _longer_run(ps, label) + _meeting_rise(spec, ps, label)
+    if not rows:
+        return alt
+    rows.sort()
+    items = [f"{n} -> {fixed(t, 2)} ({'+' if mv >= 0 else ''}{fixed(mv, 2)})" for _a, n, t, mv in rows[:SOLVE_OPTIONS_MAX]]
+    return "; one solved instead: " + ", ".join(items) + alt
+
+
+def _longer_run(ps, label) -> str:
+    """The straight run of a facet's edges a crease + rise plane can hold instead, for an E_FACET_NOT_PLANAR note:
+    for a crease plane on one edge (or a shorter run) of a longer straight run, the longest such run (review of run
+    7's build: run 6's crown held the edge A-C of the straight A-C-E, so its tip took C's line); for a nodes plane, its
+    longest straight run (review round 2: a thin band's single-corner solves are all E_ILL_CONDITIONED, so the run is
+    the way out): "; or a crease plane on the run A-E (through C)". "" otherwise."""
+    fac = ps.facets.get(label) or {}
+    plane = fac.get("plane")
+    poly = fac.get("poly") or []
+    own = set(plane["crease"]) if isinstance(plane, dict) else set()
+    best = None
+    for i, a in enumerate(poly):
+        for b in poly[i + 1:]:
+            r = crease_run(poly, a, b, ps.nodes)
+            if r and r[1] and own <= ({a, b} | set(r[1])) and {a, b} != own:      # own = set() for a nodes plane
+                L = float(np.hypot(*(np.asarray(ps.nodes[a][:2], float) - np.asarray(ps.nodes[b][:2], float))))
+                if best is None or L > best[0]:
+                    best = (L, a, b, r[1])
+    if not best:
+        return ""
+    bare = [k for k in (best[1], best[2]) if ps.nodes[k][2] is None]
+    need = (f"; give {bare[0]} a value" if len(bare) == 1 else f"; give {bare[0]} and {bare[1]} values") if bare         else ""
+    return f"; or a crease plane on the run {best[1]}-{best[2]} (through {', '.join(best[3])}{need})"
+
+
+def _meeting_rise(spec: dict, ps, label) -> str:
+    """For a crease-mode facet whose one given corner off its crease line misses the plane: the rise_per_mm that puts
+    the plane through it, "; or rise_per_mm -0.4712 meets T" ("(C solved)" when given corners on the crease's straight
+    run must go to solve with it: they take the line's value). The corner's plane value is linear in the rise: two
+    plane solves give the root, printed to RISE_DIGITS significant digits or more until the spec's planes then build
+    with that corner given (the final check: 7 digits missed by ~2e-6 mm at |rise| >= 1). "" for a nodes plane, none
+    or several such corners, a corner within MEET_RISE_MIN_MM of the crease line (near its line a rise barely moves
+    it: run 6's crown tip E, 0.4 mm from the line A-C, would need rise -3.95), or no root."""
+    fac = ps.facets.get(label) or {}
+    plane = fac.get("plane")
+    if not isinstance(plane, dict):
+        return ""
+    ends = set(plane["crease"])
+    run = crease_run(fac["poly"], *plane["crease"], ps.nodes)
+    on_run = set(run[1]) if run else set()
+    given = [n for n in fac["poly"] if n not in ends and n not in on_run and ps.nodes[n][2] is not None]
+    freed = [n for n in fac["poly"] if n in on_run and ps.nodes[n][2] is not None]
+    if len(given) != 1:
+        return ""
+    n = given[0]
+    p1, p2 = (np.asarray(ps.nodes[k][:2], float) for k in plane["crease"])
+    u, q = (p2 - p1) / float(np.hypot(*(p2 - p1))), np.asarray(ps.nodes[n][:2], float) - p1
+    if abs(float(u[0] * q[1] - u[1] * q[0])) < MEET_RISE_MIN_MM:
+        return ""
+    want = float(ps.node_X(n))
+
+    def trial_with(rise, solved: bool):
+        trial = json.loads(json.dumps(spec))
+        for k in freed + ([n] if solved else []):
+            trial["nodes"][k][2] = None
+        trial["creases"] = []
+        trial["facets"][label]["plane"]["rise_per_mm"] = rise
+        return trial
+
+    def value(rise):
+        try:
+            _ps, sol = solve_planes(trial_with(rise, True))
+        except (TempleError, KeyError, TypeError, ValueError, FloatingPointError):
+            return None
+        return float(sol.node_X[n]) if n in sol.node_X else None
+    r0 = float(plane["rise_per_mm"])
+    v0, v1 = value(r0), value(r0 + RISE_STEP)
+    if v0 is None or v1 is None or abs(v1 - v0) < 1e-12:
+        return ""
+    root = r0 + (want - v0) * RISE_STEP / (v1 - v0)
+    for digits in range(RISE_DIGITS, 18):
+        rise = float(f"{root:.{digits}g}")
+        try:
+            solve_planes(trial_with(rise, False))
+        except TempleError as e:
+            if e.code == "E_FACET_NOT_PLANAR" and e.fields.get("facet") == label:
+                continue                                    # this rounding still misses the corner
+            return ""
+        except (KeyError, TypeError, ValueError, FloatingPointError):
+            return ""
+        note = f" ({', '.join(freed)} solved)" if freed else ""
+        return f"; or rise_per_mm {rise:.{digits}g} meets {n}{note}"
+    return ""
+
+
+def conditioning_hint(spec: dict, label) -> str:
+    """For an E_ILL_CONDITIONED of facet ``label``: its corners without a value ("; corners without a value: E") and
+    the straight runs of its edges a crease + rise plane can hold, longest first (spec.crease_run: "; a crease + rise
+    plane can hold A-E (through C)"); "" for neither."""
+    try:
+        ps = parse(spec)
+        poly = ps.facets[label]["poly"]
+    except (TempleError, KeyError, TypeError):
+        return ""
+    free = [n for n in poly if ps.nodes[n][2] is None]
+    runs = []
+    for i, a in enumerate(poly):
+        for b in poly[i + 1:]:
+            r = crease_run(poly, a, b, ps.nodes)
+            if r and r[1]:
+                L = float(np.hypot(*(np.asarray(ps.nodes[a][:2], float) - np.asarray(ps.nodes[b][:2], float))))
+                runs.append((-L, a, b, r[1]))
+    runs.sort()
+    out = f"; corners without a value: {', '.join(free)}" if free else ""
+    if runs:
+        out += "; a crease + rise plane can hold " + ", ".join(f"{a}-{b} (through {', '.join(mid)})"
+                                                                for _L, a, b, mid in runs[:2])
+    return out
+
+
 def refusal_message(spec, err: TempleError) -> str:
     """A refused build's message for Astra (facet_edit and facet_variants), at most REFUSAL_MAX characters: the core
     message cut at a clause end (brief) before the note, which always fits. E_CREASE_SHAPE: the solved corners that
     set that crease (refusal_solved). E_RELIEF_STEP: the rise_per_mm that meets it (relief_rise), else the worst
-    misfit with 6 significant digits in place of the core's 3 (two misfits then give the root by hand)."""
+    misfit with 6 significant digits in place of the core's 3 (two misfits then give the root by hand).
+    E_FACET_NOT_PLANAR: each given corner's solve option (solve_options). E_ILL_CONDITIONED: the facet's corners
+    without a value and the straight runs a crease plane can hold (conditioning_hint)."""
     msg, note = err.message, ""
-    if spec is not None and err.code == "E_CREASE_SHAPE":
+    if spec is not None and err.code == "E_FACET_NOT_PLANAR":
+        note = solve_options(spec, err.fields.get("facet"))
+    elif spec is not None and err.code == "E_ILL_CONDITIONED":
+        note = conditioning_hint(spec, err.fields.get("facet"))
+    elif spec is not None and err.code == "E_CREASE_SHAPE":
         note = refusal_solved(spec, err.fields.get("facets"))
     elif spec is not None and err.code == "E_RELIEF_STEP":
         try:
@@ -642,9 +820,101 @@ def depth_reading(tb, camera, frame, pose, d: float, y: float, uv) -> dict:
             "model_t_mm": model_t}
 
 
+def inner_turn(tb, d: float, h: float = 0.5) -> float:
+    """|dx_in/dd| of the build's inner face at d (central difference over +-h mm): mm of t a 1 mm error in d moves."""
+    return abs(_inner_x(tb, d + h) - _inner_x(tb, d - h)) / (2.0 * h)
+
+
+def _photo_sides(tb, camera, frame, pose, d: float, y: float, X: float, opening) -> list:
+    """The temple(s) to try for a photo: the one whose outer face the camera sees at (d, y, X), else both."""
+    h = tb.spec.hinge
+    seen = []
+    for side in (1, -1):
+        P = PO.chart_to_posed([[d, y, X], [d, y, X + 1.0]], side, float(h["z_mm"]), pose, opening)
+        seen.append(bool(PO.faces_camera(P[:1], P[1] - P[0], camera, frame)[0]))
+    return [1] if seen == [True, False] else ([-1] if seen == [False, True] else [1, -1])
+
+
+def corner_reading(tb, views: list, d0: float, y0: float) -> dict:
+    """A point read from 2..1 + CORNER_ALSO_MAX photos (photo_compare depths with ``also``): views = [(camera, frame,
+    pose, (u, v))]. The chart point (d, y, X) of the build's temple, placed as the lab builds it (the spec's hinge
+    opening, the -X temple its mirror) and posed per photo, whose projections are nearest the pixels by least squares
+    (start: (d0, y0) at the model's t there, else the base t), each photo on the temple whose outer face it sees
+    (both or neither: both tried, the smaller residual kept). Returns {d_mm, y_mm, X_mm, t_mm (from the inner face at
+    that d), res_px [per view], sd_t_mm (t's standard error for a 1 px pick error in every view), t_at_mm (X less the
+    inner face at (d0, y0): the reading's own node position) and sd_t_at_mm (its error: X's), model_t_mm (the build's
+    t at (d, y); None outside its outline), sides}. Raises ValueError when no point fits the pixels or the views see
+    it along nearly one line (the pixel Jacobian's condition number over CORNER_COND_MAX, independent of the photos'
+    resolution: e.g. a square-on view with the opposite one, whose mirrored temple puts both lines of sight along X)."""
+    h = tb.spec.hinge
+    deg = float(h.get("opening_deg") or 0.0)
+    opening = (deg, (abs(float(h["axis_xz_mm"][0])), float(h["axis_xz_mm"][1]))) if deg else None
+    X0, _reg = G.surface_at(tb, np.array([[d0, y0]], float))
+    x0 = float(X0[0]) if np.isfinite(X0[0]) else _inner_x(tb, d0) + float(tb.spec.base_t(d0, y0))
+    start = np.array([d0, y0, x0], float)
+    targets = [np.asarray(v[3], float).reshape(2) for v in views]
+    sides = [_photo_sides(tb, cam, fr, pose, d0, y0, x0, opening) for cam, fr, pose, _uv in views]
+
+    def residual(p, combo):
+        out = []
+        for (cam, fr, pose, _uv), side, tgt in zip(views, combo, targets):
+            P = PO.chart_to_posed([p], side, float(h["z_mm"]), pose, opening)
+            out.append(project_mm(P, cam, fr)[0] - tgt)
+        return np.concatenate(out)
+    best = None
+    for combo in itertools.product(*sides):
+        try:
+            r = least_squares(residual, start, args=(combo,), x_scale=[10.0, 10.0, 3.0], method="lm")
+        except ValueError:                              # e.g. a trial point behind a camera's near plane
+            continue
+        if np.all(np.isfinite(r.fun)) and (best is None or r.cost < best[0].cost):
+            best = (r, combo)
+    if best is None:                                    # nearly parallel rays often land behind a camera
+        conds = []
+        for combo in itertools.product(*sides):
+            try:
+                J0 = np.vstack([(residual(start + e, combo) - residual(start - e, combo)) / 2e-3
+                                for e in np.eye(3) * 1e-3]).T
+                sv0 = np.linalg.svd(J0, compute_uv=False)
+                conds.append(float(sv0[0] / sv0[-1]) if sv0[-1] > 0 else float("inf"))
+            except ValueError:
+                continue
+        if conds and min(conds) > CORNER_COND_MAX:
+            raise ValueError("these photos see the point along nearly one line: pick it in a photo from another "
+                             "direction")
+        raise ValueError("no point fits these pixels: pick the same corner in each photo")
+    r, combo = best
+    J = np.asarray(r.jac, float)
+    d, y, X = (float(v) for v in r.x)
+    g = np.array([-(_inner_x(tb, d + 0.5) - _inner_x(tb, d - 0.5)), 0.0, 1.0])
+    try:
+        cov = np.linalg.inv(J.T @ J)
+        sd = float(np.sqrt(max(g @ cov @ g, 0.0)))          # t at the found d
+        sd_at = float(np.sqrt(max(cov[2, 2], 0.0)))         # t at the reading's own d: X's error
+    except np.linalg.LinAlgError:
+        sd = sd_at = float("inf")
+    sv = np.linalg.svd(J, compute_uv=False)
+    cond = float(sv[0] / sv[-1]) if sv[-1] > 0 else float("inf")
+    if not np.isfinite(cond) or cond > CORNER_COND_MAX:  # e.g. a square-on view and the opposite one: one line, mirrored
+        raise ValueError(f"these photos see the point along nearly one line (t would move {max(sd, sd_at):.1f} mm "
+                         f"per px of pick error): pick it in a photo from another direction")
+    Xm, _reg = G.surface_at(tb, np.array([[d, y]], float))
+    res = np.asarray(r.fun, float).reshape(-1, 2)
+    return {"d_mm": d, "y_mm": y, "X_mm": X, "t_mm": X - _inner_x(tb, d), "t_at_mm": X - _inner_x(tb, d0),
+            "res_px": [float(np.hypot(*e)) for e in res], "sd_t_mm": sd, "sd_t_at_mm": sd_at,
+            "model_t_mm": float(Xm[0]) - _inner_x(tb, d) if np.isfinite(Xm[0]) else None, "sides": list(combo)}
+
+
 def _r_depths(rows: list) -> list:
-    """Depth readings for the compare record (numbers rounded to 0.001)."""
-    return [{k: (_r(v, 3) if isinstance(v, (float, list)) else v) for k, v in row.items()} for row in rows]
+    """Depth readings for the compare record (every float rounded to 0.001, also inside a corner reading and its
+    picks)."""
+    def r(v):
+        if isinstance(v, dict):
+            return {k: r(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [r(x) for x in v]
+        return _r(v, 3) if isinstance(v, float) else v
+    return [r(row) for row in rows]
 
 
 def fixed(x: float, nd: int) -> str:
@@ -655,12 +925,33 @@ def fixed(x: float, nd: int) -> str:
 
 
 def depth_text(rec: dict) -> str:
-    """One depth reading in a compare text: "d 47 y 9.2: t 7.25 (model 5.41) 8.3 px/mm, miss 0.8 px charted"
-    (numbers through ``fixed``)."""
+    """One depth reading in a compare text: "d 47 y 9.2: t 7.25 (model 5.41) 8.3 px/mm, miss 0.8 px charted"; where the
+    inner face turns fast, "; inner face turns 0.77 mm per mm of d here: read it in two photos (also)". A corner
+    reading (``also``), the value to enter at the reading's own (d, y) first: "d 0 y 10.2 with B1: t 4.77 here
+    (+-0.13 mm per px; X 70.71); the point the pixels show is at d -1.58 y 10.57 (t 3.55 there, model out); residual
+    px B2 0.0, B1 0.0", with "; it lies 3.1 mm from d 0 y 10.2: check the picks" past CORNER_FAR_MM (review of run 7's
+    build, P1: the found point's own t printed first read as the value to enter, and at the hinge it is run 6's 3.55).
+    Numbers through ``fixed``."""
     m = "out" if rec.get("model_t_mm") is None else fixed(rec["model_t_mm"], 2)
+    if rec.get("corner"):
+        c = rec["corner"]
+        res = ", ".join(f"{pid} {fixed(v, 1)}" for pid, v in zip([rec["photo"]] + [a["photo"] for a in rec["also"]],
+                                                                  c["res_px"]))
+        cm = "out" if c.get("model_t_mm") is None else fixed(c["model_t_mm"], 2)
+        far = float(np.hypot(c["d_mm"] - rec["d_mm"], c["y_mm"] - rec["y_mm"]))
+        note = (f"; it lies {fixed(far, 1)} mm from d {rec['d_mm']:g} y {rec['y_mm']:g}: check the picks"
+                if far > CORNER_FAR_MM else "")
+        return (f"d {rec['d_mm']:g} y {rec['y_mm']:g} with {', '.join(a['photo'] for a in rec['also'])}: t "
+                f"{fixed(c['t_at_mm'], 2)} here (+-{fixed(c.get('sd_t_at_mm', c['sd_t_mm']), 2)} mm per px; X "
+                f"{fixed(c['X_mm'], 2)}); the "
+                f"point the pixels show is at d {fixed(c['d_mm'], 2)} y {fixed(c['y_mm'], 2)} (t {fixed(c['t_mm'], 2)} "
+                f"there, model {cm}){note}; residual px {res}")
     t = "n/a (the view looks along t)" if rec.get("t_mm") is None else fixed(rec["t_mm"], 2)
+    turn = rec.get("turn") or 0.0
+    note = (f"; inner face turns {fixed(turn, 2)} mm per mm of d here: read it in two photos (also)"
+            if turn >= TURN_NOTE else "")
     return (f"d {rec['d_mm']:g} y {rec['y_mm']:g}: t {t} (model {m}) {fixed(rec['px_per_mm'], 1)} px/mm, miss "
-            f"{fixed(rec['miss_px'], 1)} px {SIDE_TEXT[PO.SIDE_KEYS[rec['side']]]}")
+            f"{fixed(rec['miss_px'], 1)} px {SIDE_TEXT[PO.SIDE_KEYS[rec['side']]]}{note}")
 
 
 class Lab(SceneHooks):
@@ -1378,9 +1669,11 @@ class Lab(SceneHooks):
                              depths=readings)
 
     def depths(self, depths, photos=None) -> list[dict]:
-        """photo_compare's depth readings (depth_reading on the head's build): ``depths`` = [{photo, d_mm, y_mm, uv}],
-        uv native photo pixels of a photo with a camera (and one this compare shows when ``photos`` names them).
-        E_ARGS for a photo without a camera, a uv outside the photo, or numbers out of range."""
+        """photo_compare's depth readings (depth_reading on the head's build): ``depths`` = [{photo, d_mm, y_mm, uv,
+        also}], uv native photo pixels of a photo with a camera (and one this compare shows when ``photos`` names
+        them); ``also`` null or [{photo, uv}] (1..CORNER_ALSO_MAX other photos with a camera, shown or not): a corner
+        reading (corner_reading) whose record carries "corner" and "also". E_ARGS for a photo without a camera, a
+        repeated photo, a uv outside the photo, numbers out of range, or a corner the photos see along one line."""
         if not depths:
             return []
         if not isinstance(depths, list) or len(depths) > DEPTHS_MAX:
@@ -1402,15 +1695,46 @@ class Lab(SceneHooks):
             if not all(np.isfinite([d, y, u, v])) or abs(d) > G.D_LIMIT_MM or abs(y) > G.Y_LIMIT_MM:
                 raise LabRefusal("E_ARGS", f"depths[{i}]: d_mm, y_mm and uv must be finite (|d| <= "
                                            f"{G.D_LIMIT_MM:g}, |y| <= {G.Y_LIMIT_MM:g})")
-            H, W = bs.shape(rid)
-            if not (-0.5 <= u <= W - 0.5 and -0.5 <= v <= H - 0.5):
-                raise LabRefusal("E_ARGS", f"depths[{i}].uv {[u, v]} must lie inside the native {W} x {H} photo {pid}")
+            self._check_uv(bs, rid, pid, u, v, f"depths[{i}].uv")
+            also = p.get("also")
+            if also is not None and (not isinstance(also, list) or not 1 <= len(also) <= CORNER_ALSO_MAX):
+                raise LabRefusal("E_ARGS", f"depths[{i}].also must be null or 1..{CORNER_ALSO_MAX} {{photo, uv}}")
             try:
                 r = depth_reading(tb, bs.camera(rid), bs.frame, bs.pose(rid), d, y, (u, v))
             except ValueError as exc:
                 raise LabRefusal("E_ARGS", f"depths[{i}]: {exc}") from None
-            out.append({"photo": pid, "d_mm": d, "y_mm": y, "uv": [u, v], "revision": head["revision"], **r})
+            rec = {"photo": pid, "d_mm": d, "y_mm": y, "uv": [u, v], "revision": head["revision"], **r,
+                   "turn": inner_turn(tb, d)}
+            if also:
+                views, seen, picks = [(bs.camera(rid), bs.frame, bs.pose(rid), (u, v))], {pid}, []
+                for k, a in enumerate(also):
+                    apid = a.get("photo") if isinstance(a, dict) else None
+                    arid = self.rid(apid)
+                    if apid in seen:
+                        raise LabRefusal("E_ARGS", f"depths[{i}].also[{k}] repeats photo {apid}")
+                    seen.add(apid)
+                    try:
+                        au, av = (float(x) for x in a["uv"])
+                    except (KeyError, TypeError, ValueError):
+                        raise LabRefusal("E_ARGS", f"depths[{i}].also[{k}] must be {{photo, uv: [u, v]}}") from None
+                    self._check_uv(bs, arid, apid, au, av, f"depths[{i}].also[{k}].uv")
+                    views.append((bs.camera(arid), bs.frame, bs.pose(arid), (au, av)))
+                    picks.append({"photo": apid, "uv": [au, av]})
+                try:
+                    rec["corner"] = corner_reading(tb, views, d, y)
+                except ValueError as exc:
+                    raise LabRefusal("E_ARGS", f"depths[{i}]: {exc}") from None
+                rec["also"] = picks
+            out.append(rec)
         return out
+
+    @staticmethod
+    def _check_uv(bs, rid: str, pid: str, u: float, v: float, where: str) -> None:
+        if not all(np.isfinite([u, v])):
+            raise LabRefusal("E_ARGS", f"{where} must be finite")
+        H, W = bs.shape(rid)
+        if not (-0.5 <= u <= W - 0.5 and -0.5 <= v <= H - 0.5):
+            raise LabRefusal("E_ARGS", f"{where} {[u, v]} must lie inside the native {W} x {H} photo {pid}")
 
     def _judge(self, judgement, call_id: str, tool: str) -> None:
         with self.state_lock:

@@ -12,7 +12,8 @@ Base-border vertices are never known points (v1 seeded them with r = 0; v2 delet
 the border band ramp of build.py absorbs any mismatch.
 
 A facet's plane comes from its crease + rise (`{crease: [n1, n2], rise_per_mm: s}`: the plane holds the 3D crease line
-and gains s mm of X per mm of (d, y) distance from the crease into the facet) or from the three known points spanning
+n1-n2, an edge of the facet or the ends of a straight run of its edges (spec.crease_run), and gains s mm of X per mm of
+(d, y) distance from that line into the facet) or from the three known points spanning
 the widest triangle. Every other known point must lie on the plane within planar_tol_mm, else the facet is refused:
 E_FACET_NOT_PLANAR for its own given nodes, E_RELIEF_STEP for a value a neighbour facet set. Facets are visited in
 label order, repeated to a fixed point; a facet still without a plane is E_FACET_UNDERDETERMINED.
@@ -28,7 +29,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .arrange import poly_area
-from .spec import COLLINEAR_AREA_MM2, CONDITIONING_WARN_DEG_PER_MM, ILL_CONDITIONED_DEG_PER_MM, TempleError
+from .spec import (COLLINEAR_AREA_MM2, CONDITIONING_WARN_DEG_PER_MM, ILL_CONDITIONED_DEG_PER_MM, TempleError,
+                   crease_run)
 
 NODE_ON_VERTEX_MM = 1e-6
 
@@ -88,9 +90,12 @@ def crease_plane(n1, n2, X1, X2, rise, interior_left: bool) -> tuple[np.ndarray,
 
 
 def interior_left_of(poly: list, n1: str, n2: str, nodes: dict) -> bool:
-    """True when the facet lies on the left of n1 -> n2 (poly taken counter-clockwise)."""
-    p = ccw_poly(poly, nodes)
-    return p[(p.index(n1) + 1) % len(p)] == n2
+    """True when the facet lies on the left of n1 -> n2 (poly taken counter-clockwise; n1-n2 an edge or the ends of
+    a straight run of edges, spec.crease_run)."""
+    run = crease_run(ccw_poly(poly, nodes), n1, n2, nodes)
+    if run is None:
+        raise TempleError("E_SPEC", f"crease {[n1, n2]} is neither an edge nor a straight run of {list(poly)}")
+    return run[0] > 0
 
 
 def solve(ps, arr, face_label: list) -> PlaneSolution:
@@ -144,7 +149,14 @@ def solve(ps, arr, face_label: list) -> PlaneSolution:
                 n1, n2 = plane["crease"]
                 if n1 not in nr or n2 not in nr:
                     continue
-                left = poly[(poly.index(n1) + 1) % len(poly)] == n2
+                run = crease_run(poly, n1, n2, ps.nodes)       # poly is CCW: the facet lies left of its run
+                if run is None:                                 # a node snap bent the run past RUN_LINE_MM
+                    moved = [f"{x['what']} {x['field']} {x['from']:g}->{x['to']:g}" for x in ps.snaps
+                             if str(x.get("what", "")).startswith("node ") and x["what"][5:] in poly]
+                    raise TempleError("E_SPEC", f"facet {label}: crease {[n1, n2]} is no longer a straight run of its "
+                                      f"edges once its nodes snap to the outline and knots ({'; '.join(moved)}); move "
+                                      f"the corners between onto the line", facet=label)
+                left = run[0] > 0
                 coef, cond = crease_plane(ps.nodes[n1], ps.nodes[n2], nr[n1][0], nr[n2][0], plane["rise_per_mm"], left)
                 u, n_in, _ = crease_frame(ps.nodes[n1], ps.nodes[n2], left)
                 mid = 0.5 * (np.asarray(ps.nodes[n1][:2]) + np.asarray(ps.nodes[n2][:2]))

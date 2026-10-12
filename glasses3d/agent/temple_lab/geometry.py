@@ -232,9 +232,6 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False) -> tuple
                 cr = plane.get("crease")
                 if not isinstance(cr, list) or len(cr) != 2 or cr[0] == cr[1] or any(n not in poly for n in cr):
                     raise EditError("plane.crease must name two different corners of poly", i)
-                a, b = poly.index(cr[0]), poly.index(cr[1])
-                if (a - b) % len(poly) not in (1, len(poly) - 1):
-                    raise EditError(f"plane.crease {cr} must be an edge of poly (adjacent corners)", i)
                 if plane.get("rise_per_mm") is None:
                     raise EditError("plane.mode 'crease' needs rise_per_mm", i)
                 pl = {"crease": [cr[0], cr[1]], "rise_per_mm": _num(plane["rise_per_mm"], "rise_per_mm", i,

@@ -36,8 +36,10 @@ from glasses3d.g3d_host import compare as GC  # noqa: E402
 from glasses3d.g3d_host import pose as PO  # noqa: E402
 from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm  # noqa: E402
 
-# the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt
-EDITS_SCHEMA_SHA256 = "d2a21805361de8da2cc4262b75f02c01404fd6add36edaec12ad9e88302a942d"
+# the pinned §4.2 union (tools.edits_schema()): change it only together with the tool layer and the prompt (run 7:
+# a crease plane may hold the ends of a straight run of its poly's edges, the Plane descriptions say so; the fade's
+# d1 text: two facets never both fade along the crease they share, E_FADE_CREASE)
+EDITS_SCHEMA_SHA256 = "b2decb5fb9d2ef6a58e5d86e04b34fca453eef3d35b6508bf6009c7b6715c590"
 PHOTO_IDS = ["01", "02", "03", "04", "05", "06"]
 BLACK_IDS = ["B1", "B2", "B3"]          # B1: a calibrated colourway photo (basis black-side); B2, B3: synthetic
 #                                        reference-only photos (the generic reference role; lab_photos)
@@ -1611,7 +1613,14 @@ def _resolved_rise(spec: dict, facet: str) -> dict:
     return misfit(r0 - m0 * 0.01 / (m1 - m0))[1]
 
 
-def test_run5_inward_edge_on_the_real_package():
+def _no_crease_fade_check(monkeypatch):
+    """Runs 3-6 faded both facets of a crease where it reaches the outline (E_FADE_CREASE since run 7): the tests that
+    read those recorded heads for something else turn that guard off."""
+    from glasses3d.g3d.temple import build as BD
+    monkeypatch.setattr(BD, "_check_fade_creases", lambda *a, **k: None)
+
+
+def test_run5_inward_edge_on_the_real_package(monkeypatch):
     """On run 5's package (read-only; skipped without it): r0014's B is solved from the crown at 5.41 (r0002, the
     ridge head var013 edited: 7.06), the crown|logo crease flipped ridge -> valley against r0002 with B named; its
     margin is P -0.9 / C -3.4 (the crown plane extended to C gives 5.56 against C's 9.0); with the photos' B 7.25 and
@@ -1623,6 +1632,7 @@ def test_run5_inward_edge_on_the_real_package():
     rev = PACKAGE_005 / "work" / "temple_lab" / "revisions"
     if not (rev / "r0014.json").is_file() or not (rev / "r0002.json").is_file():
         pytest.skip("package_005 is not on this machine")
+    _no_crease_fade_check(monkeypatch)        # r0014 fades crown and tail_face across their crease at the outline
     try:
         bs = GC.load_basis(PACKAGE_005)
     except Exception as exc:  # noqa: BLE001 - a missing or moved basis
@@ -2098,7 +2108,7 @@ def test_variant_crease_lines_are_the_overlay_rule_on_the_fixture(tmp_path):
     assert {"angled", "front"} <= hidden, hidden
 
 
-def test_variant_crease_lines_match_the_compare_overlay_on_the_prada_package():
+def test_variant_crease_lines_match_the_compare_overlay_on_the_prada_package(monkeypatch):
     """On the recorded Prada package (read-only): Lab._variant_creases of revision 17, handed cmp030's exported head
     by a stub seeing, draws the compare overlay's lines of that export at cmp030's crop cameras and poses (all seven
     photos): at most 0.5 % of the line pixels differ (the 2026-10-11 review measured 0 at six photos and 2 of 2905
@@ -2107,6 +2117,7 @@ def test_variant_crease_lines_match_the_compare_overlay_on_the_prada_package():
     revision = PACKAGE_004 / "work" / "temple_lab" / "revisions" / "r0017.json"
     if not (report.is_file() and revision.is_file()):
         pytest.skip("package_004 (git-ignored data) is not on this machine")
+    _no_crease_fade_check(monkeypatch)        # r0017 fades tail and upper_rear across their crease at the outline
     from glasses3d.g3d_host import compare as C
     from glasses3d.g3d_host import fitmesh
     from glasses3d.g3d_host import pose as PO
@@ -2163,8 +2174,7 @@ def test_variant_refusals_keep_the_whole_message(lab, monkeypatch):
                                                              "photos": ["05"], "judgement": None}))
     z = next(v for v in body["variants"] if v["label"] == "Z")
     assert z["code"] == "E_FADE_CLIFF" and z["message"] == cliff.message
-    assert z["message"].endswith(f"fade {LONG['S']} the same way, start the fade where the crease ends, or end the "
-                                  f"crease at a node")
+    assert z["message"].endswith("; start the fade where the crease ends")
     text = "the first clause; the second clause. " * 30
     out = LB.brief(text)
     assert len(out) <= LB.REFUSAL_MAX and out.endswith(" ...") and out[:-4].endswith("clause")
@@ -2187,7 +2197,7 @@ def test_fade_warning_lines_fit_a_receipt_line():
     w = [x for x in build_temple(s).warnings if x["code"] == "W_FADE_INERT"]
     assert len(w) == 1 and len(w[0]["facets"]) == 3 and w[0]["message"].endswith("; +1 more")
     assert len(f"W_FADE_INERT: {w[0]['message']}") <= LB.LINE_MAX
-    s = rename(FX.fade(), LONG, {})                                   # 3-digit d: both facets fade early ...
+    s = rename(FX.fade(ridge_from=104.0, ridge_to=108.0), LONG, {})   # 3-digit d: both facets fade early ...
     for f in s["facets"].values():
         f["fade"] = {"d0": 104.0, "d1": 30.0}                          # ... toward the hinge, flat over d 104-108
     s["nodes"]["R1"][0] = s["nodes"]["N1"][0] = s["nodes"]["S1"][0] = 108.0
@@ -2786,3 +2796,225 @@ def test_resume_rollback_ignores_prepare_and_finds_the_lost_apply(lab):
     recorded = [{"type": "function_call", "call_id": "call_lost"},
                 {"type": "function_call_output", "call_id": "call_lost", "output": "x"}]
     assert L.plan_rollback(recorded, lab.journal_entries()) is None
+
+
+# --------------------------------------------------------------------------------------------- run 7
+PACKAGE_006 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_006"
+
+
+def test_corner_reading_finds_a_point_from_two_photos(lab):
+    """A one-photo reading takes its (d, y) as exact, so an error in d becomes one in t (run 6's hinge corner). A
+    reading with also (the same point in more photos) finds (d, y, t) from every pixel: a projected point comes back
+    exactly, with zero residuals, from a wrong starting (d, y); its t at the reading's own (d, y) keeps that X; the
+    record keeps the corner and the picks, rounded; refusals: a repeated photo, a photo without a camera, a uv outside
+    the photo, more than 3 picks (E_ARGS), nothing compared."""
+    lab._basis = AngledBasis()
+    tl = tools_of(lab)
+    uv2, uv5 = _uv(lab, "reference-02", 1, 40.0, 2.0, 6.0), _uv(lab, "reference-05", 1, 40.0, 2.0, 6.0)
+    assert all(0 <= u < 320 and 0 <= v < 240 for u, v in (uv2, uv5))
+    body, *_ = parsed(call(tl["photo_compare"], {
+        "photos": ["02"], "crop": None, "points_px": None,
+        "depths": [{"photo": "02", "d_mm": 37.0, "y_mm": 3.0, "uv": uv2, "also": [{"photo": "05", "uv": uv5}]}]}))
+    rec = lab.state["compares"][-1]["depths"][0]
+    c = rec["corner"]
+    assert (c["d_mm"], c["y_mm"], c["t_mm"]) == (pytest.approx(40.0, abs=1e-3), pytest.approx(2.0, abs=1e-3),
+                                                 pytest.approx(6.0, abs=1e-3))
+    assert max(c["res_px"]) <= 1e-3 and 0.0 < c["sd_t_mm"] < 10.0 and c["sides"] == [1, 1]
+    tb = lab.build(lab.head_record()["revision"])
+    assert c["t_at_mm"] == pytest.approx(c["X_mm"] - LB._inner_x(tb, 37.0), abs=2e-3)
+    assert rec["also"] == [{"photo": "05", "uv": LB._r(uv5, 3)}]
+    text = body["photos"]["02"]
+    assert f"| depths d 37 y 3 with 05: t {LB.fixed(c['t_at_mm'], 2)} here (+-" in text, text
+    assert "; the point the pixels show is at d 40.00 y 2.00 (t 6.00 there, model " in text
+    assert "; it lies 3.2 mm from d 37 y 3: check the picks; residual px 02 0.0, 05 0.0" in text
+    n = len(lab.state["compares"])
+    for also, what in (([{"photo": "02", "uv": uv2}], "repeats photo 02"),
+                       ([{"photo": "05", "uv": [400.0, 10.0]}], "inside the native 320 x 240 photo 05"),
+                       ([{"photo": "B2", "uv": [1.0, 1.0]}], "photo_image only"),
+                       ([{"photo": p, "uv": uv5} for p in ("05", "01", "04", "06")], "1..3")):
+        with pytest.raises(S.LabRefusal, match=re.escape(what)) as e:
+            lab.compare("x", ["02"], None, None, [{"photo": "02", "d_mm": 40.0, "y_mm": 2.0, "uv": uv2,
+                                                   "also": also}])
+        assert e.value.code == "E_ARGS"
+    assert len(lab.state["compares"]) == n
+
+
+def test_depth_text_notes_a_turning_inner_face():
+    """Where the inner face turns fast (|dx_in/dd| >= TURN_NOTE) a one-photo reading says so: its t follows any error
+    in its d (run 6: 0.78 mm per mm at the hinge)."""
+    rec = {"d_mm": 0.0, "y_mm": 10.2, "t_mm": 3.83, "model_t_mm": 3.33, "px_per_mm": 8.3, "miss_px": 0.1, "side": 1}
+    assert LB.depth_text({**rec, "turn": 0.78}) == ("d 0 y 10.2: t 3.83 (model 3.33) 8.3 px/mm, miss 0.1 px charted; "
+                                                    "inner face turns 0.78 mm per mm of d here: read it in two photos "
+                                                    "(also)")
+    assert LB.depth_text({**rec, "turn": 0.29}) == LB.depth_text(rec) == \
+        "d 0 y 10.2: t 3.83 (model 3.33) 8.3 px/mm, miss 0.1 px charted"
+
+
+def test_not_planar_refusal_lists_each_corner_solved_alone():
+    """E_FACET_NOT_PLANAR (a facet's own given values fit no plane) lists, per given corner of that facet, the t it
+    takes solved alone and its move, smallest move first: setting that corner to solve gives the facet a plane through
+    the others, at that t (its printed value is information: typed back to 0.01 mm it misses the plane by its
+    rounding, more than planar_tol)."""
+    s = FX.refusal_cases()["E_FACET_NOT_PLANAR"]
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    label = e.value.fields["facet"]
+    msg = LB.refusal_message(s, e.value)
+    note = msg.split("; one solved instead: ", 1)[1]
+    items = re.findall(r"(\w+) -> (-?\d+\.\d\d) \(([+-]\d+\.\d\d)\)", note)
+    assert items and len(items) <= LB.SOLVE_OPTIONS_MAX and len(msg) <= LB.REFUSAL_MAX
+    moves = [abs(float(mv)) for _n, _t, mv in items]
+    assert moves == sorted(moves)
+    ps = parse(s)
+    for name, t, mv in items:
+        was = float(ps.node_X(name)) - float(np.asarray(ps.inner(ps.nodes[name][0]), float))
+        assert float(t) == pytest.approx(was + float(mv), abs=0.011)
+        trial = copy.deepcopy(s)
+        trial["nodes"][name][2] = None
+        trial["creases"] = []
+        tps, sol = LB.solve_planes(trial)
+        assert label in sol.planes
+        solved = float(sol.node_X[name]) - float(np.asarray(tps.inner(tps.nodes[name][0]), float))
+        assert solved == pytest.approx(float(t), abs=0.006)
+
+
+def test_not_planar_note_names_the_run_and_the_meeting_rise():
+    """E_FACET_NOT_PLANAR's note (review round 2): a nodes plane over a straight run of its edges names the run a
+    crease + rise plane can hold; a crease-mode facet whose one given corner off its line misses the plane names the
+    rise_per_mm that meets it (entering it builds)."""
+    band = FX.crease_run_band()
+    band["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}            # on its nodes, four values not coplanar
+    band["nodes"]["U0"][2], band["nodes"]["U1"][2] = FX.PRISM["T"] - 2.0, FX.PRISM["T"] - 4.0
+    with pytest.raises(TempleError) as e:
+        build_temple(band)
+    assert e.value.code == "E_FACET_NOT_PLANAR"
+    assert LB.refusal_message(band, e.value).endswith("; or a crease plane on the run L-R (through M)")
+    tilt = FX.crease_run_band()                                        # U0 given 3 mm above the plane's value there
+    tilt["nodes"]["U0"][2] = FX.PRISM["T"] + 2.0 - 0.6 * 26.0 + 3.0
+    with pytest.raises(TempleError) as e:
+        build_temple(tilt)
+    msg = LB.refusal_message(tilt, e.value)
+    rise = float(msg.rsplit("; or rise_per_mm ", 1)[1].split(" meets U0")[0])
+    assert msg.endswith(" meets U0") and rise == pytest.approx(-0.6 + 3.0 / 26.0, abs=1e-4)
+    tilt["facets"]["B"]["plane"]["rise_per_mm"] = rise
+    build_temple(tilt)
+    steep = FX.crease_run_band()                         # a steep band (|rise| >= 1): the printed rise still builds
+    steep["nodes"]["U0"][2] = FX.PRISM["T"] + 2.0 - 1.37 * 26.0 + 0.123457
+    steep["facets"]["B"]["plane"]["rise_per_mm"] = -1.37
+    steep["nodes"]["L"][2] = steep["nodes"]["R"][2] = FX.PRISM["T"] + 40.0
+    with pytest.raises(TempleError) as e:
+        build_temple(steep)
+    msg = LB.refusal_message(steep, e.value)
+    steep["facets"]["B"]["plane"]["rise_per_mm"] = float(msg.rsplit("; or rise_per_mm ", 1)[1].split(" meets U0")[0])
+    LB.solve_planes(steep)                                              # the planes now hold U0 as given
+    ends = FX.crease_run_band()                           # a run whose ends have no value: the note says to give them
+    ends["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}
+    ends["nodes"]["U0"][2], ends["nodes"]["U1"][2] = FX.PRISM["T"] - 2.0, FX.PRISM["T"] - 4.0
+    ends["nodes"]["M"][2] = FX.PRISM["T"] + 1.0
+    ends["nodes"]["L"][2] = None
+    ps = parse(ends)
+    assert LB._longer_run(ps, "B") == "; or a crease plane on the run L-R (through M; give L a value)"
+
+
+def test_conditioning_hint_names_the_corners_without_a_value_and_the_runs():
+    """E_ILL_CONDITIONED's note (no package data): the fixture's F1 (a near-collinear triangle) names its corners
+    without a value; the straight-run band names the run its crease plane can hold."""
+    s = FX.refusal_cases()["E_ILL_CONDITIONED"]
+    with pytest.raises(TempleError) as e:
+        build_temple(s)
+    assert LB.refusal_message(s, e.value).endswith("; corners without a value: G_hi, A_hi")
+    band = FX.crease_run_band()
+    band["facets"]["B"] = {"poly": ["L", "M", "R", "U1", "U0"]}            # on its nodes: M, U0, U1 without a value
+    assert LB.conditioning_hint(band, "B") == ("; corners without a value: M, U1, U0; a crease + rise plane can hold "
+                                                "L-R (through M)")
+
+
+def test_run6_refusals_name_the_way_out_on_the_real_package():
+    """On run 6's package (read-only; skipped without it): the hinge corner A read in B2 alone at the assumed (d 0,
+    y 10.2) gives 3.83 with the turning-face note; read in B2 and B1 it sits at d -1.6 with X 70.71, t 4.77 at d 0
+    (run 6 entered 3.55 and built the inward hinge-side edge). Astra's first crown (A, T, C measured, E solved)
+    refused E_ILL_CONDITIONED now names E and the run A-E through C; the crown with A, T, E and C measured lists
+    solving C (-1.9) before E (+3.2); the crown on that run with A and E measured builds crown|logo and crown|tail as
+    ridges with no fade, and front|logo on the ridge side within the readings' error (the owner's two complaints)."""
+    rev = PACKAGE_006 / "work" / "temple_lab" / "revisions"
+    if not (rev / "r0013.json").is_file():
+        pytest.skip("package_006 is not on this machine")
+    try:
+        bs = GC.load_basis(PACKAGE_006)
+    except Exception as exc:  # noqa: BLE001 - a missing or moved basis
+        pytest.skip(f"package_006 has no camera basis: {exc}")
+    base = json.loads((rev / "r0013.json").read_text(encoding="utf-8"))      # run 6's best head, its fades off
+    for f in base["facets"].values():
+        f["fade"] = None
+    base["creases"] = []
+    tb = build_temple(base)
+
+    def view(rid, uv):
+        return (bs.camera(rid), bs.frame, bs.pose(rid), uv)
+    # a square-on view and the opposite one (05 sees the charted temple, 01 the mirrored, mirrored back): one line,
+    # the review's 05+01 and B1+01 (condition number ~940 against 1.9 for B2+B1), on exact projections of a point
+    h = tb.spec.hinge
+    P = (20.0, 0.0, LB._inner_x(tb, 20.0) + 6.0)
+
+    def px(rid, side):
+        Q = PO.chart_to_posed([P], side, float(h["z_mm"]), bs.pose(rid), None)
+        return tuple(project_mm(Q, bs.camera(rid), bs.frame)[0])
+    for a, b in (("reference-05", "reference-01"), ("black-side", "reference-01")):
+        with pytest.raises(ValueError, match="along nearly one line"):
+            LB.corner_reading(tb, [view(a, px(a, 1)), view(b, px(b, -1))], 20.0, 0.0)
+    for a, b in (("black-angled", "reference-02"), ("black-side", "reference-05")):   # one direction: never "no point"
+        for off in ((1.0, -1.0), (-1.0, 1.0), (0.7, 0.4)):
+            uvb = tuple(np.add(px(b, 1), off))
+            with pytest.raises(ValueError, match="along nearly one line"):
+                LB.corner_reading(tb, [view(a, px(a, 1)), view(b, uvb)], 20.0, 0.0)
+    good = LB.corner_reading(tb, [view("black-angled", px("black-angled", 1)), view("black-side", px("black-side", 1))],
+                             18.0, 1.0)
+    assert (good["d_mm"], good["y_mm"], good["t_mm"]) == (pytest.approx(20.0, abs=1e-3), pytest.approx(0.0, abs=1e-3),
+                                                          pytest.approx(6.0, abs=1e-3))
+    one = LB.depth_reading(tb, bs.camera("black-angled"), bs.frame, bs.pose("black-angled"), 0.0, 10.2, (1313, 598))
+    assert one["t_mm"] == pytest.approx(3.83, abs=0.02) and LB.inner_turn(tb, 0.0) == pytest.approx(0.78, abs=0.02)
+    c = LB.corner_reading(tb, [view("black-angled", (1313, 598)), view("black-side", (305, 131))], 0.0, 10.2)
+    assert c["d_mm"] == pytest.approx(-1.58, abs=0.02) and c["X_mm"] == pytest.approx(70.71, abs=0.02)
+    assert c["t_at_mm"] == pytest.approx(4.77, abs=0.02) and max(c["res_px"]) < 0.1
+
+    def node(name, d, y, t):
+        return {"op": "set_node", "name": name, "d_mm": d, "y_mm": y,
+                "t": {"mode": "solve", "mm": None} if t is None else {"mode": "mm", "mm": t}}
+
+    def facet(label, poly, plane=None):
+        return {"op": "set_facet", "label": label, "poly": poly, "fade": None,
+                "plane": plane or {"mode": "nodes", "crease": None, "rise_per_mm": None}}
+    common = [node("A", 0, 10.2, 4.77), node("H", 0, -9.2, 4.82), node("D", 22.4, -15.2, 6.92),
+              node("F", 75, -0.9, 4.54), facet("Front", ["A", "D", "H"]), facet("Logo", ["A", "C", "D"]),
+              facet("Lower", ["D", "C", "F"]), facet("Tail", ["C", "E", "G", "F"])]
+
+    def refused(edits, code):
+        spec, _ = G.apply_edits(copy.deepcopy(base), edits)
+        with pytest.raises(TempleError) as e:
+            build_temple(spec)
+        assert e.value.code == code
+        return LB.refusal_message(spec, e.value)
+    msg = refused(common + [node("T", 36, 14.2, 5.47), node("E", 90, 8, None), node("C", 47.3, 9.1, 7.49),
+                            facet("Crown", ["A", "T", "E", "C"])], "E_ILL_CONDITIONED")
+    assert msg.endswith("; corners without a value: E; a crease + rise plane can hold A-E (through C)"), msg
+    msg = refused(common + [node("T", 36.2, 15.25, 3.49), node("E", 80.8, 8.5, 5.25), node("C", 47.3, 9.1, 7.74),
+                            facet("Crown", ["A", "T", "E", "C"])], "E_FACET_NOT_PLANAR")
+    assert msg.endswith("; one solved instead: C -> 5.84 (-1.90), E -> 8.45 (+3.20); or a crease plane on the run "
+                        "A-E (through C)"), msg
+    # run 6's own crown (crease on the edge A-C of the straight A-C-E) with the tip measured: only E can be solved
+    # (the wing); the note names the run A-E as well
+    msg = refused(common + [node("T", 36.2, 15.25, None), node("E", 80.8, 9.06, 5.25), node("C", 47.3, 9.1, 7.49),
+                            facet("Crown", ["A", "T", "E", "C"], {"mode": "crease", "crease": ["A", "C"],
+                                                                  "rise_per_mm": -0.47})], "E_FACET_NOT_PLANAR")
+    assert "; one solved instead: E -> " in msg and msg.endswith("; or a crease plane on the run A-E (through C)"), msg
+    spec, _ = G.apply_edits(copy.deepcopy(base), common + [
+        node("T", 36.2, 15.25, None), node("E", 80.8, 8.5, 5.25), node("C", 47.3, 9.1, None),
+        facet("Crown", ["A", "T", "E", "C"], {"mode": "crease", "crease": ["A", "E"], "rise_per_mm": -0.54})])
+    m = LB.crease_margins(build_temple(spec))
+    shapes = {k: v["shape"] for k, v in m.items()}
+    assert shapes[("Crown", "Logo")] == shapes[("Crown", "Tail")] == "ridge", shapes
+    # front|logo from the two-photo hinge readings: no longer run 6's valley (H -1.6 / C -4.3 from the one-photo
+    # A 3.55) but a shallow crease on the ridge side, its margin within the readings' error (the instructions: then
+    # (1) is open and the views along it and the glossy photos decide)
+    front = m[("Front", "Logo")]
+    assert front["shape"] in ("ridge", "flat") and LB.margin_text(front) == "H +0.4/C +1.1", LB.margin_text(front)

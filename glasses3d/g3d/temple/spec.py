@@ -14,8 +14,10 @@ Spec keys (JSON):
     nodes     {name: [d, y, t]}: t = mm thickness from the inner face (X = x_in(d) + t), null (solved from the facet
               planes) or "base" (the base thickness at (d, y)). Virtual nodes outside the outline are allowed.
     facets    {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm}, fade: null | {d0, d1}}}
-              (a bare list = poly with plane "nodes" and no fade). rise_per_mm = mm of world X gained per mm moved
-              perpendicular from the crease into the facet (negative falls toward the inner face). A faded facet is
+              (a bare list = poly with plane "nodes" and no fade). A crease plane holds the line n1-n2: an edge of the
+              poly, or the ends of a straight run of its edges (crease_run: the corners between lie within RUN_LINE_MM
+              of that line; like every corner off n1 and n2 they take the plane's value). rise_per_mm = mm of world X
+              gained per mm moved perpendicular from the crease into the facet (negative falls toward the inner face). A faded facet is
               (1 - s) plane + s base with s = smoothstep((d - d0) / (d1 - d0)): the plane at d0, the base at d1.
               Facets with different fades (or none) may share creases: a shared vertex takes the least-faded one. Where
               that holds a faded facet at least FADE_HOLD_MIN_MM from its own fade and one of its triangles tilts more
@@ -57,7 +59,7 @@ SCHEMA = "g3d.temple/2"
 REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED",
             "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
             "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN",
-            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
+            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_FADE_CREASE", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED")
 WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT", "W_FADE_EARLY",
             "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION")
 
@@ -69,6 +71,9 @@ FLAT_CREASE_DEG = 2.0                   # a crease pair below this is "flat" (W_
 SHARP_DIHEDRAL_DEG = 6.0                # faded, ramp and chamfer edges are sharp at or above this dihedral
 CREASE_STANDS_DEG = 0.5                 # a crease edge beside a faded cell is sharp while its design dihedral >= this
 FADE_ZERO = 1e-12                       # a fade weight below this is 0 (the face is a facet cell, its values the plane)
+FADE_CREASE_WEIGHT = 0.02               # E_FADE_CREASE: two facets both faded at least this anywhere along the
+#                                         crease they share (a crease stands to its ends)
+RUN_LINE_MM = 0.5                       # a crease plane's straight run: its corners within this of the line
 FADE_CLIFF_DEG = 25.0                   # E_FADE_CLIFF: a held faded triangle tilted more than this off its own fade
 FADE_HOLD_WARN_DEG = 10.0               # W_FADE_HOLD: the largest such tilt at or above this (one receipt line)
 FADE_HOLD_MIN_MM = 0.05                 # the smallest hold (built minus the faded facet's own value) that counts
@@ -152,6 +157,72 @@ def _keys(d, allowed, where: str):
     bad = sorted(set(d) - set(allowed))
     if bad:
         raise TempleError("E_SPEC", f"unknown {where} keys {bad}; known: {list(allowed)}", unknown=bad, where=where)
+
+
+def crease_run(poly, n1: str, n2: str, nodes: dict) -> tuple[int, list] | None:
+    """A crease plane's line n1-n2 along the poly (corner names in poly order; nodes = {name: [d, y, ...]}):
+    (+1, []) when n2 follows n1, (-1, []) when n1 follows n2; else (direction, corners) of the straight run of edges
+    between them, +1 going forward from n1 (n1, poly[i + 1], ..., n2), -1 backward, whose corners between the ends
+    all lie within RUN_LINE_MM of the line n1-n2 in (d, y); None when neither run is straight (or the ends coincide).
+    When both runs are straight (a facet thinner than RUN_LINE_MM across the line) the one whose corners lie closer to
+    the line is the crease's (the facet lies on the other's side); an exact tie goes to the run whose sorted corner
+    names come first, so the answer never depends on the order the ends are named or the poly is listed."""
+    i, j, m = poly.index(n1), poly.index(n2), len(poly)
+    if (j - i) % m == 1:
+        return (1, [])
+    if (i - j) % m == 1:
+        return (-1, [])
+    p, q = (np.asarray(nodes[n][:2], float) for n in (n1, n2))
+    L = float(np.hypot(*(q - p)))
+    if L <= DEDUPE_MM:
+        return None
+    u = (q - p) / L
+
+    def dev(names):
+        off = [np.asarray(nodes[n][:2], float) - p for n in names]
+        return max(abs(float(u[0] * w[1] - u[1] * w[0])) for w in off)
+    fwd = [poly[(i + k) % m] for k in range(1, (j - i) % m)]
+    back = [poly[(i - k) % m] for k in range(1, (i - j) % m)]
+    runs = sorted((dev(r), sorted(r), sgn, r) for sgn, r in ((1, fwd), (-1, back)) if dev(r) <= RUN_LINE_MM)
+    return (runs[0][2], runs[0][3]) if runs else None
+
+
+def run_conflicts(facets: dict, nodes: dict, snaps=()) -> None:
+    """E_SPEC when a corner M strictly inside a crease plane's straight run (n1 .. M .. n2) lies off the line n1-n2
+    (more than 1e-6 mm) and another facet holds both of the run's edges at M (M's neighbours in its poly are the run's
+    corners either side of M): the two facets share three points not on one line, so they could only be one plane
+    (review rounds 1-2: two crease planes on the run, or one with a nodes plane or an edge crease, refused E_RELIEF_STEP,
+    E_ILL_CONDITIONED or E_FACET_NOT_PLANAR with notes that led in circles). ``snaps``: the parse's node snaps, named
+    when one moved a run corner (checked again after snapping)."""
+    for label, f in facets.items():
+        plane = f["plane"]
+        if plane == "nodes":
+            continue
+        n1, n2 = plane["crease"]
+        r = crease_run(f["poly"], n1, n2, nodes)
+        if not r or not r[1]:
+            continue
+        chain = [n1] + list(r[1]) + [n2]
+        a, b = (np.asarray(nodes[k][:2], float) for k in (n1, n2))
+        u = (b - a) / float(np.hypot(*(b - a)))
+        for i, m in enumerate(chain[1:-1], 1):
+            q = np.asarray(nodes[m][:2], float) - a
+            off = abs(float(u[0] * q[1] - u[1] * q[0]))
+            if off <= 1e-6:
+                continue
+            for other, g in facets.items():
+                poly = g["poly"]
+                if other == label or m not in poly:
+                    continue
+                j = poly.index(m)
+                if {poly[(j - 1) % len(poly)], poly[(j + 1) % len(poly)]} == {chain[i - 1], chain[i + 1]}:
+                    moved = [f"{x['what']} {x['field']} {x['from']:g}->{x['to']:g}" for x in snaps
+                             if str(x.get("what", "")).startswith("node ") and x["what"][5:] in chain]
+                    raise TempleError("E_SPEC", f"facets {sorted([label, other])} meet along the straight run "
+                                      f"{n1}-{n2} of {label}'s crease plane, whose corner {m} lies {off:.3g} mm off "
+                                      f"its line{' after the snaps (' + '; '.join(moved) + ')' if moved else ''}: they "
+                                      f"could only be one plane; put {m} on the line {n1}-{n2}",
+                                      facets=sorted([label, other]), node=m, off_mm=off)
 
 
 TOP_KEYS = ("schema", "hinge", "outline", "inner", "base", "nodes", "facets", "creases", "chamfers", "roll_mm",
@@ -242,10 +313,10 @@ def canonical(spec: dict) -> dict:
             if any(n not in poly for n in cr):
                 raise TempleError("E_SPEC", f"facet {label}: crease nodes {list(cr)} must be corners of its poly",
                                   facet=label)
-            i, j = poly.index(cr[0]), poly.index(cr[1])
-            if (i - j) % len(poly) not in (1, len(poly) - 1):
-                raise TempleError("E_SPEC", f"facet {label}: crease {list(cr)} must be an edge of its poly "
-                                  f"(adjacent corners)", facet=label)
+            if crease_run(poly, cr[0], cr[1], nodes) is None:
+                raise TempleError("E_SPEC", f"facet {label}: crease {list(cr)} must be an edge of its poly or the "
+                                  f"ends of a straight run of its edges (the corners between within {RUN_LINE_MM:g} mm "
+                                  f"of their line)", facet=label)
             plane = {"crease": [str(cr[0]), str(cr[1])],
                      "rise_per_mm": _num(plane["rise_per_mm"], f"facets.{label}.plane.rise_per_mm")}
         fade = f.get("fade")
@@ -257,6 +328,7 @@ def canonical(spec: dict) -> dict:
             if fade["d0"] == fade["d1"]:
                 raise TempleError("E_SPEC", f"facet {label}: fade d0 and d1 must differ", facet=label)
         facets[label] = {"poly": [str(n) for n in poly], "plane": plane, "fade": fade}
+    run_conflicts(facets, nodes)
     creases, seen = [], set()
     cin = spec.get("creases", []) or []
     if not isinstance(cin, (list, tuple)):
@@ -753,6 +825,7 @@ def parse(spec: dict) -> ParsedSpec:
                     nodes=nodes, facets=s["facets"], creases=s["creases"], chamfers=s["chamfers"],
                     options=s["options"], hinge=s["hinge"], roll_mm=s["roll_mm"], sha256=spec_sha256(spec),
                     snaps=snaps)
+    run_conflicts(s["facets"], s["nodes"], snaps)          # again on the snapped nodes
     _check_chamfers(ps)
     _check_roll_height(ps)
     if s["hinge"]["opening_deg"] != 0.0 and s["hinge"]["axis_xz_mm"] is None:

@@ -495,35 +495,64 @@ def test_instructions_contract_and_finish_text(tmp_path):
             "build with apply false, read the shape and margin the host prints (the receipt's crease lines and "
             "margins; facet_inspect for the head) and declare the shape the measured values build",
             "a margin within the readings' error leaves (1) open",
-            "A crease-mode facet's corners off its crease edge are solved by design; a corner no view can read stays "
-            "solve, and the note says so",
-            # the final pre-run review (P2-2): the corner solved is the one the photos constrain least (run 5's "away
-            # from that crease" pushed an unreadable R 4.9 -> 8.68); never a fold or a split (the owner's layout is
-            # right; a split is the failure fixed after run 4)
-            "If a face then has more measured corners than one plane holds, keep it whole and solve the corner the "
-            "photos constrain least, named in the note; it moves (the receipt's solved shows how far), so compare the "
-            "faces it bounds", "crease_vs_head", "Each must be one you decided from that crease's evidence",
+            "A crease-mode facet's corners but its crease's ends are solved by design; a corner no view can read "
+            "stays solve, and the note says so",
+            # run 6's review (owner: "the top triangle is still not one piece and being smoothen and not flat"): one
+            # face's measured corners disagreed by up to 2 mm between cameras; E_FACET_NOT_PLANAR lists each corner's
+            # solve option (lab.solve_options) and the one that moves least is solved (run 6 kept the logo corner's
+            # thick reading and solved the crown's tip 4 mm proud of the arm, then faded it); never a fold or a split
+            # review of the build (P1): the corner solved for a plane stays solved (else E_CREASE_SHAPE's "measure
+            # it first" and E_FACET_NOT_PLANAR's "solve it" loop on it)
+            "If a face's measured corners fit no plane (E_FACET_NOT_PLANAR lists the t each takes when it alone is "
+            "solved), keep it whole: take the crease run or rise it names, else solve the one that moves least, named in the "
+            "note (it stays solved, though it sets creases; facet_inspect shows its value), and compare the faces it "
+            "bounds",
+            # a thin band along a straight edge: a crease plane through the ends of a straight run (spec.crease_run)
+            "Plane mode crease holds the line through two corners, an edge of the polygon or the ends of a straight "
+            "run of its edges (the corners between take the plane's value)",
+            "a band along a straight edge (its run's two ends)",
+            # corner readings (lab.corner_reading): run 6's hinge corner read 3.55 at an assumed d 0 in one photo
+            # (4.77 from two), which built the inward hinge-side edge
+            "One photo takes your (d, y) as exact, so an error in d becomes one in t (worst where the inner face "
+            "turns, as at the hinge): give each corner also in a photo from another direction (depths' also) and "
+            "enter the t it prints for your (d, y)", "Cameras differ by about a mm",
+            # E_FADE_CREASE and no fade for a thickness (run 6 faded the back faces from d 48 to hide a 4 mm wing)
+            # review round 2: ending a crease at a node and fading both from there rebuilds the smooth surface
+            # through a narrow base strip (or a trough), so it is no longer offered
+            "A crease between two facets stands to its ends (E_FADE_CREASE): fade a facet only from where its creases "
+            "with other faded facets end",
+            "never fade to fix a thickness: a face standing out at its end (an offset there, a step against the arm at "
+            "a moderate angle) has a wrong corner t: read that corner",
+            # run 6's hinge-side valley came from a one-photo reading; with corner readings that crease's margin lies
+            # within the readings' error, and the owner rejected an inward edge twice (runs 5 and 6): an open crease
+            # between outer faces is taken as a ridge unless a bracket shows the valley
+            # review of the build (P1): a crease built flat cannot be declared, so the tie-break enters values within
+            # the readings' error that build the ridge, and a flat crease stays undeclared
+            "With (1) and (2) open, enter values within the readings' error that build a ridge (outer faces mostly meet "
+            "convex) unless a bracket at the moderate-angle and glossy views shows a valley",
+            "Declare every crease but one built flat (W_FLAT_CREASE)",
+            "crease_vs_head", "Each must be one you decided from that crease's evidence",
             "diff_vs_head",
             "Where one face's edge runs straight through a corner, the creases there cannot all be ridges (nor all "
             "valleys): one has the other shape, or two of those faces are one",
             # run-6 review P2: E_CREASE_SHAPE names the facets' solved corners (lab.refusal_solved): measure them
             # first; a redeclaration is wrong only when it matches what values that were not measured build
-            "On E_CREASE_SHAPE, first give any solved corner that sets that crease (the refusal names them) a measured "
-            "t; then declare the shape its measured corners build, or change the node t values not measured that make "
-            "the shape", "A depth wanted for another question that builds the other shape is evidence to weigh",
+            "On E_CREASE_SHAPE, first give any solved corner that sets that crease (the refusal names them; not one "
+            "solved for a plane) a measured t; then declare the shape its measured corners build, or change the node t "
+            "values not measured that make the shape", "A depth wanted for another question that builds the other shape is evidence to weigh",
             "when it says the creases at a corner cannot all have one shape, correct the declaration the photos "
             "contradict there", "Never redeclare just to match what unmeasured values build (the refusal's \"do not "
             "redeclare\")", "never split a face to get a refused declaration built",
             # kept after the owner's run-2 remarks (barely noticeable, soft lines)
             "barely distinct, the dihedral is probably too small", "several mm at the key nodes",
             "keeps a standing neighbour's height along their shared crease",
-            "fade both facets that share it the same way", "need no fade",
+            "need no fade",
             "Do not fade a facet whose edges the photos show crisp", "points mostly up",
             # top bands (review P3): the side views show only where a band meets the outer face
             "Top and bottom faces", "show only where it meets the outer face",
             "Place and confirm the band's own creases, and judge its tilt, in views that see it at a moderate angle",
             # the outline line and every offset are information only (2ca5be9): one view's silhouette
-            "outline line", "Like every offset it is information, one view's silhouette",
+            "Outline line", "like every offset it is information, one view's silhouette",
             "never change the layout or a crease's shape for it alone: an outline offset measures how far out the "
             "outermost face reaches, not the shape of a crease below it",
             # one bracket answers one question (run 5: a five-change bracket redeclared the crease in every arm)
@@ -558,6 +587,16 @@ def test_instructions_contract_and_finish_text(tmp_path):
     assert "(negative falls toward the inner face)" in schema_text["facet_edit"]           # rise_per_mm
     assert "d where the facet is fully its plane" in schema_text["facet_edit"]              # a fade's d0 / d1
     assert "d where it has blended into the plain arm" in schema_text["facet_edit"]
+    # review of the build (P2): the fade's schema text no longer advises fading both facets of a crease to let it die
+    # out (E_FADE_CREASE); the corner reading names the value to enter
+    assert "fade both facets of a crease the same way" not in schema_text["facet_edit"]
+    assert "two facets never both fade along the crease they share: it stands to its ends (E_FADE_CREASE)" in \
+        schema_text["facet_edit"]
+    assert "prints first the t to enter at the depth's own (d, y)" in described["photo_compare"]
+    assert '"t 5.00 here"' in described["photo_compare"]          # a neutral example, never the product's own value
+    assert "prints its t at this d, y" in schema_text["photo_compare"]
+    from glasses3d.g3d.temple.spec import RUN_LINE_MM
+    assert f"within {RUN_LINE_MM:g} mm" in schema_text["facet_edit"]               # the crease run's tolerance
     for name in ("facet_edit", "facet_variants", "facet_restore", "facet_finish"):          # the judgement's fields
         assert "the largest visible difference in this photo" in schema_text[name], name
         assert "where it is: d mm, or null" in schema_text[name], name
@@ -600,7 +639,14 @@ def test_instructions_contract_and_finish_text(tmp_path):
                     "differing only in that crease's corner t", "reading a face's corners in one photo",
                     "unless another part forms",
                     # the final pre-run review (P2-2): no corner pushed "away from that crease", no fold suggested
-                    "solve a corner away from that crease", "no photo shows a fold", "fold"):
+                    "solve a corner away from that crease", "no photo shows a fold", "fold",
+                    # run 6's review: the solved corner is the one that moves least, not "the photos constrain least";
+                    # a crease plane may hold a straight run; a crease dies out from a node inside the outline
+                    "constrain least", "goes through one edge of the polygon", "to let a crease die out, fade both",
+                    "off its crease edge",
+                    # review of the build: which printed t to enter; a crease stands to its ends, not only at the edge
+                    "the host finds (d, y, t) from both", "take a ridge (outer faces", "reaches the outline stands",
+                    "fade both facets", "the receipt's solved shows how far"):
         assert retired not in low, retired
     for number in re.findall(r"\d+(?:\.\d+)?", text):                    # no product coordinates: only rules' numbers
         assert number in INSTRUCTION_NUMBERS, number
@@ -620,7 +666,15 @@ def test_instructions_contract_and_finish_text(tmp_path):
     # checked above in a tool or parameter description), the outline line's parts and the footer (their printed text
     # names them) -> 13,897 chars. The cap is not raised again: a new rule cuts text. The final pre-run review: the
     # corner solved is the one the photos constrain least, without the fold clause, and E_RELIEF_STEP names the closing
-    # rise (-> 13,937 chars).
+    # rise (-> 13,937 chars). Run 6's review (owner: "the top triangle is still not one piece and being smoothen and
+    # not flat ... please review evidence thoroughly and the tools and instructions") added corner readings in two
+    # photos, the straight-run crease plane, the solve option that moves least, E_FADE_CREASE and no fade for a
+    # thickness and an open crease taken as a ridge (+~0.9k), and cut the same from wording (the intro's revision
+    # sentence, the coordinates, the angles, roll, tool and judgement lines, the finish cap's arithmetic) -> 13,992
+    # chars, under the same cap. The build's review: which printed t to enter, flat creases undeclared, the corner
+    # solved for a plane stays solved, a crease stands to its ends; cut the overlay grid, gloss and outline-line
+    # wording -> 13,974. Review round 2: take the crease run the not-planar note names; fade only from where creases
+    # end; the not-planar note's rise -> 13,974.
     assert len(raw) <= 14_000
 
 

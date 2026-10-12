@@ -14,6 +14,7 @@ Steps:
     with a roll;
  3. the full arrangement: outline, facet edges, stations, chamfer lines, the 8 roll lines per outline edge and the
     border band; every face is labelled (facet or base, chamfer, roll band);
+ 3b. E_FADE_CREASE (_check_fade_creases): two facets both faded anywhere along the crease they share;
  4. planes (planes.py), then vertex values: a facet vertex takes its facet (faded: (1 - s) plane + s base, s = the
     fade weight); a vertex shared by facets takes the facet with the smallest fade weight there (ties: the first
     label; their planes agree there, planes.py), so a crease stays where the less-faded facet still stands and a faded
@@ -42,8 +43,9 @@ Steps:
     one photo pixel: a micron-wide sliver's tilt is no wall). A counted tilt > FADE_CLIFF_DEG (25) is a hidden wall
     (shaded as the fade, seen only in the silhouette): E_FADE_CLIFF naming the faded facet, the less-faded neighbour
     holding it (the holder of the triangle's vertex held farthest from its fade), the d range of those triangles, the
-    worst point, the largest hold (mm) and tilt, and the fix (fade the neighbour the same way, or end the crease at a
-    node); else the largest counted tilt >= FADE_HOLD_WARN_DEG (10) is one W_FADE_HOLD (one receipt line). Mixed
+    worst point, the largest hold (mm) and tilt, and the fix (start the fade where the crease ends); else the largest
+    counted tilt >= FADE_HOLD_WARN_DEG (10) is one W_FADE_HOLD (one
+    receipt line); a crease two faded facets share is E_FADE_CREASE before any of this (step 3b). Mixed
     fades under the limit build. Fades that move none of their facet's vertices FADE_HOLD_MIN_MM (less-faded
     neighbours hold them all, or the fade lies outside the facet) are one W_FADE_INERT naming those facets; fades that
     start within FADE_EARLY_SHARE of their facet's own d extent and within FADE_EARLY_MM of its end (the facet barely
@@ -75,8 +77,9 @@ import numpy as np
 from . import planes as PL_
 from .arrange import Arrangement, build_arrangement, clip_segment, ear_clip, poly_area, simple_polygon
 from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, FADE_CLIFF_DEG,
-                   FADE_EARLY_MM, FADE_EARLY_SHARE, FADE_HOLD_MIN_MM, FADE_HOLD_WARN_DEG, FADE_ZERO, FLAT_CREASE_DEG,
-                   ROLL_BANDS, SHARP_DIHEDRAL_DEG, TILE_TOL_MM2, ParsedSpec, TempleError, _facet_crossings,
+                   FADE_CREASE_WEIGHT, FADE_EARLY_MM, FADE_EARLY_SHARE, FADE_HOLD_MIN_MM, FADE_HOLD_WARN_DEG,
+                   FADE_ZERO, FLAT_CREASE_DEG, ROLL_BANDS, SHARP_DIHEDRAL_DEG, TILE_TOL_MM2, ParsedSpec, TempleError,
+                   _facet_crossings,
                    chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile, smoothstep)
 
 WALL_KINDS = ("top", "bottom", "cap_hinge", "cap_tip")
@@ -534,15 +537,29 @@ def _clip_to_base(ps: ParsedSpec, segs: list) -> list:
 
 
 # ------------------------------------------------------------------------------------------- the build
-def build_temple(spec) -> TempleBuild:
-    """Plan and check one +X temple from a spec dict (or a ParsedSpec). Raises TempleError (nothing built)."""
-    ps = spec if isinstance(spec, ParsedSpec) else parse(spec)
+def _plan(ps: ParsedSpec):
+    """A build's first steps: prep, the stations, the arrangement, its face labels (+ chamfer ids) and the planes
+    (E_FADE_CREASE first: it needs only the arrangement and the fades)."""
     prep = prepare(ps)
     stations = station_list(ps, prep)
     arr = build_arrangement(ps.boundary(), segments(ps, prep, stations), chord_fn=lambda d: chord(ps, d),
                             inside=INSIDE_KINDS)
     labels, chamf = _label_faces(ps, arr)
-    sol = PL_.solve(ps, arr, labels)
+    _check_fade_creases(ps, arr, labels)
+    return prep, stations, arr, labels, chamf, PL_.solve(ps, arr, labels)
+
+
+def solve_planes(spec) -> tuple[ParsedSpec, "PL_.PlaneSolution"]:
+    """(parsed spec, its facet planes) without the rest of the build: what values its solved nodes take (the lab's
+    refusal notes). Raises TempleError for a refusal up to and including the planes."""
+    ps = spec if isinstance(spec, ParsedSpec) else parse(spec)
+    return ps, _plan(ps)[5]
+
+
+def build_temple(spec) -> TempleBuild:
+    """Plan and check one +X temple from a spec dict (or a ParsedSpec). Raises TempleError (nothing built)."""
+    ps = spec if isinstance(spec, ParsedSpec) else parse(spec)
+    prep, stations, arr, labels, chamf, sol = _plan(ps)
     V2 = arr.V
     n = len(V2)
     band = ps.options["border_band_mm"]
@@ -1029,8 +1046,7 @@ def _check_fade_holds(ps, sol, V, polys, kind, region, cell, S, holder) -> list:
     if cliff:
         msg = (f"facet {lab} fades but {who} holds it {abs(h):.2f} mm {'up' if h > 0 else 'down'} on their crease at "
                f"d {a}-{b} (worst at d {g['at'][0]:.1f} y {g['at'][1]:.1f}): a {'folded ' if deg > 90 else ''}wall "
-               f"{min(deg, 90.0):.0f} deg off its fade (> {FADE_CLIFF_DEG:g}); fade {who} the same way, start the "
-               f"fade where the crease ends, or end the crease at a node")
+               f"{min(deg, 90.0):.0f} deg off its fade (> {FADE_CLIFF_DEG:g}); start the fade where the crease ends")
         raise TempleError("E_FADE_CLIFF", msg, facet=lab, neighbour=nb, facets=[lab] + ([nb] if nb else []),
                           d_mm=g["d_mm"], hold_mm=h, tilt_deg=deg, at=g["at"], limit_deg=FADE_CLIFF_DEG,
                           min_hold_mm=FADE_HOLD_MIN_MM, failures=groups)
@@ -1083,7 +1099,7 @@ def _inert_fades(ps, sol, arr, labels, S) -> list:
     return [{"code": "W_FADE_INERT", "facets": [lab for lab, _ in items], "why": dict(items), "message": text}]
 
 
-EARLY_ADVICE = "; fade later (alike across a shared crease)"
+EARLY_ADVICE = "; fade later, from where its creases end"
 EARLY_MESSAGE_CHARS = 156         # W_FADE_EARLY's message: "W_FADE_EARLY: " + it fits a 170-character receipt line
 
 
@@ -1123,6 +1139,49 @@ def _early_fades(ps, arr, labels) -> list:
     return [{"code": "W_FADE_EARLY", "facets": [it[0] for it in items],
              "share": {it[0]: round(it[1], 3) for it in items},
              "flat_mm": {it[0]: round(it[2], 2) for it in items}, "message": text + EARLY_ADVICE}]
+
+
+def _check_fade_creases(ps: ParsedSpec, arr: Arrangement, labels: list) -> None:
+    """E_FADE_CREASE when two facets are both faded (weight >= FADE_CREASE_WEIGHT) anywhere along the crease they share
+    (a vertex of an arrangement edge between their faces): a crease stands to its ends; a facet may fade only where
+    its creases with other faded facets have ended (run 6: Crown, Lower and Tail faded over d 48-82 across creases
+    that run to d 75-90, and the top triangle read smooth, "not one piece"; moving a crease's end node just inside the
+    outline does not pass, the review's evasion). Names the first such crease in d order of the point where it starts
+    to fade (and up to two more), that point (the crease's vertex with the smallest such weight, so a fade toward the
+    hinge is named where it starts too), both fades, the crease's d span and the fix: start the fades where it ends,
+    or let one of them stand. (Ending the crease at a node and fading both facets from there is not offered: a narrow
+    base strip between them rebuilds the same smooth surface, a wide one a trough; review round 2.)"""
+    faded = {lab for lab, f in ps.facets.items() if f["fade"] is not None}
+    if len(faded) < 2:
+        return
+    ef = arr.edge_faces()
+    span: dict = {}
+    hits: dict = {}
+    for (a, b), fi in ef.items():
+        fj = ef.get((b, a))
+        l1, l2 = labels[fi], (labels[fj] if fj is not None else None)
+        if fj is None or a > b or l1 == l2 or l1 not in faded or l2 not in faded:
+            continue
+        pair = tuple(sorted((l1, l2)))
+        for v in (a, b):
+            d, y = (float(x) for x in arr.V[v])
+            lo, hi = span.get(pair, (d, d))
+            span[pair] = (min(lo, d), max(hi, d))
+            w = min(float(fade_weight(ps, l1, d)), float(fade_weight(ps, l2, d)))
+            if w >= FADE_CREASE_WEIGHT and (pair not in hits or w < hits[pair][2]):
+                hits[pair] = (d, y, w)
+    if not hits:
+        return
+    order = sorted(hits, key=lambda k: hits[k][0])
+    (l1, l2), (d, y, w) = order[0], hits[order[0]]
+    f1, f2 = ps.facets[l1]["fade"], ps.facets[l2]["fade"]
+    lo, hi = span[(l1, l2)]
+    more = f"; also {', '.join('|'.join(k) for k in order[1:3])}" if len(order) > 1 else ""
+    raise TempleError("E_FADE_CREASE", f"crease {l1}|{l2} (d {lo:.1f}-{hi:.1f}) fades out along its length: both "
+                      f"facets fade at (d, y) ({d:.1f}, {y:.1f}) ({l1} {f1['d0']:g}-{f1['d1']:g}, {l2} "
+                      f"{f2['d0']:g}-{f2['d1']:g}); a crease stands to its ends: start the fades where it ends, or "
+                      f"let one of them stand{more}",
+                      facets=[l1, l2], at=[d, y], weight=w, span_d=[lo, hi], creases=[list(k) for k in order])
 
 
 def _faded_creases_standing(ps, sol, V, edges, kind, region, cell) -> dict:
