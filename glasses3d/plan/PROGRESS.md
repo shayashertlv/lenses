@@ -28,6 +28,44 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5: thorough fresh-run review (2026-10-13; $0)
+
+Owner requested a thorough review using all run evidence. Full report:
+**[REVIEW_OAKLEY_RUN_20261013.md](REVIEW_OAKLEY_RUN_20261013.md)**. Runtime implementation remains `123dcca`;
+no source/model edits or paid requests during the review. Independent accounting, geometry and visual reviews
+covered all 65 calls/provider records, all 21 tool-image outputs and six photos, both fits/comparison batches,
+all three AR captures, and all 22 checkpoint file hashes. A fresh audit verified 130 transport records,
+65 provider-to-tool argument bindings, 23 issued-code hashes and 65 journals; its 222 source files unchanged.
+
+**Verdict:** reliable completed delivery, but photo likeness and the job's priority coating are not achieved.
+New findings beyond the finish summary:
+
+- A four-case $0 diagnostic-cube proof through the actual exporter establishes that **iridescence export is
+  supported**. Astra used `Iridescence` instead of `Iridescence Factor` and omitted `Occlusion`, which causes
+  Blender to inline away the glTF group. Correcting both exports `KHR_materials_iridescence`; either alone
+  does not. The prior description of the capability as unavailable was too broad. Product appearance was not
+  modified or retested; exporting the effect does not alone prove a photographic match.
+- The two central vent openings lose about **79% of their rendered area** from c0008 to c0021 after resolution
+  normalization. They remain tiny slits, not sealed. The change from separate lips to a continuous retention
+  rail after seating refusals supports the mechanism. Seating PASS does not certify these photo details.
+- The top fitter bounds roll to +/-25 degrees; the photo needs about 90 degrees. Retry remains misregistered
+  (IoU .3233); no final registered top comparison. The saved top matte is correctly oriented.
+- Actual 4.5 mm-wide temple knuckles fail the detector's <3.2 mm condition despite meeting its proximity rule.
+  Four stage preflights refused; no nested paid stage ran. Call 25 separately hid an invalid-role export refusal
+  behind a misleading checkpoint-mismatch message.
+- **85.0% of $19.161346 was input processing**, including new content and replayed history. Context grew
+  18,702 to 230,515 tokens. Three prompt-history image-pruning changes coincide with cache-prefix loss and
+  cost $7.479712 (39.0%); request archives support
+  the causal explanation, but this is not a measured counterfactual savings estimate. Final eight calls changed
+  no product geometry/material and cost $7.374968 (38.5%). These checks were useful; their orchestration was costly.
+
+Final spec 7/7 and seating passes remain true, with the transition/overcapture and AR warnings already recorded.
+All checkpoint bytes match their original index; all requests settle exactly; budget stop/reserve respected.
+The report separates automatic validity from photo likeness and actual wearer fit. Saved AR uses a featureless
+skin background, not an owner webcam capture. Full evidence/reproduction under
+`data/assembly/m5oakley/thorough-review/`; recommended general $0 repairs are listed, not implemented.
+No gate loosened. Owner acceptance and any further paid run remain unapproved.
+
 ## Assembly M5: authorized fresh Oakley run (2026-10-13; completed, awaiting owner review)
 
 All five requested $0 repair/verification steps passed before this run, committed as **`123dcca`** on branch
