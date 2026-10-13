@@ -6,11 +6,15 @@ of a stored readings.read_point record); fit.fit_spec turns it into the pure /2 
 canonical_design / design_sha256 are spec.canonical / spec_sha256 with read dicts kept (a spec without readings is
 unchanged: its design sha is its spec sha).
 
-    apply_edits(spec, edits, *, reset_layout=False, readings=None) -> (design spec, notes)
+    apply_edits(spec, edits, *, reset_layout=False, readings=None, facts=None) -> (design spec, notes)
         the edits (dicts of the strict tool union, tools.EDIT_MODELS) applied in order to a COPY of a design spec,
         atomically: the first failing edit raises EditError(code, message, index); node / facet references are checked
         after the last edit (a node may be deleted together with the facets that use it). reset_layout clears nodes,
-        facets and creases first. Deleting a facet deletes its creases (a note says so).
+        facets and creases first. Deleting a facet deletes its crease declarations: one note names them, the facet and
+        the edit, and which the same edit list declared again ("deleted crease declarations: L|U ridge, RU|U ridge
+        (with facet U, edits[0]); declared again in this edit list: L|U ridge; not declared now: RU|U"; the 2026-10-13
+        blind stand-in: "crease L|U deleted with facet U" read as a by-the-way). ``facts`` (a dict) receives that note
+        as "deleted_creases" and the bend notes below as "outline_bends", for the lab's receipt.
           set_node t {mode, mm}: "reading" (mm null) takes readings[name], the stored reading of the node's name
             (EditError "there is no reading named X: read it with photo_read first"), and sets the node to [d, y,
             read_t(rec)] with d, y = d_mm / y_mm, or the reading's where null; given numbers lie within READ_POSITION_MM
@@ -19,12 +23,25 @@ unchanged: its design sha is its spec sha).
             given).
           set_node outline (the node's relation to the outline; the strict union's SetNode.outline, absent = null): a
             node lies ON an outline edge (outline_edge, the parse's rule) within snap_mm 0.05 of one of that chain's
-            knots or vertically of its line. "top" / "bottom" put that chain's knot at the node's (d, y) (the inner knot
-            within snap_mm of where the node was moves there, else one is inserted; an end knot keeps its d and takes
-            y); "none" leaves both chains as they are; null keeps the edge the node lay on before this edit (a new
-            node, or one on neither edge, leaves the chains). Every knot so placed is a note ("outline.top has its
-            knot at node E, d 76.80 y 9.20 (...)") and the diff's chain change, and the other nodes on that edge move
-            with it as in a chain edit (a T-junction on the line beside the knot stays on it). splice_chain /
+            knots or vertically of its line. "top" / "bottom" keep the node on that edge: the chain's knot is put at
+            the node's (d, y) (the inner knot within snap_mm of where the node was moves there, else one is inserted;
+            an end knot keeps its d and takes y), so the edge passes through the node; "none" makes a free node and
+            leaves both chains as they are (a knot the node held stays where it was); null keeps the edge the node lay
+            on before this edit (a new node, or one on neither edge, is free). Every knot so placed is a note
+            ("outline.top has its knot at node E, d 76.80 y 9.20 (...)") and the diff's chain change, and the other
+            nodes on that edge move with it as in a chain edit (a T-junction on the line beside the knot stays on it).
+            A knot that lies snap_mm or more off the line the edge ran on bends the edge: a second note gives how far
+            (mm, above or below), the knots beside it and the turn there in degrees (_bend_text: the 2026-10-13 blind
+            stand-in's E, set "bottom" 0.97 mm below the edge and 0.15 mm behind revision 0's knot at d 76.00, cut a
+            111° notch into the bottom outline under a note that said only where the knot was). A set_node of t mode
+            reading that leaves its node beyond the outline (a free read corner above the top edge, below the bottom
+            one, or outside the d range: the photos put the edge beyond the model's there; the builder clips its
+            facets to the outline) is a note too (beyond_text). Both are told of the design after the LAST edit, in
+            the place of their set_node: a bend whose node or knot a later edit of the list moved or removed, and a
+            read corner a later chain edit put on the outline, have none (the stand-in's rev 7 set E free 0.07 mm
+            below the bottom edge, then spliced the edge through E: told at the set_node, the note called E "beyond
+            the outline" in a revision where it lies on it). Typed, base and solved corners beyond the outline are
+            the layout's own virtual corners (the Prada fixture's A_hi at y 60) and need none. splice_chain /
             offset_chain of an outline chain move every node that lay on that edge before the edit with it, in y to the
             new chain at its d (a note each); a node holding a reading moves at most READ_POSITION_MM from where it was
             read (EditError with the range the edge may move there, else). Why (v3p3 e2e P1-1, verify-0): a corner read
@@ -34,7 +51,8 @@ unchanged: its design sha is its spec sha).
             layouts, and a re-read 0.1-0.3 mm off left the knot behind (6 of 20 refused, 10 of 20 built a false
             "certain" facet|base border). A knot only at the corner does not straighten the outline between two
             corners: where the photos put a facet edge along the outline, the outline between is the chain's own
-            shape (splice_chain), and a base strip between them is built and printed as the misfit it is.
+            shape (splice_chain), and a base strip between them is built and printed as the misfit it is (the lab's
+            crease line names it: outline_strips).
           set_facet plane {mode}: "flat" -> the spec's "nodes" (a plane through its corners; the fit gives it coef),
             "warp" -> "warp" (>= WARP_MIN_CORNERS corners); ``soft`` true -> the facet's "soft" key (written only when
             true). Astra's union offers no fade and no crease + rise plane (WP6_V3 §6: fades and solved planes were
@@ -58,6 +76,12 @@ unchanged: its design sha is its spec sha).
         the design's read nodes whose reading is no longer the stored one of their name (other numbers: a re-read with
         the same numbers is not "replaced"): a node keeps the reading it was set from (a snapshot in the design), so a
         re-read changes the model only through set_node mode reading.
+    outline_strips(tb) -> {facet: [{edge, side, d, width_mm}]}, strip_text(facet, strips) -> str
+        the strips of plain arm (base) a build's facets leave between a straight side whose two corners lie on (or
+        within STRIP_CORNER_MM of, or beyond) one outline edge and that edge where it curves away beyond the side, at
+        least STRIP_MIN_MM wide (labels_at: the arrangement face halfway across is base); the lab's crease lines and
+        variant creases name them ("RL leaves plain arm up to 4.86 mm wide between its straight side E-C and the
+        curved bottom outline at d 22.2-55.2").
     surface_grid / surface_at / crease_edges / crease_pieces / crease_delta / geometry_delta / distinct_heads
         between two BUILT temples (g3d.temple builds, never their specs, labels or node names): the outer surface X
         and its gradient on a (d, y) lattice, the max normal distance |dX| / sqrt(1 + |grad X|^2) over the lattice
@@ -117,6 +141,12 @@ SURFACE_CELL_MM = 1.0           # surface_at: the triangle bucket grid
 CREASE_NEAR_MM = 1.0            # directed_mm: candidate segments within this of a chunk of samples
 CREASE_CHUNK = 256              # directed_mm: samples per chunk
 DIFF_NAMES_MAX = 6              # diff_text: names listed per kind before "+N more" (§4.5 text budget)
+STRIP_MIN_MM = 0.1              # outline_strips: a strip of plain arm at least this wide between a facet's straight
+#                                 side and the outline is named (about one native px at the photos' 7-9 px/mm)
+STRIP_CORNER_MM = READ_POSITION_MM  # ... beside a side whose two corners lie within this of an outline edge or beyond
+#                                 it (a corner read on the edge is set within its reading's position tolerance)
+STRIP_STEP_MM = 0.25            # ... sampled every this many mm in d along the side (and at the edge's knots)
+STRIP_ITEMS_MAX = 2             # strip_text: strips named per facet before "+N more"
 TEMPLE_MIN_REACH_MM, TEMPLE_MIN_OFFSET_MM = 60.0, 20.0     # the one body rule (g3d_host/pose.temple_body)
 
 
@@ -285,27 +315,75 @@ def _knot_to(pts: list, old, d: float, y: float, snap: float) -> list:
     return P
 
 
-def _outline_node(s: dict, name: str, old, edge_arg, node: list, i: int) -> str | None:
+def _turn_deg(P: list, k: int) -> float:
+    """How far a chain turns at its inner knot k (deg, 0 = straight on): the angle between the segment into the knot
+    and the one out of it, in (d, y) mm."""
+    a = (P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1])
+    b = (P[k + 1][0] - P[k][0], P[k + 1][1] - P[k][1])
+    return abs(math.degrees(math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1])))
+
+
+def _bend_text(s: dict, edge: str, name: str, before: list, d: float, y: float) -> str | None:
+    """The bend a set_node outline knot makes in its edge (module doc), told of the FINAL design ``s`` (apply_edits
+    calls it after the last edit), or None when the knot lies within snap of the line the edge ran on (``before``: the
+    chain just before that set_node), or when the final design no longer holds node ``name`` at (d, y) with the edge's
+    knot there (a later edit of the same list moved or removed it: that edit's own note and the diff say so): how far
+    the knot lies above or below that line at its d, the knots beside it in the final chain, and how far the edge
+    now turns there (with how far it turned there before). Why (2026-10-13 blind stand-in, rev 1): E's knot went in
+    0.15 mm behind revision 0's knot at d 76.00 and 0.97 mm below the edge's line, a notch (a 111° turn) in the bottom
+    outline the receipt named only as "outline.bottom has its knot at node E"; told at the set_node, a later
+    splice_chain over that knot left the note stating a turn the revision does not have."""
+    snap = snap_of(s)
+    B = np.asarray(before, float)
+    was = float(np.interp(d, B[:, 0], B[:, 1]))
+    move = y - was
+    if abs(move) < snap:
+        return None
+    node = s["nodes"].get(name)
+    if node is None or abs(float(node[0]) - d) > 1e-9 or abs(float(node[1]) - y) > 1e-9:
+        return None
+    Q = [[float(p[0]), float(p[1])] for p in _chain(s, f"outline.{edge}")]
+    held = [j for j in range(len(Q)) if abs(Q[j][0] - d) <= snap and abs(Q[j][1] - y) <= 1e-9]
+    if not held:
+        return None
+    k = min(held, key=lambda j: abs(Q[j][0] - d))
+    text = (f"outline.{edge} bends at node {name}: its knot at d {d:.2f} y {y:.2f} lies {abs(move):.2f} mm "
+            f"{'above' if move > 0 else 'below'} the line the edge ran on (y {was:.2f} there)")
+    if 0 < k < len(Q) - 1:
+        old = [j for j in range(1, len(B) - 1) if abs(B[j][0] - d) <= snap]
+        then = f"it turned {_turn_deg(B.tolist(), old[0]):.0f}° there" if old else "it ran straight there"
+        text += (f"; between its knots at d {Q[k - 1][0]:.2f} and {Q[k + 1][0]:.2f} the edge now turns "
+                 f"{_turn_deg(Q, k):.0f}° at the knot ({then})")
+    else:
+        nb = Q[1] if k == 0 else Q[-2]
+        text += f"; it is the edge's end knot, its neighbour at d {nb[0]:.2f}"
+    return text
+
+
+def _outline_node(s: dict, name: str, old, edge_arg, node: list, i: int) -> tuple[str | None, tuple | None]:
     """set_node's ``outline`` (module doc) on the design s, the node already at ``node`` = [d, y, t]: "top" / "bottom"
     put that chain's knot at (d, y) (_knot_to; a knot the node held on the other chain is removed), "none" leaves both
     chains, null keeps the node's edge from before the edit (``old`` = its [d, y, t] then, or None for a new node:
-    outline_edge) as "top" / "bottom". Returns the note when a chain changed, else None; EditError for a d outside
-    the chain's d range or an unknown value."""
+    outline_edge) as "top" / "bottom". Returns (the note when a chain changed, (edge, the chain before, d, y) when the
+    knot changed that edge, for _bend_text on the final design), each None when there is none; EditError for a d
+    outside the chain's d range or an unknown value."""
     if edge_arg not in OUTLINE_SET:
         raise EditError("outline must be top, bottom, none or null", i)
     snap = snap_of(s)
     was = outline_edge(s, old[0], old[1]) if old is not None else None
     edge = was if edge_arg is None else None if edge_arg == "none" else edge_arg
     if edge is None:
-        return None
+        return None, None
     d, y = float(node[0]), float(node[1])
     chain = f"outline.{edge}"
     P = _chain(s, chain)
     if not P[0][0] - snap <= d <= P[-1][0] + snap:
         raise EditError(f"node {name} at d {d:.2f} lies outside the outline's d range {P[0][0]:.2f}-{P[-1][0]:.2f}, so "
-                        f"it cannot lie on the {edge} edge", i, node=name, at=[d, y])
+                        f"it cannot lie on the {edge} edge; a free node (outline none) may lie beyond the outline, "
+                        f"which clips its facets", i, node=name, at=[d, y])
+    before = [list(map(float, p)) for p in P]
     new = _knot_to(P, old[:2] if was == edge else None, d, y, snap)
-    changed = new != [list(map(float, p)) for p in P]
+    changed = new != before
     if changed:
         _set_chain(s, chain, new)
     if was is not None and was != edge:                   # the node left the other edge: its inner knot there goes
@@ -316,9 +394,33 @@ def _outline_node(s: dict, name: str, old, edge_arg, node: list, i: int) -> str 
             _set_chain(s, f"outline.{was}", [p for k, p in enumerate(Q) if k != min(drop)[1]])
             changed = True
     if not changed:
-        return None
+        return None, None
     why = "as before this edit: it lay on that edge" if edge_arg is None else f"outline {edge}"
-    return f"outline.{edge} has its knot at node {name}, d {d:.2f} y {y:.2f} ({why})"
+    return (f"outline.{edge} has its knot at node {name}, d {d:.2f} y {y:.2f} ({why})",
+            (edge, before, d, y) if new != before else None)
+
+
+def beyond_text(spec: dict, name: str, d: float, y: float) -> str | None:
+    """A node that lies beyond the design's outline (a virtual corner: in front of or behind its d range, or more
+    than snap_of(spec) above the top edge or below the bottom edge), as a note: "node E at d 76.15 y -0.98 lies 0.97
+    mm below the bottom outline: a corner beyond the outline (its facets are clipped to the outline)"; None for a
+    node inside or on the outline. The tools take such corners (the builder clips each facet to the outline,
+    spec.py "Virtual nodes outside the outline are allowed"); apply_edits notes a read one, of the final design
+    (2026-10-13 blind stand-in: A read at d -0.27, "outside the model's outline", with nothing saying what such a
+    corner does)."""
+    snap = snap_of(spec)
+    T, Bt = np.asarray(_chain(spec, "outline.top"), float), np.asarray(_chain(spec, "outline.bottom"), float)
+    d0, d1 = max(T[0, 0], Bt[0, 0]), min(T[-1, 0], Bt[-1, 0])
+    tail = ": a corner beyond the outline (its facets are clipped to the outline)"
+    if d < d0 - snap or d > d1 + snap:
+        where = f"{d0 - d:.2f} mm in front of" if d < d0 else f"{d - d1:.2f} mm behind"
+        return f"node {name} at d {d:.2f} y {y:.2f} lies {where} the outline's d range {d0:.2f}-{d1:.2f}" + tail
+    yt, yb = float(np.interp(d, T[:, 0], T[:, 1])), float(np.interp(d, Bt[:, 0], Bt[:, 1]))
+    if y > yt + snap:
+        return f"node {name} at d {d:.2f} y {y:.2f} lies {y - yt:.2f} mm above the top outline" + tail
+    if y < yb - snap:
+        return f"node {name} at d {d:.2f} y {y:.2f} lies {yb - y:.2f} mm below the bottom outline" + tail
+    return None
 
 
 def _carry(s: dict, chain: str, names: list, what: str, i: int, before: list) -> list[str]:
@@ -525,16 +627,36 @@ def _set_facet(e: dict, i: int) -> tuple[str, dict]:
     return label, out
 
 
-def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
-                readings: dict | None = None) -> tuple[dict, list[str]]:
+def _deleted_crease_text(gone: list, creases: list) -> str:
+    """The note of the crease declarations delete_facet removed (module doc): ``gone`` = [(crease, facet label, edit
+    index)], ``creases`` = the design's declarations after the last edit (which ones the same edit list declared
+    again)."""
+    now = {_crease_key(c): c["shape"] for c in creases}
+    by = {}
+    for c, label, i in gone:
+        by.setdefault((label, i), []).append(c)
+    parts = [", ".join(f"{'|'.join(c['facets'])} {c['shape']}" for c in cs) + f" (with facet {label}, edits[{i}])"
+             for (label, i), cs in by.items()]
+    again = [f"{'|'.join(k)} {now[k]}" for k in dict.fromkeys(_crease_key(c) for c, _l, _i in gone) if k in now]
+    lost = ["|".join(k) for k in dict.fromkeys(_crease_key(c) for c, _l, _i in gone) if k not in now]
+    return ("deleted crease declarations: " + "; ".join(parts)
+            + (f"; declared again in this edit list: {', '.join(again)}" if again else "")
+            + (f"; not declared now: {', '.join(lost)}" if lost else ""))
+
+
+def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings: dict | None = None,
+                facts: dict | None = None) -> tuple[dict, list[str]]:
     """The edits applied to a copy of the design ``spec`` (module doc); ``readings`` = the stored readings by name
-    (state["readings"]) for set_node mode "reading". Returns (canonical design, notes); raises EditError."""
+    (state["readings"]) for set_node mode "reading". Returns (canonical design, notes); raises EditError. ``facts``
+    (a dict, optional) receives the notes the lab's receipt states on lines of their own: "outline_bends" (the bends
+    set_node outline knots make, _bend_text) and "deleted_creases" (_deleted_crease_text), each a list of notes."""
     if not isinstance(edits, list) or len(edits) > EDITS_MAX:
         raise EditError(f"edits must be a list of at most {EDITS_MAX} operations")
     s = copy.deepcopy(canonical_design(spec))
     if reset_layout:
         s["nodes"], s["facets"], s["creases"] = {}, {}, []
-    notes, deleted_nodes, set_facets, set_creases = [], {}, {}, {}
+    notes, deleted_nodes, set_facets, set_creases, gone_creases = [], {}, {}, {}, []
+    told = []                           # [(notes index, "bend" | "beyond", data)]: told of the final design below
     for i, e in enumerate(edits):
         op = e.get("op") if isinstance(e, dict) else None
         if op == "set_node":
@@ -544,12 +666,19 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
                       for edge in OUTLINE_EDGES}
             chains = {edge: [list(p) for p in _chain(s, f"outline.{edge}")] for edge in OUTLINE_EDGES}
             s["nodes"][name] = node
-            note = _outline_node(s, name, old, e.get("outline"), node, i)
+            note, bend = _outline_node(s, name, old, e.get("outline"), node, i)
             if note:                    # the knot moved: the other nodes on that edge stay on it (module doc)
                 notes.append(note)
+                if bend:
+                    told.append((len(notes), "bend", (bend[0], name) + bend[1:]))
+                    notes.append(None)
                 for edge in OUTLINE_EDGES:
                     notes += _carry(s, f"outline.{edge}", riding[edge], f"the knot set_node {name} put on "
                                     f"outline.{edge}", i, chains[edge])
+            if is_read(node[2]):        # a read corner beyond the model's outline: the photos put the edge there
+                told = [x for x in told if x[1:] != ("beyond", name)]
+                told.append((len(notes), "beyond", name))
+                notes.append(None)
             deleted_nodes.pop(name, None)
         elif op == "delete_node":
             name = e.get("name")
@@ -566,9 +695,8 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
             if label not in s["facets"]:
                 raise EditError(f"there is no facet {label!r}", i)
             del s["facets"][label]
-            gone = [c for c in s["creases"] if label in c["facets"]]
+            gone_creases += [(c, label, i) for c in s["creases"] if label in c["facets"]]
             s["creases"] = [c for c in s["creases"] if label not in c["facets"]]
-            notes += [f"crease {'|'.join(c['facets'])} deleted with facet {label}" for c in gone]
         elif op == "set_crease":
             pair = _pair(e.get("facets"), i)
             if e.get("shape") not in ("ridge", "valley"):
@@ -625,6 +753,20 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False,
             if f != "base" and f not in s["facets"]:
                 raise EditError(f"crease {'|'.join(c['facets'])} names facet {f}, which does not exist",
                                 set_creases.get(_crease_key(c)))
+    bends = []
+    for k, kind, data in told:          # the bends and the read corners beyond the outline, as the revision has them
+        if kind == "bend":
+            notes[k] = _bend_text(s, *data)
+            bends += [notes[k]] if notes[k] else []
+        else:
+            node = s["nodes"].get(data)
+            notes[k] = beyond_text(s, data, float(node[0]), float(node[1])) \
+                if node is not None and is_read(node[2]) else None
+    notes = [n for n in notes if n is not None]
+    deleted = [_deleted_crease_text(gone_creases, s["creases"])] if gone_creases else []
+    notes += deleted
+    if facts is not None:
+        facts["outline_bends"], facts["deleted_creases"] = bends, deleted
     return canonical_design(s), notes
 
 
@@ -816,6 +958,100 @@ def diff_text(diff: dict, limit: int = 360, names: int = DIFF_NAMES_MAX, reset: 
     parts += diff.get("chains", []) + diff.get("scalars", [])
     text = "; ".join(parts) or "no change"
     return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+# --------------------------------------------------------------------------------------------- facets at the outline
+def labels_at(tb, pts) -> list:
+    """The label of the build's arrangement face (a facet label or "base") that holds each (d, y) point of ``pts``
+    (even-odd rule on each face's polygon), None for a point outside every face."""
+    V = np.asarray(tb.arr.V, float)
+    P = np.asarray(pts, float).reshape(-1, 2)
+    out: list = [None] * len(P)
+    todo = np.ones(len(P), bool)
+    for fi, f in enumerate(tb.arr.faces):
+        poly = V[list(f)]
+        lo, hi = poly.min(0), poly.max(0)
+        cand = np.flatnonzero(todo & (P[:, 0] >= lo[0]) & (P[:, 0] <= hi[0]) & (P[:, 1] >= lo[1])
+                              & (P[:, 1] <= hi[1]))
+        if not len(cand):
+            continue
+        x, y = P[cand, 0], P[cand, 1]
+        inside = np.zeros(len(cand), bool)
+        xj, yj = poly[-1]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            for xi, yi in poly:
+                inside ^= ((yi > y) != (yj > y)) & (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+                xj, yj = xi, yi
+        for c in cand[inside]:
+            out[c] = tb.face_label[fi]
+            todo[c] = False
+    return out
+
+
+def outline_strips(tb) -> dict:
+    """The strips of plain arm a facet leaves along the outline: {facet: [{"edge": "top" | "bottom", "side": [a, b],
+    "d": [d0, d1], "width_mm"}]} of a build (its parsed spec's node positions, outline and arrangement). A facet side
+    a-b runs along an outline edge when both its corners lie within STRIP_CORNER_MM of that edge or beyond it; the
+    builder clips the facet to the outline, so where the edge curves away beyond the straight side the arm between
+    them is base. Sampled every STRIP_STEP_MM in d (and at the edge's knots) over the side's span inside the outline's
+    d range: the vertical gap from the side to the edge, a strip where it is at least STRIP_MIN_MM and the point
+    halfway across is base (another facet there is no strip). Each contiguous run gives its d range and largest
+    width. Why (2026-10-13 blind stand-in, rev 1): RL's corners C and E sat on the bottom outline, which ran up to 4.9
+    mm below the chord C-E; the receipt said "RL|base valley 8.7° (sunk 1.62 mm: a 39.1° ramp at d 21.9-56.4)" and
+    nothing named the strip of plain arm the B1 render showed under RL. A build without its parsed spec or
+    arrangement (a table-only stand-in) has none."""
+    ps = getattr(tb, "spec", None)
+    out: dict = {}
+    if getattr(tb, "arr", None) is None or not all(hasattr(ps, k) for k in ("nodes", "facets", "top", "bottom", "d0",
+                                                                            "d1", "y_top", "y_bot")):
+        return out
+    for label, f in ps.facets.items():
+        poly = list(f["poly"])
+        for k, a in enumerate(poly):
+            b = poly[(k + 1) % len(poly)]
+            (da, ya), (db, yb) = (tuple(map(float, ps.nodes[n][:2])) for n in (a, b))
+            if abs(db - da) < STRIP_STEP_MM:                  # a side across the arm, not along an edge
+                continue
+            for edge, sign, chain in (("top", 1.0, ps.top), ("bottom", -1.0, ps.bottom)):
+                at = ps.y_top if edge == "top" else ps.y_bot
+                if any(sign * (yy - at(dd)) < -STRIP_CORNER_MM for dd, yy in ((da, ya), (db, yb))):
+                    continue
+                lo, hi = max(min(da, db), float(ps.d0)), min(max(da, db), float(ps.d1))
+                if hi - lo < STRIP_STEP_MM:
+                    continue
+                knots = np.asarray(chain, float)[:, 0]
+                ds = np.unique(np.r_[np.arange(lo, hi, STRIP_STEP_MM), hi, knots[(knots > lo) & (knots < hi)]])
+                ys = ya + (yb - ya) * (ds - da) / (db - da)
+                gap = sign * (np.asarray(at(ds), float) - ys)        # > 0: the edge lies beyond the side
+                wide = np.flatnonzero(gap >= STRIP_MIN_MM)
+                if not len(wide):
+                    continue
+                base = np.zeros(len(ds), bool)
+                lab = labels_at(tb, np.c_[ds[wide], ys[wide] + sign * gap[wide] / 2.0])
+                base[wide] = [x == "base" for x in lab]
+                run = None
+                for j in list(range(len(ds))) + [len(ds)]:
+                    if j < len(ds) and base[j]:
+                        run = j if run is None else run
+                        continue
+                    if run is not None:
+                        out.setdefault(label, []).append({"edge": edge, "side": [a, b],
+                                                          "d": [round(float(ds[run]), 2), round(float(ds[j - 1]), 2)],
+                                                          "width_mm": round(float(gap[run:j].max()), 3)})
+                        run = None
+    return out
+
+
+def strip_text(facet: str, strips: list, limit: int = STRIP_ITEMS_MAX) -> str:
+    """outline_strips of one facet in the receipt's words: "RL leaves plain arm up to 1.62 mm wide between its
+    straight side C-E and the curved bottom outline at d 21.9-56.4" (several: "; and ..."; beyond ``limit``: "+N
+    more"); "" for none."""
+    items = [f"up to {s['width_mm']:.2f} mm wide between its straight side {s['side'][0]}-{s['side'][1]} and the "
+             f"curved {s['edge']} outline at d {s['d'][0]:.1f}-{s['d'][1]:.1f}" for s in strips[:limit]]
+    if not items:
+        return ""
+    more = f" (+{len(strips) - limit} more)" if len(strips) > limit else ""
+    return f"{facet} leaves plain arm " + "; and ".join(items) + more
 
 
 # --------------------------------------------------------------------------------------------- deltas

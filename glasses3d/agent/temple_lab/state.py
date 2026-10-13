@@ -246,16 +246,25 @@ def check_judgement(state: dict, judgement: dict | None, *, fingerprint_of) -> d
 
 def judgement_not_due(state: dict, judgement: dict | None) -> str | None:
     """The fact a tool result states when check_judgement returned None for a judgement it was given (none was due:
-    not stored), else None: "compare cmp004 was judged already (call X); this judgement was not stored"."""
+    not stored), else None: "no judgement was due: the latest compare, cmp017, was judged already by the judgement a
+    facet_variants call carried (overall: same; best_checkpoint: c0011); this judgement of cmp017 was not stored (one
+    judgement per compare; the next compare makes one due)". The earlier judgement is named by its tool and its own
+    words, never the SDK's call id (2026-10-13 blind stand-in: "compare cmp017 was judged already (call s25)" named an
+    id it had never seen, and did not say a judgement carried by facet_variants is the compare's judgement)."""
     if judgement is None:
         return None
     mine = seen_compares(state)
     latest = mine[-1] if mine else None
     if latest is None or not latest["judged"]:
         return None
-    by = next((j["call_id"] for j in reversed(state["judgements"]) if j["compare_id"] == latest["compare_id"]), None)
-    return (f"compare {latest['compare_id']} was judged already" + (f" (call {by})" if by else "") +
-            "; this judgement was not stored")
+    cid = latest["compare_id"]
+    prior = next((j for j in reversed(state["judgements"]) if j["compare_id"] == cid), None)
+    by = (f" by the judgement a {prior.get('tool') or 'tool'} call carried (overall: {prior.get('overall')}; "
+          f"best_checkpoint: {prior.get('best_checkpoint')})") if prior else ""
+    given = judgement.get("compare_id") if isinstance(judgement, dict) else None
+    this = f"this judgement of {given[:24]}" if isinstance(given, str) and given.strip() else "this judgement"
+    return (f"no judgement was due: the latest compare, {cid}, was judged already{by}; {this} was not stored (one "
+            "judgement per compare; the next compare makes one due)")
 
 
 def record_judgement(state: dict, rec: dict | None, *, call_id: str, tool: str) -> None:

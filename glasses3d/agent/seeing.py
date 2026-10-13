@@ -70,9 +70,11 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
     (``_side_outline``): a temple seen from inside is not ("seen from inside"), nor the top in a view from above,
     where the silhouette is the top face's far edge ("top face in view"; 01 / 05 / B1 look 14-15 deg down); a
     station without a number gives its reason. That far edge is measured on photo and model alike
-    (``top_silhouette``) and printed minus its median over the stations (``_far_edge_text``): behind the facets it
-    is the only number on the arm's top in those views (session2's head, r6 of run 7's package: +2.3..+2.6 mm at
-    d 110, +3.5..+3.8 at d 120 against the d 40-90 level).
+    (``top_silhouette``) and printed as the arm's top height, and tan(elevation) per mm the inner face lies further
+    inward, minus its median over the stations (``_far_edge_text``; the face's lean and the matte's cut are in the
+    record only: ``top_far_edge``): behind the facets it is the only number on the arm's
+    top in those views (session2's head, r6 of run 7's package: +2.3..+2.6 mm at d 110, +3.5..+3.8 at d 120 against
+    the d 40-90 level).
     The top / rear ``outer_edge_offsets_mm`` are still computed.
   - the cache key holds the model edges' sha256, the opening, the zoom box, k, geometry flag, the stretch's crop and
     the photo's name (MATCHED_SCHEMA /4: /3's rows were photo / overlay / render for a colourway photo).
@@ -1714,16 +1716,37 @@ class Seeing:
         return head + ": " + "; ".join(parts) + (" (" + "; ".join(legend) + ")" if legend else "")
 
     @staticmethod
+    def _far_edge_terms(edge: str, elevation_deg: float | None) -> dict:
+        """What a face-in-view far edge (``{edge}_silhouette``) moves with, for the record (the text states the two a
+        reader can edit, the arm's height and its inner face: ``_far_edge_text``): 1 mm per mm of the arm's {edge}
+        height, tan(elevation) mm per mm the photo's inner face lies further from the camera than the model's (the far
+        edge is the {edge} face's inner edge), the face's lean across the arm, and the matte's cut at a lit edge; the
+        median over the stations takes off what every station shares."""
+        e = abs(float(elevation_deg or 0.0))
+        return {"measures": f"the arm's {edge} height at its inner edge, 1 mm per mm",
+                "elevation_deg": round(e, 1),
+                "inner_face_mm_per_mm": round(math.tan(math.radians(min(e, 89.0))), 3),
+                "also": [f"the {edge} face's lean across the arm", "the matte's cut at a lit edge"],
+                "median": "printed values are less the median over the stations when at least "
+                          f"{FAR_EDGE_LEVEL_MIN} are measured (what every station shares)"}
+
+    @staticmethod
     def _far_edge_text(edge: str, sign: str, sil: list, elevation_deg: float, seen: set) -> str:
-        """The far edge of a face the view shows (``{edge}_silhouette`` rows of ``_side_outline``), photo minus model:
-        photo and model both show that face's far edge there, so a station reads the arm's height difference plus the
-        face's width difference x tan(elevation) (+ = wider in the photo, its far edge further away) and lean, plus the
-        matte's cut at that edge. With >= FAR_EDGE_LEVEL_MIN measured stations each is printed minus their median (the
-        median and the count are printed), so a step along the arm reads as a number: session2's head (r6 of run 7's
-        package, cmp022) at 05 prints "110 +2.5, 120 +3.4" against a median of -0.7 where the raw offsets read +1.8 /
-        +2.7; with fewer, as measured.
-        Stations without a number print their reason (added to ``seen`` for the legend). tan(elevation) is printed per
-        mm of width so that a step the face's width cannot make (3 mm needs 11 mm more width at 15 deg) reads as one."""
+        """The far edge of a face the view shows (``{edge}_silhouette`` rows of ``_side_outline``), photo minus model,
+        stated as what a reader can edit: the arm's {edge} height (mm, the sign as the outline's) and, since the far
+        edge is the face's inner edge, tan(elevation) per mm the photo's inner face lies further inward (+0.27 at 15
+        deg; the same sign for a view from below). With >= FAR_EDGE_LEVEL_MIN measured stations each is printed minus
+        their median (the median and the count are printed), so a value is a step at that d against the rest of the
+        arm: session2's head (r6 of run 7's package, cmp022) at 05 prints "110 +2.5, 120 +3.4" against a median of
+        -0.7 where the raw offsets read +1.8 / +2.7; with fewer, as measured (what the stations share left in).
+        Stations without a number print their reason (added to ``seen`` for the legend).
+        The face's lean and the matte's cut are left to the record (``_side_outline``'s ``{edge}_far_edge``): the
+        2026-10-13 blind stand-in could not act on "a difference in the arm's top height, in the top face's width
+        (+0.26 per mm wider in the photo) or lean, or in the matte's cut there" (with the inner face held the far edge
+        does not depend on the face's width) and read -1.1 at d 20 as height. The inner face stays in the text
+        (v3-standin-fix-review): it is an edit (the inner chain), and the stand-in's photos put the arm's X near the tip
+        about 2 mm apart (03 / B2 against 06; its facet_variants moved the inner chain there by -1..+2 mm): 0.5 mm of
+        far edge at 15 deg, five times the printed 0.1 mm step."""
         got = [float(r["offset_mm"]) for r in sil if r["offset_mm"] is not None]
         level = float(np.median(got)) if len(got) >= FAR_EDGE_LEVEL_MIN else None
         vals = []
@@ -1734,15 +1757,16 @@ class Seeing:
             else:
                 v = float(r["offset_mm"]) - (level or 0.0)
                 vals.append(f"{r['d_mm']:g} " + f"{v:+.1f}".replace("-0.0", "+0.0"))
-        what = (f"{edge} face's far edge ({sign}; the view shows the {edge} face, so photo and model alike show its "
-                f"far edge, not the outline's {edge})")
-        why = (f"a value is a difference in the arm's {edge} height, in the {edge} face's width (+"
-               f"{math.tan(math.radians(min(abs(elevation_deg), 89.0))):.2f} per mm wider in the photo) or lean, or "
-               "in the matte's cut there")
+        per = math.tan(math.radians(min(abs(float(elevation_deg or 0.0)), 89.0)))
+        what = (f"{edge}: the arm's {edge} height, photo minus model, mm ({sign}), read on the {edge} face's far edge "
+                f"(this view shows the {edge} face; that edge is its inner one, so a value also gains {per:.2f} per mm "
+                "the photo's inner face lies further inward)")
         if level is None:
-            how = f"as measured ({len(got)} stations, under {FAR_EDGE_LEVEL_MIN} for a median): {why}"
+            how = (f"as measured ({len(got)} stations, under {FAR_EDGE_LEVEL_MIN} for a median), so a value is the "
+                   "difference at that d with what every station shares left in")
         else:
-            how = f"minus its median {level:+.1f} over {len(got)} stations: beyond what the stations share, {why}"
+            how = (f"less its median {level:+.1f} over {len(got)} stations, so a value is a step at that d against the "
+                   "rest of the arm")
         return f"{what}, {how}; at d: " + ", ".join(vals)
 
     @staticmethod
@@ -2059,7 +2083,8 @@ class Seeing:
         mm_per_px [min, max], top, bottom ([{d_mm, offset_mm, reason, px_per_mm (native, along the line)}] at every
         10 mm station from d 10 to the tip - 2 mm, compare.outline_offsets at native size against ``matte``, default
         the photo's), top_silhouette / bottom_silhouette (when that face is in view: the silhouette's offsets, the
-        far edge on photo and model alike, printed minus their median by ``_far_edge_text``)}.
+        far edge on photo and model alike, printed minus their median by ``_far_edge_text``), top_far_edge /
+        bottom_far_edge (beside them: what else that far edge moves with, ``_far_edge_terms``)}.
         A station's line starts at the temple's centre at d (the chart point (d, the middle y of the body's vertices
         within 1 mm of d, their largest X), placed as the model is: the spec's opening, the photo's theta) and runs
         along the image's vertical; its px per mm is the image height of 1 mm of the chart's y there. What a
@@ -2071,12 +2096,13 @@ class Seeing:
         - the camera's elevation e over the temple there (atan2 of the toward-camera vector's components along the
           chart's up and the temple's outward x; + = from above): a view from above shows the top face, about
           thickness x tan(e) x px/mm px (05 / B1 / 01: e 14-15 deg, 11-15 px), so the top silhouette is the top
-          face's far (inner) edge on photo and model alike, not the outline's top: its offsets carry the top
-          faces' width difference x tan(e), their lean and the matte's cut at a lit edge (-0.7..-1.0 mm at d 40-90 on
-          the three photos, -0.8..-1.1 on the model's own render under the photo's matte rule), and a step in the
-          arm's top beyond that (session2's head: +2.3..+3.8 mm at d 110-120, v3p3-verify-8): reason "top face in
-          view", its silhouette offsets kept as top_silhouette; a view from below likewise for
-          the bottom. An edge is measured where its face shows < SIDE_FACE_PX, and on the far side of the view (the
+          face's far (inner) edge on photo and model alike, not the outline's top: its offsets carry the arm's top
+          height, the inner faces' position difference x tan(e), the top faces' lean and the matte's cut at a lit
+          edge (-0.7..-1.0 mm at d 40-90 on the three photos, -0.8..-1.1 on the model's own render under the photo's
+          matte rule), and a step in the arm's top beyond that (session2's head: +2.3..+3.8 mm at d 110-120,
+          v3p3-verify-8): reason "top face in view", its silhouette offsets kept as top_silhouette and what they move
+          with as top_far_edge (_far_edge_terms; the text states the height and the inner face's tan(e)); a view
+          from below likewise for the bottom. An edge is measured where its face shows < SIDE_FACE_PX, and on the far side of the view (the
           bottom of a view from above is the outer-bottom edge: 0.00 at every station on the model's own render)."""
         matte = bs.matte(rid) if matte is None else matte
         cam = g["cam"]
@@ -2135,6 +2161,7 @@ class Seeing:
                 if sil:
                     rec[f"{edge}_silhouette"] = [{**r, "px_per_mm": round(st[i]["px_per_mm"], 3)}
                                                  for i, r in zip(sil, offsets(sil))]
+                    rec[f"{edge}_far_edge"] = Seeing._far_edge_terms(edge, rec["elevation_deg"])
             out[SIDE_NAMES[s]] = rec
         return out
 

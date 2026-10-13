@@ -438,7 +438,8 @@ def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
 # reached 13,974 of a 14,000-character cap, with 96 phrases pinned by a test"); those pins are retired with v2.
 V3_TOOLS = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
             "facet_finish")                     # WP6_V3 §6 / I5: facet_restore and photo_compare's depths removed
-INSTRUCTIONS_MAX = 9_000                        # WP6_V3 §6: target <= 9,000 characters
+INSTRUCTIONS_MAX = 9_500                        # WP6_V3 §6 (amended 2026-10-13: the blind stand-in test needed the
+#                                                 clip-to-outline and top-strip sentences; a rule budget, not 14k)
 # Product words of the Prada job (the brief carries the job's facts; its face labels in the v2 runs: crown, logo,
 # nose, shoulder, lower, tail; its materials and markings) and the colours of its photos.
 PRODUCT_WORDS = ("prada", "acetate", "logo", "crown", "nose", "shoulder", "milano", "hallmark", "lettering", "cream",

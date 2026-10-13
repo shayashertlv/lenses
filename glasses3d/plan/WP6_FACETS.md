@@ -1,5 +1,8 @@
 # WP6 v2: Astra handles facets (design, 2026-10-10, revised after 4-lens critique)
 
+> Superseded where they differ by [WP6_V3.md](WP6_V3.md) (2026-10-12): fit, warp faces, readings, seeing and the
+> rewritten prompt. This file stays the record of v2 and of the builder core, seeing stack and lab plumbing v3 keeps.
+
 ## 0. Owner decision and goal
 
 Owner words, 2026-10-10:

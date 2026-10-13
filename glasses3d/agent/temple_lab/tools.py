@@ -22,17 +22,25 @@ E_TIMEOUT} with the footer (timeout_text) and is Lab.mark_unseen, so a compare i
 judgement. A result is ONE text part, compact JSON (numbers rounded) then the footer line "settled $x / cap $y ·
 context n tokens" (loop.RunStatus, the run context), followed by its images (ToolOutputImage, detail high).
 WorkerFailed stays fatal (the run ends failed_worker). Refusals (LabRefusal, TempleError, geometry.EditError) return
-their to_dict; ValueError / KeyError / TypeError return E_LAB_ARGS.
+their to_dict; ValueError / KeyError / TypeError return E_LAB_ARGS. Arguments the SDK refuses against a tool's
+parameters model ("Invalid JSON input for tool X", details dropped unless tool data is logged) return {status:
+refused, code: E_ARGS, errors} with each problem by path (args_failure, schema_errors: one line for an edit whose op
+names no edit, not one per union member; the 2026-10-13 blind stand-in's probe edit got no field or path).
 
 The edits are a strict anyOf union (EDIT_MODELS; its JSON schema, edits_schema(), is pinned by sha in
 tests/agent/test_temple_lab_v3.py): set_node t {mode: reading | mm | base | solve, mm} with d_mm / y_mm null for the
-reading's own position, and outline (top | bottom | none | null: the outline knot at a corner on an edge, kept through
-re-reads and chain edits by geometry.apply_edits; v3p3 e2e P1-1: nothing kept or said it, and the first Prada layout
-without a hand splice was refused E_SHORT_EDGE); solve stated as what the fit does (the flat faces' planes carried to
-the node and a weak prior; its stored reading unused: v3p3 owner P2-3, a flat crown carried K 12 mm from H, -6.8 sd off
-its reading, while the text said "set by the faces and readings around it"); set_facet {plane: {mode: flat | warp},
-soft}; no fade and no crease + rise plane (WP6_V3 §6:
-both were harmful tools, FINDINGS §0.7); geometry.apply_edits converts them to the design spec. Judgements name up to
+reading's own position, and outline (top | bottom | none | null: OUTLINE_TEXT says what each does: top / bottom keep
+the node on that edge by moving the edge's knot to it, so the edge bends there when the node lies off its line, and the
+result gives that bend (facet_edit's receipt outline_bends, a variant's notes; told of the revision after the last
+edit, v3-standin-fix-review); none a free node, which may lie beyond the outline; null as before the edit;
+kept through re-reads and chain edits by geometry.apply_edits; v3p3 e2e P1-1: nothing kept or said it, and the first
+Prada layout without a hand splice was refused E_SHORT_EDGE; the 2026-10-13 blind stand-in read "a corner on that
+edge" as unclear and its E and F knots cut a notch and a kink into the outline); solve stated as what the fit does
+(the flat faces' planes carried to the node and a weak prior; its stored reading unused: v3p3 owner P2-3, a flat crown
+carried K 12 mm from H, -6.8 sd off its reading, while the text said "set by the faces and readings around it");
+set_facet {plane: {mode: flat | warp}, soft} (a facet is clipped to the outline, so a corner may lie beyond it); no
+fade and no crease + rise plane (WP6_V3 §6: both were harmful tools, FINDINGS §0.7); geometry.apply_edits converts them
+to the design spec. Judgements name up to
 state.DIFFERENCES_MAX differences per photo, each at its (d, y) (WP6_V3 §6); one given when none is due is not stored
 (state.check_judgement).
 
@@ -60,14 +68,15 @@ import asyncio
 import json
 import math
 import time
-from functools import partial
 from typing import Annotated, Literal, Union
 
 from agents import function_tool
+from agents.exceptions import ModelBehaviorError
+from agents.function_schema import function_schema
 from agents.strict_schema import ensure_strict_json_schema
 from agents.tool import ToolOutputImage, ToolOutputText
 from agents.tool_context import ToolContext
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glasses3d.agent.journal import WorkerFailed
 from glasses3d.agent.loop import RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
@@ -91,11 +100,16 @@ CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (va
               f"{SNAP_MM:g} mm, moves with it in y, a node set from a reading at most {G.READ_POSITION_MM:g} mm from "
               "where it was read); inner: the inner face (value x_in); base.top / base.bottom: the plain arm's t at "
               "the top / bottom edge (linear in y between)")
-OUTLINE_TEXT = (f"a node within {SNAP_MM:g} mm of an outline edge lies on it (the build puts it there). top / "
-                "bottom: a corner on that edge: the edge's knot is put at (d, y) (the knot where the node was moves, "
-                "else one is added; the edge between two corners keeps its own shape, which splice_chain sets); none: "
-                "the edges stay as they are; null: as before this edit (a node on an edge keeps the edge's knot under "
-                "it; a new node leaves the edges)")
+OUTLINE_TEXT = (f"how the node relates to the outline (a node within {SNAP_MM:g} mm of an outline edge lies on it: "
+                "the build puts it there). top / bottom: the node is kept on that edge: the edge's knot is moved to "
+                "the node's (d, y) (the knot it held there moves, else a knot is added; d inside the outline's d "
+                "range), so the edge passes through the node, and where the node lies off the edge's line the edge "
+                "bends there (the result gives the bend in mm and deg: facet_edit's receipt in outline_bends, a "
+                "variant in its notes); chain edits of that edge "
+                "then carry the node. none: a free node: the outline keeps its shape (a knot the node held stays "
+                "where it was) and the node may lie inside, on or beyond the outline (a corner beyond it: facets are "
+                "clipped to the outline). null: as before this edit (a node on an edge stays on it, its knot moving "
+                "with it; a new node is free)")
 NAME_TEXT = f"{G.NAME_RULE}; not 'base'"
 PAIR_TEXT = "two facet labels, or a facet and 'base' (the plain arm)"
 DEFAULT_PHOTOS = (f"null for the target photos whose temple shows at least {TEMPLE_ROI_MIN_PX:,} native px (the "
@@ -147,7 +161,10 @@ class Plane(Input):
 class SetFacet(Input):
     op: Literal["set_facet"]
     label: str = Field(description=NAME_TEXT)
-    poly: list[str] = Field(min_length=3, max_length=32, description="node names around the facet")
+    poly: list[str] = Field(min_length=3, max_length=32,
+                            description="node names around the facet; the facet is clipped to the outline, so a "
+                                        "corner may lie beyond it (two corners on one edge give a straight side, "
+                                        "and plain arm fills the space up to a curved edge)")
     plane: Plane
     soft: bool = Field(description=f"true: its borders with the plain arm are soft (a {SOFT_BAND_MM:g} mm band, "
                                    f"smooth where it folds under {SOFT_SHARP_DEG:g} deg); a crease with another facet "
@@ -362,8 +379,8 @@ PHOTO_COMPARE_DOC = f"""Compare the applied head with photos at their fitted cam
     image of the photo, the render, and the photo with the model's outline (magenta) and its own creases (ridge
     orange, valley blue, flat grey, a soft border dashed grey). Side views print the outline offsets every
     {GRID_STATION_MM:g} mm (photo minus model, mm; a station not measured gives its reason); a view from above shows
-    the top face, so for the top it prints that face's far edge, photo minus model, minus its median over the stations
-    (from below, the bottom face's). zoom: per box one 2 x 2 image, every panel at k = min({C.ZOOM_MAX_K:g},
+    the top face, so for the top it prints the arm's top height on that face's far edge, less its median over the
+    stations (from below, the bottom's). zoom: per box one 2 x 2 image, every panel at k = min({C.ZOOM_MAX_K:g},
     {C.ZOOM_PANEL_PX[0]} / box width, {C.ZOOM_PANEL_PX[1]} / box height) (native or larger for a box up to
     {C.ZOOM_PANEL_PX[0]} x {C.ZOOM_PANEL_PX[1]} native px, smaller beyond; the text gives k): photo | render / photo
     with the model's outline and its creases labelled with their angles | the geometry view or the render with the
@@ -380,22 +397,24 @@ PHOTO_COMPARE_DOC = f"""Compare the applied head with photos at their fitted cam
     """
 
 FACET_EDIT_DOC = f"""Make a new revision from parent_revision. The edits apply in order, all or none: a refused edit
-    returns its index and code. The host fits the design to the readings (every face jointly, weighted by their
-    errors) and builds the fitted temple; a refused fit or build returns its code and facts. The receipt: the fit
-    lines (misfits in mm and sd, faces, warps), every built crease (shape, angle, the fit's sd, declared or not;
-    beside a warp face also its angle's range along the edge in brackets, "(least-largest)"), warnings, the diff
-    against the parent (notes: outline knots that moved with a corner), unused_readings when they
-    changed, and against the head diff_vs_head, crease_vs_head (ridge <-> valley) and edges_vs_head (a crease that
-    appears or goes flat). An object note is
-    required on the first facet_edit and whenever the design's layout (facets or node names) differs from the layout
-    the latest note was written for, whatever the parent (a variant or an older revision too), else E_OBJECT; a note
-    in a refused call is kept only when the result says "object": "recorded". With apply true the revision is built
-    into the scene and compared with the given or the target photos (a new compare_id).
+    returns its index and code. The host fits the design to the readings (all faces jointly, by their errors) and
+    builds the fitted temple; a refused fit or build returns its code and facts. The receipt: the fit lines (misfits
+    in mm and sd, faces, warps), every built crease (shape, angle, the fit's sd, declared or not; beside a warp face
+    its range along the edge, "(least-largest)"; a facet|base one any plain arm between a straight side and a curved
+    outline), warnings, the diff against the parent, unused_readings when they changed, and against the head
+    diff_vs_head, crease_vs_head (ridge <-> valley) and edges_vs_head (a crease that appears or goes flat). An object
+    note is required on the first facet_edit and whenever the design's layout (facets or node names) differs from the
+    layout the latest note was written for, whatever the parent (a variant or an older revision too), else E_OBJECT;
+    a note in a refused call is kept only when the result says "object": "recorded". With apply true the revision is
+    built into the scene and compared with the given or the target photos (a new compare_id).
 
     Args:
         parent_revision: The revision to edit (any earlier one, e.g. a variant).
         reset_layout: True clears nodes, facets and creases before the edits.
-        edits: Ordered edits (at most {G.EDITS_MAX}).
+        edits: Ordered edits (at most {G.EDITS_MAX}). The result states what they did beyond the diff: the
+            receipt's deleted_creases (the crease declarations a delete_facet removed, and which this list declared
+            again) and outline_bends (each bend a set_node outline knot makes in its edge: mm off the edge's line,
+            deg of turn), and notes (outline knots moved with a corner, read corners set beyond the outline).
         judgement: {JUDGEMENT_TEXT}
         note: What this edit tries to change and why (at most {NOTE_MAX} characters).
         object: The object note (at most {ST.OBJECT_MAX} characters): each face, vertex and edge, the photos that
@@ -456,6 +475,93 @@ def footer_of(ctx) -> str:
     return context.footer() if hasattr(context, "footer") else footer_text()
 
 
+EDIT_OPS = {m.model_fields["op"].annotation.__args__[0]: m.__name__ for m in EDIT_MODELS}   # op -> its model's name
+ARGS_ERRORS_MAX = 8             # a schema refusal lists this many problems, then "+N more"
+ARGS_ERROR_CHARS = 200          # ... each in at most this many characters
+
+
+def _loc_text(loc) -> str:
+    """A pydantic error location as a path: ("edits", 0, "t", "mode") -> "edits[0].t.mode"."""
+    out = ""
+    for part in loc:
+        out += f"[{part}]" if isinstance(part, int) else (f".{part}" if out else str(part))
+    return out
+
+
+def schema_errors(model, raw) -> list[str] | None:
+    """What is wrong with a tool call's raw arguments against its parameters model, one line per problem: "edits[0]:
+    op 'help' is not one of set_node, ..." for an edit whose op names no edit (one line, not one per union member;
+    "no op is given" without one, "an edit is an object with an op" for a non-object; v3-standin-fix-review: these
+    read "op None is not one of"), else the member's own errors ("edits[2].t.mm: Input should be a valid number");
+    None when they validate (the
+    error was something else). Why (2026-10-13 blind stand-in, call 11): an edits list the parameters refused came back
+    as the SDK's "Invalid JSON input for tool facet_edit" with no field or path, since the SDK drops the validation
+    text unless tool data is logged."""
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError as exc:
+        return [f"the arguments are not JSON: {exc}"[:ARGS_ERROR_CHARS]]
+    if not isinstance(data, dict):
+        return ["the arguments must be one JSON object"]
+    try:
+        model.model_validate(data)
+        return None
+    except ValidationError as exc:
+        errors = exc.errors(include_url=False)
+    lines, said = [], set()
+    for err in errors:
+        loc = list(err.get("loc") or ())
+        k = next((j for j, part in enumerate(loc) if part in EDIT_OPS.values()), None)
+        if k is not None:                       # an edits union member: keep the errors of the edit's own op only
+            item = data
+            for part in loc[:k]:
+                if isinstance(item, list) and isinstance(part, int) and 0 <= part < len(item):
+                    item = item[part]
+                elif isinstance(item, dict) and part in item:
+                    item = item[part]
+                else:
+                    item = None
+                    break
+            raw_op = item.get("op") if isinstance(item, dict) else None
+            op = raw_op if isinstance(raw_op, str) else None
+            if op not in EDIT_OPS:
+                where = _loc_text(loc[:k])
+                if where not in said:
+                    said.add(where)
+                    what = (f"op {repr(raw_op)[:40]} is not one of" if isinstance(item, dict) and "op" in item else
+                            "no op is given; op is one of" if isinstance(item, dict) else
+                            "an edit is an object with an op, one of")
+                    lines.append(f"{where}: {what} {', '.join(EDIT_OPS)}")
+                continue
+            if loc[k] != EDIT_OPS[op]:
+                continue
+            loc = loc[:k] + loc[k + 1:]
+        text = f"{_loc_text(loc) or 'arguments'}: {err.get('msg')}"
+        if text not in said:
+            said.add(text)
+            lines.append(text[:ARGS_ERROR_CHARS])
+    more = len(lines) - ARGS_ERRORS_MAX
+    return lines[:ARGS_ERRORS_MAX] + ([f"+{more} more"] if more > 0 else [])
+
+
+def args_failure(name: str, model):
+    """The function_tool ``failure_error_function``: the SDK's refusal of arguments its parameters model rejects
+    (ModelBehaviorError "Invalid JSON input for tool ...") answered as a facet result (status refused, E_ARGS, the
+    problems by path: schema_errors) with the footer; everything else as loop.fatal_tool_errors (WorkerFailed
+    re-raised, the SDK's default text otherwise)."""
+    other = fatal_tool_errors(WorkerFailed)
+
+    def failure(ctx, error) -> str:
+        if isinstance(error, ModelBehaviorError) and str(error).startswith("Invalid JSON input for tool"):
+            problems = schema_errors(model, getattr(ctx, "tool_arguments", None))
+            if problems:
+                return result_text({"status": "refused", "code": "E_ARGS", "tool": name,
+                                    "message": f"the arguments do not match {name}'s parameters; nothing was done",
+                                    "errors": problems}, footer_of(ctx))
+        return other(ctx, error)
+    return failure
+
+
 def timeout_text(name: str):
     """The function_tool ``timeout_error_function``: the SDK's timeout as a facet result (status timeout, E_TIMEOUT)
     with the money / context footer every result ends with."""
@@ -478,9 +584,12 @@ def registry(lab, settings=None) -> list:
     ImageId, ReadPoint, Zoom = M["ImageId"], M["ReadPoint"], M["Zoom"]
 
     def tool(name: str):
-        return partial(function_tool, name_override=name, timeout=sdk_timeout_s(name),
-                       failure_error_function=fatal_tool_errors(WorkerFailed),
-                       timeout_error_function=timeout_text(name))
+        def wrap(fn):
+            model = function_schema(fn, name_override=name).params_pydantic_model     # the SDK's own, for args_failure
+            return function_tool(fn, name_override=name, timeout=sdk_timeout_s(name),
+                                 failure_error_function=args_failure(name, model),
+                                 timeout_error_function=timeout_text(name))
+        return wrap
 
     async def call(ctx: ToolContext, name: str, fn):
         call_id = getattr(ctx, "tool_call_id", None) or f"{name}-{time.time_ns()}"

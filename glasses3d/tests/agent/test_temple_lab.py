@@ -504,7 +504,16 @@ def test_delete_node_with_its_facets_in_one_call_and_crease_cascade():
     edits = [{"op": "delete_node", "name": "C"}] + [{"op": "delete_facet", "label": f} for f in gone]
     spec, notes = G.apply_edits(base, edits)
     assert "C" not in spec["nodes"] and not set(gone) & set(spec["facets"])
-    assert notes and all("deleted with facet" in n for n in notes)
+    left, items, lost = list(canonical(base)["creases"]), [], []     # v3-standin-fix: each delete takes what is left
+    for i, f in enumerate(gone):
+        took = [x for x in left if f in x["facets"]]
+        left = [x for x in left if f not in x["facets"]]
+        if took:
+            items.append(", ".join(f"{'|'.join(x['facets'])} {x['shape']}" for x in took) + f" (with facet {f}, "
+                         f"edits[{i + 1}])")
+            lost += ["|".join(x["facets"]) for x in took]
+    assert len(lost) >= 2 and notes == ["deleted crease declarations: " + "; ".join(items) + "; not declared now: "
+                                        + ", ".join(lost)]
     assert all(not set(c["facets"]) & set(gone) for c in spec["creases"])
 
 
@@ -1381,6 +1390,88 @@ def test_a_corner_off_the_outline_is_refused_with_its_facts_and_built_on_it_with
         "the node"]                                                    # A sits on the cap knot: no "no knot"
 
 
+def test_the_receipt_states_deleted_crease_declarations_and_outline_bends(lab):
+    """The 2026-10-13 blind stand-in (v3-standin-fix): delete_facet U dropped its declared creases with only a note
+    ("crease L|U deleted with facet U"), and E's outline knot 0.97 mm off the bottom edge's line cut a notch under a
+    note that said only where the knot was. facet_edit's receipt states both on lines of their own, first
+    (deleted_creases: what went, what this list declared again, what the design no longer declares; outline_bends:
+    mm off the line, the knots beside it, the turn), taken out of notes, which keep the knot note; a variant arm keeps
+    them in its notes (it has no receipt)."""
+    spec = canonical(FX.prada_default())
+    bot = spec["outline"]["bottom"]
+    d, y_line = spec["nodes"]["E"][0], G._interp(bot, spec["nodes"]["E"][0])        # E rides the bottom edge
+    assert G.outline_edge(spec, d, spec["nodes"]["E"][1]) == "bottom"
+    edits = [{"op": "delete_facet", "label": "F4"},
+             {"op": "set_facet", "label": "F4", "poly": spec["facets"]["F4"]["poly"], "plane": {"mode": "flat"},
+              "soft": False},
+             {"op": "set_crease", "facets": ["F2", "F4"], "shape": "ridge"},
+             {"op": "set_node", "name": "E", "d_mm": d, "y_mm": y_line - 0.6, "t": {"mode": "base", "mm": None},
+              "outline": "bottom"}]
+    body = lab.edit("e1", 0, False, edits, None, "x", OBJECT, False, None)
+    assert body["status"] == "built", body
+    rc = body["receipt"]
+    assert list(rc)[:2] == ["deleted_creases", "outline_bends"]
+    assert rc["deleted_creases"] == ("deleted crease declarations: F2|F4 ridge, F4|base valley (with facet F4, "
+                                     "edits[0]); declared again in this edit list: F2|F4 ridge; not declared now: "
+                                     "F4|base")
+    after = G.canonical_design(lab.design(body["revision"]))["outline"]["bottom"]
+    k = next(j for j, p in enumerate(after) if abs(p[0] - d) < 1e-9)
+    lo, hi = after[k - 1][0], after[k + 1][0]
+    turn = abs(np.degrees(np.arctan2(after[k + 1][1] - after[k][1], hi - d))
+               - np.degrees(np.arctan2(after[k][1] - after[k - 1][1], d - lo)))
+    assert rc["outline_bends"] == [f"outline.bottom bends at node E: its knot at d {d:.2f} y {y_line - 0.6:.2f} lies "
+                                   f"0.60 mm below the line the edge ran on (y {y_line:.2f} there); between its knots at "
+                                   f"d {lo:.2f} and {hi:.2f} the edge now turns {turn:.0f}° at the knot (it ran "
+                                   "straight there)"]
+    assert body["notes"] == [f"outline.bottom has its knot at node E, d {d:.2f} y {y_line - 0.6:.2f} (outline bottom)"]
+    out = lab.variants("v1", 0, [{"label": "a", "edits": edits}, {"label": "b", "edits": []}], ["05"], None)
+    arm = next(v for v in out["variants"] if v["label"] == "a")
+    assert arm["notes"] == body["notes"][:1] + rc["outline_bends"] + [rc["deleted_creases"]]
+
+
+def _strip_spec(virtual: bool) -> dict:
+    """A facet RL on the slab with C and E on the bottom outline (d 20, 60) and B inside, or its bottom side through
+    two corners beyond the outline (``virtual``)."""
+    bot = canonical(FX.slab())["outline"]["bottom"]
+    nodes = {"B": (40.0, 5.0, 6.0), "C": (20.0, G._interp(bot, 20.0), 6.0), "E": (60.0, G._interp(bot, 60.0), 6.0)}
+    poly = ["B", "E", "C"]
+    edits = [{"op": "set_node", "name": n, "d_mm": d, "y_mm": y, "t": {"mode": "mm", "mm": t}, "outline": None}
+             for n, (d, y, t) in nodes.items()]
+    if virtual:
+        edits += [{"op": "set_node", "name": n, "d_mm": d, "y_mm": -20.0, "t": {"mode": "solve", "mm": None},
+                   "outline": None} for n, d in (("V1", 30.0), ("V2", 50.0))]
+        poly = ["B", "E", "V2", "V1", "C"]
+    edits.append({"op": "set_facet", "label": "RL", "poly": poly, "plane": {"mode": "flat"}, "soft": False})
+    return G.apply_edits(FX.slab(), edits)[0]
+
+
+def test_crease_lines_name_the_plain_arm_a_face_leaves_along_the_outline(tmp_path):
+    """The stand-in's rev 1: "RL|base valley 8.7° (sunk 1.62 mm: a 39.1° ramp at d 21.9-56.4)" was a strip of plain
+    arm up to 4.9 mm wide under RL's chord C-E, found only in the render. The facet|base crease line (facet_inspect,
+    facet_edit) and a variant arm's creases name it with geometry.strip_text, the fit's part kept whole beside it; a
+    face whose bottom side runs through corners beyond the outline (no refusal) meets the outline and names none."""
+    lab = make_lab(tmp_path, spec=_strip_spec(False))
+    tb = lab.build(0)
+    strips = G.outline_strips(tb)
+    want = G.strip_text("RL", strips["RL"])
+    assert want.startswith("RL leaves plain arm up to 1.0") and "between its straight side E-C and the curved bottom" \
+        " outline at d 2" in want
+    line = next(c for c in lab.inspect()["receipt"]["creases"] if c.startswith("RL|base"))
+    assert f"; {want}" in line and line.endswith(("certain", "open", "flat within 2 sd")), line
+    assert len(line) <= LB.CREASE_LINE_MAX + len(want) + 2
+    body = lab.edit("e1", 0, False, [], None, "x", OBJECT, False, None)    # facet_edit's receipt: the same line
+    assert next(c for c in body["receipt"]["creases"] if c.startswith("RL|base")) == line
+    virtual = _strip_spec(True)
+    body = lab.edit("e2", 0, True, G.spec_to_edits(virtual), None, "x", OBJECT, False, None)
+    assert body["status"] == "built", body
+    assert not any("leaves plain arm" in c for c in body["receipt"]["creases"])
+    out = lab.variants("v1", 0, [{"label": "chord", "edits": [set_t("B", lab.design(0), 0.4)]},
+                                 {"label": "beyond", "edits": G.spec_to_edits(virtual)}], ["05"], None)
+    by = {v["label"]: v for v in out["variants"]}
+    assert "RL|base" in by["chord"]["creases"] and "(RL leaves plain arm up to" in by["chord"]["creases"]
+    assert "leaves plain arm" not in by["beyond"]["creases"]
+
+
 def test_variant_arms_state_their_creases_move_ramps_and_edges_against_the_head(lab):
     """v3p3 astra P2-2 (verify-3: vs_head_mm 0.60 for an arm whose tip edge met the outline 7.9 mm back, its valleys
     8.37 mm from the head's), owner P3-1 (a 3.2 mm proud shoulder read "shoulder|base ridge 9.7°") and astra P3-4
@@ -1514,8 +1605,10 @@ def test_a_judgement_given_is_stated_when_not_stored_or_when_the_call_is_refused
     again = {**first, "overall": "better"}
     body = parsed(call(tl["facet_edit"], edit_args(0, [set_t("C", spec, 0.5)], judge=again, obj=OBJECT, apply=False),
                        "call_retry"))[0]
-    assert body["status"] == "built" and body["judgement"] == f"compare {c1} was judged already (call call_x); this " \
-                                                                "judgement was not stored"
+    assert body["status"] == "built" and body["judgement"] == (
+        f"no judgement was due: the latest compare, {c1}, was judged already by the judgement a facet_edit call "
+        f"carried (overall: mixed; best_checkpoint: {first['best_checkpoint']}); this judgement of {c1} was not "
+        "stored (one judgement per compare; the next compare makes one due)")
     assert [j["overall"] for j in lab.state["judgements"]] == ["mixed"]
     c2 = parsed(call(tl["photo_compare"], compare_args(["05"])))[0]["compare_id"]
     body = parsed(call(tl["facet_edit"], edit_args(0, [{"op": "delete_node", "name": "Z"}], judge=judgement(lab),
@@ -1905,7 +1998,8 @@ def test_photo_image_native_crop_enhance_scale_and_refusals(lab):
         with pytest.raises(S.LabRefusal, match=re.escape(words)):
             lab.photo(**{"photo": "05", "crop": None, "enhance": False, "scale": 1, **args})
     out = call(t, {"photo": "07", "crop": None, "enhance": False, "scale": 1})      # not in the enum: the SDK refuses
-    assert isinstance(out, str) and "Invalid JSON input for tool photo_image" in out
+    assert isinstance(out, str) and json.loads(out.rsplit("\n", 1)[0])["errors"] == [   # by path (v3-standin-fix)
+        "photo: Input should be '01', '02', '03', '04', '05', '06', 'B1', 'B2' or 'B3'"]
 
 
 # --------------------------------------------------------------------------------------------- facet_inspect
@@ -2416,7 +2510,9 @@ def test_variant_photo_limits_labels_and_a_lab_without_black_photos(lab):
         lab.variants("x", 0, two, ["01", "02", "03", "05"], None)
     out = call(tl["facet_variants"], {"parent_revision": 0, "variants": two, "judgement": None,
                                       "photos": ["01", "02", "03", "B1", "05"]})
-    assert isinstance(out, str) and "Invalid JSON input for tool facet_variants" in out
+    b = json.loads(out.rsplit("\n", 1)[0])                                        # by path (v3-standin-fix)
+    assert isinstance(out, str) and b["code"] == "E_ARGS" and b["errors"] == ["photos: List should have at most 4 "
+                                                                              "items after validation, not 5"]
     for labels in (["Head", "B"], ["a", "A"]):
         with pytest.raises(S.LabRefusal, match="ignoring case"):
             lab.variants("x", 0, [{"label": lb, "edits": []} for lb in labels], ["05"], None)

@@ -1,13 +1,14 @@
 # Agent instructions for glasses3d (Codex, Claude or any coding agent)
 
-This folder is the photo-to-3D glasses pipeline. Current work is WP6 v2: Astra handles faceted temples
-(`plan/WP6_FACETS.md`). Latest owner instructions take precedence over repository documents. Dated history is
+This folder is the photo-to-3D glasses pipeline. Current work is WP6 v3: Astra handles faceted temples
+(`plan/WP6_V3.md`, building on `plan/WP6_FACETS.md`). Latest owner instructions take precedence over repository documents. Dated history is
 evidence, not a command to restart completed work.
 
 ## Start here, in this order
 1. `glasses3d/plan/PLAN.md` §0 (the owner's rules), then the rest of PLAN.md for context.
 2. `glasses3d/plan/PROGRESS.md`: status per WP, decisions in the owner's words, pending removals, ledger.
-3. `glasses3d/plan/WP6_FACETS.md` fully, for any WP6 work. `WP5_HANDOFF.md` records the closed WP5; read its
+3. `glasses3d/plan/WP6_V3.md` fully, then the `plan/WP6_FACETS.md` sections it cites, for any WP6 work; the
+   investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.
 
 `plan/archive/` (20261008, 20261010) holds superseded progress logs, handoffs, designs and session prompts. They are

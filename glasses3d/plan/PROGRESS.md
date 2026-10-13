@@ -11,7 +11,7 @@ are in [archive/20261008](archive/20261008/README.md). Archived files are eviden
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
 | WP4 | Complete and tested. The real-product proof is **stale** since the WP5 exporter change `10bf932`: 11 of 24 `test_seat_real` tests skip as stale. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
-| WP6 | **Stopped by the owner 2026-10-12 after paid run 7** (Decisions below): no further paid runs or work on this approach. v1 retired 2026-10-10 (tag `wp6-v1-final`) |
+| WP6 | **v3 rebuilt 2026-10-12/13 on the owner's request** ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below): investigation, fit/warp/readings/seeing tools, new prompt, T5 47/47, full suite green but for load-only timeouts. Next: the blind stand-in tool test and the owner sheet, then the owner's OK for one paid run. (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
 | WP2 | A–C verified; D–F not built |
 | WP7 | Design only ([WP7_DESIGN.md](WP7_DESIGN.md)) |
 | WP8 | Not started (paid; owner OK per run) |
@@ -326,7 +326,58 @@ up to $13.84).
 
 No further paid call is authorized. Each one needs a cost estimate and the owner's explicit OK.
 
+## WP6 v3 (2026-10-12/13)
+
+**Investigation (owner, 2026-10-12: "please work on wp6 ... review all code related to wp6 very very thoroughly ...
+review all the evidence of the runs ... what tools are actually good, how to write the prompt ... what astra did good
+but our tools werent good for it. come back with findings").** Two review rounds, 117 agents, $0. Findings:
+`data/wp6v2/review_20261012/FINDINGS.md` (reports beside it). In short: the real top triangle is not one plane (K
++1.5..+2.0 mm off the plane of its other corners, a 4.1-4.4 deg kink in the angled photos), the exact-planar builder
+had to put that misfit in one place, and each run's newest rule chose the place (fold, proud tip + fades, K pushed
+in); every v2 run put the crown's tip 8-20 mm too far back; photo 03's front-block outline cannot be matched with the
+other photos under the camera model (up to +2.2 mm) and was printed as shape; no render light reproduces the photos'
+facet tones; Astra measured crisp corners well (0.2-0.5 mm) and executed the newest rule literally.
+
+**Corrections to this file (evidence in FINDINGS.md §5 and `review_20261012/w2/root-cause.md` §4, with
+`w2/critic-skeptic.md`'s fixes):** the stop entry's "underlying limit was camera disagreement of 1-2 mm per corner"
+is wrong for the crown (its readings agree within 0.3-0.45 mm; the run's 1-2 mm pair differences were mostly picks on
+different features); "face 4's lower edge runs straight through the logo's back corner" holds only in the side views;
+"front block slim from above at d30-40" (runs 3-7) is mostly the 03 camera-model conflict; the "true A 4.77 at d 0" is
+the logo's front corner, not the crown's vertex, and the "measured tip t 5.25 at d 81" is 4-5 mm too far back; the
+run-7 tool test log also showed Logo|Lower flat 1.7 deg; Astra did see B's solved value in run 5's charts; "fading
+diagonals" (v1 entry, Decisions) were Astra's own reading of the cream photos, and the diagonals end where two edges
+cross.
+
+**Rebuild (owner, 2026-10-12: "please fix wp6. do very very hard work!!! come back to me when you think we are good
+to go with a paid run. please do your work with the conclusions from before. +max utilize this machine for faster
+runs").** Design [WP6_V3.md](WP6_V3.md). Built in three phases of parallel tracks with adversarial review after each
+(phase 1: 17 agents; phase 2: 21; phase 3: 29; plus a consistency pass):
+- builder: `{"coef"}` and `"warp"` (mean value coordinates) facets, soft facet|base borders, one planarity tolerance,
+  facet|base shape against the base, `model_edges`; every existing spec builds bit-identically;
+- `g3d/temple/fit.py`: joint weighted least squares over read / typed / solved corners, one camera-theta turn per
+  camera fit, declared shapes as constraints accepted within chi2 +4, refusals and warnings as facts;
+- `agent/temple_lab/readings.py`: corner and crossing readings (traced edges intersected), pick and camera error,
+  slide-along-edge facts, pick sheets;
+- seeing: native-scale zooms with a light-independent geometry view, the model's creases drawn by identity with
+  their angles, side-view outline offsets;
+- lab/tools: `photo_read`, object note, fit receipts, finish rules; removed fades, crease+rise planes, solve notes,
+  one-photo depths, the 03/06 offset tables, the outline line and facet_restore; VARIANTS_MAX 4;
+- prompt `agent/temple_lab/instructions.txt` rewritten (8,972 characters, was 13,974): the object, the evidence
+  ranking, an order of reasoning, few rules;
+- run safety: the context guard stubs only outputs present when it fires, a request payload limit, a machine-load
+  preflight before a paid run.
+Engineering choices (coordinator): ACCEPT_DCHI2 4, TYPED_SD 0.5 mm, PRIOR_SD 5 mm, MIN_CREASE 2.5 deg, THETA_SD 0.3 deg,
+CAMERA_PX_SD 1 px, warp = mean value coordinates (a d-ruled surface gives the same turn between H and K), prompt cap
+9,000 characters.
+Proofs ($0): T5 v3 47/47 (`data/wp6v2/lab/t5_v3b`); full suite from the repo root 2642 passed, 7 Blender/timing
+failures that pass alone, and the stale WP5 test_a4 (untouched, WP5 closed); estimate `data/wp6v2/lab/estimate_v3.json`
+at effort max: 40 replies $15.02 (up to $21.67), 60 replies $32.22 (up to $46.11). Commits 8378bc4, 4c24124.
+
 ## Decisions (owner's words verbatim)
+
+- **2026-10-12, after the investigation:** "please fix wp6. do very very hard work!!! come back to me when you think
+  we are good to go with a paid run. please do your work with the conclusions from before. +max utilize this machine
+  for faster runs". WP6 resumed as v3 (above).
 
 - **2026-10-12, after run 7: STOP.** Owner, verbatim: "its not fucking good. i dont now what to tell you anymore, i dont
   think this is fucking possible anymore and youve given me zero reasons to believe that you can make it work. every

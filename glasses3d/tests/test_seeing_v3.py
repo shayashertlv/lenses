@@ -425,9 +425,10 @@ def _bar(x0, x1, y0=-3.0, y1=3.0, z0=-10.0, z1=-130.0, step=2.0):
     return V, np.array(F)
 
 
-def _side_scene():
-    """Two box temples (x 60..66 the +X one, its mirror) as a FitMesh with temple roles."""
-    Vr, Fr = _bar(60.0, 66.0)
+def _side_scene(inner: float = 60.0):
+    """Two box temples (x 60..66 the +X one, its inner face at ``inner``; its mirror) as a FitMesh with temple
+    roles."""
+    Vr, Fr = _bar(inner, 66.0)
     Vl, Fl = _bar(-66.0, -60.0)
     V = np.vstack([Vr, Vl])
     F = np.vstack([Fr, Fl + len(Vr)])
@@ -452,6 +453,13 @@ def _side_view(mesh, yaw, pitch, shape=(260, 900), ppm=6.0):
     part = np.full(shape, -1, np.int64)
     part[r["mask"]] = mesh.part[r["face_id"][r["mask"]]]
     return {"cam": cam, "mask": r["mask"], "part": part, "mesh": mesh, "pose": None}
+
+
+def far_head(edge: str, sign: str, elev: float) -> str:
+    """seeing's far-edge head for a view ``elev`` deg above (below) the temple, tan(elevation) computed here."""
+    return (f"{edge}: the arm's {edge} height, photo minus model, mm ({sign}), read on the {edge} face's far edge (this "
+            f"view shows the {edge} face; that edge is its inner one, so a value also gains "
+            f"{math.tan(math.radians(abs(elev))):.2f} per mm the photo's inner face lies further inward)")
 
 
 def test_side_outline_measures_only_what_a_silhouette_shows():
@@ -479,9 +487,33 @@ def test_side_outline_measures_only_what_a_silhouette_shows():
     text = Seeing._outline_text("charted", ch)
     assert "this view looks 14 deg down onto the temple" in text and f"1 px = {1 / ppm_y:.2f} mm" in text
     assert "not measured" not in text and "top (" not in text                    # no outline list for the top
-    assert ("top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
-            "alike show its far edge, not the outline's top), minus its median +0.0 over 11 stations" in text)
-    assert "(+0.25 per mm wider in the photo)" in text                           # tan(14 deg)
+    # v3-standin-fix: what a reader can edit, the arm's top height and (v3-standin-fix-review) its inner face x
+    # tan(14 deg), less the stations' median; the lean and the matte's cut are in the record only
+    assert far_head("top", "+ = the photo's edge higher", 14.0) == (
+        "top: the arm's top height, photo minus model, mm (+ = the photo's edge higher), read on the top face's far "
+        "edge (this view shows the top face; that edge is its inner one, so a value also gains 0.25 per mm the "
+        "photo's inner face lies further inward)")
+    assert (far_head("top", "+ = the photo's edge higher", 14.0) + ", less its median +0.0 over 11 stations, so a "
+            "value is a step at that d against the rest of the arm; at d: 10 +0.0") in text
+    assert "per mm wider" not in text and "lean" not in text and "matte" not in text
+    terms = ch["top_far_edge"]
+    assert terms["inner_face_mm_per_mm"] == round(math.tan(math.radians(ch["elevation_deg"])), 3) and \
+        terms["inner_face_mm_per_mm"] == pytest.approx(0.249, abs=0.002)                       # tan(14 deg)
+    assert terms["measures"] == "the arm's top height at its inner edge, 1 mm per mm" and \
+        terms["also"] == ["the top face's lean across the arm", "the matte's cut at a lit edge"]
+    # the far edge is the top face's inner edge: a photo whose inner face lies 2 mm further inward (x 58, the outer
+    # face held at 66) reads +2 tan(14 deg) = +0.50 mm at every station, as the text says; the outer-bottom edge 0
+    wide = _side_view(_side_scene(inner=58.0)[0], 90.0, 14.0)
+    inward = Seeing._side_outline(_SideBasis(wide["mask"]), "x", g, mesh, roles, bodies, HZ, None)["charted"]
+    want = 2.0 * math.tan(math.radians(14.0))
+    assert all(r["offset_mm"] == pytest.approx(want, abs=1 / ppm_y) for r in inward["top_silhouette"]), \
+        inward["top_silhouette"]
+    assert all(r["offset_mm"] == pytest.approx(0.0, abs=0.01) for r in inward["bottom"])
+    gu = _side_view(mesh, 90.0, -14.0)                                           # from below: the same sign (lower)
+    wide_u = _side_view(_side_scene(inner=58.0)[0], 90.0, -14.0)
+    below = Seeing._side_outline(_SideBasis(wide_u["mask"]), "x", gu, mesh, roles, bodies, HZ, None)["charted"]
+    assert all(r["offset_mm"] == pytest.approx(want, abs=1 / ppm_y) for r in below["bottom_silhouette"]), \
+        below["bottom_silhouette"]
     assert "; at d: 10 +0.0, 20 +0.0, 30 +0.0" in text and "110 +0.0; bottom" in text
     assert "bottom (+ = the photo's edge lower) at d: 10 +0.5, 20 +0.5" in text and "n/a" not in text
     # the photo's top raised by ~2 mm (whole px) on the near temple: over the whole arm the median takes it off (it
@@ -504,13 +536,13 @@ def test_side_outline_measures_only_what_a_silhouette_shows():
     whole = Seeing._side_outline(_SideBasis(raised(False)), "x", g, mesh, roles, bodies, HZ, None)["charted"]
     assert all(r["offset_mm"] == pytest.approx(v2 / ppm_y, abs=0.01) for r in whole["top_silhouette"])
     tw = Seeing._outline_text("charted", whole)
-    assert f"minus its median {v2 / ppm_y:+.1f} over 11 stations" in tw and "110 +0.0; bottom" in tw
+    assert f"less its median {v2 / ppm_y:+.1f} over 11 stations" in tw and "110 +0.0; bottom" in tw
     rear = Seeing._side_outline(_SideBasis(raised(True)), "x", g, mesh, roles, bodies, HZ, None)["charted"]
     got = {r["d_mm"]: r["offset_mm"] for r in rear["top_silhouette"]}
     assert all(got[d] == pytest.approx(v2 / ppm_y if d >= 80 else 0.0, abs=0.01) for d in got), got
     tr = Seeing._outline_text("charted", rear)
     s2 = f"+{v2 / ppm_y:.1f}"
-    assert "minus its median +0.0 over 11 stations" in tr
+    assert "less its median +0.0 over 11 stations" in tr
     assert f"70 +0.0, 80 {s2}, 90 {s2}, 100 {s2}, 110 {s2}; bottom" in tr     # 4 of 11 stepped: the level holds
     assert rear["bottom"] == ch["bottom"]
     assert Seeing._outline_text("mirrored", mi).startswith("outline: the mirrored temple is seen from inside here")
@@ -579,10 +611,9 @@ def test_far_edge_text_prints_session2s_low_rear_arm():
         text = Seeing._outline_text("charted", o)
         med, tail = want[pid]
         assert "not measured" not in text, pid
-        assert (f"top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
-                f"alike show its far edge, not the outline's top), minus its median {med} over 11 stations: beyond "
-                "what the stations share, a value is a difference in the arm's top height, in the top face's width "
-                "(+0.26 per mm wider in the photo) or lean, or in the matte's cut there; at d: 10 covered, 20 ") in text
+        assert (far_head("top", "+ = the photo's edge higher", elev) + f", less its median {med} over 11 stations, "
+                "so a value is a step at that d against the rest of the arm; at d: 10 covered, 20 ") in text
+        assert "per mm wider" not in text and "width" not in text                # v3-standin-fix: not the width
         assert tail + "; bottom (+ = the photo's edge lower) at d: 10 +0.0" in text, (pid, text)
         level = float(np.median([v for v in vals if v is not None]))
         assert all(abs(v - level) <= 0.3 for v in vals[3:9])                     # d 40-90: on the level
@@ -591,7 +622,8 @@ def test_far_edge_text_prints_session2s_low_rear_arm():
     # under FAR_EDGE_LEVEL_MIN stations: as measured, said so
     few = _sil_record(14.7, [None, -0.4, None, None, 1.8, 2.7] + [None] * 7)
     t = Seeing._outline_text("charted", few)
-    assert FAR_EDGE_LEVEL_MIN == 5 and "as measured (3 stations, under 5 for a median): a value is a difference" in t
+    assert FAR_EDGE_LEVEL_MIN == 5 and ("as measured (3 stations, under 5 for a median), so a value is the "
+                                        "difference at that d with what every station shares left in") in t
     assert "20 -0.4, 30 covered, 40 covered, 50 +1.8, 60 +2.7, 70 covered" in t
     # a station whose top is measured (its face shows < 1 px there): the outline's list, then the far edge's
     mixed = _sil_record(14.7, SESSION2_TOP_SIL["05"][1])
@@ -599,7 +631,7 @@ def test_far_edge_text_prints_session2s_low_rear_arm():
     mixed["top_silhouette"] = mixed["top_silhouette"][1:]
     t = Seeing._outline_text("charted", mixed)
     assert "top (+ = the photo's edge higher) at d: 10 +0.1, 20 top face in view, 30 top face in view" in t
-    assert "minus its median -0.7 over 11 stations" in t and "; at d: 20 +0.3, 30 covered, 40 +0.0" in t
+    assert "less its median -0.7 over 11 stations" in t and "; at d: 20 +0.3, 30 covered, 40 +0.0" in t
     assert "top face in view = the view shows the top face; the silhouette is its far edge" in t
     # an older record (no silhouette kept): "not measured", without the false "set by its width and lean"
     old = _sil_record(14.7, SESSION2_TOP_SIL["05"][1])
@@ -615,9 +647,10 @@ def test_far_edge_text_prints_session2s_low_rear_arm():
         r["reason"] = "bottom face in view"
     t = Seeing._outline_text("charted", up)
     assert "looks 14 deg up at the temple" in t and "top (+ = the photo's edge higher) at d: 10 +0.0" in t
-    assert ("bottom face's far edge (+ = the photo's edge lower; the view shows the bottom face, so photo and model "
-            "alike show its far edge, not the outline's bottom), minus its median -0.7 over 11 stations") in t
-    assert "(+0.25 per mm wider in the photo)" in t
+    assert (far_head("bottom", "+ = the photo's edge lower", -14.0) + ", less its median -0.7 over 11 stations, so "
+            "a value is a step at that d against the rest of the arm") in t
+    assert "0.25 per mm the photo's inner face lies further inward" in t     # from below: the same sign (lower)
+    assert "per mm wider" not in t
 
 
 # ------------------------------------------------------------------------------------------------ geometry, zoom
@@ -1210,8 +1243,7 @@ def test_compare_with_model_edges_and_zoom_on_the_run7_package(v3job):
         assert not mi["facing"] and all(o["reason"] == "seen from inside" for o in mi["top"] + mi["bottom"])
         text = r["photos"][rid]["text"]
         assert "outline of the charted temple" in text and "top: not measured" not in text and "n/a" not in text
-        assert ("top face's far edge (+ = the photo's edge higher; the view shows the top face, so photo and model "
-                "alike show its far edge, not the outline's top), minus its median ") in text
+        assert far_head("top", "+ = the photo's edge higher", ch["elevation_deg"]) + ", less its median " in text
         # run 7's head (revision 7 = the original's rear arm, run7-residual §2): the far edge steps 2-4 mm behind
         # d 100 (B1 +2.5 / +3.6, 05 +2.4 / +3.2 at d 110 / 120) and the text prints it; d 40-90 on the level
         far = {o["d_mm"]: o["offset_mm"] for o in ch["top_silhouette"] if o["offset_mm"] is not None}
@@ -1420,7 +1452,7 @@ def test_the_frame_hides_edges_on_the_real_head(v3job):
 def test_v3_arguments_are_refused_and_journaled(v3job):
     see, spec = v3job["seeing"], v3job["spec"]
     tools = v3job["root"] / "calls"
-    n0 = len(list(tools.iterdir()))
+    n0 = len(list(tools.iterdir())) if tools.exists() else 0   # first on its xdist worker: no call journaled yet
     edge = v3job["edges"][:1]
     hz = spec["hinge"]["z_mm"]
     for kw in (dict(model_edges=edge), dict(zoom=[{"rid": "reference-05", "box": [0, 0, 4, 4]}]),

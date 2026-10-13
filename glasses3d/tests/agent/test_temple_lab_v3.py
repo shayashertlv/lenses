@@ -41,8 +41,11 @@ from glasses3d.tests.agent.test_temple_readings import SynthBasis, corner_picks,
 # (re-pinned 2026-10-12, v3p2-lab-e1-fix: descriptions only, the name rule, typed t's sd, set_crease shape, chains,
 # set_scalar; the structure is unchanged; re-pinned 2026-10-12, v3p3-fix-lab: set_node gained outline (top | bottom
 # | none | null, e2e P1-1), the solve and chain texts state what the code does (owner P2-3, e2e P1-1), and the schema
-# is the SDK's strict form, as Astra sees it)
-EDITS_SCHEMA_SHA256 = "4a1c5478b98cc714b5b1cee635f65a604dccfabdf2fc114e6c1c100d39264a9e"
+# is the SDK's strict form, as Astra sees it; re-pinned 2026-10-13, v3-standin-fix: descriptions only, set_node outline
+# says what each value does (the blind stand-in read "a corner on that edge" as unclear) and set_facet poly that a
+# facet is clipped to the outline, so a corner may lie beyond it; re-pinned 2026-10-13, v3-standin-fix-review:
+# descriptions only, set_node outline says where the bend is stated: facet_edit's receipt, a variant's notes)
+EDITS_SCHEMA_SHA256 = "7066d267aaf610947d24f418e6414625dbef9a3d48aaf762e7c8342dc1261eed"
 READ_AT = {"Q": (40.0, 0.0, 6.4), "R": (40.0, 8.0, 7.4)}      # synthetic reading points (d, y, t) on the slab
 REMEDY_WORDS = ("apply", "restore", "then ", "photo_compare", "first", "should", "try", "instead")
 HERE = Path(__file__).resolve()
@@ -601,7 +604,21 @@ def test_tool_texts_state_what_the_code_does(timeouts):
     assert "a stored reading of its name is not used (W_FIT_OFF_READING says how far it lies)" in mode
     assert "the faces and readings around it" not in mode
     assert edits["$.$defs.SetNode.properties.outline"] == " ".join(T.OUTLINE_TEXT.split())
-    assert "null: as before this edit (a node on an edge keeps the edge's knot under it" in T.OUTLINE_TEXT
+    # v3-standin-fix: each value as what it does (the blind stand-in's "a corner on that edge" left the notch at E)
+    outline = T.OUTLINE_TEXT
+    assert "top / bottom: the node is kept on that edge: the edge's knot is moved to the node's (d, y)" in outline
+    assert "where the node lies off the edge's line the edge bends there (the result gives the bend in mm and deg: " \
+           "facet_edit's receipt in outline_bends, a variant in its notes)" in outline       # v3-standin-fix-review
+    assert "none: a free node: the outline keeps its shape (a knot the node held stays where it was) and the node " \
+           "may lie inside, on or beyond the outline" in outline
+    assert "null: as before this edit (a node on an edge stays on it, its knot moving with it; a new node is free)" \
+        in outline and "a corner on that edge" not in outline
+    assert "the facet is clipped to the outline, so a corner may lie beyond it" in \
+        edits["$.$defs.SetFacet.properties.poly"]
+    assert "receipt's deleted_creases" in edits["$.properties.edits"] and "outline_bends" in edits["$.properties.edits"]
+    assert "a facet|base one any plain arm between a straight side and a curved outline" in flat["facet_edit"]
+    assert "so for the top it prints the arm's top height on that face's far edge, less its median over the stations" \
+        in flat["photo_compare"]                                          # what seeing's text now says (v3-standin-fix)
     assert "an arm that builds the head's own design is no variant" in flat["facet_variants"]
     assert "how far its ridges and valleys lie from the head's (mm)" in flat["facet_variants"]
     assert "crease_vs_head (ridge <-> valley) and edges_vs_head (a crease that appears or goes flat)" in \
@@ -875,8 +892,17 @@ def test_a_judgement_when_none_is_due_is_not_stored():
         assert again is None
         S.record_judgement(st, again, call_id="e3", tool=tool)
     assert [j["compare_id"] for j in st["judgements"]] == ["cmp002"]
-    assert S.judgement_not_due(st, judgement_args()) == ("compare cmp002 was judged already (call e2); this "
-                                                         "judgement was not stored")
+    # v3-standin-fix: the earlier judgement by its tool and its own words, never the SDK's call id ("call s25")
+    assert S.judgement_not_due(st, judgement_args()) == (
+        "no judgement was due: the latest compare, cmp002, was judged already by the judgement a facet_edit call "
+        "carried (overall: mixed; best_checkpoint: c0001); this judgement of cmp002 was not stored (one judgement per "
+        "compare; the next compare makes one due)")
+    st2 = copy.deepcopy(st)
+    st2["judgements"][0].update(tool="facet_variants", overall="same")
+    text = S.judgement_not_due(st2, {**judgement_args(), "compare_id": "cmp001"})
+    assert text.startswith("no judgement was due: the latest compare, cmp002, was judged already by the judgement a "
+                           "facet_variants call carried (overall: same;")
+    assert "this judgement of cmp001 was not stored" in text and "call e2" not in text
     assert S.judgement_not_due(st, None) is None
     other = {**judgement_args(), "compare_id": "cmp001", "overall": "better"}    # any judgement when none is due
     assert S.check_judgement(st, other, fingerprint_of=FP) is None
@@ -938,6 +964,15 @@ def knots_near(spec, d, chain="top", mm=0.3) -> list:
     return [p for p in G.canonical_design(spec)["outline"][chain] if abs(p[0] - d) <= mm]
 
 
+def turn_at(spec, d, chain="top") -> float:
+    """How far an outline chain turns at its knot at d (deg): the slope angles of the segments beside it, apart."""
+    P = G.canonical_design(spec)["outline"][chain]
+    k = next(j for j, p in enumerate(P) if abs(p[0] - d) < 1e-9)
+    into = math.degrees(math.atan2(P[k][1] - P[k - 1][1], P[k][0] - P[k - 1][0]))
+    out = math.degrees(math.atan2(P[k + 1][1] - P[k][1], P[k + 1][0] - P[k][0]))
+    return abs(out - into)
+
+
 def test_set_node_outline_puts_the_edges_knot_at_a_corner_and_keeps_it(edge_recs):
     """v3p3 e2e P1-1 (verify-0): a corner read on the outline stayed on the built outline only while a knot sat at it,
     and set_node changed the node without the knot. set_node outline top / bottom puts that chain's knot at the node
@@ -953,15 +988,21 @@ def test_set_node_outline_puts_the_edges_knot_at_a_corner_and_keeps_it(edge_recs
     assert G.outline_edge(plain, t["d"], t["y"]) is None                   # 0.2 mm off: not on the edge
     on, notes = G.apply_edits(slab, [first | {"outline": "top"}], readings=recs)
     assert [t["d"], t["y"]] in on["outline"]["top"] and on["outline"]["bottom"] == slab["outline"]["bottom"]
-    assert notes == [f"outline.top has its knot at node T, d {t['d']:.2f} y {t['y']:.2f} (outline top)"]
+    was = G._interp(slab["outline"]["top"], t["d"])                        # T lies 0.2 mm under the edge's line
+    assert notes == [f"outline.top has its knot at node T, d {t['d']:.2f} y {t['y']:.2f} (outline top)",
+                     f"outline.top bends at node T: its knot at d {t['d']:.2f} y {t['y']:.2f} lies "
+                     f"{was - t['y']:.2f} mm below the line the edge ran on (y {was:.2f} there); between its knots at "
+                     f"d 60.00 and 70.00 the edge now turns {turn_at(on, t['d']):.0f}° at the knot (it ran straight "
+                     "there)"]
     assert G.outline_edge(on, t["d"], t["y"]) == "top"
     assert "outline.top d 60.0-70.0 (up to 0.20 mm)" in G.diff_text(G.diff_specs(slab, on))
     # a re-read 0.12 mm lower, set by mode reading with outline null: the knot moves with the corner
     t2 = edge_recs["T2"]
     reread, notes = G.apply_edits(on, [first], readings={"T": t2})
     assert knots_near(reread, TOP_D) == [[t2["d"], t2["y"]]]
-    assert notes == [f"outline.top has its knot at node T, d {t2['d']:.2f} y {t2['y']:.2f} (as before this edit: "
-                     "it lay on that edge)"]
+    assert notes[0] == (f"outline.top has its knot at node T, d {t2['d']:.2f} y {t2['y']:.2f} (as before this edit: "
+                        "it lay on that edge)")
+    assert len(notes) == 2 and notes[1].startswith("outline.top bends at node T: its knot at d 66.05 y")
     kept, notes = G.apply_edits(on, [first | {"outline": "none"}], readings={"T": t2})    # none: the knot stays
     assert knots_near(kept, TOP_D) == [[t["d"], t["y"]]] and notes == []
     moved, notes = G.apply_edits(on, [node("T", 66.0, -1.0, "mm", 6.0) | {"outline": "bottom"}])
@@ -1015,6 +1056,231 @@ def test_chain_edits_carry_a_corner_on_the_edge_within_its_reading(edge_recs):
     other, notes = G.apply_edits(on, [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 60.0,
                                        "d_to_mm": 70.0, "delta_mm": 0.6, "taper_mm": 0.0}])
     assert other["nodes"] == on["nodes"] and notes == []                    # T is on the top edge, not the bottom
+
+
+# --------------------------------------------------------------------------------------------- the blind stand-in
+# (data/wp6v2/review_20261012/v3/standin/STANDIN_REPORT.md, 2026-10-13, v3-standin-fix): what the tools said or did not
+# say. Every expected number below is computed here from the slab's own chains, not read back from the code.
+def test_an_outline_knot_off_the_edge_line_states_the_bend_it_makes():
+    """Stand-in rev 1: E set with outline bottom 0.97 mm below the bottom edge's line and 0.15 mm behind revision 0's
+    knot at d 76.00 cut a notch (a 111° turn) into the outline under a note that said only "outline.bottom has its
+    knot at node E". A knot off the edge's line now states its bend (mm off the line, the knots beside it, the turn
+    there and what it was), handed to the lab's receipt as facts["outline_bends"]; a knot within snap_mm of the line
+    bends nothing; an end knot names its neighbour; none leaves the outline."""
+    slab = canonical(FX.slab())
+    bot = slab["outline"]["bottom"]                                       # knots at d 70 (-2.12) and 80 (-0.24)
+    line = G._interp(bot, 70.15)
+    facts = {}
+    out, notes = G.apply_edits(slab, [node("E", 70.15, line - 0.97, "mm", 5.0) | {"outline": "bottom"}], facts=facts)
+    y = line - 0.97
+    turn = turn_at(out, 70.15, "bottom")
+    assert turn > 90.0                                                     # a notch, as the stand-in's E
+    bend = (f"outline.bottom bends at node E: its knot at d 70.15 y {y:.2f} lies 0.97 mm below the line the edge ran "
+            f"on (y {line:.2f} there); between its knots at d 70.00 and 80.00 the edge now turns {turn:.0f}° at the "
+            "knot (it ran straight there)")
+    assert notes == [f"outline.bottom has its knot at node E, d 70.15 y {y:.2f} (outline bottom)", bend]
+    assert facts == {"outline_bends": [bend], "deleted_creases": []}
+    # on the line within snap_mm: a knot, no bend
+    on_line = G._interp(bot, 75.0) + 0.03
+    _o, notes = G.apply_edits(slab, [node("F", 75.0, on_line, "mm", 5.0) | {"outline": "bottom"}], facts=facts)
+    assert notes == [f"outline.bottom has its knot at node F, d 75.00 y {on_line:.2f} (outline bottom)"]
+    assert facts["outline_bends"] == []
+    # the cap knot keeps its d and takes y: its bend names the neighbour, no turn (a cap)
+    cap = slab["outline"]["bottom"][0]
+    _o, notes = G.apply_edits(slab, [node("H", 0.0, cap[1] + 0.5, "mm", 5.0) | {"outline": "bottom"}])
+    assert notes[1] == (f"outline.bottom bends at node H: its knot at d 0.00 y {cap[1] + 0.5:.2f} lies 0.50 mm above "
+                        f"the line the edge ran on (y {cap[1]:.2f} there); it is the edge's end knot, its neighbour "
+                        "at d 2.00")
+    # an existing knot moved: the turn it had there is said
+    moved, notes = G.apply_edits(out, [node("E", 70.15, y + 0.3, "mm", 5.0)], facts=facts)   # null: stays on it
+    assert notes[1].endswith(f"the edge now turns {turn_at(moved, 70.15, 'bottom'):.0f}° at the knot (it turned "
+                             f"{turn:.0f}° there)") and facts["outline_bends"] == [notes[1]]
+    # none: a free node, the outline as it was, no note for a typed corner
+    free, notes = G.apply_edits(slab, [node("E", 70.15, line - 0.97, "mm", 5.0) | {"outline": "none"}])
+    assert free["outline"] == slab["outline"] and notes == []
+
+
+def test_bend_and_beyond_notes_tell_the_revision_after_the_last_edit(slab_tb):
+    """v3-standin-fix-review: the bend and beyond notes were told at their set_node, so a later edit of the same list
+    left them false of the revision. The stand-in's rev 7 (call 22) set E free 0.07 mm below the bottom edge (edits[6])
+    and then spliced the edge through E (edits[7]): the note called E "a corner beyond the outline" in a revision where
+    it lies on the bottom edge. Each is now told of the design after the last edit, in its set_node's place: none when
+    a later edit put the corner on the outline or moved the bend's knot away, the final chain's neighbours when a later
+    knot went in beside it."""
+    bs = SynthBasis()
+    slab = canonical(FX.slab())
+    bot = slab["outline"]["bottom"]                                       # knots at d 70 (-2.12) and 80 (-0.24)
+    yb = G._interp(bot, 75.0)
+    rec = RD.read_point(slab_tb, bs, "E", corner_picks(bs, point(slab_tb, 75.0, yb - 0.8, 5.0), ["05", "02"]),
+                        kind="corner")
+    free, notes = G.apply_edits(slab, [node("E", None, None, "reading")], readings={"E": rec})
+    d, y = free["nodes"]["E"][:2]
+    assert len(notes) == 1 and notes[0].startswith(f"node E at d {d:.2f} y {y:.2f} lies ")       # beyond, alone
+    splice = {"op": "splice_chain", "chain": "outline.bottom", "d_from_mm": d - 1.0, "d_to_mm": d + 1.0,
+              "points": [[d, y]]}                                          # the edge through E, as the stand-in's
+    facts = {}
+    spliced, notes = G.apply_edits(slab, [node("E", None, None, "reading"), splice], readings={"E": rec},
+                                   facts=facts)
+    assert G.outline_edge(spliced, d, y) == "bottom" and G.beyond_text(spliced, "E", d, y) is None
+    assert notes == [] and facts == {"outline_bends": [], "deleted_creases": []}
+    # a bend whose knot a later splice replaced (E rides the edge to the new chain): no bend
+    line = G._interp(bot, 70.15)
+    notch = node("E", 70.15, line - 0.97, "mm", 5.0) | {"outline": "bottom"}
+    flat = {"op": "splice_chain", "chain": "outline.bottom", "d_from_mm": 69.0, "d_to_mm": 81.0,
+            "points": [[75.0, G._interp(bot, 75.0)]]}
+    out, notes = G.apply_edits(slab, [notch, flat], facts=facts)
+    assert out["nodes"]["E"][1] != pytest.approx(line - 0.97) and facts["outline_bends"] == []
+    assert not any("bends at node" in n for n in notes) and notes[0].startswith("outline.bottom has its knot at node E")
+    # a knot a later set_node put beside E's (on the notched edge's line: no bend of its own): the bend names the final
+    # neighbours and the final turn
+    notched = G.apply_edits(slab, [notch])[0]["outline"]["bottom"]
+    beside = node("G", 72.0, G._interp(notched, 72.0), "mm", 5.0) | {"outline": "bottom"}
+    out, notes = G.apply_edits(slab, [notch, beside], facts=facts)
+    assert facts["outline_bends"] == [f"outline.bottom bends at node E: its knot at d 70.15 y {line - 0.97:.2f} lies "
+                                      f"0.97 mm below the line the edge ran on (y {line:.2f} there); between its knots "
+                                      f"at d 70.00 and 72.00 the edge now turns {turn_at(out, 70.15, 'bottom'):.0f}° "
+                                      "at the knot (it ran straight there)"]
+    assert notes[1] == facts["outline_bends"][0]                          # in its set_node's place
+
+
+def test_a_read_corner_beyond_the_outline_is_a_free_corner_and_says_so(slab_tb):
+    """Stand-in: A read at d -0.27 and E 0.97 mm below the model's bottom edge ("outside the model's outline"), with
+    nothing saying what such a corner does; outline top refused A with no word on the free alternative. A read corner
+    set free (outline none / null) beyond the outline is kept where it was read, with a note; top / bottom outside
+    the outline's d range is refused naming the free node; a typed virtual corner (the Prada fixture's A_hi) needs no
+    note."""
+    bs = SynthBasis()
+    slab = canonical(FX.slab())
+    yb = G._interp(slab["outline"]["bottom"], 75.0)
+    rec = RD.read_point(slab_tb, bs, "E", corner_picks(bs, point(slab_tb, 75.0, yb - 0.8, 5.0), ["05", "02"]),
+                        kind="corner")
+    design, notes = G.apply_edits(slab, [node("E", None, None, "reading")], readings={"E": rec})
+    d, y = design["nodes"]["E"][:2]
+    assert design["outline"] == slab["outline"] and y < yb - 0.5
+    assert notes == [f"node E at d {d:.2f} y {y:.2f} lies {G._interp(slab['outline']['bottom'], d) - y:.2f} mm below "
+                     "the bottom outline: a corner beyond the outline (its facets are clipped to the outline)"]
+    assert G.beyond_text(slab, "A", -0.27, 10.4) == ("node A at d -0.27 y 10.40 lies 0.27 mm in front of the outline's "
+                                                     "d range 0.00-136.50: a corner beyond the outline (its facets are "
+                                                     "clipped to the outline)")
+    assert G.beyond_text(slab, "A", 0.0, 10.4) is None                    # inside or on: no note
+    err = refused(slab, [node("A", -0.27, 10.4, "mm", 5.0) | {"outline": "top"}])
+    assert "lies outside the outline's d range 0.00-136.50, so it cannot lie on the top edge; a free node (outline " \
+           "none) may lie beyond the outline, which clips its facets" in err.message
+    _d, notes = G.apply_edits(slab, [node("A", -0.27, 10.4, "mm", 5.0) | {"outline": "none"}])
+    assert notes == []                                                    # typed: the layout's own virtual corner
+
+
+def test_deleting_a_facet_states_its_deleted_crease_declarations():
+    """Stand-in call 26: delete_facet U dropped L|U and RU|U, said only as "crease L|U deleted with facet U" among the
+    notes. One note names every declaration deleted (with the facet and the edit index), which the same list
+    declared again and which the design no longer declares; facts["deleted_creases"] hands it to the receipt."""
+    base = FX.prada_default()                                              # F1|F2, F2|F4 ridges, F4|base valley
+    redo = canonical(base)["facets"]["F4"]
+    facts = {}
+    edits = [{"op": "delete_facet", "label": "F4"},
+             {"op": "set_facet", "label": "F4", "poly": redo["poly"], "plane": {"mode": "flat"}, "soft": False},
+             {"op": "set_crease", "facets": ["F4", "F2"], "shape": "ridge"}]
+    spec, notes = G.apply_edits(base, edits, facts=facts)
+    text = ("deleted crease declarations: F2|F4 ridge, F4|base valley (with facet F4, edits[0]); declared again in "
+            "this edit list: F2|F4 ridge; not declared now: F4|base")
+    assert notes == [text] and facts["deleted_creases"] == [text]
+    assert {tuple(c["facets"]) for c in spec["creases"]} == {("F1", "F2"), ("F1", "base"), ("F2", "F3"),
+                                                              ("F2", "F4")}
+    _s, notes = G.apply_edits(base, edits + [{"op": "set_crease", "facets": ["F4", "base"], "shape": "ridge"}])
+    assert notes == ["deleted crease declarations: F2|F4 ridge, F4|base valley (with facet F4, edits[0]); declared "
+                     "again in this edit list: F2|F4 ridge, F4|base ridge"]          # declared again as a ridge
+    facts = {}
+    _s, notes = G.apply_edits(base, [{"op": "set_scalar", "key": "roll_mm", "value": 0.0}], facts=facts)
+    assert notes == [] and facts == {"outline_bends": [], "deleted_creases": []}
+
+
+def _strip_design(virtual: bool) -> dict:
+    """A facet RL on the slab with C and E on the bottom outline (d 20 and 60) and B inside; ``virtual``: RL's bottom
+    side runs through two corners beyond the outline instead (the prompt's rule for a face that reaches it)."""
+    bot = canonical(FX.slab())["outline"]["bottom"]
+    nodes = [node("B", 40.0, 5.0, "mm", 6.0) | {"outline": None},
+             node("C", 20.0, G._interp(bot, 20.0), "mm", 6.0) | {"outline": "bottom"},
+             node("E", 60.0, G._interp(bot, 60.0), "mm", 6.0) | {"outline": "bottom"}]
+    poly = ["B", "E", "C"]
+    if virtual:
+        nodes += [node("V1", 30.0, -20.0, "solve"), node("V2", 50.0, -20.0, "solve")]
+        poly = ["B", "E", "V2", "V1", "C"]
+    return G.apply_edits(FX.slab(), nodes + [facet("RL", poly)])[0]
+
+
+def test_a_face_that_stops_at_a_chord_names_the_plain_arm_it_leaves_and_virtual_corners_close_it():
+    """Stand-in rev 1: RL's corners C and E sat on the bottom outline, which ran up to 4.9 mm below the chord C-E; the
+    receipt said "RL|base valley 8.7° (sunk 1.62 mm: a 39.1° ramp at d 21.9-56.4)" and nothing named the strip of
+    plain arm the B1 render showed. geometry.outline_strips names it (side, edge, d range, width: the largest gap
+    between the chord and the outline, here at a knot of the outline, computed from the chains); corners beyond the
+    outline build with no refusal and leave none; a side with a corner inside the arm is never a strip."""
+    bot = canonical(FX.slab())["outline"]["bottom"]
+    chord = lambda d: G._interp(bot, 20.0) + (G._interp(bot, 60.0) - G._interp(bot, 20.0)) * (d - 20.0) / 40.0
+    gaps = {d: chord(d) - y for d, y in bot if 20.0 < d < 60.0}            # piecewise linear: largest at a knot
+    widest = max(gaps, key=gaps.get)
+    assert gaps[widest] > 0.9
+    tb = build_temple(FIT.fit_spec(_strip_design(False)).spec)
+    strips = G.outline_strips(tb)
+    assert list(strips) == ["RL"] and len(strips["RL"]) == 1
+    s = strips["RL"][0]
+    assert s["edge"] == "bottom" and s["side"] == ["E", "C"] and s["width_mm"] == pytest.approx(gaps[widest], abs=1e-3)
+    assert 20.0 < s["d"][0] < widest < s["d"][1] < 60.0
+    assert G.strip_text("RL", strips["RL"]) == (f"RL leaves plain arm up to {gaps[widest]:.2f} mm wide between its "
+                                                f"straight side E-C and the curved bottom outline at d "
+                                                f"{s['d'][0]:.1f}-{s['d'][1]:.1f}")
+    assert G.labels_at(tb, [[widest, (chord(widest) + G._interp(bot, widest)) / 2], [40.0, 0.0], [40.0, 50.0]]) == \
+        ["base", "RL", None]
+    # the corners beyond the outline: built (no refusal), RL meets the curved outline, no strip
+    vt = build_temple(FIT.fit_spec(_strip_design(True)).spec)
+    assert G.outline_strips(vt) == {}
+    assert G.labels_at(vt, [[widest, G._interp(bot, widest) + 0.2]]) == ["RL"]
+    assert G.strip_text("RL", []) == ""
+
+
+def test_arguments_the_parameters_refuse_name_each_problem_by_path(timeouts):
+    """Stand-in call 11: a probe edit came back as the SDK's "Invalid JSON input for tool facet_edit" with no field or
+    path (the SDK drops the validation text unless tool data is logged). The tools answer E_ARGS with each problem by
+    path, nothing done (the lab is not called): one line for an edit whose op names no edit (not one per union
+    member), a known op's own errors only, the same inside a variant's edits, a photo id outside the enum, and text
+    that is not JSON."""
+    lab = FakeLab()
+    tools = tools_of(lab)
+    ops = "set_node, delete_node, set_facet, delete_facet, set_crease, delete_crease, splice_chain, offset_chain, " \
+          "set_scalar"
+    args = {"parent_revision": 0, "reset_layout": False, "judgement": None, "note": "x", "object": None,
+            "apply": False, "photos": None,
+            "edits": [{"op": "help"},
+                      {"op": "set_node", "name": "K", "d_mm": 1.0, "y_mm": 2.0, "t": {"mode": "typed", "mm": 5.0},
+                       "outline": None},
+                      {"op": "delete_node"}]}
+    out = call(tools["facet_edit"], args)
+    assert isinstance(out, str) and lab.calls == []
+    head, footer = out.rsplit("\n", 1)
+    b = json.loads(head)
+    assert (b["status"], b["code"], b["tool"]) == ("refused", "E_ARGS", "facet_edit") and footer == L.footer_text()
+    assert b["message"] == "the arguments do not match facet_edit's parameters; nothing was done"
+    assert b["errors"] == [f"edits[0]: op 'help' is not one of {ops}",
+                           "edits[1].t.mode: Input should be 'reading', 'mm', 'base' or 'solve'",
+                           "edits[2].name: Field required"]
+    var = {"parent_revision": 0, "photos": ["05"], "judgement": None,
+           "variants": [{"label": "a", "edits": [{"op": "set_scalar", "key": "roll_mm", "value": 0.0},
+                                                 {"op": "nope"}]}, {"label": "b", "edits": []}]}
+    b = json.loads(call(tools["facet_variants"], var).rsplit("\n", 1)[0])
+    assert b["code"] == "E_ARGS" and b["errors"] == [f"variants[0].edits[1]: op 'nope' is not one of {ops}"]
+    b = json.loads(call(tools["photo_image"], {"photo": "07", "crop": None, "enhance": False, "scale": 1})
+                   .rsplit("\n", 1)[0])
+    assert b["errors"] == ["photo: Input should be '01', '02', '05', 'B1' or 'R1'"] and lab.calls == []
+    ctx = ToolContext(context=None, tool_name="facet_edit", tool_call_id="c", tool_arguments="{not json")
+    b = json.loads(asyncio.run(tools["facet_edit"].on_invoke_tool(ctx, "{not json")).rsplit("\n", 1)[0])
+    assert b["code"] == "E_ARGS" and b["errors"][0].startswith("the arguments are not JSON: Expecting property name")
+    assert T.schema_errors(T.EditList, json.dumps({"edits": []})) is None          # valid: not this refusal
+    many = {"edits": [{"op": f"x{i}"} for i in range(T.ARGS_ERRORS_MAX + 3)]}
+    lines = T.schema_errors(T.EditList, json.dumps(many))
+    assert len(lines) == T.ARGS_ERRORS_MAX + 1 and lines[-1] == "+3 more"
+    # v3-standin-fix-review: an edit with no op, one that is not an object, a non-text op ("op None is not one of")
+    lines = T.schema_errors(T.EditList, json.dumps({"edits": [{"name": "K"}, "set_node", {"op": 5}]}))
+    assert lines == [f"edits[0]: no op is given; op is one of {ops}",
+                     f"edits[1]: an edit is an object with an op, one of {ops}", f"edits[2]: op 5 is not one of {ops}"]
 
 
 # --------------------------------------------------------------------------------------------- I4: finish

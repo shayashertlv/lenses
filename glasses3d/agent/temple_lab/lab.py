@@ -86,12 +86,19 @@ the original and the head is compared. A fit or build that raises anything but a
 (E_FIT / E_BUILD, the exception's type and text, kept in state "host_errors"), never the SDK's generic error. Every
 action tool (facet_edit, facet_variants, facet_finish) records its judgement first (_judged) and states what became of
 it: "judgement" = state.judgement_not_due's fact when none was due (not stored), or "judgement of cmpX stored" on a
-refusal. Receipt, in this order: the fit report
+refusal. Receipt, in this order: what the edits did beyond the diff, on lines of their own (geometry.apply_edits
+facts, taken out of ``notes``): ``deleted_creases`` ("deleted crease declarations: L|U ridge, RU|U ridge (with facet U,
+edits[0]); declared again in this edit list: ..."; the 2026-10-13 blind stand-in: "crease L|U deleted with facet U"
+among the notes, which a model that skips the notes loses) and ``outline_bends`` (each bend a set_node outline knot
+makes in its edge, in mm off the edge's line and degrees of turn: the stand-in's E knot made a 0.97 mm, 111° notch
+that "outline.bottom has its knot at node E" did not show); then the fit report
 (FitResult.report_lines without its crease lines: the fit and misfit lines, faces, fit warnings such as
 W_FACE_NOT_FLAT, W_FIT_SOLVED, W_FIT_PRIOR and W_FIT_OFF_READING "typed E 6.50: its reading 5.27 +- 0.40 (+3.1 sd)"),
 then one line per built crease (``crease_lines``: the builder's shape, angle and range beside a warp, soft, step with
-its d, its declaration, a two-way share with its model edges' signed extremes, then the fit's angle with its sd and
-certain / open, a declaration's cost; at most CREASE_LINE_MAX, the fit's angle, sd and certain / open always kept),
+its d, its declaration, a two-way share with its model edges' signed extremes, a facet|base border's strips of plain
+arm between the facet's straight side and the curved outline (geometry.outline_strips), then the fit's angle with its
+sd and certain / open, a declaration's cost; at most CREASE_LINE_MAX besides the strips, the fit's angle, sd and
+certain / open always kept),
 then the builder's warnings (never one revision 0 already had: ``inherited_changed`` below; a W_BORDER_RAMP run a
 crease line prints, left out; W_ARM_NORMAL_SPREAD with its place, arm_spread_at), ``inherited_changed``, the thickness
 in mm, border ramps in the crease line's words (ramp_text), the spec's knot snaps as a sentence, then against the
@@ -100,8 +107,9 @@ nodes with no reading or typed value whose t moved SOLVED_MOVE_MM or more), ``cr
 the other shape; a solved corner of that edge with a stored reading off it says so: solved_corners_text),
 ``edges_vs_head`` (creases that appear or go flat: edge_changes) and ``diff_vs_head`` (when the parent is not the
 head); before them ``unused_readings`` when they changed against the parent's (unused_readings) and ``notes`` (the
-outline knots apply_edits moved with a corner, geometry module doc). There is no margins block (the fit's sd and
-certain / open replace it) and no remedy text anywhere: Astra took a refusal's listed remedy in 12 of 14 refusals.
+outline knots apply_edits moved with a corner and the read corners set beyond the outline, geometry module doc).
+There is no margins block (the fit's sd and certain / open replace it) and no remedy text anywhere: Astra took a
+refusal's listed remedy in 12 of 14 refusals.
 
 photo_compare (WP6_V3 §5, §6): ``photos`` (null = seeing's default set, the target photos whose temple shows at least
 TEMPLE_ROI_MIN_PX: the result's "left_out" names the others; [] with a zoom = zooms only), ``crop``, ``zoom`` [{photo,
@@ -480,9 +488,14 @@ def crease_lines(tb, fit=None, edges=None) -> list[str]:
     the corners of that edge the fit solved although a stored reading of their name lies off them (solved_corners_text:
     a declaration held at its minimum, or a "certain" angle, that rests on such a corner says so); at most
     CREASE_LINE_MAX characters (compose: the bound, the place, the share, the solved corners and a declaration's cost go
-    in that order, never the angles, the sd or certain / open)."""
+    in that order, never the angles, the sd or certain / open). A facet|base line names the strips of plain arm the
+    facet leaves between a straight side and the curved outline after its head and share (geometry.outline_strips,
+    strip_text; rank 0, on a budget of its own beside CREASE_LINE_MAX: the 2026-10-13 blind stand-in found that
+    "RL|base valley 8.7° (sunk 1.62 mm: a 39.1° ramp at d 21.9-56.4)" was a strip of plain arm up to 4.9 mm wide under
+    RL's chord C-E only by looking at the render)."""
     fits = {tuple(c["pair"]): c for c in (fit.creases if fit is not None else []) if c.get("deg") is not None}
     signed = signed_extremes(edges)
+    strips = G.outline_strips(tb)
     out = []
     for c in tb.tables["creases"]:
         if c["kind"] != "crease":
@@ -491,13 +504,16 @@ def crease_lines(tb, fit=None, edges=None) -> list[str]:
         mixed = mixed_text(c, signed.get("|".join(c["regions"])))
         if mixed:
             parts.append((mixed, 2))
+        strip = G.strip_text(c["regions"][0], strips.get(c["regions"][0], [])) if c["regions"][1] == "base" else ""
+        if strip:                         # its own budget: the fit's part is never cut for it
+            parts.append((f"; {strip}", 0))
         f = fits.get(tuple(c["regions"]))
         if f:
             parts += fit_crease_parts(f, c["regions"][1] == "base")
             solved = solved_corners_text(tb, fit, tuple(c["regions"]))
             if solved:                    # held at a declaration or "certain" on a corner the fit solved (P2-3)
                 parts.append((solved, 1))
-        out.append(compose(parts))
+        out.append(compose(parts, CREASE_LINE_MAX + (len(strip) + 2 if strip else 0)))
     return out
 
 
@@ -1611,9 +1627,11 @@ class Lab(SceneHooks):
         letter that no text explained). A facet|base border whose step stands RAMP_BRIEF_MM or more proud or sunk adds
         its ramp in the receipt's words (report.ramp_clause: "shoulder|base ridge 9.7° (proud 3.20 mm: a 28.1° ramp at
         d 73.8-75.4)"; v3p3 owner P3-1: a flat-crown arm read "shoulder|base ridge 9.7°" while its shoulder stood 3.2 mm
-        proud, run 7's hard join, seen in the render only). A declared shape always matches here: a mismatch is refused
-        (E_CREASE_SHAPE) before."""
+        proud, run 7's hard join, seen in the render only). A facet|base border beside a strip of plain arm the facet
+        leaves along the outline names it as the receipt's crease line does (geometry.strip_text in brackets). A
+        declared shape always matches here: a mismatch is refused (E_CREASE_SHAPE) before."""
         items = []
+        strips = G.outline_strips(tb)
         for c in tb.tables["creases"]:
             if c["kind"] != "crease":
                 continue
@@ -1621,6 +1639,10 @@ class Lab(SceneHooks):
             st = c.get("step")
             if st and abs(float(st["height_mm"])) >= RAMP_BRIEF_MM:
                 text += f" ({RP.ramp_clause(float(st['height_mm']), float(st['slope_deg']), st.get('d_mm'))})"
+            strip = G.strip_text(c["regions"][0], strips.get(c["regions"][0], [])) if c["regions"][1] == "base" \
+                else ""
+            if strip:
+                text += f" ({strip})"
             items.append(text)
         return ", ".join(items)
 
@@ -2036,8 +2058,10 @@ class Lab(SceneHooks):
             raise LabRefusal("E_ARGS", f"object must be text of 1..{S.OBJECT_MAX} characters, or null")
         photos = self._photos_arg(photos)
         base = self.design(parent["id"])
+        facts: dict = {}
         try:
-            design, notes = G.apply_edits(base, edits, reset_layout=bool(reset_layout), readings=self.readings())
+            design, notes = G.apply_edits(base, edits, reset_layout=bool(reset_layout), readings=self.readings(),
+                                          facts=facts)
         except G.EditError as e:
             return {**e.to_dict(), "parent": parent["id"]}
         except TempleError as e:
@@ -2065,9 +2089,13 @@ class Lab(SceneHooks):
             out["object"] = "recorded"
         if not new:
             out["note"] = f"this design is revision {rid} already"
+        moved = (facts.get("deleted_creases") or []) + (facts.get("outline_bends") or [])
+        stated = {**({"deleted_creases": "; ".join(facts["deleted_creases"])} if facts.get("deleted_creases") else {}),
+                  **({"outline_bends": facts["outline_bends"]} if facts.get("outline_bends") else {})}
+        notes = [n for n in notes if n not in moved]        # stated on the receipt's own lines (geometry facts)
         if notes:
             out["notes"] = notes
-        out["receipt"] = self._receipt(tb, fit, self.raw_edges(rid))
+        out["receipt"] = {**stated, **self._receipt(tb, fit, self.raw_edges(rid))}
         unused = unused_readings(design, fit, self.readings())
         if unused and unused != unused_readings(base, self.fit_result(parent["id"]), self.readings()):
             out["unused_readings"] = unused         # what changed against the parent (facet_inspect lists them all)

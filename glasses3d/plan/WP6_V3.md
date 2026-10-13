@@ -214,7 +214,8 @@ Tools (strict JSON, the run's registry; facet_restore and photo_compare `depths`
   precision by point type, the job's camera-model conflicts (job data, `CAMERA_CONFLICTS`), the light's behaviour
   ("the render light does not reproduce the photos' tones; in the photos a tone step marks where an edge is"), and the
   scope (the whole temple to the tip: outline chains are editable).
-- Prompt: rewritten by the coordinator after the tools exist (target <= 9,000 characters; teaches the object and an
+- Prompt: rewritten by the coordinator after the tools exist (target <= 9,000 characters, raised to 9,500 on
+  2026-10-13 for two sentences the blind stand-in test showed missing; teaches the object and an
   order of reasoning; no product facts). The test pins tool names, banned retired phrases and the cap only.
 
 ## 7. Proofs ($0) before any paid run
