@@ -63,6 +63,31 @@ def test_create_show_estimate_and_approve_are_offline_and_do_not_consume(job):
     assert not (job / "inputs/seed.blend").exists()
 
 
+def test_show_labels_draft_and_keeps_failed_checks_visible(job, monkeypatch):
+    pointer = job / "deliveries/current.json"
+    pointer.parent.mkdir()
+    pointer.write_text("{}")
+    report = {"finished": False, "accepted_finish": False, "run_status": "budget_limit",
+              "validate_spec": {"ok": False, "errors": ["fixture mesh is open"]},
+              "seating": {"ok": False, "failures": ["lens does not seat"]},
+              "print_check": {"ok": True}, "arview": {"status": "spec_failed", "exit_code": 3}}
+    monkeypatch.setattr(cli.delivery, "load_delivery", lambda root: {
+        "delivery_id": "draft-id", "glb_sha256": "a" * 64, "report": "immutable/report.json", "report_data": report})
+    shown = command("show", job)["delivery"]
+    assert shown["status"] == "draft" and shown["finished"] is shown["accepted_finish"] is False
+    assert shown["run_status"] == "budget_limit"
+    assert shown["checks"] == {key: report[key] for key in ("validate_spec", "seating", "print_check", "arview")}
+
+
+def test_show_reports_a_no_usable_checkpoint_attempt_without_inventing_delivery(job):
+    attempt = job / "runs/no-scene/delivery.json"
+    attempt.parent.mkdir(parents=True)
+    record = {"status": "no_usable_checkpoint", "run_status": "turn_limit", "reason": "empty scene"}
+    attempt.write_text(json.dumps(record))
+    shown = command("show", job)
+    assert shown["delivery"] is None and shown["last_delivery_attempt"] == record
+
+
 def test_prepared_settings_preserve_bound_nondefault_behaviour(job):
     settings = replace(job_run.settings_default(), max_turns=7, max_output_tokens=1024,
                        settled_stop_usd="0.8", fit_output_to_budget=True, finish_k=2,

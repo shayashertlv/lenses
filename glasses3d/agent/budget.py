@@ -922,6 +922,8 @@ class BudgetGuard:
         totals = self.ledger.totals()
         cap = self.ledger.maximum_micro
         remaining = max(0, cap - totals["committed_micro_usd"])
+        stop = self.settled_stop_micro
+        remaining_to_stop = None if stop is None else max(0, stop - totals["committed_micro_usd"])
         outcomes = totals["outcomes"]
         return {
             "maximum_micro_usd": cap, "settled_micro_usd": totals["settled_micro_usd"],
@@ -930,6 +932,8 @@ class BudgetGuard:
             "maximum_usd": usd_text(cap), "settled_usd": usd_text(totals["settled_micro_usd"]),
             "held_usd": usd_text(totals["held_micro_usd"]), "unknown_usd": usd_text(totals["unknown_micro_usd"]),
             "committed_usd": usd_text(totals["committed_micro_usd"]), "remaining_usd": usd_text(remaining),
+            "settled_stop_usd": None if stop is None else usd_text(stop),
+            "remaining_to_stop_usd": None if remaining_to_stop is None else usd_text(remaining_to_stop),
             "requests": totals["requests"], "requests_settled": outcomes["settled"],
             "requests_rejected_4xx": outcomes["rejected_4xx"], "requests_unknown": outcomes["unknown"],
             "requests_held": outcomes["held"], "requests_reconciled": outcomes["reconciled"],

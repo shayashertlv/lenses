@@ -439,7 +439,9 @@ def test_an_ordinary_tool_error_reaches_astra_as_text_and_the_run_goes_on(tmp_pa
                                          tools=[scene_summary])
     assert result["status"] == "completed"
     output = [item for item in transport.creates[1]["input"] if item.get("type") == "function_call_output"][0]
-    assert output["output"] == "An error occurred while running the tool. Please try again. Error: no such object"
+    message, footer = output["output"].split("\n")
+    assert message == "An error occurred while running the tool. Please try again. Error: no such object"
+    assert footer == L.footer_text(ledger_rows(job, RUN)[0]["settled_micro_usd"] / 1e6, 5, 3358)
 
 
 # =========================================================================== stop and heartbeat

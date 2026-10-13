@@ -106,11 +106,14 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
                 "pick_surface_point": ("hits", "hit", "object", "point_mm"),
                 "read_image": ("images",), "export_glb": ("status", "sha256", "validate_spec", "seat_check"),
                 "arview_capture": ("sheets", "status", "errors", "warnings", "export_sha256"),
-                "budget_status": ("settled_usd", "remaining_usd", "planning"), "finish": ("status accepted", "summary")}
+                "budget_status": ("settled_usd", "remaining_usd", "planning", "settled_stop_usd", "remaining_to_stop_usd"),
+                "finish": ("status accepted", "summary")}
     for name, fields in expected.items():
         assert name in {tool.name for tool in tools}
         for field in fields:
             assert field in I.CORE_GUIDANCE[name]
+    assert "before the settled stop" in I.CORE_GUIDANCE["finish"]
+    assert "remaining differences is better than running out" in I.CORE_GUIDANCE["finish"]
 
     # Check the implementation's actual dictionary keys, rather than accepting a new field invented in the text.
     root = Path(__file__).parents[2]

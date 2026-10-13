@@ -89,8 +89,8 @@ CORE_GUIDANCE = {
         "returned checkpoint; a failed edit is not a completed change.",
     "scene_summary": "Use `scene_summary` to inspect result.objects, their closed/loose_parts geometry facts, "
         "materials and roles; resolve the reported warnings in the context of the actual construction.",
-    "save_checkpoint": "Use `save_checkpoint` to label a useful state and mark your best with best=True so its "
-        "images stay available. Retain the returned checkpoint id with the visual evidence for that choice.",
+    "save_checkpoint": "Use `save_checkpoint` with best=True to mark your best state and retain its images. "
+        "Keep its checkpoint id with your visual evidence.",
     "list_checkpoints": "Use `list_checkpoints` to read checkpoint ids, labels and fingerprints before choosing "
         "an earlier state.",
     "restore_checkpoint": "Use `restore_checkpoint` when an earlier state is better. Check status and checkpoint "
@@ -109,11 +109,12 @@ CORE_GUIDANCE = {
         "establishes technical validity for those checks; inspect photo likeness separately.",
     "arview_capture": "Use `arview_capture` to inspect the sheets at authored scale across the AR poses. Read "
         "status, errors and warnings, and match export_sha256 to the export you assessed.",
-    "budget_status": "Use `budget_status` for settled_usd, remaining_usd and planning facts in its returned "
-        "budget record; the host enforces the approved limits.",
+    "budget_status": "Use `budget_status` to plan against settled_stop_usd and remaining_to_stop_usd; settled_usd, "
+        "remaining_usd and planning also report spend and reserve capacity.",
     "finish": "Call `finish` after the current export and its AR capture pass and you have inspected the result. "
-        "Include remaining photo differences and any fact conflicts in summary. Only status accepted completes "
-        "the run; a refusal explains what remains unresolved.",
+        "Include photo differences and fact conflicts in summary; only status accepted completes the run. "
+        "Plan to finish your best validated checkpoint before the settled stop; listing remaining differences "
+        "is better than running out.",
 }
 
 # These names enter the prompt only when M4 actually registers them. Their wrapper-specific fields belong in

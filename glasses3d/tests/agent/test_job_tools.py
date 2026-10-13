@@ -145,7 +145,8 @@ def test_every_sheet_has_an_adjacent_identity_label_and_real_view_names(scene):
     scene.seeing.render_views = lambda **kw: {"status": "ok", "sheets": paths, "views": views}
     output = invoke(scene, "render_views")
     rows = record(output)["images"]
-    assert len(output) == 5 and [row["output_index"] for row in rows] == [2, 4]
+    assert len(output) == 6 and [row["output_index"] for row in rows] == [2, 4]
+    assert isinstance(output[-1], ToolOutputText) and output[-1].text == loop.footer_text()
     assert rows[0]["views"] == [f"reference:photo {n}" for n in range(T.VIEWS_PER_SHEET)]
     assert rows[1]["views"] == [f"reference:photo {T.VIEWS_PER_SHEET}"]
     for row in rows:
@@ -283,7 +284,8 @@ def test_image_output_has_oriented_crop_and_delivered_digest(scene):
     image.save(src, exif=exif)
     output = invoke(scene, "read_image", {"path": "images/photo.jpg", "region": [0, 0, 10, 15]})
     rec = record(output)["images"][0]
-    assert len(output) == 3 and isinstance(output[1], ToolOutputText) and isinstance(output[2], ToolOutputImage)
+    assert len(output) == 4 and isinstance(output[1], ToolOutputText) and isinstance(output[2], ToolOutputImage)
+    assert isinstance(output[-1], ToolOutputText) and output[-1].text == loop.footer_text()
     assert "call call_test; checkpoint source; revision source:" in output[1].text
     assert "view images/photo.jpg" in output[1].text and rec["output_index"] == 2
     assert rec["context_role"] == "reference"
@@ -326,7 +328,8 @@ def test_fit_camera_output_can_return_its_internal_camera_sheet(scene, monkeypat
     assert received[0][0][2] == {"front.jpg": "front", "side.jpg": "side"}
     assert received[0][1]["candidates"] == {"front.jpg": ("front",), "side.jpg": ("left",)}
     assert received[0][1]["matte_modes"] == {"front.jpg": None, "side.jpg": "glossy_floor"}
-    assert len(output) == 3 and record(output)["images"][0]["source_path"].startswith("cameras/")
+    assert len(output) == 4 and record(output)["images"][0]["source_path"].startswith("cameras/")
+    assert isinstance(output[-1], ToolOutputText) and output[-1].text == loop.footer_text()
     invoke(scene, "fit_cameras", {"reason": "one photo", "refs": ["side"], "workers": 1}, cid="call_subset")
     assert received[1][1]["candidates"] == {"side.jpg": ("left",)}
 

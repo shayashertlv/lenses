@@ -13,13 +13,13 @@ import time
 from typing import Literal
 
 from agents import function_tool
-from agents.tool import ToolOutputImage, ToolOutputText
+from agents.tool import ToolOutputImage, ToolOutputText, default_tool_timeout_error_message
 from agents.tool_context import ToolContext
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
 
 from ..journal import CheckpointMismatch, WorkerFailed
-from ..loop import STAGE_FATAL, fatal_tool_errors, sdk_timeout_s, hard_timeout_s
+from ..loop import STAGE_FATAL, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
 from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from . import arview
@@ -185,10 +185,19 @@ def _valid_export(scene, call_id):
 
 def build_tools(scene, settings=None) -> list:
     """Build without starting Blender; the exact registry is available for estimation and approval."""
+    def timeout_text(name):
+        def result(ctx, error):
+            seconds = getattr(error, "timeout_seconds", None) or sdk_timeout_s(name)
+            text = default_tool_timeout_error_message(tool_name=name, timeout_seconds=seconds)
+            runtime = getattr(ctx, "context", None)
+            return text + "\n" + (runtime.footer() if hasattr(runtime, "footer") else footer_text())
+        return result
+
     def tool(name):
         def wrap(fn):
             return function_tool(fn, name_override=name, timeout=sdk_timeout_s(name),
-                                 failure_error_function=fatal_tool_errors(*FATAL))
+                                 failure_error_function=fatal_tool_errors(*FATAL),
+                                 timeout_error_function=timeout_text(name))
         return wrap
 
     async def call(ctx, name, action):
@@ -217,7 +226,10 @@ def build_tools(scene, settings=None) -> list:
             finally:
                 scene.lock.release()
         try:
-            return await asyncio.to_thread(locked)
+            output = await asyncio.to_thread(locked)
+            runtime = getattr(ctx, "context", None)
+            footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
+            return [*output, ToolOutputText(text=footer)]
         except asyncio.CancelledError:
             scene.mark_unseen(cid)
             raise
@@ -372,7 +384,8 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
-        """Return settled spend, reserve cap, unknown holds, remaining budget and the next request's estimated hold."""
+        """Return settled spend, settled_stop_usd and remaining_to_stop_usd after open/unknown holds, plus the
+        separate reserve cap and the next request's estimated hold. Plan against the settled stop."""
         def status(cid):
             guard = getattr(getattr(ctx, "context", None), "guard", None)
             return {"status": "ok", "budget": guard.summary() if guard is not None else None}

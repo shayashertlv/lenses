@@ -97,6 +97,10 @@ STATUSES = ("completed", "turn_limit", "budget_limit", "stopped", "provider_reje
 EFFORTS = ("high", "max")
 TOOL_CHOICES = ("auto", "required")
 FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and version bound into the approval)
+SMOKE_TOOLS = ("scene_summary", "budget_status")
+SMOKE_POLICY = {"policy": "g3d.smoke/1", "tools": list(SMOKE_TOOLS), "max_calls": 1, "max_requests": 1,
+                "session": "run",
+                "notice": "Smoke check: call scene_summary or budget_status once, then stop. Do not modify the scene."}
 # ContextGuard. /2 (review 2026-10-12, v3p3-verify-14/-15): each epoch's choice applies only inside the tool outputs
 # present at its firing (by call_id), and besides its one token epoch the guard fires on request bytes, at k x
 # CONTEXT_GUARD_BYTES (k = 1, 2, ...); /1 had one token-triggered choice, applied to every later output too.
@@ -274,6 +278,7 @@ class RunSettings:
     context_guard_tokens: int | None = None
     context_guard_bytes: int | None = None
     context_guard_every_requests: int | None = None
+    smoke: bool = False
 
     def guard_bytes(self) -> int | None:
         """The context guard's byte rung in force: None while the guard is off, else context_guard_bytes or the
@@ -287,6 +292,8 @@ class RunSettings:
         every new setting has its default). The guard's default byte rung is part of its filter (CONTEXT_GUARD names
         the version); an explicit context_guard_bytes is bound as request_bytes."""
         out: dict = {}
+        if self.smoke:
+            out["smoke"] = True
         if self.tool_choice != "auto":
             out["tool_choice"] = self.tool_choice
         if self.reset_tool_choice is not True:
@@ -568,7 +575,13 @@ def build_model_settings(settings: RunSettings) -> ModelSettings:
 
 def build_agent(instructions: str, tools: Sequence[Any], settings: RunSettings) -> Agent:
     extra: dict = {}
-    if settings.finish_tool is not None:
+    if settings.smoke:
+        # Contract and approval use the full canonical registry. The explicit, bound smoke policy selects only
+        # these read-only executors after preflight; schemas/descriptions of the selected tools are unchanged.
+        smoke = SmokeOnce()
+        tools = [smoke.wrap(tool) for tool in tools if tool.name in SMOKE_TOOLS]
+        extra["tool_use_behavior"] = smoke
+    elif settings.finish_tool is not None:
         extra["tool_use_behavior"] = FinishOnAccepted(settings.finish_tool)
     if settings.reset_tool_choice is not True:
         extra["reset_tool_choice"] = settings.reset_tool_choice
@@ -593,7 +606,10 @@ def tool_registry_sha256(tools: Sequence[Any], settings: RunSettings | None = No
                     "strict": getattr(tool, "strict_json_schema", None)} for tool in tools),
                   key=lambda row: row["name"])
     behavior = settings.behavior() if settings is not None else {}
-    return hashlib.sha256(canonical_json({"tools": rows, "behavior": behavior} if behavior else rows)).hexdigest()
+    payload = {"tools": rows, "behavior": behavior} if behavior else rows
+    if settings is not None and settings.smoke:
+        payload["smoke_policy"] = SMOKE_POLICY
+    return hashlib.sha256(canonical_json(payload)).hexdigest()
 
 
 def tool_result_text(output) -> str:
@@ -637,6 +653,50 @@ class FinishOnAccepted:
                 self.accepted.append(text)
                 return ToolsToFinalOutputResult(is_final_output=True, final_output=text)
         return ToolsToFinalOutputResult(is_final_output=False, final_output=None)
+
+
+class SmokeViolation(RuntimeError):
+    """A smoke response attempted more than its single permitted read-only call."""
+
+
+class SmokeOnce:
+    """One read-only executor and then end, even if the provider returns multiple calls or a refusal."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def wrap(self, tool):
+        original = tool.on_invoke_tool
+
+        async def invoke(context, arguments):
+            rec = {"tool": tool.name, "call_id": getattr(context, "tool_call_id", None), "status": "started"}
+            self.calls.append(rec)  # consume before awaiting, including schema errors, timeout and cancellation
+            if len(self.calls) != 1 or tool.name not in SMOKE_TOOLS:
+                rec["status"] = "blocked"
+                raise SmokeViolation("Smoke permits exactly one scene_summary or budget_status call")
+            try:
+                output = await original(context, arguments)
+            except BaseException:
+                rec["status"] = "failed"
+                raise
+            rec["status"] = output.get("status") if isinstance(output, dict) else tool_result_status(output)
+            return output
+
+        clone = copy.copy(tool)
+        clone.on_invoke_tool = invoke
+        return clone
+
+    @property
+    def ok(self):
+        return len(self.calls) == 1 and self.calls[0]["status"] == "ok"
+
+    def record(self):
+        return {**copy.deepcopy(SMOKE_POLICY), "calls": copy.deepcopy(self.calls), "ok": self.ok}
+
+    def __call__(self, context, results) -> ToolsToFinalOutputResult:
+        # Like stop_on_first_tool, but with explicit outcome evidence and a host execution-count guard.
+        text = tool_result_text(results[0].output) if results else "Smoke returned no tool result."
+        return ToolsToFinalOutputResult(is_final_output=True, final_output=text)
 
 
 _DATA_IMAGE_B64 = re.compile(r"^data:image/[A-Za-z0-9.+-]+;base64,(.*)$", re.DOTALL)
@@ -820,8 +880,7 @@ def epoch_text(epoch: dict) -> str:
 
 
 class RunStatus:
-    """The SDK run context the tools receive (``ctx.context``): settled money, the cap and the last counted input
-    for the footer every facet tool result ends with (WP6_FACETS §4.5)."""
+    """SDK context: shared settled spend, working stop, reserve cap and last counted input for tool footers."""
 
     def __init__(self, guard: BudgetGuard | None = None, runtime=None):
         self.guard = guard
@@ -837,17 +896,27 @@ class RunStatus:
             return {"settled_usd": None, "cap_usd": None, "context_tokens": None}
         summary = self.guard.summary()
         return {"settled_usd": summary["settled_micro_usd"] / 1e6, "cap_usd": summary["maximum_micro_usd"] / 1e6,
+                "settled_stop_usd": (float(summary["settled_stop_usd"])
+                                     if summary.get("settled_stop_usd") is not None else None),
+                "remaining_to_stop_usd": (float(summary["remaining_to_stop_usd"])
+                                          if summary.get("remaining_to_stop_usd") is not None else None),
                 "context_tokens": summary["planning"]["last_counted_input_tokens"]}
 
     def footer(self) -> str:
         return footer_text(**self.numbers())
 
 
-def footer_text(settled_usd=None, cap_usd=None, context_tokens=None) -> str:
+def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
+                remaining_to_stop_usd=None) -> str:
     def usd(value):
         return "n/a" if value is None else f"${value:.2f}"
-    return (f"settled {usd(settled_usd)} / cap {usd(cap_usd)} · context "
-            f"{'n/a' if context_tokens is None else context_tokens} tokens")
+    money = (f"settled {usd(settled_usd)} / cap {usd(cap_usd)}" if settled_stop_usd is None else
+             f"settled {usd(settled_usd)} of {usd(settled_stop_usd)} stop (reserve cap {usd(cap_usd)})")
+    text = f"{money} · context {'n/a' if context_tokens is None else context_tokens} tokens"
+    if (settled_stop_usd is not None and settled_usd is not None
+            and cap_to_micro(settled_usd) * 4 >= cap_to_micro(settled_stop_usd) * 3):
+        text += (f"\nAbout {usd(remaining_to_stop_usd)} left; export, AR-capture and finish your best checkpoint soon.")
+    return text
 
 
 class StageRunFailed(RuntimeError):
@@ -1014,7 +1083,9 @@ def fatal_tool_errors(*fatal: type[BaseException]):
     def failure(context, error):
         if isinstance(error, fatal):
             raise error
-        return default_tool_error_function(context, error)
+        text = default_tool_error_function(context, error)
+        runtime = getattr(context, "context", None)
+        return text + "\n" + runtime.footer() if hasattr(runtime, "footer") else text
     return failure
 
 
@@ -1230,9 +1301,13 @@ def rollback_sentence(rollback: dict) -> str:
             f"rolled back; the scene is checkpoint {rollback['scene_checkpoint']}.")
 
 
-def invocation_text(*, run_id: str, scene_note: str, cap_micro: int, rollback: dict | None) -> str:
-    """Facts only (RULES_AUDIT: no steering prose): the run, the scene, this run's cap, a rollback if one happened."""
-    lines = [f"Run {run_id}.", scene_note.strip(), f"This run's budget cap: ${usd_text(cap_micro)}."]
+def invocation_text(*, run_id: str, scene_note: str, cap_micro: int, rollback: dict | None,
+                    settled_stop_micro: int | None = None) -> str:
+    """Facts only: the run, scene, working settled stop, reserve cap and any rollback."""
+    money = (f"This run's budget cap: ${usd_text(cap_micro)}." if settled_stop_micro is None else
+             f"This run's working limit: ${usd_text(settled_stop_micro)} settled stop "
+             f"(reserve cap ${usd_text(cap_micro)}).")
+    lines = [f"Run {run_id}.", scene_note.strip(), money]
     if rollback is not None:
         lines.append(rollback_sentence(rollback))
     return "\n".join(line for line in lines if line)
@@ -1449,6 +1524,20 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused(f"tool_choice must be one of {', '.join(TOOL_CHOICES)}")
     if type(settings.reset_tool_choice) is not bool:
         raise RunRefused("reset_tool_choice must be a boolean")
+    if type(settings.smoke) is not bool:
+        raise RunRefused("smoke must be a boolean")
+    if settings.smoke:
+        if (settings.max_turns != 1 or settings.max_output_tokens != 4096 or settings.max_continuations != 0
+                or settings.tool_choice != "required"
+                or settings.finish_tool is not None or spec.resume):
+            raise RunRefused("smoke requires one turn, 4096 output tokens, no continuations, required tool choice, "
+                             "no finish tool or resume")
+        try:
+            stop, cap = cap_to_micro(settings.settled_stop_usd), cap_to_micro(spec.requested_cap_usd)
+        except BudgetGuardError:
+            raise RunRefused("smoke needs an explicit equal settled stop and reservation cap") from None
+        if stop <= 0 or cap != stop:
+            raise RunRefused("smoke needs an explicit equal positive settled stop and reservation cap")
     if type(settings.finish_k) is not int or settings.finish_k < 1:
         raise RunRefused("finish_k must be a positive integer")
     if settings.context_guard_tokens is not None and (type(settings.context_guard_tokens) is not int
@@ -1473,6 +1562,8 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused("tool names must be unique")
     if settings.finish_tool is not None and settings.finish_tool not in names:
         raise RunRefused(f"the finish tool `{settings.finish_tool}` is not registered")
+    if settings.smoke and not set(SMOKE_TOOLS) <= set(names):
+        raise RunRefused("smoke requires both canonical read-only tools")
 
 
 def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
@@ -1528,6 +1619,10 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
             run_input = [{"role": "user", "content": CONTINUATION_NOTE}]
             continue
         used = log.interactions - started
+        if settings.smoke:
+            smoke = agent.tool_use_behavior
+            return ("completed" if isinstance(smoke, SmokeOnce) and smoke.ok and log.interactions == 1 else "failed",
+                    result.final_output)
         if finisher is None or finisher.accepted:
             return "completed", result.final_output
         # a text reply without the accepted finish (the fallback when required tool choice is not in force)
@@ -1554,7 +1649,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
     _validate_spec(spec)
     job_dir = Path(spec.job_dir).resolve()
     run_dir = job_dir / "runs" / spec.run_id
-    session_path = job_dir / "session" / "session.sqlite"
+    session_path = (run_dir / "smoke" / "session.sqlite" if spec.settings.smoke
+                    else job_dir / "session" / "session.sqlite")
     stop_file = job_dir / STOP_FILE
     blobs = BlobStore(job_dir / "blobs")
     started = _now()
@@ -1621,7 +1717,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                initial=preflight_load) if spec.load_check is not None else None
         state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
-        counter = client = guard = log = context_guard = runtime = None
+        counter = client = guard = log = context_guard = runtime = agent = None
         exit_checkpoint = exit_error = scan = None
         plan = None
         teardown_errors: list[dict] = []
@@ -1636,7 +1732,11 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 if repaired:
                     items = await session.get_items()
             text = invocation_text(run_id=spec.run_id, scene_note=spec.scene_note,
-                                   cap_micro=approved.requested_cap_micro, rollback=rollback)
+                                   cap_micro=approved.requested_cap_micro, rollback=rollback,
+                                   settled_stop_micro=(None if spec.settings.settled_stop_usd is None else
+                                                       cap_to_micro(spec.settings.settled_stop_usd)))
+            if spec.settings.smoke:
+                text += "\n" + SMOKE_POLICY["notice"]
             plan = plan_session_input(items, prompt=spec.brief, photos=spec.photos, invocation_text=text,
                                       owner_notes=spec.owner_notes)
             if session is None:     # a fresh job: the session file is created only once the approval is consumed
@@ -1669,7 +1769,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "approval_sha256": approved.approval_sha256, "request_sha256": approved.request_sha256,
                 "instructions_sha256": request.get("instructions_sha256"),
                 "tool_registry_sha256": request.get("tool_registry_sha256"),
-                "tools": [tool.name for tool in spec.tools], "session": "session/session.sqlite",
+                "tools": [tool.name for tool in spec.tools], "session": session_path.relative_to(job_dir).as_posix(),
+                **({"smoke_policy": SMOKE_POLICY, "executable_tools": list(SMOKE_TOOLS)}
+                   if spec.settings.smoke else {}),
                 **({"stages": [contract.binding() for contract in spec.stage_contracts]} if spec.stage_contracts else {}),
                 "resume": bool(spec.resume), "scene_start": scene_start, "stale_stop_file_removed": stale_stop,
                 "versions": _versions(), "implementation": implementation,
@@ -1779,6 +1881,13 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "transcript": "transcript.md"}
             if spec.settings.finish_tool is not None:
                 result["finish_notes"] = state["finish_notes"]
+            if spec.settings.smoke:
+                smoke = agent.tool_use_behavior if agent is not None else None
+                result["smoke"] = (smoke.record() if isinstance(smoke, SmokeOnce) else
+                                   {**copy.deepcopy(SMOKE_POLICY), "calls": [], "ok": False})
+                # Success requires the executor evidence AND a single settled request; errors keep their status.
+                result["smoke"]["ok"] = bool(result["smoke"]["ok"] and status == "completed"
+                                             and result["requests"] == 1)
             if spec.settings.context_guard_tokens is not None:
                 result["context_guard"] = {"input_tokens": spec.settings.context_guard_tokens,
                                            "request_bytes": spec.settings.guard_bytes(),

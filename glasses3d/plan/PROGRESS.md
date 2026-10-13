@@ -12,12 +12,116 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
 validation, owner OK per run). **M0-M4 are complete and proven offline**, including the owner-approved rimless
-matte expansion and the final full regression suite. **Next: ASSEMBLY "M5-prep"** ($0, added 2026-10-13 after
-Claude's review of M0-M4: budget runway shown against the $20 stop, draft delivery when a run ends without finish,
-`job run --smoke`, the Oakley job ready to approve). Claude's independent rerun of `tests.proofs.assembly_m1`
+matte expansion and the final full regression suite. **M5-prep items 1-4 are complete at $0**: the $20 working
+budget, unfinished draft delivery, isolated one-request smoke support, and the real Oakley job with a proven
+intake and unapproved run-1 estimate. **Next: the one smoke already approved by the owner at $1.**
+Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Assembly M5-prep (2026-10-13; preparation complete, approved smoke pending)
+
+Verified the requested checkout and branch `glasses3d` at `68e1ebf`; the owner's subsequent instruction adds
+`faee122`'s first-message working-limit correction and `4b9d6d2`'s temple-stage allowance correction. The owner explicitly approved exactly one smoke in advance:
+**"Yes, cap $1"**, only after M5-prep items 1-4 pass and a fresh estimate is under $1, with both settled stop and
+reserve cap at $1. Oakley run 1 remains unapproved and must not start. Preparatory implementation and tests are $0.
+
+Item 1: the guard now reports the settled stop separately from reserve capacity and computes remaining runway
+after settled spend plus held and unknown requests, clamped at zero. First-message run text and tool footers use
+the working settled stop. At 75% of settled spend the footer tells Astra the remaining runway and to finish its
+best checkpoint soon. Generic tools gain a separate final text footer, preserving their initial JSON and image
+indices; ordinary SDK errors carry it too, while fatal exceptions still propagate. Nested stage contexts read the
+shared guard. Legacy runs without a settled stop retain their old cap footer. Instructions add the requested
+finish guidance within the unchanged 8,000-character limit (7,962 characters), preserving the owner's exact table.
+No reservation or settled-stop enforcement rule changed. Initial baseline: 253 passed, four stale output-shape
+assertions updated to check the added footer while retaining their prior JSON/image/error assertions. Final
+targeted set passed **291 unique tests** across the final runs: 285/286 in 57.29 seconds, followed by 132/132
+in 8.56 seconds after correcting one new fixture's existing `canonical:front` label and adding five boundary/error
+checks. The notice uses integer micro-USD, including the exact $0.075/$0.10 boundary. Generic SDK timeouts use
+their existing message plus the footer. Evidence: `m5prep_runway_{base,final,edges}.log`. The added `4b9d6d2`
+requirement is implemented: a temple-stage allowance cannot exceed the smaller of remaining reserve capacity and
+remaining money to the settled stop (including held/unknown requests). Fifteen new cases cover boundaries,
+exhaustion, holds, invalid arguments and legacy runs. Item 1 is complete. All checks use offline transports.
+
+Item 2 in progress: draft review accepts an explicitly unfinished immutable delivery with a failed specification
+check while preserving all server, hash, appearance and infrastructure checks. Accepted deliveries still require
+a passing live specification check. Saved review records include the draft's run status and failed checks; edits
+that promote it to a finish or hide a failure refuse. Review unit checks: **37 passed, one real-server test
+deselected, 3.23 seconds** (`m5prep_draft_review_unit.log`); exact draft changes notes enter resume input once.
+The publisher now exports a hash-verified private copy of best (else head), checks specification/seating/print,
+captures fixed-scale AR, and publishes immutable `finished:false` evidence without moving the source scene or
+claiming an accepted finish. Each supported end status retains a delivery attempt, including a clear reason when
+no usable checkpoint exists. `job show` includes the draft and its failed checks. Focused draft/delivery/CLI/review/
+verdict suite: **179 passed in 16.42 seconds**, including the real review server (`m5prep_draft_unit2.log`). One
+additional changed-head-SHA regression was added after that collection and awaits the next run. Independent
+publisher review fixed source-variable shadowing and strengthened draft-only seating SHA/fingerprint validation;
+accepted-delivery checks remain unchanged. The stage/draft edge run passed **74/74 in 15.45 seconds**, including
+the additional changed-head-SHA case (`m5prep_temple_draft_edges.log`). The real Blender/AR proof passed all
+**15 checks in 12.91 seconds** (`data/assembly/m5d1/proof.json`, `m5prep_draft_real2.log`): marked best c0001
+was exported while head c0002 and the original checkpoint/index/history bytes stayed unchanged; failed seating
+remained explicit in the report, `job show` and live review; fixed-scale AR, immutable snapshots and exact
+verdict-to-resume notes all passed. The first fixture used a 260-character Windows image path; shorter fixture
+names fixed that test-only path issue without changing assertions. Its diagnostic is retained in
+`data/assembly/m5prep-draft-real-20261013a/path-length-diagnostic.json`. No model request, production transport,
+external network attempt or paid spend occurred. Item 2 is complete.
+
+Item 3: `job estimate --smoke` and `job run --smoke` use a distinct approval-bound policy, one request with
+4096 output tokens, identical working stop/reserve cap, the full real job instructions/brief/photos, and literal
+`tool_choice=required`. After the unchanged canonical tool-contract check, the executable registry contains only
+`scene_summary` and `budget_status`; a shared host counter allows one call before ending. Smoke history stays in
+its own run directory, leaving ordinary modeling history fresh. There are no retries, continuation requests,
+mutating tools or product deliveries in this mode. The one-request forecast counts all photos as fresh input;
+the historical two-turn Studio forecast remains unchanged. The live count/reservation remains the money bound.
+Independent review found no blocker. Existing regression tests: **184 passed in 58.09 seconds**; new smoke
+composition and SDK transport tests: **43 passed in 19.77 seconds**. First-run failures were two new fixture
+mistakes (photo filenames and JSON tuple/list comparison), corrected without weakening checks. Evidence:
+`m5prep_smoke_base.log`, `m5prep_smoke_new2.log`. Item 3 is complete at $0.
+
+Item 4: visually inspected all six originals and created `oakley-oo9208-v2-cd068969` through job intake.
+Labels (wearer's side, as in cameras.py): 01 front/both; 02 angled/left; 03 side/right; 04 rear/both;
+05 side/left; 06 top/both. All are authoritative, copied byte-for-byte and SHA-bound. `open_frame` matte preserves
+the semi-rimless shield's openings. The old `job.json.description` is empty; the actual user description is its
+`specs.notes` (provenance kind `user`), copied verbatim into the new description and specifications. Old host prose
+that downgraded photos was not carried forward. The specifications separately record ASSEMBLY M5 step 1's exact
+scope, "frame + lenses + seating only." Intake provenance and views live in `data/assembly/m5oakley/`.
+`job estimate` prepared run `20261013T155843-7c80ac`: expected **$14.966873**, growth-only range
+**$13.209792-$20.127653**, 14,880 initial context tokens, 60 replies as forecast only, modelled last-request hold
+$3.875263. Execution remains max effort, $20 settled stop/$23 reserve and no reply cap. The forecast is not a
+spend guarantee; its historical corpus predates image pruning and contains one product. **Run 1 is unapproved.**
+The real-photo scripted proof uses a byte-identical intake copy, as required for $0 tests, so the actual job does
+not inherit simulated ledger spending or fabricated assistant history. The proof passed **12/12 checks in
+8.25 seconds**: eight successful read-only tools/requests (six `read_image`, `scene_summary`, `budget_status`),
+twelve verified image blobs, complete brief/photo/approval binding, and a host turn limit before a ninth request.
+The original job, including its unapproved estimate, stayed byte-for-byte unchanged. Its copy's ledger settled
+$2.314415 in **simulated** usage; **actual spend was $0**, with zero production transports or external network
+attempts. Evidence: `data/assembly/m5i1/proof.json`, `m5prep_intake.log`. Item 4 is complete.
+
+Final regression checks are running: eight workers/loadfile for non-print tests, then two workers for print;
+no competing heavy pools, BLAS 1 and EcoQoS opt-out. AR unit **497/497**, QA **103/103**, TypeScript clean.
+Final review found that a post-teardown Ctrl-C/task cancellation could re-raise before draft publication; the
+interruption cleanup path is now implemented and independently reviewed: only a fresh, finalized stopped receipt
+for this exact run can trigger salvage, then the original interruption is re-raised. Smoke/stale/malformed results
+are excluded, and existing SystemExit failure classification stays unchanged. Focused draft/job/smoke/interrupt
+checks passed **111/111 in 54.19 seconds** (`m5prep_interruptions.log`); the added actual SDK cancellation case
+also passed **1/1 in 8.80 seconds** (`m5prep_cancel_sdk.log`).
+The environment lacks an API key, but the owner confirmed "both .env have open ai keys" after
+requesting their links. Added explicit `job run --env-file` plumbing to the existing runner credential loader;
+the approved smoke will use `glasses3d/.env`, without exposing its contents. The agent has not read or printed
+credential files. Credential-path propagation plus existing job/CLI/smoke checks passed **68/68 in 12.53 seconds**
+(`m5prep_credentials.log`), with fake nonexistent paths and read tripwires. The new smoke estimate
+`20261013T161246-478a2a` is **$0.256900**, estimated reservation **$0.390800**, with $1 settled stop and $1 cap;
+its real live token count still controls admission. No paid request has started.
+
+Main suite: **3,075 passed, five failed in 690.48 seconds**. Two stale mocks in the new draft tests were already
+corrected and passed in the 111-test follow-up. The isolated seeing/temple-UV modules then passed **24/24 in
+129.84 seconds**, including both unchanged render/subprocess timeouts. EcoQoS passed **1/1 in 0.30 seconds**
+without the external descendant watcher that alters its measured initial state. No thresholds, timeouts or quality
+gates were changed. Current non-print coverage is **3,120 unique tests passed**, including 22 interruption and
+18 credential-path cases added after the main collection. Print passed **314/314 in 207.56 seconds** with two
+workers. Final coverage: **3,434 Python tests passed** after the documented targeted/isolated reruns, plus
+**497 AR unit + 103 AR QA**, and TypeScript clean. All preparatory work cost $0. No check was loosened.
+Evidence: `m5prep_{main,isolated,qos_qos,collect,print,ar_unit,ar_qa,tsc}.log` and adjacent process receipts.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 

@@ -5,6 +5,7 @@ import math
 from agents import function_tool
 from agents.tool_context import ToolContext
 
+from ..budget import cap_to_micro, usd_text
 from ..loop import STAGE_FATAL, fatal_tool_errors
 from ..temple_lab import stage
 
@@ -21,17 +22,25 @@ def temple_tool(scene, call, parent_settings, fatal):
         matches the captured one. Inspect its summary, compare the result to photos, and continue the job.
 
         Args:
-            budget_usd: Positive dollar allowance for this stage, within the job's remaining approved budget.
+            budget_usd: Positive dollar allowance within the money remaining before the job's settled stop,
+                after open and unknown holds, and within its remaining reserve capacity.
                 An exhausted allowance returns an incomplete result without applying the private geometry.
         """
         runtime = getattr(ctx, "context", None)
         if not hasattr(runtime, "run_stage") or getattr(runtime, "guard", None) is None:
             return await call(ctx, "temple_stage", lambda cid: {
                 "status": "refused", "code": "E_STAGE_CONTEXT", "message": "temple_stage needs the active job run"})
-        maximum = runtime.guard.summary()["maximum_micro_usd"] / 1e6
-        if not math.isfinite(budget_usd) or not 0 < budget_usd <= maximum:
+        summary = runtime.guard.summary()
+        maximum = summary["maximum_micro_usd"]
+        has_stop = summary.get("settled_stop_usd") is not None
+        if has_stop:
+            maximum = min(summary["remaining_micro_usd"], cap_to_micro(summary["remaining_to_stop_usd"]))
+        if (not math.isfinite(budget_usd) or budget_usd <= 0
+                or cap_to_micro(budget_usd) > maximum):
             return await call(ctx, "temple_stage", lambda cid: {
-                "status": "refused", "code": "E_ARGS", "message": "stage dollars must fit the approved job cap"})
+                "status": "refused", "code": "E_ARGS", "maximum_stage_usd": usd_text(maximum),
+                "message": ("stage dollars must fit the remaining working budget before the settled stop "
+                            "and the reserve cap" if has_stop else "stage dollars must fit the approved job cap")})
         bridge = stage.StageBridge(asyncio.get_running_loop())
         try:
             return await call(ctx, "temple_stage", lambda cid: stage.run(

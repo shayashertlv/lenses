@@ -15,6 +15,7 @@ from . import procs
 SCHEMA = "g3d.delivery/1"
 POINTER_SCHEMA = "g3d.delivery_current/1"
 REPORT_SCHEMA = "g3d.deliverable/1"
+DRAFT_STATUSES = frozenset({"budget_limit", "turn_limit", "stopped", "ended_without_finish", "output_limit"})
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,23}-[0-9a-f]{64}")
 
@@ -81,19 +82,30 @@ def _document(data: bytes, what: str) -> dict:
     return value
 
 
-def _capture_files(root: Path, ar: dict, glb_sha: str) -> tuple[dict, list, list, list]:
+def _capture_files(root: Path, ar: dict, glb_sha: str, *, draft=False) -> tuple[dict, list, list, list]:
     """Recheck both the renderer's raw images and the tool images actually shown to Astra."""
-    if (not isinstance(ar, dict) or ar.get("status") != "ok" or ar.get("exit_code") != 0
-            or ar.get("export_sha256") != glb_sha):
+    if (not isinstance(ar, dict) or ar.get("export_sha256") != glb_sha
+            or (not draft and (ar.get("status") != "ok" or ar.get("exit_code") != 0))):
         raise DeliveryError("delivery requires a successful AR capture of the finished export")
+    success = ar.get("status") == "ok" and ar.get("exit_code") == 0
+    if draft:
+        from .tools.arview import AR_APPEARANCE_POLICY, LENS_ENV_INTENSITY
+        if (ar.get("fixed_scale") is not True or ar.get("appearance_policy") != AR_APPEARANCE_POLICY
+                or ar.get("lens_env_intensity") != LENS_ENV_INTENSITY):
+            raise DeliveryError("draft AR attempt must use the fixed appearance and scale")
+        if not ar.get("report"):
+            if success or ar.get("images") != [] or ar.get("sheets") != []:
+                raise DeliveryError("draft AR capture evidence is incomplete")
+            return {}, [], [], []
     report_path, report_bytes = _read(root, ar.get("report"), ar.get("report_sha256", ""))
     capture = _document(report_bytes, "AR report")
     inputs, request = capture.get("input"), capture.get("request")
     if (capture.get("schema") != "arview.capture/1" or not isinstance(inputs, dict) or inputs.get("sha256") != glb_sha
-            or capture.get("exit_code") != 0 or not isinstance(request, dict) or request.get("fixed_scale") is not True):
+            or capture.get("exit_code") != ar.get("exit_code")
+            or not isinstance(request, dict) or request.get("fixed_scale") is not True):
         raise DeliveryError("AR report does not describe a successful fixed-scale capture of this GLB")
     records = capture.get("images")
-    if not isinstance(records, list) or not records:
+    if not isinstance(records, list) or (not records and (not draft or success)):
         raise DeliveryError("AR report has no capture images")
     raw, names = [], set()
     for rec in records:
@@ -107,7 +119,8 @@ def _capture_files(root: Path, ar: dict, glb_sha: str) -> tuple[dict, list, list
         raw.append((name, data))
     images = ar.get("images")
     sheets = ar.get("sheets")
-    if not isinstance(images, list) or not images or not isinstance(sheets, list) or not sheets:
+    if (not isinstance(images, list) or not isinstance(sheets, list)
+            or ((not images or not sheets) and (not draft or success or records))):
         raise DeliveryError("AR contact sheets or their image receipts are missing")
     shown, source_hashes = [], {}
     for rec in images:
@@ -166,7 +179,17 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
     _, model = _read(root, exp.get("path"), exp.get("sha256", ""))
     ar = scene.last_ar
     capture, raw, shown, contact = _capture_files(root, ar, exp["sha256"])
-    files = {"model.glb": model, "arview/report.json": capture["bytes"]}
+    return _package(root, result, exp, checkpoint, finished["fingerprint"], exit_head,
+                    finished.get("summary", ""), ar, model, capture, raw, shown, contact)
+
+
+def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar, model,
+             capture, raw, shown, contact, *, source=None, selection=None):
+    """Package evidence without changing a check's result. Drafts never enter the finish validator."""
+    draft = source is not None
+    files = {"model.glb": model}
+    if capture:
+        files["arview/report.json"] = capture["bytes"]
     for name, data in raw:
         files["arview/" + name] = data
     sheet_paths = {}
@@ -177,7 +200,7 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
         name = f"contact-sheets/{index:02d}{suffix}"
         files[name], sheet_paths[path] = data, name
     image_records = []
-    for index, (record, path, data, source) in enumerate(shown, 1):
+    for index, (record, path, data, image_source) in enumerate(shown, 1):
         name = sheet_paths.get(path)
         if name is None:
             suffix = path.suffix.lower()
@@ -185,20 +208,27 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
                 raise DeliveryError("unsupported AR tool image format")
             name = f"tool-images/{index:02d}{suffix}"
             files[name] = data
-        if source not in sheet_paths:
+        if image_source not in sheet_paths:
             raise DeliveryError("AR tool image does not describe a contact sheet")
-        image_records.append({**copy.deepcopy(record), "path": name, "source_path": sheet_paths[source],
-                              "source_sha256": _sha(files[sheet_paths[source]])})
+        image_records.append({**copy.deepcopy(record), "path": name, "source_path": sheet_paths[image_source],
+                              "source_sha256": _sha(files[sheet_paths[image_source]])})
     ar_record = copy.deepcopy(ar)
     ar_record.pop("log", None)  # process logs are run evidence, not needed to inspect this immutable delivery
-    ar_record.update(report="arview/report.json", images=image_records, sheets=list(sheet_paths.values()))
+    ar_record.update(report="arview/report.json" if capture else None,
+                     images=image_records, sheets=list(sheet_paths.values()))
+    if draft:
+        files["arview/attempt.json"] = _json_bytes(ar_record)
     report = {"schema": REPORT_SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
               "checkpoint": checkpoint, "exit_checkpoint": copy.deepcopy(exit_head),
-              "fingerprint": finished["fingerprint"], "glb_sha256": exp["sha256"],
-              "validation_sha256": exp["validation_sha256"], "validate_spec": copy.deepcopy(validation),
-              "seating": copy.deepcopy(seating), "print_check": copy.deepcopy(printing),
+              "fingerprint": fingerprint, "glb_sha256": exp["sha256"],
+              "validation_sha256": exp["validation_sha256"], "validate_spec": copy.deepcopy(exp["validate_spec"]),
+              "seating": copy.deepcopy(exp["seat_check"]), "print_check": copy.deepcopy(exp["print_check"]),
               "arview": ar_record, "cost": copy.deepcopy(result.get("budget")),
-              "summary": finished.get("summary", "")}
+              "summary": summary, "finished": not draft, "accepted_finish": not draft,
+              "run_status": result.get("status")}
+    if draft:
+        report.update(source_checkpoint=copy.deepcopy(source), checkpoint_selection=selection,
+                      failed_checks=_failed_checks(report))
     if "path" in report["validate_spec"]:
         report["validate_spec"]["path"] = "model.glb"
     if "glb" in report["seating"]:
@@ -212,10 +242,19 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
     return manifest, files
 
 
+def _failed_checks(report):
+    failed = [name for name in ("validate_spec", "seating", "print_check")
+              if report[name].get("ok") is not True]
+    if report["arview"].get("status") != "ok" or report["arview"].get("exit_code") != 0:
+        failed.append("arview")
+    return failed
+
+
 def _resolved_report(directory: Path, report: dict) -> dict:
     report = copy.deepcopy(report)
     ar = report["arview"]
-    ar["report"] = str(_inside(directory, ar["report"]))
+    if ar.get("report"):
+        ar["report"] = str(_inside(directory, ar["report"]))
     ar["sheets"] = [str(_inside(directory, path)) for path in ar["sheets"]]
     for rec in ar["images"]:
         for field in ("path", "source_path"):
@@ -252,7 +291,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
             or manifest.get("model") != "model.glb" or manifest.get("report") != "report.json"):
         raise DeliveryError("delivery manifest identity changed")
     records = manifest.get("files")
-    if not isinstance(records, dict) or not {"model.glb", "report.json", "arview/report.json"} <= records.keys():
+    if not isinstance(records, dict) or not {"model.glb", "report.json"} <= records.keys():
         raise DeliveryError("delivery manifest is incomplete")
     contents, folded = {}, set()
     for name, rec in records.items():
@@ -277,25 +316,52 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     exit_head = report.get("exit_checkpoint") or {}
     validation, seating = report.get("validate_spec"), report.get("seating")
     printing = report.get("print_check")
+    draft = report.get("finished") is False
+    if "finished" in report and type(report["finished"]) is not bool:
+        raise DeliveryError("delivery finished flag is invalid")
     if (manifest.get("glb_sha256") != sha or (pointer and pointer.get("glb_sha256") != sha)
             or report.get("schema") != REPORT_SCHEMA or report.get("job_id") != root.name
             or report.get("run_id") != manifest.get("run_id") or report.get("glb_sha256") != sha
             or report.get("validation_sha256") != sha or not isinstance(validation, dict)
-            or validation.get("ok") is not True or validation.get("sha256") != sha
+            or validation.get("sha256") != sha
             or not report.get("checkpoint") or not report.get("fingerprint") or not isinstance(exit_head, dict)
-            or exit_head.get("verified") is not True or exit_head.get("id") != report.get("checkpoint")
-            or (seating is not None and (not isinstance(seating, dict) or seating.get("ok") is not True))
-            or (printing is not None and (not isinstance(printing, dict) or printing.get("ok") is not True
+            or (not draft and (validation.get("ok") is not True or exit_head.get("verified") is not True
+                               or exit_head.get("id") != report.get("checkpoint")
+                               or ("accepted_finish" in report and report["accepted_finish"] is not True)
+                               or ("run_status" in report and report["run_status"] != "completed")))
+            or (seating is not None and (not isinstance(seating, dict)
+                                         or (not draft and seating.get("ok") is not True)))
+            or (printing is not None and (not isinstance(printing, dict)
+                                         or (not draft and printing.get("ok") is not True)
                                          or printing.get("glb_sha256") != sha))):
         raise DeliveryError("delivery report does not bind the validated finished model")
-    _capture_files(directory, report.get("arview"), sha)
+    if draft:
+        source = report.get("source_checkpoint")
+        if (report.get("accepted_finish") is not False or report.get("run_status") not in DRAFT_STATUSES
+                or report.get("checkpoint_selection") not in ("best", "head")
+                or not isinstance(source, dict) or source.get("verified") is not True
+                or source.get("id") != report["checkpoint"] or source.get("fingerprint") != report["fingerprint"]
+                or not isinstance(report["fingerprint"], str) or not _DIGEST.fullmatch(report["fingerprint"])
+                or not isinstance(source.get("sha256"), str) or not _DIGEST.fullmatch(source["sha256"])
+                or not isinstance(seating, dict) or not isinstance(printing, dict)
+                or seating.get("glb_sha256") != sha
+                or any(type(check.get("ok")) is not bool for check in (validation, seating, printing))
+                or report.get("failed_checks") != _failed_checks(report)
+                or contents.get("arview/attempt.json") != _json_bytes(report.get("arview"))):
+            raise DeliveryError("draft report does not bind its source and reported checks")
+    elif "arview/report.json" not in records:
+        raise DeliveryError("delivery manifest is incomplete")
+    _capture_files(directory, report.get("arview"), sha, draft=draft)
     sheets = manifest.get("contact_sheets")
-    if sheets != report["arview"]["sheets"] or not sheets or any(path not in records for path in sheets):
+    if (sheets != report["arview"]["sheets"] or (not sheets and not draft)
+            or any(path not in records for path in sheets)):
         raise DeliveryError("delivery contact sheets disagree with the report")
     resolved = _resolved_report(directory, report)
     return {"status": "delivered", "id": delivery_id, "delivery_id": delivery_id, "glb_sha256": sha,
+            "finished": not draft, "run_status": report.get("run_status", "completed"),
             "model": str(directory / "model.glb"), "report": str(directory / "report.json"),
-            "contact_sheet": str(directory / sheets[0]), "contact_sheets": [str(directory / p) for p in sheets],
+            "contact_sheet": str(directory / sheets[0]) if sheets else None,
+            "contact_sheets": [str(directory / p) for p in sheets],
             "manifest": str(manifest_path), "manifest_sha256": _sha(manifest_bytes), "report_data": resolved}
 
 
@@ -324,6 +390,10 @@ def deliver_finished(root, scene, result) -> dict:
         return {"status": "not_finished", "run_status": result.get("status")}
     root = Path(root).resolve()
     manifest, files = _prepare(root, scene, result)
+    return _publish(root, manifest, files)
+
+
+def _publish(root, manifest, files):
     deliveries = _output_path(root, "deliveries")
     deliveries.mkdir(exist_ok=True)
     dest = _output_path(root, deliveries / manifest["id"])
@@ -352,3 +422,145 @@ def deliver_finished(root, scene, result) -> dict:
                             "manifest_sha256": loaded["manifest_sha256"]})
     return {**loaded, "snapshot_model": loaded["model"], "snapshot_report": loaded["report"],
             "model": str(root / "deliverable/model.glb"), "report": str(root / "deliverable/report.json")}
+
+
+def _last_summary(root: Path, result: dict) -> str | None:
+    """Only public assistant text, never user/tool messages or encrypted reasoning."""
+    final = result.get("final_output")
+    if isinstance(final, str) and final.strip():
+        return final
+    transport = _inside(root, Path("runs") / _relative(result["run_id"]) / "transport")
+    for path in sorted(transport.glob("*-response.json"), reverse=True):
+        try:
+            payload = _document(path.read_bytes(), "response")
+        except (OSError, DeliveryError):
+            continue
+        output = payload.get("output")
+        if not isinstance(output, list):
+            continue
+        for item in reversed(output):
+            if not isinstance(item, dict) or item.get("type") != "message" or item.get("role") != "assistant":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            text = "\n".join(p["text"] for p in content if isinstance(p, dict)
+                             and p.get("type") == "output_text" and isinstance(p.get("text"), str))
+            if text.strip():
+                return text
+    return None
+
+
+def _draft_export(root: Path, scene, result: dict) -> tuple[dict, dict, str]:
+    """Reopen a verified copy with no session/journal, so head, best and history cannot move."""
+    from .journal import CheckpointIndex
+    from .worker_client import WorkerClient
+    from .seeing import EXPORT_DEADLINE_S
+
+    index = CheckpointIndex(root / "checkpoints")
+    head = index.head
+    expected = result.get("exit_checkpoint") or getattr(scene.s, "head", None) or {}
+    if (not head or not expected.get("id") or head["id"] != expected["id"]
+            or (expected.get("sha256") is not None and head.get("sha256") != expected["sha256"])):
+        raise DeliveryError("no checkpoint, or the job head changed after this run ended")
+    best = getattr(scene, "best_checkpoint", None)
+    selected = index.get(best) if best else head
+    if not selected:
+        raise DeliveryError("the checkpoint marked best is missing")
+    if not isinstance(selected.get("fingerprint"), str) or not _DIGEST.fullmatch(selected["fingerprint"]):
+        raise DeliveryError("checkpoint fingerprint is missing or invalid")
+    blend, data = _read(root / "checkpoints", _relative(selected.get("file")), selected.get("sha256", ""))
+    token = "draft-" + uuid4().hex
+    work = _output_path(root, Path("work/drafts") / token)
+    copied = work / "source.blend"
+    _write_file(copied, data)
+    path = _output_path(root, Path("work/exports") / token / "model.glb")
+    path.parent.mkdir(parents=True, exist_ok=False)
+    worker = WorkerClient(root, start_blend=copied, worker_dir=work / "worker",
+                          blender=getattr(scene.s, "blender", None), selftest=getattr(scene.s, "selftest", False))
+    try:
+        worker.start()
+        if worker.hello.get("fingerprint") != selected["fingerprint"]:
+            raise DeliveryError("draft worker did not open the selected checkpoint exactly")
+        export = worker.call("export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S)
+        if (export.get("status") != "exported" or export.get("fingerprint_before") != selected["fingerprint"]
+                or export.get("fingerprint_after") != selected["fingerprint"] or export.get("unchanged") is not True):
+            raise DeliveryError("selected checkpoint has no unchanged usable export: " + str(export.get("message", "")))
+        receipt = export.get("receipt") or {}
+        if not receipt.get("object_count") or not receipt.get("triangle_count"):
+            raise DeliveryError("selected checkpoint has no exported geometry")
+        if Path(export.get("path", "")).resolve() != path:
+            raise DeliveryError("draft export returned a different output path")
+        _read(root, path, export.get("sha256", ""))
+        _read(root, blend, selected["sha256"])
+        return ({**export, "checkpoint": selected["id"], "fingerprint": selected["fingerprint"],
+                 "validation_sha256": export["sha256"]}, {**selected, "verified": True}, "best" if best else "head")
+    finally:
+        worker.close()
+
+
+def _draft_checks(root, export):
+    from ..g3d_host import seat_check, spec
+    from . import print_freshness
+
+    path, sha = export["path"], export["sha256"]
+    for name, checker in (("validate_spec", lambda: spec.validate_spec(path)),
+                          ("seat_check", lambda: seat_check.check_glb(path)),
+                          ("print_check", lambda: print_freshness.check_current_print(path, root))):
+        try:
+            check = checker()
+            if not isinstance(check, dict) or type(check.get("ok")) is not bool:
+                raise ValueError("check did not return an explicit pass/fail result")
+        except Exception as exc:
+            # A readable draft survives a broken check, but its report explicitly records that failure.
+            check = {"ok": False, "status": "check_failed", "error": f"{type(exc).__name__}: {exc}"}
+        binding = "sha256" if name == "validate_spec" else "glb_sha256"
+        if check.get(binding, sha) != sha:
+            check = {"ok": False, "status": "check_failed", "error": "check describes different GLB bytes"}
+        export[name] = {**check, binding: sha}
+    _read(root, path, sha)
+
+
+def _draft_capture(root, export, token):
+    from .tools import arview
+
+    base = {"export_sha256": export["sha256"], "glb_sha256": export["sha256"],
+            "checkpoint": export["checkpoint"], "fixed_scale": True,
+            "appearance_policy": arview.AR_APPEARANCE_POLICY, "lens_env_intensity": arview.LENS_ENV_INTENSITY,
+            "images": [], "sheets": [], "report": None, "exit_code": None}
+    try:
+        ar = {**base, **arview.capture(root, export, token)}
+        capture = _capture_files(root, ar, export["sha256"], draft=True)
+        return ar, capture
+    except Exception as exc:
+        # Keep the host attempt rather than attributing an unavailable/invalid renderer report to this GLB.
+        return ({**base, "status": "infrastructure_failed", "code": "E_DRAFT_CAPTURE",
+                 "message": f"{type(exc).__name__}: {exc}"}, ({}, [], [], []))
+
+
+def deliver_draft(root, scene, result) -> dict:
+    """Host-only salvage of an unfinished run; no model call, accepted finish or checkpoint mutation."""
+    from .budget import JobLedger, JobLedgerError
+
+    if result.get("status") not in DRAFT_STATUSES:
+        return {"status": "not_finished", "run_status": result.get("status")}
+    root = Path(root).resolve()
+    refusal = {"status": "no_usable_checkpoint", "finished": False, "accepted_finish": False,
+               "run_status": result["status"], "run_id": result.get("run_id")}
+    try:
+        # run_astra has released this lock. Reacquire before selection and hold through publication, preventing
+        # resume from changing the source/evidence while a draft is exported, checked and captured.
+        with JobLedger(root):
+            try:
+                export, source, selection = _draft_export(root, scene, result)
+            except Exception as exc:
+                return {**refusal, "reason": f"{type(exc).__name__}: {exc}"}
+            _draft_checks(root, export)
+            ar, (capture, raw, shown, contact) = _draft_capture(root, export, "draft-" + uuid4().hex)
+            _, model = _read(root, export["path"], export["sha256"])
+            manifest, files = _package(root, result, export, source["id"], source["fingerprint"],
+                                       result.get("exit_checkpoint") or {}, _last_summary(root, result),
+                                       ar, model, capture, raw, shown, contact, source=source, selection=selection)
+            return _publish(root, manifest, files)
+    except JobLedgerError as exc:
+        return {**refusal, "reason": str(exc)}

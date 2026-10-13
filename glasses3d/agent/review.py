@@ -6,6 +6,7 @@ never stopped or silently replaced. A binding is published only after the live r
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import http.client
 import json
@@ -105,7 +106,7 @@ def _serve(node, model, port, launch):
     return state, paths[0], method, log_path
 
 
-def _verify(state, model, digest, requested_port, method):
+def _verify(state, model, digest, requested_port, method, *, draft=False):
     if (not isinstance(state, dict) or state.get("schema") != "arview.serve-state/1"
             or state.get("ready") is not True or type(state.get("pid")) is not int or state["pid"] <= 0
             or not isinstance(state.get("instance"), str) or not state["instance"]
@@ -124,7 +125,8 @@ def _verify(state, model, digest, requested_port, method):
             or (report.get("handover") or {}).get("lensenv") != LENS_ENV_INTENSITY
             or report.get("page_url") != state.get("url")):
         raise ReviewError("live AR report differs from this server, delivery or fixed lens appearance")
-    if report.get("errors") or (report.get("verdict") or {}).get("spec_ok") is not True:
+    spec_ok = (report.get("verdict") or {}).get("spec_ok")
+    if report.get("errors") or (spec_ok is not True and not (draft and spec_ok is False)):
         raise ReviewError("live AR report has errors or cannot confirm the delivered specification")
     page = urlsplit(state["url"])
     query = parse_qs(page.query)
@@ -144,12 +146,28 @@ def _verify(state, model, digest, requested_port, method):
     return report
 
 
+def _delivery_context(delivered):
+    """Review readiness is an identity check; the immutable delivery retains its finish and quality results."""
+    report = delivered.get("report_data") or {}
+    finished = report.get("finished") is not False  # immutable historical deliveries were accepted finishes
+    ar = report.get("arview") or {}
+    return {"finished": finished, "accepted_finish": finished,
+            "run_status": report.get("run_status", "completed" if finished else None),
+            "delivery_report": delivered.get("report"),
+            "delivery_checks": {"validate_spec": copy.deepcopy(report.get("validate_spec")),
+                                "seating": copy.deepcopy(report.get("seating")),
+                                "print_check": copy.deepcopy(report.get("print_check")),
+                                "arview": {key: copy.deepcopy(ar[key]) for key in
+                                           ("status", "exit_code", "errors", "warnings") if key in ar}}}
+
+
 def review_job(root, delivery_id=None, port=8251):
     """Start and verify the immutable delivery's detached webcam page; return its URL and saved hash binding."""
     if type(port) is not int or (port != 0 and not 1024 <= port <= 65535):
         raise ReviewError("port must be 0 or an integer from 1024 to 65535")
     root = Path(root).resolve()
     delivered = delivery.load_delivery(root, delivery_id)
+    delivery_context = _delivery_context(delivered)
     model = Path(delivered["model"]).resolve()
     node = shutil.which("node")
     if node is None:
@@ -159,7 +177,8 @@ def review_job(root, delivery_id=None, port=8251):
     state = None
     try:
         state, state_path, method, startup_log = _serve(node, model, port, launch)
-        report = _verify(state, model, delivered["glb_sha256"], port, method)
+        report = _verify(state, model, delivered["glb_sha256"], port, method,
+                         draft=delivery_context["finished"] is False)
         # A delivery rewritten during startup cannot acquire an owner-review binding.
         checked = delivery.load_delivery(root, delivered["delivery_id"])
         if (checked["glb_sha256"] != delivered["glb_sha256"]
@@ -173,7 +192,8 @@ def review_job(root, delivery_id=None, port=8251):
                              "detached": True, "method": method, "state_path": str(state_path),
                              "report_url": state["report_url"], "log": state.get("log"),
                              "startup_log": str(startup_log), "started_at": state.get("started_at")},
-                  "server_status": report.get("status"), "warnings": report.get("warnings", [])}
+                  "server_status": report.get("status"), "warnings": report.get("warnings", []),
+                  **delivery_context}
         procs.write_json_atomic(launch / "review.json", result)
         procs.write_json_atomic(root / "review" / "current.json", result)
         return result
@@ -197,4 +217,7 @@ def reviewed_delivery(root):
             or checked["manifest_sha256"] != record.get("manifest_sha256")
             or Path(record.get("model", "")).resolve() != Path(checked["model"]).resolve()):
         raise ReviewError("saved owner review refers to changed delivery evidence")
-    return record
+    context = _delivery_context(checked)
+    if any(key in record and record[key] != value for key, value in context.items()):
+        raise ReviewError("saved owner review changes the delivery's finish or check results")
+    return {**record, **context}

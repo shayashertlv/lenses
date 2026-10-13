@@ -265,12 +265,31 @@ def estimate(initial_tokens: int, requests: int, max_output_tokens: int, *,
     }
 
 
-def smoke_estimate(text_chars: int, *, tariff: Tariff | None = None) -> dict:
-    """WP8 step 0 (``job run --smoke``): the estimate at SMOKE_SETTINGS for a brief of ``text_chars`` characters
-    and one image, with the first and the largest hold; refused (EstimateError) when even the p90 run would need more
-    than the $1.00 smoke cap."""
-    settings = SMOKE_SETTINGS
+def smoke_estimate(text_chars: int, *, tariff: Tariff | None = None, images: int = 1,
+                   cap_usd="1.00", one_request: bool = False) -> dict:
+    """One-request assembled-job smoke prices all photos against its owner's cap using fresh uncached input.
+
+    With ``one_request=False``, preserve the historical two-turn, one-image Studio forecast and its evidence.
+    Neither estimate is a live token count; the guard still admits only a counted reservation within the cap.
+    """
     tariff = Tariff.frozen() if tariff is None else tariff
+    if one_request:
+        initial = initial_context_tokens(text_chars, images)
+        result = estimate_g3d(initial, 1, SMOKE_SETTINGS["max_output_tokens"], tariff=tariff)
+        cap = usd_to_micro(cap_usd)
+        hold = tariff.reserve_micro(initial, SMOKE_SETTINGS["max_output_tokens"])
+        if cap <= 0 or hold > cap or result["expected_micro_usd"] >= cap:
+            raise EstimateError(f"the one-request smoke needs a ${usd_text(hold)} hold at {initial} context tokens, "
+                                f"outside the ${usd_text(cap)} smoke cap")
+        return result | {"smoke": {"images": images, "max_output_tokens": SMOKE_SETTINGS["max_output_tokens"],
+                                  "max_turns": 1, "cap_usd": usd_text(cap)},
+                         "cap_micro_usd": cap, "suggested_cap_micro_usd": cap,
+                         "suggested_cap_usd": usd_text(cap), "first_hold_micro_usd": hold,
+                         "largest_hold_micro_usd": hold,
+                         "text": (f"One smoke request: expected {cents_text(result['expected_micro_usd'])}; "
+                                  f"estimated maximum hold {cents_text(hold)} within the ${usd_text(cap)} cap. "
+                                  "Fresh uncached input; all job photos included. The live token count controls admission.")}
+    settings = SMOKE_SETTINGS
     initial = initial_context_tokens(text_chars, settings["images"])
     result = estimate(initial, settings["max_turns"], settings["max_output_tokens"], tariff=tariff)
     cap = usd_to_micro(settings["cap_usd"])

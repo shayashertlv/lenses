@@ -159,6 +159,98 @@ def test_saved_review_rejects_changed_delivery_or_manifest(delivered, server):
         R.reviewed_delivery(root)
 
 
+def _draft(item):
+    item.update(finished=False, run_status="budget_limit", report="immutable/report.json",
+                report_data={"finished": False, "accepted_finish": False, "run_status": "budget_limit",
+                             "validate_spec": {"ok": False, "errors": ["unfinished frame"]},
+                             "seating": {"ok": False, "errors": ["lens is not seated"]},
+                             "print_check": {"ok": False, "status": "stale"},
+                             "arview": {"status": "spec_failed", "exit_code": 3,
+                                        "errors": [], "warnings": ["draft specification failed"]}})
+
+
+def test_failed_check_draft_can_be_reviewed_without_becoming_a_finished_delivery(delivered, server):
+    root, item = delivered
+    _draft(item)
+    before = copy.deepcopy(item)
+    _state, report, _calls = server
+    report['verdict']['spec_ok'] = False
+    got = R.review_job(root, port=18251)
+    assert got['status'] == 'ready' and got['finished'] is got['accepted_finish'] is False
+    assert got['run_status'] == 'budget_limit' and got['delivery_report'] == item['report']
+    assert got['delivery_checks'] == {key: item['report_data'][key] for key in
+                                      ('validate_spec', 'seating', 'print_check', 'arview')}
+    assert R.reviewed_delivery(root) == got and item == before
+
+
+@pytest.mark.parametrize('finished', [True, None, 'false', 0])
+def test_only_explicit_draft_report_can_review_a_failed_spec(delivered, server, finished):
+    root, item = delivered
+    item['finished'] = False  # top-level convenience field cannot override immutable report semantics
+    item['report_data'] = {} if finished is None else {'finished': finished}
+    _state, report, _calls = server
+    report['verdict']['spec_ok'] = False
+    with pytest.raises(R.ReviewError, match='specification'):
+        R.review_job(root, port=18251)
+    assert not (root / 'review/current.json').exists()
+
+
+@pytest.mark.parametrize('defect', ['unavailable_spec', 'report_error', 'served_sha', 'server', 'appearance', 'bytes'])
+def test_draft_review_preserves_infrastructure_and_identity_refusals(delivered, server, monkeypatch, defect):
+    root, item = delivered
+    _draft(item)
+    _state, report, _calls = server
+    report['verdict']['spec_ok'] = False
+    if defect == 'unavailable_spec': report['verdict']['spec_ok'] = None
+    elif defect == 'report_error': report['errors'] = ['check timed out']
+    elif defect == 'served_sha': report['served_sha256'] = 'f' * 64
+    elif defect == 'server': report['server']['instance'] = 'unrelated'
+    elif defect == 'appearance': report['handover']['lensenv'] = 2
+    else:
+        original = R._loopback
+        def wrong_bytes(port, route, **kwargs):
+            return (200, {}, b'wrong') if route.startswith('/__arview/models/') else original(port, route, **kwargs)
+        monkeypatch.setattr(R, '_loopback', wrong_bytes)
+    with pytest.raises(R.ReviewError):
+        R.review_job(root, port=18251)
+    assert not (root / 'review/current.json').exists()
+
+
+@pytest.mark.parametrize('field,value', [('finished', True), ('accepted_finish', True),
+                                         ('run_status', 'completed'), ('delivery_checks', {})])
+def test_saved_draft_review_cannot_promote_or_hide_its_checks(delivered, server, field, value):
+    root, item = delivered
+    _draft(item)
+    _state, report, _calls = server
+    report['verdict']['spec_ok'] = False
+    got = R.review_job(root, port=18251)
+    got[field] = value
+    (root / 'review/current.json').write_text(json.dumps(got))
+    with pytest.raises(R.ReviewError, match='finish or check results'):
+        R.reviewed_delivery(root)
+
+
+def test_draft_verdict_notes_keep_exact_asset_identity_and_reach_resume_input(delivered, server):
+    from glasses3d.agent import verdicts as V
+    from glasses3d.agent.session_inputs import plan_session_input
+    root, item = delivered
+    _draft(item)
+    _state, report, _calls = server
+    report['verdict']['spec_ok'] = False
+    R.review_job(root, port=18251)
+    binding = R.reviewed_delivery(root)
+    words = 'Keep the colour.\nSeat the left lens; this draft is unfinished.'
+    row = V.append_verdict(root, 'changes', words, delivery_id=binding['delivery_id'],
+                           expected_sha256=binding['glb_sha256'])
+    assert row['manifest_sha256'] == item['manifest_sha256'] and row['notes'] == words
+    notes = V.pending_notes(root)
+    assert len(notes) == 1 and notes[0].endswith('\n' + words) and item['glb_sha256'] in notes[0]
+    plan = plan_session_input([], prompt='Resume the saved head.', photos=(), owner_notes=notes,
+                              invocation_text='Offline draft resume.')
+    assert words in json.dumps(plan.content, ensure_ascii=False).replace('\\n', '\n')
+    assert item['report_data']['finished'] is False and item['report_data']['validate_spec']['ok'] is False
+
+
 @pytest.mark.parametrize("port", [-1, 1023, 65536, True, 8251.0])
 def test_invalid_port_cannot_start_a_server(delivered, monkeypatch, port):
     root, _item = delivered
