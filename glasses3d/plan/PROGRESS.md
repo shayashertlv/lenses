@@ -11,7 +11,7 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 **Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
-validation, owner OK per run). M0 and M1 are complete; next action: M2.
+validation, owner OK per run). M0, M1 and M2 are complete; next action: M3.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
@@ -91,6 +91,57 @@ Open: M2 instructions/image policy/estimate, M3 owner review, M4 specialist stag
 A pre-existing library-only compare crop-name collision (`crop-01` photo plus generated `crop-01`) is not exposed by
 the generic registry (which has no crop argument); keep it in view when assembling M4 packages. No open M1 tool defect.
 
+## Assembly M2 (2026-10-13, $0; complete, implementation commit `0f2d282`)
+
+Replaced the old WP7 proposal with object/evidence/stage teaching and an actual registry contract. The prompt quotes
+the owner's seven-row model table exactly, preserves D1-D4, explains each current report, and names specialist tools
+only when registered. Size: 6,836 characters now, 7,923 with all seven planned specialists, under the 8,000 cap.
+Sixty-eight instruction checks passed, including retired-language witnesses and real report-field contracts.
+The brief has one structured source for host prose and verbatim owner data: the retired-language check scans host
+prose, while the complete owner description/specifications/names/photos remain approval-bound. This implements the
+design's owner-text exclusion; it does not relax any geometry, export, budget or quality check.
+
+Generic runs now apply their image policy before request 1 and every three requests thereafter, plus the existing
+pressure triggers. Image occurrences are keyed by call, output position and digest; a new cached image cannot be
+mistaken for an old one. Every image has an adjacent call/checkpoint-or-source-revision/view label. Photos and their
+crops stay; superseded generated evidence becomes recoverable notes with paths, retaining the latest evidence per
+view, current picks and the selected best checkpoint. `save_checkpoint(best=True)` makes that selection explicit and
+durable. A new best selection can restore old images from the unchanged session on resume. Legacy facet settings
+without a cadence retain their existing behavior. M4's nested facet stage must opt into the assembled image policy
+and carry these labels when that stage is registered.
+
+The scripted ten-request proof exercised epochs 1/4/7/10, identical counted/sent payloads, duplicate image bytes,
+best-state restoration at resume, retained photos and intact session history. Image-policy/tools/session-input checks:
+88 passed before the final additions; final affected set 71 passed in 24.26 s, plus the path assertion and the new
+unspecified-view label passed in the logged late run (2/2). Fixture-only correction: the best-state test's FakeSession
+needed the real checkpoint index. No production gate was changed.
+
+Recalibrated job estimation on all eight complete paid glasses runs: 231 requests, $48.768638 recorded settlement.
+The token-only fixture is reproduced from verified canonical ledgers; no prompts, photos, keys or provider IDs are
+copied. The causal model uses an uncached first request, reuse of the preceding prefix, and token-exposure growth.
+Honest leave-one-run-out median absolute error is **6.4634%**, within the unchanged <=10% check; independently fitting
+the same method to all thirteen Studio runs gives **8.6787%**. The original Studio forecast and exact tests remain.
+All 34 estimate checks passed. Individual glasses-run errors range -26.07% to +31.14%; the forecast states that the
+corpus covers one product's temple stage, predates pruning and assumes no pruning savings. Live money guards govern.
+
+End-to-end offline assembly proof passed in **71.875 s**, job `synthetic-assembly-proof-2bf7632f`: eight scripted real
+SDK tool calls, actual Blender fitting/rendering, validated export and fixed-scale AR. All fit gates unchanged and
+passing; 16 transport receipts, 8 tool journals/settlements, 9 verified image blobs, 14 AR images, clean receipts.
+Mock settlement $2.718465; **actual API spend $0**, production transports and non-loopback networking blocked.
+
+Full suite: **2,690 unique Python tests passed after isolated/late reruns, 11 existing WP4 skips**. Main run:
+2,448 passed, 4 failed, 11 skipped in 682.30 s (8 workers/loadfile). The failures were the already-fixed fake-index
+fixture, 50 ms fit timing under load, the launcher's EcoQoS watcher changing a measured child default, and the lab's
+variant-image check under load. First three applicable cases passed alone 3/3 in 34.45 s; EcoQoS passed without the
+external watcher 1/1 in 0.25 s. One new unspecified-view test was collected after the main run and passed separately.
+Print: **237/237 in 184.55 s**, two workers/loadfile. Arview: **497 unit + 103 QA passed**, TypeScript clean.
+
+Evidence: `data/assembly/m2_{main,rerun,qos,print,proof,root,late,ar_unit,ar_qa,ar_tsc}.log` and adjacent UTC/argv/PID/
+exit receipts. `m2_image_policy.receipt.json` records the agent's captured targeted-test output. Free commit before
+main/print was 22.47/23.75 GiB; BLAS 1, EcoQoS opt-out, no overlapping heavy pools. No push, paid call, loosened gate
+or open M2 defect. The M1 root `data/` artifact remains untracked after its blocked cleanup. Next: M3 delivery and
+owner review; the existing WP4 proof skips remain scheduled for M4a.
+
 ## Status
 
 | WP | State |
@@ -99,8 +150,8 @@ the generic registry (which has no crop argument); keep it in view when assembli
 | WP4 | Geometric tools complete and tested; the visual half of `check_lens_seating` (junction captures) and photo-derived hide ranges were never built. The last proof grades P3 34/40, P4 109/112 (+2 owner pending), P5 31/32 with 5 open owner decisions (review 2026-10-13, §5). The real-product proof is **stale** (whole-file hashes; changed: `g3d/__init__.py`, `g3d/export_glb.py`, `g3d/seat/geom.py`, all inert for WP4): 11 of 24 `test_seat_real` tests skip. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
 | WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
-| WP2 | A–C verified; D–F not built |
-| WP7 | Design only ([WP7_DESIGN.md](WP7_DESIGN.md)) |
+| WP2 | A–F assembled and proven offline in M0–M2; delivery/review expansion in M3, specialists in M4 |
+| WP7 | Implemented and proven in M2 ([WP7_DESIGN.md](WP7_DESIGN.md)); specialist paragraphs activate with M4 registration |
 | WP8 | Not started (paid; owner OK per run) |
 
 ## WP6 v2 build order (WP6_FACETS §6)
