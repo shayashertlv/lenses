@@ -108,7 +108,7 @@ request again. Never run from a rehearsal directory.
 ## Tests
 
 `tests/agent/test_temple_lab_cli.py` pins only what WP6_V3 §6 asks of the prompt (the v3 tool names, `{K}`, no photo
-id or product word, no retired or removed phrase, at most 9,000 characters, the finish text against
+id or product word, no retired or removed phrase, at most 9,500 characters, the finish text against
 `state.finish_missing`; precondition 5's verb is not pinned while the prompt says "judged" and the state checks
 "shown"), every brief line (on the real pose basis when the git-ignored data is present; the conflict and precision
 numbers against the investigation's own tables when present) and the estimate (the largest images against a real pick

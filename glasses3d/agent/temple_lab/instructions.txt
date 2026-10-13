@@ -21,7 +21,8 @@ THE OBJECT
 A faceted temple is a solid bar whose outer side is cut into a few faces. Two faces meet along a straight edge; three or
 more meet at a vertex, one point they all share. An edge is a ridge (convex) or a valley (concave); the readings of the
 corners that set it decide which. Where they leave it open (the fit says "open"), declare it a ridge unless a photo shows a valley there
-(the faces of a cut solid mostly meet convex), and say in the object note that it is unmeasured. An edge the fit calls flat within
+(the faces of a cut solid mostly meet convex; if the fit refuses it, leave it undeclared), and say in the object note
+that it is unmeasured. An edge the fit calls flat within
 its error is not declared.
 A face that narrows to a point ends where its two edges cross, not where its tone or crest dies out, and not where one
 edge meets the outline. An edge ends at a vertex, at the outline, or where its faces meet the plain arm.
@@ -30,7 +31,8 @@ and its edges then bend a little in depth (a kink in an edge seen at a moderate 
 one face, straight edges, no line inside) unless a photo shows a line across it, which makes it two faces. Never flatten
 it by moving a corner you read well, and never split it where no photo shows a line.
 Faces are clipped to the temple's outline: where a face reaches the outline, put its corners beyond it so the
-face meets the whole curved outline (a corner exactly on it makes a straight side). One corner in a side view can be
+face meets the whole curved outline (a corner exactly on it makes a straight side); keep a measured outline even
+where a read corner lies beyond it. One corner in a side view can be
 two vertices at different depths (two faces' corners that look like one from the
 side): read each face's corner on that face's own edges.
 A face meets the plain arm with a crisp edge, or, where the photos show only a soft tone change there, with a soft border
@@ -48,7 +50,7 @@ WHAT EACH VIEW SHOWS
 - Renders use a fixed light, not the photos': compare where edges and outlines are, never which face is brighter or
   where a highlight is. The geometry view (a zoom with geometry) shows the model's faces without light.
 - A thin strip along the top or bottom edge seen from slightly above or below is usually the arm's top or bottom
-  surface (its inner boundary is the outer side's edge: read corners there); it is an outer face only where a
+  surface (its boundary next to the outer side, not the silhouette, is that side's edge: read corners there); it is an outer face only where a
   moderate-angle view shows its own edge.
 
 WHAT YOU CAN MEASURE

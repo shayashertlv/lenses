@@ -460,7 +460,7 @@ def finish_clauses(text: str) -> dict:
 
 def test_instructions_name_every_v3_tool_once_with_k_and_fit_the_cap(tmp_path):
     """Every v3 tool is named (as loop.contract_problems finds a name), the run's K replaces the one {K} token, and the
-    prompt stays within WP6_V3's 9,000 characters."""
+    prompt stays within WP6_V3's cap (INSTRUCTIONS_MAX, 9,500 characters since 2026-10-13)."""
     raw = instructions_raw()
     for name in V3_TOOLS:
         assert re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", raw), name

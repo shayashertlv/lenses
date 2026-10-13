@@ -373,6 +373,24 @@ Proofs ($0): T5 v3 47/47 (`data/wp6v2/lab/t5_v3b`); full suite from the repo roo
 failures that pass alone, and the stale WP5 test_a4 (untouched, WP5 closed); estimate `data/wp6v2/lab/estimate_v3.json`
 at effort max: 40 replies $15.02 (up to $21.67), 60 replies $32.22 (up to $46.11). Commits 8378bc4, 4c24124.
 
+**Blind stand-in rehearsal (2026-10-13, $0, TOOL TEST).** A Claude agent played Astra with only instructions.txt, the
+brief, the photos and the real registry (harness `review_20261012/v3/standin/drive.py`, report STANDIN_REPORT.md). It
+found the photos' layout itself (logo, four faces around it, the top triangle as one warp face because its lower edge
+bends at the logo corner, the faceting ending at d 74) and finished "matched" in 31 calls (c0013); its one typed depth
+(the top triangle's peak P) made the top ridges 44.5/55.3 deg and the band render white. Prompt additions it showed
+were missing: faces clipped by corners beyond a curved outline; the top strip's boundary next to the outer side is
+that side's edge; an open edge sign is declared a ridge (the convex prior fills open signs only). With them it read P
+(t 5.45; the review's independent 5.29-5.50) and finished again (c0015): top triangle|logo 22.6, top|upper-back 32.8,
+logo back diagonal 6.5, hinge-side edge a 2.5 ridge (readings -3.5 +- 3.0: open). Owner-complaint checklist
+(WP6_V3 §8, `data/wp6v2/result_v3_rehearsal2/checklist.md`): c0015 holds 9 of 10 (the tip at d 74.0, 1.5 mm short:
+F unread), run 7 7 of 10. Options sheet: a fold adds a 10.6 deg line inside the top triangle; flat brings back the
+logo corner 1.75 mm in and a 3.2 deg back diagonal. Sheets `data/wp6v2/result_v3_rehearsal2/`; 3D viewer default
+`viewer/v3_rehearsal.glb`.
+Final checks: full suite (10 workers) no WP6 failure (load-only failures pass alone; stale WP5 test_a4 untouched); T5
+`t5_v3c` 47/47; estimate `estimate_v3.json` 40 replies $15.06 (up to $21.71), 60 replies $32.27 (up to $46.18).
+Package `data/wp6v2/lab/package_008` and request `facet-astra-008` (cap $30, effort max, no reply cap, K 4) prepared,
+UNAPPROVED (request sha 6d205b95…, registry 5613828a…).
+
 ## Decisions (owner's words verbatim)
 
 - **2026-10-12, after the investigation:** "please fix wp6. do very very hard work!!! come back to me when you think

@@ -6,13 +6,16 @@ Models, each sha-checked and opened as a byte copy in its own worker job on the 
 open_job; the result sheet's path, wp6v2_result_sheet):
 - ORIGINAL, PREFERRED (wp6v2_owner_sheet.MODELS);
 - RUN 7: paid run facet-astra-007's best checkpoint (lab/package_007 c0007, revision 7);
-- V3 REHEARSAL: the stand-in's finish (review_20261012/v3/standin/pkg c0013, revision 15: its top triangle U = A, P, F,
-  B one warp face);
+- V3 REHEARSAL: a finish of the stand-in (review_20261012/v3/standin/pkg; its top triangle U = A, P, F, B one warp
+  face), chosen by --head (HEADS): c0015, revision 19 (the default: its finish after STANDIN_REPORT's Addendum, P read
+  at t 5.45, A-C and B-E declared ridges) -> result_v3_rehearsal2; or c0013, revision 15 (its first finish, P typed
+  3.5 mm) -> result_v3_rehearsal, the 2026-10-13 build;
 - the top triangle's two other readings, FOLD (U1 = A P B and U2 = P F B, flat, a line P-B) and FLAT (U one plane):
-  each one facet_edit from revision 15 through the lab (Lab._edit: geometry.apply_edits -> fit_spec with the stored
-  readings -> build -> temple_lab_build -> checkpoint) on a copy of the stand-in package (<out>/lab_copy), the same
-  readings and declarations (flat: the fit refuses it with them, E_FIT_SHAPE on the B-E ridge, recorded; the built
-  flat leaves that one crease to the fit).
+  each one facet_edit from the head's revision through the lab (Lab._edit: geometry.apply_edits -> fit_spec with the
+  stored readings -> build -> temple_lab_build -> checkpoint) on a copy of the stand-in package (<out>/lab_copy), the
+  same readings and declarations. Flat with the head's declarations is tried first; when the fit refuses it
+  (E_FIT_SHAPE, recorded with the fit's own per-crease costs), the built flat leaves the costliest declaration it
+  names to the fit, then the next, until the fit accepts (both heads: the B-E ridge alone).
 
 Rendering: the job's rig studio_dome_v1 (the owner's choice "c", 2026-10-11). The photo pages (reference-0N.png,
 black-*.png) use the existing sheet path: compare_to_photos with one crop per photo (the union of the models' temple
@@ -23,18 +26,21 @@ roughness 0.55, under the same rig), since no light reproduces the photos' facet
 faces by shape. Creases on a photo are the build's own model edges (build.model_edges, the lab's; run 7's from its
 revision 7 rebuilt), drawn by seeing's compare overlay and zoom with their built angles.
 
-Run from the repo root, in order (each step reads what the earlier wrote under OUT):
+Run from the repo root, in order (each step reads what the earlier wrote under OUT; add --head c0013 to every step for
+the earlier build):
     glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.wp6v3_owner_sheet options
         copy the stand-in package, build fold and flat -> options.json (receipts, fit lines, checkpoints)
     ... wp6v3_owner_sheet render      compares and renders -> render/, render.json
     ... wp6v3_owner_sheet sheets      the PNGs
-    ... wp6v3_owner_sheet export      the v3 head's GLB (the finish's lab export) -> viewer/v3_rehearsal.glb
+    ... wp6v3_owner_sheet export      every head's GLB (the finish's lab export) -> viewer/ (HEADS' viewer files: c0015
+                                      v3_rehearsal.glb, c0013 v3_rehearsal_c0013.glb), the chosen head first and default
     ... wp6v3_owner_sheet numbers     the checklist numbers -> numbers.json
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -43,8 +49,11 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from glasses3d.agent.seeing import Seeing
+from glasses3d.agent.temple_lab import geometry as G
 from glasses3d.g3d.temple import build as BLD
 from glasses3d.g3d.temple import build_temple
+from glasses3d.g3d.temple import fit as FIT
+from glasses3d.g3d.temple.spec import TempleError
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
@@ -54,24 +63,45 @@ from glasses3d.tests.proofs import wp6v2_owner_sheet as OS
 G3D = Path(__file__).resolve().parents[2]
 DATA = G3D / "data"
 W6 = DATA / "wp6v2"
-OUT = W6 / "result_v3_rehearsal"
 STANDIN = W6 / "review_20261012" / "v3" / "standin" / "pkg"
 PKG7 = W6 / "lab" / "package_007"
-LABCOPY = OUT / "lab_copy"
 VIEWER = W6 / "viewer"
 RIG = "studio_dome_v1"
 LABEL = "v3 rehearsal: a stand-in model playing Astra with the v3 tools, $0"
-HEAD_REV = 15                   # the stand-in's finish: c0013, revision 15 (STANDIN_REPORT.md)
 RUN7_REV = 7                    # run 7's best: package_007 c0007, revision 7
-V3_GLB = ("head-2f58b7c780bdafed.glb", "93f9abfffe9031d2b7e5980a8dc26413197ba236bdce3218b3f9dfdecff91954")
+# the stand-in's finishes (STANDIN_REPORT.md), each with its revision, output folder, checkpoint sha, the lab's own
+# finish export (file, sha256) and its 3D viewer entry (key, label, file)
+HEADS = {
+    "c0015": {"revision": 19, "out": W6 / "result_v3_rehearsal2",       # the Addendum's finish (calls 32-40)
+              "blend": "8bc6e09f640e1162d6c5e9f3298d79cd2981d0a5e3e9b6c1b861c1bc2700c357",
+              "glb": ("head-71984b0902431083.glb", "b8a72136b85f8fb621165a163104ca7b2525bc97f86e27d65af23095168b90e9"),
+              "viewer": ("v3rehearsal", "v3 rehearsal c0015 (stand-in tool test)", "v3_rehearsal.glb")},
+    "c0013": {"revision": 15, "out": W6 / "result_v3_rehearsal",        # the first finish (call 31)
+              "blend": "f5bfe2fbe0487a0f6af3bca777d841cbdd83ddabb956a843dad5e725e1304181",
+              "glb": ("head-2f58b7c780bdafed.glb", "93f9abfffe9031d2b7e5980a8dc26413197ba236bdce3218b3f9dfdecff91954"),
+              "viewer": ("v3rehearsal13", "v3 rehearsal c0013 (earlier finish)", "v3_rehearsal_c0013.glb")},
+}
+HEAD = "c0015"                  # the head the sheets show (use_head; --head)
+HEAD_REV = HEADS[HEAD]["revision"]
+OUT = HEADS[HEAD]["out"]
+LABCOPY = OUT / "lab_copy"
 MODELS = {
     "original": OS.MODELS["original"],
     "run7": ("ASTRA RUN 7", PKG7 / "checkpoints" / "c0007.blend",
              "3b4435b27313854367aec10c389087c9cad3b36d3d9311b03c1d3aaeed5924e1"),
-    "v3": ("V3 REHEARSAL", STANDIN / "checkpoints" / "c0013.blend",
-           "f5bfe2fbe0487a0f6af3bca777d841cbdd83ddabb956a843dad5e725e1304181"),
+    "v3": ("V3 REHEARSAL", STANDIN / "checkpoints" / f"{HEAD}.blend", HEADS[HEAD]["blend"]),
     "preferred": ("PREFERRED (10-10)",) + OS.MODELS["preferred"][1:],
 }
+
+
+def use_head(name: str) -> None:
+    """Point the module at one of HEADS: HEAD, HEAD_REV, OUT, LABCOPY and MODELS["v3"]."""
+    global HEAD, HEAD_REV, OUT, LABCOPY
+    HEAD, HEAD_REV, OUT = name, HEADS[name]["revision"], HEADS[name]["out"]
+    LABCOPY = OUT / "lab_copy"
+    MODELS["v3"] = ("V3 REHEARSAL", STANDIN / "checkpoints" / f"{name}.blend", HEADS[name]["blend"])
+
+
 PAGE_MODELS = ("original", "run7", "v3", "preferred")
 PHOTOS = ("reference-01", "reference-02", "reference-03", "reference-04", "reference-05", "reference-06",
           "black-side", "black-angled", "black-front")
@@ -89,15 +119,17 @@ FACE_MARKS = (("1", "L", {"A": 0.65, "B": 0.10, "C": 0.25}, (35, 144, 220)),
               ("4", "U", {"A": 0.25, "P": 0.25, "F": 0.25, "B": 0.25}, (140, 60, 200)))
 FACE_NAMES = {"1": "logo triangle", "2": "upper-back triangle", "3": "lower-back triangle", "4": "top triangle"}
 
-# the top triangle's other two readings (WP6_V3 §2: the owner sheet shows warp, fold and flat), from revision 15
-OPTION_OBJECT = ("TOOL TEST by the coding agent on a copy (not Astra's, not the stand-in's): revision 15's layout and "
-                 "readings with the top band U built as {what}. Faces L (A B C), LL (A C H H0), RL (B E R70..R30 C), "
-                 "RU (B F E) as revision 15; edges L|U and RU|U declared ridges as revision 15.")
+# the top triangle's other two readings (WP6_V3 §2: the owner sheet shows warp, fold and flat), from the head's
+# revision ({rev}); flat's "edits" are completed by flat_left (the declarations the fit refuses with a flat U)
+OPTION_OBJECT = ("TOOL TEST by the coding agent on a copy (not Astra's, not the stand-in's): revision {rev}'s layout "
+                 "and readings with the top band U built as {what}. Faces L (A B C), LL (A C H H0), RL (B E R70..R30 "
+                 "C), RU (B F E) and the crease declarations as revision {rev}{left}.")
+FLAT_U = {"op": "set_facet", "label": "U", "poly": ["A", "P", "F", "B"], "plane": {"mode": "flat"}, "soft": False}
 OPTIONS = {
     "fold": {"title": "(b) FOLD: two flat faces, a line from the peak P to the logo corner B",
              "note": "tool test: U as two flat faces U1 = A P B, U2 = P F B (a line P-B), the same readings",
-             "object": OPTION_OBJECT.format(what="a fold: two flat faces U1 = A P B and U2 = P F B with a line P-B "
-                                                 "(its angle left to the fit)"),
+             "what": "a fold: two flat faces U1 = A P B and U2 = P F B with a line P-B (its angle left to the fit)",
+             "left": ", L|U and RU|U as L|U1 and RU|U2",
              "edits": [{"op": "delete_facet", "label": "U"},
                        {"op": "set_facet", "label": "U1", "poly": ["A", "P", "B"], "plane": {"mode": "flat"},
                         "soft": False},
@@ -105,23 +137,21 @@ OPTIONS = {
                         "soft": False},
                        {"op": "set_crease", "facets": ["L", "U1"], "shape": "ridge"},
                        {"op": "set_crease", "facets": ["RU", "U2"], "shape": "ridge"}]},
-    # with revision 15's declarations the fit refuses a flat U (E_FIT_SHAPE: the declared RL|RU ridge B-E then costs
-    # chi2 +4.7, readings-only -5.1 +- 3.4 deg); the refusal is recorded and "flat" leaves that one crease to the fit
-    "flat_declared": {"title": "FLAT with revision 15's declarations",
+    # with the head's declarations the fit refuses a flat U on both heads (E_FIT_SHAPE; c0013: the declared RL|RU
+    # ridge B-E costs chi2 +4.7, readings-only -5.1 +- 3.4 deg; c0015: +6.4 in all, B-E +6.0, A-C +0.6); the refusal
+    # is recorded and "flat" leaves the declarations flat_left names to the fit
+    "flat_declared": {"title": "FLAT with the head's declarations",
                       "note": "tool test: U one flat face A P F B, the same readings and declarations",
-                      "object": OPTION_OBJECT.format(what="one flat face A P F B (the fit moves its corners within "
-                                                          "their errors to make them one plane)"),
-                      "edits": [{"op": "set_facet", "label": "U", "poly": ["A", "P", "F", "B"],
-                                 "plane": {"mode": "flat"}, "soft": False}]},
+                      "what": "one flat face A P F B (the fit moves its corners within their errors to make them one "
+                              "plane)",
+                      "left": "",
+                      "edits": [FLAT_U]},
     "flat": {"title": "(c) FLAT: one plane, the fit spreading the misfit",
-             "note": "tool test: U one flat face A P F B, the same readings; RL|RU (B-E) left to the fit, since the "
-                     "fit refuses its declared ridge with a flat U (E_FIT_SHAPE)",
-             "object": OPTION_OBJECT.format(what="one flat face A P F B (the fit moves its corners within their "
-                                                 "errors to make them one plane); the RL|RU edge B-E is not declared "
-                                                 "(with a flat U the fit refuses its ridge, E_FIT_SHAPE)"),
-             "edits": [{"op": "set_facet", "label": "U", "poly": ["A", "P", "F", "B"], "plane": {"mode": "flat"},
-                        "soft": False},
-                       {"op": "delete_crease", "facets": ["RL", "RU"]}]},
+             "note": "tool test: U one flat face A P F B, the same readings; {pairs} left to the fit, since the fit "
+                     "refuses the declaration with a flat U (E_FIT_SHAPE)",
+             "what": "one flat face A P F B (the fit moves its corners within their errors to make them one plane)",
+             "left": ", except {pairs}: not declared (with a flat U the fit refuses it, E_FIT_SHAPE)",
+             "edits": [FLAT_U]},
 }
 BUILT_OPTIONS = ("fold", "flat")
 AS_BUILT = "(a) AS BUILT: one warp face, its lower edge bending at the logo corner B"
@@ -170,10 +200,10 @@ def copy_package() -> None:
             n += 1
             p.write_text(u, encoding="utf-8")
     (LABCOPY / "TOOL_TEST.txt").write_text(
-        "TOOL TEST copy of the v3 blind stand-in's package (review_20261012/v3/standin/pkg), 2026-10-13: the top "
-        "triangle's fold and flat readings built from revision 15 through the lab for the owner sheet "
-        f"(tests/proofs/wp6v3_owner_sheet.py). Never Astra input, never a deliverable. {n} JSON files repointed.\n",
-        encoding="utf-8")
+        "TOOL TEST copy of the v3 blind stand-in's package (review_20261012/v3/standin/pkg), "
+        f"{C._utc()[:10]}: the top triangle's fold and flat readings built from revision {HEAD_REV} ({HEAD}) through "
+        "the lab for the owner sheet (tests/proofs/wp6v3_owner_sheet.py). Never Astra input, never a deliverable. "
+        f"{n} JSON files repointed.\n", encoding="utf-8")
 
 
 def crease_record(tb, fit) -> list:
@@ -223,6 +253,48 @@ def build_facts(tb, fit, spec: dict) -> dict:
     return out
 
 
+def shape_refusal(design: dict, readings: dict) -> dict | None:
+    """The fit's E_FIT_SHAPE facts for a design (fit.fit_spec with the stored readings, as Lab._fit_build calls it; the
+    lab's refusal keeps the message only): {dchi2, chi2_free, creases [{pair, declared, dchi2, free_deg,
+    free_sd_deg}]} (dchi2 None: it cannot be built at all), or None when the fit accepts the design."""
+    try:
+        FIT.fit_spec(design, readings=readings)
+    except TempleError as e:
+        if e.code != "E_FIT_SHAPE":
+            raise
+        return {"dchi2": e.fields.get("dchi2"), "chi2_free": e.fields.get("chi2_free"),
+                "creases": [{k: c.get(k) for k in ("pair", "declared", "dchi2", "free_deg", "free_sd_deg")}
+                            for c in e.fields.get("creases") or []]}
+    return None
+
+
+def flat_left(lab, edits: list) -> tuple:
+    """(the declared pairs flat leaves to the fit, the fit's refusal facts on the way): the head's revision with
+    ``edits`` (U flat) and, while the fit refuses E_FIT_SHAPE, the costliest declaration it names deleted (one that
+    cannot be built at all first), then the next, until the fit accepts."""
+    base, readings = lab.design(HEAD_REV), lab.readings()
+    left, refusals = [], []
+    while True:
+        design, _notes = G.apply_edits(base, edits + [{"op": "delete_crease", "facets": list(p)} for p in left],
+                                       reset_layout=False, readings=readings, facts={})
+        r = shape_refusal(design, readings)
+        if r is None:
+            return left, refusals
+        refusals.append(r)
+        named = sorted((c for c in r["creases"] if c["pair"] not in left),
+                       key=lambda c: -(float("inf") if c["dchi2"] is None else c["dchi2"]))
+        if not named:
+            raise RuntimeError(f"flat: the fit refuses it with no declaration left to remove: {r}")
+        left.append(named[0]["pair"])
+
+
+def edge_name(facets: dict, pair) -> str:
+    """'RL|RU (B-E)': a facet pair with the two corners its polygons share (build_facts' facets)."""
+    a, b = (facets[f]["poly"] for f in pair)
+    shared = [n for n in a if n in b]
+    return "|".join(pair) + (f" ({'-'.join(shared)})" if len(shared) == 2 else "")
+
+
 def options() -> dict:
     """Build fold and flat from revision HEAD_REV on a copy of the stand-in package (module doc)."""
     from glasses3d.agent.temple_lab import lab as LB
@@ -235,15 +307,29 @@ def options() -> dict:
     try:
         res["head"] = {"checkpoint": lab.s.head["id"], "fingerprint": lab.s.head["fingerprint"]}
         tb = lab.build(HEAD_REV)
-        res["as_built"] = {"revision": HEAD_REV, "checkpoint": "c0013", "blend": str(MODELS["v3"][1]),
-                           "crease_lines": LB.crease_lines(tb, lab.fit_result(HEAD_REV), lab.raw_edges(HEAD_REV)),
+        fit = lab.fit_result(HEAD_REV)
+        res["as_built"] = {"revision": HEAD_REV, "checkpoint": HEAD, "blend": str(MODELS["v3"][1]),
+                           "crease_lines": LB.crease_lines(tb, fit, lab.raw_edges(HEAD_REV)),
                            "model_edges": lab.model_edges(HEAD_REV), "hinge": lab.spec(HEAD_REV)["hinge"],
-                           "facts": build_facts(tb, lab.fit_result(HEAD_REV), lab.spec(HEAD_REV))}
+                           "facts": build_facts(tb, fit, lab.spec(HEAD_REV)),
+                           "P": {k: fit.nodes["P"].get(k) for k in ("source", "t", "sd_X", "X")}}
+        left, refusals = flat_left(lab, OPTIONS["flat"]["edits"])
+        pairs = ", ".join(edge_name(res["as_built"]["facts"]["facets"], p) for p in left)
         for name, o in OPTIONS.items():
+            edits = o["edits"] + ([{"op": "delete_crease", "facets": list(p)} for p in left] if name == "flat" else [])
+            said = name != "flat" or bool(left)          # a flat the fit accepts as declared leaves nothing out
+            obj = OPTION_OBJECT.format(rev=HEAD_REV, what=o["what"], left=o["left"].format(pairs=pairs) if said else "")
+            note = o["note"].format(pairs=pairs) if said else OPTIONS["flat_declared"]["note"]
             t0 = time.perf_counter()
-            r = lab._edit(f"owner-{name}", HEAD_REV, False, o["edits"], o["note"], o["object"], True, ["B1"])
+            r = lab._edit(f"owner-{name}", HEAD_REV, False, edits, note, obj, True, ["B1"])
             rec = {k: v for k, v in r.items() if k not in ("images",)}
             rec["seconds"] = round(time.perf_counter() - t0, 1)
+            rec["edits"] = edits
+            if name == "flat_declared":
+                rec["fit_refusal"] = refusals[0] if refusals else None
+            if name == "flat":
+                rec["left_to_fit"] = left
+                rec["fit_refusals"] = refusals
             if r.get("status") == "applied":
                 rid = r["revision"]
                 ck = r["checkpoint"]
@@ -506,10 +592,11 @@ def wrap(text: str, f, width: int) -> list:
 
 
 def banner(width: int, size: int = 22) -> Image.Image:
-    """The tool-test label every image carries (LABEL), white on dark red, wrapped to ``width``."""
+    """The tool-test label every image carries (LABEL and the stand-in finish shown), white on dark red, wrapped to
+    ``width``."""
     f = font(size, True)
     step = int(size * 1.35)
-    lines = wrap(LABEL, f, width - 24)
+    lines = wrap(f"{LABEL}; its finish {HEAD}, revision {HEAD_REV}", f, width - 24)
     im = Image.new("RGB", (width, 14 + step * len(lines)), BANNER_BG)
     dr = ImageDraw.Draw(im)
     for i, ln in enumerate(lines):
@@ -631,7 +718,18 @@ def faces_sheet(R: dict) -> Image.Image:
     return vstack([banner(W)] + blocks)
 
 
-def angled_sheet(R: dict) -> Image.Image:
+def crease_text(creases: list) -> list:
+    """One line per facet|facet crease of build_facts' creases, then the facet|base ones: 'L|U ridge 22.6 (21.3-33.1)'
+    (the range along the edge when it spans 0.5 deg or more)."""
+    rows = sorted(creases, key=lambda c: ("base" in c["pair"], c["pair"]))
+    return [f"{c['pair']} {c['shape']} {c['deg']:.1f}" + (f" ({c['range'][0]:.1f}-{c['range'][1]:.1f})"
+                                                          if c["range"][1] - c["range"][0] >= 0.5 else "")
+            for c in rows]
+
+
+def angled_sheet(R: dict, O: dict) -> Image.Image:
+    """B2: a grid photo | Astra run 7 | v3 rehearsal at the whole glasses (gloss, clay, creases on the photo), then the
+    close-up of the charted temple with each model's built crease angles beside it."""
     rows = R["rows"]
     rid = ANGLED[0]
     photo = img(rows["v3"]["angled"]["files"]["photo"])
@@ -639,21 +737,30 @@ def angled_sheet(R: dict) -> Image.Image:
     zooms = {n: next(z for z in R["creases"][n] if z["rid"] == ANGLED_ZOOM[0] and tuple(z["box"]) == ANGLED_ZOOM[1])
              for n in ("run7", "v3")}
     c7, cv = clay_rows([rows[n]["angled"]["files"]["clay"] for n in ("run7", "v3")])
+    body = vstack([hstack([cell(photo, "PHOTO B2 (black angled)", W),
+                           cell(img(rows["run7"]["angled"]["files"]["render"]),
+                                "ASTRA RUN 7: gloss black render, same camera", W),
+                           cell(img(rows["v3"]["angled"]["files"]["render"]),
+                                "V3 REHEARSAL: gloss black render, same camera", W)]),
+                   hstack([cell(photo, "PHOTO B2", W), cell(c7, "ASTRA RUN 7: clay", W),
+                           cell(cv, "V3 REHEARSAL: clay", W)]),
+                   hstack([cell(photo, "PHOTO B2", W),
+                           cell(img(R["creases"]["run7_overlay"][rid]), "ASTRA RUN 7: its creases on the photo", W),
+                           cell(img(R["creases"]["v3_overlay"][rid]), "V3 REHEARSAL: its creases on the photo", W)])],
+                  10)
     trio = hstack([titled(["photo"], img(zooms["v3"]["panels"]["photo"]), None, 19),
                    titled(["Astra run 7's creases"], img(zooms["run7"]["panels"]["overlay"]), None, 19),
                    titled(["the v3 rehearsal's creases"], img(zooms["v3"]["panels"]["overlay"]), None, 19)])
-    blocks = [titled(["REAL GLASSES (black angled photo B2)"], photo, W),
-              titled(["ASTRA RUN 7 (gloss black render, same camera)"], img(rows["run7"]["angled"]["files"]["render"]),
-                     W),
-              titled(["V3 REHEARSAL (gloss black render, same camera)"], img(rows["v3"]["angled"]["files"]["render"]),
-                     W),
-              titled(["ASTRA RUN 7: clay", CLAY_NOTE], c7, W),
-              titled(["V3 REHEARSAL: clay"], cv, W),
-              titled(["ASTRA RUN 7's creases on the photo", EDGE_KEY], img(R["creases"]["run7_overlay"][rid]), W),
-              titled(["V3 REHEARSAL's creases on the photo"], img(R["creases"]["v3_overlay"][rid]), W),
-              titled(["Close-up of the charted temple, larger than native scale: each crease labelled with its built "
-                      "angle (degrees; - = valley; a-b = its range along the edge)"], trio, W)]
-    return vstack([banner(max(trio.width, W))] + blocks)
+    side = body.width - trio.width - 24
+    angles = hstack([titled(["Astra run 7 (c0007)"] + crease_text(run7_facts()["creases"]), None, side // 2 - 8, 21),
+                     titled([f"V3 rehearsal ({HEAD})"] + crease_text(O["as_built"]["facts"]["creases"]), None,
+                            side // 2 - 8, 21)])
+    close = hstack([trio, titled(["Built crease angles, degrees (the length-weighted mean; the range along the edge "
+                                  "in brackets)"], angles, side, 22)], 24)
+    notes = titled(["How to read the rows", CLAY_NOTE, EDGE_KEY], None, body.width, 22)
+    title = ("Close-up of the charted temple, larger than native scale: each crease labelled with its built angle "
+             "(degrees; - = valley; a-b = its range along the edge)")
+    return vstack([banner(body.width, 26), notes, body, titled([title], close, body.width, 24)])
 
 
 def cell(im: Image.Image, label: str, width: int) -> Image.Image:
@@ -695,25 +802,65 @@ def options_sheet(R: dict, O: dict) -> Image.Image:
     lc = {c["pair"]: c for c in o["flat"]["facts"]["creases"]}
     ac = {c["pair"]: c for c in O["as_built"]["facts"]["creases"]}
     bx = o["flat"]["facts"]["facets"]["L"]["corners"]["B"][2] - O["as_built"]["facts"]["facets"]["L"]["corners"]["B"][2]
-    misfit = next((ln.split(": ", 1)[1] for ln in o["flat"]["facts"]["fit_lines"] if ln.startswith("misfit beyond")),
-                  "")
+    misfit = fit_line(o["flat"]["facts"]["fit_lines"], "misfit beyond").split(": ", 1)[-1]
     head = titled([
         "The top triangle (face 4: the v3 rehearsal's face U = A, P, F, B) built three ways from the same readings",
         f"{AS_BUILT}. L|U ridge {ac['L|U']['deg']:.1f} deg, RU|U ridge {ac['RU|U']['deg']:.1f} deg; no line inside "
-        "the face. This is the stand-in's delivered head.",
-        f"{OPTIONS['fold']['title']}. The line P-B is a ridge of {fc['U1|U2']['deg']:.1f} deg; L|U1 "
+        f"the face. This is the stand-in's delivered head ({HEAD}, revision {HEAD_REV}).",
+        f"{OPTIONS['fold']['title']}. The line P-B is a {fc['U1|U2']['shape']} of {fc['U1|U2']['deg']:.1f} deg; L|U1 "
         f"{fc['L|U1']['deg']:.1f}, RU|U2 {fc['RU|U2']['deg']:.1f}; every other face as built.",
-        f"{OPTIONS['flat']['title']}. With the stand-in's declarations the fit refuses it (E_FIT_SHAPE: the declared "
-        "B-E ridge would cost chi2 +4.7), so B-E is left to the fit. To make A, P, F, B one plane the fit moves the "
+        f"{OPTIONS['flat']['title']}. {flat_refusal_text(O)} To make A, P, F, B one plane the fit moves the "
         f"logo corner B off its reading ({misfit}); built, B sits {abs(bx):.2f} mm "
         f"{'further in' if bx < 0 else 'further out'} than in (a). Then L|U {lc['L|U']['deg']:.1f}, RU|U "
         f"{lc['RU|U']['deg']:.1f}, the logo's back diagonal L|RL {lc['L|RL']['deg']:.1f} (as built "
-        f"{ac['L|RL']['deg']:.1f}), B-E a {lc['RL|RU']['deg']:.1f} deg {lc['RL|RU']['shape']} (as built a "
-        f"{ac['RL|RU']['deg']:.1f} deg ridge).",
-        "(b) and (c) are the coding agent's builds through the lab on a copy of the stand-in's package (the same "
-        "readings, P's typed 3.5 mm thickness): tool tests, not the stand-in's or Astra's choice. The photo and every "
-        "render use the same camera, the job's light and the photo's contrast."], None, W, 30)
+        f"{ac['L|RL']['deg']:.1f})" + "".join(
+            f", {edge_name(O['as_built']['facts']['facets'], p)} a {lc['|'.join(p)]['deg']:.1f} deg "
+            f"{lc['|'.join(p)]['shape']} (as built a {ac['|'.join(p)]['deg']:.1f} deg {ac['|'.join(p)]['shape']})"
+            for p in o["flat"].get("left_to_fit", [["RL", "RU"]])) + ".",     # an options.json before left_to_fit
+        f"(b) and (c) are the coding agent's builds through the lab on a copy of the stand-in's package (the same "
+        f"readings, {p_text(O)}): tool tests, not the stand-in's or Astra's choice. The photo and every render use the "
+        "same camera, the job's light and the photo's contrast."], None, W, 30)
     return vstack([banner(W, 30), head, body])
+
+
+def fit_line(lines: list, start: str) -> str:
+    """The fit report line that starts with ``start``, its wrapped continuations (indented entries) joined, spaces
+    collapsed; "" when there is none."""
+    out = None
+    for ln in lines:
+        if out is None:
+            out = [ln] if ln.startswith(start) else None
+        elif ln.startswith(" "):
+            out.append(ln)
+        else:
+            break
+    return " ".join(" ".join(out).split()) if out else ""
+
+
+def flat_refusal_text(O: dict) -> str:
+    """What the fit said to a flat U with the head's declarations (options' fit_refusal), and what flat left out."""
+    o = O["options"]
+    facets = O["as_built"]["facts"]["facets"]
+    fr = o["flat_declared"].get("fit_refusal")
+    left = [edge_name(facets, p) for p in o["flat"].get("left_to_fit") or []]
+    if fr is None:
+        return ("With the stand-in's declarations the fit accepts it." if o["flat_declared"].get("status") != "refused"
+                else f"With the stand-in's declarations the fit refuses it ({o['flat_declared'].get('code')}).")
+    costs = ", ".join(f"{edge_name(facets, c['pair'])} {c['declared']} " +
+                      ("cannot be built" if c["dchi2"] is None else f"+{c['dchi2']:.1f}") for c in fr["creases"])
+    total = "they cannot all be built" if fr["dchi2"] is None else f"chi2 +{fr['dchi2']:.1f} in all"
+    return (f"With the stand-in's declarations the fit refuses it (E_FIT_SHAPE, {total}: {costs}), so "
+            f"{' and '.join(left)} {'is' if len(left) == 1 else 'are'} left to the fit.")
+
+
+def p_text(O: dict) -> str:
+    """The peak P's thickness as the head has it: read or typed (options' as_built P)."""
+    p = O["as_built"].get("P") or {}
+    if p.get("source") == "typed":
+        return f"P's typed {p['t']:.1f} mm thickness"
+    if p.get("source") == "read":
+        return f"P read, fitted at t {p['t']:.2f} mm"
+    return "P as the head has it"
 
 
 def page_sheet(R: dict, rid: str) -> Image.Image:
@@ -741,7 +888,7 @@ def sheets() -> dict:
     R = jload(OUT / "render.json")
     O = jload(OUT / "options.json")
     made = {}
-    for name, fn in (("faces_v3.png", lambda: faces_sheet(R)), ("angled_v3.png", lambda: angled_sheet(R)),
+    for name, fn in (("faces_v3.png", lambda: faces_sheet(R)), ("angled_v3.png", lambda: angled_sheet(R, O)),
                      ("top_triangle_options.png", lambda: options_sheet(R, O))):
         im = fn()
         im.save(OUT / name)
@@ -756,34 +903,43 @@ def sheets() -> dict:
 
 
 # ------------------------------------------------------------------------------------------------- export
-VIEWER_ENTRY = "  {key: 'v3rehearsal', label: 'v3 rehearsal (stand-in tool test)', file: 'v3_rehearsal.glb'},\n"
+VIEWER_ENTRY = "  {{key: '{key}', label: '{label}', file: '{file}'}},\n"
 
 
 def export() -> dict:
-    """The v3 rehearsal's head GLB: the lab's own export of c0013 (facet_finish's, head-<fingerprint>.glb under the
-    stand-in package's work/exports; sha-checked and its fingerprint matched to c0013's) copied to the 3D viewer, which
-    lists it first and opens on it (the other models stay)."""
-    src = STANDIN / "work" / "exports" / V3_GLB[0]
-    if OS.sha(src) != V3_GLB[1]:
-        raise RuntimeError(f"{src}: sha changed")
+    """Every head's GLB (HEADS): the lab's own finish export of that checkpoint (head-<fingerprint>.glb under the
+    stand-in package's work/exports; sha-checked and its fingerprint matched to the checkpoint's) copied to the 3D
+    viewer as its HEADS file. The viewer lists them first, HEAD's first, and opens on HEAD's (an earlier v3 rehearsal
+    entry is replaced; the other models stay)."""
     rows = [json.loads(ln) for ln in (STANDIN / "checkpoints" / "index.jsonl").read_text(encoding="utf-8").splitlines()
             if ln.strip()]
-    fp = next(r["fingerprint"] for r in rows if r["id"] == "c0013")
-    if not V3_GLB[0].startswith(f"head-{fp[:16]}"):
-        raise RuntimeError(f"{V3_GLB[0]} is not c0013's export (fingerprint {fp[:16]})")
-    dst = VIEWER / "v3_rehearsal.glb"
-    shutil.copyfile(src, dst)
-    if OS.sha(dst) != V3_GLB[1]:
-        raise RuntimeError(f"{dst}: copy differs")
+    out = {}
+    for ck in [HEAD] + [h for h in HEADS if h != HEAD]:
+        name, want = HEADS[ck]["glb"]
+        src = STANDIN / "work" / "exports" / name
+        if OS.sha(src) != want:
+            raise RuntimeError(f"{src}: sha changed")
+        fp = next(r["fingerprint"] for r in rows if r["id"] == ck)
+        if not name.startswith(f"head-{fp[:16]}"):
+            raise RuntimeError(f"{name} is not {ck}'s export (fingerprint {fp[:16]})")
+        dst = VIEWER / HEADS[ck]["viewer"][2]
+        shutil.copyfile(src, dst)
+        if OS.sha(dst) != want:
+            raise RuntimeError(f"{dst}: copy differs")
+        out[ck] = {"glb": str(dst), "sha256": want, "revision": HEADS[ck]["revision"], "fingerprint": fp}
     page = VIEWER / "index.html"
     t = page.read_text(encoding="utf-8")
-    if "v3_rehearsal.glb" not in t:
-        t = t.replace("const MODELS = [\n", "const MODELS = [\n" + VIEWER_ENTRY, 1)
-    t = t.replace("currentKey = 'run7'", "currentKey = 'v3rehearsal'").replace("show('run7')", "show('v3rehearsal')")
-    if "v3_rehearsal.glb" not in t or "show('v3rehearsal')" not in t:
+    t = re.sub(r"  \{key: '[^']*', label: '[^']*', file: 'v3_rehearsal[^']*\.glb'\},\n", "", t)
+    entries = "".join(VIEWER_ENTRY.format(key=HEADS[ck]["viewer"][0], label=HEADS[ck]["viewer"][1],
+                                          file=HEADS[ck]["viewer"][2]) for ck in out)
+    t = t.replace("const MODELS = [\n", "const MODELS = [\n" + entries, 1)
+    key = HEADS[HEAD]["viewer"][0]
+    t = re.sub(r"currentKey = '[^']*'", f"currentKey = '{key}'", t, count=1)
+    t = re.sub(r"show\('[^']*'\)\.catch", f"show('{key}').catch", t, count=1)
+    if entries not in t or f"show('{key}').catch" not in t or f"currentKey = '{key}'" not in t:
         raise RuntimeError("viewer index.html: the model list or the default was not where expected")
     page.write_text(t, encoding="utf-8")
-    return {"glb": str(dst), "sha256": V3_GLB[1], "checkpoint": "c0013", "fingerprint": fp}
+    return {"heads": out, "default": key}
 
 
 # ------------------------------------------------------------------------------------------------- numbers
@@ -855,7 +1011,9 @@ def numbers() -> dict:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("step", choices=("options", "render", "sheets", "export", "numbers"))
+    ap.add_argument("--head", choices=tuple(HEADS), default=HEAD, help="the stand-in finish shown (HEADS)")
     a = ap.parse_args()
+    use_head(a.head)
     fn = {"options": options, "render": render, "sheets": sheets, "export": export, "numbers": numbers}[a.step]
     res = fn()
     print(json.dumps({"step": a.step, "seconds": res.get("seconds")}, indent=1))
