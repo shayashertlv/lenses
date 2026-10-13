@@ -11,7 +11,7 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 **Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
-validation, owner OK per run). M0, M1 and M2 are complete; next action: M3.
+validation, owner OK per run). M0-M3 are complete; next action: M4a, trusted lens seating.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
@@ -142,6 +142,48 @@ main/print was 22.47/23.75 GiB; BLAS 1, EcoQoS opt-out, no overlapping heavy poo
 or open M2 defect. The M1 root `data/` artifact remains untracked after its blocked cleanup. Next: M3 delivery and
 owner review; the existing WP4 proof skips remain scheduled for M4a.
 
+## Assembly M3 (2026-10-13, $0; complete, implementation commit `ebd5f47`)
+
+Finished jobs now publish immutable, content-bound deliveries: GLB, validation/seating/cost/checkpoint report,
+raw AR evidence, original contact sheets and the images actually shown to Astra. Every file's size and SHA-256
+are verified; an existing delivery is never overwritten. The current pointer and flat `deliverable/` copies remain
+convenient entry points, while verdicts identify immutable delivery IDs and GLB/manifest hashes. Publication requires
+an accepted finish, verified exit checkpoint and successful fixed-scale AR evidence for those exact bytes.
+
+`job review` starts the existing AR server through its Windows WMI detach path, verifies the live report and served
+GLB independently, and saves which delivery was reviewed. It uses the same fixed `lensenv=1` appearance as capture
+(D2), survives the launcher, refuses busy ports and never stops an unrelated server. `job verdict accept|changes`
+defaults to that reviewed delivery even after another delivery becomes current. An explicit ID or expected GLB SHA
+is also supported. The append-only, locked verdict chain detects edited/truncated/incomplete evidence. Notes remain
+verbatim, are bound into the next approval and enter a resumed SDK conversation once according to its actual history.
+Adding notes after approval invalidates the approval; no separate sent flag can lose a note on a failed run.
+
+Migrated the actual legacy ledger without modifying its source: **7 preserved records, 3 whole-product acceptances,
+4 scoped print/method decisions archived without promotion to product acceptance**. Repeating migration produced the
+same result. Source SHA-256 `9b73e59170c27bd83e0d9e8c1e3744cf2e3b93f34361b6d198b6b72964a8a5a5`;
+local outputs `data/ledger/verdicts.jsonl`, `verdicts.legacy.json`, `verdicts.migration.json`.
+
+Proof: `tests.proofs.assembly_m3` passed in **82.094 s**, using fresh synthetic job
+`synthetic-assembly-proof-3fcb965a`. It ran M1's actual Blender/fit/render/AR path, reviewed the immutable model in a
+real detached server, recorded a synthetic changes verdict and resumed twice through the scripted real SDK.
+Notes sent: **1 then 0**; all saved inputs contained the note exactly once. Both resumptions created new delivery IDs;
+the first model/report/manifest/contact sheet stayed byte-identical and the live server continued serving that first
+GLB. Receipt/image audits remained clean. **Actual API spend $0**; production transports and non-loopback networking
+were blocked. Targeted checks: CLI 23/23, delivery 45/45, verdicts 26/26, review plus AR tool checks 59/59.
+
+Full suite: **2,787 unique Python tests passed after isolated reruns, 11 existing WP4 skips**. Main run:
+2,548 passed, 2 failed, 11 skipped in 616.70 s (8 workers/loadfile). The unchanged 28-image renderer timing check
+took 120.24 s under load against its 60 s gate, then passed alone (whole test 17.08 s). The other failure was the
+external launcher's EcoQoS watcher changing the initial child state measured by the opt-out test; without that
+watcher it passed in 0.25 s. Print: **237/237 in 182.83 s**, two workers/loadfile with capped nested pools.
+Arview: **497 unit + 103 QA passed**, TypeScript clean. No gate or threshold changed.
+
+Evidence: `data/assembly/m3_{proof,cli,main,rerun,qos,print,ar_unit,ar_qa,ar_tsc}.log` and adjacent UTC/argv/PID/exit
+receipts; targeted agent logs `m3_delivery.log`, `m3_verdicts.log`. Free commit before main/print was 23.33/23.29 GiB;
+BLAS 1, EcoQoS opt-out, no overlapping heavy pools. Reviewed the complete M3 changes and the notes/verdict/proof
+integration independently. No push or open M3 defect. The earlier root `data/` fixture remains untracked after the
+automatic approval review blocked its cleanup move (reason: "blocked by policy"). Next: M4a, then M4b/c/d in order.
+
 ## Status
 
 | WP | State |
@@ -150,7 +192,7 @@ owner review; the existing WP4 proof skips remain scheduled for M4a.
 | WP4 | Geometric tools complete and tested; the visual half of `check_lens_seating` (junction captures) and photo-derived hide ranges were never built. The last proof grades P3 34/40, P4 109/112 (+2 owner pending), P5 31/32 with 5 open owner decisions (review 2026-10-13, §5). The real-product proof is **stale** (whole-file hashes; changed: `g3d/__init__.py`, `g3d/export_glb.py`, `g3d/seat/geom.py`, all inert for WP4): 11 of 24 `test_seat_real` tests skip. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
 | WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
-| WP2 | A–F assembled and proven offline in M0–M2; delivery/review expansion in M3, specialists in M4 |
+| WP2 | A–F assembled and proven offline in M0–M3, including immutable delivery and owner review; specialists in M4 |
 | WP7 | Implemented and proven in M2 ([WP7_DESIGN.md](WP7_DESIGN.md)); specialist paragraphs activate with M4 registration |
 | WP8 | Not started (paid; owner OK per run) |
 
