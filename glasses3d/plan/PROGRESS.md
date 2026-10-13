@@ -14,13 +14,14 @@ into one automation in milestones M0 (blocking fixes) → M1 (job intake, regist
 validation, owner OK per run). **M0-M4 are complete and proven offline**, including the owner-approved rimless
 matte expansion and the final full regression suite. **M5-prep items 1-4 are complete at $0**: the $20 working
 budget, unfinished draft delivery, isolated one-request smoke support, and the real Oakley job with a proven
-intake and unapproved run-1 estimate. **Next: the one smoke already approved by the owner at $1.**
+intake and unapproved run-1 estimate. **M5-prep and M5 step 0 are complete**: the one approved real smoke passed
+at $0.211823. **Next: owner approval for Oakley run 1; do not start it without that approval.**
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
-## Assembly M5-prep (2026-10-13; preparation complete, approved smoke pending)
+## Assembly M5-prep (2026-10-13; complete, implementation commit `bab7cb4`)
 
 Verified the requested checkout and branch `glasses3d` at `68e1ebf`; the owner's subsequent instruction adds
 `faee122`'s first-message working-limit correction and `4b9d6d2`'s temple-stage allowance correction. The owner explicitly approved exactly one smoke in advance:
@@ -122,6 +123,33 @@ gates were changed. Current non-print coverage is **3,120 unique tests passed**,
 workers. Final coverage: **3,434 Python tests passed** after the documented targeted/isolated reruns, plus
 **497 AR unit + 103 AR QA**, and TypeScript clean. All preparatory work cost $0. No check was loosened.
 Evidence: `m5prep_{main,isolated,qos_qos,collect,print,ar_unit,ar_qa,tsc}.log` and adjacent process receipts.
+
+### Approved smoke (M5 step 0; 2026-10-13, passed)
+
+After items 1-4 and the full suite passed, committed the implementation as `bab7cb4` on `glasses3d`, with explicit
+paths and no push. Recorded the owner's exact **"Yes, cap $1"** in the smoke approval and executed
+`job run --smoke oakley-oo9208-v2-cd068969 --run-id 20261013T161246-478a2a --env-file glasses3d/.env` through the
+existing credential loader. There was **exactly one real request** and one successful read-only `scene_summary`
+call; it ended `completed` with `smoke.ok:true`, no retry/continuation or modeling work.
+
+**Actual settled cost: $0.211823 (211,823 micro-USD)**, against the fresh $0.256900 estimate. The live count was
+16,227 input tokens; the guard reserved **$0.407638**, below the approved **$1 settled stop/$1 reserve cap**.
+Both request/response receipts are present, all six original photo blobs re-hash correctly, and the run ledger
+re-prices successfully. The job ledger contains one settled request, with **$0 held and $0 unknown**. Tool journal
+and normal-history checks confirm read-only operation and an isolated smoke conversation. No product finish or
+delivery was claimed. Runner exited 0 at 16:21:19 UTC. Audit: `data/assembly/m5oakley/smoke-audit.json`.
+
+Receipts and run ledger are under
+`data/jobs/oakley-oo9208-v2-cd068969/runs/20261013T161246-478a2a/` (`transport/`, `tools/`, `input-receipt.json`,
+`transcript.md`, `budget.json`, `result.json`); the cumulative ledger is `budget/job-ledger.json` in that job.
+This is usage-priced settled cost from the pipeline ledger; no secrets or environment files were committed.
+
+Refreshed the **unapproved** Oakley run-1 request after smoke startup created the empty seed, so its input binding
+is current: **`20261013T162219-edaa19`**, replacing the earlier pre-seed estimate for approval purposes. It remains
+**$14.966873 expected**, growth-only range **$13.209792-$20.127653**, $20 settled stop/$23 reserve, max effort,
+60 replies for forecasting only. The actual modeling run has no reply cap. The six labels above are unchanged.
+**Oakley run 1 has no approval or run ledger and was not started.** No open M5-prep defect; further paid product
+validation remains the owner's decision.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
