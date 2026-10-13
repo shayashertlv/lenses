@@ -15,6 +15,9 @@ from .. import procs
 
 ARVIEW = Path(__file__).resolve().parents[2] / "arview"
 EXIT_STATUS = {0: "ok", 1: "infrastructure_failed", 2: "usage_error", 3: "spec_failed", 4: "refused"}
+# D2: renderer.ts uses scene intensity 0.8; lensenv=1 preserves that native appearance for every product.
+LENS_ENV_INTENSITY = 1
+AR_APPEARANCE_POLICY = "g3d.ar_appearance/1"
 
 
 def sha256(path: Path) -> str:
@@ -91,7 +94,8 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
         return {"status": "infrastructure_failed", "code": "E_NODE", "message": "Node.js is not available"}
     out = output_dir(root, call_id)
     argv = [node, str(ARVIEW / "bin/arview.mjs"), "capture", str(model), "--out", str(out),
-            "--poses", "default", "--backgrounds", "skin", "--fixed-scale", "--no-portrait"]
+            "--poses", "default", "--backgrounds", "skin", "--fixed-scale", "--no-portrait",
+            "--lensenv", str(LENS_ENV_INTENSITY)]
     # The CLI requires an empty directory; put its log outside the capture directory until it has started.
     log_dir = out.with_name(out.name + "-process")
     log_dir.mkdir(exist_ok=False)
@@ -99,6 +103,7 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
     result = {"status": "timeout" if timed_out else EXIT_STATUS.get(code, "infrastructure_failed"),
               "code": "E_TIMEOUT" if timed_out else f"ARVIEW_EXIT_{code}", "exit_code": code,
               "fixed_scale": True, "poses": "default", "checkpoint": export["checkpoint"],
+              "appearance_policy": AR_APPEARANCE_POLICY, "lens_env_intensity": LENS_ENV_INTENSITY,
               "glb_sha256": export["sha256"], "export_sha256": export["sha256"],
               "log": str(log_dir / "capture.log"), "images": [], "sheets": []}
     report_path = out / "report.json"

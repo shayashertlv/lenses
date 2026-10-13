@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 from . import approvals as A, jobs, procs
-from . import job_run
+from . import job_run, review, verdicts
 from .budget import JobLedger, BudgetGuardError
 from .loop import RunRefused
 
@@ -24,7 +24,11 @@ def parser():
         create.add_argument("--" + key, type=Path, required=key != "specs")
     create.add_argument("--name", required=True)
     create.add_argument("--description", required=True)
-    for name in ("show", "estimate", "approve", "run", "stop"):
+    migrate = commands.add_parser("migrate-verdicts")
+    ledger_dir = Path(__file__).resolve().parents[1] / "data/ledger"
+    migrate.add_argument("--source", type=Path, default=ledger_dir / "owner_verdicts.jsonl")
+    migrate.add_argument("--ledger", type=Path, default=ledger_dir / "verdicts.jsonl")
+    for name in ("show", "estimate", "approve", "run", "stop", "review", "verdict"):
         cmd = commands.add_parser(name)
         cmd.add_argument("id")
         if name in ("approve", "run"):
@@ -40,6 +44,14 @@ def parser():
         elif name == "run":
             cmd.add_argument("--resume", action="store_true")
             cmd.add_argument("--foreground", action="store_true", help="default is a detached, logged runner")
+        elif name == "review":
+            cmd.add_argument("--delivery-id")
+            cmd.add_argument("--port", type=int, default=8251)
+        elif name == "verdict":
+            cmd.add_argument("verdict", choices=("accept", "changes"))
+            cmd.add_argument("--notes", required=True, help="Owner's exact words about this delivery")
+            cmd.add_argument("--delivery-id")
+            cmd.add_argument("--sha256")
     return ap
 
 
@@ -66,6 +78,8 @@ def run_id_for(root, requested):
 
 
 def dispatch(args):
+    if args.command == "migrate-verdicts":
+        return verdicts.migrate_legacy(args.source, args.ledger)
     if args.command == "create":
         root = jobs.create_job(images=args.images, views=args.views, name=args.name, description=args.description,
                                specs=args.specs, jobs_root=args.jobs_root)
@@ -84,6 +98,15 @@ def dispatch(args):
     if args.command == "stop":
         (root / "stop.requested").write_text("Owner requested stop.\n", encoding="utf-8")
         return {"status": "stop_requested", "job_id": root.name}
+    if args.command == "review":
+        return review.review_job(root, delivery_id=args.delivery_id, port=args.port)
+    if args.command == "verdict":
+        delivery_id, digest = args.delivery_id, args.sha256
+        if delivery_id is None and digest is None:
+            binding = review.reviewed_delivery(root)
+            delivery_id, digest = binding["delivery_id"], binding["glb_sha256"]
+        return verdicts.append_verdict(root, args.verdict, args.notes, delivery_id=delivery_id,
+                                       expected_sha256=digest)
     rid = run_id_for(root, args.run_id)
     if args.command == "approve":
         return A.write_approval(root / "runs" / rid, max_usd=args.max_usd, owner_words=args.owner_words,

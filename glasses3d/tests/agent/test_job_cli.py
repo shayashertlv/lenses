@@ -1,5 +1,6 @@
 """M1 CLI integration: real job/approval files, no model clients or Blender starts."""
 from dataclasses import replace
+import asyncio
 import hashlib
 import json
 from types import SimpleNamespace
@@ -10,7 +11,6 @@ import pytest
 
 from glasses3d.agent import approvals as A, cli, job_run, jobs
 from glasses3d.agent.budget import PaidRunBusy
-from glasses3d.tests import glbfab
 
 
 @pytest.fixture
@@ -164,16 +164,73 @@ def test_busy_paid_run_is_reported_without_launch(job, monkeypatch, capsys):
     assert not detach.called
 
 
+def test_review_dispatch_preserves_delivery_and_port(job, monkeypatch):
+    start = Mock(return_value={"status": "ready", "url": "http://127.0.0.1:8251/"})
+    monkeypatch.setattr(cli.review, "review_job", start)
+    assert command("review", job, "--delivery-id", "chosen", "--port", "8252")["status"] == "ready"
+    start.assert_called_once_with(job, delivery_id="chosen", port=8252)
+
+
+def test_verdict_defaults_to_reviewed_bytes_and_preserves_exact_notes(job, monkeypatch):
+    notes = "  Make this meeting point further out.\nKeep the lens colour.  "
+    monkeypatch.setattr(cli.review, "reviewed_delivery", lambda root: {
+        "delivery_id": "earlier-reviewed", "glb_sha256": "a" * 64})
+    append = Mock(return_value={"status": "recorded"})
+    monkeypatch.setattr(cli.verdicts, "append_verdict", append)
+    command("verdict", job, "changes", "--notes", notes)
+    append.assert_called_once_with(job, "changes", notes, delivery_id="earlier-reviewed", expected_sha256="a" * 64)
+    append.reset_mock()
+    command("verdict", job, "accept", "--notes", "Looks right.", "--delivery-id", "explicit", "--sha256", "b" * 64)
+    append.assert_called_once_with(job, "accept", "Looks right.", delivery_id="explicit", expected_sha256="b" * 64)
+
+
+def test_changed_owner_notes_invalidate_approval_before_launch(job, monkeypatch, capsys):
+    notes = ["Owner changes for delivery one:\nExact first note."]
+    monkeypatch.setattr(job_run.verdicts, "pending_notes", lambda root: list(notes))
+    request = approved(job)
+    saved = json.loads((job / "runs" / request["run_id"] / "approval-request.json").read_text())
+    assert saved["request"]["unsent_owner_notes"]
+    notes.append("Owner changes for delivery two:\nA newly recorded note.")
+    execute = AsyncMock(side_effect=AssertionError("must not run"))
+    monkeypatch.setattr(job_run, "execute_run", execute)
+    assert cli.main(["job", "run", str(job), "--foreground", "--resume"]) == 3
+    assert "changed" in json.loads(capsys.readouterr().err)["message"]
+    assert not execute.called
+
+
+def test_generic_resume_sends_verbatim_owner_notes_once_using_actual_sdk_history(job, monkeypatch):
+    from glasses3d.agent import loop as L, replay as R
+    from glasses3d.agent.session_inputs import NOTE_PREFIX
+    from glasses3d.tests.agent.loop_support import FakeScene
+
+    notes = []
+    monkeypatch.setattr(job_run.verdicts, "pending_notes", lambda root: list(notes))
+    settings = replace(job_run.settings_default(), max_turns=2, max_output_tokens=1024,
+                       settled_stop_usd="0.8", finish_tool=None, tool_choice="auto", reset_tool_choice=True)
+    scene = FakeScene()
+    transports = []
+    for index in range(3):
+        if index == 1:
+            notes.append("Owner changes [verdict v1; GLB " + "a" * 64 + "]:\n"
+                         "  The facets meeting point should be further out.\nKeep these exact spaces.  ")
+        transport = R.ScriptedOpenAI([R.message("Offline note receipt.")], id_start=10 * index + 1)
+        spec, _ = job_run.prepare_run(job, f"notes-{index}", settings=settings, cap="1", write_request=True,
+                                      resume=index > 0, scene=scene, offline_handler=transport.handle)
+        A.write_approval(job / "runs" / spec.run_id, max_usd="1", owner_words="Offline proof only.")
+        assert asyncio.run(L.run_astra(spec, scene=scene))["status"] == "completed"
+        assert not transport.violations and len(transport.creates) == 1
+        transports.append(transport)
+    for index, transport in enumerate(transports):
+        texts = [part["text"] for item in transport.creates[0]["input"] if item.get("role") == "user"
+                 for part in item.get("content", []) if part.get("type") == "input_text"]
+        assert texts.count(NOTE_PREFIX + notes[0]) == (0 if index == 0 else 1)
+        receipt = json.loads((job / "runs" / f"notes-{index}" / "input-receipt.json").read_text())
+        assert receipt["notes_sent"] == (1 if index == 1 else 0)
+
+
 def delivery_fixture(job):
-    path = job / "finished.glb"
-    path.write_bytes(glbfab.build())
-    sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    scene = SimpleNamespace(finish={"checkpoint": "c0001", "summary": "Offline fixture.",
-                                    "export": {"path": str(path), "sha256": sha,
-                                               "validate_spec": {"ok": True, "errors": []}, "seat_check": None}},
-                            last_ar={"export_sha256": sha, "exit_code": 0, "status": "ok"})
-    result = {"status": "completed", "run_id": "offline", "exit_checkpoint": {"verified": True, "id": "c0001"}}
-    return scene, result
+    from glasses3d.tests.agent.test_delivery import make_finished
+    return make_finished(job)
 
 
 @pytest.mark.parametrize("failure", ["unverified", "wrong_checkpoint", "ar_error", "ar_corrupt"])

@@ -300,6 +300,7 @@ def test_arview_fixed_scale_exit_mapping_and_image_integrity(scene, monkeypatch,
     monkeypatch.setattr(AR.shutil, "which", lambda name: "node.exe")
     def run_capture(argv, log_dir, **kw):
         assert "--fixed-scale" in argv and "--no-portrait" in argv
+        assert argv[argv.index("--lensenv") + 1] == str(AR.LENS_ENV_INTENSITY) == "1"
         assert argv[argv.index("--poses") + 1] == "default"
         out = Path(argv[argv.index("--out") + 1])
         assert not list(out.iterdir())
@@ -312,6 +313,7 @@ def test_arview_fixed_scale_exit_mapping_and_image_integrity(scene, monkeypatch,
     monkeypatch.setattr(AR, "run_capture", run_capture)
     result = AR.capture(scene.root, scene.export, "capture")
     assert result["status"] == status and result["exit_code"] == code
+    assert result["appearance_policy"] == "g3d.ar_appearance/1" and result["lens_env_intensity"] == 1
     assert result["export_sha256"] == scene.export["sha256"]
     assert Path(result["sheets"][0]).is_file() and result["report_sha256"]
 

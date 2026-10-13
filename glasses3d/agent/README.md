@@ -45,12 +45,39 @@ Job estimates use the eight complete recorded glasses runs and their measured co
 The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;
 the live budget guard still uses the actual token count and worst-case reservation for every request.
 
+Finished runs publish immutable snapshots under `deliveries/`, including the model, validation and seating reports,
+AR evidence, contact sheets, cost and checkpoint. `deliveries/current.json` identifies the latest snapshot;
+`deliverable/model.glb` and `deliverable/report.json` remain convenient copies. Prior snapshots are never replaced.
+
+```powershell
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job review JOB_ID
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job verdict JOB_ID changes --notes "Exact owner feedback"
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job estimate JOB_ID
+```
+
+Review starts a detached AR server with the fixed lens-reflection default and records the delivery actually served.
+The verdict command binds to that reviewed delivery even if a newer run has finished. `accept` records acceptance;
+`changes` requires notes. An explicit `--delivery-id` or `--sha256` can select an asset without a prior review.
+Every verdict binds the model and manifest hashes; damaged evidence is refused. Review servers expose a loopback URL
+for the owner's webcam and survive the launching command.
+
+Change notes enter the next run verbatim. After authorizing its new estimate with `job approve`, use
+`job run JOB_ID --run-id RUN_ID --resume` to retain the conversation. Notes already in that saved conversation are
+not inserted again. Adding a note after approval invalidates that approval, so estimate and approve again.
+
+`job migrate-verdicts` preserves the original legacy ledger, normalizes whole-product acceptances into
+`data/ledger/verdicts.jsonl`, and archives every original record with its hash. Scoped print or method decisions
+remain scoped evidence. Repeating migration verifies the same outputs without duplicating records.
+
 For the $0 assembly proof:
 
 ```powershell
 & glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.assembly_m1
+& glasses3d/.venv/Scripts/python.exe -m glasses3d.tests.proofs.assembly_m3
 ```
 
 It uses the real SDK with a scripted transport, blocks non-loopback networking, and runs real Blender, camera
 fitting and fixed-scale AR capture. Its synthetic approval cannot authorize a production client. Proof artifacts
 are local data and must never be committed. See [the test commands](../tests/README.md) for the full suite.
+The M3 proof also reviews the immutable delivery through a real detached server, records synthetic change notes,
+and resumes twice to verify exact-once note insertion and preservation of the original asset.

@@ -264,6 +264,7 @@ def run():
                "actual_spend_usd": 0, "report": str(job / "deliverable/report.json"), "receipt_checks": receipt_checks}
     procs.write_json_atomic(work / "proof.json", receipt)
     print(json.dumps(receipt, indent=2), flush=True)
+    return receipt
 
 
 if __name__ == "__main__":
