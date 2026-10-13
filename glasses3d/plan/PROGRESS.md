@@ -8,6 +8,11 @@ plan were deleted on 2026-10-13 (tag `review-20261013-pre-cleanup`).
 **Full-codebase review 2026-10-13: [REVIEW_20261013.md](REVIEW_20261013.md)** (status per WP from the code, the
 automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP7 or WP8.
 
+**Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
+into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
+(instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
+validation, owner OK per run). Next action: M0.
+
 ## Status
 
 | WP | State |

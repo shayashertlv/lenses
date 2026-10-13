@@ -15,9 +15,10 @@ evidence, not a command to restart completed work.
 `plan/archive/` (20261008, 20261010) holds superseded progress logs, handoffs and designs. They are evidence only:
 never follow their resume steps, gates or prompts. WP6 v1 code is under the local tag `wp6-v1-final`.
 
-**Before building WP2 D–F, WP7 or WP8, read `plan/REVIEW_20261013.md`** (the 2026-10-13 line-by-line review of every
-tracked file: status per WP from the code, how the pieces must be ordered in one job, ranked defects, and the cleanup
-of dead code; state before the cleanup is the local tag `review-20261013-pre-cleanup`).
+**The active work plan is `plan/ASSEMBLY.md`** (2026-10-13, milestones M0-M5: assemble the separate tools into one
+automation; Claude plans, Codex executes). **Read it and `plan/REVIEW_20261013.md` before any work.** The review is
+the 2026-10-13 line-by-line review of every tracked file: status per WP from the code, how the pieces must be ordered
+in one job, ranked defects, and the dead-code cleanup (state before it: local tag `review-20261013-pre-cleanup`).
 
 ## Working method
 - **Process:** Codex sessions work sequentially. Claude sessions with ultracode on may run workflows with disjoint
