@@ -1087,6 +1087,14 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
   reserve". Effort: max. Lens reflections: one fixed default. Total WP8 budget: "theres no reason to talk about this at
   the moment. this will be a thought when we'll have a full operational automation".
 - **2026-10-13, process:** Claude plans, Codex executes (`ASSEMBLY.md`).
+- **2026-10-13, Oakley run 1 job corrected by Claude before approval:** the M5-prep job
+  `oakley-oo9208-v2-cd068969` (smoke run done there) put two engineering lines into "Owner's specifications
+  (verbatim)" (`assembly_run_1_scope: "frame + lenses + seating only."`, `assembly_scope_source`), which Astra would
+  read as the owner's words and could take as "build no temples", and repeated the owner's note as both description
+  and specs. Replaced by `oakley-oo9208-v2-3e057bab`: the same six photos (sha256 identical to the Studio job 3dff8674),
+  the same labels (checked by eye: 01 front, 02 angled wearer-left, 03 side right, 04 rear, 05 side left, 06 top), the
+  owner's original note verbatim as the description, specs `{}`. Brief fix `cdb52a2`: side labels are the wearer's
+  side. Run request `20261013T163235-772629`: expected $14.96, range $13.20-$20.12, $20 settled stop, $23 reserve.
 - **2026-10-13, smoke turn pre-approved:** "Yes, cap $1" — one real request on the Oakley job after ASSEMBLY M5-prep
   items 1-4 pass, $1 settled stop and $1 reserve cap. Oakley run 1 still needs its own OK and estimate.
 
