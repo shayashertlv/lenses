@@ -1,14 +1,16 @@
 # Agent instructions for glasses3d (Codex, Claude or any coding agent)
 
-This folder is the photo-to-3D glasses pipeline. WP6 (Astra handles faceted temples: `plan/WP6_V3.md`, building
-on `plan/WP6_FACETS.md`) is complete by owner acceptance on 2026-10-13; the next work package in PLAN order is
-WP2 D–F, then WP7 and WP8 (PROGRESS.md). Latest owner instructions take precedence over repository documents. Dated history is
-evidence, not a command to restart completed work.
+This folder is the photo-to-3D glasses pipeline. WP1–WP6 are built as separate tools (WP5 and WP6 closed by owner
+acceptance). **The active work is `plan/ASSEMBLY.md`** (2026-10-13): assemble them into one automation in milestones
+M0–M5, with the owner's decisions recorded up front in its §4. Claude plans; Codex executes. Latest owner instructions
+take precedence over repository documents. Dated history is evidence, not a command to restart completed work.
 
 ## Start here, in this order
 1. `glasses3d/plan/PLAN.md` §0 (the owner's rules), then the rest of PLAN.md for context.
-2. `glasses3d/plan/PROGRESS.md`: status per WP, decisions in the owner's words, pending removals, ledger.
-3. `glasses3d/plan/WP6_V3.md` fully, then the `plan/WP6_FACETS.md` sections it cites, for any WP6 work; the
+2. `glasses3d/plan/ASSEMBLY.md` fully (the plan you execute), then `glasses3d/plan/REVIEW_20261013.md` (the code-level
+   status and the defects ASSEMBLY cites; detailed reports in `data/review_20261013/reports/`).
+3. `glasses3d/plan/PROGRESS.md`: status per WP, decisions in the owner's words, ledger; the next action.
+4. `glasses3d/plan/WP6_V3.md` fully, then the `plan/WP6_FACETS.md` sections it cites, for any WP6 work; the
    investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.
 
