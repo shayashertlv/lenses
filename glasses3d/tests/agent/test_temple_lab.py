@@ -257,13 +257,16 @@ class FakeSeeing:
         return {"rig": rig, "light_frame": light_frame, "engine": "auto"}
 
     def export_head(self, call_id=None):
+        from glasses3d.g3d_host.spec import validate_spec
+
         if self.slow_s:
             time.sleep(self.slow_s)
         p = self.root / "work" / "exports" / f"head-{self.s.head['fingerprint']}.glb"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(self.scene_glb)
         return {"status": "exported", "path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
-                "fingerprint": self.s.head["fingerprint"], "checkpoint": self.s.head["id"]}
+                "fingerprint": self.s.head["fingerprint"], "checkpoint": self.s.head["id"],
+                "validate_spec": validate_spec(p)}
 
     def fit_mesh(self, glb, sha, *, skip=(), frame=None):
         from glasses3d.g3d_host import fitmesh
@@ -2536,6 +2539,33 @@ def test_a_dead_worker_in_the_variant_edge_export_stays_fatal(lab, monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------- facet_finish
+@pytest.mark.parametrize("status", ["matched", "stuck"])
+def test_finish_refuses_invalid_export_and_accepts_valid_retry(lab, monkeypatch, status):
+    """An otherwise eligible finish must not end the run with an invalid GLB; a valid retry still finishes."""
+    from glasses3d.tests import glbfab
+
+    monkeypatch.setattr(S, "finish_missing", lambda *args, **kwargs: [])
+    tl = tools_of(lab)
+    best = lab.s.head["id"]
+    args = {"status": status, "best_checkpoint": best, "summary": "s", "judgement": None}
+    lab.seeing.scene_glb = glbfab.build(role_where="node", scale=1.0)  # millimetres written as metres
+    out = call(tl["facet_finish"], args, call_id="finish-invalid")
+    body, *_ = parsed(out)
+    assert body["status"] == "refused" and body["code"] == "E_EXPORT"
+    assert body["validate_spec"]["ok"] is False and body["validate_spec"]["errors"]
+    assert L.tool_result_status(out) == "refused"
+    assert lab.state["finish"] is None and lab.state["finish_refusals"] == 1
+    assert json.loads(lab.state_path.read_text(encoding="utf-8"))["finish"] is None
+
+    lab.seeing.scene_glb = glbfab.build(role_where="node")
+    out = call(tl["facet_finish"], args, call_id="finish-valid")
+    body, *_ = parsed(out)
+    assert body["status"] == "accepted" and body["validate_spec"]["ok"] is True
+    assert L.tool_result_status(out) == "accepted"
+    assert lab.state["finish"]["call_id"] == "finish-valid"
+    assert lab.state["finish"]["status"] == status and lab.state["finish"]["checkpoint"] == best
+
+
 def _distinct_heads_and_variants(lab, tl, obj=OBJECT):
     """Three applied heads (C + 0.5 / 1.0 / 1.5 mm, the first with the object note) compared at the default set, then
     a facet_variants call with a spread: [the three checkpoints]."""

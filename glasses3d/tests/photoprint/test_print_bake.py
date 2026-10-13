@@ -29,7 +29,7 @@ def outdir():
 
 @pytest.fixture(scope="module")
 def bake(ft1119_job, outdir):
-    return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=None, log=None,
+    return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=2, log=None,
                                     compare_fill=("patchmatch",), **TH)
 
 
@@ -211,7 +211,7 @@ def test_cover_rule_decides_pairs_together():
 def test_below_min_cover_parts_get_no_texture(ft1119_job, outdir, bake):
     """The no-texture path (flat grey, class no_texture, source 0, never protected, left out of texture_parts), forced
     with ``min_cover`` = 0.99 on a small bake (radii given: no knockout)."""
-    r = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=None,
+    r = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=2,
                                  log=None, min_cover=0.99, radii_mm={p: 0.3 for p in IN.FT1119_PARTS}, **TH)
     rep_ = r["report"]
     assert rep_["below_min_cover"] == list(IN.FT1119_PARTS) and rep_["texture_parts"] == []

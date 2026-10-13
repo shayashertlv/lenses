@@ -14,6 +14,14 @@ from .budget import create_json_exclusive
 from ..g3d_host.blender import blender_exe
 
 EXCLUDED = frozenset({"data", ".venv", "node_modules", "__pycache__", ".env", ".git"})
+# A fixed-size pathspec keeps git's argv below Windows' command-line limit as the
+# source tree grows. Match both a component itself and anything beneath it, just
+# like the archive filter below (including an accidentally tracked secret file).
+DIFF_PATHSPECS = ("glasses3d",) + tuple(
+    f":(top,glob,exclude)glasses3d/**/{component}{suffix}"
+    for component in (*sorted(EXCLUDED), ".env.*")
+    for suffix in ("", "/**")
+)
 
 
 def _git(root: Path, *args: str) -> bytes:
@@ -59,11 +67,8 @@ def capture(run_dir, *, repo_root=None) -> dict:
             raise ValueError("implementation source must be a regular file inside the repository")
         paths.append((name, path.read_bytes()))
     paths.sort()
-    # Include tracked deletions as well, while applying the same exclusion filter to diff path selection.
-    tracked = _git(root, "ls-files", "-z", "--", "glasses3d").split(b"\0")
-    eligible = [raw.decode("utf-8") for raw in tracked if raw and
-                not any(p in EXCLUDED or p.startswith(".env.") for p in Path(raw.decode("utf-8")).parts)]
-    diff = _git(root, "diff", "HEAD", "--binary", "--", *eligible) if eligible else b""
+    # Git includes tracked deletions without enumerating every path in argv.
+    diff = _git(root, "diff", "HEAD", "--binary", "--", *DIFF_PATHSPECS)
     archive = run / "src.tar.gz"
     with archive.open("xb") as stream:
         with tarfile.open(fileobj=stream, mode="w:gz") as tar:

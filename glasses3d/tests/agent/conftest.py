@@ -8,13 +8,16 @@ production transports, so a test that swallowed the refusal still fails.
 import pytest
 
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire
+from glasses3d.agent import budget
 
 _SCRUBBED = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "OPENAI_ADMIN_KEY",
              "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 
 
 @pytest.fixture(autouse=True)
-def offline_isolation(monkeypatch):
+def offline_isolation(monkeypatch, tmp_path):
+    # Offline scripted runs share one root inside each test; xdist tests never contend with production or each other.
+    monkeypatch.setattr(budget, "PAID_RUN_LOCK_ROOT", tmp_path / "paid-run-root")
     monkeypatch.setenv("G3D_OFFLINE", "1")
     for name in _SCRUBBED:
         monkeypatch.delenv(name, raising=False)

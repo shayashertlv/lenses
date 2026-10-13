@@ -16,6 +16,7 @@ from agents.tool import ToolOutputImage, ToolOutputText  # noqa: E402
 
 from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent import replay as R  # noqa: E402
+from glasses3d.agent import budget as B  # noqa: E402
 from glasses3d.agent.approvals import ApprovalRefused  # noqa: E402
 from glasses3d.agent.budget import COUNT_FIELDS, CREATE_FIELDS, read_bytes_with_retry  # noqa: E402
 from glasses3d.agent.receipts import BlobStore  # noqa: E402
@@ -56,6 +57,53 @@ def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
     assert result["turns_used"] == 14 and result["continuations"] == 1
     assert result["settings"]["max_turns"] is None
     assert len(assert_money_invariants(job, RUN, transport)) == 14
+
+
+@pytest.mark.parametrize("counted,expected_requests,expected_spend,expected_counts", [
+    (400_000, 2, 20_000_000, 2),  # reaches the settled stop; third request is neither counted nor reserved
+    (540_000, 1, 13_500_000, 2),  # below the settled stop, but the next reservation would exceed $23
+])
+def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
+        tmp_path, counted, expected_requests, expected_spend, expected_counts):
+    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=10, settled_stop_usd="20")
+    usage = R.default_usage(counted, output_tokens=0, reasoning_tokens=0)
+    replies = [R.tool_call("scene_summary", {}, counted=counted, usage=usage) for _ in range(3)]
+    job, transport, result, _ = run_once(tmp_path, replies, cap="23", settings=settings)
+    assert result["status"] == "budget_limit"
+    assert result["budget"]["settled_micro_usd"] == expected_spend
+    assert len(transport.creates) == expected_requests and len(transport.counts) == expected_counts
+    # interactions includes the SDK turn refused before sending, as on_llm_start has already happened.
+    assert result["turns_used"] == expected_requests + 1
+    settled = 0
+    for row in assert_money_invariants(job, RUN, transport, refused_count=expected_counts - expected_requests):
+        assert settled < 20_000_000
+        assert settled + row["reserved_micro_usd"] <= 23_000_000
+        settled += row["settled_micro_usd"]
+    config = json.loads((job / "runs" / RUN / "run-config.json").read_text())
+    assert config["settled_stop_usd"] == result["settings"]["settled_stop_usd"] == "20.000000"
+
+
+def test_settled_stop_is_bound_to_approval_and_zero_stops_before_count(tmp_path):
+    settings = L.RunSettings(effort="max", settled_stop_usd="0")
+    _, transport, result, _ = run_once(tmp_path, [R.message("never sent")], settings=settings)
+    assert result["status"] == "budget_limit" and result["turns_used"] == 1
+    assert transport.creates == transport.counts == []
+    scene, tools = make_tools()
+    job, sha = make_job(tmp_path / "changed", tools=tools, settings=settings)
+    altered = L.RunSettings(effort="max", settled_stop_usd="20")
+    with pytest.raises(ApprovalRefused, match="settings"):
+        run(L.run_astra(spec_for(job, RUN, sha, tools, R.ScriptedOpenAI([R.message("never sent")]),
+                                settings=altered), scene=scene))
+
+
+@pytest.mark.parametrize("value", [True, -1, "nan", "inf", "not-money"])
+def test_invalid_settled_stop_is_refused_before_preflight(tmp_path, value):
+    settings = L.RunSettings(effort="max", settled_stop_usd=value)
+    spec = L.RunSpec(job_dir=tmp_path, run_id=RUN, instructions="test", tools=[], brief="test",
+                     current_request_sha256="unused", settings=settings)
+    with pytest.raises(L.RunRefused, match="settled_stop_usd"):
+        run(L.run_astra(spec))
+    assert not (tmp_path / "budget").exists()
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +223,7 @@ def test_three_turn_session_with_tool_calls_completes_with_full_receipts(tmp_pat
     assert config["versions"]["openai-agents"] == "0.22.3" and config["versions"]["openai"] == "3.22.1"
     scan = json.loads((job / "budget" / "job-ledger.json").read_text(encoding="utf-8"))
     assert scan["totals"]["settled_micro_usd"] == result["budget"]["settled_micro_usd"] and scan["blocking"] == []
-    assert not (job.parent / ".paid-run.lock").exists()        # the machine-wide lock was released
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()        # the machine-wide lock was released
     heartbeat = json.loads((job / "heartbeat.json").read_text(encoding="utf-8"))
     assert (heartbeat["state"], heartbeat["final_status"]) == ("finished", "completed")
     assert_clean_receipts(job)
@@ -239,6 +287,7 @@ def test_rate_limit_429_is_provider_rejected_at_zero(tmp_path):
 def test_520_drop_and_timeout_are_provider_unknown_with_exactly_one_request(tmp_path, reply, reason, error_type):
     job, transport, result, _ = run_once(tmp_path, [reply, R.message("never sent")])
     assert result["status"] == "provider_unknown" and result["error"]["type"] == error_type
+    assert result["turns_used"] == 1
     rows = assert_money_invariants(job, RUN, transport)
     assert len(transport.creates) == 1 and len(rows) == 1
     assert (rows[0]["outcome"], rows[0]["reason"], rows[0]["settled_micro_usd"]) == ("unknown", reason, None)
@@ -449,7 +498,7 @@ def test_an_external_cancellation_mid_tool_is_recorded_stopped_and_everything_is
     rows = assert_money_invariants(job, RUN, transport)
     assert [row["outcome"] for row in rows] == ["settled"] and len(transport.creates) == 1
     assert scene.events == ["start", "exit_checkpoint", "close"]
-    assert not (job.parent / ".paid-run.lock").exists()
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
     assert result["teardown_errors"] == []
 
 
@@ -472,7 +521,7 @@ def test_teardown_failures_are_recorded_and_result_json_is_still_written(tmp_pat
     assert result["teardown_errors"] == [{"step": "scene.close", "type": "OSError",
                                           "message": "worker would not stop"}]
     assert scene.events == ["start", "exit_checkpoint", "close"]
-    assert not (job.parent / ".paid-run.lock").exists()
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
 
 
 def test_a_stale_stop_file_does_not_stop_a_new_run(tmp_path):
@@ -726,7 +775,7 @@ def refusal_leaves_nothing(job, run_id, transport):
     for name in ("budget.json", "result.json", "run-config.json", "input-receipt.json", "transport"):
         assert not (run_dir / name).exists(), name
     assert not (job / "heartbeat.json").exists()
-    assert not (job.parent / ".paid-run.lock").exists()
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
 
 
 def test_a_missing_approval_refuses_with_exit_3_and_sends_nothing(tmp_path):

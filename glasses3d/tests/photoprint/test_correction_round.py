@@ -474,7 +474,7 @@ def test_bake_with_flatten_and_level_reads_back(ft1119_job, tmp_path):
     from glasses3d.g3d_host.photoprint import project as PR
     from glasses3d.tests.photoprint import printproof as PP
     lv = {"gain": 0.78, "gamma": 1.16}
-    res = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, workers=None,
+    res = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, workers=2,
                                    log=None, level=lv, level_source="test", print_reg_mm=0.8, edge_mean_mm=1.0,
                                    edge_p90_mm=2.5, flatten="on")
     rep = res["report"]

@@ -206,7 +206,6 @@ from glasses3d.g3d.temple.spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_D
 from glasses3d.g3d_host import blender_camera as BC
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import pose as PO
-from glasses3d.g3d_host import spec as GSPEC
 from glasses3d.g3d_host.camera import project_mm
 from . import geometry as G
 from . import readings as RD
@@ -2625,7 +2624,14 @@ class Lab(SceneHooks):
         if exp.get("status") != "exported":
             self.save()
             return {"status": "error", "code": exp.get("code") or "E_EXPORT", "message": exp.get("message")}
-        v = GSPEC.validate_spec(exp["path"])
+        v = exp["validate_spec"]
+        if not v["ok"]:
+            with self.state_lock:
+                self.state["finish_refusals"] += 1
+            self.save()
+            return {"status": "refused", "code": "E_EXPORT",
+                    "message": "the run continues; the exported asset does not pass validate_spec",
+                    "validate_spec": v}
         fin = {"call_id": call_id, "status": status, "checkpoint": self.s.head["id"],
                "best_checkpoint": best_checkpoint, "revision": best["revision"],
                "export": {"path": exp["path"], "sha256": exp["sha256"]}, "summary": summary,

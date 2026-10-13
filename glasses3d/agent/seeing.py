@@ -102,7 +102,7 @@ from scipy.spatial import cKDTree
 from ..g3d_host import blender_camera as BC
 from ..g3d_host import cameras as CAMS
 from ..g3d_host import compare as C
-from ..g3d_host import fit_views, fitmesh
+from ..g3d_host import fit_views, fitmesh, glb, seat_check, spec
 from ..g3d_host import lighting as L
 from ..g3d_host import pose as PO
 from ..g3d_host.camera import Camera, NormFrame, project_mm
@@ -203,6 +203,7 @@ class Seeing:
         self.work = self.root / "work"
         self._bounds: tuple[str, dict] | None = None
         self._meshes: OrderedDict = OrderedDict()
+        self._export_reports: dict[str, dict] = {}
 
     # ---------------------------------------------------------------------------------------------- shared
     @property
@@ -229,7 +230,11 @@ class Seeing:
         return r["result"]
 
     def export_head(self, call_id: str | None = None) -> dict:
-        """The head exported to ``work/exports/head-<fp16>.glb`` (cached by fingerprint across sessions)."""
+        """Export the head with spec and declared-seat reports, cached by the actual GLB sha256.
+
+        Validation failures stay visible so seeing tools can inspect an unfinished model. Finish/delivery decide
+        whether it is acceptable. Old export indexes are upgraded here, never trusted as validated exports.
+        """
         call_id = call_id or self.s.new_call_id("export_head")
         head = self.head
         fp = head["fingerprint"]
@@ -238,7 +243,7 @@ class Seeing:
         index = procs.read_json(index_path) or {}
         rec = index.get(fp)
         if rec and Path(rec["path"]).is_file() and C.sha256_file(rec["path"]) == rec["sha256"]:
-            return {**rec, "cached": True}
+            return {**rec, **self._validate_export(rec), "cached": True}
         path = d / f"head-{fp[:16]}.glb"
         r = self.s.call_read("export_glb", "export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S,
                              call_id=call_id)
@@ -255,9 +260,29 @@ class Seeing:
         if res["fingerprint_before"] != fp:
             rec["drift"] = f"the worker's scene {res['fingerprint_before'][:12]} is not head {head['id']}"
         C.write_json(path.with_suffix(".json"), receipt)
+        rec.update(self._validate_export(rec))
         index[fp] = rec
         procs.write_json_atomic(index_path, index)
         return {**rec, "cached": False}
+
+    def _validate_export(self, rec: dict) -> dict:
+        sha = C.sha256_file(rec["path"])
+        if sha != rec["sha256"]:
+            raise SeeingError("E_EXPORT", "export bytes differ from the worker's sha256")
+        if sha not in self._export_reports:
+            validation = spec.validate_spec(rec["path"])
+            seating = None
+            try:
+                asset = glb.load(rec["path"])
+                # Check every declared seat, including a malformed/unreadable lens. The seating checker performs
+                # lens classification and reports those failures; a bad primitive must not silently skip it.
+                if any(isinstance(n, dict) and "g3d_seat" in (n.get("extras") or {}) for n in asset.nodes):
+                    seating = seat_check.check_glb(asset)
+            except (ValueError, KeyError, TypeError, IndexError) as exc:
+                seating = {"ok": False, "error": f"cannot inspect declared seats: {type(exc).__name__}: {exc}"}
+            self._export_reports[sha] = {"validate_spec": validation, "seat_check": seating,
+                                         "validation_sha256": sha}
+        return self._export_reports[sha]
 
     def fit_mesh(self, glb: str, sha: str, *, skip=(), frame: NormFrame | None = None) -> fitmesh.FitMesh:
         key = (sha, tuple(skip), None if frame is None else (tuple(frame.center), frame.extent))
@@ -475,7 +500,7 @@ class Seeing:
                     "fingerprint": res.get("fingerprint_before"), "engine": res.get("engine_final"),
                     "fallback": res.get("fallback"), "gpu": res.get("gpu"), "rig": res.get("rig"),
                     "passes": passes, "size_px": size_px, "background": background, "views": manifest_views,
-                    "sheets": sheets, "parts_legend": legend_all, "notes": notes,
+                    "sheets": sheets, "parts_legend": legend_all, "notes": notes, "export": exp,
                     "worker_seconds": res.get("seconds"), "seconds": round(time.perf_counter() - t0, 3)}
         mp = out_dir / "manifest.json"
         C.write_json(mp, manifest)
@@ -484,7 +509,7 @@ class Seeing:
                              "files": {p: f["path"] for p, f in m["files"].items()}}
                          for n, m in manifest_views.items()},
                "engine": res.get("engine_final"), "fallback": res.get("fallback"), "gpu": res.get("gpu"),
-               "restored_to": r.get("restored_to"), "notes": notes, "seconds": manifest["seconds"]}
+               "restored_to": r.get("restored_to"), "notes": notes, "export": exp, "seconds": manifest["seconds"]}
         self.s.record_call("render_views", call_id, args, out)
         return out
 
@@ -664,7 +689,7 @@ class Seeing:
         same_geom = bool(prev) and prev.get("geometry") == gkey
         report = {"schema": C.REPORT_SCHEMA, "call_id": call_id, "created": C._utc(), "basis": bs.summary(),
                   "checkpoint": self.head["id"], "fingerprint": exp["fingerprint"],
-                  "glb": {k: exp.get(k) for k in ("path", "sha256", "bytes", "objects", "triangles")},
+                  "glb": exp,
                   "geometry": gkey, "skipped_parts": mesh.skipped, "previous": (prev or {}).get("call_id"),
                   "model_bytes_identical": same_bytes if prev else None,
                   "geometry_identical": same_geom if prev else None, "parts": parts, "passes": passes,
@@ -689,7 +714,7 @@ class Seeing:
                "geometry_identical": report["geometry_identical"], "previous": report["previous"],
                "parts": parts, "refs": {}, "crops": [{k: c[k] for k in ("ref", "box_px", "parts", "sheet")}
                                                      for c in crop_recs],
-               "report": str(rp), "engine": report["engine"], "seconds": secs}
+               "report": str(rp), "export": exp, "engine": report["engine"], "seconds": secs}
         for rid, m in metrics.items():
             g = m.get(group) or m["all"]
             d = (m.get("delta") or {}).get(group)
@@ -1532,7 +1557,7 @@ class Seeing:
         secs["total"] = round(time.perf_counter() - t0, 3)
         report = {"schema": MATCHED_SCHEMA, "compare_id": call_id, "created": C._utc(), "basis": bs.summary(),
                   "checkpoint": self.head["id"], "fingerprint": exp["fingerprint"],
-                  "glb": {k: exp.get(k) for k in ("path", "sha256", "bytes")}, "geometry": gkey, "rig": rig,
+                  "glb": exp, "geometry": gkey, "rig": rig,
                   "passes": passes, "crop": crop, "hinge_z_mm": hinge_z_mm, "gains": gains,
                   "environment": None if env is None else {k: env.get(k) for k in (
                       "weights", "weights_sha", "lambda", "chosen_iteration", "path", "calibration")},
@@ -1546,6 +1571,7 @@ class Seeing:
         rp = out_dir / "report.json"
         C.write_json(rp, report)
         return {"status": "ok", "compare_id": call_id, "basis": bs.id, "checkpoint": self.head["id"], "rig": rig,
+                "export": exp,
                 "passes": passes, "photos": {rid: {"image": recs[rid]["image"], "text": recs[rid]["text"],
                                                    "rows": recs[rid].get("rows"), "cached": recs[rid]["cached"],
                                                    **({"points": recs[rid]["points"]} if "points" in recs[rid]
@@ -2247,7 +2273,8 @@ class Seeing:
             sheet = str(bdir / "overlays_sheet.png")
             C.grid(tiles, min(3, len(tiles))).convert("RGB").save(sheet)
         out = {"status": "ok", "call_id": call_id, "basis": bs.id, "checkpoint": exp["checkpoint"],
-               "glb_sha256": exp["sha256"], "sheet": sheet, "fit_seconds": round(res.get("seconds", 0.0), 1),
+               "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
+               "fit_seconds": round(res.get("seconds", 0.0), 1),
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
                "refs": {rid: {"view_kind": rec["view_kind"], "view": rec["view"], "status": rec["fit"]["status"],
                               "iou": round(rec["fit"]["iou"], 4),

@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 LEDGER_SCHEMA = "g3d.run_budget/1"
 JOB_LEDGER_SCHEMA = "g3d.job_ledger/1"
 PAID_RUN_LOCK_SCHEMA = "g3d.paid_run_lock/1"
+PAID_RUN_LOCK_ROOT = Path(__file__).resolve().parents[1] / "data"
 LEDGERLESS_RECONCILIATION_SCHEMA = "g3d.run_reconciliation/1"
 
 INFERENCE_URL = "https://api.openai.com/v1/responses"
@@ -110,6 +111,8 @@ PAYLOAD_LIMIT_IMAGES = 1_500
 # at every size (161 MB: 221 s against about 52 s).
 COUNT_TIMEOUT_S = 60.0
 COUNT_TIMEOUT_PER_MB_S = 1.0
+# Counting is free and safe to retry; inference remains strictly single-attempt.
+COUNT_RETRY_DELAYS = (0.5, 1.0)  # three total attempts, bounded exponential backoff
 
 _TOKEN = re.compile(r"[A-Za-z0-9_.:\-]{1,256}")
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,95}")
@@ -810,21 +813,26 @@ class BudgetGuard:
     """
 
     def __init__(self, client_for_count, ledger_path, maximum_usd, *, run_id: str | None = None,
-                 approval: dict | None = None, fit_output_to_budget: bool = False):
+                 approval: dict | None = None, fit_output_to_budget: bool = False, settled_stop_usd=None):
         cap_to_micro(maximum_usd)       # refuse a bad cap before anything else (no ledger is created)
+        settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
         _check_counter(client_for_count)
         self._setup(client_for_count, RunLedger.create(ledger_path, maximum_usd, run_id=run_id, approval=approval))
         self.fit_output_to_budget = fit_output_to_budget
+        self.settled_stop_micro = settled_stop
 
     @classmethod
-    def attach(cls, client_for_count, ledger: RunLedger, *, fit_output_to_budget: bool = False) -> "BudgetGuard":
+    def attach(cls, client_for_count, ledger: RunLedger, *, fit_output_to_budget: bool = False,
+               settled_stop_usd=None) -> "BudgetGuard":
         """A guard for a ledger this process just created (JobLedger.open_paid_run): fresh, empty and unattached."""
         if not isinstance(ledger, RunLedger) or not ledger.fresh or ledger.live or ledger.rows:
             raise BudgetGuardError("A guard attaches only to a ledger created by this process with no rows")
         _check_counter(client_for_count)
+        settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
         guard = cls.__new__(cls)
         guard._setup(client_for_count, ledger)
         guard.fit_output_to_budget = fit_output_to_budget
+        guard.settled_stop_micro = settled_stop
         return guard
 
     def _setup(self, client_for_count, ledger: RunLedger) -> None:
@@ -840,6 +848,7 @@ class BudgetGuard:
         self._last_request_body: tuple[int, int, int] | None = None     # (serialized bytes, images, count ms)
         self._open_request = None
         self.fit_output_to_budget = False
+        self.settled_stop_micro: int | None = None
 
     @property
     def ledger_path(self) -> Path:
@@ -976,14 +985,22 @@ class BudgetGuard:
                 # Edit (4): the previous request has no recorded outcome; never send a second one beside it.
                 raise BudgetGuardError(f"Request {open_row['sequence']} has no recorded outcome yet; "
                                        "one request at a time")
+            if (self.settled_stop_micro is not None
+                    and self.ledger.totals()["settled_micro_usd"] >= self.settled_stop_micro):
+                raise BudgetExceeded(f"Settled spend reached the ${usd_text(self.settled_stop_micro)} stop; "
+                                     "no inference sent")
             started = time.perf_counter()
-            try:
-                count = await self.client_for_count.responses.input_tokens.count(
-                    **{key: value for key, value in payload.items() if key in COUNT_FIELDS},
-                    timeout=count_timeout_s(body_bytes))
-            except Exception:
-                # Provider errors may contain the original prompt, images or key.
-                raise BudgetGuardError("Token counting failed; inference was not sent") from None
+            for attempt in range(len(COUNT_RETRY_DELAYS) + 1):
+                try:
+                    count = await self.client_for_count.responses.input_tokens.count(
+                        **{key: value for key, value in payload.items() if key in COUNT_FIELDS},
+                        timeout=count_timeout_s(body_bytes))
+                    break
+                except Exception:
+                    if attempt == len(COUNT_RETRY_DELAYS):
+                        # Provider errors may contain the original prompt, images or key.
+                        raise BudgetGuardError("Token counting failed after 3 attempts; inference was not sent") from None
+                    await asyncio.sleep(COUNT_RETRY_DELAYS[attempt])
             count_ms = round((time.perf_counter() - started) * 1000)
             input_tokens = getattr(count, "input_tokens", None)
             try:
@@ -1253,7 +1270,7 @@ def identity_alive(identity) -> bool:
 
 
 class PaidRunLock:
-    """``data/jobs/.paid-run.lock`` {pid, create_time, exe}: one paid run on this machine at a time.
+    """``data/.paid-run.lock`` {pid, create_time, exe}: one paid run on this machine at a time.
 
     The holder's identity is re-checked with psutil, so a crashed runner's file is recognised as stale; a sidecar OS
     lock (``.paid-run.guard``, released by the OS on a crash) is held for the run, which makes check-and-take atomic."""
@@ -1329,9 +1346,8 @@ class JobLedger:
     unknown holds count against the job until reconciled; a run without ``budget.json`` counts $0 when it has no
     transport files (``aborted_before_paid``) and blocks paid runs until the owner reconciles it when it has some."""
 
-    def __init__(self, job_dir, *, jobs_root=None):
+    def __init__(self, job_dir):
         self.job_dir = Path(job_dir).resolve()
-        self.jobs_root = Path(jobs_root).resolve() if jobs_root is not None else self.job_dir.parent
         self.runs_dir = self.job_dir / "runs"
         self.budget_dir = self.job_dir / "budget"
         self.ledger_path = self.budget_dir / "job-ledger.json"
@@ -1557,7 +1573,7 @@ class JobLedger:
         scan = self.scan()
         if scan["blocking"]:
             raise JobLedgerError("This job's money state blocks a paid run: " + "; ".join(scan["blocking"]))
-        holder = PaidRunLock(self.jobs_root).read()
+        holder = PaidRunLock(PAID_RUN_LOCK_ROOT).read()
         if holder is not None and not holder.get("malformed") and identity_alive(holder):
             raise PaidRunBusy(f"Another paid run is active on this machine: {PaidRunLock._describe(holder)}")
         return approved
@@ -1576,7 +1592,7 @@ class JobLedger:
         scan = self.scan()
         if scan["blocking"]:
             raise JobLedgerError("This job's money state blocks a paid run: " + "; ".join(scan["blocking"]))
-        paid = PaidRunLock(self.jobs_root)
+        paid = PaidRunLock(PAID_RUN_LOCK_ROOT)
         paid.acquire(job_id=self.job_dir.name, run_id=run_id)
         try:
             cap = Decimal(approved.requested_cap_micro) / Decimal(MICRO)     # exact; floors back to the same micro

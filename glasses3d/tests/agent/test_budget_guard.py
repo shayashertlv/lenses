@@ -231,18 +231,45 @@ def test_long_context_cache_write_reservation_and_cap_round_down(env):
     assert another.summary()["maximum_usd"] == "0.000000"
 
 
-def test_counter_failure_and_invalid_count_stop_request_without_logging_error_body(env):
+def test_counter_failure_and_invalid_count_stop_request_without_logging_error_body(env, monkeypatch):
+    sleep = AsyncMock()
+    monkeypatch.setattr(B.asyncio, "sleep", sleep)
     guard = BudgetGuard(env.client, env.path, "1")
     env.count.side_effect = RuntimeError("private-key and private prompt")
     with pytest.raises(BudgetGuardError, match="Token counting failed") as error:
         run(guard.before_request(request()))
     assert "private" not in str(error.value)
+    assert env.count.await_count == 3
+    assert [item.args[0] for item in sleep.await_args_list] == [0.5, 1.0]
     env.count.side_effect = None
     for invalid in (-1, True, 1.5, "1000", 922_001, None):
         env.count.return_value = SimpleNamespace(input_tokens=invalid)
         with pytest.raises(BudgetGuardError):
             run(guard.before_request(request()))
     assert guard.summary()["requests"] == 0 and not ledger(env.path)["rows"]
+
+
+def test_free_count_retries_identical_payload_before_one_reservation(env, monkeypatch):
+    sleep = AsyncMock()
+    monkeypatch.setattr(B.asyncio, "sleep", sleep)
+    env.count.side_effect = [RuntimeError("private prompt"), TimeoutError("private key"),
+                             SimpleNamespace(input_tokens=1000)]
+    guard = BudgetGuard(env.client, env.path, "1")
+    run(guard.before_request(request()))
+    assert env.count.await_count == 3
+    assert env.count.await_args_list[0] == env.count.await_args_list[1] == env.count.await_args_list[2]
+    assert [item.args[0] for item in sleep.await_args_list] == [0.5, 1.0]
+    assert len(guard.ledger.rows) == 1 and guard.ledger.rows[0]["outcome"] == "held"
+
+
+def test_cancelled_count_is_not_retried_or_reserved(env, monkeypatch):
+    sleep = AsyncMock()
+    monkeypatch.setattr(B.asyncio, "sleep", sleep)
+    env.count.side_effect = asyncio.CancelledError()
+    guard = BudgetGuard(env.client, env.path, "1")
+    with pytest.raises(asyncio.CancelledError):
+        run(guard.before_request(request()))
+    assert env.count.await_count == 1 and sleep.await_count == 0 and guard.ledger.rows == []
 
 
 def test_unpriced_settings_refused_before_counting(env):

@@ -1,5 +1,5 @@
 """JobLedger (a rewrite of the Studio's trial_budget.py, plan/WP2_DESIGN.md section 8): per-job non-blocking OS lock,
-the machine-wide data/jobs/.paid-run.lock {pid, create_time, exe} re-checked with psutil, totals rebuilt from every
+the machine-wide data/.paid-run.lock {pid, create_time, exe} re-checked with psutil, totals rebuilt from every
 runs/*/budget.json (re-priced and tamper-checked), unknown holds counted until reconciled, aborted_before_paid, and the
 order preflight -> consume the approval + exclusive-create budget.json in one transaction -> first POST.
 Ports the Studio's trial tests (source-before/tests/test_blender_agent_trial_budget.py) where they still apply."""
@@ -94,7 +94,7 @@ def test_open_consumes_the_approval_by_creating_budget_json_bound_to_it(tmp_path
         assert data["maximum_micro_usd"] == 15_000_000
         assert data["approval"]["approval_sha256"] == approval_sha
         assert data["approval"]["request_sha256"] == current_sha(job)
-        holder = json.loads((job.parent / ".paid-run.lock").read_text(encoding="utf-8"))
+        holder = json.loads((B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").read_text(encoding="utf-8"))
         me = psutil.Process()
         assert (holder["pid"], holder["create_time"], holder["job_id"], holder["run_id"]) == (
             me.pid, me.create_time(), job.name, run_dir.name)
@@ -102,7 +102,7 @@ def test_open_consumes_the_approval_by_creating_budget_json_bound_to_it(tmp_path
         with pytest.raises(JobLedgerError, match="One paid run"):
             jobs.open_paid_run(run_dir.name, current_request_sha256=current_sha(job))
         jobs.close_paid_run()
-        assert not (job.parent / ".paid-run.lock").exists()
+        assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
         refusal = None
         try:
             jobs.open_paid_run(run_dir.name, current_request_sha256=current_sha(job))
@@ -165,7 +165,7 @@ def test_a_refused_approval_exits_3_creates_nothing_and_sends_zero_requests(tmp_
     assert raised.value.exit_code == 3 and raised.value.code == {"missing_request": "missing",
                                                                  "missing_approval": "missing"}.get(case, case)
     assert calls == [] and sorted(path.name for path in run_dir.iterdir()) == before
-    assert not (job.parent / ".paid-run.lock").exists()
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
 
 
 def test_the_approved_order_reaches_the_first_post_after_budget_json_exists(tmp_path):
@@ -185,7 +185,7 @@ def test_a_failed_ledger_create_leaves_the_approval_unconsumed_and_the_machine_l
         with patch.object(RunLedger, "create", side_effect=OSError("disk full")):
             with pytest.raises(OSError):
                 jobs.open_paid_run(run_dir.name, current_request_sha256=current_sha(job))
-        assert not (run_dir / "budget.json").exists() and not (job.parent / ".paid-run.lock").exists()
+        assert not (run_dir / "budget.json").exists() and not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
         jobs.open_paid_run(run_dir.name, current_request_sha256=current_sha(job))      # the approval still stands
         assert (run_dir / "budget.json").exists()
 
@@ -197,7 +197,7 @@ def test_preflight_creates_nothing(tmp_path):
         approved = jobs.preflight(run_dir.name, current_request_sha256=current_sha(job))
         assert approved.requested_cap_micro == 15_000_000
     assert sorted(path.name for path in run_dir.iterdir()) == ["approval-request.json", "approval.json"]
-    assert not (job.parent / ".paid-run.lock").exists()
+    assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
 
 
 # =========================================================================== totals across runs (Studio trial tests)
@@ -506,11 +506,16 @@ def test_one_job_lock_per_process_and_a_crash_releases_it(tmp_path):
 
 
 def test_the_machine_lock_allows_one_paid_run_across_jobs_in_this_process(tmp_path):
-    first, second = make_job(tmp_path, "job-one-aaaaaaaa"), make_job(tmp_path, "job-two-bbbbbbbb")
+    first = make_job(tmp_path / "lab" / "package", "job-one-aaaaaaaa")
+    second = make_job(tmp_path / "ordinary-jobs", "job-two-bbbbbbbb")
+    assert first.parent != second.parent  # the lab and ordinary job cannot split the machine-wide lock
     approve(first, "20261007T090000-aaaaaa")
     approve(second, "20261007T090000-bbbbbb")
     with JobLedger(first) as one, JobLedger(second) as two:
         one.open_paid_run("20261007T090000-aaaaaa", current_request_sha256=current_sha(first))
+        assert one._paid_lock.path == B.PAID_RUN_LOCK_ROOT / ".paid-run.lock"
+        with pytest.raises(PaidRunBusy, match="Another paid run"):
+            two.preflight("20261007T090000-bbbbbb", current_request_sha256=current_sha(second))
         with pytest.raises(PaidRunBusy, match="Another paid run"):
             two.open_paid_run("20261007T090000-bbbbbb", current_request_sha256=current_sha(second))
         assert not (second / "runs" / "20261007T090000-bbbbbb" / "budget.json").exists()
@@ -523,7 +528,7 @@ def test_a_live_paid_run_in_another_process_blocks_and_its_crash_frees_the_machi
     approve(job, "20261007T090000-aaaaaa")
     code = ("import sys, os; from glasses3d.agent.budget import PaidRunLock; lock = PaidRunLock(sys.argv[1]); "
             "lock.acquire(job_id='other-job', run_id='r'); print(os.getpid(), flush=True); sys.stdin.readline()")
-    process = child(code, str(job.parent))
+    process = child(code, str(B.PAID_RUN_LOCK_ROOT))
     try:
         child_pid = int(process.stdout.readline().strip() or 0)
         assert child_pid, process.stderr.read()

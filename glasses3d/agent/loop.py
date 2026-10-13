@@ -77,7 +77,7 @@ from openai.types.shared import Reasoning
 
 from .approvals import ApprovalRefused, build_request, canonical_json, request_sha256, run_input_binding
 from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTES, BudgetGuard, JobLedger,
-                     unlink_with_retry)
+                     BudgetGuardError, cap_to_micro, unlink_with_retry)
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
 from .pricing import MODEL, usd_text
@@ -252,13 +252,15 @@ class RunSettings:
     tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads),
     ``context_guard_tokens`` (the image filter's token epoch; the guard is on only with it) and
     ``context_guard_bytes`` (its byte rungs; None: CONTEXT_GUARD_BYTES, the filter's own). Their defaults change
-    nothing."""
+    nothing. ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
+    approval's maximum reserve cap; an already-sent request may settle above the stop but within that cap."""
 
     effort: str | None = None  # paid runs require the owner's explicit high/max choice
     max_output_tokens: int = 16_384
     max_turns: int | None = 60
     max_continuations: int = 2
     fit_output_to_budget: bool = False
+    settled_stop_usd: str | float | None = None
     tool_choice: str = "auto"
     reset_tool_choice: bool = True
     finish_tool: str | None = None
@@ -294,6 +296,8 @@ class RunSettings:
         settings = {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns}
         if self.fit_output_to_budget:
             settings["fit_output_to_budget"] = True
+        if self.settled_stop_usd is not None:
+            settings["settled_stop_usd"] = usd_text(cap_to_micro(self.settled_stop_usd))
         settings.update(self.behavior())
         return settings
 
@@ -1145,6 +1149,11 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused("max_continuations must be a non-negative integer")
     if type(settings.fit_output_to_budget) is not bool:
         raise RunRefused("fit_output_to_budget must be a boolean")
+    if settings.settled_stop_usd is not None:
+        try:
+            cap_to_micro(settings.settled_stop_usd)
+        except BudgetGuardError:
+            raise RunRefused("settled_stop_usd must be a finite non-negative dollar amount or None") from None
     if settings.tool_choice not in TOOL_CHOICES:
         raise RunRefused(f"tool_choice must be one of {', '.join(TOOL_CHOICES)}")
     if type(settings.reset_tool_choice) is not bool:
@@ -1204,7 +1213,6 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
                                       run_config=run_config, context=context)
         except ModelBehaviorError:
             used = log.interactions - started
-            state["turns_used"] += used
             if turns_left is not None:
                 turns_left -= used
             if not _was_incomplete(log, guard) or log.stop_observed:
@@ -1224,7 +1232,6 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
             run_input = [{"role": "user", "content": CONTINUATION_NOTE}]
             continue
         used = log.interactions - started
-        state["turns_used"] += used
         if finisher is None or finisher.accepted:
             return "completed", result.final_output
         # a text reply without the accepted finish (the fallback when required tool choice is not in force)
@@ -1340,7 +1347,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 session = BlobSession(SESSION_ID, session_path, blobs=blobs)
             # (4) only now the clients, the guard and the receipts
             counter = clients.counting_client()
-            guard = BudgetGuard.attach(counter, ledger, fit_output_to_budget=spec.settings.fit_output_to_budget)
+            guard = BudgetGuard.attach(counter, ledger, fit_output_to_budget=spec.settings.fit_output_to_budget,
+                                       settled_stop_usd=spec.settings.settled_stop_usd)
             log = ReviewLog(run_dir, blobs_dir=job_dir / "blobs", guard=guard, secrets=clients.secrets,
                             stop_file=stop_file, heartbeat=heartbeat, run_id=spec.run_id, echo=spec.echo)
             client = clients.inference_client({"request": [log.before_request], "response": [log.after_response]})
@@ -1350,6 +1358,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "model": MODEL, "agent": AGENT_NAME, "effort": spec.settings.effort, "reasoning_summary": "auto",
                 "max_output_tokens": spec.settings.max_output_tokens, "max_turns": spec.settings.max_turns,
                 "fit_output_to_budget": spec.settings.fit_output_to_budget,
+                "settled_stop_usd": spec.settings.approval_settings().get("settled_stop_usd"),
                 "max_continuations": spec.settings.max_continuations, "service_tier": "default",
                 "parallel_tool_calls": False, "max_function_tool_concurrency": 1, "model_retries": 0,
                 "tracing_disabled": True, "use_responses": True, "use_responses_websocket": False, "client": {
@@ -1402,6 +1411,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 pending = raised             # KeyboardInterrupt, CancelledError, SystemExit: re-raised below
         finally:
             # (6) always: no open hold, exit checkpoint before the worker closes, the paid run closed, result.json
+            state["turns_used"] = log.interactions if log is not None else 0
             if guard is not None:
                 try:
                     await guard.mark_unknown("the run ended before this request had an outcome")
