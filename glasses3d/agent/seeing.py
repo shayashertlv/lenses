@@ -8,7 +8,7 @@ camera bases under ``<job>/cameras/basis-K`` (g3d_host/compare). Each call is jo
 
 - ``render_views(views, passes, size_px, background, target)``: views = "canonical" (front, rear, left, right, top,
   bottom, angled_left, angled_right: orthographic, framed to the render-enabled boxes + 5 %), "reference" (every
-  ``reference-NN`` of the basis at its frozen camera), "all", or a list of those names and custom
+  photo of the basis at its frozen camera), "all", or a list of those names and custom
   ``{name, yaw, pitch, roll, perspective, target_mm, width_mm}`` views; target = {"part": name} or
   {"point_mm": [x, y, z], "radius_mm": r} frames the canonical views on a part or a point. Passes: native, clay,
   normal (worker), silhouette (the clay alpha) and parts (the host raster's first-hit part). One labelled contact
@@ -107,6 +107,8 @@ from ..g3d_host import lighting as L
 from ..g3d_host import pose as PO
 from ..g3d_host.camera import Camera, NormFrame, project_mm
 from . import procs
+from .journal import CheckpointMismatch, WorkerFailed
+from .worker_client import WorkerDied
 
 MANIFEST_SCHEMA = "g3d.render_manifest/1"
 RENDER_DEADLINE_S = 300.0
@@ -123,7 +125,6 @@ PICK_MAX = 64
 CROP_MAX_UPSCALE = 4.0
 MESH_CACHE = 4
 NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,60}$")
-REF_RE = re.compile(r"^reference-\d+$")
 MATCHED_RIG = "studio_dome_v1"
 ENV_RIG = "photo_env"
 CATALOG_RIG = "catalog_band_v1"
@@ -194,6 +195,32 @@ class SeeingError(ValueError):
 
 def _err(call_id: str, code: str, message: str) -> dict:
     return {"status": "error", "call_id": call_id, "code": code, "message": message}
+
+
+def _safe_view_names(names, *, reserved=()) -> dict[str, str]:
+    """Stable file-safe identities without changing the logical names returned to callers.
+
+    The worker strips punctuation and truncates names, so names changed by that
+    operation need a digest rather than a shared underscore spelling.
+    """
+    names = list(dict.fromkeys(names))
+    reserved = {n.casefold() for n in reserved}
+    used = reserved | {n.casefold() for n in names}
+    assigned, out = set(), {}
+    for name in names:
+        if (NAME_RE.fullmatch(name) and name.strip("._") == name and name.casefold() not in reserved
+                and name.casefold() not in assigned):
+            safe = name
+        else:
+            stem = "ref-" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:24]
+            safe, suffix = stem, 0
+            while safe.casefold() in used:
+                suffix += 1
+                safe = f"{stem}-{suffix}"
+        out[name] = safe
+        used.add(safe.casefold())
+        assigned.add(safe.casefold())
+    return out
 
 
 class Seeing:
@@ -326,7 +353,11 @@ class Seeing:
 
     def resolve_views(self, views, size_px: int, target=None, basis_id: str | None = None, *,
                       call_id: str) -> list[dict]:
-        """Each view as {name, kind, camera, frame, origin, shape, px_per_mm[, ref]}."""
+        """Each view as {name, kind, camera, frame, origin, shape, px_per_mm[, ref]}.
+
+        Bare canonical names keep their meaning. ``reference:<photo id or filename>``
+        explicitly selects a fitted photo, including one named front/top/etc.
+        """
         size_px = int(size_px)
         if not SIZE_RANGE[0] <= size_px <= SIZE_RANGE[1]:
             raise SeeingError("E_ARGS", f"size_px must be {SIZE_RANGE[0]}..{SIZE_RANGE[1]}")
@@ -343,7 +374,7 @@ class Seeing:
                 expanded += list(BC.CANONICAL_VIEWS)
             if it in ("reference", "all"):
                 basis = basis or C.load_basis(self.root, basis_id)
-                expanded += list(basis.refs)
+                expanded += [("reference", rid) for rid in basis.refs]
             if it not in ("canonical", "all", "reference"):
                 expanded.append(it)
         out, names = [], set()
@@ -373,20 +404,24 @@ class Seeing:
                 cam, shape = BC.framed_view(yaw, pitch, pts, frame, size_px)
                 rec = {"name": it, "kind": "canonical", "camera": cam, "frame": frame, "origin": origin,
                        "shape": shape, "px_per_mm": cam.scale / frame.extent}
-            elif isinstance(it, str) and (REF_RE.match(it) or Path(it).stem.startswith("reference-")):
+            elif isinstance(it, str) or (isinstance(it, tuple) and len(it) == 2 and it[0] == "reference"):
                 basis = basis or C.load_basis(self.root, basis_id)
-                rid = C.ref_id(it)
+                requested = it[1] if isinstance(it, tuple) else it.removeprefix("reference:")
+                if (not requested or requested in (".", "..") or any(c in requested for c in ("/", "\\", ":"))):
+                    raise SeeingError("E_ARGS", "a reference view needs a photo id or filename, not a path")
+                rid = requested if requested in basis.refs else C.ref_id(requested)
                 if rid not in basis.refs:
                     raise SeeingError("E_ARGS", f"{basis.id} has no {rid}; references: {list(basis.refs)}")
                 cam0, (H, W) = basis.camera(rid), basis.shape(rid)
                 k = min(1.0, size_px / max(H, W))
                 cam = BC.crop_camera(cam0, 0.0, 0.0, k) if k < 1.0 else cam0
                 shape = (max(1, round(H * k)), max(1, round(W * k)))
-                rec = {"name": rid, "kind": "reference", "camera": cam, "frame": basis.frame, "origin": origin,
+                safe = _safe_view_names(basis.refs, reserved=BC.CANONICAL_VIEWS)[rid]
+                rec = {"name": safe, "kind": "reference", "camera": cam, "frame": basis.frame, "origin": origin,
                        "shape": shape, "scale_k": k, "basis": basis.id, "ref": rid,
                        "px_per_mm": BC.px_per_mm_at(cam, basis.frame, basis.pivot_mm)}
             else:
-                raise SeeingError("E_ARGS", f"unknown view {it!r}: use {list(BC.CANONICAL_VIEWS)}, reference-NN, "
+                raise SeeingError("E_ARGS", f"unknown view {it!r}: use {list(BC.CANONICAL_VIEWS)}, a fitted photo id, "
                                             "'canonical', 'reference', 'all' or a custom {yaw, pitch, ...} view")
             if not NAME_RE.match(rec["name"]) or rec["name"] in names:
                 raise SeeingError("E_ARGS", f"view name {rec['name']!r} is invalid or repeated")
@@ -407,16 +442,22 @@ class Seeing:
 
     def _render(self, tool: str, call_id: str, views: list[dict], out_dir: Path, *, engine: str = "auto",
                 samples: int = 16, simulate_eevee_failure: bool = False) -> dict:
+        safe_names = _safe_view_names(v["name"] for v in views)
         params = {"out_dir": str(out_dir), "engine": engine, "samples": int(samples),
                   "light_frame": self._light_frame(call_id),
-                  "views": [{"name": v["name"], "camera": v["blender"], "passes": v["worker_passes"]}
+                  "views": [{"name": safe_names[v["name"]], "camera": v["blender"], "passes": v["worker_passes"]}
                             for v in views if v["worker_passes"]]}
         if simulate_eevee_failure:
             params["simulate_eevee_failure"] = True
         if not params["views"]:
             return {"status": "ok", "result": {"views": [], "engine_final": None, "gpu": None, "fallback": None,
                                                "fingerprint_before": self.head["fingerprint"], "seconds": 0.0}}
-        return self.s.call_read(tool, "render", params, deadline_s=RENDER_DEADLINE_S, call_id=call_id)
+        result = self.s.call_read(tool, "render", params, deadline_s=RENDER_DEADLINE_S, call_id=call_id)
+        logical_names = {safe: name for name, safe in safe_names.items()}
+        if result.get("status") == "ok":
+            for view in result["result"]["views"]:
+                view["name"] = logical_names[view["name"]]
+        return result
 
     # ---------------------------------------------------------------------------------------------- render_views
     def render_views(self, views="canonical", passes=DEFAULT_PASSES, size_px: int = 1024, background="grey",
@@ -482,7 +523,7 @@ class Seeing:
             imgs = [C.rgba_on(Image.open(fv[p]["path"]), background) if p != "silhouette" else
                     Image.open(fv[p]["path"]).convert("RGBA") for p in passes if p in fv]
             if imgs:
-                tiles.append((f"{v['name']} ({v['kind']}, {v['px_per_mm']:.2f} px/mm) " + " | ".join(
+                tiles.append((f"{v.get('ref', v['name'])} ({v['kind']}, {v['px_per_mm']:.2f} px/mm) " + " | ".join(
                     p for p in passes if p in fv), imgs))
             manifest_views[v["name"]] = {
                 "kind": v["kind"], "camera": v["camera"].to_dict(), "frame": v["frame"].to_dict(),
@@ -506,6 +547,7 @@ class Seeing:
         C.write_json(mp, manifest)
         out = {"status": "ok", "call_id": call_id, "sheets": sheets, "manifest": str(mp),
                "views": {n: {"kind": m["kind"], "shape": m["shape"], "px_per_mm": round(m["px_per_mm"], 4),
+                             **({"ref": m["ref"], "basis": m["basis"]} if m["kind"] == "reference" else {}),
                              "files": {p: f["path"] for p, f in m["files"].items()}}
                          for n, m in manifest_views.items()},
                "engine": res.get("engine_final"), "fallback": res.get("fallback"), "gpu": res.get("gpu"),
@@ -585,6 +627,8 @@ class Seeing:
                 self.s.record_call("compare_to_photos", call_id, {"refs": refs, "rig": rig, "basis": basis}, out)
                 return out
             return self._compare_v1(refs, parts, passes, crops, size_px, basis, call_id)
+        except (WorkerFailed, CheckpointMismatch, WorkerDied):
+            raise
         except Exception as exc:  # noqa: BLE001 - reported and journaled, never raised to the caller
             out = _err(call_id, "E_COMPARE", f"{type(exc).__name__}: {exc}"[:2000])
             self.s.record_call("compare_to_photos", call_id, {"refs": refs, "rig": rig, "basis": basis}, out)
@@ -739,7 +783,8 @@ class Seeing:
         names = list(bs.refs)
         out = []
         for it in items:
-            rid = names[int(it) - 1] if isinstance(it, int) and 1 <= int(it) <= len(names) else C.ref_id(str(it))
+            rid = (names[int(it) - 1] if isinstance(it, int) and 1 <= int(it) <= len(names) else
+                   str(it) if str(it) in bs.refs else C.ref_id(str(it)))
             if rid not in bs.refs:
                 raise SeeingError("E_ARGS", f"{bs.id} has no reference {it!r}; references: {names}")
             if rid not in out:
@@ -1238,6 +1283,8 @@ class Seeing:
                                          render_deadline_s=render_deadline_s, v3=v3)
         except SeeingError as exc:
             out = _err(call_id, exc.code, str(exc))
+        except (WorkerFailed, CheckpointMismatch, WorkerDied):
+            raise
         except Exception as exc:  # noqa: BLE001 - every failure after the arguments is a journaled E_COMPARE
             out = _err(call_id, "E_COMPARE", f"{type(exc).__name__}: {exc}"[:2000])
         self.s.record_call("compare_to_photos", call_id, args, out)

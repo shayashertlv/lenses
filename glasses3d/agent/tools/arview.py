@@ -1,0 +1,128 @@
+"""Fixed-size AR captures for job tools; the capture and Chromium share a kill-on-close process job."""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+
+from PIL import Image, ImageOps, ImageDraw
+
+from .. import procs
+
+ARVIEW = Path(__file__).resolve().parents[2] / "arview"
+EXIT_STATUS = {0: "ok", 1: "infrastructure_failed", 2: "usage_error", 3: "spec_failed", 4: "refused"}
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def confined(root: Path, path, *, areas=("images", "reference_images", "work")) -> Path:
+    """Resolve links before checking containment; money/session/credential files are never image inputs."""
+    root = Path(root).resolve()
+    target = (root / path).resolve()
+    if not any(target.is_relative_to(root / area) and target != root / area for area in areas):
+        raise ValueError("path must stay inside the job's image or work directories")
+    return target
+
+
+def output_dir(root: Path, call_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}", call_id):
+        raise ValueError("invalid call id")
+    path = confined(root, Path("work/arview") / call_id)
+    path.mkdir(parents=True, exist_ok=False)
+    return path
+
+
+def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | None, bool]:
+    """Own the entire tree through normal exit and timeout; stdout streams to disk, never an unread pipe."""
+    env = {key: value for key, value in os.environ.items() if key.upper() in procs.WORKER_ENV_KEYS}
+    env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
+    proc = job = None
+    with (out / "capture.log").open("ab") as log:
+        try:
+            proc, job = procs.spawn_in_job(argv, cwd=ARVIEW, stdout=log, env=env)
+            try:
+                return proc.wait(timeout=timeout_s), False
+            except subprocess.TimeoutExpired:
+                if job.handle is not None:
+                    job.terminate()
+                else:  # the POSIX process group contains Chromium as well as Node
+                    import signal
+                    os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=10)
+                return None, True
+        finally:
+            if job is not None:
+                job.close()
+
+
+def contact_sheet(out: Path, records: list[dict]) -> Path | None:
+    if not records:
+        return None
+    width, height, cols = 400, 300, min(4, len(records))
+    rows = (len(records) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * width, rows * (height + 28)), "#ececec")
+    draw = ImageDraw.Draw(sheet)
+    for i, rec in enumerate(records):
+        with Image.open(out / rec["file"]) as opened:
+            tile = ImageOps.contain(ImageOps.exif_transpose(opened).convert("RGB"), (width, height))
+        x, y = i % cols * width, i // cols * (height + 28)
+        sheet.paste(tile, (x + (width - tile.width) // 2, y + (height - tile.height) // 2))
+        draw.text((x + 6, y + height + 4), str(rec.get("pose", "")) + " " + str(rec.get("variant", "")), fill="black")
+    path = out / "contact-sheet.jpg"
+    sheet.save(path, quality=95)
+    return path
+
+
+def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
+    """The smallest general pose set: seven poses, skin, beauty+part-id, fixed authored scale, no portrait."""
+    if export.get("status") != "exported":
+        return {"status": "refused", "code": "E_EXPORT", "export": export}
+    model = confined(root, export["path"])
+    if sha256(model) != export["sha256"]:
+        return {"status": "refused", "code": "E_EXPORT", "message": "export bytes changed"}
+    node = shutil.which("node")
+    if node is None:
+        return {"status": "infrastructure_failed", "code": "E_NODE", "message": "Node.js is not available"}
+    out = output_dir(root, call_id)
+    argv = [node, str(ARVIEW / "bin/arview.mjs"), "capture", str(model), "--out", str(out),
+            "--poses", "default", "--backgrounds", "skin", "--fixed-scale", "--no-portrait"]
+    # The CLI requires an empty directory; put its log outside the capture directory until it has started.
+    log_dir = out.with_name(out.name + "-process")
+    log_dir.mkdir(exist_ok=False)
+    code, timed_out = run_capture(argv, log_dir, timeout_s=timeout_s)
+    result = {"status": "timeout" if timed_out else EXIT_STATUS.get(code, "infrastructure_failed"),
+              "code": "E_TIMEOUT" if timed_out else f"ARVIEW_EXIT_{code}", "exit_code": code,
+              "fixed_scale": True, "poses": "default", "checkpoint": export["checkpoint"],
+              "glb_sha256": export["sha256"], "export_sha256": export["sha256"],
+              "log": str(log_dir / "capture.log"), "images": [], "sheets": []}
+    report_path = out / "report.json"
+    if not report_path.is_file():
+        if not timed_out and code in (0, 3):
+            result.update(status="infrastructure_failed", code="E_REPORT", message="capture report missing")
+        return result
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if report.get("schema") != "arview.capture/1" or report.get("input", {}).get("sha256") != export["sha256"]:
+            raise ValueError("capture report does not describe the exported bytes")
+        records = report.get("images", [])
+        for rec in records:
+            file = confined(out, rec["file"], areas=(".",))
+            if not file.is_file() or sha256(file) != rec.get("sha256"):
+                raise ValueError("capture image bytes differ from the report")
+        sheet = contact_sheet(out, records)
+        result.update(report=str(report_path), report_sha256=sha256(report_path), capture_status=report.get("status"),
+                      warnings=report.get("warnings", []), errors=report.get("errors", []),
+                      spec=report.get("spec"), runtime=report.get("runtime"), geometry=report.get("geometry"))
+        if sheet is not None:
+            result["sheets"] = [str(sheet)]
+            result["images"] = [{"path": str(sheet), "sha256": sha256(sheet), "view": "AR default poses",
+                                 "kind": "arview_capture", "checkpoint": export["checkpoint"]}]
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        result.update(status="infrastructure_failed", code="E_INTEGRITY", message=str(error), images=[])
+    return result

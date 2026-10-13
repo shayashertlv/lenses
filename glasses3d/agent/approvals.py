@@ -78,22 +78,43 @@ def input_digests(job_dir) -> dict:
     if _is_link(job_json) or not job_json.is_file():
         raise ApprovalRefused("invalid", "job.json is missing")
     inputs = []
-    root = job_dir / "inputs"
-    if _is_link(root):
-        raise ApprovalRefused("invalid", "job inputs must not contain links")
-    if root.is_dir():
-        for path in sorted(root.rglob("*")):
-            if _is_link(path):
-                raise ApprovalRefused("invalid", "job inputs must not contain links")
-            if path.is_file():
-                inputs.append({"path": path.relative_to(job_dir).as_posix(), "sha256": file_sha256(path)})
+    for name in ("inputs", "images", "reference_images"):
+        root = job_dir / name
+        if _is_link(root):
+            raise ApprovalRefused("invalid", "job inputs must not contain links")
+        if root.is_dir():
+            for path in sorted(root.rglob("*")):
+                if _is_link(path):
+                    raise ApprovalRefused("invalid", "job inputs must not contain links")
+                if path.is_file():
+                    inputs.append({"path": path.relative_to(job_dir).as_posix(), "sha256": file_sha256(path)})
     return {"job_json_sha256": file_sha256(job_json), "inputs": inputs}
 
 
 def run_input_binding(job_dir, brief: str, photos) -> dict:
     """Bind the exact first-message brief and ordered reference descriptors to their on-disk source bytes."""
     from .session_inputs import image_identity
-    root = (Path(job_dir) / "inputs").resolve()
+    job_dir = Path(job_dir).resolve()
+    _, doc = _read_json(job_dir / "job.json", "job.json")
+    job_images = doc.get("schema") == "g3d.job/1" and isinstance(doc.get("images"), list)
+    root = job_dir if job_images else (job_dir / "inputs").resolve()
+    expected = set()
+    if job_images:
+        for row in doc["images"]:
+            if not isinstance(row, dict):
+                raise ApprovalRefused("invalid", "job images must be records")
+            relative = Path(row.get("sent_file") or row.get("file") or "")
+            path = (root / relative).resolve()
+            if (relative.is_absolute() or not relative.parts or relative.parts[0] not in ("images", "reference_images")
+                    or ".." in relative.parts or not path.is_relative_to(root / relative.parts[0])
+                    or not path.is_file() or _is_link(root / relative.parts[0]) or _is_link(root / relative)):
+                raise ApprovalRefused("invalid", "job reference must be an image input inside the job")
+            if path in expected:
+                raise ApprovalRefused("invalid", "job references must be distinct")
+            expected.add(path)
+    else:
+        expected = {p.resolve() for p in root.rglob("*") if p.is_file()
+                    and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif")}
     rows, seen = [], set()
     for photo in photos:
         path = (root / photo.path).resolve()
@@ -105,11 +126,9 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
         seen.add(path)
         rows.append({"path": photo.path, "sha256": identity[0], "mime": identity[1], "bytes": identity[2],
                      "label": photo.label, "view": photo.view, "detail": photo.detail, "size_px": photo.size_px})
-    expected = {p.resolve() for p in root.rglob("*") if p.is_file()
-                and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif")}
     if seen != expected:
         raise ApprovalRefused("stale", "the run does not carry every job reference image")
-    brief_path = root / "brief.txt"
+    brief_path = job_dir / "inputs" / "brief.txt"
     if brief_path.exists() and brief_path.read_text(encoding="utf-8") != brief:
         raise ApprovalRefused("stale", "the run brief differs from inputs/brief.txt")
     return {"brief_sha256": sha256_bytes(brief.encode("utf-8")), "photos": rows}

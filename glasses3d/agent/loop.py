@@ -143,6 +143,7 @@ HARD_TIMEOUT_S = {
     "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
     "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,
     "deliver": 600, "pick_surface_point": 30, "read_image": 30, "read_report": 30, "scene_summary": 30,
+    "finish": 150, "budget_status": 30,
     # the facet tools (WP6_FACETS §4.3): 3 x the slowest call measured on the Prada lab (agent/temple_lab, a warm
     # worker, studio_dome_v1 and photo_env, 2026-10-11), rounded up, never below 30 s: inspect 0.3 s, photo_image
     # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached);
@@ -462,6 +463,10 @@ class SceneHooks:
 
     def worker_info(self) -> dict:
         return {}
+
+    def bind_review_log(self, log) -> None:
+        """Connect scene call journals to this run's tool receipts once ReviewLog exists."""
+        return None
 
     def context_stubs(self, image_sha256s: list[str]) -> dict[str, str]:
         """The context guard's choice at one epoch: {image sha256: text stub} for the tool-output images (sha256 of
@@ -1351,6 +1356,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                        settled_stop_usd=spec.settings.settled_stop_usd)
             log = ReviewLog(run_dir, blobs_dir=job_dir / "blobs", guard=guard, secrets=clients.secrets,
                             stop_file=stop_file, heartbeat=heartbeat, run_id=spec.run_id, echo=spec.echo)
+            scene.bind_review_log(log)
             client = clients.inference_client({"request": [log.before_request], "response": [log.after_response]})
             disable_sdk_tracing()
             write_json(run_dir / "run-config.json", {

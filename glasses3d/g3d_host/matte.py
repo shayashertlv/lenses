@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy import ndimage
 
 BORDER_PX = 10
@@ -27,8 +27,9 @@ MIN_COMPONENT_PX = 300   # components of this size or smaller are dropped (only 
 
 
 def load_photo(path: str | Path) -> np.ndarray:
-    """8-bit RGB (H, W, 3) of an image file."""
-    return np.asarray(Image.open(path).convert("RGB"))
+    """8-bit RGB (H, W, 3) in the same EXIF-oriented photo coordinates used by intake and image tools."""
+    with Image.open(path) as image:
+        return np.asarray(ImageOps.exif_transpose(image).convert("RGB"))
 
 
 def border_mask(shape: tuple[int, int], border: int = BORDER_PX) -> np.ndarray:

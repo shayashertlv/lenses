@@ -68,6 +68,64 @@ def test_request_sha_covers_every_bound_input(tmp_path):
     assert base not in shas and len(set(shas)) == len(shas)
 
 
+def test_job_image_layout_binds_original_and_transport_copy(tmp_path, monkeypatch):
+    from PIL import Image
+    from glasses3d.agent import jobs
+    from glasses3d.agent.brief import build_brief
+
+    source = tmp_path / "photos"
+    source.mkdir()
+    Image.new("RGB", (31, 19), "red").save(source / "front.png", compress_level=0)
+    views = tmp_path / "views.json"
+    views.write_text(json.dumps({"front.png": {"kind": "front", "side": "both"}}))
+    monkeypatch.setattr(jobs, "MAX_REFERENCE_BYTES", 1000)
+    root = jobs.create_job(images=source, views=views, name="Synthetic intake", description="A synthetic photo.",
+                           jobs_root=tmp_path / "jobs")
+    job = jobs.load_job(root)
+    image, = job["images"]
+    assert image["sent_file"] != image["file"]
+    photos = jobs.references(root)
+    inputs = A.run_input_binding(root, build_brief(job), photos)
+    request = request_for(root, run_inputs=inputs)
+    assert {item["path"] for item in request["inputs"]} == {image["file"], image["sent_file"]}
+    assert inputs["photos"][0]["path"] == image["sent_file"]
+    run_dir, _ = estimated(root, run_inputs=inputs)
+    A.write_approval(run_dir, max_usd="15", owner_words=WORDS)
+    check_approval(run_dir, current_request_sha256=request_sha256(request))
+
+    # Changing an original invalidates its approval even when the sent derivative is unchanged.
+    original = root / image["file"]
+    original_payload = original.read_bytes()
+    original.write_bytes(original_payload + b"changed-original")
+    refused("stale", check_approval, run_dir,
+            current_request_sha256=request_sha256(request_for(root, run_inputs=inputs)))
+    original.write_bytes(original_payload)
+    # A changed derivative cannot be sent under its earlier data URL and digest.
+    (root / image["sent_file"]).write_bytes(b"changed-transport-image")
+    refused("stale", A.run_input_binding, root, build_brief(job), photos)
+
+
+def test_job_image_layout_requires_every_declared_sent_reference(tmp_path):
+    from PIL import Image
+    from glasses3d.agent import jobs
+    from glasses3d.agent.brief import build_brief
+
+    source = tmp_path / "photos"
+    source.mkdir()
+    for name, colour in (("front.png", "red"), ("side.png", "blue")):
+        Image.new("RGB", (12, 8), colour).save(source / name)
+    views = tmp_path / "views.json"
+    views.write_text(json.dumps({"front.png": {"kind": "front", "side": "both"},
+                                "side.png": {"kind": "side", "side": "left"}}))
+    root = jobs.create_job(images=source, views=views, name="Two photos", description="Both are authoritative.",
+                           jobs_root=tmp_path / "jobs")
+    text = build_brief(jobs.load_job(root))
+    photos = jobs.references(root)
+    assert len(A.run_input_binding(root, text, photos)["photos"]) == 2
+    refused("stale", A.run_input_binding, root, text, photos[:1])
+    refused("invalid", A.run_input_binding, root, text, [photos[0], photos[0]])
+
+
 def test_build_request_refuses_what_it_cannot_bind(tmp_path):
     job = make_job(tmp_path)
     refused("invalid", request_for, job, instructions_sha256="not a sha")
