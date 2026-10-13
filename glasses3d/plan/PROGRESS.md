@@ -19,13 +19,100 @@ at $0.211823. **M5 Oakley run 1 was approved and attempted on the corrected job;
 checkpoint verification after $0.828903. No delivery was published.** The $0 reproduction and accounting audit
 are below. **The owner authorized the checkpoint/failed-draft repairs and exactly one fresh run on the same
 corrected job**, conditional on the repairs, proofs and full suite passing and a new estimate under $20. Terms:
-$20 settled stop, $23 reserve cap, max effort; not a resume. Repairs and verification are recorded below.
+$20 settled stop, $23 reserve cap, max effort; not a resume. **Repairs committed as `123dcca`; the authorized
+fresh run completed and delivered at $19.161346 on c0021, with specification and seating passing. Webcam review
+is running.** Appearance limitations remain below; M5 owner visual acceptance is pending. No other paid run is
+authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
-## Assembly M5: checkpoint and failed-draft repair (2026-10-13; $0)
+## Assembly M5: authorized fresh Oakley run (2026-10-13; completed, awaiting owner review)
+
+All five requested $0 repair/verification steps passed before this run, committed as **`123dcca`** on branch
+`glasses3d`, clean checkout `C:/Users/Shay/PycharmProjects/lenses`. No worktree, push, paid reproduction or
+hand-authored product edit. Only the corrected job **`oakley-oo9208-v2-3e057bab`** was used.
+
+**Fresh start, not resume:** preserved the complete failed-run job in `data/assembly/m5r1frozen/` and moved only
+active session/checkpoints/job-scene state/heartbeat to `data/assembly/m5r1active/`. The old run records,
+receipts, money ledger, input photos and seed stayed intact. Each preserved file was byte-verified (detach
+specifications copied opaquely, never inspected). The reset helper initially passed `objects:None`, selecting
+no objects in its verification query; corrected the helper to `objects:"all"` and independently verified the
+already prepared state, without repeating the reset. Evidence `data/assembly/m5r1-fresh-reset.json` confirms
+empty c0000, only the EMPTY origin marker, no conversation, no product geometry and unchanged inputs/ledger.
+
+Fresh request **`20261013T173404-2accf4`**, request SHA
+`8ffc6c1f5ef996a9263d78cbcd78c9c807c1898e8bba4c5bf88aa053cf0a25f5`.
+Estimate **$14.957821**, range **$13.200719-$20.117690**, met the owner's expected-cost-under-$20 condition.
+Recorded these exact owner words through `job approve --max-usd 23`:
+
+> I approve a fresh Oakley run on the same job (oakley-oo9208-v2-3e057bab), not a resume, on the same terms: $20 settled stop, $23 maximum reserve, effort max. Start it only after steps 1-5 pass and its new estimate is under $20. When it ends, start job review and report as before. Do not start any other paid run.
+
+Bound settings were **$20 settled stop / $23 maximum reserve / max effort**, `resume:false`, zero history,
+all six photos newly supplied. Independent live-start audit checked approval/config/consumed-ledger bindings,
+all seven input hashes, empty c0000 and the real provider request's model/effort. Started once, detached through
+`job run`, using only the existing runner's `--env-file` loader. No credential file was read or printed by the
+agent. BLAS 1, descendant EcoQoS opt-out; no competing heavy pool. Keeper PID 32504, runner PID 30884, Blender
+PID 46044. Forty-second process/heartbeat/money monitoring: `data/assembly/m5oakley/fresh-monitor.jsonl`.
+
+**Outcome: completed, accepted finish (not a draft)**. Started **17:34:27 UTC / 20:34:27 Jerusalem**, finished
+**18:32:43 UTC / 21:32:43 Jerusalem**, **3,496.759 s (58 min 16.8 s)**; detached runner exited 0 at 18:32:44 UTC.
+**65 API requests, 65 tool calls**, no continuation or second run. No teardown errors. Checkpoint **c0021**;
+the exact old fingerprint failure did not recur. Model-code refusals/geometry failures were returned to Astra
+and corrected by Astra through the tools. A topology-valid lens was achieved before seating, then the normal
+seating gates passed. The specialist temple stage repeatedly refused; no specialist result is claimed.
+
+**Money and receipts:** actual fresh-run settled spend **$19.161346**, final held **$0**, unknown **$0**. All
+**65** charges were re-priced from provider usage; **130** request/response receipts verified. Largest individual
+hold **$3.700638**; every request began below the settled stop and total committed spend stayed within $23.
+The same job's aggregate, including the original failed run's **$0.828903**, is **$19.990249**. This aggregate
+does not include the earlier smoke on its separate job. Seven audit groups passed: approval binding,
+money/ledgers, transport receipts, referenced output blobs, six initial photos, immutable delivery and evidence
+unchanged (**263** read files). **27** unique blobs verified across **195** receipt documents. Evidence:
+`data/assembly/m5oakley/fresh-audit.json`; source ledgers and receipts at
+`data/jobs/oakley-oo9208-v2-3e057bab/runs/20261013T173404-2accf4/{budget.json,transport/,result.json,transcript.md}`
+and `data/jobs/oakley-oo9208-v2-3e057bab/budget/job-ledger.json`.
+
+**Immutable delivery:**
+`data/jobs/oakley-oo9208-v2-3e057bab/deliveries/20261013T173404-2accf4-cf35d209a42d0149c739654e5e046f58a46d405c93ea362e11ef629a7f675904/`.
+GLB SHA **`a2814e098ce88aafc17c746e05af288d54f73eb28d82cb1d9f61044912279c23`**, **1,605,328 bytes**, **74,150
+triangles**; reported width **155.65 mm** (estimated scale, no supplied physical measurements). `report.json`
+contains Astra's complete finish summary and the bound checks. **Specification 7/7 rows pass**, no errors or
+warnings. **Seating passes**, no reasons/refusals: 541 PASS, 1 TRANSITION, 366 VISIBLE_BY_DESIGN;
+`share_ge_pass=0.9982`, `share_ge_target=0.9945`. The embedded seating report also records an over-capture
+warning: 150 points, maximum 1.2977 mm against its 0.6 mm warning limit; this does not fail seating and the
+lens was not shrunk to hide it. Print check passes as not required. **Fixed-scale AR: seven
+poses, exit 0, captured_with_warnings, no errors**. Five warnings cover two lens-decal classifications, two
+overlap-window saturation readings, and the AR arm heuristic treating the rearward-wrapped brow as arm geometry.
+The earlier zero-area temple-triangle warnings are absent from the final capture.
+
+**Astra's summary, condensed (not an owner likeness verdict):** complete curved shield, vented black brow,
+retaining rail/locking pods, hinge details, silver oval emblems, faceted swept temples, sleeves, nasal carrier,
+rubber pads/ribs and small OAKLEY/PRIZM markings. The exact photographic interference coating is **not fully
+matched**: Blender thin-film values were not carried into `KHR_materials_iridescence`; the delivered coloured
+specular coating gives moving green/cyan highlights over violet transmission, but the green is too highlight-like
+and photo-camera renders remain too violet. All six photos informed geometry. Final basis-01 contour means
+are approximately 0.64 mm front, 1.06 angled, 1.42 right, 1.01 rear and 1.20 left; these do not certify likeness.
+Top fitting retained an approximately 90-degree image-plane orientation error after a targeted retry (IoU
+0.3233); Astra inspected custom rolled top renders instead. Facets, far-shield side silhouette and tiny lettering
+remain approximate. The temple specialist never accepted the authored knuckle axes. The rearward brow still
+triggers the AR positional-arm warning. Scale is estimated. These limitations remain open for owner review.
+
+**Webcam review started** through `job review ... --port 0` and verified ready/rendered at port **52798**,
+detached server PID **24984**, bound to the immutable delivery SHA above, fixed lens environment intensity 1.
+The app browser-open request was queued. Full launch URL and identity are in the job's `review` records.
+AR contact sheet (immutable final delivery):
+`data/jobs/oakley-oo9208-v2-3e057bab/deliveries/20261013T173404-2accf4-cf35d209a42d0149c739654e5e046f58a46d405c93ea362e11ef629a7f675904/contact-sheets/01.jpg`.
+
+**Additional host diagnostic issue found, left open:** `temple_lab/package.py` replaces any unsuccessful
+`export_head` with "parent export does not match its current checkpoint". In call 25, c0005 had unsupported
+`partRole='hinge'` values and no cache entry; the source evidence supports export refusal, not a stale cache.
+A later general fix should preserve the original export refusal and reserve the mismatch message for an
+otherwise successful export with a genuinely wrong binding. No active-run patch or role-gate relaxation made.
+No other paid run was started. M5 owner visual acceptance remains pending.
+
+## Assembly M5: checkpoint and failed-draft repair (2026-10-13; $0; commit `123dcca`)
 
 Owner request: identify the exact unstable property, repair the general checkpoint method, prove a mixed Blender
 scene and the original tool journals round-trip, salvage failed runs from their last verified checkpoint, run
