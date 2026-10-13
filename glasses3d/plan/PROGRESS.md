@@ -11,7 +11,7 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 **Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
-validation, owner OK per run). M0 is complete; next action: M1.
+validation, owner OK per run). M0 and M1 are complete; next action: M2.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
@@ -45,6 +45,51 @@ Evidence: `data/assembly/m0_{main,rerun,qos,print,ar_unit,ar_qa,tsc}.log`, with 
 exit codes in adjacent receipt/status JSON files. BLAS threads = 1, EcoQoS opt-out, no overlapping heavy pools.
 Open: the 11 pre-existing stale WP4 proof skips remain for M4a; WP5/WP6 owner closeouts and historical quality
 limitations are unchanged. No open M0 defect. Next: M1 job intake, generic scene hooks and registry, offline proof.
+
+## Assembly M1 (2026-10-13, $0; complete, implementation commit `92c0187`)
+
+Added the generic job CLI (`create`, `show`, `estimate`, `approve`, `run`, `stop`), explicit-view photo intake,
+verbatim owner facts/model requirements, an empty millimetre template, persistent scene hooks and fourteen async
+tools. Runs require a single-use bound approval; defaults are max effort, $20 settled stop and $23 reserve cap.
+Photos retain their original bytes and hashes; large transport copies are also bound. Intake rejects missing views,
+duplicates and colliding camera stems. EXIF orientation now agrees across intake, fitting, comparison and image reads.
+
+The scene records mutations and per-tool journal receipts, recovers interrupted mutations from the checkpoint index,
+and verifies the exit checkpoint. Finish requires a validated current export and successful fixed-scale AR capture;
+delivery checks the finished checkpoint again. Worker failures propagate instead of becoming ordinary compare results.
+Reference rendering now supports arbitrary filenames, spaces, Unicode and canonical-name collisions, using safe
+output aliases while retaining the actual photo identity. Canonical camera names and path guards are unchanged.
+Camera pools use free commit memory (1.3 GiB/worker with 2 GiB spare), CPU count and a ceiling of 16; BLAS threads = 1.
+
+Proof: `python -m glasses3d.tests.proofs.assembly_m1` built synthetic wrapped glasses, rendered three truth photos in
+Blender, created a fresh job, and drove the real SDK through eight scripted calls: build, summary, fit, reference
+render, compare, validated export, AR, finish. The final proof took **71.735 s** (`m1_proof3.log`), delivered job
+`synthetic-assembly-proof-926ab6dc`, and verified every reference render used its fitted camera (including `front.png`
+and `angle photo.png`). All original fit gates passed: IoU >0.97, contour <1.5 px, yaw/pitch errors <1.5 degrees.
+Receipt audit: 16 transport files, 8 successful tool journals, 8 settled mock requests, 9 verified image blobs and
+14 AR images; no unknown holds, raw image URLs or fake key in text receipts. Mock settlement was $2.542402;
+**actual API spend was $0**, with non-loopback networking and production transports blocked.
+
+The first proof used native antialiased photo fringes and failed side-view IoU (0.9521, angle error <0.1 degrees).
+The known-truth fixture now colours Blender's hard silhouette, matching the existing synthetic fit fixture;
+no fit gate changed. The three overlaps on the passing run before filename expansion were 0.9972, 0.9972, 0.9881.
+
+Full Python suite: **2,588 unique tests passed after isolated/added-regression runs, 11 pre-existing WP4 skips**.
+Main (8 workers/loadfile): 2,307 passed, 25 failed, 11 skipped in 730.22 s. Failures were one timing check, the
+launcher's EcoQoS interference, a 300-second shared renderer timeout and its 20 follow-on failures, the lab's variant
+image check under load, and one outdated assertion that `budget_status` had no timeout entry. The assertion now
+checks the new tool deadlines and still refuses an unknown tool. Isolated rerun: 58 passed in 65.79 s; EcoQoS:
+1 passed in 0.29 s. After the filename fix, the full Seeing module, new routing regressions and registry tests:
+74 passed in 85.49 s. Print (2 workers/loadfile): 237 passed in 184.16 s. Arview: **497 unit + 103 QA passed**;
+TypeScript clean. No timeout, numeric gate or quality threshold was increased.
+
+Evidence: `data/assembly/m1_{main,rerun,qos,print,ar_unit,ar_qa,tsc,seeing,proof3}.log`, with UTC timestamps, arguments,
+PIDs and exit codes in adjacent receipt/status files. No push or paid call. The first failed proof's temporary
+fixture is local/untracked at repository-root `data/assembly/m1-proof-b8bb88d4`; automatic approval review blocked
+its cleanup move with the stated reason "blocked by policy". It was excluded from the explicit-path commit.
+Open: M2 instructions/image policy/estimate, M3 owner review, M4 specialist stages, and the existing WP4 skips.
+A pre-existing library-only compare crop-name collision (`crop-01` photo plus generated `crop-01`) is not exposed by
+the generic registry (which has no crop argument); keep it in view when assembling M4 packages. No open M1 tool defect.
 
 ## Status
 
