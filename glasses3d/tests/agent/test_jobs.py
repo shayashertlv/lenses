@@ -92,12 +92,38 @@ def test_existing_camera_vocabulary_and_explicit_unspecified_side(tmp_path, kind
                                                ("side", "right", ["right"]),
                                                ("top_oblique", "left", ["top_oblique_left"]),
                                                ("top_oblique", "right", ["top_oblique_right"]),
+                                               ("rear_threequarter", "left", ["rear_threequarter_left"]),
+                                               ("rear_threequarter", "right", ["rear_threequarter_right"]),
+                                               ("rear_threequarter", None, ["rear_threequarter_left", "rear_threequarter_right"]),
                                                ("angled", "left", ["angled"]),
                                                ("side", None, ["right", "left"])])
 def test_explicit_photo_side_restricts_camera_candidates(tmp_path, kind, side, expected):
     args, _ = setup_inputs(tmp_path, kind=kind, side=side)
     root = J.create_job(**args)
     assert J.load_job(root)["images"][0]["fit_kinds"] == expected
+
+
+@pytest.mark.parametrize('mode', ['default', 'glossy_floor', 'open_frame'])
+def test_explicit_photo_matte_mode_roundtrips(tmp_path, mode):
+    args, photo = setup_inputs(tmp_path, kind='rear_threequarter', side='left')
+    args['views'].write_text(json.dumps({photo.name: {'kind': 'rear_threequarter', 'side': 'left', 'matte_mode': mode}}))
+    root = J.create_job(**args)
+    assert J.load_job(root)['images'][0]['matte_mode'] == mode
+    assert J.view_specs(root)[photo.name] == {'kind': 'rear_threequarter', 'side': 'left', 'matte_mode': mode}
+
+
+@pytest.mark.parametrize('mode', [None, 1, 'supplied', 'guess'])
+def test_unknown_matte_mode_refuses_intake_and_reload(tmp_path, mode):
+    args, photo = setup_inputs(tmp_path)
+    root = J.create_job(**args)
+    record = json.loads((root / 'job.json').read_bytes())
+    record['images'][0]['matte_mode'] = mode
+    (root / 'job.json').write_text(json.dumps(record))
+    with pytest.raises(J.JobError, match='matte_mode'):
+        J.load_job(root)
+    args['views'].write_text(json.dumps({photo.name: {'kind': 'front', 'side': None, 'matte_mode': mode}}))
+    with pytest.raises(J.JobError, match='matte_mode'):
+        J.create_job(**args)
 
 
 def test_duplicate_decoded_pixels_refused_even_when_file_bytes_differ(tmp_path):

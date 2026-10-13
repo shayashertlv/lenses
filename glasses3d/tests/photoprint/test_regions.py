@@ -4,12 +4,13 @@ import numpy as np
 import pytest
 
 from glasses3d.g3d_host.photoprint import inputs as IN
+from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.g3d_host.photoprint import regions as RG
 
 
 @pytest.fixture(scope="module")
 def job():
-    return IN.load_job(IN.FT1119['cameras'], with_astra=False)
+    return legacy_ft1119.load_job(with_astra=False)
 
 
 @pytest.fixture(scope="module")

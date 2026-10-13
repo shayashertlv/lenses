@@ -13,7 +13,7 @@ listener closes, and when that client disconnects the worker exits.
 Astra's code arrives only through `exec` and is always validated (g3d/safe_mode.py, again here), then runs in a fresh
 namespace under restricted builtins, the guarded import/getattr family and an audit hook armed only while it runs,
 followed by a post-call check of the active file, save/load handlers and persistence surfaces. Trusted methods
-(checkpoints, fonts, bounds, render, pick, export_glb; later g3d calls) take JSON parameters and never code text;
+(checkpoints, fonts, bounds, render, pick, export_glb, g3d_call) take JSON parameters and never code text;
 their output paths are confined to the job root (render and export to `<root>/work`). `exec_unvalidated` and the
 render's `simulate_eevee_failure` exist only with `--selftest` (they test the runtime layers and the Cycles fallback)
 and are refused otherwise.
@@ -406,6 +406,27 @@ def m_exec_unvalidated(params):
     return m_exec(params, validated=False)
 
 
+def m_g3d_call(params):
+    """Trusted JSON-only seating operations; mutations use the ordinary checkpoint/restore protocol."""
+    from glasses3d.g3d import calls
+    try:
+        op, kwargs = calls.validate(params)
+    except ValueError as exc:
+        return {"status": "refused", "code": "E_ARGS", "message": str(exc)}
+
+    def body():
+        return calls.envelope(op, calls.invoke(op, kwargs))
+
+    if op not in calls.READ_OPS:
+        return _mutating(params, body)
+    t0 = time.perf_counter()
+    fp0 = checkpoint.fingerprint()
+    result = body()
+    fp1 = checkpoint.fingerprint()
+    return {**result, "fingerprint_before": fp0, "fingerprint_after": fp1, "unchanged": fp0 == fp1,
+            "seconds": round(time.perf_counter() - t0, 4)}
+
+
 LAB_SCHEMA = "g3d.temple_lab/2"
 VARIANTS_MAX, VARIANT_VIEWS_MAX = 6, 4
 
@@ -431,6 +452,30 @@ def m_temple_lab_build(params):
         return {"status": "refused", "code": "E_SPEC", "message": "lab spec must be a dictionary"}
 
     def body():
+        receipt = faceted_temple(params["spec"], side="both", decals="auto")
+        return {"status": receipt["status"], "result": receipt}
+    return _mutating(params, body)
+
+
+def m_temple_stage_apply(params):
+    """Apply a fitted JSON spec onto the exact parent head captured by the stage, through the normal journal.
+
+    The source fingerprint is independent of the journal's drift/retry fingerprint. A drift cannot silently rebase
+    an old stage onto newly edited geometry. Only the existing temple builder may change the scene here.
+    """
+    from glasses3d.g3d.temple_bpy import faceted_temple
+    allowed = {"spec", "source_fingerprint", "expect_fingerprint"}
+    source = params.get("source_fingerprint")
+    if (set(params) - allowed or not isinstance(params.get("spec"), dict)
+            or not isinstance(source, str) or len(source) != 64
+            or any(c not in "0123456789abcdef" for c in source)):
+        return {"status": "refused", "code": "E_ARGS",
+                "message": "temple stage requires a fitted JSON spec and the captured source fingerprint"}
+
+    def body():
+        if checkpoint.fingerprint() != source:
+            return {"status": "refused", "code": "E_STAGE_STALE",
+                    "message": "the parent head changed since this temple stage was prepared"}
         receipt = faceted_temple(params["spec"], side="both", decals="auto")
         return {"status": receipt["status"], "result": receipt}
     return _mutating(params, body)
@@ -641,8 +686,9 @@ METHODS = {
     "ping": m_ping, "exec": m_exec, "exec_unvalidated": m_exec_unvalidated, "fingerprint": m_fingerprint,
     "checkpoint_save": m_checkpoint_save, "checkpoint_restore": m_checkpoint_restore, "load_font": m_load_font,
     "scene_summary": m_scene_summary, "bounds": m_bounds, "render": m_render, "pick": m_pick,
-    "export_glb": m_export_glb,
+    "export_glb": m_export_glb, "g3d_call": m_g3d_call,
     "temple_lab_build": m_temple_lab_build, "temple_variants_render": m_temple_variants_render,
+    "temple_stage_apply": m_temple_stage_apply,
 }
 
 

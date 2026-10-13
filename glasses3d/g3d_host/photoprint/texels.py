@@ -77,6 +77,7 @@ from .. import glb as glbmod
 from .. import raster
 from .. import texture_utils as T
 from . import metal as MT
+from . import signals as S
 from .inputs import ppm_local
 from .pose import points
 from .signals import acetate_mask as S_acetate
@@ -272,14 +273,14 @@ def occluder_distance(job, occ: OcclusionScene, V: np.ndarray, cam, shape, *, fa
 
 
 def foreign_blobs(image: np.ndarray, matte: np.ndarray, print_px: np.ndarray, ppm: float, *, part_px=None,
-                  names=None, dilate_all: bool = False) -> dict:
+                  names=None, dilate_all: bool = False, colour_policy=None) -> dict:
     """{'mask' (H, W) bool hole (dilated), 'blobs': [...]}: bright, compact, large non-acetate components of the photo
     lying mostly on rendered print (see the module docstring). ``print_px`` (H, W) = pixels whose first hit is print;
     ``part_px`` (H, W) part id per pixel (-1 none) and ``names`` only label the report."""
     from .signals import acetate_mask
     img = np.asarray(image, np.float64)
     inside = ndimage.binary_erosion(np.asarray(matte, bool), iterations=1)
-    non = inside & ~acetate_mask(img)
+    non = inside & ~acetate_mask(img, colour_policy)
     lab, n = ndimage.label(non, structure=np.ones((3, 3), bool))
     mask = np.zeros(non.shape, bool)
     blobs = []
@@ -330,7 +331,7 @@ def foreign_blobs(image: np.ndarray, matte: np.ndarray, print_px: np.ndarray, pp
 
 
 def footprint_holes(image, matte, ppm: float, *, footprint_px: float = FOOTPRINT_PX, glints=None,
-                    rule: str = "edges", glint_px: float | None = None) -> np.ndarray:
+                    rule: str = "edges", glint_px: float | None = None, colour_policy=None) -> np.ndarray:
     """(H, W) bool: photo pixels a donor sample may not sit on, because the interpolating bicubic's support would mix
     in a bright pixel: within ``footprint_px`` of the background or of a bright (luminance >= FOOTPRINT_BRIGHT_LUM)
     non-acetate pixel inside the matte (the correction round, ``rule='plain'``); with ``rule='edges'`` (fix round 1)
@@ -344,7 +345,7 @@ def footprint_holes(image, matte, ppm: float, *, footprint_px: float = FOOTPRINT
     matte = np.asarray(matte, bool)
     inside = ndimage.binary_erosion(matte, iterations=1)
     lum = img.mean(-1)
-    core = inside & ~S_acetate(img) & (lum >= FOOTPRINT_BRIGHT_LUM)
+    core = inside & ~S_acetate(img, colour_policy) & (lum >= FOOTPRINT_BRIGHT_LUM)
     bright = ~matte | core
     if rule == "edges" and core.any() and FOOTPRINT_EDGE_MM > 0:
         bright = bright | (inside & (lum >= FOOTPRINT_EDGE_LUM)
@@ -388,7 +389,6 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     inb = (uv[:, 0] > 0.5) & (uv[:, 0] < W - 1.5) & (uv[:, 1] > 0.5) & (uv[:, 1] < H - 1.5)
     ui = np.clip(np.round(uv[:, 0]).astype(int), 0, W - 1)
     vi = np.clip(np.round(uv[:, 1]).astype(int), 0, H - 1)
-    valid = v.valid[vi, ui]
     clip = clipped_mask(v.image)[vi, ui]
     ppm = ppm_local(cam, job.frame, P)
     rr = occ.scene(V).render(cam, (H, W), 1)
@@ -397,16 +397,18 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     near = dist[vi, ui] <= margin_mm * ppm
     nf_ = len(job.mesh.F)
     part_px = np.where((fid >= 0) & (fid < nf_), job.mesh.part[np.clip(fid, 0, nf_ - 1)], -1)
-    fb = foreign_blobs(v.image, v.matte, (fid >= 0) & occ.is_print[fid], job.ppm(view, cam), part_px=part_px,
-                       names=job.mesh.names, dilate_all=(rules == "step4"))
-    foreign = fb["mask"][vi, ui]
     dh = (MT.donor_holes(v.image, v.matte, fid, occ.is_print, occ.is_hardware, job.ppm(view, cam), rules=rules)
           if metal else None)
+    policy = dh["arm"].get("colour_policy") if dh is not None else None
+    valid = S.valid_mask(v.image, v.matte, policy)[vi, ui]
+    fb = foreign_blobs(v.image, v.matte, (fid >= 0) & occ.is_print[fid], job.ppm(view, cam), part_px=part_px,
+                       names=job.mesh.names, dilate_all=(rules == "step4"), colour_policy=policy)
+    foreign = fb["mask"][vi, ui]
     mt = dh["mask"][vi, ui] if dh is not None else np.zeros(len(idx), bool)
     matte = np.asarray(v.matte, bool)
     inside = ndimage.binary_erosion(matte, iterations=1)
     img = np.asarray(v.image, np.float64)
-    acet = S_acetate(img)
+    acet = S_acetate(img, policy)
     near_geometric = near
     if occluder_rule == "photometric":      # correction round: only where the photo shows non-print within the margin
         nonprint = ~inside | ~acet | clipped_mask(v.image)
@@ -417,7 +419,8 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     footprint = np.zeros(len(idx), bool)
     if footprint_px > 0:                    # correction round: the bicubic sample stays clear of bright mixtures
         fh = footprint_holes(img, matte, job.ppm(view, cam), footprint_px=footprint_px,
-                             glints=dh["bright_lines"] if dh is not None else None, rule=footprint_rule)
+                             glints=dh["bright_lines"] if dh is not None else None, rule=footprint_rule,
+                             colour_policy=policy)
         footprint = fh[vi, ui]
     seen = vis & inb
     graze = vis_g & inb & inside[vi, ui]

@@ -46,10 +46,11 @@ OAKLEY_LENS = "Lens | continuous wrap shield 1.55mm"
 INVU_LENS = "Shield | single continuous closed lens"
 INVU_PRINT = "Shield | fine INVU corner print"
 MATRIX = ("sphere", "toric", "flat", "solidified", "chamfer", "flipped", "rounded", "coarse")
-# the code that produces the proof's files: a proof is stale when any of these changed after its run (the grader and
-# the instruments are re-run by tests/test_seat_real.py, so they are not listed)
+# Seat implementation and the scripts/fixtures producing this proof. Shared export/host modules are deliberately
+# excluded: unrelated edits must not disable the seating rechecks. The grader and instruments re-read the recorded
+# arrays and GLBs in test_seat_real; exporter correctness has its own current-code regression suite.
 TOOL_SOURCES = (sorted(p.relative_to(G3D).as_posix() for p in (G3D / "g3d/seat").glob("*.py"))
-                + ["g3d/seat_bpy.py", "g3d/export_glb.py", "g3d/glb_patch.py", "g3d/__init__.py", "g3d_host/blender.py",
+                + ["g3d/seat_bpy.py",
                    "tests/blender/seat_run.py", "tests/blender/seat_build.py", "tests/fixtures/seat_fixtures.py",
                    "tests/proofs/wp4_proof.py", "tests/proofs/wp4_proof_bpy.py"])
 SCENES = ["metal", "metal_narrow", "nylor", "nylor_nocord", "nylor_thin", "nylor_outline", "crystal"] + \

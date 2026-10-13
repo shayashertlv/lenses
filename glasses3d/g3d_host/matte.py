@@ -56,7 +56,7 @@ def background_model(img: np.ndarray, border: int = BORDER_PX) -> np.ndarray:
     return bg
 
 
-MODES = ("default", "glossy_floor")
+MODES = ("default", "glossy_floor", "open_frame")
 # WP6 (plan/archive/20261010/WP6_DESIGN.md §6): the glossy-floor mode, ported from the WP6 scratch matte2.matte3. On a glossy floor the
 # reflections and soft shadows sit 12-32 levels off the backdrop while the product is 40+, and the default threshold
 # plus unconditional hole filling closes the gap between the temples (Prada side 01). Every step below is monotone and
@@ -71,7 +71,12 @@ def matte(img: np.ndarray, *, border: int = BORDER_PX, threshold: float = THRESH
           close_iters: int = CLOSE_ITERS, min_component: int = MIN_COMPONENT_PX, mode: str = "default") -> np.ndarray:
     """Foreground = differs from a quadratic background fitted to the image border (handles grey gradients).
 
-    mode="default": the WP3b matte (unchanged; WP3b/WP5 numbers stay reproducible). mode="glossy_floor" (WP6):
+    mode="default": the WP3b matte (unchanged; WP3b/WP5 numbers stay reproducible).
+    mode="open_frame": the same threshold, opening, closing and component filter, without hole filling. For
+    rimless/semi-rimless construction an enclosed background patch can be a real opening between mounts or temples;
+    enclosure alone is not evidence of product foreground. Camera fitting selects this mode only from its existing
+    optional-lens construction evidence when the photo has no explicit mode. No geometry mask is used in the matte.
+    mode="glossy_floor" (WP6):
     threshold 36 levels (the `threshold` argument is ignored), the same opening and closings, a hole is filled only
     if its inside is not background-like (median difference > 18) or it is smaller than 0.2 % of the image,
     components <= min_component px dropped, then an opening with an 11 px vertical line (and small components
@@ -88,7 +93,8 @@ def matte(img: np.ndarray, *, border: int = BORDER_PX, threshold: float = THRESH
     fg = D > threshold
     fg = ndimage.binary_opening(fg, iterations=open_iters)
     fg = ndimage.binary_closing(fg, iterations=close_iters)
-    fg = ndimage.binary_fill_holes(fg)
+    if mode == "default":
+        fg = ndimage.binary_fill_holes(fg)
     lab, n = ndimage.label(fg)
     if n > 1:
         sizes = ndimage.sum(fg, lab, range(1, n + 1))

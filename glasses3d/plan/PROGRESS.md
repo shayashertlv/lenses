@@ -11,7 +11,9 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 **Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
-validation, owner OK per run). M0-M3 are complete; next action: M4a, trusted lens seating.
+validation, owner OK per run). **M0-M4 are complete and proven offline**, including the owner-approved rimless
+matte expansion and the final full regression suite. **Stop before M5:** total budget and smoke cap still require
+the owner's decision, with an estimate and explicit approval before every paid run.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
@@ -184,16 +186,346 @@ BLAS 1, EcoQoS opt-out, no overlapping heavy pools. Reviewed the complete M3 cha
 integration independently. No push or open M3 defect. The earlier root `data/` fixture remains untracked after the
 automatic approval review blocked its cleanup move (reason: "blocked by policy"). Next: M4a, then M4b/c/d in order.
 
+## Assembly M4 (2026-10-13, $0; complete)
+
+M4a adds five strict JSON seating tools through the journaled `g3d_call` allowlist; those helpers are no longer
+accessible through snippets. Applied partial results keep their full domain report and a checkpoint, while refusals
+restore the exact head. Read checks preserve failed quality results without mutation. Every export now carries the
+all-frame seating check (including crystal and undeclared construction), and new finish/delivery requires it to pass.
+Historic immutable deliveries retain their recorded evidence. Profile rollback removes generated cutters/Booleans
+and cords before restoring the mesh, original metadata and backups, including exceptions after profile creation.
+
+Focused checks: rollback/hash 10 passed; trusted dispatcher/facade 307 passed; real worker metal/browline integration
+2 passed; export/delivery 107 passed; generic tools/instructions/CLI 135 passed before the read-envelope follow-up;
+the final tool module passed 46 tests. Fresh WP4 proof: 27 cases, 262 records, no execution errors, 142 seconds with
+14 workers (23.29 GiB free commit before launch). All four original blend hashes and all measured geometry/verdicts
+match the prior proof; only crystal Boolean timing changed (0.353 seconds, below the unchanged 2-second limit).
+`test_seat_real`: 24 passed, zero skipped, 129.71 seconds. Evidence: `data/assembly/m4a_*` logs/receipts and the
+fresh `data/wp4/proof.json`; no paid API call.
+
+The ten known WP4 quality failures remain failures: P2 71/71, P3 34/40 (+2 report-only), P4 109/112
+(+2 pending readings), P5 31/32 (+1 N/A +2 report-only). Technical recommendations, without gate changes:
+- Metal needs a general curvature degree of freedom: interior 0.4253/0.4262 is below 0.44 even though endpoints
+  reach 0.45; a uniform 0.45 target overshoots to 0.4748, above the existing 0.47 upper limit.
+- INVU needs joint node/interior constraints: interior minima 0.44885/0.4489 miss the strict 0.45 proof floor
+  despite nodes at 0.450048. Do not borrow the runtime 0.005 tolerance for the stricter proof.
+- FOLD remains partial/refused where curvature cannot support the move (4 direct and 21 knock-on failures;
+  ungrown nasal minimum -0.305). Keep the refusal; broader curvature/propagation work needs its own scope.
+- The narrow web's nominal 0.5 mm has measured capacity 0.3046–0.3067, above the 0.30 limit, so 96 moves and
+  partial status are honest. Keep the zero-move proof failure and the original fixture.
+- Keep `CORRECTION_AIM_MM=1e-4`: it compensates float32 error of about 1e-5, not a measurement tolerance.
+
+An additional generic workflow replay exposed that the camera proof's lens discs were open. Its closed fan was
+then too sparse to support the recognizer's local cap normals (9.0% cap area). The assembly fixture now uses the
+existing default ten-ring curved plate (95.1% cap area), preserving the 48-point ellipse, wrap and 1 mm thickness.
+The procedural snippet exactly matches that fixture's vertices/triangles, at 45,100 bytes. Actual Blender build,
+both seats and exported checks passed in 8 seconds. The full 11-call workflow plus delivery/review/two resumes then
+passed in **92.828 seconds** (`m4a_generic_proof3`, exit 0), with no unknown holds and $0 actual spend. No production
+quality gate or camera threshold changed. M4a is complete; M4b is active. M4c–d and full M4 suite/commit are pending.
+
+M4b in progress: the generic job now binds a temple-stage contract in its approval. The private stage shares the
+parent's client, money guard, ledger, review log, global interaction count and stop signal; its SDK history, scene,
+tool journals and image retention are separate. A stage allowance refusal is recoverable before reservation;
+unknown requests, global budget/stop/turn failures remain fatal. Child receipt IDs are namespaced so identical
+provider call IDs cannot overwrite parent receipts. Cancellation waits for actual child cleanup before closing
+workers. The macro has no arbitrary whole-stage wall-clock limit; inference and individual tools retain their
+existing deadlines. No second approval or paid-run lock is acquired.
+
+Packages capture the current parent checkpoint/export and copy all exact photo IDs, frozen cameras and matte
+bytes. Owner text stays verbatim in the bound brief, with separate neutral host prose for the instruction contract.
+Explicit pose metadata is preserved; missing openings are marked as-authored, never described as fitted. The trusted
+apply endpoint refuses a changed parent fingerprint. A real FT1119 capture-only check retained a subsequent
+Saddle_bridge edit and all six camera/matte records in 6.031 seconds; its final Lab preparation was explicitly
+stubbed, so this is not the required second-product stage proof.
+
+M4b checks so far: 279 unique shared-loop/budget/receipt checks (276 in 92.00 seconds, then three additional
+regressions; final stage module 20 passed in 20.11 seconds); generic CLI/tools/instructions/image-policy checks
+142 passed in 10.51 seconds; CLI plus changed-specialist-approval refusal 24 passed in 8.87 seconds; package/Lab/CLI
+171 passed, then package/CLI 51 passed after bound contract text and supplied-matte copying; trusted stale apply
+1 passed. Fit/arrangement fixes passed 43 host tests. Evidence: `data/assembly/m4b_*`. Prada's real T5 rehearsal
+passed **47/47 checks, 23 requests/turns, completed, $0**, in 112.17 seconds including 26.0 seconds preparation
+and 83.3 seconds in the run (`m4b-t5-20261013-152145/rehearsal.json`, wrapper exit 0).
+
+Independent review added exact child exit id/SHA, finish validity and export-byte checks before parent application;
+19 stage orchestration/image/cancellation tests passed in 2.15 seconds. Owner notes now reach the child verbatim
+through the approval-bound parent input, once per child history. Renamed photos keep explicit source identity while
+private camera records use their copied local name; 71 package/CLI/orchestration tests passed in 7.51 seconds.
+Product-specific light experiment claims and inferred/copied hinge-angle claims for missing pose data were removed
+from generic host prose; calibrated records retain their exact facts. After that description-only change, CLI 42
+passed and package/stage 33 passed. The second-product nested proof remains pending while UV transfer is finished.
+
+The copied FT1119 temples have a UV seam through a rebuilt outer polygon. Per-corner transfer correctly refuses
+that discontinuity rather than smearing it. The in-scope implementation choice is to add seam tessellation only
+where required for UV transfer, preserving the core geometric surface and existing gates; interpolated inserted
+normals need a separate error audit, since normalizing a new vertex can change interpolation inside its triangle.
+The non-UV path remains unchanged. The real copied FT1119 UV build, manifold check, export validation and exact
+undo passed. Later texture-generation and scaled-source regressions are still in progress; M4b is not complete.
+
+The first real nested proof (`m4b_nested1`, copy `m4b-01c19f29`) correctly refused its original compare with
+`E_NO_POSE`: the saved rigid WP3 camera fit has no explicit temple transform. Its scripted follow-up then failed
+because child tools were unavailable in the parent (2 mock requests, actual $0). No gate was changed. Independent
+reviews agree that a proven rigid fit used delta-zero rotation, which can be recorded explicitly without claiming
+measured photo hinge angles. The bounded fix requires an explicit rigid-fit source marker and SHA lineage; unknown
+or incomplete imported poses still refuse. Derived mesh axes have separate provenance, and the brief must label
+these records as authored, uncalibrated transforms. Identity of posed vertices and projections is required. The
+legacy FT camera report will be adapted only in its SHA-pinned proof fixture, never by product-specific runtime.
+That fix now passes **29 checks** (22 new provenance/identity tests plus 7 existing camera tests) in 1.08 seconds,
+and package/CLI integration **58 passed** in 7.30 seconds. Four independent camera projections and rasters preserve
+the source vertices, depth, masks, face IDs, barycentric coordinates, points and normals exactly under the explicit
+identity delta. Fourteen missing/tampered provenance cases refuse. Existing explicit poses remain untouched; the
+runtime refuses missing geometric knuckles rather than inventing an axis. `E_NO_POSE` itself is unchanged.
+Prada T5 was repeated after the UV-source helper: **47/47, 23 mock requests, completed, $0**, wrapper exit 0
+(`m4b-t5-final/rehearsal.json`, 2026-10-13 12:42:43–12:45:01 UTC). No product appearance verdict has occurred.
+
+The complete second-product proof now passes (`m4b_nested2`, copy `m4b-eecfca1e`, 87.031 seconds, wrapper
+exit 0): nine mock requests share one approval/ledger; seven child requests compare four distinct heads and three
+distinct alternatives, finish and apply through the trusted worker, then the parent resumes with a successful
+inspection. All 23 non-temple primitives retain their geometry, all vertex attributes, materials and metadata;
+the deliberate prior bridge edit is retained. Original scene, camera report, model and six source photos are
+byte-identical. Actual spend is $0; this scripted control is not an appearance verdict. Final integration checks
+(stage/package/rigid pose/CLI/tools/instructions): 195 passed in 10.80 seconds.
+
+UV regression fixes reject shared target/backup mesh ownership before mutation and preserve the original partRole
+on undo. The source generation helper protects live backup references. Seam intersections use the existing
+EDGE_SLACK band to snap near-corner intersections onto the existing corner; directed-edge, closed-manifold and
+Euler checks now reject malformed tessellation before Blender receives it. Independent review reproduced the
+prior repeated corner/edge failure and confirmed the correction; no tolerance or geometric gate changed.
+A real worker/journal regression passed (1 test, 4.68 seconds): after an actual complete second UV write, an
+injected failed response restores exact prior UV bytes, fingerprint, checkpoint file/index and journal head.
+Standalone direct-call failure restoration remains its existing pre-facet backup behavior; assembled calls use
+the journal to restore the exact pre-call revision. The complete generation regression passed (1 pytest test,
+19 receipt checks on both transformed/mirrored sides, 110.73 seconds): layer edits/additions/deletions and flags,
+external geometry and scale/translation, independent known UV values at every output corner, exact A→B→A,
+dry-run/variant nonmutation, failed-write cleanup, ownership refusals and exact original undo. Seam subdivision
+legitimately changes the loop count, so this new test uses its independent authored UV function after subdivision;
+unchanged-topology byte comparisons and the original 5e-6 UV tolerance remain. Final UV tests: 2 passed in
+40.48 seconds (`m4b_uv_pass`), including real FT export validation. The independent concave audit's maximum surface
+distance is 0.000019597 mm, corner normal difference 0.024898 degrees, interior difference 0.003921 degrees,
+and authored-flat difference 0.002112 degrees. Its strict-interior lookup avoids selecting an adjacent shading fan
+at a nearly collinear corner; the original 1e-4 mm and 0.5-degree limits remain. Final frozen-source Prada T5:
+47/47 checks, 23 mock requests, completed, $0; prepare 35.0 seconds/run 95.8 seconds (`m4b-t5-frozen`).
+M4b is complete. M4c is active; M4d and the full M4 suite/commit remain.
+
+M4c's `photo_print` macro now uses explicit exact part names and a named frozen basis, fixed production thresholds,
+memory-bounded workers and no coverage override. It preserves a fresh bake directory for every call, detaches the
+requested parts' earlier print, replaces their print UVs, attaches only manifest-eligible parts, exports and checks
+the manifest. Any later refusal or exception restores the pre-stage checkpoint, including its prior print. All
+sub-steps share the macro's call id so checkpoint recovery produces one model-tool event. Cancellation checks
+prevent a background bake from applying after cancellation. Optional calibration/registration files are confined
+to the job; missing registration stays explicitly uncalibrated. Dispatcher, transaction, registry and instruction
+checks: 211 passed in 7.18 seconds (`m4c_tool_second`, four workers/loadfile). The first collection exposed an
+unordered set in the new dispatcher parametrization; sorting test cases fixed collection without changing checks.
+
+The actual async SDK cancellation regression also passes: cancelling during a blocked bake sets the stop event,
+the background thread retains the scene lock through cleanup, and no later mutation runs (24 transaction tests,
+2.32 seconds). Print Blender checks: 13 synthetic plus 1 copied historical FT1119 passed; original bake metadata
+unchanged. Five zero-area layout tests retain global face indices and finite collapsed charts; A1 still rejects
+zero area, and the Blender tool returns `E_LAYOUT` without mutation. Safe detach refuses shared nonselected
+material users, missing original swap materials or a tree that cannot exactly restore before changing anything.
+Repeated attachment restores the authored materials. No gate changed. A final integration review found cached
+exports retained an old checkpoint id after restoring identical geometry; cache hits now bind the current head
+while preserving validated bytes/fingerprint/SHA. Export and transaction checks: 36 passed in 6.31 seconds.
+
+Exact runtime object identities no longer strip `.001` or merge distinct Blender objects. The historical accepted
+FT GLB uses 30 suffixed node names while its saved layout/recipe use unsuffixed names; reproduction therefore uses
+an explicit test-only one-to-one migration on copies, retaining binary bytes and every other JSON field, with
+rebound copied camera/registration hashes and a migration receipt. Runtime has no product/name alias fallback.
+Target-role filtering validates all frozen camera/photo/matte identities before excluding non-target donors and
+records those exclusions. Host integration: 60 passed in 42.95 seconds. Accepted-byte replay and full macro proof
+remain pending the colour-policy source freeze.
+
+The colour model is now geometry-bound across donor admission, bicubic footprints and the later highlight filter;
+blue/green/grey candidates no longer inherit the unconditional brown B/R ceiling. Hardware/occlusion/clipping
+margins and coverage/independent quality gates remain. Forty-three new tests passed in 19.40 seconds, including
+exact masks and pigment-arm values on all six accepted FT photos; 71 existing focused tests passed in 71.63 seconds.
+The warm compatibility branch is selected from at least 150 informative samples with at least 90% supporting warm
+channel order. An initial new neutral-share veto wrongly classified glare/low-chroma warm pigment; removing that
+unsound model condition (not changing a quality gate) restores exact parity and adds an independent glare control.
+Warm-dominant mixed neutral pigment remains ambiguous and is explicitly reported by the policy; a broader palette
+architecture was not added. Pure grey and non-warm patterns exercise the general model. Exact multi-material part
+guards now aggregate forbidden lens/metal roles across every primitive, so a later acetate slot cannot erase them;
+six permutation/role tests plus pin/name controls: 15 passed in 0.77 seconds.
+
+Accepted FT1119 replay now passes: `data/assembly/m4c-accepted-ft-20261013-133134/result.json`, 252.20 seconds,
+14 workers, $0. The PNG SHA is exactly `ac4280e9d0a2b85696c1d64f7c9508f56d81f2fc2857f7925af58fd844ddd5b4`;
+the independent audit checks 729,621 photo texels with zero bad anchors and zero mixed-view faces. Layout,
+class/source/tier arrays and gains match the accepted recipe. Registration differs only in its generic mode label
+(the runtime no longer asserts a product-specific fact); numerical evidence and selections match. All input and
+frozen implementation hashes stayed unchanged. The assembled macro proof is running separately on a copied job.
+
+Final M4c integration review found that a later geometry edit could leave a stale print attached yet pass finish's
+spec/seating checks. The bounded fix identifies active prints from their actual exported UV/texture binding and
+checks the current export against its retained successful bake evidence, preserving restored older checkpoints and
+intentional detach. This strengthens assembly integrity without changing any existing print quality threshold.
+
+The first complete macro proof passed in 232.91 seconds: `m4c_macro1.log`, copied job under
+`data/assembly/m4c-dc34956e/`. Real SDK tool invocation, production bake, trusted worker detach/UV/attach,
+independent A6/UV/material checks, exact checkpoint restore and original-file hashes all passed; no paid call.
+The later freshness safeguard is being verified separately and the final macro proof will include it. Freshness
+reports are recomputed against successful retained application/manifests even when export bytes are cached; new
+finish/delivery require a SHA-bound passing report, while historical immutable deliveries remain readable.
+Complete old bake groups must be reprinted or detached together; the existing full-manifest checker is unchanged.
+
+Independent review also found an output-parent junction escape and a cancellation/teardown race. The bake output
+now resolves inside job work before creation, and cancellation waits for the print thread's actual cleanup before
+the session can close (including repeated cancellation). The real Windows junction test and async cancellation
+test pass: 29 transaction tests in 2.89 seconds. Initial finish/delivery/export/transaction integration: 141 passed,
+1 symlink privilege skip in 9.20 seconds; the skipped case now uses a Windows junction and passes. No gate loosened.
+
+The first attachment-marker design failed the unchanged B5 metadata-preservation check (12/14 Blender tests passed;
+both failures were node extras). That design was removed. The final implementation uses existing print UV metadata
+and actual image/sampler bindings, with no attach/detach metadata change: all 14 Blender tests pass in 33.50 seconds.
+Nineteen host GLB tests pass in 1.57 seconds, including stale geometry/UV/image, missing/tampered evidence, restored
+old and disjoint complete bakes, extra ineligible objects borrowing a valid print, stripped metadata and an
+unsupported image source. The authored texture restored by detach remains valid. Combined finish/delivery/export/
+transaction/freshness integration: 160 passed in 8.73 seconds (four workers/loadfile).
+
+Final macro proof passes in **258.50 seconds**, `$0`, 14 workers: `m4c_macro_final.log`, copy under
+`data/assembly/m4c-755a336f/`. The tool result independently confirms freshness status `verified` and one bound
+attachment group, SHA-bound manifest, and the exact accepted `ac4280e9...` PNG. Detach reports `not_required`;
+A6, UV invariance, B5, original-source hashes and pre-print checkpoint restoration all pass. Free commit before
+launch was 21.25 GiB, BLAS 1, no overlapping heavy pools. Final bounded review repairs passed: malformed evidence
+refuses rather than throwing (41 freshness tests, 2.41 seconds); basis-only imports exclude recorded alternate
+colourways while explicit job roles remain authoritative (41 production-input tests, 45.66 seconds); legacy test
+CLIs consistently use hash-rebound copies after the exact-name fixture migration (5 wrapper tests, 9.24 seconds).
+These only affect malformed evidence or alternate input wrappers; the accepted replay and final macro inputs are
+unchanged. M4c is complete.
+
+M4d adds signed rear-three-quarter camera candidates, per-photo matte modes, and the existing lens-optional loss
+for exactly classified rimless/semi-rimless lens faces. All optimizer levels and candidate comparisons receive the
+same optional-face mask; raw IoU/contour metrics and existing thresholds remain unchanged, with optional metrics
+reported separately. Each attempted photo keeps its identity, hash, failure and available evidence. Automatic
+seeing operations use successful cameras and report unavailable refs; explicit failed-photo requests refuse with
+the named diagnostic. An all-failed attempt remains inspectable and does not replace the previous usable default
+basis. Temple stages still require a complete camera set; print requires at least two usable target cameras and
+reports each excluded photo. Damaged frozen evidence refuses instead of silently selecting an older basis.
+
+Camera fast checks: **31 passed in 1.36 seconds**. Dedicated/legacy optimizer checks: **23 passed in 178.75
+seconds**, including full-prior signed rear recovery and unchanged front/top/elevated thresholds. Seeing/tool/
+temple-package checks: **71 passed in 7.46 seconds**. Fit/intake/rigid checks: **100 passed in 2.25 seconds**;
+partial-print/production: **47 passed in 42.30 seconds**, then 7 partial-input checks in 3.80 seconds including
+direct loader matte-mode parity. Basis/legacy/temple integration: **70 passed in 11.21 seconds** (22 new partial
+and integrity cases). Historical Prada tests use copied, hash-pinned camera metadata with the three actual `.001`
+front names; runtime exact-name matching stays strict.
+
+The mixed-photo proof **passed in 29.594 seconds**, `$0`, copy `data/assembly/m4d-da7887f6/`, log
+`m4d_proof2.log`: front/rear cameras meet the unchanged synthetic truth gates, the glossy-floor matte matches
+exactly, the blank photo keeps its empty-matte failure, automatic comparison uses the two usable cameras, and
+explicit blank requests refuse. An all-failed refit preserves the previous default and all old basis/source bytes;
+the live head is unchanged. Before launch: 23.15 GiB free commit, 14-worker upper limit, BLAS 1. Initial proof
+intake correctly refused missing explicit `side: null`; only the synthetic view data was corrected. Review added
+separate optional-lens metrics to frozen/tool reports and kept failed-reference diagnostics when an `all` render
+can show only canonical views. Seven seeing-boundary tests pass in 2.69 seconds after correcting their fake bounds.
+
+M4 regression underway: main Python suite uses eight workers/loadfile (23.13 GiB free commit); photoprint follows
+at two workers. AR: **497/497**, QA: **103/103**, TypeScript check passes. Every run remains offline and `$0`.
+
+Expanded M4 scope, explicitly approved by the owner: **"Expand M4 to fix rimless matte"**. An additional real
+rimless stress case (actual closed lens-role meshes, hard-frame photo, existing untuned camera truth/priors)
+failed its unchanged 98% optional-IoU check: fitted 0.857904; even the exact camera only 0.938868. Independent
+matte-stage diagnosis: raw threshold matches the 5,802-pixel hard render exactly; opening removes 15 pixels,
+closing adds 31, then default hole filling adds 336 background pixels. Lens-first-hit occlusion is not the main
+error. Exact source model/photo/result are retained under `data/assembly/m4d-rimless-counterexample/`; diagnostic
+receipts `m4d_rimless_diagnostic.json` and `m4d_rimless_matte_diagnostic.json`. No fixture, seed or threshold was
+changed. Owner approval authorizes a general rimless-matte fix; it does not authorize loosening any gate.
+
+Final UV review also found a bounded ownership bug: another object's retained mesh could be used as a live mesh
+and then renamed, retargeting its string-based undo reference. A symmetric current/retained ownership preflight
+now closes both directions. Its Blender regression passes in **8.82 seconds**, checks original and later UV-source
+generations, refuses without changing scene/datablock state, then restores exact original mesh/UV bytes and cleans
+retained generations (`m4_uv_ownership.log`).
+
+Initial main suite completed: **2,901 passed, 16 failed in 692.89 seconds**. Nine failures came from historical
+test doubles missing the new Basis usability methods (38 targeted tests pass, one unrelated real-Blender seed test
+deselected because it passed in the full run). The instruction contract's literal-key checker now follows the
+extracted fit-summary helper; a new fake-bounds test was corrected while the suite still had its earlier module
+loaded. Combined root checks **125 passed in 7.35 seconds**. QoS regression **12 passed in 2.68 seconds** with no
+external descendant watcher; timing suite **95 passed in 71.48 seconds**. Full seeing module **22 passed in
+110.01 seconds** alone: two fixture failures were an adapter applied to the wrong asset (the original Blender
+scene exports unsuffixed exact front names; the standalone historical GLB needs `.001` names). The original
+camera metadata is retained for that live scene, with an added exact-name presence assertion. Its 60-second render
+threshold is unchanged and passes without eight-worker load. No quality assertion was removed or reduced.
+
+The authorized matte correction adds `open_frame`: the identical background/threshold/opening/closing/component
+recipe, omitting unconditional hole filling. An absent photo mode selects it only with actual optional lens faces
+from rimless/semi-rimless construction; explicit modes win and the resolved mode is frozen, including failed rows.
+**115 focused checks pass in 21.39 seconds**, including 12 FT/Prada historical default masks byte-identical to the
+independent WP3 recipe and frozen/raw-print mode parity. Exact-truth optional IoU is now **0.992969** with contour
+0.063675 px. The unchanged real optimizer test still fails at **0.912881**; its evidence is preserved separately.
+Independent review found missing optional-face handling inside existing camera refinement: full-lens bbox
+alignment displaces the true-angle initial Y centre by 31.55 px (hard geometry: 0.19 px), and the effective
+photo-dependent contour creates lens-ray correspondences without real hard geometry (86/833 samples). Bounded
+alignment/ICP integration diagnosis is in progress; priors, thresholds and the failing test remain unchanged.
+
+The final rimless correction passes the actual optimizer proof in **16.54 seconds**: optional IoU
+**0.9907518411** (gate >=0.98), optional contour **0.0791593194 px** (gate <1 px), yaw **4.0320623 degrees**
+versus truth 4, pitch **11.9279084 degrees** versus truth 12 (both within the unchanged 2-degree gate).
+Raw IoU **0.1661735559** is retained separately; frozen matte, raw/optional metrics and source hashes are verified.
+Evidence: `m4d_rimless_physical_support.log`, `data/assembly/m4d-rimless-verified/`.
+Each existing angular prior now scores both the original full bounding-box alignment and an alignment to vertices
+belonging to required faces; the unchanged loss chooses the better candidate, with full alignment winning ties.
+Optional-lens interior points borrowed from photo-dependent contours cannot become artificial ICP ray constraints
+in either correspondence direction. Actual rendered boundaries, including opaque lens edges, remain available.
+There are no new angular priors, refinement iterations, loss weights or relaxed gates. Clear/opaque alignment,
+both ICP directions, all-optional fallback and raw-metric checks pass **17/17 in 0.58 seconds**; the separate rear
+recovery test runs in the full suite. Independent review found no blocker, and paths without optional faces retain
+their original arithmetic. This completes the owner's approved rimless-matte expansion.
+
+Initial full photoprint run: **313 passed, 1 failed in 217.39 seconds**. Its only failure expected the old `.001`
+fixture name after the explicit exact-name migration. The assertion now uses the same pinned name mapping as its
+copied asset; all decal-fill, see-through, 2% and 98% assertions remain unchanged. Five migration-wrapper checks
+pass in 8.20 seconds and the saved bake satisfies that corrected identity assertion. Final source-frozen full
+main suite started at **14:41:44 UTC**, eight workers/loadfile, **22.99 GiB free commit**, BLAS 1 and EcoQoS opt-out;
+the final full photoprint rerun follows at two workers with no overlapping heavy pools.
+
+Final source-frozen main run (`m4_final_main`): **2,948 passed, 2 failed, zero skipped in 648.55 seconds**.
+Both remaining cases are the known environment-sensitive checks: the external descendant watcher changes the
+initial Windows power state measured by `test_opt_out_self_reads_back_and_is_not_inherited`; the 28-image render
+took 163.983 seconds under eight-worker load against its unchanged 60-second limit. Photoprint's final run started
+at **14:53:50 UTC**, two workers/loadfile, **23.00 GiB free commit**; isolated checks follow before closing M4.
+Final photoprint: **314/314 passed in 233.34 seconds**, exit 0 (`m4_final_print`). The unchanged Windows
+power-state module passed **12/12 in 3.23 seconds** without the external descendant watcher (`m4_final_qos`).
+The whole seeing module passed alone after the print pool exited: **22/22 in 111.73 seconds**, exit 0
+(`m4_final_seeing`). Its unchanged 60-second render check passes; no overlapping heavy pools.
+
+**Final M4 regression: 3,264 unique Python tests passed after the two isolated environment-sensitive reruns,
+zero skipped** (2,950 main + 314 photoprint). Arview **497 unit + 103 QA tests passed**, TypeScript clean.
+The final source was frozen before the main run; only this progress log changed during the final suites.
+Every M4a-d proof, including Prada T5, the second-product nested temple stage, the exact accepted FT1119 print,
+the mixed-photo camera proof and the approved rimless stress case, passes. All paid transports remained unused:
+**actual API spend $0**. Independent integration reviews found no remaining M4 blocker, and `git diff --check`
+is clean. The explicit commit list contains 120 source/test/documentation files; generated evidence, photos,
+models and scenes are excluded. Work remains in the requested checkout on `glasses3d`, with no push or worktree.
+
+Open limits remain explicit: ten historical WP4 quality failures (recommendations above), unbuilt junction captures
+and photo-derived hide ranges outside M4, historical WP5 A4/A5/B3 failures, and the recorded warm-dominant mixed
+neutral-pigment donor ambiguity. Offline integration proofs are not new product appearance acceptances; M5 and its
+owner AR verdicts remain unrun. The original root `data/assembly/m1-proof-b8bb88d4` artifact remains untracked:
+automatic approval review rejected its cleanup move with the stated reason "blocked by policy". No cleanup retry
+or workaround was attempted, and the artifact is excluded from all commits.
+
+M5 planning estimate, calculated locally from `estimate_g3d` and the frozen
+`gpt-6-astra-standard-2026-09-27` tariff (no API/token-count call): 25,000 initial tokens, 60 replies and 16,384
+maximum output tokens estimate **$15.699976 per run**, growth-only range **$13.942871–$21.678160**. This is not
+a confidence interval; the calibration is eight historical temple runs on one product, and assumes no image-pruning
+savings. Six such planning runs estimate **$94.20** total (growth-only range **$83.66–$130.07**); D5's unchanged
+reserve ceilings bound six individual runs by **$138 plus the separately approved smoke cap**. The high-growth
+scenario requires $29.886542 reserve and therefore cannot complete all 60 replies under the $23 guard. A minimal
+one-turn smoke with 2,500 input tokens and 4,096 maximum output tokens estimates **$0.102150**, worst-case
+reservation **$0.236050**; an actual smoke requires its own exact input estimate and owner approval. D5's $20
+settled stop, $23 reserve ceiling, max effort and Oakley-first choice are final. Total M5 budget and smoke cap remain
+unapproved; no M5 request has been sent.
+
 ## Status
 
 | WP | State |
 |---|---|
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
-| WP4 | Geometric tools complete and tested; the visual half of `check_lens_seating` (junction captures) and photo-derived hide ranges were never built. The last proof grades P3 34/40, P4 109/112 (+2 owner pending), P5 31/32 with 5 open owner decisions (review 2026-10-13, §5). The real-product proof is **stale** (whole-file hashes; changed: `g3d/__init__.py`, `g3d/export_glb.py`, `g3d/seat/geom.py`, all inert for WP4): 11 of 24 `test_seat_real` tests skip. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
+| WP4 | Trusted seating tools integrated and proof refreshed in M4a; all 24 real-product tests pass without stale skips. Quality verdicts remain P2 71/71, P3 34/40 (+2 report), P4 109/112 (+2 pending), P5 31/32 (+1 N/A, +2 report): 10 known quality failures remain failures. Junction captures and photo-derived hide ranges remain unbuilt, outside M4 scope. D4 crystal Boolean choice is recorded in ASSEMBLY; no quality gate was loosened. |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
 | WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
-| WP2 | A–F assembled and proven offline in M0–M3, including immutable delivery and owner review; specialists in M4 |
-| WP7 | Implemented and proven in M2 ([WP7_DESIGN.md](WP7_DESIGN.md)); specialist paragraphs activate with M4 registration |
+| WP2 | A–F and all M4 specialist stages assembled and proven offline in M0–M4, including immutable delivery and owner review |
+| WP7 | Implemented and proven in M2 ([WP7_DESIGN.md](WP7_DESIGN.md)); specialist tools and teaching registered and tested in M4 |
 | WP8 | Not started (paid; owner OK per run) |
 
 ## WP6 v2 build order (WP6_FACETS §6)

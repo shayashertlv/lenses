@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,7 +33,6 @@ _DT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.
 _NC = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
 M_TO_MM = 1000.0
 TRANSFORM_KEYS = ("matrix", "translation", "rotation", "scale")
-_SUFFIX = re.compile(r"\.\d{3}$")
 
 
 @dataclass
@@ -114,20 +112,21 @@ def read_glb(data: bytes | str | Path) -> list[Prim]:
     return out
 
 
-def mesh_arrays(prims: list[Prim], *, strip_suffix: bool = True
+def mesh_arrays(prims: list[Prim], *, strip_suffix: bool = False
                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """(V mm, F, per-face part id, part names) of all triangle primitives in node order, one part per primitive
     (the host's ``fitmesh.load_fit_mesh`` order; a multi-material object gives one part per material with the same
-    name, and ``printuv.layout`` takes every part of that name). ``strip_suffix`` drops a Blender copy suffix
-    ('.001', what the Studio's export wrote on q001.glb); g3d.print_uv reads the WP3 exporter's own GLB, whose node
-    names are the object names exactly, and passes False."""
+    name, and ``printuv.layout`` takes every part of that name). Object names are always exact. Historical
+    Studio fixtures require an explicit copied-fixture migration; runtime never collapses '.001' identities."""
+    if strip_suffix:
+        raise ValueError("object names must be exact; migrate legacy fixtures explicitly")
     Vs, Fs, part, names, off = [], [], [], [], 0
     for i, p in enumerate(prims):
         Vs.append(p.positions_mm)
         Fs.append(p.triangles + off)
         off += len(p.positions_mm)
         part.append(np.full(len(p.triangles), i, np.int64))
-        names.append(_SUFFIX.sub("", p.node) if strip_suffix else p.node)   # 'Brow_Left.001' -> 'Brow_Left'
+        names.append(p.node)
     if not Vs:
         raise ValueError("the GLB has no triangle primitives")
     return np.vstack(Vs), np.vstack(Fs), np.concatenate(part), names

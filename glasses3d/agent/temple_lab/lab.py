@@ -947,11 +947,18 @@ class Lab(SceneHooks):
     @property
     def basis(self) -> C.Basis:
         if self._basis is None:
-            self._basis = C.load_basis(self.root)
+            self._basis = C.load_basis(self.root, (self.manifest.get("basis") or {}).get("id"))
         return self._basis
 
     def photo_ids(self) -> list[str]:
-        """The target photos as "01".. (the basis' reference-NN of the target colourway)."""
+        """Explicit target IDs, retaining compatibility with historical packages without mappings."""
+        rows = self._rows("target")
+        if rows and all(r.get("basis_ref") for r in rows):
+            for row in rows:
+                ref = row["basis_ref"]
+                if ref not in self.basis.refs or self.basis.colourway(ref) != "target":
+                    raise ValueError(f"lab.json target {row.get('id')!r}: missing target basis reference {ref!r}")
+            return [r["id"] for r in rows]
         return [self.pid(rid) for rid in self.basis.refs if self.basis.colourway(rid) == "target"]
 
     def _rows(self, role: str) -> list[dict]:
@@ -988,6 +995,9 @@ class Lab(SceneHooks):
         return {self.rid(p): p for p in self.compare_ids()}
 
     def pid(self, rid: str) -> str:
+        for row in self._rows("target"):
+            if row.get("basis_ref") == rid:
+                return row["id"]
         for pid, ref in self.colourway_refs().items():
             if ref == rid:
                 return pid
@@ -1301,9 +1311,18 @@ class Lab(SceneHooks):
         with self.state_lock:
             self.state["start_checkpoint"] = self.s.head["id"]
             self.state["start_fingerprint"] = self.s.head["fingerprint"]
-        exp = self.seeing.export_head("prepare-export")
-        if exp.get("status") != "exported":
-            raise ValueError(f"the original does not export: {exp}")
+        source = self.manifest.get("source") or {}
+        if source.get("export_file"):
+            path = (self.root / "inputs" / source["export_file"]).resolve()
+            if (not path.is_relative_to(self.root / "inputs") or not path.is_file()
+                    or sha(path) != source.get("export_sha256")
+                    or self.state["start_fingerprint"] != source.get("fingerprint")):
+                raise ValueError("captured parent export or checkpoint changed before temple preparation")
+            exp = {"path": str(path), "sha256": source["export_sha256"], "checkpoint": self.s.head["id"]}
+        else:
+            exp = self.seeing.export_head("prepare-export")
+            if exp.get("status") != "exported":
+                raise ValueError(f"the original does not export: {exp}")
         r0 = G.revision_zero(exp["path"])
         with self.state_lock:
             self.state["original"] = {"export": {k: exp[k] for k in ("path", "sha256", "checkpoint")},
@@ -1331,8 +1350,11 @@ class Lab(SceneHooks):
 
     # ---------------------------------------------------------------------------------------------- scene steps
     def _apply(self, call_id: str, rid: int, *, tool: str) -> dict:
-        """Build revision rid's FITTED spec on both temples from the ORIGINAL (repeated decal transfers never
-        accumulate) and checkpoint it; any failure restores the scene the call started on."""
+        """Build from this private package's captured baseline, so decal transfers never accumulate.
+
+        A nested package's baseline is the current parent job head at stage entry, never a product's old lab start.
+        Only the stage's guarded final application touches the parent. Failed private builds restore this call's head.
+        """
         self.verify_inputs()
         before = self.s.head["id"]
         spec = self.spec(rid)

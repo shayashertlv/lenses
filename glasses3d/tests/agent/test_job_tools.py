@@ -38,6 +38,11 @@ class FakeSession:
         self.calls.append((tool, method, args, kw))
         return {"status": "ok", "result": {"objects": ["frame"]}}
 
+    def call_mutating(self, tool, method, args, **kw):
+        self.calls.append((tool, method, args, kw))
+        self.head = {"id": "c0002", "fingerprint": "a" * 64}
+        return {"status": "ok", "checkpoint": "c0002", "result": {"status": "partial", "warnings": ["Still exposed"]}}
+
     def save_checkpoint(self, label, **kw):
         return {"status": "ok", "checkpoint": self.head["id"], "label": label}
 
@@ -57,7 +62,8 @@ def scene(tmp_path):
     model.write_bytes(b"fixture exported bytes")
     export = {"status": "exported", "checkpoint": session.head["id"], "fingerprint": session.head["fingerprint"],
               "path": str(model), "sha256": AR.sha256(model), "validation_sha256": AR.sha256(model),
-              "validate_spec": {"ok": True}, "seat_check": None}
+              "validate_spec": {"ok": True}, "seat_check": {"ok": True},
+              "print_check": {"ok": True, "status": "not_required", "glb_sha256": AR.sha256(model)}}
     obj = SimpleNamespace(root=tmp_path, job={}, s=session, lock=threading.RLock(), finish=None, last_ar=None,
                           calls=[], images=[], unseen=[], export=export)
     obj.record_call = lambda *args: obj.calls.append(args)
@@ -83,7 +89,10 @@ def test_registry_builds_without_a_started_scene_and_has_strict_timed_schemas():
     tools = T.build_tools(SimpleNamespace())
     assert tuple(t.name for t in tools) == T.TOOL_NAMES
     for tool in tools:
-        assert tool.timeout_seconds == loop.sdk_timeout_s(tool.name)
+        if tool.name in {"temple_stage", "photo_print"}:
+            assert tool.timeout_seconds is None  # long stages retain individual worker/request deadlines
+        else:
+            assert tool.timeout_seconds == loop.sdk_timeout_s(tool.name)
         assert tool.params_json_schema["additionalProperties"] is False
         assert tool.strict_json_schema
 
@@ -102,6 +111,12 @@ def test_scene_summary_is_read_only_worker_call(scene):
     assert record(invoke(scene, "scene_summary"))["result"]["objects"] == ["frame"]
     assert scene.s.calls == [("scene_summary", "scene_summary", {"objects": "all"},
                               {"deadline_s": 30, "call_id": "call_test"})]
+
+
+def test_temple_stage_requires_the_active_shared_budget_context(scene):
+    result = record(invoke(scene, "temple_stage", {"budget_usd": 2}))
+    assert result["status"] == "refused" and result["code"] == "E_STAGE_CONTEXT"
+    assert scene.s.calls == []
 
 
 def test_best_checkpoint_is_explicit_and_saved_with_scene_journal(scene):
@@ -176,7 +191,9 @@ def test_busy_tool_does_not_touch_the_scene(scene):
 
 
 @pytest.mark.parametrize("change", [
-    {"validate_spec": {"ok": False}}, {"seat_check": {"ok": False}}, {"validation_sha256": "wrong"},
+    {"validate_spec": {"ok": False}}, {"seat_check": {"ok": False}}, {"seat_check": None},
+    {"seat_check": {}}, {"validation_sha256": "wrong"},
+    {"print_check": None}, {"print_check": {"ok": False}}, {"print_check": {"ok": True, "glb_sha256": "wrong"}},
     {"checkpoint": "c0000"}, {"fingerprint": "stale"}, {"drift": "worker changed"},
 ])
 def test_finish_refuses_invalid_or_stale_export(scene, change):
@@ -210,6 +227,51 @@ def test_finish_requires_successful_current_ar_for_deliverability(scene, ar):
 def test_budget_status_reads_guard_without_money_side_effects(scene):
     ctx = SimpleNamespace(guard=SimpleNamespace(summary=lambda: {"settled_usd": "1.000000", "maximum_usd": "23.000000"}))
     assert record(invoke(scene, "budget_status", context=ctx))["budget"]["settled_usd"] == "1.000000"
+
+
+@pytest.mark.parametrize("name,args", [
+    ("seat_lens", {"lens": "Lens left", "frame_type": "acetate"}),
+    ("hide_eyewire", {"eyewire": "Wire", "under": ["Brow"], "hidden_x_range_mm": [[-55, -12]]}),
+    ("unseat_lens", {"lens": "Lens left"}),
+    ("unhide_eyewire", {"eyewire": "Wire", "lens": "Lens left"}),
+])
+def test_seating_mutations_use_trusted_journaled_path_and_keep_partial_reports(scene, name, args):
+    out = record(invoke(scene, name, args, cid="seat-call"))
+    assert out["status"] == "ok" and out["result"]["status"] == "partial"
+    assert out["result"]["warnings"] == ["Still exposed"]
+    tool, method, params, options = scene.s.calls[0]
+    assert tool == name and method == "g3d_call" and params["op"] == name
+    assert all(params["kwargs"][key] == value for key, value in args.items())
+    assert options == {"deadline_s": 150, "label": name, "call_id": "seat-call"}
+    assert scene.calls[0][:4] == ("seat-call", name, "c0001", "c0002")
+    if name == "seat_lens":
+        assert "translucent" not in params["kwargs"]  # crystal recognition follows actual supporting materials
+
+
+def test_seating_check_is_read_only_and_preserves_a_failed_quality_report(scene):
+    def check(tool, method, args, **kwargs):
+        assert tool == "check_lens_seating" and method == "g3d_call"
+        assert args["op"] == tool and args["kwargs"]["frame_type"] is None
+        assert kwargs == {"deadline_s": 120, "call_id": "call_test"}
+        return {"status": "ok", "restored_to": None, "result": {
+            "status": "ok", "unchanged": True,
+            "result": {"ok": False, "reasons": ["undeclared construction"]}}}
+    scene.s.call_read = check
+    out = record(invoke(scene, "check_lens_seating"))
+    assert out["status"] == "ok" and out["result"]["ok"] is False
+    assert scene.calls[0][2:4] == ("c0001", "c0001")
+
+
+@pytest.mark.parametrize("worker,restored,expected", [
+    ({"status": "refused", "code": "E_ARGS", "message": "bad construction"}, None, "refused"),
+    ({"status": "ok", "result": {"ok": True}, "unchanged": False}, "c0001", "error"),
+])
+def test_seating_check_preserves_worker_refusal_and_read_rollback(scene, worker, restored, expected):
+    scene.s.call_read = lambda *args, **kwargs: {"status": "ok", "result": worker, "restored_to": restored}
+    out = record(invoke(scene, "check_lens_seating"))
+    assert out["status"] == expected
+    assert out["restored_to"] == restored
+    assert out["code"] == ("E_READ_CHANGED" if restored else "E_ARGS")
 
 
 def test_image_output_has_oriented_crop_and_delivered_digest(scene):
@@ -250,7 +312,8 @@ def test_fit_camera_output_can_return_its_internal_camera_sheet(scene, monkeypat
     Image.new("RGB", (8, 8)).save(sheet)
     monkeypatch.setattr(jobs, "load_job", lambda root: {"images": [
         {"original_name": "front.jpg", "file": "images/front.jpg", "view_kind": "front", "fit_kinds": ["front"]},
-        {"original_name": "side.jpg", "file": "images/side.jpg", "view_kind": "side", "fit_kinds": ["left"]}]})
+        {"original_name": "side.jpg", "file": "images/side.jpg", "view_kind": "side", "fit_kinds": ["left"],
+         "matte_mode": "glossy_floor"}]})
     monkeypatch.setattr(T, "free_commit_bytes", lambda: 10 * 2**30)
     received = []
     def fit(*a, **kw):
@@ -262,6 +325,7 @@ def test_fit_camera_output_can_return_its_internal_camera_sheet(scene, monkeypat
     assert received[0][0][0] == "front shape ready" and received[0][1]["workers"] == 2
     assert received[0][0][2] == {"front.jpg": "front", "side.jpg": "side"}
     assert received[0][1]["candidates"] == {"front.jpg": ("front",), "side.jpg": ("left",)}
+    assert received[0][1]["matte_modes"] == {"front.jpg": None, "side.jpg": "glossy_floor"}
     assert len(output) == 3 and record(output)["images"][0]["source_path"].startswith("cameras/")
     invoke(scene, "fit_cameras", {"reason": "one photo", "refs": ["side"], "workers": 1}, cid="call_subset")
     assert received[1][1]["candidates"] == {"side.jpg": ("left",)}

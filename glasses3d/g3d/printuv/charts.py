@@ -205,9 +205,27 @@ def part_charts(V: np.ndarray, F: np.ndarray, faces: np.ndarray, *, kind: str, t
     V = np.asarray(V, np.float64)
     F = np.asarray(F, np.int64)
     faces = np.asarray(faces, np.int64)
+    if kind not in ("strip", "caps"):
+        raise ValueError(f"unknown chart kind {kind!r}")
     Pt = V[F[faces]]
     fn = np.cross(Pt[:, 1] - Pt[:, 0], Pt[:, 2] - Pt[:, 0])
     a3 = 0.5 * np.linalg.norm(fn, axis=1)
+    if not np.isfinite(a3).all():
+        raise ValueError("non-finite triangle area in print layout")
+    # Keep degenerate faces in the index map, but do not ask the strip fit or
+    # area-weighted cap scaling to infer a surface from them. Their collapsed
+    # UVs remain visible to the unchanged A1 zero-area refusal.
+    zero = np.flatnonzero(a3 == 0)
+    if len(zero):
+        good = np.flatnonzero(a3 > 0)
+        charts, info = (part_charts(V, F, faces[good], kind=kind, tx=tx, ref=ref, cut_dir=cut_dir,
+                                   max_aniso=max_aniso, min_grad=min_grad) if len(good)
+                        else ([], {"kind": kind, "area_mm2": 0.0, "cap_faces": 0}))
+        charts = [(label, good[ids], uv) for label, ids, uv in charts]
+        charts.append(("zero_area", zero, np.zeros((len(zero), 3, 2), np.float64)))
+        info.update(faces=int(len(faces)), zero_area_faces=int(len(zero)),
+                    zero_area_face_ids=faces[zero].tolist(), n_charts=len(charts))
+        return charts, info
     fn = fn / (np.linalg.norm(fn, axis=1, keepdims=True) + 1e-12)
     a, b, _ = face_edges(F[faces])
     info = {"kind": kind, "faces": int(len(faces)), "area_mm2": float(a3.sum())}

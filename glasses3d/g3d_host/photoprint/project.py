@@ -82,7 +82,6 @@ from PIL import Image
 from glasses3d.g3d import printuv as PU
 
 from .. import lens_id
-from ..fitmesh import part_name
 from .. import raster
 from .. import texture_utils as T
 from . import edges as ED
@@ -133,14 +132,18 @@ def part_materials(job) -> dict[str, dict]:
     g = glbmod.load(job_glb(job))
     out = {}
     for p in g.primitives:
-        nm = part_name(p.node_name)
+        nm = p.node_name
         m = g.material(p.material_index) or {}
         pbr = m.get("pbrMetallicRoughness") or {}
-        d, _w = lens_id.decide_explicit([("material", m.get("extras")), ("node", None)])
+        d, _w = lens_id.decide_explicit([("material", m.get("extras")),
+                                       ("mesh", g.doc['meshes'][p.mesh_index].get('extras')),
+                                       ("node", g.nodes[p.node_index].get('extras'))])
         if d is None:
             d = lens_id.decide_name(m.get("name"), p.node_name)
-        out[nm] = {"material": m.get("name"), "metallic": float(pbr.get("metallicFactor", 1.0)),
-                   "lens": bool(d.is_lens) if d is not None else False}
+        previous = out.get(nm, {})
+        out[nm] = {"material": m.get("name"),
+                   "metallic": max(previous.get('metallic', 0.), float(pbr.get("metallicFactor", 1.0))),
+                   "lens": previous.get('lens', False) or (bool(d.is_lens) if d is not None else False)}
     return out
 
 
@@ -285,8 +288,7 @@ def area_table(statuses: dict, regions, tex, klass: np.ndarray, part_rows: dict)
             "patchmatch_share_ar_per_part": {p: v["ar_visible"]["patchmatch_share_ar"] for p, v in out_parts.items()},
             "parts": out_parts,
             "rule": "area = region area x the class's share of the region's texels; groups from the region statuses "
-                    "('minor' end faces by their anchors: none -> unseen-filled); registered = tier-1 mixing (none on "
-                    "FT1119); anchor-only = other admitted views see it but do not register (painted from the anchor "
+                    "('minor' end faces by their anchors: none -> unseen-filled); registered = tier-1 mixing; anchor-only = other admitted views see it but do not register (painted from the anchor "
                     "only); single-view = one admitted view sees it; unseen-filled = no admitted view at donor angles "
                     "(mirror, then PatchMatch). The painted split shows that each group also carries fill (text, "
                     "highlights, occluder margins, seam bands)."}
@@ -594,7 +596,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                     okp = samples[u].ok & np.array([adm.get((u, names[p]), False) for p in range(len(names))])[tex.part]
                     ws.append((j, okp, gained[u]))
                 wit[i] = ws
-            hl = HL.flag(tex, painted, col, label, wit, tx=tx, thin=thin_light)
+            hl = HL.flag(tex, painted, col, label, wit, tx=tx, thin=thin_light,
+                         colour_policies={i: samples[v].arm.get('colour_policy') for i, v in enumerate(vlist)})
         holes_hl = hl["mask"]
 
         # text mask (D6)
@@ -1047,11 +1050,9 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         timings["total_s"] = round(time.perf_counter() - t0, 2)
         mode = {"crease": "single-source, one view per face: each region painted by its anchor, its boundary re-placed "
                           "on a crease or the photometric seam (<= 3 mm, only onto an ADJACENT region's anchor that sees "
-                          "the face; non-anchor share per region in statuses); registered regions tier 1 (none on "
-                          "FT1119)",
+                          "the face; non-anchor share per region in statuses); registered regions tier 1",
                 "off": "single-source, strict anchor-only: every photo texel of a region is painted by that region's "
-                       "anchor view (non-anchor share per region in statuses); registered regions tier 1 (none on "
-                       "FT1119)",
+                       "anchor view (non-anchor share per region in statuses); registered regions tier 1",
                 "mrf": "single-source with the round-1 crease-MRF boundary moves (DIAGNOSTIC): photo texels near region "
                        "boundaries may be painted by a non-anchor view (non-anchor share per region in statuses)"
                 }[label_moves]
@@ -1174,8 +1175,6 @@ def write_outputs(res: dict, out_dir) -> dict:
         np.savez_compressed(out / "gain_field.npz", gain=tex.image(res["level_gain"].astype(np.float16), 1.0,
                                                                      np.float16))
         files["gain_field"] = str(out / "gain_field.npz")
-    try:                                     # what g3d.attach_print reads (manifest.py); a job without a GLB has none
-        files["manifest"] = str(MF.write_manifest(out))
-    except (KeyError, OSError, ValueError) as exc:
-        files["manifest_error"] = f"{type(exc).__name__}: {exc}"
+    # Attachment eligibility and geometry binding are required outputs, not optional diagnostics.
+    files["manifest"] = str(MF.write_manifest(out))
     return files

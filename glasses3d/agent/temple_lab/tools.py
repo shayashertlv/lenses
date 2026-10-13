@@ -616,6 +616,8 @@ def registry(lab, settings=None) -> list:
         except asyncio.CancelledError:
             lab.mark_unseen(call_id)             # the SDK timed the call out; its thread may still be running
             raise
+        if hasattr(lab, "tool_output"):
+            return lab.tool_output(result, footer_of(ctx), call_id, name)
         return output(result, footer_of(ctx))
 
     def dumped(items):

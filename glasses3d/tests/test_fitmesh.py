@@ -40,7 +40,7 @@ def test_skip_given_frame_and_names_with_suffixes(tmp_path):
     fr = C.NormFrame((0.0, 0.0, 0.0), 200.0)
     m = fitmesh.load_fit_mesh(write(tmp_path, glbfab.build(parts)), skip=("Temple",), frame=fr)
     assert m.frame == fr
-    assert "Lens_L" in m.names and "Lens_L.001" in m.node_names
+    assert "Lens_L.001" in m.names and "Lens_L.001" in m.node_names and "Lens_L" not in m.names
     assert m.skipped == ["Temple_L", "Temple_R"] and len(m.names) == 5
     assert m.V[:, 2].min() == pytest.approx(-2.0)
 
@@ -67,12 +67,58 @@ def test_embedded_periods_keep_parts_distinct(tmp_path):
     mesh = fitmesh.load_fit_mesh(path)
     assert mesh.part_ids(['component.00']) != mesh.part_ids(['component.01'])
     assert len(mesh.part_ids(['component.00', 'component.01'])) == 2
-    assert 'temple.left' in mesh.names
+    assert 'temple.left.001' in mesh.names
     from types import SimpleNamespace
     from glasses3d.g3d_host.photoprint.project import part_materials
     materials = part_materials(SimpleNamespace(sources={'glb': path}))
-    assert {'component.00', 'component.01', 'temple.left'} <= materials.keys()
+    assert {'component.00', 'component.01', 'temple.left.001'} <= materials.keys()
     assert 'component' not in materials
+
+
+def test_duplicate_suffix_names_are_distinct_object_identities(tmp_path):
+    parts = glbfab.default_parts()
+    parts['Brow_L.001'] = parts.pop('Brow_R')
+    path = write(tmp_path, glbfab.build(parts))
+    mesh = fitmesh.load_fit_mesh(path)
+    assert len(mesh.part_ids(['Brow_L'])) == len(mesh.part_ids(['Brow_L.001'])) == 1
+    assert set(mesh.part_ids(['Brow_L'])).isdisjoint(mesh.part_ids(['Brow_L.001']))
+    from types import SimpleNamespace
+    from glasses3d.g3d_host.photoprint.project import part_materials
+    assert {'Brow_L', 'Brow_L.001'} <= part_materials(SimpleNamespace(sources={'glb': path})).keys()
+
+
+@pytest.mark.parametrize('forbidden', ['lens', 'metal'])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_print_refusal_aggregates_all_material_slots(tmp_path, forbidden, reverse):
+    from types import SimpleNamespace
+    from glasses3d.g3d_host.photoprint.project import part_materials, refuse_parts, RefusedError
+    parts = {'Surface': ((0, 1, 0, 1, 0, 1), 'frame', 'frame'),
+             'Surface.001': ((2, 3, 0, 1, 0, 1), 'frame', 'frame')}
+    materials = {'frame': {'name': 'Acetate', 'pbrMetallicRoughness': {'metallicFactor': 0}},
+                 'forbidden': {'name': 'Explicit role', 'extras': {'partRole': forbidden},
+                               'pbrMetallicRoughness': {'metallicFactor': 1 if forbidden == 'metal' else 0}}}
+    def patch(doc, _):
+        base = doc['meshes'][0]['primitives'][0]
+        group = [dict(base, material=0), dict(base, material=1)]
+        doc['meshes'][0]['primitives'] = group[::-1] if reverse else group
+    path = write(tmp_path, glbfab.build(parts, materials=materials, roles=False, patch=patch))
+    job = SimpleNamespace(sources={'glb': path})
+    actual = part_materials(job)
+    assert actual['Surface']['lens'] if forbidden == 'lens' else actual['Surface']['metallic'] == 1
+    with pytest.raises(RefusedError, match='lens part|metallic'):
+        refuse_parts(job, ['Surface'])
+    refuse_parts(job, ['Surface.001'])
+
+
+@pytest.mark.parametrize('where', ['node', 'mesh'])
+def test_print_refuses_explicit_opaque_lens_role_without_lens_name(tmp_path, where):
+    from types import SimpleNamespace
+    from glasses3d.g3d_host.photoprint.project import refuse_parts, RefusedError
+    parts = {'Neutral surface': ((0, 1, 0, 1, 0, 1), 'frame', 'lens')}
+    materials = {'frame': {'name': 'Neutral', 'pbrMetallicRoughness': {'metallicFactor': 0}}}
+    path = write(tmp_path, glbfab.build(parts, materials=materials, role_where=where))
+    with pytest.raises(RefusedError, match='lens part'):
+        refuse_parts(SimpleNamespace(sources={'glb': path}), ['Neutral surface'])
 
 
 def test_refuses_compressed_and_skips_non_triangles(tmp_path):
@@ -89,7 +135,7 @@ def test_q001_geometric_front_pivot_is_near_the_named_one():
     """The geometric fallback (faces within 12 mm of the front) on a real model: x and y agree exactly, z lands
     0.42 mm behind the named pivot (it also takes the nose pads, pad mounts and front hinges)."""
     m = fitmesh.load_fit_mesh(REF / "q001.glb", skip=fitmesh.PROTOTYPE_SKIP)
-    named = m.frame.to_mm(m.front_pivot(fitmesh.PROTOTYPE_FRONT_PARTS)[None])[0]
+    named = m.frame.to_mm(m.front_pivot([name + '.001' for name in fitmesh.PROTOTYPE_FRONT_PARTS])[None])[0]
     geo = m.frame.to_mm(m.front_pivot()[None])[0]
     np.testing.assert_allclose(geo[:2], named[:2], atol=1e-9)
     assert -0.5 < geo[2] - named[2] < -0.3, (geo, named)

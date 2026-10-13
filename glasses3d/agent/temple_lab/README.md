@@ -47,18 +47,28 @@ host side, revisions, compares, variants, finish), `geometry.py` (edits, head di
 Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
 
 ```text
--m glasses3d.agent.temple_lab.cli prepare --job <new-dir> [--rig studio_dome_v1|photo_env|catalog_band_v1]
+-m glasses3d.agent.temple_lab.cli prepare --job <new-dir> --source-config <sources.json> [--rig studio_dome_v1|photo_env|catalog_band_v1]
 -m glasses3d.tests.proofs.astra_temple_lab rehearse --out <new-dir> [--rig <rig>]
 -m glasses3d.agent.temple_lab.cli estimate --rehearsal <rehearsal-dir>/rehearsal.json [--out <estimate.json>]
 -m glasses3d.agent.temple_lab.cli request --job <dir> --run-id <id> --effort high|max --turns <n> --cap <usd> [--k 4]
 -m glasses3d.agent.temple_lab.cli run --job <dir> --run-id <id> <the request's other arguments> [--env-file <dotenv>]
 ```
 
-- **prepare** ($0, about 1 min with the default rig) writes a new package: `inputs/` (the scene's byte copy, the target
-  photos, the black photos B1-B3, `brief.txt`, `instructions.txt`, `lab.json`, every file sha-bound and every image
+- **Assembled stage:** `package.prepare(scene, destination, call_id)` captures the current parent checkpoint and
+  export, copies the job's original photos, and closes the private Lab after preparing revision zero from that
+  captured export. `photo_catalog(job)` supplies the same explicit IDs to preflight and execution; default IDs are
+  complete filename stems. `pose_basis.build` copies the active frozen cameras, masks, frame, ROI and recorded
+  opening metadata. Missing opening metadata means the authored pose, with no claimed opening calibration.
+  `contract-brief.txt` contains neutral host prose for instruction checks; owner text remains verbatim in `brief.txt`.
+- **Standalone prepare** ($0, about 1 min with the default rig) requires explicit `source_scene`, `scene_sha256`,
+  `reference` and `basis_json` in `--source-config`. Optional `photo_ids`, `colourway_photos`, `reference_photos`,
+  `camera_conflicts` and `reading_precision` are job data; none has a product default. It writes `inputs/` (the
+  scene's byte copy, the target and additional photos, `brief.txt`, `instructions.txt`, `lab.json`, every file sha-bound and every image
   sent in the first message), `basis/cameras.json` (outside `inputs/`, bound separately), then revision 0 (the
   starting model's +X temple measured into a spec: no faces, no edges) fitted, applied and compared. `job.json` binds
-  the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`).
+  the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`). The historical Prada T5
+  rehearsal explicitly supplies `tests/fixtures/temple_lab_prada.py`; its old calibration proof remains historical
+  evidence and is not the assembled stage's builder.
 - **The brief** (`cli.brief_text`) carries the job's facts; `instructions.txt` names no photo and no product. Per
   photo: view, camera direction, the angle to the outer face, what its compares print (side views: the bottom outline
   offsets and, looking down 14 deg, the top face's far edge minus its median in place of the top outline) and its
@@ -74,7 +84,7 @@ Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
   photos, w2/crown-geometry.md §2); the render light and what it does not reproduce (tone marks where an edge is,
   not its size or sign); revision 0 and the scope (the whole temple to its tip, outline chains editable).
 - **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's recorded tool outputs
-  (`--out`, default `data/wp6v2/lab/estimate_v3.json`, `cli.ESTIMATE`). The typical mix (`cli.MIXES`) is the method
+  (`--out`, default `data/temple_lab/estimate_v3.json`, `cli.ESTIMATE`). The typical mix (`cli.MIXES`) is the method
   the instructions teach. Each image-heavy call is priced at the most one call returns, at the largest image the tool
   makes: facet_variants at the job's sheets (one a photo) of 1280 x 900 px and 4 arms of text; photo_read at 8 pick
   sheets of 972 x 1412 px (4 photos a reading), its text and arguments scaled alike, a drop-only call left out of its

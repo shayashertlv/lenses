@@ -66,6 +66,18 @@ def test_temple_lab_endpoint_is_closed_without_marker(plain):
     assert plain.call("fingerprint")["fingerprint"] == before
 
 
+def test_temple_stage_apply_refuses_stale_parent_before_building(plain):
+    before = plain.call("fingerprint")["fingerprint"]
+    result = plain.call("temple_stage_apply", {"spec": {"schema": "bad"}, "source_fingerprint": "0" * 64,
+                                                "expect_fingerprint": before})
+    assert result["status"] == "refused" and result["code"] == "E_STAGE_STALE"
+    assert plain.call("fingerprint")["fingerprint"] == before
+    for params in ({"spec": {}}, {"spec": {}, "source_fingerprint": before, "code": "bpy.ops.wm.quit_blender()"}):
+        result = plain.call("temple_stage_apply", params)
+        assert result["status"] == "refused" and result["code"] == "E_ARGS"
+        assert plain.call("fingerprint")["fingerprint"] == before
+
+
 PRADA = Path(__file__).resolve().parents[2] / ("automation/data/blender_agent/studio/jobs/"
                                                "8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend")
 PRADA_SHA = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06"
@@ -153,7 +165,8 @@ def test_receipt_identity_and_versions(w):
     assert len(r["token_sha256"]) == 64 and isinstance(r["port"], int) and r["port"] > 0
     assert r["blender"].startswith("5.2") and r["python"].startswith("3.13")
     assert r["safe_mode_selfcheck"] == {"unlisted_edges": []}
-    assert r["g3d_facade"]["errors"] == {} and len(r["g3d_facade"]["names"]) == 8
+    assert r["g3d_facade"]["errors"] == {}
+    assert set(r["g3d_facade"]["names"]) == {"loft_sections", "polygon_section", "check_round_corners"}
     assert w.hello["pid"] == w.proc.pid and len(w.hello["fingerprint"]) == 64
     assert w.ready_s < 60
 

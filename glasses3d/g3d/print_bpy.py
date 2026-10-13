@@ -32,6 +32,8 @@ attach_print
   manifest as a dict. Refuses when print.png is missing, its sha256 or size disagrees, or any part's
   ``g3d_print_uv`` (geometry_sha, charts_sha, atlas, tx) or its current geometry (a fresh in-process export) does not
   match the bake: "print stale; re-project" (E_STALE);
+- requires explicit ``texture_parts`` / ``no_texture_parts`` partitioning the bake's exact object names; defaults
+  to ``texture_parts`` and refuses an excluded part before loading images or changing materials;
 - packs print.png (sRGB, Linear, Extend) and wires Image <- UV Map ``layer`` -> Mix Multiply (Factor 1, B = gain) ->
   Base Color of the Principled BSDF feeding the active Material Output. Blender's exporter folds the Mix into
   baseColorFactor. The previous Base Color (its link and value) is kept in the material's ``g3d_print_prev``;
@@ -42,8 +44,9 @@ attach_print
 - ``transmission_map=True`` is refused (alpha / transmission maps are not built; Astra's transmission stays as
   authored).
 
-detach_print restores every attached material (nodes removed, Base Color link and value back, single-user copies
-swapped back and removed when unused) and reports whether the tree equals its pre-attach state. remove_print_uv puts
+detach_print first verifies exact restoration and refuses a selected material shared with unselected objects, then
+restores every attached material (nodes removed, Base Color link and value back, single-user copies swapped back and
+removed when unused) and reports whether the tree equals its pre-attach state. remove_print_uv puts
 back the pre-print mesh when the geometry is unchanged since print_uv (else it only removes the layer and the property
 and says the split polygons and custom normals stay). It refuses while a print is attached (detach first).
 
@@ -394,6 +397,8 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
         dg = bpy.context.evaluated_depsgraph_get()
         for ob in obs:
             _check_mesh(ob, dg)
+            if _attached_materials([ob]):
+                raise Refusal("E_ATTACHED", f"{ob.name} still shows a print; detach_print before laying out UVs")
             if layer in ob.data.uv_layers and not replace:
                 raise Refusal("E_LAYER_EXISTS", f"{ob.name} already has a {layer!r} UV layer; pass replace=True to "
                                                 f"lay it out again (the print baked for it becomes stale)")
@@ -426,7 +431,7 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
         rep["timings"]["layout_s"] = round(time.perf_counter() - t, 2)
         a1 = lay.report
         rep["a1"] = {k: a1.get(k) for k in ("pass", "criteria", "overlap_texels", "flipped_faces",
-                                            "anisotropy_p50_p95_p99", "density_p1_share")}
+                                            "zero_area_faces", "anisotropy_p50_p95_p99", "density_p1_share")}
         if not a1.get("pass"):
             raise Refusal("E_LAYOUT", f"the print layout fails A1: {a1.get('criteria')}")
         geo = GM.geometry_sha(V, F, part, gnames, names)
@@ -598,7 +603,19 @@ def load_manifest(report) -> dict:
 
 
 MANIFEST_KEYS = ("print_png", "print_sha256", "width", "height", "tx_per_mm", "parts", "layer", "geometry_sha",
-                 "charts_sha")
+                 "charts_sha", "texture_parts", "no_texture_parts")
+
+
+def _texture_parts(man: dict) -> list[str]:
+    """Explicit bake eligibility; older manifests must be regenerated, never guessed."""
+    lists = [man.get(k) for k in ("parts", "texture_parts", "no_texture_parts")]
+    if any(not isinstance(v, list) or any(not isinstance(n, str) or not n for n in v)
+           or len(set(v)) != len(v) for v in lists):
+        raise Refusal("E_ARGS", "parts, texture_parts and no_texture_parts must be lists of unique exact names")
+    all_parts, textured, excluded = map(set, lists)
+    if textured & excluded or textured | excluded != all_parts:
+        raise Refusal("E_ARGS", "texture_parts and no_texture_parts must partition the bake's parts")
+    return list(man["texture_parts"])
 
 
 def _principled(mat):
@@ -725,8 +742,16 @@ def attach_print(report, parts=None, *, gain=(1.0, 1.0, 1.0), transmission_map: 
         miss = [k for k in MANIFEST_KEYS if k not in man]
         if miss:
             raise Refusal("E_ARGS", f"the print manifest lacks {miss}")
+        eligible = _texture_parts(man)
+        names = list(eligible) if parts is None else [_name(p) for p in _as_list(parts)]
+        excluded = [n for n in names if n not in eligible]
+        if excluded:
+            raise Refusal("E_NO_TEXTURE", f"the bake does not permit a print on {excluded}; "
+                                         f"texture_parts are {eligible}", no_texture_parts=excluded)
+        if not names:
+            raise Refusal("E_NO_TEXTURE", "the bake has no selected texture_parts")
         rep["manifest"] = {k: man.get(k) for k in ("manifest_path", "print_png", "print_sha256", "geometry_sha",
-                                                   "charts_sha", "label")}
+                                                   "charts_sha", "label", "texture_parts", "no_texture_parts")}
         png = Path(man["print_png"])
         if not png.is_file():
             raise Refusal("E_PRINT", f"print.png not found: {png}")
@@ -736,7 +761,6 @@ def attach_print(report, parts=None, *, gain=(1.0, 1.0, 1.0), transmission_map: 
             raise Refusal("E_PRINT", f"{png} is {_png_size(png)}, the bake's atlas is {man['width']}x{man['height']}")
         layer = man["layer"]
         scene = bpy.context.scene
-        names = [_name(p) for p in _as_list(parts)] or list(man["parts"])
         obs = _resolve(names, scene)
         for ob in obs:
             info = _json_prop(ob, PROP_UV)
@@ -972,8 +996,36 @@ def detach_print(parts=None) -> dict:
             obs = [o for o in scene.objects if o.type == "MESH" and (_attached_materials([o]) or o.get(PROP_SWAP))]
         else:
             obs = _resolve(parts, scene)
+        selected = {o.name for o in obs}
+        mats = _attached_materials(obs)
+        # A material can be shared by several printed parts. Restoring it for a
+        # subset would silently remove another part's print; refuse before edits.
+        for mat in mats:
+            outside = sorted(o.name for o in _material_users(mat) if o.name not in selected)
+            if outside:
+                raise Refusal("E_SHARED_PRINT", f"material {mat.name!r} is also attached to {outside}; "
+                                              "detach all of its owners together")
+            prev = _json_prop(mat, PROP_PREV)
+            if not prev or not prev.get("tree_digest"):
+                raise Refusal("E_STALE", f"material {mat.name!r} has no valid saved pre-print state")
+            # Verify the restoration on a disposable copy before changing any
+            # live material. Edited or missing original nodes fail closed.
+            probe = mat.copy()
+            try:
+                _restore_material(probe, prev.get("nodes", [NODE_UV, NODE_TEX, NODE_MIX]),
+                                  prev.get("base_color_link"), prev.get("base_color_default", [0.8, 0.8, 0.8, 1.0]),
+                                  prev.get("bsdf", "Principled BSDF"))
+                if _sha_bytes(repr(_tree_state(probe.node_tree)).encode()) != prev["tree_digest"]:
+                    raise Refusal("E_STALE", f"material {mat.name!r} changed after attach; "
+                                             "cannot restore its saved pre-print state exactly")
+            finally:
+                bpy.data.materials.remove(probe)
+        for ob in obs:
+            for si, orig_name in (_json_prop(ob, PROP_SWAP) or {}).items():
+                if not str(si).isdigit() or int(si) >= len(ob.material_slots) or bpy.data.materials.get(orig_name) is None:
+                    raise Refusal("E_STALE", f"{ob.name}: original material for slot {si} is unavailable")
         images = set()
-        for mat in _attached_materials(obs):
+        for mat in mats:
             prev = _json_prop(mat, PROP_PREV) or {}
             n_tex = mat.node_tree.nodes.get(NODE_TEX)
             if n_tex is not None and n_tex.image is not None:

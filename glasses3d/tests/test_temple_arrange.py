@@ -71,6 +71,35 @@ def test_dangling_segment_is_refused():
     assert e.value.code == "E_TRIANGULATE"
 
 
+@pytest.mark.parametrize("count", [4, 8])
+def test_all_floating_components_join_in_one_pass(count, monkeypatch):
+    boundary = np.array([[0., 0.], [count * 4., 0.], [count * 4., 6.], [0., 6.]])
+    segments = []
+    for k in range(count):
+        tri = np.array([[1., 2.], [3., 2.], [2., 4.]]) + [4. * k, 0.]
+        segments.extend((tri[i], tri[(i + 1) % 3], ("facet", str(k))) for i in range(3))
+    calls = []
+    original = AR._build
+
+    def counted(*args, **kwargs):
+        calls.append(None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "_build", counted)
+    with pytest.raises(TempleError, match="floats"):
+        AR.build_arrangement(boundary, segments)
+    results = []
+    for ordered in (segments, list(reversed(segments))):
+        calls.clear()
+        arr = AR.build_arrangement(boundary, ordered, chord_fn=lambda d: ([d, 0.], [d, 6.]))
+        assert len(calls) == 2  # discovery followed by the connected arrangement
+        assert arr.chords_added == [("station", d) for k in range(count) for d in (4. * k + 1., 4. * k + 3.)]
+        assert arr.areas.sum() == pytest.approx(count * 24.)
+        assert all(len(set(f)) == len(f) for f in arr.faces)
+        results.append(sorted((tuple(np.mean(arr.V[f], axis=0)), AR.poly_area(arr.V[f])) for f in arr.faces))
+    assert results[0] == results[1]
+
+
 def test_ear_clip_concave_with_collinear_vertices():
     P = np.array([[0, 0], [2, 0], [4, 0], [4, 4], [3, 4], [3, 1], [1, 1], [1, 4], [0, 4], [0, 2]], float)
     tris = AR.ear_clip(P, list(range(len(P))))

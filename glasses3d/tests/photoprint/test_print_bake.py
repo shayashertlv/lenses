@@ -13,6 +13,7 @@ from PIL import Image
 from glasses3d.g3d_host.photoprint import inputs as IN
 from glasses3d.g3d_host.photoprint import project as PR
 from glasses3d.g3d_host.photoprint.compose import CLASS_CODES
+from glasses3d.tests.fixtures.legacy_ft1119 import NAME_MAP
 from glasses3d.tests.photoprint import printproof as PP
 
 pytestmark = pytest.mark.slow
@@ -250,7 +251,7 @@ def test_foreign_medallion_is_a_hole_and_reported(bake):
 
 def test_text_is_filled_from_the_decal_by_default(bake):
     t = bake["report"]["text"]
-    assert "Left_inner_brand_print.001" in t["decals"] and t["filled"] and not t["keep_photo_text"]
+    assert NAME_MAP["Left_inner_brand_print.001"] in t["decals"] and t["filled"] and not t["keep_photo_text"]
     k = bake["classes"]
     assert int((k == CLASS_CODES["text_fill"]).sum()) > 0
     # fix round 1: lettering seen THROUGH the acetate (06 shows the +x temple's inner print through its outer face;

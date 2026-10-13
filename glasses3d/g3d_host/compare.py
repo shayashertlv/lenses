@@ -83,7 +83,7 @@ from scipy import ndimage
 
 from . import cameras, fitmesh, raster
 from . import matte as M
-from .camera import Camera, NormFrame, project_mm
+from .camera import CAMERA_FIELDS, Camera, NormFrame, project_mm
 from .fit_views import CAMERAS_JSON, contour_summary, overlay_image
 
 BASIS_SCHEMA = "g3d.basis/1"
@@ -105,6 +105,20 @@ METRIC_KEYS = ("iou", "contour_mean_mm", "contour_p90_mm", "iou_full_image")
 
 class NoBasis(LookupError):
     """The job has no camera basis yet (E_NO_BASIS): fit_cameras makes one."""
+
+
+class UnusableReference(ValueError):
+    """A retained photo has diagnostic evidence but no accepted camera."""
+
+    code = "E_UNUSABLE_CAMERA"
+
+    def __init__(self, rid: str, details: dict):
+        self.ref_id, self.details = rid, dict(details)
+        error = details.get("error")
+        reason = details.get("refusal") or details.get("message") or (error.get("message")
+                  if isinstance(error, dict) else error)
+        super().__init__(f"{rid}: camera fit {details.get('status') or 'unavailable'}: "
+                         f"{reason or 'no successful fitted camera'} ({self.code})")
 
 
 def _utc() -> str:
@@ -174,6 +188,25 @@ def next_basis_id(job_root) -> str:
     return f"basis-{(max(used) + 1) if used else 1:02d}"
 
 
+def _fit_usable(fit: dict) -> bool:
+    status = fit.get("status")
+    if status not in (None, "ok", "failed", "refused"):
+        raise ValueError(f"unknown camera fit status {status!r}")
+    return status in (None, "ok") and not fit.get("refusal")
+
+
+def _valid_camera(value, rid: str) -> Camera:
+    try:
+        if not isinstance(value, dict) or any(isinstance(value[k], bool) for k in CAMERA_FIELDS):
+            raise ValueError("camera fields must be numeric")
+        camera = Camera.from_dict(value)
+        if not all(math.isfinite(getattr(camera, k)) for k in CAMERA_FIELDS) or camera.scale <= 0:
+            raise ValueError("camera fields must be finite with positive scale")
+        return camera
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{rid}: malformed successful camera: {exc}") from exc
+
+
 class Basis:
     """A frozen camera basis (see module doc)."""
 
@@ -190,9 +223,75 @@ class Basis:
         self.front_parts = tuple(self.meta["front_parts"]) if self.meta.get("front_parts") else None
         self.refs: dict = self.meta["refs"]
         self._mattes: dict = {}
+        self._verify_evidence()
+
+    def _verify_evidence(self):
+        """A failed newest fit may be skipped; damaged evidence may never be skipped."""
+        source = self.dir / CAMERAS_JSON
+        if sha256_file(source) != self.meta.get("cameras_json_sha256"):
+            raise ValueError(f"{source}: cameras.json differs from the frozen basis")
+        doc = json.loads(source.read_text(encoding="utf-8"))
+        images = doc["images"]
+        model = doc["model"]
+        if self.id != self.dir.name or any(self.meta.get(k) != model.get(k) for k in
+                                           ("frame", "front_pivot_mm", "front_parts")):
+            raise ValueError("the frozen basis identity or camera frame differs from its source")
+        if list(self.skip) != list(model.get("skip") or ()):
+            raise ValueError("the frozen skip list differs from its source")
+        if (len(self.frame.center) != 3 or not all(map(math.isfinite, self.frame.center))
+                or not math.isfinite(self.frame.extent) or self.frame.extent <= 0
+                or self.pivot_mm.shape != (3,) or not np.isfinite(self.pivot_mm).all()):
+            raise ValueError("the frozen camera frame or pivot is malformed")
+        if not isinstance(self.refs, dict) or not isinstance(images, dict):
+            raise ValueError("a frozen basis needs a reference and image catalog")
+        if len(self.refs) != len(images) or {r.get("image") for r in self.refs.values()} != set(images):
+            raise ValueError("the frozen reference catalog differs from cameras.json")
+        for rid, ref in self.refs.items():
+            raw, fit = images[ref["image"]], ref.get("fit") or {}
+            if ref.get("camera") != raw.get("camera") or any(fit.get(k) != raw.get(k) for k in
+                                                             ("status", "refusal")):
+                raise ValueError(f"{rid}: camera or fit status differs from the frozen source")
+            if any(value != raw.get(key) for key, value in fit.items() if key in FIT_EVIDENCE_FIELDS):
+                raise ValueError(f"{rid}: fit diagnostic evidence differs from cameras.json")
+            if ref.get("lens_loss") != raw.get("lens_loss"):
+                raise ValueError(f"{rid}: lens loss evidence differs from cameras.json")
+            if raw.get("image_sha256") and ref.get("photo_sha256") != raw["image_sha256"]:
+                raise ValueError(f"{rid}: photo identity differs from cameras.json")
+            photo = self.photo_path(rid)
+            if sha256_file(photo) != ref.get("photo_sha256"):
+                raise ValueError(f"{photo}: the photo differs from the one the basis was fitted on")
+            for key in ("matte", "overlay"):
+                if ref.get(key):
+                    path = (self.dir / ref[key]).resolve()
+                    if not path.is_relative_to(self.dir.resolve()):
+                        raise ValueError(f"{rid}: frozen {key} escapes its basis directory")
+                    digest = ref.get(key + "_sha256")
+                    # Older bases have no overlay digest; every new basis records one.
+                    if (key == "matte" or digest is not None) and sha256_file(path) != digest:
+                        raise ValueError(f"{path}: {key} differs from basis.json (a frozen basis must not change)")
+            if self.is_usable(rid):
+                _valid_camera(ref.get("camera"), rid)
+                if not ref.get("matte") or not ref.get("roi") or not ref.get("shape"):
+                    raise ValueError(f"{rid}: successful camera lacks frozen matte, shape or ROI")
+                if (len(ref["shape"]) != 2 or any(type(v) is not int or v <= 0 for v in ref["shape"])
+                        or len(ref["roi"]) != 4 or any(type(v) is not int for v in ref["roi"])):
+                    raise ValueError(f"{rid}: frozen shape or ROI is malformed")
+
+    def is_usable(self, rid: str) -> bool:
+        """Only a successful fit can supply a camera; a refused candidate remains diagnostic."""
+        return _fit_usable(self.refs[rid].get("fit") or {})
+
+    def usable_refs(self) -> list[str]:
+        return [rid for rid in self.refs if self.is_usable(rid)]
+
+    def unusable_refs(self) -> dict[str, dict]:
+        return {rid: {"image": ref["image"], **ref.get("fit", {})}
+                for rid, ref in self.refs.items() if not self.is_usable(rid)}
 
     def camera(self, rid: str) -> Camera:
-        return Camera.from_dict(self.refs[rid]["camera"])
+        if not self.is_usable(rid):
+            raise UnusableReference(rid, self.unusable_refs()[rid])
+        return _valid_camera(self.refs[rid]["camera"], rid)
 
     def shape(self, rid: str) -> tuple[int, int]:
         h, w = self.refs[rid]["shape"]
@@ -204,6 +303,8 @@ class Basis:
     def matte(self, rid: str) -> np.ndarray:
         if rid not in self._mattes:
             rec = self.refs[rid]
+            if rec.get("matte") is None:
+                raise UnusableReference(rid, self.unusable_refs().get(rid, {"status": "unavailable"}))
             p = self.dir / rec["matte"]
             if sha256_file(p) != rec["matte_sha256"]:
                 raise ValueError(f"{p}: matte differs from basis.json (a frozen basis must not change)")
@@ -239,28 +340,39 @@ class Basis:
     def summary(self) -> dict:
         return {"id": self.id, "dir": str(self.dir), "reason": self.meta.get("reason"),
                 "source": self.meta.get("source"), "model_sha256": (self.meta.get("model") or {}).get("sha256"),
-                "refs": list(self.refs)}
+                "refs": list(self.refs), "usable_refs": self.usable_refs(), "unusable_refs": self.unusable_refs()}
 
 
 def load_basis(job_root, basis_id: str | None = None) -> Basis:
-    """The named basis or the newest one. Raises NoBasis when there is none."""
+    """The named diagnostic basis or newest usable one. Damaged evidence always refuses."""
     ids = list_bases(job_root)
     if basis_id is None:
         if not ids:
             raise NoBasis("this job has no camera basis yet: run fit_cameras(reason) first (E_NO_BASIS)")
-        basis_id = ids[-1]
+        for candidate in reversed(ids):
+            basis = Basis(basis_root(job_root) / candidate, job_root)
+            if basis.usable_refs():
+                return basis
+        raise NoBasis(f"no successful camera in bases {ids}: inspect their fit diagnostics and run fit_cameras "
+                      "again (E_NO_BASIS)")
     if basis_id not in ids:
         raise NoBasis(f"no camera basis {basis_id!r} (bases: {ids or 'none'}; fit_cameras makes one)")
     return Basis(basis_root(job_root) / basis_id, job_root)
 
 
-OPTIONAL_IMAGE_FIELDS = ("theta_deg", "theta_observed", "hinge_axis_xz_mm", "colourway", "fit_status")
+OPTIONAL_IMAGE_FIELDS = ("theta_deg", "theta_observed", "hinge_axis_xz_mm", "colourway", "fit_status", "lens_loss")
+FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags", "iou", "contour_mean_px",
+                       "contour_mean_mm", "contour_p90_px", "contour_p90_mm", "px_per_mm_at_front_pivot",
+                       "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",
+                       "iou_lens_optional", "lens_pixels_optional", "contour_mean_px_lens_optional",
+                       "contour_p95_px_lens_optional", "render_only_px_lens_optional")
 
 
 def freeze_basis(job_root, basis_dir, photos: dict, *, reason: str, call_id: str | None, source: str,
                  model: dict | None = None) -> Basis:
     """Freeze ``basis_dir`` (which holds a fit's ``cameras.json``): check every photo against the fit's sha256,
-    compute and store each matte once, check the ROI, and write ``basis.json``. ``photos`` = {image name: path}.
+    compute and store available mattes once, check the ROI, and write ``basis.json``. Failed photos remain as
+    diagnostic refs without fabricated cameras/mattes. ``photos`` = {image name: path}.
 
     An image record may name its ``matte_mode``: a matte.MODES mode (default "default"), or "supplied" with
     ``matte_file`` (a PNG next to cameras.json, > 127 = foreground) and its ``matte_file_sha256``, for a matte made
@@ -273,38 +385,59 @@ def freeze_basis(job_root, basis_dir, photos: dict, *, reason: str, call_id: str
     (basis_dir / "mattes").mkdir(exist_ok=True)
     for name, rec in doc["images"].items():
         rid = ref_id(name)
+        if rid in refs:
+            raise ValueError(f"image names share reference id {rid!r}; no photo may replace another")
         if name not in photos:
             raise ValueError(f"no photo given for {name} (photos: {sorted(photos)})")
         p = Path(photos[name]).resolve()
         sha = sha256_file(p)
         if rec.get("image_sha256") and sha != rec["image_sha256"]:
             raise ValueError(f"{p}: sha256 {sha[:12]} != the fit's {rec['image_sha256'][:12]} for {name}")
+        usable = _fit_usable(rec)
+        if usable:
+            _valid_camera(rec.get("camera"), rid)
         mode = rec.get("matte_mode") or "default"
-        if mode == "supplied":
-            mf = basis_dir / rec["matte_file"]
-            if sha256_file(mf) != rec.get("matte_file_sha256"):
-                raise ValueError(f"{name}: supplied matte {mf} does not match its matte_file_sha256")
-            fg = np.asarray(Image.open(mf).convert("L")) > 127
-        elif mode in M.MODES:
-            fg = M.matte(M.load_photo(p), mode=mode)
-        else:
-            raise ValueError(f"{name}: matte mode {mode!r} is not a matte.py mode and no matte was supplied")
-        if list(fg.shape) != list(rec["shape"]):
-            raise ValueError(f"{name}: photo shape {list(fg.shape)} != the fit's {rec['shape']}")
-        roi = cameras.matte_roi(fg)
-        if rec.get("roi") is not None and list(roi) != list(rec["roi"]):
-            notes.append(f"{rid}: recomputed matte ROI {list(roi)} != the fit's {rec['roi']}; the fit's ROI is kept")
-            roi = tuple(rec["roi"])
-        mp = basis_dir / "mattes" / f"{rid}.png"
-        Image.fromarray((fg * 255).astype(np.uint8)).save(mp)
-        refs[rid] = {"image": name, "photo": _rel(p, job_root), "photo_sha256": sha, "shape": list(rec["shape"]),
-                     "view_kind": rec.get("view_kind"), "view": rec.get("view"), "camera": rec["camera"],
-                     "roi": [int(v) for v in roi], "matte": f"mattes/{rid}.png", "matte_sha256": sha256_file(mp),
-                     "matte_mode": mode, "fg_px": int(fg.sum()),
-                     "overlay": (f"overlay_{rid}.png" if (basis_dir / f"overlay_{rid}.png").is_file() else None),
-                     "fit": {k: rec.get(k) for k in ("status", "iou", "contour_mean_px", "contour_mean_mm",
-                                                     "contour_p90_px", "contour_p90_mm", "flags", "refusal",
-                                                     "px_per_mm_at_front_pivot")}}
+        fg = None
+        # The fitter reports whether it reached matte generation. In particular, a decoded shape alone does not
+        # turn a failed matte into evidence. Legacy successful/refused fits always computed this same matte.
+        available = usable or rec.get("status") == "refused" or rec.get("matte") is not None or mode == "supplied"
+        if available:
+            if mode == "supplied":
+                mf = (basis_dir / rec["matte_file"]).resolve()
+                if not mf.is_relative_to(basis_dir.resolve()):
+                    raise ValueError(f"{name}: supplied matte escapes its basis directory")
+                if sha256_file(mf) != rec.get("matte_file_sha256"):
+                    raise ValueError(f"{name}: supplied matte {mf} does not match its matte_file_sha256")
+                fg = np.asarray(Image.open(mf).convert("L")) > 127
+            elif mode in M.MODES:
+                fg = M.matte(M.load_photo(p), mode=mode)
+            else:
+                raise ValueError(f"{name}: matte mode {mode!r} is not a matte.py mode and no matte was supplied")
+            if list(fg.shape) != rec.get("shape"):
+                raise ValueError(f"{name}: photo shape {list(fg.shape)} != the fit's {rec.get('shape')}")
+        roi, mp = None, None
+        if fg is not None:
+            if fg.any():
+                roi = cameras.matte_roi(fg)
+                if rec.get("roi") is not None and list(roi) != list(rec["roi"]):
+                    notes.append(f"{rid}: recomputed matte ROI {list(roi)} != the fit's {rec['roi']}; the fit's ROI is kept")
+                    roi = tuple(rec["roi"])
+            elif usable:
+                raise ValueError(f"{name}: successful camera has an empty matte")
+            mp = basis_dir / "mattes" / f"{rid}.png"
+            Image.fromarray((fg * 255).astype(np.uint8)).save(mp)
+        overlay = basis_dir / f"overlay_{rid}.png"
+        if not overlay.is_file() and rec.get("overlay"):
+            overlay = basis_dir / Path(rec["overlay"]).name
+        overlay = overlay if overlay.is_file() else None
+        refs[rid] = {"image": name, "photo": _rel(p, job_root), "photo_sha256": sha, "shape": rec.get("shape"),
+                     "view_kind": rec.get("view_kind"), "view": rec.get("view"), "camera": rec.get("camera"),
+                     "roi": [int(v) for v in roi] if roi is not None else None,
+                     "matte": f"mattes/{rid}.png" if mp else None, "matte_sha256": sha256_file(mp) if mp else None,
+                     "matte_mode": mode, "fg_px": int(fg.sum()) if fg is not None else None,
+                     "overlay": overlay.name if overlay else None,
+                     "overlay_sha256": sha256_file(overlay) if overlay else None,
+                     "fit": {k: rec.get(k) for k in FIT_EVIDENCE_FIELDS}}
         refs[rid].update({k: rec[k] for k in OPTIONAL_IMAGE_FIELDS + ("matte_note",) if k in rec})
     meta = {"schema": BASIS_SCHEMA, "id": basis_dir.name, "k": int(BASIS_RE.match(basis_dir.name).group(1)),
             "reason": reason, "call_id": call_id, "source": source, "created": _utc(),
@@ -332,10 +465,18 @@ def import_cameras_json(job_root, cameras_json, photos: dict, *, reason: str, ca
     shutil.copyfile(src, d / CAMERAS_JSON)
     for ov in sorted(src.parent.glob("overlay_*.png")):
         shutil.copyfile(ov, d / ov.name)
-    for rec in json.loads(src.read_text(encoding="utf-8"))["images"].values():
+    for name, rec in json.loads(src.read_text(encoding="utf-8"))["images"].items():
         if rec.get("matte_mode") == "supplied":
-            (d / rec["matte_file"]).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src.parent / rec["matte_file"], d / rec["matte_file"])
+            target = (d / rec["matte_file"]).resolve()
+            if not target.is_relative_to(d.resolve()):
+                raise ValueError("supplied matte escapes its basis directory")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src.parent / rec["matte_file"], target)
+        if rec.get("overlay"):
+            original = Path(rec["overlay"])
+            original = original if original.is_absolute() else src.parent / original
+            if original.is_file():
+                shutil.copyfile(original, d / f"overlay_{ref_id(name)}.png")
     return freeze_basis(job_root, d, photos, reason=reason, call_id=call_id, source=f"imported {src}")
 
 

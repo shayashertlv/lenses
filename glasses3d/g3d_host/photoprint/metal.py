@@ -64,6 +64,12 @@ therefore insufficient evidence for deletion. ``supported_pale`` retains the old
 areas, on neutral colours, or where a local achromatic light increment supports it. The existing physical scales
 and contrast limits are reused; no product coordinates or photo names enter this rule. Step-4 diagnostic mode
 retains the original mask. The report counts unsupported colour-only seeds before their halo can erase print.
+
+Assembly M4c: ``donor_holes`` now records a geometry-sampled colour policy. The supported warm branch above is
+unchanged, including its historical sampling. Other palettes use the channel-symmetric min/max ratio, without a
+fixed neutral ceiling or the warm arm's continuity assumption. Pale candidates need nearby hardware or measured
+additive-white contrast; neutral pigment and coherent colour alone are insufficient. Glint contrast checks all
+three channels and dark-blob neutrality uses their full spread. ``rules='step4'`` remains the historical replay.
 """
 from __future__ import annotations
 
@@ -114,19 +120,38 @@ def blue_ratio(img) -> np.ndarray:
     return f[..., 2] / np.maximum(f[..., 0], 1.0)
 
 
-def pigment_arm(image, print_px, other_px, matte, ppm: float, hardware_px=None) -> dict:
-    """Per-photo pigment arm: {'centres' lum bin centres, 'centre' B/R mode, 'spread', 'threshold', 'counts',
-    'fitted' (bins with >= ARM_MIN_PX samples)}; see the module docstring."""
-    img = np.asarray(image, np.float64)
+def colour_support(print_px, other_px, matte, ppm: float, hardware_px=None):
+    """Geometry-only training support shared by colour-policy selection and the general pigment arm."""
     sup = ndimage.binary_erosion(np.asarray(print_px, bool), iterations=SAMPLE_ERODE_PX)
     sup &= ndimage.binary_erosion(np.asarray(matte, bool), iterations=SAMPLE_ERODE_PX)
     if np.asarray(other_px, bool).any():
         sup &= ndimage.distance_transform_edt(~np.asarray(other_px, bool)) > SAMPLE_AWAY_MM * ppm
     if hardware_px is not None and np.asarray(hardware_px, bool).any():
         sup &= ndimage.distance_transform_edt(~np.asarray(hardware_px, bool)) > SAMPLE_AWAY_HARDWARE_MM * ppm
-    sup &= S.acetate_mask(img) & ~(img >= 250).any(-1)
+    return sup
+
+
+def pigment_ratio(image, policy=None):
+    img = np.asarray(image, np.float64)
+    return (img.min(-1) / np.maximum(img.max(-1), 1.0) if S.general_colour(policy) else blue_ratio(img))
+
+
+def additive_light(image, inside, fp):
+    """White light must raise every channel, including green; a coloured pigment streak cannot establish it."""
+    img = np.asarray(image, float)
+    rise = np.stack([img[..., c] - _masked_open(img[..., c], inside, fp) for c in range(3)], -1)
+    return (rise.min(-1) > 0) & (rise.min(-1) >= LINE_ACHROMATIC * np.maximum(rise.max(-1), 1e-6))
+
+
+def pigment_arm(image, print_px, other_px, matte, ppm: float, hardware_px=None, *, colour_policy=None) -> dict:
+    """Per-photo pigment arm: {'centres' lum bin centres, 'centre' B/R mode, 'spread', 'threshold', 'counts',
+    'fitted' (bins with >= ARM_MIN_PX samples)}; see the module docstring."""
+    img = np.asarray(image, np.float64)
+    general = S.general_colour(colour_policy)
+    sup = colour_support(print_px, other_px, matte, ppm, hardware_px)
+    sup &= S.acetate_mask(img, colour_policy) & ~(img >= 250).any(-1)
     lum = img.mean(-1)[sup]
-    br = blue_ratio(img)[sup]
+    br = pigment_ratio(img, colour_policy)[sup]
     edges = np.arange(PALE_LUM_MIN, PALE_LUM_MAX + 1e-9, ARM_BIN)
     centres = (edges[:-1] + edges[1:]) / 2
     cen = np.full(len(centres), np.nan)
@@ -154,35 +179,41 @@ def pigment_arm(image, print_px, other_px, matte, ppm: float, hardware_px=None) 
     for k in range(len(centres)):
         if not fitted[k]:
             continue
-        if last is not None and cen[k] > cen[last] + ARM_JUMP:
+        if not general and last is not None and cen[k] > cen[last] + ARM_JUMP:
             cen[k], spr[k] = cen[last], spr[last]
             jumped.append(float(centres[k]))
         last = k
     thr = np.full(len(centres), np.nan)
-    thr[fitted] = np.minimum(cen[fitted] + np.maximum(PALE_K * spr[fitted], PALE_MIN_MARGIN), PALE_MAX_THRESHOLD)
+    thr[fitted] = cen[fitted] + np.maximum(PALE_K * spr[fitted], PALE_MIN_MARGIN)
+    if not general:
+        thr[fitted] = np.minimum(thr[fitted], PALE_MAX_THRESHOLD)
     if fitted.any():
         idx = np.nonzero(fitted)[0]
         for k in range(len(centres)):
             if not fitted[k]:
                 thr[k] = thr[idx[np.argmin(np.abs(idx - k))]]          # nearest fitted bin
     else:
-        thr[:] = PALE_MAX_THRESHOLD
-    return {"centres": centres.tolist(), "centre": [None if not np.isfinite(c) else round(float(c), 4) for c in cen],
+        thr[:] = 1.0 if general else PALE_MAX_THRESHOLD
+    result = {"centres": centres.tolist(), "centre": [None if not np.isfinite(c) else round(float(c), 4) for c in cen],
             "spread": [None if not np.isfinite(c) else round(float(c), 4) for c in spr],
             "threshold": [None if not np.isfinite(c) else round(float(c), 4) for c in thr],
             "counts": cnt.tolist(), "fitted": int(fitted.sum()), "samples": int(sup.sum()), "jumped_bins": jumped}
+    if colour_policy is not None:
+        result["colour_policy"] = colour_policy
+    return result
 
 
 def pale_mask(image, arm: dict) -> np.ndarray:
-    """Metal / achromatic-highlight colours: acetate-test pixels at luminance >= 90 whose B/R lies above the photo's
-    pigment arm (``pigment_arm``). Without a fitted arm nothing is flagged."""
+    """Pigment-ratio outliers above luminance 90. The fitted general arm has no absolute neutral ceiling;
+    without general fit evidence it flags nothing. The historical warm fallback keeps its 0.85 ceiling."""
     img = np.asarray(image, np.float64)
+    policy = arm.get("colour_policy")
     lum = img.mean(-1)
     thr = np.interp(lum, np.asarray(arm["centres"], float), np.asarray(arm["threshold"], float))
-    return S.acetate_mask(img) & (lum >= PALE_LUM_MIN) & (blue_ratio(img) > thr)
+    return S.acetate_mask(img, policy) & (lum >= PALE_LUM_MIN) & (pigment_ratio(img, policy) > thr)
 
 
-def supported_pale(image, candidate, inside, hardware, ppm: float) -> np.ndarray:
+def supported_pale(image, candidate, inside, hardware, ppm: float, *, colour_policy=None) -> np.ndarray:
     """Confirm small colour-only outliers before dilating them into photo holes.
 
     Keep candidates within the pigment fit's hardware exclusion distance (8 mm), in connected areas larger than
@@ -203,6 +234,10 @@ def supported_pale(image, candidate, inside, hardware, ppm: float) -> np.ndarray
     fp = _disk(max(1, int(round(LINE_HALF_MM * ppm))))
     L = img.mean(-1)
     dL = L - _masked_open(L, M, fp)
+    if S.general_colour(colour_policy):
+        # A coherent neutral patch can be actual grey pigment. Colour alone or component size cannot make it
+        # glare in an arbitrary palette; require nearby hardware or the measured additive-light signature.
+        return cand & (near | ((dL >= LINE_CONTRAST / 2) & additive_light(img, M, fp)))
     dR = img[..., 0] - _masked_open(img[..., 0], M, fp)
     dB = img[..., 2] - _masked_open(img[..., 2], M, fp)
     light = (dL >= LINE_CONTRAST / 2) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
@@ -299,7 +334,7 @@ def _components(mask: np.ndarray):
     return lab, idx, {"count": cnt, "mx": mx, "my": my, "elong": np.sqrt(l1 / l2), "l1": l1}
 
 
-def dark_blobs(image, inside, print_px, ppm: float) -> dict:
+def dark_blobs(image, inside, print_px, ppm: float, *, colour_policy=None) -> dict:
     """Dark compact blobs ON print (step 4 fix 1): rivets and screw heads the photo shows where the model has no part.
     Diagnosis: photo 02's two pad-arm rivets (near-black neutral discs, (8, 4, 4)-(34, 29, 28), on the brow backs at
     px (636, 378) and (807, 377)) lie about 5 mm from q001's pad stalks, so no hardware margin reaches them, and their
@@ -318,7 +353,11 @@ def dark_blobs(image, inside, print_px, ppm: float) -> dict:
     if not len(idx):
         return {"mask": mask, "blobs": []}
     area = st["count"] / ppm ** 2
-    rb = ndimage.mean(img[..., 0] - img[..., 2], lab, idx)
+    if S.general_colour(colour_policy):
+        means = np.stack([ndimage.mean(img[..., c], lab, idx) for c in range(3)], -1)
+        rb = means.max(-1) - means.min(-1)
+    else:
+        rb = ndimage.mean(img[..., 0] - img[..., 2], lab, idx)
     ml = ndimage.mean(L, lab, idx)
     onp = ndimage.mean(np.asarray(print_px, float), lab, idx)
     keep = ((area >= DARK_BLOB_MM2[0]) & (area <= DARK_BLOB_MM2[1]) & (st["elong"] < DARK_BLOB_ELONGATION)
@@ -332,7 +371,7 @@ def dark_blobs(image, inside, print_px, ppm: float) -> dict:
     return {"mask": mask & M, "blobs": blobs}
 
 
-def thin_lines(image, inside, edge, ppm: float) -> dict:
+def thin_lines(image, inside, edge, ppm: float, *, colour_policy=None) -> dict:
     """Glints and outlines (step 4 fix 4): {'bright', 'dark'} masks of THIN lines in the photo, ``inside`` = the matte
     eroded 1 px, ``edge`` = pixels within DARK_EDGE_MM of the silhouette or of another part. A specular glint along a
     curved edge is a thin line brighter than its masked opening (radius LINE_HALF_MM) by >= 25 levels whose blue rises
@@ -348,9 +387,11 @@ def thin_lines(image, inside, edge, ppm: float) -> dict:
     tw = L - _masked_open(L, M, fp)
     dR = img[..., 0] - _masked_open(img[..., 0], M, fp)
     dB = img[..., 2] - _masked_open(img[..., 2], M, fp)
-    bright = M & (tw >= LINE_CONTRAST) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
+    light = (additive_light(img, M, fp) if S.general_colour(colour_policy) else
+             dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
+    bright = M & (tw >= LINE_CONTRAST) & light
     dark = M & np.asarray(edge, bool) & ((_masked_close(L, M, fp) - L) >= DARK_CONTRAST)
-    shoulder = M & (tw >= LINE_CONTRAST / 2) & (dB >= LINE_ACHROMATIC * np.maximum(dR, 1e-6))
+    shoulder = M & (tw >= LINE_CONTRAST / 2) & light
     return {"bright": _line_components(bright, ppm), "dark": _line_components(dark, ppm), "shoulder": shoulder}
 
 
@@ -365,11 +406,18 @@ def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm
     hwk = np.where(fid >= 0, np.asarray(is_hardware)[np.maximum(fid, 0)], 0)
     hw = hwk > 0
     if arm is None:
-        arm = pigment_arm(img, pr, other, matte, ppm)
+        policy = (None if rules == "step4" else
+                  S.fit_colour_policy(img, colour_support(pr, other, matte, ppm, hw)))
+        # Preserve the approved warm fit byte for byte. The general fit uses the hardware-safe support that
+        # established its policy; the historical warm fitter did not receive hardware_px here.
+        arm = pigment_arm(img, pr, other, matte, ppm, hw if S.general_colour(policy) else None,
+                          colour_policy=policy)
+    policy = arm.get("colour_policy")
     pale_candidate = pale_mask(img, arm)
     inside = ndimage.binary_erosion(np.asarray(matte, bool), iterations=1)
-    pale = (pale_candidate if rules == "step4" else supported_pale(img, pale_candidate, inside, hw, ppm))
-    non = inside & ~S.acetate_mask(img)
+    pale = (pale_candidate if rules == "step4" else
+            supported_pale(img, pale_candidate, inside, hw, ppm, colour_policy=policy))
+    non = inside & ~S.acetate_mask(img, policy)
     lum = img.mean(-1)
     it = max(1, int(round(EDGE_DILATE_MM * ppm)))
     halo = ndimage.binary_dilation(pale | (non & (lum >= HALO_LUM_MIN)), iterations=it)
@@ -386,14 +434,14 @@ def donor_holes(image, matte, face_id, is_print, is_hardware, ppm: float, *, arm
     if lines:
         outside = ~np.asarray(matte, bool) | other
         edge = ndimage.distance_transform_edt(~outside) <= DARK_EDGE_MM * ppm
-        tl = thin_lines(img, inside, edge, ppm)
+        tl = thin_lines(img, inside, edge, ppm, colour_policy=policy)
     # correction round: a glint grows only into its own shoulder (neighbours >= half its contrast over their opening)
     if rules == "step4":                       # the step-4 blanket 1-px dilation (before/after measurements)
         line = ndimage.binary_dilation(tl["bright"] | tl["dark"], iterations=1) & inside
     else:
         line = (tl["bright"] | (ndimage.binary_dilation(tl["bright"], iterations=1) & tl["shoulder"])
                 | ndimage.binary_dilation(tl["dark"], iterations=1)) & inside
-    db = dark_blobs(img, inside, pr, ppm)
+    db = dark_blobs(img, inside, pr, ppm, colour_policy=policy)
     mask = pale | halo | hard | line | db["mask"]
     # small acetate-test islands enclosed by the mask (a hinge barrel's shaded interior, a screw slot) go with it
     enclosed = ndimage.binary_fill_holes(mask) & ~mask

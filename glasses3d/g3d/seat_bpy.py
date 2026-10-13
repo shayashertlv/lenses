@@ -838,6 +838,8 @@ def seat_lens(lens, frame_parts=None, frame_type=None, capture_mm=None, *, lower
            "message": "", "warnings": [], "dry_run": bool(dry_run)}
     rollback = None
     ob = None
+    profile_started = False
+    seat_before = None
     try:
         ob = _obj(lens)
         rep["lens"] = ob.name
@@ -931,6 +933,7 @@ def seat_lens(lens, frame_parts=None, frame_type=None, capture_mm=None, *, lower
         digest0 = _mesh_digest(ob)
         prev_seat = CK.seat_extras({"extras": _extras(ob)})
         if writes:
+            seat_before = ob.get(PROP_SEAT)
             rollback = ob.data.copy()
             rollback.name = ob.data.name + " | g3d rollback"
             undo_backups = (ob.get(PROP_BACKUPS), "seat" not in _backups(ob))
@@ -955,6 +958,8 @@ def seat_lens(lens, frame_parts=None, frame_type=None, capture_mm=None, *, lower
                 rep["warnings"].append(f"W_NORMALS_REENCODED: unmoved corners within "
                                        f"{normals['unmoved_max_change_deg']:.4f} deg")
         if profile_kind:
+            # A profile can create scene objects/modifiers before returning (or raising).
+            profile_started = True
             prep = _apply_profile(ob, profile_kind, ft, near, nodes, origin, dg, rep)
             rep["profile_result"] = prep
             if prep.get("status") != "ok":
@@ -1017,23 +1022,39 @@ def seat_lens(lens, frame_parts=None, frame_type=None, capture_mm=None, *, lower
                 ob[PROP_SEAT] = json.dumps(seat_prop, sort_keys=True)
         rep["seconds"] = round(time.time() - t0, 3)
         return rep
-    except LookupError as exc:                                  # an object name that does not exist
-        return _refuse(rep, "E_ARGS", str(exc).strip("'\""))
     except _Rollback as rb:
         if rollback is not None and ob is not None:
+            if profile_started:
+                remove_profile_bpy(ob)
             _swap_mesh(ob, rollback)
             rollback = None
             _undo_backup(ob, "seat", undo_backups)
+            if seat_before is None:
+                if PROP_SEAT in ob:
+                    del ob[PROP_SEAT]
+            else:
+                ob[PROP_SEAT] = seat_before
         rep.update(status="refused", code=rb.code, message=rb.message, rolled_back=True)
         rep["seconds"] = round(time.time() - t0, 3)
         return rep
     except Exception as exc:
+        # A missing input object is an argument refusal. A lookup failure after writing is a failed transaction
+        # like any other exception and must restore the mesh and every newly-created profile artifact.
+        args_error = isinstance(exc, LookupError) and rollback is None
         if rollback is not None and ob is not None:
+            if profile_started:
+                remove_profile_bpy(ob)
             _swap_mesh(ob, rollback)
             rollback = None
             _undo_backup(ob, "seat", undo_backups)
+            if seat_before is None:
+                if PROP_SEAT in ob:
+                    del ob[PROP_SEAT]
+            else:
+                ob[PROP_SEAT] = seat_before
             rep["rolled_back"] = True
-        rep.update(status="refused", code="E_INTERNAL", message=f"{type(exc).__name__}: {exc}",
+        rep.update(status="refused", code="E_ARGS" if args_error else "E_INTERNAL",
+                   message=str(exc).strip("'\"") if args_error else f"{type(exc).__name__}: {exc}",
                    traceback=traceback.format_exc(limit=8))
         return rep
     finally:

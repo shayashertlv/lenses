@@ -3,8 +3,8 @@
 prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
 
 - Every triangle primitive becomes one PART, in the GLB's scene traversal order (``glb.load``), its world-space
-  positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` strips only Blender's
-  three-digit duplicate suffix (e.g. ".001"); embedded periods remain. ``node_names[i]`` is the full node name.
+  positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` and ``node_names[i]``
+  preserve the exact object name; ``Temple`` and ``Temple.001`` are distinct objects.
 - ``skip``: parts whose node name contains any of these substrings are left out (the prototype skipped
   ``PROTOTYPE_SKIP``: the FT1119 brand print, lettering and medallion, thin decals on the surface).
 - ``frame``: given (e.g. from a fits.json) or ``NormFrame.from_bbox`` of the kept vertices.
@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from . import glb as glbmod
-from . import raster
+from . import raster, lens_id
 from .camera import NormFrame
 
 PROTOTYPE_SKIP = ("inner_brand_print", "TOM_FORD", "medallion")
@@ -33,9 +33,8 @@ M_TO_MM = 1000.0
 
 
 def part_name(node_name: str) -> str:
-    """Preserve product names containing periods; strip only a Blender duplicate suffix."""
-    base, dot, suffix = node_name.rpartition('.')
-    return base if dot and base and len(suffix) == 3 and suffix.isascii() and suffix.isdigit() else node_name
+    """An object's exact name is its identity, including Blender duplicate suffixes."""
+    return node_name
 
 
 @dataclass
@@ -43,17 +42,19 @@ class FitMesh:
     V: np.ndarray                 # (N, 3) float64 model millimetres
     F: np.ndarray                 # (M, 3) int64 indices into V
     part: np.ndarray              # (M,) int64 part id per face
-    names: list[str]              # per part: node name without a Blender duplicate suffix
+    names: list[str]              # per part: exact node name
     node_names: list[str]         # per part: full node name
     materials: list[int | None]   # per part: glTF material index
     frame: NormFrame
     skipped: list[str] = field(default_factory=list)   # node names left out by ``skip``
+    node_indices: list[int] = field(default_factory=list)  # exact GLB object identity per primitive
+    lens_parts: list[bool] = field(default_factory=list)   # shared lens classifier, before any skipped geometry
 
     def scene(self) -> raster.RasterScene:
         return raster.get_scene(self.V, self.F, self.frame)
 
     def part_ids(self, names) -> list[int]:
-        """Every part whose normalized ``names`` entry is in ``names``. Unlike the prototype
+        """Every part whose exact ``names`` entry is in ``names``. Unlike the prototype
         (``names.index``: the FIRST primitive only), a node with several primitives contributes all of them; on q001
         every name is one primitive, so the two agree there."""
         want = set(names)
@@ -83,8 +84,15 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
     left; non-triangle primitives (lines, points) are skipped like ``skip`` matches and listed in ``skipped``."""
     g = glbmod.load(path)
     Vs, Fs, parts, names, node_names, mats, skipped = [], [], [], [], [], [], []
+    refs = []
+    for i, p in enumerate(g.primitives):
+        material = g.material(p.material_index) or {}
+        refs.append(lens_id.PrimitiveRef(str(i), p.node_name, g.nodes[p.node_index].get('extras'),
+                    g.meshes[p.mesh_index].get('extras'), material.get('name'), material.get('extras'), material))
+    decisions, _ = lens_id.classify(refs)
+    node_indices, lens_parts = [], []
     off = 0
-    for p in g.primitives:
+    for primitive_index, p in enumerate(g.primitives):
         if any(s in p.node_name for s in skip):
             skipped.append(p.node_name)
             continue
@@ -101,6 +109,8 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
         names.append(part_name(p.node_name))
         node_names.append(p.node_name)
         mats.append(p.material_index)
+        node_indices.append(p.node_index)
+        lens_parts.append(decisions[str(primitive_index)].is_lens)
     if not Vs:
         raise ValueError(f"{path}: no triangle geometry left after skipping {list(skip)}")
     V = np.vstack(Vs)
@@ -108,4 +118,4 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
     part = np.concatenate(parts)
     fr = frame if frame is not None else NormFrame.from_bbox(V)
     return FitMesh(V=V, F=F, part=part, names=names, node_names=node_names, materials=mats, frame=fr,
-                   skipped=skipped)
+                   skipped=skipped, node_indices=node_indices, lens_parts=lens_parts)

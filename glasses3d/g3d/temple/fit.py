@@ -2156,7 +2156,7 @@ class _Problem:
         return np.stack([(xb(d + h, y) - xb(d - h, y)) / (2 * h), (xb(d, y + h) - xb(d, y - h)) / (2 * h)], axis=1)
 
     def x_in(self, d) -> float:
-        return float(self.ps.inner(d))
+        return float(self.cur_ps.inner(d))
 
     def edge_hits(self, p) -> dict:
         """{label: its first edge whose segment holds p (within ON_MM)} over every facet (one vectorised pass)."""

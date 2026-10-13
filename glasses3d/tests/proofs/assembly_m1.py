@@ -32,6 +32,7 @@ TRUTH = {"angle photo.png" if name == "angled.png" else name: values for name, v
 
 def build_code():
     parts = []
+    lens_outlines = []
     front = [ring(-32, 0, 26, 19, 4, 4), ring(32, 0, 26, 19, 4, 4),
              bar((-8, 9, 0), (8, 9, 0), 3, 4), bar((-60, 6, 0), (-66, 6, 0), 4, 8),
              bar((60, 6, 0), (66, 6, 0), 4, 8), bar((-12, -10, -3), (-11, -14, -6), 4, 3)]
@@ -40,9 +41,12 @@ def build_code():
         v[:, 2] -= WRAP * v[:, 0] ** 2
         parts.append((f"Front_{i}", v, f, "frame"))
     for sx in (-1, 1):
-        v, f = lens(sx * 32, 0, 23, 16)
-        v[:, 2] -= WRAP * v[:, 0] ** 2
-        parts.append((f"Lens_{sx}", v, f, "lens"))
+        outline, _ = lens(sx * 32, 0, 23, 16)
+        # Keep the camera fixture's exact ellipse, wrap and 1 mm thickness, but
+        # sample the cap interior as a curved plate. A single triangle fan's face
+        # centers lie on one ring and cannot define the seat check's local normals.
+        p = outline[1:, :2]
+        lens_outlines.append((f"Lens_{sx}", p.tolist(), p.mean(axis=0).tolist()))
         zh = -WRAP * 66 ** 2
         a = bar((sx * 66, 6, zh - 2), (sx * 69, 5, -110), 3, 6)
         b = bar((sx * 69, 5, -110), (sx * 68, -18, -138), 3, 5)
@@ -65,7 +69,34 @@ for role in ('frame', 'lens', 'temple'):
     node.inputs['Base Color'].default_value = mat.diffuse_color
     node.inputs['Roughness'].default_value = 0.5
     materials[role] = mat
-for name, vertices, faces, role in """ + repr(packed) + """:
+parts = """ + repr(packed) + """
+# The default ten-ring topology of tests.fixtures.seat_fixtures.lens, generated
+# here to keep the proof inside the ordinary execute_blender_code size limit.
+for name, outline, center in """ + repr(lens_outlines) + """:
+    n = len(outline)
+    front = []
+    for scale in """ + repr(np.linspace(1.0, 0.1, 10).tolist()) + """:
+        for x, y in outline:
+            front.append((center[0] + (x - center[0]) * scale,
+                          center[1] + (y - center[1]) * scale, 0.5))
+    front.append((center[0], center[1], 0.5))
+    nv = len(front)
+    vertices = front + [(x, y, z - 1.0) for x, y, z in front]
+    vertices = [(x, y - 7.0, z - """ + repr(WRAP) + """ * x ** 2) for x, y, z in vertices]
+    front_faces = []
+    for r in range(9):
+        for i in range(n):
+            a0, a1 = r * n + i, r * n + (i + 1) % n
+            b0, b1 = (r + 1) * n + i, (r + 1) * n + (i + 1) % n
+            front_faces.extend(((a0, a1, b1), (a0, b1, b0)))
+    for i in range(n):
+        front_faces.append((9 * n + i, 9 * n + (i + 1) % n, nv - 1))
+    faces = front_faces + [(c + nv, b + nv, a + nv) for a, b, c in front_faces]
+    for i in range(n):
+        j = (i + 1) % n
+        faces.extend(((i, i + nv, j + nv), (i, j + nv, j)))
+    parts.append((name, vertices, faces, 'lens'))
+for name, vertices, faces, role in parts:
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
@@ -137,6 +168,7 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
             for child in value:
                 verify_blobs(child)
 
+    last_checkpoint = None
     for i, (folder, name, cid) in enumerate(zip(folders, expected_tools, expected_ids), 1):
         args, rec, jr = [read(folder / filename) for filename in ("arguments.json", "result.json", "journal.json")]
         assert args["call_id"] == rec["call_id"] == jr["call_id"] == cid
@@ -153,12 +185,17 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
                 basis = read(job / "cameras" / view["basis"] / "basis.json")
                 assert view["scale_k"] == 1 and view["camera"] == basis["refs"][view["ref"]]["camera"]
         assert jr["mutating"] == (jr["checkpoint_before"] != jr["checkpoint_after"])
-        assert jr["checkpoint_after"] == result["exit_checkpoint"]["id"]
-        assert jr["mutating"] == (name == "execute_blender_code")
+        if last_checkpoint is not None:
+            assert jr["checkpoint_before"] == last_checkpoint
+        last_checkpoint = jr["checkpoint_after"]
+        assert jr["mutating"] == (name in {"execute_blender_code", "seat_lens"})
+        if name == "check_lens_seating":
+            assert output["result"]["ok"], output["result"]
         response = read(run_dir / "transport" / f"{i:04d}-response.json")
         calls = [item for item in response["output"] if item.get("type") == "function_call"]
         assert [(item["call_id"], item["name"]) for item in calls] == [(cid, name)]
         verify_blobs(rec)
+    assert last_checkpoint == result["exit_checkpoint"]["id"]
     for path in (run_dir / "transport").iterdir():
         verify_blobs(read(path))
     assert image_digests, "the photos and tool images must have durable blob receipts"
@@ -232,6 +269,12 @@ def run():
                replay.tool_call("fit_cameras", {"reason": "Fit the rebuilt truth geometry to all rendered photos", "refs": None, "workers": None}),
                replay.tool_call("render_views", {"views": ["reference"], "passes": ["clay"], "size_px": 640,
                                                 "background": "white", "basis": None}),
+               *[replay.tool_call("seat_lens", {"lens": f"Lens_{sx}", "frame_type": "acetate",
+                                               "frame_parts": None, "lower_edge": None, "capture_mm": None,
+                                               "dry_run": False}) for sx in (-1, 1)],
+               replay.tool_call("check_lens_seating", {"lenses": None, "frame_parts": None, "frame_type": None,
+                                                      "hidden_x_range_mm": None, "lower_edge": None,
+                                                      "stations_table": False}),
                replay.tool_call("compare_to_photos", {"refs": None, "parts": "all", "size_px": 640, "basis": None}),
                replay.tool_call("export_glb"), replay.tool_call("arview_capture"),
                replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR."})]
@@ -247,7 +290,8 @@ def run():
     assert not transport.violations and not transport.unexpected, transport.violations
     assert len(transport.counts) == len(transport.creates) == outcome["result"]["requests"] == len(replies)
     receipt_checks = check_receipts(job, spec.run_id, [
-        "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "compare_to_photos", "export_glb",
+        "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "seat_lens", "seat_lens",
+        "check_lens_seating", "compare_to_photos", "export_glb",
         "arview_capture", "finish"])
     basis = json.loads(next((job / "cameras").rglob("cameras.json")).read_text())
     for name, rec in basis["images"].items():
@@ -256,7 +300,7 @@ def run():
         assert abs(rec["camera"]["yaw"] - yaw) < 1.5 and abs(rec["camera"]["pitch"] - pitch) < 1.5, (name, rec)
     report = json.loads((job / "deliverable/report.json").read_text())
     assert report["glb_sha256"] == approvals.file_sha256(job / "deliverable/model.glb")
-    assert report["validate_spec"]["ok"] and report["arview"]["exit_code"] == 0
+    assert report["validate_spec"]["ok"] and report["seating"]["ok"] and report["arview"]["exit_code"] == 0
     assert outcome["result"]["exit_checkpoint"]["verified"]
     elapsed = time.monotonic() - started
     assert elapsed < 900, elapsed

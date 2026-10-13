@@ -100,6 +100,7 @@ from scipy import ndimage
 
 from glasses3d.g3d_host import raster
 from glasses3d.g3d_host.photoprint import inputs as IN
+from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.tests.instruments import print_metrics as PM
 
 PRINT_PARTS = tuple(IN.FT1119_PARTS)
@@ -498,7 +499,7 @@ def measure(captures, pairs=None, heldout=None, job=None, probes: dict | None = 
     row and every capture, so a caller that keeps ``photos`` across calls (``ar_calibrate``) builds them once.
     ``min_photo_share``: the photo-side group share below which a group is reported, never graded (``compare``; 0 =
     fix round 2's instrument)."""
-    job = job or IN.load_job(IN.FT1119["cameras"])
+    job = job or legacy_ft1119.load_job()
     table = pair_table(job)
     pairs = tuple(map(tuple, pairs)) if pairs is not None else auto_pairs(job, "photo_angle")
     tradeoff = tuple(map(tuple, tradeoff)) if tradeoff is not None else auto_pairs(job, "near")
@@ -705,7 +706,7 @@ def main(argv=None) -> int:
     from glasses3d.g3d_host.photoprint.procs import Progress, opt_out_ecoqos
     opt_out_ecoqos()
     prog = Progress("ar_levels")
-    job = IN.load_job(IN.FT1119["cameras"])
+    job = legacy_ft1119.load_job()
     if a.share_table:
         Path(a.share_table).write_text(json.dumps(group_share_table(job), indent=1), encoding="utf-8")
         print(f"wrote {a.share_table}")

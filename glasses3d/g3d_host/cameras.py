@@ -20,6 +20,8 @@ and, first-class since WP3b (the prototype monkeypatched them): ``top`` (yaw 0, 
 signs, as the prototype fitted FT1119 reference-04, then a +45..62 band), ``topb`` (the same from yaw 180), and
 ``top_oblique_left`` / ``top_oblique_right`` (an elevated side view: yaw +90 / -90, pitch seeds +15..+60, pitch window
 ``PITCH_WINDOWS``, coarse starts distinct in yaw too: ``YAW_DISTINCT_VIEWS``).
+``rear_threequarter_left`` / ``rear_threequarter_right`` cover signed rear-oblique views (yaw +100..172 /
+-172..-100); their seed grids mirror the front angled grid about the back, with ordinary pitch seeds.
 ``PITCH_BOUNDS`` is +/-95 for every view (bsa used (-40, 60); the prototype's +/-95 is what fitted the reference
 cameras, and the bounds shape the contour-ICP trust region, so they are part of the reproduced result).
 
@@ -53,15 +55,17 @@ from .camera import Camera, NormFrame, project, project_mm, px_per_mm  # noqa: F
 
 # ----------------------------------------------------------------------------- policy
 PRIOR_YAW = {"front": 0.0, "back": 180.0, "left": 90.0, "right": -90.0,
-             "top": 0.0, "topb": 180.0, "top_oblique_left": 90.0, "top_oblique_right": -90.0}
+             "top": 0.0, "topb": 180.0, "top_oblique_left": 90.0, "top_oblique_right": -90.0,
+             "rear_threequarter_left": 140.0, "rear_threequarter_right": -140.0}
 VIEWS = tuple(PRIOR_YAW) + ("angled",)
 HELD_OUT_VIEWS = ("angled",)      # bsa core: never seeds another view
 SIDE_VIEWS = ("left", "right")    # the orthographic pitch twin is always carried to the fit level
 TOP_VIEWS = ("top", "topb")       # pitch near +90: yaw and roll are nearly degenerate, so they never seed another view
 TOP_OBLIQUE_VIEWS = ("top_oblique_left", "top_oblique_right")
+REAR_THREEQUARTER_VIEWS = ("rear_threequarter_left", "rear_threequarter_right")
 # cross_seeds sources: never the held-out view, the top views (see above) or the elevated side views (their pitch is a
 # deliberately different camera height, not the shared turntable elevation the rotated/mirrored seeds assume)
-NOT_CROSS_SOURCES = HELD_OUT_VIEWS + TOP_VIEWS + TOP_OBLIQUE_VIEWS
+NOT_CROSS_SOURCES = HELD_OUT_VIEWS + TOP_VIEWS + TOP_OBLIQUE_VIEWS + REAR_THREEQUARTER_VIEWS
 ANGLED_YAWS = (20.0, 27.5, 35.0, 42.5, 50.0, 57.5, 65.0)
 PITCHES = (-20.0, -10.0, 0.0, 10.0, 20.0, 40.0)    # the plan's {-20, 0, 20, 40} plus +/-10: the basins are narrow
 PRIOR_YAW_OFFSETS = (-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0)   # front/back/left/right seeds around the prior
@@ -79,7 +83,7 @@ TOP_LOW_PITCHES = (45.0, 55.0, 62.0)
 # fixes the side and the camera height band but not the photographer's yaw offset; keyed on pitch alone, one yaw per
 # height was refined and the best-scoring wrong yaw's basin was the only one explored (synthetic elevated side at
 # pitch 18: IoU 0.869 -> 0.997; FT1119 reference-06: loss 0.3204 -> 0.3136, IoU 0.7079 -> 0.7141).
-YAW_DISTINCT_VIEWS = ("angled", "top_oblique_left", "top_oblique_right")
+YAW_DISTINCT_VIEWS = ("angled",) + TOP_OBLIQUE_VIEWS + REAR_THREEQUARTER_VIEWS
 # top_oblique_*: an elevated side view (FT1119 reference-06 shows the inner temple print over the top). 25..60 was the
 # brief; 15 and 20 were added because reference-06 itself fits at pitch ~19 (seeded from 25+ it ended in a worse basin:
 # IoU 0.692 against 0.708 from the 'left' prior, whose seeds include 20)
@@ -87,6 +91,7 @@ TOP_OBLIQUE_PITCHES = (15.0, 20.0, 25.0, 32.0, 39.0, 46.0, 53.0, 60.0)
 SEED_PERSPECTIVE = 0.1
 YAW_HALF_WINDOW = 35.0            # every view with a yaw prior: prior +/- 35 deg
 ANGLED_WINDOW = (8.0, 80.0)       # |yaw| of the angled view, per sign
+REAR_THREEQUARTER_WINDOW = (100.0, 172.0)  # 180 - ANGLED_WINDOW, per explicitly named side
 PITCH_BOUNDS = (-95.0, 95.0)      # bsa: (-40, 60); +/-95 is what the prototype fitted every reference camera with
 PITCH_WINDOWS = {"top_oblique_left": (5.0, 85.0), "top_oblique_right": (5.0, 85.0)}   # the label fixes the sign
 ROLL_BOUNDS = (-25.0, 25.0)
@@ -142,6 +147,7 @@ class Level:
         self.width = self.width_native / self.stride
         self.trunc = BOUNDARY_TRUNC * self.width
         self.ignore_faces: np.ndarray | None = None    # bool per decimated face: its first hits are optional
+        self.required_hull: np.ndarray | None = None   # required geometry's vertices, for bbox alignment only
 
     def ignored(self, r: dict) -> np.ndarray | None:
         """Optional grid pixels: first hit on an ``ignore_faces`` face (dilated 1 px), else None."""
@@ -272,18 +278,32 @@ def unpack(x: np.ndarray, unit_px: float, pivot: np.ndarray | None = None) -> Ca
 
 def align(scene: raster.RasterScene, lv: Level, yaw: float, pitch: float, roll: float,
           perspective: float = SEED_PERSPECTIVE) -> Camera:
-    """Camera with these angles whose projected hull bbox matches the matte bbox width and centre."""
-    pts = project(scene.hull, Camera(yaw, pitch, roll, perspective, 1.0, 0.0, 0.0))
-    lo, hi = pts.min(axis=0), pts.max(axis=0)
-    x0, y0, x1, y1 = lv.bbox
-    scale = (x1 - x0) / max(hi[0] - lo[0], 1e-9)
-    c = np.array([(x0 + x1 - 1) / 2.0, (y0 + y1 - 1) / 2.0]) - (lo + hi) / 2.0 * scale
-    return Camera(float(yaw), float(pitch), float(roll), float(perspective), float(scale), float(c[0]), float(c[1]))
+    """Align the full bbox, or required bbox when it better explains the photo at the same angles.
+
+    Optional lenses may be visible or clear. Keep both physical support hypotheses, scored with the same loss;
+    the full candidate wins ties. The angular priors and number of refined starts remain unchanged.
+    """
+    def aligned(hull):
+        pts = project(hull, Camera(yaw, pitch, roll, perspective, 1.0, 0.0, 0.0))
+        lo, hi = pts.min(axis=0), pts.max(axis=0)
+        x0, y0, x1, y1 = lv.bbox
+        scale = (x1 - x0) / max(hi[0] - lo[0], 1e-9)
+        c = np.array([(x0 + x1 - 1) / 2.0, (y0 + y1 - 1) / 2.0]) - (lo + hi) / 2.0 * scale
+        return Camera(float(yaw), float(pitch), float(roll), float(perspective), float(scale), float(c[0]), float(c[1]))
+
+    full = aligned(scene.hull)
+    if lv.required_hull is None:
+        return full
+    required = aligned(lv.required_hull)
+    return required if lv.loss(scene, required) < lv.loss(scene, full) else full
 
 
 def yaw_window(view: str, yaw: float) -> tuple[float, float]:
     if view == "angled":
         return ANGLED_WINDOW if yaw >= 0 else (-ANGLED_WINDOW[1], -ANGLED_WINDOW[0])
+    if view in REAR_THREEQUARTER_VIEWS:
+        return (REAR_THREEQUARTER_WINDOW if view.endswith("_left") else
+                (-REAR_THREEQUARTER_WINDOW[1], -REAR_THREEQUARTER_WINDOW[0]))
     y0 = PRIOR_YAW[view]
     return (y0 - YAW_HALF_WINDOW, y0 + YAW_HALF_WINDOW)
 
@@ -367,15 +387,25 @@ def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: floa
             r = scene.render(c, lv.shape, lv.stride, lv.roi, want_points=True)
         except ValueError:
             return None
+        points = r["points"]
+        if lv.ignore_faces is not None:
+            fid = r["face_id"]
+            optional = np.zeros(fid.shape, bool)
+            optional[fid >= 0] = lv.ignore_faces[fid[fid >= 0]]
+            # The effective mask borrows photo foreground inside optional lenses. Its internal edges are
+            # observations, not geometric contours at the lens ray hit, and cannot supply ICP derivatives.
+            # Actual rendered silhouette edges remain geometric evidence, including an observed opaque lens.
+            points = points.copy()
+            points[optional & ~_edge(r["mask"])] = np.nan
         e = _edge(lv.effective(r["mask"], lv.ignored(r)))
         if e.sum() < 8:
             return None
         ri, rj = np.nonzero(e)
-        X1 = r["points"][ri, rj]
+        X1 = points[ri, rj]
         t1 = np.column_stack([us[pidx[1][ri, rj]], vs[pidx[0][ri, rj]]])
         _, ridx = ndimage.distance_transform_edt(~e, return_indices=True)
         qi, qj = ridx[0][pi, pj], ridx[1][pi, pj]
-        X2 = r["points"][qi, qj]
+        X2 = points[qi, qj]
         X = scene.frame.to_norm(np.concatenate([X1, X2]))
         T = np.concatenate([t1, photo_uv])
         ok = np.isfinite(X).all(axis=1)
@@ -412,6 +442,15 @@ STAGES_FIT = ({"yaw": 12.0, "pitch": 12.0, "roll": 8.0, "scale": 10.0, "shift": 
 STAGES_FINAL = ({"yaw": 1.5, "pitch": 1.5, "roll": 1.0, "persp": 0.3, "scale": 1.0, "shift": 0.5},)
 
 
+def _optional_faces(scene: raster.RasterScene, faces: np.ndarray | None) -> np.ndarray | None:
+    if faces is None:
+        return None
+    mask = np.asarray(faces)
+    if mask.dtype != np.bool_ or mask.shape != (scene.n_faces,):
+        raise ValueError(f"ignore_faces must be a boolean mask of shape ({scene.n_faces},)")
+    return mask
+
+
 class ViewFit:
     """Multi-start camera search for one photo. ``pivot`` (normalized model point) is held still by the
     rotation/zoom parameters (the front-piece centre; ``fitmesh.FitMesh.front_pivot``). ``view`` selects the yaw window
@@ -431,9 +470,19 @@ class ViewFit:
         self.ignore_faces: np.ndarray | None = None
 
     def set_ignore(self, faces: np.ndarray | None) -> None:
+        faces = _optional_faces(self.scene, faces)
+        if faces is not None:
+            faces = faces.copy()  # keep one stable policy across all levels even if the caller edits its array
+            faces.setflags(write=False)
         self.ignore_faces = faces
+        required_hull = None
+        if faces is not None and faces.any() and not faces.all():
+            # Only vertices referenced by required faces: unused lens vertices must not move their bbox.
+            required_hull = self.scene.V_norm[np.unique(self.scene.F[~faces])]
+            required_hull.setflags(write=False)
         for lv in self.levels.values():
             lv.ignore_faces = faces
+            lv.required_hull = required_hull
 
     def powell(self, lv: Level, cam: Camera, maxfev: int, *, local: dict | None = None,
                yaw_win: tuple[float, float] | None = None, xtol: float = 0.05,
@@ -536,6 +585,7 @@ class ViewFit:
         lvF = Level(self.fg, FINAL_W, "final", margin=FINAL_ROI_MARGIN,
                     include_xyxy=(*pts.min(axis=0), *pts.max(axis=0)))
         lvF.ignore_faces = self.ignore_faces
+        lvF.required_hull = lv.required_hull
         self.levels["final"] = lvF
         if lvF.stride == lv.stride:
             final_cam, final_loss = fit_cam, lvF.loss(self.scene, fit_cam)
@@ -600,7 +650,7 @@ def common_final_losses(fg: np.ndarray, scene: raster.RasterScene, cams: list[Ca
         b = np.asarray(boxes, float)
         inc = (float(b[:, 0].min()), float(b[:, 1].min()), float(b[:, 2].max()), float(b[:, 3].max()))
     lv = Level(fg, FINAL_W, "final_common", margin=FINAL_ROI_MARGIN, include_xyxy=inc)
-    lv.ignore_faces = ignore_faces
+    lv.ignore_faces = _optional_faces(scene, ignore_faces)
     return [float(lv.loss(scene, c)) for c in cams]
 
 
@@ -614,6 +664,9 @@ def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
     if view in TOP_VIEWS:
         return [(PRIOR_YAW[view] + d, p, 0.0, "prior") for pitches in (TOP_PITCHES, TOP_LOW_PITCHES)
                 for d in TOP_YAW_OFFSETS for p in pitches]
+    if view in REAR_THREEQUARTER_VIEWS:
+        sign = 1.0 if view.endswith("_left") else -1.0
+        return [(sign * (180.0 - y), p, 0.0, "prior") for y in ANGLED_YAWS for p in PITCHES]
     yaws = ([PRIOR_YAW[view] + d for d in PRIOR_YAW_OFFSETS] if view != "angled"
             else [s * y for s in (1.0, -1.0) for y in ANGLED_YAWS])
     pitches = TOP_OBLIQUE_PITCHES if view.startswith("top_oblique") else PITCHES
@@ -623,8 +676,8 @@ def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
 def cross_seeds(target: str, winners: dict[str, Camera]) -> list[tuple[float, float, float, str]]:
     """Rotation seeds for ``target`` from other views' winners. ``NOT_CROSS_SOURCES`` are never sources: the angled
     view (held out), the top views (near pitch 90 their yaw offset from the prior is not a rotation of the
-    photographer's turntable) and the elevated side views (their pitch is a deliberately different camera height, not
-    the shared elevation the rotated/mirrored seeds assume). Seeds whose pitch lies outside the target's
+    photographer's turntable), the elevated side views (their pitch is a deliberately different camera height), and
+    the rear three-quarter views (their yaw is oblique, not a measured turntable offset). Seeds whose pitch lies outside the target's
     ``pitch_window`` are dropped (bsa had no per-view pitch window). ``fit_views`` uses it for the angled view only,
     as bsa ``fit_all`` did (the angled view only receives)."""
     out = []
@@ -659,6 +712,7 @@ def native_metrics(scene: raster.RasterScene, cam: Camera, fg: np.ndarray, roi,
                    ignore_faces: np.ndarray | None = None) -> dict:
     """Stride-1 IoU and symmetric contour distance (native px) inside ``roi``; mask for the sheet.
     With ``ignore_faces`` also the IoU with the pixels whose first hit is such a face removed."""
+    ignore_faces = _optional_faces(scene, ignore_faces)
     x0, y0, x1, y1 = roi
     r = scene.render(cam, fg.shape, 1, roi)
     m = r["mask"]
@@ -671,8 +725,12 @@ def native_metrics(scene: raster.RasterScene, cam: Camera, fg: np.ndarray, roi,
         W = np.zeros(m.shape, bool)
         W[fid >= 0] = ignore_faces[fid[fid >= 0]]
         hard = m & ~W
+        effective = hard | (m & W & ref)
+        emean, ep95 = contour_stats(effective, ref)
         extra = {"iou_lens_optional": np.count_nonzero(m & ref) / max(np.count_nonzero(hard | ref), 1),
-                 "lens_pixels_optional": int(W.sum())}
+                 "lens_pixels_optional": int(W.sum()), "contour_mean_px_lens_optional": emean,
+                 "contour_p95_px_lens_optional": ep95,
+                 "render_only_px_lens_optional": int(np.count_nonzero(hard & ~ref))}
     mean, p95 = contour_stats(m, ref)
     # Outer contour (holes filled on both): the part a camera controls; holes are mostly matte/lens issues.
     omean, op95 = contour_stats(ndimage.binary_fill_holes(m), ndimage.binary_fill_holes(ref))
@@ -727,7 +785,8 @@ def matte_roi(fg: np.ndarray, margin: float = ROI_FIT_MARGIN, pad: int = ROI_FIT
 
 def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None,
              seeds: list[tuple[float, float, float, str]] | None = None, n_refine: int = N_COARSE_POWELL, *,
-             cross: list[tuple[float, float, float, str]] | None = None, sign_margin: bool = True) -> dict:
+             cross: list[tuple[float, float, float, str]] | None = None, sign_margin: bool = True,
+             ignore_faces: np.ndarray | None = None) -> dict:
     """make_uv_test.py's ``fit``: ViewFit(view, fg, scene, pivot) -> run_starts(seeds or prior_seeds(view), n_refine)
     -> [run_starts(wrap_seeds(view, cross), N_CROSS_POWELL)] -> refine() -> native_metrics on ``matte_roi(fg)``
     [-> pitch_twin, the sign margin].
@@ -735,15 +794,18 @@ def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.nda
     ``n_refine`` defaults to bsa's ``N_COARSE_POWELL`` (3 starts per view, per yaw sign for 'angled');
     make_uv_test.py used 2, so reproducing its cameras needs ``n_refine=2`` (tests/test_cameras_repro.py).
     ``cross`` = ``cross_seeds`` from other views' winners (bsa fit_all's round 2). Returns {view, camera, loss (final
-    level), metrics (without the mask/face_id images), sign (``ViewFit.pitch_twin``, or None), refine, fit}."""
+    level), metrics (without the mask/face_id images), sign (``ViewFit.pitch_twin``, or None), refine, fit}.
+    ``ignore_faces`` makes only those rendered faces optional throughout the search, including initial seeds and
+    sign-margin fits. Native raw metrics stay unchanged; separate ``*_lens_optional`` fields report effective fit."""
     vf = ViewFit(view, fg, scene, pivot=pivot)
+    vf.set_ignore(ignore_faces)
     vf.run_starts(prior_seeds(view) if seeds is None else seeds, n_refine)
     if cross:
         cs = wrap_seeds(view, cross)
         if cs:
             vf.run_starts(cs, N_CROSS_POWELL)
     res = vf.refine()
-    met = native_metrics(scene, res["camera"], fg, matte_roi(fg))
+    met = native_metrics(scene, res["camera"], fg, matte_roi(fg), vf.ignore_faces)
     met = {k: v for k, v in met.items() if k not in ("mask", "face_id")}
     sign = vf.pitch_twin(res["camera"]) if sign_margin else None
     return {"view": view, "camera": res["camera"], "loss": float(res["loss_final_level"]), "metrics": met,
@@ -752,16 +814,18 @@ def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.nda
 
 def fit_best(fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None,
              candidates: list[tuple[str, list | None]], n_refine: int = N_COARSE_POWELL, *,
-             cross: dict[str, list] | None = None, sign_margin: bool = True) -> tuple[dict, list[dict]]:
+             cross: dict[str, list] | None = None, sign_margin: bool = True,
+             ignore_faces: np.ndarray | None = None) -> tuple[dict, list[dict]]:
     """Fit each (view, seeds-or-None) candidate with ``fit_view``, then re-score every candidate's camera on ONE
     common final level (``common_final_losses``) and keep the lowest (strict <, so the first wins a tie).
 
     make_uv_test.py chose 'right'/'left' and 'top'/'topb' by each candidate's own final-level loss, but those levels
     have different ROIs (each built around its own fit), so they are not comparable. Each result carries both:
     ``loss`` (own level) and ``common_loss``. ``cross`` maps a view to its cross seeds."""
+    ignore_faces = _optional_faces(scene, ignore_faces)
     results = [fit_view(view, fg, scene, pivot, seeds, n_refine, cross=(cross or {}).get(view),
-                        sign_margin=sign_margin) for view, seeds in candidates]
-    common = common_final_losses(fg, scene, [r["camera"] for r in results], results[0]["fit"].ignore_faces)
+                        sign_margin=sign_margin, ignore_faces=ignore_faces) for view, seeds in candidates]
+    common = common_final_losses(fg, scene, [r["camera"] for r in results], ignore_faces)
     best = None
     for r, c in zip(results, common):
         r["common_loss"] = c

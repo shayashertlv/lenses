@@ -24,6 +24,10 @@ registered overlaps, and single-source mode has none; reported as off).
   its masked opening at radius ``THIN_HALF_MM`` (only features narrower than about 0.4 mm survive: a honey patch does
   not) and whose blue rises with its red (``THIN_ACHROMATIC``: white light adds to every channel; an amber fleck
   raises red only) is a highlight: a hole, filled later (``thin=False`` turns the rule off).
+
+Assembly M4c passes each painting view's geometry-bound colour policy. For general palettes, thin highlights must
+raise all three channels comparably; bright neutral pigment needs local contrast before the absolute specular rule
+may remove it. The supported warm branch retains the accepted historical calculation exactly.
 """
 from __future__ import annotations
 
@@ -42,7 +46,8 @@ THIN_EXCESS = 10.0               # ... at least this many levels over their mask
 THIN_ACHROMATIC = 0.6            # ... with a blue rise >= 0.6 x the red one
 
 
-def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, tx: float) -> np.ndarray:
+def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, tx: float, *,
+                     colour_policies=None) -> np.ndarray:
     """(n,) bool: painted texels on thin, light, achromatic lines of their own painting view (step 6; module
     docstring): luminance >= ``THIN_EXCESS`` over the masked opening (disk radius ``THIN_HALF_MM`` x ``tx``) of that
     view's painted texels, and a blue rise >= ``THIN_ACHROMATIC`` x the red rise over the same opening."""
@@ -58,12 +63,18 @@ def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarra
         tw = (L - MT._masked_open(L, M, fp))[tex.ii, tex.jj]
         tR = (ch[0] - MT._masked_open(ch[0], M, fp))[tex.ii, tex.jj]
         tB = (ch[2] - MT._masked_open(ch[2], M, fp))[tex.ii, tex.jj]
-        out |= sel & (tw >= THIN_EXCESS) & (tB >= THIN_ACHROMATIC * np.maximum(tR, 1e-6))
+        if S.general_colour((colour_policies or {}).get(int(li))):
+            tG = (ch[1] - MT._masked_open(ch[1], M, fp))[tex.ii, tex.jj]
+            rise = np.stack([tR, tG, tB], -1)
+            light = (rise.min(-1) > 0) & (rise.min(-1) >= THIN_ACHROMATIC * np.maximum(rise.max(-1), 1e-6))
+        else:
+            light = tB >= THIN_ACHROMATIC * np.maximum(tR, 1e-6)
+        out |= sel & (tw >= THIN_EXCESS) & light
     return out
 
 
 def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses: dict[int, list], *,
-         tx: float | None = None, thin: bool = True) -> dict:
+         tx: float | None = None, thin: bool = True, colour_policies=None) -> dict:
     """``col`` (n, 3) gained painted colours, ``label`` (n,) view index; ``witnesses[label]`` = [(view index, ok (n,),
     gained colours (n, 3))] of the other admitted views. ``tx`` (texels per mm; correction round): witness flags must
     also be local highlights (module docstring); None = the step-4 rule. ``thin`` (step 6, needs ``tx``): thin light
@@ -80,6 +91,16 @@ def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses
         lim = tex.image(np.where(painted, lum, 0.0), 0.0, float)
         mean = ndimage.gaussian_filter(lim, sg) / np.maximum(ndimage.gaussian_filter(pim, sg), 1e-6)
         local = lum - mean[tex.ii, tex.jj] >= LOCAL_EXCESS
+    general = np.zeros(len(f), bool)
+    for li, policy in (colour_policies or {}).items():
+        if S.general_colour(policy):
+            general |= painted & (np.asarray(label) == li)
+    if general.any():
+        if tx is None or not np.isfinite(tx) or tx <= 0:
+            raise ValueError("general-colour highlight detection requires positive texels per mm")
+        # Bright grey can be pigment. The absolute bright/neutral rule needs local light evidence on these
+        # palettes, rather than deleting a whole phase of the print solely for being achromatic.
+        spec &= ~general | local
     wit = np.zeros(len(f), bool)
     for li, ws in witnesses.items():
         sel = painted & (label == li)
@@ -96,7 +117,8 @@ def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses
         wit |= sel & np.isfinite(lmin) & (lum > lmin + BRIGHTER_BY) & (sat < smin)
     not_local = wit & ~local
     wit &= local
-    thin_m = (thin_light_lines(tex, painted, f, label, tx) if (thin and tx is not None) else np.zeros(len(f), bool))
+    thin_m = (thin_light_lines(tex, painted, f, label, tx, colour_policies=colour_policies)
+              if (thin and tx is not None) else np.zeros(len(f), bool))
     m = spec | wit | thin_m
     img = tex.image(m, False, bool)
     pim = tex.image(painted, False, bool)

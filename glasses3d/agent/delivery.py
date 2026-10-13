@@ -154,11 +154,14 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
         raise DeliveryError("finished export record is invalid")
     validation = exp.get("validate_spec") or {}
     seating = exp.get("seat_check")
+    printing = exp.get("print_check")
     if (exp.get("status") != "exported" or exp.get("checkpoint") != checkpoint or exp.get("drift")
             or not finished.get("fingerprint") or exp.get("fingerprint") != finished["fingerprint"]
             or not isinstance(validation, dict) or validation.get("ok") is not True
             or validation.get("sha256") != exp.get("sha256") or exp.get("validation_sha256") != exp.get("sha256")
-            or (seating is not None and (not isinstance(seating, dict) or seating.get("ok") is not True))):
+            or not isinstance(seating, dict) or seating.get("ok") is not True
+            or not isinstance(printing, dict) or printing.get("ok") is not True
+            or printing.get("glb_sha256") != exp.get("sha256")):
         raise DeliveryError("finished export is invalid or does not match the accepted checkpoint")
     _, model = _read(root, exp.get("path"), exp.get("sha256", ""))
     ar = scene.last_ar
@@ -193,10 +196,13 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
               "checkpoint": checkpoint, "exit_checkpoint": copy.deepcopy(exit_head),
               "fingerprint": finished["fingerprint"], "glb_sha256": exp["sha256"],
               "validation_sha256": exp["validation_sha256"], "validate_spec": copy.deepcopy(validation),
-              "seating": copy.deepcopy(seating), "arview": ar_record, "cost": copy.deepcopy(result.get("budget")),
+              "seating": copy.deepcopy(seating), "print_check": copy.deepcopy(printing),
+              "arview": ar_record, "cost": copy.deepcopy(result.get("budget")),
               "summary": finished.get("summary", "")}
     if "path" in report["validate_spec"]:
         report["validate_spec"]["path"] = "model.glb"
+    if "glb" in report["seating"]:
+        report["seating"]["glb"] = "model.glb"
     files["report.json"] = _json_bytes(report)
     manifest = {"schema": SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
                 "glb_sha256": exp["sha256"], "model": "model.glb", "report": "report.json",
@@ -216,11 +222,17 @@ def _resolved_report(directory: Path, report: dict) -> dict:
             rec[field] = str(_inside(directory, rec[field]))
     if "path" in report["validate_spec"]:
         report["validate_spec"]["path"] = str(directory / "model.glb")
+    if isinstance(report.get("seating"), dict) and "glb" in report["seating"]:
+        report["seating"]["glb"] = str(directory / "model.glb")
     return report
 
 
 def load_delivery(root, delivery_id: str | None = None) -> dict:
-    """Load a verified immutable snapshot, resolving current exactly once when no id is supplied."""
+    """Load a verified immutable snapshot, resolving current exactly once when no id is supplied.
+
+    Pre-M4 snapshots may have seating=None. Their recorded evidence and identities remain immutable; only new
+    publication requires a passing all-frame seating report.
+    """
     root = Path(root).resolve()
     pointer = None
     if delivery_id is None:
@@ -264,6 +276,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     report = _document(contents["report.json"], "delivery report")
     exit_head = report.get("exit_checkpoint") or {}
     validation, seating = report.get("validate_spec"), report.get("seating")
+    printing = report.get("print_check")
     if (manifest.get("glb_sha256") != sha or (pointer and pointer.get("glb_sha256") != sha)
             or report.get("schema") != REPORT_SCHEMA or report.get("job_id") != root.name
             or report.get("run_id") != manifest.get("run_id") or report.get("glb_sha256") != sha
@@ -271,7 +284,9 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
             or validation.get("ok") is not True or validation.get("sha256") != sha
             or not report.get("checkpoint") or not report.get("fingerprint") or not isinstance(exit_head, dict)
             or exit_head.get("verified") is not True or exit_head.get("id") != report.get("checkpoint")
-            or (seating is not None and (not isinstance(seating, dict) or seating.get("ok") is not True))):
+            or (seating is not None and (not isinstance(seating, dict) or seating.get("ok") is not True))
+            or (printing is not None and (not isinstance(printing, dict) or printing.get("ok") is not True
+                                         or printing.get("glb_sha256") != sha))):
         raise DeliveryError("delivery report does not bind the validated finished model")
     _capture_files(directory, report.get("arview"), sha)
     sheets = manifest.get("contact_sheets")

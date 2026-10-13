@@ -106,7 +106,7 @@ from ..g3d_host import fit_views, fitmesh, glb, seat_check, spec
 from ..g3d_host import lighting as L
 from ..g3d_host import pose as PO
 from ..g3d_host.camera import Camera, NormFrame, project_mm
-from . import procs
+from . import procs, print_freshness
 from .journal import CheckpointMismatch, WorkerFailed
 from .worker_client import WorkerDied
 
@@ -257,7 +257,7 @@ class Seeing:
         return r["result"]
 
     def export_head(self, call_id: str | None = None) -> dict:
-        """Export the head with spec and declared-seat reports, cached by the actual GLB sha256.
+        """Export the head with spec and all-frame seating reports, cached by the actual GLB sha256.
 
         Validation failures stay visible so seeing tools can inspect an unfinished model. Finish/delivery decide
         whether it is acceptable. Old export indexes are upgraded here, never trusted as validated exports.
@@ -270,7 +270,9 @@ class Seeing:
         index = procs.read_json(index_path) or {}
         rec = index.get(fp)
         if rec and Path(rec["path"]).is_file() and C.sha256_file(rec["path"]) == rec["sha256"]:
-            return {**rec, **self._validate_export(rec), "cached": True}
+            # A restore records a new checkpoint id with the same geometry fingerprint. Cached bytes and their
+            # validation remain usable, but tools/finish must bind their receipt to the current journal head.
+            return {**rec, **self._validate_export(rec), "checkpoint": head["id"], "cached": True}
         path = d / f"head-{fp[:16]}.glb"
         r = self.s.call_read("export_glb", "export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S,
                              call_id=call_id)
@@ -298,18 +300,14 @@ class Seeing:
             raise SeeingError("E_EXPORT", "export bytes differ from the worker's sha256")
         if sha not in self._export_reports:
             validation = spec.validate_spec(rec["path"])
-            seating = None
-            try:
-                asset = glb.load(rec["path"])
-                # Check every declared seat, including a malformed/unreadable lens. The seating checker performs
-                # lens classification and reports those failures; a bad primitive must not silently skip it.
-                if any(isinstance(n, dict) and "g3d_seat" in (n.get("extras") or {}) for n in asset.nodes):
-                    seating = seat_check.check_glb(asset)
-            except (ValueError, KeyError, TypeError, IndexError) as exc:
-                seating = {"ok": False, "error": f"cannot inspect declared seats: {type(exc).__name__}: {exc}"}
+            # D4: every frame, including crystal, needs the geometric report. Missing declarations or lens
+            # geometry are checker failures, never a reason to skip it. The checker reports malformed GLBs too.
+            seating = seat_check.check_glb(rec["path"])
             self._export_reports[sha] = {"validate_spec": validation, "seat_check": seating,
                                          "validation_sha256": sha}
-        return self._export_reports[sha]
+        # Successful print evidence is finalized after the first post-attachment export. Geometry bytes may also
+        # be restored from an older checkpoint, so evidence cannot share the spec/seating SHA-only cache.
+        return {**self._export_reports[sha], "print_check": print_freshness.check_current_print(rec["path"], self.root)}
 
     def fit_mesh(self, glb: str, sha: str, *, skip=(), frame: NormFrame | None = None) -> fitmesh.FitMesh:
         key = (sha, tuple(skip), None if frame is None else (tuple(frame.center), frame.extent))
@@ -374,7 +372,7 @@ class Seeing:
                 expanded += list(BC.CANONICAL_VIEWS)
             if it in ("reference", "all"):
                 basis = basis or C.load_basis(self.root, basis_id)
-                expanded += [("reference", rid) for rid in basis.refs]
+                expanded += [("reference", rid) for rid in basis.usable_refs()]
             if it not in ("canonical", "all", "reference"):
                 expanded.append(it)
         out, names = [], set()
@@ -431,6 +429,8 @@ class Seeing:
             except ValueError as exc:
                 raise SeeingError("E_ARGS", f"view {rec['name']}: {exc}") from None
             out.append(rec)
+        if not out and basis is not None:
+            raise SeeingError("E_UNUSABLE_CAMERA", f"{basis.id} has no usable photo cameras: {basis.unusable_refs()}")
         if not out:
             raise SeeingError("E_ARGS", "no views requested")
         return out
@@ -474,6 +474,11 @@ class Seeing:
                 raise SeeingError("E_ARGS", f"unknown passes {bad}; choose from {list(ALL_PASSES)}")
             C.rgba_on(Image.new("RGBA", (1, 1)), background)
             vs = self.resolve_views(views, size_px, target, basis, call_id=call_id)
+            used_basis = next((v["basis"] for v in vs if v["kind"] == "reference"), None)
+            requested = [views] if isinstance(views, (str, dict)) else list(views)
+            if used_basis is None and any(isinstance(v, str) and v in ("reference", "all") for v in requested):
+                used_basis = C.load_basis(self.root, basis).id
+            unavailable = C.load_basis(self.root, used_basis).unusable_refs() if used_basis else {}
             out_dir = self._prepare_work_dir(self.work / "renders" / call_id)
         except C.NoBasis as exc:
             out = _err(call_id, "E_NO_BASIS", str(exc))
@@ -542,6 +547,7 @@ class Seeing:
                     "fallback": res.get("fallback"), "gpu": res.get("gpu"), "rig": res.get("rig"),
                     "passes": passes, "size_px": size_px, "background": background, "views": manifest_views,
                     "sheets": sheets, "parts_legend": legend_all, "notes": notes, "export": exp,
+                    "unusable_refs": unavailable,
                     "worker_seconds": res.get("seconds"), "seconds": round(time.perf_counter() - t0, 3)}
         mp = out_dir / "manifest.json"
         C.write_json(mp, manifest)
@@ -551,7 +557,8 @@ class Seeing:
                              "files": {p: f["path"] for p, f in m["files"].items()}}
                          for n, m in manifest_views.items()},
                "engine": res.get("engine_final"), "fallback": res.get("fallback"), "gpu": res.get("gpu"),
-               "restored_to": r.get("restored_to"), "notes": notes, "export": exp, "seconds": manifest["seconds"]}
+               "restored_to": r.get("restored_to"), "notes": notes, "export": exp, "seconds": manifest["seconds"],
+               "unusable_refs": unavailable}
         self.s.record_call("render_views", call_id, args, out)
         return out
 
@@ -758,7 +765,8 @@ class Seeing:
                "geometry_identical": report["geometry_identical"], "previous": report["previous"],
                "parts": parts, "refs": {}, "crops": [{k: c[k] for k in ("ref", "box_px", "parts", "sheet")}
                                                      for c in crop_recs],
-               "report": str(rp), "export": exp, "engine": report["engine"], "seconds": secs}
+               "report": str(rp), "export": exp, "engine": report["engine"], "seconds": secs,
+               "unusable_refs": bs.unusable_refs()}
         for rid, m in metrics.items():
             g = m.get(group) or m["all"]
             d = (m.get("delta") or {}).get(group)
@@ -778,7 +786,10 @@ class Seeing:
         """The photos named by ``refs``: None / "all" = every target-colourway photo (all of a WP2 basis), else a
         list of names or 1-based indices ("default" is resolved by ``default_refs``, which needs the model)."""
         if refs in (None, "all"):
-            return [rid for rid in bs.refs if bs.colourway(rid) == "target"]
+            out = [rid for rid in bs.usable_refs() if bs.colourway(rid) == "target"]
+            if not out:
+                raise SeeingError("E_UNUSABLE_CAMERA", f"{bs.id} has no usable target cameras: {bs.unusable_refs()}")
+            return out
         items = [refs] if isinstance(refs, (str, int)) else list(refs)
         names = list(bs.refs)
         out = []
@@ -787,6 +798,8 @@ class Seeing:
                    str(it) if str(it) in bs.refs else C.ref_id(str(it)))
             if rid not in bs.refs:
                 raise SeeingError("E_ARGS", f"{bs.id} has no reference {it!r}; references: {names}")
+            if not bs.is_usable(rid):
+                bs.camera(rid)  # explicit failed requests retain their named diagnostic refusal
             if rid not in out:
                 out.append(rid)
         if not out:
@@ -853,7 +866,8 @@ class Seeing:
     def default_refs(cls, bs: C.Basis, mesh, roles: dict) -> tuple[list, dict]:
         """(the default photos: target colourway with a posed temple ROI >= TEMPLE_ROI_MIN_PX at native size
         (WP6_FACETS §3.3), {photo: matched geometry} of every target photo)."""
-        geo = {rid: cls._matched_geometry(bs, rid, mesh, roles) for rid in bs.refs if bs.colourway(rid) == "target"}
+        geo = {rid: cls._matched_geometry(bs, rid, mesh, roles) for rid in bs.usable_refs()
+               if bs.colourway(rid) == "target"}
         rids = [rid for rid, g in geo.items() if g["temple_px"] >= TEMPLE_ROI_MIN_PX]
         if not rids:
             raise SeeingError("E_ARGS", f"no target photo shows >= {TEMPLE_ROI_MIN_PX} temple pixels; name the photos")
@@ -884,7 +898,7 @@ class Seeing:
         """Per colourway its best-registered photo (highest gain_view_rank; ties keep the basis order) at
         <= GAIN_VIEW_MAX_PX: ({colourway: {rid, k, cam, shape, pose}}, worker views rendering both matched passes)."""
         by_cw: dict = {}
-        for rid in bs.refs:
+        for rid in bs.usable_refs():
             cw = bs.colourway(rid)
             rank = Seeing.gain_view_rank(bs.refs[rid])
             if cw not in by_cw or rank > by_cw[cw][0]:
@@ -996,7 +1010,7 @@ class Seeing:
         if fid is None:
             raise SeeingError("E_ENV", "no frame-role front body to fit the environment on")
         out = []
-        for rid in bs.refs:
+        for rid in bs.usable_refs():
             if bs.colourway(rid) != "target" or (bs.refs[rid].get("view_kind") or "") == "side":
                 continue
             g = self._matched_geometry(bs, rid, mesh, roles)
@@ -1253,7 +1267,7 @@ class Seeing:
                 raise SeeingError("E_ARGS", "crop must be 'temple' or 'full'")
             if points_px is not None and not isinstance(points_px, dict):
                 raise SeeingError("E_ARGS", "points_px must be {photo: [[u, v], ...]}")
-            for rid in bs.refs:
+            for rid in bs.usable_refs():
                 if bs.pose(rid) is None:
                     raise SeeingError("E_NO_POSE", f"{bs.id} has no temple pose for {rid}; the photo-matched compare "
                                                    "needs a WP6 basis (theta_deg, hinge_axis_xz_mm)")
@@ -1380,6 +1394,8 @@ class Seeing:
                 if not ok:
                     raise SeeingError("E_ARGS", f"zoom[{i}] must be {{rid: one of {list(bs.refs)}, box: [x0, y0, x1, "
                                                 "y1] native px, geometry: true | false}")
+                if not bs.is_usable(rid):
+                    bs.camera(rid)
                 H, W = bs.shape(rid)
                 x0, y0 = max(0, math.floor(box[0])), max(0, math.floor(box[1]))
                 x1, y1 = min(W, math.ceil(box[2])), min(H, math.ceil(box[3]))
@@ -1618,7 +1634,7 @@ class Seeing:
         rp = out_dir / "report.json"
         C.write_json(rp, report)
         return {"status": "ok", "compare_id": call_id, "basis": bs.id, "checkpoint": self.head["id"], "rig": rig,
-                "export": exp,
+                "export": exp, "unusable_refs": bs.unusable_refs(),
                 "passes": passes, "photos": {rid: {"image": recs[rid]["image"], "text": recs[rid]["text"],
                                                    "rows": recs[rid].get("rows"), "cached": recs[rid]["cached"],
                                                    **({"points": recs[rid]["points"]} if "points" in recs[rid]
@@ -2266,11 +2282,12 @@ class Seeing:
 
     # ---------------------------------------------------------------------------------------------- fit_cameras
     def fit_cameras(self, reason: str, images: dict, views: dict, refs=None, *, skip=(), front_parts=None,
-                    workers: int = FIT_WORKERS, n_refine=None, candidates=None, call_id: str | None = None,
+                    workers: int = FIT_WORKERS, n_refine=None, candidates=None, matte_modes=None,
+                    call_id: str | None = None,
                     log=None) -> dict:
         call_id = self.s.new_call_id("fit_cameras", call_id)
         args = {"reason": reason, "images": {k: str(v) for k, v in images.items()}, "views": views, "refs": refs,
-                "skip": list(skip), "front_parts": front_parts, "workers": workers}
+                "skip": list(skip), "front_parts": front_parts, "workers": workers, "matte_modes": matte_modes}
         t0 = time.perf_counter()
         if not str(reason or "").strip():
             out = _err(call_id, "E_ARGS", "fit_cameras needs a reason (it is recorded in the basis)")
@@ -2300,35 +2317,63 @@ class Seeing:
             with procs.DescendantsOptOut() as qos:
                 res = fit_views.fit_views(exp["path"], imgs, {n: views[n] for n in names}, bdir, skip=tuple(skip),
                                           front_parts=front_parts, workers=workers, n_refine=n_refine,
-                                          candidates=candidates, log=log or (lambda *_: None))
+                                          candidates=candidates,
+                                          matte_modes={n: (matte_modes or {}).get(n) for n in names},
+                                          log=log or (lambda *_: None))
+            bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
+                                model={"glb_path": exp["path"], "glb_sha256": exp["sha256"],
+                                       "fingerprint": exp["fingerprint"], "checkpoint": exp["checkpoint"]})
         except Exception as exc:  # noqa: BLE001 - reported to Astra; the unfrozen folder is never a basis
             out = _err(call_id, "E_FIT", f"{type(exc).__name__}: {exc}")
             self.s.record_call("fit_cameras", call_id, args, out)
             return out
-        bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
-                            model={"glb_path": exp["path"], "glb_sha256": exp["sha256"],
-                                   "fingerprint": exp["fingerprint"], "checkpoint": exp["checkpoint"]})
         tiles = []
         for rid, rec in bs.refs.items():
+            f = rec.get("fit") or {}
+            usable = bs.is_usable(rid)
+            label = f"{rid} {rec.get('view_kind')} -> {rec.get('view')}: {f.get('status') or 'ok'}"
+            if usable and f.get("iou") is not None and f.get("contour_mean_mm") is not None:
+                label += f"; IoU {f['iou']:.3f}, contour {f['contour_mean_mm']:.2f} mm"
+            if not usable:
+                label += "; " + str(bs.unusable_refs()[rid])
             if rec.get("overlay"):
-                f = rec["fit"]
-                tiles.append(C.labelled(C.fit_into(Image.open(bdir / rec["overlay"]).convert("RGBA"), 1024, 1024),
-                                        f"{rid} {rec['view_kind']} -> {rec['view']}: IoU {f['iou']:.3f}, contour "
-                                        f"{f['contour_mean_mm']:.2f} mm"))
+                panel = Image.open(bdir / rec["overlay"]).convert("RGBA")
+            else:
+                try:
+                    panel = Image.fromarray(bs.photo(rid)).convert("RGBA")
+                except (ValueError, OSError):
+                    panel = Image.new("RGBA", (640, 240), "white")
+                    label += "; source photo could not be decoded (no photo or render shown)"
+            tiles.append(C.labelled(C.fit_into(panel, 1024, 1024), label))
         sheet = None
         if tiles:
             sheet = str(bdir / "overlays_sheet.png")
             C.grid(tiles, min(3, len(tiles))).convert("RGB").save(sheet)
-        out = {"status": "ok", "call_id": call_id, "basis": bs.id, "checkpoint": exp["checkpoint"],
+        out = {"status": "ok" if bs.usable_refs() else "refused", "call_id": call_id,
+               "basis": bs.id, "checkpoint": exp["checkpoint"],
                "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
                "fit_seconds": round(res.get("seconds", 0.0), 1),
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
-               "refs": {rid: {"view_kind": rec["view_kind"], "view": rec["view"], "status": rec["fit"]["status"],
-                              "iou": round(rec["fit"]["iou"], 4),
-                              "contour_mean_mm": round(rec["fit"]["contour_mean_mm"], 3),
-                              "flags": rec["fit"].get("flags"),
-                              "yaw": round(rec["camera"]["yaw"], 2), "pitch": round(rec["camera"]["pitch"], 2)}
-                        for rid, rec in bs.refs.items()},
+               "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid)) for rid, rec in bs.refs.items()},
+               "usable_refs": bs.usable_refs(), "unusable_refs": bs.unusable_refs(),
                "seconds": round(time.perf_counter() - t0, 1)}
+        if not bs.usable_refs():
+            out.update(code="E_FIT_ALL", message="No photo camera fit succeeded; this basis retains the diagnostics. "
+                       "The previous usable basis, if any, remains the default.")
         self.s.record_call("fit_cameras", call_id, args, out)
         return out
+
+    @staticmethod
+    def _fit_ref_summary(rec, *, usable):
+        f, camera = rec.get("fit") or {}, rec.get("camera") or {}
+
+        def number(value, digits):
+            return round(value, digits) if isinstance(value, (int, float)) and math.isfinite(value) else None
+
+        return {"view_kind": rec.get("view_kind"), "view": rec.get("view"), "status": f.get("status"),
+                "usable": usable, "matte_mode": rec.get("matte_mode"),
+                "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
+                "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
+                **{key: value for key, value in f.items()
+                   if key.endswith("_lens_optional") or key == "lens_pixels_optional"},
+                **{key: f.get(key, rec.get(key)) for key in ("flags", "code", "refusal", "error", "message", "lens_loss")}}

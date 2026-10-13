@@ -58,7 +58,8 @@ def routing(tmp_path, monkeypatch):
     cams = {name: Camera(15 + i * 10, 7, 2, 0, 200, 79.5, 59.5) for i, name in enumerate(names)}
     basis = SimpleNamespace(id="basis-01", refs=dict.fromkeys(names), frame=NormFrame((0, 0, 0), 200),
                             pivot_mm=np.zeros(3), camera=cams.__getitem__, shape=lambda _: (120, 160),
-                            colourway=lambda _: "target")
+                            colourway=lambda _: "target", is_usable=lambda rid: rid in names,
+                            usable_refs=lambda: list(names), unusable_refs=lambda: {})
     monkeypatch.setattr(C, "load_basis", lambda *_: basis)
     s = Session(tmp_path)
     see = Seeing(s)

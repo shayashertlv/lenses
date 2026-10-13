@@ -116,6 +116,7 @@ import numpy as np
 from PIL import Image
 
 from glasses3d.g3d_host.photoprint import inputs as IN
+from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.g3d_host.photoprint import shading as SH
 from glasses3d.g3d_host.photoprint.procs import Progress, opt_out_ecoqos, pool_map
 from glasses3d.tests.photoprint import ar_levels as AL
@@ -755,7 +756,15 @@ def calibrate(bake: Path, glb: Path, work: Path, grid=GRID, max_iter: int = 6, l
               portraits: bool = True) -> dict:
     """Fixture configuration only; the measured calibration driver lives in the production library."""
     from glasses3d.g3d_host.photoprint.production import calibrate_level
-    return calibrate_level(IN.load_job(IN.FT1119["cameras"]), AL.GROUPS, bake=bake, glb=glb, out_dir=work,
+    work = Path(work).resolve()
+    private = work.with_name(work.name + '-fixture')
+    private.mkdir(parents=True, exist_ok=False)
+    job, bake = legacy_ft1119.bake_inputs(bake, private / 'bake')
+    source_glb = Path(glb).resolve()
+    migrated_glb = private / 'template.glb'
+    receipt = legacy_ft1119.rename_glb(source_glb, migrated_glb)
+    legacy_ft1119.write(private / 'migration.json', receipt)
+    return calibrate_level(job, AL.GROUPS, bake=bake, glb=migrated_glb, out_dir=work,
                            chroma_family=CHROMA_FAMILY, temple_z=AL.AR_TEMPLE_Z,
                            reference_point_mm=AL.BRIDGE_MM, grid=grid, max_iter=max_iter,
                            log=log, portraits=portraits)
@@ -771,7 +780,7 @@ def _repo_path(s: str) -> Path:
 def _regrade_chunk(caps: list, probe: str, min_share: float) -> dict:
     """``regrade``'s pool job: ``ar_levels.measure`` of several captures that share one black probe."""
     opt_out_ecoqos()
-    job = IN.load_job(IN.FT1119["cameras"])
+    job = legacy_ft1119.load_job()
     return AL.measure([Path(c) for c in caps], job=job, probes={str(Path(c)): probe for c in caps},
                       min_photo_share=min_share)
 

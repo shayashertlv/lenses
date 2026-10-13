@@ -103,6 +103,67 @@ try:
                       "backup_kept": bpy.data.objects[PARTS[0]].get(PB.PROP_BACKUP)}
         # a geometry edit after print_uv makes the print stale
         if SPEC.get("attach"):
+            man = PB.load_manifest(SPEC["attach"]["report"])
+            # Synthetic all-parts manifest only; real historical tool tests use
+            # their own fixture migration and are not rewritten here.
+            if PARTS == ["Brow_L", "Brow_R", "Temple_L", "Temple_R"]:
+                E = P["eligibility"] = {}
+                baseline = digests()["materials"]
+                eligible = {**man, "texture_parts": ["Brow_L", "Temple_L"],
+                            "no_texture_parts": ["Brow_R", "Temple_R"]}
+
+                def state():
+                    return (snapshot(bpy.context.scene), tuple(sorted(bpy.data.images.keys())),
+                            tuple(sorted(bpy.data.materials.keys())), tuple(sorted(bpy.data.meshes.keys())))
+
+                def unchanged_call(key, fn):
+                    old = state()
+                    answer = fn()
+                    E[key] = {"status": answer.get("status"), "code": answer.get("code"),
+                              "unchanged": state() == old, "message": answer.get("message")}
+
+                missing = dict(eligible)
+                missing.pop("texture_parts")
+                unchanged_call("missing", lambda: PB.attach_print(missing))
+                unchanged_call("excluded", lambda: PB.attach_print(eligible, ["Brow_R"]))
+                unchanged_call("unknown", lambda: PB.attach_print(eligible, ["Brow_L.001"]))
+                unchanged_call("empty", lambda: PB.attach_print(eligible, []))
+                unchanged_call("overlap", lambda: PB.attach_print({**eligible, "no_texture_parts": PARTS}))
+                old_excluded = {n: repr(PB._tree_state(bpy.data.objects[n].active_material.node_tree))
+                                for n in ["Brow_R", "Temple_R", "Bridge"]}
+                a = PB.attach_print(eligible)
+                E["eligible"] = {"status": a.get("status"), "parts": list(a.get("objects", {})),
+                                 "excluded_unchanged": all(repr(PB._tree_state(bpy.data.objects[n].active_material.node_tree))
+                                                           == old for n, old in old_excluded.items())}
+                d1 = PB.detach_print(PARTS)
+                a1 = PB.attach_print(man)
+                unchanged_call("reuv_attached", lambda: PB.print_uv(PARTS, **{**kw, "replace": True}))
+                unchanged_call("shared_detach", lambda: PB.detach_print(["Brow_L"]))
+                mat = bpy.data.objects["Brow_L"].active_material
+                rough = mat.node_tree.nodes["Principled BSDF"].inputs["Roughness"]
+                old_rough = rough.default_value
+                rough.default_value = old_rough + 0.1
+                unchanged_call("edited_detach", lambda: PB.detach_print(PARTS))
+                rough.default_value = old_rough
+                ob = bpy.data.objects["Temple_L"]
+                old_swap = ob[PB.PROP_SWAP]
+                ob[PB.PROP_SWAP] = json.dumps({"0": "No such original material"})
+                unchanged_call("missing_original", lambda: PB.detach_print(PARTS))
+                ob[PB.PROP_SWAP] = old_swap
+                d2 = PB.detach_print(PARTS)
+                u2 = PB.print_uv(PARTS, **{**kw, "replace": True})
+                a2 = PB.attach_print(man, gain=(0.8, 0.9, 1.0))
+                d3 = PB.detach_print(PARTS)
+                E["repeat_receipts"] = [d1, a1, d2, u2, a2, d3]
+                E["repeat"] = {"all_steps_ok": all(x.get("status") == "ok" for x in [d1, a1, d2, u2, a2, d3]),
+                               "original_materials_restored": digests()["materials"] == baseline,
+                               "no_attachment_properties": all(not PB._attached_materials([bpy.data.objects[n]])
+                                                                and PB.PROP_SWAP not in bpy.data.objects[n]
+                                                                for n in PARTS),
+                               "exact_tree_restore": all(v["tree_restored"] for x in [d1, d2, d3]
+                                                        for v in x.get("materials", {}).values()),
+                               "detached_markers_removed": all("attachment" not in PB._json_prop(bpy.data.objects[n], PB.PROP_UV)
+                                                               for n in PARTS)}
             ob = bpy.data.objects[PARTS[0]]
             v = ob.data.vertices[0]
             v.co = (v.co[0] + 0.25, v.co[1], v.co[2])
@@ -138,6 +199,21 @@ try:
             P["bake_order"] = PB.print_uv(list(reversed(PARTS)), **kw).get("code")
         reload()
         P["transmission_map"] = PB.attach_print(**{**SPEC.get("attach", {"report": {}}), "transmission_map": True}).get("code")
+        if PARTS == ["Brow_L", "Brow_R", "Temple_L", "Temple_R"]:
+            import bmesh
+            reload()
+            me = bpy.data.objects["Temple_L"].data
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bm.faces.new([bm.verts.new((72, 0, -20)), bm.verts.new((73, 0, -20)),
+                          bm.verts.new((74, 0, -20))])
+            bm.to_mesh(me)
+            bm.free()
+            me.update()
+            before = state()
+            r = PB.print_uv(["Temple_L"], density=8.)
+            P["zero_area"] = {"status": r.get("status"), "code": r.get("code"),
+                              "a1": r.get("a1"), "unchanged": state() == before, "receipt": r}
 except Exception as exc:
     res["error"] = f"{type(exc).__name__}: {exc}"
     res["traceback"] = traceback.format_exc()

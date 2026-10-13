@@ -71,7 +71,13 @@ def _view(value, name: str) -> dict:
         matching = [candidate for candidate in candidates if candidate == side or candidate.endswith(f"_{side}")]
         if matching:
             candidates = matching
-    return {"view_kind": kind, "side": side, "fit_kinds": candidates}
+    out = {"view_kind": kind, "side": side, "fit_kinds": candidates}
+    if 'matte_mode' in value:
+        from glasses3d.g3d_host.matte import MODES
+        if not isinstance(value['matte_mode'], str) or value['matte_mode'] not in MODES:
+            raise JobError(f"{name}: matte_mode must be one of {MODES}")
+        out['matte_mode'] = value['matte_mode']
+    return out
 
 
 def _image(payload: bytes, name: str) -> tuple[dict, bytes | None]:
@@ -221,7 +227,8 @@ def load_job(root) -> dict:
             raise JobError("duplicate job photo record")
         names.add(name)
         files.add(row.get("file"))
-        checked = _view({"kind": row.get("view_kind"), "side": row.get("side")}, name)
+        checked = _view({"kind": row.get("view_kind"), "side": row.get("side"),
+                         **({'matte_mode': row['matte_mode']} if 'matte_mode' in row else {})}, name)
         if checked["fit_kinds"] != row.get("fit_kinds"):
             raise JobError(f"{name}: view candidates differ from the declared kind")
         for file_key, sha_key in (("file", "sha256"), ("sent_file", "sent_sha256")):
@@ -237,7 +244,8 @@ def image_paths(job_root) -> dict[str, Path]:
 
 
 def view_specs(job_root) -> dict[str, dict]:
-    return {row["original_name"]: {"kind": row["view_kind"], "side": row["side"]}
+    return {row["original_name"]: {"kind": row["view_kind"], "side": row["side"],
+                                  **({'matte_mode': row['matte_mode']} if 'matte_mode' in row else {})}
             for row in load_job(job_root)["images"]}
 
 

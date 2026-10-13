@@ -198,6 +198,18 @@ def test_changed_owner_notes_invalidate_approval_before_launch(job, monkeypatch,
     assert not execute.called
 
 
+def test_changed_specialist_settings_invalidate_parent_approval_before_launch(job, monkeypatch, capsys):
+    approved(job)
+    original = job_run.temple_stage.settings
+    monkeypatch.setattr(job_run.temple_stage, "settings",
+                        lambda parent=None: replace(original(parent), max_output_tokens=8192))
+    execute = AsyncMock(side_effect=AssertionError("must not run"))
+    monkeypatch.setattr(job_run, "execute_run", execute)
+    assert cli.main(["job", "run", str(job), "--foreground"]) == 3
+    assert "changed" in json.loads(capsys.readouterr().err)["message"]
+    assert not execute.called
+
+
 def test_generic_resume_sends_verbatim_owner_notes_once_using_actual_sdk_history(job, monkeypatch):
     from glasses3d.agent import loop as L, replay as R
     from glasses3d.agent.session_inputs import NOTE_PREFIX

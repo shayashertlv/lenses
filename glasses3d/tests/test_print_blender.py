@@ -51,6 +51,7 @@ def synth(tmp_path_factory):
     Image.fromarray(img).save(png)
     man = {"version": 1, "print_png": str(png), "print_sha256": MF._sha(png), "width": w, "height": h,
            "tx_per_mm": r["tx_per_mm"], "tx_requested": TX, "parts": PARTS, "layer": "g3d_print",
+           "texture_parts": PARTS, "no_texture_parts": [],
            "geometry_sha": r["geometry_sha"], "charts_sha": r["charts_sha"], "label": "synthetic test print"}
     (d / MF.MANIFEST).write_text(json.dumps(man), encoding="utf-8")
     spec = {"parts": PARTS, "print_uv": {"density": TX}, "attach": {"report": str(d / MF.MANIFEST)},
@@ -216,6 +217,24 @@ def test_cli_run_stops_at_a_refused_print_step(synth, tmp_path):
     assert r["results"][0]["code"] == "E_LENS" and not out.exists()
 
 
+def test_attachment_eligibility_and_safe_repeat(synth):
+    p = synth["rt"]["probes"]["eligibility"]
+    for key in ("missing", "excluded", "unknown", "empty", "overlap"):
+        assert p[key]["status"] == "refused" and p[key]["unchanged"], (key, p[key])
+    assert p["excluded"]["code"] == p["unknown"]["code"] == p["empty"]["code"] == "E_NO_TEXTURE"
+    assert p["eligible"]["status"] == "ok" and p["eligible"]["excluded_unchanged"]
+    assert p["eligible"]["parts"] == ["Brow_L", "Temple_L"]
+    for key in ("shared_detach", "edited_detach", "missing_original", "reuv_attached"):
+        assert p[key]["status"] == "refused" and p[key]["unchanged"], (key, p[key])
+    assert p["shared_detach"]["code"] == "E_SHARED_PRINT"
+    assert p["edited_detach"]["code"] == p["missing_original"]["code"] == "E_STALE"
+    assert p["reuv_attached"]["code"] == "E_ATTACHED"
+    assert all(p["repeat"].values()), p["repeat_receipts"]
+    zero = synth["rt"]["probes"]["zero_area"]
+    assert zero["status"] == "refused" and zero["code"] == "E_LAYOUT" and zero["unchanged"], zero
+    assert zero["a1"]["zero_area_faces"] == 1 and not zero["a1"]["criteria"]["flips"]
+
+
 # ------------------------------------------------------------------------------------------------ q001 tool test
 TOOLTEST_INPUTS = (G3D.parent / "automation/data/blender_agent/studio/jobs/3b8a1c7ae8114868b49b298b681f1b29/original"
                    "/scene.blend", G3D / "data/wp5/ft1119_bake/print.png", G3D / "data/wp3b/ft1119/cameras.json")
@@ -229,14 +248,11 @@ def test_q001_tool_test(tmp_path):
     Fix round 1 of the correction round: run on a temp COPY of the bake's files (``--bake``), so the record goes into
     the copy's bake.json and the production bake.json is never written (checked by sha256)."""
     import hashlib
-    import shutil
     from glasses3d.tests.photoprint import print_tooltest as TT
+    from glasses3d.tests.fixtures import legacy_ft1119
     prod = G3D / "data/wp5/ft1119_bake"
-    bake = tmp_path / "bake"
-    bake.mkdir()
-    for n in ("print.png", "print_manifest.json", "layout.json", "report.json", "classes.png", "bake.json"):
-        if (prod / n).is_file():
-            shutil.copy2(prod / n, bake / n)
+    fixture = legacy_ft1119.prepare(tmp_path / "legacy-inputs")
+    bake = legacy_ft1119.copy_bake(prod, tmp_path / "bake", fixture)
     digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
     before = digest(prod / "bake.json")
     out = tmp_path / "out"

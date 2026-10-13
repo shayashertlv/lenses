@@ -151,7 +151,8 @@ def test_fatal_export_errors_escape_both_compare_paths(tmp_path, monkeypatch, ri
     from glasses3d.agent import seeing as SE
 
     scene = JobScene(tmp_path, job={})
-    monkeypatch.setattr(SE.C, "load_basis", lambda *args: SimpleNamespace(refs={}))
+    monkeypatch.setattr(SE.C, "load_basis", lambda *args: SimpleNamespace(
+        refs={}, is_usable=lambda rid: False, usable_refs=lambda: [], unusable_refs=lambda: {}))
     monkeypatch.setattr(scene.seeing, "_ref_ids", lambda *args: [])
     monkeypatch.setattr(scene.seeing, "_check_v3_args", lambda *args: {"zoom": []})
 

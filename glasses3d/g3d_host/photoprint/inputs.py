@@ -6,8 +6,8 @@ globals lives on a ``Job``; nothing is read at import time.
 
 ``load_job`` reads a WP3b ``cameras.json`` (``g3d_host.fit_views``): the GLB path and sha256, the skip list (thin
 decals the cameras were fitted without), the NormFrame, the front pivot, and per image its path, sha256, view kind and
-camera. Hashes are checked (a changed photo or model refuses). Mattes are recomputed with ``matte.matte`` defaults, the
-matte the WP3b cameras were fitted on.
+camera. Hashes are checked (a changed photo or model refuses). Mattes use the recorded per-photo mode, or the
+historical default when no mode was recorded.
 
 Conventions (g3d_host.camera): model millimetres; cameras map NormFrame-normalised points to native pixels whose
 integer coordinates are pixel centres; colours sRGB 0..255.
@@ -260,7 +260,8 @@ def load_job(cameras_json: str | Path, *, images_dir: str | Path | None = None,
         img = matte_mod.load_photo(p)
         if rec.get("shape") and list(img.shape[:2]) != list(rec["shape"]):
             raise InputError(f"{p}: shape {img.shape[:2]} differs from the fitted {rec['shape']}")
-        views[name] = View(name=name, kind=str(rec.get("view_kind", "")), image=img, matte=matte_mod.matte(img),
+        views[name] = View(name=name, kind=str(rec.get("view_kind", "")), image=img,
+                           matte=matte_mod.matte(img, mode=rec.get('matte_mode') or 'default'),
                            camera=Camera.from_dict(rec["camera"]), sha256=sha)
         srcs["images"][name] = {"path": str(p), "sha256": sha, "view_kind": rec.get("view_kind")}
     if len(views) < 2:
@@ -298,30 +299,54 @@ def job_from_dir(job_dir: str | Path, *, glb: str | Path, basis: str,
                 raise InputError(f"the frozen basis {key} differs from its fitted cameras")
         mesh = fitmesh.load_fit_mesh(model_path, skip=frozen.skip, frame=frozen.frame)
         views, images = {}, {}
+        unusable = frozen.unusable_refs()
         for rid, rec in frozen.refs.items():
             name = rec['image']
             fitted = cameras['images'].get(name)
-            if (not fitted or fitted.get('status', 'ok') != 'ok' or not fitted.get('camera')
-                    or fitted['camera'] != rec['camera'] or fitted.get('image_sha256') != rec['photo_sha256']
-                    or fitted.get('shape') != rec['shape'] or fitted.get('view_kind') != rec.get('view_kind')):
-                raise InputError(f"{rid}: missing, failed or changed fitted camera/photo identity")
-            photo = frozen.photo(rid)
-            matte = frozen.matte(rid)
-            if photo.shape[:2] != frozen.shape(rid) or matte.shape != photo.shape[:2]:
-                raise InputError(f"{rid}: photo/matte shape differs from the frozen basis")
-            if name in views:
+            if (not fitted or fitted.get('camera') != rec.get('camera')
+                    or fitted.get('image_sha256') != rec['photo_sha256']
+                    or fitted.get('shape') != rec['shape'] or fitted.get('view_kind') != rec.get('view_kind')
+                    or fitted.get('colourway') != rec.get('colourway')
+                    or (fitted.get('matte_mode') or 'default') != (rec.get('matte_mode') or 'default')):
+                raise InputError(f"{rid}: missing or changed fitted camera/photo identity")
+            if name in images:
                 raise InputError(f"duplicate basis image: {name}")
-            views[name] = View(name, str(rec.get('view_kind') or ''), photo, matte, frozen.camera(rid),
-                               rec['photo_sha256'])
             images[name] = {'path': str(frozen.photo_path(rid)), 'sha256': rec['photo_sha256'],
-                            'view_kind': rec.get('view_kind'), 'matte_sha256': rec['matte_sha256']}
-        if set(views) != set(cameras['images']) or len(views) < 2:
-            raise InputError("the basis must contain every fitted photo and at least two views")
+                            'view_kind': rec.get('view_kind'), 'matte_sha256': rec.get('matte_sha256'),
+                            'matte_mode': rec.get('matte_mode', 'default')}
+            # Basis verifies every photo/hash first, even a failed decode. Decode only usable or existing matte
+            # evidence here; a retained unreadable photo must not prevent other accepted cameras from painting.
+            if frozen.is_usable(rid) or rec.get('matte'):
+                photo, matte = frozen.photo(rid), frozen.matte(rid)
+                if photo.shape[:2] != frozen.shape(rid) or matte.shape != photo.shape[:2]:
+                    raise InputError(f"{rid}: photo/matte shape differs from the frozen basis")
+            if frozen.is_usable(rid):
+                views[name] = View(name, str(rec.get('view_kind') or ''), photo, matte, frozen.camera(rid),
+                                   rec['photo_sha256'])
+        if set(images) != set(cameras['images']):
+            raise InputError("the basis must contain every attempted photo")
+        # Validate every frozen photo/matte/camera above before selecting donors. An alternate colourway
+        # remains bound evidence, even though it must never paint the target product.
+        roles = _photo_roles(root, frozen)
+        excluded = {}
+        for rid, rec in frozen.refs.items():
+            role = roles[rid]
+            name = rec['image']
+            images[name].update(role)
+            if rid in unusable or role['role'] != 'target':
+                excluded[name] = {**images.pop(name), 'basis_ref': rid, 'camera': rec.get('camera'),
+                                  'fit': unusable.get(rid),
+                                  'reason': (f"camera fit is {unusable[rid].get('status', 'unusable')}" if rid in unusable
+                                             else f"photo role is {role['role']}, not target")}
+                views.pop(name, None)
+        if len(views) < 2:
+            raise InputError("fewer than two target-colourway fitted photos")
         sources = {'job_dir': str(root), 'basis': basis, 'basis_json': str(frozen.dir / 'basis.json'),
                    'basis_sha256': sha256_file(frozen.dir / 'basis.json'),
                    'cameras_json': str(cameras_path), 'cameras_sha256': sha256_file(cameras_path),
                    'camera_fit_glb_sha256': cameras['model'].get('sha256'),
-                   'glb': str(model_path), 'glb_sha256': sha256_file(model_path), 'images': images}
+                   'glb': str(model_path), 'glb_sha256': sha256_file(model_path), 'images': images,
+                   'excluded_images': excluded}
         job = Job(mesh, frozen.frame, frozen.frame.to_norm(frozen.pivot_mm[None])[0], views, sources)
         if with_astra:
             job.astra = load_astra_texture(model_path, mesh)
@@ -330,3 +355,39 @@ def job_from_dir(job_dir: str | Path, *, glb: str | Path, basis: str,
         raise
     except (ValueError, LookupError, OSError) as exc:
         raise InputError(f"cannot load print job: {exc}") from exc
+
+
+def _photo_roles(root: Path, frozen) -> dict[str, dict]:
+    """The temple photo catalog's role defaults, bound to the frozen photo identity.
+
+    Explicit job roles/colourways are authoritative. Without them, retain the frozen basis's colourway; absence
+    from both sources means target. No colour is inferred from pixels or filenames.
+    """
+    path = root / 'job.json'
+    if not path.is_file():
+        return {rid: {'role': 'target' if frozen.colourway(rid) == 'target' else 'colourway',
+                      'colourway': frozen.colourway(rid)} for rid in frozen.refs}
+    doc = json.loads(path.read_text(encoding='utf-8'))
+    rows = doc.get('images')
+    if not isinstance(rows, list) or not rows:
+        raise InputError('job photo roles require an explicit images list')
+    from ..compare import ref_id
+    roles = {}
+    for row in rows:
+        name = row.get('original_name') if isinstance(row, dict) else None
+        if not isinstance(name, str) or not name or Path(name).name != name:
+            raise InputError('job photo roles need original filenames')
+        rid = row.get('basis_ref', ref_id(name))
+        if not isinstance(rid, str) or rid in roles or rid not in frozen.refs:
+            raise InputError('job photo roles do not bijectively match the frozen basis')
+        rec = frozen.refs[rid]
+        if row.get('sha256') != rec['photo_sha256']:
+            raise InputError(f'{rid}: job photo role identity differs from the frozen photo')
+        colourway = row.get('colourway') or frozen.colourway(rid)
+        role = row.get('role', 'target' if colourway == 'target' else 'colourway')
+        if role not in ('target', 'colourway', 'reference'):
+            raise InputError(f'{rid}: unknown photo role')
+        roles[rid] = {'role': role, 'colourway': colourway}
+    if set(roles) != set(frozen.refs):
+        raise InputError('job photo roles do not bijectively match the frozen basis')
+    return roles

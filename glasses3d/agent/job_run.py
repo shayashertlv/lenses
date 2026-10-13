@@ -12,7 +12,8 @@ from . import delivery as D, verdicts
 from .budget import cap_to_micro
 from .job_scene import JobScene
 from .instructions import build_instructions, instruction_contract
-from .loop import RunSettings, RunSpec, run_astra, tool_registry_sha256
+from .loop import RunSettings, RunSpec, approval_settings, run_astra, tool_registry_sha256
+from .temple_lab import stage as temple_stage
 from .tools import build_tools
 
 
@@ -40,19 +41,20 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) > 20_000_000:
         raise ValueError("job settled-spend stop must be at most the owner's $20 limit")
     scene = scene or JobScene(root, job=job)
-    tools = build_tools(scene)
+    tools = build_tools(scene, settings)
+    stages = (temple_stage.contract(job, settings, cap),)
     instructions = instructions_text(tools)
     text = brief.build_brief(job)
     photos = jobs.references(root)
     notes = verdicts.pending_notes(root)
     request = A.build_request(root, instructions_sha256=hashlib.sha256(instructions.encode()).hexdigest(),
                               tool_registry_sha256=tool_registry_sha256(tools, settings),
-                              settings=settings.approval_settings(), unsent_owner_notes=notes,
+                              settings=approval_settings(settings, stages), unsent_owner_notes=notes,
                               run_inputs=A.run_input_binding(root, text, photos))
     run_id = run_id or new_run_id()
     spec = RunSpec(job_dir=root, run_id=run_id, instructions=instructions, tools=tools, brief=text, photos=photos,
                    owner_notes=notes, current_request_sha256=A.request_sha256(request), settings=settings,
-                   requested_cap_usd=cap,
+                   requested_cap_usd=cap, stage_contracts=stages,
                    resume=resume, scene_note="Resume the saved head." if resume else "Start with the empty job template.",
                    contract=instruction_contract(tools), contract_brief=brief.host_text(job),
                    offline_handler=offline_handler,
@@ -73,6 +75,7 @@ def prepared_settings(root, run_id) -> tuple[RunSettings, str]:
         raise A.ApprovalRefused("missing", "job estimate must create a run request first")
     doc = json.loads(path.read_text(encoding="utf-8"))
     values = dict(doc["request"]["settings"])
+    values.pop("stages", None)  # recomputed from current job/schema bytes; the loop checks the exact binding
     finish = values.pop("finish", None)
     if finish:
         values.update(finish_tool=finish["tool"], finish_k=finish["k"])

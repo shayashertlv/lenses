@@ -19,15 +19,18 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
 
 from ..journal import CheckpointMismatch, WorkerFailed
-from ..loop import fatal_tool_errors, sdk_timeout_s, hard_timeout_s
+from ..loop import STAGE_FATAL, fatal_tool_errors, sdk_timeout_s, hard_timeout_s
 from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from . import arview
+from .seating import SEAT_TOOL_NAMES, seat_tools
+from .temple import temple_tool
+from .photo_print import photo_print_tool
 
 TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point",
-              "export_glb", "arview_capture", "read_image", "budget_status", "finish")
-FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied)
+              "export_glb", "arview_capture", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print")
+FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
 
 
 class CustomView(BaseModel):
@@ -170,7 +173,9 @@ def _valid_export(scene, call_id):
             or export.get("checkpoint") != head["id"] or export.get("fingerprint") != head["fingerprint"]
             or export.get("validation_sha256") != export.get("sha256")
             or not (export.get("validate_spec") or {}).get("ok")
-            or (export.get("seat_check") is not None and not export["seat_check"].get("ok"))):
+            or not isinstance(export.get("seat_check"), dict) or export["seat_check"].get("ok") is not True
+            or not isinstance(export.get("print_check"), dict) or export["print_check"].get("ok") is not True
+            or export["print_check"].get("glb_sha256") != export.get("sha256")):
         return None, {"status": "refused", "code": "E_EXPORT", "export": export,
                       "message": "finish needs a valid export of the current checkpoint"}
     if arview.sha256(arview.confined(scene.root, export["path"])) != export["sha256"]:
@@ -178,7 +183,7 @@ def _valid_export(scene, call_id):
     return export, None
 
 
-def build_tools(scene) -> list:
+def build_tools(scene, settings=None) -> list:
     """Build without starting Blender; the exact registry is available for estimation and approval."""
     def tool(name):
         def wrap(fn):
@@ -264,7 +269,10 @@ def build_tools(scene) -> list:
 
     @tool("fit_cameras")
     async def fit_cameras(ctx: ToolContext, reason: str, refs: list[str] | None = None, workers: int | None = None):
-        """Fit photo cameras from current geometry and the job's declared views. Returns fit facts and overlays.
+        """Fit photo cameras from current geometry and each photo's declared view and matte mode.
+        Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
+        retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
+        stages that need a complete camera set.
 
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
@@ -279,9 +287,11 @@ def build_tools(scene) -> list:
             wanted = None if refs is None else {Path(name).stem for name in refs}
             candidates = {row["original_name"]: tuple(row["fit_kinds"]) for row in rows
                           if wanted is None or Path(row["original_name"]).stem in wanted}
+            matte_modes = {row["original_name"]: row.get("matte_mode") for row in rows}
             with single_threaded_blas():
                 return scene.seeing.fit_cameras(reason, images, views, candidates=candidates,
-                                                refs=refs, workers=fit_workers(workers), call_id=cid)
+                                                refs=refs, workers=fit_workers(workers), matte_modes=matte_modes,
+                                                call_id=cid)
         return await call(ctx, "fit_cameras", fit)
 
     @tool("render_views")
@@ -334,7 +344,8 @@ def build_tools(scene) -> list:
 
     @tool("export_glb")
     async def export_glb(ctx: ToolContext):
-        """Export the current checkpoint with its SHA-256, complete specification report and declared-seat check."""
+        """Export the current checkpoint with its SHA-256, complete specification report and all-frame seating check.
+        Intermediate exports may have failed seating; finish requires both reports to pass."""
         return await call(ctx, "export_glb", lambda cid: scene.seeing.export_head(call_id=cid))
 
     @tool("arview_capture")
@@ -369,7 +380,7 @@ def build_tools(scene) -> list:
 
     @tool("finish")
     async def finish(ctx: ToolContext, summary: str):
-        """Finish when the current checkpoint exports with passing specification and declared-seat reports, and its
+        """Finish when the current checkpoint exports with passing specification and all-frame seating reports, and its
         AR capture succeeded. Failed or stale AR captures must be retried before delivery.
 
         Args:
@@ -391,4 +402,6 @@ def build_tools(scene) -> list:
         return await call(ctx, "finish", finish_current)
 
     return [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
-            render_views, compare_to_photos, pick_surface_point, export_glb, arview_capture, read_image, budget_status, finish]
+            render_views, compare_to_photos, pick_surface_point, export_glb, arview_capture, read_image, budget_status,
+            finish, *seat_tools(scene, tool, call), temple_tool(scene, call, settings, FATAL),
+            photo_print_tool(scene, call, FATAL)]

@@ -76,6 +76,7 @@ CONTOUR_PERCENTILES = (90, 95)
 LABEL_CANDIDATES: dict[str, tuple[str, ...]] = {
     "front": ("front",),
     "rear": ("back",),
+    "rear_threequarter": ("rear_threequarter_left", "rear_threequarter_right"),
     "side": ("right", "left"),                        # the label does not say which side
     "top": ("top", "topb"),                           # seen over the front or over the back; camera above either way
     "elevated side": ("top_oblique_left", "top_oblique_right"),
@@ -88,6 +89,7 @@ VIEW_KINDS: dict[str, tuple[str, ...]] = {
     **LABEL_CANDIDATES,
     **{v: (v,) for v in cameras.VIEWS if v not in LABEL_CANDIDATES},
     "top oblique": cameras.TOP_OBLIQUE_VIEWS,
+    "rear three quarter": ("rear_threequarter_left", "rear_threequarter_right"),
 }
 
 
@@ -125,8 +127,8 @@ class Product:
 
 
 PRADA_SKIP = ("hallmark", "etch", "ribbon")           # gold temple hallmarks/ribbon and the lens etch: surface decals
-PRADA_FRONT_PARTS = ("Front | continuous milled acetate", "Lens left | closed 49 x 36 mm",
-                     "Lens right | closed 49 x 36 mm")
+PRADA_FRONT_PARTS = ("Front | continuous milled acetate.001", "Lens left | closed 49 x 36 mm.001",
+                     "Lens right | closed 49 x 36 mm.001")
 # make_uv_test.py fitted FT1119 02/03/04 with 2 starts; keeping 2 keeps the reproduced prototype cameras for 02/03
 # (tests/test_cameras_repro.py) as the cameras WP5 projects with; 04 also gets the top prior's low band, which lands in
 # the prototype's basin (within 0.06-0.21 deg, tested) but not bit-identically
@@ -138,7 +140,10 @@ PRODUCTS: dict[str, Product] = {
         model_source="studio job 3b8a1c7ae8114868b49b298b681f1b29 original/model.glb (quality-001, = prototype q001.glb)",
         views={"reference-01.png": "angled", "reference-02.png": "rear", "reference-03.png": "side",
                "reference-04.png": "top", "reference-05.png": "front", "reference-06.png": "elevated side"},
-        skip=fitmesh.PROTOTYPE_SKIP, front_parts=fitmesh.PROTOTYPE_FRONT_PARTS, n_refine=FT1119_N_REFINE),
+        skip=fitmesh.PROTOTYPE_SKIP,
+        front_parts=("Brow_Left.001", "Brow_Right.001", "Eyewire_Left.001", "Eyewire_Right.001",
+                     "Lens_Left.001", "Lens_Right.001", "Saddle_bridge.001"),
+        n_refine=FT1119_N_REFINE),
     "prada": Product(
         key="prada", name="Prada PRS 17WS 21D5J2 49M", job="8c82d986e6c14d26b4b38f3807712ea0",
         model_source="studio job 8c82d986e6c14d26b4b38f3807712ea0 agent/ar/prada-pr17ws-delivery-3e3ac97b/model.glb",
@@ -289,21 +294,88 @@ def _cam(c: Camera) -> dict:
     return {k: float(getattr(c, k)) for k in CAMERA_FIELDS}
 
 
+def rigid_fit_marker(model_sha256: str, photo_sha256: str, camera: dict) -> dict:
+    """Provenance for this fitter's fixed authored mesh; zero is a delta, not a measured opening angle."""
+    camera_sha = hashlib.sha256(json.dumps(camera, sort_keys=True, separators=(",", ":"),
+                                          allow_nan=False).encode("utf-8")).hexdigest()
+    return {"schema": "g3d.rigid_camera_fit/1", "source_model_sha256": model_sha256,
+            "photo_sha256": photo_sha256, "camera_sha256": camera_sha,
+            "temple_delta_deg": {"+1": 0.0, "-1": 0.0}}
+
+
 def _candidate_record(r: dict, ppm: float) -> dict:
     m = r["metrics"]
     return {"view": r["view"], "camera": _cam(r["camera"]), "loss": r["loss"], "loss_common_level": r.get("common_loss"),
             "iou": m["iou"], "contour_mean_px": m["contour_mean_px"], "px_per_mm_at_front_pivot": ppm,
             "contour_mean_mm": m["contour_mean_px"] / ppm, "sign": r["sign"],
-            "winner_origin": r["refine"]["origin"], "evaluations": r["fit"].evals}
+            "winner_origin": r["refine"]["origin"], "evaluations": r["fit"].evals,
+            **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'}}
+
+
+def lens_loss_policy(glb_path, mesh: fitmesh.FitMesh) -> tuple[dict, list[int]]:
+    """Use the seating check's construction evidence, and only the actual lens primitives of exact nodes.
+
+    This changes the camera objective only; it never changes a seating verdict or the reported raw silhouette.
+    Unknown construction, ambiguous duplicate node names, and failed checks retain the full silhouette.
+    """
+    from . import seat_check
+    report = seat_check.check_glb(glb_path)
+    construction = [{key: row.get(key) for key in ('node', 'frame_type', 'frame_type_source', 'provisional')}
+                    for row in report.get('lenses', [])]
+    by_node = {}
+    for row in construction:
+        by_node.setdefault(row['node'], []).append(row)
+    identities = {}
+    for name, node in zip(mesh.names, mesh.node_indices):
+        identities.setdefault(name, set()).add(node)
+    optional_nodes = {name for name, rows in by_node.items()
+                      if len(identities.get(name, ())) == 1
+                      and all(row['frame_type'] in ('rimless', 'semi_rimless') for row in rows)}
+    optional = [i for i, (name, lens) in enumerate(zip(mesh.names, mesh.lens_parts))
+                if lens and name in optional_nodes]
+    actual_nodes = sorted({mesh.names[i] for i in optional})
+    policy = {'mode': 'optional' if optional else 'full', 'optional_nodes': actual_nodes,
+              'optional_faces': int(np.isin(mesh.part, optional).sum()), 'construction': construction}
+    if report.get('error'):
+        policy['note'] = f"construction check unavailable; full silhouette retained: {report['error']}"
+    return policy, optional
+
+
+def _model_record(glb_path, mesh, pivot, skip, front_parts):
+    return {"path": str(glb_path), "sha256": sha256_file(Path(glb_path)), "skip": list(skip),
+            "skipped": mesh.skipped, "front_parts": None if front_parts is None else list(front_parts),
+            "front_pivot_mm": [float(x) for x in mesh.frame.to_mm(pivot[None])[0]],
+            "frame": mesh.frame.to_dict(), "parts": len(mesh.names), "faces": int(len(mesh.F))}
+
+
+def _fit_context(glb_path, skip, front_parts, mesh=None, pivot=None):
+    mesh = mesh if mesh is not None else fitmesh.load_fit_mesh(glb_path, skip=skip)
+    pivot = pivot if pivot is not None else mesh.front_pivot(front_parts)
+    policy, optional = lens_loss_policy(glb_path, mesh)
+    return {'model': _model_record(glb_path, mesh, pivot, skip, front_parts),
+            'lens_loss': policy, 'optional_parts': optional}
+
+
+def _matte_mode(requested: str | None, context: dict) -> str:
+    """Resolve absence from actual optional lens faces; an explicit photo mode always wins."""
+    if requested is not None:
+        if not isinstance(requested, str) or requested not in M.MODES:
+            raise ValueError(f'unknown matte mode {requested!r}; known: {M.MODES}')
+        return requested
+    return ('open_frame' if context.get('optional_parts') and context.get('lens_loss', {}).get('mode') == 'optional'
+            else 'default')
 
 
 # ----------------------------------------------------------------------------- one photo
 def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
               candidates: tuple[str, ...] | None = None, n_refine: int | None = None,
-              cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None) -> dict:
+              cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None,
+              matte_mode: str | None = None, _model_context: dict | None = None) -> dict:
     """Fit one photo to the model (runs in a worker process; returns plain data). ``candidates`` overrides the kind's
     views; ``cross_winners`` = {view: camera dict} of already fitted photos, used as cross seeds for a
-    ``CROSS_RECEIVERS`` candidate. The record's ``model`` entry describes the mesh (``fit_views`` lifts it out)."""
+    ``CROSS_RECEIVERS`` candidate. An absent ``matte_mode`` uses open_frame only for actual optional lens faces;
+    explicit modes are authoritative. The record stores the resolved mode so frozen evidence uses the same matte.
+    The record's ``model`` entry describes the mesh (``fit_views`` lifts it out)."""
     t0 = time.perf_counter()
     cands = tuple(candidates) if candidates else view_candidates(view_kind)
     bad = [v for v in cands if v not in cameras.VIEWS]
@@ -312,9 +384,16 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     nr = cameras.N_COARSE_POWELL if n_refine is None else int(n_refine)
     mesh = fitmesh.load_fit_mesh(glb_path, skip=tuple(skip))
     pivot = mesh.front_pivot(None if front_parts is None else tuple(front_parts))
+    context = _model_context or _fit_context(glb_path, skip, front_parts, mesh, pivot)
+    model = _model_record(glb_path, mesh, pivot, skip, front_parts)
+    if model != context['model']:
+        raise ValueError('the model changed since shared camera-fit preparation')
+    matte_mode = _matte_mode(matte_mode, context)
+    ignore_faces = np.isin(mesh.part, context['optional_parts']) if context['optional_parts'] else None
     scene = mesh.scene()
+    photo_sha = sha256_file(Path(image_path))
     img = M.load_photo(image_path)
-    fg = M.matte(img)
+    fg = M.matte(img, mode=matte_mode)
     if not fg.any():
         raise ValueError(f"{image_path}: the matte is empty (no foreground against the border background model)")
     cross, n_cross, sources = None, 0, []
@@ -324,7 +403,8 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         cross = {v: cameras.cross_seeds(v, winners) for v in receivers}
         n_cross = sum(len(cameras.wrap_seeds(v, s)) for v, s in cross.items())
         sources = sorted(winners)
-    best, results = cameras.fit_best(fg, scene, pivot, [(v, None) for v in cands], nr, cross=cross)
+    best, results = cameras.fit_best(fg, scene, pivot, [(v, None) for v in cands], nr, cross=cross,
+                                     ignore_faces=ignore_faces)
     pivot_mm = mesh.frame.to_mm(pivot[None])[0]
     ppm = {id(r): cameras.px_per_mm_at(r["camera"], mesh.frame, pivot_mm) for r in results}
     cam, m, p = best["camera"], best["metrics"], ppm[id(best)]
@@ -336,9 +416,10 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     if refusal:
         flags.append("label_sign_contradicted")
     rec = {
-        "image": str(image_path), "image_sha256": sha256_file(Path(image_path)), "shape": list(fg.shape),
+        "image": str(image_path), "image_sha256": photo_sha, "shape": list(fg.shape),
         "view_kind": view_kind, "candidates": list(cands), "n_refine": nr,
         "status": "refused" if refusal else "ok", "refusal": refusal, "flags": flags,
+        "code": "E_VIEW_SIGN" if refusal else None,
         "view": best["view"], "winner_origin": best["refine"]["origin"], "camera": _cam(cam),
         "loss": best["loss"], "loss_common_level": best["common_loss"],
         "iou": m["iou"], "contour_mean_px": m["contour_mean_px"], "contour_p90_px": cs["p90"],
@@ -353,12 +434,15 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         "all_candidates": [_candidate_record(r, ppm[id(r)]) for r in results],
         "cross_seeds": n_cross, "cross_sources": sources,
         "matte": {"foreground_px": int(fg.sum()), "shape": list(fg.shape)},
+        "matte_mode": matte_mode, "lens_loss": context['lens_loss'],
+        **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'},
         "overlay": None if overlay_path is None else str(overlay_path),
-        "model": {"path": str(glb_path), "sha256": sha256_file(Path(glb_path)), "skip": list(skip),
-                  "skipped": mesh.skipped, "front_parts": None if front_parts is None else list(front_parts),
-                  "front_pivot_mm": [float(x) for x in pivot_mm], "frame": mesh.frame.to_dict(),
-                  "parts": len(mesh.names), "faces": int(len(mesh.F))},
+        "model": model,
     }
+    if sha256_file(Path(image_path)) != photo_sha or sha256_file(Path(glb_path)) != model['sha256']:
+        raise ValueError('photo or model changed during fitting')
+    if rec["status"] == "ok":
+        rec["rigid_fit"] = rigid_fit_marker(rec["model"]["sha256"], rec["image_sha256"], rec["camera"])
     if overlay_path is not None:
         op = Path(overlay_path)
         op.parent.mkdir(parents=True, exist_ok=True)
@@ -370,7 +454,32 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
 # ----------------------------------------------------------------------------- every photo of a model
 def _run(job):
     args, kwargs = job
-    return fit_image(*args, **kwargs)
+    try:
+        return fit_image(*args, **kwargs)
+    except Exception as exc:
+        return _failed_photo(args[1], args[2], kwargs, exc)
+
+
+def _failed_photo(image_path, kind, kwargs, exc):
+    """Keep every attempted photo, including decodable empty mattes and wholly unreadable inputs."""
+    mode = _matte_mode(kwargs.get('matte_mode'), kwargs.get('_model_context') or {})
+    row = {'image': str(image_path), 'image_sha256': None, 'view_kind': kind,
+           'candidates': list(kwargs.get('candidates') or view_candidates(kind)), 'n_refine': kwargs.get('n_refine'),
+           'status': 'failed', 'code': 'E_PHOTO_FIT', 'refusal': f'{type(exc).__name__}: {exc}',
+           'error': {'type': type(exc).__name__, 'message': str(exc)}, 'flags': [], 'camera': None, 'view': None,
+           'shape': None, 'matte_mode': mode, 'matte': None, 'roi': None, 'overlay': None,
+           'lens_loss': (kwargs.get('_model_context') or {}).get('lens_loss')}
+    try:
+        row['image_sha256'] = sha256_file(Path(image_path))
+        image = M.load_photo(image_path)
+        row['shape'] = list(image.shape[:2])
+        mask = M.matte(image, mode=mode)
+        row['matte'] = {'foreground_px': int(mask.sum()), 'shape': list(mask.shape)}
+        if mask.any():
+            row['roi'] = [int(v) for v in cameras.matte_roi(mask)]
+    except Exception:
+        pass  # The recorded original failure remains authoritative; unavailable evidence is explicit None.
+    return row
 
 
 def _map(jobs, workers):
@@ -396,13 +505,16 @@ def _per_name(value, names, what: str) -> dict:
 
 def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[str, str], out_dir: str | Path, *,
               skip=(), front_parts=None, candidates: dict[str, tuple[str, ...]] | None = None,
-              n_refine: int | dict[str, int] | None = None, workers: int | None = None, log=print) -> dict:
+              n_refine: int | dict[str, int] | None = None, workers: int | None = None, log=print,
+              matte_modes: str | dict[str, str | None] | None = None) -> dict:
     """Fit a camera for every photo in ``images`` (name -> path) against the model, each with the candidates of its
     view kind in ``views`` (name -> kind, ``view_candidates``), on the schedule above. Writes
     ``out_dir/cameras.json`` and ``out_dir/overlay_<name stem>.png`` per photo; returns the cameras.json content.
 
     ``skip`` / ``front_parts`` go to ``fitmesh.load_fit_mesh`` / ``FitMesh.front_pivot`` (None: the geometric front
-    piece); ``candidates`` ({name: views}) overrides a photo's kind; ``n_refine`` is an int or {name: int}."""
+    piece); ``candidates`` ({name: views}) overrides a photo's kind; ``n_refine`` is an int or {name: int}.
+    ``matte_modes`` may provide one mode or per-photo modes; absent entries resolve from construction, and every
+    result records the concrete mode used. An explicit default retains the historical hole-filled matte."""
     t0 = time.perf_counter()
     glb_path = Path(glb_path)
     images = {str(n): Path(p) for n, p in images.items()}
@@ -411,11 +523,14 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
         raise ValueError("no images")
     if set(views) != set(names):
         raise ValueError(f"views {sorted(views)} != images {sorted(names)}: every image needs exactly one view kind")
-    missing = [str(p) for p in [glb_path, *images.values()] if not p.is_file()]
-    if missing:
-        raise FileNotFoundError(f"not found: {missing}")
+    if not glb_path.is_file():
+        raise FileNotFoundError(f"not found: {glb_path}")
     cands = {n: (tuple(c) if c else None) for n, c in _per_name(candidates, names, "candidates").items()}
     nref = _per_name(n_refine, names, "n_refine")
+    modes = _per_name(matte_modes, names, 'matte_modes')
+    for name, mode in modes.items():
+        if mode is not None and (not isinstance(mode, str) or mode not in M.MODES):
+            raise ValueError(f'{name}: unknown matte mode {mode!r}; known: {M.MODES}')
     stems = [Path(n).stem for n in names]
     if len(set(stems)) != len(stems):
         raise ValueError(f"image names {names} share a stem: their overlays would collide")
@@ -423,6 +538,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
         for v in cands[n] or view_candidates(views[n]):
             if v not in cameras.VIEWS:
                 raise ValueError(f"{n}: unknown view {v!r}; known {cameras.VIEWS}")
+    context = _fit_context(glb_path, tuple(skip), None if front_parts is None else tuple(front_parts))
+    modes = {name: _matte_mode(mode, context) for name, mode in modes.items()}
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -433,6 +550,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
         return ((glb_path, images[n], views[n]),
                 {"skip": tuple(skip), "front_parts": None if front_parts is None else tuple(front_parts),
                  "candidates": cands[n], "n_refine": nref[n], "cross_winners": winners,
+                 "matte_mode": modes[n], "_model_context": context,
                  "overlay_path": out_dir / f"overlay_{Path(n).stem}.png"})
 
     first = [n for n in names if not receives(n)]
@@ -445,10 +563,10 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
         if r["status"] == "ok" and r["view"] not in cameras.NOT_CROSS_SOURCES:
             winners.setdefault(r["view"], r["camera"])  # first photo wins a duplicate view
     recs.update(zip(second, _map([job(n, winners or None) for n in second], min(nw, max(1, len(second))))))
-    models = [recs[n].pop("model") for n in names]
-    if any(mo != models[0] for mo in models[1:]):
+    models = [recs[n].pop("model") for n in names if 'model' in recs[n]]
+    if any(mo != context['model'] for mo in models) or sha256_file(glb_path) != context['model']['sha256']:
         raise RuntimeError("the worker processes loaded different meshes from one GLB")
-    res = {"created_utc": _utc(), "model": models[0], "images": {n: recs[n] for n in names},
+    res = {"created_utc": _utc(), "model": context['model'], "images": {n: recs[n] for n in names},
            "cross_winners": winners,
            "policy": {"view_kinds": {k: list(v) for k, v in VIEW_KINDS.items()},
                       "cross_receivers": list(CROSS_RECEIVERS), "not_cross_sources": list(cameras.NOT_CROSS_SOURCES),
@@ -466,6 +584,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
 
 
 def _row(name: str, r: dict) -> str:
+    if r.get('status') == 'failed':
+        return f"{name:18s} {r['view_kind']:13s} -> failed {r.get('code')}: {r.get('refusal')}"
     c = r["camera"]
     return (f"{name:18s} {r['view_kind']:13s} -> {r['view']:17s} {r['status']:7s} IoU {r['iou']:.4f} "
             f"contour {r['contour_mean_px']:6.2f} px = {r['contour_mean_mm']:5.2f} mm (p90 {r['contour_p90_mm']:5.2f} mm, "

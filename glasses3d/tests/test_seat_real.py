@@ -150,9 +150,9 @@ def _proof_dir():
 
 def _proof_or_skip() -> dict:
     """proof.json, or a skip when the outputs are absent or STALE: every proof records the sha256 of the code that
-    produced its files (g3d/seat/*, seat_bpy.py, the exporter, the Blender runners, the fixture builder; proof
-    review: the outputs were not tied to that code), and a file changed since the run, or cases run with different
-    code, make it stale (re-run python -m glasses3d.tests.proofs.wp4_proof)."""
+    produced its seating state (g3d/seat/*, seat_bpy.py, the Blender runners and fixture builder). Shared export/host
+    modules have separate regression tests; unrelated edits there do not stale this seating evidence. A tracked
+    seating source change or cases run with different code make it stale (re-run the WP4 proof)."""
     p = _proof_dir() / "proof.json"
     st = _proof_dir() / "proof/run_state.json"
     if not p.is_file() or not st.is_file():

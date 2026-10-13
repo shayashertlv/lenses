@@ -51,6 +51,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from glasses3d.g3d import printuv as PU
 from glasses3d.g3d_host.photoprint import inputs as IN
+from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.g3d_host.photoprint import project as PR, production
 from glasses3d.g3d_host.photoprint import regions as RG
 from glasses3d.g3d_host.photoprint import texels as TX
@@ -110,7 +111,7 @@ def _short(view: str) -> str:
 # ----------------------------------------------------------------------------- held-out jobs (B3 + B2 diagnostic)
 def _heldout_job(view, tx, radii):
     opt_out_ecoqos()
-    job = IN.load_job(IN.FT1119["cameras"])
+    job = legacy_ft1119.load_job()
     return PP.heldout_b3(job, IN.FT1119_PARTS, view, radii_mm=radii, tx=tx, b2=True, keep_render=True)
 
 
@@ -553,7 +554,7 @@ def _read_heldout(out: Path, views) -> dict:
 
 def _sheets_only(a, prog) -> int:
     out = Path(a.out)
-    job = IN.load_job(IN.FT1119["cameras"])
+    job = legacy_ft1119.load_job()
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     tx = float(rep["layout"]["tx_per_mm"])
     lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(IN.FT1119_PARTS), tx,
@@ -582,10 +583,11 @@ def _main(a, prog) -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     job = (IN.job_from_dir(a.job, glb=a.glb, basis=a.basis) if a.job
-           else IN.load_job(IN.FT1119["cameras"]))
+           else legacy_ft1119.load_job())
+    step0 = STEP0 if a.job else legacy_ft1119.cached_fixture()['step0']
     prog(f"production bake -> {out} (q001 sha {job.sources['glb_sha256'][:12]}, {len(job.views)} photos)", force=True)
     res = production.bake_print(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers,
-                                step0_report=STEP0, compare_fill=COMPARE, calibration=a.level, thresholds=TH)
+                                step0_report=step0, compare_fill=COMPARE, calibration=a.level, thresholds=TH)
     tx = float(res["layout"].tx_per_mm)
     rep = res["report"]
     bake = {"out": str(out), "inputs": rep["inputs"], "mode": rep["mode"], "tx_per_mm": tx,
@@ -619,7 +621,7 @@ def _main(a, prog) -> int:
     if a.a7_serial:
         prog("A7: serial bake (workers=1)", force=True)
         production.bake_print(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
-                              step0_report=STEP0, compare_fill=COMPARE, log=print, calibration=a.level,
+                              step0_report=step0, compare_fill=COMPARE, log=print, calibration=a.level,
                               thresholds=TH)
         names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")
         sha = {n: (hashlib.sha256((out / n).read_bytes()).hexdigest(),

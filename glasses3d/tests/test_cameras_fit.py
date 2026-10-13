@@ -172,7 +172,7 @@ def test_fit_best_chooses_on_the_common_level_not_the_own_level(synth, monkeypat
                    true.center_x + 25.0, true.center_y - 10.0)
     fake = {"front": (off, 0.01), "angled": (true, 0.5)}
 
-    def fit_view(view, fg_, scene, pivot, seeds=None, n_refine=3, *, cross=None, sign_margin=True):
+    def fit_view(view, fg_, scene, pivot, seeds=None, n_refine=3, *, cross=None, sign_margin=True, ignore_faces=None):
         cam, loss = fake[view]
         return {"view": view, "camera": cam, "loss": loss, "metrics": {}, "sign": None, "refine": {},
                 "fit": types.SimpleNamespace(ignore_faces=None)}

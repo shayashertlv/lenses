@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import copy
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,7 +16,36 @@ import pytest
 from glasses3d.agent import delivery as D
 from glasses3d.agent.tools import arview
 from glasses3d.g3d_host.spec import validate_spec
+from glasses3d.g3d_host.seat_check import check_glb
 from glasses3d.tests import glbfab
+from glasses3d.tests.fixtures import seat_fixtures as SF
+
+
+_FINISHED_MODELS = {}
+
+
+def _seated_model(path: Path, variation: int):
+    """A real, seated pair. Cache immutable bytes/reports because many receipt tests use the same geometry."""
+    if variation not in _FINISHED_MODELS:
+        nodes = []
+        for side, lens in (("L", SF.base_lens()), ("R", SF.mirrored_lens())):
+            nodes += SF.scene_nodes({"lens": lens, "parts": {f"Rim_{side}": SF.ring_frame(lens, 0.8)}},
+                                    lens_name=f"Lens_{side}", seat_extras={"frame_type": "acetate"})
+        for name in ("Bridge", "Temple_L", "Temple_R"):
+            box, _, role = glbfab.default_parts()[name]
+            if name == "Temple_L":
+                box = (*box[:4], box[4] - variation, box[5])
+            nodes.append({"name": name, "mesh": SF.Mesh(*glbfab.box(*box)), "role": role,
+                          "material": {"name": "Frame"}})
+        SF.write_glb(path, nodes)
+        seating = check_glb(path)
+        assert seating["ok"], seating
+        _FINISHED_MODELS[variation] = (path.read_bytes(), seating)
+    payload, seating = _FINISHED_MODELS[variation]
+    path.write_bytes(payload)
+    seating = copy.deepcopy(seating)
+    seating["glb"] = str(path)
+    return seating
 
 
 def digest(path):
@@ -27,11 +57,7 @@ def make_finished(root: Path, *, run_id="offline", variation=0):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     model = root / "finished.glb"
-    parts = glbfab.default_parts()
-    if variation:
-        box, material, role = parts["Temple_L"]
-        parts["Temple_L"] = ((*box[:4], box[4] - variation, box[5]), material, role)
-    model.write_bytes(glbfab.build(parts=parts))
+    seating = _seated_model(model, variation)
     sha = digest(model)
     validation = validate_spec(model)
     assert validation["ok"], validation
@@ -52,7 +78,8 @@ def make_finished(root: Path, *, run_id="offline", variation=0):
         opened.convert("RGB").save(image)
     fp = "f" * 64
     export = {"status": "exported", "path": str(model), "sha256": sha, "checkpoint": "c0001",
-              "fingerprint": fp, "validation_sha256": sha, "validate_spec": validation, "seat_check": None}
+              "fingerprint": fp, "validation_sha256": sha, "validate_spec": validation, "seat_check": seating,
+              "print_check": {"ok": True, "status": "not_required", "glb_sha256": sha}}
     scene = SimpleNamespace(finish={"status": "accepted", "checkpoint": "c0001", "fingerprint": fp,
                                     "summary": "Offline fixture.", "export": export},
                             last_ar={"status": "ok", "exit_code": 0, "checkpoint": "c0001",
@@ -79,7 +106,9 @@ def test_snapshot_and_compatibility_report_contain_all_required_evidence(tmp_pat
     assert loaded["id"] == out["delivery_id"]
     assert digest(loaded["model"]) == loaded["glb_sha256"] == scene.finish["export"]["sha256"]
     report = json.loads(Path(out["report"]).read_text())
-    assert report["validate_spec"]["ok"] and report["seating"] is None
+    assert report["validate_spec"]["ok"] and report["seating"]["ok"]
+    assert report["print_check"]["ok"] and report["print_check"]["glb_sha256"] == loaded["glb_sha256"]
+    assert report["seating"]["glb"] == loaded["model"]
     assert report["checkpoint"] == "c0001" and report["cost"] == result["budget"]
     assert report["arview"]["lens_env_intensity"] == 1
     assert report["arview"]["appearance_policy"] == "g3d.ar_appearance/1"
@@ -118,8 +147,32 @@ def test_same_finished_run_is_idempotent_without_rewriting_snapshot(tmp_path):
     assert len([p for p in (tmp_path / "deliveries").iterdir() if p.is_dir()]) == 1
 
 
+def test_pre_m4_immutable_delivery_without_seating_remains_readable_and_unchanged(tmp_path):
+    scene, result = make_finished(tmp_path)
+    manifest, files = D._prepare(tmp_path, scene, result)
+    report = json.loads(files["report.json"])
+    report["seating"] = None  # a historical M3 report, before all-frame seating became a publication requirement
+    report.pop("print_check")
+    files["report.json"] = D._json_bytes(report)
+    manifest["files"]["report.json"] = {"sha256": hashlib.sha256(files["report.json"]).hexdigest(),
+                                         "bytes": len(files["report.json"])}
+    manifest["id"] = D._snapshot_id(manifest)
+    directory = tmp_path / "deliveries" / manifest["id"]
+    for name, data in {**files, "manifest.json": D._json_bytes(manifest)}.items():
+        path = directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    before = {p.relative_to(directory).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+              for p in directory.rglob("*") if p.is_file()}
+    loaded = D.load_delivery(tmp_path, manifest["id"])
+    assert loaded["report_data"]["seating"] is None
+    assert {p.relative_to(directory).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in directory.rglob("*") if p.is_file()} == before
+
+
 @pytest.mark.parametrize("failure", ["not_accepted", "unverified", "wrong_checkpoint", "export_checkpoint",
-                                     "fingerprint", "invalid_spec", "validation_sha", "seating", "model_bytes",
+                                     "fingerprint", "invalid_spec", "validation_sha", "seating", "no_seating", "model_bytes",
+                                     "stale_print", "no_print_report", "wrong_print_sha",
                                      "ar_status", "ar_sha", "ar_report_bytes", "capture_bytes", "sheet_bytes",
                                      "tool_image_bytes", "missing_sheet_receipt", "empty_capture", "report_glb",
                                      "report_scale", "report_exit"])
@@ -142,6 +195,14 @@ def test_delivery_refuses_incomplete_or_corrupt_source_evidence(tmp_path, failur
         exp["validation_sha256"] = "0" * 64
     elif failure == "seating":
         exp["seat_check"] = {"ok": False}
+    elif failure == "no_seating":
+        exp["seat_check"] = None
+    elif failure == "stale_print":
+        exp["print_check"]["ok"] = False
+    elif failure == "no_print_report":
+        exp.pop("print_check")
+    elif failure == "wrong_print_sha":
+        exp["print_check"]["glb_sha256"] = "0" * 64
     elif failure == "model_bytes":
         Path(exp["path"]).write_bytes(b"changed")
     elif failure == "ar_status":

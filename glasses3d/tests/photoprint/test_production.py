@@ -18,13 +18,13 @@ from glasses3d.tests.photoprint import ar_levels as AL, ar_calibrate as AC
 
 @pytest.fixture
 def basis_job(tmp_path, ft1119_job):
-    basis = C.import_cameras_json(tmp_path, IN.FT1119['cameras'],
+    basis = C.import_cameras_json(tmp_path, ft1119_job.sources['cameras_json'],
                                   {k: v['path'] for k, v in ft1119_job.sources['images'].items()},
                                   reason='G1 offline fixture')
     return tmp_path, basis
 
 
-def test_explicit_basis_matches_original_inputs(basis_job, ft1119_job):
+def test_explicit_basis_matches_original_inputs(basis_job, ft1119_job, ft1119_fixture):
     root, basis = basis_job
     job = IN.job_from_dir(root, glb=ft1119_job.sources['glb'], basis=basis.id)
     assert job.sources['camera_fit_glb_sha256'] == job.sources['glb_sha256']
@@ -36,10 +36,10 @@ def test_explicit_basis_matches_original_inputs(basis_job, ft1119_job):
         assert view.camera == ref.camera
         np.testing.assert_array_equal(view.image, ref.image)
         np.testing.assert_array_equal(view.matte, ref.matte)
-    P.validate_registration_inputs(job, IN.REPO / 'glasses3d/data/wp5/ft1119_strip_null/report.json')
+    P.validate_registration_inputs(job, ft1119_fixture['step0'])
 
 
-@pytest.mark.parametrize('damage', ['cameras', 'camera', 'matte', 'photo', 'missing', 'kind'])
+@pytest.mark.parametrize('damage', ['cameras', 'camera', 'matte', 'photo', 'missing', 'kind', 'colourway'])
 def test_changed_basis_refuses_before_baking(basis_job, ft1119_job, damage):
     root, basis = basis_job
     bp = basis.dir / 'basis.json'
@@ -52,6 +52,8 @@ def test_changed_basis_refuses_before_baking(basis_job, ft1119_job, damage):
         ref['camera']['yaw'] += 1
     elif damage == 'kind':
         ref['view_kind'] = 'rear'
+    elif damage == 'colourway':
+        ref['colourway'] = 'other finish'
     elif damage == 'photo':
         ref['photo_sha256'] = '0' * 64
     elif damage == 'missing':
@@ -71,6 +73,105 @@ def test_no_implicit_job_or_newest_basis(tmp_path):
         IN.job_from_dir(tmp_path, glb='model.glb')
     with pytest.raises(IN.InputError, match='no camera basis'):
         IN.job_from_dir(tmp_path, glb='model.glb', basis='basis-001')
+
+
+def _roles(root, basis, **overrides):
+    rows = [{'original_name': ref['image'], 'basis_ref': rid, 'sha256': ref['photo_sha256'],
+             **overrides.get(rid, {})} for rid, ref in basis.refs.items()]
+    (root / 'job.json').write_text(json.dumps({'images': rows}))
+    return rows
+
+
+def _frozen_colourways(basis, changes):
+    """Fixture metadata is recorded in both the source cameras and its frozen copy, with the source hash rebound."""
+    cameras_path = basis.dir / C.CAMERAS_JSON
+    cameras = json.loads(cameras_path.read_bytes())
+    meta = json.loads((basis.dir / 'basis.json').read_bytes())
+    for rid, colourway in changes.items():
+        meta['refs'][rid]['colourway'] = colourway
+        cameras['images'][meta['refs'][rid]['image']]['colourway'] = colourway
+    cameras_path.write_text(json.dumps(cameras), encoding='utf-8')
+    meta['cameras_json_sha256'] = C.sha256_file(cameras_path)
+    (basis.dir / 'basis.json').write_text(json.dumps(meta), encoding='utf-8')
+    return C.Basis(basis.dir, basis.job_root)
+
+
+@pytest.mark.parametrize('metadata', ['basis_only', 'job_without_roles', 'explicit_target'])
+def test_frozen_alternate_colourway_is_excluded_unless_job_explicitly_selects_it(basis_job, ft1119_job, metadata):
+    root, basis = basis_job
+    rid = next(iter(basis.refs))
+    basis = _frozen_colourways(basis, {rid: 'blue'})
+    if metadata != 'basis_only':
+        _roles(root, basis, **({rid: {'role': 'target'}} if metadata == 'explicit_target' else {}))
+    job = IN.job_from_dir(root, glb=ft1119_job.sources['glb'], basis=basis.id)
+    ref = basis.refs[rid]
+    if metadata == 'explicit_target':
+        assert ref['image'] in job.views and not job.sources['excluded_images']
+        assert job.sources['images'][ref['image']]['colourway'] == 'blue'
+    else:
+        assert ref['image'] not in job.views and len(job.views) == len(basis.refs) - 1
+        excluded = job.sources['excluded_images'][ref['image']]
+        assert excluded['sha256'] == ref['photo_sha256'] and excluded['matte_sha256'] == ref['matte_sha256']
+        assert excluded['camera'] == ref['camera'] and excluded['basis_ref'] == rid and excluded['colourway'] == 'blue'
+
+
+def test_basis_only_alternate_filter_retains_two_target_gate(basis_job, ft1119_job):
+    root, basis = basis_job
+    basis = _frozen_colourways(basis, {rid: 'blue' for rid in list(basis.refs)[1:]})
+    with pytest.raises(IN.InputError, match='fewer than two target-colourway'):
+        IN.job_from_dir(root, glb=ft1119_job.sources['glb'], basis=basis.id)
+
+
+def test_only_target_colourway_photos_paint_but_all_evidence_is_bound(basis_job, ft1119_job):
+    root, basis = basis_job
+    ids = list(basis.refs)
+    _roles(root, basis, **{ids[0]: {'colourway': 'blue'}, ids[1]: {'role': 'reference'},
+                           ids[2]: {'role': 'target', 'colourway': 'the selected blue finish'}})
+    job = IN.job_from_dir(root, glb=ft1119_job.sources['glb'], basis=basis.id)
+    excluded = {basis.refs[rid]['image'] for rid in ids[:2]}
+    assert set(job.views) == set(ft1119_job.views) - excluded
+    assert set(job.sources['excluded_images']) == excluded
+    assert basis.refs[ids[2]]['image'] in job.views
+    for rid in ids[:2]:
+        ref = basis.refs[rid]
+        item = job.sources['excluded_images'][ref['image']]
+        assert item['sha256'] == ref['photo_sha256'] and item['matte_sha256'] == ref['matte_sha256']
+        assert item['camera'] == ref['camera'] and item['basis_ref'] == rid and item['reason']
+
+
+@pytest.mark.parametrize('damage', ['unknown_role', 'wrong_identity', 'excluded_matte', 'one_target'])
+def test_target_filter_never_hides_invalid_or_insufficient_evidence(basis_job, ft1119_job, damage):
+    root, basis = basis_job
+    rid = next(iter(basis.refs))
+    rows = _roles(root, basis, **{rid: {'role': 'colourway'}})
+    if damage == 'unknown_role':
+        rows[0]['role'] = 'guess'
+    elif damage == 'wrong_identity':
+        rows[0]['sha256'] = '0' * 64
+    elif damage == 'excluded_matte':
+        with (basis.dir / basis.refs[rid]['matte']).open('ab') as handle:
+            handle.write(b'changed')
+    else:
+        for row in rows[1:]:
+            row['role'] = 'reference'
+        rows[0]['role'] = 'target'
+    (root / 'job.json').write_text(json.dumps({'images': rows}))
+    with pytest.raises(IN.InputError):
+        IN.job_from_dir(root, glb=ft1119_job.sources['glb'], basis=basis.id)
+
+
+def test_manifest_write_failure_is_a_failed_bake(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from glasses3d.g3d_host.photoprint import project
+    def refuse(_):
+        raise ValueError('injected invalid attachment eligibility')
+    monkeypatch.setattr(project.MF, 'write_manifest', refuse)
+    res = {'atlas': np.zeros((1, 1, 3), np.uint8),
+           'tex': SimpleNamespace(image=lambda *args: np.zeros((1, 1), np.uint8)),
+           'classes': [0], 'source': [0], 'tier': [0], 'report': {}, 'registration': {},
+           'layout': SimpleNamespace(to_json=lambda: {})}
+    with pytest.raises(ValueError, match='attachment eligibility'):
+        project.write_outputs(res, tmp_path)
 
 
 def test_stale_registration_cannot_certify_another_job(ft1119_job, tmp_path):
@@ -243,11 +344,12 @@ def test_pigment_policy_cannot_override_gain_or_gamma(ft1119_job):
         Calibrator(ft1119_job, AL.GROUPS, chroma_family={'gain': 9.0})
 
 
-def test_full_calibration_entry_with_synthetic_renderer(ft1119_job, tmp_path, monkeypatch):
+def test_full_calibration_entry_with_synthetic_renderer(ft1119_job, ft1119_fixture, tmp_path, monkeypatch):
     """Real job/bake/GLB attachment validation and orchestration; only captures are a synthetic renderer."""
     from glasses3d.tests.photoprint.test_correction_round import _synthetic_residuals
     from glasses3d.tests.photoprint.test_step6 import _synthetic_capture
-    bake = IN.REPO / 'glasses3d/data/wp5/ft1119_bake_radiance_s6b'
+    from glasses3d.tests.fixtures.legacy_ft1119 import copy_bake
+    bake = copy_bake(IN.REPO / 'glasses3d/data/wp5/ft1119_bake_radiance_s6b', tmp_path / 'bake', ft1119_fixture)
     src = IN.REPO / 'glasses3d/data/wp5/resume_20261007/tooltest/q001_painted_TOOLTEST.glb'
     api = Calibrator(ft1119_job, AL.GROUPS, chroma_family=AC.CHROMA_FAMILY)
     template = tmp_path / 'unlevelled_TOOLTEST.glb'

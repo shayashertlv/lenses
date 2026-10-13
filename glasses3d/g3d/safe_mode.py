@@ -81,8 +81,8 @@ HINTS = {
     "preferences": "nothing: preferences are not scene state (export settings are fixed by export_glb())",
     "undo": "restore_checkpoint(id)",
     "file_path": "nothing: file paths are host-controlled",
-    "g3d": "the g3d facade (g3d.seat_lens, g3d.hide_eyewire, g3d.check_lens_seating, g3d.unseat_lens, "
-           "g3d.unhide_eyewire, g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners)",
+    "g3d": "the g3d facade (g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners); "
+           "use the named seating tools for seat_lens, hide_eyewire, check_lens_seating, unseat_lens, unhide_eyewire",
 }
 
 # ------------------------------------------------------------------------------------------------ module policy
@@ -103,8 +103,7 @@ MODULE_PATHS = ALLOWED_MODULES | ALLOWED_SUBMODULES
 PREBOUND_MODULES = {"bpy": "bpy", "bmesh": "bmesh", "mathutils": "mathutils", "np": "numpy", "g3d": "g3d"}
 PREBOUND_NAMES = frozenset({"result"})
 #: the g3d facade (g3d/lib.py): pure geometry, no file I/O inside (WP2_DESIGN §4, inventory F4)
-G3D_LIB_NAMES = frozenset({"seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire",
-                           "loft_sections", "polygon_section", "check_round_corners"})
+G3D_LIB_NAMES = frozenset({"loft_sections", "polygon_section", "check_round_corners"})
 #: module attributes that lead outside the allowlist, measured in Blender 5.2 (a `--probe` worker recomputes them and
 #: reports any edge missing here as `safe_mode_selfcheck.unlisted_edges` in its receipt; test_wp2_worker asserts none)
 ESCAPE_EDGES = {
@@ -392,7 +391,7 @@ def path_rule(path: str) -> tuple[str, str | None] | None:
             rest = rest[1:]
         if rest and rest[0] not in G3D_LIB_NAMES:
             tool = {"export_glb": "export", "save_checkpoint": "checkpoint"}.get(rest[0], "g3d")
-            return f"g3d.{rest[0]} is not part of the g3d facade (file-touching helpers are host tools)", tool
+            return f"g3d.{rest[0]} is not part of the g3d facade (use the named host tool)", tool
     elif root == "string" and len(parts) > 1 and parts[1] == "Formatter":
         return "string.Formatter walks attribute names with the real getattr", None
     return None

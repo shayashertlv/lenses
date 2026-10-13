@@ -27,7 +27,7 @@ def test_view_tables_follow_plan_section_5():
 
 def test_every_label_maps_to_known_views():
     used = {lab for labels in PLAN_S5.values() for lab in labels}
-    assert used == set(fit_views.LABEL_CANDIDATES)
+    assert used | {'rear_threequarter'} == set(fit_views.LABEL_CANDIDATES)
     for label, views in fit_views.LABEL_CANDIDATES.items():
         assert views and all(v in cameras.VIEWS for v in views), label
     assert fit_views.LABEL_CANDIDATES["side"] == ("right", "left")

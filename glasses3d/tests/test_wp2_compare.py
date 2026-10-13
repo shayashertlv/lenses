@@ -26,6 +26,7 @@ from PIL import Image
 
 from glasses3d.g3d_host import compare as C
 from glasses3d.g3d_host import fitmesh
+from glasses3d.tests.fixtures import legacy_prada
 
 G3D = Path(__file__).resolve().parents[1]
 CAMERAS_JSON = G3D / "data" / "wp3b" / "prada" / "cameras.json"
@@ -42,17 +43,21 @@ def need(ok: bool, why: str) -> None:
 def imported(tmp_path_factory):
     need(CAMERAS_JSON.is_file() and (PHOTOS / "model.glb").is_file(), "WP3b Prada data missing")
     root = tmp_path_factory.mktemp("wp2compare")
-    doc = json.loads(CAMERAS_JSON.read_text(encoding="utf-8"))
+    fixture = legacy_prada.prepare(root / "legacy-inputs")
+    camera_path = fixture["cameras"]
+    doc = json.loads(camera_path.read_text(encoding="utf-8"))
     photos = {n: PHOTOS / n for n in doc["images"]}
-    b = C.import_cameras_json(root, CAMERAS_JSON, photos, reason="frozen WP3b basis")
-    return {"root": root, "doc": doc, "photos": photos, "basis": b}
+    b = C.import_cameras_json(root, camera_path, photos, reason="frozen WP3b basis")
+    return {"root": root, "doc": doc, "photos": photos, "basis": b, "cameras": camera_path,
+            "source_sha256": fixture["receipt"]["sources"][str(CAMERAS_JSON)]}
 
 
 def test_import_freezes_basis_01(imported):
     b, doc = imported["basis"], imported["doc"]
     assert b.id == "basis-01" and C.list_bases(imported["root"]) == ["basis-01"]
     assert b.meta["schema"] == C.BASIS_SCHEMA and b.meta["notes"] == [] and b.meta["reason"] == "frozen WP3b basis"
-    assert b.meta["cameras_json_sha256"] == C.sha256_file(CAMERAS_JSON)
+    assert b.meta["cameras_json_sha256"] == C.sha256_file(imported["cameras"])
+    assert C.sha256_file(CAMERAS_JSON) == imported["source_sha256"] == legacy_prada.CAMERAS_SHA
     assert b.skip == ("hallmark", "etch", "ribbon") and len(b.front_parts) == 3
     assert list(b.refs) == [f"reference-0{i}" for i in range(1, 7)]
     for name, rec in doc["images"].items():
@@ -79,9 +84,10 @@ def test_host_metrics_reproduce_cameras_json_on_the_fitted_glb(imported):
 
 def test_a_basis_is_frozen(imported, tmp_path):
     root, photos = imported["root"], imported["photos"]
+    camera_path = imported["cameras"]
     with pytest.raises(FileExistsError):
-        C.import_cameras_json(root, CAMERAS_JSON, photos, reason="again", basis_id="basis-01")
-    b2 = C.import_cameras_json(root, CAMERAS_JSON, photos, reason="again")
+        C.import_cameras_json(root, camera_path, photos, reason="again", basis_id="basis-01")
+    b2 = C.import_cameras_json(root, camera_path, photos, reason="again")
     assert b2.id == "basis-02" and C.load_basis(root).id == "basis-02" and C.load_basis(root, "basis-01").id == \
         "basis-01"
     p = b2.dir / b2.refs["reference-01"]["matte"]
@@ -91,7 +97,7 @@ def test_a_basis_is_frozen(imported, tmp_path):
     bad = dict(photos)
     bad["reference-01.webp"] = photos["reference-02.webp"]
     with pytest.raises(ValueError, match="sha256"):
-        C.import_cameras_json(tmp_path, CAMERAS_JSON, bad, reason="wrong photo")
+        C.import_cameras_json(tmp_path, camera_path, bad, reason="wrong photo")
     with pytest.raises(C.NoBasis, match="fit_cameras"):
         C.load_basis(tmp_path / "empty")
     shutil.rmtree(b2.dir)

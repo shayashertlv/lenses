@@ -43,6 +43,11 @@ scene, places the temples, writes once, and reports. Conventions:
 - build_variant_meshes plans like faceted_temple but writes nothing to the objects: it leaves new, unlinked mesh
   datablocks (temples and transferred decals, in each object's local frame, tagged `g3d_variant`) for render
   `mesh_overrides` (§3.2); remove_variant_meshes deletes them again.
+- existing UV layers are sampled per loop from a frozen source mesh in its saved chart frame. External UV,
+  geometry or transform edits start a new frozen generation; the earliest mesh remains the exact undo backup. UV
+  seams crossing a new face add tessellation on that face's existing triangle planes, with shared intersections
+  propagated and original corner normals interpolated. UVs, layer names and active flags survive revisions and
+  variants; the no-UV core mesh keeps its original topology.
 Geometry problems never raise: every function returns a dict with "status" and, when refused, "code".
 """
 from __future__ import annotations
@@ -62,6 +67,7 @@ from mathutils.bvhtree import BVHTree
 from . import export_glb as EX
 from .temple import CORE_VERSION, SCHEMA
 from .temple import build as TB
+from .temple import arrange as AR
 from .temple import loft as LOFT
 from .temple import measure as MS
 from .temple import report as RP
@@ -239,6 +245,7 @@ def select_targets(sides, targets, scene, origin) -> dict:
         if ob.type != "MESH" or _role(ob) != "temple":
             raise TempleError("E_TARGET", f"{ob.name} is not a temple-role mesh (partRole {_role(ob)!r})",
                               target=ob.name)
+        _require_owned_meshes(ob)
         if ob.data.shape_keys is not None:
             raise TempleError("E_TARGET", f"{ob.name} has shape keys", target=ob.name)
         bad = [m.name for m in ob.modifiers if m.type != "WEIGHTED_NORMAL"]
@@ -460,10 +467,17 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
     """A new mesh datablock: the given polygons, sharp_edge, smooth shading, custom normals on the flat polygons (or,
     with `corners`, the given per-corner custom normals in polygon order, zero = auto-smoothed)."""
     me = bpy.data.meshes.new(name)
+    try:
+        return _fill_mesh(me, V_local, polys, sharp_pairs, flat_polys, normals_local, materials, uv, corners)
+    except Exception:
+        bpy.data.meshes.remove(me)
+        raise
+
+
+def _fill_mesh(me, V_local, polys, sharp_pairs, flat_polys, normals_local, materials, uv, corners):
     me.from_pydata([tuple(map(float, v)) for v in V_local], [], [tuple(int(i) for i in p) for p in polys])
     me.update()
     if len(me.vertices) != len(V_local) or len(me.polygons) != len(polys):
-        bpy.data.meshes.remove(me)
         raise RuntimeError("from_pydata changed the topology")
     for m in materials:
         me.materials.append(m)
@@ -486,12 +500,31 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
             loops[ls[p]:ls[p] + lt[p]] = normals_local[p]
     me.normals_split_custom_set([tuple(map(float, n)) for n in loops])
     if uv is not None:
-        lay = me.uv_layers.new(name="UVMap")
-        lv = np.zeros(len(me.loops), np.int32)
-        me.loops.foreach_get("vertex_index", lv)
-        lay.data.foreach_set("uv", uv[lv].astype(np.float32).ravel())
+        _set_uv(me, uv)
     me.update()
     return me, int(sharp.sum())
+
+
+def _set_uv(me, uv):
+    eidx = {tuple(sorted(e.vertices)): e.index for e in me.edges}
+    for layer in uv["layers"]:
+        lay = me.uv_layers.new(name=layer["name"])
+        lay.data.foreach_set("uv", np.asarray(layer["uv"], np.float32).ravel())
+        lay.active_render, lay.active_clone = layer["active_render"], layer["active_clone"]
+    me.uv_layers.active_index = uv["active_index"]
+    # Preserve UV discontinuities as loop data and mark the corresponding new edges as seams.
+    edge_uv = {}
+    for p in me.polygons:
+        loops = list(p.loop_indices)
+        for j, a in enumerate(loops):
+            b = loops[(j + 1) % len(loops)]
+            va, vb = me.loops[a].vertex_index, me.loops[b].vertex_index
+            values = np.array([layer["uv"][[a, b] if va < vb else [b, a]] for layer in uv["layers"]])
+            key = (min(va, vb), max(va, vb))
+            if key in edge_uv and not np.allclose(values, edge_uv[key], atol=1e-7, rtol=0):
+                me.edges[eidx[key]].use_seam = True
+            edge_uv[key] = values
+    me.update()
 
 
 def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
@@ -519,10 +552,366 @@ def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
     return np.asarray(out, np.float64).reshape(-1, 3)
 
 
-def _uv(tb) -> np.ndarray:
-    """A planar (d, y) projection (outer / inner faces) for meshes whose old datablock had UVs."""
-    V = tb.V
-    return np.stack([(V[:, 0] - tb.spec.d0) / 150.0, (V[:, 1] + 40.0) / 80.0], axis=1)
+class _UVSurface:
+    """Original loop triangles in the temple chart, sampled from the requested side of the solid.
+
+    Outer/inner faces use (d, y); edge faces use d or y and the original through-thickness position. At an old
+    triangle edge the new polygon's interior chooses the UV side, so a seam is never averaged across its loops.
+    """
+
+    def __init__(self, V, T, loops, layers):
+        self.V, self.T, self.loops, self.layers = V, T, loops, layers
+        self.P = V[T]
+        self.normal = np.cross(self.P[:, 1] - self.P[:, 0], self.P[:, 2] - self.P[:, 0])
+        self.charts = {}
+        edges = {}
+        # Imported meshes may duplicate a position at UV seams. Edge adjacency is geometric, while UVs remain
+        # per loop: merging only these lookup identities must never average either side's texture coordinates.
+        positions, canonical = {}, []
+        for vi, point in enumerate(V):
+            canonical.append(positions.setdefault(tuple(point), vi))
+        for ti, (tri, li) in enumerate(zip(T, loops)):
+            for j in range(3):
+                a, b = canonical[int(tri[j])], canonical[int(tri[(j + 1) % 3])]
+                la, lb = int(li[j]), int(li[(j + 1) % 3])
+                if a > b:
+                    a, b, la, lb = b, a, lb, la
+                value = np.array([layer["uv"][[la, lb]] for layer in layers])
+                edges.setdefault((a, b), []).append((ti, value))
+        self.seams = [(a, b) for (a, b), rows in edges.items() if len(rows) == 2
+                      and not np.array_equal(rows[0][1], rows[1][1])]
+
+    def chart(self, axis, sign):
+        key = axis, sign
+        if key not in self.charts:
+            dims = [i for i in range(3) if i != axis]
+            projected = self.P[:, :, dims]
+            span = np.linalg.norm(np.roll(projected, -1, axis=1) - projected, axis=2).max(axis=1)
+            # Object matrices and mesh positions are float32. An edge-on face can acquire a spurious tiny
+            # projected area; use the same geometric edge slack as the rest of the chart transfer.
+            ids = np.flatnonzero(self.normal[:, axis] * sign > EDGE_SLACK_MM * span)
+            if not len(ids):
+                raise TempleError("E_TARGET", "original mesh has no surface for this UV chart", axis=axis, side=sign)
+            p = self.P[ids][:, :, dims]
+            inv = np.linalg.inv(np.stack((p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=-1))
+            flat = np.zeros_like(self.V)
+            flat[:, :2] = self.V[:, dims]
+            nearest = _bvh(flat, self.T[ids])
+            gradients = np.concatenate((-inv.sum(axis=1)[:, None, :], inv), axis=1)
+            tolerance = EDGE_SLACK_MM * np.linalg.norm(gradients, axis=2)
+            self.charts[key] = ids, dims, p, inv, nearest, tolerance
+        return self.charts[key]
+
+    def at(self, point, axis, sign, toward=None):
+        ids, dims, p, inv, nearest, tolerance = self.chart(axis, sign)
+        q = np.asarray(point)[dims]
+        ab = np.einsum("nij,nj->ni", inv, q - p[:, 0])
+        weights = np.column_stack((1 - ab.sum(axis=1), ab))
+        inside = np.flatnonzero(np.all(weights >= -tolerance, axis=1))
+        if len(inside):
+            depths = np.einsum("ni,ni->n", weights[inside], self.P[ids[inside], :, axis]) * sign
+            choices = inside[depths >= depths.max() - EDGE_SLACK_MM]
+            if toward is not None and len(choices) > 1:
+                delta = np.asarray(toward)[dims] - q
+                dw = np.einsum("nij,j->ni", inv[choices], delta)
+                derivative = np.column_stack((-dw.sum(axis=1), dw))
+                # At a boundary, prefer the triangle entered by this polygon's interior.
+                scores = np.where(weights[choices] < tolerance[choices], derivative, np.inf).min(axis=1)
+                k = int(choices[np.argmax(scores)])
+            else:
+                k = int(choices[0])
+            w = weights[k]
+        else:
+            loc, _, k, _ = nearest.find_nearest(Vector((float(q[0]), float(q[1]), 0.0)))
+            if loc is None:
+                raise TempleError("E_TARGET", "original UV chart has no triangle at this position")
+            ab = inv[k] @ (np.array(loc[:2]) - p[k, 0])
+            w = np.array([1 - ab.sum(), *ab])
+        ti = int(ids[k])
+        return ti, w, w @ self.P[ti]
+
+    def seam_segments(self, polygon, axis, sign):
+        """Visible original seams crossing this polygon's interior, in its two-dimensional chart."""
+        if not self.seams:
+            return []
+        dims = [i for i in range(3) if i != axis]
+        poly = np.asarray(polygon)[:, dims]
+        if abs(AR.poly_area(poly)) < 1e-12:
+            return []
+        if AR.poly_area(poly) < 0:
+            poly = poly[::-1]
+        lo, hi = poly.min(axis=0), poly.max(axis=0)
+        found = []
+        for a, b in self.seams:
+            segment = self.V[[a, b]][:, dims]
+            if np.any(segment.max(axis=0) < lo) or np.any(segment.min(axis=0) > hi):
+                continue
+            for t0, t1 in AR.clip_segment(*segment, poly):
+                q3 = self.V[a] + .5 * (t0 + t1) * (self.V[b] - self.V[a])
+                q = q3[dims]
+                edge = np.roll(poly, -1, axis=0) - poly
+                u = np.clip(np.einsum("ij,ij->i", q - poly, edge) /
+                            np.maximum(np.einsum("ij,ij->i", edge, edge), 1e-30), 0, 1)
+                distance = np.linalg.norm(poly + u[:, None] * edge - q, axis=1).min()
+                if distance <= EDGE_SLACK_MM:
+                    continue  # a seam along a new polygon edge is representable as distinct loops
+                _, _, hit = self.at(q3, axis, sign)
+                if abs(hit[axis] - q3[axis]) <= 1e-4:
+                    found.append(tuple(segment[0] + t * (segment[1] - segment[0]) for t in (t0, t1)))
+        return found
+
+
+def _uv_tessellate(tb, polys, chart_points, seams, mesh):
+    """Split only seam-crossed triangles on their existing planes, then propagate shared edge intersections.
+
+    Loop normals are sampled from the already-built core mesh, including Blender's automatic smooth normals.
+    New points preserve the original geometric surface. Flat normals stay flat; new smooth normals are normalized
+    barycentric samples, whose subsequent interpolation can differ slightly inside the smaller triangles.
+    """
+    mesh.calc_loop_triangles()
+    corner = np.array([n.vector[:] for n in mesh.corner_normals], float)
+    original_local = np.array([v.co[:] for v in mesh.vertices], float)
+    vertices, local = tb.V.tolist(), original_local.tolist()
+    original_edges = {tuple(sorted((a, b))) for triangle in mesh.loop_triangles
+                      for a, b in zip(triangle.vertices, list(triangle.vertices[1:]) + [triangle.vertices[0]])}
+    membership = {i: {} for i in range(len(vertices))}
+    splits = {edge: {} for edge in original_edges}
+    for a, b in original_edges:
+        membership[a][(a, b)] = 0.0
+        membership[b][(a, b)] = 1.0
+    grid = {}
+    tol = AR.DEDUPE_MM
+
+    def add(value, local_value):
+        cell = tuple(int(math.floor(x / tol)) for x in value)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for vi in grid.get((cell[0] + dx, cell[1] + dy, cell[2] + dz), ()):
+                        if np.max(np.abs(np.asarray(vertices[vi]) - value)) <= tol:
+                            return vi
+        vi = len(vertices)
+        vertices.append(list(value))
+        local.append(list(local_value))
+        membership[vi] = {}
+        grid.setdefault(cell, []).append(vi)
+        return vi
+
+    for vi, value in enumerate(vertices):
+        cell = tuple(int(math.floor(x / tol)) for x in value)
+        grid.setdefault(cell, []).append(vi)
+    triangles = {}
+    for tri in mesh.loop_triangles:
+        triangles.setdefault(tri.polygon_index, []).append(tri)
+    records = []
+    added_faces = 0
+    for pi, poly in enumerate(polys):
+        if not seams[pi]:
+            records.append((list(poly), corner[list(mesh.polygons[pi].loop_indices)], pi))
+            continue
+        dims, projected = chart_points[pi]
+        point_for = {vi: p for vi, p in zip(poly, projected)}
+        for triangle in triangles[pi]:
+            tri = list(triangle.vertices)
+            q = np.array([point_for[v][dims] for v in tri])
+            sign = 1 if AR.poly_area(q) > 0 else -1
+            if abs(AR.poly_area(q)) < 1e-12:
+                raise TempleError("E_TARGET", "a seam crosses an edge-on UV triangle", reason="uv_transfer")
+            boundary = q if sign > 0 else q[::-1]
+            segments = []
+            low, high = boundary.min(axis=0), boundary.max(axis=0)
+            for a, b in seams[pi]:
+                for t0, t1 in AR.clip_segment(a, b, boundary):
+                    ends = [a + t * (b - a) for t in (t0, t1)]
+                    if np.linalg.norm(ends[1] - ends[0]) <= tol:
+                        continue
+                    midpoint = .5 * (ends[0] + ends[1])
+                    edge = np.roll(boundary, -1, axis=0) - boundary
+                    u = np.clip(np.einsum("ij,ij->i", midpoint - boundary, edge) /
+                                np.einsum("ij,ij->i", edge, edge), 0, 1)
+                    if np.linalg.norm(boundary + u[:, None] * edge - midpoint, axis=1).min() <= EDGE_SLACK_MM:
+                        continue  # triangle clipping can leave a sub-float32 seam fragment beside a corner
+                    segments.append((*ends, ("uv_seam",)))
+            if not segments:
+                records.append((tri, corner[list(triangle.loops)], pi))
+                continue
+            # Only dangling interior endpoints need construction chords. Adding chords at every bend would
+            # create numerical slivers beside almost vertical seams (float32-transformed straight source edges).
+            endpoints, counts = AR.VertexPool(), {}
+            for a, b, _ in segments:
+                for point in (a, b):
+                    vi = endpoints.add(point)
+                    counts[vi] = counts.get(vi, 0) + 1
+            for vi, count in counts.items():
+                if count != 1:
+                    continue
+                p = endpoints.array()[vi]
+                edge = np.roll(boundary, -1, axis=0) - boundary
+                u = np.clip(np.einsum("ij,ij->i", p - boundary, edge) /
+                            np.einsum("ij,ij->i", edge, edge), 0, 1)
+                closest = boundary + u[:, None] * edge
+                distances = np.linalg.norm(closest - p, axis=1)
+                if distances.min() <= EDGE_SLACK_MM:
+                    # A transformed float32 source endpoint can stop a few microns before the new edge.
+                    # Attach that dangling endpoint to the exact boundary instead of creating a thin chord cell.
+                    snapped = closest[int(distances.argmin())]
+                    segments = [(snapped if np.linalg.norm(a - p) <= tol else a,
+                                 snapped if np.linalg.norm(b - p) <= tol else b, tags)
+                                for a, b, tags in segments]
+                    continue
+                segments.append((np.array([p[0], low[1] - 1.]), np.array([p[0], high[1] + 1.]), ("uv_join",)))
+            arr = AR.build_arrangement(boundary, segments,
+                                       chord_fn=lambda d: ([d, low[1] - 1.], [d, high[1] + 1.]))
+            inv = np.linalg.inv(np.stack((q[1] - q[0], q[2] - q[0]), axis=1))
+            ab = (arr.V - q[0]) @ inv.T
+            weights = np.column_stack((1 - ab.sum(axis=1), ab))
+            ids = []
+            boundary_vertices = set(arr.boundary_loop)
+            for index, w in enumerate(weights):
+                edge_record = None
+                if index in boundary_vertices:
+                    corner_distances = np.linalg.norm(q - arr.V[index], axis=1)
+                    corner_index = int(corner_distances.argmin())
+                    directions = np.roll(q, -1, axis=0) - q
+                    fractions = np.clip(np.einsum("ij,ij->i", arr.V[index] - q, directions) /
+                                        np.einsum("ij,ij->i", directions, directions), 0, 1)
+                    nearest = q + fractions[:, None] * directions
+                    j = int(np.linalg.norm(nearest - arr.V[index], axis=1).argmin())
+                    if corner_distances[corner_index] <= EDGE_SLACK_MM:
+                        # Float32 source seams can meet two incident edges a few microns from their common
+                        # vertex. They must share that existing corner, not weld those edges to each other.
+                        j, fractions[corner_index] = corner_index, 0.
+                    w = np.zeros(3)
+                    w[j], w[(j + 1) % 3] = 1 - fractions[j], fractions[j]
+                    edge_record = tri[j], tri[(j + 1) % 3], float(fractions[j])
+                    weights[index] = w
+                value = w @ tb.V[tri]
+                if edge_record and edge_record[2] in (0., 1.):
+                    vi = edge_record[int(edge_record[2])]
+                else:
+                    vi = add(value, w @ original_local[tri])
+                ids.append(vi)
+                if edge_record is not None:
+                    a, b, t = edge_record
+                    if a > b:
+                        a, b, t = b, a, 1 - t
+                    edge = a, b
+                    membership[vi][edge] = t
+                    if vi not in edge and 0 < t < 1:
+                        splits[edge][vi] = t
+            normals = weights @ corner[list(triangle.loops)]
+            # Triangles have an interior centroid even when the source seam bounds a concave island. That keeps
+            # corner-side selection unambiguous; a concave polygon's arithmetic mean can lie across its seam.
+            for face in [triangle for group in arr.face_tris for triangle in group]:
+                face = list(face)
+                face = face if sign > 0 else face[::-1]
+                indices = [ids[i] for i in face]
+                if len(set(indices)) == 3:
+                    records.append((indices, normals[face], pi))
+            added_faces += len(arr.faces) - 1
+    finished, normals_out, sources = [], [], []
+    for poly, normals, pi in records:
+        expanded, nc = [], []
+        for j, a in enumerate(poly):
+            b = poly[(j + 1) % len(poly)]
+            expanded.append(a)
+            nc.append(normals[j])
+            for edge in membership[a].keys() & membership[b].keys():
+                ta, tb_ = membership[a][edge], membership[b][edge]
+                if abs(tb_ - ta) < 1e-14:
+                    continue
+                between = [(t, vi) for vi, t in splits[edge].items()
+                           if min(ta, tb_) + 1e-10 < t < max(ta, tb_) - 1e-10]
+                between.sort(reverse=tb_ < ta)
+                for t, vi in between:
+                    u = (t - ta) / (tb_ - ta)
+                    expanded.append(vi)
+                    nc.append((1 - u) * normals[j] + u * normals[(j + 1) % len(poly)])
+        finished.append(expanded)
+        normals_out.extend(nc)
+        sources.append(pi)
+    sharp = []
+    for a, b in tb.sharp:
+        edge = tuple(sorted((a, b)))
+        chain = [a] + [vi for vi, _ in sorted(splits[edge].items(), key=lambda item: item[1],
+                                              reverse=a > b)] + [b]
+        sharp.extend(zip(chain, chain[1:]))
+    normals_out = np.asarray(normals_out)
+    normals_out /= np.maximum(np.linalg.norm(normals_out, axis=1, keepdims=True), 1e-30)
+    directed = {}
+    for poly in finished:
+        if len(set(poly)) != len(poly):
+            raise TempleError("E_TARGET", "UV seam tessellation repeated a face vertex", reason="uv_topology")
+        for a, b in zip(poly, poly[1:] + poly[:1]):
+            directed[a, b] = directed.get((a, b), 0) + 1
+    used = {v for poly in finished for v in poly}
+    if (len(used) != len(vertices) or len(vertices) - len(directed) // 2 + len(finished) != 2 or
+            any(count != 1 or directed.get((b, a)) != 1 for (a, b), count in directed.items())):
+        raise TempleError("E_TARGET", "UV seam tessellation must retain the closed two-manifold solid",
+                          reason="uv_topology")
+    return {"V": np.asarray(vertices), "local": np.asarray(local), "polys": finished, "corners": normals_out,
+            "sharp": sharp, "sources": sources, "split_faces": added_faces}
+
+
+def _uv(tb, ob, origin, side, polys, surf, mesh):
+    """Transfer all current UV layers per loop, with a stable source across builder-only revisions."""
+    from . import temple_uv_source as UVS
+    bk = _backup_record(ob)
+    me, source, capture_current = UVS.select_source(ob, bk, origin, tb.spec.hinge)
+    if not len(me.uv_layers):
+        return None, source, None, capture_current
+    matrix = np.asarray(source["matrix_world"], float)
+    co = np.empty(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    world = co.reshape(-1, 3) @ matrix[:3, :3].T + matrix[:3, 3] - source["origin"]
+    h = source["hinge"]
+    V = TB.to_local(world, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
+    me.calc_loop_triangles()
+    T = np.array([t.vertices[:] for t in me.loop_triangles], np.int64)
+    loops = np.array([t.loops[:] for t in me.loop_triangles], np.int64)
+    if np.linalg.det(matrix[:3, :3]) * side < 0:
+        T, loops = T[:, ::-1], loops[:, ::-1]
+    layers = [{"name": layer.name, "active_render": layer.active_render, "active_clone": layer.active_clone,
+               "uv": np.array([v.uv[:] for v in layer.data], float)} for layer in me.uv_layers]
+    old = _UVSurface(V, T, loops, layers)
+    edge_charts = {"top": (1, 1), "bottom": (1, -1), "cap_hinge": (0, -1), "cap_tip": (0, 1)}
+
+    def chart(kind):
+        return (2, 1) if kind in TB.OUTER_KINDS else (2, -1) if kind == "inner" else edge_charts[kind]
+
+    def mapped_points(points, axis):
+        points = np.asarray(points).copy()
+        if axis != 2:
+            for point in points:
+                d, y, x = point
+                xi, xo = float(tb.spec.inner(d)), surf.at(d, y)[0]
+                fraction = np.clip((x - xi) / max(xo - xi, 1e-12), 0, 1)
+                old_i, old_o = old.at(point, 2, -1)[2][2], old.at(point, 2, 1)[2][2]
+                point[2] = old_i + fraction * (old_o - old_i)
+        return points
+
+    chart_points, seams = [], []
+    for pi, poly in enumerate(polys):
+        axis, sign = chart(tb.poly_kind[pi])
+        points = mapped_points(tb.V[poly], axis)
+        chart_points.append(([i for i in range(3) if i != axis], points))
+        seams.append(old.seam_segments(points, axis, sign))
+    geometry = _uv_tessellate(tb, polys, chart_points, seams, mesh) if any(seams) else None
+    vertices = tb.V if geometry is None else geometry["V"]
+    output_polys = polys if geometry is None else geometry["polys"]
+    sources = range(len(polys)) if geometry is None else geometry["sources"]
+    output = [[] for _ in layers]
+    for pi, poly in zip(sources, output_polys):
+        kind = tb.poly_kind[pi]
+        axis, sign = (2, 1) if kind in TB.OUTER_KINDS else (2, -1) if kind == "inner" else edge_charts[kind]
+        points = mapped_points(vertices[poly], axis)
+        center = points.mean(axis=0)
+        for point in points:
+            ti, weights, _ = old.at(point, axis, sign, toward=center)
+            for values, layer in zip(output, layers):
+                values.append(weights @ layer["uv"][old.loops[ti]])
+    return {"active_index": me.uv_layers.active_index,
+            "layers": [{**layer, "uv": np.asarray(values)} for layer, values in zip(layers, output)]}, source, geometry, capture_current
 
 
 # --------------------------------------------------------------------------------------------- the tool
@@ -645,8 +1034,21 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
     plan = {"side": side, "object": ob, "origin": origin, "warnings": [], "decals": []}
     corners = corner_normals(tb, pl, nloc, {k: nf[j] for j, k in enumerate(keys)})
     me, nsharp = build_mesh(ob.data.name + " | g3d faceted (planned)", Vloc, pl, tb.sharp, tb.flat_polys, nloc,
-                            list(ob.data.materials), uv=_uv(tb) if len(ob.data.uv_layers) else None, corners=corners)
+                            list(ob.data.materials), corners=corners)
     planned.append(me)
+    uv, plan["uv_source"], geometry, plan["uv_capture_current"] = _uv(tb, ob, origin, side, pl, surf, me)
+    if geometry is not None:
+        replacement, nsharp = build_mesh(me.name + " | UV seams", geometry["local"], geometry["polys"],
+                                        geometry["sharp"], [], np.zeros((len(geometry["polys"]), 3)),
+                                        list(ob.data.materials), uv=uv, corners=geometry["corners"])
+        planned.append(replacement)
+        bpy.data.meshes.remove(me)
+        me = replacement
+        corners = geometry["corners"]
+        plan["uv_tessellation"] = {"added_vertices": len(geometry["V"]) - len(tb.V),
+                                    "split_faces": geometry["split_faces"]}
+    elif uv is not None:
+        _set_uv(me, uv)
     plan["mesh"] = me
     plan["sharp_edges"] = nsharp
     plan["custom_corners"] = int(np.count_nonzero(np.any(corners != 0.0, axis=1)))
@@ -712,11 +1114,13 @@ def _side_receipt(plan) -> dict:
             "decals": [{k: d[k] for k in ("name", "vertices", "outside", "max_move_mm", "mean_move_mm", "standoff_mm",
                                           "regions")} for d in plan["decals"]],
             "hinge": plan["hinge"], "hinge_parts": plan.get("hinge_parts", []), "warnings": plan["warnings"],
+            "uv_tessellation": plan.get("uv_tessellation"),
             "planned_vertices": len(plan["mesh"].vertices), "planned_polygons": len(plan["mesh"].polygons)}
 
 
 def _write(plans, tb) -> None:
-    done = []
+    from . import temple_uv_source as UVS
+    done, uv_tokens = [], []
     try:
         for s, plan in plans.items():
             ob = plan["object"]
@@ -726,7 +1130,7 @@ def _write(plans, tb) -> None:
             name = old.name
             if first:
                 bk = {"mesh": None, "modifiers": [], "props": {}, "decals": {}}
-                for k in ("region", PROP_TEMPLE):
+                for k in ("partRole", "region", PROP_TEMPLE):
                     v = ob.get(k)
                     bk["props"][k] = None if v is None else (v if isinstance(v, (str, int, float)) else str(v))
                 bk["original_name"] = name
@@ -745,6 +1149,12 @@ def _write(plans, tb) -> None:
                 old.name = bk["original_name"] + BACKUP_SUFFIX
                 old.use_fake_user = True
                 bk["mesh"] = old.name
+            uv_tokens.append(UVS.retain_source(ob, bk, old, plan["uv_source"], plan["uv_capture_current"], first=first))
+            # Make the original undo reachable even if a later write step fails. The host checkpoint restores
+            # the exact previous revision; local rollback also removes temporary UV source generations.
+            ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
+            done.append(ob)
+            if first:
                 ob.data = new
                 new.name = bk["original_name"]
             else:
@@ -770,6 +1180,7 @@ def _write(plans, tb) -> None:
                     d["mesh"].name = drec["original_name"]
                     if dold.users == 0:
                         bpy.data.meshes.remove(dold)
+                ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
             ob["partRole"] = "temple"
             ob["region"] = "temple_+x" if s > 0 else "temple_-x"
             ob[PROP_TEMPLE] = json.dumps(TS.plain({"schema": SCHEMA, "core_version": CORE_VERSION,
@@ -777,11 +1188,17 @@ def _write(plans, tb) -> None:
                                                    "canonical_spec": tb.spec.canonical,
                                                    "hinge_axis_xz_mm": tb.spec.hinge["axis_xz_mm"],
                                                    "facets": tb.tables["facets"]}), sort_keys=True)
+            UVS.record_written(ob, bk, plan["origin"])
             ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
-            done.append(ob)
+        for token in uv_tokens:
+            UVS.finalize_source(token)
     except Exception:
         for ob in done:
             unfaceted_temple(ob)
+        for token in reversed(uv_tokens):
+            # Local failure restores the original mesh, so an earlier generation is no longer referenced either.
+            UVS.cleanup_sources(token.before)
+            UVS.rollback_source(token)
         raise
 
 
@@ -791,6 +1208,26 @@ def _backup_record(ob) -> dict:
         return dict(json.loads(v)) if isinstance(v, str) else {}
     except ValueError:
         return {}
+
+
+def _require_owned_meshes(ob):
+    """Named undo/source datablocks require a single object owner; linked/duplicated backups are unsupported."""
+    def names(owner):
+        backup = _backup_record(owner)
+        retained = {backup[key] for key in ("mesh", "uv_mesh")
+                    if isinstance(backup.get(key), str) and backup[key]}
+        if owner.type == "MESH":
+            retained.add(owner.data.name)
+        return retained
+
+    # A current mesh can also be another object's retained source. Check the complete sets symmetrically:
+    # renaming that mesh during a first build would otherwise redirect the other object's name-based undo.
+    owned = names(ob)
+    users = [other.name for other in bpy.data.objects if other != ob and owned.intersection(names(other))]
+    if users:
+        raise TempleError("E_TARGET", "temple meshes and retained undo/UV sources must have one object owner; "
+                          "linked meshes or duplicated backup properties are unsupported", target=ob.name,
+                          shared_with=sorted(set(users)))
 
 
 def unfaceted_temple(obj) -> dict:
@@ -803,6 +1240,10 @@ def unfaceted_temple(obj) -> dict:
     bk = _backup_record(ob)
     if not bk or bpy.data.meshes.get(bk.get("mesh") or "") is None:
         return _refused("E_TARGET", f"{ob.name} has no g3d pre-temple backup", target=ob.name)
+    try:
+        _require_owned_meshes(ob)
+    except TempleError as exc:
+        return _refused(exc.code, exc.message, exc.fields)
     cur = ob.data
     old = bpy.data.meshes[bk["mesh"]]
     cur.name = cur.name + " (g3d discarded)"
@@ -841,6 +1282,8 @@ def unfaceted_temple(obj) -> dict:
             ob[k] = v
     if PROP_BACKUP in ob:
         del ob[PROP_BACKUP]
+    from . import temple_uv_source as UVS
+    UVS.cleanup_sources(bk)
     return {"status": "ok", "object": ob.name, "mesh": ob.data.name, "decals_restored": restored}
 
 

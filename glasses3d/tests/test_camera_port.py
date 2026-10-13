@@ -154,7 +154,7 @@ def test_top_priors_are_first_class_prototype_grid_plus_low_band():
     topb = [s[:3] for s in cameras.prior_seeds("topb")]
     assert topb == [(180.0 + y, p, r) for y, p, r in top]
     assert all(p > 0 for _, p, _ in low)                            # the band is camera-above only
-    assert cameras.YAW_DISTINCT_VIEWS == ("angled",) + cameras.TOP_OBLIQUE_VIEWS
+    assert cameras.YAW_DISTINCT_VIEWS == ("angled",) + cameras.TOP_OBLIQUE_VIEWS + cameras.REAR_THREEQUARTER_VIEWS
     assert cameras.PITCH_BOUNDS == (-95.0, 95.0)
     assert cameras.yaw_window("top", 0.0) == (-35.0, 35.0) and cameras.yaw_window("topb", 180.0) == (145.0, 215.0)
     assert cameras.pitch_window("top") == (-95.0, 95.0)

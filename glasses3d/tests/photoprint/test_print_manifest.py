@@ -22,6 +22,19 @@ PARTS = ["Brow_Left", "Brow_Right", "Temple_Left", "Temple_Right"]
 need_q001 = pytest.mark.skipif(not Q001.exists(), reason="q001.glb not present")
 
 
+@pytest.fixture(scope='module', autouse=True)
+def migrated_historical_assets(tmp_path_factory, ft1119_fixture):
+    """Historical names are migrated on copies, never interpreted by runtime alias rules."""
+    from glasses3d.tests.fixtures.legacy_ft1119 import copy_bake
+    global Q001, BAKE, CAMERAS
+    original = Q001, BAKE, CAMERAS
+    Q001, CAMERAS = ft1119_fixture['model'], ft1119_fixture['cameras']
+    if (BAKE / 'report.json').is_file():
+        BAKE = copy_bake(BAKE, tmp_path_factory.mktemp('manifest-history') / 'bake', ft1119_fixture)
+    yield
+    Q001, BAKE, CAMERAS = original
+
+
 @pytest.fixture(scope="module")
 def q001():
     return GM.mesh_arrays(GM.read_glb(Q001))
@@ -32,7 +45,7 @@ def test_read_glb_is_the_host_reader_exactly(q001):
     V, F, part, names = q001
     g = glbmod.load(Q001)
     prims = [p for p in g.primitives if p.mode == 4 and len(p.triangles)]
-    assert names == [p.node_name.split(".")[0] for p in prims]          # Studio copies: 'Brow_Left.001'
+    assert names == [p.node_name for p in prims]
     off = 0
     for i, p in enumerate(prims):
         f = np.nonzero(part == i)[0]
@@ -85,14 +98,17 @@ def test_geometry_sha_ignores_splits_order_and_start_corner(q001):
     assert GM.geometry_sha(np.where(V == 0.0, -0.0, V), F, part, names, PARTS) == ref       # -0.0 == +0.0
 
 
-def test_suffix_stripping_only_strips_blender_copies():
+def test_exact_names_keep_duplicate_objects_distinct():
     V = np.eye(3)
     F = np.array([[0, 1, 2]])
 
     def prim(name):
         return GM.Prim(node=name, mesh=0, index=0, material=None, positions_mm=V, triangles=F, normals=None)
-    _, _, _, names = GM.mesh_arrays([prim("Brow_Left.001"), prim("Lens | clear"), prim("T.arm"), prim("A.12")])
-    assert names == ["Brow_Left", "Lens | clear", "T.arm", "A.12"]
+    _, _, _, names = GM.mesh_arrays([prim("Brow_Left"), prim("Brow_Left.001"), prim("Lens | clear"),
+                                    prim("T.arm"), prim("A.12")])
+    assert names == ["Brow_Left", "Brow_Left.001", "Lens | clear", "T.arm", "A.12"]
+    with pytest.raises(ValueError, match='exact'):
+        GM.mesh_arrays([prim('Brow_Left.001')], strip_suffix=True)
 
 
 def test_charts_sha_sees_every_box_field():
@@ -107,6 +123,23 @@ def test_charts_sha_sees_every_box_field():
     assert GM.charts_sha([dict(charts[0], chart=5)], 64, 32) == ref                # the running id is not identity
 
 
+@pytest.mark.parametrize('record', [
+    {}, {'texture_parts': ['A']}, {'texture_parts': ['A'], 'no_texture_parts': ['A']},
+    {'texture_parts': ['A', 'A'], 'no_texture_parts': []},
+    {'texture_parts': ['A.001'], 'no_texture_parts': []},
+    {'texture_parts': [], 'no_texture_parts': []},
+])
+def test_manifest_eligibility_fails_closed(record):
+    with pytest.raises(ValueError):
+        MF.texture_eligibility(record, ['A'])
+
+
+def test_manifest_eligibility_keeps_exact_parts_and_explicit_empty_selection():
+    assert MF.texture_eligibility({'texture_parts': ['A.001'], 'no_texture_parts': ['A']}, ['A', 'A.001']) == (
+        ['A.001'], ['A'])
+    assert MF.texture_eligibility({'texture_parts': [], 'no_texture_parts': ['A']}, ['A']) == ([], ['A'])
+
+
 @pytest.mark.skipif(not (BAKE / "layout.json").exists() or not Q001.exists(), reason="step-4 bake not present")
 def test_manifest_of_the_step4_bake(q001):
     man = MF.build_manifest(BAKE)
@@ -116,6 +149,7 @@ def test_manifest_of_the_step4_bake(q001):
     assert man["charts_sha"] == GM.charts_sha(lay["charts"], lay["width"], lay["height"])
     assert (man["width"], man["height"]) == (lay["width"], lay["height"]) and man["parts"] == PARTS
     assert man["print_sha256"] == MF._sha(BAKE / "print.png") and man["layer"] == "g3d_print"
+    assert man['texture_parts'] == PARTS and man['no_texture_parts'] == []
     rep = MF.check_glb(Q001, man)                                  # the bake's own GLB has no print layer yet
     assert not rep["ok"] and not rep["stale"]
     assert all("no g3d_print_uv" in r for r in rep["reasons"]) and len(rep["reasons"]) == 4
@@ -184,6 +218,15 @@ def test_check_glb_refuses_another_print_on_the_same_layout():
     r = MF.check_glb(painted, man, check_uv=False)
     assert not r["ok"] and all(r["parts"][p]["print_image"] == "other" for p in PARTS)
     assert sum("not the bake's print.png" in x for x in r["reasons"]) == 4
+
+
+def test_checker_rejects_print_on_excluded_parts_and_changed_bake_source():
+    painted, current = _painted_or_skip()
+    excluded = dict(current, texture_parts=PARTS[1:], no_texture_parts=PARTS[:1])
+    result = MF.check_glb(painted, excluded)
+    assert not result['ok'] and any('no-texture part' in reason for reason in result['reasons'])
+    stale = MF.check_glb(painted, dict(current, glb_sha256='0' * 64))
+    assert not stale['ok'] and stale['stale'] and any('changed since' in reason for reason in stale['reasons'])
 
 
 def test_check_glb_refuses_texcoords_edited_after_print_uv(tmp_path):

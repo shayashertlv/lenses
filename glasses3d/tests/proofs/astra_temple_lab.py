@@ -99,6 +99,7 @@ from glasses3d.agent.temple_lab import geometry as G
 from glasses3d.agent.temple_lab import lab as LB
 from glasses3d.agent.temple_lab import readings as RD
 from glasses3d.agent.temple_lab import state as S
+from glasses3d.tests.fixtures.temple_lab_prada import prepare_kwargs
 from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, RETIRED_PHRASES, make_spec, prepare, record_kind
 from glasses3d.agent.temple_lab.lab import read, sha, write_json_atomic
 from glasses3d.agent.temple_lab.tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, run_settings
@@ -206,7 +207,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     root = Path(root).resolve()
     disable_sdk_tracing()
     t0 = time.perf_counter()
-    prepared = prepare(root, rig=rig)
+    prepared = prepare(root, rig=rig, **prepare_kwargs())
     t_prepare = time.perf_counter() - t0
     settings = run_settings(effort="max", max_turns=30)
     estimate = {"label": "SYNTHETIC OFFLINE CONTROL ONLY", "text": "no estimate: offline rehearsal"}

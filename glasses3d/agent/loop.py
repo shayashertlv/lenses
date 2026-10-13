@@ -49,7 +49,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
@@ -61,10 +61,11 @@ import re
 import shutil
 import threading
 import time
+from types import SimpleNamespace
 import zlib
 from typing import Any, Callable, Iterable, Sequence
 
-from agents import Agent, ModelSettings, RunConfig, Runner, SQLiteSession
+from agents import Agent, ModelSettings, RunConfig, Runner, RunHooks, SQLiteSession
 from agents.agent import ToolsToFinalOutputResult
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from agents.models.openai_provider import OpenAIProvider
@@ -78,6 +79,7 @@ from openai.types.shared import Reasoning
 from .approvals import ApprovalRefused, build_request, canonical_json, request_sha256, run_input_binding
 from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTES, BudgetGuard, JobLedger,
                      BudgetGuardError, cap_to_micro, unlink_with_retry)
+from .budget import StageBudgetExceeded
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
 from .pricing import MODEL, usd_text
@@ -342,6 +344,63 @@ class RunSpec:
     load_check: Callable[[], list] | None = None
     refuse_on_load: bool = True
     load_watch_interval_s: float = LOAD_WATCH_INTERVAL_S
+    stage_contracts: Sequence[StageContract] = ()
+
+
+@dataclass
+class StageSpec:
+    """A specialist's isolated conversation inside an already approved parent run."""
+
+    name: str
+    instructions: str
+    tools: Sequence[Any]
+    brief: str
+    settings: RunSettings
+    photos: Sequence[ReferenceInput] = ()
+    owner_notes: Sequence[str] = ()
+    scene_note: str = ""
+    contract: ToolContract | None = None
+    contract_brief: str | None = None
+
+
+@dataclass(frozen=True)
+class StageContract:
+    name: str
+    instructions_sha256: str
+    tool_registry_sha256: str
+    settings_json: str
+    maximum_micro_usd: int
+
+    @classmethod
+    def from_spec(cls, spec: StageSpec, maximum_usd):
+        _validate_spec(spec)
+        if not isinstance(spec.name, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", spec.name):
+            raise RunRefused("invalid stage name")
+        maximum = cap_to_micro(maximum_usd)
+        if maximum <= 0:
+            raise RunRefused("stage allowance must be above $0")
+        settings = asdict(spec.settings)
+        if settings["settled_stop_usd"] is not None:
+            settings["settled_stop_usd"] = usd_text(cap_to_micro(settings["settled_stop_usd"]))
+        return cls(spec.name, instructions_sha256(spec.instructions),
+                   tool_registry_sha256(spec.tools, spec.settings), canonical_json(settings).decode(),
+                   maximum)
+
+    def binding(self):
+        return {"name": self.name, "instructions_sha256": self.instructions_sha256,
+                "tool_registry_sha256": self.tool_registry_sha256, "settings": json.loads(self.settings_json),
+                "maximum_micro_usd": self.maximum_micro_usd}
+
+
+def approval_settings(settings: RunSettings, stage_contracts=()) -> dict:
+    """Parent request settings, including every exact specialist contract before any approval is consumed."""
+    out = settings.approval_settings()
+    if stage_contracts:
+        names = [stage.name for stage in stage_contracts]
+        if len(set(names)) != len(names):
+            raise RunRefused("stage names must be unique")
+        out["stages"] = [stage.binding() for stage in sorted(stage_contracts, key=lambda stage: stage.name)]
+    return out
 
 
 # --------------------------------------------------------------------------- other load on the machine
@@ -764,8 +823,14 @@ class RunStatus:
     """The SDK run context the tools receive (``ctx.context``): settled money, the cap and the last counted input
     for the footer every facet tool result ends with (WP6_FACETS §4.5)."""
 
-    def __init__(self, guard: BudgetGuard | None = None):
+    def __init__(self, guard: BudgetGuard | None = None, runtime=None):
         self.guard = guard
+        self.runtime = runtime
+
+    async def run_stage(self, spec: StageSpec, scene: SceneHooks, cap_usd, call_id):
+        if self.runtime is None:
+            raise StageRunFailed("no approved stage runtime is attached")
+        return await self.runtime.run_stage(spec, scene, cap_usd, call_id)
 
     def numbers(self) -> dict:
         if self.guard is None:
@@ -783,6 +848,160 @@ def footer_text(settled_usd=None, cap_usd=None, context_tokens=None) -> str:
         return "n/a" if value is None else f"${value:.2f}"
     return (f"settled {usd(settled_usd)} / cap {usd(cap_usd)} · context "
             f"{'n/a' if context_tokens is None else context_tokens} tokens")
+
+
+class StageRunFailed(RuntimeError):
+    """A child failure must escape the enclosing tool, preserving the cause for parent classification."""
+
+
+class GlobalTurnsExceeded(MaxTurnsExceeded):
+    """Parent and child have used the approved parent interaction allowance."""
+
+
+STAGE_FATAL = (StageRunFailed, BudgetGuardError, StopRequested, MaxTurnsExceeded, RunRefused)
+
+
+class _SharedHooks(RunHooks):
+    def __init__(self, log, maximum, scene=None, stage=None):
+        self.log, self.maximum, self.scene, self.stage = log, maximum, scene, stage
+
+    def __getattr__(self, name):
+        return getattr(self.log, name)
+
+    async def on_llm_start(self, context, agent, system_prompt, input_items):
+        if self.maximum is not None and self.log.interactions >= self.maximum:
+            raise GlobalTurnsExceeded("parent interaction allowance exhausted, including specialist requests")
+        await self.log.on_llm_start(context, agent, system_prompt, input_items)
+
+    async def on_llm_end(self, context, agent, response):
+        await self.log.on_llm_end(context, agent, response)
+
+    def _tool_context(self, context):
+        if self.stage is None:
+            return context
+        # Provider call IDs belong to a conversation. Independent conversations can reuse them; only the
+        # shared receipt namespace changes, while the private SDK history and scene keep the original ID.
+        return SimpleNamespace(tool_call_id=f"stage:{self.stage}:{getattr(context, 'tool_call_id', None)}",
+                               tool_arguments=getattr(context, "tool_arguments", None))
+
+    async def on_tool_start(self, context, agent, tool):
+        await self.log.on_tool_start(self._tool_context(context), agent, tool)
+
+    async def on_tool_end(self, context, agent, tool, result):
+        logged_context = self._tool_context(context)
+        await self.log.on_tool_end(logged_context, agent, tool, result)
+        if self.scene is not None:
+            call_id = getattr(context, "tool_call_id", None)
+            rows = [row for row in self.scene.journal_entries() if row.get("call_id") == call_id]
+            if rows:
+                self.log.record_journal(logged_context.tool_call_id, {**rows[-1], "stage": self.stage})
+
+
+class StageRuntime:
+    """Uses one live client/guard/log; child histories and checkpoint domains never enter the parent session."""
+
+    def __init__(self, spec, client, guard, log, blobs, run_dir):
+        self.contracts = {stage.name: stage for stage in spec.stage_contracts}
+        self.owner_notes = tuple(spec.owner_notes)  # the exact ordered notes bound into this parent's approval
+        self.client, self.guard, self.log, self.blobs = client, guard, log, blobs
+        self.run_dir, self.maximum = Path(run_dir), spec.settings.max_turns
+        self.tasks = set()
+        self.closing = False
+
+    async def close(self):
+        self.closing = True
+        pending = [task for task in self.tasks if not task.done() and task is not asyncio.current_task()]
+        for task in pending:
+            if not task.cancelling():
+                task.cancel()  # a second cancel would interrupt the first cancellation's settlement/cleanup
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def run_stage(self, spec, scene, cap_usd, call_id):
+        if self.closing or self.tasks:
+            raise StageRunFailed("another stage is active or the parent run is closing")
+        approved = self.contracts.get(spec.name)
+        if (approved is None or StageContract.from_spec(spec, usd_text(approved.maximum_micro_usd)) != approved
+                or not 0 < cap_to_micro(cap_usd) <= approved.maximum_micro_usd):
+            raise StageRunFailed("stage instructions, tools, settings or allowance differ from its approval")
+        if not isinstance(call_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", call_id):
+            raise StageRunFailed("stage call id must be a confined identifier")
+        if spec.contract is None:
+            raise StageRunFailed("stage requires a two-way tool contract")
+        problems = contract_problems(spec.contract, instructions=spec.instructions, tools=spec.tools,
+                                     brief=spec.brief if spec.contract_brief is None else spec.contract_brief)
+        if problems:
+            raise StageRunFailed("stage tool contract: " + "; ".join(problems))
+        task = asyncio.current_task()
+        self.tasks.add(task)
+        directory = self.run_dir / "stages" / f"{spec.name}-{call_id}"
+        session = scope = context_guard = None
+        status, output, error, exit_head = "failed", None, None, None
+        state = {"continuations": 0, "finish_notes": 0}
+        started = self.log.interactions
+        try:
+            directory.mkdir(parents=True, exist_ok=False)
+            session = BlobSession(SESSION_ID, directory / "session.sqlite", blobs=self.blobs)
+            notes = tuple(dict.fromkeys((*self.owner_notes, *spec.owner_notes)))
+            plan = plan_session_input([], prompt=spec.brief, photos=spec.photos, owner_notes=notes,
+                                      invocation_text=spec.scene_note or f"Private {spec.name} stage ({call_id}).")
+            write_json(directory / "input-receipt.json", plan.receipt)
+            self.log.note(f"Stage {spec.name} started ({call_id}).", stage=spec.name, stage_call_id=call_id,
+                          contract=approved.binding())
+            settings = spec.settings
+            if settings.context_guard_tokens is not None:
+                context_guard = ContextGuard(settings.context_guard_tokens, byte_threshold=settings.guard_bytes(),
+                    counted=lambda: self.guard.planning()["last_counted_input_tokens"],
+                    sent_bytes=lambda: self.guard.planning()["last_request_bytes"], choose=scene.context_stubs,
+                    every_requests=settings.context_guard_every_requests, choose_images=scene.context_image_stubs,
+                    notify=lambda epoch: self.log.note(epoch_text(epoch), stage=spec.name, context_guard=epoch))
+            with self.guard.stage_budget(cap_usd, fit_output_to_budget=settings.fit_output_to_budget) as scope:
+                try:
+                    status, output = await _drive(build_agent(spec.instructions, spec.tools, settings), plan.content,
+                        session=session, log=self.log, guard=self.guard,
+                        run_config=build_run_config(self.client, input_filter=context_guard), settings=settings,
+                        state=state, context=RunStatus(self.guard),
+                        hooks=_SharedHooks(self.log, self.maximum, scene, call_id))
+                except BaseException as exc:
+                    if any(isinstance(item, StageBudgetExceeded) for item in _chain(exc)):
+                        status, error = "stage_budget_limit", {"type": "StageBudgetExceeded", "message": scope.denied}
+                    elif isinstance(exc, MaxTurnsExceeded) and not isinstance(exc, GlobalTurnsExceeded):
+                        status, error = "turn_limit", {"type": type(exc).__name__, "message": str(exc)}
+                    else:
+                        await self.guard.mark_unknown("specialist stage ended before its request had an outcome")
+                        status = classify_failure(exc, log=self.log, guard=self.guard)
+                        error = {"type": type(exc).__name__, "message": str(exc)[:2000]}
+                        if not isinstance(exc, Exception):
+                            raise
+                        raise StageRunFailed(f"stage {spec.name} ended: {status}") from exc
+            exit_head = await asyncio.to_thread(scene.exit_checkpoint)
+        except BaseException as exc:
+            if error is None:
+                status = classify_failure(exc, log=self.log, guard=self.guard)
+                error = {"type": type(exc).__name__, "message": str(exc)[:2000]}
+            await self.guard.mark_unknown("specialist stage did not finish its request")
+            if isinstance(exc, Exception) and not isinstance(exc, StageRunFailed):
+                raise StageRunFailed(f"stage {spec.name} ended: {status}") from exc
+            raise
+        finally:
+            try:
+                if session is not None:
+                    session.close()
+                receipt = {"schema": "g3d.stage_run/1", "stage": spec.name, "call_id": call_id,
+                           "contract": approved.binding(), "status": status, "error": error,
+                           "turns_used": self.log.interactions - started,
+                           **state,
+                           "budget": scope.summary() if scope is not None else None,
+                           "session": "session.sqlite", "exit_checkpoint": exit_head,
+                           "journal": scene.journal_entries(),
+                           "context_epochs": list(context_guard.epochs) if context_guard is not None else []}
+                if directory.is_dir():
+                    write_json(directory / "result.json", self.log.clean(receipt))
+                self.log.note(f"Stage {spec.name} ended: {status}.", stage=spec.name, stage_call_id=call_id)
+            finally:
+                self.tasks.discard(task)
+        return {"status": status, "final_output": output, "receipt": str(directory / "result.json"),
+                "budget": receipt["budget"], "exit_checkpoint": exit_head}
 
 
 def instructions_sha256(instructions: str) -> str:
@@ -1180,7 +1399,7 @@ def classify_failure(error: BaseException, *, log: ReviewLog | None, guard: Budg
         return "budget_limit"
     if guard is not None and guard.blocked_kind == "PayloadTooLarge":
         return "payload_limit"
-    if isinstance(error, MaxTurnsExceeded):
+    if any(isinstance(item, MaxTurnsExceeded) for item in _chain(error)):
         return "turn_limit"
     hint = guard.status_hint() if guard is not None else None
     if hint in ("provider_unknown", "provider_rejected"):
@@ -1267,7 +1486,7 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
         raise ApprovalRefused("stale", "the run's request sha differs from the approved request")
     current = build_request(spec.job_dir, instructions_sha256=instructions_sha256(spec.instructions),
                             tool_registry_sha256=tool_registry_sha256(spec.tools, spec.settings),
-                            settings=spec.settings.approval_settings(), unsent_owner_notes=spec.owner_notes,
+                            settings=approval_settings(spec.settings, spec.stage_contracts), unsent_owner_notes=spec.owner_notes,
                             run_inputs=run_input_binding(spec.job_dir, spec.brief, spec.photos))
     if request_sha256(current) != request_sha256(request):
         raise ApprovalRefused("stale", "job inputs, brief, photos, owner notes, instructions, tool registry or settings "
@@ -1276,7 +1495,8 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
 
 
 async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewLog, guard: BudgetGuard,
-                 run_config: RunConfig, settings: RunSettings, state: dict, context: Any = None) -> tuple[str, Any]:
+                 run_config: RunConfig, settings: RunSettings, state: dict, context: Any = None,
+                 hooks=None) -> tuple[str, Any]:
     """Runner.run, then up to ``max_continuations`` continuation runs after an incomplete response; with a finish
     tool, up to ``max_continuations`` host notes after a reply that ended without the accepted finish."""
     turns_left = settings.max_turns
@@ -1285,7 +1505,7 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
     while True:
         started = log.interactions
         try:
-            result = await Runner.run(agent, run_input, max_turns=turns_left, session=session, hooks=log,
+            result = await Runner.run(agent, run_input, max_turns=turns_left, session=session, hooks=hooks or log,
                                       run_config=run_config, context=context)
         except ModelBehaviorError:
             used = log.interactions - started
@@ -1401,7 +1621,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                initial=preflight_load) if spec.load_check is not None else None
         state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
-        counter = client = guard = log = context_guard = None
+        counter = client = guard = log = context_guard = runtime = None
         exit_checkpoint = exit_error = scan = None
         plan = None
         teardown_errors: list[dict] = []
@@ -1430,6 +1650,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                             stop_file=stop_file, heartbeat=heartbeat, run_id=spec.run_id, echo=spec.echo)
             scene.bind_review_log(log)
             client = clients.inference_client({"request": [log.before_request], "response": [log.after_response]})
+            runtime = StageRuntime(spec, client, guard, log, blobs, run_dir)
             disable_sdk_tracing()
             write_json(run_dir / "run-config.json", {
                 "schema": RUN_CONFIG_SCHEMA, "job_id": job_dir.name, "run_id": spec.run_id, "created": _now(),
@@ -1449,6 +1670,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "instructions_sha256": request.get("instructions_sha256"),
                 "tool_registry_sha256": request.get("tool_registry_sha256"),
                 "tools": [tool.name for tool in spec.tools], "session": "session/session.sqlite",
+                **({"stages": [contract.binding() for contract in spec.stage_contracts]} if spec.stage_contracts else {}),
                 "resume": bool(spec.resume), "scene_start": scene_start, "stale_stop_file_removed": stale_stop,
                 "versions": _versions(), "implementation": implementation,
                 **({"behavior": spec.settings.behavior()} if spec.settings.behavior() else {})})
@@ -1477,7 +1699,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
                                                 run_config=build_run_config(client, input_filter=context_guard),
-                                                settings=spec.settings, state=state, context=RunStatus(guard))
+                                                settings=spec.settings, state=state, context=RunStatus(guard, runtime),
+                                                hooks=_SharedHooks(log, spec.settings.max_turns))
         except BaseException as raised:     # noqa: BLE001 - every outcome becomes a status and a result.json
             if guard is not None and is_transport_failure(raised) and guard.open_sequence is not None:
                 try:
@@ -1490,6 +1713,11 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 pending = raised             # KeyboardInterrupt, CancelledError, SystemExit: re-raised below
         finally:
             # (6) always: no open hold, exit checkpoint before the worker closes, the paid run closed, result.json
+            if runtime is not None:
+                try:
+                    await runtime.close()  # child cancellation settlement finishes before closing shared clients
+                except Exception as closing:
+                    error = error or {"type": type(closing).__name__, "message": str(closing)[:2000]}
             state["turns_used"] = log.interactions if log is not None else 0
             if guard is not None:
                 try:
@@ -1532,7 +1760,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "schema": RESULT_SCHEMA, "job_id": job_dir.name, "run_id": spec.run_id, "status": status,
                 "error": error, "started": started, "finished": _now(),
                 "seconds": round(time.perf_counter() - started_clock, 3), "model": MODEL,
-                "settings": {**spec.settings.approval_settings(), "max_continuations": spec.settings.max_continuations},
+                "settings": {**approval_settings(spec.settings, spec.stage_contracts),
+                             "max_continuations": spec.settings.max_continuations},
                 "turns_used": state["turns_used"], "continuations": state["continuations"],
                 "final_output": final_output if isinstance(final_output, (str, type(None))) else str(final_output),
                 "requests": summary["requests"] if summary else 0, "budget": summary,

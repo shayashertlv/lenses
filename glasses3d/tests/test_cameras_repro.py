@@ -107,7 +107,7 @@ needs_data = pytest.mark.skipif(not fit_views.manifest_path("ft1119").exists() o
 def _setup():
     frame = C.NormFrame.from_dict(json.loads((REF / "fits.json").read_text())["frame"])
     mesh = fitmesh.load_fit_mesh(REF / "q001.glb", skip=fitmesh.PROTOTYPE_SKIP, frame=frame)
-    return mesh, mesh.scene(), mesh.front_pivot(fitmesh.PROTOTYPE_FRONT_PARTS)
+    return mesh, mesh.scene(), mesh.front_pivot([name + '.001' for name in fitmesh.PROTOTYPE_FRONT_PARTS])
 
 
 def _seeds(view):

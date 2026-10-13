@@ -65,6 +65,21 @@ def print_identity(V, F, part, names, layout) -> dict:
             "charts_sha": GM.charts_sha(layout.charts, layout.width, layout.height)}
 
 
+def texture_eligibility(record: dict, parts) -> tuple[list[str], list[str]]:
+    """Explicit attachment eligibility; missing or contradictory coverage is never permission to print."""
+    parts = list(parts)
+    if (not parts or any(not isinstance(p, str) or not p for p in parts) or len(parts) != len(set(parts))):
+        raise ValueError("print parts must be distinct exact object names")
+    selected, excluded = record.get('texture_parts'), record.get('no_texture_parts')
+    for key, value in (('texture_parts', selected), ('no_texture_parts', excluded)):
+        if (not isinstance(value, list) or any(not isinstance(p, str) or not p for p in value)
+                or len(value) != len(set(value)) or not set(value) <= set(parts)):
+            raise ValueError(f"{key} must explicitly list distinct layout parts")
+    if set(selected) & set(excluded) or set(selected) | set(excluded) != set(parts):
+        raise ValueError("texture_parts and no_texture_parts must partition the layout parts")
+    return list(selected), list(excluded)
+
+
 def build_manifest(bake_dir, *, label: str | None = None) -> dict:
     out = Path(bake_dir).resolve()
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
@@ -91,8 +106,12 @@ def build_manifest(bake_dir, *, label: str | None = None) -> dict:
     charts = GM.charts_sha(lay["charts"], lay["width"], lay["height"])
     if charts != ident["charts_sha"]:
         raise ValueError("layout.json does not match the report's print identity (charts_sha)")
+    if list(ident['parts']) != list(lay['parts']) or list(rep['parts']) != list(lay['parts']):
+        raise ValueError("layout parts differ from the report's print identity")
+    selected, excluded = texture_eligibility(rep, lay['parts'])
     return {"version": 1, "print_png": str(png), "print_sha256": _sha(png), "width": int(w), "height": int(h),
             "tx_per_mm": ident["tx_per_mm"], "tx_requested": ident["tx_requested"], "parts": ident["parts"],
+            "texture_parts": selected, "no_texture_parts": excluded,
             "layer": ident["layer"], "geometry_sha": ident["geometry_sha"], "charts_sha": ident["charts_sha"],
             "glb": str(glb_path), "glb_sha256": glb_sha, "mode": rep.get("mode"),
             "label": label or "photo-painted print bake (glasses3d WP5)",
@@ -181,14 +200,16 @@ def check_glb(glb_path, manifest, *, check_uv: bool = True) -> dict:
     man = load_manifest(manifest)
     reasons, rows, notes = [], {}, []
     try:
+        eligible, _ = texture_eligibility(man, man['parts'])
+    except (KeyError, ValueError, TypeError) as exc:
+        return {'ok': False, 'stale': True, 'reasons': [f'invalid print eligibility: {exc}'], 'parts': {}}
+    try:
         g = glbmod.load(glb_path)
         prims = GM.read_glb(glb_path)
         doc, binc = GM.chunks(Path(glb_path).read_bytes())
     except Exception as exc:
         return {"ok": False, "stale": True, "reasons": [f"unreadable GLB: {type(exc).__name__}: {exc}"], "parts": {}}
-    V, F, part, names = GM.mesh_arrays(prims, strip_suffix=False)          # a WP3 export: object names exactly
-    if not all(p in names for p in man["parts"]):
-        V, F, part, names = GM.mesh_arrays(prims)                          # a Studio export: 'Brow_Left.001'
+    V, F, part, names = GM.mesh_arrays(prims)
     missing = [p for p in man["parts"] if p not in names]
     if missing:
         reasons.append(f"parts missing from the GLB: {missing}")
@@ -198,8 +219,6 @@ def check_glb(glb_path, manifest, *, check_uv: bool = True) -> dict:
             reasons.append("print stale; re-project: the GLB's print geometry is not the bake's (geometry_sha "
                            f"{now[:12]} vs {man['geometry_sha'][:12]})")
     nodes = {n.get("name"): n for n in g.nodes}
-    for n in list(nodes):
-        nodes.setdefault(GM._SUFFIX.sub("", n or ""), nodes[n])
     exp, why = (None, "uv comparison not asked for (check_uv=False)") if not check_uv else (None, None)
     if check_uv and not missing:
         try:
@@ -208,6 +227,8 @@ def check_glb(glb_path, manifest, *, check_uv: bool = True) -> dict:
             exp, why = None, f"the bake's layout could not be recomputed: {type(exc).__name__}: {exc}"
     if why:
         notes.append(why)
+        if check_uv and man.get('glb'):
+            reasons.append(f'print stale; re-project: {why}')
     images_checked = {}
     for p in man["parts"]:
         node = nodes.get(p)
@@ -234,7 +255,9 @@ def check_glb(glb_path, manifest, *, check_uv: bool = True) -> dict:
         for q in prs:
             m = g.material(q.material_index) or {}
             info_t = (m.get("pbrMetallicRoughness") or {}).get("baseColorTexture")
-            if info_t is not None:
+            if info_t is None and p in eligible:
+                reasons.append(f'{p}: eligible print part has no baseColorTexture')
+            if info_t is not None and p in eligible:
                 row["base_color_texcoord"] = info_t.get("texCoord", 0)
                 if info_t.get("texCoord", 0) != k:
                     reasons.append(f"{p}: baseColorTexture uses TEXCOORD_{info_t.get('texCoord', 0)}, the print is "
@@ -258,12 +281,17 @@ def check_glb(glb_path, manifest, *, check_uv: bool = True) -> dict:
                 if images_checked[src] not in ("bytes", "pixels"):
                     reasons.append(f"{p}: baseColorTexture samples an image that is not the bake's print.png "
                                    f"(sha256 {man.get('print_sha256', '')[:12]}; {images_checked[src]})")
+            elif info_t is not None:
+                src = ((doc.get('textures') or [{}])[int(info_t.get('index', 0))] or {}).get('source')
+                data = _image_bytes(doc, binc, int(src)) if src is not None else None
+                if data is not None and (hashlib.sha256(data).hexdigest() == man.get('print_sha256')
+                                         or _same_pixels(data, man.get('print_png'))):
+                    reasons.append(f'{p}: no-texture part samples the print image')
         # TEXCOORD_k is the bake's layout, corner for corner (matched by position)
         if exp is not None and has_tc and p in exp:
-            P_ = np.concatenate([q.positions_mm[q.triangles] for q in prims if GM._SUFFIX.sub("", q.node) == p
-                                 or q.node == p]) if prims else np.zeros((0, 3, 3))
+            P_ = np.concatenate([q.positions_mm[q.triangles] for q in prims if q.node == p]) if prims else np.zeros((0, 3, 3))
             U_ = np.concatenate([GM.uv_texels(q, k, man["width"], man["height"]) for q in prims
-                                 if GM._SUFFIX.sub("", q.node) == p or q.node == p])
+                                 if q.node == p])
             Qe, Ue = exp[p]
             Qg, Ug = canonical_corners(P_, U_)
             if Qg.shape != Qe.shape or not np.array_equal(Qg, Qe):

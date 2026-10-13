@@ -27,6 +27,7 @@ from PIL import Image
 from glasses3d.g3d_host import raster
 from glasses3d.g3d_host import texture_utils as T
 from glasses3d.g3d_host.photoprint import inputs as IN
+from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.g3d_host.photoprint.compose import render_bake
 from glasses3d.g3d_host.photoprint.procs import opt_out_ecoqos
 from glasses3d.tests.photoprint import printproof as PP
@@ -39,7 +40,7 @@ TH = dict(THRESHOLDS)
 
 def _a2_job(view, tx):
     opt_out_ecoqos()
-    job = IN.load_job(IN.FT1119["cameras"])
+    job = legacy_ft1119.load_job()
     return PP.round_trip(job, view, tx, IN.FT1119_PARTS)
 
 

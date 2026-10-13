@@ -22,6 +22,7 @@ from glasses3d.agent import approvals as A  # noqa: E402
 from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent import seeing  # noqa: E402
 from glasses3d.agent import budget as B  # noqa: E402
+from glasses3d.tests.fixtures import temple_lab_prada as PRADA
 from glasses3d.agent.temple_lab import cli  # noqa: E402
 from glasses3d.agent.temple_lab import sheets as SH  # noqa: E402
 from glasses3d.agent.temple_lab import tools as T  # noqa: E402
@@ -52,7 +53,8 @@ def sources(tmp: Path) -> dict:
         Image.new("RGB", (64 + 8 * k, 40), (40 * k, 120, 200)).save(ref / name)
         files[name] = {"sha256": sha(ref / name), "label": kind}
         images[name] = {"image": str(ref / name), "image_sha256": files[name]["sha256"], "view_kind": kind,
-                        "colourway": "target", "camera": {"yaw": yaw, "pitch": pitch}}
+                        "colourway": "target", "camera": {"yaw": yaw, "pitch": pitch},
+                        "theta_deg": {"+1": 0, "-1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0], "-1": [-60, 0]}}
     (tmp / "mattes").mkdir()
     black = tmp / "black"
     black.mkdir()
@@ -70,6 +72,7 @@ def sources(tmp: Path) -> dict:
         images[name] = {"image": str(src), "image_sha256": sha(src), "view_kind": kind, "colourway": "variant",
                         "camera": {"yaw": yaw, "pitch": pitch}, "matte_mode": "supplied",
                         "matte_file": f"mattes/{name}", "matte_file_sha256": sha(matte), "fit_status": fit,
+                        "theta_deg": {"+1": 0, "-1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0], "-1": [-60, 0]},
                         "theta_observed": {"+1": False, "-1": False}}
         colourway.append({"id": pid, "image": name, "colour": "black", "finish": "glossy", "sha256": sha(src)})
     (ref / "manifest.json").write_text(json.dumps({"name": "Test Frame 1", "files": files}), encoding="utf-8")
@@ -159,7 +162,8 @@ def package(tmp_path: Path, rig: str = cli.DEFAULT_RIG) -> tuple[Path, dict]:
     out = cli.prepare(root, rig=rig, source_scene=src["scene"], scene_sha256=src["scene_sha256"],
                       reference=src["reference"], basis_json=src["basis_json"], lab_class=PrepLab,
                       import_basis=fake_import, colourway_photos=src["colourway_photos"],
-                      reference_photos=src["reference_photos"])
+                      reference_photos=src["reference_photos"], photo_ids=PRADA.PHOTO_IDS,
+                      camera_conflicts=PRADA.CAMERA_CONFLICTS, reading_precision=PRADA.READING_PRECISION)
     return root, out
 
 
@@ -261,8 +265,8 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
     assert ("Cameras: 01, 02, 03, 04, 05 and 06 each have a camera fitted on its own. The cameras of B1, B2 and B3 "
             "were not fitted: each is another photo's camera (B1's from 05, B2's from 02 and B3's from 04)") in brief
     # the job's data, as prepare passes it (CAMERA_CONFLICTS, READING_PRECISION), and the theta lever
-    for line in (cli.precision_text(cli.READING_PRECISION), cli.theta_text(),
-                 *(cli.conflict_text(c) for c in cli.CAMERA_CONFLICTS)):
+    for line in (cli.precision_text(PRADA.READING_PRECISION), cli.theta_text(),
+                 *(cli.conflict_text(c) for c in PRADA.CAMERA_CONFLICTS)):
         assert line + "\n" in brief, line
     assert "What you may change is the whole temple from the hinge to its tip" in brief
     assert "The real temples' edge rounding (roll_mm) is not known" in brief
@@ -280,7 +284,7 @@ def test_a_reference_only_photo_is_packaged_for_photo_image(tmp_path):
     root = tmp_path / "job"
     cli.prepare(root, source_scene=src["scene"], scene_sha256=src["scene_sha256"], reference=src["reference"],
                 basis_json=src["basis_json"], lab_class=PrepLab, import_basis=fake_import,
-                colourway_photos=src["colourway_photos"], reference_photos=(extra,))
+                colourway_photos=src["colourway_photos"], reference_photos=(extra,), photo_ids=PRADA.PHOTO_IDS)
     lab_json = json.loads((root / "inputs" / "lab.json").read_text(encoding="utf-8"))
     rows = {p["id"]: p for p in lab_json["photos"]}
     assert list(rows)[-4:] == ["B1", "B2", "B3", "R1"] and rows["R1"]["role"] == "reference"
@@ -298,14 +302,14 @@ def test_the_pinned_black_photos():
     """The package's black photos are pinned by sha256, each a colourway-variant image of the pose basis with its
     camera transported from the target photo of the same pose: B1 = black-side (from 05), B2 = black-angled (from
     02), B3 = black-front (from 04); no reference-only photo; distinct ids and input paths."""
-    assert [p["id"] for p in cli.COLOURWAY_PHOTOS] == ["B1", "B2", "B3"] and cli.REFERENCE_PHOTOS == ()
-    assert [(p["image"], p["sha256"][:8]) for p in cli.COLOURWAY_PHOTOS] == [
+    assert [p["id"] for p in PRADA.COLOURWAY_PHOTOS] == ["B1", "B2", "B3"] and PRADA.REFERENCE_PHOTOS == ()
+    assert [(p["image"], p["sha256"][:8]) for p in PRADA.COLOURWAY_PHOTOS] == [
         ("black-side.png", "6eddabbb"), ("black-angled.webp", "5705c2ca"), ("black-front.webp", "e89d19f4")]
-    assert len({p["image"] for p in cli.COLOURWAY_PHOTOS}) == 3
-    assert {(p["colour"], p["finish"]) for p in cli.COLOURWAY_PHOTOS} == {("black", "glossy")}
-    if cli.BASIS_JSON.is_file():
-        images = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))["images"]
-        for p, src in zip(cli.COLOURWAY_PHOTOS, ("05", "02", "04")):
+    assert len({p["image"] for p in PRADA.COLOURWAY_PHOTOS}) == 3
+    assert {(p["colour"], p["finish"]) for p in PRADA.COLOURWAY_PHOTOS} == {("black", "glossy")}
+    if PRADA.BASIS_JSON.is_file():
+        images = json.loads(PRADA.BASIS_JSON.read_text(encoding="utf-8"))["images"]
+        for p, src in zip(PRADA.COLOURWAY_PHOTOS, ("05", "02", "04")):
             rec = images[p["image"]]
             assert rec["image_sha256"] == p["sha256"] and rec["colourway"] == "variant", p
             assert rec["fit_status"].startswith(f"camera transported from {src}") and rec["matte_mode"] == "supplied"
@@ -317,7 +321,8 @@ def test_prepare_refusals(tmp_path):
     src = sources(tmp_path)
     kw = dict(source_scene=src["scene"], reference=src["reference"], basis_json=src["basis_json"],
               lab_class=PrepLab, import_basis=fake_import, colourway_photos=src["colourway_photos"],
-              reference_photos=src["reference_photos"])
+              reference_photos=src["reference_photos"], photo_ids=PRADA.PHOTO_IDS,
+                      camera_conflicts=PRADA.CAMERA_CONFLICTS, reading_precision=PRADA.READING_PRECISION)
     with pytest.raises(ValueError, match="expected sha256"):
         cli.prepare(tmp_path / "a", scene_sha256="0" * 64, **kw)
     with pytest.raises(ValueError, match="rig"):
@@ -601,6 +606,7 @@ def test_brief_geometry_helpers():
     ids = {"reference-02.webp": "02", "reference-05.png": "05"}
     moved = {"transport": {"source": "C:/x/reference-02.webp", "mask_iou_after_warp": 0.99243,
                            "mean_bidirectional_px": 0.8233}, "theta_observed": {"+1": False, "-1": False},
+             "theta_deg": {"+1": 0, "-1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0], "-1": [-60, 0]},
              "fit_status": "camera transported from 02 by image similarity (contour 0.82 px, IoU 0.992); theta "
                            "copied from 02"}
     assert cli.camera_fit_text(moved, ids) == ("camera moved from 02's by matching the two photos' silhouettes (photo "
@@ -617,6 +623,7 @@ def test_brief_geometry_helpers():
     # check is labelled as that validation's, the one the target photos' fits print, never as the starting model's
     # check B2 and B3 print (review 2026-10-12, P3)
     b1 = {"fit_status": "camera transported from 05", "iou": 0.88325, "contour_mean_px": 7.2318,
+          "theta_deg": {"+1": 0, "-1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0], "-1": [-60, 0]},
           "theta_observed": {"+1": False, "-1": False}}
     assert cli.camera_fit_text(b1, ids) == ("camera moved from 05's by matching the two photos' silhouettes, the "
                                             "temples' hinge opening as in 05; the model's silhouette at this camera "
@@ -636,6 +643,43 @@ def test_brief_geometry_helpers():
     assert cli.SIDE_VIEWS is seeing.SIDE_VIEWS                     # one list: the views whose compares print outlines
     assert cli.colour_text({"colour": "black", "finish": "glossy"}) == "glossy black"
     assert cli.colour_text({}) == "another colour"
+
+
+@pytest.mark.parametrize("pose", [{}, {"theta_observed": {"+1": False, "-1": False}},
+                                 {"theta_deg": {"+1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0]}}])
+def test_transported_camera_does_not_invent_copied_opening(pose):
+    """Camera transport alone supplies no evidence of a copied calibrated hinge pose."""
+    ids = {"side.png": "side", "variant.png": "variant"}
+    moved = {"camera": {"yaw": 90}, "transport": {"source": "side.png"}, **pose}
+    assert "hinge opening" not in cli.camera_fit_text(moved, ids)
+    text = cli.lineage_text({"side": {"camera": {"yaw": 90}}, "variant": moved}, ids)
+    assert "shares that camera's error" in text and "theta" not in text and "hinge opening" not in text
+
+
+def test_brief_mixed_pose_records_name_only_the_calibrated_photos():
+    photos = [{"id": name, "path": f"images/{name}.png", "view": "side", "role": "target"}
+              for name in ("posed", "authored")]
+    camera = {"camera": {"yaw": 90}}
+    cameras = {"posed.png": {**camera, "theta_deg": {"+1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0]}},
+               "authored.png": {**camera, "transport": {"source": "posed.png"}}}
+    brief = cli.brief_text("A different frame", photos, cameras)
+    assert "Calibrated hinge-opening metadata: posed. For these photos, the camera fit includes" in brief
+    assert "As-authored temple pose; hinge opening is not calibrated for: authored." in brief
+    assert "Each camera fit" not in brief and "hinge opening as in" not in brief and "theta) copied" not in brief
+
+
+def test_verified_rigid_identity_is_disclosed_without_a_calibration_claim():
+    photos = [{"id": "authored", "path": "images/authored.png", "view": "side", "role": "target"}]
+    cameras = {"authored.png": {"camera": {"yaw": 90}, "theta_deg": {"+1": 0, "-1": 0},
+        "hinge_axis_xz_mm": {"+1": [62, -10], "-1": [-62, -10]},
+        "theta_observed": {"+1": False, "-1": False},
+        "pose_provenance": {"mode": "as_authored", "opening_calibrated": False}}}
+    brief = cli.brief_text("An authored frame", photos, cameras)
+    assert "Calibrated hinge-opening metadata" not in brief and "For these photos, the camera fit includes" not in brief
+    assert "As-authored temple pose; hinge opening is not calibrated for: authored." in brief
+    assert "verified rigid camera fit used the authored mesh with zero additional hinge rotation" in brief
+    assert "not a measured photo opening" in brief and "axes come from the captured current model" in brief
+    assert "not a measured opening confidence" in brief
 
 
 def test_brief_outline_offsets_by_view():
@@ -667,7 +711,9 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
     from glasses3d.agent.temple_lab import readings as RD
     ids = {"reference-05.png": "05", "reference-02.png": "02", "black-side.png": "B1"}
     recs = {"05": {"camera": {"yaw": 90.0}}, "02": {"camera": {"yaw": 30.0}},
-            "B1": {"camera": {"yaw": 90.0}, "fit_status": "camera transported from 05"}, "R1": None}
+            "B1": {"camera": {"yaw": 90.0}, "fit_status": "camera transported from 05",
+                   "theta_deg": {"+1": 0, "-1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0], "-1": [-60, 0]},
+                   "theta_observed": {"+1": False, "-1": False}}, "R1": None}
     assert cli.lineage_text(recs, ids) == (
         "Cameras: 05 and 02 each have a camera fitted on its own. B1's camera was not fitted: it is 05's camera moved "
         "onto its photo by an image similarity that matches the two photos' silhouettes, with the temples' hinge "
@@ -677,7 +723,7 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
         "Cameras: 05 has a camera fitted on its own."
     assert cli.lineage_text({"R1": None}, ids) is None
     assert cli.precision_text(None) is None
-    p = cli.precision_text(cli.READING_PRECISION)
+    p = cli.precision_text(PRADA.READING_PRECISION)
     assert p.startswith("Readings (photo_read) on these photos: a crisp corner read from two directions is good to "
                         "about 0.2-0.5 mm; a tip, or a point on an edge that runs along the line of sight between the "
                         "photos, only to about 0.7-1.5 mm along that edge, even where a single pick of it prints less")
@@ -695,12 +741,12 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
                        "readings from different photos carry their own theta.")
     assert "faces stay flat" not in th and "edges straight" not in th
     assert [round(d * math.pi / 180.0, 1) for d in (75, 85)] == [1.3, 1.5]            # WP6_V3 §0.3: ~1.3 at d 75-85
-    c = cli.conflict_text(cli.CAMERA_CONFLICTS[0])
+    c = cli.conflict_text(PRADA.CAMERA_CONFLICTS[0])
     assert c == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame rigid, "
                  "each temple a rigid arm turned about its hinge), the outer outline that photo 03 shows at d 10-40 "
                  "and the other photos cannot be matched together: they differ there by up to about 2.2 mm, 03's "
                  "further out, on both temples. This is a limit of the camera model, not of the photo.")
-    back = cli.conflict_text(cli.CAMERA_CONFLICTS[1])
+    back = cli.conflict_text(PRADA.CAMERA_CONFLICTS[1])
     assert back == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame "
                     "rigid, each temple a rigid arm turned about its hinge), the outer outline that photos 03 and 06 "
                     "show near d 75 and the two-direction readings of the side and angled photos cannot be matched "
@@ -722,23 +768,23 @@ def test_camera_conflicts_and_reading_precision_are_job_data():
     data), the rows print what it measured (review 2026-10-12, P3: "up to about 2 mm" against +2.18, "1 mm or more"
     against 0.7-1.5 mm; P2: the back-of-block conflict of 03 and 06 with the readings was missing)."""
     assert [(tuple(c["photos"]), c["d_mm"], c["up_to_mm"], c["temples"], c["further_out"])
-            for c in cli.CAMERA_CONFLICTS] == [
+            for c in PRADA.CAMERA_CONFLICTS] == [
         (("03",), (10, 40), 2.2, "both temples", "03's further out"),
         (("03", "06"), 75, 2.7, "the charted temple (the mirrored temple was not checked)",
          "the readings further out")]
-    assert tuple(cli.READING_PRECISION["corner_mm"]) == (0.2, 0.5)
-    assert tuple(cli.READING_PRECISION["along_mm"]) == (0.7, 1.5)
+    assert tuple(PRADA.READING_PRECISION["corner_mm"]) == (0.2, 0.5)
+    assert tuple(PRADA.READING_PRECISION["along_mm"]) == (0.7, 1.5)
     # FINDINGS §0.5 (crisp corners) and §1 (tips); its §0.3 is photo 03's conflict, not the precision
-    assert cli.READING_PRECISION["evidence"].startswith("data/wp6v2/review_20261012/FINDINGS.md §0.5 and §1;")
+    assert PRADA.READING_PRECISION["evidence"].startswith("data/wp6v2/review_20261012/FINDINGS.md §0.5 and §1;")
     import inspect
     defaults = {k: v.default for k, v in inspect.signature(cli.prepare).parameters.items()}
-    assert defaults["camera_conflicts"] is cli.CAMERA_CONFLICTS and \
-        defaults["reading_precision"] is cli.READING_PRECISION
+    assert defaults["camera_conflicts"] == () and defaults["reading_precision"] is None
     photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"}]
     plain = cli.brief_text("Frame X", photos, {"reference-01.png": {"camera": {"yaw": 90.0, "pitch": 5.0}}})
     assert "Camera-model conflict" not in plain and "Readings (photo_read)" not in plain
-    assert "Each camera fit includes the temples' hinge opening (theta)" in plain      # the theta lever is general
-    mid = cli.G3D / cli.CAMERA_CONFLICTS[0]["evidence"]
+    assert "As-authored temple pose; hinge opening is not calibrated for: 01." in plain
+    assert "Each camera fit includes the temples' hinge opening (theta)" not in plain
+    mid = cli.G3D / PRADA.CAMERA_CONFLICTS[0]["evidence"]
     if mid.is_file():
         text = mid.read_text(encoding="utf-8")
         assert "photo 03's front-block outline cannot be matched by any shape the other eight photos allow" in text
@@ -746,7 +792,7 @@ def test_camera_conflicts_and_reading_precision_are_job_data():
         bins = [[float(v) for v in re.findall(r"[+−-]\d+\.\d+", cell.replace("−", "-"))]
                 for cell in row.split("|")[2:-1]]
         assert len(bins) == 9                                                     # d 5-10 .. 45-48
-        assert round(max(max(b) for b in bins), 1) == cli.CAMERA_CONFLICTS[0]["up_to_mm"]      # +2.18 at d 20-25
+        assert round(max(max(b) for b in bins), 1) == PRADA.CAMERA_CONFLICTS[0]["up_to_mm"]      # +2.18 at d 20-25
         assert all(min(b) > 0 for b in bins[1:7]) and max(bins[0]) < 0.3 and max(bins[7]) < 0   # d 10-40 only
     theta_log = REVIEW / "w2/crown-geometry/theta_both.log"
     if theta_log.is_file():                          # the tip read at each angled-photo theta (crown-geometry §2)
@@ -759,8 +805,8 @@ def test_camera_conflicts_and_reading_precision_are_job_data():
         fitted, on = rows[0], rows[2]               # the fitted cameras; +2 deg: the tip on both silhouettes
         assert fitted[2] < fitted[3] and fitted[4] > fitted[5]          # outside 06's and 03's outlines at the fit
         assert abs(on[2] - on[3]) <= 4 and abs(on[4] - on[5]) <= 4      # on both at +2 deg (px)
-        assert round(fitted[1] - on[1], 1) == cli.CAMERA_CONFLICTS[1]["up_to_mm"]                # 7.03 - 4.34
-        assert abs(on[0] - cli.CAMERA_CONFLICTS[1]["d_mm"]) < 1 > abs(fitted[0] - cli.CAMERA_CONFLICTS[1]["d_mm"])
+        assert round(fitted[1] - on[1], 1) == PRADA.CAMERA_CONFLICTS[1]["up_to_mm"]                # 7.03 - 4.34
+        assert abs(on[0] - PRADA.CAMERA_CONFLICTS[1]["d_mm"]) < 1 > abs(fitted[0] - PRADA.CAMERA_CONFLICTS[1]["d_mm"])
     findings = REVIEW / "FINDINGS.md"
     if findings.is_file():
         text = findings.read_text(encoding="utf-8")
@@ -804,8 +850,9 @@ def test_brief_names_the_light_the_temples_the_scope_and_the_edge_rounding():
         brief = cli.brief_text("Frame X", photos, rig=rig)
         assert f"The renders use the job's fixed light, {rig}: {cli.RIG_TEXT[rig]}. The photos' light is " \
                "unknown. " + cli.LIGHT_TEXT in brief
-    assert cli.LIGHT_TEXT.startswith("The render light does not reproduce the photos' tones") and \
+    assert cli.LIGHT_TEXT.startswith("The render light may not reproduce the photos' tones") and \
         cli.LIGHT_TEXT.endswith("in the photos a tone step marks where an edge is, not its size or sign.")
+    assert "no light tried" not in cli.LIGHT_TEXT and "unedited frame" not in cli.LIGHT_TEXT
     brief = cli.brief_text("Frame X", photos)
     assert "fixed light, studio_dome_v1:" in brief                        # the default rig, the owner's choice
     assert "The charted temple is the one the spec's d, y and t chart; the mirrored temple is its mirror image" in brief
@@ -827,20 +874,20 @@ def test_brief_names_the_light_the_temples_the_scope_and_the_edge_rounding():
 def real_brief() -> str:
     """The brief the package would get from the real pose basis (data/wp6v2/basis/cameras.json, git-ignored), with the
     job's conflicts and reading precision as prepare passes them."""
-    doc = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))
+    doc = json.loads(PRADA.BASIS_JSON.read_text(encoding="utf-8"))
     photos = []
     for name in sorted(n for n, r in doc["images"].items() if r.get("colourway") == "target"):
         rec = doc["images"][name]
         photos.append({"id": Path(name).stem.split("-", 1)[1], "path": f"images/{name}", "view": rec["view_kind"],
                        "role": "target"})
-    for w in cli.COLOURWAY_PHOTOS:
+    for w in PRADA.COLOURWAY_PHOTOS:
         photos.append({"id": w["id"], "path": f"images/{w['image']}", "view": doc["images"][w["image"]]["view_kind"],
                        "role": "colourway", "colour": w["colour"], "finish": w["finish"]})
-    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"], conflicts=cli.CAMERA_CONFLICTS,
-                          precision=cli.READING_PRECISION)
+    return cli.brief_text("Prada PRS 17WS 21D5J2 49M", photos, doc["images"], conflicts=PRADA.CAMERA_CONFLICTS,
+                          precision=PRADA.READING_PRECISION)
 
 
-@pytest.mark.skipif(not cli.BASIS_JSON.is_file(), reason="the pose basis (git-ignored data) is absent")
+@pytest.mark.skipif(not PRADA.BASIS_JSON.is_file(), reason="the pose basis (git-ignored data) is absent")
 def test_brief_on_the_real_pose_basis():
     """The Prada job's brief from its cameras: B1 shares 05's direction and 01 is its mirror, B2 is 02's direction at
     62 deg to the outer face, the edge-on views; each camera's lineage as the basis records it (B1, B2, B3 moved from
@@ -877,14 +924,14 @@ def test_brief_on_the_real_pose_basis():
     assert "not checked against the model" not in brief                  # every moved camera has its check
     assert "Cameras: 01, 02, 03, 04, 05 and 06 each have a camera fitted on its own. The cameras of B1, B2 and B3 " \
            "were not fitted: each is another photo's camera (B1's from 05, B2's from 02 and B3's from 04)" in brief
-    doc = json.loads(cli.BASIS_JSON.read_text(encoding="utf-8"))
-    for p, src in zip(cli.COLOURWAY_PHOTOS, ("05", "02", "04")):         # the lineage is the basis's own record
+    doc = json.loads(PRADA.BASIS_JSON.read_text(encoding="utf-8"))
+    for p, src in zip(PRADA.COLOURWAY_PHOTOS, ("05", "02", "04")):         # the lineage is the basis's own record
         assert doc["images"][p["image"]]["fit_status"].startswith(f"camera transported from {src}")
         assert not any(doc["images"][p["image"]]["theta_observed"].values())          # theta copied, not observed
     assert "Outline offsets (photo minus model, mm) are printed for 01, 05, B1 only." in brief
     assert not any("its compares print" in rows[p] for p in ("02", "03", "04", "06", "B2", "B3"))
-    assert cli.precision_text(cli.READING_PRECISION) in brief and cli.theta_text() in brief
-    for c in cli.CAMERA_CONFLICTS:                    # 03 at the front block; 03 and 06 against the readings at d 75
+    assert cli.precision_text(PRADA.READING_PRECISION) in brief and cli.theta_text() in brief
+    for c in PRADA.CAMERA_CONFLICTS:                    # 03 at the front block; 03 and 06 against the readings at d 75
         assert cli.conflict_text(c) + "\n" in brief
     for pointer in ("charted temple", "mirrored temple", "square-on", "at a moderate angle", "edge-on", "Directions",
                     "look along creases that run front to back", "Glossy photos", "faces that point straight up",
@@ -1213,7 +1260,7 @@ def test_output_tokens_are_the_paid_facet_runs():
     assert "-004 1852 (32)" in table["output_tokens_source"] and "-003 2064 (15)" in table["output_tokens_source"]
     means = {}
     for rid, pkg in PAID_FACET_RUNS.items():
-        p = cli.LAB_DATA / pkg / "runs" / rid / "budget.json"
+        p = PRADA.LAB_DATA / pkg / "runs" / rid / "budget.json"
         if p.is_file():
             outs = [r["usage"]["output_tokens"] for r in json.loads(p.read_text(encoding="utf-8"))["rows"]
                     if (r.get("usage") or {}).get("output_tokens") is not None]

@@ -273,10 +273,14 @@ def _build(boundary: np.ndarray, segments: list, inside: tuple = ()):
     used = sorted({v for e in und for v in e})
     floating = [v for v in used if find(v) != root]
     if floating:
-        comp = [v for v in floating if find(v) == find(min(floating, key=lambda v: (V[v, 0], V[v, 1])))]
-        v0 = min(comp, key=lambda v: (V[v, 0], V[v, 1]))
-        v1 = max(comp, key=lambda v: (V[v, 0], V[v, 1]))
-        return "float", [V[v0], V[v1]]           # chords at both ends: no face pinches at a single vertex
+        comps = {}
+        for v in floating:
+            comps.setdefault(find(v), []).append(v)
+        ends = [(min(comp, key=lambda v: (V[v, 0], V[v, 1])),
+                 max(comp, key=lambda v: (V[v, 0], V[v, 1]))) for comp in comps.values()]
+        ends.sort(key=lambda pair: tuple(V[pair[0]]))
+        # Join every component in this pass; the retry budget handles pinches, not a facet-count limit.
+        return "float", [V[v] for pair in ends for v in pair]
     # half-edge faces (face on the left of every half-edge)
     adj: dict[int, list[int]] = {}
     for a, b in und:

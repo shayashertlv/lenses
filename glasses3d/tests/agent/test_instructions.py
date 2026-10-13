@@ -35,18 +35,22 @@ def test_owner_table_is_exact_and_included_once(tools):
 
 def test_all_optional_specialists_are_absent_until_registered_and_fit_cap(tools):
     core = I.build_instructions(tools)
-    assert not I.named_tools(core) & I.SPECIALIST_GUIDANCE.keys()
-    for name in I.SPECIALIST_GUIDANCE:
+    registered = set(TOOL_NAMES) & I.SPECIALIST_GUIDANCE.keys()
+    assert registered == {"seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire",
+                          "temple_stage", "photo_print"}
+    assert I.named_tools(core) & I.SPECIALIST_GUIDANCE.keys() == registered
+    pending = I.SPECIALIST_GUIDANCE.keys() - registered
+    for name in pending:
         text = I.build_instructions([*tools, SimpleNamespace(name=name)])
         assert I.named_tools(text) == frozenset(TOOL_NAMES) | {name}
-    all_tools = [*tools, *(SimpleNamespace(name=name) for name in I.SPECIALIST_GUIDANCE)]
+    all_tools = [*tools, *(SimpleNamespace(name=name) for name in pending)]
     assert len(I.build_instructions(all_tools)) <= I.MAX_INSTRUCTION_CHARS
 
 
 @pytest.mark.parametrize("bad_registry", ["missing", "unknown", "duplicate"])
 def test_registry_changes_cannot_silently_lose_guidance(tools, bad_registry):
     if bad_registry == "missing":
-        tools.pop()
+        tools.pop(0)  # a required core tool, independent of which optional specialists are now registered
     elif bad_registry == "unknown":
         tools.append(SimpleNamespace(name="invented_tool"))
     else:
@@ -123,7 +127,8 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
     for name, (file, function) in sources.items():
         tree = ast.parse((root / file).read_text(encoding="utf-8"))
         nodes = [tree] if function is None else [n for n in ast.walk(tree)
-                                               if isinstance(n, ast.FunctionDef) and n.name == function]
+                                               if isinstance(n, ast.FunctionDef) and (n.name == function or
+                                                   function == "fit_cameras" and n.name == "_fit_ref_summary")]
         assert nodes, (file, function)
         literals = {n.value for node in nodes for n in ast.walk(node)
                     if isinstance(n, ast.Constant) and isinstance(n.value, str)}

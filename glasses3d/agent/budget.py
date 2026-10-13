@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 import hashlib
@@ -124,6 +125,37 @@ class BudgetGuardError(RuntimeError):
 
 class BudgetExceeded(BudgetGuardError):
     """The next reservation would exceed this run's dollar cap."""
+
+
+class StageBudgetExceeded(BudgetGuardError):
+    """A private stage cannot reserve its next request; no reservation exists and the parent may continue."""
+
+    def __init__(self, message, request):
+        super().__init__(message)
+        self.request = request
+
+
+class StageBudget:
+    """A bounded slice of the existing ledger, including settled, held and unknown money."""
+
+    def __init__(self, guard, maximum_usd, fit_output_to_budget=None):
+        self.guard = guard
+        self.maximum_micro = cap_to_micro(maximum_usd)
+        if self.maximum_micro <= 0:
+            raise BudgetGuardError("stage allowance must be above $0")
+        self.start = len(guard.ledger.rows)
+        self.before = guard.ledger.totals()
+        self.denied = None
+        self.fit_output_to_budget = guard.fit_output_to_budget if fit_output_to_budget is None else fit_output_to_budget
+
+    def summary(self):
+        totals = self.guard.ledger.totals()
+        fields = ("settled_micro_usd", "held_micro_usd", "unknown_micro_usd", "committed_micro_usd")
+        out = {key: totals[key] - self.before[key] for key in fields}
+        return {**out, "maximum_micro_usd": self.maximum_micro,
+                "remaining_micro_usd": max(0, self.maximum_micro - out["committed_micro_usd"]),
+                "request_sequences": [row["sequence"] for row in self.guard.ledger.rows[self.start:]],
+                "denied": self.denied}
 
 
 class PayloadTooLarge(BudgetGuardError):
@@ -849,6 +881,19 @@ class BudgetGuard:
         self._open_request = None
         self.fit_output_to_budget = False
         self.settled_stop_micro: int | None = None
+        self._stage_budget: StageBudget | None = None
+
+    @contextmanager
+    def stage_budget(self, maximum_usd, *, fit_output_to_budget=None):
+        """Only one stage at a time; entering/exiting never resets global refusal or fatal state."""
+        if self._stage_budget is not None or self.ledger.open_row() is not None:
+            raise BudgetGuardError("a stage cannot overlap another stage or an unsettled request")
+        scope = StageBudget(self, maximum_usd, fit_output_to_budget)
+        self._stage_budget = scope
+        try:
+            yield scope
+        finally:
+            self._stage_budget = None
 
     @property
     def ledger_path(self) -> Path:
@@ -932,6 +977,8 @@ class BudgetGuard:
         """An httpx/httpx2 async request hook; raises before inference is sent."""
         try:
             await self._before_request(request)
+        except StageBudgetExceeded:
+            raise  # the dedicated pre-reservation boundary is local to the stage
         except BudgetGuardError as error:
             # AsyncOpenAI may wrap hook errors; the runner can still read the exact refusal here.
             self._note(error)
@@ -1007,13 +1054,20 @@ class BudgetGuard:
                 self.tariff.reserve_micro(input_tokens, output_limit)
             except PricingError:
                 raise BudgetGuardError("Token counter returned an invalid or unsupported input count") from None
-            if self.fit_output_to_budget:
+            if (self._stage_budget.fit_output_to_budget if self._stage_budget is not None
+                    else self.fit_output_to_budget):
                 remaining = self.ledger.maximum_micro - self.ledger.totals()["committed_micro_usd"]
+                if self._stage_budget is not None:
+                    remaining = min(remaining, self._stage_budget.summary()["remaining_micro_usd"])
                 if self.tariff.reserve_micro(input_tokens, output_limit) > remaining:
                     # No fixed reserve tail: shrink only the response ceiling, keeping exact input and
                     # worst-case per-request accounting. Never spend beyond the owner-approved cap.
                     low, high = 16, output_limit
                     if high < low or self.tariff.reserve_micro(input_tokens, low) > remaining:
+                        if (self._stage_budget is not None and self.tariff.reserve_micro(input_tokens, low)
+                                <= self.ledger.maximum_micro - self.ledger.totals()["committed_micro_usd"]):
+                            self._stage_budget.denied = "stage allowance cannot cover the input and 16 output tokens"
+                            raise StageBudgetExceeded(self._stage_budget.denied, request)
                         raise BudgetExceeded("Remaining budget cannot cover this input and a 16-token response; "
                                              "no inference sent")
                     while low < high:
@@ -1034,6 +1088,14 @@ class BudgetGuard:
                     body_bytes = len(replacement.content)
             self._last_request_size = (input_tokens, output_limit)
             self._last_request_body = (body_bytes, images, count_ms)
+            hold = self.tariff.reserve_micro(input_tokens, output_limit)
+            committed = self.ledger.totals()["committed_micro_usd"]
+            if hold > self.ledger.maximum_micro - committed:
+                raise BudgetExceeded(f"Next request needs ${usd_text(hold)}; ${usd_text(committed)} already "
+                                     f"committed against ${usd_text(self.ledger.maximum_micro)} cap")
+            if self._stage_budget is not None and hold > self._stage_budget.summary()["remaining_micro_usd"]:
+                self._stage_budget.denied = "the next reservation exceeds the stage allowance; no inference sent"
+                raise StageBudgetExceeded(self._stage_budget.denied, request)
             try:
                 self.ledger.reserve(input_tokens, output_limit)
             except LedgerPersistError as error:
@@ -1142,6 +1204,9 @@ class BudgetGuard:
     async def not_sent(self, error: BaseException, request) -> None:
         """A host request hook failed: durably record $0 when possible and forbid retry in this run."""
         async with self._lock:
+            if (isinstance(error, StageBudgetExceeded) and error.request is request
+                    and self.ledger.open_row() is None and self._open_request is None):
+                return  # only this known pre-reservation refusal leaves the parent usable
             if self._open_request is not None and self._open_request is not request:
                 return  # a concurrent/refused request cannot cancel the request already in flight
             self._fatal_error = "A request hook failed before HTTP send; the run cannot retry"

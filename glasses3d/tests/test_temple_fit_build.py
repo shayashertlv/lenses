@@ -288,3 +288,24 @@ def test_moved_corners_build_where_the_fit_put_them():
         if shape is not None:
             b = built_creases(tb)["shoulder|base"]
             assert b["shape"] == shape and b["mean_dihedral_deg"] >= FT.FLAT_CREASE_DEG, (shape, b)
+
+
+def test_moved_corner_releases_snapped_inner_knot_and_builds_as_fitted():
+    """Review E: the inner knot snaps to A in the design, but stays at raw d when the fit moves A by 1 mm."""
+    s = FX.straight()
+    s["outline"]["top"] = [[0., 10.], [40., 10.], [120., 10.]]
+    s["inner"] = [[0., 60.], [40.03, 62.], [120., 59.]]
+    s["options"]["snap_mm"] = .05
+    s["nodes"] = {"A": [40., 10., read(66., .1)], "P": [20., -6., read(65., .1)],
+                  "Q": [80., -6., read(64., .1)]}
+    s["nodes"]["A"][2]["read"].update(d=41., y=10., sd_d=1.)
+    s["facets"] = {"F": {"poly": ["A", "P", "Q"], "plane": "nodes"}}
+    original = FT._Problem(s)
+    assert original.ps.inner.d[1] == 40.
+    assert "A" in original.tpart
+    res = FT.fit_spec(s)
+    assert res.nodes["A"]["d"] == pytest.approx(41., abs=1e-6)
+    tb = builds_as_fitted(res)
+    assert tb.spec.inner.d[1] == pytest.approx(40.03)
+    for name, node in res.nodes.items():
+        assert node["t"] == pytest.approx(node["X"] - tb.spec.inner(node["d"]), abs=1e-9), name

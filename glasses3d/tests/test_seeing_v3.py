@@ -724,6 +724,18 @@ class _Basis:
     id = "basis-1"
     refs = {"reference-05": {}, "black-side": {}}
 
+    @classmethod
+    def is_usable(cls, rid):
+        return rid in cls.refs
+
+    @classmethod
+    def usable_refs(cls):
+        return list(cls.refs)
+
+    @staticmethod
+    def unusable_refs():
+        return {}
+
     @staticmethod
     def shape(_rid):
         return (600, 1000)

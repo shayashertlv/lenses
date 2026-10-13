@@ -1,42 +1,8 @@
-"""The facet lab's package and run entry points (plan/WP6_V3.md §6; WP6_FACETS.md §4.3-4.4, §5 for what v3 keeps). No
-paid call without the exact approval guard of agent/loop.py; prepare, estimate and request are $0.
+"""Generic facet-lab preparation and execution. Preparation requires explicit source data.
 
-    prepare  --job DIR [--rig studio_dome_v1 | photo_env | catalog_band_v1]
-        a new isolated package: inputs/ = a byte copy of the original scene, the target photos (checked against the
-        reference manifest and the pose basis), the black photos (the same model in black, sha-checked, each with its
-        camera in the pose basis, transported from the target photo of the same pose: B1 side from 05, B2 angled from
-        02, B3 front from 04), any reference-only photos (none for Prada), brief.txt (brief_text with the job's
-        CAMERA_CONFLICTS and READING_PRECISION), instructions.txt and lab.json (g3d.temple_lab/2: the rig, every
-        input's sha256, the photo list with each photo's role, the pose basis); basis/cameras.json = the pose basis
-        restricted to the target and colourway photos (with their supplied mattes), imported as cameras/basis-NN
-        (outside inputs/: every file under inputs/ is sha-bound and every image under inputs/ is sent in the first
-        message); then Lab.prepare(): the original compared at every target photo (only with --rig photo_env does this
-        fit and freeze the job's light, ~150 s), revision 0 = template_from_mesh of the original's +X temple, applied
-        and compared. job.json binds the implementation (every .py of g3d, g3d_host and agent, and instructions.txt),
-        the rig and any frozen light. The default rig is the owner's choice of 2026-10-11, studio_dome_v1 ("c is
-        definitely the best").
-    estimate [--rehearsal FILE] [--out FILE]
-        the facet-run cost table from the T5 rehearsal's real tool outputs (tests/proofs/astra_temple_lab.py), each
-        image-heavy call priced at the most one call returns (priced_sample): facet_variants at the job's sheets
-        (variant_sheets) of the largest size (sheets.SHEET_W x SHEET_H) and VARIANTS_MAX arms of text, photo_read at
-        READ_POINTS_MAX pick sheets and photo_compare at ZOOM_MAX zoom grids, each of the largest size the tool makes
-        (read_sheet_px, zoom_grid_px), and facet_inspect at its largest recorded call; each run row also projects the
-        request bytes and images (project, BYTES_PER_IMAGE_TOKEN: the context guard's byte rungs, the provider's
-        per-request limit, the count's time); the range's top is the costliest of the listed mixes at the high output
-        (range_top), and the approval text says the v3 mix is assumed. --out defaults to ESTIMATE.
-    request  --job DIR --run-id ID --effort high|max (--turns N | --no-turn-cap) --cap USD [--k 4] [--estimate FILE]
-        writes runs/<ID>/approval-request.json for a clean package (nothing approved, nothing sent), priced from the
-        estimate table (default ESTIMATE, the v3 table).
-    run      the same arguments [--env-file FILE] [--ignore-load]: the paid run, refused without the owner's approval of
-        exactly that request, and refused while other Blender or pytest work runs on the machine (loop.machine_load;
-        --ignore-load runs anyway; load that starts later is reported by loop.LoadWatch).
-A refusal before anything is sent (a package, estimate or approval problem) prints {"status": "refused", ...} and
-exits 2 (3 for the approval).
-
-The run settings are tools.run_settings: tool_choice required (kept after every call), final only on an accepted
-facet_finish (K = --k distinct compared heads), the context guard at 240k counted input tokens (once) and its byte
-rungs (loop.CONTEXT_GUARD_BYTES). make_spec's tool contract also refuses any RETIRED_PHRASES (v2's removed tools and
-rules, WP6_V3 §6) in what Astra reads: the instructions, the brief and every tool and parameter description.
+The assembled job uses package.prepare on its current checkpoint. The standalone prepare command accepts
+--source-config JSON with source_scene, scene_sha256, reference and basis_json plus optional photo/job facts.
+Prepare, estimate and request are offline; paid execution retains the exact approval guard.
 """
 from __future__ import annotations
 
@@ -49,7 +15,7 @@ from pathlib import Path
 import shutil
 import sys
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from glasses3d.agent import approvals as A
 from glasses3d.agent.budget import PAYLOAD_LIMIT_BYTES, PAYLOAD_LIMIT_IMAGES, count_timeout_s
@@ -73,71 +39,10 @@ from .tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, registry, run_settings
 REPO = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 G3D = REPO / "glasses3d"
-SOURCE_SCENE = REPO / "automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend"
-SOURCE_SCENE_SHA256 = "56274debb901fb28dea1f93f0a6b6ae8401501f7145573f8dedb68c7d2436c06"
-REFERENCE = G3D / "data/reference/prada"
-BASIS_JSON = G3D / "data/wp6v2/basis/cameras.json"
-LAB_DATA = G3D / "data/wp6v2/lab"
-# The current (v3) estimate table: request's --estimate and estimate's --out default. estimate.json is the v2 table,
-# which request_estimate refuses (no photo_read, v2 image pricing): as the default it stopped `cli request` with a
-# traceback (review 2026-10-12, P3; T5 open item 2).
+LAB_DATA = G3D / "data/temple_lab"
 ESTIMATE = LAB_DATA / "estimate_v3.json"
-DEFAULT_RIG = MATCHED_RIG          # the job rig: the owner's light choice of 2026-10-11 (plan/PROGRESS.md decisions)
-K_TOKEN = "{K}"                     # instructions.txt states finish precondition 1 with the run's K
-# The same model in black acetate (owner, 2026-10-11, approving the run after facet-astra-002 with the black photos
-# included: "yes, make the fixes and run it again"; and "yes, build 1-3": calibrated cameras for B2 and B3). Each is a
-# pose basis image (colourway variant, sha256-pinned bytes) whose camera was transported from the target photo of the
-# same pose by an image similarity (tests/proofs/wp6v2_basis.py, g3d_host/camera_similarity.py): B1 from 05, B2 from
-# 02, B3 from 04. photo_compare shows each beside the gloss_black render. No Prada photo is reference only now; a
-# job whose extra photo has no camera passes it as a reference photo ({id, view, colour, source, path, sha256}:
-# photo_image only). colour and the optional finish are job data: the brief and the photo labels print them (the
-# instructions name no product's colour or material). The three black photos are glossy (their facets show as
-# mirrored studio lights; review images 2026-10-11).
-BLACK, GLOSSY = "black", "glossy"
-COLOURWAY_PHOTOS = ({"id": "B1", "image": "black-side.png", "colour": BLACK, "finish": GLOSSY,
-                     "sha256": "6eddabbb7bd40888801eaa40964795a278d1daaa4f10986f6b5f86a6e26c19be"},
-                    {"id": "B2", "image": "black-angled.webp", "colour": BLACK, "finish": GLOSSY,
-                     "sha256": "5705c2cab03f5e457d2b1dfc58b5155dec5ac03c3450e7672511a10aeb4ac8f1"},
-                    {"id": "B3", "image": "black-front.webp", "colour": BLACK, "finish": GLOSSY,
-                     "sha256": "e89d19f4101d6457a32274dc4a1b8b51a0de525ef09d2179b8657eb6c34621c3"})
-REFERENCE_PHOTOS = ()
-# The job's known camera-model conflicts (WP6_V3 P5: job data in the brief, worded as a limit of the camera model, never
-# as doubt about a photo: owner rule, every supplied image is a real photo). Each row (conflict_text): ``photos`` (whose
-# outline), ``what`` of them, ``d_mm`` (a range, or one d: "near d"), ``against`` (what cannot be matched with it),
-# ``up_to_mm`` (how far apart at most, about), ``temples`` and ``further_out`` (whose lies further out). Rows:
-# 1. photo 03's outer outline at the front block: under the pipeline's camera and rigid-temple model it passes outside
-#    the crown|logo ridge that every other photo fixes by +0.84 / +0.86 (d 10-15), +1.57 / +1.47 (15-20), +2.18 /
-#    +2.07 (20-25), +2.07 / +1.98 (25-30), +1.27 / +1.19 (30-35) and +0.44 / +0.40 mm (35-40) on the two temples (row
-#    spread about +-0.35 mm): up to about 2.2 mm (FINDINGS §0.3 and WP6_V3 §0.4 say +2.2); free focal length, lens
-#    distortion, a free centre, off-axis cameras, the temple pose, the station rule and the matte were each ruled out
-#    (data/wp6v2/review_20261012/w2/midblock-settled.md "Settled fact" 3-4). v2 printed it as shape and it drove the
-#    defects of runs 3, 4 and 5.
-# 2. photos 03 and 06 at the back of the faceted block (review 2026-10-12, P2): at the fitted cameras the side + angled
-#    readings put the crown's tip (d 75.4-75.6) at t 7.03 (bundle; probe 1's crossing 6.30, three readers' X 67.6-68.4:
-#    crown-settled §6), outside both silhouettes (06 u 235.7 against ~250, 03 u 1195.5 against ~1176); turning both
-#    angled photos' hinge opening by +2 deg puts it on both silhouettes (t 4.34: 2.7 mm in) but moves the corner at
-#    d 36 to t 3.99 against the front views' 5.23-5.58, so no single theta reconciles them (w2/crown-geometry.md §2,
-#    crown-geometry/theta_both.log; crown-settled.md §6 "still open"). Read on the charted temple only. Without this
-#    row the prompt's goal 5 ("outlines match ... except at a camera conflict the brief names") pointed Astra at
-#    closing that gap by moving the tip in: the defect class of runs 5 and 7 (K and E pushed in).
-CAMERA_CONFLICTS = ({"photos": ("03",), "what": "outer outline", "d_mm": (10, 40), "against": "the other photos",
-                     "up_to_mm": 2.2, "temples": "both temples", "further_out": "03's further out",
-                     "evidence": "data/wp6v2/review_20261012/w2/midblock-settled.md"},
-                    {"photos": ("03", "06"), "what": "outer outline", "d_mm": 75,
-                     "against": "the two-direction readings of the side and angled photos", "up_to_mm": 2.7,
-                     "temples": "the charted temple (the mirrored temple was not checked)",
-                     "further_out": "the readings further out",
-                     "evidence": "data/wp6v2/review_20261012/w2/crown-geometry.md §2 "
-                                 "(w2/crown-geometry/theta_both.log); w2/crown-settled.md §6"})
-# How well photo_read reads points on this job's photos (job data, measured): crisp corners read in two directions agree
-# with the settled values within 0.2-0.5 mm (FINDINGS §0.5: run 7's two-photo readings 0.23-0.37 mm; WP6_V3 §0.3; v3
-# probe 1: sd_X 0.18-0.29 at A, H, K, C, L); a tip or a point on an edge along the line of sight between the photos
-# only to about 0.7-1.5 mm along that edge (FINDINGS §1 "tip d only to +-0.7-1.5 mm"; crown-geometry §2: B1 band
-# 75.58 +- 0.70; v3 probe 1 §1: A as a crossing at 8.8 deg sd_d 0.82, the tip E as a crossing sd_d 1.24; E as a
-# single corner pick printed sd_d 0.17, a false precision: v3/v3-readings-fix.md).
-READING_PRECISION = {"corner_mm": (0.2, 0.5), "along_mm": (0.7, 1.5),
-                     "evidence": "data/wp6v2/review_20261012/FINDINGS.md §0.5 and §1; plan/WP6_V3.md §0.3; "
-                                 "data/wp6v2/review_20261012/v3/probe1.md §1"}
+DEFAULT_RIG = MATCHED_RIG
+K_TOKEN = "{K}"
 # v2's removed tools and rules (WP6_V3 §1 P5-P6 and §6 "removed from Astra's view": fades, crease+rise planes, the
 # solve option that "moves least", the refusal recipe "do not redeclare", photo_compare's one-photo depths parameter,
 # the top / rear outer-edge offset tables, the "start" column and the outline line, W_CONDITIONING, lean_deg, the
@@ -272,7 +177,7 @@ SIDE_FACE_PITCH_DEG = 1.0       # a side view more than this above (below) the t
 #                                 edge where its face shows < SIDE_FACE_PX 1 px, and a ~7 mm thick temple at ~8 px/mm
 #                                 shows 1 px of face at tan(e) = 1/56, e ~ 1 deg (01 / 05 / B1 look 13.6-13.7 deg down)
 THETA_AT_D_MM = (25, 50, 80)    # the brief's theta lever, X moved per degree of hinge opening at these d: a rotation
-#                                 about the hinge axis (chart d about -0.5 on Prada, taken as 0) moves X by d x pi / 180
+#                                 about the hinge axis moves X by d x pi / 180
 #                                 per degree (1.3-1.5 mm at d 75-85: FINDINGS §0.3)
 # The job's render light, which the brief names (instructions.txt: "the render light"); g3d/render.py describes
 # each rig.
@@ -281,11 +186,9 @@ RIG_TEXT = {MATCHED_RIG: "a studio light, one large soft key 55 deg above the ho
             ENV_RIG: "a light fitted once to this job's photos on the front of the frame (the temples held out)",
             CATALOG_RIG: "a catalogue light, a bright band at the horizon over a dark ground and under a dimmer sky, "
                          "the same all round"}
-# Why tone is never a depth cue (FINDINGS §0.4: seven lights tested, a replica of the owner's viewer light among them;
-# none reproduces the photos' facet tone order, even on the unedited frame; faces 3-4 deg apart differ 6-15x in the
-# photos' brightness). Job-independent wording; the parenthesis is this pipeline's own test.
-LIGHT_TEXT = ("The render light does not reproduce the photos' tones (no light tried did, even on the starting "
-              "model's unedited frame); in the photos a tone step marks where an edge is, not its size or sign.")
+# Lighting uncertainty is general; a particular job's lighting experiments are not evidence for another job.
+LIGHT_TEXT = ("The render light may not reproduce the photos' tones; in the photos a tone step marks where an edge "
+              "is, not its size or sign.")
 
 
 def toward(cam: dict) -> tuple:
@@ -383,6 +286,16 @@ def camera_source(rec: dict | None, ids: dict) -> str | None:
     return "a photo not in this job"
 
 
+def _has_pose(rec: dict) -> bool:
+    return bool(rec.get("theta_deg") and rec.get("hinge_axis_xz_mm"))
+
+
+def _copied_pose(rec: dict) -> bool:
+    observed = rec.get("theta_observed")
+    return (_has_pose(rec) and (rec.get("pose_provenance") or {}).get("mode") != "as_authored"
+            and isinstance(observed, dict) and bool(observed) and not any(observed.values()))
+
+
 def camera_fit_text(rec: dict, ids: dict) -> str | None:
     """How the photo's camera was made and how well it fits, from its pose-basis record. A camera moved from another
     photo's (camera_source) says so first, with the temples' hinge opening (theta) copied from it, then, when the
@@ -401,7 +314,7 @@ def camera_fit_text(rec: dict, ids: dict) -> str | None:
                 f"mean contour {float(t['mean_bidirectional_px']):.1f} px"
                 if t.get("mean_bidirectional_px") is not None else None]
         nums = ", ".join(n for n in nums if n)
-        copied = not any((rec.get("theta_observed") or {}).values())
+        copied = _copied_pose(rec)
         whose = f"{src}'s" if src != "a photo not in this job" else "that of a photo not in this job"
         mc = rec.get("model_check") or {}
         if mc.get("iou") is not None:
@@ -501,16 +414,21 @@ def lineage_text(recs: dict, ids: dict) -> str | None:
     moved = [(pid, src) for pid, src in moved if src is not None]
     text = "Cameras:" + (f" {_and(own)} " + ("each have a camera" if len(own) > 1 else "has a camera")
                          + " fitted on its own." if own else "")
-    how = ("moved onto its photo by an image similarity that matches the two photos' silhouettes, with the temples' "
-           "hinge opening (theta) copied, so it shares that camera's error and theta.")
-    if len(moved) == 1:
-        pid, src = moved[0]
-        of = f"{src}'s camera" if src != "a photo not in this job" else "the camera of a photo not in this job"
-        text += f" {pid}'s camera was not fitted: it is {of} {how}"
-    elif moved:
-        pairs = _and([f"{pid}'s from {src}" for pid, src in moved])
-        text += (f" The cameras of {_and([pid for pid, _s in moved])} were not fitted: each is another photo's camera "
-                 f"({pairs}) {how}")
+    groups: dict = {}
+    for pid, src in moved:
+        groups.setdefault(_copied_pose(recs[pid]), []).append((pid, src))
+    for copied, group in groups.items():
+        how = "moved onto its photo by an image similarity that matches the two photos' silhouettes"
+        how += (", with the temples' hinge opening (theta) copied, so it shares that camera's error and theta."
+                if copied else ", so it shares that camera's error.")
+        if len(group) == 1:
+            pid, src = group[0]
+            of = f"{src}'s camera" if src != "a photo not in this job" else "the camera of a photo not in this job"
+            text += f" {pid}'s camera was not fitted: it is {of} {how}"
+        else:
+            pairs = _and([f"{pid}'s from {src}" for pid, src in group])
+            text += (f" The cameras of {_and([pid for pid, _s in group])} were not fitted: each is another photo's camera "
+                     f"({pairs}) {how}")
     return text + (" Photos of one direction (above) read a point only together with a photo of another direction."
                    if len(cams) > 1 else "")
 
@@ -524,7 +442,7 @@ def theta_text() -> str:
     photos carry their own fits' theta (review 2026-10-12, P3: about 0.4 mm at d 80 for 0.3 deg)."""
     per = [f"{d * math.pi / 180.0:.1f}" for d in THETA_AT_D_MM]
     at = ", ".join(f"{v} at d {d}" for v, d in zip(per[1:], THETA_AT_D_MM[1:]))
-    return (f"Each camera fit includes the temples' hinge opening (theta); a reading's camera part is its fits' theta "
+    return (f"For these photos, the camera fit includes the temples' hinge opening (theta); a reading's camera part is its fits' theta "
             f"taken as uncertain by {THETA_SD_DEG:g} deg. A theta error turns the temple about its hinge as one rigid "
             f"piece: X moves about {per[0]} mm per degree at d {THETA_AT_D_MM[0]}, {at}, the same for every reading "
             "made from the same photos, so such readings keep a flat face flat; readings from different photos carry "
@@ -578,8 +496,10 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
     cameras = cameras or {}
     targets = [p for p in photos if p.get("role", "target") == "target"]
     others = [p for p in photos if p.get("role", "target") != "target"]
-    ids = {Path(p["path"]).name: p["id"] for p in photos if p.get("role") != "reference"}
     recs = {p["id"]: cameras.get(Path(p["path"]).name) if p.get("role") != "reference" else None for p in photos}
+    # Transport/fit lineage names the original calibration images, even when an owner renamed local photos.
+    ids = {(recs[p["id"]] or {}).get("source_image", Path(p["path"]).name): p["id"]
+           for p in photos if p.get("role") != "reference"}
     first = (f"Product: {product}. The target photos ({', '.join(p['id'] for p in targets)}) show the colourway to "
              "match.")
     if others:
@@ -618,7 +538,22 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
     if finishes and unstated:      # a photo without a finish is not matte: the job data only names none for it
         lines.append(f"No finish is given for {', '.join(unstated)}.")
     if cams:
-        lines += [""] + [x for x in (lineage_text(recs, ids), precision_text(precision), theta_text()) if x]
+        posed = [pid for pid, rec in recs.items() if rec and _has_pose(rec)
+                 and (rec.get("pose_provenance") or {}).get("opening_calibrated") is not False]
+        lines += [""] + [x for x in (lineage_text(recs, ids), precision_text(precision)) if x]
+        if posed:
+            lines.append("Calibrated hinge-opening metadata: " + _listed(posed) + ". " + theta_text())
+        unposed = [pid for pid in cams if pid not in posed]
+        if unposed:
+            lines.append("As-authored temple pose; hinge opening is not calibrated for: " + _listed(unposed) + ".")
+        rigid = [pid for pid, rec in recs.items() if rec and _has_pose(rec)
+                 and (rec.get("pose_provenance") or {}).get("mode") == "as_authored"]
+        if rigid:
+            lines.append("For " + _listed(rigid) + ", the verified rigid camera fit used the authored mesh with zero "
+                         "additional hinge rotation. The explicit zero transform preserves that assumption; it is "
+                         "not a measured photo opening. Its hinge axes come from the captured current model. "
+                         "Any reported hinge-opening uncertainty uses the tool's fixed assumption, not a measured "
+                         "opening confidence for these photos.")
     lines += [conflict_text(c) for c in conflicts or ()]
     edge = (f"The real temples' edge rounding is about {float(roll_mm):g} mm (roll_mm)." if roll_mm is not None
             else "The real temples' edge rounding (roll_mm) is not known: judge it from the photos' edges.")
@@ -631,10 +566,9 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
     return "\n".join(lines) + "\n"
 
 
-def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sha256=SOURCE_SCENE_SHA256,
-            reference=REFERENCE, basis_json=BASIS_JSON, lab_class=Lab, import_basis=C.import_cameras_json,
-            colourway_photos=COLOURWAY_PHOTOS, reference_photos=REFERENCE_PHOTOS, camera_conflicts=CAMERA_CONFLICTS,
-            reading_precision=READING_PRECISION) -> dict:
+def prepare(root, *, source_scene, scene_sha256, reference, basis_json, rig: str = DEFAULT_RIG,
+            lab_class=Lab, import_basis=C.import_cameras_json, colourway_photos=(), reference_photos=(),
+            camera_conflicts=(), reading_precision=None, photo_ids=None) -> dict:
     """A new package (module doc). $0; ~1 min with studio_dome_v1 (the default), ~4 min with photo_env (its light
     fit). ``colourway_photos`` name pose-basis images of another colourway ({id, image, colour, finish?, sha256}:
     compared with photo_compare), ``reference_photos`` images without a camera ({id, view, colour, finish?, source,
@@ -650,7 +584,9 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     assets = []
 
     def copy(src, rel, want=None):
-        dst = inputs / rel
+        dst = (inputs / rel).resolve()
+        if not dst.is_relative_to(inputs):
+            raise ValueError("input copy escapes the package")
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
         digest = sha(dst)
@@ -662,22 +598,36 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     reference = Path(reference)
     manifest = read(reference / "manifest.json")
     doc = read(basis_json)
-    targets = {n: r for n, r in doc["images"].items() if r.get("colourway") == "target"}
+    targets = {n: r for n, r in doc["images"].items() if r.get("colourway", "target") == "target"}
     if not targets:
         raise ValueError("the pose basis has no target photo")
+    bdir = root / "basis"
+    bdir.mkdir()
+
+    def copy_matte(name, rec):
+        if rec.get("matte_mode") != "supplied":
+            return
+        src = (Path(basis_json).parent / rec["matte_file"]).resolve()
+        dst = (bdir / rec["matte_file"]).resolve()
+        if not src.is_relative_to(Path(basis_json).parent.resolve()) or not dst.is_relative_to(bdir):
+            raise ValueError(f"{name}: supplied matte escapes the basis")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst)
+        if sha(dst) != rec.get("matte_file_sha256"):
+            raise ValueError(f"{name}: the supplied matte does not have the expected sha256")
+
     photos, paths = [], {}
     for name in sorted(targets):
         row, rec = manifest["files"].get(name), targets[name]
         if row is None or row["sha256"] != rec["image_sha256"]:
             raise ValueError(f"{name}: not in the reference manifest, or the manifest and the basis disagree")
         paths[name] = copy(reference / name, f"images/{name}", row["sha256"])
+        copy_matte(name, rec)
         with Image.open(paths[name]) as im:
-            size = list(im.size)
-        photos.append({"id": Path(name).stem.split("-", 1)[1], "path": f"images/{name}", "view": rec["view_kind"],
+            size = list(ImageOps.exif_transpose(im).size)
+        photos.append({"id": (photo_ids or {}).get(name, C.ref_id(name)), "basis_ref": C.ref_id(name), "path": f"images/{name}", "view": rec["view_kind"],
                        "size_px": size, "sha256": row["sha256"], "role": "target",
                        **({"note": side_note(rec)} if rec["view_kind"] == "side" else {})})
-    bdir = root / "basis"
-    bdir.mkdir()
     variants = {}
     for want in colourway_photos:
         name = want["image"]
@@ -685,15 +635,10 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
         if rec is None or rec.get("colourway") in (None, "target") or rec.get("image_sha256") != want["sha256"]:
             raise ValueError(f"{name}: not a colourway image of the pose basis with the expected sha256")
         paths[name] = copy(rec["image"], f"images/{name}", want["sha256"])
-        if rec.get("matte_mode") == "supplied":              # the pose basis's own matte, copied beside cameras.json
-            dst = bdir / rec["matte_file"]
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(Path(basis_json).parent / rec["matte_file"], dst)
-            if sha(dst) != rec.get("matte_file_sha256"):
-                raise ValueError(f"{name}: the supplied matte does not have the expected sha256")
+        copy_matte(name, rec)
         variants[name] = rec
         with Image.open(paths[name]) as im:
-            size = list(im.size)
+            size = list(ImageOps.exif_transpose(im).size)
         photos.append({"id": want["id"], "path": f"images/{name}", "view": rec["view_kind"], "size_px": size,
                        "sha256": want["sha256"], "role": "colourway", "colour": want["colour"],
                        **({"finish": want["finish"]} if want.get("finish") else {}),
@@ -702,7 +647,7 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     for want in reference_photos:
         dst = copy(want["source"], want["path"], want["sha256"])
         with Image.open(dst) as im:
-            size = list(im.size)
+            size = list(ImageOps.exif_transpose(im).size)
         photos.append({"id": want["id"], "path": want["path"], "view": want["view"], "size_px": size,
                        "sha256": want["sha256"], "role": "reference", "colour": want["colour"],
                        **({"finish": want["finish"]} if want.get("finish") else {}), "source": str(want["source"])})
@@ -728,12 +673,18 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
     job = {"schema": "g3d.job/1", "name": f"{manifest.get('name')}: isolated facet lab", "rig": rig,
            "implementation": implementation(), "scope": "isolated facet lab on a copy, not production"}
     write_json_atomic(root / "job.json", job)
+    return finish_preparation(root, basis.id, job, photo_count=len(photos), lab_class=lab_class)
+
+
+def finish_preparation(root, basis_id, job, *, photo_count, lab_class=Lab):
+    """Prepare revision zero, bind the tools and close the private worker on every exit."""
+    rig = job["rig"]
     lab = lab_class(root)
     try:
         prep = lab.prepare()
         if not lab.is_clean():
             raise ValueError("the prepared package is not clean")
-        env = environment(root, basis.id) if rig == ENV_RIG else None
+        env = environment(root, basis_id) if rig == ENV_RIG else None
         if rig == ENV_RIG and env is None:
             raise ValueError("photo_env: the job's light was not fitted at prepare")
         job["environment"] = env
@@ -753,7 +704,7 @@ def prepare(root, *, rig: str = DEFAULT_RIG, source_scene=SOURCE_SCENE, scene_sh
             "compares": [c["compare_id"] for c in lab.state["compares"]], "environment": env, "paid_calls": 0})
     finally:
         lab.close()
-    return {"status": "prepared", "path": str(root), "rig": rig, "photos": len(photos),
+    return {"status": "prepared", "path": str(root), "rig": rig, "photos": photo_count,
             "checkpoint": exit_checkpoint["id"], "revision0": rev0["sha256"][:8], "paid_calls": 0}
 
 
@@ -762,8 +713,9 @@ def basis_files(root: Path, basis_id: str) -> dict:
     the frozen basis)."""
     root = Path(root)
     files = ["basis/cameras.json", f"{C.CAMERAS_DIR}/{basis_id}/cameras.json", f"{C.CAMERAS_DIR}/{basis_id}/basis.json"]
-    files += sorted(rel for rel in (p.relative_to(root).as_posix() for p in (root / "basis").rglob("*")
-                                    if p.is_file()) if rel not in files)
+    files += sorted(rel for rel in (p.relative_to(root).as_posix() for directory in (root / "basis", root / C.CAMERAS_DIR / basis_id)
+                                    for p in directory.rglob("*")
+                                    if p.is_file() and p.name != C.HISTORY) if rel not in files)
     return {f: sha(root / f) for f in files}
 
 
@@ -815,7 +767,7 @@ def references(lab) -> list:
         for i, row in enumerate(rows_, 1):
             p = lab.root / "inputs" / row["path"]
             with Image.open(p) as im:
-                size = im.size
+                size = ImageOps.exif_transpose(im).size
             if group == "target":
                 label = f"TARGET PHOTO {row['id']} ({i} of {len(rows_)})"
             else:
@@ -1340,6 +1292,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("action", choices=["prepare", "estimate", "request", "run"])
     p.add_argument("--job", type=Path)
+    p.add_argument("--source-config", type=Path, help="explicit source/job facts JSON for prepare")
     p.add_argument("--rig", default=DEFAULT_RIG, choices=MATCHED_RIGS)
     p.add_argument("--rehearsal", type=Path, help="the T5 rehearsal.json (estimate)")
     p.add_argument("--out", type=Path, default=ESTIMATE, help="estimate.json to write (estimate)")
@@ -1360,9 +1313,9 @@ def main(argv=None):
     a = p.parse_args(argv)
     try:
         if a.action == "prepare":
-            if a.job is None:
-                p.error("prepare requires --job")
-            result = prepare(a.job, rig=a.rig)
+            if a.job is None or a.source_config is None:
+                p.error("prepare requires --job and --source-config")
+            result = prepare(a.job, rig=a.rig, **read(a.source_config))
         elif a.action == "estimate":
             if a.rehearsal is None:
                 p.error("estimate requires --rehearsal")

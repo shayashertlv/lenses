@@ -8,6 +8,7 @@ import pytest
 
 from glasses3d.agent import seeing
 from glasses3d.tests import glbfab
+from glasses3d.tests.fixtures import seat_fixtures as SF
 
 
 class ExportSession:
@@ -33,17 +34,20 @@ class ExportSession:
 
 def test_exports_validate_and_reuse_report_by_sha_not_head(tmp_path, monkeypatch):
     validate = Mock(wraps=seeing.spec.validate_spec)
+    check = Mock(wraps=seeing.seat_check.check_glb)
     monkeypatch.setattr(seeing.spec, "validate_spec", validate)
+    monkeypatch.setattr(seeing.seat_check, "check_glb", check)
     session = ExportSession(tmp_path, glbfab.build())
     tool = seeing.Seeing(session)
     first = tool.export_head()
     assert first["validate_spec"]["ok"]
-    assert first["seat_check"] is None
+    assert not first["seat_check"]["ok"]  # unseated synthetic lenses still have a report
     assert first["validation_sha256"] == first["sha256"]
     assert tool.export_head()["cached"]
     session.head = {"id": "c0002", "fingerprint": "b" * 64}
     assert tool.export_head()["validate_spec"] == first["validate_spec"]
     assert validate.call_count == 1
+    assert check.call_count == 1
     assert session.calls == 2
 
 
@@ -54,6 +58,30 @@ def test_invalid_export_is_inspectable_with_failure_report(tmp_path):
     assert out["validate_spec"]["errors"]
 
 
+def test_restored_geometry_reuses_bytes_but_binds_current_checkpoint(tmp_path):
+    session = ExportSession(tmp_path, glbfab.build())
+    tool = seeing.Seeing(session)
+    first = tool.export_head()
+    session.head = {**session.head, "id": "c0007"}
+    restored = tool.export_head()
+    assert restored["cached"] and restored["checkpoint"] == "c0007"
+    assert restored["fingerprint"] == session.head["fingerprint"]
+    assert restored["sha256"] == restored["validation_sha256"] == first["sha256"]
+    assert restored["validate_spec"] == first["validate_spec"] and session.calls == 1
+
+
+def test_cached_bytes_recheck_changed_print_evidence(tmp_path, monkeypatch):
+    session = ExportSession(tmp_path, glbfab.build())
+    tool = seeing.Seeing(session)
+    checker = Mock(side_effect=[{"ok": False, "status": "refused"}, {"ok": True, "status": "verified"}])
+    monkeypatch.setattr(seeing.print_freshness, "check_current_print", checker)
+    before = tool.export_head()
+    after = tool.export_head()
+    assert not before["print_check"]["ok"] and after["print_check"]["ok"]
+    assert after["cached"] and before["sha256"] == after["sha256"]
+    assert checker.call_count == 2 and session.calls == 1
+
+
 def test_old_index_is_validated_and_tampered_bytes_are_reexported(tmp_path):
     session = ExportSession(tmp_path, glbfab.build())
     first = seeing.Seeing(session).export_head()
@@ -62,6 +90,7 @@ def test_old_index_is_validated_and_tampered_bytes_are_reexported(tmp_path):
     index.write_text(json.dumps({session.head["fingerprint"]: old}))
     out = seeing.Seeing(session).export_head()
     assert out["cached"] and out["validate_spec"]["ok"]
+    assert isinstance(out["seat_check"], dict) and not out["seat_check"]["ok"]
     Path(out["path"]).write_bytes(b"changed")
     fresh = seeing.Seeing(session).export_head()
     assert not fresh["cached"] and fresh["validate_spec"]["ok"]
@@ -83,3 +112,29 @@ def test_unreadable_export_returns_spec_failure(tmp_path):
     out = seeing.Seeing(ExportSession(tmp_path, b"not a glb")).export_head()
     assert not out["validate_spec"]["ok"]
     assert not out["seat_check"]["ok"]
+
+
+@pytest.mark.parametrize("kind", ["seated", "undeclared", "crystal", "missing_lens", "unseated"])
+def test_every_export_reports_real_seating_without_rejecting_intermediate_geometry(tmp_path, kind):
+    lens = SF.base_lens()
+    ring = SF.ring_frame(lens, 0.8)
+    scene = {"lens": lens, "parts": {"Rim": ring}}
+    if kind == "crystal":
+        scene["translucent"] = ["Rim"]
+    if kind == "unseated":
+        scene["lens"] = SF.translated(lens, (0, 0, 8))
+    nodes = SF.scene_nodes(scene, seat_extras=None if kind == "undeclared" else {"frame_type": "acetate"})
+    if kind == "missing_lens":
+        nodes = [node for node in nodes if node["role"] != "lens"]
+    source = tmp_path / "source.glb"
+    SF.write_glb(source, nodes)
+    out = seeing.Seeing(ExportSession(tmp_path, source.read_bytes())).export_head()
+    assert out["status"] == "exported", out  # camera fitting/temple preparation may inspect unfinished heads
+    report = out["seat_check"]
+    assert report["ok"] is (kind == "seated"), report
+    if kind == "undeclared":
+        assert report["lenses"][0]["provisional"]
+    if kind == "crystal":
+        assert report["lenses"][0]["crystal_overlap_mm3"] > 0.01
+    if kind == "missing_lens":
+        assert report["lenses"] == []

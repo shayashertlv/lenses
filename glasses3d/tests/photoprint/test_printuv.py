@@ -21,9 +21,9 @@ PARTS = ("Brow_Left", "Brow_Right", "Temple_Left", "Temple_Right")
 
 
 @pytest.fixture(scope="module")
-def q001():
+def q001(ft1119_fixture):
     from glasses3d.g3d_host import fitmesh
-    return fitmesh.load_fit_mesh(REPO / "glasses3d/data/reference/projection/q001.glb", skip=fitmesh.PROTOTYPE_SKIP)
+    return fitmesh.load_fit_mesh(ft1119_fixture['model'], skip=fitmesh.PROTOTYPE_SKIP)
 
 
 @pytest.mark.parametrize("tx", [10.0, 16.0])

@@ -37,6 +37,10 @@ CAM = {"yaw": 90.0, "pitch": 10.0, "roll": 0.0, "perspective": 0.2, "scale": 100
 class FakeBasis:
     """The Basis surface gain_views reads: refs (fit, colourway, shape, camera), frame, pose."""
 
+    is_usable = C.Basis.is_usable
+    usable_refs = C.Basis.usable_refs
+    unusable_refs = C.Basis.unusable_refs
+
     def __init__(self, refs: dict):
         self.refs = refs
         self.frame = NormFrame((0.0, -4.0, -72.0), 151.0)

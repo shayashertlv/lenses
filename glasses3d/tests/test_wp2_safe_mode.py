@@ -276,8 +276,8 @@ LEGIT = {
     "polynomial": "import numpy as np\nc = np.polynomial.polynomial.polyfit([0, 1, 2], [1, 3, 5], 1)\nresult = c.tolist()",
     "sliding window": "import numpy as np\nfrom numpy.lib.stride_tricks import sliding_window_view\n"
                       "result = sliding_window_view(np.arange(5), 3).tolist()",
-    "g3d facade": "r = g3d.seat_lens('Lens_L', frame_type='acetate', dry_run=True)\nresult = r",
-    "g3d lib import": "from g3d.lib import seat_lens, check_lens_seating\nr = check_lens_seating()\n",
+    "g3d facade": "r = g3d.polygon_section([(0, 0), (1, 0), (0, 1)])\nresult = r",
+    "g3d lib import": "from g3d.lib import loft_sections, check_round_corners\nresult = check_round_corners([])\n",
     "generated texture": "import bpy\nimg = bpy.data.images.new('grain', 256, 256)\n"
                          "img.pixels.foreach_set([0.5] * (256 * 256 * 4))\nimg.update()\n",
     "json dumps": "import json, bpy\nprint(json.dumps({'objects': [o.name for o in bpy.data.objects]}))\n",
@@ -306,6 +306,18 @@ LEGIT = {
 @pytest.mark.parametrize("name", sorted(LEGIT))
 def test_legitimate_snippets_pass(name):
     assert S.validate(LEGIT[name]) == [], [str(v) for v in S.validate(LEGIT[name])]
+
+
+@pytest.mark.parametrize("name", ["seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire"])
+def test_seating_operations_require_the_trusted_host_tools(name):
+    for code in (f"g3d.{name}()", f"from g3d.lib import {name}", f"getattr(g3d, '{name}')"):
+        assert S.validate(code), code
+    facade = types.ModuleType("g3d.lib")
+    guard = S.RuntimeGuard(g3d_facade=facade)
+    with pytest.raises(PermissionError):
+        guard.builtins()["__import__"]("g3d.lib", None, None, (name,))
+    with pytest.raises(PermissionError):
+        guard.builtins()["getattr"](facade, name)
 
 
 def test_prebound_names_and_own_variables():
@@ -394,7 +406,7 @@ def test_runtime_import_guard():
     guard = S.RuntimeGuard(g3d_facade=facade)
     imp = guard.builtins()["__import__"]
     assert imp("numpy") is np and imp("math").sqrt(4) == 2
-    assert imp("g3d") is facade and imp("g3d.lib", None, None, ("seat_lens",)) is facade
+    assert imp("g3d") is facade and imp("g3d.lib", None, None, ("polygon_section",)) is facade
     for bad, fromlist in (("os", ()), ("numpy", ("load",)), ("json", ("codecs",)), ("numpy.testing", ()),
                           ("importlib", ()), ("numpy", ("_core",))):
         with pytest.raises(PermissionError):

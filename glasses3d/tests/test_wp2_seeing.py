@@ -90,6 +90,8 @@ def job(tmp_path_factory):
     seed = root / "seed.blend"
     shutil.copy2(PRADA_SCENE, seed)
     os.chmod(seed, stat.S_IWRITE | stat.S_IREAD)
+    # This original Blender scene exports unsuffixed names. Only the historical standalone GLB needs the
+    # legacy_prada .001 camera adapter used by test_wp2_compare; these exact camera names already match.
     doc = json.loads(CAMERAS_JSON.read_text(encoding="utf-8"))
     basis = C.import_cameras_json(root, CAMERAS_JSON, {n: PHOTOS / n for n in doc["images"]},
                                   reason="WP3b frozen Prada basis (2026-10-05)")
@@ -110,6 +112,8 @@ def head_mesh(job, skip=(), frame=None):
 # ------------------------------------------------------------------------------------------------ compare
 def test_compare_reproduces_the_frozen_basis(job):
     t0 = time.perf_counter()
+    mesh, _ = head_mesh(job)
+    assert set(job["basis"].front_parts) <= set(mesh.node_names)
     r = job["seeing"].compare_to_photos(passes=())
     assert r["status"] == "ok", r
     rep = json.loads(Path(r["report"]).read_text(encoding="utf-8"))
