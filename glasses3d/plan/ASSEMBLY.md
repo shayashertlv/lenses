@@ -149,8 +149,10 @@ for the first paid run. Do these before M5:
 1. **Astra plans against the wrong limit.** The tool footer (`agent/loop.py:822-851` `RunStatus`/`footer_text`) and
    `budget_status` (`agent/tools/__init__.py:373-379`, `guard.summary()`) show the $23 reserve cap as "cap", but the
    run stops at $20 settled (`agent/job_run.py:21`); the first message's run line says "This run's budget cap: $23"
-   too (`agent/loop.py:1233-1235` `invocation_text`). Report the settled stop as the working limit there and in the
-   footer:
+   too (`agent/loop.py:1233-1235` `invocation_text`), and `temple_stage` accepts any `budget_usd` up to the $23
+   reserve cap (`agent/tools/temple.py:30-33`), so a stage can be given money the run cannot spend and be cut off
+   with its temples unapplied. Check the stage allowance against the remaining money to the settled stop. Report the
+   settled stop as the working limit in the run line and in the footer:
    "settled $X of $20.00 stop (reserve cap $23)", and `budget_status` adds `settled_stop_usd` and
    `remaining_to_stop_usd` (stop minus settled minus open holds). From 75 % of the stop, every tool result's footer
    adds one plain line: about $N left; export, AR-capture and finish your best checkpoint soon. Add one sentence to the
