@@ -15,11 +15,71 @@ validation, owner OK per run). **M0-M4 are complete and proven offline**, includ
 matte expansion and the final full regression suite. **M5-prep items 1-4 are complete at $0**: the $20 working
 budget, unfinished draft delivery, isolated one-request smoke support, and the real Oakley job with a proven
 intake and unapproved run-1 estimate. **M5-prep and M5 step 0 are complete**: the one approved real smoke passed
-at $0.211823. **Next: owner approval for Oakley run 1; do not start it without that approval.**
+at $0.211823. **M5 Oakley run 1 was approved and attempted on the corrected job; it failed at the first render's
+checkpoint verification after $0.828903. No delivery was published.** The $0 reproduction and accounting audit
+are below. **Next: owner decision on expanding M5 to repair the checkpoint round-trip defect and failed-run
+draft handling; no further paid run is approved.**
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Assembly M5: corrected Oakley run 1 (2026-10-13; failed, preserved for diagnosis)
+
+Verified the requested checkout `C:/Users/Shay/PycharmProjects/lenses`, branch `glasses3d`, clean working tree,
+and HEAD `f3a0e10` before approval. Used only Claude's corrected job **`oakley-oo9208-v2-3e057bab`** and existing
+run request **`20261013T163235-772629`** (request SHA `53181395cde6d5c2cd83a70bff7fc4f349ed9df9bdc9d61dd4a63be04e96c5df`).
+The older `cd068969` job was untouched. Numeric estimate: **$14.957821**, range **$13.200719-$20.117690**.
+
+Recorded these exact owner words with `job approve --max-usd 23`:
+
+> I approve Oakley run 1: job oakley-oo9208-v2-3e057bab, run request 20261013T163235-772629 (estimate $14.96, range $13.20-$20.12), with the $20 settled stop and $23 maximum reserve, effort max. Do not use the older job oakley-oo9208-v2-cd068969; Claude replaced it (see PROGRESS.md Decisions, commit f3a0e10).
+
+Approval bound **max effort, $20 settled stop, $23 reserve cap**. Started once through detached `job run` with
+the existing `--env-file glasses3d/.env` loader; no credential file was read or printed by the agent. Keeper PID
+9708, runner PID 20392, Blender PID 38984; detached start 16:34:56 UTC / 19:34:56 Jerusalem. BLAS threads 1,
+descendant EcoQoS opt-out, no competing heavy pool; approximately 17 GiB free commit at launch. The monitor
+checked heartbeat, requests, tool progress and worker activity every 40 seconds and reported to the owner.
+
+**Outcome: failed**, exit 1 at **16:39:22 UTC / 19:39:22 Jerusalem** (run duration 262.78 s). Five API requests,
+five tool calls, no continuation. One capability-inspection snippet was statically refused and Astra corrected
+it; then Astra built **28 mesh objects** in checkpoint **c0001**. Its first `render_views` wrote 12 PNGs (four
+views, native/clay/normal), but the read-only operation's checkpoint restore failed:
+`c27ae78f2a5b93963b2ddde432591d37dc5eb90c19e17a8f1643f45af50d7261 != bbc084bc33c76e029e0ce48ca829b6641a54684c4240673c55beffcd19c7182c`.
+The original c0001 `.blend` SHA is `fce890aea9ff39eff87c068d823f6abca43dc24618de4a44037e4a608b1b71de`;
+the run records `exit_checkpoint.verified:false`. No subsequent paid request was started.
+
+**Actual settled cost $0.828903**, maximum individual request hold **$1.167888**, final held **$0**, unknown **$0**.
+Six independent evidence checks passed: bound approval/settings, re-priced run ledger, ten transport receipts,
+result/job-ledger agreement, all six original photo blobs, and explicit absent delivery. The audit also confirms
+33 evidence files unchanged. This is an accounting/integrity pass, not a successful product run.
+Evidence: `data/assembly/m5oakley/run1-audit.json` and `data/assembly/audit_oakley_run1.py`; the job's
+`runs/20261013T163235-772629/{result.json,budget.json,transcript.md,runner-status.json,monitor.jsonl,transport/}`
+and `budget/job-ledger.json` hold the original run records.
+
+**Astra summary:** no final summary was produced. Its public pre-build message was:
+
+> I’ll reconstruct the curved shield, vented brow and faceted temples from all six views. For the lens, I’ll test curvature and an angle-dependent coating so the green/cyan region shifts with the view rather than becoming a painted patch. Since no measurements are supplied, the AR scale will be an estimate.
+
+**Validation and seating:** neither was reached; there is no GLB validation result, no seating result and no AR
+contact sheet. `delivery.json` honestly says `not_finished`, `run_status:failed`; `failed` is outside the current
+host-draft statuses. Attempted `job review ... --port 0`; it refused `delivery file is missing or unreadable:
+current.json`, so no webcam review server was started. The unvalidated native three-quarter render remains at
+`data/jobs/oakley-oo9208-v2-3e057bab/work/renders/call_AcKMPcxcQz5kIXp9QdOcf30t/three-quarter_native.png`.
+
+**$0 diagnosis on a COPY:** replayed Astra's exact saved construction code from the copied seed and compared
+full scene states before/after save/reopen, independently of rendering. Reproduced both exact fingerprints;
+only the two orphan FONT-curve datablocks (`Centre Oakley micro etch`, `Prizm lower corner etch`) differed.
+All object, mesh and material component hashes matched. Original checkpoint SHA unchanged, zero API calls.
+Independent review confirmed the diagnosis. Evidence: `data/assembly/m5r1diag/{before,after,restore,diagnostic}.json`
+and `data/assembly/diagnose_run1_checkpoint.py`. The exact unstable curve field still needs a minimal reproducer.
+No integrity check was bypassed, fingerprint re-stamped, source gate loosened, or product geometry changed.
+
+Independent source review also found 18 visible objects tagged `hardware`/`nosepad`; the exporter permits only
+`lens/frame/temple`, so these are a separate expected export refusal requiring Astra's correction, not a host
+hand-edit. Repairing save/reopen alone would not complete this early model. Expanding M5 into checkpoint repair
+and failure-draft handling needs the owner's scope decision under their stated rule. No tracked runtime code
+changed and no full regression suite was rerun for this evidence-only record. M5 product acceptance remains open.
 
 ## Assembly M5-prep (2026-10-13; complete, implementation commit `bab7cb4`)
 
