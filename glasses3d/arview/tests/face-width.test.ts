@@ -7,8 +7,8 @@ import {readFile} from 'node:fs/promises';
 import {BoxGeometry, BufferGeometry, Euler, Float32BufferAttribute, Group, Matrix4, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Quaternion, Texture, Vector3, Vector4} from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {
-  ARM_LATERAL_MIN_M, armSpreadCurve, armSpreadM, armSpreadSlope, canonicalRegionSpans,
-  FaceWidthEstimator, MAX_ARM_SPREAD_M, observeFaceWidth, spreadArmX, SPREAD_HINGE_ROUND_M, totalArmSpreadM,
+  ARM_LATERAL_MIN_M, armSpreadCurve, armSpreadSlope, canonicalRegionSpans,
+  FaceWidthEstimator, MAX_ARM_SPREAD_M, observeFaceWidth, spreadArmX, SPREAD_HINGE_ROUND_M,
   WIDTH_FIT, WIDTH_REGIONS,
 } from '../src/render/face-width.ts';
 import {armShaftStartZM, createRearDrop, rearDropCurve, REAR_DROP_PARAMETERS} from '../src/render/rear-drop.ts';
@@ -102,16 +102,6 @@ test('the applied ratio leaves the original geometry slowly and never exceeds it
   // An 18 % observation is believed but only 8 % of it may be applied.
   assert.equal(estimator.observedRatio! > 1.17, true);
   assert.ok(Math.abs(estimator.ratio - WIDTH_FIT.appliedMaxRatio) < 1e-6, `clamped at ${estimator.ratio}`);
-  // The ratio bound is what binds: 8 % of the 0.07 m reference is 5.6 mm per arm, inside the hard 6 mm cap.
-  const widest = (WIDTH_FIT.appliedMaxRatio - 1) * WIDTH_FIT.armSpreadPerRatioM;
-  assert.ok(widest <= WIDTH_FIT.maxArmSpreadM, 'the hard cap can never be exceeded');
-  assert.ok(Math.abs(armSpreadM(estimator.ratio) - widest) <= WIDTH_FIT.spreadQuantumM);
-  assert.equal(armSpreadM(1), 0); assert.equal(armSpreadM(Number.NaN), 0);
-  assert.ok(Math.abs(armSpreadM(3) - widest) <= WIDTH_FIT.spreadQuantumM);
-  assert.ok(Math.abs(armSpreadM(0.5) + (1 - WIDTH_FIT.appliedMinRatio) * WIDTH_FIT.armSpreadPerRatioM) <= WIDTH_FIT.spreadQuantumM);
-  assert.ok(Math.abs(armSpreadM(3)) <= WIDTH_FIT.maxArmSpreadM && Math.abs(armSpreadM(0.5)) <= WIDTH_FIT.maxArmSpreadM);
-  // 0.1 mm steps, so a still head does not rebuild the arm buffers on every frame.
-  for (const ratio of [1.001, 1.021, 0.977]) assert.equal(Math.abs(Math.round(armSpreadM(ratio) * 1e7) % 1000), 0);
 });
 
 test('an unusable observation is refused rather than guessed, and each refusal says why', () => {
@@ -183,7 +173,7 @@ test('the lateral rule the fixed temple code tests is one number, and a fitted p
   assert.equal(ARM_LATERAL_MIN_M, CONTINUITY_GEOMETRY.lateralMinM);
   assert.equal(ARM_LATERAL_MIN_M, TEMPLE_VISIBILITY_PARAMETERS.lateralArmMinM);
   const startZM = -0.025, cutoffZM = -0.1;
-  for (const spread of [-WIDTH_FIT.maxArmSpreadM, -0.002, 0.002, WIDTH_FIT.maxArmSpreadM]) {
+  for (const spread of [-0.006, -0.002, 0.002, 0.006]) {
     for (const magnitude of [0.0451, 0.046, 0.05, 0.065, 0.09]) for (const side of [-1, 1]) {
       for (let z = startZM; z >= cutoffZM; z -= 0.005) {
         const moved = spreadArmX(side * magnitude, z, startZM, cutoffZM, spread);
@@ -254,26 +244,7 @@ test('the manual bend splays each arm outward from its hinge, and the front of t
   assert.throws(() => armSpreadCurve(-0.05, startZM, cutoffZM, MAX_ARM_SPREAD_M * 2), /out of range/);
 });
 
-test('the bend and the automatic width fit add up, bounded, and either one alone still works', () => {
-  // The fit's own cap is far below the shared one, so a bend can always be added on top of a settled fit.
-  assert.ok(WIDTH_FIT.maxArmSpreadM < MAX_ARM_SPREAD_M);
-  assert.equal(totalArmSpreadM(0, 0), 0);
-  assert.ok(Math.abs(totalArmSpreadM(0.003, 0.005) - 0.008) < 1e-9, 'they add');
-  assert.ok(Math.abs(totalArmSpreadM(-0.003, 0.005) - 0.002) < 1e-9, 'including against each other');
-  assert.equal(totalArmSpreadM(0.006, MAX_ARM_SPREAD_M), MAX_ARM_SPREAD_M, 'and the pair is capped');
-  assert.equal(totalArmSpreadM(-0.006, -MAX_ARM_SPREAD_M), -MAX_ARM_SPREAD_M);
-  assert.equal(totalArmSpreadM(Number.NaN, 0.004), 0.004, 'a missing contribution is not a missing bend');
-  assert.equal(totalArmSpreadM(0.004, Number.NaN), 0.004);
-  // Rounded to the same 0.1 mm step as the fit, so a still head does not rebuild the arm buffers every frame.
-  for (const pair of [[0.00123, 0.00047], [-0.0009, 0.0034]] as const) {
-    assert.equal(Math.abs(Math.round(totalArmSpreadM(pair[0], pair[1]) * 1e7) % 1000), 0);
-  }
-  // The total is always a spread the geometry will accept.
-  for (const fit of [-0.006, 0, 0.006]) for (const bend of [-MAX_ARM_SPREAD_M, -0.004, 0, 0.004, MAX_ARM_SPREAD_M]) {
-    const total = totalArmSpreadM(fit, bend);
-    assert.ok(Math.abs(total) <= MAX_ARM_SPREAD_M + 1e-12);
-    assert.doesNotThrow(() => armSpreadCurve(-0.05, -0.026, -0.14, total));
-  }
+test('the spread cap is the arms\' own inward curl', () => {
   // The cap is the arms' own inward curl, so a full bend straightens an arm and never turns it outward past its hinge.
   // Amber Horizon runs from |x| 7.24 cm at the hinge shaft to 5.08 cm at the hook, Tom Ford from 7.25 to 5.31 cm.
   for (const taper of [0.0724 - 0.0508, 0.0725 - 0.0531]) assert.ok(Math.abs(MAX_ARM_SPREAD_M - taper) <= 0.005, `${taper}`);

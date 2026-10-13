@@ -12,7 +12,8 @@ import {LiveRenderer} from '../src/render/live-renderer.ts';
 
 const messageFor = error => error instanceof Error ? error.message : String(error);
 
-// plan/prototypes/ar_capture/page.js detection(): the canonical face posed frontally at 23 cm.
+// The pre-WP0 prototype's detection() (ar_capture/page.js; deleted 2026-10-13, see git tag review-20261013-pre-cleanup):
+// the canonical face posed frontally at 23 cm.
 function detection(canonical, width, height, depth = 23) {
   const matrix = new THREE.Matrix4().compose(new THREE.Vector3(0, 0, -depth), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1));
   const positions = [], point = new THREE.Vector3(); let mean = 0;

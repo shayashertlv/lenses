@@ -3,8 +3,6 @@ g3d/temple_bpy.py (plan/WP6_FACETS.md §2.5, §2.6) on a COPY of the Prada scene
 
 - every /2 fixture plans in Blender with the host's core bit for bit, leaving the scene unchanged;
 - the roll fixture (core roll, no Blender Bevel) is written closed and 2-manifold with its rolled polygons;
-- the fade fixture is written with planar face-normal cells before its fade, design-surface normals on its faded
-  fans and no fan split;
 - v3 (WP6_V3 §2): a warp facet beside a soft flat facet (test_temple_warp.prada_warp) is written as the core's
   polygons with its sharp set (Blender splits no fan), the warp's triangles carrying the design surface's normals and
   the soft border's ramp the facet's normal; the exported GLB holds the core's vertices within 1e-4 mm, splits every
@@ -30,7 +28,7 @@ import pytest
 
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import fixtures as FX
-from glasses3d.g3d.temple.build import OUTER_KINDS, design_corner_normals, faded_corner_normals, mesh_topology
+from glasses3d.g3d.temple.build import OUTER_KINDS, design_corner_normals, mesh_topology
 from glasses3d.g3d.temple.convert import v1_to_v2
 from glasses3d.g3d.temple.sections import polygon_section
 from glasses3d.g3d.temple.spec import spec_sha256
@@ -130,22 +128,21 @@ def main_run(prada_copy, preferred_v2):
              {"op": "faceted_temple", "spec": spec},                                         # 8
              {"op": "dump_temples", "objects": [RIGHT, LEFT]},                               # 9
              {"op": "decal_standoffs", "objects": DECALS},                                   # 10
-             {"op": "check_relief", "photo_creases": 4},                                     # 11
-             {"op": "export", "path": str(glb)},                                             # 12
-             {"op": "mesh_digests"},                                                         # 13
-             {"op": "build_variant_meshes", "spec": variant},                                # 14
-             {"op": "mesh_digests"},                                                         # 15
-             {"op": "remove_variant_meshes"},                                                # 16
-             {"op": "unfaceted_temple", "object": RIGHT},                                    # 17
-             {"op": "unfaceted_temple", "object": LEFT},                                     # 18
-             {"op": "scene_digest"},                                                         # 19
-             {"op": "mesh_digests"},                                                         # 20
-             {"op": "timing_faceted_temple", "spec": spec, "repeat": 3},                     # 21
-             {"op": "add_material_slot", "object": RIGHT},                                   # 22
-             {"op": "faceted_temple", "spec": spec},                                         # 23
-             {"op": "core_dump", "spec": spec},                                              # 24
-             {"op": "core_dump", "spec": variant},                                           # 25
-             {"op": "faceted_temple", "spec": null_axis(variant), "side": "-x", "dry_run": True},  # 26
+             {"op": "export", "path": str(glb)},                                             # 11
+             {"op": "mesh_digests"},                                                         # 12
+             {"op": "build_variant_meshes", "spec": variant},                                # 13
+             {"op": "mesh_digests"},                                                         # 14
+             {"op": "remove_variant_meshes"},                                                # 15
+             {"op": "unfaceted_temple", "object": RIGHT},                                    # 16
+             {"op": "unfaceted_temple", "object": LEFT},                                     # 17
+             {"op": "scene_digest"},                                                         # 18
+             {"op": "mesh_digests"},                                                         # 19
+             {"op": "timing_faceted_temple", "spec": spec, "repeat": 3},                     # 20
+             {"op": "add_material_slot", "object": RIGHT},                                   # 21
+             {"op": "faceted_temple", "spec": spec},                                         # 22
+             {"op": "core_dump", "spec": spec},                                              # 23
+             {"op": "core_dump", "spec": variant},                                           # 24
+             {"op": "faceted_temple", "spec": null_axis(variant), "side": "-x", "dry_run": True},  # 25
              ]
     return run_steps(tmp, blend, steps, "main"), spec, variant, glb
 
@@ -159,9 +156,6 @@ def fixtures_run(prada_copy):
         steps += [{"op": "faceted_temple", "spec": FX.FIXTURES[n](), "dry_run": True},
                   {"op": "core_dump", "spec": FX.FIXTURES[n]()}]
     steps += [{"op": "faceted_temple", "spec": FX.rolled(0.6)}, {"op": "dump_temples", "objects": [RIGHT, LEFT]},
-              {"op": "unfaceted_temple", "object": RIGHT}, {"op": "unfaceted_temple", "object": LEFT},
-              {"op": "scene_digest"}]
-    steps += [{"op": "faceted_temple", "spec": FX.fade()}, {"op": "dump_temples", "objects": [RIGHT, LEFT]},
               {"op": "unfaceted_temple", "object": RIGHT}, {"op": "unfaceted_temple", "object": LEFT},
               {"op": "scene_digest"}]
     return run_steps(tmp, blend, steps, "fixtures"), names
@@ -365,45 +359,6 @@ def test_roll_fixture_is_the_core_roll(fixtures_run):
     assert st[k + 2]["status"] == "ok" and st[k + 3]["status"] == "ok"
 
 
-def _newell(P) -> np.ndarray:
-    n = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)
-    return n / np.linalg.norm(n)
-
-
-def test_fade_fixture_is_written_planar_before_its_fade(fixtures_run):
-    """The fade fixture written: its cells before the fade are planar n-gons with face normals, the faded cells'
-    corners where the fade starts carry the same face normal (the fade is tangent there), every other faded fan its
-    design-surface normal (build.faded_corner_normals), and Blender splits no fan (its sharp set is the core's); the
-    revert restores the scene."""
-    st, names = fixtures_run
-    k = 1 + 2 * len(names) + 5
-    r, dump = st[k], st[k + 1]
-    assert r["status"] == "ok", r
-    tb = build_temple(FX.fade())
-    t = next(t for t in dump["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)     # the +X temple
-    W, polys, _ = tb.world(1)
-    assert t["polys"] == polys and len(t["sharp"]) == len(tb.sharp)
-    cn = np.array(t["corner_normals"])
-    starts = np.cumsum([0] + [len(p) for p in polys])
-    flat = set(tb.flat_polys)
-    at = {(v, tb.poly_region[p]): _newell(W[polys[p]]) for p in tb.flat_polys for v in polys[p]}
-    ang = lambda c, n: math.degrees(math.acos(np.clip(c @ n / np.linalg.norm(c), -1, 1)))
-    worst, joined = 0.0, 0
-    for pi, p in enumerate(polys):
-        for j, v in enumerate(p):
-            if pi in flat:
-                worst = max(worst, ang(cn[starts[pi] + j], _newell(W[p])))
-            elif tb.poly_cell[pi] == "faded" and (v, tb.poly_region[pi]) in at:
-                worst = max(worst, ang(cn[starts[pi] + j], at[(v, tb.poly_region[pi])]))
-                joined += 1
-    assert flat and joined >= 4 and worst <= 0.1                  # the d0 ridge, top and bottom vertices
-    fc = faded_corner_normals(tb)                                  # every faded fan: its design-surface normal
-    nw = {k: n for k, n in zip(fc, _world_dirs_plus_x(tb, np.array(list(fc.values()))))}
-    worst = max(ang(cn[starts[i] + polys[i].index(v)], n) for (i, v), n in nw.items())
-    assert len(nw) > 100 and worst <= 0.1
-    assert st[k + 2]["status"] == "ok" and st[k + 3]["status"] == "ok" and st[k + 4]["digest"] == st[0]["digest"]
-
-
 def _world_dirs_plus_x(tb, N) -> np.ndarray:
     """Local (d, y, X) directions -> world for the +X temple at opening 0 (x = X, y, z = -d)."""
     assert tb.spec.hinge["opening_deg"] == 0.0
@@ -417,8 +372,8 @@ def test_dry_run_and_refusals_leave_the_scene_unchanged(main_run):
     assert st[5]["status"] == "refused" and st[5]["code"] == "E_RELIEF_STEP" and st[5]["scene_unchanged"]
     assert st[6]["digest"] == st[0]["digest"]
     assert st[7]["status"] == "refused" and st[7]["code"] == "E_TARGET" and st[7]["scene_unchanged"]
-    assert st[22]["slots"] == 2
-    assert st[23]["status"] == "refused" and st[23]["code"] == "E_MULTI_MATERIAL" and st[23]["scene_unchanged"]
+    assert st[21]["slots"] == 2
+    assert st[22]["status"] == "refused" and st[22]["code"] == "E_MULTI_MATERIAL" and st[22]["scene_unchanged"]
 
 
 def test_written_temples_are_the_core_polygons(main_run):
@@ -426,7 +381,7 @@ def test_written_temples_are_the_core_polygons(main_run):
     ft = st[8]
     assert ft["status"] == "ok", ft
     tb = build_temple(spec)
-    same_core(st[24], tb)
+    same_core(st[23], tb)
     assert ft["schema"] == "g3d.temple/2" and ft["lines"][:len(ft["creases"])] == [ln for ln in ft["lines"]
                                                                                    if "°" in ln]
     for t in st[9]["temples"]:
@@ -496,20 +451,17 @@ def test_hinge_report_grades_the_hinge_parts(main_run):
         assert graded == hp
 
 
-def test_export_validates_and_charts_from_the_extras(main_run):
+def test_export_validates(main_run):
+    """(check_relief, which charted the written temples from their extras, was deleted 2026-10-13.)"""
     st, _, _, glb = main_run
-    assert st[12]["status"] == "exported", st[12]
+    assert st[11]["status"] == "exported", st[11]
     rep = validate_spec(glb)
     assert rep["ok"], rep
-    cr = st[11]
-    for side in ("+x", "-x"):
-        assert cr["temples"][side]["chart"] == "g3d_temple extras"
-        assert cr["temples"][side]["inner_flatness_mm"] <= 1e-3
 
 
 def test_a_filled_axis_keeps_the_written_sha(main_run):
     st, _, variant, _ = main_run
-    r = st[26]                                                         # -X only: +X has two material slots by now
+    r = st[25]                                                         # -X only: +X has two material slots by now
     assert r["status"] == "planned", r
     s = null_axis(variant)
     filled = json.loads(json.dumps(s))
@@ -521,30 +473,30 @@ def test_a_filled_axis_keeps_the_written_sha(main_run):
 
 def test_variant_meshes_leave_the_objects_and_are_removed(main_run):
     st, _, variant, _ = main_run
-    vr = st[14]
+    vr = st[13]
     assert vr["status"] == "ok", vr
-    same_core(st[25], build_temple(variant))
+    same_core(st[24], build_temple(variant))
     assert set(vr["meshes"]) == {"+x", "-x"}
     assert vr["overrides"][RIGHT] == vr["meshes"]["+x"] and vr["overrides"][LEFT] == vr["meshes"]["-x"]
     assert set(vr["overrides"]) == {RIGHT, LEFT} | set(DECALS)
-    after = st[15]
-    assert after["digests"] == st[13]["digests"] and after["data_names"] == st[13]["data_names"]   # objects untouched
+    after = st[14]
+    assert after["digests"] == st[12]["digests"] and after["data_names"] == st[12]["data_names"]   # objects untouched
     assert not set(vr["overrides"].values()) & set(after["data_names"].values())
-    rm = st[16]
+    rm = st[15]
     assert rm["status"] == "ok" and sorted(rm["removed"]) == sorted(vr["overrides"].values())
 
 
 def test_revert_is_byte_identical(main_run):
     st, _, _, _ = main_run
-    assert st[17]["status"] == "ok" and st[18]["status"] == "ok"
-    assert set(st[17]["decals_restored"]) | set(st[18]["decals_restored"]) == set(DECALS)
-    assert st[19]["digest"] == st[0]["digest"]
-    assert st[20]["digests"] == st[1]["digests"] and st[20]["data_names"] == st[1]["data_names"]
+    assert st[16]["status"] == "ok" and st[17]["status"] == "ok"
+    assert set(st[16]["decals_restored"]) | set(st[17]["decals_restored"]) == set(DECALS)
+    assert st[18]["digest"] == st[0]["digest"]
+    assert st[19]["digests"] == st[1]["digests"] and st[19]["data_names"] == st[1]["data_names"]
 
 
 def test_budget(main_run):
     st, _, _, _ = main_run
-    tm = st[21]                                                        # the v1 budgets, kept
+    tm = st[20]                                                        # the v1 budgets, kept
     assert tm["status"] == "planned" and min(tm["seconds"]) <= 1.0       # both temples planned in Blender <= 1 s
     assert tm["core_ms"] <= 80.0
     assert st[8]["budget"]["total_ms"] <= 1000.0

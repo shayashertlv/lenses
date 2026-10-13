@@ -116,15 +116,15 @@ A5_KNOWN_AT_8 = True
 def test_a5_graded_beyond_the_reflection_band(ft1119_job, bake, outdir):
     """A5 by the instrument's own seam samples against the texture's within-chart change at the same separation.
     History: before step 4 A5 FAILED at 1 texel (8 texels/mm: p95 10.6 vs 9.5; fill on BOTH sides of chart seams). Step
-    4 fix 4 (``seams.reflect_seams``: the losing side's fill copies the winner reflected across the seam, fully to 1.5
-    texels, fading to 6) made the 1-2 texel reading pass, but BY CONSTRUCTION (step 4 fix round 1, review): inside
-    the band the two sides are the same texels. So the verdict is now read beyond the band, at 7 and 8 texels (sample
-    points kept on their face's chart), and 1, 2, 4 and 6 texels are reported, not graded. KNOWN STATE (a tripwire,
-    update it deliberately): ``A5_KNOWN_AT_8``. Poisson now replaces reflection/hard harmonisation, but the frozen
-    7/8 offsets remain. Same-3D-point agreement stays diagnostic and is no longer imposed by construction."""
+    4 fix 4 (``seams.reflect_seams``, deleted on 2026-10-13: the losing side's fill copied the winner reflected across
+    the seam, fully to 1.5 texels, fading to 6) made the 1-2 texel reading pass, but BY CONSTRUCTION (step 4 fix round
+    1, review): inside the band the two sides were the same texels. So the verdict is read beyond the band, at 7 and 8
+    texels (sample points kept on their face's chart), and 1, 2, 4 and 6 texels are reported, not graded. KNOWN STATE
+    (a tripwire, update it deliberately): ``A5_KNOWN_AT_8``. Poisson replaced reflection/hard harmonisation, but the
+    frozen 7/8 offsets remain. Same-3D-point agreement stays diagnostic and is no longer imposed by construction."""
     r = PP.seams(ft1119_job, bake, outdir)
     o = r["offsets"]
-    assert bake["report"]["chart_seam_reflection"]["band_texels"] == 0.0 and r["reflection_band_texels"] == 0.0
+    assert r["reflection_band_texels"] == 0.0
     assert r["graded_offsets"] == [7, 8] and set(r["criteria"]) == {"p95_at_7_texels", "p95_at_8_texels"}
     assert all(not o[k]["graded"] for k in (1, 2, 4, 6)) and all(o[k]["graded"] for k in (7, 8))
     for k in (7, 8):
@@ -136,7 +136,6 @@ def test_a5_graded_beyond_the_reflection_band(ft1119_job, bake, outdir):
     assert kinds.get("photo, two views", {"samples": 0})["samples"] < 0.01 * o[1]["samples"]
     assert set(r["breakdown"]) >= {7, 8}
     assert "frozen minimum offsets 7/8" in r["criterion_decision"]
-    assert bake["report"]["chart_seam_reflection"]["texels_changed"] == 0
     # Poisson has no reflection band and does not impose same-point equality.
     assert bake["report"]["checks"]["seams"]["harmonise"]["method"] == "unscreened_poisson"
     assert "diagnostic_tool_pairs_final_by_construction" in r
@@ -354,16 +353,18 @@ A4_KNOWN_AT_8 = {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, 
 # pass; plain + flatten off: fail; 'edges' + flatten on: fail), i.e. the verdict sits on a knife edge of which photo
 # texels the holes are drawn in and their colours. At 16 texels/mm (the production bake, data/wp5/ft1119_bake/bake.json)
 # all four parts fail in both rounds.
-# 7ac7c8f (PyPatchMatch at its knockout radii) passed Brow_Right here; step 4's quilting fails it: a REGRESSION of A4,
-# taken for the visual reason in report['fill']['choice'] (see A4_FILLERS_KNOWN_AT_8 for PyPatchMatch on the same holes)
+# 7ac7c8f (PyPatchMatch at its knockout radii) passed Brow_Right here; step 4's quilting fails it: a REGRESSION of A4.
+# The production filler is the owner's selection recorded in report['fill']['choice'] (``PR.FILL_CHOICE``: quilting with
+# the observed-slope boundary join, 2026-10-08); see A4_FILLERS_KNOWN_AT_8 for PyPatchMatch on the same holes
 A4_AT_8_7AC7C8F = {"Brow_Left": False, "Brow_Right": True, "Temple_Left": False, "Temple_Right": False}
 
 
 def test_a4_fill_knockout_known_verdicts(bake):
     """A4 graded by the instrument, fix round 2: 8 seeded holes per part drawn BY THE PROOF over every single-view area
     (never the tool's hole functions), medians with their spread, the mean-colour limit calibrated by the donor ring.
-    The verdicts are PINNED so that a change cannot hide. Step 4: the filler under test is the bake's own (block
-    quilting) at its own knockout radius. KNOWN STATE at 8 texels/mm (fix round 1 of the correction round): all four
+    The verdicts are PINNED so that a change cannot hide. The filler under test is the bake's own (quilting with the
+    observed-slope boundary join, ``fill.fill_call('quilt')``, owner-selected 2026-10-08) at its own knockout radius.
+    KNOWN STATE at 8 texels/mm (fix round 1 of the correction round): all four
     parts FAIL (fine-band log energy; seam ratios in ``test_a4_each_filler_at_its_own_radius``); at
     7ac7c8f Brow_Right passed (``A4_AT_8_7AC7C8F``): a regression. Every hole also gets a REAL-vs-real floor (step 4 fix round 1: a nearby same-shaped real region on the
     hole's own chart and facing class, same photo, magnification within x/: 1.25), reported with its spread as a
@@ -392,7 +393,12 @@ def test_a4_fill_knockout_known_verdicts(bake):
 
 A4_FILLERS_KNOWN_AT_8 = {"quilt": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False, "Temple_Right": False},
                          "patchmatch": {"Brow_Left": False, "Brow_Right": False, "Temple_Left": False,
-                                        "Temple_Right": False}}
+                                        "Temple_Right": True}}
+# review 2026-10-13 (re-pinned deliberately): from 4304c1d (2026-10-08) to 2026-10-13 a stale "VISUAL" assertion on
+# the fill-choice text stopped this test before these pins, so none was evaluated. Measured on 2026-10-13 with the
+# pre-cleanup code (tag review-20261013-pre-cleanup) and the cleaned code alike: PyPatchMatch (the comparison filler,
+# not production) passes the +x temple (q001 Temple_Right) at 8 texels/mm; quilting (the production filler) still
+# fails all four. Frozen A4 criteria and filler selection are unchanged.
 # brow-top repair (2026-10-07, re-pinned deliberately): keeping unsupported colour-only pigment changes the donor
 # support and knockout holes. PyPatchMatch now also FAILS Brow_Left: a recorded A4 regression, not a passing proof.
 # The production quilting filler remains four failures. Frozen A4 criteria and filler selection are unchanged.
@@ -409,8 +415,8 @@ def test_a4_each_filler_at_its_own_radius(bake):
     """Step 4 fix round 1 (review: the step-4 comparison ran PyPatchMatch at quilting's 0.9 mm): each filler at the
     radius ITS OWN knockout chose in this bake (``compare_fill``; PyPatchMatch from 0.3 / 0.5 / 0.9 mm), on the same
     A4 holes. KNOWN STATE at 8 texels/mm after the brow-top mask repair: both fillers fail all four parts (history
-    above). The production filler stays quilting for the VISUAL reason recorded in
-    report['fill']['choice'] (the owner saw PatchMatch's wood grain along the strips): a choice that costs A4.
+    above). The production filler is quilting with the observed-slope boundary join, the owner's selection recorded in
+    report['fill']['choice'] (``PR.FILL_CHOICE``, 2026-10-08 appearance review): a choice that costs A4.
     Update A4_FILLERS_KNOWN_AT_8 deliberately."""
     from glasses3d.g3d_host.photoprint import fill as FL
     rb = bake["radii_by_method"]
@@ -418,7 +424,7 @@ def test_a4_each_filler_at_its_own_radius(bake):
     assert all(rb["quilt"][p] in FL.QUILT_RADII_MM and rb["patchmatch"][p] in FL.RADII_MM for p in IN.FT1119_PARTS)
     bm = bake["report"]["fill"]["by_method"]
     assert set(bm) == {"quilt", "patchmatch"} and bm["patchmatch"]["radii_mm"] == rb["patchmatch"]
-    assert "VISUAL" in bake["report"]["fill"]["choice"]
+    assert bake["report"]["fill"]["choice"] == PR.FILL_CHOICE and "owner-selected" in PR.FILL_CHOICE
     got = {}
     for m in ("quilt", "patchmatch"):
         got[m] = {}

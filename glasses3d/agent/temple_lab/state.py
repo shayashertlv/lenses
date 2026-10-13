@@ -2,10 +2,9 @@
 (plan/WP6_V3.md §6, on plan/WP6_FACETS.md §4.1): the judgement rule (E_JUDGEMENT), the object note and its rule
 (E_OBJECT), and the finish preconditions (finish_missing: one head-distinctness rule, geometry.distinct_heads of the
 built temples, for preconditions 1 and 5; only compares and variants that reached Astra count). The host logs
-judgements and checks procedure; it never grades quality. The top photo's outline line (outline_check: stations beyond
-OUTLINE_TOL_MM of the common offset) is information only since the owner's 2026-10-11 decision (v3 leaves it out of
-Astra's view, WP6_V3 P5; the functions stay for owner sheets). Lab mutates and saves the state only under its state
-lock (Lab.state_lock).
+judgements and checks procedure; it never grades quality. (The top photo's outline line, information only since the
+owner's 2026-10-11 decision and out of Astra's view in v3, WP6_V3 P5, was deleted 2026-10-13; see git tag
+review-20261013-pre-cleanup.) Lab mutates and saves the state only under its state lock (Lab.state_lock).
 
 State (schema g3d.temple_lab_state/3; /3 = WP6 v3: readings and object notes, judgements with up to 3 differences per
 photo; a /2 state is refused by load, its revisions carry no fit):
@@ -50,7 +49,6 @@ from __future__ import annotations
 
 import json
 import math
-import statistics
 from pathlib import Path
 
 from glasses3d.agent.procs import write_json_atomic
@@ -68,12 +66,6 @@ SCALE_MAX = 3                    # photo_image: the largest upscale of a crop
 STUCK_LAST = 3
 # = geometry.distinct_heads (HEAD_DISTINCT_MM; the cli test pins the number)
 DIFFERENT_ATTEMPT = "the built temple surface or outline moves by at least 0.2 mm somewhere"
-OUTLINE_VIEW = "top"             # the outline line reads the outer-edge offsets of the photos of this view
-OUTLINE_TOL_MM = 1.0             # ... a station further than this from the side's common offset is shape (the top
-#                                  camera's fit and the temple pose agree to about 0.5 mm along the outline;
-#                                  deviations are compared as printed, to 0.1 mm)
-OUTLINE_MIN_STATIONS = 4         # a side with fewer measured stations has no common offset (no check)
-OUTLINE_LIST_MAX = 4             # stations listed in a compare's outline text (then "(+N more)")
 LAYOUT_NAMES_MAX = 6             # layout_diff: names listed per kind before "+N more" (= geometry.DIFF_NAMES_MAX)
 SPREAD_VARIANTS = 3              # finish precondition 2: rendered variants pairwise apart (geometry.spread_triple) ...
 SPREAD_MM = 0.3                  # ... by at least this (= geometry.VARIANT_DISTINCT_MM; state imports no geometry, a
@@ -404,54 +396,6 @@ def check_object(state: dict, prev_spec: dict | None, new_spec: dict, text=None)
     raise LabRefusal("E_OBJECT", OBJECT_REFUSAL, latest_object=fact)
 
 
-# --------------------------------------------------------------------------------------------- outline
-def outline_check(offsets) -> dict:
-    """The outline line's measure of one top photo: ``offsets`` = its outer-edge offsets {side: [{d_mm, offset_mm}]}
-    (photo minus model, mm, + = the photo reaches further out; None where no edge was found). Per side with at least
-    OUTLINE_MIN_STATIONS measured stations, the common offset is their median (a shift shared by every station:
-    camera and pose translation); a station's deviation from it is taken to 0.1 mm. A station is off when, on every
-    such side that measured it, it lies more than OUTLINE_TOL_MM from the common offset, the same way; it is
-    unmeasured when it lies strictly between the first and last measured station of every such side and none
-    measured it. Returns {"common": {side: mm}, "off": [[d_mm, mm], ...] (mm: the mean deviation over those sides),
-    "unmeasured": [d_mm, ...]}; "common" is {} when no side measured OUTLINE_MIN_STATIONS stations (nothing measured:
-    outline_ok is False). Information only (no finish precondition)."""
-    common, dev, spans = {}, {}, []
-    for side, rows in (offsets or {}).items():
-        vals = [(float(r["d_mm"]), float(r["offset_mm"])) for r in rows or [] if r.get("offset_mm") is not None]
-        if len(vals) < OUTLINE_MIN_STATIONS:
-            continue
-        c = statistics.median(v for _d, v in vals)
-        common[side] = round(c, 2)
-        for d, v in vals:
-            dev.setdefault(d, []).append(round(v - c, 1))
-        lo, hi = min(d for d, _v in vals), max(d for d, _v in vals)
-        spans.append({float(r["d_mm"]) for r in rows if lo < float(r["d_mm"]) < hi})
-    off = [[d, round(sum(e) / len(e), 2)] for d, e in sorted(dev.items())
-           if all(x > OUTLINE_TOL_MM for x in e) or all(x < -OUTLINE_TOL_MM for x in e)]
-    inside = set.intersection(*spans) if spans else set()
-    return {"common": common, "off": off, "unmeasured": sorted(d for d in inside if d not in dev)}
-
-
-def outline_ok(chk: dict) -> bool:
-    """This top photo's outline is measured, with no station off and none unmeasured inside the outline."""
-    return bool(chk["common"]) and not chk["off"] and not chk.get("unmeasured")
-
-
-def outline_text(chk: dict) -> str:
-    """outline_check in one short line for a compare's photo text (deviations from the common offset, 0.1 mm)."""
-    if not chk["common"]:
-        return f"outline: not measured (under {OUTLINE_MIN_STATIONS} stations a side)"
-    common = sum(chk["common"].values()) / len(chk["common"])
-    gaps = " ".join(f"d{d:g}" for d in chk.get("unmeasured") or [])
-    gaps = f"; unmeasured: {gaps}" if gaps else ""
-    if not chk["off"]:
-        return f"outline: common {common:+.1f}; " + (f"none >{OUTLINE_TOL_MM:g} mm{gaps}" if gaps
-                                                     else f"all within {OUTLINE_TOL_MM:g} mm")
-    shown = " ".join(f"d{d:g} {m:+.1f}" for d, m in chk["off"][:OUTLINE_LIST_MAX])
-    more = f" (+{len(chk['off']) - OUTLINE_LIST_MAX} more)" if len(chk["off"]) > OUTLINE_LIST_MAX else ""
-    return f"outline: common {common:+.1f}; >{OUTLINE_TOL_MM:g} mm: {shown}{more}{gaps}"
-
-
 # --------------------------------------------------------------------------------------------- finish
 def unique_heads(revisions, distinct, limit: int | None = None) -> list[int]:
     """The revisions in order, each kept only when ``distinct(kept, revision)`` holds against EVERY revision kept
@@ -533,8 +477,7 @@ def finish_missing(state: dict, *, status: str, best_revision: int, k: int, dist
         4  an object note exists (``has_object``);
         5  for stuck: a facet_variants result with a rendered variant since the latest applied head
            (variants_since_head), and the last STUCK_LAST judgements, one per compare (last_judgements), cover
-           STUCK_LAST distinct heads with none "better".
-    The top photo's outline line is information, never a precondition (owner, 2026-10-11)."""
+           STUCK_LAST distinct heads with none "better"."""
     out = []
     chain = distinct_compared_heads(state, distinct, limit=k)
     if len(chain) < k:

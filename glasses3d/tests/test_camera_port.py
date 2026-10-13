@@ -178,8 +178,7 @@ def test_bounds_use_the_view_pitch_window():
     assert b[1] == (5.0, 85.0)
     b0 = cameras._bounds(cam, 800.0, (55.0, 125.0), local={"yaw": 3, "pitch": 50, "roll": 2, "scale": 1, "shift": 1})
     assert b0[1] == (-10.0, 90.0)
-    assert cameras.bounds is cameras._bounds
-    g = cameras.bounds(cam, 800.0, (55.0, 125.0))                          # global window (no local box)
+    g = cameras._bounds(cam, 800.0, (55.0, 125.0))                         # global window (no local box)
     assert g[0] == (55.0, 125.0) and g[1] == cameras.PITCH_BOUNDS
 
 

@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {BoxGeometry, Float32BufferAttribute, Group, Mesh, MeshPhysicalMaterial} from 'three';
-import {loadQATempleCutoff, selectQATempleCutoff, DEFAULT_TEMPLE_CUTOFF_M, TIP_INTERIOR_GUARD_M} from './temple-cutoff.mjs';
-import {buildGlb, trans} from '../tests/glb-fab.ts';
+import {selectQATempleCutoff, DEFAULT_TEMPLE_CUTOFF_M, TIP_INTERIOR_GUARD_M} from './temple-cutoff.mjs';
 import {PART_VISIBILITY_KEY} from '../src/eyewear/part-visibility.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 import {buildTempleContinuityModel} from '../src/render/continuity.ts';
@@ -112,42 +111,6 @@ test('partial, missing, malformed, transformed, one-sided and too-short arms are
   assert.match(shallow.side_bounds[0].missing, /the temple_left region reaches only z -40\.0 mm .*hinge hardware alone is not a temple/);
   assert.equal(shallow.source, 'default'); assert.equal(shallow.cutoff_m, DEFAULT_TEMPLE_CUTOFF_M);
   assert.match(shallow.warnings.join(), /no temple on either side, so no clip can be derived/);
-});
-
-// loadQATempleCutoff used to require a pin and parse on its own (no normalisation): a transformed arm was measured from
-// untransformed positions and a millimetre file threw "outside the supported range". It now reads the model through the
-// renderer's own front-end and normalisation pass (model/check.ts).
-const PROFILE_REGIONS = {Bridge: 'front', Brow_L: 'front', Brow_R: 'front', Lens_L: 'lens', Lens_R: 'lens', Temple_L: 'temple_left', Temple_R: 'temple_right'};
-const profiled = doc => {for (const node of doc.nodes) if (PROFILE_REGIONS[node.name]) node.extras = {LENSES_part_visibility: {version: 1, region: PROFILE_REGIONS[node.name]}};};
-function serve(t, built) {
-  t.mock.method(globalThis, 'fetch', async () => new Response(built.glb.slice(0)));
-  return 'http://127.0.0.1:8250/models/unpinned-candidate.glb';
-}
-
-test('the QA loader normalises like the renderer: a millimetre file is measured in metres, with no pin', async t => {
-  const url = serve(t, buildGlb({scale: 1, patch: profiled}));
-  const receipt = await loadQATempleCutoff(url);
-  assert.equal(receipt.policy, 'authored_temple_regions');
-  assert.ok(Math.abs(receipt.cutoff_m - (-.14 + TIP_INTERIOR_GUARD_M)) < 1e-6, `cutoff ${receipt.cutoff_m} m (temples end at -140 mm)`);
-  assert.deepEqual(receipt.side_bounds.map(side => side.parts), [['Temple_L'], ['Temple_R']]);
-  assert.match(receipt.model_sha256, /^[0-9a-f]{64}$/);
-  assert.equal(receipt.model_status, 'rendered');
-  assert.deepEqual(receipt.model_fallbacks.map(entry => entry.subsystem), ['units']);
-  assert.ok(receipt.model_warnings.some(warning => warning.startsWith('UNITS: the model is in millimetres')));
-});
-
-test('the QA loader refuses what the renderer refuses (a transformed arm), instead of measuring raw positions', async t => {
-  const url = serve(t, buildGlb({patch: profiled, nodeMatrix: trans(0, 0, .001), target: 'Temple_L'}));
-  await assert.rejects(loadQATempleCutoff(url), /QA temple cutoff: the model was refused \(§2 Transforms: 1 mesh node\(s\) with a non-identity world transform/);
-});
-
-test('the QA loader reports an ignored part-visibility profile as a fallback and derives the clip by position', async t => {
-  const url = serve(t, buildGlb({patch: doc => {profiled(doc); doc.nodes.find(node => node.name === 'Temple_L').extras = {LENSES_part_visibility: {version: 2}};}}));
-  const receipt = await loadQATempleCutoff(url);
-  assert.equal(receipt.policy, 'positional_temples');
-  assert.ok(Math.abs(receipt.cutoff_m - (-.14 + TIP_INTERIOR_GUARD_M)) < 1e-6, `cutoff ${receipt.cutoff_m}`);
-  assert.deepEqual(receipt.model_fallbacks.map(entry => entry.subsystem), ['part visibility']);
-  assert.match(receipt.model_fallbacks[0].detail, /LENSES_part_visibility ignored for the whole asset: expected \{version: 1, .*"Temple_L"/);
 });
 
 // Replaces 'unprofiled legacy assets retain their exact existing registration' (a fixed -0.14 receipt for any

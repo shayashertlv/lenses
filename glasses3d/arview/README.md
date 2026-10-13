@@ -211,7 +211,7 @@ non-finite index, in any mode, names no vertex: out of range, a §1 Geometry ref
 is raced against the abort signal and a 60 s deadline (`PARSE_TIMEOUT_MS`): a stalled decoder ends the load with a §2
 Format refusal that says so; a decoder's rejection reason is kept whatever its shape (`describeError` in
 `src/model/glb.ts`: three's DRACOLoader rejects with a plain message object). A load with no Web Worker (renderer-less
-Node: `checkModel`, `qa/temple-cutoff.mjs`, the tests) cannot run the Draco decoder, so a file with Draco geometry ends
+Node: `checkModel`, the tests) cannot run the Draco decoder, so a file with Draco geometry ends
 there up front with status `unchecked` (`ModelUnchecked`): not a §2 verdict, no refusal, the Format row as really
 checked, the other rows "not checked", and a loud `NOT CHECKED HERE:` warning; check such files in the browser.
 three is handed the default scene
@@ -228,7 +228,7 @@ report also has the seven §2 rows, measurements, `rendered_sha256` (the exact b
 only compared with it) and `live_site_would_fail`. Capture accessors: `cameraState()`, `assetMatrixWorld()`,
 `parts()`, `projectAssetPoints()`, `templeCentrelines()`, `setLighting()`, and `render(mask, {override})` with `part-id`, `lens-mask`,
 `lens-hidden`, `lens-only` or `normals`. `src/model/check.ts` runs the same load and pass without drawing (without a
-renderer, KTX2 textures are a reported `textures` fallback); the QA temple-cutoff loader uses it.
+renderer, KTX2 textures are a reported `textures` fallback); `arview serve` uses it.
 
 Temples, clip and fit scale (WP1_DESIGN.md §3, §4; `src/render/temple-geometry.ts`): temples are found per side by
 position, whatever their opacity (crystal and alpha-blended arms are temples like opaque ones; lens-class geometry never
@@ -543,9 +543,7 @@ comparison because it requires a frame's own mask. Audit images stay local unles
 An additional shadows-off view and difference map record the effect on that exact same held frame; hair-on
 and hair-off views share the same shadow underlay, retaining all four existing protection checks.
 
-`?diag=1` makes the page post numeric startup and timing reports (no images, landmarks, masks or hashes) to the same
-site's `diagnostic` endpoint. Only the live site (`UI/ar_site.py`) has one; arview's loopback servers do not (`arview
-serve` answers 405), so nothing is recorded. Unknown address options are shown on the page as ignored.
+Unknown address options are shown on the page as ignored.
 
 Useful diagnostic options are defined in `src/config.ts`:
 
@@ -559,7 +557,6 @@ Useful diagnostic options are defined in `src/config.ts`:
 | `hairModel`, `hair` | Initial hair model and local hair-occlusion toggle |
 | `steady`, `steadyhz`, `steadybeta`, `steadydepthhz`, `steadydepthbeta` | Pose filter diagnostics |
 | `guard`, `sync`, `hairz`, `exposure` | Render/camera diagnostics; normal defaults retain protection and GPU pacing |
-| `diag` | Same-origin numeric telemetry, off by default (no endpoint under arview) |
 | `model`, `name`, `clip`, `width`, `sha256`, `lensenv`, `report` | Validated model handover through `src/eyewear/external.ts`; `lensenv` (0.3-4) scales the lens environment reflection; `report` is the model report `arview serve` made |
 
 The page's Measure panel (`window.__ar.measure()`) runs fresh camera sessions and reports their rates. The ar/ QA

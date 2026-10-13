@@ -12,7 +12,6 @@ AttributeError (its __cause__ is the ImportError), never ModuleNotFoundError. `S
 without bpy.
 """
 SEAT_TOOLS = ("seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire")
-_SEAT_TOOLS = SEAT_TOOLS
 PRINT_TOOLS = ("print_uv", "attach_print", "detach_print", "remove_print_uv")
 # the tools stay reachable as attributes inside Blender (__getattr__), but a star import must work on the host too,
 # so __all__ names only what exists everywhere (review fix round 2: `from glasses3d.g3d import *` raised there)

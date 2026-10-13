@@ -383,11 +383,6 @@ def _areas(V: np.ndarray, faces: list) -> np.ndarray:
                              minlength=len(faces))
 
 
-def interior_point(V: np.ndarray, f: list) -> np.ndarray:
-    """Centroid of the fattest triangle of the face's ear clipping: strictly inside a simple polygon."""
-    return _fattest_centroid(V, ear_clip(V, f))
-
-
 def _fattest_centroid(V: np.ndarray, tris: list) -> np.ndarray:
     best, bp = -1.0, None
     for a, b, c in tris:
@@ -586,13 +581,3 @@ def _ear_clip_small(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
     if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > 1e-12:
         tris.append((idx[0], idx[1], idx[2]))
     return tris
-
-
-def _min_angle(a, b, c) -> float:
-    def ang(p, q, r):
-        v1, v2 = q - p, r - p
-        n1, n2 = math.hypot(*v1), math.hypot(*v2)
-        if n1 < 1e-15 or n2 < 1e-15:
-            return 0.0
-        return math.acos(max(-1.0, min(1.0, float(v1 @ v2) / (n1 * n2))))
-    return min(ang(a, b, c), ang(b, c, a), ang(c, a, b))

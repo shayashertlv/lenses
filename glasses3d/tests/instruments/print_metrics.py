@@ -1,4 +1,4 @@
-"""Independent print metrics (TESTS AND check_print ONLY): the instrument WP5 is graded by (WP5_DESIGN §7, §8).
+"""Independent print metrics (TESTS ONLY): the instrument WP5 is graded by (WP5_DESIGN §7, §8).
 
 It never imports ``glasses3d.g3d_host.photoprint`` (tests/photoprint/test_no_import.py parses this file and checks
 ``sys.modules`` in a fresh interpreter): the tool's own numbers are never the proof (the WP4 rule). Its filters,
@@ -478,7 +478,7 @@ def a4_criteria(rows: list[dict]) -> dict:
 def seam_continuity(col_a, col_b) -> dict:
     """CIEDE2000 between the two texels of each uv-seam pair (same 3D point); p95 <= 3. Fix round 1: NOT the A5
     verdict any more (the tool's chart-seam harmonisation writes exactly these texels, so on its own pairs this passes
-    by construction); kept for the pre-harmonisation diagnostic and the exact-pair report."""
+    by construction); kept for the exact-pair report (the pre-harmonisation diagnostic was removed on 2026-10-13)."""
     a = np.asarray(col_a, np.float64).reshape(-1, 3)
     b = np.asarray(col_b, np.float64).reshape(-1, 3)
     if not len(a):

@@ -168,8 +168,9 @@ had it with 61.5": session2 step 11 printed it as news, with no d, because the t
 Removed in v3: photo_compare depths and one-photo depth readings, facet_restore, the crease margins block, solve
 options, relief_rise, refusal_solved, conditioning hints and crease-run notes, the outline line, the start column, the
 section strip, lean_deg. Their code is gone too (v3-final: crease_margins, margins_summary and the MARGIN_* constants
-had no reader once the T5 rehearsal was rewritten for v3; v2's one-photo / multi-photo corner_reading lives on only
-as the independent reference tests/agent/test_temple_readings.py checks readings.read_point against).
+had no reader once the T5 rehearsal was rewritten for v3; the outline-line functions of state.py, the section strip,
+fades and the original_chart.npz write followed on 2026-10-13; v2's one-photo / multi-photo corner_reading lives on
+only as the independent reference tests/agent/test_temple_readings.py checks readings.read_point against).
 """
 from __future__ import annotations
 
@@ -850,7 +851,7 @@ def arm_spread_at(tb, deg: float) -> str:
     session's revision 6: the tip's rounding), the midpoint of the smooth outer edge folding ``deg`` and the d range
     of every smooth edge folding more than spec.ARM_NORMAL_SPREAD_DEG ("along d 1.0-136.0" at revision 0). A smooth
     edge is build._sharp_edges' last branch: two outer polygons of one region and band (not the roll, not a soft
-    border's ramp, no faded or ramp cell; a chamfer band's edge under SHARP_DIHEDRAL_DEG). "" when no smooth edge
+    border's ramp, no ramp cell; a chamfer band's edge under SHARP_DIHEDRAL_DEG). "" when no smooth edge
     folds ``deg`` within 0.05° (a builder rule this copy does not follow: no place rather than a wrong one)."""
     D = BLD.mesh_topology(tb.polys)["directed"]
     kind, region, cell = tb.poly_kind, tb.poly_region, tb.poly_cell
@@ -861,7 +862,7 @@ def arm_spread_at(tb, deg: float) -> str:
         p2 = D.get((b, a))
         if a > b or p2 is None or kind[p1] != "outer" or kind[p2] != "outer" or region[p1] != region[p2]:
             continue
-        if {ramp[p1], ramp[p2]} - {None} == {"soft"} or {cell[p1], cell[p2]} & {"faded", "ramp"}:
+        if {ramp[p1], ramp[p2]} - {None} == {"soft"} or "ramp" in (cell[p1], cell[p2]):
             continue
         dih = math.degrees(math.acos(max(-1.0, min(1.0, float(N[p1] @ N[p2])))))
         if "/" in region[p1] and dih >= SHARP_DIHEDRAL_DEG:
@@ -1305,15 +1306,11 @@ class Lab(SceneHooks):
         if exp.get("status") != "exported":
             raise ValueError(f"the original does not export: {exp}")
         r0 = G.revision_zero(exp["path"])
-        L, Fc = r0["chart_mesh"]
-        mesh_rel = "original_chart.npz"
-        with open(self.work / mesh_rel, "wb") as f:
-            np.savez_compressed(f, V=L, F=Fc)
         with self.state_lock:
             self.state["original"] = {"export": {k: exp[k] for k in ("path", "sha256", "checkpoint")},
                                       "body": r0["body"], "side": r0["side"], "hinge_z_mm": r0["hinge_z"],
-                                      "axis_xz_mm": r0["axis"], "chart_mesh": mesh_rel,
-                                      "footprints": r0["footprints"], "template_report": plain(r0["report"])}
+                                      "axis_xz_mm": r0["axis"], "footprints": r0["footprints"],
+                                      "template_report": plain(r0["report"])}
         cmp0 = self._compare("prepare-original", self.photo_ids(), by="prepare", hinge_z=r0["spec"]["hinge"]["z_mm"])
         if cmp0.get("status") != "ok":
             raise ValueError(f"the compare of the original failed: {cmp0}")
@@ -1752,8 +1749,7 @@ class Lab(SceneHooks):
         for label, f in design["facets"].items():
             plane = f["plane"]
             pl = "flat" if plane == "nodes" else "warp" if plane == "warp" else plane
-            facets[label] = {"poly": f["poly"], "plane": pl, **({"soft": True} if f.get("soft") else {}),
-                             **({"fade": [_r(f["fade"]["d0"]), _r(f["fade"]["d1"])]} if f.get("fade") else {})}
+            facets[label] = {"poly": f["poly"], "plane": pl, **({"soft": True} if f.get("soft") else {})}
         readings = {}
         for n, r in sorted(self.readings().items()):          # to 0.01 mm, as the node rows and reading texts
             rr = RD.refresh(r, tb)

@@ -7,7 +7,6 @@
  *  recommended 1.49 delivered mean luma 0.390 where it assumed 0.418. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import {
   CRYSTAL_REFLECTION_KNEE, LENS_REFLECTION_KNEE, LENS_REFLECTION_KNEE_LEVEL, limitReflection, REFLECTION_KNEE, REFLECTION_WHITE,
   reflectionLimitCall,
@@ -84,17 +83,8 @@ test('the crystal keeps the first limit exactly: its twin\'s pixels do not move 
   }
 });
 
-test('each surface calls the GLSL with its own knee, and a Python port can read the constants as literals', async () => {
+test('each surface calls the GLSL with its own knee', () => {
   assert.equal(reflectionLimitCall('a', 'b', LENS_REFLECTION_KNEE), 'eyewearReflectionLimit( a, b, 0.0000, 0.8000 )');
   assert.equal(reflectionLimitCall('a', 'b', CRYSTAL_REFLECTION_KNEE), 'eyewearReflectionLimit( a, b, 0.5000, 0.0000 )');
   assert.ok(Object.isFrozen(LENS_REFLECTION_KNEE) && Object.isFrozen(CRYSTAL_REFLECTION_KNEE));
-  // automation reads these as text: appearance.py's crystal port pins REFLECTION_WHITE and REFLECTION_KNEE (the crystal's,
-  // tests/test_appearance_reflection_limit.py); a lens port (lens_colour's lensenv recommendation) needs LENS_REFLECTION_KNEE_LEVEL.
-  const source = await readFile(new URL('../src/render/eyewear-reflection.ts', import.meta.url), 'utf8');
-  for (const [name, value] of [['REFLECTION_WHITE', REFLECTION_WHITE], ['LENS_REFLECTION_KNEE_LEVEL', LENS_REFLECTION_KNEE_LEVEL],
-    ['REFLECTION_KNEE', REFLECTION_KNEE]] as const) {
-    const match = new RegExp(`^export const ${name} = ([0-9.]+);$`, 'm').exec(source);
-    assert.ok(match, name); assert.equal(Number(match[1]), value, name);
-  }
-  assert.match(source, /The crystal's knee, a share of the headroom/, 'REFLECTION_KNEE is documented as the crystal\'s');
 });

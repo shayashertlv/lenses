@@ -26,12 +26,9 @@ Units: world mm. Every function takes plain arrays or a GLB path.
 """
 from __future__ import annotations
 
-import json
-import struct
 from pathlib import Path
 
 import numpy as np
-import open3d as o3d
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 

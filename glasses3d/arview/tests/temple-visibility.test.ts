@@ -186,9 +186,7 @@ for (const armRole of [null, 'temple', 'frame']) for (const transmission of [0, 
     const draw = () => Reflect.apply(front.onBeforeRender, front, [fake.renderer, scene, camera, frontGeometry, shared, null]);
     fake.state.target = target; draw(); assert.equal(twinUniforms.twinLensInput.value, 1);
     fake.state.target = null; draw(); assert.equal(twinUniforms.twinLensInput.value, 0);
-    controller.withLensInput(() => {draw(); assert.equal(twinUniforms.twinLensInput.value, 1);});
-    draw(); assert.equal(twinUniforms.twinLensInput.value, 0);
-    assert.equal(frontDraws, 4, 'the pre-existing draw hook is still composed');
+    assert.equal(frontDraws, 2, 'the pre-existing draw hook is still composed');
     controller.dispose(); assert.equal(front.onBeforeRender, frontBefore);
   });
 }
@@ -716,25 +714,9 @@ test('lens input exclusion preserves existing original mesh callbacks and restor
   assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
 });
 
-test('owned canonical opaque input applies exclusions and restores them after a thrown draw', t => {
-  const f = syntheticFixture(); t.after(f.dispose);
-  const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
-  const shader = compile(f.frame);
-  f.controller.set({...createTempleVisibilityConfiguration(4), excludeArmsFromLensInput: true});
-  Reflect.apply(f.scene.onBeforeRender, f.scene, [f.fake.renderer, f.scene, f.camera, null]);
-  const draw = () => Reflect.apply(original.onBeforeRender, original,
-    [f.fake.renderer, f.scene, f.camera, original.geometry, f.frame, null]);
-  assert.throws(() => f.controller.withLensInput(() => {
-    draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);
-    f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);});
-    throw new Error('deliberate opaque input failure');
-  }), /deliberate opaque input failure/);
-  draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 0);
-});
-
-test('Three\'s internal transmission pre-pass is lens input only for a legacy transmissive lens; the explicit canonical input always is', t => {
-  // A canonical lens (transmission 0) reads only the explicit input; the internal pre-pass then feeds only translucent
-  // frame materials, which must see the opaque hardware inside them. A legacy transmissive lens still samples it.
+test('Three\'s internal transmission pre-pass is lens input only for a legacy transmissive lens', t => {
+  // Without a transmissive lens the internal pre-pass feeds only translucent frame materials, which must see the opaque
+  // hardware inside them. A legacy transmissive lens still samples it.
   const f = syntheticFixture(); t.after(f.dispose);
   const original = f.root.children.find((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.material === f.frame)!;
   const shader = compile(f.frame);
@@ -755,9 +737,6 @@ test('Three\'s internal transmission pre-pass is lens input only for a legacy tr
   assert.equal(internalDraw(), 1, 'a legacy transmissive lens samples the internal pre-pass: arms stay out of it');
   f.controller.set({...base, internalTransmissionIsLensInput: false});
   assert.equal(internalDraw(), 0, 'canonical lenses: the internal pre-pass feeds only translucent frame, arms stay in it');
-  f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1, 'the explicit canonical input always excludes arms');});
-  f.fake.state.target = internal;
-  f.controller.withLensInput(() => {draw(); assert.equal(shader.uniforms.templeInternalLensInput!.value, 1);});
   assert.equal(f.controller.configuration!.internalTransmissionIsLensInput, false, 'the setting is recorded with the configuration');
   assert.throws(() => f.controller.set({...base, internalTransmissionIsLensInput: 0} as unknown as TempleVisibilityConfiguration),
     /internal transmission lens input setting is invalid/);

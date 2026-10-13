@@ -6,9 +6,9 @@ chart frame; read_payload builds it from an agent/temple_lab/readings.py record)
 read, sd its X pick sd, sd_d / sd_y or cov (3 x 3 over d, y, X in mm^2, its X variance = sd^2) its position error,
 camera {fit: [dd, dy, dX]} the read point's move for +1 sd of each camera fit's theta (one shared unknown per camera
 fit, below). Facet planes are "nodes" (flat), "warp", a fixed {"coef": [a, b, c]} or a legacy {"crease": [n1, n2],
-"rise_per_mm": s} (flat, its slope across the crease fixed). A fade is refused E_SPEC: the fit describes the unfaded
-surface, so a faded design's crease report, costs and bounds would describe a surface the builder does not build
-(review F6; v3 offers none). FitResult.spec is a pure /2 spec: every node in a facet has a numeric t (but a null node
+"rise_per_mm": s} (flat, its slope across the crease fixed). A fade is refused E_SPEC (fades were removed from the
+core on 2026-10-13; review F6 had already refused them here: the fit describes the unfaded surface). FitResult.spec is
+a pure /2 spec: every node in a facet has a numeric t (but a null node
 outside the outline that unbound flat facets list stays null, below); flat facets carry {"coef": [a, b, c]} (X = a + b d
 + c y), warp facets "warp"; a reading on a node in no facet becomes its t (outside every facet's polygon: one inside
 or on a facet's polygon and the outline, which the builder would bind there, is refused E_SPEC, _Problem._orphans,
@@ -311,7 +311,6 @@ WAYS = ("ways (unranked): warp (one face, no line), a fold (two faces), another 
 STATE_TEXT = {"certain": "certain", "open": "open", "flat": "flat within 2 sd"}   # a crease's readings-only state
 TABLE_KNOTS = ("inner[", "base.top[", "base.bottom[")                             # parse's snap names of table knots
 
-FIT_REFUSALS = ("E_FIT_SHAPE", "E_FIT")                                                  # in spec.REFUSALS (§2)
 FIT_WARNINGS = ("W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # in spec.WARNINGS
                 "W_WARP_TWIST")
 
@@ -1077,9 +1076,9 @@ class _Problem:
             if bad:
                 raise TempleError("E_SPEC", f"unknown facet {label} keys {bad}; known: {list(FACET_KEYS)}",
                                   facet=label, unknown=bad)
-            if f.get("fade") is not None:
-                raise TempleError("E_SPEC", f"facet {label}: a fade cannot be fitted (the fit describes the unfaded "
-                                  f"surface, so its angles, costs and bounds would not be the built ones)", facet=label)
+            if f.get("fade") is not None:                  # fades were removed (module docstring)
+                raise TempleError("E_SPEC", f"facet {label}: fade must be null (fades were removed on 2026-10-13)",
+                                  facet=label)
             plane = f.get("plane", "nodes")
             if isinstance(plane, dict) and set(plane) == {"coef"}:
                 cf = plane["coef"]
@@ -1164,7 +1163,6 @@ class _Problem:
         self._grad_cache: dict = {}
         self._touch_cache: dict = {}
         self._others_cache: dict = {}
-        self.cur_ps = ps                                 # the outline in use (set_point moves knots with corners)
         self._structure()
         self._directions()
         self._free_coords()
@@ -2457,12 +2455,6 @@ def _angle(seg: _Seg, z: np.ndarray, cov: np.ndarray | None = None) -> tuple[flo
         return deg, 0.0
     J = seg.a1 / (1.0 + g1 * g1) - seg.a2 / (1.0 + g2 * g2)
     return deg, math.degrees(math.sqrt(max(float(J @ cov @ J), 0.0)))
-
-
-def _form_slopes(forms: tuple, z: np.ndarray) -> np.ndarray:
-    """(S, 2): (g1, g2) of every segment at z from the slope forms (A1, k1, A2, k2)."""
-    A1, k1, A2, k2 = forms
-    return np.stack([A1 @ z + k1, A2 @ z + k2], axis=1)
 
 
 def _shape_rows(pb: _Problem, pairs: list, z: np.ndarray) -> list:

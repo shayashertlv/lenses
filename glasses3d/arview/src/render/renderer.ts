@@ -101,7 +101,6 @@ export {HAIR_OCCLUSION_METHOD, DEFAULT_HAIR_START_Z_M} from './hair-occlusion.ts
 export const MAX_RENDER_WIDTH = 1280;
 /** scene.environmentIntensity of the room environment; lens materials scale it by the eyewear's lensEnvIntensity. */
 export const SCENE_ENVIRONMENT_INTENSITY = 0.8;
-const RESIDUAL_LANDMARKS = [1, 4, 6, 33, 133, 168, 197, 263, 362] as const;
 /** Authored fixed shape, not measured ear positions. The final band remains inside the head volume. */
 const HIDDEN_TAIL_M = .025, END_FADE_M = .005, ARM_SPREAD_M = .018;
 /** Frame-front to upper-face ratio for the automatic fit (eyewear-fit.ts). The catalog's per-frame ratios are gone;
@@ -293,7 +292,6 @@ export class TryOnRenderer {
   private fitFrontWidthCm = 0;
   private terminalFitAtScale: ((scale: number) => TempleTerminalFit | null) | null = null;
   private readonly fitProjected = new Vector4();
-  private readonly projected = new Vector3();
   private readonly hairStartZ: number;
   private sync: boolean;
   private fenceTimeouts = 0;
@@ -368,8 +366,6 @@ export class TryOnRenderer {
   private frameWidth = 0;
   private frameHeight = 0;
   private disposed = false;
-  private residual: number | null = null;
-  private yaw: number | null = null;
   private lastPose: {rawMatrix: number[]; eyewearMatrix: number[]; yawDegrees: number} | null = null;
   private readonly stabilizer: PoseStabilizer | null;
   private latestPose: PoseSample | null = null;
@@ -401,8 +397,6 @@ export class TryOnRenderer {
     this.facePose.name = 'Tracked canonical face (centimeters)'; this.facePose.matrixAutoUpdate = false; this.facePose.visible = false; this.scene.add(this.facePose);
     this.eyewearPose.name = 'Eyewear bridge pose (centimeters)'; this.eyewearPose.matrixAutoUpdate = false; this.eyewearPose.visible = false; this.scene.add(this.eyewearPose);
   }
-  get projectionResidualPx(): number | null {return this.residual;}
-  get yawDegrees(): number | null {return this.yaw;}
   get guardEnabled(): boolean {return this.guard;}
   get nativeSamples(): number {const samples: unknown = this.gl.getParameter(this.gl.SAMPLES); return typeof samples === 'number' ? samples : 0;}
   get gpuRenderer(): string | null {
@@ -1092,7 +1086,6 @@ export class TryOnRenderer {
               cheekTransitionPx: 2,
               terminalReturn: this.templeTerminalFit ? templeTerminalRelief(this.templeTerminalFit) : null});
           this.eyewearPose.visible = this.fitRevealed; this.camera.updateMatrixWorld();
-          this.yaw = attachment.yawDegrees; this.residual = this.measureProjectionResidual(detection);
           if (this.surfaceAttribute) this.surfaceAttribute.needsUpdate = true;
           if (this.surfaceMesh) this.surfaceMesh.visible = true;
           if (this.templeHeadShell) this.templeHeadShell.visible = true;
@@ -1481,23 +1474,12 @@ export class TryOnRenderer {
       this.templeEndpointTracker?.reset(); this.templeEndpointReport = null; this.templeEndpointPending = false;
       this.templeHeadFit?.reset(); this.templeHeadShellFit?.reset();
     }
-    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null; this.latestPose = null;
+    this.lastPose = null; this.posedMatrix = null; this.latestPose = null;
     this.facePose.visible = this.eyewearPose.visible = false;
     if (this.surfaceMesh) this.surfaceMesh.visible = false;
     if (this.templeHeadShell) this.templeHeadShell.visible = false;
     this.templeVisibility?.set(null); this.templeClip?.set(null); this.hairOcclusion?.set(false, this.hairStartZ);
     this.protectionConfiguration = null; this.nasalRect = null; this.templePaths = null;
-  }
-  private measureProjectionResidual(detection: Detection): number | null {
-    let sum = 0;
-    for (const index of RESIDUAL_LANDMARKS) {
-      const landmark = detection.landmarks[index]; if (!landmark) return null;
-      this.projected.fromArray(this.canonicalPositions, index * 3).applyMatrix4(this.facePose.matrix).project(this.camera);
-      const x = (this.projected.x + 1) * this.frameWidth / 2, y = (1 - this.projected.y) * this.frameHeight / 2;
-      sum += (x - landmark.x * this.frameWidth) ** 2 + (y - landmark.y * this.frameHeight) ** 2;
-    }
-    const residual = Math.sqrt(sum / RESIDUAL_LANDMARKS.length);
-    return Number.isFinite(residual) ? residual : null;
   }
   dispose(): void {
     if (this.disposed) return; this.disposed = true;
@@ -1505,7 +1487,7 @@ export class TryOnRenderer {
     this.shadowReceiver.reset();
     this.removeAbortListener?.(); this.removeAbortListener = null;
     if (this.fence) {try {this.gl.deleteSync(this.fence);} catch {/* context may be lost */} this.fence = null;}
-    this.lastPose = null; this.posedMatrix = null; this.residual = this.yaw = null;
+    this.lastPose = null; this.posedMatrix = null;
     this.protectionConfiguration = null; this.nasalRect = null; this.reader.dispose();
     this.scene.background = null; this.scene.environment = null;
     this.shadows?.dispose(); this.shadows = null; this.shadowBackground = null;

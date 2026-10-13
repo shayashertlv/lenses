@@ -5,7 +5,6 @@ import numpy as np
 import pytest
 
 from glasses3d.g3d_host.photoprint import seams as SM
-from glasses3d.tests.photoprint import printproof as PP
 
 
 def _adjacent_rectangles(y0=0, unrelated=False):
@@ -54,40 +53,3 @@ def test_missing_local_surface_support_does_not_bridge_a_wider_gap():
     job, layout, tex = _adjacent_rectangles()
     tex.index[:, 6:8] = -1
     assert SM.chart_seam_pairs(job, layout, tex).shape == (0, 2)
-
-
-def test_bilinear_reflection_ignores_other_charts_and_gutters():
-    img = np.full((4, 4, 3), [140., 90., 50.])
-    charts = np.zeros((4, 4), np.int64)
-    charts[1, 1] = 9
-    charts[1, 2] = -1
-    samples = np.array([[1.8, 1.6], [2.1, 2.0]])
-    a = SM._bilinear_atlas(img, samples, chart_image=charts, chart=np.zeros(2, np.int64))
-    img[charts != 0] = [0, 255, 240]
-    b = SM._bilinear_atlas(img, samples, chart_image=charts, chart=np.zeros(2, np.int64))
-    assert np.allclose(a, [140., 90., 50.], rtol=0, atol=1e-10)
-    assert np.array_equal(a, b)
-
-
-def test_reflection_of_a_constant_surface_cannot_import_black_gutter_pixels():
-    job, layout, _ = _adjacent_rectangles()
-    angle = np.deg2rad(31)
-    rotation = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-    layout.uv = layout.uv @ rotation.T + [12.3, 3.7]
-    shape = (30, 40)
-    row, _ = PP.texel_faces(layout, shape)
-    ii, jj = np.nonzero(row >= 0)
-    index = np.full(shape, -1, np.int64)
-    index[ii, jj] = np.arange(len(ii))
-    tex = SimpleNamespace(index=index, ii=ii, jj=jj, chart=layout.chart[row[ii, jj]], shape=shape)
-
-    def image(values, fill, dtype):
-        out = np.full(shape + values.shape[1:], fill, dtype)
-        out[ii, jj] = values
-        return out
-
-    tex.image = image
-    colour = np.tile([140., 90., 50.], (len(ii), 1))
-    reflected, info = SM.reflect_seams(job, layout, tex, colour, np.zeros(len(ii), bool))
-    assert info['texels_changed'] > 0
-    assert np.allclose(reflected, colour, rtol=0, atol=1e-10)

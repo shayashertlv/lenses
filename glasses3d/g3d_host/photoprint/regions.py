@@ -1,4 +1,4 @@
-"""Rigid groups, regions, stripes and samples of WP5 step 0 (WP5_DESIGN §5.1).
+"""Rigid groups, regions, stripes and samples (WP5_DESIGN §5.1), built for step 0 and used by the bake.
 
 Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_reg/p2_parallax.stripe_masks` and
 `p5_temple_hinge.group/hinge`; PORT_REVIEW section 10.
@@ -20,6 +20,11 @@ Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_
   at each boundary; even stripes = fold A, odd = fold B (print correlation length 1.04 mm [R P3]).
 - **Samples**: area-uniform (face, barycentric) pairs per region with a fixed seed. A sample is a BODY point: its
   position on any deformed surface S' (same triangles) is the barycentric combination of S' vertices.
+
+The bake (``project``) uses the groups and regions. Step 0's registration, which read the stripes, folds and samples,
+was deleted on 2026-10-13 with its helpers here (``Samples.select``, ``pixel_fold``, the ``to_json`` methods) and the
+unused ``Region.s_of`` / ``region_face_lookup``; see git tag review-20261013-pre-cleanup. ``build_regions`` is
+unchanged and still draws the samples.
 """
 from __future__ import annotations
 
@@ -52,11 +57,6 @@ class Group:
     pivot_mm: np.ndarray            # hinge pivot (temples), (3,)
     axis: np.ndarray = field(default_factory=lambda: np.array([0.0, 1.0, 0.0]))
 
-    def to_json(self, names: list[str]) -> dict:
-        return {"name": self.name, "side": self.side, "parts": [names[p] for p in self.parts],
-                "hinge_pivot_mm": [round(float(x), 4) for x in self.pivot_mm] if self.side else None,
-                "hinge_axis": [float(x) for x in self.axis] if self.side else None}
-
 
 @dataclass(eq=False)
 class Region:
@@ -77,14 +77,6 @@ class Region:
     minor: bool = False
     samples: "Samples | None" = None
 
-    def s_of(self, P: np.ndarray) -> np.ndarray:
-        return (np.asarray(P, float)[..., self.axis] - self.s_mid) / self.s_half
-
-    def to_json(self) -> dict:
-        return {"rid": self.rid, "name": self.name, "part": self.part_name, "side": side_tag(self.side),
-                "facing": self.facing, "group": self.group, "faces": int(len(self.faces)),
-                "area_mm2": round(self.area_mm2, 2), "stripe_axis": "xyz"[self.axis], "minor": self.minor}
-
 
 @dataclass(eq=False)
 class Samples:
@@ -95,13 +87,6 @@ class Samples:
 
     def __len__(self) -> int:
         return len(self.face)
-
-    def select(self, fold: str | None) -> np.ndarray:
-        """Indices of the samples a fit on ``fold`` uses: 'A' (even stripes), 'B' (odd), None/'all' (every one)."""
-        if fold in (None, "all"):
-            return np.arange(len(self.face))
-        f = {"A": FOLD_A, "B": FOLD_B}[fold]
-        return np.nonzero(self.fold == f)[0]
 
 
 def part_centroids(V: np.ndarray, F: np.ndarray, part: np.ndarray, area: np.ndarray, n_parts: int) -> np.ndarray:
@@ -227,16 +212,3 @@ def sample_region(job, r: Region, n: int, seed: int) -> Samples:
     P = np.einsum("kj,kjd->kd", w, job.mesh.V[job.mesh.F[f]])
     coord = np.abs(P[:, r.axis])
     return Samples(face=f, bary=w, fold=stripe_fold(coord), coord=coord)
-
-
-def region_face_lookup(regions: list[Region], n_faces: int) -> np.ndarray:
-    """(M,) region id per face (-1: none)."""
-    out = np.full(n_faces, -1, np.int64)
-    for r in regions:
-        out[r.faces] = r.rid
-    return out
-
-
-def pixel_fold(region: Region, P_body: np.ndarray) -> np.ndarray:
-    """Fold label of body points (positions on S) of a region."""
-    return stripe_fold(np.abs(np.asarray(P_body, float)[:, region.axis]))

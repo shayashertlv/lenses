@@ -284,11 +284,6 @@ def get_scene(V_mm: np.ndarray, F: np.ndarray, frame: NormFrame) -> RasterScene:
     return scene
 
 
-def clear_cache() -> None:
-    with _scenes_lock:
-        _scenes.clear()
-
-
 def render(mesh_V_mm: np.ndarray, F: np.ndarray, camera: Camera, frame: NormFrame, shape: tuple[int, int],
            stride: int = 1, roi: tuple[int, int, int, int] | None = None, **kwargs) -> dict:
     """Render a model-frame mesh (mm) through ``camera`` (NormFrame-normalized) at native ``shape``.

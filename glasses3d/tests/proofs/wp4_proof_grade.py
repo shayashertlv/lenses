@@ -1255,7 +1255,7 @@ def grade_nylor(C: Case):
             # target), or TRANSITION (§4 step 4: beside the exposed edge, never grown, c >= 0, front covered; the core
             # counts them and §8 caps them at 3% of the required points). A point in that zone below 0.35 that the
             # check PASSES (the point between a TRANSITION node and its grown neighbour, read between the two) is
-            # not graded here: it is recorded as an exception the owner has to accept (P4.nylor.top_flats_exception)
+            # not graded here: round 2 (below) puts the whole end zone to the owner (P4.nylor.top_flats_end_zone)
             b1 = o["ns_after"]["bodies"][0]
             req1 = np.asarray(b1["point"]["required"])
             ntr = int(((np.asarray(b1["point"]["verdict_check"]) == "TRANSITION") & req1).sum())

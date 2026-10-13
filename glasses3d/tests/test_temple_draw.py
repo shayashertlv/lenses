@@ -1,7 +1,7 @@
-"""Chart and section images of a /2 build (plan/WP6_FACETS.md §3.4): g3d.temple.draw. The per-edge crease shapes are
-the core's, the images carry ridge / valley colours, contours, nodes, facet names (one FACET fill, no lean shading)
-and footprints under a legend that fits the width, and the section strip overlays
-builds and plain meshes at one scale. Images go to the test's temp folder (VIZ_DIR overrides)."""
+"""Chart image of a /2 build (plan/WP6_FACETS.md §3.4): g3d.temple.draw. The per-edge crease shapes are the core's,
+the images carry ridge / valley colours, contours, nodes, facet names (one FACET fill, no lean shading) and footprints
+under a legend that fits the width. Images go to the test's temp folder (VIZ_DIR overrides). (The section strip and
+its tests were deleted 2026-10-13.)"""
 from __future__ import annotations
 
 import math
@@ -15,7 +15,6 @@ from PIL import Image, ImageDraw
 from glasses3d.g3d.temple import build_temple
 from glasses3d.g3d.temple import draw as DR
 from glasses3d.g3d.temple import fixtures as FX
-from glasses3d.g3d.temple import measure as MS
 from glasses3d.g3d.temple.build import mesh_topology
 
 
@@ -206,28 +205,3 @@ def test_a_region_at_a_contour_level_draws_no_noise():
     segs = DR._contours(tb, [5.0])[5.0]
     d5 = 80.0 + 10.0 * 0.34 / 0.47                   # the arm's base thickness passes 5.0 between d 80 (5.34) and 90
     assert segs and all(abs(p[0] - d5) < 1e-9 and abs(q[0] - d5) < 1e-9 for p, q in segs)
-
-
-def test_section_strip_overlays_builds_and_meshes(viz):
-    cur, prev = build_temple(FX.prada_default()), build_temple(FX.pyramid())
-    slab = build_temple(FX.slab())
-    W, _, tris = slab.world(1)
-    L, F = MS.chart_mesh(W, tris, 1, slab.spec.hinge["z_mm"])
-    img = DR.section_strip([("current", cur), ("original", (L, F)), ("previous", prev)])
-    img.save(viz / "sections_three.png")
-    assert img.size[0] == 170 * 7
-    assert colour_count(img, DR.STYLES[1]["fill"], tol=4) > 2000             # the original is filled
-    assert colour_count(img, DR.STYLES[2]["line"], tol=30) > 100             # the previous revision is drawn
-    assert colour_count(img, DR.RIDGE, tol=30) > 10                           # crease crossings are marked
-    pts = DR.section_crease_points(cur, 25.0)
-    assert pts and {s for _, _, s in pts} <= {"ridge", "valley", "flat"}
-    img2 = DR.section_strip({"slab": {"V": L, "F": F}}, stations=(10, 60))
-    assert img2.size[0] == 340
-
-
-def test_chain_segments_closes_a_section():
-    tb = build_temple(FX.slab())
-    lines = DR.chain_segments(MS.slice_d(tb.V, tb.tris, 30.0))
-    assert len(lines) == 1 and np.allclose(lines[0][0], lines[0][-1])
-    y = lines[0][:, 0]
-    assert y.min() == pytest.approx(tb.spec.y_bot(30.0)) and y.max() == pytest.approx(tb.spec.y_top(30.0))

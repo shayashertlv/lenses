@@ -1,7 +1,7 @@
 """WP5 build step 4 (host) fixes, unit level: the metal / highlight colour model and hardware margins (fix 1), the
-block-quilting filler (fix 2), the gains (fix 3: same-part edges, mirror equations, the levelling field) and the
-chart-seam reflection (fix 4). The bake-level numbers are in test_print_bake.py and the proof run (bake_ft1119,
-step4_sheets). Sides are the x sign."""
+block-quilting filler (fix 2) and the gains (fix 3: same-part edges, mirror equations, the levelling field); the
+chart-seam reflection test (fix 4) was deleted on 2026-10-13 with ``seams.reflect_seams``. The bake-level numbers are
+in test_print_bake.py and the proof run (bake_ft1119). Sides are the x sign."""
 import numpy as np
 import pytest
 from scipy import ndimage
@@ -215,32 +215,7 @@ def test_group_gains_never_match_across_parts():
     assert g["edges"] == [] and all(np.allclose(x["gain"], 1.0) for x in g["groups"])
 
 
-# ----------------------------------------------------------------------------- fix 4: chart-seam reflection
-@pytest.mark.slow
-def test_reflect_seams_makes_fill_seams_continuous(ft1119_job):
-    from glasses3d.g3d import printuv as PU
-    from glasses3d.g3d_host.photoprint import seams as SM
-    from glasses3d.g3d_host.photoprint import texels as TX
-    from glasses3d.tests.instruments import print_metrics as PM
-    job = ft1119_job
-    parts = ["Brow_Left", "Brow_Right", "Temple_Left", "Temple_Right"]
-    lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, parts, 6.0)
-    tex = TX.atlas_texels(job, lay)
-    rng = np.random.default_rng(1)
-    img = np.stack([ndimage.gaussian_filter(rng.standard_normal(tex.shape), 3.0) for _ in range(3)], -1)
-    img = 100 + 600 * img                                           # independent smooth "fills" per chart
-    col = img[tex.ii, tex.jj]
-    prot = np.zeros(len(tex), bool)                                 # all fill: every seam is fill on both sides
-    out, info = SM.reflect_seams(job, lay, tex, col, prot)
-    assert info["texels_changed"] > 0
-    smp = PM.uv_seam_samples(job.mesh.V, job.mesh.F, lay.faces, lay.uv)
-    used = tex.index >= 0
-    a = PM.seam_steps(SM.pad_gutters(tex.image(np.clip(col, 0, 255), 0.0, float), used), smp)
-    b = PM.seam_steps(SM.pad_gutters(tex.image(np.clip(out, 0, 255), 0.0, float), used), smp)
-    assert b["offsets"][1]["across_p95"] < 0.5 * a["offsets"][1]["across_p95"], (a["offsets"][1], b["offsets"][1])
-    assert b["pass"]
-
-
+# ----------------------------------------------------------------------------- fix 4: thin lines, dark blobs
 def test_thin_lines_glints_and_outlines_but_not_print():
     """Fix 4 (glints on curved edges): a thin achromatic bright line is a glint, a thin amber streak and a round honey
     dot are print; a thin dark line near the silhouette is an outline, the same line in the middle of the print is

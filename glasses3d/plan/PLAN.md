@@ -120,7 +120,8 @@ Latest owner instructions take precedence. Historical handoffs are evidence only
      - Copies and sheets: `C:/Users/Shay/PycharmProjects/glasses3d-reference/junction/` (copies/q1-seated-rimsplit.glb,
        sheets/ab3-q1-vs-fixed.png).
      - Scripts: `plan/prototypes/ar_capture/` (seat_copy.py with glbmesh.py, rim_split.py, junction_geom.py,
-       band_metrics.py, wire_metric.py, run.mjs, page.js, configs).
+       band_metrics.py, wire_metric.py, run.mjs, page.js, configs). Superseded by WP1/WP3b/WP4 and deleted on
+       2026-10-13 with `plan/prototypes/projection/` (tag `review-20261013-pre-cleanup`).
 - **Rules audit:** `plan/RULES_AUDIT.md`: 41 rules constraining Astra. Apply §A, §B and §D. §C is the live site's
   current acceptance. For arview it is superseded by the owner's spec (§2) and appears only as "would fail live"
   warnings, never as instructions to Astra.

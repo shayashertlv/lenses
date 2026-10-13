@@ -47,10 +47,6 @@ export interface Config {
    *  the `?model=` handover, eyewear/external.ts; arview has no frame catalog, so there is no `?eyewear=`.) */
   hairModel: string | null;
   hair: boolean | null;
-  /** `?diag=1` posts the startup step log and, every 10 s, the last 10 s of stage medians (numbers only; never an image,
-   *  detection, mask or hash) to this site's `diagnostic` endpoint. Only the live site (UI/ar_site.py) has that
-   *  endpoint; under arview's loopback servers the post goes nowhere. Off by default; the page says so in its footer when on. */
-  diagnostics: boolean;
   /** Pose steadiness (pose-stabilizer.ts), on by default since the owner's live test of 2026-09-17: the glasses'
    *  orientation and depth are smoothed over time; `?steady=0` restores the unfiltered pose (null). `?steadyhz=` rotation
    *  cutoff at rest (0.05..20 Hz), `?steadybeta=` added Hz per °/s (0..5), `?steadydepthhz=` (0.05..20 Hz) and
@@ -66,14 +62,14 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   faceDelegates: Object.freeze(['CPU', 'GPU'] as const), captureMaxEdge: DEFAULT_CAPTURE_MAX_EDGE, captureSource: 'videoframe', hairWaitMs: HAIR_WAIT_MS, hairInputMaxEdge: DEFAULT_HAIR_INPUT_MAX_EDGE, hairDelegate: 'auto', hairStartZ: DEFAULT_HAIR_START_Z_M, sync: true, exposure: null,
-  guard: true, hairModel: null, hair: null, diagnostics: false,
+  guard: true, hairModel: null, hair: null,
   steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE,
 });
 
 /** Every address option the page reads: parseConfig's, and eyewear/external.ts's model handover. Any other key is
  *  ignored, so a misspelled lever (`?hairframe=2`) would silently run the default; the settings line names it instead. */
 export const ADDRESS_OPTIONS: readonly string[] = Object.freeze(['face', 'capture', 'source', 'hairwait', 'hairinput', 'hairdelegate', 'hairz',
-  'sync', 'exposure', 'guard', 'hairModel', 'hair', 'diag', 'steady', 'steadyhz', 'steadybeta',
+  'sync', 'exposure', 'guard', 'hairModel', 'hair', 'steady', 'steadyhz', 'steadybeta',
   'steadydepthhz', 'steadydepthbeta', 'hairframes', 'hairmove', 'hairmaxage', 'model', 'name', 'clip', 'width', 'sha256', 'lensenv', 'report']);
 
 /** The address keys this page does not read, once each, in address order (names are case-sensitive). */
@@ -130,7 +126,6 @@ export function parseConfig(search: string, userAgent = typeof navigator === 'un
     guard: flag('guard', true),
     hairModel: params.get('hairModel'),
     hair: params.has('hair') ? flag('hair', true) : null,
-    diagnostics: flag('diag', false),
     steady: flag('steady', true) ? Object.freeze({...DEFAULT_STEADY,
       rotationMinCutoffHz: number('steadyhz', DEFAULT_STEADY.rotationMinCutoffHz, 0.05, 20), rotationBeta: number('steadybeta', DEFAULT_STEADY.rotationBeta, 0, 5),
       depthMinCutoffHz: number('steadydepthhz', DEFAULT_STEADY.depthMinCutoffHz, 0.05, 20), depthBeta: number('steadydepthbeta', DEFAULT_STEADY.depthBeta, 0, 5)}) : null,
@@ -160,6 +155,5 @@ export function describeConfig(config: Config, userAgent = typeof navigator === 
       : [`hair every ${config.hairSchedule.frames} frames (${mobile ? 'phone and tablet default; ?hairframes=1 for every frame' : '?hairframes=2'})${config.hairSchedule.movePx > 0 ? `, sooner when the head moves > ${config.hairSchedule.movePx} px (?hairmove=)` : ', never sooner (?hairmove=0)'}; frames never wait, others reuse the newest mask moved with the head up to ${config.hairSchedule.maxAgeMs} ms old (?hairmaxage=)`]),
     config.steady ? `pose steadiness on: rotation ${config.steady.rotationMinCutoffHz} Hz + ${config.steady.rotationBeta} Hz per °/s (?steadyhz=, ?steadybeta=), depth ${config.steady.depthMinCutoffHz} Hz + ${config.steady.depthBeta} Hz per cm/s (?steadydepthhz=, ?steadydepthbeta=)` : 'pose steadiness OFF (?steady=0)',
     'fixed temples with hair-covered endings',
-    ...(config.diagnostics ? ['diagnostics ON (?diag=1)'] : []),
   ].join(' · ') + '.';
 }

@@ -311,9 +311,6 @@ def _bounds(center: Camera, unit_px: float, yaw_win: tuple[float, float], *, loc
             (x[6] - d["shift"], x[6] + d["shift"])]
 
 
-bounds = _bounds          # public name (WP3b); the Powell box of one stage
-
-
 def _clip_into(x: np.ndarray, bounds) -> np.ndarray:
     lo = np.array([b[0] for b in bounds])
     hi = np.array([b[1] for b in bounds])
@@ -512,9 +509,6 @@ class ViewFit:
                 rec["refined"] = [round(c2.yaw, 2), round(c2.pitch, 2), round(c2.roll, 2), round(c2.perspective, 3)]
             self.starts.append(rec)
 
-    def best_coarse(self) -> tuple[float, Camera, str]:
-        return min(self.coarse, key=lambda t: (t[0], t[2]))
-
     def refine(self) -> dict:
         """Fit level from the best distinct coarse winners, then the final level from the best."""
         order = sorted(self.coarse, key=lambda t: (t[0], t[2]))
@@ -624,16 +618,6 @@ def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
             else [s * y for s in (1.0, -1.0) for y in ANGLED_YAWS])
     pitches = TOP_OBLIQUE_PITCHES if view.startswith("top_oblique") else PITCHES
     return [(y, p, 0.0, "prior") for y in yaws for p in pitches]
-
-
-def prior_seeds_near(view: str, yaw: float, pitch: float, n: int) -> list[tuple[float, float, float, str]]:
-    """The ``n`` prior seeds nearest (yaw, pitch), yaw difference wrapped to +/-180 (ties keep the prior order). A warm
-    start used ``prior_seeds(view)[:n]``, the first two yaw offsets only (front -12/-8, back 168/172): the prior yaw
-    itself was never seeded again once a revision had a camera."""
-    seeds = prior_seeds(view)
-    d = [math.hypot((s[0] - yaw + 180.0) % 360.0 - 180.0, s[1] - pitch) for s in seeds]
-    order = sorted(range(len(seeds)), key=lambda i: (d[i], i))
-    return [seeds[i] for i in order[:n]]
 
 
 def cross_seeds(target: str, winners: dict[str, Camera]) -> list[tuple[float, float, float, str]]:

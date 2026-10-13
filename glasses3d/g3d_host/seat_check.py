@@ -42,7 +42,7 @@ from pathlib import Path
 import numpy as np
 
 from glasses3d.g3d.seat import check as CK
-from glasses3d.g3d.seat import rules, stations
+from glasses3d.g3d.seat import rules
 from glasses3d.g3d.seat.intervals import FAR_MM, NumpyBackend
 from glasses3d.g3d_host import lens_id
 from glasses3d.g3d_host.glb import Glb, load
@@ -143,9 +143,6 @@ def world_normals(normals: np.ndarray, world: np.ndarray) -> np.ndarray:
     return n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-30)
 
 
-TRIANGLE_MODES = CK.TRIANGLE_MODES
-
-
 def read_nodes(g: Glb) -> tuple[list[dict], list[str], list[dict]]:
     """Per mesh node: name, world mm positions, triangles, world normals (or None), roles, lens flag, materials.
     Also every SKIPPED primitive (compressed, undecodable, or no triangles) with its lens decision, role, mode and
@@ -195,22 +192,13 @@ def read_nodes(g: Glb) -> tuple[list[dict], list[str], list[dict]]:
 
 
 # ------------------------------------------------------------------------------------- shared core (g3d/seat/check)
-RIM_BOX_PAD_MM = CK.RIM_BOX_PAD_MM
-RIDER_SURFACE_MM, RIDER_SHARE, RIDER_SAMPLES = CK.RIDER_SURFACE_MM, CK.RIDER_SHARE, CK.RIDER_SAMPLES
-EXPOSED_INFER_SHARE = CK.EXPOSED_INFER_SHARE
 MARKING_MAX_MM = CK.MARKING_MAX_MM
-rim_split = CK.rim_split
 infer_frame_type = CK.infer_frame_type
-rim_box = CK.rim_box
 parts_near = CK.parts_near
 
 
 def factory(kind: str):
     return lambda parts: make_backend(kind, parts)
-
-
-def rider_of(comp: stations.Component, bodies: list, backend_kind: str, cache: dict | None = None) -> int:
-    return CK.rider_of(comp, bodies, factory(backend_kind), cache)
 
 
 def collect(g: Glb, backend_kind: str = "open3d") -> dict:

@@ -45,7 +45,7 @@ Correction round (2026-10-06): the bake may divide the photos' own shading out (
 report.json as SH coefficients) and map the composed print to the AR level calibrated to the photos (``level``,
 declared gain and gamma). ``readback_a3`` re-applies both, written again here (the 9-term SH basis over the texel's
 face normal in the view's camera frame, the declared normalisation and clip; the level map on the rounded photo
-colour, ``reapply_level``, whose chroma factor is the proofs' one copy ``correction_proof._chroma_f``: fix round 3 of
+colour, ``reapply_level``, whose chroma factor is the proofs' one copy ``_chroma_f``: fix round 3 of
 step 6 removed a third, inline copy). B3 grades the held-out bake as PHOTO RADIANCE: the atlas before the level (``atlas_radiance``; the 10bf932
 bake had no level, so this is its protocol). Fix round 1 of the correction round: the verdict is the 10bf932
 protocol (the held-out render and Astra's as rendered, no re-lighting); when the bake flattened, the correction
@@ -179,13 +179,29 @@ def _gain(rgb: np.ndarray, g) -> np.ndarray:
     return np.clip(T.linear_to_srgb(T.srgb_to_linear(rgb) * g[None]), 0, 255)
 
 
+def _chroma_f(srgb: np.ndarray, sat: float, power: float, hold: bool, band) -> np.ndarray:
+    """The level's per-colour chroma factor, written here from shading's documentation (not imported): g = sat x
+    (max(C*ab, 1) / 10)^(power - 1), capped at 4; fix round 2 of step 6: ``hold`` g = max(g, 1); ``band`` [lo, hi]
+    degrees: f = 1 + w (g - 1), w = 1 inside the hue band, falling linearly to 0 at 15 deg outside it."""
+    lab = T.lab_of(srgb)
+    g = np.minimum(sat * (np.maximum(np.hypot(lab[..., 1], lab[..., 2]), 1.0) / 10.0) ** (power - 1.0), 4.0)
+    if hold:
+        g = np.maximum(g, 1.0)
+    if band is not None:
+        h = np.degrees(np.arctan2(lab[..., 2], lab[..., 1])) % 360.0
+        lo, hi = float(band[0]), float(band[1])
+        d = np.where((h >= lo) & (h <= hi), 0.0, np.minimum((lo - h) % 360.0, (h - hi) % 360.0))
+        g = 1.0 + np.clip(1.0 - d / 15.0, 0.0, 1.0) * (g - 1.0)
+    return g
+
+
 def reapply_level(e: np.ndarray, level: dict) -> np.ndarray:
     """A3's re-application of the declared AR level (correction round) to the expected colours ``e`` (float sRGB,
     (n, 3)), on the ROUNDED colour as the bake applies it: linear rgb x gain x Y^(gamma - 1), and (step 6) the
-    chroma factor about grey at Y. The factor is the proofs' own copy, ``correction_proof._chroma_f`` (written from
-    shading's documentation, never imported from the tool, and tested against ``shading.chroma_factor``); fix round 3
-    of step 6: this function replaced a third, inline and untested copy of that formula inside ``readback_a3``."""
-    from glasses3d.tests.photoprint.correction_proof import _chroma_f
+    chroma factor about grey at Y. The factor is the proofs' own copy, ``_chroma_f`` (written from shading's
+    documentation, never imported from the tool, and tested against ``shading.chroma_factor``; moved here unchanged
+    from the deleted correction_proof.py on 2026-10-13); fix round 3 of step 6: this function replaced a third, inline
+    and untested copy of that formula inside ``readback_a3``."""
     er = np.rint(np.asarray(e, np.float64))
     lin = T.srgb_to_linear(er)
     Y = np.maximum(lin @ np.array([0.2126, 0.7152, 0.0722]), 1e-4)
@@ -460,7 +476,7 @@ def seams(job, res: dict, out_dir=None) -> dict:
     else:
         img = res["atlas"].astype(np.float64)
         source = "in-memory atlas"
-    graded, inside, band = a5_offsets(res)
+    graded, inside, band = a5_offsets()
     row, _bar = texel_faces(lay, (lay.height, lay.width))
     chart_img = np.where(row >= 0, np.asarray(lay.chart)[np.maximum(row, 0)], -1)
     smp = PM.uv_seam_samples(job.mesh.V, job.mesh.F, lay.faces, lay.uv, offsets=(0,) + inside + graded,
@@ -481,30 +497,21 @@ def seams(job, res: dict, out_dir=None) -> dict:
         "The unchanged off-seam criterion and Poisson adoption are recorded in PROGRESS.md.")
     if out_dir is not None and (Path(out_dir) / "classes.png").is_file():
         out["breakdown"] = seam_breakdown(img, smp, Path(out_dir), offsets=tuple(inside[:2]) + tuple(graded))
-    pre = tex.image(np.clip(np.asarray(res["colours_pre_harmonise"], float), 0, 255), 0.0, float)
-    pre = T.nearest_fill(pre, tex.index >= 0)[0]          # gutters as the final atlas has them (nearest texel)
-    out["diagnostic_pre_harmonise"] = PM.seam_steps(pre, {0: smp[0]})["offsets"][0]
     pairs = res["pairs"]
     if len(pairs):
-        c = np.asarray(res["colours_pre_harmonise"], float)
-        out["diagnostic_tool_pairs_pre_harmonise"] = PM.seam_continuity(c[pairs[:, 0]], c[pairs[:, 1]])
         fin = res["atlas"].astype(float)
         out["diagnostic_tool_pairs_final_by_construction"] = PM.seam_continuity(
             fin[tex.ii[pairs[:, 0]], tex.jj[pairs[:, 0]]], fin[tex.ii[pairs[:, 1]], tex.jj[pairs[:, 1]]])
     return out
 
 
-def a5_offsets(res: dict) -> tuple[tuple, tuple, float]:
-    """Preserve frozen A5 offsets 7/8 when reflection is removed, extending past any wider reported band.
-
-    The third return value is the actual reflection depth, not the historical
-    sampling floor. Offsets 1/2/4/6 remain diagnostics with or without reflection.
-    """
-    info = ((res.get("report") or {}).get("chart_seam_reflection") or {})
-    band = float(info.get("band_texels", 6.0))
-    b = max(6, int(np.ceil(band)))
+def a5_offsets() -> tuple[tuple, tuple, float]:
+    """The frozen A5 offsets 7/8 (past the historical 6-texel chart-seam reflection band) and the inside-band
+    diagnostics 1/2/4/6. The third return value is the tool's reflection depth: 0, since Poisson replaced reflection
+    (6b510ea); the bake's always-zero ``chart_seam_reflection`` report stub was deleted on 2026-10-13."""
+    b = 6
     inside = tuple(k for k in A5_INSIDE_BAND_TX if k <= b)
-    return (b + 1, b + 2), inside, band
+    return (b + 1, b + 2), inside, 0.0
 
 
 def seam_breakdown(img: np.ndarray, smp: dict, out_dir: Path, offsets=(1, 2)) -> dict:

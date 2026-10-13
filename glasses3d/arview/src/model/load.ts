@@ -63,7 +63,7 @@ export interface GltfDecoders {
 export const BASISU_EXTENSION = 'KHR_texture_basisu';
 
 /** Takes the place of three's KHR_texture_basisu plugin when there is no WebGLRenderer to transcode with (the
- *  renderer-less loads: checkModel, the QA temple-cutoff loader, unit tests). It has
+ *  renderer-less loads: checkModel, unit tests). It has
  *  the built-in's name, so GLTFLoader keeps it at the built-in's position, ahead of every other plugin. Three's own
  *  throws "setKTX2Loader must be called" for a REQUIRED extension, which would refuse a valid file; this one leaves the
  *  texture null instead (its material draws without it) and loadModel reports it as a 'textures' fallback. An optional

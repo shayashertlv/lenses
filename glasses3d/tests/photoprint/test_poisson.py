@@ -82,7 +82,7 @@ def test_solver_failure_is_not_silently_accepted(monkeypatch):
         PO.stitch(surface(), np.full((8, 3), 100.), np.zeros(8, bool), [[3, 4]])
 
 
-@pytest.mark.parametrize('band,graded', [(0, (7,8)), (6, (7,8)), (8, (9,10))])
-def test_a5_never_moves_inside_frozen_sampling_floor(band, graded):
-    got, diagnostic, actual = PP.a5_offsets({'report':{'chart_seam_reflection':{'band_texels':band}}})
-    assert got == graded and diagnostic == (1,2,4,6) and actual == band
+def test_a5_never_moves_inside_frozen_sampling_floor():
+    # the bake's reflection-band report stub (always 0) was deleted on 2026-10-13; the frozen offsets stay 7/8
+    got, diagnostic, actual = PP.a5_offsets()
+    assert got == (7,8) and diagnostic == (1,2,4,6) and actual == 0.0

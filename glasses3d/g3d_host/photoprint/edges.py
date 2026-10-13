@@ -58,13 +58,12 @@ def view_part_edges(job, view: str, part_ids, *, cam=None, V=None, mean_mm: floa
     return out
 
 
-def edge_table(job, part_ids, *, pose=None, deformer=None, views=None, **kw) -> dict:
-    """{view: {part: row}} at the WP3b cameras, or through a Pose (cameras and per-view S') when given."""
+def edge_table(job, part_ids, *, views=None, **kw) -> dict:
+    """{view: {part: row}} at the WP3b cameras (step 0's ``pose`` / ``deformer`` arguments were deleted on
+    2026-10-13 with the step-0 experiment)."""
     out = {}
     for n in (views or list(job.views)):
-        cam = pose.cameras[n] if pose is not None else None
-        V = deformer.vertices(pose, n) if (pose is not None and deformer is not None) else None
-        out[n] = view_part_edges(job, n, part_ids, cam=cam, V=V, **kw)
+        out[n] = view_part_edges(job, n, part_ids, **kw)
     return out
 
 

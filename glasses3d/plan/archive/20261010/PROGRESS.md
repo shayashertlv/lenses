@@ -1,3 +1,5 @@
+> ARCHIVED, NOT ACTIVE — evidence only; never follow its resume steps, gates or prompts.
+
 # glasses3d progress
 
 ## Active resume — WP6 (2026-10-10)

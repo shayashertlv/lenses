@@ -1,6 +1,7 @@
 """Steps 4 and 7 on synthetic inputs: the label MRF (alpha-expansion = brute force on a tiny graph; a crease attracts
-the boundary), the A3 compose guarantee, PatchMatch's checks and its global-mask pitfall, seam harmonisation, and the
-D6 / refusal rules of ``project_photo_texture`` that need no bake."""
+the boundary), the A3 compose guarantee, PatchMatch's checks and its global-mask pitfall, and the D6 / refusal rules
+of ``project_photo_texture`` that need no bake. The seam harmonisation tests were deleted on 2026-10-13 with
+``seams.harmonise``."""
 import itertools
 
 import numpy as np
@@ -110,64 +111,6 @@ def test_a_global_mask_containing_the_hole_is_refused():
     assert r["hole_changed"] > 0 and r["donor_px"] == int((~hole).sum())
 
 
-def test_harmonise_copies_photo_to_edited_and_feathers():
-    from glasses3d.g3d_host.photoprint import seams as SM
-
-    class _Tex:
-        shape = (1, 10)
-        ii = np.zeros(10, np.int64)
-        jj = np.arange(10)
-        chart = np.r_[np.zeros(5, np.int64), np.ones(5, np.int64)]
-        index = np.arange(10)[None]
-
-        def image(self, v, fill=0, dtype=None):
-            v = np.asarray(v)
-            out = np.full((1, 10) + v.shape[1:], fill, dtype=dtype or v.dtype)
-            out[0] = v
-            return out
-
-    col = np.tile([[60.0, 40.0, 30.0]], (10, 1))
-    col[5:] = [[150.0, 100.0, 60.0]]
-    photo = np.r_[np.ones(5, bool), np.zeros(5, bool)]
-    pairs = np.array([[4, 5]])
-    out, unprot, info = SM.harmonise(_Tex(), col, photo, pairs)
-    assert np.allclose(out[5], col[4]) and np.allclose(out[:5], col[:5]) and not unprot.any()
-    assert info["photo_to_edited"] == 1 and info["texels_set"] == 1
-
-
-def test_harmonise_never_averages_two_photos_and_resolves_conflicts():
-    """Fix round 1: a photo-photo disagreement keeps the higher-ranked side (the region anchor's) instead of the
-    mean; a texel in several pairs takes the mean of its highest-priority proposals, independent of pair order."""
-    from glasses3d.g3d_host.photoprint import seams as SM
-
-    class _Tex:
-        shape = (1, 6)
-        ii = np.zeros(6, np.int64)
-        jj = np.arange(6)
-        chart = np.array([0, 0, 1, 1, 2, 2])
-        index = np.arange(6)[None]
-
-        def image(self, v, fill=0, dtype=None):
-            v = np.asarray(v)
-            out = np.full((1, 6) + v.shape[1:], fill, dtype=dtype or v.dtype)
-            out[0] = v
-            return out
-
-    col = np.array([[60.0, 40, 30], [60, 40, 30], [200, 120, 50], [200, 120, 50], [90, 90, 90], [10, 10, 10]])
-    photo = np.array([True, True, True, True, False, False])
-    rank = np.array([2.5, 2.5, 1.2, 1.2, 0, 0])                 # texels 0-1 painted by their anchor, 2-3 not
-    pairs = np.array([[1, 2], [3, 4], [1, 4], [5, 4]])
-    out, unprot, info = SM.harmonise(_Tex(), col, photo, pairs, rank=rank)
-    assert np.allclose(out[2], col[1]) and unprot[2] and not unprot[1]        # the anchor side kept, no mean
-    assert np.allclose(out[1], col[1])
-    # texel 4 (edited) is a loser in pairs (3,4) and (1,4) -> mean of the two photo colours it was offered; the
-    # edited-edited mean of (5,4) has lower priority and is ignored for it
-    assert np.allclose(out[4], (col[3] + col[1]) / 2)
-    assert info["photo_photo_copied"] == 1 and info["texels_with_several_proposals"] >= 1
-    out2, unprot2, _ = SM.harmonise(_Tex(), col, photo, pairs[::-1].copy(), rank=rank)
-    assert np.array_equal(out, out2) and np.array_equal(unprot, unprot2)       # pair order does not matter
-
-
 def test_refraction_into_acetate_obeys_snell():
     n = np.array([[0.0, 0.0, 1.0]])
     to_cam = np.array([np.sin(np.radians(40)), 0.0, np.cos(np.radians(40))])
@@ -231,31 +174,3 @@ def test_crease_mode_never_hands_a_face_to_a_blind_view_nor_a_non_adjacent_ancho
     assert not np.any(lab[x < 4] == 2), lab                          # region 0 never takes the non-adjacent anchor
     assert not np.any(lab[x == 7] == 1), lab                          # nor a view that does not see the face
     assert out["moved_to_unseen_faces"] == 0
-
-
-def test_harmonise_with_sources_never_averages_two_views():
-    """Fix round 2: an edited texel offered copies by winners of two DIFFERENT views keeps the higher-ranked
-    winner's view only; the same offers from one view are still averaged."""
-    from glasses3d.g3d_host.photoprint import seams as SM
-
-    class _Tex:
-        shape = (1, 6)
-        ii = np.zeros(6, np.int64)
-        jj = np.arange(6)
-        chart = np.array([0, 0, 1, 1, 2, 2])
-        index = np.arange(6)[None]
-
-        def image(self, v, fill=0, dtype=None):
-            v = np.asarray(v)
-            out = np.full((1, 6) + v.shape[1:], fill, dtype=dtype or v.dtype)
-            out[0] = v
-            return out
-
-    col = np.array([[60.0, 40, 30], [60, 40, 30], [200, 120, 50], [200, 120, 50], [90, 90, 90], [10, 10, 10]])
-    photo = np.array([True, True, True, True, False, False])
-    rank = np.array([2.5, 2.5, 1.2, 1.2, 0, 0])
-    pairs = np.array([[3, 4], [1, 4]])
-    out, _u, info = SM.harmonise(_Tex(), col, photo, pairs, rank=rank, source=np.array([0, 0, 1, 1, -1, -1]))
-    assert np.allclose(out[4], col[1]) and info["multi_view_means"] == 0 and info["multi_view_proposals_resolved"] == 1
-    out2, _u, info2 = SM.harmonise(_Tex(), col, photo, pairs, rank=rank, source=np.array([0, 0, 0, 0, -1, -1]))
-    assert np.allclose(out2[4], (col[1] + col[3]) / 2) and info2["multi_view_means"] == 0

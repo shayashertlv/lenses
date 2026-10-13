@@ -47,7 +47,8 @@ Method (written down here and in PORT_REVIEW section 10):
    delivered, and ``near_18deg``), each with its residuals at every pair of every role, its worst per role and a
    label for the owner sheet. Unless ``--no-candidate-portraits``, each candidate's GLB is captured again WITH the
    worn portrait (``sheet_capture``; its graded numbers must equal the calibration capture's, checked) so the owner
-   compares the levels in the worn view too (``tooltest_owner_sheet --calibration``).
+   compares the levels in the worn view too (``tooltest_owner_sheet --calibration``; that sheet script was deleted on
+   2026-10-13, see git tag review-20261013-pre-cleanup).
 7. **Contrast and chroma (step 6, 2026-10-07).** The task: calibrate contrast and chroma against the photos at
    their own angles, not only the level. (a) Contrast: the ``photo_angles`` target is the role ``appearance``: the
    calibration pairs' L* p10 / p50 residuals AND, per pair, the contrast term 2 x ln(std ratio) / ln(1.18) (the L*

@@ -11,7 +11,6 @@
  *  the face and head depth occluders stay (an occluded part is not drawn). Their temples are cut at the renderer's
  *  current clip planes (a hard cut where the beauty render fades over the last 5 mm). */
 import {Color, DoubleSide, Material, MeshBasicMaterial, MeshNormalMaterial, SRGBColorSpace} from 'three';
-import type {Mesh} from 'three';
 
 export const RENDER_OVERRIDES = Object.freeze(['part-id', 'lens-mask', 'lens-hidden', 'lens-only', 'normals'] as const);
 export type RenderOverride = typeof RENDER_OVERRIDES[number];
@@ -117,6 +116,3 @@ export function flatOverrideMaterial(override: RenderOverride, rgb: readonly [nu
     side: DoubleSide, toneMapped: false});
   return withClip(material, uniforms, clip, side);
 }
-
-/** The meshes' current materials, to restore after an override. */
-export function saveMaterials(meshes: readonly Mesh[]): Map<Mesh, Mesh['material']> {return new Map(meshes.map(mesh => [mesh, mesh.material]));}

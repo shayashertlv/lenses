@@ -1,16 +1,11 @@
-"""WP5 build step 3 $0 proof on FT1119, host side (WP5_DESIGN §8 A1-A5, A7, B3), single-source mode.
+"""WP5 build step 3 $0 proof on FT1119, host side (WP5_DESIGN §8 A1-A5, A7, B3), single-source mode: the helpers
+``bake_ft1119.py`` imports (``TH``, ``STEP0``, ``overview``, ``stop_b``, ``DECISIONS``, ``audit``, ``_a2_job``).
 
-    glasses3d/.venv/Scripts/python -B -m glasses3d.tests.photoprint.print_proof [--out DIR] [--tx 16] [--workers N]
-        [--skip-b3] [--skip-a7]        (--workers: default os.cpu_count() - 2)
-
-Writes DIR/<geom_sha8>/ (default DIR = data/wp5/ft1119_print): the production bake (print.png, classes.png,
-source.png, tier.png, layout.json, registration.json, report.json), ``proof.json`` (A1 from the layout, A2 per view,
-A3 read back from print.png against independently sampled photo colours (the bake's own A3 beside it), A4 per part,
-A5 off the seam, A7 serial-vs-pool sha256, B3 held-out rows per view and region, the single-source audit, and the
-**STOP B verdict** of WP5_DESIGN §9) and ``sheets/overview.png`` (photo | render of the bake at each photo, then
-AR-like novel views on S). Every A2/A3/A4/A5/B3 number is the independent instrument's
-(tests/instruments/print_metrics.py, via tests/photoprint/printproof.py). A line is printed at least every 30 s
-(``Progress.heartbeat`` over the whole run; the A7 serial bake prints too).
+The step-3 driver itself (``main``, which wrote DIR/<geom_sha8>/ with ``proof.json`` and ``sheets/overview.png``; its
+evidence is data/wp5/ft1119_print/43aea1bb) was superseded by ``bake_ft1119.py`` and deleted on 2026-10-13; see git
+tag review-20261013-pre-cleanup. ``overview`` draws photo | render of the bake at each photo, then AR-like novel views
+on S. Every A2/A3/A4/A5/B3 number is the independent instrument's (tests/instruments/print_metrics.py, via
+tests/photoprint/printproof.py).
 
 STOP B (§9) fires if the full bake loses a C1-C4 margin on a region that passed A (none passed A on FT1119), or if
 A1-A6 or B3 fails; A6 and B5 are not built by this workflow (Blender side), so they count as not passed. When it fires,
@@ -23,11 +18,7 @@ this build rests on that PROGRESS.md does not record yet (this workflow may not 
 """
 from __future__ import annotations
 
-import argparse
-import hashlib
 import json
-import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -36,30 +27,14 @@ from PIL import Image
 from glasses3d.g3d_host import raster
 from glasses3d.g3d_host import texture_utils as T
 from glasses3d.g3d_host.photoprint import inputs as IN
-from glasses3d.g3d_host.photoprint import project as PR
 from glasses3d.g3d_host.photoprint.compose import render_bake
-from glasses3d.g3d_host.photoprint.procs import Progress, opt_out_ecoqos, pool_map
-from glasses3d.g3d_host.photoprint.report import jsonable, write_json
+from glasses3d.g3d_host.photoprint.procs import opt_out_ecoqos
 from glasses3d.tests.photoprint import printproof as PP
 
-OUT = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_print"
 STEP0 = IN.REPO / "glasses3d" / "data" / "wp5" / "ft1119_strip_null" / "report.json"     # the current step 0 run
 A0_JSON = IN.REPO / "glasses3d" / "data" / "wp5" / "a0" / "a0.json"
 from glasses3d.g3d_host.photoprint.production import THRESHOLDS
 TH = dict(THRESHOLDS)
-
-
-def geom_sha8(job) -> str:
-    h = hashlib.sha256()
-    h.update(np.ascontiguousarray(job.mesh.V).tobytes())
-    h.update(np.ascontiguousarray(job.mesh.F).tobytes())
-    return h.hexdigest()[:8]
-
-
-def _b3_job(view, tx, radii):
-    opt_out_ecoqos()
-    job = IN.load_job(IN.FT1119["cameras"])
-    return PP.heldout_b3(job, IN.FT1119_PARTS, view, radii_mm=radii, tx=tx)
 
 
 def _a2_job(view, tx):
@@ -197,94 +172,3 @@ def audit(res: dict) -> dict:
             {"region": r["region"], "view": r["view"], "painted_texels": (st.get(r["region"], {}).get("painted_by") or
                                                                           {}).get(r["view"], 0)} for r in kl]
     return out
-
-
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(OUT))
-    ap.add_argument("--tx", type=float, default=None, help="texels per mm (default: 2 x the donors' max px/mm)")
-    ap.add_argument("--workers", type=int, default=None,
-                    help="process pool size for the bake, A2 and B3 (default os.cpu_count() - 2, never more than the jobs)")
-    ap.add_argument("--skip-b3", action="store_true")
-    ap.add_argument("--skip-a7", action="store_true")
-    ap.add_argument("--step0", default=str(STEP0),
-                    help="step 0 report.json (its 'registered' regions are mixed in tier 1; statuses reported; its "
-                         "sha256 is recorded in report.json)")
-    a = ap.parse_args(argv)
-    opt_out_ecoqos()
-    prog = Progress("print_proof")
-    with prog.heartbeat():
-        return _main(a, prog)
-
-
-def _main(a, prog) -> int:
-    t0 = time.perf_counter()
-    job = IN.load_job(IN.FT1119["cameras"])
-    root = Path(a.out) / geom_sha8(job)
-    prog(f"production bake -> {root}", force=True)
-    step0 = a.step0 if a.step0 and Path(a.step0).is_file() else None
-    res = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=root, tx_per_mm=a.tx, workers=a.workers,
-                                   step0_report=step0, **TH)
-    tx = float(res["layout"].tx_per_mm)
-    proof = {"out": str(root), "tx_per_mm": tx, "step0_report": res["report"]["inputs"]["step0_report"],
-             "atlas": [res["layout"].width, res["layout"].height], "mode": res["report"]["mode"],
-             "texture_parts": res["report"]["texture_parts"], "below_min_cover": res["report"]["below_min_cover"],
-             "A1": res["report"]["checks"]["A1"],
-             "A3_tool_own": {k: v for k, v in res["report"]["checks"]["A3"].items() if k != "calls"}
-             | {"calls": len(res["report"]["checks"]["A3"]["calls"]),
-                "note": "the tool's own check (protected == P0) is true by construction; A3 is A3_readback"}}
-    proof["decisions"] = DECISIONS
-    proof["audit"] = audit(res)
-    proof["audit_outputs"] = PP.audit_outputs(job, res, root)
-    prog(f"audit: non-anchor photo share {proof['audit']['non_anchor_photo_share']:.4f} (adjacent anchors), foreign "
-         f"views {proof['audit']['foreign_view_photo_texels']}; from the outputs: outside own/adjacent anchor "
-         f"{proof['audit_outputs']['outside_own_or_adjacent_anchor']}, faces with two views "
-         f"{proof['audit_outputs']['faces_with_two_views']}", force=True)
-    proof["A3_readback"] = PP.readback_a3(job, res, root)
-    prog(f"A3 read back {proof['A3_readback']}", force=True)
-    proof["A5"] = PP.seams(job, res, root)
-    prog(f"A5 {json.dumps(proof['A5']['offsets'])} pass {proof['A5']['pass']}", force=True)
-    proof["A4"] = {p: PP.knockout(res, p) for p in IN.FT1119_PARTS}
-    prog("A4 " + json.dumps({p: r["a4"].get("pass") for p, r in proof["A4"].items()}), force=True)
-    proof["sheet"] = overview(job, res, root / "sheets" / "overview.png")
-    views = sorted(job.views)
-    proof["A2"] = dict(zip(views, pool_map(_a2_job, [(v, tx) for v in views], a.workers)))
-    prog("A2 " + json.dumps({v[-6:-4]: r["pass"] for v, r in proof["A2"].items()}), force=True)
-    if not a.skip_a7:
-        prog("A7: serial bake (workers=1; progress lines from the bake)", force=True)
-        r2 = PR.project_photo_texture(job, IN.FT1119_PARTS, out_dir=root / "a7_serial", tx_per_mm=tx, workers=1,
-                                      radii_mm=None, log=print, step0_report=step0, **TH)
-        names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")
-        sha = {n: (hashlib.sha256((root / n).read_bytes()).hexdigest(),
-                   hashlib.sha256((root / "a7_serial" / n).read_bytes()).hexdigest()) for n in names}
-        proof["A7"] = {"files": {n: {"pool": x, "serial": y, "equal": x == y} for n, (x, y) in sha.items()},
-                       "pass": all(x == y for x, y in sha.values())}
-        del r2
-        prog(f"A7 {proof['A7']['pass']}", force=True)
-    if not a.skip_b3:
-        rows = pool_map(_b3_job, [(v, tx, res["radii"]) for v in views], a.workers)
-        proof["B3"] = {r["held_out"]: r["rows"] for r in rows}
-        elig = [x for r in rows for x in r["rows"] if x["eligible"]]
-        proof["B3_summary"] = {"eligible_rows": len(elig), "passing": sum(1 for x in elig if x["pass"]),
-                               "rows": [{"held_out": x["held_out"], "region": x["region"], "pixels": x["pixels"],
-                                         "projected_share": x["projected_share"], "criteria": x["criteria"],
-                                         "spectrum_error": x["projection"]["spectrum_error"],
-                                         "corr_len_ratio": x["projection"]["corr_len_ratio"],
-                                         "decile_de00_raw": x["projection"]["decile_de00_raw"],
-                                         "astra_decile_de00_raw": x["astra"]["decile_de00_raw"],
-                                         "energy_0.4_1.6mm": x["projection"]["energy_0.4_1.6mm"],
-                                         "energy_1_4px": x["projection"]["energy_1_4px"]} for x in elig]}
-        prog(f"B3 {proof['B3_summary']['passing']} / {proof['B3_summary']['eligible_rows']} eligible rows pass",
-             force=True)
-    proof["STOP_B"] = stop_b(proof)
-    prog(("STOP B FIRED: " + " | ".join(proof["STOP_B"]["reasons"])) if proof["STOP_B"]["fired"] else "STOP B not fired",
-         force=True)
-    proof["seconds"] = round(time.perf_counter() - t0, 1)
-    write_json(root / "proof.json", jsonable(proof))
-    print(json.dumps({k: proof[k] for k in ("out", "tx_per_mm", "atlas")} | {"STOP_B_fired": proof["STOP_B"]["fired"]}),
-          flush=True)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

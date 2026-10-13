@@ -85,8 +85,9 @@ from .export_glb import ORIGIN_KEY, SURFACE_TYPES, render_status, render_view_la
 RIG = "photo_v1"
 RIG_SPEC = {"world_color": 0.8, "world_strength": 0.5, "key_irradiance": 2.0, "fill_irradiance": 0.8,
             "key_dir": (-0.45, 0.65, 0.95), "fill_dir": (0.85, 0.25, 0.55), "distance_radii": 4.0, "size_radii": 2.0}
-# WP6_FACETS §3.2, frozen 2026-10-10 by the T2 rig check (tests/proofs/wp6v2_rig_check.py; every value tried is in
-# data/wp6v2/t2/trials.jsonl). ramp = (elevation deg, world radiance) knots along the up axis, linear between knots.
+# WP6_FACETS §3.2, frozen 2026-10-10 by the T2 rig check (its script was deleted 2026-10-13, see git tag
+# review-20261013-pre-cleanup; every value tried is in data/wp6v2/t2/trials.jsonl). ramp = (elevation deg, world
+# radiance) knots along the up axis, linear between knots.
 # The design's ramp (floor 0.45, flat dark band 0.12 over -5..+10 deg, 1.0 at 60 deg) failed the gloss_black target
 # (0.0 L8): the side cameras look down ~14 deg, so the facets around a +1 mm node (tilted up a few degrees) mirror
 # the sky just above the horizon, inside that flat band. The frozen ramp keeps floor 0.45 and a dark point but moves

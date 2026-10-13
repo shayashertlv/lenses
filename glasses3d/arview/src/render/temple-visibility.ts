@@ -48,8 +48,7 @@ export interface TempleVisibilityConfiguration {
    * unaffected; this applies only while Three renders its internal transmission input. */
   readonly excludeArmsFromLensInput?: boolean;
   /** Whether Three's internal transmission pre-pass is lens input (default true). Only a legacy transmissive lens samples
-   * it; canonical lenses read the explicit input (`withLensInput`), and the pre-pass then feeds translucent frame
-   * materials only, which must see the opaque hardware inside them. The explicit input always excludes the arms. */
+   * it; otherwise the pre-pass feeds translucent frame materials only, which must see the opaque hardware inside them. */
   readonly internalTransmissionIsLensInput?: boolean;
   /** Current observed cheek eligibility. A separate observed depth pass decides actual occlusion. */
   readonly cheekContact?: TempleCheekContact | null;
@@ -312,11 +311,11 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   };
   const overlays: Mesh[] = [], materials = new Map<Material, Material>();
   const entryTargets = new WeakMap<Object3D, WebGLRenderTarget | null>();
-  let explicitLensInput = false, internalLensInput = true;
+  let internalLensInput = true;
   const originalRenderHooks = new Map<Mesh, {before: Mesh['onBeforeRender']; wrapper: Mesh['onBeforeRender']}>();
   const markLensInput = (backend: WebGLRenderer, renderCamera: Object3D): void => {
-    frontalUniforms.templeInternalLensInput.value = Number(backend === renderer && (explicitLensInput
-      || (internalLensInput && entryTargets.has(renderCamera) && backend.getRenderTarget() !== entryTargets.get(renderCamera))));
+    frontalUniforms.templeInternalLensInput.value = Number(backend === renderer
+      && internalLensInput && entryTargets.has(renderCamera) && backend.getRenderTarget() !== entryTargets.get(renderCamera));
   };
   const restoreRenderHooks = (): void => {
     for (const [mesh, saved] of originalRenderHooks) if (mesh.onBeforeRender === saved.wrapper) mesh.onBeforeRender = saved.before;
@@ -418,7 +417,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
         pendingColorWrites.set(material, material.colorWrite);
         // Scene.onBeforeRender identifies the caller's actual output target.
         // Three's internal transmission target is entered without that callback.
-        material.colorWrite = material.colorWrite && !explicitLensInput && entryTargets.has(renderCamera)
+        material.colorWrite = material.colorWrite && entryTargets.has(renderCamera)
           && backend.getRenderTarget() === entryTargets.get(renderCamera);
       };
       overlay.onAfterRender = () => restoreColorWrites();
@@ -440,12 +439,6 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
   };
   scene.onBeforeRender = sceneBeforeRender;
   return {
-    /** Apply the same inner-arm exclusions to the owned canonical opaque input. */
-    withLensInput<T>(draw: () => T): T {
-      const previous = explicitLensInput;
-      explicitLensInput = true;
-      try {return draw();} finally {explicitLensInput = previous; restoreColorWrites();}
-    },
     /** The translucent look-through image (translucent-look-through.ts): overlays draw at full relief up to the drop
      *  distance and not beyond. A translucent overlay applies the relief coverage itself when it samples the image, so
      *  hardware relieved inside it is attenuated once, as it is without the crystal, not twice. */

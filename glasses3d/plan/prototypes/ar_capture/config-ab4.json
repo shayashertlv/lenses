@@ -1,7 +1,0 @@
-{"output":"../../../data/reference/ar_capture/ab4","width":1280,"height":854,"backgrounds":["skin"],
- "cases":[{"id":"q1","path":"C:/Users/Shay/PycharmProjects/lenses/automation/data/blender_agent/studio/jobs/3b8a1c7ae8114868b49b298b681f1b29/original/model.glb","width_mm":141.91},
-          {"id":"q1rimsplit","path":"C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/reference/junction/copies/q1-rimsplit.glb","width_mm":141.91},
-          {"id":"q1seated","path":"C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/reference/junction/copies/q1-seated.glb","width_mm":141.91},
-          {"id":"q1seatedrimsplit","path":"C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/reference/junction/copies/q1-seated-rimsplit.glb","width_mm":141.91}],
- "views":[{"id":"front"},{"id":"above20","pitch":20},{"id":"below20","pitch":-20},{"id":"below30","pitch":-30},{"id":"yawL35","yaw":-35},{"id":"yawR35","yaw":35},{"id":"yawR30below15","yaw":30,"pitch":-15},{"id":"yawL25above15","yaw":-25,"pitch":15}],
- "variants":["wire_mask"]}

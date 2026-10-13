@@ -861,17 +861,12 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                                   "hole_changed": c["hole_changed"]})
         timings["seams_s"] = round(time.perf_counter() - t, 2)
 
-        # chart seams (harmonised; A5 is graded off the seam by the instrument)
+        # chart seams (unscreened Poisson; A5 is graded off the seam by the instrument)
         t = time.perf_counter()
         protected = photo & ~band_final
-        pre_reflect = filled.copy()
-        reflect_info = {"method": "replaced_by_unscreened_poisson", "applied": False,
-                        "band_texels": 0.0, "full_texels": 0.0, "texels_changed": 0}
         is_anchor = photo & (label == anchor_label)
-        pre_harmonise = filled.copy()
         from .poisson import stitch
         harm, harm_info = stitch(tex, filled, protected, pairs)
-        unprot = np.zeros(n, bool)
         prog(f"chart-seam Poisson: {harm_info}", force=True)
 
         # classes, sources, tiers
@@ -882,7 +877,6 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         klass[holes_hl & ~photo] = CLASS_CODES["highlight_fill"]
         klass[text_fill] = CLASS_CODES["text_fill"]
         klass[band_final] = CLASS_CODES["seam_band"]
-        klass[unprot] = CLASS_CODES["chart_seam"]
         source = np.where(photo & (label >= 0), label + 1, 0).astype(np.uint8)
         tier = np.where(photo, np.where(label == LB.MIX, 1, 2), 3).astype(np.uint8)
 
@@ -1099,7 +1093,6 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                                          for m_ in methods},
                            "small_enclosed": small_info,
                            "choice": FILL_CHOICE},
-                  "chart_seam_reflection": reflect_info,
                   "metal": {v: {"arm": s_.arm, "reasons": {k: s_.reasons.get(k) for k in
                                                          ("metal_or_highlight", "pale", "hardware_margin", "edge_halo",
                                                           "thin_line", "dark_blob", "enclosed")}}
@@ -1143,9 +1136,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                "radii_by_method": radii_by,
                "mirrored": mirrored, "seen_any": seen_any, "seen_geom": seen_geom, "hole": hole, "band": band_final,
                "text_mask": tm["mask"], "see_through": tm.get("see_through_mask", np.zeros(n, bool)), "ar_visible": arv,
-               "colours_pre_harmonise": pre_harmonise, "colours_pre_reflect": pre_reflect, "is_anchor": is_anchor,
-               "texture_parts": texture_parts, "level_gain": lev["gain"],
-               "no_texture": blank, "unprotected": unprot}
+               "is_anchor": is_anchor, "texture_parts": texture_parts, "level_gain": lev["gain"],
+               "no_texture": blank}
     if write:
         res["files"] = write_outputs(res, out_dir)
     prog(f"done in {timings['total_s']} s", force=True)

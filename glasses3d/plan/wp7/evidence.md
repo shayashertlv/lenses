@@ -1,8 +1,9 @@
 # WP7 evidence base: what the old instructions said, what Astra did, what the new tools give, the hard facts
 
 Written 2026-10-07 (workflow g3d-wp7-design, evidence step). Read-only. No code edited, no paid call, no web access.
-This file is evidence for the WP7 drafts. Old wording is quoted here only so it can be classified; the WP7 text must be
-written fresh and must not reuse these sentences.
+This file is evidence for the WP7 drafts (deleted 2026-10-13; see git tag review-20261013-pre-cleanup) and for
+WP7_DESIGN.md. Old wording is quoted here only so it can be classified; the WP7 text must be written fresh and must
+not reuse these sentences.
 
 **Path aliases** (all relative to the folder that holds the `lenses` repo; nothing below is a private-data path):
 - `JOBS` = `lenses/automation/data/blender_agent/studio/jobs` (git-ignored run data)

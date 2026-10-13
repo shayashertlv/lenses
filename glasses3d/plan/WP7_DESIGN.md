@@ -7,6 +7,14 @@ two-way contract, §10 the catalogue); WP4_DESIGN.md §4-§8 and §12; WP5_DESIG
 three drafts in `plan/wp7/` and the two judges' reports. Code facts were read from the working tree on 2026-10-07 and
 are cited as file:line.
 
+> **Review 2026-10-13 ([REVIEW_20261013.md](REVIEW_20261013.md)) — this design predates WP6 v2/v3; rework it before
+> building.** Its `temples` block and the G2 rows of `checks.json` target retired WP6 v1 tools (`check_relief`,
+> `trace_temple`, `fit_temple`); WP6 closed on the v3 facet lab with its own 9,407-character prompt, which the §5 size
+> caps (2,800 tokens for a whole open-gate assembly) cannot hold. WP6 v3 also found that Astra executes the newest rule
+> literally and does better when the prompt teaches the object with few rules (WP6_V3.md §1), against this design's
+> "every bullet is a rule" style. The three drafts in `plan/wp7/` were deleted on 2026-10-13 (tag
+> `review-20261013-pre-cleanup`); `plan/wp7/evidence.md` stays.
+
 ## 0. Verdict and what changed
 
 - **Base: the tool-contract draft** (judges 41 and 40, the highest from both). Every rule is a bullet that names its

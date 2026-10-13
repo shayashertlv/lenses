@@ -170,7 +170,7 @@ def lab_on(root: Path) -> Lab:
     lab = Lab(root, session=s, seeing=FakeSeeing(s, root))
     lab._basis = fake_basis()
     lab.state["start_checkpoint"], lab.state["start_fingerprint"] = "c0000", "fp-original"
-    lab.state["original"] = {"footprints": {"decals": [], "hinge": []}, "chart_mesh": None}
+    lab.state["original"] = {"footprints": {"decals": [], "hinge": []}}
     rid, _ = lab._register(FX.prada_default(), parent=None, kind="template", label="revision 0")
     assert lab._apply("prepare-r0", rid, tool="prepare")["status"] == "ok"
     assert lab._compare("prepare-r0", lab.photo_ids(), by="prepare")["status"] == "ok"

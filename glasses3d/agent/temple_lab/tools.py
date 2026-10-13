@@ -249,10 +249,8 @@ def edits_schema() -> dict:
 
 # --------------------------------------------------------------------------------------------- photo-dependent models
 def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids: list[str] | None = None) -> dict:
-    """The models whose schema names the lab's photo ids: TargetId (the target photos), PhotoId (the photos with a
-    camera: picks, compares, zooms, judgements, points; default the target photos) and ImageId (every photo:
-    photo_image; default PhotoId's)."""
-    TargetId = Literal[tuple(photo_ids)]
+    """The models whose schema names the lab's photo ids: PhotoId (the photos with a camera: picks, compares, zooms,
+    judgements, points; default the target photos) and ImageId (every photo: photo_image; default PhotoId's)."""
     compare_ids = list(compare_ids or photo_ids)
     PhotoId = Literal[tuple(compare_ids)]
     ImageId = Literal[tuple(image_ids or compare_ids)]
@@ -309,7 +307,7 @@ def models(photo_ids: list[str], compare_ids: list[str] | None = None, image_ids
         label: str = Field(description=f"a short name: {G.NAME_RULE}, not ending in _")
         edits: list[Edit] = Field(max_length=G.EDITS_MAX)
 
-    return {"PhotoId": PhotoId, "TargetId": TargetId, "ImageId": ImageId, "Judgement": Judgement,
+    return {"PhotoId": PhotoId, "ImageId": ImageId, "Judgement": Judgement,
             "PhotoJudgement": PhotoJudgement, "Difference": Difference, "PhotoPoints": PhotoPoints,
             "ReadPick": ReadPick, "ReadPoint": ReadPoint, "Zoom": Zoom, "Variant": Variant}
 

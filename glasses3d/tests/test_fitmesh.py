@@ -1,8 +1,6 @@
 """GLB -> camera-fitting mesh (WP3b ``fitmesh``)."""
 from __future__ import annotations
 
-import importlib.util
-import json
 from pathlib import Path
 
 import numpy as np
@@ -84,34 +82,6 @@ def test_refuses_compressed_and_skips_non_triangles(tmp_path):
     assert m.skipped == ["Bridge"] and "Bridge" not in m.names
     with pytest.raises(ValueError, match="no triangle geometry"):
         fitmesh.load_fit_mesh(write(tmp_path, glbfab.build(), "all.glb"), skip=("_", "Bridge"))
-
-
-@pytest.mark.skipif(not (REF / "q001.glb").exists(), reason="reference data missing")
-def test_q001_is_bit_identical_to_the_prototype_assembly():
-    """make_uv_test.py:25-39 with the prototype's own GLB reader (plan/prototypes, numpy only, never automation)."""
-    spec = importlib.util.spec_from_file_location("glbload", G3D / "plan" / "prototypes" / "projection" / "glbload.py")
-    glbload = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(glbload)
-    fits = json.loads((REF / "fits.json").read_text())
-    frame = C.NormFrame(tuple(fits["frame"]["center"]), fits["frame"]["extent"])
-    _, _, prims = glbload.load(str(REF / "q001.glb"))
-    prims = [p for p in prims if not any(s in p["node"] for s in fitmesh.PROTOTYPE_SKIP)]
-    Vs, Fs, part, off, names = [], [], [], 0, []
-    for i, p in enumerate(prims):
-        Vs.append(p["V"] * 1000.0); Fs.append(p["F"] + off); off += len(p["V"])
-        part.append(np.full(len(p["F"]), i)); names.append(p["node"].split(".")[0])
-    V, F, part = np.vstack(Vs), np.vstack(Fs), np.concatenate(part)
-    fp = np.isin(part, [names.index(n) for n in fitmesh.PROTOTYPE_FRONT_PARTS])
-    fpV = V[np.unique(F[fp])]
-    pivot = frame.to_norm(((fpV.min(0) + fpV.max(0)) / 2)[None])[0]
-
-    m = fitmesh.load_fit_mesh(REF / "q001.glb", skip=fitmesh.PROTOTYPE_SKIP, frame=frame)
-    assert np.array_equal(m.V, V) and np.array_equal(m.F, F) and np.array_equal(m.part, part) and m.names == names
-    assert np.array_equal(m.front_pivot(fitmesh.PROTOTYPE_FRONT_PARTS), pivot)
-    assert C.NormFrame.from_bbox(m.V) == frame                   # fits.json's frame IS the bbox frame
-    assert len(m.skipped) == 3
-    # every front name is one primitive on q001, so "all primitives of a name" == the prototype's "first primitive"
-    assert all(m.names.count(n) == 1 for n in fitmesh.PROTOTYPE_FRONT_PARTS)
 
 
 @pytest.mark.skipif(not (REF / "q001.glb").exists(), reason="reference data missing")

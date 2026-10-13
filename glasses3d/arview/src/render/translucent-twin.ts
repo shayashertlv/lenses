@@ -13,7 +13,7 @@
  *
  *  With either canonical or native transmissive lenses the twin is the crystal in every pass. On the canvas its source is the renderer's
  *  owned look-through image (translucent-look-through.ts: the camera behind the opaque eyewear, identity UV) instead of
- *  raw camera, so hardware inside the crystal is seen as a sharp line. Inside explicit canonical or native lens input,
+ *  raw camera, so hardware inside the crystal is seen as a sharp line. Inside native lens input,
  *  which excludes the arms, a shared per-draw flag selects the paired background instead: the owned image has arms in it.
  *
  *  The twin runs the original's compile hooks on the original's live uniforms (arm clip, cheek/lens-input, hair

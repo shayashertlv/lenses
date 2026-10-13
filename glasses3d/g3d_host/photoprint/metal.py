@@ -54,8 +54,9 @@ per texel the first failing donor rule, numbers in PORT_REVIEW section 10):**
   than the ok print's median 50).
 
 The tool's own numbers are reported (``ViewSamples.reasons``: 'pale', 'hardware_margin', 'edge_halo', 'thin_line',
-'dark_blob', 'enclosed'); the proof measures contamination independently from the written print.png
-(``tests/photoprint/step4_sheets``: metal-coloured share per zone near the hardware).
+'dark_blob', 'enclosed'); the proof measured contamination independently from the written print.png
+(``tests/photoprint/step4_sheets``: metal-coloured share per zone near the hardware; deleted on 2026-10-13, see git tag
+review-20261013-pre-cleanup).
 
 WP5 brow-top diagnosis (2026-10-07): the colour arm also flags isolated pixels in smooth amber patches. Dilating
 these seeds then filling them carves ragged holes around the retained honey cores. A small colour outlier alone is

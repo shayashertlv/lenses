@@ -303,19 +303,6 @@ def effective_thickness(V, T) -> float:
     return 2.0 * abs(signed_volume(V, T)) / A if A > 0 else 0.0
 
 
-def vertex_normals(V, T, faces=None) -> np.ndarray:
-    """Area-weighted vertex normals over the given faces (all by default); unused vertices get zero."""
-    V = np.asarray(V, np.float64)
-    T = np.asarray(T, np.int64).reshape(-1, 3)
-    fn, fa, _ = face_geometry(V, T)
-    sel = np.arange(len(T)) if faces is None else np.asarray(faces)
-    vn = np.zeros_like(V)
-    for k in range(3):
-        np.add.at(vn, T[sel, k], fn[sel] * fa[sel, None])
-    ln = np.linalg.norm(vn, axis=1, keepdims=True)
-    return np.where(ln > 0, vn / np.where(ln > 0, ln, 1.0), 0.0)
-
-
 def local_surface_normals(C, W, cell: float = NORMAL_FIELD_CELL_MM, half: int = NORMAL_FIELD_HALF) -> np.ndarray:
     """Per point, the least-spread direction (smallest eigenvector of the W-weighted covariance) of the points in the
     (2*half+1) cell box around it. On a lens this is the surface normal whatever the construction (sphere, toric,

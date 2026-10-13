@@ -28,7 +28,7 @@ import pytest
 
 from glasses3d.g3d.temple import fit as FT
 from glasses3d.g3d.temple import fixtures as FX
-from glasses3d.g3d.temple.build import chamfer_depth, points_in_poly, roll_depth, solve_planes
+from glasses3d.g3d.temple.build import build_temple, chamfer_depth, points_in_poly, roll_depth
 from glasses3d.g3d.temple.planes import ccw_poly, mvc
 from glasses3d.g3d.temple.spec import TempleError, parse
 
@@ -443,7 +443,7 @@ def test_legacy_crease_plane_keeps_its_rise_and_reproduces_the_builders_planes()
     over-determined, so the fit returns the builder's exact planes and the typed values unchanged."""
     spec = FX.prada_default()
     res = FT.fit_spec(spec)
-    _, sol = solve_planes(spec)
+    sol = build_temple(spec).sol
     for lab in ("F1", "F2", "F3", "F4"):
         assert res.spec["facets"][lab]["plane"]["coef"] == pytest.approx(list(sol.planes[lab].coef), abs=1e-9)
     assert res.chi2 <= 1e-15
@@ -900,10 +900,13 @@ def test_non_convex_warp_interior_is_held_at_t_min(low, high, cut):
 
 def test_a_fade_is_refused():
     """F6 (p8): the fit describes the unfaded surface, so a fade made its crease report and E_FIT_SHAPE contradict the
-    build (tooltest_top_triangle r0026); v3 offers none."""
+    build (tooltest_top_triangle r0026); fades were removed from the core on 2026-10-13 and a design that still
+    carries one is refused E_SPEC."""
+    s = FX.analytic_prism()
+    s["facets"]["N"] = {"poly": s["facets"]["N"], "fade": {"d0": 30.0, "d1": 60.0}}
     with pytest.raises(TempleError) as e:
-        FT.fit_spec(FX.fade())
-    assert e.value.code == "E_SPEC" and e.value.fields["facet"] == "N" and "a fade cannot be fitted" in e.value.message
+        FT.fit_spec(s)
+    assert e.value.code == "E_SPEC" and e.value.fields["facet"] == "N" and "fade must be null" in e.value.message
 
 
 def test_flat_face_misfit_names_no_single_corner():

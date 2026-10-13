@@ -12,8 +12,12 @@ evidence, not a command to restart completed work.
    investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.
 
-`plan/archive/` (20261008, 20261010) holds superseded progress logs, handoffs, designs and session prompts. They are
-evidence only: never follow their resume steps, gates or prompts. WP6 v1 code is under the local tag `wp6-v1-final`.
+`plan/archive/` (20261008, 20261010) holds superseded progress logs, handoffs and designs. They are evidence only:
+never follow their resume steps, gates or prompts. WP6 v1 code is under the local tag `wp6-v1-final`.
+
+**Before building WP2 D–F, WP7 or WP8, read `plan/REVIEW_20261013.md`** (the 2026-10-13 line-by-line review of every
+tracked file: status per WP from the code, how the pieces must be ordered in one job, ranked defects, and the cleanup
+of dead code; state before the cleanup is the local tag `review-20261013-pre-cleanup`).
 
 ## Working method
 - **Process:** Codex sessions work sequentially. Claude sessions with ultracode on may run workflows with disjoint

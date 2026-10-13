@@ -3,25 +3,24 @@ chroma. Synthetic inputs only (the FT1119 numbers are in PORT_REVIEW section 10)
 - ``labels.place_labels(..., seen_share=...)``: in crease mode a face its own anchor sees keeps the anchor; only its
   holes may go to an adjacent anchor that sees them;
 - ``fill.light_acetate``: see-through text counts only where the painting photo's acetate is light;
-- ``shading.level_map`` with ``sat``: Y kept, chroma scaled, sat 1 byte-identical to the correction round's map, and
-  ``correction_proof.unlevel`` inverts it;
+- ``shading.level_map`` with ``sat``: Y kept, chroma scaled, sat 1 byte-identical to the correction round's map;
 - the instrument's chroma / contrast (``print_metrics.level_compare`` 'appearance', ``band_energy``);
 - fix round 1 of step 6: ``level_map``'s ``chroma_power`` (low chroma lifted, the saturated tail compressed: the
-  factor is below 1 above the pivot; power 1 = the step-6 map), its inverse; the appearance verdict's C* p90 / mean bounds (a median match with a 1.4x tail
-  fails); the chroma stage (``ar_calibrate.chroma_stage`` / ``choose_chroma``) on a synthetic power-law renderer; the
-  candidates' assembly (``ar_calibrate.finish``: the delivered candidate is the chroma stage's capture, the near-18 deg
-  one the trade-off best at that chroma) and the owner sheet reading it;
+  factor is below 1 above the pivot; power 1 = the step-6 map); the appearance verdict's C* p90 / mean bounds (a median
+  match with a 1.4x tail fails); the chroma stage (``ar_calibrate.chroma_stage`` / ``choose_chroma``) on a synthetic
+  power-law renderer; the candidates' assembly (``ar_calibrate.finish``: the delivered candidate is the chroma stage's
+  capture, the near-18 deg one the trade-off best at that chroma);
 - fix round 2 of step 6: the chroma family's ``chroma_hold`` (never greys a colour) and ``chroma_hue`` (off-hue colours
-  left alone), their inverse and the bake's A3 re-application (``printproof.reapply_level`` against the tool's
+  left alone) and the bake's A3 re-application (``printproof.reapply_level`` against the tool's
   ``shading.level_map``); the instrument's hue terms; ``ar_levels.by_group`` (brows and temples apart: a pooled PASS
   that hides a miss of both groups) and ``pass_brow``; the all-pairs chroma stage and its owner candidate;
-  ``step6_proof``'s brow-only transfer and ``texture_chroma``;
 - fix round 3 of step 6: a group the photo barely shows is reported, never graded (``ar_levels.compare``,
   ``MIN_PHOTO_GROUP_SHARE``, pinned on FT1119's own photo shares), and ``pass_brow`` / ``group_residuals`` skip it;
-  ``step6_proof.temple_region`` and ``registration`` on a synthetic frame and capture; sides by the x sign
-  (``step6_proof.sides``); the raster cache keyed by the pose transform; ``unlevel``'s convergence report; the chroma
-  probes captured at the same time; the cropped ``band_energy``; per-part px/mm (``capture_ppm`` with depth,
-  ``_pooled_energy``); the cached photo masks; the coat share; the re-grade summary.
+  the chroma probes captured at the same time; the cropped ``band_energy``; per-part px/mm (``capture_ppm`` with
+  depth, ``_pooled_energy``); the cached photo masks; the re-grade summary.
+The tests of the deleted proof scripts (``correction_proof.unlevel`` and its convergence report, the owner sheet's
+rows, ``step6_proof``'s transfer, ``texture_chroma``, ``temple_region``, ``registration``, raster cache, sides and coat
+share) were deleted on 2026-10-13 with them; see git tag review-20261013-pre-cleanup.
 """
 import json
 import math
@@ -145,18 +144,6 @@ def test_level_map_sat_keeps_luminance_and_scales_chroma():
     assert np.array_equal(SH.apply_level_u8(img, m, base | {"sat": 1.0}), SH.apply_level_u8(img, m, base))
 
 
-def test_unlevel_inverts_the_level_map_with_sat():
-    from glasses3d.tests.photoprint import correction_proof as CP
-    rng = np.random.default_rng(6)
-    rgb = rng.uniform(20, 230, (2000, 3))
-    rgb[:, 2] = np.minimum(rgb[:, 2], rgb[:, 0])     # warm colours (no clipping at 0 with sat 1.3)
-    lv = {"applied": True, "gain": 1.1, "gamma": 1.15, "sat": 1.3}
-    fwd = SH.level_map(rgb, lv)
-    ok = (fwd > 0.5).all(1) & (fwd < 254.5).all(1)
-    back = CP.unlevel(fwd, lv)
-    assert np.abs(back[ok] - rgb[ok]).max() < 1e-6
-
-
 def test_instrument_appearance_chroma_and_contrast():
     rng = np.random.default_rng(3)
     L = rng.uniform(15, 45, 3000)
@@ -264,18 +251,6 @@ def test_level_map_chroma_power_lifts_low_chroma_and_compresses_the_tail():
     assert SH.chroma_factor(rgb, {"sat": 1.3}) == 1.3
 
 
-def test_unlevel_inverts_the_level_map_with_chroma_power():
-    from glasses3d.tests.photoprint import correction_proof as CP
-    rng = np.random.default_rng(8)
-    rgb = rng.uniform(20, 230, (2000, 3))
-    rgb[:, 2] = np.minimum(rgb[:, 2], rgb[:, 0])
-    lv = {"applied": True, "gain": 0.93, "gamma": 1.08, "sat": 1.12, "chroma_power": 0.78}
-    fwd = SH.level_map(rgb, lv)
-    ok = (fwd > 0.5).all(1) & (fwd < 254.5).all(1)
-    back = CP.unlevel(fwd, lv)
-    assert ok.mean() > 0.8 and np.abs(back[ok] - rgb[ok]).max() < 1e-4
-
-
 def test_appearance_verdict_bounds_the_saturated_tail():
     """Step 6's verdict passed on the C* median alone; a print whose honey tail is 1.4x the photo's with the same
     median now fails on p90 (and the units say which term)."""
@@ -353,12 +328,11 @@ def test_chroma_stage_matches_median_tail_and_mean_with_a_captured_point():
     assert st["probes"] == ["chroma1", "chroma2", "chroma3"] and len(caps) <= len(AC.CHROMA_PROBES) + AC.CHROMA_MAX_ITER
 
 
-def test_finish_delivers_the_chroma_capture_and_recaptures_the_near_candidate(tmp_path):
+def test_finish_delivers_the_chroma_capture_and_recaptures_the_near_candidate():
     """The candidates come from the captured iterations by NAME: 'photo_angles' is the chroma stage's capture at the
     best appearance (gain, gamma), delivered; 'near_18deg' the trade-off best re-captured at the chosen chroma, not
-    delivered (step 6's first run filed the near capture as delivered); the owner sheet reads the delivered label."""
+    delivered (step 6's first run filed the near capture as delivered)."""
     from glasses3d.tests.photoprint import ar_calibrate as AC
-    from glasses3d.tests.photoprint import tooltest_owner_sheet as OS
     A = {"calibration": [-0.9, -1.2, 1.6, -1.6], "trade-off": [1.6, 4.9], "held-out": [5.2],
          "appearance": [-0.9, -1.2, 1.6, -1.6, 1.6, -0.3]}
     B = {"calibration": [-2.5, -3.0, -0.4, -4.0], "trade-off": [0.9, 1.6], "held-out": [4.6],
@@ -383,11 +357,6 @@ def test_finish_delivers_the_chroma_capture_and_recaptures_the_near_candidate(tm
     assert c["photo_angles"]["role"] == "appearance" and c["photo_angles"]["over"] == roles["calibration"]
     assert c["near_18deg"]["over"] == roles["trade-off"]
     assert "chroma power" in c["photo_angles"]["label"]
-    p = tmp_path / "calibration.json"
-    p.write_text(json.dumps({"candidates": c}), encoding="utf-8")
-    rows, delivered = OS.calibration_rows(p)
-    assert delivered == c["photo_angles"]["label"]
-    assert list(rows) == [c["near_18deg"]["label"], c["all_pairs_chroma"]["label"]]
     # the assembly alone, on swapped inputs: delivered follows the NAME, never the capture's tag or role
     sw = AC.assemble_candidates(fin["near"], fin["chosen"], roles)
     assert sw["photo_angles"]["tag"] == "near_chroma" and sw["photo_angles"]["delivered"]
@@ -468,21 +437,16 @@ def test_chroma_hold_never_greys_and_the_hue_band_leaves_off_hue_colours_alone()
     assert abs(_chroma(SH.level_map(mag, lv | HOLD_HUE)) - _chroma(SH.level_map(mag, {"gain": 0.93, "gamma": 1.08}))) < 0.05
 
 
-def test_unlevel_and_a3_reapply_the_hold_and_hue_band():
-    """``correction_proof.unlevel`` inverts the fix-round-2 map (written there independently), the proofs' chroma
-    factor equals the tool's, and ``printproof.reapply_level`` (A3's re-application, on the ROUNDED colour, fix round
-    3: no longer an inline copy) reproduces the tool's ``level_map`` for every level form A3 meets."""
-    from glasses3d.tests.photoprint import correction_proof as CP
+def test_a3_reapply_the_hold_and_hue_band():
+    """The proofs' chroma factor (``printproof._chroma_f``, moved unchanged from the deleted correction_proof.py)
+    equals the tool's, and ``printproof.reapply_level`` (A3's re-application, on the ROUNDED colour, fix round 3: no
+    longer an inline copy) reproduces the tool's ``level_map`` for every level form A3 meets."""
     from glasses3d.tests.photoprint import printproof as PP
     rng = np.random.default_rng(11)
     rgb = rng.uniform(15, 230, (3000, 3))
     rgb[:1000, 2] = np.minimum(rgb[:1000, 2], rgb[:1000, 0])
     lv = {"applied": True, "gain": 0.93, "gamma": 1.08, "sat": 1.05, "chroma_power": 0.6} | HOLD_HUE
-    fwd = SH.level_map(rgb, lv)
-    ok = (fwd > 0.5).all(1) & (fwd < 254.5).all(1)
-    back = CP.unlevel(fwd, lv)
-    assert ok.mean() > 0.8 and np.abs(back[ok] - rgb[ok]).max() < 1e-4
-    f = CP._chroma_f(rgb, 1.05, 0.6, True, [20.0, 100.0])
+    f = PP._chroma_f(rgb, 1.05, 0.6, True, [20.0, 100.0])
     assert np.allclose(f, SH.chroma_factor(rgb, lv), atol=1e-9)
     rgb8 = np.rint(rgb)
     for level in ({"gain": 0.78, "gamma": 1.16},                                       # the correction round
@@ -632,29 +596,6 @@ def test_chroma_stage_reports_every_graded_pair_and_finds_an_all_pairs_level():
     assert ch["level"]["chroma_hold"] is True and ch["level"]["chroma_hue"] == list(SH.HAVANA_HUE_DEG)
 
 
-def test_step6_proof_transfer_is_brow_only_and_texture_chroma_bins(tmp_path):
-    """Fix round 2: no per-pixel temple transfer (the runtime spreads the temples); ``texture_chroma`` gives the
-    per-bin C* ratio and the off-hue shares from the images alone."""
-    from PIL import Image
-    from glasses3d.tests.photoprint import step6_proof as S6
-    assert all(set(v) == {"brow_front"} for v in S6.TRANSFER.values())
-    assert set(S6.TEMPLE_REGION) == {"yaw_p45", "yaw_m45"}
-    from skimage.color import lab2rgb
-    C = np.linspace(0.5, 40, 10000)
-    lab = np.stack([np.full_like(C, 30.0), C * math.cos(math.radians(50)), C * math.sin(math.radians(50))], -1)
-    rad = (np.clip(lab2rgb(lab.reshape(100, 100, 3)), 0, 1) * 255.0)
-    lv = {"gain": 0.93, "gamma": 1.08, "sat": 1.107, "chroma_power": 0.745}
-    rd, dd = tmp_path / "rad", tmp_path / "bake"
-    for d, img in ((rd, rad), (dd, SH.level_map(rad, lv))):
-        d.mkdir()
-        Image.fromarray(np.clip(np.rint(img), 0, 255).astype(np.uint8)).save(d / "print.png")
-        Image.fromarray(np.full((100, 100), 2, np.uint8)).save(d / "classes.png")
-    tc = S6.texture_chroma(dd, rd)
-    bins = tc["ratio_by_radiance_C"]
-    assert bins["2-4"]["median_ratio"] > 1.1 > bins["25-60"]["median_ratio"]
-    assert tc["texels"] == 10000 and 0.0 <= tc["delivered"]["magenta_of_C5"] <= tc["delivered"]["off_band_of_C5"]
-
-
 def test_tooltest_label_names_the_hold_and_hue_band(tmp_path):
     from glasses3d.tests.photoprint import print_tooltest as TT
     bake = tmp_path / "ft1119_bake"
@@ -702,139 +643,6 @@ class _FakeJob:
 
     def part_ids(self, names):
         return self.mesh.part_ids(names)
-
-
-PALETTE = [{"name": "Brow_Left", "rgb": [255, 0, 0]}, {"name": "Brow_Right", "rgb": [0, 255, 0]},
-           {"name": "Temple_Left", "rgb": [0, 0, 255]}, {"name": "Temple_Right", "rgb": [255, 255, 0]}]
-
-
-def _yaw45_pose(scale=1.0, W=200, H=200):
-    """An arview-like pose entry: the model (mm -> m, x ``scale``) turned 45 deg about y so the -x side faces the
-    camera, an orthographic projection of +-0.15 m (matrices stored column-major, as arview writes them)."""
-    c = s = math.sqrt(0.5)
-    M = np.array([[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]], float)
-    M[:3, :3] *= scale
-    P = np.diag([1 / 0.15, 1 / 0.15, -1.0, 1.0])
-    return {"id": "yaw_p45", "asset_to_world": M.T.ravel().tolist(),
-            "camera": {"projection": P.T.ravel().tolist(), "width": W, "height": H}}
-
-
-def _write_capture(d, pose, pid, beauty, probe_dir=None):
-    from PIL import Image
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "report.json").write_text(json.dumps({"id_palette": PALETTE, "poses": [pose]}), encoding="utf-8")
-    Image.fromarray(np.asarray(pid, np.uint8)).save(d / f"{pose['id']}__part-id.png")
-    Image.fromarray(np.asarray(beauty, np.uint8)).save(d / f"{pose['id']}__skin__beauty.png")
-    if probe_dir is not None:
-        probe_dir.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(np.zeros_like(np.asarray(beauty, np.uint8))).save(probe_dir / f"{pose['id']}__skin__beauty.png")
-
-
-def test_sides_come_from_the_x_sign_never_the_names():
-    """The house rule: a model whose 'Left' parts sit at +x gets them on the +x side; a model with both brows on one
-    side is refused, never guessed."""
-    from glasses3d.tests.photoprint import step6_proof as S6
-    assert S6.sides(_FakeJob()) == {"-x": ("Brow_Left", "Temple_Left", -1), "+x": ("Brow_Right", "Temple_Right", 1)}
-    swapped = _FakeJob({"bl": "Brow_Right", "br": "Brow_Left", "tl": "Temple_Right", "tr": "Temple_Left"})
-    assert S6.sides(swapped) == {"-x": ("Brow_Right", "Temple_Right", -1), "+x": ("Brow_Left", "Temple_Left", 1)}
-    with pytest.raises(ValueError):
-        S6.sides(_FakeJob(brows_x=(-1, -1)))
-
-
-def test_registration_and_the_raster_cache_key_on_the_pose_transform(tmp_path):
-    """``registration``: the capture's part-id drawn from the rigid raster itself lines up on the brows (IoU ~1) and,
-    with the temple's pixels moved 8 px as the runtime's spread moves them, not on the temple (offset ~8 px). The
-    raster cache reuses a raster only for an equal pose transform (Astra's capture has its own fit)."""
-    from glasses3d.tests.photoprint import step6_proof as S6
-    job = _FakeJob()
-    pose = _yaw45_pose()
-    cap = tmp_path / "cap"
-    _write_capture(cap, pose, np.zeros((200, 200, 3)), np.full((200, 200, 3), 60))
-    fid = S6.ar_raster(cap, "yaw_p45", job)
-    part = np.where(fid >= 0, job.mesh.part[np.clip(fid, 0, None)], -1)
-    assert (part == 0).sum() > 200 and (part == 2).sum() > 300 and (part == 3).sum() == 0   # +x temple faces away
-    pid = np.zeros((200, 200, 3), np.uint8)
-    for k, row in enumerate(PALETTE):
-        m = part == k
-        if row["name"] == "Temple_Left":
-            m = np.roll(m, -8, axis=1)                                # outward, clear of the brow
-        pid[m] = row["rgb"]
-    _write_capture(cap, pose, pid, np.full((200, 200, 3), 60))
-    reg = S6.registration(job, cap, "yaw_p45")
-    for b in ("Brow_Left", "Brow_Right"):
-        assert reg[b]["iou"] > 0.97 and reg[b]["centroid_offset_px"] < 0.5, reg
-    assert reg["Temple_Left"]["iou"] < 0.85 and reg["Temple_Left"]["centroid_offset_px"] == pytest.approx(8.0, abs=0.6)
-    assert "iou" not in reg["Temple_Right"]
-    twin, other = tmp_path / "twin", tmp_path / "other"
-    _write_capture(twin, pose, pid, np.full((200, 200, 3), 60))
-    _write_capture(other, _yaw45_pose(scale=1.002), pid, np.full((200, 200, 3), 60))
-    rc = S6.RasterCache()
-    (_r1, _b1), k1 = rc.get(cap, "yaw_p45", job)
-    (_r2, _b2), k2 = rc.get(twin, "yaw_p45", job)
-    (_r3, _b3), k3 = rc.get(other, "yaw_p45", job)
-    assert k1 == k2 != k3 and (rc.hits, rc.misses) == (1, 2)
-    assert S6.raster_key(cap, "yaw_p45") != S6.raster_key(other, "yaw_p45")
-
-
-def test_temple_region_is_a_difference_of_medians_over_the_part_id(tmp_path):
-    """``temple_region`` at yaw +45: the near (-x) temple's part-id pixels (probe highlights out) against the base
-    colour over that temple's outer faces in the AR-visible stretch: a uniform AR colour over a uniform albedo gives
-    exactly their L* and C* differences; a pose without a near temple gives None."""
-    from glasses3d.tests.photoprint import step6_proof as S6
-    job = _FakeJob()
-    pose = _yaw45_pose()
-    pid = np.zeros((200, 200, 3), np.uint8)
-    pid[50:80, 20:50] = [0, 0, 255]                                   # the -x temple's part-id colour
-    beauty = np.full((200, 200, 3), 90, np.uint8)
-    ar_c, alb_c = [200, 140, 90], [150, 100, 60]
-    beauty[50:80, 20:50] = ar_c
-    cap, probe = tmp_path / "cap", tmp_path / "probe"
-    _write_capture(cap, pose, pid, beauty, probe)
-
-    class _Lay:
-        uv = np.array([[[2.0, 2.0], [12.0, 2.0], [2.0, 12.0]]] * 2)
-
-        @staticmethod
-        def face_index(nf):
-            out = np.full(nf, -1)
-            out[4:6] = [0, 1]                                         # the -x temple's two faces
-            return out
-
-    src = {"kind": "bake", "img": np.tile(np.asarray(alb_c, float), (16, 16, 1)), "layout": _Lay}
-    r = S6.temple_region(job, cap, probe, "yaw_p45", src)
-    la, lb = PM.lstar(np.array([ar_c], float))[0], PM.lstar(np.array([alb_c], float))[0]
-    assert r["side"] == "-x" and r["part"] == "Temple_Left" and r["ar_px"] == 28 * 28
-    assert r["ar_L_p50"] == pytest.approx(la, abs=0.06) and r["albedo_L_p50"] == pytest.approx(lb, abs=0.06)
-    assert r["ar_minus_albedo_L_p50"] == pytest.approx(la - lb, abs=0.12)
-    ca, cb = _chroma(np.array([ar_c], float))[0], _chroma(np.array([alb_c], float))[0]
-    assert r["ar_over_albedo_C_p50"] == pytest.approx(ca / cb, rel=0.01)
-    assert S6.temple_region(job, cap, probe, "pitch_p20", src) is None
-
-
-def test_unlevel_reports_its_convergence():
-    """Fix round 3: the chroma inverse reports iterations, convergence, its final residual and the texels left above
-    the tolerance; stopped early it says so (and warns); closed forms say which."""
-    from glasses3d.tests.photoprint import correction_proof as CP
-    rng = np.random.default_rng(13)
-    rgb = rng.uniform(15, 230, (500, 3))
-    lv = {"applied": True, "gain": 0.93, "gamma": 1.08, "sat": 1.05, "chroma_power": 0.6} | HOLD_HUE
-    fwd = SH.level_map(rgb, lv)
-    info = {}
-    CP.unlevel(fwd, lv, info=info)
-    assert info["method"] == "fixed point" and info["converged"] and 1 < info["iterations"] < CP.UNLEVEL_MAX_ITER
-    assert info["non_converged"] == 0 and info["max_residual"] < CP.UNLEVEL_TOL and info["texels"] == 500
-    short = {}
-    with pytest.warns(UserWarning):
-        CP.unlevel(fwd, lv, info=short, max_iter=1)
-    assert not short["converged"] and short["iterations"] == 1 and short["non_converged"] > 0
-    keep = np.zeros(500, bool)
-    keep[:100] = True
-    k = {}
-    CP.unlevel(fwd, lv, keep=keep, info=k)
-    assert k["texels"] == 400
-    cf = {}
-    CP.unlevel(fwd, {"applied": True, "gain": 0.9, "gamma": 1.1}, info=cf)
-    assert cf["method"] == "closed form (luminance only)" and cf["converged"]
 
 
 def test_chroma_probes_are_captured_at_the_same_time():
@@ -925,16 +733,10 @@ def test_photo_masks_and_the_occlusion_scene_are_built_once(monkeypatch):
     assert calls == {"occ": 1, "mask": 2}
 
 
-def test_coat_share_and_the_regrade_summary():
-    """The coat's share of the probe's light is 1 - Y(coat off) / Y(coat on) of the L* p50s; the re-grade summary
-    names the pair and term of the worst chroma unit, per role and over every graded pair."""
+def test_the_regrade_summary():
+    """The re-grade summary names the pair and term of the worst chroma unit, per role and over every graded pair
+    (the coat-share half of this test went with the deleted step6_proof.py on 2026-10-13)."""
     from glasses3d.tests.photoprint import ar_calibrate as AC
-    from glasses3d.tests.photoprint import step6_proof as S6
-    on = {"temple_partid -x": {"reflection_L_p50_on_the_rest": 9.8, "reflection_share": 0.03, "px": 500}}
-    off = {"temple_partid -x": {"reflection_L_p50_on_the_rest": 7.2, "reflection_share": 0.01, "px": 500}}
-    cs = S6.coat_share(on, off)["temple_partid -x"]
-    y = lambda L: ((L + 16.0) / 116.0) ** 3 if L > 8.0 else L / 903.3              # CIE: linear below L* 8
-    assert cs["coat_share_of_light"] == pytest.approx(1 - y(7.2) / y(9.8), abs=1e-3)
     row = lambda units, excl: {"role": None, "print": {"ar_minus_photo": {"p10": 0.1, "p50": -0.2},
                                                        "appearance": {"chroma_units": units, "pass": False}},
                                "groups_excluded": excl}

@@ -1,5 +1,5 @@
-"""Foreground matte of a product photo on a plain studio background (ported from the WP0 prototype
-plan/prototypes/projection/make_uv_test.py ``matte()``, WP3b; plan/PORT_REVIEW.md section 9).
+"""Foreground matte of a product photo on a plain studio background (make_uv_test.py ``matte()``, WP3b;
+plan/PORT_REVIEW.md section 9; ported from the pre-WP0 prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
 
 The background is modelled per channel as a quadratic surface in the normalized image coordinates
 (1, x, y, x^2, y^2, xy), least-squares fitted to a ``border``-pixel frame round the image, so a grey gradient or a soft
@@ -56,7 +56,7 @@ def background_model(img: np.ndarray, border: int = BORDER_PX) -> np.ndarray:
 
 
 MODES = ("default", "glossy_floor")
-# WP6 (plan/WP6_DESIGN.md §6): the glossy-floor mode, ported from the WP6 scratch matte2.matte3. On a glossy floor the
+# WP6 (plan/archive/20261010/WP6_DESIGN.md §6): the glossy-floor mode, ported from the WP6 scratch matte2.matte3. On a glossy floor the
 # reflections and soft shadows sit 12-32 levels off the backdrop while the product is 40+, and the default threshold
 # plus unconditional hole filling closes the gap between the temples (Prada side 01). Every step below is monotone and
 # starts from a subset of the default's mask, so the result can only REMOVE pixels from the default matte.

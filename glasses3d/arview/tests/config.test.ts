@@ -17,11 +17,7 @@ test('ordinary camera, hair, and diagnostic controls retain their bounds and off
   const config = parseConfig('?face=gpu&capture=960&hairz=-0.03&sync=0&exposure=312&guard=0&hairModel=selfie-multiclass&hair=0');
   assert.deepEqual(config, {faceDelegates: ['GPU', 'CPU'], captureMaxEdge: 960, captureSource: 'videoframe', hairWaitMs: 120,
     hairInputMaxEdge: 640, hairDelegate: 'auto', hairStartZ: -0.03, sync: false, exposure: 312, guard: false,
-    hairModel: 'selfie-multiclass', hair: false, diagnostics: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
-  assert.equal(parseConfig('').diagnostics, false); assert.equal(parseConfig('?diag=0').diagnostics, false);
-  assert.equal(parseConfig('?diag=1').diagnostics, true); assert.equal(parseConfig('?diag=on').diagnostics, true);
-  assert.match(describeConfig(parseConfig('?diag=1')), /diagnostics ON \(\?diag=1\)\.$/);
-  assert.doesNotMatch(describeConfig(DEFAULT_CONFIG), /diagnostics/);
+    hairModel: 'selfie-multiclass', hair: false, steady: DEFAULT_STEADY, hairSchedule: DEFAULT_HAIR_SCHEDULE});
   assert.match(describeConfig(config), /GPU delegate, then CPU \(\?face=\).*capture 960 px max edge \(\?capture=\).*OFF \(\?sync=0\).*locked at 312 × 100 µs.*guard OFF/);
   assert.deepEqual(parseConfig('?capture=100&hairz=5&exposure=auto&face=cpu&hair=1'), {...DEFAULT_CONFIG, faceDelegates: ['CPU', 'GPU'], hair: true});
   assert.equal(parseConfig('?exposure=0').exposure, null);
@@ -113,8 +109,8 @@ test('the address options list is exactly what the page reads, and any other key
   } finally {URLSearchParams.prototype.get = get; URLSearchParams.prototype.has = has;}
   assert.deepEqual([...read].sort(), [...ADDRESS_OPTIONS].sort());
   // The iPhone B run that ran A: one letter short.
-  assert.deepEqual(unrecognizedOptions('?hairframe=2&diag=1'), ['hairframe']);
-  assert.deepEqual(unrecognizedOptions('?hairframes=2&diag=1'), []);
+  assert.deepEqual(unrecognizedOptions('?hairframe=2'), ['hairframe']);
+  assert.deepEqual(unrecognizedOptions('?hairframes=2'), []);
   assert.deepEqual(unrecognizedOptions(''), []); assert.deepEqual(unrecognizedOptions('?&&=1'), []);
   assert.deepEqual(unrecognizedOptions('?HairFrames=2&x=1&x=2&hairModel=selfie-multiclass&model=/m.glb'), ['HairFrames', 'x']);
   // Retired page levers are named as ignored, not silently honoured: the catalog selector and the Studio bridge.

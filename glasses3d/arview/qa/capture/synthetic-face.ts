@@ -1,4 +1,5 @@
-/** The synthetic face detection of the posed captures (pure; port of plan/prototypes/ar_capture/page.js detection()).
+/** The synthetic face detection of the posed captures (pure; port of the pre-WP0 prototype's ar_capture/page.js
+ *  detection(), deleted 2026-10-13; see git tag review-20261013-pre-cleanup).
  *
  *  The 468 canonical-face positions (centimetres, ../../ar/public/models/canonical-face.json, verified against the
  *  pinned face_landmarker.task) are posed with compose(T = (0, 0, -depth), R = Euler(pitch, yaw, roll, 'YXZ'), S = 1)

@@ -54,13 +54,6 @@ export const MAX_ARM_SPREAD_M = 0.024;
 export const SPREAD_HINGE_ROUND_M = 0.006;
 export const SPREAD_PIVOT_RANGE_M = Object.freeze({min: 0, max: 0.030});
 
-/** Combine geometry spread contributions within the same bound and 0.1 mm quantum. Production uses a fixed sum. */
-export function totalArmSpreadM(fitSpreadM: number, bendM: number): number {
-  const sum = (Number.isFinite(fitSpreadM) ? fitSpreadM : 0) + (Number.isFinite(bendM) ? bendM : 0);
-  const capped = Math.min(MAX_ARM_SPREAD_M, Math.max(-MAX_ARM_SPREAD_M, sum));
-  return Math.round(capped / WIDTH_FIT.spreadQuantumM) * WIDTH_FIT.spreadQuantumM;
-}
-
 export const WIDTH_FIT = Object.freeze({
   /** Gates on the raw pose: only near-frontal observations are collected. */
   maxYawDeg: 12, maxPitchDeg: 15, maxRollDeg: 12,
@@ -81,10 +74,6 @@ export const WIDTH_FIT = Object.freeze({
   ease: 0.05,
   /** Continuous milliseconds without a tracked face after which the estimate is dropped. */
   lostResetMs: 3000,
-  /** Optional ratio-to-spread geometry conversion; it is not applied to production eyewear. */
-  armSpreadPerRatioM: 0.07,
-  /** Bound and quantization for the optional ratio-to-spread helper. Head-occluder calibration uses the ratio itself. */
-  maxArmSpreadM: 0.006, spreadQuantumM: 0.0001,
   /** Kept clear of ARM_LATERAL_MIN_M when a point would otherwise be pulled across it. */
   lateralGuardM: 0.0005,
 });
@@ -244,14 +233,6 @@ export class FaceWidthEstimator {
     if (this.lastTrackedAtMs === null) return;
     if (timestampMs - this.lastTrackedAtMs > WIDTH_FIT.lostResetMs) this.reset(true);
   }
-}
-
-/** Optional width-ratio conversion: bounded, rounded, and zero at ratio 1. Production eyewear does not call it. */
-export function armSpreadM(ratio: number): number {
-  if (!Number.isFinite(ratio)) return 0;
-  const raw = (clamp(ratio, WIDTH_FIT.appliedMinRatio, WIDTH_FIT.appliedMaxRatio) - 1) * WIDTH_FIT.armSpreadPerRatioM;
-  const capped = clamp(raw, -WIDTH_FIT.maxArmSpreadM, WIDTH_FIT.maxArmSpreadM);
-  return Math.round(capped / WIDTH_FIT.spreadQuantumM) * WIDTH_FIT.spreadQuantumM;
 }
 
 /** The z run the bend is spread over: pivot plane to clip cap. Throws on a span or a spread it cannot draw. */

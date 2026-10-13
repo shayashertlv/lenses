@@ -1,5 +1,6 @@
 """The mesh a camera is fitted to: a GLB (metres) as one triangle soup in model millimetres, with per-face part ids
-(WP3b; replaces the prototype's glbload + inline assembly in plan/prototypes/projection/make_uv_test.py:25-39).
+(WP3b; replaces the prototype's glbload + inline assembly in make_uv_test.py:25-39; ported from the pre-WP0
+prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
 
 - Every triangle primitive becomes one PART, in the GLB's scene traversal order (``glb.load``), its world-space
   positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` strips only Blender's

@@ -41,7 +41,7 @@ def check_rolled(tb, r: float) -> None:
     over, miss = silhouette(tb)
     assert over <= 1e-9 and miss <= 1e-9                       # the side silhouette is the outline
     roll = [i for i, k in enumerate(tb.poly_kind) if k == "roll"]
-    assert roll and all(tb.poly_cell[i] in ("facet", "base", "ramp", "faded") for i in roll)
+    assert roll and all(tb.poly_cell[i] in ("facet", "base", "ramp") for i in roll)
     ps, V = tb.spec, tb.arr.V
     loop = np.array(tb.arr.boundary_loop)
     edge = loop[~np.isin(V[loop, 0], [ps.d0, ps.d1])]

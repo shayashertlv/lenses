@@ -1,6 +1,7 @@
 /** Capture pose sets, backgrounds, variants and file names (pure; shared by the Node orchestrator and the page).
  *
- *  Sign conventions (plan/prototypes/ar_capture/page.js, the synthetic detection in synthetic-face.ts): Euler order
+ *  Sign conventions (the pre-WP0 prototype's ar_capture/page.js, deleted 2026-10-13, see git tag
+ *  review-20261013-pre-cleanup; the synthetic detection in synthetic-face.ts): Euler order
  *  YXZ; yaw > 0 turns the nose toward image +x in the unmirrored frame, so the asset's -X side is near the camera;
  *  pitch > 0 tips the nose down, so the camera sees from above.
  *

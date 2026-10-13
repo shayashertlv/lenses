@@ -319,17 +319,6 @@ def test_warp_chord_error_on_a_two_mm_warp():
         assert err < 0.01 and f["chord_mm"] < 0.01, (raise_mm, tilt, err, f["chord_mm"])
 
 
-def test_warp_with_a_fade_builds():
-    """Fades stay legacy (no longer offered), but a warp facet may carry one: its cells before the fade are warp
-    cells, the faded ones blend to the base."""
-    s = quad(1.5)
-    s["facets"]["Q"]["fade"] = {"d0": 30.0, "d1": 40.0}
-    tb = build_temple(s)
-    assert tb.checks["closed"] and tb.checks["euler"] == 2
-    cells = {tb.face_cell[fi] for fi, l in enumerate(tb.face_label) if l == "Q"}
-    assert cells == {"warp", "faded"}
-
-
 def test_warp_refusals():
     s = quad()
     s["facets"]["Q"]["poly"] = ["A", "B", "C"]                     # three corners: always one plane
@@ -465,7 +454,7 @@ def test_a_spec_planes_accept_builds():
              "P4": [25.0, 0.5, a_plane(25.0, 0.5) - X_IN + off],   # inside A's hull: never one of its defining three
              "P5": [30.0, 10.0, T + 1.5], "P6": [10.0, 10.0, None]}
     s = FX.straight(nodes=nodes, facets={"A": ["P1", "P2", "P3", "P4"], "B": ["P4", "P3", "P5", "P6"]})
-    ps, sol = PL_solve(s)
+    sol = build_temple(s).sol
     assert sol.planes["A"].X(25.0, 0.5) == pytest.approx(a_plane(25.0, 0.5), abs=1e-12)
     assert sol.planes["B"].X(25.0, 0.5) == pytest.approx(a_plane(25.0, 0.5) + off, abs=1e-12)  # B holds P4's own
     tb = build_temple(s)                                          # P4 takes A's value (the first label): B is bent
@@ -475,11 +464,6 @@ def test_a_spec_planes_accept_builds():
     with pytest.raises(TempleError) as e:
         build_temple(s)
     assert e.value.code == "E_FACET_NOT_PLANAR"
-
-
-def PL_solve(spec):
-    from glasses3d.g3d.temple.build import solve_planes
-    return solve_planes(spec)
 
 
 # --------------------------------------------------------------------------------------------- facet|base vs base
@@ -642,9 +626,9 @@ def roll_corners(tb, label: str, cn: dict) -> list:
 
 
 def test_roll_band_of_a_warp_or_soft_facet_keeps_its_roll():
-    """design_corner_normals seeds only outer polygons (as the faded rule): a warp or soft facet's fans reach the roll
-    band only on its start line (s = roll_mm, where the quarter arc is tangent); deeper roll corners stay
-    auto-smoothed, so the rolled edge keeps its highlight. Seeding the roll polygons too gave every roll corner the
+    """design_corner_normals seeds only outer polygons: a warp or soft facet's fans reach the roll band only on its
+    start line (s = roll_mm, where the quarter arc is tangent); deeper roll corners stay auto-smoothed, so the rolled
+    edge keeps its highlight. Seeding the roll polygons too gave every roll corner the
     un-rolled design normal, up to 88.6 deg off (review-builder-correctness P1-2); a coplanar warp then shaded unlike
     its flat facet."""
     for raise_mm, plane, soft in ((1.5, "warp", False), (0.0, "warp", False), (0.0, "nodes", True)):

@@ -91,36 +91,25 @@ class NoTests(importlib.abc.MetaPathFinder):
         if fullname.startswith('glasses3d.tests'):
             raise AssertionError(fullname)
 sys.meta_path.insert(0, NoTests())
-from glasses3d.g3d_host.photoprint import production, ar_levels, ar_calibrate, check_print
-assert check_print._instrument().__name__ == 'glasses3d.g3d_host.photoprint.metrics'
+from glasses3d.g3d_host.photoprint import production, ar_levels, ar_calibrate
 '''
     r = subprocess.run([sys.executable, '-B', '-c', code], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 
 
 def test_runtime_metrics_match_independent_instrument():
+    # the runtime ``evaluate_case`` (check_print's) was deleted on 2026-10-13 with the step-0 experiment
     rng = np.random.default_rng(983)
     photo = rng.uniform(20, 220, (70, 90, 3))
     actual = np.clip(photo * [1.04, 0.93, 0.85] + 3, 0, 255)
-    astra = np.roll(photo, 8, axis=1)
-    support = np.ones(photo.shape[:2], bool)
-    E = support.copy()
-    E[:8] = E[-8:] = False
-    kwargs = dict(seed=23, tolerant=False, ren_support=support)
-    assert metrics.evaluate_case(actual, astra, photo, support, E, 5.0, **kwargs) == PM.evaluate_case(
-        actual, astra, photo, support, E, 5.0, **kwargs)
     assert metrics.level_compare(actual.reshape(-1, 3), photo.reshape(-1, 3)) == PM.level_compare(
         actual.reshape(-1, 3), photo.reshape(-1, 3))
 
 
-def test_measurement_parity_and_isolated_group_state(ft1119_job):
+def test_measurement_parity(ft1119_job):
+    # the runtime ``Measurements.part_sides`` (called only by this parity check) was deleted on 2026-10-13
     m = Measurements(ft1119_job, AL.GROUPS, temple_z=AL.AR_TEMPLE_Z, reference_point_mm=AL.BRIDGE_MM)
     assert m.pair_table(ft1119_job) == AL.pair_table(ft1119_job)
-    assert m.part_sides(ft1119_job) == AL.part_sides(ft1119_job)
-    other = Measurements(ft1119_job, {'frame': IN.FT1119_PARTS})
-    with pytest.raises(ValueError, match='expected exactly one'):
-        other.part_sides(ft1119_job)
-    assert other._sides is not m._sides
 
 
 def test_missing_measurement_part_refuses(ft1119_job):

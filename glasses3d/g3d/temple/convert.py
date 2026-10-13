@@ -1,4 +1,4 @@
-"""g3d.temple/1 -> g3d.temple/2 conversion (plan/WP6_FACETS.md §2.3; tests and owner sheets only). numpy only.
+"""g3d.temple/1 -> g3d.temple/2 conversion (plan/WP6_FACETS.md §2.3; tests only). numpy only.
 
 The only place a /1 spec is still read: `parse_v1` validates the v1 fields the conversion needs (the zone lines),
 `v1_to_v2` writes the /2 spec whose surface equals v1's over the v1 zone:

@@ -1,4 +1,5 @@
-"""g3d.polygon_section and g3d.check_round_corners (WP6_DESIGN.md §4; RULES_AUDIT §A rows 1, 3). numpy only.
+"""g3d.polygon_section and g3d.check_round_corners (plan/archive/20261010/WP6_DESIGN.md §4; RULES_AUDIT §A
+rows 1, 3). numpy only.
 
 polygon_section(points, corners) builds a closed 2D section (u, v) whose every corner is `"sharp"`, `("chamfer", w)`
 (the corner cut at w mm along both edges: two sharp corners) or `("round", r)` (a tangent arc of radius r with

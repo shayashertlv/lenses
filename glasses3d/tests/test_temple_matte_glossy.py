@@ -1,5 +1,6 @@
 """WP6 matte mode "glossy_floor" (§6): default unchanged, the new mode only removes pixels (all 12 Prada / FT1119
-photos), it opens the reflection-closed gap, and it equals the WP6 scratch matte3 it was ported from."""
+photos) and it opens the reflection-closed gap. (The port-equality cases against the WP6 scratch matte3 in a Temp
+folder were deleted 2026-10-13.)"""
 from __future__ import annotations
 
 import json
@@ -14,7 +15,6 @@ from glasses3d.tests.test_matte import gradient_photo
 
 G3D = Path(__file__).resolve().parents[1]
 REF = G3D / "data" / "reference"
-SCRATCH_M3 = Path(r"C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp6/matte")
 
 
 def _photos():
@@ -91,14 +91,3 @@ def test_prada_deltas_match_the_measurement(name, k):
     img = M.load_photo(REF / "prada" / name)
     delta = int(M.matte(img, mode="glossy_floor").sum()) - int(M.matte(img).sum())
     assert delta == pytest.approx(k * 1000, abs=1500)
-
-
-@pytest.mark.skipif(not SCRATCH_M3.exists(), reason="WP6 scratch mattes not available")
-@pytest.mark.parametrize("key", ["01", "02", "03", "04", "05", "06"])
-def test_port_equals_the_scratch_matte3(key):
-    ref = SCRATCH_M3 / f"m3_reference-{key}.npy"
-    if not ref.exists():
-        pytest.skip(f"{ref} missing")
-    name = next(n for p, n in PHOTOS if p == "prada" and n.startswith(f"reference-{key}"))
-    img = M.load_photo(REF / "prada" / name)
-    assert np.array_equal(M.matte(img, mode="glossy_floor"), np.load(ref))

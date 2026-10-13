@@ -4,7 +4,6 @@
     unfaceted_temple(obj) -> report
     build_variant_meshes(spec, *, side="both", targets=None, decals="auto") -> {"status", "meshes": {side: mesh name},
         "overrides": {object name: mesh name}, ...}; remove_variant_meshes(names=None) -> report
-    check_relief(objects=None, *, photo_creases=None) -> report
     polygon_section(points, corners) / loft_sections(stations, path=None, caps=True, name=None, ...) /
     check_round_corners(obj)
 
@@ -18,15 +17,13 @@ scene, places the temples, writes once, and reports. Conventions:
   or a modifier other than WeightedNormal: E_TARGET; more than one material slot: E_MULTI_MATERIAL (multi-material
   temples are deferred);
 - the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (warp, base,
-  faded, ramp) as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the
-  core's sharp set; the facet-cell polygons (TempleBuild.flat_polys: every facet face at fade weight 0) carry their
-  face normal as custom normals, and so do the roll polygons' corners on the line where the roll leaves such a facet
-  (tangent there; one smooth fan holds one custom normal); every smooth fan of one faded region's outer / roll polygons
-  holds one normal, the design surface's (build.faded_corner_normals: the fade start's face normal, the roll never
-  tilts it); a warp facet's cells (v3: the core's triangles) carry its design surface's normal at every corner (at a
-  facet corner the mean of its cone's normals, planes.WarpSurface.corner_grad) and a soft border's fans (v3) the
-  facet's normal there, ramp included (build.design_corner_normals); like the faded fans these reach a roll band only
-  on its start line (tangent there); every other corner is auto-smoothed (zero);
+  ramp) as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the core's
+  sharp set; the facet-cell polygons (TempleBuild.flat_polys) carry their face normal as custom normals, and so do
+  the roll polygons' corners on the line where the roll leaves such a facet (tangent there; one smooth fan holds one
+  custom normal); a warp facet's cells (v3: the core's triangles) carry its design surface's normal at every corner
+  (at a facet corner the mean of its cone's normals, planes.WarpSurface.corner_grad) and a soft border's fans (v3)
+  the facet's normal there, ramp included (build.design_corner_normals); these reach a roll band only on its start
+  line (tangent there); every other corner is auto-smoothed (zero);
 - plan fully (core, decals, hinge report), then write once: each target's mesh datablock is swapped in place (object
   name, transform, materials and other extras unchanged); the previous datablock stays as `<mesh> | g3d pre-temple`
   with a fake user (the earliest backup wins), WeightedNormal modifiers are removed and their settings kept in
@@ -78,9 +75,9 @@ PROP_TEMPLE = "g3d_temple"
 PROP_BACKUP = "g3d_temple_backup"
 PROP_VARIANT = "g3d_variant"
 DECAL_NEAR_MM = MS.DECAL_NEAR_MM   # a decal lies within this of the old temple surface (the shared rule:
-DECAL_THIN_MM = MS.DECAL_THIN_MM   # measure.is_surface_decal, also the host's photo-crease decal mask)
+DECAL_THIN_MM = MS.DECAL_THIN_MM   # measure.is_surface_decal)
 EDGE_SLACK_MM = 1e-3               # a (d, y) this near the outer triangles is inside (float32 BVH, ~1e-4 mm drift)
-HINGE_NEAR_MM = MS.HINGE_NEAR_MM   # hinge parts (the shared rule: measure.hinge_part_kind, also the host's decal mask)
+HINGE_NEAR_MM = MS.HINGE_NEAR_MM   # hinge parts (the shared rule: measure.hinge_part_kind)
 HINGE_X_MM = MS.HINGE_X_MM
 KNUCKLE_MAX_MM = MS.KNUCKLE_MAX_MM
 TEMPLE_MIN_REACH_MM = 60.0
@@ -499,7 +496,7 @@ def build_mesh(name, V_local, polys, sharp_pairs, flat_polys, normals_local, mat
 
 def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
     """Per corner of `polys` (the core's polygons in the order and winding written) the custom normal: the face normal
-    on the flat polygons (tb.flat_polys); on a faded, warp or soft fan, `n_faded[(polygon, vertex)]` (the core's
+    on the flat polygons (tb.flat_polys); on a warp or soft fan, `n_faded[(polygon, vertex)]` (the core's
     design_corner_normals in the object's frame: one normal per smooth fan, the design surface's);
     on a roll polygon, at a vertex it shares with a flat polygon of the same region, that polygon's normal (the
     quarter arc is tangent to the face there, and one smooth fan holds one custom normal: a different one would make
@@ -896,51 +893,6 @@ def remove_variant_meshes(names=None) -> dict:
             bpy.data.meshes.remove(me)
             removed.append(name)
     return {"status": "ok" if not kept else "partial", "removed": removed, "kept": kept}
-
-
-# --------------------------------------------------------------------------------------------- check_relief
-CHECK_ZONE_END_D = 50.0          # the measure window behind the hinge (information; /2 has no zone)
-
-
-def check_relief(objects=None, *, photo_creases: int | None = None, hinge_z: float | None = None) -> dict:
-    """Geometry numbers (measure.measure_temple, information) of the evaluated temples (both sides): from their
-    g3d_temple extras (chart, facet planes) when present, else the world chart (d = hinge_z - z; hinge_z defaults to
-    the temple's front end)."""
-    scene = bpy.context.scene
-    origin = asset_origin(scene)
-    try:
-        if objects:
-            obs = [_obj(o) for o in objects]
-        else:
-            c = temple_candidates(scene, origin)
-            obs = [c[s][0][1] for s in (1, -1) if c[s]]
-    except LookupError as exc:
-        return _refused("E_TARGET", str(exc))
-    out = {"status": "ok", "temples": {}}
-    for ob in obs:
-        V, T, _ = mesh_arrays(ob, origin, evaluated=True)
-        side = 1 if float(V[:, 0].mean()) > 0 else -1
-        ext = ob.get(PROP_TEMPLE)
-        planes = None
-        if isinstance(ext, str):
-            ext = json.loads(ext)
-            spec = ext["canonical_spec"]
-            h = spec["hinge"]
-            if h["axis_xz_mm"] is None:                 # the axis faceted_temple filled from the knuckles
-                h["axis_xz_mm"] = ext.get("hinge_axis_xz_mm")
-            L = TB.to_local(V, h["z_mm"], h["axis_xz_mm"], h["opening_deg"], side=side)
-            F = MS.chart_faces(T, side)
-            planes = RP.facet_planes_chart(TB.build_temple(spec))
-            chart = "g3d_temple extras"
-        else:
-            hz = float(V[:, 2].max()) if hinge_z is None else float(hinge_z)
-            L, F = MS.chart_mesh(V, T, side, hz)
-            chart = f"world (hinge z {hz:.2f})"
-        m = MS.measure_temple(L, F, zone_end=CHECK_ZONE_END_D, facet_planes=planes, photo_creases=photo_creases)
-        m["chart"] = chart
-        m["object"] = ob.name
-        out["temples"][_side_key(side)] = TS.plain(m)
-    return out
 
 
 # --------------------------------------------------------------------------------------------- §4 helpers

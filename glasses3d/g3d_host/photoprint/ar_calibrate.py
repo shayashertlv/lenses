@@ -1,7 +1,9 @@
 """Production AR level calibration, migrated from the WP5 proof driver.
 
 All photos, semantic part groups and pigment-family controls are explicit per job.
-Independent instruments and historical calibration evidence remain in tests.
+Independent instruments and historical calibration evidence remain in tests. The uncalled re-grade tail
+(``regrade``, ``regrade_summary``, ``_regrade_chunk``, ``_repo_path``) was deleted on 2026-10-13; the legacy
+copy in tests/photoprint/ar_calibrate.py keeps its own.
 """
 from __future__ import annotations
 import hashlib
@@ -16,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from glasses3d.g3d_host.photoprint import shading as SH
-from glasses3d.g3d_host.photoprint.procs import opt_out_ecoqos, pool_map
+from glasses3d.g3d_host.photoprint.procs import opt_out_ecoqos
 from . import ar_levels as AL
 from .metrics import part_name_matches
 G3D = Path(__file__).resolve().parents[2]
@@ -590,44 +592,3 @@ class Calibrator:
         if portraits:
             self.candidate_portraits(cands, work, job, probe, photos, log)
         return {'method': 'WP5 measured gain/gamma and chroma calibration; explicit job, groups and chroma family', 'bake': str(bake), 'glb_template': str(glb), 'target_form': self.measurements.TARGET, 'pair_table': table, 'pairs': pairs, 'tradeoff': roles['trade-off'], 'heldout': roles['held-out'], 'probe': {'glb': str(pg), 'capture': str(probe)} | probe_info, 'level': chosen['level'], 'residuals_p10_p50': chosen['residuals']['calibration'], 'chroma_residuals_p50': chosen['chroma']['calibration'], 'chroma_units': chosen['chroma_units']['calibration'], 'chroma_stats': chosen['chroma_stats']['calibration'], 'contrast_std_ratio': chosen['contrast']['calibration'], 'chroma_pass': bool(self.chroma_units_worst(chosen) <= 1.0), 'chroma_stage': chroma, 'worst': round(self.worst(chosen), 2), 'residuals': chosen['residuals'], 'residuals_by_form': chosen['residuals_by_form'], 'pass': chosen['pass'], 'pass_by_role': chosen['pass_by_role'], 'view_dependence': chosen['view_dependence'], 'chosen_capture': chosen['capture'], 'search': searches, 'leave_one_pair_out': loo, 'candidates': cands, 'iterations': its, 'stop_tol': STOP_TOL, 'grid': [list(g) for g in grid], 'search_box': box, 'chroma_boxes': {'sat': list(SAT_BOX), 'power': list(POWER_BOX), 'probes': [list(x) for x in CHROMA_PROBES], 'stop': CHROMA_STOP, 'max_iter': CHROMA_MAX_ITER, 'family': self.CHROMA_FAMILY}, 'chroma_units_all_graded_worst': round(self.chroma_units_worst(chosen, ALL_GRADED), 3) if self._has_roles(chosen, ALL_GRADED) else None, 'brow_residuals': chosen.get('brow_residuals'), 'brow_pass_by_role': chosen.get('brow_pass_by_role'), 'brows_alone': brows, 'hue': chosen.get('hue')}
-
-    def _repo_path(self, s: str) -> Path:
-        """A path as calibration.json stores it (relative to the repository root, the run's working directory)."""
-        p = Path(str(s).replace('\\', '/'))
-        return p if p.is_absolute() else G3D.parent / p
-
-    def _regrade_chunk(self, caps: list, probe: str, min_share: float) -> dict:
-        """``regrade``'s pool job: ``ar_levels.measure`` of several captures that share one black probe."""
-        opt_out_ecoqos()
-        job = self.job
-        return self.measurements.measure([Path(c) for c in caps], job=job, probes={str(Path(c)): probe for c in caps}, min_photo_share=min_share)
-
-    def regrade_summary(self, m: dict, cap: str) -> dict:
-        """One capture's chroma units and L* residuals per role, its worst chroma unit over the calibration pairs and over
-        every graded pair (with the pair and term that set it), and per pair the groups the instrument left out."""
-        row = m['captures'][str(Path(cap))]
-        roles = {'calibration': m['pairs'], 'trade-off': m['tradeoff'], 'held-out': m['heldout']}
-        units = {r: self.measurements.chroma_units(row, self.measurements.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()}
-        terms = [(abs(u), r, self.measurements.key(*ps[i // 3]), ('p50', 'p90', 'mean')[i % 3]) for r, ps in roles.items() for i, u in enumerate(units[r])]
-        wc = max((t for t in terms if t[1] == 'calibration'))
-        wa = max(terms)
-        return {'chroma_units': units, 'worst_unit_calibration': round(wc[0], 3), 'worst_unit_all_graded': round(wa[0], 3), 'worst_term_all_graded': {'role': wa[1], 'pair': wa[2], 'term': wa[3]}, 'residuals': {r: self.measurements.residuals(row, self.measurements.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()}, 'pass_by_role': row['pass'], 'pass_brow': row['pass_brow'], 'appearance_pass': {self.measurements.key(*p): row[self.measurements.key(*p)][self.measurements.TARGET]['appearance']['pass'] for ps in roles.values() for p in ps}, 'groups_excluded': {self.measurements.key(*p): sorted(row[self.measurements.key(*p)].get('groups_excluded') or {}) for ps in roles.values() for p in ps}}
-
-    def regrade(self, work: Path, tags=None, workers: int=1, min_share: float=AL.MIN_PHOTO_GROUP_SHARE, log=print) -> dict:
-        """Fix round 3 of step 6: every capture of a calibration run (``work``/calibration.json ``iterations``, or only
-        ``tags``) graded again by the CURRENT instrument against the run's own black probe: no capture, no fit, no level
-        changed. Beside each, the worst chroma units the run itself recorded. ``workers`` > 1: the captures are split over
-        an EcoQoS-opted-out process pool (``procs.pool_map``; progress at least every 30 s)."""
-        cal = json.loads((Path(work) / 'calibration.json').read_text(encoding='utf-8'))
-        probe = str(self._repo_path(cal['probe']['capture']))
-        its = [e for e in cal['iterations'] if tags is None or e['tag'] in set(tags)]
-        caps = [str(self._repo_path(e['capture'])) for e in its]
-        n = max(1, min(int(workers), len(caps)))
-        chunks = [caps[i::n] for i in range(n)]
-        res = pool_map(self._regrade_chunk, [(c, probe, float(min_share)) for c in chunks], workers=n, progress=log, tag='regrade')
-        out = {'calibration': str(Path(work) / 'calibration.json'), 'probe': probe, 'min_photo_group_share': min_share, 'instrument': 'ar_levels.measure (current), print form', 'captures': {}}
-        for e, cap in zip(its, caps):
-            m = next((r for r in res if str(Path(cap)) in r['captures']))
-            st = e.get('chroma_units') or {}
-            out['captures'][e['tag']] = {'level': e['level'], 'capture': cap, 'stored': {'worst_unit_calibration': round(max((abs(x) for x in st['calibration'])), 3) if st.get('calibration') else None, 'worst_unit_all_graded': round(max((abs(x) for r in ALL_GRADED for x in st[r])), 3) if all((st.get(r) for r in ALL_GRADED)) else None}, 'now': self.regrade_summary(m, cap)}
-        return out

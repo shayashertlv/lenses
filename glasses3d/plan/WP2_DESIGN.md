@@ -5,6 +5,12 @@ changed except this one. Inputs: PLAN §0/§2/§4 (WP2, WP7, WP8); PORT_REVIEW �
 WP2 inventory; three panel designs ("worker", "loop", "jobs") with prototypes under
 `C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp2-design/` (`worker_angle/`, `loop/` + `worker/`, `worker_proto/` + `sdk_proto/`).
 
+> **Review 2026-10-13 ([REVIEW_20261013.md](REVIEW_20261013.md)) — read before building stages D-F.** Stages A-C match
+> the code. The §10 catalogue's G2 rows (`check_relief`, `trace_temple`, `fit_temple`, `compare_temple_views`) name
+> retired WP6 v1 tools: WP6 closed on the v3 facet lab (`agent/temple_lab`, 7 tools, its own prompt), whose joining
+> into a job is undesigned (review §4, §8). The worker op `g3d_call` (§3) was never built. The paid-run lock is per
+> parent folder, not machine-wide (`agent/budget.py:1334`).
+
 ## 0. Verdict
 
 - **PORT_REVIEW §1 holds; every risk it listed is now measured here** (own headless worker, stock SDK `Runner`, Studio

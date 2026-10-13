@@ -9,8 +9,8 @@ steps.json = [{"op": ..., ...}] run in order; the receipt holds one result per s
     build_variant_meshes {spec, side?, targets?, decals?}       remove_variant_meshes {names?}
     mesh_info {names}: per mesh datablock: exists, users, vertices, polygons, g3d_variant tag
     core_dump {spec}: the core built in Blender's numpy (vertices, polygons, sharp edges)
-    check_relief {objects?, photo_creases?}                     scene_digest {}
-    mesh_digests {objects?}                                      export {path}
+    scene_digest {}                                              mesh_digests {objects?}
+    export {path}
     save_copy {path} (refused when the path exists or is the opened file)
     dump_temples {objects?}: world (asset mm) vertices / triangles / polygons / sharp edges / corner normals
     decal_standoffs {objects}: per object, each vertex's signed distance (+ outside) to the temple body on its side
@@ -138,8 +138,6 @@ def run_step(st):
         ob = bpy.data.objects[kw["object"]]
         ob.data.materials.append(None)
         return {"status": "ok", "slots": len(ob.material_slots)}
-    if op == "check_relief":
-        return T.check_relief(kw.get("objects"), photo_creases=kw.get("photo_creases"))
     if op == "scene_digest":
         return {"status": "ok", "digest": T.scene_digest(scene)}
     if op == "mesh_digests":

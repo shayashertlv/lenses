@@ -2,7 +2,7 @@
 only, float64, deterministic.
 
 The solid is {y_bot(d) <= y <= y_top(d), x_in(d) <= X <= S(d, y) - c(d, y)}: S = the outer surface (a facet plane,
-a warp facet's surface, a faded facet, a border-band ramp or the base), c = the chamfer depth plus the roll depth.
+a warp facet's surface, a border-band ramp or the base), c = the chamfer depth plus the roll depth.
 
 Steps:
  1. facet polygons with no area or crossing themselves: E_SPEC (before any arrangement); the facet-only arrangement
@@ -10,9 +10,8 @@ Steps:
     border band: a line band_of(facet) into the base parallel to every facet/base border (border_band_mm; a soft
     facet's SOFT_BAND_MM), mitred where the base is convex, bevelled where it is reflex, closed onto the outline or a
     chord at a run end, clipped to the base;
- 2. stations (full-height chords) at every table knot, node d, facet-edge/outline crossing, fade d0 / d1, chamfer
-    break and border-band end, subdivided to <= station_step_mm (inside a fade to <= min(step, (d1 - d0) / 6)); kept
-    with a roll;
+ 2. stations (full-height chords) at every table knot, node d, facet-edge/outline crossing, chamfer break and
+    border-band end, subdivided to <= station_step_mm; kept with a roll;
  3. the full arrangement: outline, facet edges, stations, chamfer lines, the 8 roll lines per outline edge and the
     border band; every face is labelled (facet or base, chamfer, roll band); with a warp facet, a second
     arrangement adds its refinement lines (warp_segments, from the first one's surfaces: chord error <=
@@ -20,62 +19,37 @@ Steps:
     facet's vertices and off any edge it would graze, so no sliver triangle), retried on two more lattices and else
     left out (W_WARP_CHORD, also above WARP_CHORD_WARN_MM); an arrangement face that would visit a vertex twice (a
     facet corner touching the outline or another facet at one point) gets a chord through that vertex;
- 3b. E_FADE_CREASE (_check_fade_creases): two facets both faded anywhere along the crease they share;
- 4. surfaces (planes.py: planes, coef planes, warps), then vertex values: a facet vertex takes its facet's surface
-    (faded: (1 - s) surface + s base, s = the
-    fade weight); a vertex shared by facets takes the facet with the smallest fade weight there (ties: the first
-    label; their planes agree there, planes.py), so a crease stays where the less-faded facet still stands and a faded
-    neighbour blends away from it (one value per vertex: continuous, never a step); a base vertex at distance
-    delta < band from a border takes base + (1 - delta / band) x the mismatch at that border's nearest point (the
-    ramp; the border with the largest 1 - delta / band, the nearest one when every band is alike), else the base.
-    Facets with different fades may share creases and vertices; a less-faded neighbour then holds the faded facet at
-    its own height on their shared vertices and the drop to the fade happens inside the first row of triangles, with
-    no band (checked in step 7);
+ 4. surfaces (planes.py: planes, coef planes, warps), then vertex values: a facet vertex takes its facet's surface; a
+    vertex shared by facets takes the first label's (their planes agree there, planes.py; one value per vertex:
+    continuous, never a step); a base vertex at distance delta < band from a border takes base + (1 - delta / band) x
+    the mismatch at that border's nearest point (the ramp; the border with the largest 1 - delta / band, the nearest
+    one when every band is alike), else the base;
  5. depths: chamfers (v1) and the core roll: r = roll_mm as 8 stacked chamfer sub-bands along the top and bottom
     outline edges with depth c(s) = r - sqrt(r^2 - (r - s)^2) at equal arc angles (s = vertical offset from the edge),
     so the strip's outer edge moves in to X - r and the side silhouette is unchanged. Limit:
     r <= min(min thickness - t_min, 0.45 x outline height - chamfer widths), else E_ROLL;
- 6. cells and polygons: a facet cell is a face of a facet whose vertices all have fade weight 0 (every face of a
-    non-faded facet; the faces of a faded facet before its fade starts, stations sit at d0 so no face straddles it);
-    a faded cell is a face of a faded facet with any vertex weight > 0 (a face entirely at weight 1 is base-valued and
-    stays a faded cell: triangulated and smooth like the base, keeping its label for the crease tables); a warp
-    facet's unfaded faces are warp cells. Facet cells
-    (chamfered or rolled too) are planar n-gons; every other outer cell (warp, base, faded, ramp) is the arrangement's
+ 6. cells and polygons: a facet cell is a face of a facet; a warp facet's faces are warp cells. Facet cells
+    (chamfered or rolled too) are planar n-gons; every other outer cell (warp, base, ramp) is the arrangement's
     ear-clip triangles, never an n-gon, so Blender and the GLB share the core's triangulation; inner polygons
     (planar: x_in is linear between stations), one planar quad per outline edge (top / bottom strips), a planar
     hinge-end cap and tip cap;
  7. self-checks: closed oriented 2-manifold, Euler 2, volume > 0, every polygon planar within planar_tol_mm (one
     tolerance: a spec planes.solve accepts never fails E_TRIANGULATE on its own rounding; it was 1e-9), thickness >=
-    t_min (E_TOO_THIN), outer triangles with positive (d, y) area (no self-intersection); the fade hold, over every
-    faded outer and roll triangle: a vertex's hold = S minus the faded facet's own value (facet_values), the tilt = the
-    angle between the built triangle and the same triangle at its facet's own values (chamfer and roll depth as
-    built), so only the hold tilts it; a triangle counts when its largest hold is >= FADE_HOLD_MIN_MM (0.05 mm, under
-    one photo pixel: a micron-wide sliver's tilt is no wall). A counted tilt > FADE_CLIFF_DEG (25) is a hidden wall
-    (shaded as the fade, seen only in the silhouette): E_FADE_CLIFF naming the faded facet, the less-faded neighbour
-    holding it (the holder of the triangle's vertex held farthest from its fade), the d range of those triangles, the
-    worst point, the largest hold (mm) and tilt, and the fix (start the fade where the crease ends); else the largest
-    counted tilt >= FADE_HOLD_WARN_DEG (10) is one W_FADE_HOLD (one
-    receipt line); a crease two faded facets share is E_FADE_CREASE before any of this (step 3b). Mixed
-    fades under the limit build. Fades that move none of their facet's vertices FADE_HOLD_MIN_MM (less-faded
-    neighbours hold them all, or the fade lies outside the facet) are one W_FADE_INERT naming those facets; fades that
-    start within FADE_EARLY_SHARE of their facet's own d extent and within FADE_EARLY_MM of its end (the facet barely
-    stands flat anywhere, so it never reads as a face of its own) are one W_FADE_EARLY naming those facets;
+    t_min (E_TOO_THIN), outer triangles with positive (d, y) area (no self-intersection);
  8. sharp edges: a crease edge (two different regions, facet/facet or facet/base) between facet cells always; one
-    with a faded or warp cell on either side while the crease still stands: its design dihedral (the angle between the
-    two regions' surfaces, plane / warp / fade / base, at the edge midpoint; chamfers, roll and triangulation aside) >=
-    CREASE_STANDS_DEG, or its built dihedral >= 6 deg; so a faded crease is sharp until it has faded out. A soft
+    with a warp cell on either side while the crease still stands: its design dihedral (the angle between the two
+    regions' surfaces, plane / warp / base, at the edge midpoint; chamfers, roll and triangulation aside) >=
+    CREASE_STANDS_DEG, or its built dihedral >= 6 deg. A soft
     facet's edges with the base per border run (a connected chain): all sharp when half its length folds by
     SOFT_SHARP_DEG or more (built dihedral, length-weighted median), else all smooth; the edges inside its ramp (a ramp
     cell all of whose ramped vertices ramp to soft borders) and where that ramp meets the base only at a built
-    dihedral >= SOFT_SHARP_DEG; creases between two facets are never soft. Edges inside one warp facet smooth; inside
-    one faded facet, ramp and chamfer edges at a dihedral >= 6 deg;
+    dihedral >= SOFT_SHARP_DEG; creases between two facets are never soft. Edges inside one warp facet smooth; ramp
+    and chamfer edges at a dihedral >= 6 deg;
     roll edges (sub-band / sub-band, roll / outer face, roll / strip) smooth; face-to-strip and face-to-cap sharp;
     strip / strip and strip / cap at kinks > kink_sharp_deg. Custom normals: face normals on facet-cell polygons;
-    on a smooth fan of one faded region's outer / roll polygons, one normal: the facet cell's where the fade starts,
-    else the design surface's (faded_corner_normals; the roll does not tilt it); on a warp facet's fans its design
-    surface's, at a corner the mean of its cone's normals (planes.WarpSurface.corner_grad); on a soft border's fans the
-    facet's (design_corner_normals); a fan reaches the roll band only on its start line (tangent there); auto-smoothed
-    elsewhere;
+    on a warp facet's fans its design surface's, at a corner the mean of its cone's normals
+    (planes.WarpSurface.corner_grad); on a soft border's fans the facet's (design_corner_normals); a fan reaches the
+    roll band only on its start line (tangent there); auto-smoothed elsewhere;
  9. creases: every facet/facet and facet/base pair with its length-weighted angle and ridge/valley shares, one
     per-edge rule (edge_folds) for the tables, the chart, the sections and model_edges: a facet|facet edge its built
     dihedral, a facet|base edge its fold across the border, the facet's design surface against the BASE surface at
@@ -105,11 +79,9 @@ import numpy as np
 
 from . import planes as PL_
 from .arrange import Arrangement, build_arrangement, clip_segment, ear_clip, poly_area, simple_polygon
-from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, FADE_CLIFF_DEG,
-                   FADE_CREASE_WEIGHT, FADE_EARLY_MM, FADE_EARLY_SHARE, FADE_HOLD_MIN_MM, FADE_HOLD_WARN_DEG,
-                   FADE_ZERO, FLAT_CREASE_DEG, ROLL_BANDS, SHARP_DIHEDRAL_DEG, SOFT_BAND_MM, SOFT_SHARP_DEG,
-                   TILE_TOL_MM2, ParsedSpec, TempleError, _facet_crossings,
-                   chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile, smoothstep)
+from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, FLAT_CREASE_DEG,
+                   ROLL_BANDS, SHARP_DIHEDRAL_DEG, SOFT_BAND_MM, SOFT_SHARP_DEG, TILE_TOL_MM2, ParsedSpec, TempleError,
+                   _facet_crossings, chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile)
 
 WALL_KINDS = ("top", "bottom", "cap_hinge", "cap_tip")
 OUTER_KINDS = ("outer", "roll")
@@ -130,7 +102,7 @@ class TempleBuild:
     face_label: list                  # per arrangement face: facet label or "base"
     face_chamfer: list                # per arrangement face: chamfer index or None
     face_roll: list                   # per arrangement face: inside the roll band
-    face_cell: list                   # per arrangement face: "facet" | "warp" | "faded" | "ramp" | "base"
+    face_cell: list                   # per arrangement face: "facet" | "warp" | "ramp" | "base"
     X: np.ndarray                     # (n,) outer X of every arrangement vertex (after chamfers and roll)
     X_surface: np.ndarray             # (n,) outer surface X before chamfers and roll
     thickness: np.ndarray             # (n,) X - x_in
@@ -145,7 +117,7 @@ class TempleBuild:
     tris: np.ndarray                  # (m, 3) triangles of the polygons
     tri_poly: np.ndarray              # (m,) polygon of each triangle
     sharp: list                       # sorted (a, b) a < b
-    flat_polys: list                  # polygons whose corners take the face normal (outer facet cells, weight 0)
+    flat_polys: list                  # polygons whose corners take the face normal (outer facet cells)
     normals: np.ndarray               # (polys, 3) unit outward normals (local)
     checks: dict
     tables: dict
@@ -213,39 +185,24 @@ def facet_segments(ps: ParsedSpec) -> list:
     return segs
 
 
-def fade_weight(ps: ParsedSpec, label: str, d) -> np.ndarray:
-    """A facet's fade weight s at d: smoothstep((d - d0) / (d1 - d0)), 0 for a non-faded facet; below FADE_ZERO it is
-    0 (a station rounded to 12 decimals still sits at the fade start)."""
-    d = np.asarray(d, np.float64)
-    fade = ps.facets[label]["fade"]
-    if fade is None:
-        return np.zeros(d.shape)
-    s = smoothstep((d - fade["d0"]) / (fade["d1"] - fade["d0"]))
-    return np.where(s < FADE_ZERO, 0.0, s)
-
-
 def facet_values(ps: ParsedSpec, sol, label: str, d, y):
-    """X of a facet at (d, y): its plane, or for a faded facet (1 - s) plane + s base, s = its fade weight."""
-    X = sol.planes[label].X(d, y)
-    if ps.facets[label]["fade"] is None:
-        return X
-    s = fade_weight(ps, label, d)
-    return (1.0 - s) * X + s * ps.x_base(d, y)
+    """X of a facet at (d, y): its plane (or warp surface)."""
+    return sol.planes[label].X(d, y)
 
 
 def region_values(ps: ParsedSpec, sol, region: str, d, y):
-    """X of a region's design surface at (d, y): a facet's (faded) values or the base (chamfers and roll aside)."""
+    """X of a region's design surface at (d, y): a facet's values or the base (chamfers and roll aside)."""
     return ps.x_base(d, y) if region == "base" else facet_values(ps, sol, region, d, y)
 
 
 def _warp_unfaded(ps: ParsedSpec, sol, region: str) -> bool:
-    return region != "base" and sol.planes[region].kind == "warp" and ps.facets[region]["fade"] is None
+    return region != "base" and sol.planes[region].kind == "warp"
 
 
 def region_grad(ps: ParsedSpec, sol, region: str, d, y, h: float = 1e-3) -> tuple:
-    """(dX/dd, dX/dy) of a region's design surface (region_values) at the points (d, y): an unfaded warp facet's own
-    gradient (WarpSurface.grad: its corner gradient at a corner, where mean value coordinates are only C0), else
-    central differences (h), so a fade's slope term and the base gradient count."""
+    """(dX/dd, dX/dy) of a region's design surface (region_values) at the points (d, y): a warp facet's own gradient
+    (WarpSurface.grad: its corner gradient at a corner, where mean value coordinates are only C0), else central
+    differences (h), so the base gradient counts."""
     if _warp_unfaded(ps, sol, region):
         return sol.planes[region].grad(d, y)
     gd = (region_values(ps, sol, region, d + h, y) - region_values(ps, sol, region, d - h, y)) / (2 * h)
@@ -299,12 +256,6 @@ def station_list(ps: ParsedSpec, prep: Prep | None = None) -> list[float]:
     for arr in (ps.top[:, 0], ps.bottom[:, 0], ps.inner.d, ps.t_top.d, ps.t_bot.d, [n[0] for n in ps.nodes.values()],
                 [c[0] for c in prep.crossings], [k for ch in ps.chamfers for k in chamfer_breaks(ch)]):
         src |= {float(k) for k in arr if d0 < k < d1}
-    fades = []
-    for f in ps.facets.values():
-        if f["fade"] is not None:
-            a, b = sorted((f["fade"]["d0"], f["fade"]["d1"]))
-            src |= {k for k in (a, b) if d0 < k < d1}
-            fades.append((a, b, min(step, (b - a) / 6.0)))
     near = max(ps.options["snap_mm"], 1e-6)
     for k in sorted({float(e[0]) for seg in prep.band for e in seg}):
         if d0 < k < d1 and (not src or min(abs(x - k) for x in src) > near):
@@ -312,11 +263,7 @@ def station_list(ps: ParsedSpec, prep: Prep | None = None) -> list[float]:
     bounds = [d0] + sorted(src) + [d1]
     out = []
     for a, b in zip(bounds[:-1], bounds[1:]):
-        st = step
-        for lo, hi, sf in fades:
-            if a >= lo - 1e-12 and b <= hi + 1e-12:
-                st = min(st, sf)
-        out += _subdivide(a, b, st)
+        out += _subdivide(a, b, step)
         out.append(b)
     out = sorted(set(round(x, 12) for x in out))
     return [x for x in out if d0 + 1e-9 < x < d1 - 1e-9]
@@ -626,17 +573,16 @@ def _clip_to_base(ps: ParsedSpec, segs: list) -> list:
 
 # ------------------------------------------------------------------------------------------- the build
 def _plan(ps: ParsedSpec):
-    """A build's first steps: prep, the stations, the arrangement, its face labels (+ chamfer ids) and the planes
-    (E_FADE_CREASE first: it needs only the arrangement and the fades). With warp facets, a second arrangement adds
-    their refinement lines (warp_segments, from the first one's surfaces) and the surfaces are solved again on it
-    (the same corner values; the new vertices take their values from them). The last item says whether a needed
-    refinement was left out (every lattice failed: the build keeps the unrefined arrangement, W_WARP_CHORD)."""
+    """A build's first steps: prep, the stations, the arrangement, its face labels (+ chamfer ids) and the planes.
+    With warp facets, a second arrangement adds their refinement lines (warp_segments, from the first one's surfaces)
+    and the surfaces are solved again on it (the same corner values; the new vertices take their values from them).
+    The last item says whether a needed refinement was left out (every lattice failed: the build keeps the unrefined
+    arrangement, W_WARP_CHORD)."""
     prep = prepare(ps)
     stations = station_list(ps, prep)
     segs = segments(ps, prep, stations)
     arr = build_arrangement(ps.boundary(), segs, chord_fn=lambda d: chord(ps, d), inside=INSIDE_KINDS)
     labels, chamf = _label_faces(ps, arr)
-    _check_fade_creases(ps, arr, labels)
     sol = PL_.solve(ps, arr, labels)
     for shift in range(WARP_TRIES):
         extra = warp_segments(ps, sol, stations, shift, arr, labels)
@@ -887,13 +833,6 @@ def _cells_touch(C: np.ndarray, Pg: np.ndarray) -> np.ndarray:
     return (t0 <= t1).any(axis=1)
 
 
-def solve_planes(spec) -> tuple[ParsedSpec, "PL_.PlaneSolution"]:
-    """(parsed spec, its facet planes) without the rest of the build: what values its solved nodes take (the lab's
-    refusal notes). Raises TempleError for a refusal up to and including the planes."""
-    ps = spec if isinstance(spec, ParsedSpec) else parse(spec)
-    return ps, _plan(ps)[5]
-
-
 def build_temple(spec) -> TempleBuild:
     """Plan and check one +X temple from a spec dict (or a ParsedSpec). Raises TempleError (nothing built)."""
     ps = spec if isinstance(spec, ParsedSpec) else parse(spec)
@@ -904,19 +843,14 @@ def build_temple(spec) -> TempleBuild:
     B = ps.x_base(V2[:, 0], V2[:, 1])
     flabs = sorted({l for l in labels if l != "base"})
     col = {l: j for j, l in enumerate(flabs)}
-    W = np.full((n, len(flabs)), np.inf)          # fade weight of each facet at each of its vertices (inf: not on it)
+    W = np.full((n, len(flabs)), np.inf)          # 0 where a facet has the vertex (inf: not on it)
     for fi, f in enumerate(arr.faces):
         if labels[fi] != "base":
             W[f, col[labels[fi]]] = 0.0
-    for j, lab in enumerate(flabs):
-        idx = np.nonzero(W[:, j] == 0.0)[0]
-        W[idx, j] = fade_weight(ps, lab, V2[idx, 0])
     S = B.copy()
     on_facet = np.isfinite(W).any(axis=1) if flabs else np.zeros(n, bool)
-    holder = np.full(n, None, object)             # the facet whose values a vertex takes (None: base or ramp)
     if flabs:
-        pick = np.argmin(W, axis=1)                # the least-faded facet; ties: the first label
-        holder[on_facet] = np.array(flabs, object)[pick[on_facet]]
+        pick = np.argmin(W, axis=1)                # the vertex's first facet label
         for j, lab in enumerate(flabs):
             idx = np.nonzero(on_facet & (pick == j))[0]
             if len(idx):
@@ -954,8 +888,8 @@ def build_temple(spec) -> TempleBuild:
     for fi, f in enumerate(arr.faces):
         lab = labels[fi]
         if lab != "base":
-            # by the fade weight it has; a warp facet's unfaded faces are "warp" cells (triangulated, smooth)
-            cells.append("faded" if np.any(W[f, col[lab]] > 0.0) else ("warp" if lab in warp else "facet"))
+            # a warp facet's faces are "warp" cells (triangulated, smooth)
+            cells.append("warp" if lab in warp else "facet")
             ramp_kind.append(None)
         else:
             cells.append("ramp" if np.any(delta[f] < vband[f] * (1.0 - 1e-9)) else "base")
@@ -1017,9 +951,6 @@ def build_temple(spec) -> TempleBuild:
         k = int(np.argmax(planarity))
         raise TempleError("E_TRIANGULATE", f"polygon {k} ({kind[k]} {region[k]}) is {planarity[k]:.3g} mm off its "
                           f"plane", polygon=k, kind=kind[k], region=region[k], planarity_mm=float(planarity[k]))
-    hold_warnings = _check_fade_holds(ps, sol, V, polys, kind, region, pcell, S, holder)
-    hold_warnings += _inert_fades(ps, sol, arr, labels, S)
-    hold_warnings += _early_fades(ps, arr, labels)
     pramp = [ramp_kind[f] if f >= 0 else None for f in pface]
     sharp, edge_info, warnings = _sharp_edges(ps, sol, V, mesh_topology(polys), kind, region, pcell, normals, pramp)
     flat = [i for i, (k_, c_) in enumerate(zip(kind, pcell)) if k_ == "outer" and c_ == "facet"]
@@ -1027,7 +958,7 @@ def build_temple(spec) -> TempleBuild:
                      face_cell=cells, X=Xo, X_surface=S, thickness=thick, borders=prep.borders, stations=stations,
                      V=V, polys=polys, poly_kind=kind, poly_region=region, poly_face=pface, poly_cell=pcell, tris=tris,
                      tri_poly=tri_poly, sharp=sharp, flat_polys=flat, normals=normals, checks=checks, tables={},
-                     warnings=list(sol.warnings) + warnings + hold_warnings, face_ramp=ramp_kind)
+                     warnings=list(sol.warnings) + warnings, face_ramp=ramp_kind)
     tb.tables = _tables(tb, edge_info, B, prep, roll_info, areas, unrefined)
     _check_creases(tb)
     return tb
@@ -1213,13 +1144,13 @@ def _sharp_edges(ps, sol, V, topo, kind, region, cell, normals, pramp=None):
         if k1 in OUTER_KINDS and k2 in OUTER_KINDS:
             l1, _, c1 = region[p1].partition("/")
             l2, _, c2 = region[p2].partition("/")
-            if l1 != l2:                    # always; beside a faded or warp cell while the crease stands
+            if l1 != l2:                    # always; beside a warp cell while the crease stands
                 info.append(("crease", _pair(l1, l2), a, b, p1, p2, dih))
                 f = l2 if l1 == "base" else (l1 if l2 == "base" else None)
                 if f is not None and ps.facets[f].get("soft"):
                     soft_border.setdefault(f, []).append((a, b, dih))     # a soft border: per run, below
                     continue
-                s = not ({"faded", "warp"} & {cell[p1], cell[p2]}) or stands[(a, b)] or dih >= SHARP_DIHEDRAL_DEG
+                s = "warp" not in (cell[p1], cell[p2]) or stands[(a, b)] or dih >= SHARP_DIHEDRAL_DEG
             elif "roll" in (k1, k2):
                 s = False                                   # the rounded band: tangent sub-bands
             elif c1 != c2:
@@ -1227,7 +1158,7 @@ def _sharp_edges(ps, sol, V, topo, kind, region, cell, normals, pramp=None):
                 info.append(("chamfer", tuple(sorted((region[p1], region[p2]))), a, b, p1, p2, dih))
             elif {pramp[p1], pramp[p2]} - {None} == {"soft"}:
                 s = dih >= SOFT_SHARP_DEG                   # inside a soft border's ramp (and where it meets the base)
-            elif cell[p1] in ("faded", "ramp") or cell[p2] in ("faded", "ramp"):
+            elif "ramp" in (cell[p1], cell[p2]):
                 s = dih >= SHARP_DIHEDRAL_DEG
             elif c1 and dih >= SHARP_DIHEDRAL_DEG:          # a fold inside a chamfer (its taper ends, outline knots)
                 s = True
@@ -1279,48 +1210,6 @@ def design_normal(ps: ParsedSpec, sol, region: str, d, y, h: float = 1e-3) -> np
     return n / np.linalg.norm(n, axis=-1, keepdims=True)
 
 
-def faded_corner_normals(tb) -> dict:
-    """{(polygon, vertex): unit local normal} for the corners of every smooth fan (the polygons around a vertex joined
-    by non-sharp edges) that holds a faded outer cell and only outer / roll polygons of that one region: the face
-    normal of a facet-cell polygon in the fan (where a fade starts), else the region's design-surface normal there
-    (design_normal). One fan, one normal: the faded surface shades as designed, the roll sub-bands do not tilt it (the
-    roll is tangent at its line) and Blender splits no fan. Facet-cell polygons themselves always carry their face
-    normal (TempleBuild.flat_polys); other fans stay auto-smoothed (absent here). Empty without faded cells."""
-    polys, kind, region, cell = tb.polys, tb.poly_kind, tb.poly_region, tb.poly_cell
-    seeds = sorted({v for i, p in enumerate(polys) if cell[i] == "faded" and kind[i] == "outer" for v in p})
-    if not seeds:
-        return {}
-    flat = set(tb.flat_polys)
-    fans, pending = [], []                            # (vertex, [polygons], region, flat polygon or None)
-    for v, groups in _vertex_fans(tb, seeds):
-        for g in groups:
-            regs = {region[i] for i in g}
-            if len(regs) != 1 or not all(kind[i] in OUTER_KINDS for i in g):
-                continue
-            if not any(cell[i] == "faded" and kind[i] == "outer" for i in g):
-                continue
-            reg = regs.pop()
-            f = next((i for i in g if i in flat), None)
-            fans.append((v, g, reg, f))
-            if f is None:
-                pending.append(len(fans) - 1)
-    N = {}
-    by_reg: dict = {}
-    for j in pending:
-        by_reg.setdefault(fans[j][2], []).append(j)
-    for reg, js in by_reg.items():
-        vs = [fans[j][0] for j in js]
-        n = design_normal(tb.spec, tb.sol, reg, tb.V[vs, 0], tb.V[vs, 1])
-        N.update({j: n[k] for k, j in enumerate(js)})
-    out = {}
-    for j, (v, g, _reg, f) in enumerate(fans):
-        n = tb.normals[f] if f is not None else N[j]
-        for i in g:
-            if i not in flat:
-                out[(i, v)] = n
-    return out
-
-
 def _vertex_fans(tb, seeds: list) -> list:
     """[(vertex, [fan = [polygon ids]])] around each seed vertex (ascending): the polygons at it joined across its
     non-sharp edges (a smooth fan holds one shading normal)."""
@@ -1353,26 +1242,25 @@ def _vertex_fans(tb, seeds: list) -> list:
 
 def design_corner_normals(tb) -> dict:
     """{(polygon, vertex): unit local normal} of every corner whose custom normal is a design surface's (the Blender
-    layer writes them; zero elsewhere): the faded fans (faded_corner_normals); the warp fans (a smooth fan of one
-    unfaded warp region's outer / roll polygons around a vertex of its outer polygons: the warp's design normal at the
-    vertex, its corner gradient's at a corner: WP6_V3 §2, warp cells shade smooth from the design surface); the soft
-    fans (a smooth fan around a vertex of a soft facet's outer polygons holding that facet's outer / roll polygons
-    and the base's only: the facet's normal there, a flat polygon's face normal in the fan else its design normal, on
-    every polygon of the fan, so the ramp leaves the facet tangentially in shading and Blender splits no fan). Like
-    the faded fans, these reach the roll band only on its start line (tangent there): deeper roll corners stay
-    auto-smoothed. Without warp or soft facets it is faded_corner_normals."""
-    out = faded_corner_normals(tb)
+    layer writes them; zero elsewhere): the warp fans (a smooth fan of one warp region's outer / roll polygons around
+    a vertex of its outer polygons: the warp's design normal at the vertex, its corner gradient's at a corner: WP6_V3
+    §2, warp cells shade smooth from the design surface); the soft fans (a smooth fan around a vertex of a soft
+    facet's outer polygons holding that facet's outer / roll polygons and the base's only: the facet's normal there, a
+    flat polygon's face normal in the fan else its design normal, on every polygon of the fan, so the ramp leaves the
+    facet tangentially in shading and Blender splits no fan). These reach the roll band only on its start line
+    (tangent there): deeper roll corners stay auto-smoothed. Empty without warp or soft facets."""
+    out = {}
     ps, sol = tb.spec, tb.sol
-    warp = {lab for lab, pl in sol.planes.items() if pl.kind == "warp" and ps.facets[lab]["fade"] is None}
+    warp = {lab for lab, pl in sol.planes.items() if pl.kind == "warp"}
     soft = {lab for lab, f in ps.facets.items() if f.get("soft")}
     if not warp and not soft:
         return out
     polys, kind, region, cell = tb.polys, tb.poly_kind, tb.poly_region, tb.poly_cell
     lab_of = [r.partition("/")[0] for r in region]
-    # seeds: the vertices of OUTER polygons only (as faded_corner_normals): a fan reaches the roll band only on the
-    # roll's start line, where the quarter arc is tangent; deeper roll corners stay auto-smoothed, so the rolled edge
-    # keeps its highlight (seeding the roll polygons too gave every roll corner of a warp facet its un-rolled normal,
-    # up to 88.6 deg off: review-builder-correctness P1-2)
+    # seeds: the vertices of OUTER polygons only: a fan reaches the roll band only on the roll's start line, where the
+    # quarter arc is tangent; deeper roll corners stay auto-smoothed, so the rolled edge keeps its highlight (seeding
+    # the roll polygons too gave every roll corner of a warp facet its un-rolled normal, up to 88.6 deg off:
+    # review-builder-correctness P1-2)
     seeds = {v for i, p in enumerate(polys) if kind[i] == "outer" and lab_of[i] in warp | soft for v in p}
     flat = set(tb.flat_polys)
     jobs: dict = {}                                   # design-normal region -> [(vertex, fan)]
@@ -1407,217 +1295,6 @@ def _find(root: dict, a):
         root[a] = root[root[a]]
         a = root[a]
     return a
-
-
-def _unit_normals(P: np.ndarray) -> np.ndarray:
-    """Unit normals (m, 3) of the triangles P (m, 3, 3) by their vertex order (no degenerate triangle here: the outer
-    triangles have positive (d, y) area, self-check)."""
-    n = np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0])
-    return n / np.linalg.norm(n, axis=1, keepdims=True)
-
-
-def _fade_tilts(ps, sol, V, polys, kind, region, cell, S) -> tuple:
-    """(triangles (m, 3), holds (m, 3) mm, tilts deg (m,), facet labels (m,)) of every faded outer and roll triangle.
-    A vertex's hold = S minus the faded facet's own value there (facet_values; + = held above its fade by a less-faded
-    neighbour, module docstring step 4; 0 where the facet holds itself). The tilt = the angle between the built
-    triangle and the same triangle at the facet's own values (every vertex moved by -hold; chamfer and roll depth as
-    built): 0 without a hold, so neither the triangulation, the fade's own curvature, the chamfer nor the roll counts,
-    only the hold."""
-    idx = [i for i, (k, c) in enumerate(zip(kind, cell)) if k in OUTER_KINDS and c == "faded"]
-    T = np.array([polys[i] for i in idx], np.int64).reshape(-1, 3)
-    labs = np.array([region[i].partition("/")[0] for i in idx], object)
-    H = np.zeros(T.shape)
-    for lab in sorted(set(labs)):
-        m = labs == lab
-        vs = T[m].ravel()
-        H[m] = (S[vs] - facet_values(ps, sol, lab, V[vs, 0], V[vs, 1])).reshape(-1, 3)
-    P = V[T]
-    Q = P.copy()
-    Q[..., 2] -= H
-    nb, nq = _unit_normals(P), _unit_normals(Q)
-    tilt = np.degrees(np.arctan2(np.linalg.norm(np.cross(nb, nq), axis=1), np.einsum("ij,ij->i", nb, nq)))
-    return T, H, tilt, labs
-
-
-def _hold_groups(V, holder, T, H, tilt, labs, sel) -> list:
-    """The selected faded triangles grouped by (faded facet, neighbour): the neighbour is the facet holding the
-    triangle's vertex held farthest from the faded facet's own value (its holder, module docstring step 4). Per group:
-    facet, neighbour, d range, triangle count, the largest tilt and where (centroid d, y), the signed hold of largest
-    size (+ = held above its fade). Largest tilt first."""
-    groups: dict = {}
-    for k in np.nonzero(sel)[0]:
-        lab, tri = str(labs[k]), T[k]
-        j = int(np.argmax(np.abs(H[k])))
-        h, v = float(H[k, j]), int(tri[j])
-        nb = None if holder[v] is None or holder[v] == lab else str(holder[v])
-        g = groups.setdefault((lab, nb), {"facet": lab, "neighbour": nb, "d_mm": [math.inf, -math.inf],
-                                          "triangles": 0, "tilt_deg": -1.0, "at": None, "hold_mm": 0.0})
-        g["d_mm"] = [min(g["d_mm"][0], float(V[tri, 0].min())), max(g["d_mm"][1], float(V[tri, 0].max()))]
-        g["triangles"] += 1
-        if tilt[k] > g["tilt_deg"]:
-            c = V[tri].mean(axis=0)
-            g["tilt_deg"], g["at"] = float(tilt[k]), [float(c[0]), float(c[1])]
-        if abs(h) > abs(g["hold_mm"]):
-            g["hold_mm"] = h
-    return sorted(groups.values(), key=lambda g: (-g["tilt_deg"], g["facet"], g["neighbour"] or ""))
-
-
-def _check_fade_holds(ps, sol, V, polys, kind, region, cell, S, holder) -> list:
-    """E_FADE_CLIFF when a faded outer or roll triangle held >= FADE_HOLD_MIN_MM tilts more than FADE_CLIFF_DEG off
-    its own fade: a less-faded neighbour holds the facet's shared vertices at its own height and the drop to the fade
-    happens inside one row of triangles (a wall that shades as flat surface). Else one W_FADE_HOLD for the largest
-    such tilt at FADE_HOLD_WARN_DEG or more ([] below it). Holds under FADE_HOLD_MIN_MM never count (module docstring
-    step 7)."""
-    T, H, tilt, labs = _fade_tilts(ps, sol, V, polys, kind, region, cell, S)
-    counted = np.abs(H).max(axis=1) >= FADE_HOLD_MIN_MM
-    if not counted.any() or float(tilt[counted].max()) < FADE_HOLD_WARN_DEG:
-        return []
-    cliff = float(tilt[counted].max()) > FADE_CLIFF_DEG
-    sel = counted & (tilt > FADE_CLIFF_DEG if cliff else tilt >= FADE_HOLD_WARN_DEG)
-    groups = _hold_groups(V, holder, T, H, tilt, labs, sel)
-    g = groups[0]
-    lab, nb, h, deg = g["facet"], g["neighbour"], g["hold_mm"], g["tilt_deg"]
-    who = nb or "a neighbour"
-    a, b = (f"{x:.1f}" for x in g["d_mm"])
-    if cliff:
-        msg = (f"facet {lab} fades but {who} holds it {abs(h):.2f} mm {'up' if h > 0 else 'down'} on their crease at "
-               f"d {a}-{b} (worst at d {g['at'][0]:.1f} y {g['at'][1]:.1f}): a {'folded ' if deg > 90 else ''}wall "
-               f"{min(deg, 90.0):.0f} deg off its fade (> {FADE_CLIFF_DEG:g}); start the fade where the crease ends")
-        raise TempleError("E_FADE_CLIFF", msg, facet=lab, neighbour=nb, facets=[lab] + ([nb] if nb else []),
-                          d_mm=g["d_mm"], hold_mm=h, tilt_deg=deg, at=g["at"], limit_deg=FADE_CLIFF_DEG,
-                          min_hold_mm=FADE_HOLD_MIN_MM, failures=groups)
-    msg = (f"{who} holds faded {lab} {abs(h):.2f} mm {'above' if h > 0 else 'below'} its fade at d {a}-{b}: tilt "
-           f"{deg:.1f} deg (>= {FADE_HOLD_WARN_DEG:g}; > {FADE_CLIFF_DEG:g} is refused)")
-    return [{"code": "W_FADE_HOLD", "facet": lab, "neighbour": nb, "deg": deg, "hold_mm": h, "d_mm": g["d_mm"],
-             "at": g["at"], "message": msg}]
-
-
-INERT_MESSAGE_CHARS = 150         # W_FADE_INERT lists facets up to about this many characters, then "+N more"
-
-
-def _inert_fades(ps, sol, arr, labels, S) -> list:
-    """[] or one W_FADE_INERT (one short receipt line) naming every faded facet whose fade moves none of its vertices
-    FADE_HOLD_MIN_MM or more off its plane (S against the plane: without its fade every vertex of the facet takes the
-    plane), each with why: less-faded neighbours hold every vertex its own fade would move ("held by less-faded
-    neighbours"), its fade weight is 0 on every vertex ("outside it"), or its own fade moves them less: under weight
-    0.5 "barely reaches it", else "already on the arm" (the plane lies on the base there). Facets past
-    INERT_MESSAGE_CHARS are counted ("+N more"); the record lists them all."""
-    items = []
-    for lab in sorted(ps.facets):
-        fade = ps.facets[lab]["fade"]
-        vs = sorted({v for fi, f in enumerate(arr.faces) if labels[fi] == lab for v in f})
-        if fade is None or not vs:
-            continue
-        d, y = arr.V[vs, 0], arr.V[vs, 1]
-        plane = sol.planes[lab].X(d, y)
-        if float(np.max(np.abs(S[vs] - plane))) >= FADE_HOLD_MIN_MM:
-            continue
-        w = float(np.max(fade_weight(ps, lab, d)))
-        if float(np.max(np.abs(facet_values(ps, sol, lab, d, y) - plane))) >= FADE_HOLD_MIN_MM:
-            why = "held by less-faded neighbours"
-        elif w == 0.0:
-            why = "outside it"
-        else:
-            why = "barely reaches it" if w < 0.5 else "already on the arm"
-        items.append((lab, why))
-    if not items:
-        return []
-    text = f"fades that move no vertex >= {FADE_HOLD_MIN_MM:g} mm: "
-    shown = 0
-    for lab, why in items:
-        part = f"{'; ' if shown else ''}{lab} ({why})"
-        if shown and len(text) + len(part) > INERT_MESSAGE_CHARS - len("; +99 more"):
-            break
-        text += part
-        shown += 1
-    if shown < len(items):
-        text += f"; +{len(items) - shown} more"
-    return [{"code": "W_FADE_INERT", "facets": [lab for lab, _ in items], "why": dict(items), "message": text}]
-
-
-EARLY_ADVICE = "; fade later, from where its creases end"
-EARLY_MESSAGE_CHARS = 156         # W_FADE_EARLY's message: "W_FADE_EARLY: " + it fits a 170-character receipt line
-
-
-def _early_fades(ps, arr, labels) -> list:
-    """[] or one W_FADE_EARLY (one short receipt line) naming every faded facet whose fade starts within
-    FADE_EARLY_SHARE of the facet's own built d extent and within FADE_EARLY_MM of its end, both counted from the side
-    the facet stands on (d0 < d1: its front; else its back): such a facet is faded nearly everywhere, so it never
-    reads as a flat face of its own. Each item names the flat length and that end; facets past EARLY_MESSAGE_CHARS
-    (with EARLY_ADVICE) are counted ("+N more"); the record lists them all."""
-    items = []
-    for lab in sorted(ps.facets):
-        fade = ps.facets[lab]["fade"]
-        vs = sorted({v for fi, f in enumerate(arr.faces) if labels[fi] == lab for v in f})
-        if fade is None or not vs:
-            continue
-        lo, hi = float(arr.V[vs, 0].min()), float(arr.V[vs, 0].max())
-        if hi - lo <= DEDUPE_MM:
-            continue
-        front = fade["d1"] > fade["d0"]
-        flat = max((fade["d0"] - lo) if front else (hi - fade["d0"]), 0.0)
-        share = min(flat / (hi - lo), 1.0)
-        if share < FADE_EARLY_SHARE and flat < FADE_EARLY_MM:
-            items.append((lab, share, flat, lo if front else hi, "front" if front else "back"))
-    if not items:
-        return []
-    text = "barely flat before their fade: "
-    budget = EARLY_MESSAGE_CHARS - len(EARLY_ADVICE) - len("; +99 more")
-    shown = 0
-    for lab, share, flat, end, side in items:
-        part = f"{'; ' if shown else ''}{lab} flat {flat:.1f} mm at its {side} (d {end:.1f})"
-        if shown and len(text) + len(part) > budget:
-            break
-        text += part
-        shown += 1
-    if shown < len(items):
-        text += f"; +{len(items) - shown} more"
-    return [{"code": "W_FADE_EARLY", "facets": [it[0] for it in items],
-             "share": {it[0]: round(it[1], 3) for it in items},
-             "flat_mm": {it[0]: round(it[2], 2) for it in items}, "message": text + EARLY_ADVICE}]
-
-
-def _check_fade_creases(ps: ParsedSpec, arr: Arrangement, labels: list) -> None:
-    """E_FADE_CREASE when two facets are both faded (weight >= FADE_CREASE_WEIGHT) anywhere along the crease they share
-    (a vertex of an arrangement edge between their faces): a crease stands to its ends; a facet may fade only where
-    its creases with other faded facets have ended (run 6: Crown, Lower and Tail faded over d 48-82 across creases
-    that run to d 75-90, and the top triangle read smooth, "not one piece"; moving a crease's end node just inside the
-    outline does not pass, the review's evasion). Names the first such crease in d order of the point where it starts
-    to fade (and up to two more), that point (the crease's vertex with the smallest such weight, so a fade toward the
-    hinge is named where it starts too), both fades, the crease's d span and the fix: start the fades where it ends,
-    or let one of them stand. (Ending the crease at a node and fading both facets from there is not offered: a narrow
-    base strip between them rebuilds the same smooth surface, a wide one a trough; review round 2.)"""
-    faded = {lab for lab, f in ps.facets.items() if f["fade"] is not None}
-    if len(faded) < 2:
-        return
-    ef = arr.edge_faces()
-    span: dict = {}
-    hits: dict = {}
-    for (a, b), fi in ef.items():
-        fj = ef.get((b, a))
-        l1, l2 = labels[fi], (labels[fj] if fj is not None else None)
-        if fj is None or a > b or l1 == l2 or l1 not in faded or l2 not in faded:
-            continue
-        pair = tuple(sorted((l1, l2)))
-        for v in (a, b):
-            d, y = (float(x) for x in arr.V[v])
-            lo, hi = span.get(pair, (d, d))
-            span[pair] = (min(lo, d), max(hi, d))
-            w = min(float(fade_weight(ps, l1, d)), float(fade_weight(ps, l2, d)))
-            if w >= FADE_CREASE_WEIGHT and (pair not in hits or w < hits[pair][2]):
-                hits[pair] = (d, y, w)
-    if not hits:
-        return
-    order = sorted(hits, key=lambda k: hits[k][0])
-    (l1, l2), (d, y, w) = order[0], hits[order[0]]
-    f1, f2 = ps.facets[l1]["fade"], ps.facets[l2]["fade"]
-    lo, hi = span[(l1, l2)]
-    more = f"; also {', '.join('|'.join(k) for k in order[1:3])}" if len(order) > 1 else ""
-    raise TempleError("E_FADE_CREASE", f"crease {l1}|{l2} (d {lo:.1f}-{hi:.1f}) fades out along its length: both "
-                      f"facets fade at (d, y) ({d:.1f}, {y:.1f}) ({l1} {f1['d0']:g}-{f1['d1']:g}, {l2} "
-                      f"{f2['d0']:g}-{f2['d1']:g}); a crease stands to its ends: start the fades where it ends, or "
-                      f"let one of them stand{more}",
-                      facets=[l1, l2], at=[d, y], weight=w, span_d=[lo, hi], creases=[list(k) for k in order])
 
 
 def _faded_creases_standing(ps, sol, V, edges, kind, region, cell) -> dict:
@@ -1677,7 +1354,6 @@ def _tables(tb: TempleBuild, edge_info: dict, B: np.ndarray, prep: Prep, roll_in
         rec = {"label": label, "area_mm2": area, "centroid": cen.tolist(), "normal_local": nrm.tolist(),
                "lean_deg": _dihedral(nrm, bn), "plane": {"kind": pl.kind, "X_coef": [float(x) for x in pl.coef]},
                "defining_points": pl.defining, "conditioning_deg_per_mm": pl.conditioning_deg_per_mm,
-               "fade": ps.facets[label]["fade"],
                "planarity_mm": float(np.max(np.abs(V[vs, 2] - pl.X(V[vs, 0], V[vs, 1])))) if vs else 0.0}
         if pl.kind == "warp":                         # lean and X_coef: its least-squares plane (display only)
             rec["warp_mm"] = pl.warp_mm
@@ -1761,13 +1437,12 @@ def _tables(tb: TempleBuild, edge_info: dict, B: np.ndarray, prep: Prep, roll_in
                     s = max(steep, key=lambda r: abs(r["height_mm"]))
                     rec["step"] = {"height_mm": s["height_mm"], "slope_deg": s["slope_deg"], "d_mm": s["d_mm"]}
             rec["declared"] = declared.get(tuple(rec["regions"]))
-            faded_end = "base" in rec["regions"] and ps.facets[rec["regions"][0]]["fade"] is not None
             # a facet|base pair with a step (its crease line states it: "flat 0.2° (proud 2.00 mm: a 45.0° ramp)")
             # is a plateau, not a crease that fails to read: no "bends only 0.18 deg" beside a 45 deg ramp; a soft
             # border is meant to read as no line (v3p3-review-astra P3-1: session2's steps 06-16 printed "bends only
             # 1.23 deg" beside "shoulder|base flat 1.2° soft", once soft had removed the step, read as a request for
             # more angle at a border the photos show soft)
-            if (rec["shape"] == "flat" and rec["declared"] is None and not faded_end and not rec.get("step")
+            if (rec["shape"] == "flat" and rec["declared"] is None and not rec.get("step")
                     and not rec.get("soft")):
                 tb.warnings.append({"code": "W_FLAT_CREASE", "regions": rec["regions"],
                                     "deg": rec["mean_dihedral_deg"],
@@ -1812,7 +1487,7 @@ def _base_border_design(tb: TempleBuild, edges: list) -> dict:
     """{edge index: (fold deg, ridge)} of every facet|base crease edge of the build's edge records (WP6_V3 §2, the
     review's build.py:1254: the 2 mm ramp cell is the border band's, not the face against the arm): at the edge
     midpoint, with n the unit (d, y) normal of the edge pointing from the facet into the base, t its unit direction
-    and g = region_grad (the facet's plane, warp or fade and the base surface; chamfers, roll, the ramp and the
+    and g = region_grad (the facet's plane or warp and the base surface; chamfers, roll, the ramp and the
     triangulation aside), the fold ACROSS the border: the dihedral between the facet and the base surface given the
     facet's slope along the border (g_base' = g_base + ((g_facet - g_base) . t) t: the two then share the border's 3D
     line, as two facets share a crease, so the number is a facet|facet dihedral's kind; with no slope s along it,
@@ -1956,7 +1631,7 @@ def _run_paths(edges: list, V2: np.ndarray) -> list:
 def model_edges(tb: TempleBuild) -> list:
     """The build's creases as the compares draw them (WP6_V3 §5, interface I1): one entry per connected run of the
     edges between two different regions (crease_edges), face to face only (face_edge: the roll and chamfer bands
-    left out; edges inside a ramp, a warp or a fade are no creases: one region on both sides):
+    left out; edges inside a ramp or a warp are no creases: one region on both sides):
         pair     "F1|F2" as the crease tables name it (facets sorted, "base" last)
         shape    "ridge" | "valley" | "flat": the sign of deg, "flat" below FLAT_CREASE_DEG either way (for a run
                  whose edges all fold one way this is the tables' rule; on a mixed run the signed mean decides, so
@@ -2125,9 +1800,9 @@ def _chord_error(tb: TempleBuild, label: str) -> float:
 
 
 def _base_planarity(tb: TempleBuild) -> dict:
-    """Information: how far each triangulated (base, faded, ramp) cell's outer vertices are from one plane (its
-    Newell plane through the centroid)."""
-    faces = [f for fi, f in enumerate(tb.arr.faces) if tb.face_cell[fi] in ("base", "faded", "ramp") and len(f) > 3]
+    """Information: how far each triangulated (base, ramp) cell's outer vertices are from one plane (its Newell plane
+    through the centroid)."""
+    faces = [f for fi, f in enumerate(tb.arr.faces) if tb.face_cell[fi] in ("base", "ramp") and len(f) > 3]
     if not faces:
         return {"max_mm": 0.0, "at": None, "cells": 0}
     _, plan, _ = _newell_all(tb.V, faces)

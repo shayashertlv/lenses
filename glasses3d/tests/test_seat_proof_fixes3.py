@@ -11,7 +11,6 @@ E  refusal reasons: the notch E_CONCAVE; the narrow eyewire is a knife edge at e
    stands, and §10 P4's 'every top station EXITS_MATERIAL, 0 moved' is not met, reported to the owner);
 F  the grown front edge follows the cap (quadric with an intercept over the cap's own vertices, 12 nearest when
    sparse)."""
-import pickle
 from pathlib import Path
 
 import numpy as np

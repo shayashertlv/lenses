@@ -1,5 +1,5 @@
 > ARCHIVED, NOT ACTIVE INSTRUCTIONS. Snapshot of `plan/PROGRESS.md` at `d5e5917`.
-> Read ../../PROGRESS.md and ../../WP6_HANDOFF.md for current work.
+> Read ../../PROGRESS.md for current work.
 > Historical relative links were written relative to plan/.
 
 # glasses3d progress log

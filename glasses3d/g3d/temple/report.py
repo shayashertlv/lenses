@@ -13,18 +13,18 @@ deg 0.1):
     facets        lean against the local base normal (a warp facet's: its least-squares plane's, with warp_mm = the
                   largest corner distance from that plane, and with 4 corners corner_off = the fit's W_FACE_NOT_FLAT
                   measure, "K +1.52 mm from the plane of A, E, H": build._corner_off), the crease rise relative to
-                  the local base gradient, fade, soft (only when true)
+                  the local base gradient, soft (only when true)
     thickness     min / max and where
     border_ramps  per facet/base border run: facet, d range, signed ramp height (+ = the facet stands proud of the
-                  base, - = sunk below it), slope (deg) over border_band_mm, run length; as text (a receipt line):
-                  ramp_text, "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7" (ramp_clause: crease_line's step
-                  clause, with the d)
+                  base, - = sunk below it), slope (deg) over border_band_mm, run length; as text (a receipt line,
+                  the lab's ramp_text): "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7" (ramp_clause:
+                  crease_line's step clause, with the d)
     stations      only with include_stations=True (facet_inspect; §4.5 keeps edit receipts short): a 10 mm table of
                   d, y_top, y_bot, x_in, t_top, t_bot
     snaps         every knot canonicalisation move
     checks        closed, Euler, volume, planarity
 The Blender layer adds decal motion and the hinge leaf gap / knuckle contact per side, and de-duplicates lines across
-sides (`merge_lines`). `receipt_full(tb)` holds the unrounded tables for a file, never for Astra.
+sides (`merge_lines`).
 `model_edges(tb)` (build.model_edges, WP6_V3 §5 interface I1) gives the build's creases per connected run with their
 signed angle per point, as the compares draw them.
 """
@@ -33,7 +33,6 @@ from __future__ import annotations
 import numpy as np
 
 from . import CORE_VERSION, SCHEMA
-from . import measure as MS
 from .build import deg_round, model_edges  # noqa: F401  (model_edges: the compares' crease runs)
 from .spec import plain
 
@@ -81,23 +80,12 @@ def ramp_clause(height_mm: float, slope_deg: float, d_mm=None) -> str:
     return text
 
 
-def ramp_text(r: dict) -> str:
-    """One border-ramp run (a build.tables["border_ramps"] row, a receipt()["border_ramps"] row or a W_BORDER_RAMP
-    warning: facet, height_mm, slope_deg, d_mm) as "shoulder proud 0.81 mm: a 7.7° ramp at d 75.5-76.7"."""
-    return f"{r['facet']} {ramp_clause(r['height_mm'], r['slope_deg'], r.get('d_mm'))}"
-
-
 def crease_lines(tb) -> list[str]:
     return [crease_line(c) for c in tb.tables["creases"] if c["kind"] == "crease"]
 
 
 def warning_lines(tb) -> list[str]:
     return [f"{w['code']}: {w['message']}" for w in tb.warnings]
-
-
-def refusal_line(err) -> str:
-    """One receipt line for a TempleError."""
-    return f"{err.code}: {err.message}"
 
 
 def merge_lines(*side_lines) -> list[str]:
@@ -140,8 +128,6 @@ def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False)
         if "rise_per_mm" in f:
             rec["rise"] = _r(f["rise_per_mm"], 3)
             rec["rise_vs_base"] = _r(f["rise_rel_base_per_mm"], 3)
-        if f["fade"] is not None:
-            rec["fade"] = [_r(f["fade"]["d0"]), _r(f["fade"]["d1"])]
         if "warp_mm" in f:
             rec["warp_mm"] = _r(f["warp_mm"])
             co = f.get("corner_off")
@@ -169,40 +155,3 @@ def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False)
     if t.get("roll"):
         out["roll"] = {"roll_mm": _r(t["roll"]["roll_mm"]), "limit_mm": _r(t["roll"]["limit_mm"])}
     return plain(out)
-
-
-def receipt_full(tb, *, core_ms: float | None = None) -> dict:
-    """Every table unrounded (for a file next to the run, never for Astra)."""
-    out = {"tool": "g3d.faceted_temple", "schema": SCHEMA, "core_version": CORE_VERSION,
-           "spec_sha256": tb.spec.sha256, "canonical_spec": tb.spec.canonical, "snapped_spec": tb.spec.snapped,
-           "lines": crease_lines(tb) + warning_lines(tb), "warnings": tb.warnings, "checks": tb.checks,
-           "stations": {"columns": STATION_COLUMNS, "rows": station_table(tb.spec, 1.0)},
-           "sharp_edges": len(tb.sharp),
-           "mesh": {"vertices": int(len(tb.V)), "polygons": len(tb.polys), "triangles": int(len(tb.tris))},
-           "budget": {"core_ms": core_ms}}
-    out.update(tb.tables)
-    return plain(out)
-
-
-# --------------------------------------------------------------------------------------------- measures (information)
-def facet_planes_chart(tb) -> list:
-    """[(label, unit normal, offset)] of the outer plane of every facet with a facet cell (fade weight 0) in the chart
-    (n . x = c); a warp facet has none (its cells are curved)."""
-    out = []
-    for label in sorted(tb.spec.facets):
-        ids = [i for i, (k, rg, c) in enumerate(zip(tb.poly_kind, tb.poly_region, tb.poly_cell))
-               if k == "outer" and rg == label and c == "facet"]
-        if not ids:
-            continue
-        n = tb.normals[ids[0]]
-        c = float(n @ tb.V[tb.polys[ids[0]][0]])
-        out.append((label, n, c))
-    return out
-
-
-def geometry_numbers(tb, photo_creases: int | None = None, zone_end: float = 50.0) -> dict:
-    """measure.measure_temple on the build's own mesh with its facet planes (information, no gate)."""
-    m = MS.measure_temple(tb.V, tb.tris, zone_end=zone_end, d_last=tb.spec.d1, facet_planes=facet_planes_chart(tb),
-                          photo_creases=photo_creases, station_step=5.0, with_facets=False)
-    m.pop("facets", None)
-    return m

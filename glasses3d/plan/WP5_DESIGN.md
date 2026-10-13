@@ -9,6 +9,14 @@ This does not change thresholds or assert that historical failed proofs passed. 
 are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
 G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
 
+**Cleanup 2026-10-13** ([REVIEW_20261013.md](REVIEW_20261013.md) §7; tag `review-20261013-pre-cleanup`): the step-0
+registration producers (`step0.py`, `register.py`, `gate.py`, `check_print.py`) and their proofs/tests (A0, synthetic
+job, fold-leak, gate, STOP A, brow-left warmth), the one-off owner-sheet and step-4/6 proof scripts, and the retired
+seam harmonise/reflect code were deleted. Production still reads a recorded step-0 report (`bake_print(...,
+step0_report=...)`), as the owner-accepted bake does. Module and test lists below that name them are history.
+The review also found the donor colour model havana-specific (`metal.py` pale rule): non-brown patterned acetate loses
+most photo donors (review §5, §6 #1).
+
 The selected method uses regular block quilting followed by the observed-slope screened boundary correction
 in `photoprint/boundary.py`, then unscreened Poisson chart-seam correction with protected photo values fixed.
 It reproduces the owner-selected `quilt_joins_20261008/slope` experiment. Current gains, small-hole PatchMatch

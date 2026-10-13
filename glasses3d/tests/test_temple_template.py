@@ -1,7 +1,6 @@
 """Revision 0 from an existing temple mesh (plan/WP6_FACETS.md §2.4, §5 T3): g3d.temple.template_from_mesh on meshes
 the /2 core built (the answer is known), its parts (joint knots, robust line, distances, end rule, tip rounding), and
-the Prada original (skipped without the local export; information, its numbers are reported by
-tests/proofs/wp6v2_template_report.py)."""
+the Prada original (skipped without the local export; information)."""
 from __future__ import annotations
 
 import hashlib

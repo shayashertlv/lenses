@@ -47,7 +47,7 @@ WP6 v3 (WP6_V3 §5, P4: geometry is judged geometrically):
 - model edges: the creases the lab sends from the build, by identity (``{pair, shape, deg, pts}``), not mesh dihedrals.
   ``edge_runs`` projects posed 3D polylines and keeps the samples the model does not hide (``raster.cast`` at each
   sample's own sub-pixel position, so the frame and the other temple hide them as in the render; ``edge_runs_posed``
-  builds that scene from swapped temple bodies, as ``crease_polylines_posed`` does for variants), optionally carrying a
+  builds that scene from swapped temple bodies for variants), optionally carrying a
   per-point value (a signed angle) along each run; ``draw_edges`` draws them ridge orange / valley blue / flat grey,
   2 px from EDGE_WIDE_DEG 6 deg and 1 px below (a run with per-sample angles segment by segment, ``edge_shape_of``),
   and labels each pair once at its longest visible run (``run_label`` of the build's own angles, deg_at or range:
@@ -828,63 +828,6 @@ def crease_polylines(edges: dict, cam: Camera, frame: NormFrame, depth: np.ndarr
     return out
 
 
-def crease_polylines_fast(edges: dict, cam: Camera, frame: NormFrame, depth: np.ndarray,
-                          tol_mm: float = CREASE_DEPTH_TOL_MM, step_px: float = 1.5) -> list:
-    """``crease_polylines`` vectorised over every edge at once (the same samples, tests and runs in the same order:
-    tests/agent/test_temple_lab pins the equality); about 10 x faster on a temple's ~4k crease edges."""
-    E = len(edges["a"])
-    if not E:
-        return []
-    H, W = depth.shape
-    toward = raster.camera_basis(cam)[2]
-    p = float(cam.perspective)
-    ua, ub = project_mm(edges["a"], cam, frame), project_mm(edges["b"], cam, frame)
-    n_s = np.array([int(max(2, math.ceil(float(np.linalg.norm(ub[k] - ua[k])) / step_px) + 1)) for k in range(E)])
-    idx = np.repeat(np.arange(E), n_s)                                  # the edge of every sample
-    first = np.cumsum(n_s) - n_s
-    j = np.arange(len(idx)) - first[idx]
-    t = j * (1.0 / (n_s[idx] - 1))                                     # np.linspace(0, 1, n): j x step, end exact
-    last = j == n_s[idx] - 1
-    t[last] = 1.0
-    t = t[:, None]
-    P = edges["a"][idx] * (1 - t) + edges["b"][idx] * t
-    Pn = frame.to_norm(P)
-    view = (toward / p - Pn) if p > 0 else np.broadcast_to(toward, Pn.shape)
-    facing = (np.einsum("ij,ij->i", view, edges["n1"][idx]) > 0) & (np.einsum("ij,ij->i", view, edges["n2"][idx]) > 0)
-    uv = ua[idx] * (1 - t) + ub[idx] * t
-    iu, iv = np.round(uv[:, 0]).astype(int), np.round(uv[:, 1]).astype(int)
-    inside = (iu >= 0) & (iu < W) & (iv >= 0) & (iv < H)
-    vis = np.zeros(len(idx), bool)
-    d = to_norm_depth(P, cam, frame)
-    vis[inside] = d[inside] <= depth[iv[inside], iu[inside]] + tol_mm
-    vis &= facing & inside
-    # runs of visible samples inside one edge: a run starts where the previous sample is hidden or another edge's
-    prev = np.r_[False, vis[:-1]] & np.r_[False, idx[1:] == idx[:-1]]
-    nxt = np.r_[vis[1:], False] & np.r_[idx[1:] == idx[:-1], False]
-    starts, ends = np.flatnonzero(vis & ~prev), np.flatnonzero(vis & ~nxt) + 1
-    shape = edges["shape"]
-    return [(uv[s:e], int(shape[idx[s]])) for s, e in zip(starts.tolist(), ends.tolist()) if e - s >= 2]
-
-
-def crease_polylines_posed(bodies: list, occluder, cam: Camera, frame: NormFrame, shape: tuple[int, int]) -> list:
-    """The overlay's crease polylines (``crease_edges`` >= CREASE_MIN_DEG per body, ``crease_polylines_fast``) of
-    temple bodies [(V mm, triangles)] already posed in the camera's scene, depth-tested on the host raster of the
-    bodies plus ``occluder`` (V mm, triangles: the rest of the scene, posed the same way; None = the bodies alone).
-    The raster scene is built here and never enters the LRU cache of ``raster.get_scene`` (a sheet makes one per
-    model and photo)."""
-    parts = [crease_edges(V, F) for V, F in bodies]
-    edges = {key: np.concatenate([e[key] for e in parts]) for key in parts[0]} if parts else \
-        crease_edges(np.zeros((0, 3)), np.zeros((0, 3), int))
-    Vs, Fs, n = [], [], 0
-    for V, F in list(bodies) + ([occluder] if occluder is not None else []):
-        Vs.append(np.asarray(V, np.float64))
-        Fs.append(np.asarray(F, np.int64) + n)
-        n += len(V)
-    depth = raster.RasterScene(np.concatenate(Vs), np.concatenate(Fs), frame).render(cam, tuple(shape), 1)["depth"] \
-        if n else np.full(tuple(shape), np.inf, np.float32)
-    return crease_polylines_fast(edges, cam, frame, depth)
-
-
 def iso_lines(d: np.ndarray, y: np.ndarray, valid: np.ndarray, side: np.ndarray | None = None,
               step_d: float = ISO_D_MM, step_y: float = ISO_Y_MM) -> dict:
     """The chart grid on an image: {d_mask, y_mask, labels [(u, v, text)]}. A pixel is on an iso-d line when the
@@ -1076,7 +1019,7 @@ def edge_runs_posed(polylines: list, bodies: list, occluder, cam: Camera, frame:
     """``edge_runs`` against a scene built here (never in raster.get_scene's LRU cache) of temple bodies [(V mm,
     triangles)] already posed in the camera's scene plus ``occluder`` (V mm, triangles: the rest of the scene posed the
     same way; None = the bodies alone): the model edges of a variant whose bodies are not the head's (the lab's
-    facet_variants sheets; ``crease_polylines_posed``'s v3 counterpart); ``values`` as edge_runs'."""
+    facet_variants sheets); ``values`` as edge_runs'."""
     Vs, Fs, n = [], [], 0
     for V, F in list(bodies) + ([occluder] if occluder is not None else []):
         Vs.append(np.asarray(V, np.float64))

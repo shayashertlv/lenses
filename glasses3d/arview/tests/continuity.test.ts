@@ -8,7 +8,6 @@ import {buildTempleContinuityModel, projectTempleContinuity} from '../src/render
 import {checkModel} from '../src/model/check.ts';
 import {buildGlb, replaceBox} from './glb-fab.ts';
 import {deriveTempleClip, templeInventory} from '../src/render/temple-geometry.ts';
-import type {ProjectedTemplePath} from '../src/render/continuity.ts';
 import {publicFile} from './shipped-models.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
@@ -127,7 +126,3 @@ for (const [id, cap] of [['tom-ford-clear', -.11], ['amber-horizon', -.105]] as 
     }
   } finally {for (const resource of [...textures, ...materials, ...geometries]) resource.dispose();}
 });
-
-// Keep the public path type checked independently of the GLB loader.
-const samplePath: ProjectedTemplePath = {side: 0, lengthPx: 10, points: [{x: 0, y: 0, radiusPx: 1, progressPx: 0}, {x: 10, y: 0, radiusPx: 1, progressPx: 10}]};
-assert.equal(samplePath.points.length, 2);

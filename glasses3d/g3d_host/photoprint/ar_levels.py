@@ -1,6 +1,8 @@
 """Job-specific AR/photo level measurement; no product names or fixture loading defaults.
 
-Migrated from the WP5 AR-level instrument. See PORT_REVIEW for the independent parity proof.
+Migrated from the WP5 AR-level instrument. See PORT_REVIEW for the independent parity proof. The uncalled diagnostic
+methods (``part_sides``, ``table``, ``_pairs_arg``, ``group_share_table``) were deleted on 2026-10-13; the legacy
+copy in tests/photoprint/ar_levels.py keeps its own.
 """
 from __future__ import annotations
 import json
@@ -36,7 +38,6 @@ class Measurements:
 
     def __init__(self, job, groups, *, temple_z=None, reference_point_mm=None):
         self.job = job
-        self._sides = {}
         if not isinstance(groups, dict) or any(isinstance(v, str) or not v for v in groups.values()):
             raise ValueError("print groups must map labels to nonempty part lists")
         self.GROUPS = {str(k): tuple(v) for k, v in groups.items()}
@@ -175,25 +176,6 @@ class Measurements:
                 out[part] = tuple((round(float(x), 3) for x in (cen[m] * w[:, None]).sum(0) / max(float(w.sum()), 1e-12)))
             return out
         return self._cached(cache, 'part_points', make)
-
-    def part_sides(self, job) -> dict:
-        """Fix round 3 of step 6: {'-x': (brow, temple, -1), '+x': (brow, temple, 1)}: each print part's side by the x sign
-        of its area-weighted centroid (``part_points``), never by its name (the house rule; q001 names its parts by the
-        viewer's side, which happens to agree); raises unless each side has exactly one brow and one temple. Which parts
-        are brows or temples is the part class (``GROUPS``)."""
-        hit = self._sides.get(id(job))
-        if hit is not None and hit[0] is job:
-            return hit[1]
-        pts = self.part_points(job)
-        out = {}
-        for sg, name in ((-1, '-x'), (1, '+x')):
-            b = [p for p in self.GROUPS.get('brow', ()) if np.sign(pts[p][0]) == sg]
-            t = [p for p in self.GROUPS.get('temple', ()) if np.sign(pts[p][0]) == sg]
-            if len(b) != 1 or len(t) != 1:
-                raise ValueError(f'side {name}: brows {b} and temples {t} by the x sign of their centroids {pts}; expected exactly one of each')
-            out[name] = (b[0], t[0], sg)
-        self._sides[id(job)] = (job, out)
-        return out
 
     def _masks(self, cap: Path, pose: str):
         rep = json.loads((cap / 'report.json').read_text(encoding='utf-8'))
@@ -470,68 +452,3 @@ class Measurements:
         if pairs is None:
             pairs = [tuple(k.split('_vs_', 1)) for k, r in row.items() if isinstance(r, dict) and r.get('role') == 'calibration']
         return [row[self.key(p, s)][form]['ar_minus_photo'][q] for p, s in pairs for q in ('p10', 'p50')]
-
-    def table(self, res: dict, names: dict | None=None) -> str:
-        """A plain-text table: per capture and pair, AR - photo L* p10 / p50 in every form (and the highlight shares),
-        then the view dependence (other pose minus the photo-angle pose, same photo)."""
-        lines = []
-        for cap, rows in res['captures'].items():
-            lines.append(f"== {(names.get(cap, cap) if names else cap)}  (probe: {rows.get('probe')})")
-            for k, r in rows.items():
-                if not isinstance(r, dict) or 'role' not in r or 'missing' in r:
-                    continue
-                cells = [f"{f} {r[f]['ar_minus_photo']['p10']:+.2f}/{r[f]['ar_minus_photo']['p50']:+.2f}" for f in FORMS]
-                hs = r['print'].get('highlight_share') or {}
-                ap = r['print'].get('appearance') or {}
-                be = r.get('band_energy') or {}
-                lines.append(f"  {r['role']:<11} {k:<26} ({r['angle_deg']} deg)  " + '  '.join(cells) + f"  hl ar {hs.get('ar')} photo {hs.get('photo')}" + (f"  | print C* p50 {ap['ar_chroma']['p50']}/{ap['photo_chroma']['p50']} p90 {ap['ar_chroma']['p90']}/{ap['photo_chroma']['p90']} mean {ap['ar_chroma']['mean']}/{ap['photo_chroma']['mean']} std ratio {ap['lstar_std_ratio']}" if ap else '') + (f"  energy 0.5-3mm brow {be.get('brow', {}).get('ratio')} temple {be.get('temple', {}).get('ratio')}" if be else ''))
-                hu = ap.get('hue') if ap else None
-                if hu:
-                    lines.append(f"  {'':<11} {'':<26} hue p50 {hu['ar']['p50']}/{hu['photo']['p50']} magenta {hu['ar']['magenta_share']}/{hu['photo']['magenta_share']} off 20-100 {hu['ar']['off_band_share']}/{hu['photo']['off_band_share']}  appearance pass {ap.get('pass')} {[k for k, v in ap.get('criteria', {}).items() if not v]}")
-                if r.get('photo_group_share') is not None:
-                    lines.append(f"  {'':<11} {'':<26} photo group share {r['photo_group_share']} weight {r.get('photo_weight')} excluded {sorted(r.get('groups_excluded') or {})}")
-                for g, gr in (r.get('by_group') or {}).items():
-                    if 'ar_minus_photo' not in gr:
-                        lines.append(f"  {'':<11} {'':<26} {g}: {gr.get('reason')}")
-                        continue
-                    ga_ = gr['appearance']
-                    lines.append(f"  {'':<11} {'':<26} {g} alone{('' if self._graded(gr) else ' (NOT GRADED)')}: L* {gr['ar_minus_photo']['p10']:+.2f}/{gr['ar_minus_photo']['p50']:+.2f} pass {gr['pass']} | C* p50 {ga_['ar_chroma']['p50']}/{ga_['photo_chroma']['p50']} p90 {ga_['ar_chroma']['p90']}/{ga_['photo_chroma']['p90']} mean {ga_['ar_chroma']['mean']}/{ga_['photo_chroma']['mean']} units {ga_['chroma_units']} std ratio {ga_['lstar_std_ratio']}")
-            for k, v in (rows.get('view_dependence') or {}).items():
-                cells = [f'{f} {v[f][0]:+.2f}/{v[f][1]:+.2f}' for f in FORMS]
-                lines.append(f'  view dep.   {k:<40} ' + '  '.join(cells) + f"  AR p50 by group {v['ar_group_p50']}")
-        return '\n'.join(lines)
-
-    def _pairs_arg(self, s: str | None, job, role: str):
-        if s is None or s == 'auto':
-            return self.auto_pairs(job, role)
-        if s == 'none':
-            return ()
-        return tuple((tuple(x.split(':')) for x in s.split(',')))
-
-    def group_share_table(self, job, cache: dict | None=None) -> dict:
-        """Fix round 3 of step 6, the data behind ``MIN_PHOTO_GROUP_SHARE``: per photo and group, its frame pixels, the
-        photo's achromatic highlights among them, the print-form pixels and their share, each part's own (eroded) pixel
-        count, and the median |cos| between the surface normal and the photo's camera direction (1 = face on, 0 = edge
-        on). Constants of the job (no print, no capture)."""
-        cache = {} if cache is None else cache
-        out = {'min_photo_group_share': MIN_PHOTO_GROUP_SHARE, 'photos': {}}
-        occ = self._cached(cache, 'occ', lambda: self._occ(job))
-        nf = len(job.mesh.F)
-        for view in sorted(job.views):
-            v = job.views[view]
-            t = np.asarray(raster.camera_basis(v.camera)[2], float)
-            t = t / np.linalg.norm(t)
-            fid = occ.scene(job.mesh.V).render(v.camera, v.shape, 1)['face_id']
-            f = np.clip(fid, 0, nf - 1)
-            hl = self.photo_highlights(job, view, cache)
-            rows = {}
-            for g, parts in self.GROUPS.items():
-                m = self.photo_mask(job, view, parts, cache)
-                cosv = np.abs(job.face_normals[f[m]] @ t)
-                rows[g] = {'frame_px': int(m.sum()), 'achromatic_highlight_px': int((m & hl).sum()), 'print_form_px': int((m & ~hl).sum()), 'median_abs_cos_view': round(float(np.median(cosv)), 3) if m.any() else None, 'part_px': {p: int(self.photo_mask(job, view, (p,), cache).sum()) for p in parts}}
-            n = max(sum((r['print_form_px'] for r in rows.values())), 1)
-            for g, r in rows.items():
-                r['share'] = round(r['print_form_px'] / n, 4)
-                r['excluded'] = bool(r['share'] < MIN_PHOTO_GROUP_SHARE)
-            out['photos'][IN.short_name(view)] = rows
-        return out

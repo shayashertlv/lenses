@@ -750,17 +750,3 @@ def export_glb(path: str | Path, scene=None) -> dict:
         tmp_glb.unlink(missing_ok=True)
     receipt["status"] = "exported"
     return receipt
-
-
-def main(argv: list[str]) -> int:
-    """Headless entry: blender -b <scene>.blend --python glasses3d/g3d/export_glb.py -- <out.glb> [receipt.json]."""
-    out = Path(argv[0])
-    try:
-        receipt = export_glb(out)
-    except (ExportError, RuntimeError) as exc:
-        receipt = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
-    text = json.dumps(receipt)
-    print("G3D_EXPORT_RECEIPT " + text)
-    if len(argv) > 1:
-        Path(argv[1]).write_text(text, encoding="utf-8")
-    return 0 if receipt.get("status") == "exported" else 1

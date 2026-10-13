@@ -309,9 +309,6 @@ export function registerDerivedMaterial(derived: Material, source: Material): vo
   if (value !== undefined) setMaterialClass(derived, value);
 }
 
-/** Register a derived material as frame (kept for the QA harness; registerDerivedMaterial is the general form). */
-export function markFrameMaterial(material: Material): void {setMaterialClass(material, 'frame');}
-
 /** A physical material of the frame class that Three renders through its transmission pre-pass (crystal). Its class is
  *  the decided one; transmission only says whether it currently transmits. */
 export function isTranslucentFrameMaterial(material: Material): boolean {

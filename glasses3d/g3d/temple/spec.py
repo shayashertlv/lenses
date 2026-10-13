@@ -14,11 +14,13 @@ Spec keys (JSON):
     nodes     {name: [d, y, t]}: t = mm thickness from the inner face (X = x_in(d) + t), null (solved from the facet
               planes) or "base" (the base thickness at (d, y)). Virtual nodes outside the outline are allowed.
     facets    {label: {poly: [nodes], plane: "nodes" | {crease: [n1, n2], rise_per_mm} | {coef: [a, b, c]} | "warp",
-              fade: null | {d0, d1}, soft?: true}} (a bare list = poly with plane "nodes" and no fade). "nodes": flat
-              through its node values. A crease plane (legacy) holds the line n1-n2: an edge of the
-              poly, or the ends of a straight run of its edges (crease_run: the corners between lie within RUN_LINE_MM
-              of that line; like every corner off n1 and n2 they take the plane's value). rise_per_mm = mm of world X
-              gained per mm moved perpendicular from the crease into the facet (negative falls toward the inner face).
+              fade: null, soft?: true}} (a bare list = poly with plane "nodes"). "nodes": flat through its node
+              values. fade is always null (fades were removed on 2026-10-13, WP6 v3 had already taken them from Astra;
+              a fade other than null is E_SPEC) and stays in the canonical form, so no spec's sha256 changed. A crease
+              plane (legacy) holds the line n1-n2: an edge of the poly, or the ends of a straight run of its edges
+              (crease_run: the corners between lie within RUN_LINE_MM of that line; like every corner off n1 and n2
+              they take the plane's value). rise_per_mm = mm of world X gained per mm moved perpendicular from the
+              crease into the facet (negative falls toward the inner face).
               {coef: [a, b, c]} (v3, the fit's output): the plane is X = a + b d + c y exactly; given corner values
               must lie on it within planar_tol_mm (E_FACET_NOT_PLANAR), no conditioning check. "warp" (v3, WP6_V3
               §2): X over the facet = the mean value coordinates (Floater 2003; Hormann & Floater 2006) interpolation
@@ -26,12 +28,7 @@ Spec keys (JSON):
               and every corner value known (E_FACET_UNDERDETERMINED); linear along each edge (straight 3D edges),
               smooth inside, the plane itself when the corner values are coplanar. soft (v3; default false, written
               only when true): the facet's borders with the base are soft, a SOFT_BAND_MM border band and
-              smooth-shaded facet/ramp and ramp edges below SOFT_SHARP_DEG. A faded facet is
-              (1 - s) plane + s base with s = smoothstep((d - d0) / (d1 - d0)): the plane at d0, the base at d1.
-              Facets with different fades (or none) may share creases: a shared vertex takes the least-faded one. Where
-              that holds a faded facet at least FADE_HOLD_MIN_MM from its own fade and one of its triangles tilts more
-              than FADE_CLIFF_DEG off its own fade (a wall inside one row of triangles), the build refuses
-              E_FADE_CLIFF. A fade that moves none of its facet's vertices FADE_HOLD_MIN_MM warns W_FADE_INERT.
+              smooth-shaded facet/ramp and ramp edges below SOFT_SHARP_DEG.
     creases   [{facets: [f1, f2 | "base"], shape: "ridge" | "valley"}]: declared crease shapes, checked after the build
     chamfers  [{edge: top | bottom, d: [d0, d1], width_mm, depth_mm, taper_mm?}] (v1: a band cut along an outline edge)
     roll_mm   core edge rounding (8 stacked quarter-arc chamfer sub-bands along both outline edges); 0 = crisp
@@ -41,12 +38,12 @@ Spec keys (JSON):
 Extension: every PL table (inner, base.top, base.bottom) extends linearly beyond its end segments, so a virtual node is
 never clamped; the outline chains extend the same way when a "base" node outside the outline needs y_top / y_bot.
 
-Knot canonicalisation (parse): every table knot (outline, inner, base), node d and fade d0 / d1 within snap_mm of an
-earlier value snaps onto it (outline knots first, then the other tables, nodes, fades; ascending d within a class), so
-the build sees one shared d set. Two knots of one table that would share a d are refused (E_SHORT_EDGE). Nodes within
+Knot canonicalisation (parse): every table knot (outline, inner, base) and node d within snap_mm of an earlier value
+snaps onto it (outline knots first, then the other tables, nodes; ascending d within a class), so the build sees one
+shared d set. Two knots of one table that would share a d are refused (E_SHORT_EDGE). Nodes within
 snap_mm (vertically) of the top or bottom outline edge are re-snapped onto it. A facet edge that crosses the outline
 within snap_mm of a station source is resolved by moving the outline knot on that chain onto the crossing (or moving
-another table's knot to its d); a node, fade, chamfer end or second crossing there cannot move and is E_SHORT_EDGE.
+another table's knot to its d); a node, chamfer end or second crossing there cannot move and is E_SHORT_EDGE.
 Every snap is reported (ParsedSpec.snaps); ParsedSpec.snapped is the snapped canonical spec (a fixed point of parse).
 
 The spec sha is the sha256 of the canonical JSON (before snapping). Every refusal is a TempleError(code, message,
@@ -69,9 +66,9 @@ SCHEMA = "g3d.temple/2"
 REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NOT_SINGLE_VALUED",
             "E_OUTLINE_NOT_SIMPLE", "E_SHORT_EDGE", "E_FACET_OUTSIDE", "E_FACET_OVERLAP", "E_RELIEF_STEP",
             "E_FACET_UNDERDETERMINED", "E_FACET_NOT_PLANAR", "E_ILL_CONDITIONED", "E_TOO_THIN",
-            "E_CHAMFER", "E_ROLL", "E_FADE_CLIFF", "E_FADE_CREASE", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED",
+            "E_CHAMFER", "E_ROLL", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED",
             "E_FIT_SHAPE", "E_FIT")                       # E_FIT*: raised by fit.py (WP6_V3 §3), listed here
-WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP", "W_FADE_HOLD", "W_FADE_INERT", "W_FADE_EARLY",
+WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP",
             "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION",
             "W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # fit.py's (FIT_WARNINGS)
             "W_WARP_TWIST",                                                          # ... a warp's turn
@@ -82,22 +79,9 @@ DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-
 ILL_CONDITIONED_DEG_PER_MM = 10.0       # E_ILL_CONDITIONED
 CONDITIONING_WARN_DEG_PER_MM = 6.0      # W_CONDITIONING
 FLAT_CREASE_DEG = 2.0                   # a crease pair below this is "flat" (W_FLAT_CREASE; a declaration is refused)
-SHARP_DIHEDRAL_DEG = 6.0                # faded, ramp and chamfer edges are sharp at or above this dihedral
-CREASE_STANDS_DEG = 0.5                 # a crease edge beside a faded cell is sharp while its design dihedral >= this
-FADE_ZERO = 1e-12                       # a fade weight below this is 0 (the face is a facet cell, its values the plane)
-FADE_CREASE_WEIGHT = 0.02               # E_FADE_CREASE: two facets both faded at least this anywhere along the
-#                                         crease they share (a crease stands to its ends)
+SHARP_DIHEDRAL_DEG = 6.0                # ramp and chamfer edges are sharp at or above this dihedral
+CREASE_STANDS_DEG = 0.5                 # a crease edge beside a warp cell is sharp while its design dihedral >= this
 RUN_LINE_MM = 0.5                       # a crease plane's straight run: its corners within this of the line
-FADE_CLIFF_DEG = 25.0                   # E_FADE_CLIFF: a held faded triangle tilted more than this off its own fade
-FADE_HOLD_WARN_DEG = 10.0               # W_FADE_HOLD: the largest such tilt at or above this (one receipt line)
-FADE_HOLD_MIN_MM = 0.05                 # the smallest hold (built minus the faded facet's own value) that counts
-#                                         (E_FADE_CLIFF / W_FADE_HOLD) and the smallest move a fade must make (else
-#                                         W_FADE_INERT): the photos show the temple at ~3-8 px/mm, so 0.05 mm is
-#                                         0.15-0.4 px, well under one pixel; a smaller step cannot be seen, and a
-#                                         large tilt there is a micron-wide sliver triangle's, not a wall
-FADE_EARLY_SHARE = 0.25                 # W_FADE_EARLY: a fade starting within this share of its facet's own d extent
-FADE_EARLY_MM = 5.0                     # ... and within this many mm (from the side the facet stands on) leaves it
-#                                         barely flat anywhere (a long facet flat for 17 mm still reads as a face)
 BORDER_RAMP_WARN_DEG = 8.0              # W_BORDER_RAMP
 ARM_NORMAL_SPREAD_DEG = 30.0            # W_ARM_NORMAL_SPREAD
 HINGE_LEAF_GAP_MM = 0.2                 # W_HINGE_LEAF: leaf-to-inner-face gap above this ...
@@ -358,18 +342,13 @@ def canonical(spec: dict) -> dict:
                                   f"of their line)", facet=label)
             plane = {"crease": [str(cr[0]), str(cr[1])],
                      "rise_per_mm": _num(plane["rise_per_mm"], f"facets.{label}.plane.rise_per_mm")}
-        fade = f.get("fade")
-        if fade is not None:
-            if not isinstance(fade, dict) or set(fade) != {"d0", "d1"}:
-                raise TempleError("E_SPEC", f"facet {label}: fade must be null or {{d0, d1}}", facet=label)
-            fade = {"d0": _num(fade["d0"], f"facets.{label}.fade.d0"),
-                    "d1": _num(fade["d1"], f"facets.{label}.fade.d1")}
-            if fade["d0"] == fade["d1"]:
-                raise TempleError("E_SPEC", f"facet {label}: fade d0 and d1 must differ", facet=label)
+        if f.get("fade") is not None:                 # fades were removed (module docstring)
+            raise TempleError("E_SPEC", f"facet {label}: fade must be null (fades were removed on 2026-10-13)",
+                              facet=label)
         soft = f.get("soft", False)
         if not isinstance(soft, bool):
             raise TempleError("E_SPEC", f"facet {label}: soft must be true or false", facet=label)
-        facets[label] = {"poly": [str(n) for n in poly], "plane": plane, "fade": fade}
+        facets[label] = {"poly": [str(n) for n in poly], "plane": plane, "fade": None}
         if soft:                                      # written only when true: earlier specs keep their sha256
             facets[label]["soft"] = True
     run_conflicts(facets, nodes)
@@ -485,17 +464,6 @@ class PL:
             out = np.where(x < self.d[0], self.v[0] + self.s0 * (x - self.d[0]), out)
             out = np.where(x > self.d[-1], self.v[-1] + self.s1 * (x - self.d[-1]), out)
         return out if out.ndim else float(out)
-
-    def slope(self, d0: float, d1: float) -> float:
-        return (self(d1) - self(d0)) / (d1 - d0)
-
-    def knots_inside(self, d0: float, d1: float) -> np.ndarray:
-        return self.d[(self.d > d0 + 1e-9) & (self.d < d1 - 1e-9)]
-
-
-def smoothstep(x):
-    x = np.clip(np.asarray(x, np.float64), 0.0, 1.0)
-    return x * x * (3.0 - 2.0 * x)
 
 
 # --------------------------------------------------------------------------------------------- parsed spec
@@ -652,15 +620,12 @@ def _table(c: dict, name: str) -> list:
 
 
 def _d_entries(c: dict) -> list:
-    """(class, d, ref) of every given d value: 0 outline knots, 1 other table knots, 2 node d, 3 fade ends."""
+    """(class, d, ref) of every given d value: 0 outline knots, 1 other table knots, 2 node d."""
     out = []
     for name in TABLES:
         cls = 0 if name.startswith("outline") else 1
         out += [(cls, p[0], (name, i)) for i, p in enumerate(_table(c, name))]
     out += [(2, v[0], ("node", n)) for n, v in c["nodes"].items()]
-    for label, f in c["facets"].items():
-        if f["fade"] is not None:
-            out += [(3, f["fade"][k], ("fade", label, k)) for k in ("d0", "d1")]
     return out
 
 
@@ -669,8 +634,6 @@ def _ref_name(ref) -> str:
         return f"{ref[0]}[{ref[1]}]"
     if ref[0] == "node":
         return f"node {ref[1]}"
-    if ref[0] == "fade":
-        return f"facet {ref[1]} fade.{ref[2]}"
     if ref[0] == "chamfer":
         return f"chamfers[{ref[1]}] break"
     return f"{ref[1]} tip-round point"
@@ -679,10 +642,8 @@ def _ref_name(ref) -> str:
 def _set_d(c: dict, ref, d: float) -> None:
     if ref[0] in TABLES:
         _table(c, ref[0])[ref[1]][0] = d
-    elif ref[0] == "node":
-        c["nodes"][ref[1]][0] = d
     else:
-        c["facets"][ref[1]]["fade"][ref[2]] = d
+        c["nodes"][ref[1]][0] = d
 
 
 def _snap_d(c: dict, snap: float, snaps: list) -> None:
@@ -788,8 +749,8 @@ def _edge_names(edges: list) -> str:
 
 
 def _station_refs(c: dict, top, bot) -> dict:
-    """d -> refs of the given values that become stations (outline incl. tip-round points, tables, nodes, fades,
-    chamfer breaks) inside the outline's d range."""
+    """d -> refs of the given values that become stations (outline incl. tip-round points, tables, nodes, chamfer
+    breaks) inside the outline's d range."""
     d0, d1 = float(top[0, 0]), float(top[-1, 0])
     refs: dict = {}
     raw = {"outline.top": {p[0] for p in c["outline"]["top"]}, "outline.bottom": {p[0] for p in c["outline"]["bottom"]}}
@@ -808,11 +769,6 @@ def _station_refs(c: dict, top, bot) -> dict:
     for n, v in c["nodes"].items():
         if d0 < v[0] < d1:
             refs.setdefault(v[0], []).append(("node", n))
-    for label, f in c["facets"].items():
-        if f["fade"] is not None:
-            for k in ("d0", "d1"):
-                if d0 < f["fade"][k] < d1:
-                    refs.setdefault(f["fade"][k], []).append(("fade", label, k))
     for i, ch in enumerate(c["chamfers"]):
         for d in chamfer_breaks(ch):
             if d0 < d < d1:

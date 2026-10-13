@@ -30,14 +30,13 @@ import type {ReportLine} from './model/report.ts';
 import {EyewearFitSession} from './render/eyewear-fit.ts';
 import {DEFAULT_SHADOW_SETTINGS} from './render/eyewear-shadow.ts';
 import type {ShadowSettings} from './render/eyewear-shadow.ts';
-import {assetPath} from './assets.ts';
 import {runPipeline} from './pipeline/pipeline.ts';
 import type {Pipeline} from './pipeline/pipeline.ts';
 import {cameraDeliveryFps, FrameProfiler, summarize} from './pipeline/profiler.ts';
 import type {FrameSample, ProfileSummary} from './pipeline/profiler.ts';
 import type {Audit} from './audit/audit.ts';
 import {describePoseShake, poseShake} from './pipeline/steadiness.ts';
-import {describeHairReport, describeOverlapReport, hairReport, overlapReport} from './pipeline/hair-report.ts';
+import {describeHairReport, hairReport} from './pipeline/hair-report.ts';
 
 export const config = parseConfig(location.search);
 const element = <T extends HTMLElement = HTMLElement>(id: string): T => {const value = document.getElementById(id); if (!value) throw new Error(`Missing control: ${id}`); return value as T;};
@@ -130,34 +129,10 @@ shadowLens.addEventListener('input', () => setShadows({lensStrength: shadowLens.
 shadowSoftness.addEventListener('input', () => setShadows({softness: shadowSoftness.valueAsNumber}));
 updateShadowControls();
 
-/** Startup diagnostics: while a session starts, the page posts its step log (step names, timings, error text, device
- *  strings; never an image) to this site so a stall on a device can be read without the device. Sending never blocks
- *  or changes the mirror. */
 // The options exactly as this page received them: a lever that is missing from the settings line was either absent from
 // the address or misspelled, and only the raw text tells which.
 const receivedOptions = location.search.length > 240 ? `${location.search.slice(0, 240)}…` : location.search;
 const ignoredOptions = unrecognizedOptions(location.search);
-const diagnostic = {page: crypto.randomUUID().slice(0, 8), build: __BUILD_TIME__, config: describeConfig(config), options: receivedOptions, ignoredOptions, userAgent: navigator.userAgent,
-  cores: navigator.hardwareConcurrency ?? null, touchPoints: navigator.maxTouchPoints ?? 0, screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
-  events: [] as {t: number; event: string; detail?: string}[]};
-/** Adds an event to the step log without sending it; the next report() carries it. */
-function note(event: string, detail?: string): void {
-  if (!config.diagnostics) return;
-  diagnostic.events.push({t: Math.round(performance.now()), event, ...(detail ? {detail: detail.slice(0, 600)} : {})});
-  if (diagnostic.events.length > 40) diagnostic.events.splice(0, diagnostic.events.length - 40);
-}
-function report(event: string, detail?: string): void {
-  if (!config.diagnostics) return;
-  note(event, detail);
-  try {
-    const body = JSON.stringify({...diagnostic, at: new Date().toISOString(), state: stage.dataset.state ?? null, status: element('stage-status').textContent,
-      guidance: element('guidance').textContent, gpu: element('gpu').textContent, hair: element('hair-engine').textContent, frames: current?.rows ?? 0,
-      pipeline: current?.pipeline?.describe() ?? null});
-    void fetch(assetPath('diagnostic'), {method: 'POST', headers: {'Content-Type': 'application/json'}, body, keepalive: true}).catch(() => undefined);
-  } catch {/* diagnostics never block the mirror */}
-}
-window.addEventListener('error', event => report('window.error', `${event.message} @ ${event.filename?.split('/').at(-1) ?? ''}:${event.lineno}`));
-window.addEventListener('unhandledrejection', event => report('unhandledrejection', String((event as PromiseRejectionEvent).reason)));
 
 // The model comes only from the ?model=&name=&clip=&width=&sha256=&lensenv= handover. Without one (or with an
 // unusable address) the page explains how to hand one over and the camera stays closed.
@@ -201,13 +176,10 @@ function showModelReport(lines: readonly ReportLine[], source = '', digest: Retu
 const servedSource = (report: ServedReport): string => `Checked by arview serve (${report.created_at.slice(0, 19).replace('T', ' ')} UTC): `
   + `spec.py ${report.spec.available ? (report.spec.ok ? 'passes' : 'FAILS') : 'UNAVAILABLE'}, arview's load ${report.status}. `
   + 'Open the camera for the renderer\'s own report.';
-/** Shows `modelReport` on the page and adds its errors and warnings to the step log. Returns what was shown
- *  (reportSignature). */
+/** Shows `modelReport` on the page. Returns what was shown (reportSignature). */
 function presentModelReport(modelReport: ModelReport): string {
   showModelReport(renderedReportLines(modelReport, served), `The renderer's own report (${modelReport.status})${served ? ', with spec.py\'s verdict from arview serve' : ''}.`,
     digestLine(served, modelReport.rendered_sha256));
-  if (modelReport.errors.length) report('model-errors', modelReport.errors.join(' | '));
-  if (modelReport.warnings.length) report('model-warnings', modelReport.warnings.join(' | '));
   return reportSignature(modelReport);
 }
 const reportSignature = (modelReport: ModelReport): string =>
@@ -221,8 +193,8 @@ function showModel(): void {
   else showModelReport(definition, servedPending ? 'Reading the model report from arview serve…' : '');
 }
 /** Fetch the server's report (same origin or loopback, checked by external.ts) with a deadline. Every failure is an
- *  error line on the page and in the step log. A session that already shows the renderer's report keeps it, with the
- *  served spec.py verdict joined to it now. */
+ *  error line on the page. A session that already shows the renderer's report keeps it, with the served spec.py verdict
+ *  joined to it now. */
 async function loadServedReport(url: string): Promise<void> {
   servedPending = true; showModel();
   try {
@@ -234,7 +206,6 @@ async function loadServedReport(url: string): Promise<void> {
     } else served = parsed;
   } catch (error) {servedProblem = `The model report from arview serve (${url}) could not be read: ${messageFor(error)}`;}
   finally {servedPending = false;}
-  if (servedProblem) report('served-report', servedProblem);
   const renderer = current?.renderer;
   if (renderer && current) current.reportShown = presentModelReport(renderer.report());
   else showModel();
@@ -246,7 +217,6 @@ hairSelect.value = isHairModelId(config.hairModel) ? config.hairModel : DEFAULT_
 hairToggle.value = hairEnabled ? 'on' : 'off';
 element('config-note').textContent = `${ignoredOptions.length ? `IGNORED, not a known option: ${ignoredOptions.map(key => `"${key.slice(0, 40)}"`).join(', ')}. ` : ''}`
   + `${describeConfig(config)} Address options: ${receivedOptions || 'none'}. Build ${__BUILD_TIME__}.`;
-element('diag-note').hidden = !config.diagnostics;
 function setState(state: string, label: string, message: string): void {stage.dataset.state = state; element('stage-status').textContent = label; element('guidance').textContent = message;}
 if (!pageModel) setState('idle', 'NO MODEL', NO_MODEL_MESSAGE);
 hairToggle.addEventListener('change', () => { hairEnabled = hairToggle.value !== 'off'; current?.renderer?.setHairEnabled(hairEnabled);});
@@ -257,13 +227,7 @@ function updateControls(): void {
   element<HTMLButtonElement>('audit').disabled = !current?.renderer || auditPending;
   updateFitControls();
 }
-let uiTimer: ReturnType<typeof setInterval> | null = null, lastLiveReportAt = 0;
-const hairWorkerLine = (pipeline: Pipeline | null | undefined): string => {
-  if (!pipeline) return 'hair worker —';
-  const h = pipeline.hair(), jobs = pipeline.hairJobs(10_000);
-  const d = (value: {median: number; p95: number} | null): string => value ? `${value.median.toFixed(1)} / p95 ${value.p95.toFixed(1)} ms` : '—';
-  return `hair worker ${h.results} results, ${h.missed} missed · 10 s: ${jobs.jobs} jobs, inference ${d(jobs.inferenceMs)}, round trip ${d(jobs.roundTripMs)}`;
-};
+let uiTimer: ReturnType<typeof setInterval> | null = null;
 function updateUi(): void {
   const session = current; if (!session) return;
   updateFitControls();
@@ -287,39 +251,21 @@ function updateUi(): void {
   element('hair-masks').textContent = describeHairReport(hairReport(recent), schedule.mode === 'every' ? 'every frame waits for its own mask'
     : `hair every ${schedule.frames} frames`);
   element('frames').textContent = `${session.rows} frames this session · ${session.canvas.width}×${session.canvas.height}${capture ? ` · capture ${capture === 'videoframe' ? 'VideoFrame' : 'canvas'}` : ''} · startup ${session.firstAtMs === null ? '…' : Math.round(session.firstAtMs - session.startedAtMs) + ' ms'}${exposure}${endpoint}${sync}`;
-  // Every 10 s while live, the last 10 s of stage medians (numbers only) join the diagnostics, so a device's rate and
-  // its change over a session can be read stage by stage without the device.
-  // Two events per report, each under the 600-character cap: the stage medians, then the hair worker, the overlap at
-  // the render submit and the hair masks.
-  if (recent.length && performance.now() - lastLiveReportAt >= 10_000) {
-    lastLiveReportAt = performance.now();
-    const st = (key: string): string => ms(summary.stages[key]?.median);
-    note('live', `${summary.processedFps?.toFixed(1) ?? '—'} fps · camera ${cameraFps?.toFixed(1) ?? '—'} · age ${summary.processing ? `${Math.round(summary.processing.median)}/${Math.round(summary.processing.p95)}` : '—'} ms`
-      + ` · interval p95 ${summary.frameInterval ? Math.round(summary.frameInterval.p95) : '—'} ms · tracked ${summary.trackedFrames}/${recent.length} masked ${summary.maskedFrames} · ${session.canvas.width}×${session.canvas.height}`
-      + ` · capture draw ${st('sourceDrawMs')} read ${st('sourceReadbackMs')} hash ${st('sourceHashMs')} · scheduler ${st('schedulerWaitMs')} · face wall ${st('faceRequestWallMs')} inference ${st('faceInferenceMs')}`
-      + ` · hair inference ${st('hairInferenceMs')} extract ${st('hairExtractionMs')} admission ${st('hairAdmissionWaitMs')} wait ${st('hairWaitMs')}`
-      + ` · prepare ${st('prepareMs')} (gpu wait ${st('gpuWaitMs')}, pose ${st('poseMs')}) · finish ${st('finishMs')} (submit ${st('submitMs')}, mask ${st('maskUploadMs')}, endpoint ${st('endpointMs')})`
-      + ` · capture ${recent.at(-1)?.native?.['capture.source'] ?? '—'} ${recent.at(-1)?.native?.['capture.format'] ?? ''}`
-      + ` · mask ${recent.at(-1)?.native?.['render.maskWidth'] ?? '—'}×${recent.at(-1)?.native?.['render.maskHeight'] ?? '—'}`);
-    report('hair', `${hairWorkerLine(session.pipeline)} · ${describeOverlapReport(overlapReport(recent))} · ${element('hair-masks').textContent ?? ''}`);
-  }
 }
 
 async function openSession(fitSession = new EyewearFitSession()): Promise<void> {
   if (current) return;
   const model = pageModel;
-  if (!model) {setState('error', 'NO MODEL', NO_MODEL_MESSAGE); report('failed', NO_MODEL_MESSAGE); return;}
+  if (!model) {setState('error', 'NO MODEL', NO_MODEL_MESSAGE); return;}
   const previous = element<HTMLCanvasElement>('mirror'), canvas = previous.cloneNode(false) as HTMLCanvasElement; previous.replaceWith(canvas);
   const session: Session = {id: crypto.randomUUID(), abort: new AbortController(), camera: null, canvas, fitSession, renderer: null, detector: null, hair: null,
     hairBackend: ((probe) => config.hairDelegate === 'auto' ? probe : {...probe, requested: config.hairDelegate})(detectHairBackend()), hairReady: false, hairError: null, pipeline: null, sequence: 0, startedAtMs: performance.now(), firstAtMs: null, rows: 0, exposure: null, reportShown: ''};
   current = session; stage.dataset.sessionId = session.id; updateControls();
   const signal = session.abort.signal, owns = (): boolean => current === session;
   setState('starting', 'STARTING CAMERA', 'Allow camera access when your browser asks.');
-  report('open', `${session.hairBackend.renderer ?? 'no WebGL2 renderer string'} · hair ${session.hairBackend.requested}`);
   try {
     session.camera = await openCamera(signal);
     if (!owns()) {session.camera.stop(); return;}
-    report('camera', `${session.camera.video.videoWidth}x${session.camera.video.videoHeight} rVFC ${typeof session.camera.video.requestVideoFrameCallback}`);
     if (config.exposure !== null) {
       const lock = await lockCameraExposure(session.camera.video, config.exposure);
       if (!owns()) {session.camera.stop(); return;}
@@ -331,9 +277,9 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
     canvas.addEventListener('webglcontextlost', lost);
     // Each startup step is named on the stage with its elapsed time, so a stall on a device can be read off a screenshot.
     const step = (text: string): void => setState('starting', 'PREPARING MIRROR', `${text} (${((performance.now() - session.startedAtMs) / 1000).toFixed(0)} s)`);
-    let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '', ticks = 0;
-    const beginStep = (text: string): void => {stepText = text; step(text); report('step', text);
-      if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') {step(stepText); if (++ticks % 10 === 0) report('still', `${stepText} · ${session.pipeline?.describe() ?? 'pipeline not started'}`);} else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
+    let stepTimer: ReturnType<typeof setInterval> | null = null, stepText = '';
+    const beginStep = (text: string): void => {stepText = text; step(text);
+      if (!stepTimer) stepTimer = setInterval(() => {if (owns() && stage.dataset.state === 'starting') step(stepText); else if (stepTimer) {clearInterval(stepTimer); stepTimer = null;}}, 1000);};
     beginStep('Loading the glasses');
     const hairModel = getHairModel(hairSelect.value);
     // Asset loads have no deadline of their own; a stalled network must end in a message, not a silent wait.
@@ -356,23 +302,22 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
         hair = new HairClient(hairModel.id, {delegate: 'CPU'}); session.hair = hair;
         try {await hair.initialize(signal);} catch (retry) {session.hairError = messageFor(retry); return;}
       }
-      if (owns()) {session.hairReady = true; session.hairBackend.active = hair.delegate; element('hair-engine').textContent = `hair ${hair.delegate}`; report('hair-ready', hair.delegate);}
+      if (owns()) {session.hairReady = true; session.hairBackend.active = hair.delegate; element('hair-engine').textContent = `hair ${hair.delegate}`;}
     })();
     await detector.initialize(signal);
     if (!owns()) return;
-    report('face-ready', detector.delegate ?? '');
     beginStep('Waiting for the first camera frame');
     session.pipeline = runPipeline({
       id: session.id, video: session.camera.video, renderer, detector,
       hair: () => session.hair!, hairModel, modelId: renderer.model.url, hairReady: () => session.hairReady && !session.hairError,
       hairEnabled: () => hairEnabled, captureMaxEdge: config.captureMaxEdge, hairWaitMs: config.hairWaitMs, hairInputMaxEdge: config.hairInputMaxEdge, captureSource: config.captureSource, hairSchedule: config.hairSchedule,
-      onCaptureSource: (source, reason) => report('capture-source', `${source}${reason ? ' · ' + reason : ''}`), owns, nextSequence: () => ++session.sequence,
+      owns, nextSequence: () => ++session.sequence,
       onHairError: error => {if (owns()) {session.hairError = messageFor(error); session.hairReady = false; session.hair?.close(); element('hair-engine').textContent = `hair error: ${session.hairError}`;}},
       onError: error => {if (owns()) closeSession(messageFor(error), true);},
       backend: () => ({active: session.hairBackend.active, renderer: session.hairBackend.renderer}),
       onPublished: row => {
         if (!owns()) return;
-        profiler.add(row); session.rows++; if (session.firstAtMs === null) {session.firstAtMs = row.publishedAtMs; lastLiveReportAt = performance.now() - 5000; report('first-frame', `${row.sourceWidth}x${row.sourceHeight} face ${row.hasFace} mask ${row.hasMask} total ${Math.round(row.totalMs)} ms`);}
+        profiler.add(row); session.rows++; if (session.firstAtMs === null) session.firstAtMs = row.publishedAtMs;
         canvas.hidden = false; element('welcome').hidden = true;
         stage.dataset.frames = String(row.sequence);
         setState(row.hasFace ? 'tracking' : 'searching', row.hasFace ? 'LIVE' : 'LOOKING FOR YOU', row.hasFace
@@ -391,7 +336,6 @@ async function openSession(fitSession = new EyewearFitSession()): Promise<void> 
 }
 function closeSession(message = 'Camera closed.', failed = false): void {
   const session = current; current = null;
-  if (session) report(failed ? 'failed' : 'closed', message);
   if (session) {
     session.abort.abort();
     session.pipeline?.stop(); session.detector?.close(); session.hair?.close(); session.renderer?.dispose(); session.camera?.stop();

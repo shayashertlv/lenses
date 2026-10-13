@@ -347,12 +347,12 @@ def test_the_chamfer_band_is_left_out(builds):
     assert c["dihedral_deg"][0] < c["mean_dihedral_deg"] - 0.5 and all_edge_mean(tb, "F2|F3") < c["range_deg"][0]
 
 
-def test_ramp_warp_and_fade_interiors_are_no_creases(builds):
+def test_ramp_and_warp_interiors_are_no_creases(builds):
     """Every model edge point lies on a facet polygon's boundary: none on a border band's line (2 mm into the base),
     inside a ramp, or inside a warp, though those builds fold there (ramp edges >= SHARP_DIHEDRAL_DEG, warp triangle
-    edges); a faded border is a run with its fold per point (falling toward 0 where the fade ends)."""
+    edges). (Its faded-border case went with the fades on 2026-10-13.)"""
     from glasses3d.g3d.temple.build import mesh_topology
-    for name in ("border_ramp", "island", "warp_with_neighbour", "fade", "prada_default"):
+    for name in ("border_ramp", "island", "warp_with_neighbour", "prada_default"):
         tb = builds[name]
         me = model_edges(tb)
         assert_runs(tb, me)
@@ -374,10 +374,6 @@ def test_ramp_warp_and_fade_interiors_are_no_creases(builds):
     D = mesh_topology(tb.polys)["directed"]
     assert any(tb.poly_cell[p1] == "warp" and tb.poly_cell[D[(b, a)]] == "warp" for (a, b), p1 in D.items())
     #                                                                 (triangle edges inside the warp: no creases)
-    fade = {e["pair"]: e for e in model_edges(builds["fade"])}
-    for pair in ("N|base", "S|base"):
-        at = fade[pair]["deg_at"]
-        assert max(at) > 5.0 and min(at) < 0.5                      # the fold dies out along the faded border
 
 
 def test_runs_split_at_branches_and_close_loops():
@@ -411,7 +407,7 @@ def test_model_edges_pass_the_compare_check(builds):
     """seeing's model_edges check (interface I7's other side) accepts every build's output as it is: <= 64 edges,
     <= 4000 points each, shape and deg never contradicting, deg_at aligned with pts."""
     from glasses3d.agent.seeing import Seeing
-    for name in ("prada_default", "island", "warp_with_neighbour_soft", "corner_crease", "rolled", "fade"):
+    for name in ("prada_default", "island", "warp_with_neighbour_soft", "corner_crease", "rolled"):
         tb = builds[name]
         me = model_edges(tb)
         out = Seeing._check_v3_args(None, None, me, None, tb.spec.hinge["z_mm"])
@@ -628,8 +624,6 @@ GEOMETRY_BEFORE = {
     "chamfered_slab_30": "61148e49165ad9b927a8f39ab5683b575a9aa38630ffb83cf19397f81b4793d2",
     "corner_crease": "24fb57404c9881c3311c977948c584b679f9969a4199707c6f267fd5b2504b84",
     "crease_rise": "298b9d0dc82fbbd14a56caef07791193b38b88bd397c4a4468eaa1aaf4c7bdd7",
-    "fade": "de2bf4683f226f37dd729a57401859ef483a1135b8bddedd22d67b7fba3b43e3",
-    "fade_one_side": "a23c81e1af287f5a2fa4e2992bea96b12311ff56cc9ea306af07056edcc8791b",
     "island": "c791ef8142380674821b143bdfbd06e11f14fe56e61353093597f06a34326483",
     "prada_default": "9c0c870e44dac0b11aa22a0c9edda5446fb0de8a907f1110da5ac177ca334547",
     "pyramid": "19b41f750f3ac655c0c9c425981a94a4213408967e980ca649b19ee04da7ed57",

@@ -2,25 +2,26 @@
   "PROGRESS.md": {
     "source_commit": "d5e5917",
     "original_sha256": "226194424e322fed493ead21bffafaa1a94dd7b48794c2940d33d8ba6deb13d9",
-    "prefix_bytes": 211,
-    "archive_sha256": "d379ae5c487ab1d2c893e7351c0e3f36562faea5c12881819804fc2fbc60b43c"
+    "prefix_bytes": 186,
+    "archive_sha256": "3d9c0bfde45bf6265b0457392d4ab982ed25dc15298515dd4efafabea8823d75"
   },
   "WP5_HANDOFF.md": {
     "source_commit": "d5e5917",
     "original_sha256": "cc3c9425725d7733467013f29eaff2b970769218161cf1073b0ec53891219078",
-    "prefix_bytes": 214,
-    "archive_sha256": "3bec65899d5ab80e64a4382767fc3fbd9ee104e2e57a3387d9a41c4d2a8e2d99"
+    "prefix_bytes": 189,
+    "archive_sha256": "c27ced7042bceb57be15d37431499a9bc0e30e3d75e465cf5d8338c02d6e4fb4"
   },
   "WP5_SESSION_PROMPT.md": {
     "source_commit": "d5e5917",
     "original_sha256": "ba843bed9ae08064c8f21e10b3f830c060652972a57edf103f2e616fed402385",
     "prefix_bytes": 221,
-    "archive_sha256": "5e9fee186a4f92d377219b67c3ec9c103fa809fd961e9cd78e38ec46c3c69d59"
+    "archive_sha256": "5e9fee186a4f92d377219b67c3ec9c103fa809fd961e9cd78e38ec46c3c69d59",
+    "deleted": "2026-10-13: superseded instruction text; recoverable with git show review-20261013-pre-cleanup:glasses3d/plan/archive/20261008/WP5_SESSION_PROMPT.md"
   },
   "WP6_READINESS.md": {
     "source_commit": "d5e5917",
     "original_sha256": "8962685f7f92924e8eb3ccca0f8f204684f89400eeffe91ee41a71b3c9c23cdc",
-    "prefix_bytes": 216,
-    "archive_sha256": "0d2dc8501739e4c7373a21e88e86dde949b618f00013b9926366719eb00b3fbe"
+    "prefix_bytes": 191,
+    "archive_sha256": "3c29b7cfc927a19cd409eae5d7b9aa47c449fd06a5a2e07ceb7b7ef9910972d1"
   }
 }

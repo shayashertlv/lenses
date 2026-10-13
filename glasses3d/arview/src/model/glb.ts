@@ -286,9 +286,6 @@ export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences 
   return result(null);
 }
 
-/** The first broken reference on the loaded path, or null (loadedReferences). */
-export function brokenReference(json: Json, hasBin: boolean): string | null {return loadedReferences(json, hasBin).problem;}
-
 export interface DefaultSceneDocument {
   /** The JSON three parses: the default scene (as scene 0) and its node tree, without what arview never draws. Every
    *  array keeps its length and order, so node, mesh, material and texture indices (three's associations, the report's

@@ -11,10 +11,11 @@ painted by different views); stage 2 same-part edges only, edges outside [0.5, 2
 painting both sides -> equal gains; different views -> equal medians), a robust second solve without boundary edges
 whose residual exceeds log 1.6, clip [0.5, 2]; stage 3 ``level_field``: a smooth (1 mm nodes) linear-light gain field
 per group that removes what is left of the step where two photos meet. Same-surface overlap equations to the region's
-anchor (``anchor_label`` / ``view_cols`` / ``view_ok``) are implemented but OFF in production: on FT1119 they import the
-anchor's view-dependent sheen (05 sees the brow front's top band at 2.0 / 1.62 / 1.31 x 04's colours) and raised the
-weighted boundary step 4.52 -> 6.13 dE00. Measured with all three stages (``step4_sheets``): weighted boundary step
-3.81 -> 2.54 dE00, mean |dL*| of mirrored regions 2.09 -> 1.15.
+anchor were built but left OFF in production (on FT1119 they import the anchor's view-dependent sheen: 05 sees the brow
+front's top band at 2.0 / 1.62 / 1.31 x 04's colours, and raised the weighted boundary step 4.52 -> 6.13 dE00); they
+were deleted on 2026-10-13. Measured with all three stages (the step-4 sheets script, deleted on 2026-10-13; see git
+tag review-20261013-pre-cleanup): weighted boundary step 3.81 -> 2.54 dE00, mean |dL*| of mirrored regions 2.09 ->
+1.15.
 
 Every photo has its own exposure and white balance; a region is painted from its anchor alone, so neighbouring
 regions painted from different photos must be brought to one reference. Per pair of label views (a, b):
@@ -268,7 +269,6 @@ GROUP_CLIP = (0.5, 2.0)          # step 4 fix 3: was (0.67, 1.5), where 12 of 32
 GROUP_PRIOR = 200.0
 GROUP_BAND_MM = 2.0
 GROUP_EDGE_RANGE = (0.5, 2.0)    # a boundary edge whose median ratio leaves this range compares different things
-OVERLAP_WEIGHT = 4.0             # a same-surface overlap equation counts this many times its pairs' weight
 ROBUST_LOG = float(np.log(1.6))  # a boundary edge whose residual exceeds this after the first solve is dropped
 MIRROR_GROUP_MIN = 2000
 MIRROR_SAME_WEIGHT = 3.0
@@ -276,17 +276,12 @@ MIRROR_MEDIAN_WEIGHT = 1.0
 
 
 def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, ref_label: int | None, *,
-                band_mm: float = GROUP_BAND_MM, anchor_label: np.ndarray | None = None, view_cols=None,
-                view_ok=None, mirror_region: dict | None = None) -> dict:
+                band_mm: float = GROUP_BAND_MM, mirror_region: dict | None = None) -> dict:
     """One linear-light gain per painted group (region x painting view), on the stage-1 gained colours, so that a
     region painted by several views and neighbouring regions painted by different views show one albedo.
 
-    Equations (weighted least squares of log gains per channel; ``GROUP_CLIP``):
-    - **same-surface overlap** (step 4 fix 3, §6.3's "per (view, region) to the anchor, from same-surface
-      overlaps"): for a group (R, v) whose region's anchor a (``anchor_label``) also sees >= 200 of its texels
-      (``view_ok[a]``, ``view_cols[a]``: a's stage-1 gained colours), G(R, v) / G(R, a) = median_a / median_v on those
-      very texels, weight OVERLAP_WEIGHT x sqrt(pairs). This is what fixes the band of a brow front that the label
-      moves gave to the top view 04: 05 sees it, so it is matched to what 05 shows there, not to a boundary median;
+    Equations (weighted least squares of log gains per channel; ``GROUP_CLIP``; the same-surface overlap equations,
+    off in production, were deleted on 2026-10-13):
     - **across a region boundary**: texels within ``band_mm`` of a neighbouring group with a different view, ON THE
       SAME PART only (fix 3: the brow back and the temple top 2 mm apart across the hinge were matched before, with
       ratios up to 5.0 from hinge metal); edges whose median ratio leaves ``GROUP_EDGE_RANGE`` in any channel are
@@ -294,12 +289,12 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     - groups painted by the reference view are fixed at 1, and every group is pulled weakly toward 1 (sqrt(200)).
     After the first solve, boundary edges whose residual exceeds log 1.6 in any channel are dropped and the system is
     solved again (listed in 'dropped'): one outlier edge (a tiny end face) had pulled the -x temple's 163,123-texel
-    outer face to the old clip. Returns {'gain': (n, 3) per texel, 'groups': [...], 'edges': [...], 'overlaps': [...],
+    outer face to the old clip. Returns {'gain': (n, 3) per texel, 'groups': [...], 'edges': [...], 'mirrors': [...],
     'rejected': [...], 'dropped': [...]}."""
     keys = np.where(painted, tex.region * 64 + np.maximum(label, 0), -1)
     groups = [int(k) for k in np.unique(keys[keys >= 0])]
     gi = {k: i for i, k in enumerate(groups)}
-    edges, rejected, overlaps, mirrors = [], [], [], []
+    edges, rejected, mirrors = [], [], []
     pts = {k: np.nonzero(keys == k)[0] for k in groups}
     part_of = {k: np.unique(tex.part[pts[k]]) for k in groups}
 
@@ -337,31 +332,6 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
                     rejected.append({**rec, "why": f"ratio outside {list(GROUP_EDGE_RANGE)}"})
                 else:
                     edges.append(rec)
-    if anchor_label is not None and view_cols is not None and view_ok is not None:
-        for k in groups:
-            v = k % 64
-            p = pts[k]
-            a_ = int(anchor_label[p[0]]) if len(p) else -1
-            if a_ < 0 or a_ == v or a_ >= len(view_cols):
-                continue
-            ka = (k // 64) * 64 + a_
-            if ka not in gi:
-                continue
-            both = p[view_ok[a_][p]]
-            if len(both):
-                both = both[~specular(view_cols[a_][both]) & ~specular(col[both])]
-            if len(both) < MIN_SIDE:
-                continue
-            la = np.median(lin(view_cols[a_][both]), 0)
-            lv = np.median(lin(col[both]), 0)
-            if np.any(la <= 1e-6) or np.any(lv <= 1e-6):
-                continue
-            ratio = la / lv                                   # anchor ~ ratio x v on the same texels
-            rec = {"a": ka, "b": k, "pairs": int(len(both)), "ratio": [float(x) for x in ratio], "kind": "overlap"}
-            if np.any(ratio < GROUP_CLIP[0] / 2) or np.any(ratio > GROUP_CLIP[1] * 2):
-                rejected.append({**rec, "why": "overlap ratio beyond twice the clip"})
-            else:
-                overlaps.append(rec)
     # mirror equations (step 4 fix 3): a group and its mirror group (the mirror region, painted by a view): the SAME
     # view on both sides -> equal gains (one photo lights both sides alike; without this the -x and +x temple tops,
     # both from 04, drifted apart by chains of boundary edges: L* 28.0 vs 19.6); DIFFERENT views -> equal region
@@ -395,8 +365,7 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     fixed = {k for k in groups if ref_label is not None and (k % 64) == ref_label}
     var = [k for k in groups if k not in fixed]
     vi = {k: j for j, k in enumerate(var)}
-    KIND_W = {"overlap": OVERLAP_WEIGHT, "boundary": 1.0, "mirror_same_view": MIRROR_SAME_WEIGHT,
-              "mirror_median": MIRROR_MEDIAN_WEIGHT}
+    KIND_W = {"boundary": 1.0, "mirror_same_view": MIRROR_SAME_WEIGHT, "mirror_median": MIRROR_MEDIAN_WEIGHT}
 
     def solve(eqs):
         g_ = np.ones((len(groups), 3))
@@ -426,7 +395,7 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
                           ).reshape(-1, 3)
         return g_, res_
 
-    eqs = edges + overlaps + mirrors
+    eqs = edges + mirrors
     g, resid = solve(eqs)
     dropped = []
     if len(eqs):
@@ -440,7 +409,6 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     for k in groups:
         per[pts[k]] = g[gi[k]]
     return {"gain": per, "edges": [e for e in eqs if e["kind"] == "boundary"],
-            "overlaps": [e for e in eqs if e["kind"] == "overlap"],
             "mirrors": [e for e in eqs if e["kind"].startswith("mirror")], "rejected": rejected, "dropped": dropped,
             "groups": [{"region": int(k // 64), "view_index": int(k % 64), "texels": int(len(pts[k])),
                         "fixed": k in fixed, "gain": [float(x) for x in g[gi[k]]],
@@ -456,10 +424,6 @@ def apply_per_texel(col: np.ndarray, gain: np.ndarray) -> np.ndarray:
 LEVEL_CELL_MM = 1.0              # coarse cell: 1 mm (16 texels at 16 texels/mm)
 LEVEL_W_BOUNDARY = 0.05          # per node pair across a boundary (with smoothness 1 the field averages the jump
                                  # along the boundary over a few nodes itself)
-LEVEL_TARGET_SIGMA_MM = 0.0      # > 0: the target jump is the median over +-2 sigma along the boundary (measured on
-                                 # FT1119 with w_boundary 1: boundary steps 4.13-4.65 dE00 against 3.07 for raw targets
-                                 # at 0.05, so off)
-LEVEL_MAX_JUMP = float("inf")    # finite: pairs whose mean |jump| exceeds it are not levelled (off: dropping cost)
 LEVEL_W_ANCHOR = 0.01            # every node weakly toward no correction (measured: 1e-3 let mirror sides drift
                                  # apart, L* 26.8 vs 21.6 on the brow tops; 0.05 left steps of 3.7 dE00)
 LEVEL_W_REFERENCE = 1.0          # nodes of groups painted by the reference view stay put
@@ -511,8 +475,8 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     on the SAME part) c_a - c_b = J, the node colours extrapolated to their common physical boundary using
     same-group tangent gradients (different node interiors can differ without an exposure step), weight
     ``w_boundary``; every node weakly toward 0 (``LEVEL_W_ANCHOR``: the correction decays about 10 mm into a group),
-    with stronger anchoring for the reference view. Optional along-boundary median smoothing and jump rejection
-    use ``LEVEL_TARGET_SIGMA_MM`` and ``LEVEL_MAX_JUMP`` (currently disabled). Clipped to +-log 2.
+    with stronger anchoring for the reference view (the disabled along-boundary median smoothing and jump rejection,
+    ``LEVEL_TARGET_SIGMA_MM`` = 0 and ``LEVEL_MAX_JUMP`` = inf, were deleted on 2026-10-13). Clipped to +-log 2.
     Returns {'gain': (n, 3) per texel (1 off the painted
     set), 'nodes', 'boundary_pairs', 'max_abs_log'}."""
     from scipy import sparse
@@ -604,24 +568,10 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
         va, vb = (V[pk[:, k]] + np.einsum('ni,nij->nj', mid - Pn[pk[:, k]], gradient[pk[:, k]])
                   for k in (0, 1))
         J = vb - va
-        gp = (ukey[pk[:, 0]] // Wc // Hc // 1024) * 100000 + (ukey[pk[:, 1]] // Wc // Hc // 1024)
-        Js = J.copy()
-        sig = LEVEL_TARGET_SIGMA_MM
-        for q in (np.unique(gp) if sig > 0 else []):
-            mq = np.nonzero(gp == q)[0]
-            tr = cKDTree(mid[mq])
-            for i_, nbrs in zip(mq, tr.query_ball_point(mid[mq], 2 * sig)):
-                Js[i_] = np.median(J[mq[nbrs]], 0)          # a median: blotches crossing the boundary do not count
-        # a boundary whose averaged jump exceeds LEVEL_MAX_JUMP in a channel compares different things (a tiny strip of
-        # a grazing photo, glare): it is not levelled (its pairs are dropped and counted)
-        okj = np.abs(Js).mean(1) <= LEVEL_MAX_JUMP
-        rows_a[-1], rows_b[-1], kinds[-1] = rows_a[-1][okj], rows_b[-1][okj], kinds[-1][okj]
-        tgts.append(Js[okj])
-        n_bnd = int(okj.sum())
-        n_bnd_dropped = int((~okj).sum())
+        tgts.append(J)
+        n_bnd = len(pk)
     else:
         n_bnd = 0
-        n_bnd_dropped = 0
     ra = np.concatenate(rows_a)
     rb = np.concatenate(rows_b)
     kd = np.concatenate(kinds)
@@ -678,7 +628,7 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     at_clip_node = np.isclose(np.abs(C), LEVEL_CLIP, atol=1e-9).any(1)
     at_clip_tex = (np.abs(corr) >= LEVEL_CLIP - 1e-6).any(1)
     big = ((corr >= np.log(LEVEL_LARGE)) | (corr <= -np.log(LEVEL_LARGE))).any(1)
-    return {"gain": out_gain, "nodes": int(N), "boundary_pairs": int(n_bnd), "boundary_pairs_dropped": n_bnd_dropped,
+    return {"gain": out_gain, "nodes": int(N), "boundary_pairs": int(n_bnd),
             "boundary_plane_offset_p95_mm": float(np.percentile(plane_offsets, 95)) if len(plane_offsets) else 0.0,
             "boundary_plane_offset_max_mm": float(plane_offsets.max()) if len(plane_offsets) else 0.0,
             "max_abs_log": float(np.abs(C).max()) if N else 0.0,

@@ -1,3 +1,5 @@
+> ARCHIVED, NOT ACTIVE — evidence only; never follow its resume steps, gates or prompts.
+
 # WP6 faceted temples: final design
 
 **Current status (2026-10-08): STOP-I retained; implementation already exists.** Read

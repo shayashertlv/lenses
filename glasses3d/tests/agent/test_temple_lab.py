@@ -55,13 +55,6 @@ REMEDY_WORDS = ("solved corners", "rise_per_mm", "solve instead", "one solved", 
 disable_sdk_tracing()                  # the SDK's error path would build a trace exporter (a network client)
 
 
-@pytest.fixture(autouse=True)
-def photo_read_timeout(monkeypatch):
-    """loop.HARD_TIMEOUT_S does not name photo_read yet (its owner's table; tests/agent/test_temple_lab_v3.py does
-    the same): 30 s, the facet tools' floor, so the registry can be built."""
-    monkeypatch.setitem(L.HARD_TIMEOUT_S, "photo_read", L.HARD_TIMEOUT_S.get("photo_read", 30))
-
-
 # --------------------------------------------------------------------------------------------- fakes
 class FakeBasis:
     """Six target photos and the variant-colourway black-side (small synthetic images) with orthographic cameras."""
@@ -363,7 +356,7 @@ def make_lab(root: Path, spec=None, basis=None, **session) -> Lab:
     lab = Lab(root, session=s, seeing=FakeSeeing(s, root))
     lab._basis = basis or FakeBasis()
     lab.state["start_checkpoint"], lab.state["start_fingerprint"] = "c0000", "fp-original"
-    lab.state["original"] = {"footprints": {"decals": [], "hinge": []}, "chart_mesh": None}
+    lab.state["original"] = {"footprints": {"decals": [], "hinge": []}}
     design = spec or FX.prada_default()
     rid, _ = lab._register(design, parent=None, kind="template", label="revision 0", fit=FIT.fit_spec(design))
     assert lab._apply("prepare-r0", rid, tool="prepare")["status"] == "ok"
@@ -460,12 +453,12 @@ def no_remedy(text: str) -> bool:
 def test_edits_round_trip_every_fixture(name):
     """From another parent (the slab's chains, no layout; the target's chamfers, which the edits have no op for) the
     edits of spec_to_edits rebuild the spec exactly; the strict v3 union takes them unless the fixture has a v2 crease
-    + rise plane or a fade (internal callers only, geometry module doc; WP6_V3 §6 offers Astra neither)."""
+    + rise plane (internal callers only, geometry module doc; WP6_V3 §6 offers Astra none)."""
     spec = FX.FIXTURES[name]()
     parent = {**canonical(FX.slab()), "chamfers": canonical(spec)["chamfers"]}
     out, notes = G.apply_edits(parent, G.spec_to_edits(spec), reset_layout=True)
     assert out == canonical(spec) and notes == []
-    v2 = any(isinstance(f["plane"], dict) or f["fade"] for f in canonical(spec)["facets"].values())
+    v2 = any(isinstance(f["plane"], dict) for f in canonical(spec)["facets"].values())
     if v2:
         with pytest.raises(Exception):
             T.EditList.model_validate({"edits": G.spec_to_edits(spec)})
@@ -835,76 +828,6 @@ def test_the_head_comparison_is_fast():
         t0 = time.perf_counter()
         G.geometry_delta(a, b)
         assert time.perf_counter() - t0 < 0.5
-
-
-# --------------------------------------------------------------------------------------------- compare internals
-@pytest.mark.parametrize("yaw,pitch,persp", [(90.0, 13.6, 0.25), (28.2, 11.4, 0.26), (0.3, 59.9, 0.29),
-                                             (-90.0, 0.0, 0.0), (180.0, 8.8, 0.07)])
-def test_crease_polylines_fast_is_the_overlay_rule(yaw, pitch, persp):
-    """compare.crease_polylines_fast returns exactly compare.crease_polylines' polylines (same samples, runs and
-    order) on the Prada-layout fixture's two temples at the photo kinds' camera angles, and crease_polylines_posed
-    (edges + raster depth of the bodies) is the same thing in one call."""
-    from glasses3d.g3d_host import compare as C
-    from glasses3d.g3d_host import raster
-    tb = build_temple(FX.prada_default())
-    frame = NormFrame((0.0, -5.0, -70.0), 170.0)
-    shape = (320, 640)
-    cam = raster.view_camera(frame, yaw, pitch, 4.0, shape, perspective=persp, center_mm=np.array([0.0, 0.0, -70.0]))
-    bodies = [(tb.world(s)[0], tb.world(s)[2]) for s in (1, -1)]
-    parts = [C.crease_edges(V, F) for V, F in bodies]
-    edges = {k: np.concatenate([e[k] for e in parts]) for k in parts[0]}
-    V = np.concatenate([b[0] for b in bodies])
-    F = np.concatenate([bodies[0][1], bodies[1][1] + len(bodies[0][0])])
-    depth = raster.render(V, F, cam, frame, shape)["depth"]
-    ref = C.crease_polylines(edges, cam, frame, depth)
-    fast = C.crease_polylines_fast(edges, cam, frame, depth)
-    posed = C.crease_polylines_posed(bodies, None, cam, frame, shape)
-    assert len(ref) > 20, len(ref)
-    for got in (fast, posed):
-        assert len(got) == len(ref)
-        assert all(s == t and np.array_equal(p, q) for (p, s), (q, t) in zip(ref, got))
-
-
-# --------------------------------------------------------------------------------------------- the outline line
-# (v3 leaves it out of Astra's view, WP6_V3 P5; state keeps it for owner sheets)
-RUN3_TOP = {"+1": [-0.4, 0.1, 1.5, 0.7, -1.8, -2.1, -1.5, -0.8, -0.6, -0.7, -0.3, None, None],    # facet-astra-003's
-            "-1": [-0.5, 0.0, 1.5, 0.6, -1.6, -2.1, -1.4, -0.8, -0.6, -0.9, -0.3, None, None]}    # best head, photo 03
-
-
-def offsets(table: dict) -> dict:
-    """{side: [offset_mm at d 10, 20, ...]} as a compare's outer_edge_offsets_mm."""
-    return {side: [{"d_mm": float(d), "offset_mm": v} for d, v in zip(range(10, 10 * len(vals) + 1, 10), vals)]
-            for side, vals in table.items()}
-
-
-def test_outline_check_names_shape_beyond_the_common_offset():
-    """facet-astra-003's best head at the top photo: common -0.6 on both sides; d30, d40 and d60 lie more than 1 mm
-    from it on both sides, the same way (d50 only on one side: not off). Deviations count as printed (0.1 mm). Sides
-    that disagree in sign, a side with fewer than OUTLINE_MIN_STATIONS stations and a station one side measured never
-    count; a station no side measured, inside the measured span of every side, is unmeasured; no side with enough
-    stations is "not measured"; outline_ok holds only for a measured outline with no station off or unmeasured."""
-    chk = S.outline_check(offsets(RUN3_TOP))
-    assert chk == {"common": {"+1": -0.6, "-1": -0.6}, "off": [[30.0, 2.1], [40.0, 1.25], [60.0, -1.5]],
-                   "unmeasured": []} and not S.outline_ok(chk)
-    assert S.outline_text(chk) == "outline: common -0.6; >1 mm: d30 +2.1 d40 +1.2 d60 -1.5"
-    flat = S.outline_check(offsets({"+1": [0.1, -0.2, 0.0, 0.3, -0.1], "-1": [0.0, 0.0, 0.2, None, 0.1]}))
-    assert S.outline_ok(flat) and S.outline_text(flat) == "outline: common +0.0; all within 1 mm"
-    near = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.04]}))
-    assert near["off"] == [] and S.outline_ok(near)                   # 1.04 is +1.0 as printed: not beyond 1 mm
-    split = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.5], "-1": [0.0, 0.0, 0.0, 0.0, -1.5]}))
-    assert split["off"] == [] and S.outline_ok(split)                 # the sides disagree: not shape
-    one = S.outline_check(offsets({"+1": [0.0, 0.0, 0.0, 0.0, 1.5], "-1": [0.0, 0.0, 1.5, None, None]}))
-    assert one == {"common": {"+1": 0.0}, "off": [[50.0, 1.5]], "unmeasured": []}    # -1: 3 stations, no common
-    gap = S.outline_check(offsets({"+1": [0.0, 0.1, 0.0, None, 0.2, -0.1, None],
-                                   "-1": [0.0, 0.1, 0.0, None, 0.2, -0.1, 0.0]}))
-    assert gap["unmeasured"] == [40.0] and not S.outline_ok(gap)      # neither side measured d40: unmeasured
-    assert S.outline_text(gap) == "outline: common +0.0; none >1 mm; unmeasured: d40"
-    for none in (offsets({"+1": [0.0, 1.0, None]}), None):
-        chk0 = S.outline_check(none)
-        assert chk0 == {"common": {}, "off": [], "unmeasured": []} and not S.outline_ok(chk0)
-        assert S.outline_text(chk0) == "outline: not measured (under 4 stations a side)"
-    many = S.outline_check(offsets({"+1": [0.0] * 6 + [2.0] * 5}))
-    assert S.outline_text(many) == "outline: common +0.0; >1 mm: d70 +2.0 d80 +2.0 d90 +2.0 d100 +2.0 (+1 more)"
 
 
 def test_distinct_heads_chain_counts_unique_heads_only():
@@ -3008,58 +2931,6 @@ def test_facet_run_settings():
     assert s.behavior() == {"tool_choice": "required", "reset_tool_choice": False,
                             "finish": {"tool": "facet_finish", "behavior": L.FINISH_BEHAVIOR, "k": 5},
                             "context_guard": {"input_tokens": 240_000, "filter": L.CONTEXT_GUARD}}
-
-
-# --------------------------------------------------------------------------------------------- recorded packages
-PACKAGE_004 = Path(__file__).resolve().parents[2] / "data" / "wp6v2" / "lab" / "package_004"
-
-
-def test_variant_edges_match_the_compare_on_the_prada_package(monkeypatch):
-    """On the recorded Prada package (read-only): Lab._variant_edges of revision 17 (its declarations left out: they
-    shape nothing), handed cmp030's exported head by a stub seeing, draws seeing's model edges of that export
-    (Seeing._edges_posed + _edges_drawn on the posed scene, the v3 compare overlay) at cmp030's crop cameras and
-    poses (all seven photos): at most 0.5 % of the line pixels differ. The fixture test above runs the same check
-    without package data."""
-    report = PACKAGE_004 / "work" / "compare" / "cmp030" / "report.json"
-    revision = PACKAGE_004 / "work" / "temple_lab" / "revisions" / "r0017.json"
-    if not (report.is_file() and revision.is_file()):
-        pytest.skip("package_004 (git-ignored data) is not on this machine")
-    monkeypatch.setattr(BLD, "_check_fade_creases", lambda *a, **k: None)     # r0017 fades a crease's two facets
-    from glasses3d.g3d_host import fitmesh
-    rep = json.loads(report.read_text(encoding="utf-8"))
-    glb = PACKAGE_004 / "work" / "exports" / Path(rep["glb"]["path"].replace("\\", "/")).name
-    assert hashlib.sha256(glb.read_bytes()).hexdigest() == rep["glb"]["sha256"]
-    bs = GC.load_basis(PACKAGE_004)
-
-    class PackageSeeing:                       # the lab's seeing, read-only: the export cmp030 compared
-        def export_head(self, call_id=None):
-            return {"status": "exported", "path": str(glb), "sha256": rep["glb"]["sha256"]}
-
-        def fit_mesh(self, path, sha, *, skip=(), frame=None):
-            return fitmesh.load_fit_mesh(path, skip=tuple(skip), frame=frame)
-    lab = Lab.__new__(Lab)                     # no __init__: nothing is written into the package
-    lab._basis, lab.seeing = bs, PackageSeeing()
-    photos = {rid: {"pose": bs.pose(rid), "ccam": Camera(**prec["crop"]["camera"]),
-                    "shape": tuple(prec["crop"]["shape"])} for rid, prec in rep["photos"].items()}
-    spec = json.loads(revision.read_text(encoding="utf-8"))
-    spec["creases"] = []
-    tb = build_temple(spec)
-    got, info = lab._variant_edges(photos, {"head": tb}, "package")
-    assert info == {"occlusion": "scene"} and len(photos) == 7
-    mesh = fitmesh.load_fit_mesh(glb, skip=bs.skip, frame=bs.frame)
-    roles = PO.part_roles(glb)
-    edges = [{**e, "pts": np.asarray(e["pts"], float), "deg_at": np.asarray(e["deg_at"], float)}
-             for e in LB.capped_edges(BLD.model_edges(tb))]
-    hz = float(tb.spec.hinge["z_mm"])
-    total = 0
-    for rid, c in photos.items():
-        mp = PO.posed(mesh, c["pose"], roles)
-        ref = Seeing._edges_drawn(Seeing._edges_posed(edges, c["pose"], hz, None), c["ccam"], bs.frame, mp.scene(),
-                                  c["shape"])
-        a, b = _run_mask(ref, c["shape"]), _run_mask(got[(rid, "head")], c["shape"])
-        assert a.sum() > 50 and (a != b).sum() <= 0.005 * a.sum(), (rid, int(a.sum()), int((a != b).sum()))
-        total += int(a.sum())
-    assert total > 3000, total
 
 
 # --------------------------------------------------------------------------------------------- real Blender

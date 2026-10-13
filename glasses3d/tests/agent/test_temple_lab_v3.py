@@ -202,13 +202,14 @@ def test_set_facet_refusals(edit, words):
 
 
 def test_internal_callers_keep_the_v2_shapes_the_tool_union_refuses():
-    """apply_edits still takes v2's plane mode nodes / crease + rise and fades (fixtures, v2 tests, old revisions);
-    the strict union Astra uses has none of them."""
+    """apply_edits still takes v2's plane mode nodes / crease + rise (fixtures, v2 tests, old revisions); the strict
+    union Astra uses has none of them. Fades were removed on 2026-10-13: a fade other than null is an EditError."""
     v2 = {"op": "set_facet", "label": "crown", "poly": ["P", "Q", "R", "S"],
-          "plane": {"mode": "nodes", "crease": None, "rise_per_mm": None}, "fade": {"d0_mm": 25.0, "d1_mm": 35.0}}
+          "plane": {"mode": "nodes", "crease": None, "rise_per_mm": None}, "fade": None}
     design, _ = G.apply_edits(FX.slab(), quad()[:4] + [v2])
-    assert design["facets"]["crown"] == {"poly": ["P", "Q", "R", "S"], "plane": "nodes",
-                                         "fade": {"d0": 25.0, "d1": 35.0}}
+    assert design["facets"]["crown"] == {"poly": ["P", "Q", "R", "S"], "plane": "nodes", "fade": None}
+    err = refused(FX.slab(), quad()[:4] + [{**v2, "fade": {"d0_mm": 25.0, "d1_mm": 35.0}}])
+    assert err.index == 4 and err.message == "fade must be null"
     for bad in (v2, {**facet("crown", "PQRS"), "fade": None}, {**facet("crown", "PQRS"), "plane": {"mode": "nodes"}},
                 {**facet("crown", "PQRS"), "plane": {"mode": "crease"}}, {k: v for k, v in facet("c", "PQRS").items()
                                                                           if k != "soft"},
@@ -386,18 +387,9 @@ class FakeLab:
         return self._rec("finish", *args)
 
 
-@pytest.fixture
-def timeouts(monkeypatch):
-    """loop.HARD_TIMEOUT_S names photo_read (its owner's table; test_loop_facet pins every TOOL_NAMES entry): the
-    real value when present, else 30 s so the registry tests here test this file's tools while the table lacks it.
-    test_the_real_registry_builds (no fixture) fails until the loop owner adds the entry: tools.registry raises
-    KeyError 'photo_read' without it, so no run can start (review 2026-10-12)."""
-    monkeypatch.setitem(L.HARD_TIMEOUT_S, "photo_read", L.HARD_TIMEOUT_S.get("photo_read", 30))
-
-
 def test_the_real_registry_builds():
     """Every tool of the registry has a hard timeout in loop.HARD_TIMEOUT_S, so tools.registry builds with the real
-    table (no fixture). A blocker in loop.py (not this track's file) while it fails."""
+    table."""
     missing = [name for name in T.TOOL_NAMES if name not in L.HARD_TIMEOUT_S]
     assert missing == [], f"loop.HARD_TIMEOUT_S has no entry for {missing}"
     assert tuple(t.name for t in T.registry(FakeLab())) == T.TOOL_NAMES
@@ -424,7 +416,7 @@ def judgement_args(photos=("01", "05"), n=1) -> dict:
                        for p in photos], "best_checkpoint": "c0001"}
 
 
-def test_tool_schemas_are_strict_with_the_v3_limits(timeouts):
+def test_tool_schemas_are_strict_with_the_v3_limits():
     tools = tools_of(FakeLab())
     assert tuple(tools) == T.TOOL_NAMES == ("facet_inspect", "photo_image", "photo_read", "photo_compare",
                                             "facet_edit", "facet_variants", "facet_finish")
@@ -476,7 +468,7 @@ def tool_texts(tools: dict) -> list:
                                                       for _p, d in L.schema_descriptions(t.params_json_schema)]
 
 
-def test_tool_descriptions_are_short_facts(timeouts):
+def test_tool_descriptions_are_short_facts():
     """No phrase the run's contract refuses (cli.tool_contract: loop.REMOVED_PHRASES and cli.RETIRED_PHRASES, the
     whole list, not a part of it), and no v2 word (restore, depth, fade) in any tool or parameter text."""
     from glasses3d.agent.temple_lab import cli
@@ -495,7 +487,7 @@ def test_tool_descriptions_are_short_facts(timeouts):
     assert 'the last 3 judgements cover 3 distinct heads with none "better" (one judgement per compare' in fin
 
 
-def test_description_numbers_are_the_codes(timeouts):
+def test_description_numbers_are_the_codes():
     """Every number a tool text states is the constant the code enforces (review 2026-10-12: the variant counts,
     target photos, spread, zoom and variant caps, station step were retyped literals), and each scale names its cap
     (a text that promised native pixels where the code shrinks the image)."""
@@ -567,7 +559,7 @@ def test_description_numbers_are_the_codes(timeouts):
     assert f"a short name: {G.NAME_RULE}, not ending in _" in json.dumps(tools["facet_variants"].params_json_schema)
 
 
-def test_tool_texts_state_what_the_code_does(timeouts):
+def test_tool_texts_state_what_the_code_does():
     """The facts the review of 2026-10-12 found missing or wrong: the default photo set, the variant sheet's temple and
     region, a reading as a snapshot, the object rule on any parent, a refused call's note, a judgement when none is
     due, the crease declaration and the chains."""
@@ -680,7 +672,7 @@ def tool_calls() -> list:
     ]
 
 
-def test_each_tool_calls_its_lab_method(timeouts):
+def test_each_tool_calls_its_lab_method():
     lab = FakeLab()
     tools = tools_of(lab, k=4)
     for name, args, want in tool_calls():
@@ -703,7 +695,7 @@ def test_the_calls_bind_to_the_real_lab_methods():
     assert bound["variants"]["photos"] == ["05"] and bound["finish"]["k"] == 4
 
 
-def test_busy_and_refusals_reach_astra_as_results(timeouts):
+def test_busy_and_refusals_reach_astra_as_results():
     lab = FakeLab(result=S.LabRefusal("E_OBJECT", S.OBJECT_REFUSAL))
     tools = tools_of(lab)
     out = body(call(tools["facet_edit"], {"parent_revision": 0, "reset_layout": False, "edits": [],
@@ -1237,7 +1229,7 @@ def test_a_face_that_stops_at_a_chord_names_the_plain_arm_it_leaves_and_virtual_
     assert G.strip_text("RL", []) == ""
 
 
-def test_arguments_the_parameters_refuse_name_each_problem_by_path(timeouts):
+def test_arguments_the_parameters_refuse_name_each_problem_by_path():
     """Stand-in call 11: a probe edit came back as the SDK's "Invalid JSON input for tool facet_edit" with no field or
     path (the SDK drops the validation text unless tool data is logged). The tools answer E_ARGS with each problem by
     path, nothing done (the lab is not called): one line for an edit whose op names no edit (not one per union

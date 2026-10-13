@@ -2,6 +2,10 @@
 
 > Superseded where they differ by [WP6_V3.md](WP6_V3.md) (2026-10-12): fit, warp faces, readings, seeing and the
 > rewritten prompt. This file stays the record of v2 and of the builder core, seeing stack and lab plumbing v3 keeps.
+> **Removed 2026-10-13** ([REVIEW_20261013.md](REVIEW_20261013.md) §7; tag `review-20261013-pre-cleanup`): fades
+> (`fade`, `E_FADE_*`, `W_FADE_EARLY`; a spec with a non-null `fade` is now refused `E_SPEC`), the v1 measuring
+> instrument (`check_relief`, `measure.py` §5 numbers), `draw.section_strip`, the outline-line functions and the v2
+> owner-sheet / light / rig / expressivity proof scripts. Sections below that describe them are history.
 
 ## 0. Owner decision and goal
 

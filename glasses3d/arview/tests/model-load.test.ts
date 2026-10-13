@@ -624,7 +624,7 @@ test('no silent stalls: Draco without a Web Worker ends "unchecked" up front (no
     + '(a decoder or a buffer load stalled)']);
   assert.ok(performance.now() - started < 5_000, 'abandoned at the deadline');
   assert.match(stalled.report.rendered_sha256 ?? '', /^[0-9a-f]{64}$/);
-  // The abort signal ends a stalled parse at once (the renderer's cancel, qa/temple-cutoff's signal).
+  // The abort signal ends a stalled parse at once (the renderer's cancel).
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 50);
   await within(assert.rejects(checkModel(buildGlb().glb, {url: URL_BASE + 'stall.glb', renderer: null, plugins: [stubTextures, stall], signal: controller.signal}),

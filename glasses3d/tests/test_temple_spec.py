@@ -58,6 +58,7 @@ def test_hash_is_stable_and_sensitive():
     lambda s: s["facets"].update(X={"poly": ["A", "B", "C"], "plane": {"crease": ["A", "Q"], "rise_per_mm": 0.1}}),
     lambda s: s["facets"].update(X={"poly": ["A", "B", "C"], "fade": {"d0": 5.0, "d1": 5.0}}),
     lambda s: s["facets"].update(X={"poly": ["A", "B", "C"], "fade": [5.0, 9.0]}),
+    lambda s: s["facets"].update(X={"poly": ["A", "B", "C"], "fade": {"d0": 5.0, "d1": 9.0}}),   # removed 2026-10-13
     lambda s: s["facets"].update({"a|b": ["A", "B", "C"]}),
     lambda s: s.update(creases=[{"facets": ["F2", "F9"], "shape": "ridge"}]),
     lambda s: s.update(creases=[{"facets": ["F2", "F3"], "shape": "sharp"}]),

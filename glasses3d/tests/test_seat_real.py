@@ -349,8 +349,6 @@ def test_proof_review_round2_records(proof):
     assert m["blender_check_fails_on_it"] and m["host_check_fails_on_it"]
     assert recs[("P4.nylor_outline.cord_overlap_reported", "instrument")]["pass"] is True
     notch = recs[("P4.refusal.notch", "core")]
-    if notch["measured"]["code"] == "E_POSTCHECK":
-        assert notch["pass"] is False and "P4.refusal.notch (core)" in proof["summary"]["P4"]["failed"]
     # proof fix round (open item E): the plan refuses the notch at its CONCAVE gate, nothing written
     assert notch["measured"]["code"] == "E_CONCAVE" and notch["pass"] is True, notch["measured"]
     assert notch["measured"]["digest_unchanged"] and (notch["measured"]["blocked_by"] or {}).get("CONCAVE", 0) >= 1

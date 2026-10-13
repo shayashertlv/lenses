@@ -1,15 +1,19 @@
 # glasses3d progress
 
-Started fresh on 2026-10-10 when WP6 was rebuilt. The previous log (to 62b25e4), the WP6 v1 handoff, design,
-session prompt and the Astra temple lab plan are in [archive/20261010](archive/20261010/README.md); older snapshots
-are in [archive/20261008](archive/20261008/README.md). Archived files are evidence, never instructions.
+Started fresh on 2026-10-10 when WP6 was rebuilt. The previous log (to 62b25e4) and the WP6 v1 design are in
+[archive/20261010](archive/20261010/README.md); older snapshots are in [archive/20261008](archive/20261008/README.md).
+Archived files are evidence, never instructions. The WP6 v1 handoff, the two session prompts and the Astra temple lab
+plan were deleted on 2026-10-13 (tag `review-20261013-pre-cleanup`).
+
+**Full-codebase review 2026-10-13: [REVIEW_20261013.md](REVIEW_20261013.md)** (status per WP from the code, the
+automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP7 or WP8.
 
 ## Status
 
 | WP | State |
 |---|---|
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
-| WP4 | Complete and tested. The real-product proof is **stale** since the WP5 exporter change `10bf932`: 11 of 24 `test_seat_real` tests skip as stale. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
+| WP4 | Geometric tools complete and tested; the visual half of `check_lens_seating` (junction captures) and photo-derived hide ranges were never built. The last proof grades P3 34/40, P4 109/112 (+2 owner pending), P5 31/32 with 5 open owner decisions (review 2026-10-13, §5). The real-product proof is **stale** (whole-file hashes; changed: `g3d/__init__.py`, `g3d/export_glb.py`, `g3d/seat/geom.py`, all inert for WP4): 11 of 24 `test_seat_real` tests skip. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
 | WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
 | WP2 | A–C verified; D–F not built |
@@ -60,8 +64,8 @@ Phase 3 and pre-flight results (2026-10-11):
   - Layout: logo triangle, crown, hinge flank and tail flank fading at 55–85 mm, roll 0.25 mm. Every crease was
     declared a ridge.
   - 3 variant sheets, 6+ builder refusals that Astra fixed itself.
-- Owner sheet: `data/wp6v2/result_facet-astra-002/` (tests/proofs/wp6v2_result_sheet.py). The owner's verdict is
-  pending.
+- Owner sheet: `data/wp6v2/result_facet-astra-002/` (tests/proofs/wp6v2_result_sheet.py, deleted 2026-10-13). The
+  owner's verdict is pending.
 
 **Owner feedback on facet-astra-002, verbatim:**
 - "yes it did miss the red line."
@@ -492,20 +496,16 @@ The owner's 2026-10-13 WP6 acceptance (run 8's temples) closes WP6; it is not a 
 ## Archive step (track F, 2026-10-10)
 
 Removed (`git rm`): `g3d_host/relief_{anchors,crop,cue,edges,fit,hinge,junction,photo_mask,ridge,transition}.py`,
-`g3d_host/camera_similarity.py`, every `tests/proofs/wp6_*` except the Blender driver, the camera/occlusion evidence
+`g3d_host/camera_similarity.py` (restored 2026-10-11 in `bf0b699` for the B2/B3 camera transport of
+`tests/proofs/wp6v2_basis.py`), every `tests/proofs/wp6_*` except the Blender driver, the camera/occlusion evidence
 fixtures, and 33 test files that only exercised v1 code. Renamed `tests/proofs/wp6_bpy_run.py` →
 `tests/proofs/temple_bpy_run.py` (the Blender driver of `test_temple_blender.py`; it imports no v1 module). Kept and
 stripped: `test_temple_blender.py` (P0 instrument grade dropped), `test_temple_real.py` (glossy WP3b table test only),
 `test_temple_design_checks.py` (builder warnings + the decal-standoff test moved in from `test_temple_relief_cue.py`).
 
-**Pending removal in build step 3** (still imported by `agent/temple_lab/lab.py:235-236`, which belongs to the lab
-track): `relief_trace.py` and `relief_check.py`, plus their import closure `relief_views.py`, `relief_rules.py`,
-`relief_registration.py` and `relief_normal_residual.py`. Remove all six with lab.py's imports.
-`relief_views.rot_about_hinge` moves to `g3d_host/pose.py` (seeing track).
-
-Stale doc links for the owning tracks (not edited here): `agent/temple_lab/README.md:7` links
-`plan/ASTRA_TEMPLE_LAB.md` (now `archive/20261010/`); the g3d/temple module docstrings and `g3d_host/matte.py:59`
-cite `WP6_DESIGN.md` (now `archive/20261010/`); `g3d/temple/measure.py:32` and `fixtures.py:390` name archived modules.
+The six relief modules then pending (`relief_trace`, `relief_check`, `relief_views`, `relief_rules`,
+`relief_registration`, `relief_normal_residual`) were removed in build step 3. The stale doc links listed here were
+fixed in the 2026-10-13 cleanup ([REVIEW_20261013.md](REVIEW_20261013.md) §7).
 
 Checks (basetemp `data/pytest_tmp/f_archive`): `pytest --collect-only glasses3d/tests` collects 1904 tests with 0
 errors; temple/spec/glb/lens_id suites 290 passed; `tests/agent` 420 passed; `test_wp2_*` 363 passed;

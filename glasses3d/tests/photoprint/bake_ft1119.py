@@ -147,7 +147,7 @@ def write_maps(res: dict, out: Path, regions) -> dict:
         c = np.array(base.get(r.part_name, (120, 120, 120)), float)
         f = facing.index(r.facing) / max(len(facing) - 1, 1)
         lim[reg_img == r.rid] = np.clip(c * (0.55 + 0.75 * f), 0, 255).astype(np.uint8)
-    chart_img = tex.image(lay.chart[tex.row] if hasattr(tex, "row") else np.zeros(len(tex), np.int64), -1, np.int64)
+    chart_img = tex.image(lay.chart[tex.row], -1, np.int64)
     edge = np.zeros((H, W), bool)
     edge[:-1] |= chart_img[:-1] != chart_img[1:]
     edge[:, :-1] |= chart_img[:, :-1] != chart_img[:, 1:]

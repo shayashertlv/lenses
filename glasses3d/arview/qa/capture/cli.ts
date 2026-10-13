@@ -47,7 +47,8 @@ export function stallReportPathsMs(stepTimeoutS: number): Readonly<Record<string
     'live probe step': stepDeadlineMs(stepTimeoutS) + ABORT_CLEANUP_BUDGET_MS,
   });
 }
-/** The prototype's (plan/prototypes/ar_capture/page.js) camera distance, kept for WP4 parity and recorded. */
+/** The pre-WP0 prototype's camera distance (ar_capture/page.js, deleted 2026-10-13; see git tag
+ *  review-20261013-pre-cleanup), kept for WP4 parity and recorded. */
 export const DEFAULT_DEPTH_CM = 23;
 export const DEPTH_RANGE_CM = Object.freeze([15, 80] as const);
 export const DEFAULT_SIZE = Object.freeze({width: 1280, height: 854});

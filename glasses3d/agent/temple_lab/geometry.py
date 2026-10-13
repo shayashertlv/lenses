@@ -56,15 +56,15 @@ unchanged: its design sha is its spec sha).
           set_facet plane {mode}: "flat" -> the spec's "nodes" (a plane through its corners; the fit gives it coef),
             "warp" -> "warp" (>= WARP_MIN_CORNERS corners); ``soft`` true -> the facet's "soft" key (written only when
             true). Astra's union offers no fade and no crease + rise plane (WP6_V3 §6: fades and solved planes were
-            harmful tools, FINDINGS §0.7); this function still takes the v2 shapes (plane mode "nodes" / "crease"
-            with crease, rise_per_mm; fade {d0_mm, d1_mm}) from internal callers (fixtures, v2 tests, old
-            revisions), and fit.fit_spec refuses a fade (E_SPEC).
+            harmful tools, FINDINGS §0.7); this function still takes the v2 plane shapes (plane mode "nodes" /
+            "crease" with crease, rise_per_mm) from internal callers (fixtures, v2 tests, old revisions); fades were
+            removed from the core on 2026-10-13 (a fade other than null is an EditError).
     spec_to_edits(spec) -> edits
         the edits that rebuild spec's layout, chains and scalars from any parent with reset_layout (the converse): a
         read t is mode "reading" at the node's own (d, y) (apply_edits needs that reading stored again), outline null
         (the chains are spliced whole first; after the reset every node is new, so null leaves them), a warp
         facet "warp", a fitted {"coef"} plane "flat" (the fit gives it again from the node values), soft as it is.
-        v3 designs give edits the strict union accepts; a legacy crease plane or fade gives its v2 shape.
+        v3 designs give edits the strict union accepts; a legacy crease plane gives its v2 shape.
     diff_specs(a, b) -> dict, diff_text(diff) -> str
         what changed between two specs (nodes, facets, creases, chains, scalars), compact; a solved t reads "solve", a
         read t "read 7.75 +- 0.30" (its t = X - x_in(d) at the node's d, and its whole sd in X; an added node with a
@@ -88,13 +88,13 @@ unchanged: its design sha is its spec sha).
         points inside both outlines, the largest outline shift (y_top, y_bot, the end d), and the visible creases:
         each head's built crease edges folding >= FLAT_CREASE_DEG (measured over the border band, crease_pieces) as a
         ridge set and a valley set of (d, y) segments, compared by symmetric Hausdorff distance (crease_delta).
-        distinct_heads is the one rule of finish preconditions 1 and 4: >= HEAD_DISTINCT_MM of normal surface
+        distinct_heads is the one rule of finish preconditions 1 and 5: >= HEAD_DISTINCT_MM of normal surface
         distance or outline shift (the crease comparison is reported, never decisive). Flat facets, coplanar splits,
         slivers, renames, reordered polygons, corners outside the outline and nudges under 0.2 mm are no change by
         construction.
     revision_zero(glb_path) -> {spec, report, side, hinge_z, axis, chart_mesh, footprints, body}
         template_from_mesh on the +X temple body of the exported head, with the decal and hinge footprints by
-        geometry (the rule of tests/proofs/wp6v2_template_report.py) and the body's chart mesh (section strips).
+        geometry (measure.hinge_part_kind, DECAL_NEAR_MM of the body) and the body's chart mesh they are measured on.
 """
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ CHAIN_POINTS_MAX = 160
 D_LIMIT_MM, Y_LIMIT_MM, T_LIMIT_MM = 400.0, 200.0, 40.0     # engineering bounds of a lab spec, not quality limits
 RISE_LIMIT, DELTA_LIMIT_MM, SCALAR_LIMIT_MM = 5.0, 20.0, 10.0
 GRID_STEP_MM = 0.5
-HEAD_DISTINCT_MM = 0.2          # §4.1 finish preconditions 1 and 4: two heads are distinct when their built temples
+HEAD_DISTINCT_MM = 0.2          # §6 finish preconditions 1 and 5: two heads are distinct when their built temples
                                 # differ by >= this normal surface distance or outline shift ...
 VARIANT_DISTINCT_MM = 0.3       # ... and precondition 2: variants pairwise >= this (value_mm)
 CREASE_MATCH_DEG = 0.5 * FLAT_CREASE_DEG    # a crease piece folding >= FLAT_CREASE_DEG is matched against the other
@@ -609,19 +609,12 @@ def _set_facet(e: dict, i: int) -> tuple[str, dict]:
         pl = {"crease": [cr[0], cr[1]], "rise_per_mm": _num(legacy["rise_per_mm"], "rise_per_mm", i, RISE_LIMIT)}
     else:
         raise EditError("plane.mode must be flat or warp", i)
-    fade = e.get("fade")
-    if fade is not None:                                    # v2 (internal callers only: module doc)
-        if not isinstance(fade, dict):
-            raise EditError("fade must be null", i)
-        f0 = _num(fade.get("d0_mm"), "fade.d0_mm", i, D_LIMIT_MM)
-        f1 = _num(fade.get("d1_mm"), "fade.d1_mm", i, D_LIMIT_MM)
-        if f0 == f1:
-            raise EditError("fade d0_mm and d1_mm must differ", i)
-        fade = {"d0": f0, "d1": f1}
+    if e.get("fade") is not None:                           # fades were removed (module doc)
+        raise EditError("fade must be null", i)
     soft = e.get("soft", False)
     if not isinstance(soft, bool):
         raise EditError("soft must be true or false", i)
-    out = {"poly": list(poly), "plane": pl, "fade": fade}
+    out = {"poly": list(poly), "plane": pl, "fade": None}
     if soft:
         out["soft"] = True
     return label, out
@@ -794,11 +787,8 @@ def spec_to_edits(spec: dict) -> list[dict]:
             plane = {"mode": "crease", "crease": list(pl["crease"]), "rise_per_mm": pl["rise_per_mm"]}
         else:
             plane = {"mode": "warp" if pl == "warp" else "flat"}
-        edit = {"op": "set_facet", "label": label, "poly": list(f["poly"]), "plane": plane,
-                "soft": bool(f.get("soft"))}
-        if f["fade"] is not None:                                    # v2 shape (module doc)
-            edit["fade"] = {"d0_mm": f["fade"]["d0"], "d1_mm": f["fade"]["d1"]}
-        out.append(edit)
+        out.append({"op": "set_facet", "label": label, "poly": list(f["poly"]), "plane": plane,
+                    "soft": bool(f.get("soft"))})
     for c in s["creases"]:
         out.append({"op": "set_crease", "facets": list(c["facets"]), "shape": c["shape"]})
     return out
@@ -843,8 +833,6 @@ def _facet_changes(fa: dict, fb: dict) -> list[str]:
         out.append(kb)
     if bool(fa.get("soft")) != bool(fb.get("soft")):
         out.append("soft" if fb.get("soft") else "not soft")
-    if fa["fade"] != fb["fade"]:
-        out.append("fade" if fb["fade"] else "no fade")
     return out
 
 
@@ -1350,7 +1338,7 @@ def geometry_delta(a, b, step: float = GRID_STEP_MM) -> dict:
 
 
 def distinct_heads(delta: dict) -> bool:
-    """THE head-distinctness rule (§4.1 finish preconditions 1 and 4), on the built temples only: the outer surface
+    """THE head-distinctness rule (§6 finish preconditions 1 and 5), on the built temples only: the outer surface
     moves >= HEAD_DISTINCT_MM along its normal somewhere, or the outline by that much (value_mm). Crease geometry is
     reported (crease_delta) but never decides: every threshold on crease visibility had a knife edge that 0.05 mm
     thickness nudges could cross (pf/gf/vc reviews, 2026-10-11), while a real layout change or ridge <-> valley flip

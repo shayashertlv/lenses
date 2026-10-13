@@ -9,11 +9,13 @@ endpiece scratches: the bicubic footprint near the photo's silhouette.
 
 Fix round 1 of the correction round: the flatten keep rule's leave-one-pair-out condition, the AR highlight mask that
 does not move with the print (``level_compare(ar_highlight=)``, the black probe, the geometric pose-photo pairs),
-the footprint against glint lines and bright pixels' light edges, the level inverse of ``correction_proof``, and the
-tool test's record going only into the bake it was given.
+the footprint against glint lines and bright pixels' light edges, and the tool test's record going only into the bake
+it was given.
 
 Fix round 2 of the correction round: the pair roles (only the two poses at a photo's own camera calibrate; the two
-18 deg off are trade-off rows), the calibration search between grid points, and the owner sheet's candidate rows."""
+18 deg off are trade-off rows) and the calibration search between grid points. The tests of the deleted proof scripts
+(the level inverse of ``correction_proof``, the owner sheet's candidate rows) were deleted on 2026-10-13 with them; see
+git tag review-20261013-pre-cleanup."""
 import json
 import math
 import struct
@@ -436,30 +438,6 @@ def test_calibration_search_refines_between_grid_points():
         assert res["best"] in {e["tag"] for e in its} and res["steps"] <= 8
     assert grid_best["calibration"] > 2.0 >= AC.worst(AC.best(its, "calibration"), "calibration")  # passes only refined
     assert AC.worst(AC.best(its, "appearance"), "appearance") < grid_best["appearance"] - 0.1
-
-
-def test_owner_sheet_rows_come_from_the_calibration(tmp_path):
-    from glasses3d.tests.photoprint import tooltest_owner_sheet as OS
-    cal = {"candidates": {"photo_angles": {"delivered": True, "label": "A: gain 0.70, gamma 1.00", "capture": "c1",
-                                           "sheet_capture": "s1"},
-                          "near_18deg": {"delivered": False, "label": "B: gain 0.78, gamma 1.12", "capture": "c2",
-                                         "sheet_capture": "s2"},
-                          "old": {"delivered": False, "label": "C", "capture": "c3"}}}
-    p = tmp_path / "calibration.json"
-    p.write_text(json.dumps(cal), encoding="utf-8")
-    rows, delivered = OS.calibration_rows(p)
-    assert delivered == "A: gain 0.70, gamma 1.00"
-    assert rows == {"B: gain 0.78, gamma 1.12": Path("s2"), "C": Path("c3")}   # the portrait capture when there is one
-
-
-def test_unlevel_inverts_the_level_map():
-    from glasses3d.tests.photoprint import correction_proof as CP
-    rng = np.random.default_rng(4)
-    rgb = rng.uniform(5, 250, (2000, 3))
-    lv = {"applied": True, "gain": 0.78, "gamma": 1.16}
-    back = CP.unlevel(SH.level_map(rgb, lv), lv)
-    assert np.abs(back - rgb).max() < 1e-6
-    assert np.array_equal(CP.unlevel(rgb, {"applied": False}), rgb)
 
 
 def test_tooltest_records_only_into_the_bake_it_was_given(tmp_path):

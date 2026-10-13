@@ -1,12 +1,12 @@
-"""Chart and section images of a g3d.temple/2 build (plan/WP6_FACETS.md §3.4). Host only (PIL), never imported inside
-Blender.
+"""Chart image of a g3d.temple/2 build (plan/WP6_FACETS.md §3.4). Host only (PIL), never imported inside Blender.
+(The section strip was deleted 2026-10-13; see git tag review-20261013-pre-cleanup.)
 
     chart_image(spec, build=None, *, footprints=None, d_range=None, width=1200) -> PIL.Image
-        the (d, y) chart: cells filled (every facet one FACET tint, a warp facet's under a diagonal WARP_HATCH, faded
-        facets blended toward the base, border-band ramps, chamfer and roll bands), every facet labelled with its
-        name inside it, thickness contours every CONTOUR_MM, crease edges coloured per edge (ridge orange, valley
-        blue, flat grey dashed, a soft border short-dashed), nodes labelled "name t=" (t = thickness from the inner
-        face; "base" and solved nodes say so), decal and hinge footprints when given:
+        the (d, y) chart: cells filled (every facet one FACET tint, a warp facet's under a diagonal WARP_HATCH,
+        border-band ramps, chamfer and roll bands), every facet labelled with its name inside it, thickness
+        contours every CONTOUR_MM, crease edges coloured per edge (ridge orange, valley blue, flat grey dashed, a
+        soft border short-dashed), nodes labelled "name t=" (t = thickness from the inner face; "base" and solved
+        nodes say so), decal and hinge footprints when given:
         footprints = {"decals": [{"name", "points": [[d, y], ...]}], "hinge": [...]} (drawn as dashed hulls), and a
         legend of what this chart draws, wrapped to the image width (v2's one row, spaced at 8 px a character, ran
         past the right edge at the lab's 1024 px), under a title that shrinks or wraps to fit. No lean shading: the
@@ -15,12 +15,6 @@ Blender.
         img.info["g3d_chart"] = {"frame": {lo_d, y_hi, ml, mt, sc}, "facets" / "nodes" / "dots": {name: box},
         "legend": [[label, box]]}: final-image pixel boxes [x0, y0, x1, y1] (px of (d, y) = ml + (d - lo_d) sc,
         mt + (y_hi - y) sc), for tests and tools; never written into a saved PNG.
-    section_strip(builds, stations=(5, 15, 25, 35, 50, 65, 80), *, panel_w=170, panel_h=560) -> PIL.Image
-        X-vs-y sections at the stations, one panel each, one isotropic scale for all panels (outward = right, up = up).
-        builds = [(label, source)] or {label: source}, drawn by position: [0] the current revision (black), [1] the
-        original (grey, filled), [2] the previous revision (teal, dashed), more in further colours. A source is a
-        TempleBuild (its crease edges crossing the station are marked ridge orange / valley blue) or a chart mesh
-        (V, F) / {"V", "F"} in local (d, y, X).
 
 Per-edge crease shape is the core's rule, the one the crease tables aggregate (build.crease_edges / build.edge_folds):
 a facet|base edge by its fold across the border against the BASE surface (the receipt's facet|base angle; never the
@@ -36,9 +30,8 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from . import build as BD
-from . import measure as MS
 from .build import build_temple
-from .spec import FLAT_CREASE_DEG, ParsedSpec, smoothstep
+from .spec import FLAT_CREASE_DEG, ParsedSpec
 
 SS = 2                                  # supersampling factor (drawn at SS x, downsampled)
 RIDGE = (232, 113, 10)
@@ -77,11 +70,6 @@ CONTOUR_TEXT = (120, 96, 140)
 WARP_HATCH = (96, 64, 160)              # the diagonal hatch over a warp facet's cells (one smooth face, no plane)
 WARP_HATCH_PX = 9                       # hatch spacing (px)
 SOFT_DASH = (2 * SS, 3 * SS)            # a soft border's facet|base edges: short dashes (smooth-shaded)
-STYLES = [{"line": (25, 25, 25), "width": 2.0, "fill": None, "dash": None},
-          {"line": (120, 120, 120), "width": 1.5, "fill": (214, 214, 214), "dash": None},
-          {"line": (0, 137, 123), "width": 2.0, "fill": None, "dash": (7, 5)},
-          {"line": (173, 20, 87), "width": 2.0, "fill": None, "dash": (3, 4)},
-          {"line": (121, 85, 72), "width": 2.0, "fill": None, "dash": (10, 4)}]
 
 
 def _font(px: float):
@@ -218,7 +206,7 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
     V2 = tb.arr.V
     warp_mask = None
     for fi, face in enumerate(tb.arr.faces):
-        lab, cell = tb.face_label[fi], tb.face_cell[fi]
+        cell = tb.face_cell[fi]
         if cell == "warp":
             col = FACET
             if warp_mask is None:
@@ -226,11 +214,6 @@ def chart_image(spec, build=None, *, footprints: dict | None = None, d_range=Non
             ImageDraw.Draw(warp_mask).polygon([px(*V2[v]) for v in face], fill=255)
         elif cell == "facet":
             col = FACET
-        elif cell == "faded":
-            fade = ps.facets[lab]["fade"]
-            c = V2[face].mean(axis=0)
-            s = float(smoothstep((c[0] - fade["d0"]) / (fade["d1"] - fade["d0"])))
-            col = _blend(FACET, BASE, s)
         elif cell == "ramp":
             col = RAMP
         else:
@@ -510,172 +493,3 @@ def _chart_legend(dr, layout: list, font) -> None:
         else:
             dr.ellipse([x + 10 * SS, y0 - 4 * SS, x + 18 * SS, y0 + 4 * SS], fill=col)
         dr.text((x + sw + LEGEND_TEXT_GAP_PX * SS, y0), label, fill=(40, 40, 40), font=font, anchor="lm")
-
-
-# --------------------------------------------------------------------------------------------- sections
-def _mesh_of(src):
-    if hasattr(src, "V") and hasattr(src, "tris"):
-        return np.asarray(src.V, np.float64), np.asarray(src.tris, np.int64)
-    if isinstance(src, dict):
-        return np.asarray(src["V"], np.float64), np.asarray(src["F"], np.int64)
-    V, F = src
-    return np.asarray(V, np.float64), np.asarray(F, np.int64)
-
-
-def chain_segments(seg: np.ndarray, tol: float = 1e-6) -> list[np.ndarray]:
-    """Section segments (k, 2, 2) joined into polylines by shared endpoints (closed loops repeat their first point).
-    Zero-length and repeated segments (a plane through mesh vertices) are dropped first."""
-    key = lambda p: (round(float(p[0]) / tol), round(float(p[1]) / tol))   # noqa: E731
-    seen, keep = set(), []
-    for p, q in np.asarray(seg, np.float64).reshape(-1, 2, 2):
-        kp, kq = key(p), key(q)
-        if kp == kq or (kp, kq) in seen or (kq, kp) in seen:
-            continue
-        seen.add((kp, kq))
-        keep.append((p, q))
-    seg = np.asarray(keep).reshape(-1, 2, 2)
-    if len(seg) == 0:
-        return []
-    ends: dict = {}
-    for i, (p, q) in enumerate(seg):
-        ends.setdefault(key(p), []).append((i, 0))
-        ends.setdefault(key(q), []).append((i, 1))
-    used = np.zeros(len(seg), bool)
-    out = []
-    for s0 in range(len(seg)):
-        if used[s0]:
-            continue
-        used[s0] = True
-        line = [seg[s0, 0], seg[s0, 1]]
-        for direction in (1, 0):
-            while True:
-                tip = line[-1] if direction else line[0]
-                nxt = None
-                for j, e in ends.get(key(tip), []):
-                    if not used[j]:
-                        nxt = (j, e)
-                        break
-                if nxt is None:
-                    break
-                j, e = nxt
-                used[j] = True
-                other = seg[j, 1 - e]
-                if direction:
-                    line.append(other)
-                else:
-                    line.insert(0, other)
-        out.append(np.asarray(line))
-    return out
-
-
-def section_crease_points(tb, d: float) -> list:
-    """[(y, X, shape)] where the build's crease edges cross the plane d."""
-    out = []
-    for a, b, shape, _ in crease_edges(tb):
-        A, B = tb.V[a], tb.V[b]
-        if (A[0] - d) * (B[0] - d) > 0 or A[0] == B[0]:
-            continue
-        t = (d - A[0]) / (B[0] - A[0])
-        P = A + t * (B - A)
-        out.append((float(P[1]), float(P[2]), shape))
-    return out
-
-
-def section_strip(builds, stations=(5, 15, 25, 35, 50, 65, 80), *, panel_w: int = 170, panel_h: int = 560,
-                  title: str | None = None) -> Image.Image:
-    """Section panels of one or more builds / meshes overlaid (module docstring)."""
-    items = list(builds.items()) if isinstance(builds, dict) else [tuple(b) for b in builds]
-    meshes = [_mesh_of(src) for _, src in items]
-    secs = [[chain_segments(MS.slice_d(V, F, float(d))) for d in stations] for V, F in meshes]
-    ymin = np.full(len(stations), np.inf)
-    ymax = np.full(len(stations), -np.inf)
-    xmin = np.full(len(stations), np.inf)
-    xmax = np.full(len(stations), -np.inf)
-    for per in secs:
-        for k, lines in enumerate(per):
-            for P in lines:
-                ymin[k], ymax[k] = min(ymin[k], P[:, 0].min()), max(ymax[k], P[:, 0].max())
-                xmin[k], xmax[k] = min(xmin[k], P[:, 1].min()), max(xmax[k], P[:, 1].max())
-    ok = np.isfinite(ymin)
-    mt, mb = 64, 92
-    hmax = float(np.max((ymax - ymin)[ok])) if ok.any() else 1.0
-    wmax = float(np.max((xmax - xmin)[ok])) if ok.any() else 1.0
-    sc = min((panel_h - 30) / hmax, (panel_w - 40) / wmax)
-    ylo = float(np.min(ymin[ok])) if ok.any() else 0.0
-    yhi = float(np.max(ymax[ok])) if ok.any() else 1.0
-    body = int(math.ceil(sc * (yhi - ylo))) + 30
-    width = panel_w * len(stations)
-    height = mt + body + mb
-    W, H = width * SS, height * SS
-    img = Image.new("RGB", (W, H), (255, 255, 255))
-    dr = ImageDraw.Draw(img)
-    f_small, f_mid = _font(10 * SS), _font(12 * SS)
-    for k, d in enumerate(stations):
-        x0 = k * panel_w
-        cx = 0.5 * (xmin[k] + xmax[k]) if ok[k] else 0.0
-
-        def px(y, X, x0=x0, cx=cx):
-            return ((x0 + panel_w / 2 + (X - cx) * sc) * SS, (mt + 15 + (yhi - y) * sc) * SS)
-        if k:
-            dr.line([(x0 * SS, mt * SS), (x0 * SS, (height - mb) * SS)], fill=GRID, width=SS)
-        for yv in np.arange(math.ceil(ylo / 5) * 5, yhi + 1e-9, 5.0):
-            a = px(yv, cx)
-            dr.line([(x0 * SS + 2 * SS, a[1]), ((x0 + 10) * SS, a[1])], fill=GRID_TEXT, width=SS)
-        dr.text(((x0 + panel_w / 2) * SS, 40 * SS), f"d {d:g}", fill=(20, 20, 20), font=f_mid, anchor="mm")
-        order = sorted(range(len(items)), key=lambda i: (STYLES[min(i, len(STYLES) - 1)]["fill"] is None, -i))
-        for i in order:
-            st = STYLES[min(i, len(STYLES) - 1)]
-            for P in secs[i][k]:
-                pts = [px(y, X) for y, X in P]
-                if len(pts) < 2:
-                    continue
-                if st["fill"] is not None and len(pts) > 2:
-                    dr.polygon(pts, fill=st["fill"])
-                if st["dash"]:
-                    _dash(dr, pts, st["line"], int(st["width"] * SS), tuple(v * SS for v in st["dash"]))
-                else:
-                    dr.line(pts, fill=st["line"], width=int(st["width"] * SS), joint="curve")
-        for i, (_, src) in enumerate(items):
-            if not hasattr(src, "polys"):
-                continue
-            r = (4 if i == 0 else 3) * SS
-            for y, X, shape in section_crease_points(src, float(d)):
-                x, yy = px(y, X)
-                col = _shape_colour(shape)
-                if i == 0:
-                    dr.ellipse([x - r, yy - r, x + r, yy + r], fill=col, outline=(255, 255, 255))
-                else:
-                    dr.ellipse([x - r, yy - r, x + r, yy + r], outline=col, width=SS)
-        if k == 0:                                   # y labels over the sections, readable on a fill
-            for yv in np.arange(math.ceil(ylo / 5) * 5, yhi + 1e-9, 5.0):
-                dr.text(((x0 + 12) * SS, px(yv, cx)[1]), f"y {yv:g}", fill=GRID_TEXT, font=f_small, anchor="lm",
-                        stroke_width=SS, stroke_fill=(255, 255, 255))
-        if secs[0][k]:
-            P = np.vstack(secs[0][k])
-            dr.text(((x0 + panel_w / 2) * SS, 54 * SS), f"X {P[:, 1].min():.2f}-{P[:, 1].max():.2f}",
-                    fill=GRID_TEXT, font=f_small, anchor="mm")
-    yb = (height - mb + 22) * SS
-    x = 12 * SS
-    for i, (label, _) in enumerate(items):
-        st = STYLES[min(i, len(STYLES) - 1)]
-        if st["fill"] is not None:
-            dr.rectangle([x, yb - 7 * SS, x + 28 * SS, yb + 7 * SS], fill=st["fill"], outline=st["line"])
-        elif st["dash"]:
-            _dash(dr, [(x, yb), (x + 28 * SS, yb)], st["line"], int(st["width"] * SS),
-                  tuple(v * SS for v in st["dash"]))
-        else:
-            dr.line([(x, yb), (x + 28 * SS, yb)], fill=st["line"], width=int(st["width"] * SS))
-        dr.text((x + 34 * SS, yb), str(label), fill=(40, 40, 40), font=f_mid, anchor="lm")
-        x += (34 + 8 * len(str(label)) + 26) * SS
-    for label, col in (("ridge", RIDGE), ("valley", VALLEY)):
-        dr.ellipse([x, yb - 4 * SS, x + 8 * SS, yb + 4 * SS], fill=col)
-        dr.text((x + 14 * SS, yb), label, fill=(40, 40, 40), font=f_mid, anchor="lm")
-        x += 70 * SS
-    bar = sc * 1.0
-    y2 = yb + 26 * SS
-    dr.line([(12 * SS, y2), (12 * SS + bar * SS, y2)], fill=(20, 20, 20), width=2 * SS)
-    dr.text((12 * SS + bar * SS + 8 * SS, y2), f"1 mm ({sc:.1f} px/mm, same scale in every panel; outward = right)",
-            fill=(40, 40, 40), font=f_small, anchor="lm")
-    head = title or "sections X (outward, right) vs y (up) at d mm back from the hinge"
-    dr.text((12 * SS, 14 * SS), head, fill=(20, 20, 20), font=_font(13 * SS), anchor="lt")
-    return img.resize((width, height), Image.LANCZOS)

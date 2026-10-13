@@ -1,19 +1,19 @@
 """WP5 photo-projected print, host side (WP5_DESIGN.md). Build steps (1)-(3) of §9, host side.
 
-Step 0 (registration):
+Shared by every step:
 - ``inputs``: the job (model, photos, mattes, WP3b cameras, Astra's texture), hash-checked.
-- ``signals``: warmth (R - B), irange (max - min), luminance; masked DoG band images.
+- ``signals``: the photo acetate / valid masks.
 - ``regions``: rigid groups (front, temple per x sign), regions (part x facing class), 4 mm stripes / folds, samples.
-- ``pose``: cameras, hinges and per-region parallax -> S' per view.
+- ``pose``: body points on the surface (``points``, ``bary3``).
 - ``edges``: the edge gate per (view, part) (D2).
-- ``register``: the plan (anchors, partners, free cameras) and the joint photometric fit with silhouette guards (§5).
-- ``gate``: the §5.4 print-registration gate; its null displaces the TEXTURE along the region's strip (build step 3,
-  §5.4 option (c): the overlap is kept, so a perfect match registers), the legacy photo-displacement null is kept for
-  reports.
-- ``check_print``: held-out runtime diagnostics (§7), measured by ``metrics.py``. The independent proof uses
-  ``tests/instruments/print_metrics.py``; neither runtime imports nor tool verdicts substitute for that proof.
-- ``report``: statuses, B1 / B2, STOP A and deterministic JSON. ``step0``: the end-to-end driver and CLI.
-- ``procs``: the EcoQoS-opted-out process pool and progress lines.
+- ``report``: deterministic JSON. ``procs``: the EcoQoS-opted-out process pool and progress lines.
+- ``metrics``: the runtime copy of the AR level measures (``ar_levels`` / ``ar_calibrate``). The independent proof
+  uses ``tests/instruments/print_metrics.py``; neither runtime imports nor tool verdicts substitute for that proof.
+
+Step 0 (registration: ``step0``, ``register``, ``gate``, ``check_print`` and its parts of ``signals``, ``pose``,
+``regions``, ``report`` and ``metrics``) failed on FT1119 (nothing registered; production runs single-source) and was
+deleted on 2026-10-13; see git tag review-20261013-pre-cleanup. The bake still reads a recorded step-0 report.json
+(``project.registered_from_step0``, ``production.validate_registration_inputs``).
 
 Steps 2-7 (single-source mode: each region painted from its anchor photo only, never mixing unregistered views;
 registered regions, none on FT1119 today, mixed in tier 1): ``project.project_photo_texture`` runs the numpy layout
@@ -30,8 +30,9 @@ core ``glasses3d.g3d.printuv`` on host arrays, then
 - ``fill``: the text mask (D6), mirror fill of surfaces no photo sees, then the hole filler per (part, facing class)
   with the radius chosen by knockout: block quilting plus ``boundary``'s observed-slope join (owner-selected
   2026-10-08) or PyPatchMatch (``fill='patchmatch'``);
-- ``seams``: label-seam band repair and gutter padding; historical reflection/harmonisation helpers remain for
-  regression controls. ``poisson``: the owner-selected unscreened chart-seam solve, with observed photo values fixed;
+- ``seams``: label-seam band repair, chart-seam pairs and gutter padding (the historical reflection / harmonisation
+  helpers were deleted on 2026-10-13). ``poisson``: the owner-selected unscreened chart-seam solve, with observed photo
+  values fixed;
 - ``compose``: the byte-identity compose (A3) and rendering a bake at a camera.
 - ``manifest`` (step 4): print_manifest.json, what ``g3d.attach_print`` reads (print.png, atlas, density and the
   print geometry's identities from ``g3d.printuv.glbmesh``), written with every bake; ``check_glb`` is the host's

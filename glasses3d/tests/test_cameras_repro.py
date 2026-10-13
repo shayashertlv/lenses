@@ -9,13 +9,14 @@ from the sha256-checked ``data/reference/ft1119/`` (``fit_views.reference_files`
 Library dependence (measured 2026-10-05, see PORT_REVIEW §9): the prototype cameras were fitted under scipy 1.16.0.
 scipy 1.18.1's ``least_squares`` returns a different step (about 1e-8 deg) on the very first contour-ICP call with
 bit-identical inputs, and the fit's discrete accept/reject decisions amplify that to 0.19 deg on 03/04. Results that
-sensitive also depend on the BLAS kernels the CPU selects, so the two EXACT tests run only on a recorded
-fingerprint (scipy version, numpy/scipy BLAS builds, CPU model, core count) and skip elsewhere with the reason:
+sensitive also depend on the BLAS kernels the CPU selects, so the EXACT test runs only on a recorded fingerprint
+(scipy version, numpy/scipy BLAS builds, CPU model, core count) and skips elsewhere with the reason:
 
 - ``test_cameras_equal_the_prototype_pickles_exactly``: the prototype's own fingerprints (host Python 3.12 with
-  scipy 1.16.0; and the venv's numpy with scipy 1.16.0 overlaid) -> cameras to 1e-6, metrics and losses to 1e-9;
-- ``test_cameras_equal_the_original_code_under_this_scipy``: the glasses3d venv on the PC the golden was recorded on
-  -> what the ORIGINAL automation/bsa code produced there (port == original, to 1e-6).
+  scipy 1.16.0; and the venv's numpy with scipy 1.16.0 overlaid) -> cameras to 1e-6, metrics and losses to 1e-9.
+
+A second exact test (port == the original automation/bsa code, golden recorded under scipy 1.18.1) could never run
+under the pinned scipy 1.16.0 (requirements.txt); it was deleted 2026-10-13 (git tag review-20261013-pre-cleanup).
 
 The portable gates run everywhere: the chosen views are the prototype's (back, right, top) with every loser at least
 0.1 worse on the common level, and every camera lies within a cross-version tolerance of the prototype's.
@@ -55,21 +56,6 @@ PROTOTYPE = {
     "reference-04.png": {"iou": 0.8302047451329488, "contour": 5.243625640869141,
                          "loss": {"top": 0.18902028013146596, "topb": 0.3402526127406986}},
 }
-# automation/bsa (unported original + the prototype's monkeypatch) run in the glasses3d venv on 2026-10-05.
-# Winner cameras in CAMERA_FIELDS order.
-ORIGINAL_UNDER_VENV = {
-    "reference-02.png": {"camera": (179.9166636335186, 9.80952553080937, -0.0193431095806682, 0.21569431335862208,
-                                    1283.9160523395444, 722.8242814611998, 543.3428694404765),
-                         "iou": 0.8970163200556316, "contour": 5.458052158355713, "loss": {"back": 0.1197906149970419}},
-    "reference-03.png": {"camera": (-73.64394655651375, 3.306258369021421, 1.5965884136327768, 0.44571023491184414,
-                                    1097.1458962518607, 785.2459312869618, 543.9969481777115),
-                         "iou": 0.7388733649212328, "contour": 11.453295707702637,
-                         "loss": {"right": 0.2960804406453326, "left": 0.7169765418781882}},
-    "reference-04.png": {"camera": (0.27723743946061286, 59.87738315468995, 0.1865685581498611, 0.17592242570058586,
-                                    1068.9095170485693, 767.5584213961924, 439.8164562504513),
-                         "iou": 0.8303520640618528, "contour": 5.259141445159912,
-                         "loss": {"top": 0.18892984774441635, "topb": 0.3407703424646077}},
-}
 # cross-version tolerance vs the prototype (largest seen under scipy 1.18.1: 0.19 deg, persp 0.004, scale 0.22 %,
 # centre 1.07 px, IoU 0.0007, contour 0.02 px)
 TOL = {"angle_deg": 0.5, "perspective": 0.02, "scale_rel": 0.005, "center_px": 2.0, "iou": 0.003, "contour_px": 0.1}
@@ -81,10 +67,6 @@ _SCIPY_1_16 = {"scipy": "1.16.0", "scipy_blas": "scipy-openblas 0.3.28", "scipy_
 PROTOTYPE_FINGERPRINTS = (
     {**_CPU, "numpy": "2.3.1", "numpy_blas": "scipy-openblas 0.3.29", **_SCIPY_1_16},   # host Python (the prototype's)
     {**_CPU, **_VENV_NUMPY, **_SCIPY_1_16},                    # venv + scipy 1.16.0 overlaid (PORT_REVIEW §9 table)
-)
-VENV_FINGERPRINTS = (
-    {**_CPU, **_VENV_NUMPY, "scipy": "1.18.1", "scipy_blas": "scipy-openblas 0.3.31.dev",
-     "scipy_lapack": "scipy-openblas 0.3.31.dev"},
 )
 
 
@@ -211,19 +193,6 @@ def test_cameras_equal_the_prototype_pickles_exactly(refits):
 
 @needs_data
 @pytest.mark.slow
-def test_cameras_equal_the_original_code_under_this_scipy(refits):
-    _skip_unless(VENV_FINGERPRINTS, "port == original automation/bsa (golden recorded in the venv)")
-    for name, r in refits.items():
-        g = ORIGINAL_UNDER_VENV[name]
-        for k, a, b in zip(C.CAMERA_FIELDS, r["best"]["camera"], g["camera"]):
-            assert abs(a - b) <= 1e-6, (name, k, a, b)
-        assert abs(r["best"]["iou"] - g["iou"]) < 1e-9 and abs(r["best"]["contour"] - g["contour"]) < 1e-6, name
-        for view, loss in g["loss"].items():
-            assert abs(r["all"][view]["loss"] - loss) < 1e-9, (name, view)
-
-
-@needs_data
-@pytest.mark.slow
 def test_cameras_within_cross_version_tolerance_of_the_prototype(refits):
     for name, r in refits.items():
         want = C.load_camera_pickle(REF / f"cam_{name}.pkl")
@@ -255,5 +224,5 @@ def test_production_top_prior_with_the_low_band_lands_in_the_prototype_basin(all
 
 def test_fingerprint_has_every_recorded_key():
     fp = fingerprint()
-    for rec in PROTOTYPE_FINGERPRINTS + VENV_FINGERPRINTS:
+    for rec in PROTOTYPE_FINGERPRINTS:
         assert set(rec) == set(fp)

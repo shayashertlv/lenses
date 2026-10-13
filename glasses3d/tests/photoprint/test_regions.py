@@ -1,13 +1,10 @@
-"""Rigid groups, regions, stripes and S' on q001 (WP5_DESIGN §5.1, §5.2): sides by x sign, folds disjoint, the
-anchor's projection unchanged by its own parallax, hinges opening outward on both sides."""
+"""Rigid groups, regions and stripes on q001 (WP5_DESIGN §5.1): sides by x sign, folds disjoint. The S' tests
+(parallax, hinges) were deleted on 2026-10-13 with step 0's Pose / Deformer; see git tag review-20261013-pre-cleanup."""
 import numpy as np
 import pytest
 
-from glasses3d.g3d_host import raster
-from glasses3d.g3d_host.camera import project_mm
 from glasses3d.g3d_host.photoprint import inputs as IN
 from glasses3d.g3d_host.photoprint import regions as RG
-from glasses3d.g3d_host.photoprint.pose import Deformer, Pose, hinge_matrix, points
 
 
 @pytest.fixture(scope="module")
@@ -83,34 +80,3 @@ def test_samples_are_deterministic_and_area_uniform(job, groups):
     share = np.bincount(np.isin(r.samples.face, r.faces[: len(r.faces) // 2]).astype(int), minlength=2)[1] / 20000
     area = job.face_area[r.faces[: len(r.faces) // 2]].sum() / job.face_area[r.faces].sum()
     assert abs(share - area) < 0.015
-
-
-def test_parallax_leaves_the_anchor_projection_unchanged(job, regions, groups):
-    r = next(x for x in regions if x.name == "Brow_Right[+x]/front")
-    cam = job.views["reference-05.png"].camera
-    axis = raster.camera_basis(cam)[2]
-    d = Deformer(job, regions, groups, {r.rid: axis})
-    p0 = Pose({n: v.camera for n, v in job.views.items()})
-    p1 = Pose(p0.cameras, {}, {r.rid: (4.0, 0.0)})
-    P0, _ = points(d.vertices(p0, "x"), job.mesh.F, r.samples.face, r.samples.bary)
-    P1, _ = points(d.vertices(p1, "x"), job.mesh.F, r.samples.face, r.samples.bary)
-    interior = ~np.isin(job.mesh.F[r.samples.face], np.concatenate(
-        [x.vidx for x in regions if x.part == r.part and x.rid != r.rid])).any(1)
-    assert np.allclose(np.linalg.norm(P1 - P0, axis=1)[interior], 4.0)
-    uv0, uv1 = project_mm(P0, cam, job.frame), project_mm(P1, cam, job.frame)
-    ppm = job.ppm("reference-05.png")
-    shift_mm = np.linalg.norm(uv1 - uv0, axis=1) / ppm
-    assert shift_mm.max() < 0.12                            # perspective only (measured 0.099 mm at 4 mm)
-    uv01 = project_mm(P1, job.views["reference-01.png"].camera, job.frame)
-    assert (np.linalg.norm(uv01 - project_mm(P0, job.views["reference-01.png"].camera, job.frame), axis=1)
-            / job.ppm("reference-01.png")).mean() > 1.0       # a 30-deg view sees it
-
-
-def test_hinge_opens_outward_on_both_sides(job, groups):
-    for g in groups:
-        if not g.side:
-            continue
-        tip = np.array([g.pivot_mm[0], g.pivot_mm[1], g.pivot_mm[2] - 130.0])
-        moved = (tip - g.pivot_mm) @ hinge_matrix(3.0, g.side).T + g.pivot_mm
-        assert np.sign(moved[0] - tip[0]) == g.side
-        assert abs(np.linalg.norm(moved - g.pivot_mm) - 130.0) < 1e-9
