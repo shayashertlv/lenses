@@ -11,7 +11,40 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 **Active plan from 2026-10-13: [ASSEMBLY.md](ASSEMBLY.md)** (owner: Claude plans, Codex executes). Assemble the tools
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
-validation, owner OK per run). Next action: M0.
+validation, owner OK per run). M0 is complete; next action: M1.
+
+## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
+
+Started in the requested repository checkout on branch `glasses3d`, at `02b0a16`; no worktree, push or paid API call.
+Implemented all eight M0 items:
+- one fixed paid-run lock under `glasses3d/data/` for lab packages and ordinary jobs;
+- every head export carries `validate_spec`, declared-seat checking and the validation's GLB sha256; cached by
+  actual bytes within a Seeing instance, with old export indexes validated again (never trusting old reports);
+- facet finish refuses an invalid export as `E_EXPORT` and keeps the run open;
+- a bounded Git diff pathspec preserves snapshot exclusions/deletions without Windows argv growth;
+- three free token-count attempts with 0.5/1-second backoff; inference still never retries;
+- `turns_used` comes from the interaction log in `finally`, including abnormal exits;
+- print fixture pools capped at two, with the split/loadfile full-suite commands documented;
+- approval-bound `RunSettings.settled_stop_usd`, separate from the reservation cap. The generic job path will set
+  $20 settled / $23 reserve; legacy requests keep their existing settings when the new field is absent.
+
+Technical choices: validation failures remain inspectable by seeing tools; finish refuses them. A malformed declared
+seat cannot silently skip checking. Offline tests isolate the fixed lock constant inside each test, while separate
+job folders within a test still contend. No gate or numerical threshold changed.
+
+Initial checks: export validation 6/6; snapshot regressions plus existing dirty-source check 4/4; facet-finish checks
+8/8. Budget/loop/ledger targeted run: 187 passed, one new assertion corrected, then 8 stop/cap/approval cases passed.
+Full suite: **2,465 passed after isolated reruns, 11 skipped**. Main run: 2,224 passed, 11 skipped, 4 failed in
+603.37 s (8 workers/loadfile). The head-comparison, fit-speed and 28-image render timing checks passed alone;
+the seeing module plus the two timing cases passed 24/24 in 83.71 s. The fourth failure was the local test launcher's
+descendant EcoQoS opt-out changing the initial state that `test_opt_out_self_reads_back_and_is_not_inherited`
+measures; without that external watcher it passed 1/1 in 0.25 s. No test was weakened. Print suite: 237/237 in
+197.37 s (2 workers/loadfile, nested bake pools capped at 2). Arview: 497/497 unit, 103/103 QA, TypeScript clean.
+
+Evidence: `data/assembly/m0_{main,rerun,qos,print,ar_unit,ar_qa,tsc}.log`, with arguments, UTC timestamps, PIDs and
+exit codes in adjacent receipt/status JSON files. BLAS threads = 1, EcoQoS opt-out, no overlapping heavy pools.
+Open: the 11 pre-existing stale WP4 proof skips remain for M4a; WP5/WP6 owner closeouts and historical quality
+limitations are unchanged. No open M0 defect. Next: M1 job intake, generic scene hooks and registry, offline proof.
 
 ## Status
 
