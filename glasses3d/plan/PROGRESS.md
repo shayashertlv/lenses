@@ -955,6 +955,8 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
   reserve". Effort: max. Lens reflections: one fixed default. Total WP8 budget: "theres no reason to talk about this at
   the moment. this will be a thought when we'll have a full operational automation".
 - **2026-10-13, process:** Claude plans, Codex executes (`ASSEMBLY.md`).
+- **2026-10-13, smoke turn pre-approved:** "Yes, cap $1" — one real request on the Oakley job after ASSEMBLY M5-prep
+  items 1-4 pass, $1 settled stop and $1 reserve cap. Oakley run 1 still needs its own OK and estimate.
 
 - **2026-10-13, WP6 closed:** "you know what. im satisfied with wp6, lets wrap this".
 - **2026-10-13, after run 8:** "the closest triangle to the lenses is not visible since its plane is barely

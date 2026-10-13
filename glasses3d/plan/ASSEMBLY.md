@@ -176,8 +176,10 @@ for the first paid run. Do these before M5:
    `job estimate` (record the estimate in PROGRESS) and one scripted $0 dry run on this real job that reads each photo
    (`read_image`), calls `scene_summary` and `budget_status`, and stops: it proves intake, brief, photo handling and
    the approval binding on real photos. Show the owner the six photos with their view labels in the report.
-Then stop and report: the estimate for the smoke turn and for Oakley run 1, and the draft-delivery and runway tests.
-The owner decides the smoke cap and approves each paid run.
+Then the smoke turn, which the owner approved in advance on 2026-10-13 ("Yes, cap $1"): run it once on the Oakley
+job with a $1 settled stop and $1 reserve cap, only after items 1-4 pass and only if its fresh estimate is under $1;
+record the owner's words in the approval. Then stop and report: the smoke result (spend, receipts, ledger), the
+estimate for Oakley run 1, and the draft-delivery and runway tests. Oakley run 1 needs the owner's separate OK.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
