@@ -439,6 +439,16 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
 
 ## Decisions (owner's words verbatim)
 
+- **2026-10-13, decisions taken up front for the assembly (`ASSEMBLY.md` §4):** description vs photos: "Photos for the
+  look" (photos win on shape and colour, the description on facts photos cannot show). Print tools: "astra can use it
+  anytime it see fits. but we need the instructions to be good enough so astra will be able to decide to use the tool
+  when it needs to (i.e. a tortoiseshell print and others means the tool needs to be used, while other frames dont need
+  a print because their visuals arent complex, editing their material and color and finish is good)". Crystal frames:
+  "Apply the check to all frames". Known-good product: "Oakley OO9208 v2". Per-run money: "20$ hard stop 23$ max
+  reserve". Effort: max. Lens reflections: one fixed default. Total WP8 budget: "theres no reason to talk about this at
+  the moment. this will be a thought when we'll have a full operational automation".
+- **2026-10-13, process:** Claude plans, Codex executes (`ASSEMBLY.md`).
+
 - **2026-10-13, WP6 closed:** "you know what. im satisfied with wp6, lets wrap this".
 - **2026-10-13, after run 8:** "the closest triangle to the lenses is not visible since its plane is barely
   different than the logo. you can also see in the evidence that our algorithm didnt catch that triangle in any of

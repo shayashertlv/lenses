@@ -52,6 +52,10 @@ estimate (AGENTS.md).
 7. **Test hygiene:** add `--dist loadfile` to the documented run (or an xdist group for `test_wp2_seeing.py`); cap the
    pool size of the WP5 bake fixtures in tests (`tests/photoprint/test_print_bake.py:32, 215`,
    `test_correction_round.py:499`) to 2.
+8. **Settled-spend stop** (owner D5: "$20 hard stop, $23 max reserve"): a `RunSettings` field that ends the run
+   (`budget_limit`) before starting any request once settled spend reaches it, separate from the guard's reserve cap.
+   Test with the scripted transport: at a $20 stop / $23 cap a run never starts a request at ≥ $20 settled and never
+   reserves past $23.
 Proof: the affected tests plus new ones; full suite.
 
 ### M1. Job intake, generic scene hooks, tool registry v1, one offline end-to-end run ($0)
@@ -127,7 +131,7 @@ b. **WP6 as a stage, not a second loop:** a `temple_stage` tool: export the job'
    `cur_ps.inner`; the repro is in review report E); join all floating facet components in one pass
    (`g3d/temple/arrange.py:180-193`). Proof: Prada's T5 rehearsal still passes, plus the same stage on a copy of a
    second product's temples.
-c. **WP5 print as the last stage** (only after the owner opens the print tools, D3): `photo_print` tool =
+c. **WP5 print as the last stage** (open to Astra, Astra decides when a product needs it: D3): `photo_print` tool =
    `production.bake_print` with the job's cameras → `print_uv` / `attach_print` via `g3d_call` → export →
    `manifest.check_glb`. Required fixes first: manifest carries `texture_parts`, `attach_print` refuses no-texture
    parts (`project.py:966-976`, `print_bpy.py:739`); `job_from_dir` keeps only target-colourway photos
@@ -141,7 +145,7 @@ d. **Camera fitting for new photo sets** (WP3b, needed by every stage): per-phot
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
-1. The known-good product (Oakley OO9208 v2 or INVU IA22403B v2: owner picks): frame + lenses + seating only. This
+1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
    tests the assembly, not a hard feature.
 2. Prada (temples stage), then FT1119 (seating + print), without regressing the known-good product.
 3. Three products the pipeline has never seen (acetate, metal, mirror lens).
@@ -152,11 +156,28 @@ Frame and lenses (Astra's code) → faceted temples (stage on the job head) → 
 final geometry) → export + validate + seating check → AR capture → finish → deliver → owner review. After every change
 Astra compares renders at the photos' cameras with the photos and revises.
 
-## 4. Owner decisions (ask when the milestone reaches them; one plain question each)
-- D1 (M2): when the written description and the photos disagree, which wins? Proposed default: photos for shape and
-  colour, the description for facts photos cannot show (sizes, materials, model number).
-- D2 (M3): who sets lens reflection strength in arview (fixed default or per product)?
-- D3 (M4c): open the print tools to Astra.
-- D4 (M4a): are crystal / translucent frames exempt from the seating check (the accepted FT1123 fails it)? Plus the
-  five open WP4 proof decisions (review §5 WP4).
-- D5 (M5): per-run budget cap, reasoning effort, smoke-turn cap, total WP8 budget, the known-good product.
+## 4. Owner decisions (recorded 2026-10-13, before the work starts)
+- **D1 description vs photos (M2): photos for the look.** Photos win on shape and colour; the description wins only on
+  facts a photo cannot show (exact sizes, materials, model number). Astra notes every conflict in its report.
+- **D2 lens reflection strength (M3): one fixed default** for every product (the look the owner has been judging on).
+- **D3 print tools (M4c): open to Astra, Astra decides.** Owner, verbatim: "astra can use it anytime it see fits. but
+  we need the instructions to be good enough so astra will be able to decide to use the tool when it needs to (i.e. a
+  tortoiseshell print and others means the tool needs to be used, while other frames dont need a print because their
+  visuals arent complex, editing their material and color and finish is good)". So: the WP7 instructions must teach
+  when a print is needed (complex patterns such as tortoiseshell) and when material, colour and finish edits are
+  enough (plain frames); the print tool is in registry v1's plan for M4c without a gate; and generalising the donor
+  colour model (`photoprint/metal.py`) is REQUIRED before any non-brown patterned product, because Astra may now call
+  the tool on one.
+- **D4 crystal frames (M4a): apply the seating check to all frames**, crystal and translucent included (the seating
+  tool's V-bevel and groove for crystal, PLAN §3). The accepted FT1123 crystal fails the check as it is; that is
+  accepted. The five open WP4 proof items (metal junction 0.425 < 0.44, INVU 0.4489 < 0.45, FOLD cascades, the
+  narrow-eyewire knife edge, `CORRECTION_AIM_MM`) stay technical: prepare the evidence and a recommendation; ask the
+  owner only if a gate would be loosened (AGENTS.md "Gates").
+- **D5 money and the test product (M5):**
+  - per paid run: **$20 settled is a hard stop (no new request starts at or above it), $23 is the most the budget
+    guard may ever reserve** (owner: "20$ hard stop 23$ max reserve"). Build the settled-spend stop into the loop
+    (`RunSettings`), not as a separate watcher script like `stop_at_18_008.py`;
+  - reasoning effort **max**;
+  - known-good regression product: **Oakley OO9208 v2** (job 3dff8674; the M5 step 1 product);
+  - total WP8 budget and the smoke-turn cap: **not decided now** (owner: "this will be a thought when we'll have a full
+    operational automation"). Ask before M5. Every paid run still needs the owner's OK and an estimate.
