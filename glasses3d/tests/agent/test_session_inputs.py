@@ -44,12 +44,14 @@ def test_each_image_is_immediately_preceded_by_its_view_text():
                                          view="side", size_px=None)])
     texts = [part for part in result.content if part["type"] == "input_text"]
     sha1 = hashlib.sha256(b"original-image").hexdigest()
-    assert texts[1]["text"] == (f"Reference 1 of 1: view 'front', images/reference-01.png, 4032x3024 px, "
+    assert texts[1]["text"] == (f"Reference 1 of 1: call intake, revision source:{sha1[:12]}, "
+                                "view 'front', images/reference-01.png, 4032x3024 px, "
                                 f"sha256 {sha1[:12]}.\nImage attached below.")
     for index, part in enumerate(result.content):
         if part["type"] == "input_image":
             assert result.content[index - 1]["type"] == "input_text"
             assert "view '" in result.content[index - 1]["text"]
+            assert "call intake, revision source:" in result.content[index - 1]["text"]
     assert [ref["view"] for ref in result.receipt["references"]] == ["front", "side"]
 
 
@@ -64,6 +66,12 @@ def test_the_exact_persisted_bundle_is_not_resent_and_the_receipt_is_byte_free()
     assert history == original
     encoded = json.dumps(result.receipt)
     assert "base64" not in encoded and PROMPT not in encoded
+
+
+def test_reference_without_declared_view_still_has_a_complete_image_label():
+    content = plan(photos=[photo(view=None)]).content
+    label = content[next(i for i, part in enumerate(content) if part["type"] == "input_image") - 1]["text"]
+    assert "call intake, revision source:" in label and "view 'unspecified'" in label
 
 
 def test_changes_are_appended_independently_and_an_old_brief_can_be_restored():

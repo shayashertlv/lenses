@@ -35,6 +35,16 @@ An estimate's 60-reply forecast is an assumption, not a reply limit or a spendin
 requests a stop before the next request. `--foreground` runs in the invoking terminal; detached execution is the
 normal path. Logs and status are under `runs/RUN_ID/`; the heartbeat is at the job root.
 
+Instructions teach the glasses construction, evidence and stage order, with the same model requirements as
+`plan/PLAN.md`. Owners' descriptions and specifications remain verbatim and approval-bound. The job image policy
+refreshes the request before request 1 and every three requests thereafter: source photos and crops remain,
+superseded generated images become labelled notes, and the latest evidence per view and the selected best
+checkpoint's images remain. `save_checkpoint` can mark that best checkpoint. The saved session keeps all images.
+
+Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.
+The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;
+the live budget guard still uses the actual token count and worst-case reservation for every request.
+
 For the $0 assembly proof:
 
 ```powershell

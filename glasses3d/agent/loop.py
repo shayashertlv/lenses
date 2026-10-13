@@ -99,6 +99,7 @@ FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and 
 # present at its firing (by call_id), and besides its one token epoch the guard fires on request bytes, at k x
 # CONTEXT_GUARD_BYTES (k = 1, 2, ...); /1 had one token-triggered choice, applied to every later output too.
 CONTEXT_GUARD = "g3d.context_guard/2"
+CONTEXT_GUARD_PERIODIC = "g3d.context_guard/3"  # request cadence and per-output image identities (assembly M2)
 # The guard's byte rung (serialized request bytes, budget.planning's last_request_bytes): a ceiling that keeps a run
 # alive, not a routine trigger, at half the provider's documented per-request limit (budget.PAYLOAD_LIMIT_BYTES 512
 # MB, where a run ends payload_limit). Every epoch rewrites the prompt cache and a late one costs more than it saves
@@ -200,8 +201,8 @@ MIN_FREE_BYTES = 1 << 30            # checkpoints are ~2.4 MB each, up to ~1 GB 
 @dataclass(frozen=True)
 class ToolContract:
     """The two-way contract of section 7 (WP7 supplies it): every tool the instructions name is registered, every
-    registered tool is named and described, gated tools are neither, and no removed phrase appears anywhere Astra
-    reads (instructions, brief, tool descriptions)."""
+    registered tool is named and described, gated tools are neither, and no removed phrase appears in host-authored
+    instructions, brief prose or tool descriptions. The owner's verbatim evidence is not host prose."""
 
     named: frozenset
     gated: frozenset = frozenset()
@@ -252,8 +253,10 @@ class RunSettings:
     False (the SDK keeps that choice after the first tool call), ``finish_tool`` (the run is final only when this
     tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads),
     ``context_guard_tokens`` (the image filter's token epoch; the guard is on only with it) and
-    ``context_guard_bytes`` (its byte rungs; None: CONTEXT_GUARD_BYTES, the filter's own). Their defaults change
-    nothing. ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
+    ``context_guard_bytes`` (its byte rungs; None: CONTEXT_GUARD_BYTES, the filter's own). An optional
+    ``context_guard_every_requests`` also applies the scene's image policy before request 1 and every N requests
+    thereafter, including resumed history. None preserves the facet filter. Their defaults change nothing.
+    ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
     approval's maximum reserve cap; an already-sent request may settle above the stop but within that cap."""
 
     effort: str | None = None  # paid runs require the owner's explicit high/max choice
@@ -268,6 +271,7 @@ class RunSettings:
     finish_k: int = 4
     context_guard_tokens: int | None = None
     context_guard_bytes: int | None = None
+    context_guard_every_requests: int | None = None
 
     def guard_bytes(self) -> int | None:
         """The context guard's byte rung in force: None while the guard is off, else context_guard_bytes or the
@@ -288,9 +292,12 @@ class RunSettings:
         if self.finish_tool is not None:
             out["finish"] = {"tool": self.finish_tool, "behavior": FINISH_BEHAVIOR, "k": self.finish_k}
         if self.context_guard_tokens is not None:
-            out["context_guard"] = {"input_tokens": self.context_guard_tokens, "filter": CONTEXT_GUARD,
+            out["context_guard"] = {"input_tokens": self.context_guard_tokens,
+                                    "filter": CONTEXT_GUARD_PERIODIC if self.context_guard_every_requests else CONTEXT_GUARD,
                                     **({"request_bytes": self.context_guard_bytes}
-                                       if self.context_guard_bytes is not None else {})}
+                                       if self.context_guard_bytes is not None else {}),
+                                    **({"every_requests": self.context_guard_every_requests}
+                                       if self.context_guard_every_requests is not None else {})}
         return out
 
     def approval_settings(self) -> dict:
@@ -330,6 +337,7 @@ class RunSpec:
     status_line_after_s: float = STATUS_LINE_AFTER_S
     echo: bool = False
     contract: ToolContract | None = None
+    contract_brief: str | None = None  # structured host prose only; None checks the complete brief for legacy callers
     min_free_bytes: int = MIN_FREE_BYTES
     load_check: Callable[[], list] | None = None
     refuse_on_load: bool = True
@@ -474,6 +482,17 @@ class SceneHooks:
         image."""
         return {}
 
+    def context_image_stubs(self, images: list[dict]) -> dict[tuple, str]:
+        """Choices by (call_id, output part index, sha256), so identical bytes in a new call remain independent.
+
+        The fallback preserves older scene implementations. Each image record has call_id, part_index and sha256;
+        a scene with semantic image records can override this to retain selected occurrences of identical bytes.
+        """
+        if not images:
+            return {}
+        choices = self.context_stubs([image["sha256"] for image in images])
+        return {image_key(image): choices[image["sha256"]] for image in images if image["sha256"] in choices}
+
     def close(self) -> None:
         return None
 
@@ -588,6 +607,24 @@ def tool_output_images(items) -> list[str]:
     return out
 
 
+def image_key(image: dict) -> tuple:
+    return image["call_id"], image["part_index"], image["sha256"]
+
+
+def tool_output_image_occurrences(items) -> list[dict]:
+    """Identify images by their output occurrence, never their bytes alone."""
+    images = []
+    for item in items or []:
+        if (not isinstance(item, dict) or item.get("type") != "function_call_output"
+                or not isinstance(item.get("call_id"), str) or not isinstance(item.get("output"), list)):
+            continue
+        for index, part in enumerate(item["output"]):
+            sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and part.get("type") == "input_image" else None
+            if sha is not None:
+                images.append({"call_id": item["call_id"], "part_index": index, "sha256": sha})
+    return images
+
+
 class ContextGuard:
     """``RunConfig.call_model_input_filter`` (WP6_FACETS §4.3; CONTEXT_GUARD /2, review 2026-10-12).
 
@@ -605,16 +642,28 @@ class ContextGuard:
     compare, which E_JUDGEMENT still asked it to judge and finish precondition 3 counted as shown. Each epoch is one
     prompt-cache rewrite, then a stable prefix (earlier outputs keep their stubs or get the new choice's; later
     outputs are never rewritten). Brief images and images ``choose`` does not name are never touched; the session
-    keeps every image. ``epochs`` lists every firing, ``epoch`` the latest."""
+    keeps every image. ``epochs`` lists every firing, ``epoch`` the latest.
+
+    Assembly /3 optionally fires before request 1 and every N requests after it. It chooses by image occurrence
+    (call id, part index, digest), retaining a new cached image independently of its older copy. Choices are made
+    from the current input before serialization and free counting; previous token/byte readings are additional
+    pressure triggers only. A new policy epoch can restore an earlier image when that checkpoint becomes best.
+    """
 
     name = CONTEXT_GUARD
 
     def __init__(self, threshold: int, *, counted: Callable[[], int | None], choose: Callable[[list], dict],
                  notify: Callable[[dict], None] | None = None, byte_threshold: int | None = None,
-                 sent_bytes: Callable[[], int | None] | None = None):
+                 sent_bytes: Callable[[], int | None] | None = None, every_requests: int | None = None,
+                 choose_images: Callable[[list], dict] | None = None):
         self.threshold = int(threshold)
         self.byte_threshold = int(byte_threshold) if byte_threshold is not None else None
         self.counted, self.sent_bytes, self.choose, self.notify = counted, sent_bytes, choose, notify
+        if every_requests is not None and (type(every_requests) is not int or every_requests < 1):
+            raise ValueError("every_requests must be a positive integer or None")
+        self.every_requests, self.choose_images = every_requests, choose_images
+        self.name = CONTEXT_GUARD_PERIODIC if every_requests is not None else CONTEXT_GUARD
+        self.requests = 0
         self.stubs: dict | None = None
         self.scope: frozenset = frozenset()          # the call_ids of the outputs present at the latest firing
         self.token_due = True                         # the token epoch has not fired yet
@@ -627,6 +676,8 @@ class ContextGuard:
         """(counted tokens, request bytes, the trigger that fires now or None) of the last counted request."""
         tokens = self.counted()
         size = self.sent_bytes() if self.sent_bytes is not None and self.byte_threshold else None
+        if self.every_requests is not None and (self.requests - 1) % self.every_requests == 0:
+            return tokens, size, "request_cadence"
         if self.token_due and tokens is not None and tokens >= self.threshold:
             return tokens, size, "input_tokens"
         if size is not None and size >= self.byte_rung * self.byte_threshold:
@@ -635,12 +686,24 @@ class ContextGuard:
 
     def __call__(self, data) -> ModelInputData:
         model_data = data.model_data
+        self.requests += 1
         tokens, size, trigger = self.due()
         fired = trigger is not None
         if fired:
             shas = tool_output_images(model_data.input)
-            present = set(shas)
-            self.stubs = {sha: str(text) for sha, text in (self.choose(shas) or {}).items() if sha in present}
+            if self.every_requests is None:
+                present = set(shas)
+                self.stubs = {sha: str(text) for sha, text in (self.choose(shas) or {}).items() if sha in present}
+            else:
+                images = tool_output_image_occurrences(model_data.input)
+                present = {image_key(image) for image in images}
+                if self.choose_images is not None:
+                    choices = self.choose_images(images) or {}
+                else:
+                    by_sha = (self.choose(shas) or {}) if shas else {}
+                    choices = {image_key(image): by_sha[image["sha256"]] for image in images
+                               if image["sha256"] in by_sha}
+                self.stubs = {key: str(text) for key, text in choices.items() if key in present}
             self.scope = frozenset(item["call_id"] for item in model_data.input
                                    if isinstance(item, dict) and item.get("type") == "function_call_output"
                                    and isinstance(item.get("call_id"), str))
@@ -650,8 +713,10 @@ class ContextGuard:
                 self.byte_rung = max(self.byte_rung, math.floor(size / self.byte_threshold) + 1)
             self.epoch = {"epoch": len(self.epochs) + 1, "trigger": trigger, "at_counted_input_tokens": tokens,
                           "at_request_bytes": size, "tool_images": len(shas), "stubbed": 0,
-                          "tool_outputs": len(self.scope)}
+                          "tool_outputs": len(self.scope),
+                          **({"at_request": self.requests} if self.every_requests is not None else {})}
         if not self.stubs:
+            self.replaced = 0
             self._fired(fired, 0)
             return model_data
         items, replaced = [], 0
@@ -659,11 +724,12 @@ class ContextGuard:
             if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(
                     item.get("output"), list) and item.get("call_id") in self.scope:
                 parts = []
-                for part in item["output"]:
+                for index, part in enumerate(item["output"]):
                     sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and \
                         part.get("type") == "input_image" else None
-                    if sha in self.stubs:
-                        parts.append({"type": "input_text", "text": self.stubs[sha]})
+                    key = (item["call_id"], index, sha) if self.every_requests is not None else sha
+                    if key in self.stubs:
+                        parts.append({"type": "input_text", "text": self.stubs[key]})
                         replaced += 1
                     else:
                         parts.append(part)
@@ -690,7 +756,8 @@ def epoch_text(epoch: dict) -> str:
             f"by text stubs in the {epoch['tool_outputs']} tool outputs present, at "
             f"{epoch['at_counted_input_tokens']} counted input tokens and "
             + ("an unrecorded request size" if size is None else f"{size / 1e6:.1f} MB")
-            + f" (fired on {'counted input tokens' if epoch['trigger'] == 'input_tokens' else 'request bytes'}).")
+            + " (fired on " + {"input_tokens": "counted input tokens", "request_bytes": "request bytes",
+                               "request_cadence": f"request cadence, request {epoch.get('at_request')}"}[epoch["trigger"]] + ").")
 
 
 class RunStatus:
@@ -1172,6 +1239,10 @@ def _validate_spec(spec: RunSpec) -> None:
                                                      or settings.context_guard_bytes < 1
                                                      or settings.context_guard_tokens is None):
         raise RunRefused("context_guard_bytes must be a positive integer, and only with context_guard_tokens")
+    if settings.context_guard_every_requests is not None and (type(settings.context_guard_every_requests) is not int
+                                                              or settings.context_guard_every_requests < 1
+                                                              or settings.context_guard_tokens is None):
+        raise RunRefused("context_guard_every_requests must be a positive integer, and only with context_guard_tokens")
     if not isinstance(spec.instructions, str) or not spec.instructions.strip():
         raise RunRefused("the instructions are empty")
     if not isinstance(spec.brief, str) or not spec.brief.strip():
@@ -1276,7 +1347,8 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
         request = _check_bound_request(jobs.run_dir(spec.run_id), spec)
         if spec.contract is None:
             raise RunRefused("a two-way tool contract is required for every run")
-        problems = contract_problems(spec.contract, instructions=spec.instructions, brief=spec.brief,
+        problems = contract_problems(spec.contract, instructions=spec.instructions,
+                                     brief=spec.brief if spec.contract_brief is None else spec.contract_brief,
                                      tools=spec.tools)
         if problems:
             raise RunRefused("the tool contract does not hold: " + "; ".join(problems))
@@ -1400,6 +1472,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                     spec.settings.context_guard_tokens, byte_threshold=spec.settings.guard_bytes(),
                     counted=lambda: run_guard.planning()["last_counted_input_tokens"],
                     sent_bytes=lambda: run_guard.planning()["last_request_bytes"], choose=scene.context_stubs,
+                    every_requests=spec.settings.context_guard_every_requests, choose_images=scene.context_image_stubs,
                     notify=lambda epoch: log.note(epoch_text(epoch), context_guard=epoch))
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
@@ -1480,6 +1553,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             if spec.settings.context_guard_tokens is not None:
                 result["context_guard"] = {"input_tokens": spec.settings.context_guard_tokens,
                                            "request_bytes": spec.settings.guard_bytes(),
+                                           **({"every_requests": spec.settings.context_guard_every_requests,
+                                               "filter": CONTEXT_GUARD_PERIODIC}
+                                              if spec.settings.context_guard_every_requests is not None else {}),
                                            "epoch": context_guard.epoch if context_guard else None,
                                            "epochs": list(context_guard.epochs) if context_guard else [],
                                            "replaced_last_request": context_guard.replaced if context_guard else 0}

@@ -12,22 +12,19 @@ from . import approvals as A, brief, estimate as E, jobs
 from . import procs
 from .budget import cap_to_micro
 from .job_scene import JobScene
-from .loop import RunSettings, RunSpec, ToolContract, run_astra, tool_registry_sha256
+from .instructions import build_instructions, instruction_contract
+from .loop import RunSettings, RunSpec, run_astra, tool_registry_sha256
 from .tools import build_tools
 
 
 def settings_default() -> RunSettings:
     return RunSettings(effort="max", max_turns=None, settled_stop_usd="20", tool_choice="required",
-                       reset_tool_choice=False, finish_tool="finish")
+                       reset_tool_choice=False, finish_tool="finish", context_guard_tokens=150000,
+                       context_guard_every_requests=3)
 
 
 def instructions_text(tools) -> str:
-    # M1's small operational brief; M2 adds the glasses teaching and image policy.
-    return ("Build glasses from the authoritative product photos and description. Compare the model at the photo "
-            "cameras as you work. Photos decide shape and colour; written specifications supply exact dimensions "
-            "and material facts. Work in millimetres, +Y up, +Z front, with temples toward -Z and the bridge "
-            "underside at the origin. Export, inspect validation and AR captures, then finish the current head. "
-            "Available tools: " + ", ".join(f"`{tool.name}`" for tool in tools) + ".")
+    return build_instructions(tools)
 
 
 def new_run_id() -> str:
@@ -55,12 +52,13 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     spec = RunSpec(job_dir=root, run_id=run_id, instructions=instructions, tools=tools, brief=text, photos=photos,
                    current_request_sha256=A.request_sha256(request), settings=settings, requested_cap_usd=cap,
                    resume=resume, scene_note="Resume the saved head." if resume else "Start with the empty job template.",
-                   contract=ToolContract(frozenset(t.name for t in tools)), offline_handler=offline_handler,
+                   contract=instruction_contract(tools), contract_brief=brief.host_text(job),
+                   offline_handler=offline_handler,
                    offline_api_key="sk-offline-job-proof" if offline_handler is not None else None)
     if write_request:
         schemas = json.dumps([t.params_json_schema for t in tools])
         tokens = E.initial_context_tokens(len(instructions) + len(text) + len(schemas), len(photos))
-        cost = E.estimate(tokens, settings.max_turns or 60, settings.max_output_tokens)
+        cost = E.estimate_g3d(tokens, settings.max_turns or 60, settings.max_output_tokens)
         cost["planning_note"] = "Forecast assumes 60 replies when the run has no reply cap; the money limits govern."
         A.write_approval_request(root / "runs" / run_id, job_id=root.name, request=request, estimate=cost,
                                  suggested_cap_usd=cap, requested_cap_usd=cap)
@@ -78,7 +76,8 @@ def prepared_settings(root, run_id) -> tuple[RunSettings, str]:
         values.update(finish_tool=finish["tool"], finish_k=finish["k"])
     context = values.pop("context_guard", None)
     if context:
-        values.update(context_guard_tokens=context["input_tokens"], context_guard_bytes=context.get("request_bytes"))
+        values.update(context_guard_tokens=context["input_tokens"], context_guard_bytes=context.get("request_bytes"),
+                      context_guard_every_requests=context.get("every_requests"))
     return RunSettings(**values), doc["requested_cap_usd"]
 
 

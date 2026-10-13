@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..journal import CheckpointMismatch, WorkerFailed
 from ..loop import fatal_tool_errors, sdk_timeout_s, hard_timeout_s
+from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from . import arview
 
@@ -112,8 +113,13 @@ def _sheets(result: dict, name: str) -> list[dict]:
     records = list(result.get("images") or [])
     if result.get("sheet"):
         records.append({"path": result["sheet"], "view": name})
+    rendered_views = [(f"reference:{rec['ref']}" if rec.get("ref") else
+                       f"canonical:{key}" if rec.get("kind") == "canonical" else key)
+                      for key, rec in (result.get("views") or {}).items()]
     for i, path in enumerate(result.get("sheets") or []):
-        records.append({"path": path, "view": f"{name} sheet {i + 1}"})
+        views = rendered_views[i * VIEWS_PER_SHEET:(i + 1) * VIEWS_PER_SHEET] if name == "render_views" else []
+        records.append({"path": path, "view": ", ".join(views) if views else f"{name} sheet {i + 1}",
+                        **({"views": views} if views else {})})
     for ref, rec in (result.get("refs") or {}).items():
         if isinstance(rec, dict) and rec.get("sheet"):
             records.append({"path": rec["sheet"], "view": ref})
@@ -130,9 +136,27 @@ def _output(scene, call_id, name, result):
     records, images = [], []
     for rec in _sheets(result, name):
         meta, url = _image(scene.root, rec["path"], region=rec.get("region"), trusted_output=name != "read_image")
-        records.append({**rec, **meta, "call_id": call_id, "kind": rec.get("kind", name),
-                        "checkpoint": rec.get("checkpoint") or scene.s.head["id"]})
-        images.append(ToolOutputImage(image_url=url, detail="high"))
+        record = {**rec, **meta, "call_id": call_id, "kind": rec.get("kind", name),
+                  "checkpoint": rec.get("checkpoint") or scene.s.head["id"],
+                  "view": rec.get("view") or name, "output_index": len(images) + 2}
+        if name == "read_image":
+            if Path(meta["source_path"]).parts[0] in {"images", "reference_images"}:
+                record.update(context_role="reference", checkpoint="source", revision=f"source:{meta['source_sha256'][:12]}")
+            else:
+                previous = next((item for item in reversed(scene.images)
+                                 if meta["source_path"] in (item.get("path"), item.get("source_path"))), None)
+                record["context_role"] = ("reference" if previous.get("context_role") == "reference" else "detail") if previous else "unknown"
+                record["checkpoint"] = previous["checkpoint"] if previous else f"source:{meta['source_sha256'][:12]}"
+                if previous:
+                    record["view"] = previous["view"]
+                    record["views"] = previous.get("views") or [previous["view"]]
+                    if previous.get("revision"):
+                        record["revision"] = previous["revision"]
+        records.append(record)
+        label = (f"Image: call {call_id}; checkpoint {record['checkpoint']}; "
+                 f"revision {record.get('revision') or record['checkpoint']}; view {record['view']}; "
+                 f"sha256 {record['sha256'][:12]}.")
+        images.extend([ToolOutputText(text=label), ToolOutputImage(image_url=url, detail="high")])
     if records:
         result["images"] = records
         scene.record_images(call_id, result)
@@ -213,9 +237,20 @@ def build_tools(scene) -> list:
             deadline_s=hard_timeout_s("scene_summary"), call_id=cid))
 
     @tool("save_checkpoint")
-    async def save_checkpoint(ctx: ToolContext, label: str):
-        """Label the current scene; save a new checkpoint only if it changed."""
-        return await call(ctx, "save_checkpoint", lambda cid: scene.s.save_checkpoint(label, call_id=cid))
+    async def save_checkpoint(ctx: ToolContext, label: str, best: bool = False):
+        """Label the current scene; save a new checkpoint only if it changed.
+
+        Args:
+            label: Short name for this checkpoint.
+            best: Select this checkpoint as the best so far and retain its images in long runs.
+        """
+        def save(cid):
+            result = scene.s.save_checkpoint(label, call_id=cid)
+            if best and result.get("status") == "ok":
+                scene.best_checkpoint = scene.s.head["id"]
+                result["best_checkpoint"] = scene.best_checkpoint
+            return result
+        return await call(ctx, "save_checkpoint", save)
 
     @tool("list_checkpoints")
     async def list_checkpoints(ctx: ToolContext):

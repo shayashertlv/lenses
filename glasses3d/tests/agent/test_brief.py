@@ -1,7 +1,7 @@
 """The brief preserves owner evidence and the owner's model requirement table."""
 from pathlib import Path
 
-from glasses3d.agent.brief import MODEL_REQUIREMENTS, build_brief
+from glasses3d.agent.brief import MODEL_REQUIREMENTS, build_brief, host_text
 
 
 def job():
@@ -29,3 +29,21 @@ def test_owner_model_requirements_are_word_for_word_from_plan():
     table = "\n".join(line.strip() for line in plan.splitlines() if line.startswith("  |"))
     assert MODEL_REQUIREMENTS == table
     assert MODEL_REQUIREMENTS in build_brief(job())
+
+
+def test_contract_checks_host_prose_without_censoring_verbatim_owner_evidence():
+    from glasses3d.agent.loop import REMOVED_PHRASES, ToolContract, contract_problems
+
+    data = job()
+    data.update(name="Hypothesis", description="Keep supplementary images; these words are unverified.",
+                specs_json='{"label":"hypothesis"}')
+    data["images"][0]["file"] = "images/supplementary.png"
+    text, host = build_brief(data), host_text(data)
+    for field in ("name", "description", "specs_json"):
+        assert data[field] in text and data[field] not in host
+    assert data["images"][0]["file"] in text and data["images"][0]["file"] not in host
+    assert MODEL_REQUIREMENTS in host
+    contract = ToolContract(frozenset(), removed_phrases=REMOVED_PHRASES)
+    assert contract_problems(contract, instructions="", brief=host, tools=[]) == []
+    assert contract_problems(contract, instructions="", brief=text, tools=[])
+    assert contract_problems(contract, instructions="supplementary", brief=host, tools=[])

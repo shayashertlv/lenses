@@ -104,6 +104,52 @@ def test_scene_summary_is_read_only_worker_call(scene):
                               {"deadline_s": 30, "call_id": "call_test"})]
 
 
+def test_best_checkpoint_is_explicit_and_saved_with_scene_journal(scene):
+    from glasses3d.agent.job_scene import JobScene
+    durable = JobScene(scene.root, job={})
+    scene.s.index = durable.s.index
+    durable.s = scene.s
+    assert record(invoke(durable, "save_checkpoint", {"label": "named best"}))["status"] == "ok"
+    assert durable.best_checkpoint is None  # a label does not secretly select a best checkpoint
+    output = record(invoke(durable, "save_checkpoint", {"label": "preferred", "best": True}, cid="best"))
+    assert output["best_checkpoint"] == durable.best_checkpoint == "c0001"
+    assert JobScene(scene.root, job={}).best_checkpoint == "c0001"
+    scene.s.head = {"id": "c0002", "fingerprint": "b" * 64}
+    scene.s.save_checkpoint = lambda *a, **kw: {"status": "error"}
+    assert record(invoke(durable, "save_checkpoint", {"label": "bad", "best": True}, cid="bad"))["status"] == "error"
+    assert JobScene(scene.root, job={}).best_checkpoint == "c0001"
+
+
+def test_every_sheet_has_an_adjacent_identity_label_and_real_view_names(scene):
+    paths = []
+    for n in range(2):
+        path = scene.root / f"work/sheet{n}.png"
+        Image.new("RGB", (8, 8), (n, 0, 0)).save(path)
+        paths.append(str(path))
+    views = {f"alias-{n}": {"kind": "reference", "ref": f"photo {n}"} for n in range(T.VIEWS_PER_SHEET + 1)}
+    scene.seeing.render_views = lambda **kw: {"status": "ok", "sheets": paths, "views": views}
+    output = invoke(scene, "render_views")
+    rows = record(output)["images"]
+    assert len(output) == 5 and [row["output_index"] for row in rows] == [2, 4]
+    assert rows[0]["views"] == [f"reference:photo {n}" for n in range(T.VIEWS_PER_SHEET)]
+    assert rows[1]["views"] == [f"reference:photo {T.VIEWS_PER_SHEET}"]
+    for row in rows:
+        i = row["output_index"]
+        assert isinstance(output[i], ToolOutputImage) and isinstance(output[i - 1], ToolOutputText)
+        assert f"call call_test; checkpoint c0001; revision c0001; view {row['view']}" in output[i - 1].text
+
+
+def test_generated_image_reread_keeps_source_checkpoint_and_separate_detail_group(scene):
+    path = scene.root / "work/compare.png"
+    Image.new("RGB", (8, 8)).save(path)
+    scene.images = [{"path": "work/compare.png", "source_path": "work/compare.png", "view": "front",
+                     "checkpoint": "c0000", "kind": "compare_to_photos"}]
+    output = invoke(scene, "read_image", {"path": "work/compare.png", "region": [0, 0, 4, 4]})
+    row = record(output)["images"][0]
+    assert row["checkpoint"] == "c0000" and row["context_role"] == "detail" and row["views"] == ["front"]
+    assert "checkpoint c0000" in output[1].text
+
+
 def test_worker_failure_propagates_out_of_sdk_tool(scene):
     def fail(*a, **kw):
         raise WorkerFailed("worker lost", scene.s.head)
@@ -175,8 +221,11 @@ def test_image_output_has_oriented_crop_and_delivered_digest(scene):
     image.save(src, exif=exif)
     output = invoke(scene, "read_image", {"path": "images/photo.jpg", "region": [0, 0, 10, 15]})
     rec = record(output)["images"][0]
-    assert len(output) == 2 and isinstance(output[1], ToolOutputImage)
-    encoded = output[1].image_url.split(",", 1)[1]
+    assert len(output) == 3 and isinstance(output[1], ToolOutputText) and isinstance(output[2], ToolOutputImage)
+    assert "call call_test; checkpoint source; revision source:" in output[1].text
+    assert "view images/photo.jpg" in output[1].text and rec["output_index"] == 2
+    assert rec["context_role"] == "reference"
+    encoded = output[2].image_url.split(",", 1)[1]
     import base64
     payload = base64.b64decode(encoded)
     assert Image.open(io.BytesIO(payload)).size == (10, 15)
@@ -184,6 +233,9 @@ def test_image_output_has_oriented_crop_and_delivered_digest(scene):
     assert (scene.root / rec["path"]).read_bytes() == payload
     assert rec["source_size_px"] == [10, 20]
     assert scene.images[0]["sha256"] == rec["sha256"]
+    again = record(invoke(scene, "read_image", {"path": rec["path"]}, cid="read_crop_again"))["images"][0]
+    assert again["context_role"] == "reference" and again["revision"] == rec["revision"]
+    assert again["checkpoint"] == "source"
 
 
 @pytest.mark.parametrize("path", ["../outside.png", "budget/secret.png", "runs/key.png", "cameras/hidden.png"])
@@ -210,7 +262,7 @@ def test_fit_camera_output_can_return_its_internal_camera_sheet(scene, monkeypat
     assert received[0][0][0] == "front shape ready" and received[0][1]["workers"] == 2
     assert received[0][0][2] == {"front.jpg": "front", "side.jpg": "side"}
     assert received[0][1]["candidates"] == {"front.jpg": ("front",), "side.jpg": ("left",)}
-    assert len(output) == 2 and record(output)["images"][0]["source_path"].startswith("cameras/")
+    assert len(output) == 3 and record(output)["images"][0]["source_path"].startswith("cameras/")
     invoke(scene, "fit_cameras", {"reason": "one photo", "refs": ["side"], "workers": 1}, cid="call_subset")
     assert received[1][1]["candidates"] == {"side.jpg": ("left",)}
 

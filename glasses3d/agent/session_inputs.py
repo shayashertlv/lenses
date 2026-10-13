@@ -83,9 +83,8 @@ def _user_content(item: Any) -> list:
 
 def _reference_text(photo: ReferenceInput, sha256: str, note: str) -> str:
     parts = [f"{photo.label}:"]
-    details = []
-    if photo.view:
-        details.append(f"view '{photo.view}'")
+    details = ["call intake", f"revision source:{sha256[:12]}"]
+    details.append(f"view '{photo.view or 'unspecified'}'")
     details.append(str(photo.path))
     if photo.size_px:
         details.append(f"{int(photo.size_px[0])}x{int(photo.size_px[1])} px")

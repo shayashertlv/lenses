@@ -1,4 +1,14 @@
-"""The pre-run cost estimate shown with every approval request (plan/WP2_DESIGN.md section 8, Estimate).
+"""Pre-run cost forecasts (plan/WP2_DESIGN.md section 8; ASSEMBLY M2).
+
+``estimate`` preserves the historical Studio model and its exact evidence below. Assembled jobs use
+``estimate_g3d``: a fresh first request is uncached; later requests reuse the preceding prefix. Its growth matches
+total token exposure (cost sums requests), rather than extrapolating the last input back over the whole run.
+Eight complete paid glasses3d runs calibrate that model. All eight remain in honest leave-one-out validation
+(median absolute error 6.46%); the same method independently gives 8.68% on all 13 Studio runs. No output/effort
+strata or fitted correction constants are used. The corpus predates image pruning: no pruning savings are assumed,
+and its cache invalidation is unmeasured. Per-run errors still range -26.07% to +31.14%; this is not a money bound.
+
+Historical Studio model:
 
     expected = sum over i < N of settle(C0 + g*i, cache hit h, output o)
 
@@ -142,7 +152,7 @@ class Projection:
     initial_tokens: int
     requests: int
     max_output_tokens: int
-    parameters: Parameters
+    parameters: Parameters | CausalParameters
     inputs: tuple
     settled: tuple
     holds: tuple
@@ -373,8 +383,8 @@ def corpus_growth_band(shapes: Iterable[RunShape]) -> tuple:
 
 @dataclass(frozen=True)
 class BackTest:
-    shape: RunShape
-    parameters: Parameters
+    shape: RunShape | CausalRunShape
+    parameters: Parameters | CausalParameters
     estimate_micro: int
 
     @property
@@ -399,3 +409,205 @@ def leave_one_out(shapes: Sequence[RunShape], *, tariff: Tariff | None = None) -
 
 def median_absolute_error(tests: Sequence[BackTest]) -> Fraction:
     return Fraction(median(abs(test.error) for test in tests))
+
+
+# ---- assembled-job forecast: first-request cache warming and measured token exposure ----
+
+@dataclass(frozen=True)
+class CausalParameters:
+    """Linear input exposure, fraction of the previous prefix reused, and mean output per request."""
+
+    growth: Fraction
+    prefix_reuse: Fraction
+    output: Fraction
+
+    def __post_init__(self):
+        for name in ("growth", "prefix_reuse", "output"):
+            object.__setattr__(self, name, _exact(getattr(self, name), name))
+        if self.growth < 0 or self.output < 0 or not 0 <= self.prefix_reuse <= 1:
+            raise EstimateError("growth and output must be >= 0 and prefix reuse within [0, 1]")
+
+    def with_growth(self, growth) -> "CausalParameters":
+        return CausalParameters(growth, self.prefix_reuse, self.output)
+
+    def to_json(self) -> dict:
+        return {"growth_tokens_per_request": str(self.growth), "prefix_reuse": str(self.prefix_reuse),
+                "output_tokens_per_request": str(self.output)}
+
+
+G3D_METHOD = "causal-prefix-exposure/1"
+G3D_CORPUS = ("8 complete paid glasses3d gpt-6-astra runs (g3d.run_budget/1, production client, max effort, "
+              ">= 15 settled requests; 2026-10-10..13; 231 settled requests; before image pruning)")
+G3D_PARAMETERS = CausalParameters(growth=Fraction(6_720_790, 1_727),
+                                  prefix_reuse=Fraction(4_312_580, 4_318_559),
+                                  output=Fraction(109_182, 77))
+G3D_GROWTH_BAND = (Fraction(120_911, 38), Fraction(513_253, 105))
+G3D_LIMITATIONS = (
+    "Eight temple-stage runs on one product; generic job and new-product costs remain unmeasured.",
+    "Corpus predates image pruning; no savings assumed and cache invalidation after pruning is unmeasured.",
+    "Growth range varies only growth, not every source of uncertainty; it is not a confidence interval.",
+    "Token-exposure growth forecasts summed cost, not the exact last-request size; the live reserve guard is the bound.",
+)
+
+
+def causal_request_usage(initial_tokens: int, index: int, parameters: CausalParameters) -> dict:
+    """Fresh request 0 has no cached prefix. Later requests reuse only their predicted predecessor's input.
+
+    Cache tokens round down; new/write and output tokens round up. This avoids the old constant hit fraction's
+    false cache discount on request 0 and its dependence on the training runs' length.
+    """
+    if not isinstance(parameters, CausalParameters):
+        raise EstimateError("parameters must be CausalParameters")
+    tokens = request_input_tokens(initial_tokens, index, parameters.growth)
+    cached = 0
+    if index:
+        previous = request_input_tokens(initial_tokens, index - 1, parameters.growth)
+        reused = previous * parameters.prefix_reuse
+        cached = min(tokens, reused.numerator // reused.denominator)
+    output = _ceil(parameters.output)
+    return {"input_tokens": tokens, "output_tokens": output, "total_tokens": tokens + output,
+            "input_tokens_details": {"cached_tokens": cached, "cache_write_tokens": tokens - cached},
+            "output_tokens_details": {"reasoning_tokens": 0}}
+
+
+def project_g3d(initial_tokens: int, requests: int, max_output_tokens: int,
+                parameters: CausalParameters = G3D_PARAMETERS, *, tariff: Tariff | None = None) -> Projection:
+    initial_tokens = _count(initial_tokens, "initial_tokens")
+    requests = _count(requests, "requests", minimum=1)
+    max_output_tokens = _count(max_output_tokens, "max_output_tokens", minimum=1)
+    if max_output_tokens > MODEL_MAX_OUTPUT_TOKENS:
+        raise EstimateError(f"max_output_tokens {max_output_tokens} exceeds the model's {MODEL_MAX_OUTPUT_TOKENS}")
+    if not isinstance(parameters, CausalParameters):
+        raise EstimateError("parameters must be CausalParameters")
+    tariff = Tariff.frozen() if tariff is None else tariff
+    last = request_input_tokens(initial_tokens, requests - 1, parameters.growth)
+    if last > MODEL_MAX_INPUT_TOKENS:
+        raise EstimateError(f"at {parameters.growth} tokens per request, request {requests} would need {last} input "
+                            f"tokens, above the model's {MODEL_MAX_INPUT_TOKENS}; lower max_turns")
+    inputs, settled, holds = [], [], []
+    try:
+        for index in range(requests):
+            usage = causal_request_usage(initial_tokens, index, parameters)
+            tokens = usage["input_tokens"]
+            inputs.append(tokens)
+            settled.append(tariff.settle_micro(usage))
+            holds.append(tariff.reserve_micro(tokens, max_output_tokens))
+    except PricingError as error:
+        raise EstimateError(str(error)) from None
+    return Projection(initial_tokens, requests, max_output_tokens, parameters,
+                      tuple(inputs), tuple(settled), tuple(holds))
+
+
+def estimate_g3d(initial_tokens: int, requests: int, max_output_tokens: int, *,
+                  parameters: CausalParameters = G3D_PARAMETERS, growth_band: tuple = G3D_GROWTH_BAND,
+                  tariff: Tariff | None = None) -> dict:
+    """The job forecast with the historical append-only corpus explicitly named; no unmeasured pruning discount.
+
+    The range retains nearest-rank p10/p90 across every run's token-exposure growth. Cache reuse and output are
+    held fixed for that range, as in the historical forecast. Tail and cap describe the modelled request sequence;
+    actual request admission still depends only on the money guard's real count and worst-case reservation.
+    """
+    if not isinstance(parameters, CausalParameters) or len(growth_band) != 2:
+        raise EstimateError("parameters must be CausalParameters and growth band a (p10, p90) pair")
+    low_growth, high_growth = (_exact(value, "growth band") for value in growth_band)
+    if not low_growth <= parameters.growth <= high_growth:
+        raise EstimateError("the growth band must contain the expected growth")
+    expected = project_g3d(initial_tokens, requests, max_output_tokens, parameters, tariff=tariff)
+    low = project_g3d(initial_tokens, requests, max_output_tokens, parameters.with_growth(low_growth), tariff=tariff)
+    high = project_g3d(initial_tokens, requests, max_output_tokens, parameters.with_growth(high_growth), tariff=tariff)
+    suggested = suggested_cap_micro(expected.required_cap_micro)
+    tariff = Tariff.frozen() if tariff is None else tariff
+    return {
+        "schema": ESTIMATE_SCHEMA, "price_version": tariff.price_version, "corpus": G3D_CORPUS,
+        "method": G3D_METHOD, "limitations": list(G3D_LIMITATIONS),
+        "initial_context_tokens": expected.initial_tokens, "requests": expected.requests,
+        "max_output_tokens": expected.max_output_tokens, "parameters": parameters.to_json(),
+        "growth_band": {"p10": str(low_growth), "p90": str(high_growth)},
+        "expected_micro_usd": expected.spend_micro, "expected_usd": usd_text(expected.spend_micro),
+        "range_micro_usd": [low.spend_micro, high.spend_micro],
+        "range_usd": [usd_text(low.spend_micro), usd_text(high.spend_micro)],
+        "tail_micro_usd": expected.tail_micro, "tail_usd": usd_text(expected.tail_micro),
+        "tail_high_micro_usd": high.tail_micro,
+        "last_request_input_tokens": expected.inputs[-1], "last_request_input_tokens_high": high.inputs[-1],
+        "first_long_context_request": expected.first_long_context_request,
+        "first_long_context_request_high": high.first_long_context_request,
+        "required_cap_micro_usd": expected.required_cap_micro,
+        "required_cap_range_micro_usd": [low.required_cap_micro, high.required_cap_micro],
+        "suggested_cap_micro_usd": suggested, "suggested_cap_usd": usd_text(suggested),
+        "text": (f"Expected {cents_text(expected.spend_micro)} (growth-only range {cents_text(low.spend_micro)}-"
+                 f"{cents_text(high.spend_micro)}) for {expected.requests} Astra replies; modelled final-request hold "
+                 f"{cents_text(expected.tail_micro)}. Historical costs before image pruning; no savings assumed."),
+    }
+
+
+@dataclass(frozen=True)
+class CausalRunShape:
+    """Sufficient statistics of one complete run, with no prompts, images, paths or provider identifiers."""
+
+    requests: int
+    initial_tokens: int
+    exposure_excess: int
+    previous_input_tokens: int
+    cached_after_first: int
+    output_tokens: int
+    settled_micro: int
+
+    @property
+    def exposure_denominator(self) -> int:
+        return self.requests * (self.requests - 1) // 2
+
+    @property
+    def growth(self) -> Fraction:
+        return max(Fraction(self.exposure_excess, self.exposure_denominator), Fraction(0))
+
+
+def causal_run_shape(usages: Sequence[dict], *, tariff: Tariff | None = None) -> CausalRunShape:
+    """Validate usages, then measure Σ(C_i-C_0)/Σi for input exposure, not (C_last-C_0)/(N-1).
+
+    Linear endpoint growth overstates observed summed input by 4.36–19.16% in all eight paid glasses3d runs.
+    This method-of-moments growth targets the quantity the tariff charges for, using no fitted constants.
+    """
+    verified = run_shape(usages, tariff=tariff)
+    first = verified.initial_tokens
+    return CausalRunShape(requests=verified.requests, initial_tokens=first,
+                          exposure_excess=sum(u["input_tokens"] - first for u in usages),
+                          previous_input_tokens=sum(u["input_tokens"] for u in usages[:-1]),
+                          cached_after_first=sum(u["cached_tokens"] for u in usages[1:]),
+                          output_tokens=sum(u["output_tokens"] for u in usages), settled_micro=verified.settled_micro)
+
+
+def causal_parameters(shapes: Iterable[CausalRunShape]) -> CausalParameters:
+    """Pool exposure per request index, cached tokens per prior input token, output per request.
+
+    Whole-run cache fractions depend on run length. Prior-prefix reuse is stable at 0.99763–0.99996 in the eight
+    recorded runs, each of whose first requests has zero cached tokens. Every eligible run contributes fully.
+    """
+    shapes = list(shapes)
+    if not shapes or any(not isinstance(shape, CausalRunShape) for shape in shapes):
+        raise EstimateError("calibration requires nonempty CausalRunShape records")
+    previous = sum(s.previous_input_tokens for s in shapes)
+    if previous <= 0:
+        raise EstimateError("prefix reuse requires previous input tokens")
+    return CausalParameters(
+        growth=max(Fraction(sum(s.exposure_excess for s in shapes), sum(s.exposure_denominator for s in shapes)),
+                   Fraction(0)),
+        prefix_reuse=Fraction(sum(s.cached_after_first for s in shapes), previous),
+        output=Fraction(sum(s.output_tokens for s in shapes), sum(s.requests for s in shapes)))
+
+
+def causal_growth_band(shapes: Iterable[CausalRunShape]) -> tuple:
+    growths = [shape.growth for shape in shapes]
+    return tuple(Fraction(nearest_rank(growths, p)) for p in BAND_PERCENTILES)
+
+
+def leave_one_out_causal(shapes: Sequence[CausalRunShape], *, tariff: Tariff | None = None) -> list[BackTest]:
+    """Fit on every other complete run; forecast only from the held-out first-input count and request count."""
+    shapes = list(shapes)
+    if len(shapes) < 2:
+        raise EstimateError("leave-one-out needs at least two runs")
+    tests = []
+    for index, shape in enumerate(shapes):
+        parameters = causal_parameters(shapes[:index] + shapes[index + 1:])
+        forecast = project_g3d(shape.initial_tokens, shape.requests, 1, parameters, tariff=tariff)
+        tests.append(BackTest(shape, parameters, forecast.spend_micro))
+    return tests
