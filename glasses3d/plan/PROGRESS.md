@@ -17,12 +17,101 @@ budget, unfinished draft delivery, isolated one-request smoke support, and the r
 intake and unapproved run-1 estimate. **M5-prep and M5 step 0 are complete**: the one approved real smoke passed
 at $0.211823. **M5 Oakley run 1 was approved and attempted on the corrected job; it failed at the first render's
 checkpoint verification after $0.828903. No delivery was published.** The $0 reproduction and accounting audit
-are below. **Next: owner decision on expanding M5 to repair the checkpoint round-trip defect and failed-run
-draft handling; no further paid run is approved.**
+are below. **The owner authorized the checkpoint/failed-draft repairs and exactly one fresh run on the same
+corrected job**, conditional on the repairs, proofs and full suite passing and a new estimate under $20. Terms:
+$20 settled stop, $23 reserve cap, max effort; not a resume. Repairs and verification are recorded below.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Assembly M5: checkpoint and failed-draft repair (2026-10-13; $0)
+
+Owner request: identify the exact unstable property, repair the general checkpoint method, prove a mixed Blender
+scene and the original tool journals round-trip, salvage failed runs from their last verified checkpoint, run
+the full suite and commit before any new paid request. The owner also approved one **fresh** run on
+`oakley-oo9208-v2-3e057bab` after those steps pass and its fresh estimate is below $20, with the same $20 settled
+stop / $23 maximum reserve / max effort. The older `cd068969` job remains out of scope.
+
+**Exact cause:** the field-by-field $0 comparison of every `_curve_digest`/`_rna` component found only these
+automatic texture-space changes in the orphan curves left by text-to-mesh conversion:
+
+| Datablock | Property | Before save/reload | After reload |
+| --- | --- | --- | --- |
+| Centre Oakley micro etch | `texspace_location.x` | 1.8925000429153442 | 1.8924999237060547 |
+| Centre Oakley micro etch | `texspace_size.x` | 1.847499966621399 | 2.8474998474121094 |
+| Centre Oakley micro etch | `texspace_size.y` | 0.3500000238418579 | 1.3499999046325684 |
+| Prizm lower corner etch | `texspace_size.x` | 1.3245002031326294 | 2.32450008392334 |
+| Prizm lower corner etch | `texspace_size.y` | 0.3410000205039978 | 1.3410000801086426 |
+
+Both have `use_auto_texspace=true`. Every other raw curve component matched, and the original checkpoint SHA
+stayed unchanged. Evidence: `data/assembly/m5curve-components/{before-components,after-components,diagnostic}.json`.
+The converted leftovers expose `Curve` RNA; the separate live/orphan/fake text fixtures retain FONT content.
+
+`g3d/checkpoint.py` now excludes texture-space bounds **only in automatic mode**, retaining manual bounds and
+the mode flag. `protect()` retains zero-user members of all 23 collections already fingerprinted. Broader
+fixtures exposed two more serialization differences: factory `ParticleSettings.trail_count` 0 becomes 1 on
+reload (canonicalized to the RNA minimum), and volume file paths are remapped by save-as (canonicalized to the
+absolute target, including Blender's empty factory-path behavior). Valid trail-count and real path changes
+remain detectable. Value/RGB node output values and action custom properties are now fingerprinted too.
+No blanket exclusion, fingerprint re-stamping, original checkpoint edit or quality-gate relaxation.
+
+Real Blender mixed-scene regression: **1/1 passed in 8.84 s**, with **43 explicitly retained ID fixtures and 64
+authored-content mutation controls**: live/orphan/fake text, font and formatting, converted leftovers, Bezier
+and NURBS geometry, meshes/modifiers, node materials/groups, generated/packed pixels, and absolute/relative
+volume paths across save directories. Evidence: `data/assembly/m5-roundtrip7.log` and
+`data/assembly/m5-roundtrip-pytest7/test_mixed_scene_roundtrip_and0/report.json`.
+
+**Second independently reproduced host defect:** the exact replay exposed a render-only change to the user
+scene's `length_unit` (MILLIMETERS to METERS). Setting the temporary scene's unit system makes Blender's update
+callback act on the current context scene; the minimal reproducer also showed GRAMS to KILOGRAMS. The renderer
+now scopes those writes with `bpy.context.temp_override(scene=sc)`. Authored unit fields remain fingerprinted.
+Real Blender regression **1/1 passed**, covering **8 scenarios** (metric/imperial, either authored scene active,
+success/injected exception); every unit field, fingerprint, original context and cleanup matched.
+Evidence: `data/assembly/render-unit-callback.json` and
+`data/assembly/m5unitstest/test_temporary_render_units_ne0/report.json`.
+
+**Exact original journal replay passed at $0** in 12.484 s: all **5 tool calls** (of which **3 contained code**),
+with the original byte-bound arguments/snippets and original static refusal preserved. Save/restore matched
+after every call, rendering created 12 images without scene drift, a fresh worker reopened c0001 exactly, and
+all 91 original evidence files stayed unchanged. No model transport was constructed or external network used.
+Evidence: `data/assembly/m5r1replay3/proof.json`, log/status/receipt `data/assembly/m5fix_replay3.*`.
+
+**Failed-run draft delivery:** `failed` now selects the newest checkpoint whose original bytes and reopened
+fingerprint verify, in a private worker, with every attempted checkpoint recorded. Only an integrity failure
+can fall back to an older checkpoint. An export or quality failure never selects a more flattering older
+model: normal export refusals remain refusals, and validation/seating/print/AR failures are reported in drafts.
+The active worker must be closed; job head, best marker and journals do not move. A finalized failed result
+raised through `SystemExit` is also salvaged before the original signal propagates. Focused tests **139/139**
+plus the SystemExit follow-up **1/1** passed. Real Blender/AR failed-draft proof **15/15 passed in 17.938 s**,
+including failed checks kept visible, immutable delivery, review and source preservation. Evidence:
+`data/assembly/m5fd/proof.json`, `data/assembly/m5_failed_draft.*`. Independent code reviews found no blockers.
+
+Full Python suite: **3,463 distinct tests passed** across the required main run and reconciled reruns. Main run
+used `-n 8 --dist loadfile`: 3,143 passed, two failures (the known EcoQoS-watcher interference and the 60-second
+render check under load), four historical-fixture setup errors, 718.65 s. Photoprint then used `-n 2 --dist
+loadfile`: **314/314 passed in 213.90 s**. The QoS test passed alone with the descendant watcher disabled
+(1/1, 0.30 s); complete `test_wp2_seeing.py` and `test_seeing_v3.py` passed sequentially alone (**54/54**, 113.11 s).
+No time limit or assertion was changed. Logs/status/receipts: `data/assembly/m5fix_main.*`, `m5fix_print.*`,
+`m5fix_isolated_qos.*`, `m5fix_seeing.*`.
+
+The four setup errors were a test fixture importing a historical run-7 checkpoint index made by the older
+fingerprint algorithm. This test evaluates seeing on revision-7 geometry, not historical-session compatibility.
+It now verifies archived c0007 bytes against the original SHA (`3b4435b27313854367aec10c389087c9cad3b36d3d9311b03c1d3aaeed5924e1`)
+and uses those exact bytes as an isolated test seed with a fresh checkpoint chain. New SHA/fingerprint restore
+is explicitly checked; original index, original model and copied seed bytes are checked unchanged at teardown.
+All visual assertions, photos, cameras, geometry and thresholds are unchanged. Independently reviewed.
+
+AR: **497 unit tests + 103 QA tests passed** after isolated reruns, and `tsc --noEmit` passed. The concurrent
+first pass had one hair-scheduling timing failure (496/497) and one Chromium connect-abort timing failure
+(102/103); the entire affected modules then passed alone (**12/12** in 19.72 s and **5/5** in 36.55 s) with no
+code/assertion change. Logs: `data/assembly/m5fix_ar_{unit,qa,check,hair,stall}.*`. `git diff --check` passed;
+the complete runtime/test diff was independently reviewed. Repairs, proofs and full-suite verification are
+complete at **$0**. The accompanying implementation commit precedes the fresh estimate/approval/run.
+
+The first run's model still has unsupported part roles; it was not hand-corrected into a deliverable. The fresh
+run will start from the empty job seed after preserving all failed-run evidence. M5 owner visual acceptance
+remains open; no product quality result is inferred from these tool tests.
 
 ## Assembly M5: corrected Oakley run 1 (2026-10-13; failed, preserved for diagnosis)
 

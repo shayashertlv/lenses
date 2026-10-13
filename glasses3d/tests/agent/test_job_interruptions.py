@@ -1,4 +1,4 @@
-"""Interrupted ordinary runs publish only their own finalized stopped result, then preserve the signal."""
+"""Interrupted ordinary runs publish only their own finalized result, then preserve the signal."""
 import asyncio
 from datetime import datetime, timezone
 import json
@@ -106,10 +106,11 @@ def test_smoke_interruptions_never_publish_even_with_a_stopped_result(tmp_path, 
     assert caught.value is interrupted and not draft.called and not path.with_name("delivery.json").exists()
 
 
-def test_system_exit_failed_classification_is_preserved_and_not_salvaged(tmp_path, monkeypatch):
+def test_system_exit_failed_classification_is_preserved_and_salvaged(tmp_path, monkeypatch):
     interrupted = SystemExit(7)
     root, run_id, path, scene, result, draft = fixture(tmp_path, monkeypatch, interrupted)
     result["status"] = "failed"  # the existing loop classification is deliberately unchanged
+    draft.return_value["run_status"] = "failed"
 
     async def run(*a, **k):
         procs.write_json_atomic(path, result)
@@ -118,7 +119,9 @@ def test_system_exit_failed_classification_is_preserved_and_not_salvaged(tmp_pat
     monkeypatch.setattr(J, "run_astra", run)
     with pytest.raises(SystemExit) as caught:
         asyncio.run(J.execute_run(root, run_id, scene=scene))
-    assert caught.value is interrupted and caught.value.code == 7 and not draft.called
+    assert caught.value is interrupted and caught.value.code == 7
+    draft.assert_called_once_with(root, scene, result)
+    assert json.loads(path.with_name("delivery.json").read_text()) == draft.return_value
 
 
 def test_draft_failure_cannot_replace_the_original_interruption(tmp_path, monkeypatch):

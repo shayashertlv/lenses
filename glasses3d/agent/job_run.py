@@ -128,10 +128,10 @@ async def execute_run(root, run_id, *, resume=False, offline_handler=None, scene
         # The loop completes its teardown and atomically writes result.json before re-raising these signals.
         # A preflight interruption or an earlier run's result must never publish an unrelated checkpoint.
         if not smoke and not result_existed:
-            stopped = _fresh_stopped_result(root, run_id, result_path, scene, interrupted)
-            if stopped is not None:
+            finalized = _fresh_interrupted_result(root, run_id, result_path, scene, interrupted)
+            if finalized is not None:
                 try:
-                    _publish_result(root, run_id, scene, stopped)
+                    _publish_result(root, run_id, scene, finalized)
                 except Exception as error:
                     # Preserve the owner's original interruption even if local draft publication fails.
                     interrupted.add_note(f"Draft publication failed: {type(error).__name__}: {error}")
@@ -139,14 +139,15 @@ async def execute_run(root, run_id, *, resume=False, offline_handler=None, scene
     return {"result": result, "delivery": _publish_result(root, run_id, scene, result, smoke=smoke)}
 
 
-def _fresh_stopped_result(root, run_id, path, scene, interrupted):
+def _fresh_interrupted_result(root, run_id, path, scene, interrupted):
     try:
         if path != D._output_path(root, path) or not path.is_file():
             return None
         result = json.loads(path.read_text(encoding="utf-8"))
         if (not isinstance(result, dict) or result.get("schema") != RESULT_SCHEMA
                 or result.get("job_id") != root.name or result.get("run_id") != run_id
-                or result.get("status") != "stopped" or not isinstance(result.get("error"), dict)
+                or result.get("status") != ("failed" if isinstance(interrupted, SystemExit) else "stopped")
+                or not isinstance(result.get("error"), dict)
                 or result["error"].get("type") != type(interrupted).__name__
                 or not isinstance(result.get("teardown_errors"), list) or "exit_checkpoint" not in result
                 or getattr(getattr(scene, "s", None), "worker", None) is not None):

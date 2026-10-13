@@ -15,13 +15,21 @@ from . import procs
 SCHEMA = "g3d.delivery/1"
 POINTER_SCHEMA = "g3d.delivery_current/1"
 REPORT_SCHEMA = "g3d.deliverable/1"
-DRAFT_STATUSES = frozenset({"budget_limit", "turn_limit", "stopped", "ended_without_finish", "output_limit"})
+DRAFT_STATUSES = frozenset({"budget_limit", "turn_limit", "stopped", "ended_without_finish", "output_limit", "failed"})
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,23}-[0-9a-f]{64}")
 
 
 class DeliveryError(ValueError):
     """A finished run or immutable delivery is incomplete, stale or inconsistent."""
+
+
+class DraftSourceError(DeliveryError):
+    """Keep each failed source verification when a failed run cannot yield a draft."""
+
+    def __init__(self, message, attempts):
+        super().__init__(message)
+        self.checkpoint_attempts = copy.deepcopy(attempts)
 
 
 def _json_bytes(value) -> bytes:
@@ -338,7 +346,8 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     if draft:
         source = report.get("source_checkpoint")
         if (report.get("accepted_finish") is not False or report.get("run_status") not in DRAFT_STATUSES
-                or report.get("checkpoint_selection") not in ("best", "head")
+                or report.get("checkpoint_selection") not in (
+                    ("last_verified",) if report.get("run_status") == "failed" else ("best", "head"))
                 or not isinstance(source, dict) or source.get("verified") is not True
                 or source.get("id") != report["checkpoint"] or source.get("fingerprint") != report["fingerprint"]
                 or not isinstance(report["fingerprint"], str) or not _DIGEST.fullmatch(report["fingerprint"])
@@ -349,6 +358,15 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
                 or report.get("failed_checks") != _failed_checks(report)
                 or contents.get("arview/attempt.json") != _json_bytes(report.get("arview"))):
             raise DeliveryError("draft report does not bind its source and reported checks")
+        if report["run_status"] == "failed":
+            attempts = source.get("verification_attempts")
+            if (not isinstance(attempts, list) or not attempts
+                    or not all(isinstance(attempt, dict) for attempt in attempts)
+                    or any(attempt.get("status") != "verification_failed" or not attempt.get("reason")
+                           for attempt in attempts[:-1])
+                    or attempts[-1] != {"checkpoint": source["id"], "status": "verified",
+                                        "sha256": source["sha256"], "fingerprint": source["fingerprint"]}):
+                raise DeliveryError("failed draft does not retain its checkpoint verification attempts")
     elif "arview/report.json" not in records:
         raise DeliveryError("delivery manifest is incomplete")
     _capture_files(directory, report.get("arview"), sha, draft=draft)
@@ -452,51 +470,82 @@ def _last_summary(root: Path, result: dict) -> str | None:
 
 
 def _draft_export(root: Path, scene, result: dict) -> tuple[dict, dict, str]:
-    """Reopen a verified copy with no session/journal, so head, best and history cannot move."""
+    """Reopen copies without a session/journal, so head, best and history cannot move.
+
+    Failed runs use the newest checkpoint whose original bytes and reopened fingerprint verify. A failed export
+    or quality check never causes selection of an older checkpoint: that would hide the last model's defects.
+    """
     from .journal import CheckpointIndex
     from .worker_client import WorkerClient
     from .seeing import EXPORT_DEADLINE_S
 
+    if getattr(scene.s, "worker", None) is not None:
+        raise DeliveryError("run worker is still active; cannot select an immutable draft source")
     index = CheckpointIndex(root / "checkpoints")
     head = index.head
     expected = result.get("exit_checkpoint") or getattr(scene.s, "head", None) or {}
     if (not head or not expected.get("id") or head["id"] != expected["id"]
             or (expected.get("sha256") is not None and head.get("sha256") != expected["sha256"])):
         raise DeliveryError("no checkpoint, or the job head changed after this run ended")
+    failed = result.get("status") == "failed"
     best = getattr(scene, "best_checkpoint", None)
-    selected = index.get(best) if best else head
-    if not selected:
+    selected = index.get(best) if best and not failed else head
+    if selected is None:
         raise DeliveryError("the checkpoint marked best is missing")
-    if not isinstance(selected.get("fingerprint"), str) or not _DIGEST.fullmatch(selected["fingerprint"]):
-        raise DeliveryError("checkpoint fingerprint is missing or invalid")
-    blend, data = _read(root / "checkpoints", _relative(selected.get("file")), selected.get("sha256", ""))
-    token = "draft-" + uuid4().hex
-    work = _output_path(root, Path("work/drafts") / token)
-    copied = work / "source.blend"
-    _write_file(copied, data)
-    path = _output_path(root, Path("work/exports") / token / "model.glb")
-    path.parent.mkdir(parents=True, exist_ok=False)
-    worker = WorkerClient(root, start_blend=copied, worker_dir=work / "worker",
-                          blender=getattr(scene.s, "blender", None), selftest=getattr(scene.s, "selftest", False))
-    try:
-        worker.start()
-        if worker.hello.get("fingerprint") != selected["fingerprint"]:
-            raise DeliveryError("draft worker did not open the selected checkpoint exactly")
-        export = worker.call("export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S)
-        if (export.get("status") != "exported" or export.get("fingerprint_before") != selected["fingerprint"]
-                or export.get("fingerprint_after") != selected["fingerprint"] or export.get("unchanged") is not True):
-            raise DeliveryError("selected checkpoint has no unchanged usable export: " + str(export.get("message", "")))
-        receipt = export.get("receipt") or {}
-        if not receipt.get("object_count") or not receipt.get("triangle_count"):
-            raise DeliveryError("selected checkpoint has no exported geometry")
-        if Path(export.get("path", "")).resolve() != path:
-            raise DeliveryError("draft export returned a different output path")
-        _read(root, path, export.get("sha256", ""))
-        _read(root, blend, selected["sha256"])
-        return ({**export, "checkpoint": selected["id"], "fingerprint": selected["fingerprint"],
-                 "validation_sha256": export["sha256"]}, {**selected, "verified": True}, "best" if best else "head")
-    finally:
-        worker.close()
+    candidates = list(reversed(index.checkpoints())) if failed else [selected]
+    attempts = []
+    for selected in candidates:
+        worker = None
+        try:
+            try:
+                if not isinstance(selected.get("fingerprint"), str) or not _DIGEST.fullmatch(selected["fingerprint"]):
+                    raise DeliveryError("checkpoint fingerprint is missing or invalid")
+                blend, data = _read(root / "checkpoints", _relative(selected.get("file")), selected.get("sha256", ""))
+                token = "draft-" + uuid4().hex
+                work = _output_path(root, Path("work/drafts") / token)
+                copied = work / "source.blend"
+                _write_file(copied, data)
+                worker = WorkerClient(root, start_blend=copied, worker_dir=work / "worker",
+                                      blender=getattr(scene.s, "blender", None), selftest=getattr(scene.s, "selftest", False))
+                worker.start()
+                if worker.hello.get("fingerprint") != selected["fingerprint"]:
+                    raise DeliveryError("draft worker did not open the selected checkpoint exactly")
+                _read(root, blend, selected["sha256"])
+            except Exception as exc:
+                attempts.append({"checkpoint": selected.get("id"), "status": "verification_failed",
+                                 "reason": f"{type(exc).__name__}: {exc}"})
+                if not failed:
+                    raise
+                continue
+            attempts.append({"checkpoint": selected["id"], "status": "verified",
+                             "sha256": selected["sha256"], "fingerprint": selected["fingerprint"]})
+            try:
+                path = _output_path(root, Path("work/exports") / token / "model.glb")
+                path.parent.mkdir(parents=True, exist_ok=False)
+                export = worker.call("export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S)
+                if (export.get("status") != "exported" or export.get("fingerprint_before") != selected["fingerprint"]
+                        or export.get("fingerprint_after") != selected["fingerprint"] or export.get("unchanged") is not True):
+                    raise DeliveryError("selected checkpoint has no unchanged usable export: " + str(export.get("message", "")))
+                receipt = export.get("receipt") or {}
+                if not receipt.get("object_count") or not receipt.get("triangle_count"):
+                    raise DeliveryError("selected checkpoint has no exported geometry")
+                if Path(export.get("path", "")).resolve() != path:
+                    raise DeliveryError("draft export returned a different output path")
+                _read(root, path, export.get("sha256", ""))
+                _read(root, blend, selected["sha256"])
+            except Exception as exc:
+                if failed:
+                    raise DraftSourceError(f"{type(exc).__name__}: {exc}", attempts) from exc
+                raise
+            source = {**selected, "verified": True}
+            if failed:
+                source["verification_attempts"] = attempts
+            return ({**export, "checkpoint": selected["id"], "fingerprint": selected["fingerprint"],
+                     "validation_sha256": export["sha256"]}, source, "last_verified" if failed else "best" if best else "head")
+        finally:
+            if worker is not None:
+                worker.close()
+    raise DraftSourceError("no checkpoint matched its original bytes and reopened fingerprint", attempts)
 
 
 def _draft_checks(root, export):
@@ -554,7 +603,8 @@ def deliver_draft(root, scene, result) -> dict:
             try:
                 export, source, selection = _draft_export(root, scene, result)
             except Exception as exc:
-                return {**refusal, "reason": f"{type(exc).__name__}: {exc}"}
+                evidence = {"checkpoint_attempts": exc.checkpoint_attempts} if isinstance(exc, DraftSourceError) else {}
+                return {**refusal, "reason": f"{type(exc).__name__}: {exc}", **evidence}
             _draft_checks(root, export)
             ar, (capture, raw, shown, contact) = _draft_capture(root, export, "draft-" + uuid4().hex)
             _, model = _read(root, export["path"], export["sha256"])

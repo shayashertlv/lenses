@@ -83,7 +83,7 @@ def preserved(root):
             for p in (root / folder).rglob("*") if p.is_file()}
 
 
-@pytest.mark.parametrize("status", sorted(D.DRAFT_STATUSES))
+@pytest.mark.parametrize("status", sorted(D.DRAFT_STATUSES - {"failed"}))
 @pytest.mark.parametrize("best", [True, False])
 def test_each_unfinished_status_exports_best_else_head_without_changing_resume(tmp_path, monkeypatch, status, best):
     scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status=status, best=best)

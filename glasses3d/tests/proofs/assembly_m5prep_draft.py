@@ -101,7 +101,7 @@ def _stop_review(record):
     assert not state.exists(), "the proof's detached review server did not stop"
 
 
-def run(out=None):
+def run(out=None, *, failed=False):
     started = time.monotonic()
     # Keep the proof's nested fixture below Windows MAX_PATH after the immutable SHA directory is added.
     work = Path(out).resolve() if out else ROOT / "data/assembly" / ("m5d-" + uuid4().hex[:8])
@@ -139,7 +139,14 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
         scene.close()
     history = _history(root, create=True)
     before = _files(root, SOURCE_DIRS)
-    result = {"status": "budget_limit", "run_id": "offline-draft", "exit_checkpoint": exit_checkpoint,
+    status = "failed" if failed else "budget_limit"
+    selected, selected_export = (head, later_export) if failed else (best, best_export)
+    other_export = best_export if failed else later_export
+    # A failed run need not have verified its live scene at shutdown; salvage independently verifies the saved
+    # original bytes and reopened private copy. This flag stays false in the published report.
+    if failed:
+        exit_checkpoint = {**exit_checkpoint, "verified": False}
+    result = {"status": status, "run_id": "offline-draft", "exit_checkpoint": exit_checkpoint,
               "final_output": SUMMARY, "budget": {"settled_usd": "0", "reserved_usd": "0"},
               "requests": 0, "tool_calls": 0}
     print(json.dumps({"stage": "closed", "best_checkpoint": best["id"], "head": head["id"]}), flush=True)
@@ -149,12 +156,17 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
     saved = D.load_delivery(root, delivered["delivery_id"])
     report = saved["report_data"]
     assert report["finished"] is False and report["accepted_finish"] is False
-    assert report["run_status"] == "budget_limit" and report["summary"] == SUMMARY
-    assert report["checkpoint_selection"] == "best" and report["checkpoint"] == best["id"]
+    assert report["run_status"] == status and report["summary"] == SUMMARY
+    assert report["checkpoint_selection"] == ("last_verified" if failed else "best")
+    assert report["checkpoint"] == selected["id"]
     assert report["source_checkpoint"]["verified"] is True
+    assert report["exit_checkpoint"]["verified"] is (not failed)
+    if failed:
+        assert report["source_checkpoint"]["verification_attempts"] == [{
+            "checkpoint": head["id"], "status": "verified", "sha256": head["sha256"], "fingerprint": head["fingerprint"]}]
     for key in ("id", "sha256", "fingerprint"):
-        assert report["source_checkpoint"][key] == best[key]
-    assert saved["glb_sha256"] == best_export["sha256"] != later_export["sha256"]
+        assert report["source_checkpoint"][key] == selected[key]
+    assert saved["glb_sha256"] == selected_export["sha256"] != other_export["sha256"]
     assert report["validate_spec"]["ok"] is True and report["seating"]["ok"] is False
     assert "seating" in report["failed_checks"] and report["validation_sha256"] == saved["glb_sha256"]
     ar = report["arview"]
@@ -166,7 +178,7 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
     assert _files(root, SOURCE_DIRS) == before, "draft export changed source checkpoint/history/input bytes"
     shown = cli.dispatch(cli.parser().parse_args(["job", "show", str(root)]))["delivery"]
     assert shown["status"] == "draft" and shown["finished"] is False and shown["accepted_finish"] is False
-    assert shown["run_status"] == "budget_limit" and shown["checks"]["seating"]["ok"] is False
+    assert shown["run_status"] == status and shown["checks"]["seating"]["ok"] is False
     immutable_root = Path(saved["manifest"]).parent
     immutable_before = {p.relative_to(immutable_root).as_posix(): A.file_sha256(p)
                         for p in sorted(immutable_root.rglob("*")) if p.is_file()}
@@ -178,7 +190,7 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
     compatibility_bytes = compatibility.read_bytes()
     try:
         # Replace only the convenience copy with a distinct, already verified export. Review must serve the snapshot.
-        compatibility.write_bytes(Path(later_export["path"]).read_bytes())
+        compatibility.write_bytes(Path(other_export["path"]).read_bytes())
         reviewed = cli.dispatch(cli.parser().parse_args(["job", "review", str(root), "--port", "0"]))
         assert reviewed["finished"] is False and reviewed["accepted_finish"] is False
         assert reviewed["delivery_checks"]["seating"]["ok"] is False
@@ -223,11 +235,12 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
             for p in sorted((work / "source").rglob("*")) if p.is_file()} == source
     assert not list((root / "runs").glob("*/approval.json"))
     assert not list((root / "runs").glob("*/transport/*"))
-    checks = {name: True for name in ("real_blender", "distinct_best_and_head", "best_selected", "source_preserved",
+    checks = {name: True for name in ("real_blender", "distinct_best_and_head",
+              "last_verified_selected" if failed else "best_selected", "source_preserved",
               "failed_seating_reported", "draft_show_label", "fixed_scale_ar", "immutable_snapshot",
               "detached_review_ready", "owned_server_stopped", "verdict_identity", "resume_note_binding",
               "resume_note_sent_once", "no_approval", "no_model_requests")}
-    proof = {"status": "passed", "job": str(root), "delivery_id": saved["delivery_id"],
+    proof = {"status": "passed", "run_status": status, "job": str(root), "delivery_id": saved["delivery_id"],
              "glb_sha256": saved["glb_sha256"], "best_checkpoint": best["id"], "head_checkpoint": head["id"],
              "failed_checks": report["failed_checks"], "checks": checks, "source_files": before,
              "immutable_files": immutable_before, "resume_request_sha256": resumed.current_request_sha256,
@@ -238,13 +251,14 @@ mat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'].default_value = 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, help="new output directory; existing directories are refused")
+    parser.add_argument("--failed", action="store_true", help="verify failed-run latest-checkpoint delivery instead of best")
     args = parser.parse_args()
     os.environ["G3D_OFFLINE"] = "1"
     for key in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "OPENAI_ADMIN_KEY",
                 "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
         os.environ.pop(key, None)
     with LoopbackOnly() as network, ProductionTransportTripwire() as transport:
-        work, proof = run(args.out)
+        work, proof = run(args.out, failed=args.failed)
     assert not network.attempts and not transport.constructions
     proof["network_attempts"] = network.attempts
     proof["production_transports"] = transport.constructions

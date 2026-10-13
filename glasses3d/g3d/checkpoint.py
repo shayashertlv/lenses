@@ -6,7 +6,8 @@ modifiers, constraints, material slots, custom props), every mesh (`export_glb._
 every attribute), curves and text, materials and node groups (node settings, socket values, links), images (packed
 bytes), and the other ID types. `fingerprint(state)` is the sha256 of its canonical JSON. Excluded because they are
 not scene content and change across a save and reopen (prototype defect 1): `bpy.data.filepath`, images with source
-VIEWER (Render Result / Viewer Node), `use_fake_user` flags and user counts. The per-object summaries (vertex and
+VIEWER (Render Result / Viewer Node), `use_fake_user` flags and user counts. Automatic texture-space bounds are
+evaluation caches, so only manually authored texture-space bounds are hashed. The per-object summaries (vertex and
 triangle counts, bbox in mm) ride along for `scene_delta` and are not hashed.
 
 `protect()` runs before every checkpoint: it packs every generated, dirty (pixel-edited) or external image and every
@@ -31,7 +32,7 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-from .export_glb import _custom_props, _mesh_digest, _plain, _tree_state
+from .export_glb import _custom_props, _mesh_digest, _plain, _tree_state as _export_tree_state
 
 SCHEMA = "g3d.scene_state/1"
 RENDER_SCENE = "g3d_render"            # the temporary scene of the render method (never part of the state)
@@ -44,16 +45,27 @@ EXCLUDED_PROPS = frozenset({
     "is_override_data_collection", "use_fake_user", "use_extra_user", "is_missing", "is_library_indirect",
     "library_weak_reference", "is_embedded_data", "name_full", "id_type", "is_dirty", "bindcode", "is_float",
     "has_data", "is_editmode", "mode"})
-#: ID collections whose zero-user members get a fake user before a save (WP2_DESIGN §5 list + objects, collections,
-#: worlds and actions, which a save drops the same way)
-KEEP = ("materials", "meshes", "node_groups", "images", "curves", "textures", "fonts", "lights", "cameras", "worlds",
-        "objects", "collections", "actions")
 OTHER_IDS = ("lights", "cameras", "worlds", "textures", "fonts", "actions", "armatures", "lattices", "metaballs",
              "grease_pencils", "particles", "volumes", "pointclouds", "hair_curves", "speakers", "lightprobes")
+#: Every ID collection in scene_state must survive saving even when it has no object/material users. Do not
+#: retain just the common geometry types: Blender drops orphan armatures, lattices, etc. by the same rule.
+KEEP = tuple(dict.fromkeys(("materials", "meshes", "node_groups", "images", "curves", "objects", "collections")
+                          + OTHER_IDS))
 
 
 def _h(value) -> str:
     return hashlib.sha256(repr(value).encode("utf-8", "replace")).hexdigest()
+
+
+def _tree_state(tree, seen: set) -> tuple:
+    state = _export_tree_state(tree, seen)
+    if not state:
+        return state
+    # Value/RGB nodes author their value on an output socket, rather than an input socket. These persisted
+    # values are scene content too, including in an unassigned (fake-user) node group.
+    outputs = tuple((n.name, tuple(_plain(getattr(socket, "default_value", None)) for socket in n.outputs))
+                    for n in tree.nodes)
+    return state, outputs, _custom_props(tree)
 
 
 def _rna(struct) -> tuple:
@@ -63,10 +75,24 @@ def _rna(struct) -> tuple:
         ident = prop.identifier
         if ident in EXCLUDED_PROPS or prop.type == "COLLECTION":
             continue
+        # Blender recalculates these bounds on evaluation and file load, including for orphan TextCurves left
+        # by conversion to mesh. They are not authored content while auto mode is enabled. Keep the mode flag
+        # and manual bounds: changing either changes the rendered material mapping and must change the hash.
+        if ident in {"texspace_location", "texspace_size"} and getattr(struct, "use_auto_texspace", False):
+            continue
         try:
             value = getattr(struct, ident)
         except (AttributeError, RuntimeError, TypeError):
             continue
+        if struct.bl_rna.identifier == "ParticleSettings" and ident == "trail_count":
+            # New particle settings expose an invalid factory zero, but Blender's file loader clamps it to the
+            # RNA minimum of one. Hash that persisted value; authored valid trail counts remain distinguishable.
+            value = max(prop.hard_min, value)
+        if struct.bl_rna.identifier == "Volume" and ident == "filepath":
+            # Save-as remaps volume paths relative to the checkpoint directory. Hash the target, not its
+            # spelling. Blender also serializes the invalid empty factory path as a path to the drive root.
+            # Preserve every nonempty file target; do not omit filepath just because no grids are loaded.
+            value = os.path.normcase(os.path.normpath(bpy.path.abspath(value) if value else os.path.abspath(os.sep)))
         if prop.type == "POINTER":
             value = getattr(value, "name", None) if value is not None else None
             if not isinstance(value, (str, type(None))):
@@ -197,9 +223,11 @@ def scene_state() -> dict:
         elif coll == "lights":
             other[coll] = {lt.name: _h((_rna(lt), _custom_props(lt), _tree_state(lt.node_tree, seen))) for lt in ids}
         elif coll == "actions":
-            other[coll] = {a.name: _h(tuple((fc.data_path, fc.array_index, tuple(tuple(k.co) for k in
-                                              fc.keyframe_points)) for fc in getattr(a, "fcurves", ())))
-                           for a in ids}
+            other[coll] = {
+                a.name: _h((_rna(a), _custom_props(a),
+                            tuple((fc.data_path, fc.array_index, tuple(tuple(k.co) for k in fc.keyframe_points))
+                                  for fc in getattr(a, "fcurves", ()))))
+                for a in ids}
         else:
             other[coll] = {i.name: _h((_rna(i), _custom_props(i))) for i in ids}
     counts = {name: len(getattr(bpy.data, name)) for name in sorted(set(KEEP) | set(OTHER_IDS) | {"scenes"})
@@ -290,7 +318,7 @@ def protect() -> dict:
             except RuntimeError as exc:
                 pack_failed.append({"font": f.name, "reason": str(exc)[:200]})
     for coll in KEEP:
-        for idb in getattr(bpy.data, coll):
+        for idb in getattr(bpy.data, coll, ()):
             if idb.users == 0 and not idb.use_fake_user and idb.library is None:
                 idb.use_fake_user = True
                 fake.append(f"{coll}:{idb.name}")

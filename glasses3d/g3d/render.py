@@ -451,7 +451,10 @@ class TempRender:
             raise RuntimeError(f"a scene named {checkpoint.RENDER_SCENE!r} already exists")
         self.scene = sc
         us, src = sc.unit_settings, self.user.unit_settings
-        us.system, us.scale_length, us.length_unit = src.system, src.scale_length, src.length_unit
+        # Blender's unit-system update resets length/mass on the context scene, even when setting another scene.
+        # Scope that callback to the temporary scene; the user's authored unit choices must remain untouched.
+        with bpy.context.temp_override(scene=sc):
+            us.system, us.scale_length, us.length_unit = src.system, src.scale_length, src.length_unit
         dg = bpy.context.evaluated_depsgraph_get()
         for obj in self.objects:
             mw = obj.evaluated_get(dg).matrix_world.copy()

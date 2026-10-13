@@ -34,7 +34,9 @@ Unit (synthetic, always run):
   steep and straddling fixtures) goes out as an ordinary, labelled crease, and no soft run has a sharp edge.
 
 Integration (needs Blender 5.2 and data/wp6v2/lab/package_007; skipped, or failed under G3D_REQUIRE_DATA=1): a COPY of
-the run-7 package (cameras, checkpoints, inputs) at its head c0007 (revision 7); the model edges are revision 7's
+the run-7 package's cameras/inputs and SHA-verified head c0007 (revision 7), seeded into a fresh test checkpoint
+chain using the current fingerprint implementation; the original checkpoint index stays unchanged. The model edges
+are revision 7's
 built creases as WP6 v3 I1 gives them (the builder's model_edges(tb) when it has one, else this file's reading of I1
 from the TempleBuild: outer polygons only, one entry per connected run, deg / range / deg_at from the run's own
 edges); every zoom label lies inside its pair's range as given (no roll-band number), and a facet|base border marked
@@ -63,6 +65,7 @@ border, sharp in the build, marked soft in the edge set; I1's soft flag itself i
 The images go under the test's tmp folder; G3D_SEEING_IMAGES=<dir> also copies them there for a review."""
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -1114,24 +1117,44 @@ PHOTO_LINES = {"black-side": {"logo|lower": ([604.36, 248.44], [0.69513, -0.7188
 
 @pytest.fixture(scope="module")
 def v3job(tmp_path_factory):
-    from glasses3d.agent.journal import BlenderSession
+    from glasses3d.agent.journal import BlenderSession, CheckpointIndex
     from glasses3d.g3d.temple import build_temple
     from glasses3d.g3d_host import blender
     need(blender.blender_exe() is not None, "Blender 5.2 not installed")
     need((PACKAGE / "checkpoints" / "index.jsonl").is_file() and (PACKAGE / "cameras").is_dir(),
          f"the run-7 package is missing: {PACKAGE}")
+    # This is a seeing regression on fixed historical geometry, not a resume of its historical execution.
+    # Fingerprint coverage can grow (e.g. node output defaults); never rewrite old hashes or bypass verification
+    # to resume that old chain. Verify the historical bytes, then make a fresh independent test checkpoint.
+    original_index = (PACKAGE / "checkpoints/index.jsonl").read_bytes()
+    original_head = CheckpointIndex(PACKAGE / "checkpoints").head
+    assert original_head and original_head["id"] == "c0007"
+    source = PACKAGE / "checkpoints" / original_head["file"]
+    seed_bytes = source.read_bytes()
+    assert hashlib.sha256(seed_bytes).hexdigest() == original_head["sha256"]
     root = tmp_path_factory.mktemp("seeing_v3") / "pkg"
-    for sub in ("cameras", "checkpoints", "inputs"):
+    for sub in ("cameras", "inputs"):
         shutil.copytree(PACKAGE / sub, root / sub)
+    seed = root / "inputs/seeing-run7-head.blend"
+    seed.write_bytes(seed_bytes)
     spec = json.loads((PACKAGE / "work" / "temple_lab" / "revisions" / "r0007.json").read_text(encoding="utf-8"))
-    s = BlenderSession(root, seed_blend=root / "inputs" / "scene.blend", calls_dir=root / "calls")
-    s.start()
-    assert s.head["id"] == "c0007"
+    s = BlenderSession(root, seed_blend=seed, calls_dir=root / "calls")
     out = root.parent / "images"
     out.mkdir()
-    yield {"root": root, "session": s, "seeing": Seeing(s), "spec": spec, "edges": model_edges_of(build_temple(spec)),
-           "images": out}
-    s.close()
+    try:
+        s.start()
+        assert s.head["id"] == "c0000" and s.head["kind"] == "start"
+        restored = s.worker.call("checkpoint_restore", {"path": str(s.ck_dir / s.head["file"]),
+            "expect_fingerprint": s.head["fingerprint"], "expect_sha256": s.head["sha256"]}, deadline_s=120)
+        assert restored["matches"] is True and not s.defects
+        (root / "source-checkpoint.json").write_text(json.dumps({"source": original_head, "test_head": s.head},
+                                                               indent=2), encoding="utf-8")
+        yield {"root": root, "session": s, "seeing": Seeing(s), "spec": spec, "edges": model_edges_of(build_temple(spec)),
+               "images": out}
+    finally:
+        s.close()
+        assert (PACKAGE / "checkpoints/index.jsonl").read_bytes() == original_index
+        assert source.read_bytes() == seed_bytes and seed.read_bytes() == seed_bytes
     if IMAGES_OUT:                                                               # a review copy, on demand only
         shutil.copytree(out, Path(IMAGES_OUT), dirs_exist_ok=True)
     shutil.rmtree(root / "checkpoints", onerror=_rw)
