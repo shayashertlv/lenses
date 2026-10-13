@@ -186,7 +186,7 @@ BLAS 1, EcoQoS opt-out, no overlapping heavy pools. Reviewed the complete M3 cha
 integration independently. No push or open M3 defect. The earlier root `data/` fixture remains untracked after the
 automatic approval review blocked its cleanup move (reason: "blocked by policy"). Next: M4a, then M4b/c/d in order.
 
-## Assembly M4 (2026-10-13, $0; complete)
+## Assembly M4 (2026-10-13, $0; complete, implementation commit `876c439`)
 
 M4a adds five strict JSON seating tools through the journaled `g3d_call` allowlist; those helpers are no longer
 accessible through snippets. Applied partial results keep their full domain report and a checkpoint, while refusals
