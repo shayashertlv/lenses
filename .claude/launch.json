@@ -4,15 +4,38 @@
     {
       "name": "Lenses UI",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "UI.app"],
+      "runtimeArgs": [
+        "-m",
+        "UI.app"
+      ],
       "port": 8080,
       "autoPort": true
     },
     {
       "name": "Fixture sandbox",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "UI.responsive_sandbox.test_server", "8097", "landing"],
+      "runtimeArgs": [
+        "-m",
+        "UI.responsive_sandbox.test_server",
+        "8097",
+        "landing"
+      ],
       "port": 8097,
+      "autoPort": false
+    },
+    {
+      "name": "WP6 viewer",
+      "runtimeExecutable": "glasses3d/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8262",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "glasses3d/data/wp6v2/viewer"
+      ],
+      "port": 8262,
       "autoPort": false
     }
   ]

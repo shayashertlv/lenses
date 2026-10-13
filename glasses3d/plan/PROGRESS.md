@@ -391,8 +391,26 @@ Final checks: full suite (10 workers) no WP6 failure (load-only failures pass al
 Package `data/wp6v2/lab/package_008` and request `facet-astra-008` (cap $30, effort max, no reply cap, K 4) prepared,
 UNAPPROVED (request sha 6d205b95…, registry 5613828a…).
 
+**Paid run `facet-astra-008` (2026-10-13, the first v3 run).** Approval in the owner's words: "you may run it with max
+18$ (20$ hard cap). im waiting here for the results, please let me see them in a 3d viewer". Cap $20 (budget guard), a
+watcher stopping at $18 settled (`data/wp6v2/lab/stop_at_18_008.py`, never fired), effort max, no reply cap, K 4;
+package_008 (code 7a3f295, request 6d205b95…; the earlier $30 request set aside unused under `runs-unused/`).
+- 07:26-07:57 local, 40 requests, **$8.993582** settled. Astra finished on its own as **"stuck"**; best checkpoint
+  c0015 (revision 25); export `head-681a8190c2cd3fd0.glb` (sha d8e6b88a…); validate_spec ok. In the 3D viewer as
+  "Astra run 8 (v3 tools)", the default (`data/wp6v2/viewer/new_astra_run8.glb`).
+- Behaviour: its object note named the photos' five faces (fore, logo, upper = the top triangle "one face even if it
+  needs warp", lower, tail with a soft border into the arm), the top strip as the top surface, and the 03/06 conflicts
+  as "not depth targets". It read all 7 corners as edge crossings in B1+B2 (0 typed values), built the top triangle as
+  one warp face (1.48 mm off one plane), declared the open back-triangle line a ridge (2.5°), tried a ridge on the
+  hinge-side edge and left it undeclared when the fit refused it (valley 2.2°, open), then spent its last third on the
+  arm's end ("the oblique hook/end-cap shape in 02/B2" is its named remaining blocker).
+- Final creases: top triangle|logo ridge 28.1° (26.6-38.8), logo back diagonal 7.9°, back-triangle line ridge 2.5°
+  (declared, open), hinge-side valley 2.2° (open), tail|arm soft and flat 1.5°. The owner's verdict is pending.
+
 ## Decisions (owner's words verbatim)
 
+- **2026-10-13, run 8:** "you may run it with max 18$ (20$ hard cap). im waiting here for the results, please let me
+  see them in a 3d viewer".
 - **2026-10-12, after the investigation:** "please fix wp6. do very very hard work!!! come back to me when you think
   we are good to go with a paid run. please do your work with the conclusions from before. +max utilize this machine
   for faster runs". WP6 resumed as v3 (above).
