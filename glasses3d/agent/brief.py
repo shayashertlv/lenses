@@ -23,7 +23,9 @@ def _parts(job: dict) -> list[list[tuple[bool, str]]]:
              host("Every reference image below is an authoritative photo of this product."),
              host("Photos determine shape and colour. The description and specifications supply facts a photo cannot "
                   "show, such as exact sizes and materials. Report conflicts explicitly."),
-             host("Owner's model requirements:"), host(MODEL_REQUIREMENTS), host("Reference photos:")]
+             host("Owner's model requirements:"), host(MODEL_REQUIREMENTS),
+             host("Reference photos (a side label names the wearer's side of the glasses that faces the camera; "
+                  "'both' means the photo shows both sides):")]
     for index, row in enumerate(job["images"]):
         side = row["side"] if row["side"] is not None else "not specified"
         w, h = row["size_px"]
