@@ -143,6 +143,42 @@ d. **Camera fitting for new photo sets** (WP3b, needed by every stage): per-phot
    all fits (`fit_views.py:381-382`); a rear three-quarter view kind; switch on the lens-optional loss for rimless /
    semi-rimless (`cameras.py:436`); honour the per-photo matte mode (`fit_views.py:317`).
 
+### M5-prep. Make the first paid run worth its money ($0; added 2026-10-13 after reviewing M0-M4)
+Claude's review of M0-M4 (`27db2c0`..`bd3dcf4`) found no blocker in the assembled offline path, and two money risks
+for the first paid run. Do these before M5:
+1. **Astra plans against the wrong limit.** The tool footer (`agent/loop.py:822-851` `RunStatus`/`footer_text`) and
+   `budget_status` (`agent/tools/__init__.py:373-379`, `guard.summary()`) show the $23 reserve cap as "cap", but the
+   run stops at $20 settled (`agent/job_run.py:21`). Report the settled stop as the working limit: footer
+   "settled $X of $20.00 stop (reserve cap $23)", and `budget_status` adds `settled_stop_usd` and
+   `remaining_to_stop_usd` (stop minus settled minus open holds). From 75 % of the stop, every tool result's footer
+   adds one plain line: about $N left; export, AR-capture and finish your best checkpoint soon. Add one sentence to the
+   instructions' `finish` guidance: plan to finish with the best validated checkpoint before the settled stop; a
+   finish that lists remaining differences is better than running out. Scripted-transport test: a run whose spend
+   crosses 75 % sees the notice, and the numbers match the guard.
+2. **A run that stops without `finish` delivers nothing** (`agent/delivery.py:321-324` returns `not_finished`), so
+   the owner would have paid and have nothing to judge. Add a **draft delivery**, at $0 and with no model request:
+   when a run ends `budget_limit`, `turn_limit`, `stopped`, `ended_without_finish` or `output_limit`, the host takes
+   the checkpoint marked best (else the head), exports it, runs `validate_spec` + the seating check and a fixed-scale
+   AR capture, and publishes an immutable delivery marked `finished: false` with the run status, the checks' results
+   (failing checks are reported, not hidden) and Astra's last summary if any. `job review` and `job verdict` work on
+   drafts, so the owner's notes feed the resume. A draft is never an accepted finish and never certifies a check.
+   Tests: each end status produces a draft or a clear "no usable checkpoint" record; a draft with a failing check
+   is labelled so in its report and in `job show`.
+3. **Smoke turn** (WP8 step 0): `job run --smoke <job>`: one capped real request (settled stop and reserve cap both
+   the owner's smoke cap) with the job's real instructions, brief and photos, `tool_choice=required`, allowed to call
+   one read-only tool (`scene_summary` or `budget_status`) and then end. It proves the real API, tool call, receipts,
+   settlement and ledger end to end. Its own approval request and estimate (`agent/estimate.py:268`
+   `smoke_estimate`). Offline test with the scripted transport; the real smoke waits for the owner's OK.
+4. **The Oakley OO9208 v2 job, ready to approve** ($0): `job create` from the six photos in
+   `automation/data/blender_agent/studio/jobs/3dff867466d449c9a6369273f0a14631/images/` (copied, sha256-bound), with a
+   `views.json` you label by looking at each photo (view kind and side; ignore any "supplementary/unverified" labels in
+   old job files, PLAN §0.3) and the owner's description from that job's `job.json` / `brief.txt`, verbatim. Then
+   `job estimate` (record the estimate in PROGRESS) and one scripted $0 dry run on this real job that reads each photo
+   (`read_image`), calls `scene_summary` and `budget_status`, and stops: it proves intake, brief, photo handling and
+   the approval binding on real photos. Show the owner the six photos with their view labels in the report.
+Then stop and report: the estimate for the smoke turn and for Oakley run 1, and the draft-delivery and runway tests.
+The owner decides the smoke cap and approves each paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This

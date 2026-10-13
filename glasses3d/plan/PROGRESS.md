@@ -12,8 +12,12 @@ automation gaps, ranked defects, cleanup). Read it before starting WP2 D–F, WP
 into one automation in milestones M0 (blocking fixes) → M1 (job intake, registry v1, offline end-to-end run) → M2
 (instructions, image policy) → M3 (delivery, owner review ledger) → M4 (seating, temples, print as stages) → M5 (paid
 validation, owner OK per run). **M0-M4 are complete and proven offline**, including the owner-approved rimless
-matte expansion and the final full regression suite. **Stop before M5:** total budget and smoke cap still require
-the owner's decision, with an estimate and explicit approval before every paid run.
+matte expansion and the final full regression suite. **Next: ASSEMBLY "M5-prep"** ($0, added 2026-10-13 after
+Claude's review of M0-M4: budget runway shown against the $20 stop, draft delivery when a run ends without finish,
+`job run --smoke`, the Oakley job ready to approve). Claude's independent rerun of `tests.proofs.assembly_m1`
+passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
+m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
+an estimate and the owner's explicit approval.
 
 ## Assembly M0 (2026-10-13, $0; complete, implementation commit `27db2c0`)
 
