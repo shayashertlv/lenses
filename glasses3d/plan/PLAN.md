@@ -3,7 +3,8 @@
 Written 2026-10-05 at the end of a long review session with the owner (Shay). Two independent reviewers then checked
 it against the disk, git and the owner's requirements, and their corrections are applied. The work-package design
 below preserves the original plan; it is not a command to redo completed work. Read this file fully, then use
-PROGRESS.md for current status, decisions and the next action, and [WP6_FACETS.md](WP6_FACETS.md) for WP6.
+PROGRESS.md for current status, decisions and the next action, and [WP6_V3.md](WP6_V3.md) (on
+[WP6_FACETS.md](WP6_FACETS.md)) for WP6.
 Latest owner instructions take precedence. Historical handoffs are evidence only.
 
 ---
@@ -33,6 +34,7 @@ Latest owner instructions take precedence. Historical handoffs are evidence only
    mark WP5 done. This is not all-proofs-passed completion; historical failures stay recorded. WP6 is rebuilt per
    [WP6_FACETS.md](WP6_FACETS.md): the v1 gates (S1, R1–R4, G1–G5, P2, the P3 decal limit, the STOP rules) were
    retired on 2026-10-10 by owner decision, and WP6 is accepted by the owner's eye on photo-matched renders.
+   WP6 is closed by owner acceptance on 2026-10-13 (v3, paid run 8; PROGRESS.md).
 7. **Paid calls** (Astra, any provider) need the owner's explicit OK, with a cost estimate, before each paid run.
 8. **Repo safety:**
    - The repo `shayashertlv/lenses` is PUBLIC, and pushing `main` deploys the live app to Railway. Work on the
@@ -415,7 +417,8 @@ Do not reinstate unregistered view blending or reopen completed WP5 without a ne
 
 ### WP6: Faceted temples
 **Rebuilt 2026-10-10 by owner decision** ("please rebuild wp6"; "i just want astra to be able to handle facets and
-such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md); status is in PROGRESS.md.
+such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md), rebuilt as v3 in
+[WP6_V3.md](WP6_V3.md); status is in PROGRESS.md. **Closed by owner acceptance 2026-10-13.**
 - **Goal:** Astra turns flat or wrong temples into faceted temples that look like the product photos, with tools
   and seeing aids that work for any faceted-temple product. Prada PR 17WS is the test case, not the definition.
 - **Acceptance:** the owner's eye on photo-matched renders beside the photos. Numbers are information, never gates.

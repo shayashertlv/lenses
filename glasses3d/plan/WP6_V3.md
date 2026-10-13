@@ -1,5 +1,8 @@
 # WP6 v3: measure, fit, see (design, 2026-10-12)
 
+**Status: complete.** The owner closed WP6 on 2026-10-13 after paid run 8 ("you know what. im satisfied with wp6, lets wrap this").
+Result and the items left open are in PROGRESS.md "WP6 v3".
+
 Owner, 2026-10-12, after the WP6 investigation (`data/wp6v2/review_20261012/FINDINGS.md`): "please fix wp6. do very very
 hard work!!! come back to me when you think we are good to go with a paid run. please do your work with the conclusions
 from before. +max utilize this machine for faster runs".

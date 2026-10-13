@@ -11,7 +11,7 @@ are in [archive/20261008](archive/20261008/README.md). Archived files are eviden
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
 | WP4 | Complete and tested. The real-product proof is **stale** since the WP5 exporter change `10bf932`: 11 of 24 `test_seat_real` tests skip as stale. Re-run `python -m glasses3d.tests.proofs.wp4_proof` (~3 min), then `test_seat_real` |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
-| WP6 | **v3 rebuilt 2026-10-12/13 on the owner's request** ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below): investigation, fit/warp/readings/seeing tools, new prompt, T5 47/47, full suite green but for load-only timeouts. Next: the blind stand-in tool test and the owner sheet, then the owner's OK for one paid run. (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
+| WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
 | WP2 | A–C verified; D–F not built |
 | WP7 | Design only ([WP7_DESIGN.md](WP7_DESIGN.md)) |
 | WP8 | Not started (paid; owner OK per run) |
@@ -405,10 +405,39 @@ package_008 (code 7a3f295, request 6d205b95…; the earlier $30 request set asid
   hinge-side edge and left it undeclared when the fit refused it (valley 2.2°, open), then spent its last third on the
   arm's end ("the oblique hook/end-cap shape in 02/B2" is its named remaining blocker).
 - Final creases: top triangle|logo ridge 28.1° (26.6-38.8), logo back diagonal 7.9°, back-triangle line ridge 2.5°
-  (declared, open), hinge-side valley 2.2° (open), tail|arm soft and flat 1.5°. The owner's verdict is pending.
+  (declared, open), hinge-side valley 2.2° (open), tail|arm soft and flat 1.5°.
+- Owner's review: the triangle closest to the lenses (the hinge-side face) does not show, its plane being barely
+  different from the logo's (Decisions). Measured 2-4° from the readings; the photos' light turns that into a large
+  tone step, our renders cannot.
+
+**Closed (2026-10-13).** Owner: "you know what. im satisfied with wp6, lets wrap this". WP6 is complete on run 8 (c0015, revision 25). This
+is the owner's acceptance, not an all-runs pass.
+
+Open at closing (proposed after run 8, not built; the owner closed WP6 without them):
+- **Image pile.** Astra's input is the whole conversation on every request. In run 8 it grew from 9 to 136 images
+  (26k to 219k tokens) by request 40; images carry no revision or compare id and no current/superseded mark, and
+  the context guard (240k tokens) never fired. Proposal: label every image, and replace superseded ones with short
+  text notes every few replies (keep the photos, the latest compare per view, current pick sheets, the best
+  checkpoint). This matters for any long Astra loop (WP7/WP8), not only WP6.
+- **Visible faces.** An edge the photos show crisply can be measured at only a few degrees and is then built too
+  faint to see (run 8's hinge-side face; the fit refused Astra's ridge declaration). Proposal: a declaration with a
+  visible minimum angle, chosen from renders and honoured over the readings, plus one prompt rule.
+- Astra's named blocker at its finish: the arm's end hook in photos 02/B2.
+- Owner's later plan: a natural-language "more edits" box at the end of the automation, where Astra edits the
+  model by the user's request (instead of parameter sliders).
+- Leftovers, git-ignored: the $0 hinge-face tool test the owner stopped (`data/wp6v2/result_run8_hinge_face/`,
+  with its never-committed script `wp6v3_hinge_face.py`) and its `run8_hinge_face_*.glb` entries in the viewer.
 
 ## Decisions (owner's words verbatim)
 
+- **2026-10-13, WP6 closed:** "you know what. im satisfied with wp6, lets wrap this".
+- **2026-10-13, after run 8:** "the closest triangle to the lenses is not visible since its plane is barely
+  different than the logo. you can also see in the evidence that our algorithm didnt catch that triangle in any of
+  the layout images. correct me if im wrong." Then, on edits: "lets focus on astra, what if we just gave it more
+  images? at the end of the entire automation i plan to add "more edits" iput box where the user can say "this
+  facets meeting point should be further out, so the left facet would have more degrees " and then should edit buy
+  the user request. i like this combo better, what do you think?"; and, stopping the $0 hinge-face variants:
+  "focus. stop all youre doing i dont need a fixed temple i need wp6 to work!!!!!".
 - **2026-10-13, run 8:** "you may run it with max 18$ (20$ hard cap). im waiting here for the results, please let me
   see them in a 3d viewer".
 - **2026-10-12, after the investigation:** "please fix wp6. do very very hard work!!! come back to me when you think
@@ -458,6 +487,7 @@ answer fails it) and ask the owner.
 FT1123 crystal, Oakley OO9208 v2 and INVU IA22403B v2, re-accepted by the owner on 2026-10-06 (asset-bound verdicts
 in `data/ledger/owner_verdicts.jsonl`). **Prada PR 17WS is an open failure**: its older "looks great" verdict
 predates noticing the facets and the shortened-temple rendering defect.
+The owner's 2026-10-13 WP6 acceptance (run 8's temples) closes WP6; it is not a whole-asset Prada verdict.
 
 ## Archive step (track F, 2026-10-10)
 
@@ -501,3 +531,5 @@ import, and the 7 Blender-only modules import in Blender 5.2.
   `04f8ceb` builder g3d.temple/2 + template + drawings + Blender layer; `c102efb` builder review fixes;
   `cf9cf1a` Astra facet tools, loop finish settings, rehearsals, light choice; `831a8a2` pre-flight (owner light C,
   gate/timeout fixes); next: surface-only distinct-head rule, rebuilt package and estimate.
+- `8378bc4`, `4c24124` WP6 v3 build (fit, warp faces, crossing readings, seeing, lab, prompt); `be8d56d`,
+  `7a3f295` blind stand-in rehearsal fixes + owner sheets; `7fcf037` paid run 8; then WP6 closed by the owner.

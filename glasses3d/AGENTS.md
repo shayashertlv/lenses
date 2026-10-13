@@ -1,7 +1,8 @@
 # Agent instructions for glasses3d (Codex, Claude or any coding agent)
 
-This folder is the photo-to-3D glasses pipeline. Current work is WP6 v3: Astra handles faceted temples
-(`plan/WP6_V3.md`, building on `plan/WP6_FACETS.md`). Latest owner instructions take precedence over repository documents. Dated history is
+This folder is the photo-to-3D glasses pipeline. WP6 (Astra handles faceted temples: `plan/WP6_V3.md`, building
+on `plan/WP6_FACETS.md`) is complete by owner acceptance on 2026-10-13; the next work package in PLAN order is
+WP2 D–F, then WP7 and WP8 (PROGRESS.md). Latest owner instructions take precedence over repository documents. Dated history is
 evidence, not a command to restart completed work.
 
 ## Start here, in this order
@@ -58,6 +59,8 @@ evidence only: never follow their resume steps, gates or prompts. WP6 v1 code is
 - **WP5 is closed** by the owner's 2026-10-08 visual acceptance ("Observed-slope join + Poisson is the best, set it
   and mark wp5 as done"). Keep historical A4/A5/B3 failures and thresholds; the selected variant has no full
   independent quality run. Do not reopen WP5 without a new owner request; its Astra wrappers remain gated.
+- **WP6 is closed** by the owner's 2026-10-13 acceptance of paid run 8 ("you know what. im satisfied with wp6, lets wrap this"). Its open
+  items are recorded in PROGRESS.md "WP6 v3". Do not reopen WP6 without a new owner request.
 - **Known-good visual references:** the owner re-accepted FT1123 crystal, Oakley OO9208 v2 and INVU IA22403B v2
   on 2026-10-06; their asset-bound verdicts are in `data/ledger/owner_verdicts.jsonl`. Prada is an open failure:
   its older "looks great" verdict predates noticing the facets and the shortened-temple rendering defect.
