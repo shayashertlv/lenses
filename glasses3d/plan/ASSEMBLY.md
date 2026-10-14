@@ -284,6 +284,22 @@ capability is taken away from Astra; only the owner decides money.**
    views show each temple meeting the visible head exactly where its hidden part starts.
 Then the full suite, commit, PROGRESS, and stop: no paid run without the owner's approval.
 
+**Status 2026-10-14 (Claude's review of `6fb020e`, `3614879`):** items 1-5 and 7 done as written. Claude
+reproduced the item 2 replay (peak 87,477 tokens, largest hold $1.912663), reran `tests.proofs.assembly_m1`
+(passed, 92.7 s, 11 requests, $0), printed the exact run-3 inputs on a copy of the job (instructions 7,835 chars,
+brief unchanged, 23 tools, no dollar argument anywhere, Astra sees only the owner's $20 stop and $23 reserve cap)
+and reran the camera, report, measuring and money modules (166 passed, 2 skipped). Repricing run 2's 80 requests
+with capped outputs gives about $10.64 instead of $15.47, of which $5.10 was the two `temple_stage` attempts that
+the new description now scopes away from Oakley's multi-material, branching arms.
+**Item 6: the tool is delivered; its proof criterion was Claude's error and is withdrawn.** The criterion asked
+every photo pair to agree within the reported error. The owner-accepted Oakley's own frozen cameras fail it (same
+hinge logo 7.4-9.3 mm apart between front+side and front+top; top photo IoU 0.64-0.75), so it measured how far the
+photos' fitted cameras agree, not whether the tool works. The tool reports that disagreement to Astra
+(`W_PAIR_DISAGREEMENT`, `W_RESIDUAL`, "camera calibration can limit accuracy"), which is the honest behaviour.
+The off-axis camera option stays as an explicit choice (default unchanged). Calibration research stops here: it
+needs independent calibration evidence these photos do not contain and it does not touch what stopped run 2.
+Next: Oakley run 3 on the same job, only with the owner's explicit approval and estimate.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
