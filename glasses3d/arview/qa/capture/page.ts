@@ -17,6 +17,7 @@ import {boxCorners, cropRect, lensTopVsBrow, nearSide} from './junction.ts';
 import type {CropRect, JunctionGeometry, JunctionSide} from './junction.ts';
 import {bandMetrics, decodeLabels, junctionColumns, paletteDecoder} from './id-palette.ts';
 import {measureTempleReach, nearSideOfYaw, templeReachWarning} from './temple-reach.ts';
+import {wornCropRect} from './worn.ts';
 import type {TempleReach} from './temple-reach.ts';
 import * as portrait from './portrait.ts';
 import type {PortraitRequest} from './portrait.ts';
@@ -213,6 +214,32 @@ function frameSides(): SideFrame[] {
   return out;
 }
 
+/** From the near lens's outer half through the complete drawn arm and 25 mm past its buried cap. The proxy has
+ * no anatomical ears: the extra posterior span shows the actual hiding surface beyond the fixed return. */
+function frameWornSide(): {rect: CropRect | null; side: 'left' | 'right'; basis: string; projected: number[]} | null {
+  if (!state.pose?.worn) return null;
+  const instance = instanceOf(), side = nearSideOfYaw(state.pose.yaw);
+  if (side === null) return null;
+  const sign = side === 0 ? -1 : 1, points: number[] = [], lenses: number[][] = [];
+  for (const part of instance.parts()) {
+    if (part.overlay || part.class !== 'lens') continue;
+    const p = part.mesh.geometry.getAttribute('position');
+    for (let i = 0; i < p.count; i++) if (p.getX(i) * sign > 0) lenses.push([p.getX(i), p.getY(i), p.getZ(i)]);
+  }
+  const edge = lenses.reduce((value, point) => Math.max(value, point[0]! * sign), 0);
+  for (const point of lenses) if (point[0]! * sign >= edge * .5) points.push(...point);
+  const arms = instance.templeCentrelines(), arm = arms?.sides[side];
+  if (arm?.length) {
+    points.push(...arm);
+    const last = arm.length - 3;
+    points.push(arm[last]!, arm[last + 1]!, (arms!.capZM[side] ?? arm[last + 2]!) - .025);
+  }
+  const projected = instance.projectAssetPoints(new Float32Array(points));
+  return {rect: projected ? wornCropRect(projected, state.source.width, state.source.height) : null,
+    side: side === 0 ? 'left' : 'right', basis: 'near lens outer half, drawn temple centreline, 25 mm behind cap',
+    projected: projected ? Array.from(projected) : []};
+}
+
 /** Pose the synthetic face (30 frames at the pose, so the contact-depth and head-fit filters settle) and frame the
  *  junction crops of a junction pose. */
 function pose(request: {pose: CapturePose; background: BackgroundName}): Record<string, unknown> {
@@ -226,7 +253,8 @@ function pose(request: {pose: CapturePose; background: BackgroundName}): Record<
   const near = request.pose.junction ? nearSide(Object.fromEntries(state.sides.filter(side => side.rect).map(side => [side.side, side.area]))) : null;
   return {id: request.pose.id, yaw: request.pose.yaw, pitch: request.pose.pitch, roll: request.pose.roll, depth_cm: request.pose.depthCm, order: request.pose.order,
     tracked: rejected === 0, rejected, pose_sample: instance.poseSample, camera: instance.cameraState(), asset_to_world: instance.assetMatrixWorld(),
-    fitting: instance.fitting, near,
+    fitting: instance.fitting, near, worn: state.pose.worn ? {...frameWornSide(), projected: undefined,
+      head: 'existing face surface and connected posterior head depth meshes; no anatomical ears', hair: false} : null,
     junction: state.sides.map(side => ({side: side.side, crop: side.rect, reason: side.reason, area_px: side.area,
       lens_top_span_px: side.spanX ? side.spanX.map(value => Math.round(value * 10) / 10) : null,
       lens_top_y_px: side.topY === null ? null : Math.round(side.topY * 10) / 10,
@@ -243,7 +271,8 @@ async function render(request: {variant: VariantName; background: BackgroundName
     for (let i = 0; i < SETTLE_BACKGROUND_POSES; i++) {state.timestamp += FRAME_MS; instance.pose(state.source, state.detection!, state.timestamp);}
   }
   const override = VARIANT_OVERRIDE[request.variant];
-  const timing: FrameTimings = override ? instance.render(null, {override}) : instance.render(null, {hair: false, shadows: true, guard: true});
+  const timing: FrameTimings = override ? instance.render(null, {override}) : instance.render(null,
+    {hair: false, shadows: true, guard: true, visibleHead: state.pose?.worn === true});
   const pixels = instance.readback();
   if (pixels.width !== state.source.width || pixels.height !== state.source.height) {
     warnings.push(`${request.file}: read back ${pixels.width}x${pixels.height}, not the requested ${state.source.width}x${state.source.height}`);
@@ -253,6 +282,14 @@ async function render(request: {variant: VariantName; background: BackgroundName
   const images: Record<string, unknown>[] = [];
   const full = await emitCanvas(request.file, canvasOf(pixels, {x: 0, y: 0, width: pixels.width, height: pixels.height}));
   images.push({...full, kind: 'pose', crop: null, side: null});
+  if (state.pose?.worn && request.variant === 'beauty') {
+    const worn = frameWornSide();
+    if (worn?.rect) {
+      const file = request.file.replace(/\.png$/, '__worn.png');
+      images.push({...await emitCanvas(file, canvasOf(pixels, worn.rect)), kind: 'worn_crop', crop: worn.rect,
+        side: worn.side, source: request.file, head: 'same occlusion meshes', hair: false});
+    } else warnings.push(`${request.file}: worn side crop unavailable (no projected lens or temple geometry)`);
+  }
   const palette: PaletteEntry[] = timing.palette ?? [];
   const decoder = request.variant === 'part-id' ? paletteDecoder(palette) : null;
   // The palette is the model's, the same for every part-id render: one identical line, deduplicated by the report.
@@ -294,6 +331,7 @@ async function render(request: {variant: VariantName; background: BackgroundName
     }
   }
   return {timing: {guarded: timing.guarded, passes: timing.passes, safeFallback: timing.safeFallback, shadowsApplied: timing.shadowsApplied ?? null,
+    visible_head: timing.visibleHead ?? false, hair_applied: timing.hairApplied,
     override: timing.override ?? null, templeEndState: timing.templeEndState},
   palette: decoder ? palette.map((entry, index) => ({...entry, decode_tolerance: decoder.tolerances[index]})) : null, images, warnings,
   temple_reach: templeReach};

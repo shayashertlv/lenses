@@ -35,7 +35,9 @@ def seat_tools(scene, tool, call, fatal):
     async def seat_lens(ctx: ToolContext, lens: str, frame_type: FrameType, frame_parts: list[str] | None = None,
                         lower_edge: LowerEdge | None = None, capture_mm: float | None = None, dry_run: bool = False):
         """Seat one lens against its actual frame construction, after temple geometry. Crystal/translucent frame
-        materials are detected automatically and receive the V-bevel and groove. UVs are kept. The complete report
+        materials are detected automatically and receive the V-bevel and groove. UVs are kept. Supports acetate,
+        metal, browline, semi_rimless (plain or nylor) and rimless constructions. Refuses unknown types, missing or
+        ambiguous lens geometry, invalid rim loops and unsupported support geometry. The complete report
         is in result: seated/already_seated/partial/refused, reasons, warnings and affected geometry. Partial is a
         recorded edit, never a passing final junction. Declare the actual frame_type before repairing geometry:
         inspect check_lens_seating(frame_type=...) first; this inspection alone does not persist the declaration.
@@ -45,7 +47,8 @@ def seat_tools(scene, tool, call, fatal):
         seat_lens also records its required frame_type argument. A missing declaration is not a geometry defect.
         Preserve every opening and feature visible in the photos, including vents. The result includes front
         before/after images at one frozen camera; inspect them after every repair. This report is not a new gate.
-        check_lens_seating remains a required finish check; inspect the physical junction in AR too.
+        Seating remains measured at finish, but its pass is not required. Weigh its report against the photos:
+        a visible lens edge or support must look like the photos. Inspect the physical junction in AR too.
 
         Args:
             lens: Exact lens object name from scene_summary.
@@ -87,12 +90,15 @@ def seat_tools(scene, tool, call, fatal):
                                  frame_parts: list[str] | None = None, frame_type: FrameType | None = None,
                                  hidden_x_range_mm: list[list[float]] | None = None,
                                  lower_edge: LowerEdge | None = None, stations_table: bool = False):
-        """Measure seating without editing geometry, including crystal frames. Read result.ok, result.reasons and
+        """Measure seating without editing geometry, including crystal frames. Long station tables are summarized;
+        read_report pages or filters every original row in the saved report without repeating the check.
+        Read result.ok, result.reasons and
         each result.lenses entry's pass, frame_type_source and geometric measurements. An inferred construction is
-        provisional and cannot pass final delivery. Declare frame_type before deciding a geometric repair is needed.
+        provisional; the report distinguishes missing metadata from geometry. Declare frame_type before repair.
         The argument is inspection-only; persist g3d_seat using execute_blender_code as seat_lens describes, or
         pass frame_type to seat_lens when geometry needs seating. Missing metadata alone needs no geometry repair.
-        This geometric check remains required at finish; inspect the junction in AR too.
+        Finish always measures seating but does not require a pass. Weigh this report against the photos and
+        preserve their visible lens edges, supports, openings and features; inspect the junction in AR too.
 
         Args:
             lenses: Exact lens object names, or null for every visible lens.

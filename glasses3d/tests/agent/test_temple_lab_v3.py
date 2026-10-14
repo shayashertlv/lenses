@@ -419,7 +419,7 @@ def judgement_args(photos=("01", "05"), n=1) -> dict:
 def test_tool_schemas_are_strict_with_the_v3_limits():
     tools = tools_of(FakeLab())
     assert tuple(tools) == T.TOOL_NAMES == ("facet_inspect", "photo_image", "photo_read", "photo_compare",
-                                            "facet_edit", "facet_variants", "facet_finish")
+                                                "facet_edit", "facet_variants", "facet_finish", "read_report")
     for t in tools.values():
         assert not strict(t.params_json_schema), t.name
         assert '"title"' not in json.dumps(t.params_json_schema)
@@ -679,7 +679,7 @@ def test_each_tool_calls_its_lab_method():
         out = call(tools[name], args, call_id="c1")
         assert body(out) == {"status": "ok"}, (name, out)
         assert lab.calls[-1] == want, name
-    assert len(lab.calls) == len(T.TOOL_NAMES)
+    assert len(lab.calls) == len(T.TOOL_NAMES) - 1  # read_report is host-only; exercised in test_tool_reports
 
 
 def test_the_calls_bind_to_the_real_lab_methods():

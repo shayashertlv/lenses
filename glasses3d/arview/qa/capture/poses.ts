@@ -40,6 +40,8 @@ export interface CapturePose {
   readonly order: 'YXZ';
   /** Junction crops are cut from every render of this pose. */
   readonly junction: boolean;
+  /** Extra worn side view: same head occluders drawn visibly, with a close crop. */
+  readonly worn?: boolean;
 }
 export interface PlannedRender {
   readonly variant: VariantName;
@@ -57,6 +59,7 @@ export interface CapturePlan {
   /** Full-frame renders, and the crops those renders are planned to yield (two per crop render). */
   readonly renderCount: number;
   readonly plannedCropCount: number;
+  readonly plannedWornCropCount: number;
 }
 
 const signed = (value: number): string => `${value < 0 ? 'm' : 'p'}${Math.abs(value)}`;
@@ -84,7 +87,7 @@ export const SAFE_FILE = /^[a-z0-9][a-z0-9_.-]{0,150}\.png$/;
 
 /** The deterministic capture plan: poses in order, each with its renders in order (flat variants first, then the
  *  backgrounds in the given order). */
-export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: readonly BackgroundName[] | null; depthCm: number}): CapturePlan {
+export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: readonly BackgroundName[] | null; depthCm: number; wornSides?: boolean}): CapturePlan {
   if (!(POSE_SET_NAMES as readonly string[]).includes(set)) throw new Error(`Unknown pose set ${String(set)}.`);
   const backgrounds = options.backgrounds?.length ? [...options.backgrounds] : [...SET_BACKGROUNDS[set]];
   const angles: {yaw: number; pitch: number; junction: boolean}[] = [];
@@ -105,7 +108,16 @@ export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: reado
     if (set === 'all') {add('lens-hidden', backgrounds[0]!); add('lens-only', backgrounds[0]!);}
     poses.push(Object.freeze({pose: planned, renders: Object.freeze(renders)}));
   }
-  return Object.freeze({set, backgrounds: Object.freeze(backgrounds), poses: Object.freeze(poses), renderCount, plannedCropCount});
+  if (options.wornSides) for (const yaw of [50, -50]) {
+    const planned = Object.freeze({...pose(yaw, 0, options.depthCm, false), worn: true});
+    poses.push(Object.freeze({pose: planned, renders: Object.freeze([
+      Object.freeze({variant: 'part-id' as const, background: null, file: renderFile(planned.id, 'part-id', null), crops: false}),
+      Object.freeze({variant: 'beauty' as const, background: 'skin' as const, file: renderFile(planned.id, 'beauty', 'skin'), crops: false}),
+    ])}));
+    renderCount += 2;
+  }
+  return Object.freeze({set, backgrounds: Object.freeze(backgrounds), poses: Object.freeze(poses), renderCount, plannedCropCount,
+    plannedWornCropCount: options.wornSides ? 2 : 0});
 }
 
 /** Paint a flat background into a 2D context (the page's synthetic camera frame). */

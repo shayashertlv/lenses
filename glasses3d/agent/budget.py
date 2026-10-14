@@ -45,6 +45,7 @@ import time
 from typing import TYPE_CHECKING
 
 from .pricing import MICRO, MODEL, PricingError, Tariff, usd_text, usd_to_micro, validate_usage
+from .money import reservation_refusal
 
 try:  # the machine-wide paid-run lock re-checks its holder with psutil; without it no paid run can start
     import psutil
@@ -622,8 +623,7 @@ class RunLedger:
             raise BudgetGuardError("The previous request has no recorded outcome; one request at a time")
         committed = self.totals()["committed_micro_usd"]
         if committed + reservation > self.maximum_micro:
-            raise BudgetExceeded(f"Next request needs ${usd_text(reservation)}; ${usd_text(committed)} already "
-                                 f"committed against ${usd_text(self.maximum_micro)} cap")
+            raise BudgetExceeded(reservation_refusal(reservation, self.maximum_micro, self.totals()))
         row = _new_row(len(self.rows) + 1, input_tokens, max_output_tokens, reservation)
 
         def mutate():
@@ -1095,8 +1095,7 @@ class BudgetGuard:
             hold = self.tariff.reserve_micro(input_tokens, output_limit)
             committed = self.ledger.totals()["committed_micro_usd"]
             if hold > self.ledger.maximum_micro - committed:
-                raise BudgetExceeded(f"Next request needs ${usd_text(hold)}; ${usd_text(committed)} already "
-                                     f"committed against ${usd_text(self.ledger.maximum_micro)} cap")
+                raise BudgetExceeded(reservation_refusal(hold, self.ledger.maximum_micro, self.ledger.totals()))
             if self._stage_budget is not None and hold > self._stage_budget.summary()["remaining_micro_usd"]:
                 self._stage_budget.denied = "the next reservation exceeds the stage allowance; no inference sent"
                 raise StageBudgetExceeded(self._stage_budget.denied, request)

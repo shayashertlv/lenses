@@ -2,6 +2,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {buildCapturePlan, cropFile, paintBackground, poseId, renderFile, SAFE_FILE, VARIANT_OVERRIDE} from './capture/poses.ts';
+import {wornCropRect} from './capture/worn.ts';
+import {parseCaptureArgs} from './capture/cli.ts';
+
+test('worn sides add +/-50, preserving every standard pose/render and authored distance', () => {
+  const base = buildCapturePlan('default', {depthCm: 23});
+  const plan = buildCapturePlan('default', {depthCm: 23, wornSides: true});
+  assert.deepEqual(plan.poses.slice(0, 7), base.poses);
+  assert.deepEqual(plan.poses.slice(7).map(p => [p.pose.yaw, p.pose.pitch, p.pose.depthCm, p.pose.worn]),
+    [[50, 0, 23, true], [-50, 0, 23, true]]);
+  assert.equal(plan.renderCount, 18); assert.equal(plan.plannedWornCropCount, 2);
+  assert.equal(plan.plannedCropCount, 0);
+  const options = parseCaptureArgs(['m.glb', '--poses', 'default', '--out', 'o', '--worn-sides', '--fixed-scale']);
+  assert.equal(options.wornSides, true); assert.equal(options.fixedScale, true);
+  assert.throws(() => parseCaptureArgs(['m.glb', '--cameras', 'c.json', '--out', 'o', '--no-face', '--worn-sides']), /worn views need a face/);
+});
+
+test('worn crop encloses lens, first-hidden station and posterior anchor with context, clips only to frame', () => {
+  const p = [100, 90, .5, 190, 100, .5, 250, 120, .5, 300, 110, .5];
+  const crop = wornCropRect(p, 640, 480);
+  assert.ok(crop && crop.x < 100 && crop.x + crop.width > 300 && crop.y < 90 && crop.y + crop.height > 120);
+  assert.deepEqual(wornCropRect([-20, -10, .5, 700, 500, .5], 640, 480), {x: 0, y: 0, width: 640, height: 480});
+  assert.equal(wornCropRect([NaN, 0, .5, 0, 0, 2], 640, 480), null);
+});
 
 test('default: front, yaw ±30, yaw ±45, pitch ±20 on skin, beauty + part-id, no crops (14 images)', () => {
   const plan = buildCapturePlan('default', {depthCm: 23});

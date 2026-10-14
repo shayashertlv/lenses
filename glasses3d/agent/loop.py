@@ -80,6 +80,7 @@ from .approvals import ApprovalRefused, build_request, canonical_json, request_s
 from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTES, BudgetGuard, JobLedger,
                      BudgetGuardError, cap_to_micro, unlink_with_retry)
 from .budget import StageBudgetExceeded
+from .money import money_text, owner_money
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
 from .pricing import MODEL, usd_text
@@ -900,6 +901,7 @@ class RunStatus:
             return {"settled_usd": None, "cap_usd": None, "context_tokens": None}
         summary = self.guard.summary()
         return {"settled_usd": summary["settled_micro_usd"] / 1e6, "cap_usd": summary["maximum_micro_usd"] / 1e6,
+                "held_usd": summary["held_micro_usd"] / 1e6, "unknown_usd": summary["unknown_micro_usd"] / 1e6,
                 "settled_stop_usd": (float(summary["settled_stop_usd"])
                                      if summary.get("settled_stop_usd") is not None else None),
                 "remaining_to_stop_usd": (float(summary["remaining_to_stop_usd"])
@@ -911,11 +913,12 @@ class RunStatus:
 
 
 def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
-                remaining_to_stop_usd=None) -> str:
+                remaining_to_stop_usd=None, held_usd=None, unknown_usd=None) -> str:
     def usd(value):
         return "n/a" if value is None else f"${value:.2f}"
-    money = (f"settled {usd(settled_usd)} / cap {usd(cap_usd)}" if settled_stop_usd is None else
-             f"settled {usd(settled_usd)} of {usd(settled_stop_usd)} stop (reserve cap {usd(cap_usd)})")
+    money = money_text({"settled_usd": settled_usd, "held_usd": held_usd, "unknown_usd": unknown_usd}, places=2)
+    money += ((f"; reserve cap {usd(cap_usd)}") if settled_stop_usd is None else
+              f"; settled stop {usd(settled_stop_usd)} (reserve cap {usd(cap_usd)})")
     text = f"{money} · context {'n/a' if context_tokens is None else context_tokens} tokens"
     if (settled_stop_usd is not None and settled_usd is not None
             and cap_to_micro(settled_usd) * 4 >= cap_to_micro(settled_stop_usd) * 3):
@@ -1388,6 +1391,10 @@ class Heartbeat:
                 "tool_call_id": fields.get("tool_call_id"), "worker_pid": worker.get("worker_pid"),
                 "worker_cpu_s": worker.get("worker_cpu_s"), "context_tokens": fields.get("context_tokens"),
                 "settled_usd": fields.get("settled_usd"), "reserved_usd": fields.get("reserved_usd"),
+                "held_usd": fields.get("reserved_usd"), "unknown_usd": fields.get("unknown_usd"),
+                "money_report": money_text({"settled_usd": fields.get("settled_usd"),
+                                             "held_usd": fields.get("reserved_usd"),
+                                             "unknown_usd": fields.get("unknown_usd")}),
                 "final_status": fields.get("final_status")}
 
     def beat(self) -> dict:
@@ -1906,13 +1913,12 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 result["machine_load"] = {"preflight": preflight_load, "refuse_on_load": spec.refuse_on_load,
                                           "changes": list(load_watch.changes) if load_watch else [],
                                           "check_failures": load_watch.failures if load_watch else 0}
-            result = cleaner(result)
+            result = cleaner(owner_money(result))
             if log is not None:
                 try:
                     budget = summary or {}
                     log.note(f"The run ended: {status}" + (f" ({error['type']})" if error else "")
-                             + f"; {result['requests']} request(s), ${budget.get('settled_usd', '0.000000')} settled"
-                             + (f", ${budget['unknown_usd']} unknown" if budget.get("unknown_micro_usd") else "")
+                             + f"; {result['requests']} request(s), " + money_text(budget)
                              + ".")
                     log.event("session_finished", status=status, error=error)
                 except Exception:  # noqa: BLE001 - result.json below is the authoritative record

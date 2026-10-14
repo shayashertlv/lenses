@@ -11,6 +11,7 @@ import shutil
 from uuid import uuid4
 
 from . import procs
+from .money import owner_money
 
 SCHEMA = "g3d.delivery/1"
 POINTER_SCHEMA = "g3d.delivery_current/1"
@@ -125,6 +126,17 @@ def _capture_files(root: Path, ar: dict, glb_sha: str, *, draft=False) -> tuple[
         names.add(name.casefold())
         _, data = _read(report_path.parent, name, rec.get("sha256", ""))
         raw.append((name, data))
+    if "worn_views" in ar:
+        expected = {rec["file"]: rec for rec in records if rec.get("kind") == "worn_crop"}
+        views = ar["worn_views"]
+        if (not isinstance(views, list) or len(views) != len(expected)
+                or {rec.get("file") for rec in views if isinstance(rec, dict)} != set(expected)):
+            raise DeliveryError("worn views differ from the capture report")
+        for rec in views:
+            original = expected[rec["file"]]
+            if (rec.get("sha256") != original["sha256"]
+                    or _inside(root, rec.get("path")) != _inside(report_path.parent, original["file"])):
+                raise DeliveryError("worn view identity differs from the capture report")
     images = ar.get("images")
     sheets = ar.get("sheets")
     if (not isinstance(images, list) or not isinstance(sheets, list)
@@ -180,7 +192,7 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
             or not finished.get("fingerprint") or exp.get("fingerprint") != finished["fingerprint"]
             or not isinstance(validation, dict) or validation.get("ok") is not True
             or validation.get("sha256") != exp.get("sha256") or exp.get("validation_sha256") != exp.get("sha256")
-            or not isinstance(seating, dict) or seating.get("ok") is not True
+            or not isinstance(seating, dict) or type(seating.get("ok")) is not bool
             or not isinstance(printing, dict) or printing.get("ok") is not True
             or printing.get("glb_sha256") != exp.get("sha256")):
         raise DeliveryError("finished export is invalid or does not match the accepted checkpoint")
@@ -224,6 +236,21 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
     ar_record.pop("log", None)  # process logs are run evidence, not needed to inspect this immutable delivery
     ar_record.update(report="arview/report.json" if capture else None,
                      images=image_records, sheets=list(sheet_paths.values()))
+    if "worn_views" in ar:
+        ar_record["worn_views"] = []
+        for rec in capture.get("data", {}).get("images", []):
+            if rec.get("kind") != "worn_crop":
+                continue
+            name = "arview/" + _relative(rec["file"])
+            if name not in files or _sha(files[name]) != rec["sha256"]:
+                raise DeliveryError("worn crop was not copied into the immutable delivery")
+            view = {**copy.deepcopy(rec), "path": name}
+            if rec.get("source"):
+                source_name = "arview/" + _relative(rec["source"])
+                if source_name not in files:
+                    raise DeliveryError("worn crop source is missing from the immutable delivery")
+                view.update(source_path=source_name, source_sha256=_sha(files[source_name]))
+            ar_record["worn_views"].append(view)
     if draft:
         files["arview/attempt.json"] = _json_bytes(ar_record)
     report = {"schema": REPORT_SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
@@ -231,7 +258,7 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
               "fingerprint": fingerprint, "glb_sha256": exp["sha256"],
               "validation_sha256": exp["validation_sha256"], "validate_spec": copy.deepcopy(exp["validate_spec"]),
               "seating": copy.deepcopy(exp["seat_check"]), "print_check": copy.deepcopy(exp["print_check"]),
-              "arview": ar_record, "cost": copy.deepcopy(result.get("budget")),
+              "arview": ar_record, "cost": owner_money(result.get("budget")),
               "summary": summary, "finished": not draft, "accepted_finish": not draft,
               "run_status": result.get("status")}
     if draft:
@@ -267,6 +294,10 @@ def _resolved_report(directory: Path, report: dict) -> dict:
     for rec in ar["images"]:
         for field in ("path", "source_path"):
             rec[field] = str(_inside(directory, rec[field]))
+    for rec in ar.get("worn_views", []):
+        for field in ("path", "source_path"):
+            if field in rec:
+                rec[field] = str(_inside(directory, rec[field]))
     if "path" in report["validate_spec"]:
         report["validate_spec"]["path"] = str(directory / "model.glb")
     if isinstance(report.get("seating"), dict) and "glb" in report["seating"]:
@@ -278,7 +309,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     """Load a verified immutable snapshot, resolving current exactly once when no id is supplied.
 
     Pre-M4 snapshots may have seating=None. Their recorded evidence and identities remain immutable; only new
-    publication requires a passing all-frame seating report.
+    publication requires an all-frame seating report; seating failure is diagnostic, not a finish refusal.
     """
     root = Path(root).resolve()
     pointer = None
@@ -338,7 +369,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
                                or ("accepted_finish" in report and report["accepted_finish"] is not True)
                                or ("run_status" in report and report["run_status"] != "completed")))
             or (seating is not None and (not isinstance(seating, dict)
-                                         or (not draft and seating.get("ok") is not True)))
+                                         or (not draft and type(seating.get("ok")) is not bool)))
             or (printing is not None and (not isinstance(printing, dict)
                                          or (not draft and printing.get("ok") is not True)
                                          or printing.get("glb_sha256") != sha))):

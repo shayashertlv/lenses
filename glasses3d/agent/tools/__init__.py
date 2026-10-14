@@ -22,16 +22,19 @@ from ..journal import CheckpointMismatch, WorkerFailed
 from ..loop import STAGE_FATAL, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
 from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
+from ..money import owner_money
+from ..tool_reports import bounded_tool, limit_output, report_tool
 from . import arview
 from .images import compact_sheet, MAX_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
 from .temple import temple_tool
 from .photo_print import photo_print_tool
+from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
-              "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point",
-              "export_glb", "arview_capture", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print")
+              "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
+              "export_glb", "arview_capture", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report")
 FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
 
 
@@ -198,7 +201,7 @@ def _output(scene, call_id, name, result):
         if name == "finish" and result.get("image_source") == "arview":
             result["arview"]["images"] = records
         scene.record_images(call_id, result)
-    output = [ToolOutputText(text=json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
+    output = [ToolOutputText(text=json.dumps(owner_money(result), ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
     scene._emitted_images = emitted
     return output
 
@@ -218,10 +221,12 @@ def _finish_export_failures(scene, export):
     if not bound:
         failures.append({"check": "export", "code": "E_EXPORT", "message":
                          export.get("message") or "export bytes or identity do not match the current checkpoint"})
-    for key, label, code in (("validate_spec", "specification", "E_SPEC"), ("seat_check", "seating", "E_SEATING"),
+    for key, label, code in (("validate_spec", "specification", "E_SPEC"), ("seat_check", "seating_report", "E_SEATING_REPORT"),
                               ("print_check", "print", "E_PRINT")):
         report = export.get(key)
-        if (not isinstance(report, dict) or report.get("ok") is not True
+        valid_result = (isinstance(report, dict) and
+                        (type(report.get("ok")) is bool if key == "seat_check" else report.get("ok") is True))
+        if (not valid_result
                 or key == "print_check" and report.get("glb_sha256") != export.get("sha256")):
             failures.append({"check": label, "code": code, "report": report})
     return bound, failures
@@ -249,8 +254,11 @@ def build_tools(scene, settings=None) -> list:
 
         def locked():
             if not scene.lock.acquire(timeout=0):
+                runtime = getattr(ctx, "context", None)
+                footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
                 return [ToolOutputText(text=json.dumps({"status": "busy", "code": "E_BUSY",
-                                                        "message": "a previous scene tool is still running"}))]
+                                                        "message": "a previous scene tool is still running"})),
+                        ToolOutputText(text=footer)]
             before = (scene.s.head or {}).get("id")
             result = None
             try:
@@ -261,9 +269,6 @@ def build_tools(scene, settings=None) -> list:
                     result.setdefault("call_id", cid)
                     result.setdefault("checkpoint", (scene.s.head or {}).get("id"))
                     output = _output(scene, cid, name, result)
-                    if name == "finish" and result.get("status") == "accepted":
-                        # Image processing must succeed before an accepted finish can be persisted.
-                        scene.finish = result
                 except FATAL:
                     raise
                 except (ValueError, KeyError, TypeError, OSError) as error:
@@ -279,15 +284,19 @@ def build_tools(scene, settings=None) -> list:
                     else:
                         result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
                     output = [ToolOutputText(text=json.dumps(result))]
+                runtime = getattr(ctx, "context", None)
+                footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
+                output = limit_output(scene.root, cid, name, [*output, ToolOutputText(text=footer)])
+                if name == "finish" and result.get("status") == "accepted":
+                    # Images and lossless text persistence must succeed before accepting the finish.
+                    scene.finish = result
                 scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
                 return output
             finally:
                 scene.lock.release()
         try:
             output = await asyncio.to_thread(locked)
-            runtime = getattr(ctx, "context", None)
-            footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
-            return [*output, ToolOutputText(text=footer)]
+            return output
         except asyncio.CancelledError:
             scene.mark_unseen(cid)
             raise
@@ -358,6 +367,7 @@ def build_tools(scene, settings=None) -> list:
         Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
         retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
         stages that need a complete camera set.
+        Large fit tables are summarized; read_report pages or filters the saved full result without refitting.
 
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
@@ -401,6 +411,7 @@ def build_tools(scene, settings=None) -> list:
     async def compare_to_photos(ctx: ToolContext, refs: list[str] | None = None, parts: Literal["all", "front"] = "all",
                                 size_px: int = 1024, basis: str | None = None):
         """Compare the current model with photos through frozen cameras; reports silhouette offsets and image sheets.
+        Large metric tables are summarized; read_report pages or filters the full result without rendering again.
 
         Args:
             refs: Photo ids; null compares every photo in the basis.
@@ -430,13 +441,17 @@ def build_tools(scene, settings=None) -> list:
     @tool("export_glb")
     async def export_glb(ctx: ToolContext):
         """Export the current checkpoint with its SHA-256, complete specification report and all-frame seating check.
-        Intermediate exports may have failed seating; finish requires both reports to pass."""
+        Seating is measured for every frame and reported even when it fails. Weigh it against the photos;
+        specification and print validity remain required for finish."""
         return await call(ctx, "export_glb", lambda cid: scene.seeing.export_head(call_id=cid))
 
     @tool("arview_capture")
     async def arview_capture(ctx: ToolContext):
-        """Inspect seven AR poses at authored size, fixed lens reflections and skin background. Returns one sheet and
-        the capture report; 0=ok, 1=infrastructure, 2=usage, 3=spec failed, 4=refused. Auto-fit is always disabled."""
+        """Inspect seven standard AR poses plus close worn sides at yaw +50/-50, fixed authored size and lens reflections.
+        Worn sides draw the actual head occluders in plain skin, hair off, to show how temples sit when worn. AR spreads,
+        returns and clips temples behind its canonical head (not measured ears); judge product temple length and shape
+        with compare_to_photos and photo_read. Returns one sheet and full capture report; 0=ok, 1=infrastructure,
+        2=usage, 3=spec failed, 4=refused. Auto-fit is always disabled."""
         def capture(cid):
             exp = scene.seeing.export_head(call_id=cid)
             result = arview.capture(scene.root, exp, cid, timeout_s=hard_timeout_s("arview_capture") - 10)
@@ -471,6 +486,8 @@ def build_tools(scene, settings=None) -> list:
         """Finalize in one call: export the current head, check specification, all-frame seating and print freshness,
         then capture fixed-scale AR. Separate export/AR calls are optional inspections. Returns all reports and one
         compact image; a refusal lists every failed check with diagnostic images. Only accepted completes the run.
+        Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
+        in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
 
         Args:
             summary: What was built and any remaining differences from the photos.
@@ -512,7 +529,9 @@ def build_tools(scene, settings=None) -> list:
             return result
         return await call(ctx, "finish", finish_current)
 
-    return [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
-            render_views, compare_to_photos, pick_surface_point, export_glb, arview_capture, read_image, budget_status,
+    tools = [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
+            render_views, compare_to_photos, pick_surface_point, photo_read_tool(scene, tool, call),
+            export_glb, arview_capture, read_image, budget_status,
             finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
-            photo_print_tool(scene, call, FATAL)]
+            photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call)]
+    return [bounded_tool(item, getattr(scene, "root", None)) for item in tools]

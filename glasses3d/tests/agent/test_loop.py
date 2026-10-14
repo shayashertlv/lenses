@@ -273,7 +273,8 @@ def test_rate_limit_429_is_provider_rejected_at_zero(tmp_path):
     rows = assert_money_invariants(job, RUN, transport)
     assert [(row["outcome"], row["settled_micro_usd"], row["http_status"]) for row in rows] == [
         ("rejected_4xx", 0, 429)]
-    assert result["budget"]["committed_micro_usd"] == 0 and len(transport.creates) == 1
+    assert sum(result["budget"][key] for key in ("settled_micro_usd", "held_micro_usd", "unknown_micro_usd")) == 0
+    assert "committed_micro_usd" not in result["budget"] and len(transport.creates) == 1
     assert transport_files(job, RUN) == ["0001-request.json", "0001-response.json"]
     assert scene.events == ["start", "exit_checkpoint", "close"]
     assert_clean_receipts(job)
@@ -309,7 +310,8 @@ def test_a_200_naming_a_dated_model_snapshot_fails_closed_as_provider_unknown(tm
     assert len(transport.creates) == 1 and result["budget"]["unknown_micro_usd"] == rows[0]["reserved_micro_usd"]
     transcript = (job / "runs" / RUN / "transcript.md").read_text(encoding="utf-8")
     assert "the budget guard did not accept this response" in transcript
-    assert "The run ended: provider_unknown (BudgetGuardError); 1 request(s), $0.000000 settled, $" in transcript
+    assert "The run ended: provider_unknown (BudgetGuardError); 1 request(s), spent $0.000000 (settled); " in transcript
+    assert "unresolved request hold $" in transcript and "(kept until reconciled)" in transcript
 
 
 def test_a_settlement_that_could_not_be_written_is_reconciled_exactly_from_the_archived_response(
@@ -400,8 +402,9 @@ def test_budget_limit_sends_no_request_after_the_refusal(tmp_path):
     assert rows[0]["settled_micro_usd"] == 15_000 and result["budget"]["blocked_kind"] == "BudgetExceeded"
     assert transport_files(job, RUN) == ["0001-request.json", "0001-response.json"]
     transcript = (job / "runs" / RUN / "transcript.md").read_text(encoding="utf-8")
-    assert "the budget guard did not send the next request (Next request needs $0.217300" in transcript
-    assert "The run ended: budget_limit (BudgetExceeded); 1 request(s), $0.015000 settled." in transcript
+    assert "the budget guard did not send the next request (Next request needs a hold of $0.217300" in transcript
+    assert "The run ended: budget_limit (BudgetExceeded); 1 request(s), spent $0.015000 (settled); " in transcript
+    assert "held for the request in flight $0.000000 (released after it settles)" in transcript
 
 
 def test_turn_limit(tmp_path):
@@ -441,7 +444,7 @@ def test_an_ordinary_tool_error_reaches_astra_as_text_and_the_run_goes_on(tmp_pa
     output = [item for item in transport.creates[1]["input"] if item.get("type") == "function_call_output"][0]
     message, footer = output["output"].split("\n")
     assert message == "An error occurred while running the tool. Please try again. Error: no such object"
-    assert footer == L.footer_text(ledger_rows(job, RUN)[0]["settled_micro_usd"] / 1e6, 5, 3358)
+    assert footer == L.footer_text(ledger_rows(job, RUN)[0]["settled_micro_usd"] / 1e6, 5, 3358, held_usd=0)
 
 
 # =========================================================================== stop and heartbeat

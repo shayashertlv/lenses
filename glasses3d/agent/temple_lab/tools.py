@@ -79,8 +79,10 @@ from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glasses3d.agent.journal import WorkerFailed
+from glasses3d.agent.money import owner_money
 from glasses3d.agent.loop import RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
+from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
 from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, SOFT_BAND_MM, SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError
 from glasses3d.g3d_host import compare as C
@@ -93,7 +95,7 @@ from .state import LabRefusal
 
 CONTEXT_GUARD_TOKENS = 240_000          # §4.3: the one-epoch image filter from this many counted input tokens
 TOOL_NAMES = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
-              "facet_finish")
+              "facet_finish", "read_report")
 Chain = Literal["outline.top", "outline.bottom", "inner", "base.top", "base.bottom"]
 SNAP_MM = DEFAULT_OPTIONS["snap_mm"]    # a node within this of an outline edge lies on it (the parse snaps it there)
 CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (value y; a node on it, within "
@@ -325,7 +327,7 @@ def _finite(x):
 
 def result_text(result: dict, footer: str) -> str:
     body = {k: v for k, v in result.items() if k != "images"}
-    return json.dumps(_finite(body), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n" + footer
+    return json.dumps(owner_money(_finite(body)), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n" + footer
 
 
 def output(result: dict, footer: str) -> list:
@@ -617,8 +619,10 @@ def registry(lab, settings=None) -> list:
             lab.mark_unseen(call_id)             # the SDK timed the call out; its thread may still be running
             raise
         if hasattr(lab, "tool_output"):
-            return lab.tool_output(result, footer_of(ctx), call_id, name)
-        return output(result, footer_of(ctx))
+            emitted = lab.tool_output(result, footer_of(ctx), call_id, name)
+        else:
+            emitted = output(result, footer_of(ctx))
+        return limit_output(getattr(lab, "root", None), call_id, name, emitted)
 
     def dumped(items):
         return None if items is None else [i.model_dump() for i in items]
@@ -686,8 +690,9 @@ def registry(lab, settings=None) -> list:
         return await call(ctx, "facet_finish", lambda cid: lab.finish(
             cid, status, best_checkpoint, summary, judged(judgement), k))
 
-    tools = [facet_inspect, photo_image, photo_read, photo_compare, facet_edit, facet_variants, facet_finish]
+    tools = [facet_inspect, photo_image, photo_read, photo_compare, facet_edit, facet_variants, facet_finish,
+             report_tool(getattr(lab, "root", None), tool, call)]
     assert tuple(t.name for t in tools) == TOOL_NAMES
     for t in tools:
         t.params_json_schema = without_titles(t.params_json_schema)
-    return tools
+    return [bounded_tool(item, getattr(lab, "root", None)) for item in tools]

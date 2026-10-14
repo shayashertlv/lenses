@@ -14,6 +14,7 @@ from PIL import Image
 import pytest
 
 from glasses3d.agent import delivery as D
+from glasses3d.agent.money import owner_money
 from glasses3d.agent.tools import arview
 from glasses3d.g3d_host.spec import validate_spec
 from glasses3d.g3d_host.seat_check import check_glb
@@ -109,7 +110,7 @@ def test_snapshot_and_compatibility_report_contain_all_required_evidence(tmp_pat
     assert report["validate_spec"]["ok"] and report["seating"]["ok"]
     assert report["print_check"]["ok"] and report["print_check"]["glb_sha256"] == loaded["glb_sha256"]
     assert report["seating"]["glb"] == loaded["model"]
-    assert report["checkpoint"] == "c0001" and report["cost"] == result["budget"]
+    assert report["checkpoint"] == "c0001" and report["cost"] == owner_money(result["budget"])
     assert report["arview"]["lens_env_intensity"] == 1
     assert report["arview"]["appearance_policy"] == "g3d.ar_appearance/1"
     assert Path(report["arview"]["report"]).is_file()
@@ -147,6 +148,37 @@ def test_same_finished_run_is_idempotent_without_rewriting_snapshot(tmp_path):
     assert len([p for p in (tmp_path / "deliveries").iterdir() if p.is_dir()]) == 1
 
 
+@pytest.mark.parametrize("corrupt", [False, True])
+def test_worn_view_links_are_bound_to_immutable_capture_images(tmp_path, corrupt):
+    scene, result = make_finished(tmp_path)
+    ar = scene.last_ar
+    source = Path(ar["report"])
+    capture = json.loads(source.read_text())
+    crop = source.parent / "yaw_p50__worn.png"
+    Image.new("RGB", (20, 12), "tan").save(crop)
+    view = {"file": crop.name, "kind": "worn_crop", "sha256": digest(crop), "pose": "yaw_p50",
+            "variant": "beauty", "source": "front.png", "head": "same occlusion meshes", "hair": False}
+    capture["images"].append(view)
+    source.write_text(json.dumps(capture))
+    ar.update(report_sha256=digest(source), worn_views=[{**view, "path": str(crop)}])
+    if corrupt:
+        ar["worn_views"][0]["sha256"] = "0" * 64
+        with pytest.raises(D.DeliveryError, match="worn view identity"):
+            D.deliver_finished(tmp_path, scene, result)
+        return
+    published = D.deliver_finished(tmp_path, scene, result)
+    directory = Path(published["manifest"]).parent
+    stored = json.loads((directory / "report.json").read_text())["arview"]["worn_views"][0]
+    assert stored["path"] == "arview/" + crop.name and stored["source_path"] == "arview/front.png"
+    work = (tmp_path / "work").resolve()
+    assert work.is_relative_to(tmp_path.resolve())
+    shutil.rmtree(work)
+    loaded = D.load_delivery(tmp_path)["report_data"]["arview"]["worn_views"][0]
+    assert Path(loaded["path"]).is_relative_to(directory) and digest(loaded["path"]) == view["sha256"]
+    assert Path(loaded["source_path"]).is_relative_to(directory)
+    assert digest(loaded["source_path"]) == loaded["source_sha256"]
+
+
 def test_pre_m4_immutable_delivery_without_seating_remains_readable_and_unchanged(tmp_path):
     scene, result = make_finished(tmp_path)
     manifest, files = D._prepare(tmp_path, scene, result)
@@ -171,7 +203,7 @@ def test_pre_m4_immutable_delivery_without_seating_remains_readable_and_unchange
 
 
 @pytest.mark.parametrize("failure", ["not_accepted", "unverified", "wrong_checkpoint", "export_checkpoint",
-                                     "fingerprint", "invalid_spec", "validation_sha", "seating", "no_seating", "model_bytes",
+                                     "fingerprint", "invalid_spec", "validation_sha", "invalid_seating", "no_seating", "model_bytes",
                                      "stale_print", "no_print_report", "wrong_print_sha",
                                      "ar_status", "ar_sha", "ar_report_bytes", "capture_bytes", "sheet_bytes",
                                      "tool_image_bytes", "missing_sheet_receipt", "empty_capture", "report_glb",
@@ -193,8 +225,8 @@ def test_delivery_refuses_incomplete_or_corrupt_source_evidence(tmp_path, failur
         exp["validate_spec"]["ok"] = False
     elif failure == "validation_sha":
         exp["validation_sha256"] = "0" * 64
-    elif failure == "seating":
-        exp["seat_check"] = {"ok": False}
+    elif failure == "invalid_seating":
+        exp["seat_check"] = {"ok": "false"}
     elif failure == "no_seating":
         exp["seat_check"] = None
     elif failure == "stale_print":

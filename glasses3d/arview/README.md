@@ -17,6 +17,13 @@ Two tools:
 - **`arview capture`** (`node qa/capture.mjs`): posed AR images of one GLB plus a report for Astra (below).
 - **`arview serve`** (`node qa/serve.mjs`): the owner's webcam page for one GLB (below).
 
+The assembled Astra capture adds `--worn-sides` to the seven standard poses: close yaw +50° and −50° views with
+hair off and the renderer's existing face/head depth meshes visibly shaded in plain skin. Full frames and crop
+rectangles are retained. This is the same hiding geometry, with no new face image or invented ears; the crop runs
+from the near lens edge past the fixed buried temple return. These views explain how the temples sit when worn.
+AR spreads, returns and clips the arms, so compare their product length and shape with `compare_to_photos` and
+`photo_read`, not AR. Fixed authored scale and the original seven poses are unchanged.
+
 ## Run and verify
 
 Run these inside `glasses3d/arview/` with Node.js 22.18 or later (this machine: v26):

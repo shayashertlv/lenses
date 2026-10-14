@@ -193,3 +193,49 @@ def test_custom_overlay_basenames_cannot_replace_another_photos_evidence(tmp_pat
     for rid in ("a", "b"):
         assert basis.refs[rid]["overlay_sha256"] == C.sha256_file(folder / rid / "diagnostic.png")
     assert basis.refs["a"]["overlay"] != basis.refs["b"]["overlay"]
+
+
+POSE = {"theta_deg": {"+1": 12.0, "-1": 7.0},
+        "hinge_axis_xz_mm": {"+1": [65, -20], "-1": [-65, -20]},
+        "theta_observed": {"+1": True, "-1": False}, "fit_status": "fitted pose"}
+
+
+@pytest.mark.parametrize("field", list(POSE))
+@pytest.mark.parametrize("operation", ["add", "remove", "change"])
+def test_frozen_pose_and_lineage_cannot_change_even_in_failed_newest_basis(tmp_path, field, operation):
+    root = tmp_path / "job"
+    folder, photos, _ = source(tmp_path, {"good.png": {}})
+    freeze(root, folder, photos)
+    original = {} if operation == "add" else deepcopy(POSE)
+    folder, photos, _ = source(tmp_path, {"bad.png": failure(**original)})
+    second = freeze(root, folder, photos)
+    meta = json.loads((second.dir / "basis.json").read_text())
+    if operation == "remove":
+        del meta["refs"]["bad"][field]
+    else:
+        meta["refs"]["bad"][field] = POSE[field] if operation == "add" else "changed"
+    C.write_json(second.dir / "basis.json", meta)
+    with pytest.raises(ValueError, match="pose or camera lineage"):
+        C.load_basis(root)
+
+
+def test_frozen_pose_round_trip_and_legacy_unposed_basis(tmp_path):
+    folder, photos, _ = source(tmp_path, {"posed.png": POSE, "unposed.png": {}})
+    basis = freeze(tmp_path / "job", folder, photos)
+    loaded = C.load_basis(tmp_path / "job", basis.id)
+    assert loaded.pose("posed") == {key: {"theta_deg": POSE["theta_deg"][key],
+        "axis_xz_mm": POSE["hinge_axis_xz_mm"][key]} for key in ("+1", "-1")}
+    assert loaded.pose("unposed") is None
+
+
+@pytest.mark.parametrize("pose", [
+    {"theta_deg": {"+1": 10}}, {"hinge_axis_xz_mm": {"+1": [65, -20]}},
+    {"theta_deg": {}, "hinge_axis_xz_mm": {}},
+    {"theta_deg": {"+1": 10}, "hinge_axis_xz_mm": {"-1": [-65, -20]}},
+    {"theta_deg": {"+1": 10}, "hinge_axis_xz_mm": {"+1": [-65, -20]}},
+])
+def test_incomplete_or_invalid_declared_pose_is_not_silently_unposed(tmp_path, pose):
+    folder, photos, _ = source(tmp_path, {"photo.png": pose})
+    basis = freeze(tmp_path / "job", folder, photos)
+    with pytest.raises(ValueError, match="pose|opening angles"):
+        basis.pose("photo")

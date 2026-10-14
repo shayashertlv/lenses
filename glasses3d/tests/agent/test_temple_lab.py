@@ -860,7 +860,7 @@ def test_registry_names_the_v3_tools_and_the_labs_photo_ids(lab):
     most 3 targets + 1 black; facet_finish names the precondition count K."""
     tools = T.registry(lab)
     assert tuple(t.name for t in tools) == T.TOOL_NAMES == (
-        "facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants", "facet_finish")
+        "facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants", "facet_finish", "read_report")
     by = {t.name: t.params_json_schema for t in tools}
     assert enums(by["photo_image"]["properties"]["photo"]) == [PHOTO_IDS + BLACK_IDS]
     for name in ("photo_read", "photo_compare", "facet_edit", "facet_variants"):
@@ -1961,7 +1961,8 @@ def test_facet_inspect_shows_design_fit_readings_object_and_the_chart(tmp_path):
     rc = body["receipt"]
     assert rc["fit"][0].startswith("fit: chi2 ") and rc["creases"][0].startswith("F1|F2 ridge ")
     assert "inherited_from_revision_0" not in body and "lean_deg" not in text and "margins" not in rc
-    assert [i.detail for i in images] == ["high"] and footer == "settled n/a / cap n/a · context n/a tokens"
+    from glasses3d.agent.loop import footer_text
+    assert [i.detail for i in images] == ["high"] and footer == footer_text()
     raw = __import__("base64").b64decode(images[0].image_url.split(",", 1)[1])
     assert S.load(lab.state_path, "x")["images"][hashlib.sha256(raw).hexdigest()]["kind"] == "chart"
     assert len(text) <= 9000, len(text)
@@ -2146,7 +2147,7 @@ def test_facet_edit_applies_compares_and_fits_the_text_budget(lab):
     assert body["diff"].startswith("~node C t 8.0->8.6") and "roll_mm 0.0->0.3" in body["diff"]
     assert body["receipt"]["creases"][0].startswith("F1|F2 ridge") and body["blender"]["decal_max_move_mm"] == 0.61
     assert body["compare_id"] and list(body["photos"]) == DEFAULT
-    assert len(images) == 1 + 3 and footer.startswith("settled ")
+    assert len(images) == 1 + 3 and footer.startswith("spent ") and "(settled)" in footer
     assert len(text) <= 3000, len(text)
     head = S.head_by_fingerprint(lab.state, lab.s.head["fingerprint"])
     assert head["revision"] == 1 and lab.state["events"][-1]["tool"] == "facet_edit"
@@ -2765,7 +2766,7 @@ def test_sdk_timeout_text_has_the_footer_and_the_unseen_compare_needs_no_judgeme
     assert isinstance(out, str)                                        # asyncio.run waited for the worker thread
     body, footer = json.loads(out.rsplit("\n", 1)[0]), out.rsplit("\n", 1)[1]
     assert body["status"] == "timeout" and body["code"] == "E_TIMEOUT" and "timed out after 0.3 s" in body["message"]
-    assert footer == "settled $2.50 / cap $25.00 · context 31000 tokens"
+    assert footer == L.footer_text(2.5, 25, 31000)
     lab.seeing.slow_s = 0.0
     made = [c for c in lab.state["compares"] if c["call_id"] == "call_slow"]
     assert len(made) == 1 and made[0]["unseen"] is True and made[0]["judged"] is True
@@ -2920,7 +2921,7 @@ def test_footer_from_the_run_context(lab):
             return L.footer_text(1.234, 20.0, 123456)
     body, footer, *_ = parsed(call(tools_of(lab)["photo_image"], {"photo": "05", "crop": None, "enhance": False,
                                                                   "scale": 1}, context=Status()))
-    assert footer == "settled $1.23 / cap $20.00 · context 123456 tokens"
+    assert footer == L.footer_text(1.234, 20, 123456)
 
 
 def test_context_stubs_keep_latest_two_and_best(lab):

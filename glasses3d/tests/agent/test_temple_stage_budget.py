@@ -1,6 +1,5 @@
 """Stage allowances use the live working runway; no private scene or model request is started here."""
 import asyncio
-import json
 
 from agents.tool_context import ToolContext
 import pytest
@@ -28,7 +27,7 @@ def guard_at(tmp_path, *, stop='20', cap='23', outcome=None):
     return guard, count
 
 
-def invoke(guard, amount, monkeypatch):
+def invoke(guard, monkeypatch):
     started = []
     monkeypatch.setattr(T.stage, 'run', lambda *args: started.append(args) or {'status': 'ok'})
 
@@ -37,7 +36,8 @@ def invoke(guard, amount, monkeypatch):
         return action('stage-call')
 
     tool = T.temple_tool(object(), call, L.RunSettings(), ())
-    raw = json.dumps({'budget_usd': amount})
+    assert 'budget_usd' not in tool.params_json_schema.get('properties', {})
+    raw = '{}'
     context = ToolContext(context=L.RunStatus(guard), tool_name='temple_stage',
                           tool_call_id='stage-call', tool_arguments=raw)
     before, counts = guard.ledger_path.read_bytes(), guard.client_for_count.responses.input_tokens.count.call_count
@@ -47,17 +47,11 @@ def invoke(guard, amount, monkeypatch):
     return result, started
 
 
-@pytest.mark.parametrize('amount,allowed', [(5, True), (5.000001, False), (20, False), (23, False)])
-def test_stage_allowance_uses_remaining_stop_instead_of_total_reserve(tmp_path, monkeypatch, amount, allowed):
+def test_stage_uses_owner_reserve_without_astra_money_choice(tmp_path, monkeypatch):
     guard, _ = guard_at(tmp_path)
-    result, started = invoke(guard, amount, monkeypatch)
-    assert bool(started) is allowed
-    if allowed:
-        assert result['status'] == 'ok' and started[0][4] == str(float(amount))
-    else:
-        assert result['status'] == 'refused' and result['code'] == 'E_ARGS'
-        assert result['maximum_stage_usd'] == '5.000000'
-        assert 'settled stop' in result['message']
+    result, started = invoke(guard, monkeypatch)
+    assert result['status'] == 'ok' and started[0][4] == '8.000000'
+    assert guard.settled_stop_micro == 20_000_000
 
 
 @pytest.mark.parametrize('outcome', ['held', 'unknown'])
@@ -65,35 +59,26 @@ def test_open_and_unknown_holds_reduce_stage_allowance_without_releasing_or_unbl
     guard, _ = guard_at(tmp_path, outcome=outcome)
     before = guard.summary()
     assert before['remaining_to_stop_usd'] == '3.745000'
-    result, started = invoke(guard, 3.745001, monkeypatch)
-    assert result['status'] == 'refused' and result['maximum_stage_usd'] == '3.745000' and not started
+    result, started = invoke(guard, monkeypatch)
+    assert result['status'] == 'refused' and result['code'] == 'E_STAGE_BUDGET' and not started
     assert guard.summary() == before
 
 
 @pytest.mark.parametrize('stop', ['15', '14'])
 def test_stage_cannot_start_at_or_past_working_stop(tmp_path, monkeypatch, stop):
     guard, _ = guard_at(tmp_path, stop=stop)
-    result, started = invoke(guard, .000001, monkeypatch)
-    assert result['status'] == 'refused' and result['maximum_stage_usd'] == '0.000000' and not started
+    result, started = invoke(guard, monkeypatch)
+    assert result['status'] == 'refused' and result['code'] == 'E_STAGE_BUDGET' and not started
 
 
 def test_remaining_reserve_capacity_is_still_a_bound_when_lower_than_stop(tmp_path, monkeypatch):
     guard, _ = guard_at(tmp_path, cap='16')
     assert guard.summary()['remaining_to_stop_usd'] == '5.000000'
-    result, started = invoke(guard, 1.000001, monkeypatch)
-    assert result['status'] == 'refused' and result['maximum_stage_usd'] == '1.000000' and not started
+    result, started = invoke(guard, monkeypatch)
+    assert result['status'] == 'ok' and started[0][4] == '1.000000'
 
 
-@pytest.mark.parametrize('amount,allowed', [(23, True), (23.000001, False)])
-def test_legacy_no_stop_keeps_existing_total_reserve_allowance_validation(tmp_path, monkeypatch, amount, allowed):
+def test_legacy_no_stop_still_uses_remaining_owner_reserve(tmp_path, monkeypatch):
     guard, _ = guard_at(tmp_path, stop=None)
-    result, started = invoke(guard, amount, monkeypatch)
-    assert bool(started) is allowed
-    assert result['status'] == ('ok' if allowed else 'refused')
-
-
-@pytest.mark.parametrize('amount', [0, -1, float('nan'), float('inf')])
-def test_invalid_stage_allowance_never_starts_preparation(tmp_path, monkeypatch, amount):
-    guard, _ = guard_at(tmp_path)
-    result, started = invoke(guard, amount, monkeypatch)
-    assert result['status'] == 'refused' and result['code'] == 'E_ARGS' and not started
+    result, started = invoke(guard, monkeypatch)
+    assert result['status'] == 'ok' and started[0][4] == '8.000000'

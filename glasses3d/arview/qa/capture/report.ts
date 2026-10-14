@@ -266,7 +266,9 @@ export function assembleCaptureReport(input: CaptureReportInput): {report: Recor
       'part-id and normals renders are valid for the front and the junction: their temples are cut hard at the renderer\'s clip, '
         + 'where the beauty render fades over the last 5 mm.',
       'The posed captures use synthetic landmarks of the canonical face on flat backgrounds (no face image); the face and head '
-        + 'depth occluders still hide what the face would hide.',
+        + 'depth occluders still hide what the face would hide. Optional worn +/-50 views shade those same occluder meshes in plain '
+        + 'skin, with hair off. The proxy has no anatomical ears; the crop extends past the fixed buried return. AR spreads, returns '
+        + 'and clips the arms: use photo comparison and photo_read for product temple length and shape.',
       'Turned part-id renders (|yaw| >= 20) carry temple_reach for the near arm: how far back it is drawn (drawn_to_z_mm) against '
         + 'where its fixed return behind the ear begins (return_start_z_mm); an arm hidden more than 5 mm ahead of that, at its end '
         + '(hidden_before_return_mm) or in a stretch drawn again behind (longest_hidden_run_mm), is a TEMPLE CUT warning (the drawn '

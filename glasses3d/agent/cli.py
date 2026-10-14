@@ -11,6 +11,7 @@ from . import approvals as A, jobs, procs
 from . import delivery, job_run, review, verdicts
 from .budget import JobLedger, BudgetGuardError
 from .loop import RunRefused
+from .money import owner_money
 
 
 def parser():
@@ -161,7 +162,7 @@ def dispatch(args):
 def main(argv=None):
     try:
         result = dispatch(parser().parse_args(argv))
-        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        print(json.dumps(owner_money(result), indent=2, ensure_ascii=False, default=str))
         if isinstance(result, dict) and "result" in result:
             return 0 if result["result"].get("status") == "completed" else 1
         return 0

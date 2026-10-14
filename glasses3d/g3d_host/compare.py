@@ -255,6 +255,12 @@ class Basis:
                 raise ValueError(f"{rid}: fit diagnostic evidence differs from cameras.json")
             if ref.get("lens_loss") != raw.get("lens_loss"):
                 raise ValueError(f"{rid}: lens loss evidence differs from cameras.json")
+            for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed", "fit_status"):
+                if ref.get(key) != raw.get(key):
+                    raise ValueError(f"{rid}: frozen pose or camera lineage differs from cameras.json ({key})")
+            # Older imports omitted transport; when present it must still describe the frozen source.
+            if "transport" in ref and ref["transport"] != raw.get("transport"):
+                raise ValueError(f"{rid}: frozen camera transport differs from cameras.json")
             if raw.get("image_sha256") and ref.get("photo_sha256") != raw["image_sha256"]:
                 raise ValueError(f"{rid}: photo identity differs from cameras.json")
             photo = self.photo_path(rid)
@@ -329,10 +335,18 @@ class Basis:
         has no pose for it."""
         rec = self.refs[rid]
         th, ax = rec.get("theta_deg"), rec.get("hinge_axis_xz_mm")
-        if not th or not ax:
+        if th is None and ax is None:
             return None
-        return {k: {"theta_deg": float(th[k]), "axis_xz_mm": [float(v) for v in ax[k]]} for k in ("+1", "-1")
-                if k in th and k in ax}
+        if (not isinstance(th, dict) or not isinstance(ax, dict) or not th or set(th) != set(ax)
+                or set(th) - {"+1", "-1"}):
+            raise ValueError(f"{rid}: opening angles and hinge axes must name the same explicit sides")
+        from .pose import parse_pose
+        result = {k: {"theta_deg": th[k], "axis_xz_mm": ax[k]} for k in th}
+        try:
+            parse_pose(result)
+        except (TypeError, KeyError, ValueError) as error:
+            raise ValueError(f"{rid}: invalid frozen temple pose: {error}") from error
+        return {k: {"theta_deg": float(th[k]), "axis_xz_mm": [float(v) for v in ax[k]]} for k in th}
 
     def colourway(self, rid: str) -> str:
         return self.refs[rid].get("colourway") or "target"

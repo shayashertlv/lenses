@@ -21,12 +21,136 @@ are below. **The owner authorized the checkpoint/failed-draft repairs and exactl
 corrected job**, conditional on the repairs, proofs and full suite passing and a new estimate under $20. Terms:
 $20 settled stop, $23 reserve cap, max effort; not a resume. **Repairs committed as `123dcca`; the authorized
 fresh run completed and delivered at $19.161346 on c0021, with specification and seating passing. Webcam review
-is running.** Appearance limitations remain below; M5 owner visual acceptance is pending. No other paid run is
-authorized or started.
+was started.** Appearance limitations remain below; M5 owner visual acceptance is pending. **The separately approved
+Oakley run 2 subsequently delivered a reserve-limit draft at $15.468835. M5-fix-2 is now implemented at $0;
+item 6's real-photo measurement proof exposed cross-view inconsistency; the owner approved expanding item 6 at $0
+to investigate and repair calibration, now in progress.** No further
+paid run is authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Assembly M5-fix-2: money, paged reports, measuring and worn views ($0, 2026-10-14)
+
+Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, clean on `glasses3d` at
+`a46387f ASSEMBLY M5-fix-2 item 7: close worn side views at +/-50 deg with a visible head`.
+The owner authorized items 1-7 at **$0**, retaining every Astra capability and leaving money decisions to the
+owner. No paid request, approval, job run or product-geometry edit was made. Items 1-5 and 7 are implemented;
+item 6 is implemented but its real-photo agreement proof **fails and remains open**, as detailed below.
+
+- **1 — Owner chooses money:** removed `budget_usd` from `temple_stage`. The stage receives the remaining
+  owner-authorized reserve room and the same global settled stop; open or unknown holds still refuse entry.
+  No default allowance, higher cap, tariff change or weaker reservation comparison was introduced.
+- **2 — Bounded tool text, lossless reports:** main and facet results now have an aggregate **12,000-character**
+  text limit, including their footer and error paths. Oversized records are saved with immutable content hashes;
+  the inline summary gives counts and worst/failing rows first. General `read_report` supports JSON pointers,
+  filtering and paging, including a single oversized row or string. All original data and images remain accessible;
+  journals and finish evidence retain the complete records. Existing tools remain registered.
+  Final offline replay: `data/assembly/m5fix2-reports-b/proof.json` and
+  `m5fix2_reports_final.{log,receipt.json}` (exit 0). It covers **80 saved requests, three histories and 162
+  hashed source files**, preserving images/order and observing zero prefix edits. Observed original peak input was
+  **284,724 tokens**, largest hold **$8.346900**. The capped-history replay estimates **87,477 tokens** peak and
+  **$1.912663** largest hold; conservative token-density sensitivity gives **133,108 / $2.483050**, still below
+  the long-context step. Adding 12,000 header characters gives **92,517 / $1.975663**. These are offline estimates
+  anchored to saved provider counts, not a new provider token count or a guarantee about future model choices.
+  The replay isolates the cap policy, counts the reader schema and discloses cumulative adjustments; it does not
+  simulate future paging requests. Nine oversized outputs are bounded; the 848-row seating report goes from
+  **270,795 to 6,052 characters**, preserving all rows and its 38 FAIL rows in the full record. Maximum emitted
+  text is **11,981 characters**. Original receipts reprice to **$15.468835**; this replay costs **$0**.
+- **3 — Specialist scope is explicit:** temple, seating and print descriptions state supported constructions and
+  actual refusal conditions. The temple description includes the existing 3.2 mm/4 mm/8 mm hinge heuristics,
+  20,000-vertex and 15 mm limits, without telling Astra to distort geometry to fit them. Instructions tell Astra to
+  compare each tool's scope with the photos. No tool or modeling route was removed.
+- **4 — Separate spend and hold:** statuses, tool results, CLI and delivery reports say `spent $X (settled)` and
+  `held for the request in flight $Y (released after it settles)`. Unknown charges are stated separately and remain
+  reserved until reconciled. The owner-facing combined committed figure is removed; internal accounting is
+  unchanged. Formatting only recognizes numeric money summaries, so arbitrary Blender/tool dictionaries with
+  similarly named properties retain their content.
+- **5 — Owner-authorized seating policy:** seating is still measured for every frame, returned in full/paged
+  reports and preserved in immutable deliveries. A real `ok: false` report no longer blocks finish; missing or
+  malformed reports still refuse, as do invalid specification/print evidence or mismatched export/AR identities.
+  Astra is instructed to weigh the report against photographic features and preserve openings during repairs.
+- **6 — General `photo_read`, unresolved real proof:** the main registry can read named corners or traced edge
+  crossings in 2-4 photos using the frozen job basis, returning neutral-world XYZ, conditional covariance,
+  residuals, pair disagreement, pick sheets and provenance. Explicit temple side applies that side's frozen pose;
+  nothing is mirrored. It retains the facet method's 1 px camera floor, separate 0.3 degree sensitivity and
+  condition >20 refusal. Camera/pose lineage is verified against the frozen source, including malformed or
+  partially declared poses; no calibration is adjusted by this tool.
+  Final real proof: `data/assembly/m5fix2-photo-read-proof-c/proof.json` and
+  `m5fix2_photo_read_final.{log,receipt.json}` (**exit 2, $0**). All four readings fail the required pair agreement.
+  Maximum pair distances are **11.02 / 9.90 mm** for the two hinge pods and **16.95 / 11.31 mm** for the tips.
+  The same positive-X hinge from front+side versus front+top differs by **9.34 mm**, while their conditional depth
+  SDs are **0.60 / 0.56 mm**. Joint reprojection residuals reach 33-47 px; the tool reports `W_RESIDUAL` and
+  `W_PAIR_DISAGREEMENT`, without inflating errors. Native-pixel picks were chosen visually before solving, not
+  tuned against results. Rounded cap centres have correspondence ambiguity; hinge centres provide stronger
+  evidence. Projection self-check agrees with `project_mm` to **4.55e-13 px**, and photo/model/basis hashes match.
+  This establishes inconsistent evidence under the current frozen basis, **not a proven camera-calibration defect**;
+  feature correspondence and per-photo pose remain possible causes. Diagnostic images and audit are in
+  `data/assembly/m5fix2-photo-read-audit/`, including `positive-hinge-pair-disagreement.png`, shown to the owner.
+  Under ASSEMBLY §1, asked whether to expand item 6 to repair calibration at $0 or commit with this proof
+  unresolved. **Owner answered: "Expand item 6 to repair calibration".** The expansion is authorized at $0;
+  diagnosis must distinguish calibration error from geometry/feature ambiguity, and independent calibration
+  evidence must leave the four proof features held out. No error inflation or relaxed proof is authorized.
+- **7 — Close worn views:** captures append yaw +50/-50 at fixed authored scale, hair off. The same face-surface
+  and posterior-head occluder meshes are temporarily skin-shaded, with materials restored even after errors.
+  Crops include the outer lens, drawn temple and 25 mm beyond its buried cap. The existing proxy has no anatomical
+  ears; none were invented. Descriptions distinguish AR's spread/return/clip from authored product geometry,
+  which Astra judges with photo compares and `photo_read`. A single 1024x1000 tool sheet gives the two close views
+  substantial space, retaining all **20 native capture images** in the report and immutable delivery. Delivery
+  links are rebuilt from hashed capture records and remain valid after the working files are deleted.
+  Final proof: `data/assembly/m5fix2-worn-b/proof.json` and `m5fix2_worn_proof_final.{log,receipt.json}`
+  (**exit 0, $0**). Both temples meet the visibly drawn hiding surface. All **14 original standard panels are
+  byte-identical** to a separate capture without worn views. The actual emitted sheet decodes to the host sheet's
+  pixels without a second shrink. Existing **6.1 mm TEMPLE CUT warnings** remain visible (also present at ±45);
+  the proof does not alter the model or conceal them. Images:
+  `data/assembly/m5fix2-worn-b/work/arview/worn-proof/yaw_p50__skin__beauty__worn.png` and
+  `yaw_m50__skin__beauty__worn.png`; sheet `contact-sheet.jpg` in the same directory.
+
+Both real proofs use accepted Oakley GLB SHA
+`2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688` from the Studio delivery. The measuring proof
+uses `data/assembly/m5fix1-camera-roll-a` basis `01`, SHA
+`ae065be8bcb1241f5842e30f3243763bc04d7b9aefffcc914542b9b2213c67b1`.
+
+**Verified implementation baseline, before the newly authorized calibration expansion:** **3,623 distinct Python
+tests pass, two skip** after the prescribed isolated reruns. Full AR: **498 unit tests + 105 QA tests pass**;
+TypeScript is clean. Details and receipts under `data/assembly/`:
+
+- Main `m5fix2_full_main_b`, `-n 8 --dist loadfile --ignore=glasses3d/tests/photoprint`:
+  **3,263 passed, 26 failed, 20 fixture errors, two skipped**, 921.86 s. Two failures were old wording assertions
+  for `cap` / `settled`; updated to assert the new separate money wording. Twenty fixture errors came from one
+  Blender startup timeout; 21 render failures followed one 300 s render timeout; the seeing worker exceeded its
+  60 s check, the temple timing test measured 56.25 ms against 50 ms, and the QoS fixture conflicted with the
+  launcher's descendant opt-out watcher. No timeout, speed or geometry threshold was changed.
+- `m5fix2_wording_checks`: complete budget-guard and temple-lab modules, **207 passed**, 144.69 s.
+- `m5fix2_isolated_blender`: temple timing plus the complete worker, render-dome and seeing modules,
+  **73 passed**, 163.10 s; `m5fix2_isolated_qos`: **one passed**, 0.42 s, without the conflicting watcher.
+- `m5fix2_full_print`, `-n 2 --dist loadfile`: **314 passed**, 247.75 s.
+- `m5fix2_ar_unit_b`: **498 passed**, 20.74 s. The first run had 497 passes and one stale exact-object assertion
+  omitting the additive `wornSides: false` field; updated that expected object and added the explicit-camera/worn
+  incompatibility assertion. `m5fix2_ar_qa`: **105 passed**, 38.53 s; `m5fix2_ar_types`: exit 0.
+
+Focused policy tests 215 passed/1 skipped; photo-tool checks 230 passed/1 skipped; final lineage/money checks
+135 passed/1 skipped; delivery integration 52 passed; AR focused 29 passed and host checks 66 passed. These
+overlap the full-suite count. Two symlink checks require Windows privileges unavailable to this process. An
+initial broad focused command had 16 fixture isolation failures because explicit agent-leaf-before-parent test
+collection omitted the parent offline fixture; parent-first collection passes and offline transports refused
+before any inference. An initial main-suite run was stopped after 56 s for the discovered immutable-delivery path
+fix, not counted as a test failure. Long checks have detached logs, argv/PID/time/exit receipts, BLAS=1 and EcoQoS
+opt-out, with one pool-heavy job at a time. Free commit was checked before pools; main used eight workers and
+photoprint two as prescribed. This verified implementation is committed separately while the authorized
+calibration work continues; item 6 is not declared proven.
+
+**Calibration expansion in progress:** two independent numeric audits found a general representation limitation:
+the seven-parameter perspective camera fixes its optical axis through the shared normalization centre. A lateral
+eye translation cannot be represented by shifting final image pixels. Existing `blender_camera.from_blender`
+already compensates by changing the frame centre, which a shared multi-photo basis cannot do per camera.
+Independent off-axis pinhole observations with held-out 3D points reproduce nonzero best-fit error; adding two
+pre-roll lateral eye offsets recovers both training and held-out points to numerical precision. The on-axis
+control remains exact. Reproducer: `data/assembly/m5fix2-photo-read-audit/pinhole-a/pinhole.json` (27 training,
+12 held-out points; old held-out RMS **2.012 px**, corrected approximately **1e-13 px**). This establishes the
+general representation limitation, not yet its contribution to Oakley's 9.34 mm disagreement. Real fitting
+ablations and backward-compatible correction are next; original proof points and errors remain held out.
 
 ## Assembly M5 Oakley run 2: approved fresh run, draft delivered (2026-10-14)
 

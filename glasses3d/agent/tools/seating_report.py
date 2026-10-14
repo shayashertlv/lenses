@@ -15,7 +15,7 @@ from ..procs import write_json_atomic
 PRESERVE_FEATURES = (
     "A seating repair must preserve every opening and feature visible in the photos, including vents. "
     "Inspect the front before and after at this frozen camera; repair lost features before continuing. "
-    "This is a visual report, not a new gate. The geometric seating check remains required for finish."
+    "Weigh the seating measurements against the photos. Seating is reported at finish, not a pass requirement."
 )
 
 

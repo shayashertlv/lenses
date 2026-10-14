@@ -30,7 +30,7 @@
 import {
   ACESFilmicToneMapping, Box3, BufferAttribute, BufferGeometry, CanvasTexture, Color, DataTexture, DirectionalLight,
   DoubleSide, DynamicDrawUsage, EqualStencilFunc, Group, KeepStencilOp, LinearFilter, Material, Matrix4, Mesh, NearestFilter,
-  MeshBasicMaterial, MeshPhysicalMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
+  MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, Object3D, PerspectiveCamera, PMREMGenerator, RedFormat, Scene,
   SRGBColorSpace, Texture, UnsignedByteType, Vector3, Vector4, WebGLRenderer,
 } from 'three';
 import type {WebGLRenderTarget} from 'three';
@@ -172,10 +172,13 @@ export interface RendererOptions {
 }
 export interface RenderVariant {
   hair: boolean; eyewear: boolean; guard: boolean; shadows: boolean;
+  /** Capture only: shade the existing face/head depth meshes, without changing their geometry or hiding rule. */
+  visibleHead?: boolean;
   /** A diagnostic override (override.ts), applied to originals, overlays and twins alike and restored after the draw. */
   override?: RenderOverride | null;
 }
 export interface FrameTimings {
+  visibleHead?: boolean;
   templeEndMaximumZM: number | null; templeEndNegativeZM: number | null; templeEndPositiveZM: number | null; templeEndState: string;
   maskUploadMs: number; endpointMs: number; submitMs: number;
   hairApplied: boolean; maskWidth: number; maskHeight: number; sync: boolean;
@@ -1257,6 +1260,21 @@ export class TryOnRenderer {
   render(mask: CategoryMask | null, variant: Partial<RenderVariant> = {}): FrameTimings {
     if (this.disposed) throw new Error('The renderer is disposed.');
     if (!this.backgroundTexture) throw new Error('Nothing is posed.');
+    if (variant.visibleHead && !variant.override && !this.explicitCamera) {
+      // These are the actual depth occluders, not a second approximation of the head. Flat diagnostic renders
+      // deliberately retain their original depth-only materials, so their labels and visibility stay unchanged.
+      const skin = new MeshStandardMaterial({color: '#cba68d', roughness: 1, metalness: 0,
+        side: DoubleSide, depthWrite: true, depthTest: true});
+      const saved = [this.surfaceMesh, this.templeHeadShell].filter((mesh): mesh is Mesh => mesh !== null)
+        .map(mesh => ({mesh, material: mesh.material}));
+      try {
+        for (const {mesh} of saved) {mesh.geometry.computeVertexNormals(); mesh.material = skin;}
+        return {...this.render(mask, {...variant, visibleHead: false, hair: false}), visibleHead: true};
+      } finally {
+        for (const {mesh, material} of saved) mesh.material = material;
+        skin.dispose();
+      }
+    }
     const override = variant.override ?? null;
     if (override === null) return this.renderFrame(mask, variant);
     if (!isRenderOverride(override)) throw new Error(`Unknown render override ${JSON.stringify(override)}.`);

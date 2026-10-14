@@ -276,7 +276,7 @@ def test_busy_tool_does_not_touch_the_scene(scene):
 
 
 @pytest.mark.parametrize("change", [
-    {"validate_spec": {"ok": False}}, {"seat_check": {"ok": False}}, {"seat_check": None},
+    {"validate_spec": {"ok": False}}, {"seat_check": {"ok": "false"}}, {"seat_check": None},
     {"seat_check": {}}, {"validation_sha256": "wrong"},
     {"print_check": None}, {"print_check": {"ok": False}}, {"print_check": {"ok": True, "glb_sha256": "wrong"}},
     {"checkpoint": "c0000"}, {"fingerprint": "stale"}, {"drift": "worker changed"},
@@ -354,7 +354,6 @@ def test_finish_retains_all_quality_failures_and_ar_evidence_in_one_result(finis
     assert out["export"] == scene.export and out["summary"] == "known differences"
     assert out["failures"] == [
         {"check": "specification", "code": "E_SPEC", "report": scene.export["validate_spec"]},
-        {"check": "seating", "code": "E_SEATING", "report": scene.export["seat_check"]},
         {"check": "print", "code": "E_PRINT", "report": scene.export["print_check"]}]
     assert [step[0] for step in scene.finish_steps] == ["export", "ar"]
     assert out["arview"]["export_sha256"] == scene.export["sha256"]
@@ -388,9 +387,9 @@ def test_finish_image_processing_error_cannot_persist_an_accepted_finish(finish_
     assert out["export"] == scene.export and out["arview"]["export_sha256"] == scene.export["sha256"]
     assert out["images"] == [] and out["failures"][-1]["check"] == "image_output"
     assert out["failures"][-1]["code"] == "E_IMAGE"
-    assert [item["check"] for item in out["failures"][:-1]] == (["specification", "seating", "print"] if quality_fails else [])
+    assert [item["check"] for item in out["failures"][:-1]] == (["specification", "print"] if quality_fails else [])
     if quality_fails:
-        for failure, key in zip(out["failures"], ("validate_spec", "seat_check", "print_check")):
+        for failure, key in zip(out["failures"], ("validate_spec", "print_check")):
             assert failure["report"] == scene.export[key]
     assert scene.calls[-1][-1] == out
     assert scene.finish is None
@@ -416,8 +415,8 @@ def test_finish_capture_exception_preserves_all_quality_reports_and_fallback_res
     out = record(output)
     assert out["status"] == "refused" and out["code"] == "E_EXPORT"
     assert out["export"] == scene.export and out["summary"] == "partial diagnostics"
-    assert [failure["check"] for failure in out["failures"]] == ["specification", "seating", "print", "arview"]
-    for failure, key in zip(out["failures"], ("validate_spec", "seat_check", "print_check")):
+    assert [failure["check"] for failure in out["failures"]] == ["specification", "print", "arview"]
+    for failure, key in zip(out["failures"], ("validate_spec", "print_check")):
         assert failure["report"] == scene.export[key]
     assert out["arview"] == {"status": "infrastructure_failed", "code": "E_AR", "message": "capture process unavailable"}
     assert out["failures"][-1]["report"] == out["arview"]
@@ -590,7 +589,7 @@ def test_worker_capacity_is_bounded_by_free_commit_and_cpu(monkeypatch):
 def test_arview_fixed_scale_exit_mapping_and_image_integrity(scene, monkeypatch, code, status):
     monkeypatch.setattr(AR.shutil, "which", lambda name: "node.exe")
     def run_capture(argv, log_dir, **kw):
-        assert "--fixed-scale" in argv and "--no-portrait" in argv
+        assert "--fixed-scale" in argv and "--no-portrait" in argv and "--worn-sides" in argv
         assert argv[argv.index("--lensenv") + 1] == str(AR.LENS_ENV_INTENSITY) == "1"
         assert argv[argv.index("--poses") + 1] == "default"
         out = Path(argv[argv.index("--out") + 1])

@@ -10,6 +10,7 @@ import pytest
 
 from glasses3d.agent import budget as B, loop as L, replay as R, tools as T
 from glasses3d.agent.journal import WorkerFailed
+from glasses3d.agent.money import owner_money
 from glasses3d.tests.agent.loop_support import FakeScene, ledger_rows, make_job, spec_for
 from glasses3d.tests.agent.support import fake_counter, provider_body, request, response, usage
 from glasses3d.tests.agent.test_job_tools import invoke, record, scene  # noqa: F401 - shared pytest fixture
@@ -69,7 +70,8 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
         assert isinstance(content, list) and content[0]["type"] == content[-1]["type"] == "input_text"
         body = json.loads(content[0]["text"])  # first text stays independently parseable JSON
         footer = content[-1]["text"]
-        assert f"settled ${expected} of $20.00 stop (reserve cap $23.00)" in footer
+        assert f"spent ${expected} (settled)" in footer
+        assert "settled stop $20.00 (reserve cap $23.00)" in footer
         assert ("finish your best checkpoint soon" in footer) is (index == 3)
         if index == 3:
             assert "\nAbout $5.00 left; finish your best checkpoint soon." in footer
@@ -104,7 +106,7 @@ def test_runway_deducts_unsettled_holds_and_clamps_zero_without_releasing_money(
     assert summary["settled_stop_usd"] == f"{int(stop)}.000000"
     assert summary["remaining_to_stop_usd"] == remaining
     output = invoke(scene, "budget_status", context=L.RunStatus(guard))
-    assert record(output)["budget"] == summary
+    assert record(output)["budget"] == owner_money(summary)
     # Warning starts from settled spend, not from an unbilled request's reservation.
     assert "finish your best checkpoint soon" not in _footer(output)
     assert guard.ledger_path.read_bytes() == before
@@ -116,8 +118,8 @@ def test_legacy_guard_without_stop_keeps_cap_footer_and_null_runway(tmp_path, sc
     summary = guard.summary()
     assert summary["settled_stop_usd"] is None and summary["remaining_to_stop_usd"] is None
     output = invoke(scene, "budget_status", context=L.RunStatus(guard))
-    assert record(output)["budget"] == summary
-    assert "settled $1.25 / cap $23.00" in _footer(output)
+    assert record(output)["budget"] == owner_money(summary)
+    assert "spent $1.25 (settled)" in _footer(output) and "reserve cap $23.00" in _footer(output)
     assert " stop " not in _footer(output) and "finish your best checkpoint soon" not in _footer(output)
     assert guard.ledger_path.read_bytes() == before
 

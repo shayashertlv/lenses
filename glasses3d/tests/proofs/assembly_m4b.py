@@ -126,7 +126,7 @@ def run():
 
         def reply(index):
             if index == 0:
-                return R.tool_call("temple_stage", {"budget_usd": 18}, call_id="parent-stage")
+                return R.tool_call("temple_stage", {}, call_id="parent-stage")
             if index == 8:
                 return R.tool_call("scene_summary", {"objects": None}, call_id="parent-after-stage")
             lab = lab_now()

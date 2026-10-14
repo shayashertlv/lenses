@@ -149,8 +149,8 @@ export async function main(argv) {
   }
   const inputSha = sha256(glbBytes);
   const glb = readGlbInput(new Uint8Array(glbBytes.buffer, glbBytes.byteOffset, glbBytes.byteLength));
-  const plan = cameraSet ? {set: null, backgrounds: [], poses: [], renderCount: cameraSet.cameras.length * CAMERA_VARIANTS.length, plannedCropCount: 0}
-    : buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm});
+  const plan = cameraSet ? {set: null, backgrounds: [], poses: [], renderCount: cameraSet.cameras.length * CAMERA_VARIANTS.length, plannedCropCount: 0, plannedWornCropCount: 0}
+    : buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm, wornSides: options.wornSides});
   const stepMs = Math.round(options.stepTimeoutS * 1000);
   const warnings = [], errors = [], images = [], poses = [], timings = [], idPalette = [];
   const page_ = {console_errors: [], console_warnings: [], page_errors: [], failed_responses: [], blocked_external: [], navigations: 0};
@@ -201,8 +201,8 @@ export async function main(argv) {
     chromium_args: ['--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist']};
   const request = {glb: glbPath, poses: options.poses, out, backgrounds: plan.backgrounds, size: `${options.width}x${options.height}`,
     depth_cm: options.depthCm, fixed_scale: options.fixedScale, clip: options.clipZM ?? 'auto', lensenv: options.lensEnvIntensity,
-    crop_upscale: options.cropUpscale, portrait: options.portrait, live_probe: options.liveProbe, step_timeout_s: options.stepTimeoutS,
-    plan: {poses: plan.poses.map(entry => entry.pose.id), renders: plan.renderCount, junction_crops: plan.plannedCropCount}};
+    crop_upscale: options.cropUpscale, portrait: options.portrait, worn_sides: options.wornSides, live_probe: options.liveProbe, step_timeout_s: options.stepTimeoutS,
+    plan: {poses: plan.poses.map(entry => entry.pose.id), renders: plan.renderCount, junction_crops: plan.plannedCropCount, worn_crops: plan.plannedWornCropCount}};
   if (cameraSet) {
     // The explicit-camera mode replaces the pose-set fields that do not apply (recorded as such, never as defaults).
     Object.assign(request, {poses: null, backgrounds: null, size: null, depth_cm: null, clip: 'none (no face: the arms are drawn as authored)',
@@ -210,7 +210,7 @@ export async function main(argv) {
         ids: cameraSet.cameras.map(camera => camera.id)},
       plan: {cameras: cameraSet.cameras.map(camera => camera.id), renders: plan.renderCount, junction_crops: 0}});
   }
-  const plannedImages = plan.renderCount + plan.plannedCropCount + (faceA ? 5 : 0);
+  const plannedImages = plan.renderCount + plan.plannedCropCount + plan.plannedWornCropCount + (faceA ? 5 : 0);
 
   const loadMs = stepDeadlineMs(options.stepTimeoutS, 1.5);
   let server = null, browser = null, chrome = null, page = null;
@@ -452,6 +452,7 @@ export async function main(argv) {
             images.push({file: image.file, pose: planned.pose.id, background: render.background, variant: render.variant, sha256: image.sha256,
               bytes: image.bytes, width: image.width, height: image.height, kind: image.kind, crop: image.crop, side: image.side,
               ...(image.kind === 'junction_crop' ? {near: image.near, metrics: image.metrics} : {}),
+              ...(image.kind === 'worn_crop' ? {source: image.source, head: image.head, hair: image.hair} : {}),
               ...(image.kind === 'pose' && result.temple_reach ? {temple_reach: result.temple_reach} : {}), timing: result.timing});
           }
         }

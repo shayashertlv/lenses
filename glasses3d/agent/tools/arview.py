@@ -67,6 +67,29 @@ def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | 
 def contact_sheet(out: Path, records: list[dict]) -> Path | None:
     if not records:
         return None
+    worn = [rec for rec in records if rec.get("kind") == "worn_crop"]
+    if worn:
+        # A call emits one <=1024 image: give the two requested close views real pixel space, then the seven
+        # standard beauty poses. Native beauty/part-id panels all remain hash-bound in report.json and delivery.
+        standard = [rec for rec in records if rec.get("kind") == "pose" and rec.get("variant") == "beauty"
+                    and rec.get("pose") not in {item.get("pose") for item in worn}]
+        width, row_height, cols = 1024, 328, 4
+        bottom_rows = (len(standard) + cols - 1) // cols
+        sheet = Image.new("RGB", (width, len(worn) * row_height + bottom_rows * 172), "#ececec")
+        draw = ImageDraw.Draw(sheet)
+        for i, rec in enumerate(worn + standard):
+            close = i < len(worn)
+            tile_w, tile_h = (width, 300) if close else (width // cols, 144)
+            index = i - len(worn)
+            x = 0 if close else index % cols * tile_w
+            y = i * row_height if close else len(worn) * row_height + index // cols * 172
+            with Image.open(out / rec["file"]) as opened:
+                tile = ImageOps.contain(ImageOps.exif_transpose(opened).convert("RGB"), (tile_w, tile_h))
+            sheet.paste(tile, (x + (tile_w - tile.width) // 2, y + (tile_h - tile.height) // 2))
+            draw.text((x + 6, y + tile_h + 4), str(rec.get("pose", "")) + (" worn, head visible, hair off" if close else " beauty"), fill="black")
+        path = out / "contact-sheet.jpg"
+        sheet.save(path, quality=95)
+        return path
     width, height, cols = 400, 300, min(4, len(records))
     rows = (len(records) + cols - 1) // cols
     sheet = Image.new("RGB", (cols * width, rows * (height + 28)), "#ececec")
@@ -83,7 +106,7 @@ def contact_sheet(out: Path, records: list[dict]) -> Path | None:
 
 
 def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
-    """The smallest general pose set: seven poses, skin, beauty+part-id, fixed authored scale, no portrait."""
+    """Seven standard poses plus close worn +/-50 views, fixed authored scale, visible proxy and no hair."""
     if export.get("status") != "exported":
         return {"status": "refused", "code": "E_EXPORT", "export": export}
     model = confined(root, export["path"])
@@ -94,7 +117,7 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
         return {"status": "infrastructure_failed", "code": "E_NODE", "message": "Node.js is not available"}
     out = output_dir(root, call_id)
     argv = [node, str(ARVIEW / "bin/arview.mjs"), "capture", str(model), "--out", str(out),
-            "--poses", "default", "--backgrounds", "skin", "--fixed-scale", "--no-portrait",
+            "--poses", "default", "--backgrounds", "skin", "--fixed-scale", "--no-portrait", "--worn-sides",
             "--lensenv", str(LENS_ENV_INTENSITY)]
     # The CLI requires an empty directory; put its log outside the capture directory until it has started.
     log_dir = out.with_name(out.name + "-process")
@@ -102,7 +125,7 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
     code, timed_out = run_capture(argv, log_dir, timeout_s=timeout_s)
     result = {"status": "timeout" if timed_out else EXIT_STATUS.get(code, "infrastructure_failed"),
               "code": "E_TIMEOUT" if timed_out else f"ARVIEW_EXIT_{code}", "exit_code": code,
-              "fixed_scale": True, "poses": "default", "checkpoint": export["checkpoint"],
+              "fixed_scale": True, "poses": "default", "worn_sides": True, "checkpoint": export["checkpoint"],
               "appearance_policy": AR_APPEARANCE_POLICY, "lens_env_intensity": LENS_ENV_INTENSITY,
               "glb_sha256": export["sha256"], "export_sha256": export["sha256"],
               "log": str(log_dir / "capture.log"), "images": [], "sheets": []}
@@ -120,13 +143,15 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
             file = confined(out, rec["file"], areas=(".",))
             if not file.is_file() or sha256(file) != rec.get("sha256"):
                 raise ValueError("capture image bytes differ from the report")
-        sheet = contact_sheet(out, records)
+        worn = [rec for rec in records if rec.get("kind") == "worn_crop"]
+        sheet = contact_sheet(out, worn + [rec for rec in records if rec.get("kind") != "worn_crop"])
         result.update(report=str(report_path), report_sha256=sha256(report_path), capture_status=report.get("status"),
                       warnings=report.get("warnings", []), errors=report.get("errors", []),
-                      spec=report.get("spec"), runtime=report.get("runtime"), geometry=report.get("geometry"))
+                      spec=report.get("spec"), runtime=report.get("runtime"), geometry=report.get("geometry"),
+                      worn_views=[{**rec, "path": str(out / rec["file"])} for rec in worn])
         if sheet is not None:
             result["sheets"] = [str(sheet)]
-            result["images"] = [{"path": str(sheet), "sha256": sha256(sheet), "view": "AR default poses",
+            result["images"] = [{"path": str(sheet), "sha256": sha256(sheet), "view": "AR standard poses and close worn sides",
                                  "kind": "arview_capture", "checkpoint": export["checkpoint"]}]
     except (OSError, ValueError, TypeError, KeyError) as error:
         result.update(status="infrastructure_failed", code="E_INTEGRITY", message=str(error), images=[])

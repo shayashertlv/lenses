@@ -395,3 +395,42 @@ test('every default part keeps its own decided class through the renderer (no re
   const lens = instance.parts().filter(part => part.class === 'lens').map(part => part.name);
   assert.deepEqual(lens, ['Lens_L', 'Lens_R']);
 });
+
+test('worn head shades the exact occlusion meshes and restores their depth-only materials even after a failed draw', async t => {
+  const {instance, internal} = await configured(build());
+  t.after(() => instance.dispose());
+  reveal(instance); assert.equal(instance.pose(frame, detection(), 100), true);
+  const privateState = instance as unknown as {surfaceMesh: Mesh; templeHeadShell: Mesh;
+    renderer: {render(scene: Scene, ...args: unknown[]): void}};
+  const heads = [privateState.surfaceMesh, privateState.templeHeadShell];
+  const before = heads.map(mesh => ({mesh, geometry: mesh.geometry, material: mesh.material,
+    points: Array.from(mesh.geometry.getAttribute('position').array), matrix: mesh.matrix.toArray()}));
+  const originalDraw = privateState.renderer.render;
+  let drawn = 0, fail = false, expectedVisible = true;
+  privateState.renderer.render = function(scene, ...args) {
+    if (scene === internal.scene) {
+      drawn++;
+      heads.forEach((mesh, i) => {
+        assert.equal(mesh, before[i]!.mesh); assert.equal(mesh.geometry, before[i]!.geometry);
+        assert.deepEqual(Array.from(mesh.geometry.getAttribute('position').array), before[i]!.points);
+        assert.deepEqual(mesh.matrix.toArray(), before[i]!.matrix);
+        if (expectedVisible) {
+          assert.ok(mesh.material instanceof MeshStandardMaterial);
+          assert.equal(mesh.material.colorWrite, true); assert.equal(mesh.material.depthWrite, true);
+          assert.equal(mesh.material.depthTest, true);
+        } else assert.equal(mesh.material, before[i]!.material);
+      });
+      if (fail) throw new Error('intentional backend failure');
+    }
+    return originalDraw.call(this, scene, ...args);
+  };
+  const timing = instance.render(null, {visibleHead: true, hair: true});
+  assert.equal(timing.visibleHead, true); assert.equal(timing.hairApplied, false); assert.ok(drawn > 0);
+  heads.forEach((mesh, i) => assert.equal(mesh.material, before[i]!.material));
+  expectedVisible = false;
+  instance.render(null, {visibleHead: true, override: 'part-id'});
+  expectedVisible = true; fail = true;
+  assert.throws(() => instance.render(null, {visibleHead: true}), /intentional backend failure/);
+  heads.forEach((mesh, i) => assert.equal(mesh.material, before[i]!.material));
+  privateState.renderer.render = originalDraw;
+});

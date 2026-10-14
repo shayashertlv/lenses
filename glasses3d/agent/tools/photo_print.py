@@ -154,6 +154,9 @@ def photo_print_tool(scene, call, fatal):
         target-colourway photos, preserves the bake evidence, then attaches eligible print parts and verifies the
         exported GLB. A failed attachment restores the pre-call model. Existing coverage and registration rules
         remain; baking is not an independent quality proof or owner acceptance. Compare the result with the photos.
+        Handles colour patterns on the named acetate surfaces, not geometry or lens optical coatings. Refuses
+        invalid/stale exports, missing or changed frozen inputs, no eligible texture parts, failed coverage or
+        registration, and attachment/export mismatches. Inspect the full refusal and retained bake evidence.
 
         Args:
             parts: Unique exact scene object names for patterned acetate, including genuine .001 suffixes.

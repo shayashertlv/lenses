@@ -617,7 +617,9 @@ def test_actual_async_openai_transport_preserves_hook_and_refusal(env):
         return guard
     guard = run(flow())
     assert calls == ["count", "inference", "count"]
-    assert guard.blocked_kind == "BudgetExceeded" and "cap" in guard.blocked_reason
+    assert guard.blocked_kind == "BudgetExceeded" and "maximum reserve" in guard.blocked_reason
+    assert "spent $0.001050 (settled)" in guard.blocked_reason
+    assert "held for the request in flight $0.000000" in guard.blocked_reason
     row = ledger(env.path)["rows"][0]
     assert (row["response_id"], row["request_id"], row["settled_micro_usd"]) == ("resp_mock", "req_mock", 1050)
 

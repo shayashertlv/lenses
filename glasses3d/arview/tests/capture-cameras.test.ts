@@ -109,7 +109,7 @@ test('the placement and projection handed to the renderer put asset points where
 test('--cameras needs --no-face, replaces --poses, refuses what the camera file sets, implies the authored size and no portrait', () => {
   const options = parseCaptureArgs(['m.glb', '--cameras', 'cams.json', '--no-face', '--out', 'o', '--lensenv', '1.5', '--step-timeout-s=30']);
   assert.deepEqual({...options}, {glb: 'm.glb', poses: null, out: 'o', backgrounds: null, width: 1280, height: 854, depthCm: 23, fixedScale: true,
-    clipZM: null, lensEnvIntensity: 1.5, cropUpscale: 1, portrait: false, liveProbe: false, stepTimeoutS: 30, cameras: 'cams.json', noFace: true});
+    wornSides: false, clipZM: null, lensEnvIntensity: 1.5, cropUpscale: 1, portrait: false, liveProbe: false, stepTimeoutS: 30, cameras: 'cams.json', noFace: true});
   assert.equal(parseCaptureArgs(['m.glb', '--cameras=c.json', '--no-face', '--out=o', '--fixed-scale', '--no-portrait', '--live-probe']).liveProbe, true);
   const face = parseCaptureArgs(['m.glb', '--poses', 'all', '--out', 'o']);
   assert.equal(face.cameras, null); assert.equal(face.noFace, false); assert.equal(face.poses, 'all'); assert.equal(face.portrait, true);
@@ -117,6 +117,7 @@ test('--cameras needs --no-face, replaces --poses, refuses what the camera file 
     [['m.glb', '--cameras', 'c.json', '--out', 'o'], /say so with --no-face/],
     [['m.glb', '--poses', 'default', '--no-face', '--out', 'o'], /--no-face needs --cameras/],
     [['m.glb', '--cameras', 'c.json', '--no-face', '--poses', 'all', '--out', 'o'], /--poses cannot be combined with --cameras/],
+    [['m.glb', '--cameras', 'c.json', '--no-face', '--worn-sides', '--out', 'o'], /--worn-sides cannot be combined with --cameras/],
     [['m.glb', '--cameras', 'c.json', '--no-face', '--size', '800x600', '--out', 'o'], /--size cannot be combined/],
     [['m.glb', '--cameras', 'c.json', '--no-face', '--backgrounds', 'dark', '--out', 'o'], /--backgrounds cannot be combined/],
     [['m.glb', '--cameras', 'c.json', '--no-face', '--clip', '-0.1', '--out', 'o'], /--clip cannot be combined/],
