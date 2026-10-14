@@ -255,7 +255,22 @@ capability is taken away from Astra; only the owner decides money.**
    `temple_stage` for faceted temples". All tools stay registered on every run.
 4. **Plain money reporting** in every status and report: "spent $X (settled)" and, separately, "held for the request
    in flight $Y (released after it settles)". Never one combined "committed" number to the owner.
-Lens seating as a finish requirement: unchanged until the owner answers (see PROGRESS Decisions).
+5. **Lens seating becomes a report, not a finish requirement** (owner, 2026-10-14: "i agree with the seating part").
+   `finish` still runs the seating check and returns its full result (paged per item 2), the delivery report and the
+   owner's report show it, and every seating tool stays available; `finish` no longer refuses because seating fails.
+   The instructions say to weigh the seating report against the photos (a lens edge or support the photos show must
+   look like the photos). This reverses D4's "required" part only; D4's "apply the check to all frames" stays.
+6. **Give the main session the photo-measuring tool** (more capability). For ordinary temples the main Astra has
+   Blender code, `g3d.loft_sections` / `polygon_section` / `check_round_corners`, compares at the fitted cameras and
+   `pick_surface_point` (a point on its own model). It cannot read a 3D position from the photos. The facet lab's
+   `photo_read` (`agent/temple_lab/readings.py`: a corner or edge crossing marked in 2+ photos with cameras,
+   triangulated with an error estimate) is general, but only the temple stage has it. Register a general
+   `photo_read` in the main registry over the job's frozen camera basis (hinge position, temple length and bend,
+   bridge height, lens corners, vents), with the facet lab's honest error model and refusal of ill-conditioned photo
+   pairs. Also state in `arview_capture`'s description that AR redraws temples (spread, clip at the ear,
+   `arview/src/render/rear-drop.ts`, `temple-clip.ts`), so temple length and shape are judged in `compare_to_photos`,
+   not in AR images. Proof: on the Oakley job's photos with the accepted model's basis, `photo_read` of the two hinge
+   pods and the temple tips agrees across photo pairs within its reported error.
 Then the full suite, commit, PROGRESS, and stop: no paid run without the owner's approval.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)

@@ -1682,6 +1682,11 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
   "Apply the check to all frames". Known-good product: "Oakley OO9208 v2". Per-run money: "20$ hard stop 23$ max
   reserve". Effort: max. Lens reflections: one fixed default. Total WP8 budget: "theres no reason to talk about this at
   the moment. this will be a thought when we'll have a full operational automation".
+- **2026-10-14, after Oakley run 2:** lens seating becomes a report Astra weighs against the photos, not a finish
+  requirement ("i agree with the seating part"); the check still runs on all frames. Money: "astra shouldnt under no
+  circumstances decide how much to reserve, only the user" (the temple stage's Astra-chosen allowance is removed);
+  capped tool output: "i like the tools point". No capability is taken from Astra ("i will not limit astras
+  capabilities"). ASSEMBLY M5-fix-2.
 - **2026-10-13, process:** Claude plans, Codex executes (`ASSEMBLY.md`).
 - **2026-10-13, Oakley run 1 job corrected by Claude before approval:** the M5-prep job
   `oakley-oo9208-v2-cd068969` (smoke run done there) put two engineering lines into "Owner's specifications
