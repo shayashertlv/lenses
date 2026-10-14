@@ -231,6 +231,33 @@ history prefix: $7.48 (39 %) of the run. The old Studio never edited history. In
    turns on it; list `partRole` values the exporter accepts in the `execute_blender_code` description.
 Then estimate Oakley run 2 with the new policy and stop for the owner's approval.
 
+### M5-fix-2. After Oakley run 2 ($0; added 2026-10-14 by Claude; owner-agreed items only)
+Run 2 (`20261014T084140-272538`, $15.47, 80 requests, draft) proved every M5-fix-1 repair works: coating exported,
+vents kept through 8 seating operations, top photo registered, no cache losses, spec and seating pass. Its frame is
+close to the owner-accepted Studio Oakley (AR sheets side by side); the visible gap is the lens tint (pale
+lavender-grey with cyan spots vs the photos' dark green/purple). It stopped at $14.46 settled because one request's
+worst-case hold was $8.35 (284,724 input tokens over the 272k long-context price step, assumed uncached, plus a
+16,384-token reply) against the owner's $23 maximum; that request really cost $1.01. The context was that large
+mainly because `check_lens_seating` returned an 848-row table (~100,599 tokens). Owner rules (2026-10-14): **no
+capability is taken away from Astra; only the owner decides money.**
+1. **Astra never chooses money.** Remove `budget_usd` from `temple_stage` (`agent/tools/temple.py:17-51`): a stage
+   runs inside the run's remaining money under the owner's stop and maximum. Astra currently set $4 and $6 itself.
+2. **No tool floods the conversation.** Cap every tool result's text (for example 12,000 characters). Long data is
+   summarised (counts, worst cases, the failing items first) and the full record is saved to a file; tools with big
+   tables (seating stations, fit details, compare metrics) take a page or filter argument so Astra can read any part
+   on request. Nothing is hidden, only paged. This keeps requests under the 272k price step, so the worst-case hold
+   (`agent/budget.py:615-626`, which is what guarantees the owner's $23 maximum and stays as it is) remains small and
+   the owner's $20 is actually usable. Prove with a $0 replay of run 2's requests: peak input and the largest hold.
+3. **Better information, not fewer tools.** Every specialist tool's description states exactly what it handles and
+   what it refuses (temple stage: the temple types and hinge geometry it can capture, `g3d/temple/measure.py:28,66`;
+   seating tools: frame types; print: patterned surfaces). The prompt's specialist lines (`agent/instructions.py`
+   ~74, 124) say to check that description against the product's photos before calling, instead of "use
+   `temple_stage` for faceted temples". All tools stay registered on every run.
+4. **Plain money reporting** in every status and report: "spent $X (settled)" and, separately, "held for the request
+   in flight $Y (released after it settles)". Never one combined "committed" number to the owner.
+Lens seating as a finish requirement: unchanged until the owner answers (see PROGRESS Decisions).
+Then the full suite, commit, PROGRESS, and stop: no paid run without the owner's approval.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
