@@ -271,6 +271,17 @@ capability is taken away from Astra; only the owner decides money.**
    `arview/src/render/rear-drop.ts`, `temple-clip.ts`), so temple length and shape are judged in `compare_to_photos`,
    not in AR images. Proof: on the Oakley job's photos with the accepted model's basis, `photo_read` of the two hinge
    pods and the temple tips agrees across photo pairs within its reported error.
+7. **A worn side view Astra can understand** (owner, 2026-10-14: hair off, a close ~50° yaw view of the glasses
+   worn). Facts: hair is already off in Astra's captures (`arview/qa/capture/page.ts:246`); the 7 default poses go to
+   ±45°; there is no visible face (plain skin background, `--no-portrait`), yet an invisible head proxy hides the
+   temple parts behind the head and ears and the renderer spreads and clips the arms there
+   (`arview/src/render/rear-drop.ts`, `temple-clip.ts`, `temple-visibility.ts`, `temple-head-shell.ts`,
+   `face-surface.ts`), so Astra sees temples end with no visible reason. Add to `arview_capture` two close worn views at
+   yaw +50° and -50°, cropped from the lens edge to past the ear, hair off, with the head the renderer already uses
+   for hiding drawn as a visible plain skin-shaded head (any angle, no new face image). Keep the 7 existing poses and
+   the fixed scale. The description says these show how the temples sit when worn; temple length and shape against
+   the product are judged with `compare_to_photos` and `photo_read`. Proof: on the owner-accepted Oakley the two
+   views show each temple meeting the visible head exactly where its hidden part starts.
 Then the full suite, commit, PROGRESS, and stop: no paid run without the owner's approval.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
