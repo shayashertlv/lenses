@@ -28,6 +28,141 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5 Oakley run 2: approved fresh run, draft delivered (2026-10-14)
+
+Executed in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout on `glasses3d`, initially clean at
+`3b7001b Finish M5-fix-1 seating, camera and tool diagnostics`. The owner explicitly approved only job
+`oakley-oo9208-v2-3e057bab`, request `20261014T084140-272538`, **fresh, not resume; $20 settled stop,
+$23 maximum reserve, max effort**. The complete owner message was passed unchanged to `job approve` via
+`data/assembly/m5oakley2-owner-approval.txt`; approval recorded at 08:43:53 UTC. The older job was not used.
+No other paid run was started. No runtime source, quality check, gate, photos or finished product was edited by Codex.
+
+- **Fresh-start handling and evidence preservation:** the first detached launch refused before inference or
+  approval consumption because the job still contained the prior active session (`this job already has a session`).
+  This refusal cost **$0**. Rather than resume against the owner's instruction, took the paid-run lock, archived
+  the old `session`, `checkpoints`, `cameras`, `work`, `worker` and heartbeat into
+  `data/assembly/m5oakley2-prior-active/`, and verified **435 file hashes**. Original inputs, ledger, historical runs,
+  deliveries and reviews were preserved. A fresh offline scene contained only `EMPTY mdl_bridge_underside`,
+  zero product objects and no conversation. Evidence: `data/assembly/m5oakley2-fresh-reset.json`; original refusal
+  receipts: `m5oakley2-preflight-refusal-status.json` and `m5oakley2-preflight-refusal.log`. The same unconsumed
+  approved request then started detached without `--resume`. Request/config/transport prove six approved photos,
+  zero inherited history and verified c0000; request SHA `ab06913c7d3614ea035774c2b526e24fb13c9f726e7cf537dc7f727d4051a7dd`.
+- **Execution:** keeper PID 9124, actual runner PID 38064, Blender PID 23684; run start
+  **08:46:44.624 UTC**, run end **09:50:52.758 UTC**, **3,848.097 s**. Detached keeper finished 09:51:01 UTC,
+  exit 1 for `budget_limit`. The persistent 40-second monitor and live checks recorded progress throughout;
+  `data/assembly/m5oakley2-monitor.jsonl`, `m5oakley2_monitor.*`, and `m5oakley2_poll.py` retain evidence.
+  Heartbeat: **1,909 beats, zero write failures, maximum gap 2.187 s**. Camera fitting used parallel workers,
+  EcoQoS opt-out and BLAS=1, about 19 GiB total machine memory, without competing heavy jobs. No silent stall,
+  request retry or manual interruption was needed.
+- **Money and stop:** **80 settled requests, actual $15.468835**, zero held/unknown/rejected charges and no
+  ledger violation. Correct-job lifetime ledger: **$35.459084**, 150 requests across its three runs.
+  Final status **`budget_limit`**, accepted finish **false**, verified exit checkpoint **c0014**; no `finish`
+  call or Astra final output. The next request was refused locally: **$8.389200** reservation required against
+  **$7.531165** remaining reserve room, a **$0.858035** shortfall, while **$4.531165** still remained to the
+  $20 settled stop. The unsent request incurred no charge. This is a reserve-limit draft, not a checkpoint failure.
+- **Owner's reservation concern and exact cause:** the earlier status `$14.462361 settled / $22.809261 committed`
+  included an **internal $8.346900 worst-case reservation**, not an additional payment. Request 80 counted
+  **284,724 input tokens**, exceeding the **272,000** long-context threshold. The existing reserve policy priced
+  all input at the long-context cache-write rate: **284,724 x $25/M = $7.118100**, plus maximum output
+  **16,384 x $75/M = $1.228800**. Actual request-80 charge was **$1.006474** (270,502 cached tokens;
+  14,096 cache-write tokens; 1,474 output tokens), releasing **$7.340426**. The final unsent input count
+  **286,416** gives **$7.160400 + $1.228800 = $8.389200**. Root cause of the large context: call 63 asked
+  for `stations_table=true`; its **848 station rows** came in **270,795 characters of tool text**, and request 64
+  jumped **84,259 -> 184,858 tokens (+100,599)**. Request 79 was 270,628 tokens; the following AR capture/reply
+  added 14,096 tokens, pushing request 80 across the tariff threshold. Four AR-capture increments total **56,730
+  tokens**; together with the seating-table increment they account for **157,329 of 265,404 parent-context growth
+  tokens (59.3%)**. These measured deltas include the preceding model reply; they are not provider-attributed
+  per-field token counts. Histories remained append-only with **zero prefix edits**, so this is newly appended
+  diagnostic bulk rather than the old history-rewrite cache bug. This exposed a cost-control limitation: large diagnostic
+  outputs plus worst-case reservations can end a run below its settled stop. Recorded for a $0 follow-up;
+  neither the approved cap nor the guard was changed to continue this run.
+- **Astra's work and remaining summary:** the initial mesh code had a TypeError and rolled back cleanly; the
+  corrected code built the shield, brow, clamps, nose parts, temples and hardware. The first temple preparation
+  refusal accurately named multiple material slots, which Astra corrected. The first substantive temple stage
+  spent **$2.330326** under a $4 allowance, stopped before its next reservation and returned no parent geometry.
+  The second spent **$2.706939**, imported revision 3 as an accepted **partial / `stuck`** reconstruction, and
+  explicitly reported broad root/front/rear contours, inconsistent cross-view readings and limitations expressing
+  the vent/U-shaped border. Parent calls subsequently narrowed shoulders, restored real root openings, cleaned
+  and closed temple boundaries, repaired lens support, added restrained Oakley/Prizm markings and tuned optics.
+  Do not describe that partial stage as a full likeness pass. There is **no final Astra summary** (`final_output`
+  and delivery `summary` are null). Its last saved `appearance_limit` says that fixed AR lighting gives smaller
+  moving green/cyan highlights than the broad studio green region, no painted colour region is used, and
+  top/side camera and root-facet residuals remain.
+- **Coating helper used:** successful calls 4, 60, 69 and 74 invoke `g3d.lens_coating`; final optical adjustments
+  in call 80 preserve it. The final GLB and AR runtime retain `KHR_materials_iridescence`, transmission and IOR.
+  Direct final-GLB parsing gives factor **1**, film IOR **1.38**, stored minimum/maximum **360/390 nm**,
+  effective uniform thickness **390 nm** (no thickness texture), substrate IOR **1.98**, transmission **0.94**,
+  roughness **0.17**, metallic **0**. The packed 2048x1024 image has a uniform base and two small markings;
+  the coloured interference is not a painted green region. Call 76 repaired a generated-image pixel loss after
+  call 74 changed colour space; the final image is populated. The final AR sheet shows
+  moving green/cyan/violet highlights over a mostly muted violet-grey lens, not the photos' broad coloured fields.
+  Centre OAKLEY and lower-right PRIZM lettering are present but faint; angular hinge/temple shoulders remain.
+- **Seating and opening preservation:** frame type was first inspected as semi-rimless (call 30), then persisted
+  as `g3d_seat` before repair (call 31). The original lens failed cap recognition; call 32 rebuilt its triangulation
+  and retained its openings. Subsequent seating/support work eventually passed without changing any rule.
+  **Eight** mutations/undo/refusal reports provide before/after front panels at the same frozen camera, each with
+  checkpoint and native-render hashes. Both central vents remain separate openings throughout. Native alpha<128
+  pixel counts in identical central regions are listed below; these are raster opening measurements, not physical
+  area, seating verdicts or proof of photographic likeness. Refused calls show the restored model, not discarded
+  attempted geometry. The final openings are more rectangular than the reference.
+
+  | Tool | Checkpoints | Central transparent pixels before -> after | Result |
+  | --- | --- | ---: | --- |
+  | 32, lens triangulation | c0003 -> c0004 | 931 -> 923 | both retained |
+  | 62, seat lens | c0007 -> c0008 | 923 -> 900 | both retained, partial seating |
+  | 64, undo seating | c0008 -> c0009 | 900 -> 923 | restored |
+  | 65, supported edge/vent rebuild | c0009 -> c0010 | 923 -> 1,043 | both retained, squarer |
+  | 67, seat lens | c0010 -> c0010 | 1,043 -> 1,043 | refused, restored |
+  | 69, retaining jaws | c0010 -> c0011 | 1,043 -> 1,043 | both retained |
+  | 70, seat lens | c0011 -> c0011 | 1,043 -> 1,043 | refused, restored |
+  | 74, optics/cleanup/attachment plane | c0011 -> c0012 | 1,043 -> 1,036 | both retained |
+
+  Review sheet: **`data/assembly/m5oakley2-seating-fronts.jpg`** (before left, after right, identical crop,
+  no retouching); complete paths, native hashes, camera, crop and measurement regions:
+  **`data/assembly/m5oakley2-seating-evidence.json`**. Source reports remain in the job's `work/seating_reports/`.
+  Every report and actual comparison image was returned to Astra, including manual repairs and refusals.
+- **Final delivered-byte checks:** specification **passes**, no errors or live-site failures; **29 objects,
+  41,334 triangles, 910,140 bytes, 153.5 mm overall width**. Two retained mesh warnings: **82 zero-area
+  triangles in left temple, 96 in right**. Final seating **passes**: semi-rimless/plain, **339 PASS + 2 TRANSITION
+  of 341 required samples**, 581 visible by design; no failed or unmeasured required samples. The nested
+  over-capture diagnostic remains: **94 points, maximum 16.2207 mm**, warning threshold 0.6 mm. Technical
+  clarification of earlier log wording: `mid-depth 0.5` means the normalized halfway depth through lens thickness,
+  **not a 0.5 mm pass threshold**; this lens's actual thin/plain rule is **0.30 mm pass / 0.45 mm target**.
+  No rule changed. Print check is `not_required`. Final AR capture succeeds at fixed scale with no runtime errors
+  or fallback, carrying the same two mesh warnings. Owner appearance acceptance remains pending.
+- **Top-photo fit:** all six basis-02 fits are usable. Top `reference-06` is `topb`, **raw IoU 0.5978,
+  lens-optional IoU 0.670970744, raw mean contour error 2.867 mm**, yaw **179.30**, pitch **73.18**,
+  roll **89.24 degrees**. Correct orientation does not remove the visible inner-front and temple-tip mismatch.
+  Basis-02 was fitted at c0013, not recaptured at c0014; all **79 non-image GLB bufferViews**, nodes, meshes
+  and accessors are identical in the final export, because call 80 changed only optics/image pixels.
+  Overlay: `data/jobs/oakley-oo9208-v2-3e057bab/cameras/basis-02/overlay_reference-06.png`.
+- **Immutable draft and review:** delivery ID
+  `20261014T084140-272538-8567b04b597b0877d6ca1533ab4a79672732cbfa476010dafc3d7ae0db31b2ba`;
+  GLB SHA **`bb54e681fe782ba12356f2b7b66661b0cb1c80facc54f35c30893b8b48ec621a`**;
+  manifest SHA `0c6f22e0a868fa08a77e966bccf7027c51fd00d554de0bfa7adf11eab6de5869`.
+  Draft was generated automatically from verified c0014 and captured again after the final material change.
+  Exact AR contact sheet is the above delivery's **`contact-sheets/01.jpg`**, SHA
+  `56e32379835875197da1bde839e77207783edb07641d98b4579b9c1e59ade382`. `job review` was started with
+  this explicit delivery ID and `--port 0` at **09:51:50 UTC**, ready/rendered on **127.0.0.1:54730**,
+  detached PID **31404**, fixed scale/lens environment 1. `review/current.json` contains the exact webcam URL
+  and matching model/manifest hashes; the URL was queued in Codex. Independent local HTTP GET returned 200,
+  910,140 bytes and the exact delivered GLB SHA. No owner acceptance was recorded.
+- **Verification and commit scope:** independent read-only audits covered financial receipts/approval, final
+  geometry/materials/seating and all reference/AR/repair images. **160 request/response receipts** pair to the
+  **80 settled rows**; all response archive hashes, IDs, usage, integer repricing, reserve calculations and ledger
+  digests agree. **59 referenced blobs**, **19 delivery manifest files**, all six photos in every saved request,
+  and all three job-ledger budget hashes verify. Usage: **6,833,552 input tokens**, of which **6,389,965 cached
+  (93.51%)**, **433,507 cache-write**, and **61,488 output** (including 31,151 reasoning). Cost components:
+  plain input **$0.102060**, cached reads **$6.660467**, cache writes **$5.595058**, output **$3.111250**.
+  Parent 39 requests cost **$10.431570**; the two child stages' 18/23 requests account for the rest. Peak
+  settled-plus-held exposure **$22.809261** stayed $0.190739 below the cap. Audit limit: 71 raw request-wire hashes
+  cannot be independently reconstructed because their private encrypted/signature fields are deliberately masked;
+  the nine unmasked requests reproduce their wire hash/size, and all 80 response/usage bindings verify.
+  All **15 parent checkpoint blend hashes c0000-c0014** match their index; all **16 native seating-panel hashes**
+  match. The runtime remains exactly the tested `3b7001b`
+  implementation. This operation changes only this progress log; the prior full suite was not rerun for a
+  documentation-only run record. No push and no further paid inference are authorized by this record.
+
 ## Assembly M5-fix-1 complete after the owner's seating decision (2026-10-14; $0)
 
 Continued in the primary checkout on `glasses3d`, initially clean at `56b8082` (descendant of `779a177`).
