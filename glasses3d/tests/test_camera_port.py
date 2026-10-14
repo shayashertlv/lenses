@@ -150,7 +150,8 @@ def test_top_priors_are_first_class_prototype_grid_plus_low_band():
     low = [(y, p, 0.0) for y in (-6.0, 0.0, 6.0) for p in (45.0, 55.0, 62.0)]
     top = [s[:3] for s in cameras.prior_seeds("top")]
     assert top[:len(proto_top)] == proto_top                         # the prototype grid first, in its order
-    assert top[len(proto_top):] == low and len(top) == 27
+    assert top[len(proto_top):27] == low
+    assert len(top) == 27 * 8 and {r for _, _, r in top} == {0, -45, 45, -90, 90, -135, 135, 180}
     topb = [s[:3] for s in cameras.prior_seeds("topb")]
     assert topb == [(180.0 + y, p, r) for y, p, r in top]
     assert all(p > 0 for _, p, _ in low)                            # the band is camera-above only
@@ -167,8 +168,9 @@ def test_top_priors_are_first_class_prototype_grid_plus_low_band():
     # bsa's grids are unchanged
     assert len(cameras.prior_seeds("back")) == 42 and cameras.prior_seeds("back")[0] == (168.0, -20.0, 0.0, "prior")
     assert len(cameras.prior_seeds("angled")) == 84
+    assert [s[:3] for s in cameras.prior_seeds("bottom")] == [(y, -p, r) for y, p, r in top]
     with pytest.raises(ValueError):
-        cameras.prior_seeds("bottom")
+        cameras.prior_seeds("diagonal")
 
 
 def test_bounds_use_the_view_pitch_window():

@@ -156,6 +156,20 @@ def test_prepare_refuses_unknown_missing_pose_before_opening_lab(tmp_path):
     assert len(PrepLab.made) == made and not (tmp_path / "stage" / "prepared.json").exists()
 
 
+def test_export_refusal_preserves_real_cause_before_creating_lab(tmp_path):
+    scene, _, export = source_job(tmp_path)
+    head = deepcopy(scene.s.head)
+    export.clear()
+    export.update(status="refused", code="E_EXPORT_ROLE", message="Hinge: invalid partRole 'hinge'")
+    made = len(PrepLab.made)
+    with pytest.raises(ValueError, match="parent export refused") as error:
+        package.prepare(scene, tmp_path / "stage", "bad-export", lab_class=PrepLab)
+    assert "E_EXPORT_ROLE" in str(error.value) and export["message"] in str(error.value)
+    assert "checkpoint" not in str(error.value)
+    assert len(PrepLab.made) == made and scene.s.head == head
+    assert not (tmp_path / "stage").exists()
+
+
 def test_owner_words_are_bound_but_separate_from_host_instruction_contract(tmp_path):
     scene, _, _ = source_job(tmp_path)
     scene.job.update(name="fade", description="Keep the fade visible; facet_restore is printed on the inside.",

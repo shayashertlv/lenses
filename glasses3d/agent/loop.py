@@ -177,6 +177,7 @@ FACET_VARIANTS_HOST_MARGIN_S = 15.0  # facet_variants' host work around its rend
 SNIPPET_SOFT_DEFAULT_S, SNIPPET_SOFT_MIN_S, SNIPPET_SOFT_MAX_S = 120.0, 0.5, 600.0
 SNIPPET_HARD_MARGIN_S = 30.0
 SDK_TIMEOUT_MARGIN_S = 10.0
+SEATING_REPORT_TIMEOUT_S = 660.0  # two 300 s renders plus bounds/camera reads; worker mutation limits unchanged
 
 
 def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None, variants: int | None = None,
@@ -195,10 +196,12 @@ def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None, varia
 
 
 def sdk_timeout_s(tool_name: str) -> float:
-    """The function_tool ``timeout`` for a registered tool: its largest hard timeout + 10 s."""
+    """Largest worker timeout + composed diagnostic work + SDK margin; mutation deadlines stay unchanged."""
+    report = SEATING_REPORT_TIMEOUT_S if tool_name in {
+        "execute_blender_code", "seat_lens", "hide_eyewire", "unseat_lens", "unhide_eyewire"} else 0.0
     if tool_name == "execute_blender_code":
-        return SNIPPET_SOFT_MAX_S + SNIPPET_HARD_MARGIN_S + SDK_TIMEOUT_MARGIN_S
-    return hard_timeout_s(tool_name) + SDK_TIMEOUT_MARGIN_S
+        return SNIPPET_SOFT_MAX_S + SNIPPET_HARD_MARGIN_S + SDK_TIMEOUT_MARGIN_S + report
+    return hard_timeout_s(tool_name) + SDK_TIMEOUT_MARGIN_S + report
 
 
 REMOVED_PHRASES = ("supplementary", "unverified", "hypothes")     # section 14 criterion 5; WP7 extends the list

@@ -851,10 +851,10 @@ def test_the_section_7_timeout_table_and_the_sdk_timeout_rule():
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=2) == 32.0
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=0.1) == 30.5    # soft clamped to 0.5..600
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=10_000) == 630.0
-    assert L.sdk_timeout_s("execute_blender_code") == 640.0                  # the largest hard + 10
+    assert L.sdk_timeout_s("execute_blender_code") == 1300.0  # 640 + composed front-report reads
     assert [L.sdk_timeout_s(name) for name in ("seat_lens", "check_lens_seating", "render_views", "export_glb",
                                                "restore_checkpoint", "fit_cameras", "deliver", "read_report")] == [
-        160.0, 130.0, 310.0, 130.0, 70.0, 1810.0, 610.0, 40.0]
+        820.0, 130.0, 310.0, 130.0, 70.0, 1810.0, 610.0, 40.0]
     assert L.sdk_timeout_s("budget_status") == 40.0
     assert L.sdk_timeout_s("finish") == 790.0  # export/checks + AR + diagnostic fallback, then SDK margin
     with pytest.raises(KeyError):

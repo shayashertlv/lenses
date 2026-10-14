@@ -2374,6 +2374,7 @@ class Seeing:
                 "usable": usable, "matte_mode": rec.get("matte_mode"),
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
+                "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
                 **{key: value for key, value in f.items()
                    if key.endswith("_lens_optional") or key == "lens_pixels_optional"},
                 **{key: f.get(key, rec.get(key)) for key in ("flags", "code", "refusal", "error", "message", "lens_loss")}}

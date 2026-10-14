@@ -140,6 +140,13 @@ def test_mutating_call_ids_and_checkpoint_receipts(scene):
     assert record(invoke(scene, "restore_checkpoint", {"checkpoint": "c0001"}))["restored_from"] == "c0001"
 
 
+def test_tool_docs_explain_export_roles_and_hinge_recognition():
+    docs = {t.name: t.description for t in T.build_tools(SimpleNamespace())}
+    assert "only partRole values lens, frame and temple" in docs["execute_blender_code"]
+    assert "strictly below 3.2 mm" in docs["temple_stage"] and "within" in docs["temple_stage"]
+    assert "4 mm" in docs["temple_stage"] and "do not shrink real hardware" in docs["temple_stage"]
+
+
 def test_scene_summary_is_read_only_worker_call(scene):
     assert record(invoke(scene, "scene_summary"))["result"]["objects"] == ["frame"]
     assert scene.s.calls == [("scene_summary", "scene_summary", {"objects": "all"},

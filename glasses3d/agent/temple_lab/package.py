@@ -81,7 +81,10 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     basis = C.load_basis(parent_root)
     basis_sha = sha(basis.dir / "basis.json")
     exp = scene.seeing.export_head(call_id + "-source")
-    if (exp.get("status") != "exported" or exp.get("drift") or exp.get("checkpoint") != head["id"]
+    if exp.get("status") != "exported":
+        raise ValueError(f"parent export refused [{exp.get('code') or 'E_EXPORT'}]: "
+                         f"{exp.get('message') or 'export did not produce a GLB'}")
+    if (exp.get("drift") or exp.get("checkpoint") != head["id"]
             or exp.get("fingerprint") != head["fingerprint"] or sha(exp["path"]) != exp.get("sha256")):
         raise ValueError("parent export does not match its current checkpoint")
     inputs = root / "inputs"

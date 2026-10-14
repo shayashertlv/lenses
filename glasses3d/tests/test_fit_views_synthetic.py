@@ -187,13 +187,14 @@ def test_contour_summary_equals_contour_stats_and_orders_percentiles():
 def test_view_kinds():
     vc = fit_views.view_candidates
     assert vc("side") == ("right", "left") and vc("top") == ("top", "topb") and vc("rear") == ("back",)
+    assert vc("bottom") == ("bottom", "bottomb") and vc("bottomb") == ("bottomb",)
     assert vc("elevated side") == vc("Elevated_Side") == vc("top-oblique") == cameras.TOP_OBLIQUE_VIEWS
     assert vc("back") == ("back",) and vc("left") == ("left",) and vc("topb") == ("topb",)
     assert vc("top_oblique_right") == ("top_oblique_right",) and vc("angled") == ("angled",)
     for kind, views in fit_views.VIEW_KINDS.items():
         assert views and all(v in cameras.VIEWS for v in views), kind
     with pytest.raises(ValueError, match="unknown view kind"):
-        vc("bottom")
+        vc("diagonal")
     assert fit_views.kind_pitch_sign("top") == fit_views.kind_pitch_sign("top_oblique_left") == 1
     assert fit_views.kind_pitch_sign("side") is None and fit_views.kind_pitch_sign("rear") is None
     assert {k: fit_views.kind_pitch_sign(k) for k in fit_views.LABEL_PITCH_SIGN} == fit_views.LABEL_PITCH_SIGN
@@ -203,7 +204,8 @@ def test_cli_parsers():
     images, views = fit_views._parse_images(["side=C:/x/reference-03.png", "elevated side=C:/x/reference-06.png"])
     assert list(images) == ["reference-03.png", "reference-06.png"]
     assert views == {"reference-03.png": "side", "reference-06.png": "elevated side"}
-    for bad in (["reference-03.png"], ["bottom=C:/x/a.png"], ["side=a/r.png", "front=b/r.png"]):
+    assert fit_views._parse_images(["bottom=C:/x/a.png"])[1] == {"a.png": "bottom"}
+    for bad in (["reference-03.png"], ["diagonal=C:/x/a.png"], ["side=a/r.png", "front=b/r.png"]):
         with pytest.raises(SystemExit):
             fit_views._parse_images(bad)
     names = ["a.png", "b.png"]
@@ -226,7 +228,7 @@ def test_fit_views_validates_inputs_before_fitting(tmp_path):
     with pytest.raises(ValueError, match="every image needs exactly one view kind"):
         fit_views.fit_views(glb, {"a.png": a}, {"b.png": "front"}, tmp_path / "o")
     with pytest.raises(ValueError, match="unknown view kind"):
-        fit_views.fit_views(glb, {"a.png": a}, {"a.png": "bottom"}, tmp_path / "o")
+        fit_views.fit_views(glb, {"a.png": a}, {"a.png": "diagonal"}, tmp_path / "o")
     with pytest.raises(ValueError, match="share a stem"):
         fit_views.fit_views(glb, {"a.png": a, "a.jpg": b}, {"a.png": "front", "a.jpg": "side"}, tmp_path / "o")
     with pytest.raises(FileNotFoundError):

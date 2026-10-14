@@ -140,8 +140,12 @@ def test_existing_explicit_pose_is_not_reestimated_or_materialized(tmp_path):
 
 def test_geometry_requires_hash_and_real_knuckles(tmp_path):
     glb, sha = captured(tmp_path, knuckles=False)
-    with pytest.raises(ValueError, match="knuckle"):
+    with pytest.raises(ValueError, match="knuckle") as error:
         RP.derive_axes(glb, sha)
+    message = str(error.value)
+    assert "temple-role" in message and "X and Z" in message and "strictly below 3.2 mm" in message
+    assert "within 4 mm" in message and "tool recognition heuristic" in message
+    assert "do not shrink real hardware" in message
     with pytest.raises(ValueError, match="SHA-256"):
         RP.derive_axes(glb, "d" * 64)
 

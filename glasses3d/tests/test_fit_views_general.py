@@ -95,7 +95,10 @@ def test_direct_fitter_uses_requested_matte_and_preserves_raw_optional_metrics(i
     mesh = fitmesh.load_fit_mesh(model)
     np.testing.assert_array_equal(calls[0][1], np.isin(mesh.part, mesh.part_ids(['Lens_L'])))
     assert result['matte_mode'] == resolved and result['lens_loss']['optional_nodes'] == ['Lens_L']
-    assert result['status'] == 'ok' and result['rigid_fit']['photo_sha256'] == FV.sha256_file(photos['front.png'])
+    # This stub returns a fixed camera, not a fitted one: keep its low-overlap metrics and label it honestly.
+    assert result['iou_lens_optional'] < FV.MIN_USABLE_IOU
+    assert result['status'] == 'unusable' and 'rigid_fit' not in result
+    assert result['image_sha256'] == FV.sha256_file(photos['front.png'])
     for key in ('iou', 'contour_mean_px', 'render_only_px', 'iou_lens_optional', 'lens_pixels_optional'):
         assert key in result
 

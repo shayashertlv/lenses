@@ -49,18 +49,43 @@ def run(out):
         scene.start()
         built = scene.s.execute(build_code(), label="synthetic fixture")
         assert built["status"] == "ok", built
+        declared, _ = invoke("execute_blender_code", {"code": "import bpy\nfor side in (-1, 1):\n"
+            "    lens = bpy.data.objects[f'Lens_{side}']\n"
+            "    lens['g3d_seat'] = '{\"frame_type\":\"acetate\"}'\n"
+            "    for v in lens.data.vertices:\n"
+            "        v.co.x = side * 32 + (v.co.x - side * 32) * 0.95\n"
+            "        v.co.y = -7 + (v.co.y + 7) * 0.95\n"
+            "    lens.data.update()\n",
+            "label": "declared fixture with lens radius below the rim aperture"})
+        assert declared["status"] == "ok", declared
         refused, images = invoke("finish", {"summary": "Unseated fixture must remain refused."})
         assert refused["status"] == "refused" and scene.finish is None, refused
         assert any(item["check"] == "seating" for item in refused["failures"]), refused
+        assert all(lens["frame_type_source"] == "g3d_seat"
+                   for lens in refused["export"]["seat_check"]["lenses"])
         assert images == 1 and refused["image_source"] == "arview", refused
         for side in (-1, 1):
             seated, _ = invoke("seat_lens", {"lens": f"Lens_{side}", "frame_type": "acetate"})
             assert seated["status"] == "ok", seated
+            report = seated["seating_repair_report"]
+            assert report["status"] == "reported" and report["gate"] is False, report
+            assert report["before"]["checkpoint"] != report["after"]["checkpoint"]
+            assert len(seated["images"][0]["panels"]) == 2
+        # A manual support rebuild was the Oakley failure path. Exercise that path on synthetic geometry only.
+        for delta in (-10, 10):
+            manual, shown = invoke("execute_blender_code", {"code":
+                f"import bpy\nbpy.data.objects['Front_2'].location.y += {delta}\n",
+                "label": "synthetic support displacement and restoration", "seating_repair": True})
+            assert manual["status"] == "ok", manual
+            report = manual["seating_repair_report"]
+            assert report["status"] == "reported" and report["gate"] is False, report
+            assert report["before"]["source_render_sha256"] != report["after"]["source_render_sha256"]
+            assert shown == 1
         scene.last_ar = {"status": "ok", "exit_code": 0, "export_sha256": "stale"}
         accepted, images = invoke("finish", {"summary": "Synthetic frame and lenses finalized in one call."})
         assert accepted["status"] == "accepted" and not accepted["failures"], accepted
         assert accepted["arview"]["fixed_scale"] is True
-        assert images == 1 or (images == 0 and all(rec.get("reused_from_call") == "proof-1-finish"
+        assert images == 1 or (images == 0 and all(rec.get("reused_from_call") == refused["call_id"]
                                                   for rec in accepted["images"]))
         assert accepted["arview"]["images"] == accepted["images"]
         assert scene.finish is accepted or scene.finish == accepted
@@ -74,6 +99,9 @@ def run(out):
     assert saved["report_data"]["accepted_finish"] is True
     proof = {"status": "passed", "job": str(root), "delivery": delivered, "calls": [x["tool"] for x in calls],
              "no_separate_export_or_ar_calls": True, "failed_seating_has_images": True,
+             "both_seating_repairs_have_frozen_front_reports": True,
+             "manual_support_repair_and_restoration_reported": True,
+             "declaration_alone_does_not_pass_unseated_geometry": True,
              "model_requests": 0, "actual_spend_usd": 0, "seconds": time.monotonic() - started}
     procs.write_json_atomic(out / "proof.json", proof)
     print(json.dumps(proof, indent=2), flush=True)

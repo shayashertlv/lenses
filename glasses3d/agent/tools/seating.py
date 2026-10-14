@@ -4,16 +4,21 @@ from typing import Literal
 from agents.tool_context import ToolContext
 
 from ..loop import hard_timeout_s
+from .seating_report import PRESERVE_FEATURES, repair_report
 
 SEAT_TOOL_NAMES = ("seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire")
 FrameType = Literal["acetate", "metal", "browline", "semi_rimless", "rimless"]
 LowerEdge = Literal["plain", "nylor"]
 
 
-def seat_tools(scene, tool, call):
+def seat_tools(scene, tool, call, fatal):
     def mutate(name, kwargs, cid):
-        return scene.s.call_mutating(name, "g3d_call", {"op": name, "kwargs": kwargs},
-                                     deadline_s=hard_timeout_s(name), label=name, call_id=cid)
+        def action():
+            return scene.s.call_mutating(name, "g3d_call", {"op": name, "kwargs": kwargs},
+                                         deadline_s=hard_timeout_s(name), label=name, call_id=cid)
+        if kwargs.get("dry_run"):
+            return {**action(), "seating_guidance": PRESERVE_FEATURES}
+        return repair_report(scene, cid, action, fatal)
 
     def read_check(kwargs, cid):
         out = scene.s.call_read("check_lens_seating", "g3d_call",
@@ -32,7 +37,15 @@ def seat_tools(scene, tool, call):
         """Seat one lens against its actual frame construction, after temple geometry. Crystal/translucent frame
         materials are detected automatically and receive the V-bevel and groove. UVs are kept. The complete report
         is in result: seated/already_seated/partial/refused, reasons, warnings and affected geometry. Partial is a
-        recorded edit, never a passing final junction. Inspect check_lens_seating after the edit.
+        recorded edit, never a passing final junction. Declare the actual frame_type before repairing geometry:
+        inspect check_lens_seating(frame_type=...) first; this inspection alone does not persist the declaration.
+        For an undeclared lens, execute_blender_code can set the JSON string
+        bpy.data.objects[lens]['g3d_seat'] = '{"frame_type":"semi_rimless","lower_edge":"plain"}'
+        using its actual construction, then recheck. Preserve existing declaration fields when updating a lens.
+        seat_lens also records its required frame_type argument. A missing declaration is not a geometry defect.
+        Preserve every opening and feature visible in the photos, including vents. The result includes front
+        before/after images at one frozen camera; inspect them after every repair. This report is not a new gate.
+        check_lens_seating remains a required finish check; inspect the physical junction in AR too.
 
         Args:
             lens: Exact lens object name from scene_summary.
@@ -53,6 +66,7 @@ def seat_tools(scene, tool, call):
         """Bury the indicated eyewire under its supporting brow over photo-supported asset-X ranges. Moves the held
         lens band with it and records the effective union of ranges. Inspect result.status, result.ranges_effective,
         displacement, warnings and the visible junction. Use before seat_lens when the construction needs both.
+        Preserve every photo opening and feature; inspect the returned frozen-front before/after report.
 
         Args:
             eyewire: Exact eyewire object name.
@@ -75,7 +89,10 @@ def seat_tools(scene, tool, call):
                                  lower_edge: LowerEdge | None = None, stations_table: bool = False):
         """Measure seating without editing geometry, including crystal frames. Read result.ok, result.reasons and
         each result.lenses entry's pass, frame_type_source and geometric measurements. An inferred construction is
-        provisional and cannot pass final delivery. This is the geometric check; inspect the junction in AR too.
+        provisional and cannot pass final delivery. Declare frame_type before deciding a geometric repair is needed.
+        The argument is inspection-only; persist g3d_seat using execute_blender_code as seat_lens describes, or
+        pass frame_type to seat_lens when geometry needs seating. Missing metadata alone needs no geometry repair.
+        This geometric check remains required at finish; inspect the junction in AR too.
 
         Args:
             lenses: Exact lens object names, or null for every visible lens.

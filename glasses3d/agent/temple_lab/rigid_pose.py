@@ -43,7 +43,13 @@ def derive_axes(captured_glb, captured_sha256) -> dict:
         hinge_z = float(body["V"][:, 2].max())
         axis = MS.knuckle_axis(boxes, side, hinge_z)
         if axis is None:
-            raise ValueError(f"captured temple source has no geometric knuckle axis for side {side:+d}")
+            raise ValueError(
+                f"captured temple source has no geometric knuckle axis for side {side:+d}; "
+                f"recognition requires a temple-role part centered on that side, with world X and Z "
+                f"bounding-box extents each strictly below {MS.KNUCKLE_MAX_MM:g} mm and center Z "
+                f"within {MS.HINGE_NEAR_MM:g} mm of the temple-front hinge plane. "
+                "This is a tool recognition heuristic, not a product geometry requirement; "
+                "do not shrink real hardware just to satisfy it.")
         key = f"{side:+d}"
         axes[key] = [side * abs(float(axis[0])), float(axis[1])]
         bodies[key] = body["name"]

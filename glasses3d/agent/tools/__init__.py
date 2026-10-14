@@ -25,6 +25,7 @@ from ..worker_client import WorkerDied
 from . import arview
 from .images import compact_sheet, MAX_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
+from .seating_report import repair_report
 from .temple import temple_tool
 from .photo_print import photo_print_tool
 
@@ -270,6 +271,11 @@ def build_tools(scene, settings=None) -> list:
                         result = {**result, "status": "refused", "code": "E_IMAGE", "images": [],
                                   "message": str(error)[:1000], "failures": [*result.get("failures", []),
                                   {"check": "image_output", "code": "E_IMAGE", "message": str(error)[:1000]}]}
+                    elif isinstance(result, dict) and "seating_repair_report" in result:
+                        report = result["seating_repair_report"]
+                        report.update(status="incomplete", image_output_error=str(error)[:1000])
+                        # A missing diagnostic image must not replace a completed repair with an argument refusal.
+                        result = {**result, "images": []}
                     else:
                         result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
                     output = [ToolOutputText(text=json.dumps(result))]
@@ -287,21 +293,31 @@ def build_tools(scene, settings=None) -> list:
             raise
 
     @tool("execute_blender_code")
-    async def execute_blender_code(ctx: ToolContext, code: str, soft_timeout_s: float = 120, label: str = ""):
+    async def execute_blender_code(ctx: ToolContext, code: str, soft_timeout_s: float = 120, label: str = "",
+                                   seating_repair: bool = False):
         """Run bpy code in the live scene; validated changes create a checkpoint. Files and imports are restricted.
+
+        The exporter accepts only partRole values lens, frame and temple. Tag hardware and logos with their
+        supporting component's role; do not invent additional roles such as hinge or logo.
 
         g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
         authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB;
         the untextured film uses the maximum thickness. Both thickness limits are retained in the GLB.
         The helper preserves transmission and other optics. Inspect export warnings and fixed-scale AR to judge it.
+        For ANY manual seating/support repair set seating_repair=True: the host returns front before/after at
+        one frozen camera. Preserve every opening and feature visible in the photos, including vents.
+        This visual report is not a gate; the required geometric seating check is unchanged.
 
         Args:
             code: Python code using bpy and the allowed g3d helpers.
             soft_timeout_s: Soft deadline, 0.5 to 600 seconds.
             label: Short name for the change.
+            seating_repair: True for a manual lens/support/eyewire repair; captures frozen front before/after.
         """
-        return await call(ctx, "execute_blender_code", lambda cid: scene.s.execute(
-            code, soft_timeout_s=soft_timeout_s, label=label, call_id=cid))
+        def execute(cid):
+            action = lambda: scene.s.execute(code, soft_timeout_s=soft_timeout_s, label=label, call_id=cid)
+            return repair_report(scene, cid, action, FATAL) if seating_repair else action()
+        return await call(ctx, "execute_blender_code", execute)
 
     @tool("scene_summary")
     async def scene_summary(ctx: ToolContext, objects: list[str] | None = None):
@@ -498,5 +514,5 @@ def build_tools(scene, settings=None) -> list:
 
     return [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
             render_views, compare_to_photos, pick_surface_point, export_glb, arview_capture, read_image, budget_status,
-            finish, *seat_tools(scene, tool, call), temple_tool(scene, call, settings, FATAL),
+            finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
             photo_print_tool(scene, call, FATAL)]

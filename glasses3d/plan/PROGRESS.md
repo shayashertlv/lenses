@@ -28,7 +28,90 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
-## Assembly M5-fix-1 stopped at item 4 (2026-10-14; $0; owner decision required)
+## Assembly M5-fix-1 complete after the owner's seating decision (2026-10-14; $0)
+
+Continued in the primary checkout on `glasses3d`, initially clean at `56b8082` (descendant of `779a177`).
+The owner resolved the item-4 stop: **seating remains a required finish check**. The accepted Oakley passes
+geometrically as semi-rimless (top mid-depth p5/median/p95 **0.6742/0.7153/0.8327 mm**, rule **0.5 mm**);
+its default refusal was the missing declaration. Run 1's vent loss came from the support rebuild. No seating
+threshold, geometric check, finish gate, product mesh, photo or historical run evidence was changed.
+
+- **Owner's seating additions:** instructions require declaring the actual construction before deciding a repair
+  is needed. Tool descriptions distinguish an inspection-only `frame_type` argument from persisted `g3d_seat`
+  metadata and show how to declare it without rebuilding geometry. Instructions and mutation results require
+  preserving every photo-visible opening and feature. Seating/hiding/undo tools now render front before/after
+  at the same frozen camera and light frame; manual support/lens/eyewire edits use the documented
+  `execute_blender_code(seating_repair=True)` path. A usable frozen front photo camera is preferred; otherwise
+  a canonical front is frozen before the edit and explicitly labelled. Native panels, camera parameters,
+  checkpoint/fingerprint and hashes are retained. These are reports, **not a new gate**. Nonfatal diagnostic
+  failures preserve the completed mutation and return an incomplete report; fatal worker/integrity errors
+  retain their normal handling. Composed SDK deadlines include both renders without changing mutation limits.
+  The existing 8,000-character instruction limit is unchanged.
+  Focused seating/tools/loop checks: **195 passed in 62.52 s**; final focused item-6/seating/CLI checks:
+  **145 passed in 10.94 s** (overlapping selections). Independent review found two diagnostic error-path issues
+  (image packaging could obscure a completed edit, and after-render failure omitted the report file); both were
+  fixed with regressions. The real Blender proof `data/assembly/m5fix1-seating-report-c/proof.json` passed in
+  **25.062 s**: a declared lens with a real gap is refused, both seating repairs produce frozen reports, manual
+  support movement/restoration produces visibly different front panels, and one final `finish` captures AR and
+  publishes the immutable delivery. The initial expanded fixture already passed after declaration; its incorrect
+  test assumption was fixed by creating an actual synthetic gap, without changing a runtime check.
+- **Item 5 complete:** top/bottom registration searches the full image-plane roll circle with uniform 45-degree
+  seeds and overlapping +/-25-degree optimizer windows, including a window crossing 180 degrees. Original
+  zero-roll seeds and other-view bounds remain intact. Bottom labels have negative-pitch semantics. Camera fits
+  below **0.5 effective IoU** report `unusable`, retaining the camera, metrics, matte, candidates and overlays;
+  optional-lens IoU is used where the existing transparent-lens objective supplies it. This labels registration
+  evidence, not model likeness or finish eligibility. Synthetic +/-90 and +/-179 degree top fits and bottom fits,
+  seam coverage and unchanged prototype reproduction checks passed. Seven obsolete status/label expectations
+  were updated; the underlying fitting thresholds were not relaxed. Final related selection: **42 passed,
+  1 deselected in 73.82 s**.
+  Exact accepted-asset proof `data/assembly/m5fix1-camera-roll-a/proof.json`: **passed, 275.687 s, $0**.
+  Accepted GLB SHA `2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688`, all six photos and old
+  baseline evidence remain unchanged. Top raw IoU **0.348062 -> 0.652772**, optional IoU
+  **0.404932 -> 0.750111**, raw mean contour error **6.073921 -> 2.348158 mm**. Winner: `topb`, yaw 176.3181,
+  pitch 80.2032, roll 86.7082 degrees. The other five camera dictionaries and raw/optional IoUs/contour errors
+  are identical. The inspected overlay follows the rotated frame and temples; lens/nose differences remain.
+  Perspective 0.598894 is near the existing 0.6 bound, which was not changed. This is usable registration,
+  not owner appearance acceptance. Overlay: `data/assembly/m5fix1-camera-roll-a/cameras/basis-01/overlay_reference-06.png`.
+- **Item 6 complete:** private temple preparation returns the actual export refusal code/message before trying
+  to use export bytes. Successful-export checkpoint/fingerprint/hash/drift checks remain. Missing-axis refusals
+  and tool docs explain the existing recognition rule: a temple-role part centered on the relevant side,
+  world-X and world-Z bbox extents each strictly below **3.2 mm**, center Z within **4 mm** of the temple-front
+  hinge plane. The text identifies this as a tool heuristic and says not to shrink real hardware to satisfy it.
+  `execute_blender_code` documents the accepted `partRole` values: **lens, frame, temple**. No recognition or
+  geometry algorithm changed. Tests preserve the exact export cause and prove preparation opens no private lab
+  on refusal. Independent read-only review found no remaining blocker.
+- **Final $0 replay:** `data/assembly/m5fix1-history-final/proof.json` reruns all **65 saved requests**, keeps
+  all six photos in every request and preserves all **180 source hashes**. History-caused cache invalidations
+  (prefix rewrites) **3 -> 0**. Observed ledger **$19.161346**; modeled stable-prefix replay **$11.311824**.
+  With 1,000 extra metadata characters per tool: **$12.494124**, peak estimated input **238,056** tokens
+  (base **211,176**, below 272,000). Zero-cache sensitivity **$77.090520**. These are offline scenarios holding
+  saved replies fixed, not measured provider cache hits or a promised future price. Actual spend **$0**.
+- **Oakley run 2 forecast:** `data/assembly/m5fix1-estimate-final.json`, correct job
+  `oakley-oo9208-v2-3e057bab`, max effort, **$20 settled stop / $23 maximum reserve**. Expected **$15.116178**,
+  growth-only range **$13.359064-$20.291582**, assuming 60 replies and historical append-only calibration.
+  No additional compact-output/one-call-finish savings are assumed. The high growth case can reach the money
+  limits before completion. As part of estimating the new guidance, fixed an undercount: forecasts now include
+  tool names and descriptions as well as parameter schemas (regression proves longer descriptions increase cost).
+  No approval request was created, no model client constructed, and no paid run started. **Owner approval is
+  required before Oakley run 2.**
+- **Full regression verification:** main Python suite, `-n 8 --dist loadfile` excluding photoprint,
+  **3,254 passed / 6 failed in 753.14 s**. Four failures were obsolete expected values: schema-only smoke token
+  counting, the old top seed count, and two bottom-is-unknown assertions. Updated these to assert the complete
+  tool payload, exact original zero-roll prefix plus full roll banks, valid bottom labels and continued rejection
+  of an unknown label. Independent review confirmed no accuracy, tolerance, integrity or budget check weakened.
+  The other two failures were the unchanged seeing timing limit (**94.376 s** under load vs **60 s**) and the
+  EcoQoS inheritance test's known conflict with the descendant opt-out watcher. All four affected modules passed
+  together in isolation: **71 passed in 88.29 s**; EcoQoS passed unchanged with that watcher disabled:
+  **1 passed in 0.26 s**. Main suite reconciles to **3,260 distinct passing tests**. Photo-print, separately
+  `-n 2 --dist loadfile`: **314 passed in 205.92 s**. Total **3,574 distinct Python tests passing**, no skips.
+  Logs/argv/PID/start/end/exit receipts are under `data/assembly/m5fix1_final_{main,isolated,qos,photoprint}.*`.
+  AR unit tests: **497 passed in 20.640 s**; AR QA: **103 passed in 38.176 s**; TypeScript `tsc --noEmit`
+  passed. Receipts: `data/assembly/m5fix1_final_ar_{unit,qa,types}.*`. `git diff --check` passed.
+  Implementation, regression tests, proof scripts and this log are committed together as
+  **`Finish M5-fix-1 seating, camera and tool diagnostics`**, explicit paths on `glasses3d`, never pushed.
+  **Open:** owner visual acceptance and approval of Oakley run 2. No paid work is authorized by this repair.
+
+## Assembly M5-fix-1 stopped at item 4 (2026-10-14; $0; historical stop, resolved above)
 
 Started on the primary checkout, branch `glasses3d`, clean at `779a177`; no worktree and no paid request.
 The owner requires items 1–6 in order and a stop at item 4 if the accepted Oakley fails seating. Items 1–3 are

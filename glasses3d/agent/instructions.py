@@ -71,7 +71,10 @@ the scene to the following delivery requirements, quoted exactly:
 {requirements}
 
 Develop the complete frame and lenses, then the temples and their three-dimensional surfaces. Resolve lens
-seating after temple geometry, including crystal and translucent frames. Apply photo print after geometry and
+seating after temple geometry, including crystal and translucent frames. Declare the actual frame type first;
+missing metadata alone needs no geometry repair. Preserve every opening and feature visible in the photos.
+After each seating repair inspect front before/after at the frozen camera (a report, not a new gate).
+Apply photo print after geometry and
 seating: a complex pattern such as tortoiseshell needs photo-derived print; plain frames need material, colour
 and finish edits. Decide from the product's appearance. After any geometry edit, revisit the affected seating,
 print and camera evidence before delivery. Use the specialist stages when they are offered below; report a needed
@@ -85,24 +88,21 @@ Tool descriptions contain calling mechanics and limits. The reports below tell y
 """
 
 CORE_GUIDANCE = {
-    "execute_blender_code": "Use `execute_blender_code` to construct or edit the live model. Read status and the "
-        "returned checkpoint; a failed edit is not a completed change.",
-    "scene_summary": "Use `scene_summary` to inspect result.objects, their closed/loose_parts geometry facts, "
-        "materials and roles; resolve the reported warnings in the context of the actual construction.",
-    "save_checkpoint": "Use `save_checkpoint` with best=True to mark your best state and retain its images. "
-        "Keep its checkpoint id with your visual evidence.",
-    "list_checkpoints": "Use `list_checkpoints` to read checkpoint ids, labels and fingerprints before choosing "
-        "an earlier state.",
-    "restore_checkpoint": "Use `restore_checkpoint` when an earlier state is better. Check status and checkpoint "
-        "after restoration; subsequent comparisons must describe that state.",
+    "execute_blender_code": "Use `execute_blender_code` to edit the model; check status and checkpoint. "
+        "Set seating_repair=True for every manual seating/support repair to show frozen-front before/after.",
+    "scene_summary": "Use `scene_summary` to inspect result.objects, closed/loose_parts, materials, roles and warnings.",
+    "save_checkpoint": "Use `save_checkpoint` with best=True to retain your best state and images; keep its id.",
+    "list_checkpoints": "Use `list_checkpoints` to read ids, labels and fingerprints before choosing a state.",
+    "restore_checkpoint": "Use `restore_checkpoint` for a better earlier state. Verify status and checkpoint; "
+        "subsequent comparisons must describe that state.",
     "fit_cameras": "Use `fit_cameras` to obtain a frozen basis and its sheet. Read each refs entry's status, "
         "iou, contour_mean_mm and flags alongside its overlay; a fitted camera does not prove the geometry.",
     "render_views": "Use `render_views` to inspect sheets and the views records for the chosen passes. A reference "
         "view's ref and basis identify its photo camera; the manifest preserves the camera and image coordinates.",
     "compare_to_photos": "Use `compare_to_photos` to examine each refs sheet, contour_mean_mm, model_only_px, "
         "photo_only_px and delta on the stated basis. Locate the mismatch in the image before deciding what to edit.",
-    "pick_surface_point": "Use `pick_surface_point` to locate image points on the model. Read each hits entry's "
-        "hit, object and point_mm; a hit identifies your current surface, not a measured point on the product.",
+    "pick_surface_point": "Use `pick_surface_point` to read hits (hit, object, point_mm) on your current model, "
+        "not measured points on the product.",
     "read_image": "Use `read_image` to inspect a photo or a crop when its feature is too small to read. Match its "
         "images metadata and pixel frame to the image you are measuring.",
     "export_glb": "Use `export_glb` to read status, sha256, validate_spec and seat_check. Passing these reports "
@@ -123,16 +123,14 @@ CORE_GUIDANCE = {
 SPECIALIST_GUIDANCE = {
     "temple_stage": "Use `temple_stage` for faceted temples before lens seating. Inspect its reported fit and "
         "photo comparisons on the job's current head, then check the complete glasses again.",
-    "seat_lens": "Use `seat_lens` to join a lens to its frame support, including crystal frames. Inspect the "
-        "reported seating result and the junction in angled AR views.",
-    "check_lens_seating": "Use `check_lens_seating` after seating or a related geometry change. Read each "
-        "reported failure; inspect the physical junction and repair its cause.",
+    "seat_lens": "Use `seat_lens` for needed seating repairs; its docs explain frame-type declarations. "
+        "Inspect the frozen-front before/after and angled AR junction.",
+    "check_lens_seating": "Use `check_lens_seating` before and after seating repairs. Read the declared type "
+        "and geometric failures separately. Seating remains required at finish.",
     "hide_eyewire": "Use `hide_eyewire` when the construction needs that operation; inspect the reported "
         "change and the remaining visible rim against the photos.",
-    "unseat_lens": "Use `unseat_lens` when revising a seated construction; inspect its result before rebuilding "
-        "the junction and checking seating again.",
-    "unhide_eyewire": "Use `unhide_eyewire` to restore an eyewire for a construction revision; inspect the "
-        "reported result and its visibility in the complete frame.",
+    "unseat_lens": "Use `unseat_lens` to revise a seat; inspect the result, rebuild and recheck.",
+    "unhide_eyewire": "Use `unhide_eyewire` to restore an eyewire; inspect the result and visibility.",
     "photo_print": "Use `photo_print` for complex surface patterns, including tortoiseshell, on the final "
         "geometry. Inspect its report and the attached print against the photos for placement, colour and joins.",
 }

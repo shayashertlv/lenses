@@ -94,7 +94,9 @@ def test_smoke_request_binds_real_prompt_all_photos_owner_notes_and_mode(job, mo
     assert record["request"]["settings"]["smoke"] is True
     assert record["requested_cap_micro_usd"] == 1_000_000
     assert record["request"]["settings"]["settled_stop_usd"] == "1.000000"
-    chars = len(spec.instructions) + len(spec.brief) + len(json.dumps([t.params_json_schema for t in spec.tools]))
+    schemas = json.dumps([{"name": t.name, "description": t.description,
+                           "parameters": t.params_json_schema} for t in spec.tools])
+    chars = len(spec.instructions) + len(spec.brief) + len(schemas)
     chars += sum(map(len, notes))
     assert record["estimate"]["initial_context_tokens"] == E.initial_context_tokens(chars, 6)
     assert record["estimate"]["requests"] == 1 and record["estimate"]["smoke"]["images"] == 6

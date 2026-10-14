@@ -13,20 +13,24 @@ Entry points
 
 View kinds (``VIEW_KINDS``, ``view_candidates``): the PLAN §5 labels, where an ambiguous label expands to every view
 it can mean and ``cameras.fit_best`` keeps the candidate with the lowest loss on ONE common final level ('side' ->
-right, left; 'top' -> top, topb; 'elevated side' / 'top-oblique' -> top_oblique_left, top_oblique_right; 'rear' ->
+right, left; 'top' -> top, topb; 'bottom' -> bottom, bottomb;
+'elevated side' / 'top-oblique' -> top_oblique_left, top_oblique_right; 'rear' ->
 back), or any exact ``cameras.VIEWS`` name (left, right, back, topb, top_oblique_left, ...) for a single candidate.
-'top' always means the label (both candidates); pass ``candidates`` to force one view.
+'top' and 'bottom' always mean labels (both front/back candidates); pass ``candidates`` to force one view.
 
 Schedule (bsa ``fit_all``'s order, re-cut for per-photo kinds):
 
 1. every photo that is not an 'angled' photo, in parallel worker processes: one ``cameras.fit_best`` over the kind's
    candidates (each fitted from its prior, ``n_refine`` = ``cameras.N_COARSE_POWELL`` unless overridden);
 2. the 'angled' photos, which also receive ``cameras.cross_seeds`` from step 1's winners (``cameras.NOT_CROSS_SOURCES``
-   (angled, top, topb, top_oblique_*) are never sources).
+   (angled, top/bottom variants, top_oblique_*, rear_threequarter_*) are never sources).
 
 Every fit reports its sign margin (``ViewFit.pitch_twin``). A sign-fixed kind (every candidate puts the camera ABOVE
 the glasses: 'top', 'elevated side') whose winner has pitch <= 0 is recorded with ``status: refused`` (its camera is
 still reported): projecting such a camera would paint photo colours onto undersides.
+Bottom views require negative pitch. Fits below ``MIN_USABLE_IOU`` are ``unusable`` camera evidence, retained with
+their overlays and metrics; this is not a model-likeness or finish gate. Transparent lenses use the same optional
+IoU as the optimizer; raw IoU is always reported separately.
 mm = px / (px per mm at the front pivot, ``cameras.px_per_mm_at``), bsa's ``contour_mean_mm`` convention. Contour
 statistics are symmetric (``cameras.contour_stats``): mean = mean of the two directed means, pNN = the larger of the
 two directed NNth percentiles; both directed means are reported too (render -> photo large: the model shows something
@@ -71,6 +75,7 @@ MANIFEST = "manifest.json"
 MODEL = "model.glb"
 CAMERAS_JSON = "cameras.json"
 CONTOUR_PERCENTILES = (90, 95)
+MIN_USABLE_IOU = 0.5  # at least half the effective foreground union overlaps; a camera-status label, not a finish gate
 
 # PLAN §5 labels -> candidate views. fit_best keeps the lowest common final-level loss among them.
 LABEL_CANDIDATES: dict[str, tuple[str, ...]] = {
@@ -79,10 +84,11 @@ LABEL_CANDIDATES: dict[str, tuple[str, ...]] = {
     "rear_threequarter": ("rear_threequarter_left", "rear_threequarter_right"),
     "side": ("right", "left"),                        # the label does not say which side
     "top": ("top", "topb"),                           # seen over the front or over the back; camera above either way
+    "bottom": ("bottom", "bottomb"),                  # camera below, seen under the front or under the back
     "elevated side": ("top_oblique_left", "top_oblique_right"),
     "angled": ("angled",),
 }
-LABEL_PITCH_SIGN = {"top": 1, "elevated side": 1}     # labels that put the camera ABOVE the glasses
+LABEL_PITCH_SIGN = {"top": 1, "bottom": -1, "elevated side": 1}
 CROSS_RECEIVERS = ("angled",)                         # bsa fit_all: the angled view only receives cross seeds
 # every accepted view kind: the labels, every exact cameras view ('top' stays the label), and spelling aliases
 VIEW_KINDS: dict[str, tuple[str, ...]] = {
@@ -109,9 +115,12 @@ def view_candidates(kind: str) -> tuple[str, ...]:
 
 
 def kind_pitch_sign(kind: str) -> int | None:
-    """+1 when every candidate of the kind puts the camera above the glasses (top/topb/top_oblique_*), else None."""
+    """Required camera side of the horizontal plane: +1 above, -1 below, otherwise unspecified."""
     above = cameras.TOP_VIEWS + cameras.TOP_OBLIQUE_VIEWS
-    return 1 if all(v in above for v in view_candidates(kind)) else None
+    candidates = view_candidates(kind)
+    if all(v in above for v in candidates):
+        return 1
+    return -1 if all(v in cameras.BOTTOM_VIEWS for v in candidates) else None
 
 
 @dataclass(frozen=True)
@@ -260,6 +269,22 @@ def sign_check(kind: str, cam: Camera) -> str | None:
         return (f"pitch {cam.pitch:.2f} contradicts label {kind!r} (the camera must be "
                 f"{'above' if s > 0 else 'below'} the glasses)")
     return None
+
+
+def camera_usability(metrics: dict) -> dict:
+    """Label registration, without changing the fit objective, metric values or delivery quality gates.
+
+    Optional-lens IoU is authoritative when present: a transparent lens's raw filled silhouette can legitimately
+    disagree with the open-frame matte. Non-finite metrics never certify a usable camera.
+    """
+    metric = "iou_lens_optional" if "iou_lens_optional" in metrics else "iou"
+    value = float(metrics[metric])
+    usable = bool(np.isfinite(value) and value >= MIN_USABLE_IOU)
+    return {"metric": metric, "value": value if np.isfinite(value) else None,
+            "minimum_iou": MIN_USABLE_IOU, "usable": usable,
+            "reason": None if usable else
+            f"{metric} {value:.4f} is below the usable camera overlap {MIN_USABLE_IOU:.2f} or is non-finite; "
+            "camera, matte, overlay and candidate evidence are retained; this is not a finish gate"}
 
 
 def contour_summary(render: np.ndarray, photo: np.ndarray, percentiles=CONTOUR_PERCENTILES) -> dict:
@@ -412,14 +437,18 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     x0, y0, x1, y1 = roi
     cs = contour_summary(scene.render(cam, fg.shape, 1, roi)["mask"], fg[y0:y1, x0:x1])
     refusal = sign_check(view_kind, cam)              # the kind's sign holds even when candidates are overridden
+    usability = camera_usability(m)
     flags = [f for f in ((best["sign"] or {}).get("flag"),) if f]
     if refusal:
         flags.append("label_sign_contradicted")
+    if not usability["usable"]:
+        flags.append("insufficient_camera_overlap")
     rec = {
         "image": str(image_path), "image_sha256": photo_sha, "shape": list(fg.shape),
         "view_kind": view_kind, "candidates": list(cands), "n_refine": nr,
-        "status": "refused" if refusal else "ok", "refusal": refusal, "flags": flags,
-        "code": "E_VIEW_SIGN" if refusal else None,
+        "status": "refused" if refusal else "ok" if usability["usable"] else "unusable",
+        "refusal": refusal or usability["reason"], "flags": flags, "usability": usability,
+        "code": "E_VIEW_SIGN" if refusal else None if usability["usable"] else "E_CAMERA_UNUSABLE",
         "view": best["view"], "winner_origin": best["refine"]["origin"], "camera": _cam(cam),
         "loss": best["loss"], "loss_common_level": best["common_loss"],
         "iou": m["iou"], "contour_mean_px": m["contour_mean_px"], "contour_p90_px": cs["p90"],
@@ -572,6 +601,12 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                       "cross_receivers": list(CROSS_RECEIVERS), "not_cross_sources": list(cameras.NOT_CROSS_SOURCES),
                       "n_coarse_powell": cameras.N_COARSE_POWELL, "pitch_bounds": cameras.PITCH_BOUNDS,
                       "pitch_windows": cameras.PITCH_WINDOWS,
+                      "roll": {"default_bounds": cameras.ROLL_BOUNDS, "axial_views": cameras.AXIAL_VIEWS,
+                               "axial_seeds": cameras.AXIAL_ROLL_SEEDS,
+                               "axial_window": "nearest 45-degree chart + default bounds; output canonicalized to [-180,180)"},
+                      "camera_usability": {"minimum_iou": MIN_USABLE_IOU,
+                                           "metric": "iou_lens_optional when present, otherwise iou",
+                                           "scope": "camera evidence status, not a finish gate"},
                       "choice": "lowest loss on one common final level among the kind's candidates (fit_best)",
                       "mm": "px / px_per_mm_at(camera, frame, front pivot)",
                       "contour": "symmetric: mean of the two directed means; pNN = max of the two directed pNN",
@@ -590,6 +625,7 @@ def _row(name: str, r: dict) -> str:
     return (f"{name:18s} {r['view_kind']:13s} -> {r['view']:17s} {r['status']:7s} IoU {r['iou']:.4f} "
             f"contour {r['contour_mean_px']:6.2f} px = {r['contour_mean_mm']:5.2f} mm (p90 {r['contour_p90_mm']:5.2f} mm, "
             f"{r['px_per_mm_at_front_pivot']:.2f} px/mm) yaw {c['yaw']:7.2f} pitch {c['pitch']:6.2f} "
+            f"roll {c['roll']:7.2f} "
             f"sign margin {_margin(r)} {r['flags'] or ''}")
 
 

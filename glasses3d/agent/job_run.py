@@ -76,7 +76,8 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
                    env_file=env_file,
                    offline_api_key="sk-offline-job-proof" if offline_handler is not None else None)
     if write_request:
-        schemas = json.dumps([t.params_json_schema for t in tools])
+        schemas = json.dumps([{"name": t.name, "description": t.description,
+                               "parameters": t.params_json_schema} for t in tools])
         tokens = E.initial_context_tokens(len(instructions) + len(text) + len(schemas) + sum(map(len, notes)), len(photos))
         if settings.smoke:
             cost = E.smoke_estimate(len(instructions) + len(text) + len(schemas) + sum(map(len, notes)),

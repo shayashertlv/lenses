@@ -163,7 +163,9 @@ def refits(all_refits):
 def test_production_top_prior_starts_with_the_prototype_grid():
     assert [s[:3] for s in _seeds("top")] == TOP_SEEDS
     assert [s[:3] for s in _seeds("topb")] == [(180.0 + y, p, r) for y, p, r in TOP_SEEDS]
-    assert len(cameras.prior_seeds("top")) == len(TOP_SEEDS) + 3 * len(cameras.TOP_LOW_PITCHES)
+    prefix = len(TOP_SEEDS) + 3 * len(cameras.TOP_LOW_PITCHES)
+    assert len(cameras.prior_seeds("top")) == prefix * len(cameras.AXIAL_ROLL_SEEDS)
+    assert all(seed[2] == 0 for seed in cameras.prior_seeds("top")[:prefix])
 
 
 @needs_data

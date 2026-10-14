@@ -20,6 +20,9 @@ and, first-class since WP3b (the prototype monkeypatched them): ``top`` (yaw 0, 
 signs, as the prototype fitted FT1119 reference-04, then a +45..62 band), ``topb`` (the same from yaw 180), and
 ``top_oblique_left`` / ``top_oblique_right`` (an elevated side view: yaw +90 / -90, pitch seeds +15..+60, pitch window
 ``PITCH_WINDOWS``, coarse starts distinct in yaw too: ``YAW_DISTINCT_VIEWS``).
+``bottom`` / ``bottomb`` mirror the top views' pitch grids for cameras below the glasses. Top and bottom search
+the full image-plane roll circle using uniform 45-degree seeds and overlapping +/-25-degree optimizer charts;
+the original zero-roll seed prefix and optimizer bounds remain unchanged. The half-turn chart crosses 180 smoothly.
 ``rear_threequarter_left`` / ``rear_threequarter_right`` cover signed rear-oblique views (yaw +100..172 /
 -172..-100); their seed grids mirror the front angled grid about the back, with ordinary pitch seeds.
 ``PITCH_BOUNDS`` is +/-95 for every view (bsa used (-40, 60); the prototype's +/-95 is what fitted the reference
@@ -28,7 +31,7 @@ cameras, and the bounds shape the contour-ICP trust region, so they are part of 
 Pitch sign: the top views keep the prototype's signed seeds and +/-95 window (that is what reproduces reference-04),
 so a camera BELOW the glasses can win a photo labelled 'top'. Every ``fit_view`` therefore reports a sign margin
 (``ViewFit.pitch_twin``: the best loss with the pitch held on the opposite sign), and ``fit_views`` refuses a winner
-whose pitch sign contradicts a sign-fixed label ('top', 'elevated side').
+whose pitch sign contradicts a sign-fixed label ('top', 'bottom', 'elevated side').
 
 Method (bsa DESIGN.md S3): seeds are scale/centre-aligned on the matte bounding box and scored at ~256 px glasses
 width; the best pitch-distinct starts are Powell-refined there; the best coarse solutions (plus the side views' pitch
@@ -45,6 +48,7 @@ PORT_REVIEW section 9.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -55,17 +59,20 @@ from .camera import Camera, NormFrame, project, project_mm, px_per_mm  # noqa: F
 
 # ----------------------------------------------------------------------------- policy
 PRIOR_YAW = {"front": 0.0, "back": 180.0, "left": 90.0, "right": -90.0,
-             "top": 0.0, "topb": 180.0, "top_oblique_left": 90.0, "top_oblique_right": -90.0,
+             "top": 0.0, "topb": 180.0, "bottom": 0.0, "bottomb": 180.0,
+             "top_oblique_left": 90.0, "top_oblique_right": -90.0,
              "rear_threequarter_left": 140.0, "rear_threequarter_right": -140.0}
 VIEWS = tuple(PRIOR_YAW) + ("angled",)
 HELD_OUT_VIEWS = ("angled",)      # bsa core: never seeds another view
 SIDE_VIEWS = ("left", "right")    # the orthographic pitch twin is always carried to the fit level
 TOP_VIEWS = ("top", "topb")       # pitch near +90: yaw and roll are nearly degenerate, so they never seed another view
+BOTTOM_VIEWS = ("bottom", "bottomb")  # camera below, looking over the front/back respectively
+AXIAL_VIEWS = TOP_VIEWS + BOTTOM_VIEWS
 TOP_OBLIQUE_VIEWS = ("top_oblique_left", "top_oblique_right")
 REAR_THREEQUARTER_VIEWS = ("rear_threequarter_left", "rear_threequarter_right")
-# cross_seeds sources: never the held-out view, the top views (see above) or the elevated side views (their pitch is a
+# cross_seeds sources: never the held-out view, top/bottom views (see above) or elevated side views (their pitch is a
 # deliberately different camera height, not the shared turntable elevation the rotated/mirrored seeds assume)
-NOT_CROSS_SOURCES = HELD_OUT_VIEWS + TOP_VIEWS + TOP_OBLIQUE_VIEWS + REAR_THREEQUARTER_VIEWS
+NOT_CROSS_SOURCES = HELD_OUT_VIEWS + AXIAL_VIEWS + TOP_OBLIQUE_VIEWS + REAR_THREEQUARTER_VIEWS
 ANGLED_YAWS = (20.0, 27.5, 35.0, 42.5, 50.0, 57.5, 65.0)
 PITCHES = (-20.0, -10.0, 0.0, 10.0, 20.0, 40.0)    # the plan's {-20, 0, 20, 40} plus +/-10: the basins are narrow
 PRIOR_YAW_OFFSETS = (-12.0, -8.0, -4.0, 0.0, 4.0, 8.0, 12.0)   # front/back/left/right seeds around the prior
@@ -95,6 +102,10 @@ REAR_THREEQUARTER_WINDOW = (100.0, 172.0)  # 180 - ANGLED_WINDOW, per explicitly
 PITCH_BOUNDS = (-95.0, 95.0)      # bsa: (-40, 60); +/-95 is what the prototype fitted every reference camera with
 PITCH_WINDOWS = {"top_oblique_left": (5.0, 85.0), "top_oblique_right": (5.0, 85.0)}   # the label fixes the sign
 ROLL_BOUNDS = (-25.0, 25.0)
+# Overlapping charts cover the full roll circle without changing the old zero-roll optimizer bounds.
+# The half-turn chart spans 155..205: a fit can cross 180 smoothly, then canonicalize its reported roll.
+AXIAL_ROLL_STEP = 45.0
+AXIAL_ROLL_SEEDS = (0.0, -45.0, 45.0, -90.0, 90.0, -135.0, 135.0, 180.0)
 PERSPECTIVE_BOUNDS = (0.0, 0.6)   # normalized units: 1 / camera distance in NormFrame extents
 COARSE_W, FIT_W, FINAL_W = 256.0, 512.0, 1024.0   # target glasses width (grid px) per level
 ROI_MARGIN = 0.3                  # ROI = matte bbox + 30 % of its width on every side (coarse, fit)
@@ -314,17 +325,29 @@ def pitch_window(view: str) -> tuple[float, float]:
     return PITCH_WINDOWS.get(view, PITCH_BOUNDS)
 
 
+def roll_window(view: str, roll: float) -> tuple[float, float]:
+    """Top/bottom use overlapping 45-degree charts; other views retain the original +/-25-degree prior.
+
+    A chart's unwrapped angles avoid a discontinuity at +/-180. Near zero its bounds are bit-for-bit the
+    original ones, including the least-squares trust region when those bounds are inactive.
+    """
+    center = AXIAL_ROLL_STEP * round(roll / AXIAL_ROLL_STEP) if view in AXIAL_VIEWS else 0.0
+    return (center + ROLL_BOUNDS[0], center + ROLL_BOUNDS[1])
+
+
 def _bounds(center: Camera, unit_px: float, yaw_win: tuple[float, float], *, local: dict | None = None,
-            pivot: np.ndarray | None = None, pitch_win: tuple[float, float] | None = None):
+            pivot: np.ndarray | None = None, pitch_win: tuple[float, float] | None = None,
+            roll_win: tuple[float, float] | None = None):
     pw = PITCH_BOUNDS if pitch_win is None else pitch_win
+    rw = ROLL_BOUNDS if roll_win is None else roll_win
     x = pack(center, unit_px, pivot)
     if local is None:       # global windows (coarse / fit levels)
-        return [yaw_win, pw, ROLL_BOUNDS, (10 * PERSPECTIVE_BOUNDS[0], 10 * PERSPECTIVE_BOUNDS[1]),
+        return [yaw_win, pw, rw, (10 * PERSPECTIVE_BOUNDS[0], 10 * PERSPECTIVE_BOUNDS[1]),
                 (x[4] - 35.0, x[4] + 30.0), (x[5] - 15.0, x[5] + 15.0), (x[6] - 15.0, x[6] + 15.0)]
     d = local
     return [(max(yaw_win[0], x[0] - d["yaw"]), min(yaw_win[1], x[0] + d["yaw"])),
             (max(pw[0], x[1] - d["pitch"]), min(pw[1], x[1] + d["pitch"])),
-            (max(ROLL_BOUNDS[0], x[2] - d["roll"]), min(ROLL_BOUNDS[1], x[2] + d["roll"])),
+            (max(rw[0], x[2] - d["roll"]), min(rw[1], x[2] + d["roll"])),
             (max(10 * PERSPECTIVE_BOUNDS[0], x[3] - d.get("persp", 10.0)),
              min(10 * PERSPECTIVE_BOUNDS[1], x[3] + d.get("persp", 10.0))),
             (x[4] - d["scale"], x[4] + d["scale"]), (x[5] - d["shift"], x[5] + d["shift"]),
@@ -360,7 +383,8 @@ def powell(scene: raster.RasterScene, lv: Level, cam: Camera, bounds, maxfev: in
 # ----------------------------------------------------------------------------- contour ICP
 def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: float, pivot: np.ndarray | None,
                 yaw_win: tuple[float, float], iters: int | None = None,
-                pitch_win: tuple[float, float] | None = None) -> Camera | None:
+                pitch_win: tuple[float, float] | None = None,
+                roll_win: tuple[float, float] | None = None) -> Camera | None:
     """Silhouette-contour ICP: match rendered contour samples (with their 3D ray hits) to the nearest photo
     contour pixel and vice versa, then a robust least-squares step on the camera; repeat.
 
@@ -370,6 +394,7 @@ def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: floa
     """
     iters = ICP_ITERS if iters is None else iters
     pw = PITCH_BOUNDS if pitch_win is None else pitch_win
+    rw = ROLL_BOUNDS if roll_win is None else roll_win
     us, vs = raster.pixel_grid(lv.shape, lv.stride, lv.roi)
     if not lv.edge.any():
         return None
@@ -378,8 +403,8 @@ def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: floa
     _, pidx = ndimage.distance_transform_edt(~lv.edge, return_indices=True)
     trunc = max(ICP_TRUNC * lv.width * lv.stride, 3.0 * lv.stride)      # native px
     x = pack(cam, unit_px, pivot)
-    lo = np.array([yaw_win[0], pw[0], ROLL_BOUNDS[0], 10 * PERSPECTIVE_BOUNDS[0], -np.inf, -np.inf, -np.inf])
-    hi = np.array([yaw_win[1], pw[1], ROLL_BOUNDS[1], 10 * PERSPECTIVE_BOUNDS[1], np.inf, np.inf, np.inf])
+    lo = np.array([yaw_win[0], pw[0], rw[0], 10 * PERSPECTIVE_BOUNDS[0], -np.inf, -np.inf, -np.inf])
+    hi = np.array([yaw_win[1], pw[1], rw[1], 10 * PERSPECTIVE_BOUNDS[1], np.inf, np.inf, np.inf])
     x = np.clip(x, lo + 1e-9, hi - 1e-9)
     for _ in range(iters):
         c = unpack(x, unit_px, pivot)
@@ -454,7 +479,7 @@ def _optional_faces(scene: raster.RasterScene, faces: np.ndarray | None) -> np.n
 class ViewFit:
     """Multi-start camera search for one photo. ``pivot`` (normalized model point) is held still by the
     rotation/zoom parameters (the front-piece centre; ``fitmesh.FitMesh.front_pivot``). ``view`` selects the yaw window
-    (``yaw_window``), the pitch window (``pitch_window``) and whether the side-view pitch twin is carried."""
+    (``yaw_window``), pitch/roll windows and whether the side-view pitch twin is carried."""
 
     def __init__(self, view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None = None):
         self.view = view
@@ -490,7 +515,8 @@ class ViewFit:
         """``pitch_win`` overrides the view's ``pitch_window`` (``pitch_twin`` searches the opposite sign)."""
         win = yaw_win if yaw_win is not None else yaw_window(self.view, cam.yaw)
         pw = pitch_window(self.view) if pitch_win is None else pitch_win
-        b = _bounds(cam, self.unit, win, local=local, pivot=self.pivot, pitch_win=pw)
+        b = _bounds(cam, self.unit, win, local=local, pivot=self.pivot, pitch_win=pw,
+                    roll_win=roll_window(self.view, cam.roll))
         c2, l2, n = powell(self.scene, lv, cam, b, maxfev, self.unit, xtol=xtol, pivot=self.pivot)
         self.evals += n
         return c2, l2
@@ -505,7 +531,7 @@ class ViewFit:
             cam, loss = self.powell(lv, cam, maxfev, local=st, xtol=0.05 if lv.name == "coarse" else 0.02,
                                     pitch_win=pw)
             c2 = contour_icp(self.scene, lv, cam, self.unit, self.pivot, yaw_window(self.view, cam.yaw),
-                             pitch_win=pw)
+                             pitch_win=pw, roll_win=roll_window(self.view, cam.roll))
             self.evals += ICP_ITERS
             if c2 is not None:
                 l2 = lv.loss(self.scene, c2)
@@ -564,6 +590,8 @@ class ViewFit:
         cands, keys = [], set()
         for loss, cam, origin in order:
             key = (cam.yaw >= 0, round(cam.pitch / 15.0))
+            if self.view in AXIAL_VIEWS:
+                key += (round(cam.roll / AXIAL_ROLL_STEP) % len(AXIAL_ROLL_SEEDS),)
             if key in keys or loss > FIT_SECOND_WITHIN * order[0][0]:
                 continue
             keys.add(key)
@@ -658,12 +686,14 @@ def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
     """(yaw, pitch, roll, origin) seeds of a view's prior. front/back/left/right/angled are bsa's grids unchanged;
     ``top``/``topb`` are make_uv_test.py's explicit reference-04 grid (yaw offsets outer, pitches inner, same order;
     ``prior_seeds(v)[:len(TOP_YAW_OFFSETS) * len(TOP_PITCHES)]`` is exactly that grid) followed by the
-    ``TOP_LOW_PITCHES`` band; ``top_oblique_*`` are the yaw-prior offsets x ``TOP_OBLIQUE_PITCHES``."""
+    ``TOP_LOW_PITCHES`` band. That zero-roll prefix is followed by uniform roll charts around the complete circle.
+    Bottom views mirror the pitch grid; ``top_oblique_*`` retain the yaw offsets x ``TOP_OBLIQUE_PITCHES``."""
     if view not in PRIOR_YAW and view != "angled":
         raise ValueError(f"unknown view {view!r}; known: {', '.join(VIEWS)}")
-    if view in TOP_VIEWS:
-        return [(PRIOR_YAW[view] + d, p, 0.0, "prior") for pitches in (TOP_PITCHES, TOP_LOW_PITCHES)
-                for d in TOP_YAW_OFFSETS for p in pitches]
+    if view in AXIAL_VIEWS:
+        sign = -1.0 if view in BOTTOM_VIEWS else 1.0
+        return [(PRIOR_YAW[view] + d, sign * p, roll, "prior") for roll in AXIAL_ROLL_SEEDS
+                for pitches in (TOP_PITCHES, TOP_LOW_PITCHES) for d in TOP_YAW_OFFSETS for p in pitches]
     if view in REAR_THREEQUARTER_VIEWS:
         sign = 1.0 if view.endswith("_left") else -1.0
         return [(sign * (180.0 - y), p, 0.0, "prior") for y in ANGLED_YAWS for p in PITCHES]
@@ -675,7 +705,7 @@ def prior_seeds(view: str) -> list[tuple[float, float, float, str]]:
 
 def cross_seeds(target: str, winners: dict[str, Camera]) -> list[tuple[float, float, float, str]]:
     """Rotation seeds for ``target`` from other views' winners. ``NOT_CROSS_SOURCES`` are never sources: the angled
-    view (held out), the top views (near pitch 90 their yaw offset from the prior is not a rotation of the
+    view (held out), the top/bottom views (near pitch +/-90 their yaw offset from the prior is not a rotation of the
     photographer's turntable), the elevated side views (their pitch is a deliberately different camera height), and
     the rear three-quarter views (their yaw is oblique, not a measured turntable offset). Seeds whose pitch lies outside the target's
     ``pitch_window`` are dropped (bsa had no per-view pitch window). ``fit_views`` uses it for the angled view only,
@@ -695,7 +725,7 @@ def cross_seeds(target: str, winners: dict[str, Camera]) -> list[tuple[float, fl
 
 
 def _wrap_yaw(yaw: float, view: str) -> float:
-    """Express a yaw inside the view's window convention (back/topb around 180, every other view around 0)."""
+    """Express a yaw inside the view's window convention (back/topb/bottomb around 180, others around 0)."""
     if view != "angled" and PRIOR_YAW[view] == 180.0:
         return yaw % 360.0
     return (yaw + 180.0) % 360.0 - 180.0
@@ -805,6 +835,8 @@ def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.nda
         if cs:
             vf.run_starts(cs, N_CROSS_POWELL)
     res = vf.refine()
+    if view in AXIAL_VIEWS and not -180.0 <= res["camera"].roll < 180.0:
+        res["camera"] = replace(res["camera"], roll=(res["camera"].roll + 180.0) % 360.0 - 180.0)
     met = native_metrics(scene, res["camera"], fg, matte_roi(fg), vf.ignore_faces)
     met = {k: v for k, v in met.items() if k not in ("mask", "face_id")}
     sign = vf.pitch_twin(res["camera"]) if sign_margin else None

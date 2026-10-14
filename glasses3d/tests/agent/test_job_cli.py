@@ -79,6 +79,20 @@ def test_show_labels_draft_and_keeps_failed_checks_visible(job, monkeypatch):
     assert shown["checks"] == {key: report[key] for key in ("validate_spec", "seating", "print_check", "arview")}
 
 
+def test_estimate_counts_tool_descriptions(job, monkeypatch):
+    first = command("estimate", job)
+    original = job_run.build_tools
+
+    def expanded(*args, **kwargs):
+        tools = original(*args, **kwargs)
+        tools[0].description += " Extra tool guidance." * 2000
+        return tools
+
+    monkeypatch.setattr(job_run, "build_tools", expanded)
+    second = command("estimate", job)
+    assert second["estimate"]["expected_micro_usd"] > first["estimate"]["expected_micro_usd"]
+
+
 def test_show_reports_a_no_usable_checkpoint_attempt_without_inventing_delivery(job):
     attempt = job / "runs/no-scene/delivery.json"
     attempt.parent.mkdir(parents=True)

@@ -20,6 +20,10 @@ def temple_tool(scene, call, parent_settings, fatal):
         and facet tools within this run's approval and your dollar allowance; its requests also count against the
         run's money and interaction limits. The accepted fitted temples are applied only if the parent head still
         matches the captured one. Inspect its summary, compare the result to photos, and continue the job.
+        When deriving a hinge axis from an unposed source, recognition needs a temple-role part centered on
+        each side, with world X and Z bounding-box extents each strictly below 3.2 mm and center Z within
+        4 mm of the temple-front hinge plane. This is a tool heuristic, not a product geometry requirement;
+        do not shrink real hardware just to satisfy it. Export refusals include the underlying cause.
 
         Args:
             budget_usd: Positive dollar allowance within the money remaining before the job's settled stop,

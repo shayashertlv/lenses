@@ -27,11 +27,12 @@ def test_view_tables_follow_plan_section_5():
 
 def test_every_label_maps_to_known_views():
     used = {lab for labels in PLAN_S5.values() for lab in labels}
-    assert used | {'rear_threequarter'} == set(fit_views.LABEL_CANDIDATES)
+    assert used | {'rear_threequarter', 'bottom'} == set(fit_views.LABEL_CANDIDATES)
     for label, views in fit_views.LABEL_CANDIDATES.items():
         assert views and all(v in cameras.VIEWS for v in views), label
     assert fit_views.LABEL_CANDIDATES["side"] == ("right", "left")
     assert fit_views.LABEL_CANDIDATES["top"] == ("top", "topb")
+    assert fit_views.LABEL_CANDIDATES["bottom"] == ("bottom", "bottomb")
     assert fit_views.LABEL_CANDIDATES["elevated side"] == cameras.TOP_OBLIQUE_VIEWS
     assert fit_views.CROSS_RECEIVERS == ("angled",)
     # the receivers' candidates are never cross sources, and no sign-fixed label's candidate seeds anything
@@ -99,8 +100,9 @@ def test_import_checks_the_jobs_own_sha256(tmp_path):
 def test_parse_candidates():
     got = fit_views._parse_candidates(["reference-06.png=top_oblique_left, top_oblique_right,left"])
     assert got == {"reference-06.png": ("top_oblique_left", "top_oblique_right", "left")}
+    assert fit_views._parse_candidates(["reference-06.png=bottom"]) == {"reference-06.png": ("bottom",)}
     with pytest.raises(SystemExit):
-        fit_views._parse_candidates(["reference-06.png=bottom"])
+        fit_views._parse_candidates(["reference-06.png=diagonal"])
 
 
 @pytest.mark.skipif(not fit_views.manifest_path("prada").exists(), reason="Prada reference data never imported")
