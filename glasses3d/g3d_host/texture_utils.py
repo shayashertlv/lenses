@@ -12,7 +12,7 @@ import numpy as np
 from scipy import ndimage
 from skimage.color import deltaE_ciede2000, rgb2lab
 
-from . import raster
+from . import raster, pose
 from .camera import Camera, NormFrame, project_mm
 
 GAIN_BOUNDS = (0.25, 4.0)
@@ -149,6 +149,24 @@ def sample_bilinear(img: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray
             + t[y0 + 1, x0] * (1 - fx) * fy + t[y0 + 1, x0 + 1] * fx * fy)
 
 
+def viewing_direction(P: np.ndarray, cam: Camera, frame: NormFrame) -> np.ndarray:
+    """Unit direction to the physical eye for off-axis cameras; the legacy axial approximation otherwise.
+
+    Returns (K, 3) for an off-axis camera and the historical (3,) vector when both eye offsets are zero.
+    Keeping that branch preserves existing print donor decisions for frozen legacy calibrations.
+    """
+    if cam.eye_x == 0 and cam.eye_y == 0:
+        return raster.camera_basis(cam)[2]
+    toward = pose.toward_camera(np.asarray(P, float).reshape(-1, 3), cam, frame)
+    return toward / np.maximum(np.linalg.norm(toward, axis=-1, keepdims=True), 1e-12)
+
+
+def viewing_cosine(P: np.ndarray, N: np.ndarray, cam: Camera, frame: NormFrame) -> np.ndarray:
+    toward = viewing_direction(P, cam, frame)
+    normals = np.asarray(N, float)
+    return normals @ toward if toward.ndim == 1 else np.sum(normals * toward, axis=1)
+
+
 def visible_points(P: np.ndarray, N: np.ndarray, cam: Camera, frame: NormFrame, scene, shape: tuple[int, int],
                    min_cos: float = VIS_MIN_COS, tol_mm: float = VIS_TOL_MM) -> tuple[np.ndarray, np.ndarray]:
     """Surface points (model mm, outward unit normals ``N``) the camera sees DIRECTLY: inside the image, turned toward
@@ -164,4 +182,4 @@ def visible_points(P: np.ndarray, N: np.ndarray, cam: Camera, frame: NormFrame, 
     d = -(frame.to_norm(P) @ toward) * frame.extent
     hit = scene.cast(cam, uv[:, 0], uv[:, 1])
     first = ~hit["hit"] | (hit["depth"] >= d - tol_mm)
-    return inb & (np.asarray(N, float) @ toward > min_cos) & first, uv
+    return inb & (viewing_cosine(P, N, cam, frame) > min_cos) & first, uv

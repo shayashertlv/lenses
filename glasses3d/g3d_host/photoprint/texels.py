@@ -384,7 +384,7 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     H, W = v.shape
     vis_g, uv = T.visible_points(P, N, cam, job.frame, occ.scene(V), (H, W), min_cos=min(min_cos, GRAZE_MIN_COS),
                                  tol_mm=VIS_TOL_MM)
-    cos = N @ raster.camera_basis(cam)[2]
+    cos = T.viewing_cosine(P, N, cam, job.frame)
     vis = vis_g & (cos > min_cos)                  # the same first-surface test, donor angles only
     inb = (uv[:, 0] > 0.5) & (uv[:, 0] < W - 1.5) & (uv[:, 1] > 0.5) & (uv[:, 1] < H - 1.5)
     ui = np.clip(np.round(uv[:, 0]).astype(int), 0, W - 1)

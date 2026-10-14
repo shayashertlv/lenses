@@ -6,8 +6,10 @@ A ``Camera`` maps NORMALIZED model points (``NormFrame.to_norm`` of millimetres)
 - basis (normalized frame): right = (cy, 0, -sy), up = (-sp sy, cp, -sp cy), toward = (cp sy, sp, cp cy);
 - yaw 0 looks from +Z (the front photo), +90 from +X (the glasses' own LEFT side), 180 from -Z (rear);
   positive pitch = the camera is above the glasses looking down (+90 = straight down, a top view);
-- for camera coordinates (X, Y, Z) = (P.right, P.up, P.toward): depth = 1 - perspective Z, (x, y) = (X, Y) / depth,
-  u = cx + s (cr x - sr y), v = cy - s (sr x + cr y). ``perspective`` = 1 / camera distance in NormFrame extents;
+- for camera coordinates (X, Y, Z) = (P.right, P.up, P.toward): depth = 1 - perspective Z,
+  (x, y) = (X - eye_x, Y - eye_y) / depth. Optional eye_x/eye_y are lateral camera translations in normalized
+  extents before roll; they default to zero and are omitted from historical camera dictionaries.
+  u = cx + s (cr x - sr y), v = cy - s (sr x + cr y). ``perspective`` = 1 / axial camera distance in NormFrame extents;
   0 is orthographic. Integer (u, v) is a pixel CENTRE.
 
 The field order and the arithmetic of ``project`` are exactly those of ``reconstruction.camera``, so cameras fitted by
@@ -23,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 CAMERA_FIELDS = ("yaw", "pitch", "roll", "perspective", "scale", "center_x", "center_y")
+EYE_FIELDS = ("eye_x", "eye_y")
 
 
 @dataclass(frozen=True)
@@ -34,13 +37,24 @@ class Camera:
     scale: float
     center_x: float
     center_y: float
+    # Lateral eye coordinates along the pre-roll right/up axes, in NormFrame extents.
+    # Zero is the historical camera whose optical axis passes through frame.center.
+    eye_x: float = 0.0
+    eye_y: float = 0.0
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        result = asdict(self)
+        if self.eye_x == 0.0 and self.eye_y == 0.0:
+            for key in EYE_FIELDS:
+                del result[key]
+        return result
 
     @staticmethod
     def from_dict(d: dict) -> "Camera":
-        return Camera(**{k: float(d[k]) for k in CAMERA_FIELDS})
+        if any(isinstance(d.get(k), bool) or not math.isfinite(float(d.get(k, 0.0))) for k in EYE_FIELDS):
+            raise ValueError("lateral camera offsets must be finite numbers")
+        return Camera(**{k: float(d[k]) for k in CAMERA_FIELDS},
+                      **{k: float(d.get(k, 0.0)) for k in EYE_FIELDS})
 
 
 def camera_from_dict(d: dict) -> Camera:
@@ -56,7 +70,10 @@ def project(vertices: np.ndarray, camera: Camera) -> np.ndarray:
     depth = 1 - camera.perspective * (vertices @ toward)
     if np.any(depth <= 0.05):
         raise ValueError("Geometry crosses the camera near plane")
-    x, y = (vertices @ right) / depth, (vertices @ up) / depth
+    x, y = vertices @ right, vertices @ up
+    if camera.eye_x or camera.eye_y:
+        x, y = x - camera.eye_x, y - camera.eye_y
+    x, y = x / depth, y / depth
     cr, sr = math.cos(roll), math.sin(roll)
     return np.column_stack((camera.center_x + camera.scale*(cr*x - sr*y),
                             camera.center_y - camera.scale*(sr*x + cr*y)))

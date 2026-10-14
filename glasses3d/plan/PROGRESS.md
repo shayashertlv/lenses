@@ -23,8 +23,9 @@ $20 settled stop, $23 reserve cap, max effort; not a resume. **Repairs committed
 fresh run completed and delivered at $19.161346 on c0021, with specification and seating passing. Webcam review
 was started.** Appearance limitations remain below; M5 owner visual acceptance is pending. **The separately approved
 Oakley run 2 subsequently delivered a reserve-limit draft at $15.468835. M5-fix-2 is now implemented at $0;
-item 6's real-photo measurement proof exposed cross-view inconsistency; the owner approved expanding item 6 at $0
-to investigate and repair calibration, now in progress.** No further
+item 6's real-photo measurement proof exposed cross-view inconsistency; the owner approved expanding item 6 at $0.
+The general camera representation is repaired and independently proven, but the fresh Oakley measurement proof
+still fails its unchanged errors; item 6 remains open.** No further
 paid run is authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
@@ -77,7 +78,7 @@ item 6 is implemented but its real-photo agreement proof **fails and remains ope
   nothing is mirrored. It retains the facet method's 1 px camera floor, separate 0.3 degree sensitivity and
   condition >20 refusal. Camera/pose lineage is verified against the frozen source, including malformed or
   partially declared poses; no calibration is adjusted by this tool.
-  Final real proof: `data/assembly/m5fix2-photo-read-proof-c/proof.json` and
+  Initial real proof: `data/assembly/m5fix2-photo-read-proof-c/proof.json` and
   `m5fix2_photo_read_final.{log,receipt.json}` (**exit 2, $0**). All four readings fail the required pair agreement.
   Maximum pair distances are **11.02 / 9.90 mm** for the two hinge pods and **16.95 / 11.31 mm** for the tips.
   The same positive-X hinge from front+side versus front+top differs by **9.34 mm**, while their conditional depth
@@ -149,8 +150,128 @@ Independent off-axis pinhole observations with held-out 3D points reproduce nonz
 pre-roll lateral eye offsets recovers both training and held-out points to numerical precision. The on-axis
 control remains exact. Reproducer: `data/assembly/m5fix2-photo-read-audit/pinhole-a/pinhole.json` (27 training,
 12 held-out points; old held-out RMS **2.012 px**, corrected approximately **1e-13 px**). This establishes the
-general representation limitation, not yet its contribution to Oakley's 9.34 mm disagreement. Real fitting
-ablations and backward-compatible correction are next; original proof points and errors remain held out.
+general representation limitation; the following ablations and correction measure its contribution to Oakley's
+disagreement. Original proof points and errors remain held out.
+
+**Authorized calibration repair, following baseline commit `6fb020e`:** optional `eye_x` / `eye_y` represent
+lateral camera translation in the shared normalized frame. Legacy seven-field files keep zero offsets and serialize
+unchanged. Projection, raster rays, Blender conversion, crops, triangulation, visibility and frozen-camera hashes
+carry the offsets. The existing `from_blender` recentering behavior remains the default; `preserve_frame=True`
+is explicit. Print viewing directions use the physical eye for the new cameras, retaining the old branch for
+zero-offset frozen cameras. No product geometry or textures are edited.
+
+The validated seven-parameter search remains the default. Astra can explicitly request `fit_cameras(off_axis=True)`
+to add one nine-parameter continuation; the tool, host journal and result record the requested mode. Both camera
+families from every view remain candidates on one common final ROI/grid; the selected camera's metrics and
+pitch-twin evidence are recomputed. Existing angular, perspective, loss and usability policies remain unchanged.
+The two added coordinates each have a predeclared domain of +/- the model's normalized enclosing-sphere radius,
+with boundary hits reported. Optical pitch-sign checks remain required; physical eye positions must also respect
+the declared view side. Pitch-twin reports include full cameras and physical positions because opposite optical
+pitch need not mean opposite physical eye height after lateral translation. Independent review identified and
+corrected candidate-retention, view-alias and print-direction gaps. After the real fit exited, the final axial-roll
+canonicalization was restored after global selection (with an offset-preserving regression test), so all fitting
+workers saw one source version. The real selected axial roll is already 84.93 degrees; that final normalization
+does not change its camera or the held-out result.
+
+Independent checks so far: representation/legacy tests **76 passed, one Windows skip**; actual Blender test
+**one passed**, analytic maximum **0.000175 px**, rendered-centroid maximum **0.021651 px**, within the existing
+0.01/0.1 px checks. A known off-axis synthetic silhouette fit reduces independent point RMS from **1.030151**
+to **0.276921 px** without changing bounds, weights or seeds (**two tests passed**). Focused compatibility checks
+after the review repairs: **185 passed, one Windows skip**, 40.00 s. These sets overlap and are not added to the
+full-suite count. Evidence: `data/assembly/m5fix2-photo-read-audit/camera-eye-{blender,fit}.{log,status.json}`.
+
+The separate real-photo lens-objective ablation did **not** fix agreement: the positive-X hinge's maximum pair
+distance was **9.90 mm** originally, **9.20 mm** after another unchanged optional-lens refinement, and **9.13 mm**
+with a full-lens objective. The optional-lens policy is therefore unchanged. Evidence:
+`data/assembly/m5fix2-photo-read-audit/ablation-a/held-out.json`; all four readings still failed.
+
+The fresh six-photo proof ran detached under keeper PID **34284**, started **2026-10-14 12:14:03 UTC**, using
+**six workers** with **15.07 GiB** free commit, BLAS=1 and EcoQoS opt-out. From the repository root, use the venv's
+Python with `-m glasses3d.tests.proofs.assembly_m5fix2_calibration --source
+glasses3d/data/assembly/m5fix1-camera-roll-a --out glasses3d/data/assembly/m5fix2-photo-read-audit/NEW-OUTPUT
+--workers 6` (the proof refuses an existing output). It copies immutable photos/model, preserves the
+original candidates, refinement count and matte policy, records source-code/input hashes, freezes all cameras,
+and only then imports the original four held-out points and invokes the real `photo_read` tool proof. Log/status:
+`data/assembly/m5fix2-photo-read-audit/off-axis-a.{log,status.json}`. It finished **12:21:11 UTC**, **425.078 s**,
+exit **2**, `accuracy_failed`. All six camera registrations are usable; all original/copy hashes match; there were
+**zero network attempts and zero production-client constructions**, cost **$0**. No concurrent heavy pool ran.
+
+The new cameras improve every held-out pair disagreement, but **all four readings still fail**:
+
+| Held-out feature | Original maximum pair distance | Repaired maximum pair distance | New maximum residual | New pair/error ratio |
+|---|---:|---:|---:|---:|
+| Negative-X hinge logo centre | 11.02 mm | **9.25 mm** | 36.94 px | 7.81 |
+| Positive-X hinge logo centre | 9.90 mm | **7.44 mm** | 25.57 px | 6.42 |
+| Negative-X rounded terminal | 16.95 mm | **14.15 mm** | 40.75 px | 15.32 |
+| Positive-X rounded terminal | 11.31 mm | **9.19 mm** | 32.76 px | 11.71 |
+
+The ratio is the maximum pair difference divided by its reported axis uncertainty; the unchanged proof requires
+at most one, plus a consistent joint solve. The top photo has optional-lens IoU **0.75406**, raw IoU **0.63650**;
+its perspective is at the existing 0.6 bound. Angled photo 02 reaches the predeclared lateral-eye bound and is
+flagged. Neither bound was widened. The common objective selects the unchanged front camera; photo 05's selected
+continuation retains zero eye offsets. Records preserve both candidates, all losses and diagnostics. The unchanged
+accepted mesh is a visual reference whose silhouette registration does not establish accurate metric calibration.
+The representation defect is fixed; the remaining photo/model/correspondence uncertainty has not been resolved.
+
+An independent photo-only review predeclared 12 additional rigid-front features without consulting projections or
+residuals. These cannot identify all six free nine-parameter cameras: side photos 03/05 each have only four
+identified points (eight scalar observations), and top 06 has none in that independent selection. This remains
+underdetermined even with known feature XYZ. The shared frame supplies coordinates, not a physical calibration
+measurement; anchoring to the
+accepted mesh transfers its shape errors into the cameras. Front features also cannot determine temple opening.
+No assumption that temple poses differ has been made. Exact observations and their limitations are preserved in
+`data/assembly/m5fix2-photo-read-audit/independent-feature-audit.json`. These observations are diagnostic only;
+no held-out point, error bar, quality threshold or fit parameter has been adjusted to force agreement. Closing the
+real accuracy proof needs independent calibration/correspondence evidence, especially for top 06; the current
+selected observations cannot identify it. Item 6 is **not declared complete**. Full regression results follow below.
+All calibration work costs **$0**.
+
+Focused camera regression: `m5fix2_camera_final_focused.{log,receipt.json}`, **17 passed**, 33.50 s,
+including the global roll-normalization test; the frozen six-photo basis loads and verifies under this code.
+The first expanded full suite, `m5fix2_calibration_full_main`, ran **12:23:09-12:36:12 UTC**, eight workers,
+**16.22 GiB** free commit: **3,322 passed, five failed, two skipped**, 781.30 s. Three failures were the known
+timing/QoS checks. One expected seven serialized fields. One was a real default-policy quality regression:
+the extended fit selected optical pitch **9.65861 degrees** for known truth **8 degrees**, exceeding the
+unchanged **1.5-degree** tolerance. Its silhouette loss and vertex projection were better, but that does not
+certify optical orientation. The legacy fit's pitch was **7.98528 degrees**; independent known-vertex RMS was
+**0.12981 px** legacy versus **0.08806 px** extended. Translation and principal-point freedom allow optical
+orientation to drift while matching pixels. The original quality test and tolerances are untouched.
+
+Technical decision, independently reviewed by both calibration and payload reviewers: keep the validated default
+and expose extended fitting as an explicit capability, not an automatic replacement. No capability, historical
+evidence or failed result was removed; no penalty, bound, seed or threshold was tuned to the failed fixture.
+The six-photo proof already used explicit `off_axis=True`, so it remains the evidence for that method. Final
+tool/default forwarding and journal checks: `m5fix2_camera_policy_focused`, **116 passed**, 17.16 s.
+The final main suite, `m5fix2_calibration_final_main`, ran **12:45:23-12:56:49 UTC**, eight workers/loadfile with
+**16.14 GiB** free commit: **3,326 passed, three failed, two skipped**, **683.66 s**. The original camera-angle
+and exact seven-field serialization tests pass unchanged. The failures are the seeing worker's **74.255 s >60 s**,
+temple Blender core's **91.4 ms >80 ms**, and the QoS baseline child's conflict with the descendant opt-out
+watcher. As prescribed, complete affected Blender modules reran alone: `m5fix2_calibration_isolated_blender`,
+**37 passed**, **109.25 s**. The QoS fixture passed without the conflicting descendant watcher:
+`m5fix2_calibration_isolated_qos`, **one passed**, **0.30 s**. No timing, geometry or quality tolerance changed.
+
+The last source review caught a reporting gap: extended camera candidates and pitch-twin diagnostics were frozen
+on disk but omitted from the main tool's per-photo summary. The tool now returns the selected full camera,
+off-axis candidate evidence and sign/twin evidence, so the existing limiter and `read_report` retain access.
+One new regression follows the actual SDK fit tool through capped output and retrieves all three fields using
+the registered reader. The final additive reporting fix changes no fitter math or default-camera results.
+`m5fix2_calibration_report_checks`: **93 passed, one Windows skip**, **8.50 s**, including that new regression
+and the complete tool/report modules. A second independent review verified the successful paged diagnostic path.
+
+Print `m5fix2_calibration_full_print` ran **13:01:47-13:05:23 UTC**, two workers/loadfile, **16.16 GiB** free
+commit: **310 passed, four failed**, **214.49 s**. All four failures were the colour-policy fixture's placeholder
+`camera=object()`, which lacks the new shared direction helper's camera fields. Replaced only that placeholder
+with a genuine zero-offset `Camera`; all colour, mask and sampling assertions remain unchanged. The complete
+colour-policy module passed as `m5fix2_calibration_colour_checks`: **43 passed**, **18.99 s**. No runtime
+compatibility fallback or filter change was added.
+
+**Final regression coverage: 3,644 distinct Python tests pass, two Windows-privilege skips**, combining the
+prescribed full suites, affected isolated reruns and the one late paging regression (not double-counting overlapping
+modules). The unchanged AR implementation retains its completed **498 unit + 105 QA** passes and TypeScript check
+from this milestone's baseline. All jobs exited with receipts; no heavy job remains running. Complete diff review
+and `git diff --check` are clean. Source, tests and this record are committed with explicit paths on `glasses3d`;
+nothing is pushed. **Item 6's real accuracy proof remains failed and open despite passing software regression
+checks.** The owner-authorized work cost **$0**; no paid run was approved or started.
 
 ## Assembly M5 Oakley run 2: approved fresh run, draft delivered (2026-10-14)
 

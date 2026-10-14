@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
+from glasses3d.g3d_host.camera import Camera
 from glasses3d.g3d_host.photoprint import highlights as HL
 from glasses3d.g3d_host.photoprint import metal as MT
 from glasses3d.g3d_host.photoprint import signals as S
@@ -264,7 +265,8 @@ def test_view_samples_uses_geometry_bound_masks_end_to_end(kind, monkeypatch):
     uv = np.stack([xx[8:-8, 8:-8].ravel(), yy[8:-8, 8:-8].ravel()], -1)
     n = len(uv)
     mesh = SimpleNamespace(V=np.zeros((3, 3)), F=np.array([[0, 1, 2]]), part=np.array([0]), names=["Printable"])
-    view = SimpleNamespace(image=img, matte=np.ones(shape, bool), shape=shape, camera=object())
+    view = SimpleNamespace(image=img, matte=np.ones(shape, bool), shape=shape,
+                           camera=Camera(0, 0, 0, 0, 1, 0, 0))
     job = SimpleNamespace(mesh=mesh, frame=None, views={"photo": view}, ppm=lambda *a: 4.)
     rendered = SimpleNamespace(render=lambda *a: {"face_id": np.zeros(shape, int)})
     occ = SimpleNamespace(scene=lambda *a: rendered, is_print=np.array([True, False]),

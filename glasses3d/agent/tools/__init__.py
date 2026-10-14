@@ -362,17 +362,21 @@ def build_tools(scene, settings=None) -> list:
         return await call(ctx, "restore_checkpoint", lambda cid: scene.s.restore_checkpoint(checkpoint, call_id=cid))
 
     @tool("fit_cameras")
-    async def fit_cameras(ctx: ToolContext, reason: str, refs: list[str] | None = None, workers: int | None = None):
+    async def fit_cameras(ctx: ToolContext, reason: str, refs: list[str] | None = None, workers: int | None = None,
+                          off_axis: bool = False):
         """Fit photo cameras from current geometry and each photo's declared view and matte mode.
         Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
         retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
         stages that need a complete camera set.
         Large fit tables are summarized; read_report pages or filters the saved full result without refitting.
+        The default uses seven camera parameters. Optional off-axis fitting adds two lateral-eye coordinates;
+        improved silhouette overlap alone does not establish camera angles or metric measurement accuracy.
 
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
             refs: Photo ids or original filenames; null fits every photo.
             workers: Optional pool ceiling; null uses free commit memory and CPU count, up to 16 workers.
+            off_axis: Add lateral-eye fitting to the default search; inspect its diagnostics and independent measurements.
         """
         def fit(cid):
             from .. import jobs
@@ -386,7 +390,7 @@ def build_tools(scene, settings=None) -> list:
             with single_threaded_blas():
                 return scene.seeing.fit_cameras(reason, images, views, candidates=candidates,
                                                 refs=refs, workers=fit_workers(workers), matte_modes=matte_modes,
-                                                call_id=cid)
+                                                off_axis=off_axis, call_id=cid)
         return await call(ctx, "fit_cameras", fit)
 
     @tool("render_views")

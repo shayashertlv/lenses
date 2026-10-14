@@ -198,8 +198,11 @@ def kmeans_lab(lab: np.ndarray, k: int = FAMILY_K, seed: int = 0, iters: int = 2
 def _refracted(N: np.ndarray, to_cam: np.ndarray, n: float = ACETATE_N) -> np.ndarray:
     """Unit direction of a view ray after refraction into the material (outward normals ``N``, ``to_cam`` = unit
     direction toward the camera)."""
-    i = -np.asarray(to_cam, float)[None]
-    ci = np.clip((N * np.asarray(to_cam, float)[None]).sum(1), 0.0, 1.0)
+    toward = np.asarray(to_cam, float)
+    if toward.ndim == 1:
+        toward = toward[None]
+    i = -toward
+    ci = np.clip((N * toward).sum(1), 0.0, 1.0)
     eta = 1.0 / n
     k = 1.0 - eta ** 2 * (1.0 - ci ** 2)
     t = eta * i + (eta * ci - np.sqrt(np.maximum(k, 0.0)))[:, None] * N
@@ -269,7 +272,7 @@ def text_mask(job, tex, decals: dict, painted: np.ndarray, col: np.ndarray, tx: 
             rows = np.nonzero(painted & (label == vi))[0]
             if not len(rows):
                 continue
-            to_cam = np.asarray(raster.camera_basis(job.views[v].camera)[2], float)
+            to_cam = T.viewing_direction(tex.P[rows], job.views[v].camera, job.frame)
             Nn = tex.N[rows]
             dirs = _refracted(Nn, to_cam)
             rays = np.concatenate([tex.P[rows] - 0.01 * Nn, dirs], 1).astype(np.float32)

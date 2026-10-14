@@ -262,12 +262,16 @@ def load_mesh(product: str, files: dict[str, Path]) -> tuple[fitmesh.FitMesh, np
 
 
 # ----------------------------------------------------------------------------- measurement helpers
-def sign_check(kind: str, cam: Camera) -> str | None:
+def sign_check(kind: str, cam: Camera, *, pivot_norm=None) -> str | None:
     """Refusal text when the camera's pitch sign contradicts the view kind (``kind_pitch_sign``), else None."""
     s = kind_pitch_sign(kind)
     if s is not None and cam.pitch * s <= 0:
         return (f"pitch {cam.pitch:.2f} contradicts label {kind!r} (the camera must be "
                 f"{'above' if s > 0 else 'below'} the glasses)")
+    if (cam.eye_x or cam.eye_y) and cam.perspective > 0:
+        refusals = [cameras.eye_side_refusal(view,cam,pivot_norm) for view in view_candidates(kind)]
+        if all(refusals):
+            return f"off-axis eye contradicts label {kind!r}: " + "; ".join(refusals)
     return None
 
 
@@ -316,7 +320,7 @@ def overlay_image(img: np.ndarray, fg: np.ndarray, render: np.ndarray, thickness
 
 
 def _cam(c: Camera) -> dict:
-    return {k: float(getattr(c, k)) for k in CAMERA_FIELDS}
+    return {k: float(v) for k, v in c.to_dict().items()}
 
 
 def rigid_fit_marker(model_sha256: str, photo_sha256: str, camera: dict) -> dict:
@@ -334,7 +338,8 @@ def _candidate_record(r: dict, ppm: float) -> dict:
             "iou": m["iou"], "contour_mean_px": m["contour_mean_px"], "px_per_mm_at_front_pivot": ppm,
             "contour_mean_mm": m["contour_mean_px"] / ppm, "sign": r["sign"],
             "winner_origin": r["refine"]["origin"], "evaluations": r["fit"].evals,
-            **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'}}
+            **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'},
+            **({"off_axis": r["refine"]["off_axis"]} if "off_axis" in r["refine"] else {})}
 
 
 def lens_loss_policy(glb_path, mesh: fitmesh.FitMesh) -> tuple[dict, list[int]]:
@@ -395,12 +400,14 @@ def _matte_mode(requested: str | None, context: dict) -> str:
 def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
               candidates: tuple[str, ...] | None = None, n_refine: int | None = None,
               cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None,
-              matte_mode: str | None = None, _model_context: dict | None = None) -> dict:
+              matte_mode: str | None = None, _model_context: dict | None = None, off_axis: bool = False) -> dict:
     """Fit one photo to the model (runs in a worker process; returns plain data). ``candidates`` overrides the kind's
     views; ``cross_winners`` = {view: camera dict} of already fitted photos, used as cross seeds for a
     ``CROSS_RECEIVERS`` candidate. An absent ``matte_mode`` uses open_frame only for actual optional lens faces;
     explicit modes are authoritative. The record stores the resolved mode so frozen evidence uses the same matte.
-    The record's ``model`` entry describes the mesh (``fit_views`` lifts it out)."""
+    Fits use the validated seven-parameter search by default; ``off_axis=True`` adds a bounded lateral-eye
+    continuation. Better silhouette agreement does not certify camera-parameter accuracy. The record's ``model``
+    entry describes the mesh (``fit_views`` lifts it out)."""
     t0 = time.perf_counter()
     cands = tuple(candidates) if candidates else view_candidates(view_kind)
     bad = [v for v in cands if v not in cameras.VIEWS]
@@ -429,20 +436,22 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         n_cross = sum(len(cameras.wrap_seeds(v, s)) for v, s in cross.items())
         sources = sorted(winners)
     best, results = cameras.fit_best(fg, scene, pivot, [(v, None) for v in cands], nr, cross=cross,
-                                     ignore_faces=ignore_faces)
+                                     ignore_faces=ignore_faces, **({"off_axis": True} if off_axis else {}))
     pivot_mm = mesh.frame.to_mm(pivot[None])[0]
     ppm = {id(r): cameras.px_per_mm_at(r["camera"], mesh.frame, pivot_mm) for r in results}
     cam, m, p = best["camera"], best["metrics"], ppm[id(best)]
     roi = cameras.matte_roi(fg)                       # the ROI native_metrics measured in (fit_view)
     x0, y0, x1, y1 = roi
     cs = contour_summary(scene.render(cam, fg.shape, 1, roi)["mask"], fg[y0:y1, x0:x1])
-    refusal = sign_check(view_kind, cam)              # the kind's sign holds even when candidates are overridden
+    refusal = sign_check(view_kind, cam, pivot_norm=pivot)  # orientation AND the actual eye respect the label
     usability = camera_usability(m)
     flags = [f for f in ((best["sign"] or {}).get("flag"),) if f]
     if refusal:
         flags.append("label_sign_contradicted")
     if not usability["usable"]:
         flags.append("insufficient_camera_overlap")
+    if (best["refine"].get("off_axis") or {}).get("candidate_at_eye_bound"):
+        flags.append("off_axis_candidate_at_domain_bound")
     rec = {
         "image": str(image_path), "image_sha256": photo_sha, "shape": list(fg.shape),
         "view_kind": view_kind, "candidates": list(cands), "n_refine": nr,
@@ -468,6 +477,8 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         "overlay": None if overlay_path is None else str(overlay_path),
         "model": model,
     }
+    if off_axis:
+        rec["off_axis"] = best["refine"]["off_axis"]
     if sha256_file(Path(image_path)) != photo_sha or sha256_file(Path(glb_path)) != model['sha256']:
         raise ValueError('photo or model changed during fitting')
     if rec["status"] == "ok":
@@ -535,7 +546,7 @@ def _per_name(value, names, what: str) -> dict:
 def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[str, str], out_dir: str | Path, *,
               skip=(), front_parts=None, candidates: dict[str, tuple[str, ...]] | None = None,
               n_refine: int | dict[str, int] | None = None, workers: int | None = None, log=print,
-              matte_modes: str | dict[str, str | None] | None = None) -> dict:
+              matte_modes: str | dict[str, str | None] | None = None, off_axis: bool = False) -> dict:
     """Fit a camera for every photo in ``images`` (name -> path) against the model, each with the candidates of its
     view kind in ``views`` (name -> kind, ``view_candidates``), on the schedule above. Writes
     ``out_dir/cameras.json`` and ``out_dir/overlay_<name stem>.png`` per photo; returns the cameras.json content.
@@ -543,7 +554,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
     ``skip`` / ``front_parts`` go to ``fitmesh.load_fit_mesh`` / ``FitMesh.front_pivot`` (None: the geometric front
     piece); ``candidates`` ({name: views}) overrides a photo's kind; ``n_refine`` is an int or {name: int}.
     ``matte_modes`` may provide one mode or per-photo modes; absent entries resolve from construction, and every
-    result records the concrete mode used. An explicit default retains the historical hole-filled matte."""
+    result records the concrete mode used. An explicit default retains the historical hole-filled matte.
+    ``off_axis=True`` explicitly adds a lateral-eye continuation to the validated seven-parameter default."""
     t0 = time.perf_counter()
     glb_path = Path(glb_path)
     images = {str(n): Path(p) for n, p in images.items()}
@@ -580,6 +592,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                 {"skip": tuple(skip), "front_parts": None if front_parts is None else tuple(front_parts),
                  "candidates": cands[n], "n_refine": nref[n], "cross_winners": winners,
                  "matte_mode": modes[n], "_model_context": context,
+                 "off_axis": off_axis,
                  "overlay_path": out_dir / f"overlay_{Path(n).stem}.png"})
 
     first = [n for n in names if not receives(n)]
@@ -612,6 +625,10 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                       "contour": "symmetric: mean of the two directed means; pNN = max of the two directed pNN",
                       "roi": "cameras.matte_roi(matte): matte bbox + 15 % of its width + 8 px (x0, y0, x1, y1)"},
            "seconds": time.perf_counter() - t0}
+    if off_axis:
+        res["policy"]["off_axis"] = {"mode": "legacy_search_then_off_axis_continuation",
+                                   "eye_domain": "each coordinate +/- normalized model sphere radius",
+                                   "existing_bounds_changed": False, "legacy_candidate_retained": True}
     (out_dir / CAMERAS_JSON).write_text(json.dumps(res, indent=1, default=_json), encoding="utf-8")
     for n in names:
         log(_row(n, res["images"][n]))

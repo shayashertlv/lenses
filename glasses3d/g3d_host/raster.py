@@ -10,15 +10,16 @@ Ported verbatim from automation/bsa/raster.py (WP3b; plan/PORT_REVIEW.md section
 - Camera basis (normalized frame): right = (cy, 0, -sy), up = (-sp sy, cp, -sp cy),
   toward = (cp sy, sp, cp cy); orthonormal and right-handed (right x up = toward).
 - ``project``: for a normalized point P with camera coordinates (X, Y, Z) = (P.right, P.up,
-  P.toward), depth = 1 - p Z, (x, y) = (X, Y) / depth, then roll and scale:
+  P.toward), depth = 1 - p Z, (x, y) = (X - eye_x, Y - eye_y) / depth, then roll and scale:
   u = cx + s (cr x - sr y), v = cy - s (sr x + cr y).
 - Matching ray model. Invert roll and scale: a = (u - cx) / s, b = (cy - v) / s,
-  x = cr a + sr b, y = -sr a + cr b. Every P on the ray satisfies X = x (1 - p Z), Y = y (1 - p Z),
-  so P(Z) = x (1 - p Z) right + y (1 - p Z) up + Z toward: a straight line through the eye
-  E = toward / p with direction dP/dZ = toward - p (x right + y up). Rays start on the plane
+  x = cr a + sr b, y = -sr a + cr b. Every P on the ray satisfies X - eye_x = x (1 - p Z),
+  Y - eye_y = y (1 - p Z), so P(Z) = (x (1 - p Z) + eye_x) right +
+  (y (1 - p Z) + eye_y) up + Z toward: a straight line through the eye
+  E = toward / p + eye_x right + eye_y up with direction dP/dZ = toward - p (x right + y up). Rays start on the plane
   Z = z0 (z0 = max(1, 1.05 max|P| + 0.01), above every vertex for every camera; clamped to the eye
   1/p) and travel along -dP/dZ. Orthographic (p = 0) is the same formula: origin
-  x right + y up + z0 toward, direction -toward.
+  (x + eye_x) right + (y + eye_y) up + z0 toward, direction -toward.
 - ``depth`` output: millimetres along the viewing direction, measured from the plane through the
   NormFrame centre perpendicular to ``toward``: depth_mm = -(P . toward) * extent. Smaller is
   nearer the camera; +inf where the ray misses. (For the yaw 0 / pitch 0 front camera,
@@ -74,6 +75,8 @@ def camera_rays(camera: Camera, u: np.ndarray, v: np.ndarray, z0: float = 1.0) -
         z0 = min(float(z0), 1.0 / p)
     k = 1.0 - p * z0
     origins = (x * k)[:, None] * right + (y * k)[:, None] * up + z0 * toward
+    if camera.eye_x or camera.eye_y:
+        origins += camera.eye_x * right + camera.eye_y * up
     directions = p * (x[:, None] * right + y[:, None] * up) - toward
     return origins, directions
 
@@ -84,7 +87,10 @@ def _project_norm(points: np.ndarray, camera: Camera) -> np.ndarray | None:
     depth = 1.0 - camera.perspective * (points @ toward)
     if np.any(depth <= 1e-6):
         return None
-    x, y = (points @ right) / depth, (points @ up) / depth
+    x, y = points @ right, points @ up
+    if camera.eye_x or camera.eye_y:
+        x, y = x - camera.eye_x, y - camera.eye_y
+    x, y = x / depth, y / depth
     roll = math.radians(camera.roll)
     cr, sr = math.cos(roll), math.sin(roll)
     return np.column_stack((camera.center_x + camera.scale * (cr * x - sr * y),

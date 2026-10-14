@@ -17,7 +17,7 @@ from PIL import Image
 
 from glasses3d.g3d_host import blender
 from glasses3d.g3d_host import blender_camera as BC
-from glasses3d.g3d_host.camera import NormFrame, project_mm
+from glasses3d.g3d_host.camera import Camera, NormFrame, project_mm
 from glasses3d.tests.test_wp2_camera import ORIGIN, PRADA_FRAME, SYNTHETIC, frozen_cameras, sample_points
 
 pytestmark = pytest.mark.skipif(blender.blender_exe() is None, reason="Blender 5.2 not installed")
@@ -105,3 +105,16 @@ def test_rendered_blob_centroids_match_wp3b_within_a_tenth_of_a_pixel(parity):
         assert max(errs) <= 0.1, (k, errs)
     assert {v["engine"] for v in parity.values()} == {"BLENDER_EEVEE"}
     print("rendered parity px:", {k: round(max(v), 4) for k, v in measured.items()})
+
+
+def test_off_axis_camera_matches_actual_blender_projection_and_render(tmp_path):
+    # Signed lateral translations, with perspective and orthographic cameras in one unchanged world frame.
+    frame = NormFrame((13, -4, -70), 150)
+    cameras = [("offaxis-perspective", Camera(60,20,7,.3,900,640,480,.22,-.12), (960,1280)),
+               ("offaxis-ortho", Camera(-35,15,-9,0,900,640,480,-.12,.08), (960,1280))]
+    results = run_group("offaxis", cameras, frame, tmp_path)
+    for record in results.values():
+        assert record["analytic_px"] <= .01, results
+        assert len(record["rendered_px"]) >= 2, results
+        assert max(record["rendered_px"]) <= .1, results
+    print("off-axis actual Blender parity:", results)

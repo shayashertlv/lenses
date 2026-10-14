@@ -281,7 +281,7 @@ def camera_matrix(camera, frame, side: int, hinge_z: float, pose=None, opening=N
     right, up, toward = np.array([cy, 0, -sy]), np.array([-sp * sy, cp, -sp * cy]), np.array([cp * sy, sp, cp * cy])
     cr, sr = math.cos(roll), math.sin(roll)
     rw = np.append(-float(camera.perspective) * toward, 1.0)
-    rx, ry = np.append(right, 0.0), np.append(up, 0.0)
+    rx, ry = np.append(right, -camera.eye_x), np.append(up, -camera.eye_y)
     R = np.vstack([float(camera.center_x) * rw + float(camera.scale) * (cr * rx - sr * ry),
                    float(camera.center_y) * rw - float(camera.scale) * (sr * rx + cr * ry), rw])
     T = np.eye(4)

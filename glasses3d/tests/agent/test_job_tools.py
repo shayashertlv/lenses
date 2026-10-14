@@ -551,10 +551,13 @@ def test_fit_camera_output_can_return_its_internal_camera_sheet(scene, monkeypat
     assert received[0][0][2] == {"front.jpg": "front", "side.jpg": "side"}
     assert received[0][1]["candidates"] == {"front.jpg": ("front",), "side.jpg": ("left",)}
     assert received[0][1]["matte_modes"] == {"front.jpg": None, "side.jpg": "glossy_floor"}
+    assert received[0][1]["off_axis"] is False
     assert len(output) == 4 and record(output)["images"][0]["source_path"].startswith("cameras/")
     assert isinstance(output[-1], ToolOutputText) and output[-1].text == loop.footer_text()
-    invoke(scene, "fit_cameras", {"reason": "one photo", "refs": ["side"], "workers": 1}, cid="call_subset")
+    invoke(scene, "fit_cameras", {"reason": "one photo", "refs": ["side"], "workers": 1, "off_axis": True},
+           cid="call_subset")
     assert received[1][1]["candidates"] == {"side.jpg": ("left",)}
+    assert received[1][1]["off_axis"] is True
 
 
 def test_render_compare_pick_and_ar_wrappers_forward_checked_arguments(scene, monkeypatch):
@@ -573,6 +576,32 @@ def test_render_compare_pick_and_ar_wrappers_forward_checked_arguments(scene, mo
         "status": "ok", "export_sha256": exp["sha256"], "report": "work/arview/report.json", "sheets": []})
     result = record(invoke(scene, "arview_capture"))
     assert scene.last_ar == result and result["export_sha256"] == scene.export["sha256"]
+
+
+def test_extended_camera_diagnostics_remain_available_through_report_pages(scene, monkeypatch):
+    from glasses3d.agent import jobs, tool_reports
+    from glasses3d.agent.seeing import Seeing
+    from glasses3d.g3d_host.camera import Camera
+    camera = Camera(75, 12, 3, .3, 580, 400, 300, .22, -.12).to_dict()
+    evidence = {"mode": "legacy_search_then_off_axis_continuation", "selected": "off_axis",
+                "candidate_camera": camera, "legacy_camera": {**camera, "eye_x": 0, "eye_y": 0},
+                "common_losses": [.02, .01], "eye_limit": .6, "candidate_refusal": None}
+    sign = {"own_camera_full": camera, "twin_camera_full": {**camera, "pitch": -12},
+            "own_eye_relative_pivot_norm": [3.1, .5, 1.2], "flag": "pitch_sign_ambiguous"}
+    ref = {"camera": camera, "view": "left", "view_kind": "side",
+           "fit": {"status": "ok", "iou": .98, "off_axis": evidence, "sign": sign}}
+    monkeypatch.setattr(jobs, "load_job", lambda root: {"images": [
+        {"original_name": "side.jpg", "file": "images/side.jpg", "view_kind": "side", "fit_kinds": ["left"]}]})
+    scene.seeing.fit_cameras = lambda *args, **kwargs: {
+        "status": "ok", "off_axis": True,
+        "refs": {f"photo-{i}": Seeing._fit_ref_summary(ref, usable=True) for i in range(40)}}
+    output = invoke(scene, "fit_cameras", {"reason": "inspect extended calibration", "off_axis": True, "workers": 1})
+    assert sum(len(part.text) for part in output if part.type == "text") <= tool_reports.TEXT_LIMIT
+    report = record(output)["full_report"]["id"]
+    for field, expected in (("camera", camera), ("off_axis", evidence), ("sign", sign)):
+        page = record(invoke(scene, "read_report", {"report": report,
+                             "pointer": f"/result/refs/photo-0/{field}", "limit": 100}, cid=f"read-{field}"))
+        assert {entry["key"]: entry["value"] for entry in page["entries"]} == expected
 
 
 def test_worker_capacity_is_bounded_by_free_commit_and_cpu(monkeypatch):

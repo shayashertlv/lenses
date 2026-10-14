@@ -257,7 +257,7 @@ def _pivot_terms(cam: Camera, pivot: np.ndarray | None) -> tuple[np.ndarray, flo
     if pivot is None:
         return np.zeros(2), 1.0
     P = np.asarray(pivot, float).reshape(1, 3)
-    unit = Camera(cam.yaw, cam.pitch, cam.roll, cam.perspective, 1.0, 0.0, 0.0)
+    unit = replace(cam, scale=1.0, center_x=0.0, center_y=0.0)
     q = raster._project_norm(P, unit)
     depth = 1.0 - cam.perspective * float(P[0] @ raster.camera_basis(unit)[2])
     if q is None or depth <= 1e-6:
@@ -265,7 +265,7 @@ def _pivot_terms(cam: Camera, pivot: np.ndarray | None) -> tuple[np.ndarray, flo
     return q[0], depth
 
 
-def pack(cam: Camera, unit_px: float, pivot: np.ndarray | None = None) -> np.ndarray:
+def pack(cam: Camera, unit_px: float, pivot: np.ndarray | None = None, *, include_eye: bool = False) -> np.ndarray:
     """Optimizer vector: yaw, pitch, roll (deg), perspective x10, 100 log(magnification AT THE PIVOT)
     (1 = 1 %), and the image position of the PIVOT (a normalized model point) in % of the matte width.
 
@@ -274,17 +274,23 @@ def pack(cam: Camera, unit_px: float, pivot: np.ndarray | None = None) -> np.nda
     perspective change rescales it); Powell's coordinate line searches need that on thin silhouettes.
     """
     q, depth = _pivot_terms(cam, pivot)
-    return np.array([cam.yaw, cam.pitch, cam.roll, 10.0 * cam.perspective, 100.0 * math.log(cam.scale / depth),
-                     100.0 * (cam.center_x + cam.scale * q[0]) / unit_px,
-                     100.0 * (cam.center_y + cam.scale * q[1]) / unit_px])
+    x = [cam.yaw, cam.pitch, cam.roll, 10.0 * cam.perspective, 100.0 * math.log(cam.scale / depth),
+         100.0 * (cam.center_x + cam.scale * q[0]) / unit_px,
+         100.0 * (cam.center_y + cam.scale * q[1]) / unit_px]
+    if include_eye or cam.eye_x or cam.eye_y:
+        x += [cam.eye_x, cam.eye_y]
+    return np.array(x)
 
 
 def unpack(x: np.ndarray, unit_px: float, pivot: np.ndarray | None = None) -> Camera:
-    ang = Camera(float(x[0]), float(x[1]), float(x[2]), float(x[3]) / 10.0, 1.0, 0.0, 0.0)
+    if len(x) not in (7, 9):
+        raise ValueError("camera optimizer vector must have 7 or 9 parameters")
+    eye_x, eye_y = (float(x[7]), float(x[8])) if len(x) == 9 else (0.0, 0.0)
+    ang = Camera(float(x[0]), float(x[1]), float(x[2]), float(x[3]) / 10.0, 1.0, 0.0, 0.0, eye_x, eye_y)
     q, depth = _pivot_terms(ang, pivot)
     s = float(math.exp(x[4] / 100.0)) * depth
     return Camera(ang.yaw, ang.pitch, ang.roll, ang.perspective, s,
-                  float(x[5] * unit_px / 100.0 - s * q[0]), float(x[6] * unit_px / 100.0 - s * q[1]))
+                  float(x[5] * unit_px / 100.0 - s * q[0]), float(x[6] * unit_px / 100.0 - s * q[1]), eye_x, eye_y)
 
 
 def align(scene: raster.RasterScene, lv: Level, yaw: float, pitch: float, roll: float,
@@ -325,6 +331,26 @@ def pitch_window(view: str) -> tuple[float, float]:
     return PITCH_WINDOWS.get(view, PITCH_BOUNDS)
 
 
+def eye_side_refusal(view: str, cam: Camera, pivot_norm=None) -> str | None:
+    """Explicit lateral translation cannot move the eye to the wrong side of a named view."""
+    sign = 1 if view in TOP_VIEWS + TOP_OBLIQUE_VIEWS else -1 if view in BOTTOM_VIEWS else None
+    if sign is not None and cam.pitch * sign <= 0:
+        return f"pitch {cam.pitch:.2f} contradicts view {view!r}"
+    if not (cam.eye_x or cam.eye_y) or cam.perspective == 0:
+        return None
+    right, up, toward = raster.camera_basis(cam)
+    eye = toward/cam.perspective + cam.eye_x*right + cam.eye_y*up
+    eye -= np.zeros(3) if pivot_norm is None else np.asarray(pivot_norm, float)
+    rules = {"front": ((2,1),), "back": ((2,-1),), "left": ((0,1),), "right": ((0,-1),),
+             "angled": ((2,1),), "top": ((1,1),), "topb": ((1,1),),
+             "bottom": ((1,-1),), "bottomb": ((1,-1),),
+             "top_oblique_left": ((0,1),(1,1)), "top_oblique_right": ((0,-1),(1,1)),
+             "rear_threequarter_left": ((0,1),(2,-1)), "rear_threequarter_right": ((0,-1),(2,-1))}
+    if any(eye[axis]*sign <= 0 for axis,sign in rules[view]):
+        return f"off-axis eye position {eye.tolist()} relative to the front pivot contradicts view {view!r}"
+    return None
+
+
 def roll_window(view: str, roll: float) -> tuple[float, float]:
     """Top/bottom use overlapping 45-degree charts; other views retain the original +/-25-degree prior.
 
@@ -337,13 +363,16 @@ def roll_window(view: str, roll: float) -> tuple[float, float]:
 
 def _bounds(center: Camera, unit_px: float, yaw_win: tuple[float, float], *, local: dict | None = None,
             pivot: np.ndarray | None = None, pitch_win: tuple[float, float] | None = None,
-            roll_win: tuple[float, float] | None = None):
+            roll_win: tuple[float, float] | None = None, eye_limit: float | None = None):
     pw = PITCH_BOUNDS if pitch_win is None else pitch_win
     rw = ROLL_BOUNDS if roll_win is None else roll_win
     x = pack(center, unit_px, pivot)
+    eyes = [] if eye_limit is None else [(-eye_limit, eye_limit)] * 2
+    if len(x) == 9 and eye_limit is None:
+        raise ValueError("an off-axis optimization requires an explicit lateral eye domain")
     if local is None:       # global windows (coarse / fit levels)
         return [yaw_win, pw, rw, (10 * PERSPECTIVE_BOUNDS[0], 10 * PERSPECTIVE_BOUNDS[1]),
-                (x[4] - 35.0, x[4] + 30.0), (x[5] - 15.0, x[5] + 15.0), (x[6] - 15.0, x[6] + 15.0)]
+                (x[4] - 35.0, x[4] + 30.0), (x[5] - 15.0, x[5] + 15.0), (x[6] - 15.0, x[6] + 15.0)] + eyes
     d = local
     return [(max(yaw_win[0], x[0] - d["yaw"]), min(yaw_win[1], x[0] + d["yaw"])),
             (max(pw[0], x[1] - d["pitch"]), min(pw[1], x[1] + d["pitch"])),
@@ -351,7 +380,7 @@ def _bounds(center: Camera, unit_px: float, yaw_win: tuple[float, float], *, loc
             (max(10 * PERSPECTIVE_BOUNDS[0], x[3] - d.get("persp", 10.0)),
              min(10 * PERSPECTIVE_BOUNDS[1], x[3] + d.get("persp", 10.0))),
             (x[4] - d["scale"], x[4] + d["scale"]), (x[5] - d["shift"], x[5] + d["shift"]),
-            (x[6] - d["shift"], x[6] + d["shift"])]
+            (x[6] - d["shift"], x[6] + d["shift"])] + eyes
 
 
 def _clip_into(x: np.ndarray, bounds) -> np.ndarray:
@@ -374,7 +403,7 @@ def powell(scene: raster.RasterScene, lv: Level, cam: Camera, bounds, maxfev: in
             best[0], best[1] = v, c
         return v
 
-    x0 = _clip_into(pack(cam, unit_px, pivot), bounds)
+    x0 = _clip_into(pack(cam, unit_px, pivot, include_eye=len(bounds) == 9), bounds)
     optimize.minimize(f, x0, method="Powell", bounds=bounds,
                       options={"maxfev": maxfev, "xtol": xtol, "ftol": 1e-4})
     return best[1], float(best[0]), n[0]
@@ -384,7 +413,7 @@ def powell(scene: raster.RasterScene, lv: Level, cam: Camera, bounds, maxfev: in
 def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: float, pivot: np.ndarray | None,
                 yaw_win: tuple[float, float], iters: int | None = None,
                 pitch_win: tuple[float, float] | None = None,
-                roll_win: tuple[float, float] | None = None) -> Camera | None:
+                roll_win: tuple[float, float] | None = None, eye_limit: float | None = None) -> Camera | None:
     """Silhouette-contour ICP: match rendered contour samples (with their 3D ray hits) to the nearest photo
     contour pixel and vice versa, then a robust least-squares step on the camera; repeat.
 
@@ -402,9 +431,13 @@ def contour_icp(scene: raster.RasterScene, lv: Level, cam: Camera, unit_px: floa
     photo_uv = np.column_stack([us[pj], vs[pi]])
     _, pidx = ndimage.distance_transform_edt(~lv.edge, return_indices=True)
     trunc = max(ICP_TRUNC * lv.width * lv.stride, 3.0 * lv.stride)      # native px
-    x = pack(cam, unit_px, pivot)
+    x = pack(cam, unit_px, pivot, include_eye=eye_limit is not None)
     lo = np.array([yaw_win[0], pw[0], rw[0], 10 * PERSPECTIVE_BOUNDS[0], -np.inf, -np.inf, -np.inf])
     hi = np.array([yaw_win[1], pw[1], rw[1], 10 * PERSPECTIVE_BOUNDS[1], np.inf, np.inf, np.inf])
+    if len(x) == 9:
+        if eye_limit is None:
+            raise ValueError("off-axis ICP requires an explicit lateral eye domain")
+        lo, hi = np.r_[lo, -eye_limit, -eye_limit], np.r_[hi, eye_limit, eye_limit]
     x = np.clip(x, lo + 1e-9, hi - 1e-9)
     for _ in range(iters):
         c = unpack(x, unit_px, pivot)
@@ -493,6 +526,7 @@ class ViewFit:
         self.evals = 0
         self.icp_accepted = 0
         self.ignore_faces: np.ndarray | None = None
+        self.eye_limit: float | None = None  # explicit continuation; legacy search stays seven-parameter
 
     def set_ignore(self, faces: np.ndarray | None) -> None:
         faces = _optional_faces(self.scene, faces)
@@ -516,7 +550,7 @@ class ViewFit:
         win = yaw_win if yaw_win is not None else yaw_window(self.view, cam.yaw)
         pw = pitch_window(self.view) if pitch_win is None else pitch_win
         b = _bounds(cam, self.unit, win, local=local, pivot=self.pivot, pitch_win=pw,
-                    roll_win=roll_window(self.view, cam.roll))
+                    roll_win=roll_window(self.view, cam.roll), eye_limit=self.eye_limit)
         c2, l2, n = powell(self.scene, lv, cam, b, maxfev, self.unit, xtol=xtol, pivot=self.pivot)
         self.evals += n
         return c2, l2
@@ -531,7 +565,7 @@ class ViewFit:
             cam, loss = self.powell(lv, cam, maxfev, local=st, xtol=0.05 if lv.name == "coarse" else 0.02,
                                     pitch_win=pw)
             c2 = contour_icp(self.scene, lv, cam, self.unit, self.pivot, yaw_window(self.view, cam.yaw),
-                             pitch_win=pw, roll_win=roll_window(self.view, cam.roll))
+                             pitch_win=pw, roll_win=roll_window(self.view, cam.roll), eye_limit=self.eye_limit)
             self.evals += ICP_ITERS
             if c2 is not None:
                 l2 = lv.loss(self.scene, c2)
@@ -633,6 +667,31 @@ class ViewFit:
         self.evals += len(cams)
         return common_final_losses(self.fg, self.scene, cams, self.ignore_faces)
 
+    def refine_off_axis(self, legacy: dict) -> dict:
+        """One explicit continuation after the unchanged seven-parameter search.
+
+        Lateral eye coordinates lie within the model's enclosing sphere radius (normalized extents): a
+        camera whose optical axis intersects that sphere has both coordinates inside this domain. This is
+        a declared search domain, not a claim of measured calibration accuracy. Both candidates survive.
+        """
+        self.eye_limit = float(self.scene.max_radius)
+        start = legacy["camera"]
+        candidate, _ = self.staged(self.levels["fit"], start, STAGES_FIT, MAXFEV["fit"])
+        candidate, _ = self.staged(self.levels["final"], candidate, STAGES_FINAL, MAXFEV["final"])
+        losses = self.final_losses([start, candidate])
+        refusal = eye_side_refusal(self.view, candidate, self.pivot)
+        selected = 1 if refusal is None and losses[1] < losses[0] else 0
+        winner = (start, candidate)[selected]
+        return {**legacy, "camera": winner, "loss_final_level": self.levels["final"].loss(self.scene, winner),
+                "off_axis": {"mode": "legacy_search_then_off_axis_continuation", "eye_limit": self.eye_limit,
+                             "domain": "each pre-roll lateral eye coordinate bounded by normalized model sphere radius",
+                             "selected": "off_axis" if selected else "legacy",
+                             "legacy_camera": start.to_dict(), "candidate_camera": candidate.to_dict(),
+                             "common_losses": losses,
+                             "candidate_refusal": refusal,
+                             "candidate_at_eye_bound": any(abs(v) >= self.eye_limit * (1-1e-5)
+                                                           for v in (candidate.eye_x, candidate.eye_y))}}
+
     def pitch_twin(self, cam: Camera) -> dict:
         """The sign margin of ``cam`` (re-port of bsa ``pitch_twin``): refit at the fit level from (yaw, -pitch, roll)
         with the pitch held on the OPPOSITE sign (``opposite_pitch_window``; bsa let the twin drift back), and compare
@@ -646,12 +705,26 @@ class ViewFit:
         own = lv.loss(self.scene, cam)
         tw = opposite_pitch_window(self.view, cam.pitch)
         start = align(self.scene, lv, cam.yaw, float(np.clip(-cam.pitch, tw[0], tw[1])), cam.roll, cam.perspective)
+        if self.eye_limit is not None:
+            start = replace(start, eye_x=cam.eye_x, eye_y=cam.eye_y)
         self.evals += 2
         c2, l2 = self.staged(lv, start, STAGES_FIT, MAXFEV["twin"], pitch_win=tw)
         margin = l2 - own
         flag = ("pitch_sign_ambiguous" if abs(margin) < PITCH_TWIN_TIE else
                 "pitch_twin_better" if margin < 0 else None)
-        return {"twin_camera": [round(c2.yaw, 3), round(c2.pitch, 3), round(c2.roll, 3), round(c2.perspective, 4)],
+        extra = {}
+        if self.eye_limit is not None:
+            def eye(cam):
+                if cam.perspective == 0:
+                    return None
+                right, up, toward = raster.camera_basis(cam)
+                pivot = np.zeros(3) if self.pivot is None else self.pivot
+                return (toward / cam.perspective + cam.eye_x*right + cam.eye_y*up - pivot).tolist()
+            extra = {"own_camera_full": cam.to_dict(), "twin_camera_full": c2.to_dict(),
+                     "own_eye_relative_pivot_norm": eye(cam), "twin_eye_relative_pivot_norm": eye(c2),
+                     "interpretation": "Optical-pitch evidence; opposite optical pitch does not guarantee "
+                                       "opposite physical eye height with lateral eye offsets."}
+        return {**extra, "twin_camera": [round(c2.yaw, 3), round(c2.pitch, 3), round(c2.roll, 3), round(c2.perspective, 4)],
                 "twin_pitch_window": list(tw), "twin_loss": float(l2), "own_loss": float(own),
                 "margin": float(margin), "flag": flag}
 
@@ -797,8 +870,8 @@ def px_per_mm_at(cam: Camera, frame: NormFrame, point_mm: np.ndarray) -> float:
 
 def resized_camera(cam: Camera, k: float, x0: float = 0.0, y0: float = 0.0) -> Camera:
     """The camera of the crop [x0:, y0:] of a native image resized by ``k`` (pixel centres kept exact)."""
-    return Camera(cam.yaw, cam.pitch, cam.roll, cam.perspective, cam.scale * k,
-                  (cam.center_x - x0 + 0.5) * k - 0.5, (cam.center_y - y0 + 0.5) * k - 0.5)
+    return replace(cam, scale=cam.scale*k, center_x=(cam.center_x-x0+0.5)*k-0.5,
+                   center_y=(cam.center_y-y0+0.5)*k-0.5)
 
 
 # ----------------------------------------------------------------------------- one view, end to end (make_uv_test.py)
@@ -816,7 +889,7 @@ def matte_roi(fg: np.ndarray, margin: float = ROI_FIT_MARGIN, pad: int = ROI_FIT
 def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None,
              seeds: list[tuple[float, float, float, str]] | None = None, n_refine: int = N_COARSE_POWELL, *,
              cross: list[tuple[float, float, float, str]] | None = None, sign_margin: bool = True,
-             ignore_faces: np.ndarray | None = None) -> dict:
+             ignore_faces: np.ndarray | None = None, off_axis: bool = False) -> dict:
     """make_uv_test.py's ``fit``: ViewFit(view, fg, scene, pivot) -> run_starts(seeds or prior_seeds(view), n_refine)
     -> [run_starts(wrap_seeds(view, cross), N_CROSS_POWELL)] -> refine() -> native_metrics on ``matte_roi(fg)``
     [-> pitch_twin, the sign margin].
@@ -835,6 +908,8 @@ def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.nda
         if cs:
             vf.run_starts(cs, N_CROSS_POWELL)
     res = vf.refine()
+    if off_axis:
+        res = vf.refine_off_axis(res)
     if view in AXIAL_VIEWS and not -180.0 <= res["camera"].roll < 180.0:
         res["camera"] = replace(res["camera"], roll=(res["camera"].roll + 180.0) % 360.0 - 180.0)
     met = native_metrics(scene, res["camera"], fg, matte_roi(fg), vf.ignore_faces)
@@ -847,7 +922,7 @@ def fit_view(view: str, fg: np.ndarray, scene: raster.RasterScene, pivot: np.nda
 def fit_best(fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None,
              candidates: list[tuple[str, list | None]], n_refine: int = N_COARSE_POWELL, *,
              cross: dict[str, list] | None = None, sign_margin: bool = True,
-             ignore_faces: np.ndarray | None = None) -> tuple[dict, list[dict]]:
+             ignore_faces: np.ndarray | None = None, off_axis: bool = False) -> tuple[dict, list[dict]]:
     """Fit each (view, seeds-or-None) candidate with ``fit_view``, then re-score every candidate's camera on ONE
     common final level (``common_final_losses``) and keep the lowest (strict <, so the first wins a tie).
 
@@ -856,7 +931,34 @@ def fit_best(fg: np.ndarray, scene: raster.RasterScene, pivot: np.ndarray | None
     ``loss`` (own level) and ``common_loss``. ``cross`` maps a view to its cross seeds."""
     ignore_faces = _optional_faces(scene, ignore_faces)
     results = [fit_view(view, fg, scene, pivot, seeds, n_refine, cross=(cross or {}).get(view),
-                        sign_margin=sign_margin, ignore_faces=ignore_faces) for view, seeds in candidates]
+                        sign_margin=sign_margin and not off_axis, ignore_faces=ignore_faces,
+                        **({"off_axis": True} if off_axis else {})) for view, seeds in candidates]
+    if off_axis:
+        # Every legacy and continuation candidate contributes to ONE final ROI/grid. A pairwise
+        # ordering can reverse when another view changes that grid's origin, so never prune early.
+        alternatives = [Camera.from_dict(r["refine"]["off_axis"][key]) for r in results
+                        for key in ("legacy_camera", "candidate_camera")]
+        all_losses = common_final_losses(fg, scene, alternatives, ignore_faces)
+        for i, r in enumerate(results):
+            vf = r["fit"]
+            evidence = r["refine"]["off_axis"]
+            pair = alternatives[2*i:2*i+2]
+            losses = all_losses[2*i:2*i+2]
+            selected = int(evidence["candidate_refusal"] is None and losses[1] < losses[0])
+            winner = pair[selected]
+            if r["view"] in AXIAL_VIEWS and not -180.0 <= winner.roll < 180.0:
+                winner = replace(winner, roll=(winner.roll + 180.0) % 360.0 - 180.0)
+            evidence.update(local_common_losses=evidence["common_losses"],
+                            local_selected=evidence["selected"], common_losses=losses,
+                            selected="off_axis" if selected else "legacy",
+                            objective_scope="one final union ROI/grid for all views and both camera families")
+            r["camera"] = r["refine"]["camera"] = winner
+            r["loss"] = r["refine"]["loss_final_level"] = float(vf.levels["final"].loss(scene, winner))
+            r["common_loss"] = losses[selected]
+            met = native_metrics(scene, winner, fg, matte_roi(fg), vf.ignore_faces)
+            r["metrics"] = {k: v for k, v in met.items() if k not in ("mask", "face_id")}
+            r["sign"] = vf.pitch_twin(winner) if sign_margin else None
+        return min(results, key=lambda r: r["common_loss"]), results
     common = common_final_losses(fg, scene, [r["camera"] for r in results], ignore_faces)
     best = None
     for r, c in zip(results, common):

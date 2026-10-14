@@ -1,6 +1,6 @@
 """WP3b photo camera <-> Blender camera (WP2_DESIGN §6), numpy only (host side; g3d/render.py applies the spec).
 
-A WP3b ``Camera{yaw, pitch, roll, perspective k, scale s, center_x, center_y}`` maps NORMALIZED model points
+A WP3b ``Camera{yaw, pitch, roll, perspective k, scale s, center_x, center_y, eye_x=0, eye_y=0}`` maps NORMALIZED model points
 (``NormFrame{C, E}``: (x_mm - C) / E, GLB millimetres) to native pixels (``camera.project``; integer = pixel centre).
 The Blender scene is the GLB frame shifted by the bridge-underside origin ``o`` (``mdl_bridge_underside``, mm): the
 exporter writes (blender_mm - o) / 1000 with ``export_yup=False`` (g3d/export_glb.py), so blender_mm = glb_mm + o.
@@ -9,10 +9,12 @@ Basis (camera.py): right = (cos y, 0, -sin y), up = (-sin p sin y, cos p, -sin p
 sin p, cos p cos y); roll: e_u = cos r right - sin r up, e_v = sin r right + cos r up. The Blender camera's local axes
 (X right, Y up, looking down -Z) are the columns (e_u, e_v, toward).
 
-- Perspective (k > 0): location = C + o + toward E / k, ``lens = (s / k) 36 / big``, sensor 36 mm.
-  Proof: camera coords (X, Y, Z) = (P.e_u, P.e_v, P.toward) E - (0, 0, E/k), so -z_cam = (E/k)(1 - k Z) = (E/k) depth
-  and the view-plane coordinate x_cam / -z_cam = k X / depth; Blender maps it to big * lens / 36 pixels.
-- Orthographic (k = 0): location = C + o + toward 4E, ``ortho_scale = big E / s``.
+- Perspective (k > 0): location = C + o + E (toward / k + eye_x right + eye_y up),
+  ``lens = (s / k) 36 / big``, sensor 36 mm. Missing eye offsets are zero.
+  Proof: let L = eye_x right + eye_y up. Camera coordinates are
+  E ((P-L).e_u, (P-L).e_v, P.toward - 1/k), so -z_cam = (E/k)(1 - k P.toward).
+  The view-plane coordinate x_cam / -z_cam is k (P-L).e_u / depth; Blender maps it to big * lens / 36 pixels.
+- Orthographic (k = 0): location = C + o + E (4 toward + eye_x right + eye_y up), ``ortho_scale = big E / s``.
 - Both: ``sensor_fit = 'AUTO'`` (the sensor and the shift span big = max(W, H)), native W x H, pixel aspect 1,
   ``shift_x = -(cx + 0.5 - W/2) / big``, ``shift_y = (cy + 0.5 - H/2) / big`` (a WP3b pixel centre is Blender's
   edge coordinate minus 0.5).
@@ -31,6 +33,7 @@ Blender render, the host raster (parts pass, compare) and picking share one came
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 
@@ -78,7 +81,7 @@ def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
     H, W = int(shape_hw[0]), int(shape_hw[1])
     if H < 1 or W < 1:
         raise ValueError(f"image shape must be positive, got {shape_hw}")
-    _right, _up, toward, e_u, e_v = axes(cam)
+    right, up, toward, e_u, e_v = axes(cam)
     center = np.asarray(frame.center, float) + np.asarray(origin_mm, float)
     E, k, s = float(frame.extent), float(cam.perspective), float(cam.scale)
     if not (E > 0 and s > 0 and k >= 0):
@@ -104,6 +107,8 @@ def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
         loc = center + toward * (ORTHO_DISTANCE_EXTENTS * E)
         spec.update(type="ORTHO", lens_mm=None, ortho_scale=float(big * E / s),
                     clip_start=float(E * 0.01), clip_end=float(E * (ORTHO_DISTANCE_EXTENTS + 10.0)))
+    if cam.eye_x or cam.eye_y:
+        loc = loc + E * (cam.eye_x * right + cam.eye_y * up)
     m = np.eye(4)
     m[:3, :3] = rot
     m[:3, 3] = loc
@@ -111,7 +116,8 @@ def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
     return spec
 
 
-def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: float | None = None
+def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: float | None = None,
+                 preserve_frame: bool = False
                  ) -> tuple[Camera, NormFrame, tuple[int, int]]:
     """The inverse of ``to_blender``: a Blender camera spec (sensor fit AUTO, pixel aspect 1, no lens-unit or
     sensor surprises) -> (WP3b camera, NormFrame, (H, W)) projecting exactly as Blender does.
@@ -119,7 +125,9 @@ def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: f
     An orthographic camera, or a perspective one whose eye lies on the axis through ``frame``'s centre, keeps
     ``frame``. Otherwise (a perspective eye off that axis: a lateral eye shift is parallax, not a principal-point
     shift) the frame is re-centred on the camera axis with the same extent. Without a frame, the centre is the point
-    on the axis nearest the origin marker and the extent ``extent`` (default 100 mm)."""
+    on the axis nearest the origin marker and the extent ``extent`` (default 100 mm).
+    With ``preserve_frame=True``, keep the supplied frame and represent lateral eye
+    displacement explicitly instead. The default preserves historical conversion."""
     if spec.get("sensor_fit", "AUTO") != "AUTO":
         raise ValueError("only sensor_fit AUTO specs can be converted")
     m = matrix_world(spec)
@@ -143,6 +151,7 @@ def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: f
     frame = as_frame(frame)
     E = float(frame.extent)
     rel = loc - origin - np.asarray(frame.center, float)
+    eye_x, eye_y = 0.0, 0.0
     cx = W / 2.0 - float(spec["shift_x"]) * big - 0.5
     cy = H / 2.0 + float(spec["shift_y"]) * big - 0.5
     if spec["type"] == "PERSP":
@@ -150,7 +159,9 @@ def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: f
         if dist <= 0:
             raise ValueError("the frame centre is behind the camera")
         lateral = rel - toward * dist
-        if np.linalg.norm(lateral) > 1e-9 * max(E, 1.0):
+        if preserve_frame:
+            eye_x, eye_y = float(lateral @ right) / E, float(lateral @ up) / E
+        elif np.linalg.norm(lateral) > 1e-9 * max(E, 1.0):
             frame = NormFrame(tuple(float(x) for x in np.asarray(frame.center, float) + lateral), E)
         k = E / dist
         s = float(spec["lens_mm"]) * big / float(spec["sensor_mm"]) * k
@@ -158,9 +169,12 @@ def from_blender(spec: dict, origin_mm=(0.0, 0.0, 0.0), frame=None, *, extent: f
         k, s = 0.0, big * E / float(spec["ortho_scale"])
         # an orthographic eye off the axis is a principal-point shift: fold it into (cx, cy)
         lateral = rel - toward * float(rel @ toward)
-        cx -= s * float(lateral @ e_u) / E
-        cy += s * float(lateral @ e_v) / E
-    return Camera(yaw, pitch, roll, k, s, cx, cy), frame, (H, W)
+        if preserve_frame:
+            eye_x, eye_y = float(lateral @ right) / E, float(lateral @ up) / E
+        else:
+            cx -= s * float(lateral @ e_u) / E
+            cy += s * float(lateral @ e_v) / E
+    return Camera(yaw, pitch, roll, k, s, cx, cy, eye_x, eye_y), frame, (H, W)
 
 
 def matrix_world(spec: dict) -> np.ndarray:
@@ -218,16 +232,18 @@ def rays(spec: dict, uv) -> tuple[np.ndarray, np.ndarray]:
 def crop_camera(cam, x0: float = 0.0, y0: float = 0.0, k: float = 1.0) -> Camera:
     """The camera of the crop [x0:, y0:] of a native image resized by ``k`` (= cameras.resized_camera)."""
     cam = as_camera(cam)
-    return Camera(cam.yaw, cam.pitch, cam.roll, cam.perspective, cam.scale * k,
-                  (cam.center_x - x0 + 0.5) * k - 0.5, (cam.center_y - y0 + 0.5) * k - 0.5)
+    return replace(cam, scale=cam.scale*k, center_x=(cam.center_x-x0+0.5)*k-0.5,
+                   center_y=(cam.center_y-y0+0.5)*k-0.5)
 
 
 def _project_norm(cam: Camera, pn: np.ndarray) -> np.ndarray:
     """camera.project without its near-plane refusal (framing decides that itself)."""
-    _r, _u, toward, e_u, e_v = axes(cam)
+    right, up, toward, e_u, e_v = axes(cam)
     depth = 1.0 - cam.perspective * (pn @ toward)
     if np.any(depth <= 0.05):
         raise ValueError("the framed geometry reaches the camera's near plane; lower the perspective")
+    if cam.eye_x or cam.eye_y:
+        pn = pn - cam.eye_x * right - cam.eye_y * up
     return np.column_stack([cam.center_x + cam.scale * (pn @ e_u) / depth,
                             cam.center_y - cam.scale * (pn @ e_v) / depth])
 

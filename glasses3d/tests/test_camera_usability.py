@@ -18,18 +18,19 @@ def test_fitter_labels_selected_metric_and_retains_all_diagnostics(inputs, no_op
     model, photos = inputs
 
     def optimizer(fg, scene, pivot, candidates, nr, **kwargs):
+        assert kwargs['off_axis'] is True
         cam = Camera(0., 12., 90., .1, 100., 90., 60.)
         metrics = cameras.native_metrics(scene, cam, fg, cameras.matte_roi(fg))
         metrics["iou"] = raw
         if optional is not None:
             metrics["iou_lens_optional"] = optional
         row = {"view": candidates[0][0], "camera": cam, "metrics": metrics, "loss": .5, "common_loss": .5,
-               "sign": {}, "refine": {"origin": "policy-fixture"}, "fit": SimpleNamespace(evals=1)}
+               "sign": {}, "refine": {"origin": "policy-fixture", "off_axis": {"mode": "fixture"}}, "fit": SimpleNamespace(evals=1)}
         return row, [row]
 
     monkeypatch.setattr(cameras, "fit_best", optimizer)
     overlay = tmp_path / "overlay.png"
-    row = FV.fit_image(model, photos["front.png"], "front", overlay_path=overlay)
+    row = FV.fit_image(model, photos["front.png"], "front", overlay_path=overlay, off_axis=True)
     assert row["iou"] == raw and row.get("iou_lens_optional") == optional
     assert row["status"] == ("ok" if usable else "unusable")
     assert row["usability"] == FV.camera_usability({"iou": raw, **({"iou_lens_optional": optional}
@@ -53,15 +54,16 @@ def test_label_sign_refusal_has_precedence_over_low_overlap(inputs, no_optional,
     model, photos = inputs
 
     def optimizer(fg, scene, pivot, candidates, nr, **kwargs):
+        assert kwargs['off_axis'] is True
         cam = Camera(0., -60., 0., .1, 100., 90., 60.)
         metrics = cameras.native_metrics(scene, cam, fg, cameras.matte_roi(fg))
         metrics["iou"] = .1
         row = {"view": "top", "camera": cam, "metrics": metrics, "loss": 1., "common_loss": 1.,
-               "sign": {}, "refine": {"origin": "policy-fixture"}, "fit": SimpleNamespace(evals=1)}
+               "sign": {}, "refine": {"origin": "policy-fixture", "off_axis": {"mode": "fixture"}}, "fit": SimpleNamespace(evals=1)}
         return row, [row]
 
     monkeypatch.setattr(cameras, "fit_best", optimizer)
-    row = FV.fit_image(model, photos["front.png"], "top")
+    row = FV.fit_image(model, photos["front.png"], "top", off_axis=True)
     assert row["status"] == "refused" and row["code"] == "E_VIEW_SIGN"
     assert "contradicts label" in row["refusal"] and row["usability"]["usable"] is False
     assert set(row["flags"]) == {"label_sign_contradicted", "insufficient_camera_overlap"}

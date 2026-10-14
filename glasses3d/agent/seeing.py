@@ -2282,12 +2282,13 @@ class Seeing:
 
     # ---------------------------------------------------------------------------------------------- fit_cameras
     def fit_cameras(self, reason: str, images: dict, views: dict, refs=None, *, skip=(), front_parts=None,
-                    workers: int = FIT_WORKERS, n_refine=None, candidates=None, matte_modes=None,
+                    workers: int = FIT_WORKERS, n_refine=None, candidates=None, matte_modes=None, off_axis: bool = False,
                     call_id: str | None = None,
                     log=None) -> dict:
         call_id = self.s.new_call_id("fit_cameras", call_id)
         args = {"reason": reason, "images": {k: str(v) for k, v in images.items()}, "views": views, "refs": refs,
-                "skip": list(skip), "front_parts": front_parts, "workers": workers, "matte_modes": matte_modes}
+                "skip": list(skip), "front_parts": front_parts, "workers": workers, "matte_modes": matte_modes,
+                "off_axis": off_axis}
         t0 = time.perf_counter()
         if not str(reason or "").strip():
             out = _err(call_id, "E_ARGS", "fit_cameras needs a reason (it is recorded in the basis)")
@@ -2317,7 +2318,7 @@ class Seeing:
             with procs.DescendantsOptOut() as qos:
                 res = fit_views.fit_views(exp["path"], imgs, {n: views[n] for n in names}, bdir, skip=tuple(skip),
                                           front_parts=front_parts, workers=workers, n_refine=n_refine,
-                                          candidates=candidates,
+                                          candidates=candidates, off_axis=off_axis,
                                           matte_modes={n: (matte_modes or {}).get(n) for n in names},
                                           log=log or (lambda *_: None))
             bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
@@ -2352,7 +2353,7 @@ class Seeing:
         out = {"status": "ok" if bs.usable_refs() else "refused", "call_id": call_id,
                "basis": bs.id, "checkpoint": exp["checkpoint"],
                "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
-               "fit_seconds": round(res.get("seconds", 0.0), 1),
+               "fit_seconds": round(res.get("seconds", 0.0), 1), "off_axis": off_axis,
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
                "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid)) for rid, rec in bs.refs.items()},
                "usable_refs": bs.usable_refs(), "unusable_refs": bs.unusable_refs(),
@@ -2375,6 +2376,8 @@ class Seeing:
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
+                **({"camera": camera, "off_axis": f["off_axis"], "sign": f.get("sign")}
+                   if f.get("off_axis") is not None else {}),
                 **{key: value for key, value in f.items()
                    if key.endswith("_lens_optional") or key == "lens_pixels_optional"},
                 **{key: f.get(key, rec.get(key)) for key in ("flags", "code", "refusal", "error", "message", "lens_loss")}}

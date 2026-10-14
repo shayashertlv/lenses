@@ -214,11 +214,15 @@ def chart_to_posed(ch, side: int, hinge_z: float, pose=None, opening=None) -> np
 
 def toward_camera(P_mm, camera: Camera, frame: NormFrame) -> np.ndarray:
     """(N, 3) the direction from each point toward the camera (not normalised), in mm space: camera.project's basis
-    (toward = (cos p sin y, sin p, cos p cos y)) with its centre at toward / perspective in the normalized frame;
+    (toward = (cos p sin y, sin p, cos p cos y)) with its eye at toward / perspective plus explicit lateral offsets;
     an orthographic camera (perspective 0): toward itself."""
     yaw, pitch = math.radians(camera.yaw), math.radians(camera.pitch)
     toward = np.array([math.cos(pitch) * math.sin(yaw), math.sin(pitch), math.cos(pitch) * math.cos(yaw)])
     Pn = frame.to_norm(np.asarray(P_mm, float).reshape(-1, 3))
+    if camera.eye_x or camera.eye_y:
+        right = np.array([math.cos(yaw), 0.0, -math.sin(yaw)])
+        up = np.cross(toward, right)
+        Pn = Pn - camera.eye_x * right - camera.eye_y * up
     return toward[None, :] - camera.perspective * Pn
 
 

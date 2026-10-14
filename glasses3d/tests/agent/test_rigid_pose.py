@@ -164,6 +164,6 @@ def test_actual_rigid_fitter_emits_marker_only_for_successful_fit(tmp_path, monk
     monkeypatch.setattr(FV.cameras, "fit_best", lambda *_a, **_kw: (best, [best]))
     result = FV.fit_image(glb, photo, "front")
     assert result["rigid_fit"] == FV.rigid_fit_marker(sha, digest(photo), result["camera"])
-    monkeypatch.setattr(FV, "sign_check", lambda *_: "rejected label")
+    monkeypatch.setattr(FV, "sign_check", lambda *_, **_kw: "rejected label")
     refused = FV.fit_image(glb, photo, "front")
     assert refused["status"] == "refused" and "rigid_fit" not in refused

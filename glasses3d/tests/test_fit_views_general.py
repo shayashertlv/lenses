@@ -81,15 +81,16 @@ def test_direct_fitter_uses_requested_matte_and_preserves_raw_optional_metrics(i
     monkeypatch.setattr(seat_check, 'check_glb', lambda _: {'lenses': [
         {'node': 'Lens_L', 'frame_type': 'rimless', 'frame_type_source': 'g3d_seat', 'provisional': False}]})
     calls = []
-    def optimizer(fg, scene, pivot, candidates, nr, *, cross, ignore_faces):
+    def optimizer(fg, scene, pivot, candidates, nr, *, cross, ignore_faces, off_axis):
+        assert off_axis is True
         calls.append((fg.copy(), ignore_faces.copy()))
         camera = Camera(0., 12., 0., .1, 100., 90., 60.)
         metrics = cameras.native_metrics(scene, camera, fg, cameras.matte_roi(fg), ignore_faces)
         row = {'view': candidates[0][0], 'camera': camera, 'metrics': metrics, 'loss': .5, 'common_loss': .5,
-               'sign': {}, 'refine': {'origin': 'fixture'}, 'fit': SimpleNamespace(evals=1)}
+               'sign': {}, 'refine': {'origin': 'fixture', 'off_axis': {'mode': 'fixture'}}, 'fit': SimpleNamespace(evals=1)}
         return row, [row]
     monkeypatch.setattr(cameras, 'fit_best', optimizer)
-    result = FV.fit_image(model, photos['front.png'], 'front', matte_mode=mode)
+    result = FV.fit_image(model, photos['front.png'], 'front', matte_mode=mode, off_axis=True)
     resolved = mode or 'open_frame'
     np.testing.assert_array_equal(calls[0][0], matte.matte(matte.load_photo(photos['front.png']), mode=resolved))
     mesh = fitmesh.load_fit_mesh(model)

@@ -83,7 +83,7 @@ from scipy import ndimage
 
 from . import cameras, fitmesh, raster
 from . import matte as M
-from .camera import CAMERA_FIELDS, Camera, NormFrame, project_mm
+from .camera import CAMERA_FIELDS, EYE_FIELDS, Camera, NormFrame, project_mm
 from .fit_views import CAMERAS_JSON, contour_summary, overlay_image
 
 BASIS_SCHEMA = "g3d.basis/1"
@@ -197,10 +197,10 @@ def _fit_usable(fit: dict) -> bool:
 
 def _valid_camera(value, rid: str) -> Camera:
     try:
-        if not isinstance(value, dict) or any(isinstance(value[k], bool) for k in CAMERA_FIELDS):
+        if not isinstance(value, dict) or any(isinstance(value.get(k), bool) for k in CAMERA_FIELDS + EYE_FIELDS):
             raise ValueError("camera fields must be numeric")
         camera = Camera.from_dict(value)
-        if not all(math.isfinite(getattr(camera, k)) for k in CAMERA_FIELDS) or camera.scale <= 0:
+        if not all(math.isfinite(getattr(camera, k)) for k in CAMERA_FIELDS + EYE_FIELDS) or camera.scale <= 0:
             raise ValueError("camera fields must be finite with positive scale")
         return camera
     except (KeyError, TypeError, ValueError, OverflowError) as exc:
@@ -379,7 +379,7 @@ FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags",
                        "contour_mean_mm", "contour_p90_px", "contour_p90_mm", "px_per_mm_at_front_pivot",
                        "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",
                        "iou_lens_optional", "lens_pixels_optional", "contour_mean_px_lens_optional",
-                       "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability")
+                       "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability", "off_axis")
 
 
 def freeze_basis(job_root, basis_dir, photos: dict, *, reason: str, call_id: str | None, source: str,
@@ -954,7 +954,8 @@ def crease_polylines(edges: dict, cam: Camera, frame: NormFrame, depth: np.ndarr
     if not len(edges["a"]):
         return []
     H, W = depth.shape
-    toward = raster.camera_basis(cam)[2]
+    right, up, toward = raster.camera_basis(cam)
+    lateral_eye = cam.eye_x * right + cam.eye_y * up
     p = float(cam.perspective)
     out = []
     ua, ub = project_mm(edges["a"], cam, frame), project_mm(edges["b"], cam, frame)
@@ -963,7 +964,7 @@ def crease_polylines(edges: dict, cam: Camera, frame: NormFrame, depth: np.ndarr
         t = np.linspace(0.0, 1.0, n_s)[:, None]
         P = edges["a"][k] * (1 - t) + edges["b"][k] * t
         Pn = frame.to_norm(P)
-        view = (toward / p - Pn) if p > 0 else np.broadcast_to(toward, Pn.shape)
+        view = (toward / p + lateral_eye - Pn) if p > 0 else np.broadcast_to(toward, Pn.shape)
         facing = (view @ edges["n1"][k] > 0) & (view @ edges["n2"][k] > 0)
         uv = ua[k] * (1 - t) + ub[k] * t
         iu, iv = np.round(uv[:, 0]).astype(int), np.round(uv[:, 1]).astype(int)
