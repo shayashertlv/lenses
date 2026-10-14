@@ -101,6 +101,105 @@ source-code change, job-definition change, brief edit or photo edit was made bef
 Only this progress log is committed for run 3. No implementation changed, so no new regression suite was run;
 the actual run's validation, AR capture, finish and delivery evidence above are the verification. Nothing pushed.
 
+## Oakley run 3: owner colour/transparency review ($0, 2026-10-14)
+
+After the run, the owner requested webcam AR. `job review` bound the immutable run-3 delivery and verified its
+served GLB SHA; detached server PID **29388**, port **64023**, created **16:01:52 UTC**. Binding is in the job's
+`review/current.json`. The owner then reported: **"the color of the lenses isnt right (its close tho) and theyre
+have no transparency"** and requested a run/model review. This is appearance feedback, not visual acceptance.
+Review began clean on `glasses3d` at `3d043ed`. No paid call, implementation edit, delivered-model change,
+job/brief/photo change, calibration research or replacement delivery was made.
+
+**Verdict:** the owner's near-opacity observation is reproduced. The strongest isolated cause is the exported
+closed shield's **double-sided rendering**, which causes repeated attenuation in Three's transmission input
+on this GPU. The `transmissionFactor: 0.90` value was present and exported correctly; it did not establish
+visible transparency. Technical finish and the earlier flat-background AR sheets did not verify eye visibility.
+
+### Controlled evidence (diagnostic copy only)
+
+Evidence: `data/assembly/m5oakley3-review/transparency/`. Three sequential hardware-GPU captures used the same
+AR renderer, authored scale, lens environment **1**, seven poses, skin/dark/checker backgrounds and the same
+pinned face-a portrait. **All three exited 0; 99 images, 22.234 s, $0.** All image hashes and original GLB hashes
+were verified. Existing warnings remain in each report. The original accepted Oakley and original delivery
+were unchanged. The sole experimental copy is explicitly named `DIAGNOSTIC_ONLY_run3_material6_single_sided.glb`;
+it changes only `/materials/6/doubleSided` from true to false. All other parsed JSON and every binary chunk are
+identical; original versus diagnostic part-ID images are pixel-identical in all seven poses.
+
+Across **59,767 shared front-lens interior pixels**, mean display-RGB background-response gain was:
+
+| Model | Background-response gain |
+|---|---:|
+| Owner-accepted Oakley | 0.133886 |
+| Delivered run 3 | 0.016032 |
+| Diagnostic copy, only single-sided shield | 0.120977 |
+
+Run 3's response is about **88% weaker** than the accepted model; the one-field diagnostic increases it **7.55x**.
+All seven poses show the same direction: run 3 **0.0130-0.0175**, diagnostic **0.1013-0.1314**. The response is
+nonzero, so the technical description is **nearly opaque**, not zero transmission. These are rendered display-RGB
+response measurements, **not physical light-transmission/VLT percentages or a new gate**. Analysis uses each
+reported lens palette, a three-pixel erosion and all poses, with both shared-mask and own-mask results retained.
+Portraits visibly reproduce hidden eyes in run 3 and their return in the diagnostic; they are fixed test-face
+captures, not recordings of the owner's webcam.
+
+Receipts and method: `experiment.json`, `capture.status.json`, `capture.log`, `analysis.json`, `analyse.py`,
+`gpu-extension-probe.json`. Visuals: `portrait-eyes-comparison.png` and `front-checker-comparison.png`;
+unaltered native crops remain at `{accepted,run3,diagnostic_single_sided}/portrait__a__eyes.png`.
+
+### Cause and why the run missed it
+
+- The actual reviewer uses **glasses3d/arview**. Its native material path preserves the GLB's PBR values
+  (`arview/src/eyewear/optical-material.ts:277`, `arview/src/render/renderer.ts:938`). Both models contain one
+  closed shield shell, not duplicate lenses. Run 3 has a separate rim material; the diagnostic leaves it untouched.
+- Run 3's main lens is **doubleSided true**, has no volume extension, and Astra never enabled backface culling.
+  The accepted lens is **doubleSided false**, with a **0.00155 m** volume thickness. Blender 5.2's installed glTF
+  exporter (`blender/exp/material/materials.py:271-280`) forces single-sided export for volume materials; otherwise
+  it follows `use_backface_culling`. This is authored/default export state, not dropped transmission or corruption.
+- The installed Three 0.185.1 `WebGLRenderer.js:2050-2085` draws backs of double-sided transmissive materials into
+  the transmission input when `WEBGL_multisampled_render_to_texture` is absent. A separate context using the same
+  Chromium/ANGLE D3D11 configuration and Arc 140T GPU confirms that extension is absent. The controlled capture
+  isolates the resulting behaviour. The main front surface then samples an image already attenuated by the back.
+- The shader's per-surface camera coefficient also contains base colour, `(1 - metallic)` and Fresnel terms.
+  Before Fresnel, run 3's **0.90 transmission / 0.60 metallic / [0.50,0.52,0.51] tint** gives
+  **[0.1800,0.1872,0.1836]**, not 0.90. The accepted model's **1.00 / 0.72 / [0.35,0.33,0.35]** gives
+  **[0.0980,0.0924,0.0980]** per surface; it is clearer despite the smaller single-surface coefficient because it
+  avoids the extra pass. Alpha 1 / OPAQUE is not itself a defect: Three selects transmissive materials independently
+  of alpha blending. These coefficients are not webcam or physical transmittance measurements.
+- Astra used the coating helper successfully five times. It tried a paler c0005 recipe, then explicitly selected
+  stronger green/violet in code call **0032:59-61**. It simultaneously changed lens curvature, temple geometry and
+  material settings, so that comparison did not isolate which change improved colour. The final film is **515 nm /
+  IOR 1.50** versus accepted **480 nm / 1.65**. Both material settings and curvature affect the colour. The fixed
+  room lighting also differs from the photos; no colour-calibrated physical match is established. The one-field
+  sidedness experiment already changes visible colour by restoring the transmitted background.
+- The automation's AR wrapper hardcodes **skin background and `--no-portrait`**
+  (`agent/tools/arview.py:119-121`). Its five standalone captures plus finish showed reflections over uniform
+  backgrounds and close side views, without eye detail. The CLI already supports portraits and checker backgrounds,
+  but the general Astra tool exposes no such choice. The prompt did explicitly require see-through lenses
+  (`agent/instructions.py:61-62`); the missing visual evidence was not a missing owner instruction.
+- Run 3 ended through accepted `finish` at **$6.478750**, with **$13.521250** still below the $20 settled stop.
+  It was not forced to finish by budget or a runtime fault. The summary acknowledged darker lenses and approximate
+  fit. Structural validity and completed AR capture allowed finish; neither certified photographic likeness.
+
+### Remaining model/run findings
+
+- The front is recognizable and much closer than the top. Latest frozen-basis photo overlap (c0006) was
+  **0.9487 front, 0.8724 side, 0.5359 top**, versus **0.9523 / 0.8694 / 0.5139** before the revision. The side
+  comparison shows boxier latch pods and less integrated shoulder/arm transitions; top arm curvature and projected
+  interior remain approximate. These figures mix camera/model disagreement and are not pure geometry errors.
+- Astra made an off-axis basis-02 fit but reused basis-01 for its subsequent photo measurements and final
+  comparison. Its uncertainty remained unresolved; this review does not reopen calibration research.
+- The final support repair retained the four openings; the frozen before/after report shows no repeated central
+  vent loss. Seating improved from 240 to **70 failing stations**, retained as advisory under the owner's policy.
+  Evidence: `work/seating_reports/10ecd3df6d9d379419bd790f/{before,after}/front-white.png` in the job.
+- Final delivery still records five temple-cut warnings (up to **9.4 mm**, otherwise **6.3 mm**) and three
+  part-visibility warnings, including the long central brow receiving temple treatment in some regions.
+  No `temple_stage` call occurred. Accounting, checkpoint verification and immutable delivery integrity passed.
+
+**Recommended next work, not implemented:** address the general closed-lens sidedness/transmission interaction
+with independent $0 cases; give Astra detailed portrait/checker evidence so it can judge visibility, keeping the
+owner's fixed reflection default and existing capabilities. Reassess the remaining hue/curvature mismatch only
+after transmission renders correctly. Do not treat the diagnostic copy as a new product or tune a coating to
+compensate for repeated attenuation. No new gate, budget change or paid run is authorized by this review.
+
 ## Assembly M5-fix-2: money, paged reports, measuring and worn views ($0, 2026-10-14)
 
 **Closeout (`6570b88`, subsequent to the implementation notes below):** item 6 is delivered and closed; Claude
