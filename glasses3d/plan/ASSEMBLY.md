@@ -300,6 +300,41 @@ The off-axis camera option stays as an explicit choice (default unchanged). Cali
 needs independent calibration evidence these photos do not contain and it does not touch what stopped run 2.
 Next: Oakley run 3 on the same job, only with the owner's explicit approval and estimate.
 
+### M5-fix-3. Lens transparency after Oakley run 3 ($0; added 2026-10-14 by Claude)
+Run 3 (`20261014T142845-c99f84`) finished by itself at $6.48 (43 requests, no `temple_stage`). Owner, by webcam:
+"the color of the lenses isnt right (its close tho) and theyre have no transparency". Codex's $0 review (PROGRESS
+"Oakley run 3: owner colour/transparency review", `f4d34f3`) reproduced it and isolated the cause; Claude checked its
+images (`data/assembly/m5oakley3-review/transparency/portrait-eyes-comparison.png`, `front-checker-comparison.png`):
+the eyes are hidden in run 3 and come back when only `/materials/6/doubleSided` changes from true to false
+(background response 0.016 → 0.121; accepted Oakley 0.134). Cause: Astra's closed shield lens exported
+double-sided (Blender follows `use_backface_culling`, which Astra never set), and Three draws the back faces of a
+double-sided transmissive material into the transmission input on this GPU, so the front samples an image the back
+already darkened. Astra could not see this: `arview_capture` renders only skin backgrounds with `--no-portrait`
+(`agent/tools/arview.py:119-121`), so no eyes or pattern were ever behind its lenses.
+1. **The exporter writes closed lenses single-sided** (general, in `g3d/export_glb.py`, where lens-role material
+   copies are made, ~685-705, or in the post-export JSON patch, ~729+). For a lens-role material whose every mesh
+   is a closed 2-manifold with outward normals (positive signed volume), export `doubleSided: false`; a closed
+   solid never needs its back faces drawn. An open or inward-facing lens mesh keeps its authored setting and the
+   export report says why in one plain note, so Astra can fix its mesh. Frame and temple materials are untouched.
+   The export receipt records which materials were changed. Do not edit the viewer: the GLB must be right for any viewer.
+2. **Astra sees eyes and a pattern behind the lenses.** Add to `arview_capture` (and therefore `finish`) the front
+   worn portrait on the CLI's existing pinned test face (`--no-portrait` removed) and one front view on the existing
+   checker background. Keep everything it has now (the 7 skin poses, the ±50° worn views, fixed scale, hair off,
+   the one fixed lens-reflection setting). Lay the sheet out so the eyes behind the lens are clearly legible; all
+   native images stay in the report and the delivery. Report the lens background response you measured in this
+   review (same method as `analyse.py`) per captured view as information, not a gate. The description says these
+   show how see-through the lenses look when worn, to judge against the photos.
+3. **Proof ($0):**
+   - (a) re-export run 3's checkpoint c0007 in a copy job with the fixed exporter: only the lens `doubleSided`
+     changes (plus receipt/note); its capture shows the eyes and its response matches the diagnostic copy (~0.12);
+   - (b) synthetic cases: a closed outward lens becomes single-sided; a closed inward lens and an open lens surface
+     keep their setting with the note; non-lens double-sided materials are unchanged;
+   - (c) `tests.proofs.assembly_m1` and the affected suites as §1 describes.
+4. **Show the owner.** Serve the (a) re-export in the webcam review, labelled as "run 3 re-exported with the lens
+   fix, same Astra model, not a new delivery", so the owner can judge the lens colour with transparency restored.
+   Ask him one question: is the lens colour now right, close, or wrong? Record his words verbatim. Do not change the
+   colour, coating or any geometry, and do not start a paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
