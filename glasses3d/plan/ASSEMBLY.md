@@ -185,6 +185,52 @@ job with a $1 settled stop and $1 reserve cap, only after items 1-4 pass and onl
 record the owner's words in the approval. Then stop and report: the smoke result (spend, receipts, ledger), the
 estimate for Oakley run 1, and the draft-delivery and runway tests. Oakley run 1 needs the owner's separate OK.
 
+### M5-fix-1. Repairs after Oakley run 1 ($0; added 2026-10-14 by Claude from Codex's run review)
+Oakley run `20261013T173404-2accf4` finished (accepted `finish`, $19.16, $0.84 left before the stop) but is not
+complete in likeness: no green/cyan coating (the owner's stated priority), central vents ~79 % smaller after seating
+repairs, no usable top-photo registration. The old Studio route built the owner-accepted Oakley for **$8.92**
+(63 requests; studio job 3dff8674, runs 20261001T084925-d6d192 + 20261001T085658-b197ec). Same work volume, double
+the cost. Measured from both runs' usage records:
+
+| | old Studio (accepted) | new run |
+|---|---:|---:|
+| requests | 56 (+7) | 65 |
+| requests that lost the prompt cache | 0 | 3 (51, 61, 64) |
+| cache writes | $1.63 | $10.30 |
+| cached reads / output | $4.75 / $2.06 | $5.90 / $2.87 |
+
+The three cache misses are our image policy (ASSEMBLY M2 item 2, `ContextGuard` replacing old images) rewriting the
+history prefix: $7.48 (39 %) of the run. The old Studio never edited history. In order:
+1. **Append-only history.** Stop the periodic image replacement (`context_guard_every_requests` and the pressure
+   epochs) for job runs; never edit earlier items of a live conversation. Keep the run under the long-context
+   threshold by making tool results smaller instead (one compact contact sheet per call, not many full panels; no
+   repeated full-size images). Prove with a $0 replay that re-prices this run's saved requests under the new policy
+   (cache-miss count and cost), and that the six photos stay in every request.
+2. **One `finish` call does the finalization.** `finish` itself exports the current head, runs `validate_spec` and the
+   seating check, runs the fixed-scale AR capture and returns everything; a refusal lists what failed with the
+   images. Today calls 58-65 (unchanged model) cost $7.37 across separate model turns at ~230k tokens.
+3. **Lens coating that survives export.** The exporter keeps thin-film iridescence only with a glTF Material Output
+   group carrying the exact `Iridescence Factor` socket and an `Occlusion` socket (Codex's four-case proof,
+   `data/assembly/m5oakley/thorough-review/material-probe/`). Add a host helper `g3d.lens_coating(...)` (or a trusted
+   tool) that builds that group correctly from Astra's parameters (factor, IOR, thickness range, tint), make the
+   exporter warn whenever an authored thin film, transmission or other optical effect is dropped, and describe the
+   helper in the tool docs. Check the exported coating in the fixed arview renderer at several poses.
+4. **Baseline the instruments on the owner-accepted Oakley** ($0): run `fit_cameras` + `compare_to_photos` +
+   `check_lens_seating` + `arview_capture` on the accepted Studio GLB
+   (`automation/data/blender_agent/studio/jobs/3dff867466d449c9a6369273f0a14631/agent/ar/h_detailed_closed_shield-6c7d3bd5/model.glb`,
+   or the asset bound in `data/ledger/owner_verdicts.jsonl`). Report its contour numbers per photo next to run 1's,
+   and whether the accepted model **passes the seating check**. If it fails, that is evidence for AGENTS.md "Gates":
+   show the owner the vents before/after and ask whether seating stays a finish requirement or becomes a report
+   Astra weighs against the photos. Do not change the gate without that answer.
+5. **Top photo registration:** let camera search cover image-plane roll for top/bottom views (seeds at ±90° and 180°,
+   or roll bounds ±180° for those kinds), and report a fit with IoU below a usable level as `unusable`, not `ok`
+   (a status label, not a new likeness gate). Proof: the Oakley top photo registers on the accepted GLB.
+6. **`temple_stage` refusals that say the real cause:** pass through the export refusal text instead of "parent
+   export does not match its current checkpoint" (`agent/temple_lab/package.py:83`); state the hinge-knuckle size
+   heuristic (3.2 mm, `g3d/temple/measure.py:28,66`) in the refusal and the tool description so Astra does not spend
+   turns on it; list `partRole` values the exporter accepts in the `execute_blender_code` description.
+Then estimate Oakley run 2 with the new policy and stop for the owner's approval.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
