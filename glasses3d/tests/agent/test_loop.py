@@ -856,7 +856,7 @@ def test_the_section_7_timeout_table_and_the_sdk_timeout_rule():
                                                "restore_checkpoint", "fit_cameras", "deliver", "read_report")] == [
         160.0, 130.0, 310.0, 130.0, 70.0, 1810.0, 610.0, 40.0]
     assert L.sdk_timeout_s("budget_status") == 40.0
-    assert L.sdk_timeout_s("finish") == 160.0
+    assert L.sdk_timeout_s("finish") == 790.0  # export/checks + AR + diagnostic fallback, then SDK margin
     with pytest.raises(KeyError):
         L.hard_timeout_s("unknown_tool")
 

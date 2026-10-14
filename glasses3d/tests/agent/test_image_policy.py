@@ -100,6 +100,22 @@ def image_calls(body):
     return {image["call_id"] for image in L.tool_output_image_occurrences(body["input"])}
 
 
+def test_job_policy_keeps_every_previous_item_at_all_request_boundaries(tmp_path):
+    from glasses3d.agent.job_run import settings_default
+    scene = PolicyScene(tmp_path / "policy")
+    replies = [look("front", f"c{i}", i) for i in range(1, 8)] + [R.tool_call("finish")]
+    settings = replace(settings_default(), max_turns=12, max_output_tokens=4096, settled_stop_usd="19")
+    _, transport, result = run(tmp_path, replies, scene, settings=settings)
+    assert not scene.asked and not result.get("context_guard")
+    for previous, current in zip(transport.creates, transport.creates[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
+    for counted, sent in zip(transport.counts, transport.creates):
+        assert counted["input"] == sent["input"]
+        assert [part["image_url"] for item in sent["input"] if item.get("role") == "user"
+                and isinstance(item.get("content"), list) for part in item["content"]
+                if part["type"] == "input_image"] == [photo.image_url for photo in photos(2)]
+
+
 def test_repeated_epochs_before_count_keep_originals_and_new_cached_occurrences(tmp_path):
     scene = PolicyScene(tmp_path / "policy")
     # call4 repeats call1's exact bytes after call1 was stubbed at request4.

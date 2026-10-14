@@ -1,6 +1,7 @@
-"""The `g3d` facade that Astra's snippets see (WP2_DESIGN §4): pure geometry helpers only, no file I/O inside.
+"""The `g3d` facade that Astra's snippets see (WP2_DESIGN §4): in-memory scene helpers, no file I/O inside.
 
     g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners                              (WP6, temple_bpy)
+    g3d.lens_coating                                                                         (coating)
 
 Seating runs through the trusted g3d_call worker protocol. Helpers with internal file I/O (export_glb, print_uv,
 attach_print, faceted_temple with a spec path) are never facade names. The facade is a fresh module object
@@ -15,12 +16,13 @@ from __future__ import annotations
 import types
 
 TEMPLE_NAMES = ("loft_sections", "polygon_section", "check_round_corners")
-NAMES = TEMPLE_NAMES
+COATING_NAMES = ("lens_coating",)
+NAMES = TEMPLE_NAMES + COATING_NAMES
 
 
 def build() -> tuple[types.ModuleType, dict]:
     """(facade module, {group: import error}) — `g3d` and `g3d.lib` both resolve to this module in a snippet."""
-    facade = types.ModuleType("g3d.lib", "glasses3d geometry helpers for scene code (no file I/O)")
+    facade = types.ModuleType("g3d.lib", "glasses3d in-memory scene helpers (no file I/O)")
     errors: dict = {}
     try:
         from . import temple_bpy
@@ -28,6 +30,12 @@ def build() -> tuple[types.ModuleType, dict]:
             setattr(facade, name, getattr(temple_bpy, name))
     except Exception as exc:  # noqa: BLE001
         errors["temple"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from . import coating
+        for name in COATING_NAMES:
+            setattr(facade, name, getattr(coating, name))
+    except Exception as exc:  # noqa: BLE001
+        errors["coating"] = f"{type(exc).__name__}: {exc}"
     facade.lib = facade
     facade.__all__ = [n for n in NAMES if hasattr(facade, n)]
     return facade, errors

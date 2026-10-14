@@ -28,6 +28,110 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5-fix-1 stopped at item 4 (2026-10-14; $0; owner decision required)
+
+Started on the primary checkout, branch `glasses3d`, clean at `779a177`; no worktree and no paid request.
+The owner requires items 1–6 in order and a stop at item 4 if the accepted Oakley fails seating. Items 1–3 are
+complete and regression-tested. The default accepted-asset seating check refused, so implementation stopped
+at item 4. Items 5–6 and any seating-policy change remain pending the owner's answer. No paid run started.
+
+- **Item 1 complete:** generic jobs and their nested temple stages now keep append-only request history. Old
+  approvals requesting image-pruning epochs are refused. New image outputs are one preview at most 1024 px
+  per side; native panels remain available with source hashes, sizes and labels. Repeated job images reference
+  an already delivered call; unseen/cancelled images are sent again. Nested previews retain explicit pixel
+  mappings and separate descriptions without changing standalone lab behavior.
+  Saved-request proof `data/assembly/m5fix1-history-b/proof.json`: 65 requests, all six photos in every request,
+  180 source hashes unchanged, prefix rewrites **3 → 0** (old requests 51/61/64), 21 panels → 12 compact images.
+  Observed ledger **$19.161346** reconciled exactly; modeled stable-prefix replay **$11.311824**, peak estimated
+  input 211,176 tokens. Adding 1,000 metadata characters per tool gives **$12.494124**, peak 238,056, below the
+  272,000-token price step. Zero-cache sensitivity is $77.090520. These are offline scenarios holding the saved
+  replies fixed, not measured provider cache hits or promised future spend. The 528-token calibration decrease
+  at request 64 is disclosed and a monotone input envelope is used. Actual proof spend **$0**.
+  Tests: combined image/CLI/instruction/replay/stage selection **184 passed**; final replay **18 passed**;
+  final nested-stage selection **26 passed** (overlapping selections, not an aggregate count).
+- **Item 2 complete:** `finish` exports/checks the current head and performs a fresh fixed-scale AR capture in
+  one call. It preserves all failing spec/seating/print reports, adds AR failures, and provides a scene-render
+  fallback when AR images are unavailable. Infrastructure/image failures retain completed reports; acceptance
+  is persisted only after image output succeeds. Existing quality gates and delivery hash checks are intact.
+  The composed deadline covers export, AR and diagnostic rendering (780 s hard / 790 s SDK). Guidance and the
+  low-budget notice now describe the one-call path.
+  Real Blender proof `data/assembly/m5fix1-finish-b/proof.json`: unseated refusal with images, then two seating
+  calls and one accepted finish, immutable delivery verified; no separate export/AR tool calls; **13.03 s, $0**.
+  Its unchanged image bytes legitimately reused the first displayed image while the final capture and delivery
+  retained fresh source receipts. Tests: tools + loop **113 passed**, final finish regressions **28 passed**,
+  instructions/runway **82 passed** (overlapping selections). The final combined agent selection passed
+  **266 tests in 77.48 s**.
+- **Item 3 complete:** the sandbox helper `g3d.lens_coating` builds the
+  correct glTF control group, preserves authored optics, and retains the requested minimum/maximum thickness
+  in the GLB. An untextured film renders at its maximum thickness. Optical-loss diagnostics inspect each
+  exported material and warn on lost or unverified active optical effects without creating a quality gate.
+  The first live-session proof exposed stale evaluated-material metadata; reading the original authored
+  material fixes this, with a repeated factor-0 → factor-1 export regression. The real facade/GLB/fixed-AR proof
+  `data/assembly/m5fix1-coating-b/proof.json` passed in **14.984 s, $0**, including min=140/max=460 nm, seven
+  changed beauty poses, and verified checkpoint exit. The fixture proves exported capability, not Oakley likeness.
+  Independent review also reproduced a pre-existing cache blind spot: renaming a glTF group interface socket
+  removed iridescence without changing its fingerprint. Nonempty group interfaces now contribute their
+  persisted names, types, defaults, order and structure; ordinary no-interface trees retain their exact old
+  hash input. Used, zero-user and fake-user groups plus Blender save/restore are covered. Historical checkpoint
+  files with nonempty interfaces have older fingerprints; files are untouched and strict restore is not bypassed.
+  Coating/export-loss/sandbox/worker selection: **270 passed in 28.24 s**; interface/mixed-scene/coating selection:
+  **21 passed in 15.13 s** (overlapping selections). No remaining coating blocker after independent review.
+  Regression runs before item 4 so completed repairs are verified even if the owner stop is triggered.
+  Main Python suite (`-n 8 --dist loadfile`, excluding photoprint): **3,210 passed / 3 failed in 877.80 s**.
+  All three failures passed unchanged in isolation: temple-fit CPU-time threshold and the complete seeing
+  module **23/23 in 90.06 s**, plus EcoQoS inheritance **1/1 in 0.26 s** with the interfering descendant watcher
+  disabled for that test. The loaded render took 154.068 s against its unchanged 60 s limit; the loaded fit
+  took 57.8125 ms against its unchanged 50 ms limit. Main suite reconciles to **3,213 distinct passing tests**.
+  Photoprint (`-n 2 --dist loadfile`) passed **314/314 in 228.55 s**; total **3,527 distinct Python tests passed**
+  after the unchanged isolated reruns. AR passed **497 unit + 103 QA**, and TypeScript checking.
+  Process receipts/logs use `data/assembly/m5fix1_{full_main,isolated_qos,isolated_seeing,photoprint,ar_*}`.
+  No paid call or seating change.
+- **Provisional run-2 planning estimate through item 3:** local forecast
+  `data/assembly/m5fix1-estimate-items1-3.json`: **$14.958464**, growth-only range **$13.201373–$20.118408**,
+  60 replies, max effort, $20 settled stop/$23 reserve. The historical append-only calibration is retained;
+  compact-image and one-call-finish savings are not credited. The separate saved-reply replay above is a
+  scenario, not the future-run estimate. This forecast created no approval request and made no API call.
+  The final estimate remains subject to the item-4 decision and items 5–6.
+- **Item 4 baseline complete; stop rule triggered:** `data/assembly/m5fix1-baseline-a/proof.json`, **367.078 s,
+  $0**, 10 memory-sized fit workers. Exact accepted Studio GLB SHA-256
+  `2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688`; copied bytes, all six photos and source
+  reports verified unchanged. No Blender import/re-export or product edit. The real fit/contour methods used an
+  explicitly labelled immutable-GLB adapter; contour comparison omitted Blender native/clay passes, and the real
+  fixed-scale AR capture supplied material renders. All six photos remained in the report.
+  **Default seating `ok=false` solely because the old GLB lacks a frame-type declaration** (`g3d_seat` extras).
+  Its inferred semi-rimless geometry has `graded_pass=true`. The independently specified semi-rimless diagnostic
+  passed with no geometry or gate change: top stations 329 (323 LIPPED, 6 ENCLOSED), mid-depth p5/median/p95
+  **0.6742 / 0.7153 / 0.8327 mm**, against the existing 0.5 mm rule. This is a declaration refusal, not evidence
+  that the accepted model fails the geometric seating threshold. The diagnostic ran before the default verdict;
+  the default check was the final instrument call. No seating code, accepted asset or requirement was changed.
+
+  Contours from each asset's recorded camera basis (IoU / mean symmetric contour error in mm; these are
+  independently fitted comparisons, not a common-camera shape ranking):
+
+  | Photo/view | Accepted Studio GLB | Run 1 latest comparison |
+  |---|---:|---:|
+  | 01 front | 0.9681 / 0.426 | 0.9573 / 0.637 |
+  | 02 angled left | 0.8857 / 1.384 | 0.9205 / 1.062 |
+  | 03 right | 0.8537 / 1.537 | 0.8566 / 1.420 |
+  | 04 rear | 0.8973 / 1.472 | 0.9084 / 1.014 |
+  | 05 left | 0.8502 / 1.369 | 0.8774 / 1.198 |
+  | 06 top | 0.3481 / 6.074 | 0.3560 / 6.082 |
+
+  Run-1 rows 01–05 are c0021; top is c0008, because the final comparison omitted it. The separate final top
+  refit was worse (0.3233 / 7.318 mm; prior run review). Current code still labels the poor accepted top fit
+  `ok`; item 5 has deliberately not been applied while the owner stop is pending.
+  Accepted AR capture succeeded at fixed scale: zero errors, 11 warnings (lens lettering excluded from brow
+  readings, saturated junction readings, legacy mixed front/temple treatment, and 6.1 mm temple occlusion in
+  the ±45° poses). Sheet: `data/assembly/m5fix1-baseline-a/work/arview/baseline-arview/contact-sheet.jpg`.
+  Inspected that sheet and `data/assembly/m5fix1-baseline-a/vent-before-after.png`: the latter shows **run 1
+  c0008 before repairs versus c0021 after repairs**, not an edited accepted model. Original image hashes and
+  the two central transparent-component measurements reproduce **78.7% less width-normalized apparent opening
+  area**. The different source resolutions/antialiasing are disclosed; this is neither physical area nor sealed vents.
+  **Pending owner question:** should seating remain a required finish check, or become a report Astra weighs
+  against the photos? Under the owner's explicit item-4 rule, no item 5/6 work or paid run may start before that answer.
+
+No full-suite closeout or Oakley run-2 approval has occurred. No paid run is authorized by this repair request.
+
 ## Assembly M5: thorough fresh-run review (2026-10-13; $0)
 
 Owner requested a thorough review using all run evidence. Full report:

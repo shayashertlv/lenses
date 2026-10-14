@@ -73,6 +73,39 @@ def scene(tmp_path):
     return obj
 
 
+@pytest.fixture
+def finish_scene(scene, monkeypatch):
+    """Finish-only fakes keep real AR wrapper tests independent of finalization setup."""
+    scene.finish_steps = []
+    scene.ar_result = None
+    sheet = scene.root / "work/finish-ar.png"
+    fallback = scene.root / "work/finish-diagnostic.png"
+    Image.new("RGB", (32, 24), "blue").save(sheet)
+    Image.new("RGB", (24, 24), "orange").save(fallback)
+
+    def export(**kw):
+        scene.finish_steps.append(("export", kw))
+        return copy.deepcopy(scene.export)
+
+    def capture(root, exp, cid, **kw):
+        scene.finish_steps.append(("ar", copy.deepcopy(exp), cid, kw))
+        if scene.ar_result is not None:
+            return copy.deepcopy(scene.ar_result)
+        return {"status": "ok", "exit_code": 0, "export_sha256": exp["sha256"],
+                "checkpoint": exp["checkpoint"], "fixed_scale": True,
+                "images": [{"path": str(sheet), "view": "AR default poses", "kind": "arview_capture",
+                            "checkpoint": exp["checkpoint"]}]}
+
+    def render(**kw):
+        scene.finish_steps.append(("diagnostic", kw))
+        return {"status": "ok", "sheets": [str(fallback)], "views": {"front": {"kind": "canonical"}}}
+
+    scene.seeing.export_head = export
+    scene.seeing.render_views = render
+    monkeypatch.setattr(AR, "capture", capture)
+    return scene
+
+
 def invoke(scene, name, args=None, context=None, cid="call_test"):
     registry = {t.name: t for t in T.build_tools(scene)}
     raw = json.dumps(args or {})
@@ -145,14 +178,58 @@ def test_every_sheet_has_an_adjacent_identity_label_and_real_view_names(scene):
     scene.seeing.render_views = lambda **kw: {"status": "ok", "sheets": paths, "views": views}
     output = invoke(scene, "render_views")
     rows = record(output)["images"]
-    assert len(output) == 6 and [row["output_index"] for row in rows] == [2, 4]
+    assert len(output) == 4 and [row["output_index"] for row in rows] == [2]
     assert isinstance(output[-1], ToolOutputText) and output[-1].text == loop.footer_text()
-    assert rows[0]["views"] == [f"reference:photo {n}" for n in range(T.VIEWS_PER_SHEET)]
-    assert rows[1]["views"] == [f"reference:photo {T.VIEWS_PER_SHEET}"]
+    assert rows[0]["panels"][0]["views"] == [f"reference:photo {n}" for n in range(T.VIEWS_PER_SHEET)]
+    assert rows[0]["panels"][1]["views"] == [f"reference:photo {T.VIEWS_PER_SHEET}"]
+    assert max(rows[0]["size_px"]) <= 1024
     for row in rows:
         i = row["output_index"]
         assert isinstance(output[i], ToolOutputImage) and isinstance(output[i - 1], ToolOutputText)
         assert f"call call_test; checkpoint c0001; revision c0001; view {row['view']}" in output[i - 1].text
+
+
+def test_compact_image_repeat_references_prior_call_and_preserves_native_panel(scene):
+    path = scene.root / "work/large.png"
+    Image.new("RGB", (3000, 2000), "navy").save(path)
+    original = path.read_bytes()
+    scene.seeing.render_views = lambda **kw: {"status": "ok", "sheets": [str(path)]}
+    first = invoke(scene, "render_views", cid="first")
+    before = copy.deepcopy(first)
+    second = invoke(scene, "render_views", cid="second")
+    assert sum(isinstance(x, ToolOutputImage) for x in first) == 1
+    assert not any(isinstance(x, ToolOutputImage) for x in second)
+    assert record(second)["images"][0]["reused_from_call"] == "first"
+    assert max(record(first)["images"][0]["size_px"]) == 1024
+    assert record(first)["images"][0]["source_size_px"] == [3000, 2000]
+    assert first == before and path.read_bytes() == original
+    crop = invoke(scene, "read_image", {"path": "work/large.png", "region": [0, 0, 150, 100]}, cid="crop")
+    assert sum(isinstance(x, ToolOutputImage) for x in crop) == 1
+    assert record(crop)["images"][0]["size_px"] == [150, 100]
+
+
+def test_unseen_compact_image_is_delivered_again(scene):
+    path = scene.root / "work/image.png"
+    Image.new("RGB", (10, 10), "red").save(path)
+    first = invoke(scene, "read_image", {"path": "work/image.png"}, cid="unseen")
+    scene.mark_unseen("unseen")
+    again = invoke(scene, "read_image", {"path": "work/image.png"}, cid="retry")
+    assert sum(isinstance(x, ToolOutputImage) for x in first) == 1
+    assert sum(isinstance(x, ToolOutputImage) for x in again) == 1
+
+
+def test_crop_of_composite_native_panel_retains_checkpoint_and_view(scene):
+    paths = []
+    for n in range(2):
+        path = scene.root / f"work/panel{n}.png"
+        Image.new("RGB", (100, 80), (n * 100, 0, 0)).save(path)
+        paths.append(str(path))
+    scene.seeing.compare_to_photos = lambda **kw: {"status": "ok", "refs": {
+        "front": {"sheet": paths[0]}, "top": {"sheet": paths[1]}}}
+    invoke(scene, "compare_to_photos", cid="composite")
+    scene.s.head = {"id": "c0002", "fingerprint": "x" * 64}
+    crop = record(invoke(scene, "read_image", {"path": "work/panel1.png", "region": [5, 5, 50, 50]}))["images"][0]
+    assert crop["checkpoint"] == "c0001" and crop["view"] == "top"
 
 
 def test_generated_image_reread_keeps_source_checkpoint_and_separate_detail_group(scene):
@@ -197,31 +274,171 @@ def test_busy_tool_does_not_touch_the_scene(scene):
     {"print_check": None}, {"print_check": {"ok": False}}, {"print_check": {"ok": True, "glb_sha256": "wrong"}},
     {"checkpoint": "c0000"}, {"fingerprint": "stale"}, {"drift": "worker changed"},
 ])
-def test_finish_refuses_invalid_or_stale_export(scene, change):
+def test_finish_refuses_invalid_or_stale_export(finish_scene, change):
+    scene = finish_scene
     scene.export.update(change)
-    assert record(invoke(scene, "finish", {"summary": "done"}))["code"] == "E_EXPORT"
+    output = invoke(scene, "finish", {"summary": "done"})
+    result = record(output)
+    assert result["status"] == "refused" and result["code"] == "E_EXPORT"
+    assert result["export"] == scene.export and result["failures"]
+    assert any(isinstance(part, ToolOutputImage) for part in output)
     assert scene.finish is None
 
 
-def test_finish_checks_export_bytes_and_ar_identity(scene):
+def test_finish_checks_export_bytes_before_ar_and_returns_diagnostic(finish_scene):
+    scene = finish_scene
     model = Path(scene.export["path"])
-    original = model.read_bytes()
     model.write_bytes(b"changed")
-    assert record(invoke(scene, "finish", {"summary": "done"}))["code"] == "E_EXPORT"
-    model.write_bytes(original)
-    scene.last_ar = {"export_sha256": "stale", "status": "ok", "exit_code": 0}
-    assert record(invoke(scene, "finish", {"summary": "done"}))["code"] == "E_AR_STALE"
-    scene.last_ar = {"export_sha256": scene.export["sha256"], "status": "ok", "exit_code": 0}
-    out = record(invoke(scene, "finish", {"summary": "done"}))
+    output = invoke(scene, "finish", {"summary": "done"})
+    out = record(output)
+    assert out["code"] == "E_EXPORT" and scene.finish is None
+    assert {failure["check"] for failure in out["failures"]} == {"export", "arview"}
+    assert [step[0] for step in scene.finish_steps] == ["export", "diagnostic"]
+    assert out["image_source"] == "scene_render_fallback"
+    assert sum(isinstance(part, ToolOutputImage) for part in output) == 1
+
+
+@pytest.mark.parametrize("prior", [None, "stale", "current"])
+def test_finish_exports_and_captures_fresh_without_requiring_prior_ar(finish_scene, prior):
+    scene = finish_scene
+    scene.last_ar = None if prior is None else {
+        "export_sha256": scene.export["sha256"] if prior == "current" else "stale", "status": "ok", "exit_code": 0}
+    output = invoke(scene, "finish", {"summary": "done"})
+    out = record(output)
     assert out["status"] == "accepted" and scene.finish == out
     assert out["call_id"] == "call_test" and out["export"]["validate_spec"]["ok"]
+    assert out["failures"] == [] and out["image_source"] == "arview"
+    assert [step[0] for step in scene.finish_steps] == ["export", "ar"]
+    assert scene.finish_steps[0][1] == {"call_id": "call_test"}
+    assert scene.finish_steps[1][1] == out["export"]
+    assert scene.finish_steps[1][2:] == ("call_test", {"timeout_s": loop.hard_timeout_s("arview_capture") - 10})
+    assert scene.last_ar is scene.finish["arview"]
+    assert out["arview"]["images"] == out["images"]
+    assert sum(isinstance(part, ToolOutputImage) for part in output) == 1
 
 
-@pytest.mark.parametrize("ar", [None, {"status": "infrastructure_failed", "exit_code": 1},
-                               {"status": "ok", "exit_code": 3}, {"status": "timeout", "exit_code": None}])
-def test_finish_requires_successful_current_ar_for_deliverability(scene, ar):
-    scene.last_ar = None if ar is None else {**ar, "export_sha256": scene.export["sha256"]}
-    assert record(invoke(scene, "finish", {"summary": "done"}))["code"] == "E_AR"
+@pytest.mark.parametrize("ar", [{}, {"status": "infrastructure_failed", "exit_code": 1},
+                               {"status": "ok", "exit_code": 3}, {"status": "timeout", "exit_code": None},
+                               {"status": "ok", "exit_code": 0}])
+def test_finish_requires_successful_new_ar_with_images_and_retains_fallback(finish_scene, ar):
+    scene = finish_scene
+    scene.last_ar = {"export_sha256": scene.export["sha256"], "status": "ok", "exit_code": 0, "images": ["old"]}
+    scene.ar_result = {**ar, "export_sha256": scene.export["sha256"]}
+    output = invoke(scene, "finish", {"summary": "done"})
+    out = record(output)
+    assert out["code"] == "E_AR" and out["status"] == "refused"
+    assert out["arview"] == scene.ar_result and out["failures"] == [
+        {"check": "arview", "code": "E_AR", "report": scene.ar_result}]
+    assert [step[0] for step in scene.finish_steps] == ["export", "ar", "diagnostic"]
+    assert scene.finish_steps[-1][1] == {"views": ["front"], "passes": ["native", "clay"],
+                                           "size_px": 768, "call_id": "call_test-diagnostic"}
+    assert out["diagnostic_render"]["status"] == "ok" and out["image_source"] == "scene_render_fallback"
+    assert sum(isinstance(part, ToolOutputImage) for part in output) == 1
+    assert scene.finish is None
+
+
+def test_finish_retains_all_quality_failures_and_ar_evidence_in_one_result(finish_scene):
+    scene = finish_scene
+    for key in ("validate_spec", "seat_check", "print_check"):
+        scene.export[key] = {"ok": False, "reason": key + " failed", "details": {"preserve": [1, 2, 3]}}
+    output = invoke(scene, "finish", {"summary": "known differences"})
+    out = record(output)
+    assert out["status"] == "refused" and out["code"] == "E_EXPORT"
+    assert out["export"] == scene.export and out["summary"] == "known differences"
+    assert out["failures"] == [
+        {"check": "specification", "code": "E_SPEC", "report": scene.export["validate_spec"]},
+        {"check": "seating", "code": "E_SEATING", "report": scene.export["seat_check"]},
+        {"check": "print", "code": "E_PRINT", "report": scene.export["print_check"]}]
+    assert [step[0] for step in scene.finish_steps] == ["export", "ar"]
+    assert out["arview"]["export_sha256"] == scene.export["sha256"]
+    assert out["image_source"] == "arview" and sum(isinstance(part, ToolOutputImage) for part in output) == 1
+    assert scene.finish is None
+
+
+def test_finish_rejects_fresh_ar_for_different_export_bytes_even_with_images(finish_scene):
+    scene = finish_scene
+    scene.ar_result = {"status": "ok", "exit_code": 0, "export_sha256": "different",
+                       "images": [{"path": str(scene.root / "work/finish-ar.png"), "view": "AR default poses"}]}
+    out = record(invoke(scene, "finish", {"summary": "done"}))
+    assert out["status"] == "refused" and out["code"] == "E_AR"
+    assert [failure["check"] for failure in out["failures"]] == ["arview"]
+    assert scene.finish is None
+
+
+@pytest.mark.parametrize("quality_fails", [False, True])
+def test_finish_image_processing_error_cannot_persist_an_accepted_finish(finish_scene, monkeypatch, quality_fails):
+    scene = finish_scene
+    scene.finish = {"status": "accepted", "call_id": "prior"}
+    if quality_fails:
+        for key in ("validate_spec", "seat_check", "print_check"):
+            scene.export[key] = {"ok": False, "reason": key + " failed"}
+    def corrupt(*args, **kwargs):
+        raise ValueError("cannot process capture image")
+    monkeypatch.setattr(T, "_image", corrupt)
+    out = record(invoke(scene, "finish", {"summary": "done"}))
+    assert out["status"] == "refused" and out["code"] == "E_IMAGE"
+    assert "cannot process capture image" in out["message"]
+    assert out["export"] == scene.export and out["arview"]["export_sha256"] == scene.export["sha256"]
+    assert out["images"] == [] and out["failures"][-1]["check"] == "image_output"
+    assert out["failures"][-1]["code"] == "E_IMAGE"
+    assert [item["check"] for item in out["failures"][:-1]] == (["specification", "seating", "print"] if quality_fails else [])
+    if quality_fails:
+        for failure, key in zip(out["failures"], ("validate_spec", "seat_check", "print_check")):
+            assert failure["report"] == scene.export[key]
+    assert scene.calls[-1][-1] == out
+    assert scene.finish is None
+
+
+@pytest.mark.parametrize("diagnostic_fails", [False, True])
+def test_finish_capture_exception_preserves_all_quality_reports_and_fallback_result(
+        finish_scene, monkeypatch, diagnostic_fails):
+    scene = finish_scene
+    for key in ("validate_spec", "seat_check", "print_check"):
+        scene.export[key] = {"ok": False, "reason": key + " failed", "evidence": [1, 2, 3]}
+
+    def capture_error(*args, **kwargs):
+        raise OSError("capture process unavailable")
+
+    def diagnostic_error(**kwargs):
+        raise ValueError("diagnostic render unavailable")
+
+    monkeypatch.setattr(AR, "capture", capture_error)
+    if diagnostic_fails:
+        scene.seeing.render_views = diagnostic_error
+    output = invoke(scene, "finish", {"summary": "partial diagnostics"})
+    out = record(output)
+    assert out["status"] == "refused" and out["code"] == "E_EXPORT"
+    assert out["export"] == scene.export and out["summary"] == "partial diagnostics"
+    assert [failure["check"] for failure in out["failures"]] == ["specification", "seating", "print", "arview"]
+    for failure, key in zip(out["failures"], ("validate_spec", "seat_check", "print_check")):
+        assert failure["report"] == scene.export[key]
+    assert out["arview"] == {"status": "infrastructure_failed", "code": "E_AR", "message": "capture process unavailable"}
+    assert out["failures"][-1]["report"] == out["arview"]
+    assert out["image_source"] == "scene_render_fallback"
+    if diagnostic_fails:
+        assert out["diagnostic_render"] == {"status": "error", "code": "E_DIAGNOSTIC", "message": "diagnostic render unavailable"}
+        assert out["images"] == [] and not any(isinstance(part, ToolOutputImage) for part in output)
+    else:
+        assert out["diagnostic_render"]["status"] == "ok"
+        assert sum(isinstance(part, ToolOutputImage) for part in output) == 1
+    assert scene.calls[-1][-1] == out and scene.finish is None
+
+
+@pytest.mark.parametrize("stage", ["capture", "diagnostic"])
+def test_finish_worker_failure_still_propagates_from_finalization_stages(finish_scene, monkeypatch, stage):
+    scene = finish_scene
+    scene.finish = {"status": "accepted", "call_id": "prior"}
+
+    def fatal(*args, **kwargs):
+        raise WorkerFailed("finalization worker lost", scene.s.head)
+
+    if stage == "capture":
+        monkeypatch.setattr(AR, "capture", fatal)
+    else:
+        scene.ar_result = {"status": "infrastructure_failed", "message": "capture unavailable"}
+        scene.seeing.render_views = fatal
+    with pytest.raises(WorkerFailed, match="finalization worker lost"):
+        invoke(scene, "finish", {"summary": "done"})
     assert scene.finish is None
 
 

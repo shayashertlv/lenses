@@ -23,6 +23,7 @@ from ..loop import STAGE_FATAL, fatal_tool_errors, footer_text, sdk_timeout_s, h
 from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from . import arview
+from .images import compact_sheet, MAX_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .temple import temple_tool
 from .photo_print import photo_print_tool
@@ -97,7 +98,7 @@ def _image(root, path, *, region=None, trusted_output=False) -> tuple[dict, str]
                     or not 0 <= region[1] < region[3] <= image.height):
                 raise ValueError("region is [left, top, right, bottom] inside the oriented image")
             image = image.crop(region)
-        image.thumbnail((2048, 2048))
+        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         image.save(buf, format="PNG")
     data = buf.getvalue()
@@ -146,7 +147,8 @@ def _output(scene, call_id, name, result):
             if Path(meta["source_path"]).parts[0] in {"images", "reference_images"}:
                 record.update(context_role="reference", checkpoint="source", revision=f"source:{meta['source_sha256'][:12]}")
             else:
-                previous = next((item for item in reversed(scene.images)
+                prior_images = [panel for item in scene.images for panel in [item, *item.get("panels", [])]]
+                previous = next((item for item in reversed(prior_images)
                                  if meta["source_path"] in (item.get("path"), item.get("source_path"))), None)
                 record["context_role"] = ("reference" if previous.get("context_role") == "reference" else "detail") if previous else "unknown"
                 record["checkpoint"] = previous["checkpoint"] if previous else f"source:{meta['source_sha256'][:12]}"
@@ -156,31 +158,72 @@ def _output(scene, call_id, name, result):
                     if previous.get("revision"):
                         record["revision"] = previous["revision"]
         records.append(record)
+    if len(records) > 1:
+        sources = records
+        panels = []
+        for record in sources:
+            with Image.open(arview.confined(scene.root, record["path"])) as opened:
+                panels.append((opened.copy(), record["view"]))
+        sheet = compact_sheet(panels)
+        buf = io.BytesIO()
+        sheet.save(buf, format="PNG")
+        payload = buf.getvalue()
+        path = Path("work/tool_images") / (hashlib.sha256(payload).hexdigest() + ".png")
+        arview.confined(scene.root, path).write_bytes(payload)
+        meta, url = _image(scene.root, path, trusted_output=True)
+        records = [{**meta, "call_id": call_id, "kind": name, "checkpoint": scene.s.head["id"],
+                    "view": ", ".join(record["view"] for record in sources),
+                    "views": [record["view"] for record in sources], "panels": sources, "output_index": 2}]
+    # Only deduplicate bytes delivered during this live scene session, not images from prior runs.
+    emitted = getattr(scene, "_emitted_images", None)
+    if emitted is None:
+        emitted = {}
+    emitted = dict(emitted)
+    for record in records:
+        meta, url = _image(scene.root, record["path"], trusted_output=True)
         label = (f"Image: call {call_id}; checkpoint {record['checkpoint']}; "
                  f"revision {record.get('revision') or record['checkpoint']}; view {record['view']}; "
                  f"sha256 {record['sha256'][:12]}.")
-        images.extend([ToolOutputText(text=label), ToolOutputImage(image_url=url, detail="high")])
+        unseen = getattr(scene, "_unseen", getattr(scene, "unseen", ()))
+        if record["sha256"] in emitted and emitted[record["sha256"]] not in unseen:
+            record.update(reused_from_call=emitted[record["sha256"]], output_index=None)
+            images.append(ToolOutputText(text=label + f" Same image already delivered in call {record['reused_from_call']}."))
+        else:
+            emitted[record["sha256"]] = call_id
+            images.extend([ToolOutputText(text=label), ToolOutputImage(image_url=url, detail="high")])
     if records:
         result["images"] = records
+        result["image_policy"] = IMAGE_POLICY
+        if name == "finish" and result.get("image_source") == "arview":
+            result["arview"]["images"] = records
         scene.record_images(call_id, result)
-    return [ToolOutputText(text=json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
+    output = [ToolOutputText(text=json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
+    scene._emitted_images = emitted
+    return output
 
 
-def _valid_export(scene, call_id):
-    export = scene.seeing.export_head(call_id=call_id)
+def _finish_export_failures(scene, export):
+    """All existing export gates, with byte/head integrity separate from quality diagnostics."""
     head = scene.s.head
-    if (export.get("status") != "exported" or export.get("drift")
+    failures = []
+    bound = not (export.get("status") != "exported" or export.get("drift")
             or export.get("checkpoint") != head["id"] or export.get("fingerprint") != head["fingerprint"]
-            or export.get("validation_sha256") != export.get("sha256")
-            or not (export.get("validate_spec") or {}).get("ok")
-            or not isinstance(export.get("seat_check"), dict) or export["seat_check"].get("ok") is not True
-            or not isinstance(export.get("print_check"), dict) or export["print_check"].get("ok") is not True
-            or export["print_check"].get("glb_sha256") != export.get("sha256")):
-        return None, {"status": "refused", "code": "E_EXPORT", "export": export,
-                      "message": "finish needs a valid export of the current checkpoint"}
-    if arview.sha256(arview.confined(scene.root, export["path"])) != export["sha256"]:
-        return None, {"status": "refused", "code": "E_EXPORT", "message": "export bytes changed"}
-    return export, None
+            or export.get("validation_sha256") != export.get("sha256"))
+    if bound:
+        try:
+            bound = arview.sha256(arview.confined(scene.root, export["path"])) == export["sha256"]
+        except (OSError, ValueError, KeyError):
+            bound = False
+    if not bound:
+        failures.append({"check": "export", "code": "E_EXPORT", "message":
+                         export.get("message") or "export bytes or identity do not match the current checkpoint"})
+    for key, label, code in (("validate_spec", "specification", "E_SPEC"), ("seat_check", "seating", "E_SEATING"),
+                              ("print_check", "print", "E_PRINT")):
+        report = export.get(key)
+        if (not isinstance(report, dict) or report.get("ok") is not True
+                or key == "print_check" and report.get("glb_sha256") != export.get("sha256")):
+            failures.append({"check": label, "code": code, "report": report})
+    return bound, failures
 
 
 def build_tools(scene, settings=None) -> list:
@@ -208,6 +251,7 @@ def build_tools(scene, settings=None) -> list:
                 return [ToolOutputText(text=json.dumps({"status": "busy", "code": "E_BUSY",
                                                         "message": "a previous scene tool is still running"}))]
             before = (scene.s.head or {}).get("id")
+            result = None
             try:
                 try:
                     result = action(cid)
@@ -216,10 +260,18 @@ def build_tools(scene, settings=None) -> list:
                     result.setdefault("call_id", cid)
                     result.setdefault("checkpoint", (scene.s.head or {}).get("id"))
                     output = _output(scene, cid, name, result)
+                    if name == "finish" and result.get("status") == "accepted":
+                        # Image processing must succeed before an accepted finish can be persisted.
+                        scene.finish = result
                 except FATAL:
                     raise
                 except (ValueError, KeyError, TypeError, OSError) as error:
-                    result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
+                    if name == "finish" and isinstance(result, dict) and "export" in result:
+                        result = {**result, "status": "refused", "code": "E_IMAGE", "images": [],
+                                  "message": str(error)[:1000], "failures": [*result.get("failures", []),
+                                  {"check": "image_output", "code": "E_IMAGE", "message": str(error)[:1000]}]}
+                    else:
+                        result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
                     output = [ToolOutputText(text=json.dumps(result))]
                 scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
                 return output
@@ -237,6 +289,11 @@ def build_tools(scene, settings=None) -> list:
     @tool("execute_blender_code")
     async def execute_blender_code(ctx: ToolContext, code: str, soft_timeout_s: float = 120, label: str = ""):
         """Run bpy code in the live scene; validated changes create a checkpoint. Files and imports are restricted.
+
+        g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
+        authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB;
+        the untextured film uses the maximum thickness. Both thickness limits are retained in the GLB.
+        The helper preserves transmission and other optics. Inspect export warnings and fixed-scale AR to judge it.
 
         Args:
             code: Python code using bpy and the allowed g3d helpers.
@@ -373,7 +430,9 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("read_image")
     async def read_image(ctx: ToolContext, path: str, region: list[int] | None = None):
-        """Read a job image or work image, with EXIF orientation applied. Images are returned at most 2048 pixels wide.
+        """Read an oriented image or crop, at most 1024 pixels on either side. Tool calls return one compact sheet;
+        full panels remain at their reported paths. Crop a native panel to inspect small details. Identical images
+        already delivered in this run are referenced by their earlier call without changing conversation history.
 
         Args:
             path: Job-relative image path inside images, reference_images or work.
@@ -393,24 +452,47 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("finish")
     async def finish(ctx: ToolContext, summary: str):
-        """Finish when the current checkpoint exports with passing specification and all-frame seating reports, and its
-        AR capture succeeded. Failed or stale AR captures must be retried before delivery.
+        """Finalize in one call: export the current head, check specification, all-frame seating and print freshness,
+        then capture fixed-scale AR. Separate export/AR calls are optional inspections. Returns all reports and one
+        compact image; a refusal lists every failed check with diagnostic images. Only accepted completes the run.
 
         Args:
             summary: What was built and any remaining differences from the photos.
         """
         def finish_current(cid):
-            exp, refusal = _valid_export(scene, cid)
-            if refusal:
-                return refusal
-            prior_ar = scene.last_ar
-            if prior_ar is None or prior_ar.get("status") != "ok" or prior_ar.get("exit_code") != 0:
-                return {"status": "refused", "code": "E_AR", "message": "finish needs a successful AR capture"}
-            if prior_ar.get("export_sha256") != exp["sha256"]:
-                return {"status": "refused", "code": "E_AR_STALE", "message": "AR capture describes a previous export"}
-            result = {"status": "accepted", "call_id": cid, "checkpoint": exp["checkpoint"], "fingerprint": exp["fingerprint"],
-                      "export": exp, "summary": summary}
-            scene.finish = result
+            scene.finish = None
+            exp = scene.seeing.export_head(call_id=cid)
+            bound, failures = _finish_export_failures(scene, exp)
+            try:
+                ar = (arview.capture(scene.root, exp, cid, timeout_s=hard_timeout_s("arview_capture") - 10) if bound else
+                      {"status": "refused", "code": "E_EXPORT", "message": "no current verified export to capture"})
+            except FATAL:
+                raise
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                ar = {"status": "infrastructure_failed", "code": "E_AR", "message": str(error)}
+            scene.last_ar = ar
+            if (ar.get("status") != "ok" or ar.get("exit_code") != 0
+                    or ar.get("export_sha256") != exp.get("sha256") or not ar.get("images")):
+                failures.append({"check": "arview", "code": "E_AR", "report": ar})
+            result = {"status": "refused" if failures else "accepted", "call_id": cid,
+                      "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
+                      "export": exp, "arview": ar, "summary": summary, "failures": failures}
+            if failures:
+                result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
+                              message="Finish checks failed: " + ", ".join(f["check"] for f in failures))
+            if ar.get("images"):
+                result.update(images=ar["images"], image_source="arview")
+            else:
+                # This is diagnostic evidence only. It can never satisfy the AR acceptance check.
+                try:
+                    fallback = scene.seeing.render_views(views=["front"], passes=["native", "clay"], size_px=768,
+                                                          call_id=cid + "-diagnostic")
+                except FATAL:
+                    raise
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    fallback = {"status": "error", "code": "E_DIAGNOSTIC", "message": str(error)}
+                result.update(diagnostic_render=fallback, image_source="scene_render_fallback",
+                              images=_sheets(fallback, "render_views"))
             return result
         return await call(ctx, "finish", finish_current)
 

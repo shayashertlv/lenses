@@ -72,7 +72,8 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
         assert f"settled ${expected} of $20.00 stop (reserve cap $23.00)" in footer
         assert ("finish your best checkpoint soon" in footer) is (index == 3)
         if index == 3:
-            assert "\nAbout $5.00 left; export, AR-capture and finish your best checkpoint soon." in footer
+            assert "\nAbout $5.00 left; finish your best checkpoint soon." in footer
+            assert "Finish performs export, checks and AR capture in one call." in footer
             assert body["budget"]["settled_micro_usd"] == settled
             assert body["budget"]["settled_stop_usd"] == "20.000000"
             assert body["budget"]["remaining_to_stop_usd"] == "5.000000"

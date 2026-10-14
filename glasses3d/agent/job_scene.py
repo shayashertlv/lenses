@@ -125,6 +125,8 @@ class JobScene(SceneHooks):
 
     def bind_review_log(self, log):
         self._review_log = log
+        # A reused scene object may serve a fresh run with no previous conversation.
+        self._emitted_images = {}
 
     def journal_entries(self):
         with self._state_lock:

@@ -1,0 +1,90 @@
+"""Real $0 single-call finalization, including failed seating with images and immutable delivery."""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+from pathlib import Path
+import time
+
+from agents.tool import ToolOutputImage
+from agents.tool_context import ToolContext
+from PIL import Image
+
+from glasses3d.agent import delivery, jobs, procs
+from glasses3d.agent.job_scene import JobScene
+from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
+from glasses3d.agent.tools import build_tools
+from glasses3d.tests.proofs.assembly_m1 import build_code
+
+
+def run(out):
+    out = Path(out).resolve()
+    out.mkdir(parents=True, exist_ok=False)
+    photos = out / "photos"
+    photos.mkdir()
+    Image.new("RGB", (16, 16), "white").save(photos / "front.png")
+    views = out / "views.json"
+    views.write_text(json.dumps({"front.png": {"kind": "front", "side": "both"}}))
+    root = jobs.create_job(images=photos, views=views, name="One-call finish proof",
+                          description="Synthetic fixture; no product or model inference.", jobs_root=out / "jobs")
+    scene = JobScene(root)
+    tools = {tool.name: tool for tool in build_tools(scene)}
+    calls = []
+
+    def invoke(name, args):
+        cid = f"proof-{len(calls) + 1}-{name}"
+        raw = json.dumps(args)
+        context = ToolContext(context=None, tool_name=name, tool_call_id=cid, tool_arguments=raw)
+        output = asyncio.run(tools[name].on_invoke_tool(context, raw))
+        result = json.loads(output[0].text)
+        image_count = sum(isinstance(item, ToolOutputImage) for item in output)
+        calls.append({"tool": name, "result": result, "images": image_count})
+        procs.write_json_atomic(out / "calls.json", calls)
+        return result, image_count
+
+    started = time.monotonic()
+    try:
+        scene.start()
+        built = scene.s.execute(build_code(), label="synthetic fixture")
+        assert built["status"] == "ok", built
+        refused, images = invoke("finish", {"summary": "Unseated fixture must remain refused."})
+        assert refused["status"] == "refused" and scene.finish is None, refused
+        assert any(item["check"] == "seating" for item in refused["failures"]), refused
+        assert images == 1 and refused["image_source"] == "arview", refused
+        for side in (-1, 1):
+            seated, _ = invoke("seat_lens", {"lens": f"Lens_{side}", "frame_type": "acetate"})
+            assert seated["status"] == "ok", seated
+        scene.last_ar = {"status": "ok", "exit_code": 0, "export_sha256": "stale"}
+        accepted, images = invoke("finish", {"summary": "Synthetic frame and lenses finalized in one call."})
+        assert accepted["status"] == "accepted" and not accepted["failures"], accepted
+        assert accepted["arview"]["fixed_scale"] is True
+        assert images == 1 or (images == 0 and all(rec.get("reused_from_call") == "proof-1-finish"
+                                                  for rec in accepted["images"]))
+        assert accepted["arview"]["images"] == accepted["images"]
+        assert scene.finish is accepted or scene.finish == accepted
+        result = {"status": "completed", "run_id": "offline-finalize", "exit_checkpoint": scene.exit_checkpoint(),
+                  "budget": {"settled_usd": "0.000000", "requests": 0}}
+    finally:
+        scene.close()
+    delivered = delivery.deliver_finished(root, scene, result)
+    assert delivered["status"] == "delivered", delivered
+    saved = delivery.load_delivery(root)
+    assert saved["report_data"]["accepted_finish"] is True
+    proof = {"status": "passed", "job": str(root), "delivery": delivered, "calls": [x["tool"] for x in calls],
+             "no_separate_export_or_ar_calls": True, "failed_seating_has_images": True,
+             "model_requests": 0, "actual_spend_usd": 0, "seconds": time.monotonic() - started}
+    procs.write_json_atomic(out / "proof.json", proof)
+    print(json.dumps(proof, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args()
+    os.environ["G3D_OFFLINE"] = "1"
+    disable_sdk_tracing()
+    with LoopbackOnly() as network, ProductionTransportTripwire() as clients:
+        run(args.out)
+    assert not network.attempts and not clients.constructions

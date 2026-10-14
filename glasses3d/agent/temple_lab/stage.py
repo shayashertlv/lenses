@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import copy
 import hashlib
+import io
 from pathlib import Path
 import threading
 
@@ -20,8 +22,22 @@ def settings(parent=None):
     from ..loop import RunSettings
     return RunSettings(effort="max", max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
-                       reset_tool_choice=False, finish_tool="facet_finish", finish_k=4, context_guard_tokens=150000,
-                       context_guard_every_requests=3)
+                       reset_tool_choice=False, finish_tool="facet_finish", finish_k=4)
+
+
+def registry(lab, child_settings):
+    """Bind the nested preview contract into both approval and execution, without changing standalone tools."""
+    from ..tools.images import MAX_IMAGE_SIDE
+    tools = T.registry(lab, child_settings)
+    note = (f"Nested-stage images: the descriptions below refer to saved native panels. The returned image is one "
+            f"compact preview per call, at most {MAX_IMAGE_SIDE} px on its long side. image_receipt preserves native "
+            "panel paths, sizes and labels. For a single panel, preview_scale_xy and preview_to_panel map preview "
+            "pixels to that panel; apply any reported photo transform/k afterward. Grid coordinates are not native "
+            "photo pixels. Use photo_image with a native-photo crop for detail.\n\n")
+    for tool in tools:
+        if tool.name != "facet_finish":
+            tool.description = note + tool.description
+    return tools
 
 
 class PhotoCatalog:
@@ -54,48 +70,87 @@ def contract(job, parent_settings, maximum_usd):
     if text.count(K_TOKEN) != 1:
         raise ValueError("specialist instructions must contain their finish count exactly once")
     spec = StageSpec("temple_stage", text.replace(K_TOKEN, str(child_settings.finish_k)),
-                     T.registry(PhotoCatalog(job), child_settings), "Current job photos and geometry.",
+                     registry(PhotoCatalog(job), child_settings), "Current job photos and geometry.",
                      child_settings, contract=tool_contract())
     return StageContract.from_spec(spec, maximum_usd)
 
 
 class StageLab(Lab):
-    """An isolated current-head package with occurrence-aware evidence retention.
+    """An isolated current-head package with append-only, compact tool images.
 
-    Standalone rehearsals retain their existing image policy. A nested stage labels every output and uses the
-    assembled policy: all source photos, latest evidence per view, current reading sheets and the best revision.
-    Durable SDK history is never edited when an image is replaced for an inference request.
+    New outputs contain one preview and the native panels' provenance. Earlier outputs and source photos remain
+    untouched. Standalone rehearsals retain their existing image policy.
     """
 
     def tool_output(self, result, footer, call_id, tool_name):
-        out = [ToolOutputText(text=T.result_text(result, footer))]
-        records = []
+        # Import locally: the generic tools package imports the nested-stage registry too.
+        from ..tools.images import IMAGE_POLICY, compact_sheet
+
+        panels, previews = [], []
+        with self.state_lock:
+            checkpoint = (self.s.head or {}).get("id")
         for value in result.get("images") or []:
             path = Path(value).resolve()
             if not path.is_relative_to(self.root) or not path.is_file():
                 raise ValueError("stage image must be a file inside its package")
             digest = sha(path)
             with self.state_lock:
-                meta = dict(self.state["images"].get(digest, {}))
-                checkpoint = (self.s.head or {}).get("id")
-            view = str(meta.get("photo") or meta.get("reading") or meta.get("ref") or tool_name)
-            # Multiple zooms of one photo in a single call each remain available.
+                meta = copy.deepcopy(self.state["images"].get(digest, {}))
+            view = str(meta.get("photo") or result.get("photo") or meta.get("reading") or meta.get("ref") or tool_name)
             role = {"compare": "zoom" if meta.get("zoom") else "comparison", "variants": "variants",
                     "reading": "pick", "chart": "chart", "photo": "source"}.get(meta.get("kind"), "source")
             if role == "chart":
                 view = "temple chart"
-            index = len(out) + 1
-            out.append(ToolOutputText(text=f"Image: call {call_id}; checkpoint {checkpoint}; "
-                                           f"revision {meta.get('revision', 'source')}; view {view}; "
-                                           f"{path.relative_to(self.root).as_posix()}; sha256 {digest}"))
-            out.append(ToolOutputImage(image_url=data_url(path), detail="high"))
             with Image.open(path) as opened:
                 size = list(opened.size)
-            records.append({**meta, "call_id": call_id, "output_index": index, "checkpoint": checkpoint,
-                            "view": view, "context_role": role, "sha256": digest, "source_sha256": digest,
-                            "path": path.relative_to(self.root).as_posix(), "size_px": size})
+                previews.append((opened.copy(), f"{view}; revision {meta.get('revision', 'source')}"))
+            panels.append({**meta, "checkpoint": checkpoint, "revision": meta.get("revision", "source"),
+                           "view": view, "context_role": role,
+                           "sha256": digest, "path": path.relative_to(self.root).as_posix(), "size_px": size})
+        if not panels:
+            return [ToolOutputText(text=T.result_text(result, footer))]
+
+        sheet = compact_sheet(previews)
+        buffer = io.BytesIO()
+        sheet.save(buffer, format="PNG")
+        payload = buffer.getvalue()
+        digest = hashlib.sha256(payload).hexdigest()
+        # Reuse an unchanged single PNG's path; never overwrite a native image or an earlier compact output.
+        if len(panels) == 1 and digest == panels[0]["sha256"]:
+            path = self.root / panels[0]["path"]
+        else:
+            path = (self.root / "work" / "tool_images" / f"{digest}.png").resolve()
+            if not path.is_relative_to(self.root):
+                raise ValueError("stage preview must remain inside its package")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                if sha(path) != digest:
+                    raise ValueError("stage preview bytes changed")
+            else:
+                path.write_bytes(payload)
+        record = {**(panels[0] if len(panels) == 1 else {"context_role": "comparison"}),
+                  "call_id": call_id, "output_index": 2, "checkpoint": checkpoint,
+                  "revision": panels[0]["revision"] if all(p["revision"] == panels[0]["revision"] for p in panels) else "mixed",
+                  "view": ", ".join(panel["view"] for panel in panels),
+                  "views": [panel["view"] for panel in panels], "panels": panels,
+                  "sha256": digest, "path": path.relative_to(self.root).as_posix(), "size_px": list(sheet.size)}
+        if len(panels) == 1:
+            record["preview_scale_xy"] = [sheet.width / panels[0]["size_px"][0],
+                                          sheet.height / panels[0]["size_px"][1]]
+            record["preview_to_panel"] = ("u_panel = (u_preview + 0.5) / preview_scale_xy[0] - 0.5; "
+                                          "v_panel = (v_preview + 0.5) / preview_scale_xy[1] - 0.5")
+        body = {**result, "image_policy": IMAGE_POLICY, "image_receipt": record}
+        out = [ToolOutputText(text=T.result_text(body, footer)),
+               ToolOutputText(text=f"Image: call {call_id}; checkpoint {checkpoint}; "
+                                   f"revision {record.get('revision', 'mixed')}; view {record['view']}; "
+                                   f"{record['path']}; sha256 {digest}. "
+                                   "Compact preview; native panel paths, pixel sizes and labels are in image_receipt. "
+                                   "Reported transform/k applies to saved panels: use preview_to_panel first for a "
+                                   "single panel. Grid pixels are not native photo pixels; photo_image provides crop detail."),
+               ToolOutputImage(image_url=data_url(path), detail="high")]
+        # Always include the preview, including on retries: there is no unseen-output deduplication state.
         with self.state_lock:
-            self.state.setdefault("stage_images", []).extend(records)
+            self.state.setdefault("stage_images", []).append(record)
         self.save()
         return out
 
@@ -196,7 +251,7 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         check_package(folder, lab)
         lab.start()
         spec = StageSpec("temple_stage", instructions_text(folder, child_settings.finish_k),
-                         T.registry(lab, child_settings), (folder / "inputs/brief.txt").read_text(encoding="utf-8"),
+                         registry(lab, child_settings), (folder / "inputs/brief.txt").read_text(encoding="utf-8"),
                          child_settings, photos=references(lab),
                          scene_note=(f"Current job head captured in revision 0 at {lab.s.head['id']}. "
                                      f"This temple stage has a ${cap_usd} allowance inside the job's approval. "

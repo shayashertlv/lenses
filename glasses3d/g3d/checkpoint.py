@@ -3,7 +3,8 @@
 `scene_state()` is the component-digest form of `export_glb.snapshot` (which stays untouched for the exporter's own
 scene-unchanged check): scene props and units, view layers, collections, every object (matrix, visibility, parenting,
 modifiers, constraints, material slots, custom props), every mesh (`export_glb._mesh_digest`: positions, topology,
-every attribute), curves and text, materials and node groups (node settings, socket values, links), images (packed
+every attribute), curves and text, materials and node groups (node settings, socket values, links, and nonempty
+group interfaces including socket names/types/defaults), images (packed
 bytes), and the other ID types. `fingerprint(state)` is the sha256 of its canonical JSON. Excluded because they are
 not scene content and change across a save and reopen (prototype defect 1): `bpy.data.filepath`, images with source
 VIEWER (Render Result / Viewer Node), `use_fake_user` flags and user counts. Automatic texture-space bounds are

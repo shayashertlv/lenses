@@ -54,7 +54,7 @@ def test_create_show_estimate_and_approve_are_offline_and_do_not_consume(job):
     assert request["requested_cap_micro_usd"] == 23_000_000
     assert request["request"]["settings"]["settled_stop_usd"] == "20.000000"
     assert request["estimate"]["requests"] == 60
-    assert request["request"]["settings"]["context_guard"]["every_requests"] == 3
+    assert "context_guard" not in request["request"]["settings"]
     assert command("show", job)["pending_run"] == request["run_id"]
     approval = command("approve", job, "--max-usd", "23", "--owner-words", "Offline test approval.")
     assert approval["owner_words"] == "Offline test approval."
@@ -90,14 +90,21 @@ def test_show_reports_a_no_usable_checkpoint_attempt_without_inventing_delivery(
 
 def test_prepared_settings_preserve_bound_nondefault_behaviour(job):
     settings = replace(job_run.settings_default(), max_turns=7, max_output_tokens=1024,
-                       settled_stop_usd="0.8", fit_output_to_budget=True, finish_k=2,
-                       context_guard_tokens=150000, context_guard_bytes=2_000_000, context_guard_every_requests=4)
+                       settled_stop_usd="0.8", fit_output_to_budget=True, finish_k=2)
     spec, _ = job_run.prepare_run(job, "settings-roundtrip", settings=settings, cap="1", write_request=True)
     restored, cap = job_run.prepared_settings(job, spec.run_id)
     assert restored.approval_settings() == settings.approval_settings()
     assert cap == "1.000000"
     rebuilt, _ = job_run.prepare_run(job, spec.run_id, settings=restored, cap=cap)
     assert rebuilt.current_request_sha256 == spec.current_request_sha256
+
+
+@pytest.mark.parametrize("changes", [{"context_guard_tokens": 150000},
+                                     {"context_guard_every_requests": 3}, {"context_guard_bytes": 100000}])
+def test_job_refuses_history_rewriting_settings(job, changes):
+    settings = replace(job_run.settings_default(), **changes)
+    with pytest.raises(ValueError, match="append-only"):
+        job_run.prepare_run(job, settings=settings)
 
 
 def test_generic_request_checks_host_prose_and_binds_the_complete_owner_brief(job):

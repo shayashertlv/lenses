@@ -111,7 +111,8 @@ CORE_GUIDANCE = {
         "status, errors and warnings, and match export_sha256 to the export you assessed.",
     "budget_status": "Use `budget_status` to plan against settled_stop_usd and remaining_to_stop_usd; settled_usd, "
         "remaining_usd and planning also report spend and reserve capacity.",
-    "finish": "Call `finish` after the current export and its AR capture pass and you have inspected the result. "
+    "finish": "Call `finish` to export, check and AR-capture the current head in one call. "
+        "It returns reports and images; refusals list failures. "
         "Include photo differences and fact conflicts in summary; only status accepted completes the run. "
         "Plan to finish your best validated checkpoint before the settled stop; listing remaining differences "
         "is better than running out.",

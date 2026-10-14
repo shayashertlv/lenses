@@ -21,8 +21,7 @@ from .tools import build_tools
 
 def settings_default() -> RunSettings:
     return RunSettings(effort="max", max_turns=None, settled_stop_usd="20", tool_choice="required",
-                       reset_tool_choice=False, finish_tool="finish", context_guard_tokens=150000,
-                       context_guard_every_requests=3)
+                       reset_tool_choice=False, finish_tool="finish")
 
 
 def settings_smoke(cap="1") -> RunSettings:
@@ -44,6 +43,9 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     root = Path(root).resolve()
     job = jobs.load_job(root)
     settings = settings or settings_default()
+    if any(value is not None for value in (settings.context_guard_tokens, settings.context_guard_bytes,
+                                           settings.context_guard_every_requests)):
+        raise ValueError("job history is append-only; context guard epochs require a new unguarded run request")
     if cap_to_micro(cap) > 23_000_000:
         raise ValueError("job reservation cap cannot exceed the owner's $23 limit")
     if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) > 20_000_000:

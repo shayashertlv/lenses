@@ -81,7 +81,7 @@ HINTS = {
     "preferences": "nothing: preferences are not scene state (export settings are fixed by export_glb())",
     "undo": "restore_checkpoint(id)",
     "file_path": "nothing: file paths are host-controlled",
-    "g3d": "the g3d facade (g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners); "
+    "g3d": "the g3d facade (g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners, g3d.lens_coating); "
            "use the named seating tools for seat_lens, hide_eyewire, check_lens_seating, unseat_lens, unhide_eyewire",
 }
 
@@ -102,8 +102,8 @@ MODULE_PATHS = ALLOWED_MODULES | ALLOWED_SUBMODULES
 #: names prebound in every snippet's namespace (local name -> module path)
 PREBOUND_MODULES = {"bpy": "bpy", "bmesh": "bmesh", "mathutils": "mathutils", "np": "numpy", "g3d": "g3d"}
 PREBOUND_NAMES = frozenset({"result"})
-#: the g3d facade (g3d/lib.py): pure geometry, no file I/O inside (WP2_DESIGN §4, inventory F4)
-G3D_LIB_NAMES = frozenset({"loft_sections", "polygon_section", "check_round_corners"})
+#: the g3d facade (g3d/lib.py): in-memory geometry/material authoring, no file I/O inside
+G3D_LIB_NAMES = frozenset({"loft_sections", "polygon_section", "check_round_corners", "lens_coating"})
 #: module attributes that lead outside the allowlist, measured in Blender 5.2 (a `--probe` worker recomputes them and
 #: reports any edge missing here as `safe_mode_selfcheck.unlisted_edges` in its receipt; test_wp2_worker asserts none)
 ESCAPE_EDGES = {

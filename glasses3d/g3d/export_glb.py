@@ -61,6 +61,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 from . import glb_patch
+from .coating import coating_range, optical_intent, optical_warnings
 
 ROLES = ("lens", "frame", "temple")
 AXES_KEYS = ("blender_agent_axes", "authoring_axes", "g3d_axes")
@@ -192,7 +193,15 @@ def _tree_state(tree, seen: set) -> tuple:
                   for n in tree.nodes)
     links = tuple(sorted((l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
                          for l in tree.links))
-    return (tree.name, nodes, links)
+    state = (tree.name, nodes, links)
+    # Group interface names are functional content: the glTF exporter reads named, unconnected control sockets.
+    # A socket rename can therefore change the exported optics without changing any node value or link. Include
+    # defaults, socket types, order and panel structure even for unused groups, while retaining the legacy tuple
+    # for ordinary trees with no interface (and therefore their existing checkpoint fingerprints).
+    interface = tuple(_rna_simple(item) for item in tree.interface.items_tree)
+    if interface:
+        state += (("interface", interface),)
+    return state
 
 
 def snapshot(scene) -> str:
@@ -620,7 +629,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
             tmp_scene.unit_settings.scale_length = 1.0
         node_names, mesh_names, mat_names = {}, {}, {}
         roles_by_material: dict[str, set] = {}
-        volume_sources: dict[str, str] = {}          # exported material copy name -> authored name
+        optical_sources: dict[str, list] = {}        # exported copy name -> active authored optical controls
+        coating_ranges: dict[str, dict] = {}        # only the helper's scalar, untextured coating controls
         renormalised = []
         seat_extras: dict = {}
         print_extras: dict = {}
@@ -685,8 +695,13 @@ def export_glb(path: str | Path, scene=None) -> dict:
                     cp["partRole"] = role
                     copies[key] = cp
                     mat_names[cp.name] = mat.name
-                    if volume_authored(mat):
-                        volume_sources[cp.name] = mat.name
+                    # Evaluated Material IDs can retain a previous helper tag/control value across live edits;
+                    # Blender's own copy/export follows the original datablock. Audit that same authored graph.
+                    authored_mat = mat.original
+                    optical_sources[cp.name] = optical_intent(authored_mat)
+                    film_range = coating_range(authored_mat)
+                    if film_range:
+                        coating_ranges[cp.name] = film_range
                 mesh.materials[index] = copies[key]
             receipt["objects"].append({"source": obj.name, "partRole": role, "vertices": len(mesh.vertices),
                                        "triangles": len(mesh.loop_triangles),
@@ -711,11 +726,25 @@ def export_glb(path: str | Path, scene=None) -> dict:
                 export_cameras=False, export_lights=False, export_draco_mesh_compression_enable=False)
         if result != {"FINISHED"}:
             raise RuntimeError(f"Blender glTF exporter did not finish: {result}")
-        doc_before, _ = glb_patch.read_chunks(tmp_glb.read_bytes())
+        doc_before, binary = glb_patch.read_chunks(tmp_glb.read_bytes())
+        receipt["optical_warnings"] = []
+        receipt["coating_ranges"] = []
         for m in doc_before.get("materials", []):
+            # Blender omits minimum for uniform thin films. Preserve the helper's explicit range while
+            # keeping the standard glTF meaning: no thickness texture => uniform maximum, not a gradient.
+            iridescence = (m.get("extensions") or {}).get("KHR_materials_iridescence")
+            film_range = coating_ranges.get(m.get("name"))
+            if iridescence is not None and film_range and "iridescenceThicknessTexture" not in iridescence:
+                iridescence.update(film_range)
+                receipt["coating_ranges"].append({"material": mat_names.get(m.get("name"), m.get("name")),
+                                                   **film_range, "uniform_uses_maximum": True})
             vol = (m.get("extensions") or {}).get("KHR_materials_volume")
-            authored = volume_sources.get(m.get("name"))
+            intent = optical_sources.get(m.get("name"), [])
+            authored = any(i["effect"] in {"volume", "volume absorption"} for i in intent)
             shown = mat_names.get(m.get("name"), m.get("name"))
+            warnings = optical_warnings(intent, m, shown)
+            receipt["optical_warnings"].extend(warnings)
+            notes.extend(warnings)
             if authored and not vol:
                 notes.append(f"material {shown!r} authors a volume (Thickness / Volume Absorption) but Blender's "
                              f"exporter wrote no KHR_materials_volume (a hand-made 'glTF Material Output' group "
@@ -723,7 +752,7 @@ def export_glb(path: str | Path, scene=None) -> dict:
             if vol and float(vol.get("thicknessFactor", 0.0)) > VOLUME_THICKNESS_SUSPECT_M:
                 notes.append(f"material {shown!r}: KHR_materials_volume thicknessFactor {vol['thicknessFactor']:g} "
                              f"looks like millimetres (the convention is metres; a lens is about 0.0015)")
-        data, counts = glb_patch.rename(tmp_glb.read_bytes(), nodes=node_names, meshes=mesh_names,
+        data, counts = glb_patch.rename(glb_patch.write_chunks(doc_before, binary), nodes=node_names, meshes=mesh_names,
                                         materials=mat_names)
         tmp_glb.write_bytes(data)
         receipt["renamed"] = counts
