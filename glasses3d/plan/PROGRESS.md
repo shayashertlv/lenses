@@ -22,17 +22,91 @@ corrected job**, conditional on the repairs, proofs and full suite passing and a
 $20 settled stop, $23 reserve cap, max effort; not a resume. **Repairs committed as `123dcca`; the authorized
 fresh run completed and delivered at $19.161346 on c0021, with specification and seating passing. Webcam review
 was started.** Appearance limitations remain below; M5 owner visual acceptance is pending. **The separately approved
-Oakley run 2 subsequently delivered a reserve-limit draft at $15.468835. M5-fix-2 is now implemented at $0;
-item 6's real-photo measurement proof exposed cross-view inconsistency; the owner approved expanding item 6 at $0.
-The general camera representation is repaired and independently proven, but the fresh Oakley measurement proof
-still fails its unchanged errors; item 6 remains open.** No further
-paid run is authorized or started.
+Oakley run 2 subsequently delivered a reserve-limit draft at $15.468835. M5-fix-2 is complete: Claude's
+2026-10-14 review (`6570b88`) closed item 6 as delivered and withdrew the photo-pair agreement proof criterion;
+calibration research has stopped. The historical disagreement evidence remains below. The owner then approved
+exactly one fresh Oakley run 3. It completed normally at $6.478750, published a finished c0007 delivery, and
+did not call `temple_stage`.** Specification validation passes; seating reports 70 failing stations and AR retains
+temple-occlusion warnings. Owner visual acceptance is pending. No additional paid run is authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5 Oakley run 3: approved fresh run, finished delivery (2026-10-14)
+
+Started clean in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout on `glasses3d` at
+`6570b88 ASSEMBLY M5-fix-2: Claude's review; item 6 proof criterion withdrawn, tool delivered`.
+Read ASSEMBLY's M5-fix-2 **Status 2026-10-14** and accepted the item 6 closeout. No further calibration research,
+source-code change, job-definition change, brief edit or photo edit was made before or during this run.
+
+- **Authorization and estimate:** correct job `oakley-oo9208-v2-3e057bab`; fresh request
+  `20261014T142845-c99f84`, effort **max**, **$20 settled stop / $23 maximum reserve**. New estimate
+  **$15.251285** (growth range **$13.494181-$20.808875**) was below the owner's $20 condition. The estimate uses
+  the existing historical-growth model, not assumed savings from paged reports. Approved through `job approve`
+  with the owner's latest message verbatim, retained in `data/assembly/m5oakley3-owner-approval.txt`.
+  Approval SHA `c95d218fe7c9b2cb54e7ad0e651e9a35e2e2a86bcbd299c8115961afc9660a85`;
+  request SHA `ee42f5840d8cfd273332c2f5e59b9d5fd4fe6b6f2e5bad55ba69e27111d6c260`.
+- **Fresh start and monitoring:** preserved the previous generated session/checkpoints/cameras/work/worker state
+  in `data/assembly/m5oakley3-prior-active/`, verifying **1,143 archived files**. The approved job inputs stayed
+  unchanged; the new scene began with only the bridge marker, zero product objects and zero conversation items.
+  Receipt: `data/assembly/m5oakley3-fresh-start.json`. Started detached without `--resume`; keeper PID 23576,
+  runner PID 42312. Run UTC **14:31:10-15:10:19** (Jerusalem **17:31:10-18:10:19**), **2,348.965 s**;
+  wrapper exit **0**. A separate read-only monitor sampled every 40 s, with live owner updates:
+  `data/assembly/m5oakley3-monitor.jsonl`, `m5oakley3_monitor.{log,receipt.json,status.json}`. It exited 0.
+- **Money and result:** **spent $6.478750 (settled)** across **43 requests**; final held **$0**, unknown **$0**.
+  The run ended `completed` after `finish` accepted c0007, not at a budget stop. No continuation or second run.
+  All 43 archived response usages reprice to exactly **6,478,750 microUSD**; receipt hashes/IDs/usages, budget
+  rows, job-ledger budget hash, row hashes and closed-run anchors agree. Peak input **132,708 tokens** and
+  largest single hold **$2.478050** occurred on request 43. No open requests or accounting discrepancies.
+  Evidence under `data/jobs/oakley-oo9208-v2-3e057bab/runs/20261014T142845-c99f84/`:
+  `budget.json`, `transport/`, `result.json`, `runner-status.json`, `events.jsonl`, `transcript.md`, `tools/`.
+- **Immutable delivery:** status `delivered`, `finished: true`, checkpoint **c0007**, fingerprint
+  `fa6c892876c25a6ed7ec7c921a35c7d1cc7ad8a8f31fc3b300f61ce3ead36daa`.
+  Delivery folder under the job:
+  `deliveries/20261014T142845-c99f84-f4ee4a39a933a46eaf4c88c596439c353a047f67848ebe5767b531b9188071d1/`.
+  GLB SHA **`1f5bad10f75c3a03410158a0ff11b03d7133591da1a4cd32895e5dafa9f72603`**;
+  **989,044 bytes, 49,568 triangles, 43 objects**. Specification validation passes with no errors or warnings.
+  Final AR capture succeeds with no errors and eight warnings: five temple-cut warnings (including left/right
+  close worn sides **9.4 / 6.3 mm**) and three part-visibility warnings. Seating is honestly **false** with
+  **70 failing stations**; it remains a report under the owner's policy, not a finish requirement.
+- **Lens colour:** Astra used `g3d.lens_coating` successfully in tools **0003, 0016, 0019, 0022 and 0032**.
+  It inspected the initially pale/clear AR result, tried different film settings and substrate tint, and chose
+  the stronger green/violet trial. Final GLB directly confirms uniform **515 nm** film, film IOR **1.50**,
+  substrate IOR **1.52**, iridescence factor **1**, tint **[0.50, 0.52, 0.51]**, metallic **0.60**,
+  transmission factor **0.90**, roughness **0.095**. The transmission factor is not measured light transmission.
+  The final GLB has **no images or textures**: the colour comes from the optical material. It also increased
+  vertical lens curvature. Failed inspection 0002 and rolled-back material call 0015 are not counted as changes.
+  The final AR sheet shows green/cyan across the lens and violet/pink toward the edges/highlights; Astra says it
+  remains darker and less pastel than the white-background photos under the fixed AR lighting.
+- **Temple stage and limitations:** **zero `temple_stage` calls** among 43 tools. Astra modeled the branching,
+  multi-material temples directly. It used `photo_read` twice and the existing off-axis fitting option once;
+  its summary explicitly treats the cross-view disagreements as uncertainty, not certified dimensions.
+  It reports approximate top/rear temple projections, estimated scale, preserved four brow vents, and remaining
+  seating/AR warnings. `seat_lens` dry-run 0035 refused concave growth; Astra's support edit 0037 retained the
+  diagnostic rather than filling all gaps. Source code and tool policy were unchanged.
+- **Owner comparison:** new immutable sheet is the delivery's `contact-sheets/01.jpg`
+  (SHA `49af21e15f9605e83eedbd294f4376e307ecc153e2a8f9bcc9d834160b02910b`). The accepted Oakley comparison is
+  `data/assembly/m5fix2-worn-b/work/arview/worn-proof/contact-sheet.jpg`
+  (SHA `077d68b85135e2aaaccaadc51b0704f0269c98fd388ffedbaa489a74f537b08f`), bound to accepted model SHA
+  `2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688`.
+  Both sheets use the current fixed-scale layout and close +/-50-degree views with visible head and hair off.
+  No owner acceptance is inferred from technical finish. No webcam review server was requested for this run.
+- **Final integrity audit:** all **25** immutable delivery files and the manifest match their hashes;
+  `load_delivery` validates the snapshot and GLB/validation/AR bindings. All six photos, job definition, seed,
+  approval/request and brief retain their pre-run hashes (10 preserved immutable file entries plus the brief).
+  The job ledger changed only to record the authorized run. All **617** frozen implementation files match
+  their receipt, and current files match apart from this expected post-run progress edit. No unexplained mismatch.
+
+Only this progress log is committed for run 3. No implementation changed, so no new regression suite was run;
+the actual run's validation, AR capture, finish and delivery evidence above are the verification. Nothing pushed.
+
 ## Assembly M5-fix-2: money, paged reports, measuring and worn views ($0, 2026-10-14)
+
+**Closeout (`6570b88`, subsequent to the implementation notes below):** item 6 is delivered and closed; Claude
+withdrew the pair-agreement criterion because it tests fitted-camera agreement, not the measuring tool's
+correctness. Calibration research stops. The following failed-proof statements are historical evidence from
+before that review, not an open task or an instruction to continue calibration.
 
 Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, clean on `glasses3d` at
 `a46387f ASSEMBLY M5-fix-2 item 7: close worn side views at +/-50 deg with a visible head`.
@@ -1919,6 +1993,11 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
 
 ## Decisions (owner's words verbatim)
 
+- **2026-10-14, Oakley run 3:** "I approve Oakley run 3 on job oakley-oo9208-v2-3e057bab: a fresh run (not a
+  resume), effort max, $20 settled stop, $23 maximum reserve. Create the run request and estimate. If the estimate
+  is under $20, start it detached, as for run 2. If not, stop and tell me. Change no code, job, brief or photos
+  before or during the run." The same message closes calibration research following ASSEMBLY's reviewed item 6
+  status. Full verbatim message is preserved in `data/assembly/m5oakley3-owner-approval.txt` and run approval.
 - **2026-10-13, decisions taken up front for the assembly (`ASSEMBLY.md` §4):** description vs photos: "Photos for the
   look" (photos win on shape and colour, the description on facts photos cannot show). Print tools: "astra can use it
   anytime it see fits. but we need the instructions to be good enough so astra will be able to decide to use the tool
