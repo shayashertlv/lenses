@@ -25,6 +25,9 @@ Schedule (bsa ``fit_all``'s order, re-cut for per-photo kinds):
 2. the 'angled' photos, which also receive ``cameras.cross_seeds`` from step 1's winners (``cameras.NOT_CROSS_SOURCES``
    (angled, top/bottom variants, top_oblique_*, rear_threequarter_*) are never sources).
 
+Without an explicit matte or optional-lens construction, each photo runs that same fit for both default and
+glossy_floor; both are reported and the fixed AUTO_MATTE_RULE chooses the photo's result.
+
 Every fit reports its sign margin (``ViewFit.pitch_twin``). A sign-fixed kind (every candidate puts the camera ABOVE
 the glasses: 'top', 'elevated side') whose winner has pitch <= 0 is recorded with ``status: refused`` (its camera is
 still reported): projecting such a camera would paint photo colours onto undersides.
@@ -474,7 +477,20 @@ def _matte_mode(requested: str | None, context: dict) -> str:
 
 
 # ----------------------------------------------------------------------------- one photo
-def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
+class _EmptyMatteError(ValueError):
+    """Direct fits reject empty input; grouped fits can retain completed alternative diagnostics."""
+    fit_report = None
+
+
+def _validated_candidates(view_kind, candidates):
+    cands = tuple(candidates) if candidates else view_candidates(view_kind)
+    bad = [v for v in cands if v not in cameras.VIEWS]
+    if not cands or bad:
+        raise ValueError(f"candidates {cands}: unknown views {bad}; known {cameras.VIEWS}")
+    return cands
+
+
+def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
               candidates: tuple[str, ...] | None = None, n_refine: int | None = None,
               cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None,
               matte_mode: str | None = None, _model_context: dict | None = None, off_axis: bool = False,
@@ -487,10 +503,7 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     continuation. Better silhouette agreement does not certify camera-parameter accuracy. The record's ``model``
     entry describes the mesh (``fit_views`` lifts it out)."""
     t0 = time.perf_counter()
-    cands = tuple(candidates) if candidates else view_candidates(view_kind)
-    bad = [v for v in cands if v not in cameras.VIEWS]
-    if not cands or bad:
-        raise ValueError(f"candidates {cands}: unknown views {bad}; known {cameras.VIEWS}")
+    cands = _validated_candidates(view_kind, candidates)
     nr = cameras.N_COARSE_POWELL if n_refine is None else int(n_refine)
     mesh = fitmesh.load_fit_mesh(glb_path, skip=tuple(skip))
     pivot = mesh.front_pivot(None if front_parts is None else tuple(front_parts))
@@ -511,7 +524,7 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     img = M.load_photo(image_path)
     fg = M.matte(img, mode=matte_mode)
     if not fg.any():
-        raise ValueError(f"{image_path}: the matte is empty (no foreground against the border background model)")
+        raise _EmptyMatteError(f"{image_path}: the matte is empty (no foreground against the border background model)")
     cross, n_cross, sources = None, 0, []
     receivers = [v for v in cands if v in CROSS_RECEIVERS]
     if receivers and cross_winners:
@@ -597,11 +610,104 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     return rec
 
 
+AUTO_MATTE_RULE = ("Fit default and glossy_floor identically; prefer unchanged camera-gate passes, "
+                   "then higher native silhouette IoU; exact ties choose default.")
+
+
+def _matte_fit_summary(row):
+    fields = ('status','code','refusal','flags','usability','matte_mode','matte','camera','iou','iou_lens_optional',
+              'loss','loss_common_level','contour_mean_px','contour_mean_mm','theta_deg','theta_observed',
+              'n_refine','cross_sources','seconds','overlay')
+    return {key: row.get(key) for key in fields}
+
+
+def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
+              candidates: tuple[str, ...] | None = None, n_refine: int | None = None,
+              cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None,
+              matte_mode: str | None = None, _model_context: dict | None = None, off_axis: bool = False,
+              initial_theta: dict | None = None, fit_openings: bool = True) -> dict:
+    """Fit with an explicit matte, existing open-frame construction, or both automatic alternatives.
+
+    Automatic selection uses only the two fitted records and the fixed rule above.
+    Every alternative is retained even when it fails; no product/photo identity is a selector.
+    """
+    started = time.perf_counter()
+    candidates = _validated_candidates(view_kind, candidates)
+    context = _model_context or _fit_context(glb_path, tuple(skip), front_parts)
+    resolved = _matte_mode(matte_mode, context)
+    automatic = matte_mode is None and resolved != 'open_frame'
+    kwargs = dict(skip=skip, front_parts=front_parts, candidates=candidates, n_refine=n_refine,
+                  cross_winners=cross_winners, _model_context=context, off_axis=off_axis,
+                  initial_theta=initial_theta, fit_openings=fit_openings)
+    if not automatic:
+        row = _fit_image_mode(glb_path,image_path,view_kind,matte_mode=resolved,overlay_path=overlay_path,**kwargs)
+        row['matte_selection'] = {
+            'schema':'g3d.matte_selection/1','mode':'explicit' if matte_mode is not None else 'construction',
+            'chosen':resolved,'rule':AUTO_MATTE_RULE,
+            'reason':'Explicit photo matte retained.' if matte_mode is not None else
+                     'Existing optional-lens construction requires open_frame; automatic floor comparison is not applied.',
+            'alternatives':{resolved:_matte_fit_summary(row)},'seconds':time.perf_counter()-started}
+        return row
+    photo_sha = sha256_file(Path(image_path))
+    alternatives = {}
+    empty_inputs = []
+    for mode in ('default','glossy_floor'):
+        path = (Path(overlay_path).with_name(f'{Path(overlay_path).stem}_matte_{mode}{Path(overlay_path).suffix}')
+                if overlay_path is not None else None)
+        tick = time.perf_counter()
+        try:
+            row = _fit_image_mode(glb_path,image_path,view_kind,matte_mode=mode,overlay_path=path,**kwargs)
+        except Exception as exc:
+            if isinstance(exc, _EmptyMatteError):
+                empty_inputs.append(exc)
+            row = _failed_photo(image_path,view_kind,{**kwargs,'matte_mode':mode},exc)
+            row['seconds'] = time.perf_counter()-tick
+            row['model'] = context['model']
+        alternatives[mode] = row
+    if (sha256_file(Path(image_path)) != photo_sha or
+            sha256_file(Path(glb_path)) != context['model']['sha256'] or
+            any(value.get('image_sha256') not in (None, photo_sha) or
+                value.get('model', context['model']) != context['model']
+                for value in alternatives.values())):
+        raise ValueError('photo or model changed between matte alternatives')
+
+    def rank(mode):
+        row = alternatives[mode]
+        value = row.get('iou')
+        score = float(value) if isinstance(value,(int,float)) and np.isfinite(value) else -np.inf
+        return row.get('status') == 'ok', score, mode == 'default'
+
+    selected = max(alternatives, key=rank)
+    row = dict(alternatives[selected])
+    if overlay_path is not None and row.get('overlay'):
+        shutil.copyfile(row['overlay'],overlay_path)
+        row['overlay'] = str(overlay_path)
+    ranks = {mode:rank(mode) for mode in alternatives}
+    if ranks['default'][0] != ranks['glossy_floor'][0]:
+        reason = f'{selected} alone passes the unchanged camera checks.'
+    elif ranks['default'][1] == ranks['glossy_floor'][1]:
+        reason = 'Equal native silhouette IoU (or neither has a finite score); default wins the fixed tie rule.'
+    else:
+        reason = f'{selected} has higher native silhouette IoU among alternatives with equal camera-check status.'
+    row['matte_selection'] = {'schema':'g3d.matte_selection/1','mode':'automatic_fit_comparison',
+        'chosen':selected,'rule':AUTO_MATTE_RULE,'reason':reason,
+        'alternatives':{mode:_matte_fit_summary(value) for mode,value in alternatives.items()},
+        'seconds':time.perf_counter()-started}
+    row['matte_alternatives'] = alternatives
+    row['seconds'] = time.perf_counter()-started
+    if len(empty_inputs) == len(alternatives):
+        empty_inputs[0].fit_report = row
+        raise empty_inputs[0]
+    return row
+
+
 # ----------------------------------------------------------------------------- every photo of a model
 def _run(job):
     args, kwargs = job
     try:
         return fit_image(*args, **kwargs)
+    except _EmptyMatteError as exc:
+        return exc.fit_report if exc.fit_report is not None else _failed_photo(args[1], args[2], kwargs, exc)
     except Exception as exc:
         return _failed_photo(args[1], args[2], kwargs, exc)
 
@@ -660,8 +766,9 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
 
     ``skip`` / ``front_parts`` go to ``fitmesh.load_fit_mesh`` / ``FitMesh.front_pivot`` (None: the geometric front
     piece); ``candidates`` ({name: views}) overrides a photo's kind; ``n_refine`` is an int or {name: int}.
-    ``matte_modes`` may provide one mode or per-photo modes; absent entries resolve from construction, and every
-    result records the concrete mode used. An explicit default retains the historical hole-filled matte.
+    ``matte_modes`` may provide one mode or per-photo modes; absent entries preserve optional-lens open_frame
+    construction, otherwise compare default/glossy_floor. Every result records the choice and its evidence.
+    An explicit default retains the historical hole-filled matte.
     ``off_axis=True`` explicitly adds a lateral-eye continuation to the validated seven-parameter default."""
     t0 = time.perf_counter()
     glb_path = Path(glb_path)
@@ -688,7 +795,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
             if v not in cameras.VIEWS:
                 raise ValueError(f"{n}: unknown view {v!r}; known {cameras.VIEWS}")
     context = _fit_context(glb_path, tuple(skip), None if front_parts is None else tuple(front_parts))
-    modes = {name: _matte_mode(mode, context) for name, mode in modes.items()}
+    # Preserve absence for each photo's automatic/construction choice.
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -730,6 +837,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                                            "metric": "iou_lens_optional when present, otherwise iou",
                                            "scope": "camera evidence status, not a finish gate"},
                       "choice": "lowest loss on one common final level among the kind's candidates (fit_best)",
+                      "automatic_matte": AUTO_MATTE_RULE,
                       "mm": "px / px_per_mm_at(camera, frame, front pivot)",
                       "contour": "symmetric: mean of the two directed means; pNN = max of the two directed pNN",
                       "roi": "cameras.matte_roi(matte): matte bbox + 15 % of its width + 8 px (x0, y0, x1, y1)"},

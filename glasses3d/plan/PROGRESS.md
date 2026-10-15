@@ -1,5 +1,97 @@
 # glasses3d progress
 
+## 2026-10-15 — M5-fix-6 and Prada run 2 preparation (in progress)
+
+Confirmed the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at `7053e44`.
+Owner effort words, verbatim: **"ok give me a prompt for another run, effort: one below max"**.
+The official [Astra model page](https://developers.openai.com/api/docs/models/gpt-6-astra), accessed **2026-10-15**,
+lists `low`, `medium`, `high`, `xhigh`, `max`; the level immediately below `max` is **`xhigh`**. The
+[reasoning guide](https://developers.openai.com/api/docs/guides/reasoning), accessed the same date, describes the
+`reasoning.effort` request setting. Added `xhigh` to the allowed parent and standalone specialist options; the nested
+temple specialist inherits the parent's selected effort. Estimation retains measured max-effort costs with no
+invented discount or claim of a guaranteed upper bound.
+
+Automatic matte design stated before the held-out comparison: preserve explicit owner settings and the existing
+optional-lens/open-frame behavior; otherwise fit `default` and `glossy_floor` with identical camera/hinge settings,
+prefer an alternative passing the unchanged checks, then choose the higher native silhouette IoU (exact ties use
+`default`). Save both results, timings, choice and reason. Astra may supply per-photo `mattes`; no facts are added
+to a job. Prada's earlier visual choices remain proof-only held-out references. Historical Oakley run-4 inputs
+already explicitly specify `open_frame` for all six photos; those original inputs stay unchanged.
+
+The owner's current request conditionally approves **one fresh Prada run 2**, job `prada-beige-86248315`, effort
+`xhigh` for parent and specialist, **$20 settled stop / $23 reserve cap**, only after the $0 work and proofs and a
+new estimate **under $20**. No other paid run is authorized. No product model, job, brief or photo is being edited.
+
+Preparation evidence: `data/assembly/m5-fix-6/input-baseline.json` hashes the unchanged source assets, and
+`readiness-audit.{md,json}` records the actual parent/child inputs. Prada job SHA256
+`b070a416e0a17fa3e2dbbe31509510621cbd83eadc2f88a365b046a6e59537ce`; the owner description is exactly 306 characters,
+SHA256 `38161f1e2bfd61fca102eb851838046cf1d166a56c072522113a0c6b0c3baaec`, specs are `{}`. All six beige reference
+bytes/order/view labels remain unchanged: 01 right side, 02 left angled, 03 top, 04 front, 05 left side, 06 rear.
+The job has no pending verdict notes; no historical conversation text or extra hints are injected. Parent: 24 tools,
+7,919 instruction characters (under 8,000). Specialist: 8 tools and its existing 9,497-character separate prompt.
+Both use `xhigh`; before launch, the existing operational reset will archive the previous generated runtime and
+verify the empty template, rather than resume the old scene or conversation.
+
+The input audit caught the installed Agents SDK refusing a dynamic mapping in a strict tool schema before any
+request. The public `mattes` argument is therefore a strict list of `{photo, mode}` records, normalized into the
+internal per-photo mapping with duplicate/alias/conflict checks. The full real registry now constructs successfully.
+Initial effort/CLI/stage suite: **152 passed, 70.98 s**; focused automatic-matte/schema checks: **23 passed, 3.08 s**;
+proof-control tests: **3 passed**. After the source-byte and frozen-basis checks were added, the complete lightweight
+affected run passed **162 tests in 14.23 s**. `git diff --check` is clean. The real-photo proof and final regression
+results follow when complete.
+
+The real six-reference bounded tool output was also exercised: a 67,972-character full diagnostic becomes
+11,157 aggregate text characters (under 12,000), retaining every chosen matte and reason directly. Each pair of
+alternatives has an explicit `read_report` pointer; the real public reader recovered both statuses/IoUs and full
+records exactly for all six. Evidence: `data/assembly/m5-fix-6/matte-output-audit.json` (its scores are explicitly
+synthetic, not the real-photo proof).
+
+Prada's frozen automatic phase finished in **1,237.864 s (20 min 38 s)**, below the unchanged 1,800 s tool deadline.
+All six selected fits and all twelve alternatives passed the unchanged camera checks. Choices: **01/02/03/05/06
+glossy_floor, 04 default**; **5/6 agree** with the held-out visual picks. Photo 02 is the recorded disagreement:
+glossy IoU **0.953256**, contour mean **0.507 mm**, versus default **0.934634 / 0.870 mm**. Foreground falls from
+424,011 to 403,733 pixels and yaw changes from 28.01° to 26.43°. Independent visual inspection found that glossy's
+internal opening extends into a pale beige region at its lower-left edge. Thus higher IoU is a preference of this
+model-dependent fitting method, **not proof of a physical floor reflection or a correct photo mask**. Both native
+overlays/full records are preserved in `data/assembly/f6-proof-1/prada/policy/`; no tuning, job hint or changed gate
+was applied. Astra can inspect these reports and use its explicit matte override. The same-worker timing baseline
+took **643.835 s**, versus **1,237.864 s** for automatic comparison: **+594.029 s / 1.923×**. This is a measured
+wall-time comparison, subject to scheduling/cache effects, not a promised runtime.
+
+The full real-photo proof completed with **exit 0, $0, zero provider calls**. Oakley retained all six explicit
+`open_frame` choices, reproducing run 4's selected fit measurements exactly. Its policy/control timings were
+**259.552 / 261.140 s (0.994×)**. The existing weaker top-photo measurement (IoU 0.58877, optional-lens IoU 0.69486,
+mean contour 3.945 mm) remains reported unchanged. All twelve selected Prada/Oakley fits were usable; all source
+and copied input hashes, proof manifest and pinned source hashes stayed unchanged. Report:
+`data/assembly/f6-proof-1/report.json`; front-first sheets: `prada/policy-overlays.png`,
+`prada/policy-alternatives.png`, and `oakley/policy-overlays.png` beneath that directory. Independent code review
+found no blocker; strict override schemas, owner declarations, unchanged gates and parent/child effort binding
+were checked. The M1 end-to-end proof passed in **160.297 s**, with **13 scripted requests, 13 successful tools,
+36 verified image blobs, 35 verified AR images, clean receipts and $0 actual spend**. Evidence:
+`data/assembly/m5fix6-m1.{log,receipt.json}` and job `synthetic-assembly-proof-62feb20a`.
+Full main suite (`-n 8 --dist loadfile`): **3,575 passed, 2 skipped, 4 failed in 817.42 s**. Three failures matched
+the preceding baseline: temple CPU timing 59.375 ms against 50 ms, loaded render 129.205 s against 60 s, and the
+unchanged golden native image **199 pixels against 114.24**. The fourth exposed a new invalid-input regression:
+direct `fit_image` no longer raised on a wholly blank photo because automatic mode retained both failure records.
+Fixed with an empty-matte `ValueError` subclass: the direct API again raises, while grouped fitting retains the
+complete two-alternative failure record. The original assertion is unchanged. Invalid candidates also retain the
+original early refusal. **54 focused tests passed** (7.77 s initially; saved final log 6.39 s), including actual blank input and grouped diagnostics;
+independent review found no blocker. No successful-fit numerics or gates changed. The frozen real-photo proof used
+fitter SHA `94801c75c8eaa5b77e57139a42284cb7aeb29f18a0ede9cd529fec3d568234de`; the invalid-input repair gives SHA
+`cda1582af6e1eb73cffd2a50274445f796e77766aec29c137391b92bf7157326`. Its successful, nonempty rows remain
+representative; the lineage and narrow difference are recorded in `data/assembly/m5-fix-6/empty-input-repair.json`.
+Photo-print suite (`-n 2 --dist loadfile`): **314 passed in 235.67 s**. Main/photo-print logs and process receipts
+are `data/assembly/m5-fix-6/{full-1,photoprint-1}.*`. Isolated rerun: **23 passed, 1 failed in 108.12 s**;
+the timing checks passed and only the identical **199-pixel golden mismatch** remains. Its threshold/golden were
+not changed. Evidence: `data/assembly/m5fix6-isolated_qos.{log,receipt.json}`. The final-code M1 run completed
+its scripted modeling/finish but failed at the delivery directory `os.rename` with Windows `PermissionError`
+(`WinError 5`), job `synthetic-assembly-proof-da7529cb`. No fitting/check failure was reported. The unchanged
+proof was repeated to distinguish a transient filesystem condition; no delivery code or check was modified.
+Logs: `data/assembly/m5fix6-m1-final.*`. The unchanged final-code repeat **passed in 158.031 s**, job
+`synthetic-assembly-proof-66359a34`: **13 scripted requests, delivered, 36 verified image blobs, 35 AR images,
+clean receipts, $0** (`data/assembly/m5fix6-m1-final-retry.*`). The one-off Windows publish error did not recur.
+M5-fix-6 items 1–2 and the requested effort support are complete; the pre-existing golden mismatch remains open.
+
 Started fresh on 2026-10-10 when WP6 was rebuilt. The previous log (to 62b25e4) and the WP6 v1 design are in
 [archive/20261010](archive/20261010/README.md); older snapshots are in [archive/20261008](archive/20261008/README.md).
 Archived files are evidence, never instructions. The WP6 v1 handoff, the two session prompts and the Astra temple lab
@@ -34,7 +126,9 @@ transparency, and seating still reported as failing. **The owner visually accept
 Prada run 1 subsequently completed normally at **$11.903198 settled**, delivering **c0010** with specification,
 seating and AR checks passing. Its temple stage applied the selected revision but reported unresolved top/rear
 likeness. **The owner rejected Prada run 1 on 2026-10-15** (verbatim below); FT1119 and the three unseen products have not been run.
-No further paid run is authorized or started.
+The owner has conditionally authorized exactly one fresh Prada run 2 on the unchanged job at effort one below max,
+$20 settled stop and $23 maximum reserve, only after M5-fix-6 items 1–2 are proven and a fresh estimate is under $20.
+It has not started; preparation is recorded above.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs

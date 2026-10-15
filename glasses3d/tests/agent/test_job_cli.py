@@ -63,6 +63,21 @@ def test_create_show_estimate_and_approve_are_offline_and_do_not_consume(job):
     assert not (job / "inputs/seed.blend").exists()
 
 
+def test_xhigh_request_binds_parent_and_specialist_and_preserves_job_inputs(job):
+    before = (job / "job.json").read_bytes()
+    default = command("estimate", job)
+    selected = command("estimate", job, "--effort", "xhigh")
+    settings = selected["request"]["settings"]
+    assert settings["effort"] == selected["effort"] == "xhigh"
+    assert settings["stages"][0]["settings"]["effort"] == "xhigh"
+    assert selected["request_sha256"] != default["request_sha256"]
+    restored, cap = job_run.prepared_settings(job, selected["run_id"])
+    assert restored.effort == "xhigh" and cap == "23.000000"
+    assert settings["settled_stop_usd"] == "20.000000"
+    assert (job / "job.json").read_bytes() == before
+    assert not (job / "runs" / selected["run_id"] / "budget.json").exists()
+
+
 def test_show_labels_draft_and_keeps_failed_checks_visible(job, monkeypatch):
     pointer = job / "deliveries/current.json"
     pointer.parent.mkdir()

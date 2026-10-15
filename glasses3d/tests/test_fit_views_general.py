@@ -155,13 +155,14 @@ def test_grouped_failed_rows_record_resolved_mode_and_keep_explicit_override(inp
         {'node': 'Lens_L', 'frame_type': frame_type, 'frame_type_source': 'g3d_seat'}]})
     attempted = {}
     def fail(glb, path, kind, **kwargs):
-        attempted[path.name] = kwargs['matte_mode']
+        attempted.setdefault(path.name, []).append(kwargs['matte_mode'])
         raise ValueError('failure after mode selection')
-    monkeypatch.setattr(FV, 'fit_image', fail)
+    monkeypatch.setattr(FV, '_fit_image_mode', fail)
     result = FV.fit_views(model, photos, {name: 'front' for name in photos}, tmp_path / 'fit', workers=1,
                           matte_modes={'angle.png': 'default', 'blank.png': 'glossy_floor'}, log=lambda _: None)
-    assert attempted == {'front.png': expected, 'blank.png': 'glossy_floor', 'angle.png': 'default'}
+    assert attempted == {'front.png': ['open_frame'] if expected == 'open_frame' else ['default','glossy_floor'],
+                         'blank.png': ['glossy_floor'], 'angle.png': ['default']}
     for name, row in result['images'].items():
-        assert row['status'] == 'failed' and row['matte_mode'] == attempted[name]
-        mask = matte.matte(matte.load_photo(photos[name]), mode=attempted[name])
+        assert row['status'] == 'failed' and row['matte_mode'] == attempted[name][0]
+        mask = matte.matte(matte.load_photo(photos[name]), mode=attempted[name][0])
         assert row['matte']['foreground_px'] == int(mask.sum())

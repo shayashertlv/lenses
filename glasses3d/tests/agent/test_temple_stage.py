@@ -13,6 +13,17 @@ from glasses3d.agent.loop import image_key
 from glasses3d.agent.temple_lab.stage import StageBridge, StageLab
 
 
+@pytest.mark.parametrize("effort", ["high", "xhigh", "max"])
+def test_specialist_inherits_owner_effort_without_changing_budget(effort):
+    from glasses3d.agent.loop import RunSettings
+    from glasses3d.agent.temple_lab.stage import settings
+    parent = RunSettings(effort=effort, settled_stop_usd="20", max_output_tokens=8192)
+    child = settings(parent)
+    assert child.effort == effort
+    assert child.settled_stop_usd == "20" and child.max_output_tokens == 8192
+    assert child.finish_tool == "facet_finish" and child.max_turns is None
+
+
 def evidence_lab(tmp_path):
     lab = object.__new__(StageLab)
     lab.root = tmp_path.resolve()

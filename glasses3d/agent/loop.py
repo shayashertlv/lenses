@@ -95,7 +95,7 @@ RUN_CONFIG_SCHEMA = "g3d.run_config/1"
 HEARTBEAT_SCHEMA = "g3d.heartbeat/1"
 STATUSES = ("completed", "turn_limit", "budget_limit", "stopped", "provider_rejected", "provider_unknown",
             "output_limit", "failed_worker", "failed", "ended_without_finish", "payload_limit")
-EFFORTS = ("high", "max")
+EFFORTS = ("high", "xhigh", "max")
 TOOL_CHOICES = ("auto", "required")
 FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and version bound into the approval)
 SMOKE_TOOLS = ("scene_summary", "budget_status")
@@ -271,7 +271,7 @@ class RunSettings:
     ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
     approval's maximum reserve cap; an already-sent request may settle above the stop but within that cap."""
 
-    effort: str | None = None  # paid runs require the owner's explicit high/max choice
+    effort: str | None = None  # paid runs require the owner's explicit effort choice
     max_output_tokens: int = 16_384
     max_turns: int | None = 60
     max_continuations: int = 2

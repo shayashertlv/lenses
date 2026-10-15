@@ -223,6 +223,39 @@ def _safe_view_names(names, *, reserved=()) -> dict[str, str]:
     return out
 
 
+def resolve_photo_mattes(names, owner_modes=None, mattes=None):
+    """Resolve photo ids/filenames without editing owner inputs or silently ignoring overrides."""
+    if mattes is not None and not isinstance(mattes,dict):
+        raise ValueError('mattes must map photo ids or original filenames to matte modes')
+    modes = {name:(owner_modes or {}).get(name) for name in names}
+    sources = {name:'owner' if mode is not None else 'automatic' for name,mode in modes.items()}
+    for name,mode in modes.items():
+        if mode is not None and mode not in fit_views.M.MODES:
+            raise ValueError(f'{name}: unknown owner matte mode {mode!r}')
+    aliases = {}
+    for name in names:
+        for alias in (name,C.ref_id(name)):
+            if alias in aliases and aliases[alias] != name:
+                raise ValueError(f'ambiguous photo id {alias!r}; photo names must have distinct ids')
+            aliases[alias] = name
+    assigned = set()
+    for ref,mode in (mattes or {}).items():
+        if ref not in aliases:
+            raise ValueError(f'unknown matte photo {ref!r}; selected photos: {list(names)}')
+        if not isinstance(mode,str) or mode not in fit_views.M.MODES:
+            raise ValueError(f'{ref}: unknown matte mode {mode!r}; known: {fit_views.M.MODES}')
+        name = aliases[ref]
+        if name in assigned:
+            raise ValueError(f'duplicate matte override for {name!r}')
+        assigned.add(name)
+        if modes[name] is not None and modes[name] != mode:
+            raise ValueError(f'{name}: owner declared {modes[name]!r}; mattes cannot replace that declaration')
+        modes[name] = mode
+        if sources[name] != 'owner':
+            sources[name] = 'astra_override'
+    return modes,sources
+
+
 class Seeing:
     def __init__(self, session) -> None:
         self.s = session
@@ -2283,12 +2316,13 @@ class Seeing:
     # ---------------------------------------------------------------------------------------------- fit_cameras
     def fit_cameras(self, reason: str, images: dict, views: dict, refs=None, *, skip=(), front_parts=None,
                     workers: int = FIT_WORKERS, n_refine=None, candidates=None, matte_modes=None, off_axis: bool = False,
+                    mattes=None,
                     call_id: str | None = None,
                     log=None) -> dict:
         call_id = self.s.new_call_id("fit_cameras", call_id)
         args = {"reason": reason, "images": {k: str(v) for k, v in images.items()}, "views": views, "refs": refs,
                 "skip": list(skip), "front_parts": front_parts, "workers": workers, "matte_modes": matte_modes,
-                "off_axis": off_axis}
+                "off_axis": off_axis, "mattes": mattes}
         t0 = time.perf_counter()
         if not str(reason or "").strip():
             out = _err(call_id, "E_ARGS", "fit_cameras needs a reason (it is recorded in the basis)")
@@ -2304,6 +2338,12 @@ class Seeing:
                 self.s.record_call("fit_cameras", call_id, args, out)
                 return out
             names = [by_id[C.ref_id(r)] for r in want]
+        try:
+            resolved_mattes,matte_sources = resolve_photo_mattes(names,matte_modes,mattes)
+        except ValueError as exc:
+            out = _err(call_id,'E_ARGS',str(exc))
+            self.s.record_call('fit_cameras',call_id,args,out)
+            return out
         exp = self.export_head(call_id)
         if exp.get("status") != "exported":
             out = _err(call_id, exp.get("code") or "E_EXPORT", f"the scene does not export: {exp.get('message')}")
@@ -2334,7 +2374,7 @@ class Seeing:
                                           front_parts=front_parts, workers=workers, n_refine=n_refine,
                                           candidates=candidates, off_axis=off_axis,
                                           initial_openings=initial_openings or None,
-                                          matte_modes={n: (matte_modes or {}).get(n) for n in names},
+                                          matte_modes=resolved_mattes,
                                           log=log or (lambda *_: None))
             bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
                                 model={"glb_path": exp["path"], "glb_sha256": exp["sha256"],
@@ -2369,6 +2409,7 @@ class Seeing:
                "basis": bs.id, "checkpoint": exp["checkpoint"],
                "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
                "fit_seconds": round(res.get("seconds", 0.0), 1), "off_axis": off_axis,
+               "matte_requests": {C.ref_id(n):{"mode":resolved_mattes[n],"source":matte_sources[n]} for n in names},
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
                "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid)) for rid, rec in bs.refs.items()},
                "usable_refs": bs.usable_refs(), "unusable_refs": bs.unusable_refs(),
@@ -2388,6 +2429,7 @@ class Seeing:
 
         return {"view_kind": rec.get("view_kind"), "view": rec.get("view"), "status": f.get("status"),
                 "usable": usable, "matte_mode": rec.get("matte_mode"),
+                "matte_selection": f.get("matte_selection"),
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),

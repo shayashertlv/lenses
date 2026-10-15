@@ -394,7 +394,8 @@ FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags",
                        "contour_mean_mm", "contour_p90_px", "contour_p90_mm", "px_per_mm_at_front_pivot",
                        "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",
                        "iou_lens_optional", "lens_pixels_optional", "contour_mean_px_lens_optional",
-                       "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability", "off_axis")
+                       "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability", "off_axis",
+                       "matte_selection")
 
 
 def freeze_basis(job_root, basis_dir, photos: dict, *, reason: str, call_id: str | None, source: str,

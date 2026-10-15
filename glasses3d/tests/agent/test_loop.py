@@ -175,6 +175,18 @@ def user_texts(body):
 # =========================================================================== a normal session
 
 
+@pytest.mark.parametrize("effort", L.EFFORTS)
+def test_owner_effort_reaches_real_sdk_request_and_approval(tmp_path, effort):
+    from dataclasses import replace
+    settings = replace(SETTINGS, effort=effort)
+    job, transport, result, _ = run_once(tmp_path, [R.message("done")], settings=settings)
+    assert result["status"] == "completed"
+    assert transport.creates[0]["reasoning"] == {"effort": effort, "summary": "auto"}
+    saved = json.loads((job / "runs" / RUN / "approval-request.json").read_text())
+    assert saved["request"]["settings"]["effort"] == effort
+    assert_money_invariants(job, RUN, transport)
+
+
 def test_three_turn_session_with_tool_calls_completes_with_full_receipts(tmp_path):
     replies = [R.tool_call("scene_summary", {}, summary="Look at the scene first."),
                R.tool_call("execute_blender_code", {"code": "import bpy\nresult = len(bpy.data.objects)",

@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 from glasses3d.agent import approvals as A
 from glasses3d.agent.budget import PAYLOAD_LIMIT_BYTES, PAYLOAD_LIMIT_IMAGES, count_timeout_s
 from glasses3d.agent.estimate import cents_text, suggested_cap_micro
-from glasses3d.agent.loop import (CONTEXT_GUARD, CONTEXT_GUARD_BYTES, REMOVED_PHRASES, RunRefused, RunSpec,
+from glasses3d.agent.loop import (CONTEXT_GUARD, CONTEXT_GUARD_BYTES, EFFORTS, REMOVED_PHRASES, RunRefused, RunSpec,
                                   ToolContract, contract_problems, instructions_sha256, machine_load, run_astra,
                                   tool_registry_sha256)
 from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, MODEL_MAX_INPUT_TOKENS, Tariff, usd_text
@@ -68,7 +68,7 @@ V1_FIRST_REQUEST = {"formula_tokens": 19245, "counted_tokens": 15121}
 # Expected: the latest run's mean (run 4, the current tools); high: the highest run mean (run 3). They replace
 # (2026-10-11 build review, P2) the v1 lab run's 580 and the Studio corpus median 851, which priced every facet run
 # about 30 % low: run 4's table (estimate_004.json) priced 40 replies at $7.47, and run 4 settled $8.21 in 32. No
-# gpt-6-astra ledger at effort high exists: high is priced with the max numbers, an upper bound.
+# gpt-6-astra ledger at effort high or xhigh exists: both use the measured max numbers, without an assumed discount.
 OUTPUT_TOKENS = {"expected": 1852, "high": 2064}
 OUTPUT_TOKENS_SOURCE = ("mean output tokens per request of the paid facet runs at effort max (budget.json): "
                         "facet-astra-002 1635 (33 requests), -003 2064 (15), -004 1852 (32); expected = run 4, "
@@ -1167,7 +1167,7 @@ def rehearsal_samples(rehearsal: dict) -> list:
 
 def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: int = 16_384,
                    sheets: int = VARIANT_PHOTOS_MAX) -> dict:
-    """The estimate table (estimate.json): runs of ``requests`` replies at effort high and max, the typical mix at the
+    """The estimate table (estimate.json): runs of ``requests`` replies at each allowed effort, the typical mix at the
     expected output and range_top (the range); facet_variants priced at ``sheets`` sheets a call (main passes the
     rehearsal job's variant_sheets) of the largest page with VARIANTS_MAX arms of text, photo_read at READ_POINTS_MAX
     pick sheets and photo_compare at ZOOM_MAX zoom grids, each of the largest size the tool makes, facet_inspect at its
@@ -1184,7 +1184,7 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
     steps = {name: mix_step(priced, mix) for name, mix in MIXES.items()}
     rows = []
     for n in requests:
-        for effort in ("high", "max"):
+        for effort in EFFORTS:
             exp = project(c0, steps["typical"], n, output=OUTPUT_TOKENS["expected"],
                           max_output_tokens=max_output_tokens, **sized)
             high = range_top(c0, steps, n, max_output_tokens=max_output_tokens, **sized)
@@ -1218,8 +1218,9 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
             "context_guard_tokens": CONTEXT_GUARD_TOKENS, "context_guard_bytes": CONTEXT_GUARD_BYTES,
             "long_context_tokens": LONG_CONTEXT_INPUT_TOKENS,
             "rows": rows, "tool_outputs": per_tool,
-            "notes": ["No gpt-6-astra ledger at effort high exists; high is priced with the max numbers (an upper "
-                      "bound). output_micro_usd is the whole expected output cost, the most effort high can save.",
+            "notes": ["No gpt-6-astra ledger at effort high or xhigh exists; both use the measured max numbers. "
+                      "No effort discount is assumed; these projections are not guaranteed upper bounds. "
+                      "output_micro_usd is the whole expected output cost.",
                       f"facet_variants is priced at {sheets} sheets a call of the largest page "
                       f"({SH.SHEET_W} x {SH.SHEET_H} px) and {VARIANTS_MAX} arms of text; facet_inspect at its largest "
                       "recorded call (its text grows with the stored readings); photo_read at "
@@ -1296,7 +1297,7 @@ def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets
                        "range_mixes": list(RANGE_MIXES), "output_tokens": OUTPUT_TOKENS,
                        "output_tokens_source": OUTPUT_TOKENS_SOURCE},
             "text": text, "limitation": "A forecast from the rehearsal's tool outputs and the fitted token formula; "
-                                        "effort high is priced as max. " + MIX_ASSUMED + " The cap is enforced "
+                                        "efforts high and xhigh are priced as max, without an assumed discount. " + MIX_ASSUMED + " The cap is enforced "
                                         "independently. No approval has been recorded."}
 
 
@@ -1311,7 +1312,7 @@ def main(argv=None):
     p.add_argument("--out", type=Path, default=ESTIMATE, help="estimate.json to write (estimate)")
     p.add_argument("--estimate", type=Path, default=ESTIMATE, help="estimate.json to read (request)")
     p.add_argument("--run-id", default="facet-astra-001")
-    p.add_argument("--effort", choices=["high", "max"])
+    p.add_argument("--effort", choices=EFFORTS)
     turns = p.add_mutually_exclusive_group()
     turns.add_argument("--turns", type=int)
     turns.add_argument("--no-turn-cap", action="store_true")

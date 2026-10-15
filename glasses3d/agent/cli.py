@@ -10,7 +10,7 @@ import sys
 from . import approvals as A, jobs, procs
 from . import delivery, job_run, review, verdicts
 from .budget import JobLedger, BudgetGuardError
-from .loop import RunRefused
+from .loop import EFFORTS, RunRefused
 from .money import owner_money
 
 
@@ -36,6 +36,7 @@ def parser():
             cmd.add_argument("--run-id")
         if name == "estimate":
             cmd.add_argument("--smoke", action="store_true")
+            cmd.add_argument("--effort", choices=EFFORTS)
             cmd.add_argument("--turns", type=int)
             cmd.add_argument("--max-output-tokens", type=int)
             cmd.add_argument("--cap")
@@ -113,7 +114,8 @@ def dispatch(args):
         from dataclasses import replace
         cap = args.cap if args.cap is not None else ("1" if args.smoke else "23")
         settings = job_run.settings_smoke(cap) if args.smoke else job_run.settings_default()
-        settings = replace(settings, max_turns=(settings.max_turns if args.smoke and args.turns is None else args.turns),
+        settings = replace(settings, effort=args.effort if args.effort is not None else settings.effort,
+                           max_turns=(settings.max_turns if args.smoke and args.turns is None else args.turns),
                            max_output_tokens=(args.max_output_tokens if args.max_output_tokens is not None
                                               else settings.max_output_tokens),
                            settled_stop_usd=args.settled_stop if args.settled_stop is not None else settings.settled_stop_usd)

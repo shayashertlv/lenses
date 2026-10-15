@@ -20,7 +20,8 @@ from . import tools as T
 
 def settings(parent=None):
     from ..loop import RunSettings
-    return RunSettings(effort="max", max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
+    return RunSettings(effort=getattr(parent, "effort", "max"),
+                       max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
                        reset_tool_choice=False, finish_tool="facet_finish", finish_k=4)
 

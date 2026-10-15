@@ -1107,11 +1107,12 @@ def test_v3_images_are_priced_at_the_most_one_call_returns():
 def test_estimate_table_guard_and_long_context():
     table = cli.facet_estimate(rehearsal())
     rows = {(r["requests"], r["effort"]): r for r in table["rows"]}
-    assert set(rows) == {(n, e) for n in cli.RUN_LENGTHS for e in ("high", "max")}
+    assert set(rows) == {(n, e) for n in cli.RUN_LENGTHS for e in ("high", "xhigh", "max")}
     exp = [rows[(n, "max")]["expected"]["expected_micro_usd"] for n in cli.RUN_LENGTHS]
     assert exp == sorted(exp) and all(rows[k]["high"]["expected_micro_usd"] >= rows[k]["expected"]["expected_micro_usd"]
                                       for k in rows)
     assert rows[(40, "high")]["expected"] == rows[(40, "max")]["expected"]          # high is priced as max
+    assert rows[(40, "xhigh")]["expected"] == rows[(40, "max")]["expected"]  # no invented discount
     step = {k: float(v) for k, v in table["steps"]["edit_heavy"].items()}
     c0 = table["first_request"]["tokens"]
     guarded = cli.project(c0, step, 90, output=580, max_output_tokens=16_384)
@@ -1457,7 +1458,8 @@ def test_the_table_and_the_approval_carry_request_bytes(tmp_path):
         chars, [p.size_px for p in spec.photos], [len(p.image_url) for p in spec.photos])
 
 
-def test_request_defaults_to_the_v3_table_and_refuses_without_a_traceback(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize("effort", ["max", "xhigh"])
+def test_request_defaults_to_the_v3_table_and_refuses_without_a_traceback(tmp_path, capsys, monkeypatch, effort):
     """Review 2026-10-12, P3 (T5 open item 2): `cli request` defaulted to the v2 table (estimate.json), which
     request_estimate refuses, and main let the ValueError out as a traceback. The default is now the v3 table, and a
     package or table refusal prints {"status": "refused"} and exits 2 (nothing is written or sent)."""
@@ -1468,7 +1470,7 @@ def test_request_defaults_to_the_v3_table_and_refuses_without_a_traceback(tmp_pa
     v2.write_text(json.dumps({"variant_sheets": 4, "mixes": {"typical": {"facet_edit": 5}}, "steps": {}}),
                   encoding="utf-8")
     with pytest.raises(SystemExit) as stop:
-        cli.main(["request", "--job", str(root), "--effort", "max", "--turns", "40", "--cap", "20", "--estimate",
+        cli.main(["request", "--job", str(root), "--effort", effort, "--turns", "40", "--cap", "20", "--estimate",
                   str(v2), "--run-id", "r-v2"])
     out = json.loads(capsys.readouterr().out)
     assert stop.value.code == 2 and out["status"] == "refused" and out["type"] == "ValueError"
