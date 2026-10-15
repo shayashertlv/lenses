@@ -471,6 +471,25 @@ Items, in this order (A before B):
    fix on that GLB; (d) `tests.proofs.assembly_m1` and the affected suites as §1 describes; (e) the cost measurement.
    Change no product model; start no paid run.
 
+### M5-fix-6. No agent-added job details: floor reflections handled automatically ($0; added 2026-10-15 by Claude)
+Owner, 2026-10-15, on the plan to declare `reflective_floor` for Prada photos 01/03/05/06: "i dont want codex to add
+details, this makes the test unrelyable"; and "for the testing its okay for you to label the view but not relection,
+etc". Rule recorded in `glasses3d/AGENTS.md` ("Jobs hold only the owner's inputs"). The existing Prada job
+`prada-beige-86248315` already complies (views and sides only), so run 2 uses it unchanged; no new job.
+1. **Automatic floor-reflection handling in `fit_cameras`.** When the owner declared no matte for a photo, the fit
+   decides per photo between `default` and `glossy_floor` itself (from the photo, or by fitting both and keeping
+   the mask the camera fit explains better; your design, stated in one line), reports both results, the choice
+   and why. Add an optional per-photo `mattes` argument so Astra can choose after looking at the photos. Replace
+   the description text telling anyone to declare `reflective_floor` at intake (`agent/tools/__init__.py:421-422`).
+   The intake field stays for the owner only.
+2. **Proof ($0):** on the unchanged Prada job photos, report the automatic choice per photo beside your earlier
+   visual picks (01/03/05/06 glossy, 02/04 default) as a held-out reference; on the Oakley job photos, the choice
+   must reproduce what run 4 used. Do not tune the method to the reference: report any disagreement. Report the
+   fit-time change. Then `tests.proofs.assembly_m1` and the affected suites as §1 describes.
+3. **Prada run 2 prep** on `prada-beige-86248315`: check exactly what Astra will receive, make the fresh request
+   and estimate (effort max, $20 settled stop, $23 maximum reserve), and stop for the owner's approval unless he
+   has already approved it with a condition the estimate meets.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
