@@ -860,7 +860,8 @@ def test_registry_names_the_v3_tools_and_the_labs_photo_ids(lab):
     most 3 targets + 1 black; facet_finish names the precondition count K."""
     tools = T.registry(lab)
     assert tuple(t.name for t in tools) == T.TOOL_NAMES == (
-        "facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants", "facet_finish", "read_report")
+        "facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants", "facet_finish", "read_report",
+        "facet_crease_compare", "facet_visible_angle")
     by = {t.name: t.params_json_schema for t in tools}
     assert enums(by["photo_image"]["properties"]["photo"]) == [PHOTO_IDS + BLACK_IDS]
     for name in ("photo_read", "photo_compare", "facet_edit", "facet_variants"):
@@ -1144,20 +1145,20 @@ def test_facet_edit_receipt_order_and_crease_lines(lab):
     assert rc["creases"] == LB.crease_lines(tb, fit, BLD.model_edges(tb)) == LB.crease_lines(tb, fit)
     line = next(ln for ln in rc["creases"] if ln.startswith("F2|F4 "))
     assert line.startswith(RP.crease_line(next(c for c in tb.tables["creases"] if c["regions"] == ["F2", "F4"])))
-    assert re.search(r"; fit \+\d+\.\d \+- \d+\.\d°, certain$", line), line        # ° since v3p3-clean-lab
+    assert re.search(r"; measurement \+\d+\.\d \+- \d+\.\d°, sign-certain$", line), line
     border = next(ln for ln in rc["creases"] if ln.startswith("F4|base "))
-    assert border.count("; border fit -") == 1 and "fit fold" not in border        # "fold": the bracket (v3p3 P3-9)
+    assert border.count("; border measurement -") == 1 and "fit fold" not in border
     keys = list(body)
     assert keys.index("receipt") < keys.index("solved") and "crease_vs_head" not in body
     assert "H_lo t 4.24 mm (head 5.75), K t 4.82 mm (head 5.00)" in body["solved"]      # t in mm (v3p3-clean-lab)
     assert no_remedy(json.dumps(body))
     f = {"deg": 16.12, "sd_deg": 3.8, "certain": True, "declared": "ridge", "dchi2": 2.4, "free_deg": 11.0,
          "free_sd_deg": 2.0, "held": False}
-    assert LB.fit_crease_text(f, False) == "fit +16.1 +- 3.8°, certain (readings-only +11.0 +- 2.0°, cost chi2 +2.4)"
+    assert LB.fit_crease_text(f, False) == "measurement +11.0 +- 2.0°, sign-certain (cost chi2 +2.4)"
     assert LB.fit_crease_text({**f, "held": True, "deg": 2.5, "dchi2": 0.0}, True) == \
-        "border fit +2.5° (held at the declared minimum), certain"
+        "border measurement +11.0 +- 2.0°, sign-certain; built held at the declared minimum"
     assert LB.fit_crease_text({**f, "deg": -0.01, "certain": False, "declared": None}, False) == \
-        "fit +0.0 +- 3.8°, open"
+        "measurement +11.0 +- 2.0°, unresolved"
 
 
 def test_crease_lines_keep_the_fits_part_and_say_where_a_border_folds_both_ways():
@@ -1191,8 +1192,8 @@ def test_crease_lines_keep_the_fits_part_and_say_where_a_border_folds_both_ways(
     edges = [{"pair": "shoulder|base", "shape": "flat", "deg": 0.6, "range": [-4.38, 9.8]}]
     line = LB.crease_lines(Build, Fit, edges)[0]
     assert line == ("shoulder|base ridge 6.2° (4.1-9.8) soft (proud 0.80 mm: a 21.8° ramp at d 75.5-76.8) declared "
-                    "ridge, ridge along 53 % and valley along 47 % of its 64.2 mm (-4.4 to +9.8°); border fit -6.2 "
-                    "+- 1.7°, certain (readings-only -6.0 +- 1.7°, cost chi2 +3.1) ..."), line   # the bound and (with
+                    "ridge, ridge along 53 % and valley along 47 % of its 64.2 mm (-4.4 to +9.8°); border measurement -6.0 "
+                    "+- 1.7° at d 25.0 y 6.0, sign-certain (cost chi2 +3.1) ..."), line
     #                       the units, v3p3-clean-lab) the place went, in compose's order ("border fit": v3p3 P3-9)
     assert len(line) <= LB.CREASE_LINE_MAX
     assert LB.mixed_text(c, (0.5, 9.8)) == ", ridge along 53 % and valley along 47 % of its 64.2 mm"   # one sign
@@ -1215,8 +1216,8 @@ def test_a_ramp_is_printed_once_and_snaps_are_explained(lab):
     tb = build_temple(fit.spec)
     assert [w["code"] for w in tb.warnings] == ["W_BORDER_RAMP"]
     rc = lab._receipt(tb, fit, BLD.model_edges(tb))
-    assert rc["creases"][0].startswith("P|base flat 0.0° (proud 1.00 mm: a 26.6° ramp at d 40.0-60.0) undeclared; "
-                                       "border fit +0.0 +- ")
+    assert rc["creases"][0].startswith("P|base built angle 0.0° (proud 1.00 mm: a 26.6° ramp at d 40.0-60.0) undeclared; "
+                                       "border measurement +0.0 +- ")
     assert "warnings" not in rc
     assert rc["snaps"] == "1 knot or node value moved up to 0.03 mm onto a shared d or the outline edge (the spec's " \
                           "canonical form)"
@@ -1383,7 +1384,7 @@ def test_crease_lines_name_the_plain_arm_a_face_leaves_along_the_outline(tmp_pat
     assert want.startswith("RL leaves plain arm up to 1.0") and "between its straight side E-C and the curved bottom" \
         " outline at d 2" in want
     line = next(c for c in lab.inspect()["receipt"]["creases"] if c.startswith("RL|base"))
-    assert f"; {want}" in line and line.endswith(("certain", "open", "flat within 2 sd")), line
+    assert f"; {want}" in line and line.endswith(("sign-certain", "unresolved", "flat within error")), line
     assert len(line) <= LB.CREASE_LINE_MAX + len(want) + 2
     body = lab.edit("e1", 0, False, [], None, "x", OBJECT, False, None)    # facet_edit's receipt: the same line
     assert next(c for c in body["receipt"]["creases"] if c.startswith("RL|base")) == line
@@ -1427,9 +1428,10 @@ def test_variant_arms_state_their_creases_move_ramps_and_edges_against_the_head(
              and abs(c["step"]["height_mm"]) >= LB.RAMP_BRIEF_MM]
     assert steps and [c["regions"] for c in steps] == [["P", "base"]]       # the facet stands 1 mm proud
     st = steps[0]["step"]
-    assert f"P|base {steps[0]['shape']} " in by["proud"]["creases"] and \
+    label = "built angle" if steps[0]["shape"] == "flat" else steps[0]["shape"]
+    assert f"P|base {label} " in by["proud"]["creases"] and \
         f" ({RP.ramp_clause(st['height_mm'], st['slope_deg'], st.get('d_mm'))})" in by["proud"]["creases"]
-    assert re.search(r"P\|base \w+ [\d.]+° \(proud \d\.\d\d mm: a [\d.]+° ramp at d [\d.]+-[\d.]+\)",
+    assert re.search(r"P\|base (?:ridge|valley|built angle) [\d.]+° \(proud \d\.\d\d mm: a [\d.]+° ramp at d [\d.]+-[\d.]+\)",
                      by["proud"]["creases"]), by["proud"]["creases"]
     # crease_shift's words on a delta of its own (Lab.delta orders the pair by revision: head_first)
     delta = {"creases": {"ridge": {"mm": 0.104, "length_mm": [80.0, 81.0]},
@@ -1453,8 +1455,8 @@ def test_edge_changes_name_a_crease_that_appears_or_goes_flat():
                  logo_nose=("valley", 3.6))
     arm = build(shoulder_base=("ridge", 9.7), lower_shoulder=("flat", 1.97), crown_logo=("valley", 2.1),
                 logo_nose=("valley", 3.1))
-    assert LB.edge_changes(head, arm) == ["lower|shoulder valley 4.3° -> flat 1.9° (the edge goes flat)",
-                                          "shoulder|base flat 1.2° -> ridge 9.7° (an edge appears)"]
+    assert LB.edge_changes(head, arm) == ["lower|shoulder valley 4.3° -> built angle 1.9° (the built fold falls below 2°)",
+                                          "shoulder|base built angle 1.2° -> ridge 9.7° (the built fold exceeds 2°)"]
     assert LB.crease_changes(head, arm) == ["crown|logo ridge 17.3° -> valley 2.1°"]
 
 
@@ -1483,8 +1485,8 @@ def test_a_crease_on_a_solved_corner_names_that_corners_reading():
     assert LB.solved_corners_text(tb, fit, ("crown", "base")) == "" and LB.solved_corners_text(tb, None,
                                                                                                 ("crown", "logo")) == ""
     line = LB.crease_lines(tb, fit)[0]
-    assert line == f"crown|logo ridge 2.5° declared ridge; fit +2.5° (held at the declared minimum), open " \
-                   f"(readings-only -2.1 +- 5.3°, cost chi2 +0.7) (corner K: {msg})", line
+    assert line == f"crown|logo ridge 2.5° declared ridge; measurement -2.1 +- 5.3°, unresolved; built held at the declared minimum " \
+                   f"(cost chi2 +0.7) (corner K: {msg})", line
     head = SimpleNamespace(tables={"creases": [{"kind": "crease", "regions": ["crown", "logo"], "shape": "valley",
                                                 "mean_dihedral_deg": 2.1}]})
     assert LB.crease_changes(head, tb, fit) == [f"crown|logo valley 2.1° -> ridge 2.5° (corner K: {msg})"]
@@ -1830,7 +1832,7 @@ def test_variant_crease_brief_never_rounds_a_flat_crease_to_2():
                               {"kind": "crease", "regions": ["F", "base"], "shape": "valley",
                                "mean_dihedral_deg": 5.04},
                               {"kind": "chamfer", "regions": ["F", "G"], "shape": "ridge", "mean_dihedral_deg": 9.0}]}
-    assert LB.Lab._crease_brief(Tb) == "L|R flat 1.9°, F|base valley 5.0°"
+    assert LB.Lab._crease_brief(Tb) == "L|R built angle 1.9°, F|base valley 5.0°"
 
 
 def test_crease_lines_print_the_fits_state_in_its_words():
@@ -1841,10 +1843,10 @@ def test_crease_lines_print_the_fits_state_in_its_words():
     base = {"deg": 0.4, "sd_deg": 0.5, "held": False, "declared": None}
     texts = {s: LB.fit_crease_text({**base, "state": s, "certain": s == "certain"}, False)
              for s in ("certain", "open", "flat")}
-    assert texts == {"certain": "fit +0.4 +- 0.5°, certain", "open": "fit +0.4 +- 0.5°, open",
-                     "flat": "fit +0.4 +- 0.5°, flat within 2 sd"}
-    assert LB.fit_crease_text({**base, "certain": True}, False).endswith(", certain")
-    assert LB.fit_crease_text({**base, "certain": False}, False).endswith(", open")
+    assert texts == {"certain": "measurement +0.4 +- 0.5°, sign-certain", "open": "measurement +0.4 +- 0.5°, unresolved",
+                     "flat": "measurement +0.4 +- 0.5°, flat within error"}
+    assert LB.fit_crease_text({**base, "certain": True}, False).endswith(", sign-certain")
+    assert LB.fit_crease_text({**base, "certain": False}, False).endswith(", unresolved")
 
 
 def test_model_edges_are_capped_for_seeing():
@@ -2020,7 +2022,7 @@ def test_receipt_groups_ramps_in_one_line_and_leaves_out_conditioning(lab):
     pair.update(shape="flat", mean_dihedral_deg=1.23)
     flat = {"code": "W_FLAT_CREASE", "regions": ["F2", "F3"], "message": "crease F2|F3 bends only 1.23 deg (< 2.0)"}
     rc = lab._receipt(tb, None)
-    assert "F2|F3 flat 1.2° " in " ".join(rc["creases"])
+    assert "F2|F3 built angle 1.2° " in " ".join(rc["creases"])
     tb.warnings = [cond, flat, ramp]
     assert lab._receipt(tb, None)["warnings"] == [
         "W_BORDER_RAMP (steeper than 8°): F4 sunk 0.42 mm: a 12.3° ramp at d 40.0-55.0"]

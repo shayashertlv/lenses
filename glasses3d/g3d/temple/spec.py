@@ -29,7 +29,10 @@ Spec keys (JSON):
               smooth inside, the plane itself when the corner values are coplanar. soft (v3; default false, written
               only when true): the facet's borders with the base are soft, a SOFT_BAND_MM border band and
               smooth-shaded facet/ramp and ramp edges below SOFT_SHARP_DEG.
-    creases   [{facets: [f1, f2 | "base"], shape: "ridge" | "valley"}]: declared crease shapes, checked after the build
+    creases   [{facets: [f1, f2 | "base"], shape: "ridge" | "valley", visible_angle?: {...}}]: declared shapes;
+              optional visible_angle records degrees (absolute normal dihedral), moving_facet, comparison_id,
+              comparison_sha256 and reason. The fit permits the local visual choice only for unresolved evidence;
+              the builder checks its exact angle as well as every existing hard check. Omitted keys stay omitted.
     chamfers  [{edge: top | bottom, d: [d0, d1], width_mm, depth_mm, taper_mm?}] (v1: a band cut along an outline edge)
     roll_mm   core edge rounding (8 stacked quarter-arc chamfer sub-bands along both outline edges); 0 = crisp
     options   t_min_mm 1.0, station_step_mm 2.0, planar_tol_mm 1e-6, kink_sharp_deg 25, border_band_mm 2.0,
@@ -79,6 +82,8 @@ DEFAULT_OPTIONS = {"t_min_mm": 1.0, "station_step_mm": 2.0, "planar_tol_mm": 1e-
 ILL_CONDITIONED_DEG_PER_MM = 10.0       # E_ILL_CONDITIONED
 CONDITIONING_WARN_DEG_PER_MM = 6.0      # W_CONDITIONING
 FLAT_CREASE_DEG = 2.0                   # a crease pair below this is "flat" (W_FLAT_CREASE; a declaration is refused)
+VISIBLE_ANGLE_MIN_DEG = 2.5              # no visual declaration below the existing declared-fold minimum
+VISIBLE_ANGLE_TOL_DEG = 1e-5             # numerical tolerance, not a visual or measurement acceptance allowance
 SHARP_DIHEDRAL_DEG = 6.0                # ramp and chamfer edges are sharp at or above this dihedral
 CREASE_STANDS_DEG = 0.5                 # a crease edge beside a warp cell is sharp while its design dihedral >= this
 RUN_LINE_MM = 0.5                       # a crease plane's straight run: its corners within this of the line
@@ -357,8 +362,9 @@ def canonical(spec: dict) -> dict:
     if not isinstance(cin, (list, tuple)):
         raise TempleError("E_SPEC", "creases must be a list of {facets: [f1, f2 | 'base'], shape}")
     for i, c in enumerate(cin):
-        if not isinstance(c, dict) or set(c) != {"facets", "shape"}:
-            raise TempleError("E_SPEC", f"creases[{i}] must be {{facets: [f1, f2 | 'base'], shape}}", crease=i)
+        if (not isinstance(c, dict) or not {"facets", "shape"} <= set(c)
+                or set(c) - {"facets", "shape", "visible_angle"}):
+            raise TempleError("E_SPEC", f"creases[{i}] needs facets, shape and optional visible_angle", crease=i)
         pair = c["facets"]
         if not isinstance(pair, (list, tuple)) or len(pair) != 2 or not all(isinstance(x, str) for x in pair):
             raise TempleError("E_SPEC", f"creases[{i}].facets must name two facets (or a facet and 'base')", crease=i)
@@ -376,7 +382,29 @@ def canonical(spec: dict) -> dict:
         if (a, b) in seen:
             raise TempleError("E_SPEC", f"crease {a}|{b} is declared twice", facets=[a, b])
         seen.add((a, b))
-        creases.append({"facets": [a, b], "shape": c["shape"]})
+        out = {"facets": [a, b], "shape": c["shape"]}
+        if "visible_angle" in c:
+            v = c["visible_angle"]
+            keys = {"degrees", "moving_facet", "comparison_id", "comparison_sha256", "reason"}
+            if not isinstance(v, dict) or set(v) != keys:
+                raise TempleError("E_SPEC", f"creases[{i}].visible_angle needs exactly {sorted(keys)}", crease=i)
+            if b == "base" or any(facets[x]["plane"] == "warp" for x in (a, b)):
+                raise TempleError("E_SPEC", "visible_angle requires two flat facets sharing a straight edge", crease=i)
+            deg = _num(v["degrees"], f"creases[{i}].visible_angle.degrees")
+            if not VISIBLE_ANGLE_MIN_DEG <= deg < 180.0:
+                raise TempleError("E_SPEC", f"visible angle must be >= {VISIBLE_ANGLE_MIN_DEG:g} and < 180 degrees",
+                                  crease=i)
+            if v["moving_facet"] not in (a, b) or v["moving_facet"] == "base":
+                raise TempleError("E_SPEC", "visible_angle.moving_facet must name a facet of this pair", crease=i)
+            for k, limit in (("comparison_id", 128), ("reason", 2000)):
+                if not isinstance(v[k], str) or not v[k].strip() or len(v[k]) > limit:
+                    raise TempleError("E_SPEC", f"visible_angle.{k} must be nonempty text, at most {limit} characters",
+                                      crease=i)
+            sha = v["comparison_sha256"]
+            if not isinstance(sha, str) or len(sha) != 64 or any(x not in "0123456789abcdef" for x in sha):
+                raise TempleError("E_SPEC", "visible_angle.comparison_sha256 must be a lowercase SHA-256", crease=i)
+            out["visible_angle"] = dict(v, degrees=deg)
+        creases.append(out)
     creases.sort(key=lambda c: c["facets"])
     chamfers = []
     for i, c in enumerate(spec.get("chamfers", []) or []):

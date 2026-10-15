@@ -14,7 +14,7 @@ def test_flat_crease_warning_names_the_crease():
     flat = [w for w in tb.warnings if w["code"] == "W_FLAT_CREASE"]
     assert flat and all(w["deg"] < 2.0 and len(w["regions"]) == 2 for w in flat)
     lines = report.crease_lines(tb)
-    assert all(any(ln.startswith("|".join(w["regions"]) + " flat ") for ln in lines) for w in flat)
+    assert all(any(ln.startswith("|".join(w["regions"]) + " built angle ") for ln in lines) for w in flat)
     assert not any(w["code"] == "W_FLAT_CREASE" for w in build_temple(FX.pyramid()).warnings)
 
 

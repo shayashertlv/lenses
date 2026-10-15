@@ -39,7 +39,7 @@ REMOVED_PATTERNS = (
 )
 
 _OBJECT = """You are Astra, building glasses for browser AR. The owner judges likeness on their camera.
-Use the job's photos and facts; inspect and revise your model.
+Use the job's photos and facts; inspect and revise.
 
 A glasses front joins lens openings at the bridge. Rims, brow and mounting hardware follow the construction;
 rimless and half-rim frames have their own supports. Lenses need front/back surfaces, curvature and seated edges.
@@ -88,7 +88,7 @@ CORE_GUIDANCE = {
     "read_report": "Use `read_report` for full diagnostics, pages, filters and lossless text.",
     "execute_blender_code": "Use `execute_blender_code` to edit the model; check status and checkpoint. "
         "Set seating_repair=True for every manual seating/support repair to show frozen-front before/after.",
-    "scene_summary": "Use `scene_summary`: result.objects, closed/loose_parts, materials, roles and warnings.",
+    "scene_summary": "Use `scene_summary`: result.objects, closed/loose_parts, materials, roles, warnings.",
     "save_checkpoint": "Use `save_checkpoint` with best=True to retain your best state and images; keep its id.",
     "list_checkpoints": "Use `list_checkpoints` for ids, labels and fingerprints.",
     "restore_checkpoint": "Use `restore_checkpoint` for a better state; verify status/checkpoint and compare it.",
@@ -104,7 +104,7 @@ CORE_GUIDANCE = {
     "photo_read": "Use `photo_read` for 3D points from photo corners/crossings. Inspect conditional errors, "
         "residuals and pair disagreements; calibration can limit accuracy. Measure front depth and edge rounding "
         "from side/top/angled photos; reproduce the cross-section, with facets only where photos show them.",
-    "read_image": "Use `read_image` for small photo details. Match images metadata and pixel coordinates before measuring.",
+    "read_image": "Use `read_image` for details; match images metadata and pixel coordinates before measuring.",
     "export_glb": "Use `export_glb` to read status, sha256, validate_spec and seat_check. Seating is diagnostic; "
         "specification and print validity still gate finish. Inspect photo likeness separately.",
     "arview_capture": "Use `arview_capture` sheets at authored scale across AR poses. Read status, errors, warnings "
@@ -122,9 +122,10 @@ CORE_GUIDANCE = {
 # These names enter the prompt only when M4 actually registers them. Their wrapper-specific fields belong in
 # their descriptions; the core prompt makes no promise about a future wrapper's response schema.
 SPECIALIST_GUIDANCE = {
-    "temple_stage": "Check `temple_stage`'s body, material and hinge limits against the photos before choosing it. "
-        "Inspect its fit and photo comparisons on the current head, then the complete glasses. "
-        "If it ends stuck on a camera/pose conflict, refit cameras with openings and run it again.",
+    "temple_stage": "Check `temple_stage`'s body, material and hinge limits against photos; inspect its fit and "
+        "comparisons, then the complete glasses. If stuck on camera/pose, refit with openings and rerun. "
+        "Fix facet edges crisp in photos but faint in the build with its angle comparison/choice; carry named mismatches and crops "
+        "from the stage summary into the finish review.",
     "seat_lens": "Use `seat_lens` for needed seating repairs; its docs explain frame-type declarations. "
         "Inspect frozen-front before/after and the AR junction.",
     "check_lens_seating": "Use `check_lens_seating` before and after seating repairs. Read the declared type "

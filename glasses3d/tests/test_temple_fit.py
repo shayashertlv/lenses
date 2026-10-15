@@ -353,7 +353,7 @@ def test_a_declaration_within_accept_dchi2_is_built_and_its_cost_reported():
     assert 0.0 < c["dchi2"] <= FT.ACCEPT_DCHI2
     assert res.chi2 - res.chi2_free == pytest.approx(c["dchi2"], abs=1e-12)
     assert res.chi2_free <= 1e-15
-    line = next(ln for ln in res.report_lines(limit=40) if ln.startswith("D|U"))
+    line = " ".join(ln.strip() for ln in res.report_lines(limit=40))
     assert f"readings-only -1.0 +- {c['free_sd_deg']:.1f} deg, cost +{c['dchi2']:.1f}" in line   # v3p3: deg said
 
 
@@ -964,8 +964,8 @@ def test_solved_corner_inside_the_outline_is_a_fact():
     assert "at the thickness bound: H (solved)" in lines and res.dof == 1    # P3-3: the held bound counts
     cr = {c["name"]: c for c in res.creases}
     assert cr["crown|logo"]["bound"] == ["node H"] and not cr["crown|logo"]["certain"]
-    assert any(ln.startswith("crown|logo ridge") and "the thickness bound holds node H (the sd is without it)" in ln
-               for ln in lines)
+    text = " ".join(ln.strip() for ln in lines)
+    assert "crown|logo built fold" in text and "the thickness bound holds node H (the sd is without it)" in text
     s = run7_layout("warp")
     s["nodes"]["E"][2] = "base"
     res = FT.fit_spec(s, readings=stored)
@@ -1099,8 +1099,9 @@ def test_facet_base_line_labels_the_fold_and_the_dihedral():
     sd and certainty, +2.7..+3.3 along it) and the dihedral the builder's table holds (2.6: the normals' angle with the
     slope along the border shared, build._base_border_design; the raw normals' 19.2 is no fold)."""
     res = FT.fit_spec(run7_layout("nodes"))
-    assert ("shoulder|base ridge: fold +2.9 +- 0.6 deg across the border at mid, +2.7..+3.3 along it, certain; "
-            "dihedral 2.6 deg") in res.report_lines(limit=60)
+    assert ("shoulder|base built fold +2.9 deg across the border at mid, +2.7..+3.3 along it; "
+            "dihedral 2.6 deg; measurement +2.9 +- 0.6 deg, sign-certain") in " ".join(
+                ln.strip() for ln in res.report_lines(limit=60))
     c = {x["name"]: x for x in res.creases}["shoulder|base"]
     assert c["normal_deg"] == pytest.approx(c["deg"] / math.sqrt(1.0 + 0.46 ** 2), abs=0.15)   # s ~ 0.46 along it
 
@@ -1139,13 +1140,14 @@ def test_crease_beside_a_warp_reports_its_range_and_holds_its_ends():
     c = {x["name"]: x for x in res.creases}["crown|logo"]
     lo, hi = c["range_deg"]
     assert lo < c["deg"] < hi and hi - lo > 3.0 and c["segments"] == len(FT.EDGE_AT) and c["borders"] == 1
-    assert any(ln.startswith(f"crown|logo ridge {c['deg']:+.1f} +- {c['sd_deg']:.1f} deg at mid, {lo:+.1f}..{hi:+.1f} "
-                             f"along the edge, certain") for ln in res.report_lines(limit=60))
+    assert (f"crown|logo built fold {c['deg']:+.1f} deg at mid, {lo:+.1f}..{hi:+.1f} "
+            f"along the edge; measurement {c['free_deg']:+.1f} +- {c['sd_deg']:.1f} deg, sign-certain") in " ".join(
+                ln.strip() for ln in res.report_lines(limit=60))
     res = FT.fit_spec(warp_beside_flat("valley", twist=3.0))
     c = {x["name"]: x for x in res.creases}["R|W"]
     ang = [r_w_angle(res, -6.0 + 12.0 * f) for f in FT.EDGE_AT]
     lo, hi = c["range_deg"]
-    assert any(ln.startswith(f"R|W valley {c['deg']:+.1f} deg at mid, {lo:+.1f}..{hi:+.1f} along the edge (held at the "
+    assert any(ln.startswith(f"R|W built fold {c['deg']:+.1f} deg at mid, {lo:+.1f}..{hi:+.1f} along the edge (held at the "
                              f"declared minimum)") for ln in res.report_lines(limit=40))
     assert r_w_angle(res, 0.0) == pytest.approx(-FT.MIN_CREASE_DEG, abs=0.01) and c["held"]
     assert sum(w * a for w, a in zip(FT.EDGE_W, ang)) <= -(FT.FLAT_CREASE_DEG + FT.MEAN_MARGIN_DEG) + 1e-5
@@ -1193,8 +1195,9 @@ def test_held_declaration_bounds_and_dof_are_reported_plainly():
     res = FT.fit_spec(crease_pair(0.3))
     c = {x["name"]: x for x in res.creases}["D|U"]
     (ln,) = [x for x in res.report_lines(limit=40) if x.startswith("D|U")]
-    assert c["held"] and ln.startswith("D|U ridge +2.5 deg (held at the declared minimum), open, declared ridge") \
-        and "+- 0.0" not in ln
+    text = " ".join(x.strip() for x in res.report_lines(limit=40))
+    assert c["held"] and ln.startswith("D|U built fold +2.5 deg (held at the declared minimum)") \
+        and "measurement -1.0 +- 4.3 deg, unresolved, declared ridge" in text and "+- 0.0" not in text
     s = FX.straight(base={"top": [[0.0, 0.5], [120.0, 0.5]], "bottom": [[0.0, 0.5], [120.0, 0.5]]},
                     nodes={"P": [20.0, -6.0, "base"], "Q": [60.0, -6.0, read(64.0, 0.2)],
                            "R": [40.0, 6.0, read(64.0, 0.2)]}, facets={"F": ["P", "Q", "R"]})
@@ -1275,8 +1278,10 @@ def test_steep_edge_declaration_holds_the_builders_dihedral():
     assert c["held"] and c["deg"] > FT.MIN_CREASE_DEG + 0.5
     assert c["normal_deg"] == pytest.approx(FT.FLAT_CREASE_DEG + FT.MEAN_MARGIN_DEG, abs=0.01)
     (ln,) = [x for x in res.report_lines(limit=40) if x.startswith("D|U")]
-    assert ln.startswith(f"D|U ridge {c['deg']:+.1f} deg (held by its declaration), open (dihedral "
-                         f"{c['normal_deg']:.1f} deg), declared ridge (readings-only -1.0 +- ")
+    assert ln.startswith(f"D|U built fold {c['deg']:+.1f} deg (held by its declaration) (dihedral "
+                         f"{c['normal_deg']:.1f} deg)")
+    text = " ".join(x.strip() for x in res.report_lines(limit=40))
+    assert "measurement -1.0 +- " in text and "unresolved, declared ridge (readings-only -1.0 +- " in text
 
 
 # ------------------------------------------------------------------------------------------- v3p2-fit2 (phase 2)
@@ -1909,7 +1914,8 @@ def test_crease_states_and_the_refusals_camera_wording():
     res = FT.fit_spec(s)
     c = {x["name"]: x for x in res.creases}["D|U"]
     assert c["state"] == "flat" and not c["certain"] and abs(c["deg"]) + 2 * c["sd_deg"] < FT.MIN_CREASE_DEG
-    assert any(ln.startswith("D|U flat ") and ", flat within 2 sd" in ln for ln in res.report_lines(limit=40))
+    assert any(ln.startswith("D|U built fold ") and ", flat within error (2 sd)" in ln
+               for ln in res.report_lines(limit=40))
     assert {x["state"] for x in FT.fit_spec(crease_pair(0.3)).creases} <= {"certain", "open", "flat"}
     moves = [{"node": "A", "source": "read", "sd": 2.9}, {"node": "D", "source": "read", "sd": -2.8},
              {"node": "02", "source": "camera", "sd": -5.6}]
@@ -2090,8 +2096,8 @@ def test_no_report_text_prints_a_signed_zero():
     assert "at the thickness bound: K (+0.00 mm from its reading)" in lines
     assert ("face T flat (E K P Q): chi2 1.7 for 1 extra corner; its largest misfit (fitted - read): E (d, y) 0.2 sd "
             "and X +0.00 mm (1.3 sd)" in lines)
-    assert ("T|U flat +0.0 +- 1.2 deg at mid, +0.0..+0.9 along the edge, open, declared ridge (readings-only +0.0 +- "
-            "1.2 deg, cost +0.4)") in lines
+    assert ("T|U built fold +0.0 deg at mid, +0.0..+0.9 along the edge; measurement +0.0 +- 1.2 deg, unresolved, "
+            "declared ridge (readings-only +0.0 +- 1.2 deg, cost +0.4)") in " ".join(x.strip() for x in lines)
     assert ("corners the fit placed off the design (fitted - design, d y mm; fitted - read in its sd): K +0.06 +0.00 "
             "(0.3 sd)") in lines
     real = [FT.fit_spec(probe1_design(c)) for c in ("nodes", "warp")] + [
@@ -2125,7 +2131,7 @@ def test_the_report_says_what_it_left_out_and_why_a_face_is_untested():
               "dchi2": None, "free_deg": 12.0, "free_sd_deg": 1.2}
     one = stored_fit({}, S2_SETTLED, faces={"T": faces["T"]}, creases=[crease])
     full = one.report_lines(limit=40)
-    assert full[-1] == "T|U ridge +12.0 +- 1.2 deg, certain" and len(full) == 5
+    assert full[-1] == "T|U built fold +12.0 deg; measurement +12.0 +- 1.2 deg, sign-certain" and len(full) == 5
     assert one.report_lines(limit=4) == full[:3] + ["(left out for length: 1 face line, 1 crease line)"]
     tight = stored_fit({"02": 0.4}, dict(S2_SETTLED, weights_settled=False, weight_change=0.2, weight_passes=30),
                        faces={"T": faces["T"]})

@@ -96,6 +96,12 @@ def test_guidance_teaches_recorded_decisions_and_stage_order(tools):
     assert text.index("Use `export_glb`") < text.index("Use `arview_capture`") < text.index("Call `finish`")
 
 
+def test_faint_facet_guidance_keeps_named_evidence_through_finish(tools):
+    text = I.build_instructions(tools)
+    assert "facet edges crisp in photos but faint in the build" in text and "angle comparison/choice" in text
+    assert "named mismatches and crops from the stage summary into the finish review" in text
+
+
 def test_report_guidance_names_fields_the_current_tools_return(tools):
     # Keep this focused on the fields the prose asks Astra to act on. These correspond to the actual wrappers and
     # Seeing return records, not to the superseded WP7 checks.json proposal.

@@ -916,7 +916,7 @@ def test_a_stepped_flat_facet_base_pair_is_a_plateau_not_a_flat_crease():
     with the base (no step) the warning stays."""
     tb = build_temple(lean_spec(0.0, 0.0, off=2.0))
     line = next(ln for ln in RP.crease_lines(tb) if ln.startswith("F|base"))
-    assert line.startswith("F|base flat 0.0° (proud 2.00 mm: a 45.0° ramp)")
+    assert line.startswith("F|base built angle 0.0° (proud 2.00 mm: a 45.0° ramp)")
     assert not any(w["code"] == "W_FLAT_CREASE" for w in tb.warnings)
     tb = build_temple(lean_spec(0.0, 0.0, off=0.0))
     assert any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in tb.warnings)
@@ -934,7 +934,7 @@ def test_a_soft_flat_facet_base_border_gives_no_flat_crease_warning():
     assert not any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in tb.warnings)
     c = next(c for c in tb.tables["creases"] if c["kind"] == "crease" and c["regions"] == ["F", "base"])
     assert c["shape"] == "flat" and c.get("soft") is True
-    assert any(ln.startswith("F|base flat") and "soft" in ln for ln in RP.crease_lines(tb))
+    assert any(ln.startswith("F|base built angle") and "soft" in ln for ln in RP.crease_lines(tb))
     s["facets"]["F"]["soft"] = False
     assert any(w["code"] == "W_FLAT_CREASE" and w["regions"] == ["F", "base"] for w in build_temple(s).warnings)
 

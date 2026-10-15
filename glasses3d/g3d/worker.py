@@ -539,6 +539,84 @@ def m_temple_variants_render(params):
             "fingerprint_after": fp1, "unchanged": fp0 == fp1, "seconds": round(time.perf_counter() - t0, 4)}
 
 
+def m_temple_variants_export(params):
+    """Lab-only real builder exports for AR comparisons; restore every object and delete temporary meshes.
+
+    The caller supplies the same source checkpoint that normal temple application rebuilds from, so automatic
+    decal transfer has the same starting geometry. No candidate is applied to this worker's persistent scene.
+    """
+    from glasses3d.g3d import render as _render
+    from glasses3d.g3d.temple_bpy import build_variant_meshes, remove_variant_meshes
+    refused = _lab_refusal()
+    if refused:
+        return refused
+    variants = params.get("variants")
+    if (set(params) - {"variants", "out_dir"} or not isinstance(variants, list)
+            or not 1 <= len(variants) <= VARIANTS_MAX
+            or not all(isinstance(v, dict) and set(v) == {"label", "spec"}
+                       and isinstance(v["label"], str) and v["label"].strip()
+                       and isinstance(v["spec"], dict) for v in variants)):
+        return {"status": "refused", "code": "E_ARGS",
+                "message": f"variants must be 1..{VARIANTS_MAX} {{label, spec}}"}
+    labels = [_render.safe_name(v["label"]) for v in variants]
+    if len({label.casefold() for label in labels}) != len(labels):
+        return {"status": "refused", "code": "E_ARGS", "message": "variant labels must be distinct"}
+    out_dir = _render.work_dir(params.get("out_dir", ""), ROOT)
+    base = Path(os.path.realpath(str(ROOT / "work" / "exports")))
+    try:
+        out_dir.relative_to(base)
+    except ValueError:
+        raise PermissionError(f"variant export path outside <root>/work/exports: {out_dir}") from None
+    t0, fp0 = time.perf_counter(), checkpoint.fingerprint()
+    results, removed = {}, []
+    for label, variant in zip(labels, variants):
+        built = build_variant_meshes(variant["spec"])
+        if built.get("status") != "ok":
+            results[label] = {"status": built.get("status", "failed"), "code": built.get("code"),
+                              "message": built.get("message") or built.get("error"), "build": built}
+            continue
+        made = sorted(set(built["overrides"].values()))
+        originals, normal_modifiers, role_properties = [], [], []
+        try:
+            for object_name, mesh_name in built["overrides"].items():
+                obj, mesh = bpy.data.objects[object_name], bpy.data.meshes[mesh_name]
+                originals.append((obj, obj.data))
+                obj.data = mesh
+                if mesh_name in built["meshes"].values():
+                    # Normal application writes these on the object, including when the source role was
+                    # stored only on its old mesh. Match export semantics without retaining any mutation.
+                    role_properties.append((obj, {key: (key in obj, obj.get(key))
+                                                  for key in ("partRole", "region")}))
+                    side = next(side for side, name in built["meshes"].items() if name == mesh_name)
+                    obj["partRole"], obj["region"] = "temple", "temple_" + side
+                    # Normal application removes these allowed modifiers before using the builder's authored
+                    # corner normals. Disable their evaluation temporarily to export that exact same surface.
+                    for modifier in obj.modifiers:
+                        if modifier.type == "WEIGHTED_NORMAL":
+                            normal_modifiers.append((modifier, modifier.show_viewport, modifier.show_render))
+                            modifier.show_viewport = modifier.show_render = False
+            bpy.context.view_layer.update()
+            exported = m_export_glb({"path": str(out_dir / f"{label}.glb")})
+            results[label] = {**exported, "export": exported.get("receipt"), "build": built}
+        finally:
+            for obj, properties in role_properties:
+                for key, (existed, value) in properties.items():
+                    if existed:
+                        obj[key] = value
+                    elif key in obj:
+                        del obj[key]
+            for modifier, viewport, render in normal_modifiers:
+                modifier.show_viewport, modifier.show_render = viewport, render
+            for obj, original in reversed(originals):
+                obj.data = original
+            bpy.context.view_layer.update()
+            removed.append(remove_variant_meshes(made))
+    fp1 = checkpoint.fingerprint()
+    return {"status": "ok" if fp0 == fp1 else "failed", "variants": results, "removed": removed,
+            "fingerprint_before": fp0, "fingerprint_after": fp1, "unchanged": fp0 == fp1,
+            "seconds": round(time.perf_counter() - t0, 4)}
+
+
 def m_fingerprint(params):
     t0 = time.perf_counter()
     state = checkpoint.scene_state()
@@ -688,6 +766,7 @@ METHODS = {
     "scene_summary": m_scene_summary, "bounds": m_bounds, "render": m_render, "pick": m_pick,
     "export_glb": m_export_glb, "g3d_call": m_g3d_call,
     "temple_lab_build": m_temple_lab_build, "temple_variants_render": m_temple_variants_render,
+    "temple_variants_export": m_temple_variants_export,
     "temple_stage_apply": m_temple_stage_apply,
 }
 

@@ -1,4 +1,4 @@
-"""The seven facet tools of WP6 v3 (plan/WP6_V3.md §6): strict-JSON Agents SDK function tools over a Lab.
+"""The facet tools of WP6 v3 and M5-fix-8: strict-JSON Agents SDK function tools over a Lab.
 
     registry(lab, settings=None) -> [facet_inspect, photo_image, photo_read, photo_compare, facet_edit,
                                      facet_variants, facet_finish]
@@ -95,7 +95,7 @@ from .state import LabRefusal
 
 CONTEXT_GUARD_TOKENS = 240_000          # §4.3: the one-epoch image filter from this many counted input tokens
 TOOL_NAMES = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
-              "facet_finish", "read_report")
+              "facet_finish", "read_report", "facet_crease_compare", "facet_visible_angle")
 Chain = Literal["outline.top", "outline.bottom", "inner", "base.top", "base.bottom"]
 SNAP_MM = DEFAULT_OPTIONS["snap_mm"]    # a node within this of an outline edge lies on it (the parse snaps it there)
 CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (value y; a node on it, within "
@@ -444,6 +444,39 @@ FACET_VARIANTS_DOC = f"""Build {VARIANTS_MIN} to {VARIANTS_MAX} variants of pare
         judgement: {JUDGEMENT_TEXT}
     """
 
+CREASE_COMPARE_DOC = """Compare 3-5 absolute crease angles beside the current built angle and native photo crops in
+    AR room light, at the frozen photo cameras. The real builder preserves the adjacent face and changes only the
+    chosen face's exclusive corners; unsupported sharing/warped faces refuse. Every alternative reports its actual
+    angle, reading residuals, thickness, changed geometry and hard checks, including refused alternatives. No model
+    is applied. Only unresolved measurements allow a visible-angle choice; certain evidence and all hard checks win.
+    A completed comparison binds its inputs and exact exported/rendered artifacts for facet_visible_angle.
+
+    Args:
+        parent_revision: The revision to compare; its export is shown as the baseline.
+        facets: The two named facets of the crease, excluding base.
+        moving_facet: Which of those two faces may turn; the adjacent face stays fixed.
+        shape: ridge or valley; a certain contradictory measurement refuses.
+        angles_deg: 3-5 distinct absolute normal dihedral angles, in degrees (at least 2.5 and below 180).
+        photos: Frozen photo camera ids where the face is visible; crops are tiled at native scale.
+        judgement: The judgement of the latest compare when due, else null.
+    """
+
+VISIBLE_ANGLE_DOC = """Declare one successfully rendered angle from facet_crease_compare and explain its photo match.
+    The builder honours this angle over unresolved local readings, retaining their residuals in the report. Certain
+    measurements, closed-solid, thickness, declared ridge/valley and strict specification checks still win. Changed
+    inputs or comparison artifacts require a fresh comparison; unseen or refused alternatives cannot be selected.
+    Existing editing and measurement tools remain available. A later geometry or reading change may require a new
+    comparison for a retained visible-angle declaration.
+
+    Args:
+        comparison_id: The completed angle comparison that was shown.
+        degrees: The exact successful angle from that comparison, not an interpolated value.
+        reason: Why this angle matches the named photo crops; report any remaining facet mismatch.
+        judgement: The judgement of the latest compare when due, else null.
+        apply: True applies through the normal builder/checkpoint path and compares the new head.
+        photos: Frozen photo ids for the applied comparison, or null for the usual target views.
+    """
+
 FINISH_DOC = """End the run with best_checkpoint, which is exported and validated. Accepted only when: (1) at least {k}
     distinct applied heads were compared in full; a head counts only when, against every other head counted,
     {different}; (2) one facet_variants call rendered at least {spread} variants pairwise at least {spread_mm:g} mm
@@ -575,7 +608,7 @@ def timeout_text(name: str):
 
 
 def registry(lab, settings=None) -> list:
-    """The seven function tools over ``lab`` (module doc); K of facet_finish = settings.finish_k (default 4)."""
+    """The function tools over ``lab``; K of facet_finish = settings.finish_k (default 4)."""
     k = getattr(settings, "finish_k", 4) if settings is not None else 4
     vmax = lab.variant_photos_max()
     lock = lab.lock
@@ -618,11 +651,18 @@ def registry(lab, settings=None) -> list:
         except asyncio.CancelledError:
             lab.mark_unseen(call_id)             # the SDK timed the call out; its thread may still be running
             raise
-        if hasattr(lab, "tool_output"):
-            emitted = lab.tool_output(result, footer_of(ctx), call_id, name)
-        else:
-            emitted = output(result, footer_of(ctx))
-        return limit_output(getattr(lab, "root", None), call_id, name, emitted)
+        try:
+            if hasattr(lab, "tool_output"):
+                emitted = lab.tool_output(result, footer_of(ctx), call_id, name)
+            else:
+                emitted = output(result, footer_of(ctx))
+            return limit_output(getattr(lab, "root", None), call_id, name, emitted)
+        except BaseException:
+            # The SDK may turn an image/report encoding error into an ordinary error string. Mark it unseen here,
+            # before that conversion, so an angle comparison can never become selectable without its images.
+            if name == "facet_crease_compare":
+                lab.mark_unseen(call_id)
+            raise
 
     def dumped(items):
         return None if items is None else [i.model_dump() for i in items]
@@ -690,9 +730,49 @@ def registry(lab, settings=None) -> list:
         return await call(ctx, "facet_finish", lambda cid: lab.finish(
             cid, status, best_checkpoint, summary, judged(judgement), k))
 
+    @tool("facet_crease_compare")
+    @doc(CREASE_COMPARE_DOC)
+    async def facet_crease_compare(ctx: ToolContext, parent_revision: int,
+                                   facets: Annotated[list[str], Field(min_length=2, max_length=2)],
+                                   moving_facet: str, shape: Literal["ridge", "valley"],
+                                   angles_deg: Annotated[list[float], Field(min_length=3, max_length=5)],
+                                   photos: Annotated[list[PhotoId], Field(min_length=1, max_length=vmax)],
+                                   judgement: Judgement | None):
+        return await call(ctx, "facet_crease_compare", lambda cid: lab.crease_compare(
+            cid, parent_revision, facets, moving_facet, shape, angles_deg, photos, judged(judgement)))
+
+    @tool("facet_visible_angle")
+    @doc(VISIBLE_ANGLE_DOC)
+    async def facet_visible_angle(ctx: ToolContext, comparison_id: str, degrees: float,
+                                  reason: Annotated[str, Field(min_length=1, max_length=NOTE_MAX)],
+                                  judgement: Judgement | None, apply: bool, photos: list[PhotoId] | None):
+        return await call(ctx, "facet_visible_angle", lambda cid: lab.visible_angle(
+            cid, comparison_id, degrees, reason, judged(judgement), apply, photos))
+
     tools = [facet_inspect, photo_image, photo_read, photo_compare, facet_edit, facet_variants, facet_finish,
-             report_tool(getattr(lab, "root", None), tool, call)]
+             report_tool(getattr(lab, "root", None), tool, call), facet_crease_compare, facet_visible_angle]
     assert tuple(t.name for t in tools) == TOOL_NAMES
     for t in tools:
         t.params_json_schema = without_titles(t.params_json_schema)
-    return [bounded_tool(item, getattr(lab, "root", None)) for item in tools]
+    bounded = [bounded_tool(item, getattr(lab, "root", None)) for item in tools]
+    for item in bounded:
+        if item.name != "facet_crease_compare":
+            continue
+        invoke = item.on_invoke_tool
+
+        async def delivered(ctx, arguments, invoke=invoke):
+            call_id = getattr(ctx, "tool_call_id", "facet_crease_compare")
+            try:
+                result = await invoke(ctx, arguments)
+                has_images = isinstance(result, list) and any(getattr(p, "type", None) == "image" for p in result)
+                if has_images and hasattr(lab, "mark_delivered"):
+                    lab.mark_delivered(call_id, "facet_crease_compare")
+                elif not has_images:
+                    lab.mark_unseen(call_id)
+                return result
+            except BaseException:
+                lab.mark_unseen(call_id)
+                raise
+
+        item.on_invoke_tool = delivered
+    return bounded

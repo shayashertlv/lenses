@@ -63,6 +63,8 @@ def test_temple_lab_endpoint_is_closed_without_marker(plain):
     assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
     result = plain.call("temple_variants_render", {"variants": [{"label": "A", "spec": {}}], "views": []})
     assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
+    result = plain.call("temple_variants_export", {"variants": [{"label": "A", "spec": {}}]})
+    assert result["status"] == "refused" and result["code"] == "E_LAB_ONLY"
     assert plain.call("fingerprint")["fingerprint"] == before
 
 
@@ -154,6 +156,120 @@ def test_temple_variants_render_builds_renders_and_leaves_the_scene_unchanged(la
     left = w.call("exec", {"code": "result = [m.name for m in bpy.data.meshes if m.get('g3d_variant') is not None]"},
                   deadline_s=60)
     assert left["status"] == "ok" and left["result"] == []
+    assert w.call("fingerprint")["fingerprint"] == before
+
+
+def test_temple_variants_export_is_read_only_and_keeps_builder_refusals(lab):
+    """AR alternatives are actual exported meshes; errors cannot leave the live copy on a candidate."""
+    from glasses3d.g3d.temple import fixtures as FX
+    job, w = lab
+    before = w.call("fingerprint")["fingerprint"]
+    deeper = FX.prada_default()
+    deeper["nodes"]["C"][2] = float(deeper["nodes"]["C"][2]) + 1.0
+    result = w.call("temple_variants_export", {
+        "variants": [{"label": "baseline", "spec": FX.prada_default()}, {"label": "deeper", "spec": deeper},
+                     {"label": "refused", "spec": FX.relief_step()}],
+        "out_dir": str(job / "work/exports/angle-test")}, deadline_s=300)
+    assert result["status"] == "ok" and result["unchanged"], result
+    assert result["fingerprint_before"] == result["fingerprint_after"] == before
+    for label in ("baseline", "deeper"):
+        item = result["variants"][label]
+        assert item["status"] == "exported" and item["unchanged"], item
+        assert item["build"]["status"] == "ok" and item["export"]["scene_unchanged"]
+        path = Path(item["path"])
+        assert path.is_relative_to(job / "work/exports")
+        assert path.stat().st_size == item["bytes"]
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == item["sha256"]
+    assert result["variants"]["baseline"]["sha256"] != result["variants"]["deeper"]["sha256"]
+    assert result["variants"]["refused"]["code"] == "E_RELIEF_STEP"
+    assert all(r["status"] == "ok" and not r["kept"] for r in result["removed"])
+    assert w.call("fingerprint")["fingerprint"] == before
+    for variants in ([], [{"label": "same", "spec": {}}] * 2,
+                     [{"label": "A", "spec": {}}, {"label": "a", "spec": {}}],
+                     [{"label": "bad", "spec": {}, "code": "bad"}]):
+        bad = w.call("temple_variants_export", {"variants": variants, "out_dir": str(job / "work/exports/bad")})
+        assert bad["code"] == "E_ARGS" and w.call("fingerprint")["fingerprint"] == before
+    with pytest.raises(WorkerError, match="outside"):
+        w.call("temple_variants_export", {"variants": [{"label": "x", "spec": FX.prada_default()}],
+                                           "out_dir": str(job / "work/outside-exports")})
+    assert w.call("fingerprint")["fingerprint"] == before
+
+
+def test_temple_variants_export_restores_meshes_when_export_refuses(lab):
+    from glasses3d.g3d.temple import fixtures as FX
+    job, w = lab
+    before = w.call("fingerprint")["fingerprint"]
+    saved = w.call("checkpoint_save", {"path": str(job / "checkpoints/export-refusal.blend")})
+    try:
+        changed = w.call("exec", {"code": "bpy.context.scene.unit_settings.scale_length = 1.0"})
+        assert changed["status"] == "ok"
+        invalid_scene = w.call("fingerprint")["fingerprint"]
+        assert invalid_scene != before
+        result = w.call("temple_variants_export", {
+            "variants": [{"label": "bad-units", "spec": FX.prada_default()}],
+            "out_dir": str(job / "work/exports/refusal")}, deadline_s=120)
+        assert result["variants"]["bad-units"]["code"] == "E_EXPORT", result
+        assert result["unchanged"] and result["fingerprint_after"] == invalid_scene
+        assert all(not r["kept"] for r in result["removed"])
+    finally:
+        w.call("checkpoint_restore", {"path": saved["path"], "expect_fingerprint": before})
+    assert w.call("fingerprint")["fingerprint"] == before
+
+
+@pytest.mark.parametrize("data_only_roles", [False, True])
+def test_temple_variant_export_matches_application_with_weighted_normals(lab, data_only_roles):
+    """A supported source modifier must not change the comparison's normals versus actual selection."""
+    import numpy as np
+    from glasses3d.g3d.temple import fixtures as FX
+    from glasses3d.g3d_host import glb
+    job, w = lab
+    before = w.call("fingerprint")["fingerprint"]
+    saved = w.call("checkpoint_save", {"path": str(job / f"checkpoints/weighted-normal-control-{data_only_roles}.blend")})
+    try:
+        modified = w.call("exec", {"code": """names = []
+for obj in bpy.context.scene.objects:
+    if obj.type == 'MESH' and obj.get('partRole') == 'temple':
+        mod = obj.modifiers.new(name='comparison normal control', type='WEIGHTED_NORMAL')
+        mod.keep_sharp = False
+        mod.weight = 75
+        names.append(obj.name)
+result = names
+"""})
+        assert modified["status"] == "ok" and len(modified["result"]) >= 2, modified
+        if data_only_roles:
+            moved = w.call("exec", {"code": """names = []
+for obj in bpy.context.scene.objects:
+    if obj.type == 'MESH' and obj.get('partRole') == 'temple':
+        obj.data['partRole'] = obj['partRole']
+        del obj['partRole']
+        if 'region' in obj:
+            obj.data['region'] = obj['region']
+            del obj['region']
+        names.append(obj.name)
+result = names
+"""})
+            assert moved["status"] == "ok" and len(moved["result"]) >= 2, moved
+        source_fp = w.call("fingerprint")["fingerprint"]
+        compared = w.call("temple_variants_export", {
+            "variants": [{"label": "candidate", "spec": FX.prada_default()}],
+            "out_dir": str(job / f"work/exports/weighted-control-{data_only_roles}")}, deadline_s=120)
+        assert compared["unchanged"] and compared["fingerprint_after"] == source_fp
+        candidate = compared["variants"]["candidate"]
+        assert candidate["status"] == "exported"
+        applied = w.call("temple_lab_build", {"spec": FX.prada_default(), "expect_fingerprint": source_fp},
+                         deadline_s=120)
+        assert applied["status"] == "ok", applied
+        selected = w.call("export_glb", {"path": str(job / f"work/exports/weighted-selected-{data_only_roles}.glb")}, deadline_s=120)
+        assert selected["status"] == "exported"
+        a = {(p.node_name, p.primitive_index): p for p in glb.load(candidate["path"]).primitives}
+        b = {(p.node_name, p.primitive_index): p for p in glb.load(selected["path"]).primitives}
+        assert a.keys() == b.keys()
+        for key in a:
+            assert np.array_equal(a[key].positions, b[key].positions), key
+            assert np.array_equal(a[key].triangles, b[key].triangles), key
+            assert np.array_equal(a[key].normals, b[key].normals), key
+    finally:
+        w.call("checkpoint_restore", {"path": saved["path"], "expect_fingerprint": before})
     assert w.call("fingerprint")["fingerprint"] == before
 
 

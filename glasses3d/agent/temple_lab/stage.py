@@ -36,7 +36,11 @@ def registry(lab, child_settings):
             "pixels to that panel; apply any reported photo transform/k afterward. Grid coordinates are not native "
             "photo pixels. Use photo_image with a native-photo crop for detail.\n\n")
     for tool in tools:
-        if tool.name != "facet_finish":
+        if tool.name == "facet_crease_compare":
+            tool.description = ("Native angle comparisons: each photo-first crop sheet is returned separately, "
+                                "without compact-preview scaling; image_receipt records pixel sizes and hashes.\n\n"
+                                + tool.description)
+        elif tool.name != "facet_finish":
             tool.description = note + tool.description
     return tools
 
@@ -110,6 +114,25 @@ class StageLab(Lab):
                            "sha256": digest, "path": path.relative_to(self.root).as_posix(), "size_px": size})
         if not panels:
             return [ToolOutputText(text=T.result_text(result, footer))]
+
+        if tool_name == "facet_crease_compare":
+            # Small crease differences must reach the specialist at the recorded crop's pixel scale. Retain each
+            # native sheet; the generic text limiter preserves image bytes, order and adjacent labels.
+            receipt = {"call_id": call_id, "checkpoint": checkpoint, "panels": panels,
+                       "scaling": "none; each sheet retains its recorded photo pixel scale"}
+            out = [ToolOutputText(text=T.result_text({**result, "image_policy": "native-crease-angles/1",
+                                                      "image_receipt": receipt}, footer))]
+            records = []
+            for panel in panels:
+                out.append(ToolOutputText(text=f"Photo-first angle comparison: {panel['view']}; "
+                    f"{panel['path']}; {panel['size_px']}; sha256 {panel['sha256']}; no preview scaling."))
+                records.append({**panel, "call_id": call_id, "output_index": len(out),
+                                "context_role": "crease_angles"})
+                out.append(ToolOutputImage(image_url=data_url(self.root / panel["path"]), detail="high"))
+            with self.state_lock:
+                self.state.setdefault("stage_images", []).extend(records)
+            self.save()
+            return out
 
         sheet = compact_sheet(previews)
         buffer = io.BytesIO()

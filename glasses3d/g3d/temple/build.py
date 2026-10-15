@@ -1905,6 +1905,17 @@ def _check_creases(tb: TempleBuild) -> None:
                         f"{abs(st['height_mm']):.2f} mm there: a {st['slope_deg']:.1f} deg ramp")
             bad.append({"facets": list(key), "declared": c["shape"], "built": r["shape"],
                         "dihedral_deg": r["mean_dihedral_deg"], "ridge_share": r["ridge_share"], "why": why})
+        elif "visible_angle" in c:
+            # A selected visible angle is an exact geometric declaration, not another minimum. Validate it on
+            # the built face-to-face geometry even when loading a fitted spec without running the fitter again.
+            from .spec import VISIBLE_ANGLE_TOL_DEG
+            want = c["visible_angle"]["degrees"]
+            got = abs(float(r["mean_dihedral_deg"]))
+            if abs(got - want) > VISIBLE_ANGLE_TOL_DEG:
+                bad.append({"facets": list(key), "declared": c["shape"], "built": r["shape"],
+                            "dihedral_deg": r["mean_dihedral_deg"],
+                            "why": f"visible angle declared {want:g} deg, built {got:.8g} deg "
+                                   f"(tolerance {VISIBLE_ANGLE_TOL_DEG:g} deg)"})
     if bad:
         node = _straight_node(tb, bad)
         b = bad[0] if node is None else next(x for x in bad if x["facets"] == node["refused"])

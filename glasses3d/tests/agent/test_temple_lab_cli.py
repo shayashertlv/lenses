@@ -442,7 +442,7 @@ def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
 # FINISHING paragraph says what state.finish_missing checks. v2 pinned 96 phrases here (FINDINGS §0.6: "the prompt
 # reached 13,974 of a 14,000-character cap, with 96 phrases pinned by a test"); those pins are retired with v2.
 V3_TOOLS = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
-            "facet_finish", "read_report")      # M5-fix-2 adds lossless report paging
+            "facet_finish", "read_report", "facet_crease_compare", "facet_visible_angle")
 INSTRUCTIONS_MAX = 9_500                        # WP6_V3 §6 (amended 2026-10-13: the blind stand-in test needed the
 #                                                 clip-to-outline and top-strip sentences; a rule budget, not 14k)
 # Product words of the Prada job (the brief carries the job's facts; its face labels in the v2 runs: crown, logo,
@@ -488,6 +488,14 @@ def test_instructions_carry_no_job_facts():
     low = raw.lower()
     for word in PRODUCT_WORDS:
         assert not re.search(rf"(?<![a-z]){re.escape(word)}", low), word
+
+
+def test_visible_angle_policy_is_unresolved_only_and_carries_visual_evidence():
+    text = " ".join(instructions_raw().split())
+    assert 'unresolved ("open") does not mean flat' in text
+    assert "overrides only unresolved local readings" in text
+    assert "certain measurements, closed-solid, thickness, declared shape and strict-spec checks still win" in text
+    assert "unresolved named facet mismatches and their crops into the stage summary and finish review" in text
 
 
 def test_instructions_carry_no_retired_phrase():

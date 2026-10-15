@@ -383,6 +383,12 @@ class FakeLab:
     def variants(self, *args):
         return self._rec("variants", *args)
 
+    def crease_compare(self, *args):
+        return self._rec("crease_compare", *args)
+
+    def visible_angle(self, *args):
+        return self._rec("visible_angle", *args)
+
     def finish(self, *args):
         return self._rec("finish", *args)
 
@@ -419,7 +425,7 @@ def judgement_args(photos=("01", "05"), n=1) -> dict:
 def test_tool_schemas_are_strict_with_the_v3_limits():
     tools = tools_of(FakeLab())
     assert tuple(tools) == T.TOOL_NAMES == ("facet_inspect", "photo_image", "photo_read", "photo_compare",
-                                                "facet_edit", "facet_variants", "facet_finish", "read_report")
+        "facet_edit", "facet_variants", "facet_finish", "read_report", "facet_crease_compare", "facet_visible_angle")
     for t in tools.values():
         assert not strict(t.params_json_schema), t.name
         assert '"title"' not in json.dumps(t.params_json_schema)
@@ -453,6 +459,12 @@ def test_tool_schemas_are_strict_with_the_v3_limits():
     assert set(edit["$defs"]["Difference"]["properties"]) == {"what", "d_mm", "y_mm"}
     assert set(p["facet_variants"]["properties"]) == {"parent_revision", "variants", "photos", "judgement"}
     assert set(p["facet_finish"]["properties"]) == {"status", "best_checkpoint", "summary", "judgement"}
+    assert set(p["facet_crease_compare"]["properties"]) == {
+        "parent_revision", "facets", "moving_facet", "shape", "angles_deg", "photos", "judgement"}
+    angles = p["facet_crease_compare"]["properties"]["angles_deg"]
+    assert angles["minItems"] == 3 and angles["maxItems"] == 5
+    assert set(p["facet_visible_angle"]["properties"]) == {
+        "comparison_id", "degrees", "reason", "judgement", "apply", "photos"}
     M = T.models(["01", "02", "05"], ["01", "02", "05", "B1"])
     with pytest.raises(ValidationError):
         M["Judgement"].model_validate(judgement_args(n=4))
@@ -669,6 +681,12 @@ def tool_calls() -> list:
          ("variants", ("c1", 2, variants, ["05"], None))),
         ("facet_finish", {"status": "stuck", "best_checkpoint": "c0003", "summary": "s", "judgement": None},
          ("finish", ("c1", "stuck", "c0003", "s", None, 4))),
+        ("facet_crease_compare", {"parent_revision": 2, "facets": ["front", "side"], "moving_facet": "front",
+                                  "shape": "ridge", "angles_deg": [6., 11., 16.], "photos": ["05"], "judgement": None},
+         ("crease_compare", ("c1", 2, ["front", "side"], "front", "ridge", [6., 11., 16.], ["05"], None))),
+        ("facet_visible_angle", {"comparison_id": "angles001", "degrees": 11., "reason": "photo edge matches",
+                                 "judgement": None, "apply": True, "photos": ["05"]},
+         ("visible_angle", ("c1", "angles001", 11., "photo edge matches", None, True, ["05"]))),
     ]
 
 

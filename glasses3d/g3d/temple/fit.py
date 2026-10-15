@@ -308,7 +308,7 @@ TWIST_STEP_MM = 1e-4            # ... each corner inside or on the outline taken
 #                                 in every case above) and its edges at EDGE_AT (mvc_edge_gradient)
 WAYS = ("ways (unranked): warp (one face, no line), a fold (two faces), another reading of a corner, a corner that is "
         "two vertices (one per face)")
-STATE_TEXT = {"certain": "certain", "open": "open", "flat": "flat within 2 sd"}   # a crease's readings-only state
+STATE_TEXT = {"certain": "sign-certain", "open": "unresolved", "flat": "flat within error (2 sd)"}
 TABLE_KNOTS = ("inner[", "base.top[", "base.bottom[")                             # parse's snap names of table knots
 
 FIT_WARNINGS = ("W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # in spec.WARNINGS
@@ -607,6 +607,10 @@ class FitResult:
         c = self.counts
         fit = [f"fit: chi2 {self.chi2:.1f}, dof {self.dof}, from {c.get('read', 0)} readings and {c.get('typed', 0)} "
                f"typed values; readings-only chi2 {self.chi2_free:.1f}"]
+        visible = self.model.get("visible_angles")
+        if visible:
+            fit.append("visible-angle choices override only unresolved local-face readings; their full residual "
+                       f"cost is shown (before choices chi2 {visible['baseline_chi2']:.1f}); other readings unchanged")
         turned = [(f, abs(float(v.get("u") or 0.0))) for f, v in sorted(self.camera.items())
                   if abs(float(v.get("u") or 0.0)) >= CAMERA_SHOWN_SD]
         if turned:
@@ -810,26 +814,27 @@ def _held_text(n: str, r: dict) -> str:
 
 
 def _crease_line(cr: dict) -> str:
-    """One crease's report line (module docstring): shape and angle with the readings' sd (facet|base: the fold across
-    the border and the dihedral, both labelled; the midpoint and the range along the edge where it varies; a
-    declaration holding it at the minimum instead of a sd), certain / open, the bound it rests on, and the declaration
-    with its readings-only angle and cost."""
+    """Keep built geometry separate from readings-only evidence. A geometric angle below two degrees is not a
+    statistically flat measurement; in particular, an unresolved measurement is never printed as 'flat'."""
     base = cr["pair"][1] == "base"
-    ang = f"{_signed(cr['deg'], 1)} deg" if cr.get("held") else f"{_signed(cr['deg'], 1)} +- {cr['sd_deg']:.1f} deg"
+    ang = f"{_signed(cr['deg'], 1)} deg"
     rng = cr.get("range_deg")
     along = (f" at mid, {_signed(rng[0], 1)}..{_signed(rng[1], 1)} along {'it' if base else 'the edge'}"
              if rng is not None and rng[1] - rng[0] > 0.5 else "")
     if cr.get("held"):
         at_min = abs(abs(cr["deg"]) - MIN_CREASE_DEG) <= 0.01
         along += " (held at the declared minimum)" if at_min else " (held by its declaration)"
-    head = (f"{cr['name']} {cr['shape']}: fold {ang} across the border{along}" if base
-            else f"{cr['name']} {cr['shape']} {ang}{along}")
+    head = (f"{cr['name']} built fold {ang} across the border{along}" if base
+            else f"{cr['name']} built fold {ang}{along}")
     state = cr.get("state") or ("certain" if cr["certain"] else "open")
-    line = head + f", {STATE_TEXT[state]}"
+    line = head
     if base:
         line += f"; dihedral {cr['normal_deg']:.1f} deg"
     elif abs(cr["normal_deg"] - abs(cr["deg"])) >= 0.5:            # a steep edge: the builder's number differs
         line += f" (dihedral {cr['normal_deg']:.1f} deg)"
+    fdeg = cr.get("free_deg") if cr.get("free_deg") is not None else cr["deg"]
+    fsd = cr.get("free_sd_deg") if cr.get("free_sd_deg") is not None else cr["sd_deg"]
+    line += f"; measurement {_signed(fdeg, 1)} +- {fsd:.1f} deg, {STATE_TEXT[state]}"
     if cr.get("bound"):
         line += f"; the thickness bound holds {', '.join(cr['bound'][:3])} (the sd is without it)"
     if cr["declared"]:
@@ -837,6 +842,9 @@ def _crease_line(cr: dict) -> str:
         if cr["dchi2"] is None or cr["dchi2"] > COST_SHOWN:
             cost = "cannot hold" if cr["dchi2"] is None else f"cost +{cr['dchi2']:.1f}"
             line += f" (readings-only {_signed(cr['free_deg'], 1)} +- {cr['free_sd_deg']:.1f} deg, {cost})"
+    if cr.get("visible_angle"):
+        v = cr["visible_angle"]
+        line += f"; visible dihedral {v['degrees']:g} deg from comparison {v['comparison_id']}"
     return line
 
 
@@ -2937,7 +2945,10 @@ def fit_spec(design: dict, *, readings: dict | None = None) -> FitResult:
     reading of its name, or placed away from where it was read. Raises TempleError: the probe's parse refusals, E_SPEC,
     E_FIT, E_FIT_SHAPE."""
     pb = _Problem(design)
-    declared = [(tuple(c["facets"]), c["shape"]) for c in pb.ps.creases]
+    visible = [c for c in pb.ps.creases if "visible_angle" in c]
+    # The old solve and its cost gate are unchanged. A visible choice is applied only after that baseline, with
+    # eligibility from the original readings-only solution, never from a state changed by a visual declaration.
+    declared = [(tuple(c["facets"]), c["shape"]) for c in pb.ps.creases if "visible_angle" not in c]
     lonely = [(p, s) for p, s in declared if not pb.segs.get(p)]
     if lonely:
         raise TempleError("E_FIT_SHAPE", "the declared crease shapes: " + "; ".join(
@@ -3007,7 +3018,220 @@ def fit_spec(design: dict, *, readings: dict | None = None) -> FitResult:
                           chi2_free=free.chi2)
     res = _result(pb, free, sol, declared, single, readings, model)
     _check_fitted_pairs(pb, res, declared)
+    if visible:
+        res = _visible_fit(pb, free, sol, declared, single, readings, model, visible)
     return res
+
+
+def _visible_fit(pb, free, baseline, declared, single, readings, model, choices):
+    """Owner-approved local angle choices (ASSEMBLY M5-fix-8).
+
+    Only flat facet/facet creases with unresolved ORIGINAL readings-only evidence are eligible. Rotate one
+    planar face about the unchanged shared 3D line; only its exclusive off-edge corners may move in X. Hold every
+    d/y position, other plane, unrelated observation residual and camera variable exactly. Original sign-certain
+    evidence protects its sign and nonflat classification, not an invented exact-angle confidence gate. Original
+    flat-within-error evidence retains that classification. Full changed angles and residuals remain reported.
+    Unsupported sharing, hard values, geometry, thickness and declaration contradictions refuse, never get clamped.
+
+    The selected degrees are an absolute normal dihedral, exact within S.VISIBLE_ANGLE_TOL_DEG. The full original
+    observation cost is still reported; only local unresolved-face reading changes have owner-authorized priority.
+    No global delta-chi2 threshold changes. Fitted output preserves comparison metadata for reload/build validation.
+    """
+    tol = S.VISIBLE_ANGLE_TOL_DEG
+
+    def refuse(message, **fields):
+        raise TempleError("E_FIT_SHAPE", "visible angle: " + message, **fields)
+
+    # Stored photo readings take priority for eligibility even if an earlier node edit replaced their payload with
+    # a typed/solve value or inflated its error. They do not silently replace the design used for the baseline fit.
+    # Without a store, the original design's unmodified observations are all the evidence this pure core receives.
+    measure_pb, measure_free = pb, free
+    restored = []
+    if isinstance(readings, dict):
+        measurement_design = copy.deepcopy(pb.design)
+        measurement_design["creases"] = []
+        for node in pb.names:
+            if node not in readings:
+                continue
+            try:
+                payload = read_payload(readings[node])
+            except (ValueError, TypeError, KeyError) as exc:
+                raise TempleError("E_SPEC", f"stored measurement {node} cannot establish visible-angle eligibility: {exc}",
+                                  node=node) from None
+            measurement_design["nodes"][node] = [*measurement_design["nodes"][node][:2], payload]
+            restored.append(node)
+        if restored:
+            measure_pb = _Problem(measurement_design)
+            try:
+                measure_free, _ = _free_fit(measure_pb)
+            except Infeasible as exc:
+                raise _fit_error(measure_pb, exc, "the original stored-readings eligibility fit") from None
+    measure_pb.set_point(measure_free.z, jac=measure_free.jac)
+    evidence = {}
+    for pair, segs in measure_pb.segs.items():
+        rows = []
+        for seg in segs:
+            if seg.length <= 0.0:
+                continue
+            deg, sd = _angle(seg, measure_free.z, measure_free.cov_free)
+            piece = [s for s in segs if s.piece == seg.piece]
+            mean, msd = _mean_dihedral(piece, measure_free.z, measure_free.cov_free)
+            rows.append({"piece": seg.piece, "deg": deg, "sd_deg": sd, "state": _crease_state(deg, sd),
+                         "normal_deg": mean, "normal_sd_deg": msd})
+        evidence[pair] = rows
+    moving = [c["visible_angle"]["moving_facet"] for c in choices]
+    if len(set(moving)) != len(moving):
+        refuse("a moving facet is named by more than one visible angle", moving_facets=moving)
+    for c in choices:
+        pair, v = tuple(c["facets"]), c["visible_angle"]
+        if not evidence.get(pair):
+            refuse(f"{'|'.join(pair)} shares no edge inside the outline", facets=list(pair))
+        if any(r["state"] != "open" for r in evidence[pair]):
+            refuse(f"{'|'.join(pair)} is not unresolved in the original readings-only fit",
+                   facets=list(pair), measurement=evidence[pair])
+        fixed = next(x for x in pair if x != v["moving_facet"])
+        if fixed in moving:
+            refuse("one selected face is another choice's fixed adjacent face", facets=list(pair))
+        if pb.mode[v["moving_facet"]] != "nodes":
+            refuse(f"moving facet {v['moving_facet']} must be a free flat nodes plane; its plane is a hard value",
+                   facets=list(pair))
+
+    pb.set_point(baseline.z, jac=baseline.jac)
+    z = baseline.z.copy()
+    changed, records = set(), []
+    for c in choices:
+        pair, v = tuple(c["facets"]), c["visible_angle"]
+        face, target = v["moving_facet"], float(v["degrees"])
+        segs = pb.segs[pair]
+        mids = [s for s in segs if s.length > 0.0]
+        seg = max(mids, key=lambda s: s.length)
+        # More than one collinear clipped piece is allowed; a bent/multiple-axis crease is not a single rotation.
+        n = seg.n
+        tangent = np.array([-n[1], n[0]])
+        if any(abs(float(n @ (s.mid - seg.mid))) > 1e-7 or float(n @ s.n) < 1 - 1e-10
+               for s in mids):
+            refuse(f"{'|'.join(pair)} does not have one straight shared rotation line", facets=list(pair))
+        g1, g2 = seg.G1 @ z + seg.K1, seg.G2 @ z + seg.K2
+        along = float(g1 @ tangent)
+        if abs(float((g1 - g2) @ tangent)) > 1e-8:
+            refuse("the adjacent planes do not share one 3D edge", facets=list(pair))
+        a, b = float(g1 @ n), float(g2 @ n)
+        r = math.sqrt(1.0 + along * along)
+        delta = math.radians(target) * (1 if c["shape"] == "ridge" else -1)
+        # atan2 formulation remains defined at 90 degrees; the rejected branch is a vertical/non-graph plane.
+        sn, cs = math.sin(delta), math.cos(delta)
+        if face == pair[0]:
+            num, den = b * r * cs + (1 + along * along) * sn, r * cs - b * sn
+        else:
+            num, den = a * r * cs - (1 + along * along) * sn, r * cs + a * sn
+        if abs(den) <= 1e-10:
+            refuse("the chosen angle requires a vertical face, not an X(d,y) surface", facets=list(pair))
+        grad = tangent * along + n * (num / den)
+        ci = pb.col[face]
+        oldgrad = z[ci + 1:ci + 3].copy()
+        midX = float(z[ci] + oldgrad @ (seg.mid - pb.centre[face]))
+        z[ci:ci + 3] = [midX - float(grad @ (seg.mid - pb.centre[face])), *grad]
+        local = []
+        for node in pb.poly[face]:
+            ix = pb.cix(face, node)
+            X = float(z[ci] + grad @ (np.asarray(pb.cur_nodes[node]) - pb.centre[face]))
+            move = X - float(baseline.z[ix])
+            if abs(move) <= 1e-9:
+                continue
+            if pb.src[node][0] == "base" or len(pb.of[node]) != 1 or node in pb.split:
+                refuse(f"corner {node} is shared away from the rotation edge or has a hard base value",
+                       facets=list(pair), node=node, move_mm=move)
+            z[ix] = X
+            changed.add(node)
+            local.append({"node": node, "X_move_mm": move})
+        got = math.copysign(_normal_deg(seg, z), _angle(seg, z)[0])
+        want = target if c["shape"] == "ridge" else -target
+        if abs(got - want) > tol:
+            refuse("the chosen signed angle is not representable by this local graph rotation",
+                   facets=list(pair), requested_deg=want, actual_deg=got)
+        records.append({"facets": list(pair), **v, "shape": c["shape"], "measurement": evidence[pair],
+                        "built_normal_deg": got, "changed_corners": local})
+
+    # Exact position/camera/other-face preservation is structural; explicit checks make that invariant reviewable.
+    allowed_rows = {int(pb.xrow[n]) for n in changed if n in pb.xrow}
+    residual_before = pb.A @ baseline.z - pb.b
+    residual_after = pb.A @ z - pb.b
+    protected_rows = [i for i in range(len(pb.b)) if i not in allowed_rows]
+    if protected_rows and np.max(np.abs(residual_after[protected_rows] - residual_before[protected_rows])) > 1e-8:
+        refuse("the local rotation would change an unrelated reading or camera residual")
+    if len(pb.e) and np.max(np.abs(pb.C @ z - pb.e)) > 1e-7:
+        refuse("the local rotation contradicts a hard plane, shared corner or other exact geometry constraint")
+    if len(pb.h) and np.min(pb.G @ z - pb.h) < -1e-7:
+        refuse("the local rotation violates a thickness or other hard geometry bound")
+    protected = []
+    for pair, rows in evidence.items():
+        for row in rows:
+            if row["state"] == "open":
+                continue
+            segs = [s for s in pb.segs.get(pair, []) if s.piece == row["piece"]]
+            if not segs:
+                refuse("a protected original measurement edge is absent from the edited layout", facets=list(pair))
+            mid = next(s for s in segs if s.length > 0.0)
+            deg, mean = _angle(mid, z)[0], _mean_dihedral(segs, z)[0]
+            if row["state"] == "certain":
+                sign = 1.0 if row["deg"] > 0.0 else -1.0
+                mean_sign = 1.0 if row["normal_deg"] > 0.0 else -1.0
+                conflict = (sign * deg < FLAT_CREASE_DEG - tol or mean_sign * mean < -tol
+                            or (abs(row["normal_deg"]) >= FLAT_CREASE_DEG
+                                and mean_sign * mean < FLAT_CREASE_DEG - tol))
+            else:
+                conflict = _crease_state(deg, row["sd_deg"]) != "flat"
+            if conflict:
+                refuse(f"{'|'.join(pair)} would contradict its original {STATE_TEXT[row['state']]} classification",
+                       facets=list(pair), measurement=row, chosen_fold_deg=deg, chosen_normal_deg=mean)
+            protected.append({"facets": list(pair), **row, "chosen_fold_deg": deg, "chosen_normal_deg": mean})
+
+    strong = ~pb.weak
+    cost = float(residual_after[strong] @ residual_after[strong])
+    visual = dataclasses.replace(baseline, z=z, chi2=cost)
+    all_declared = declared + [(tuple(c["facets"]), c["shape"]) for c in choices]
+    singles = dict(single)
+    for c in choices:
+        singles[tuple(c["facets"])] = (cost - free.chi2, visual)
+    meta = dict(model, visible_angles={"policy": "unresolved_local_face/1", "choices": records,
+                 "baseline_chi2": baseline.chi2, "actual_chi2": cost, "local_cost_change": cost - baseline.chi2,
+                 "protected_measurements": protected, "unrelated_residuals_unchanged": True,
+                 "measurement_basis": "original_stored_readings" if restored else "original_design_observations",
+                 "restored_readings_for_eligibility": restored,
+                 "angle_tolerance_deg": tol})
+    result = _result(pb, free, visual, all_declared, singles, readings, meta)
+    _check_fitted_pairs(pb, result, all_declared)
+    from .build import build_temple
+    built = build_temple(result.spec)             # all strict validity/manifold/thickness/shape/angle checks
+    meta["visible_angles"]["checks"] = copy.deepcopy(built.checks)
+    meta["visible_angles"]["thickness"] = copy.deepcopy(built.tables["thickness"])
+    for rec in records:
+        rec["reading_residuals"] = {n["node"]: {k: result.nodes[n["node"]].get(k) for k in
+                                    ("source", "residual_mm", "residual_sd", "chi2", "reading")}
+                                    for n in rec["changed_corners"]}
+        rec["stored_reading_differences"] = {}
+        for n in rec["changed_corners"]:
+            name = n["node"]
+            if name in restored:
+                r, nr = readings[name], result.nodes[name]
+                rec["stored_reading_differences"][name] = {
+                    "coordinate_difference_mm": [nr["d"] - r["d"], nr["y"] - r["y"], nr["X"] - r["X"]],
+                    "note": "actual minus original stored point, before camera compensation; not a fit acceptance",
+                    "original_reading": copy.deepcopy(r)}
+    for c in result.creases:
+        original = evidence.get(tuple(c["pair"]))
+        if original and restored:
+            # The eligibility evidence must not be replaced in the report by an edited typed value's confidence.
+            row = original[0] if len(original) == 1 else next(
+                r for r in original if r["piece"] == max(measure_pb.segs[tuple(c["pair"])], key=lambda s: s.length).piece)
+            c.update(free_deg=row["deg"], free_sd_deg=row["sd_deg"], sd_deg=row["sd_deg"],
+                     free_mean_deg=row["normal_deg"], free_mean_sd_deg=row["normal_sd_deg"],
+                     state=row["state"], certain=row["state"] == "certain",
+                     measurement_basis="original_stored_readings")
+        chosen = next((v for v in records if v["facets"] == c["pair"]), None)
+        if chosen:
+            c["visible_angle"] = copy.deepcopy(chosen)
+    return result
 
 
 def _check_fitted_pairs(pb: _Problem, res: FitResult, declared: list) -> None:

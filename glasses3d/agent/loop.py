@@ -172,6 +172,9 @@ HARD_TIMEOUT_S = {
     # measured on the Prada lab (v3p2-lab-e2), so 8 readings stay far under the 30 s floor.
     "facet_inspect": 30, "photo_image": 30, "photo_read": 30, "photo_compare": 40, "facet_edit": 60,
     "facet_variants": 90, "facet_finish": 210,
+    # New composite tools: compare360 + mandatory restore90 + error recovery90 + host60. Selection covers the
+    # normal apply/checkpoint/compare path plus its drift retry, 390s with30s host headroom. Existing limits stay.
+    "facet_crease_compare": 600, "facet_visible_angle": 420,
 }
 FACET_DEADLINE_MARGIN_S = 30.0      # host work after the worker calls and a warm-spare restart (Blender 3.1-4.5 s)
 FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S = 30.0, 2.5

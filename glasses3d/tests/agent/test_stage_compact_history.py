@@ -69,10 +69,31 @@ def test_nested_registry_explains_preview_coordinates_without_changing_standalon
         assert "Nested-stage images" not in standalone[name].description
         if name == "facet_finish":
             assert tool.description == standalone[name].description
+        elif name == "facet_crease_compare":
+            assert tool.description.startswith("Native angle comparisons")
+            assert "without compact-preview scaling" in tool.description
+            assert tool.description.endswith(standalone[name].description)
         else:
             assert tool.description.startswith("Nested-stage images")
             assert "preview_to_panel" in tool.description
             assert tool.description.endswith(standalone[name].description)
+
+
+def test_angle_comparisons_reach_nested_specialist_as_separate_native_images(tmp_path):
+    lab = lab_at(tmp_path)
+    first, first_sha = panel(lab, "side-angles", (2400, 450), "red", ref="angles001", kind="crease_angles")
+    second, second_sha = panel(lab, "angled-angles", (2700, 500), "blue", ref="angles001", kind="crease_angles")
+    result = {"status": "ok", "comparison_id": "angles001", "images": [str(first), str(second)]}
+    output = lab.tool_output(result, "settled $0", "angles-call", "facet_crease_compare")
+    images = [item for item in output if isinstance(item, ToolOutputImage)]
+    assert len(images) == 2
+    for item, source, digest in zip(images, (first, second), (first_sha, second_sha)):
+        raw = base64.b64decode(item.image_url.split(",", 1)[1])
+        assert raw == source.read_bytes() and hashlib.sha256(raw).hexdigest() == digest
+    body = json.loads(output[0].text.split("\n", 1)[0])
+    assert body["image_policy"] == "native-crease-angles/1"
+    assert [p["size_px"] for p in body["image_receipt"]["panels"]] == [[2400, 450], [2700, 500]]
+    assert [p["output_index"] for p in lab.state["stage_images"]] == [2, 4]
 
 
 def test_multiple_panels_become_one_preview_with_native_provenance(tmp_path):

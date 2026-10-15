@@ -1,5 +1,113 @@
 # glasses3d progress
 
+## 2026-10-15 — M5-fix-8 visible crease choices ($0, copies only)
+
+Started in the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at **`958fe7d`**.
+Implemented ASSEMBLY M5-fix-8 items 1–5. No paid API/provider calls, original job edits or delivered-model changes.
+Owner decision recorded verbatim: asked **"When the photo measurements can't decide how sharp a facet edge is,
+may Astra choose the angle from how the photos look (comparing a few angles side by side), instead of building it
+nearly flat?"**, answered **"Yes, by the look (Recommended)"**. The recorded option says Astra compares several
+angles against photo close-ups and picks the appearance; certain measurements and every other hard check still win.
+
+**What changed:** human-facing crease reports now distinguish the actual built angle from the original measurement
+and its sign-certain / unresolved / flat-within-error state. An unresolved measurement is no longer called flat.
+The specialist retains all existing tools and gains `facet_crease_compare` and `facet_visible_angle`. Comparison
+builds 3–5 requested absolute normal dihedrals with the real temple builder, beside the current baseline. Each is
+exported and drawn by the existing AR renderer through the frozen photo cameras, on the photo background, in AR
+room light. Native photo-first sheets cover both named adjoining faces and are tiled without compact-preview
+scaling. Each alternative retains its full reading residuals, thickness, checks, changed corners, affected outer/
+closure/ramp surfaces, decal transfer and per-photo first-hit visibility. Refused alternatives remain in the report.
+The bounded SDK text also carries every candidate's angle, minimum wall, local fit-cost change, largest reading
+residual, moved corners and changed-surface count directly, plus exact requested angles for selection; detailed
+records remain lossless in `full_report`. A real 206,305-character result retains those metrics in 8,224 characters,
+inside the unchanged 12,000-character cap (`data/assembly/m5-fix-8/summary-output-audit/report-final.json`).
+
+A choice must name an exact successful rendered alternative from a comparison whose images reached the SDK output.
+The immutable evidence binds the design, readings, original scene/material inputs, photo bytes, cameras, GLBs,
+capture reports and sheet pixels. Changed/unseen evidence refuses; chained choices retain each earlier comparison
+and one exact whole-design comparison. Generic edits remain available, but a retained visual declaration must be
+compared again after an unrelated design change. Errors/cancellation cannot mark an unseen comparison delivered,
+including SDK errors converted to ordinary strings. Comparison restores and verifies its source checkpoint.
+
+**Policy and technical decisions:** the original readings-only result determines eligibility, including the stored
+photo readings when a later node edit typed a value, solved it or inflated its error. Only unresolved targets can
+use the new policy. The chosen planar face turns about its unchanged shared 3D edge; only exclusive off-edge
+corners move in X. Other planes, d/y coordinates, unrelated observations and camera residuals stay fixed. Unsupported
+shared-corner or warped-face rotations refuse; the existing tools still support those designs. Exact visible
+dihedral is checked again after building/reloading. Closed-solid, minimum thickness, declared ridge/valley and strict
+specification checks remain. Ordinary declarations retain their existing delta-chi-squared limit.
+
+Certain evidence means the existing **sign-certain** classification, not exact-angle certainty: it cannot reverse
+or become geometrically flat. Statistically flat evidence stays flat. An initial, uncommitted implementation added
+an exact +/-2sd interval around every other sign-certain fold; independent review found that this invented a new
+constraint the existing certainty classification does not establish. Removed that proposed constraint before the
+final proof; the old ordinary gates were not changed. The initial rejection is retained in
+`data/assembly/m5-fix-8/core/prada-probe-range-design-rejected.json`, with the decision in `core/DESIGN.md`.
+All three predeclared candidate angles stayed the same through this correction; no favourable angle search.
+
+The specialist instructions teach the comparison/choice and carrying any unresolved named mismatch plus crop into
+its summary and the parent finish review. The parent has one corresponding instruction line. Both retain their
+size limits (7,979/8,000 and 9,324/9,500 characters). No new likeness/finish gate. Preview exports also now reproduce
+normal application's Weighted Normal and object/mesh role semantics, restoring exact original properties and
+modifier flags afterwards; real exported positions, indices and normals match normal application byte for byte.
+
+**Prada copy proof:** `tests.proofs.assembly_m5fix8 --run --out <new-directory>` runs under network/provider tripwires
+on a disposable copy of run 2's second temple stage (`a400ed17eaf07593`, revision 5). Final run:
+`data/assembly/m5-fix-8/copy-proof-5/report.json`, **passed**, exit 0, **$0** (46.50 s proof body, 84 s including
+copy setup and launcher). Its real SDK comparison returned three
+native photo-first sheets for references 01/02/05. It compared the original **1.7297165°** with predeclared
+**6.7297165° / 11.7297165° / 16.7297165°** alternatives. All three passed their builder/export/AR hard checks.
+The preselected middle angle was an instrument witness, not a product recommendation or an owner-approved angle.
+It applied at **11.729716499°**, closed, Euler 2, minimum wall **1.000001 mm**. The unchanged measurement remains
+**1.7330° +/-2.3103°, unresolved**. Unknown/unseen comparison, unrendered angle, changed readings and a synthetic
+sign-certain conflicting declaration all refuse.
+The final actual SDK output is **10,493/12,000 text characters** including image labels/footer. Independent proof
+assertions reconcile every candidate's directly visible metrics and exact selection angle against the full record.
+
+The choice moves only exclusive corner D by **-1.98626 mm in X**; associated closure surfaces move as disclosed.
+Its local reading residual is **-7.2313 sd**, and fit cost increases **52.2914** (0.146416 to 52.43786). Unrelated
+reading/camera residuals are unchanged. This is an intentional visual priority over uncertain local evidence,
+**not** a more accurate measured angle or an improved reading fit. The original A/C/D inconsistent-reading warnings
+are still present. The triangle is stronger in the side view; the angled view remains subtle in AR room lighting.
+No claim that this tool-test choice solves all product likeness differences.
+
+The proof hashes **3,556 original files / 484,023,483 bytes** (job inputs, stage evidence, checkpoints and delivery).
+All remain unchanged; two credential-capable runner spec files were excluded without reading them. Original
+delivery GLB SHA-256 remains `6c37275210ac54a543b63d8ecb10404eebc4a43a3dfc4b989db90b0166a99477`.
+The report records source hashes and full receipts. Earlier attempts are retained: attempt 1's launcher ended
+before a result; attempt 2 exposed the proof harness's short photo IDs, corrected to actual `reference-*` IDs;
+attempt 3 passed before the final crop/provenance/export refinements; attempt 4 passed before the direct compact
+metric summary was added. Attempt 5 is the final evidence; all 13 recorded implementation/proof hashes still match.
+Photo-first owner sheets: `data/assembly/m5-fix-8/copy-proof-5/photo-02-proof-triptych.png` and
+`photo-05-proof-triptych.png` (photo / original 1.73° / selected tool-test copy 11.73°). Full 3-angle alternatives:
+`copy-proof-5/stage-copy/work/temple_lab/crease_angles/crease020/photo-000-tile-00.png`, `photo-001-tile-00.png`,
+`photo-002-tile-00.png`; verified compact summary: `copy-proof-5/verified-summary.json`.
+
+**Verification:** `tests.proofs.assembly_m1` **passed in 177.703 s**, 13 scripted requests, 13 successful tools,
+26 transport files, 36 verified image blobs and 35 verified AR images; receipts clean, actual spend **$0**.
+Its job is `synthetic-assembly-proof-0e812372`; log/exit receipt: `data/assembly/m5fix8-m1.*`.
+Main suite, `-n 8 --dist loadfile` excluding photoprint: **3,603 passed, 2 skipped, 30 failed, 20 setup errors,
+1,348.05 s** (`data/assembly/m5fix8-full.*`). One shared worker missed its 60 s startup limit (20 errors); one
+render hit 300 s and caused 20 later dead-worker failures; other render/UV-script deadlines and an interrupted
+Lab variant capture failed under load. The CPU benchmark was 53.125 ms against 50 ms; the launcher descendant
+watcher also affected the QoS test. One old design-check assertion still expected the retired human label `flat`;
+updated only that text expectation to `built angle`, retaining its original numeric/warning assertions. Full
+failure classification is `data/assembly/m5-fix-8/core/FULL_SUITE_DIAGNOSIS.md`.
+Photoprint, `-n 2 --dist loadfile`: **314 passed in 238.83 s**, exit 0 (`data/assembly/m5fix8-photoprint.*`).
+Serial isolation of every failed group, including whole worker/render/seeing/pick/UV/lighting modules and the
+Lab integration, benchmark, QoS and corrected label checks: **91 passed, 1 failed in 429.01 s**
+(`data/assembly/m5fix8-isolated_qos.*`). All startup, deadline, integration, benchmark and QoS checks passed in
+isolation with their original limits. The sole remaining failure is the previously recorded
+`test_photo_v1_pixels_are_unchanged`: **199 reference-01/native pixels >114.24 allowed**, identical to the old
+baseline failure documented below. The full suite is therefore not completely green. No test threshold,
+deadline or golden image has been changed.
+Focused checks already passed: core affected group 306; final core wording group 55; wrappers/instructions 196;
+delivery/deadline group 24; final Lab comparison controls 12; affected Lab label/provenance group 33; immediate
+unseen-state persistence 2; real preview/application export controls 5; final copy-proof controls 23. These overlap and
+are not presented as an aggregate. A legacy control against `958fe7d` retained identical canonical hashes,
+vertices, polygons and checks for 13 fixtures, and identical numeric/spec fit dictionaries for three ordinary fits.
+Independent review found no remaining code blocker, no product-specific runtime constants and no removed tools.
+
 ## 2026-10-15 — M5-fix-7 hinge-side triangle investigation complete ($0)
 
 Confirmed the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at **`69bf095`**.

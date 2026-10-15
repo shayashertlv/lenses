@@ -8,8 +8,8 @@ deg 0.1):
                   base surface, WP6_V3 §3's angle), declared shape; range [lo, hi] beside a warp, soft, step when set;
                   the shape, the mean and the range over the same face-to-face edges (build.face_edge: roll and
                   chamfer bands left out), so a printed mean lies inside its printed range under the word those
-                  edges vote; angles rounded by build.deg_round (never across the 2 deg flat line: "flat 1.9°",
-                  never "flat 2.0°")
+                  edges vote; angles rounded by build.deg_round (never across the 2 deg internal flat line).
+                  A shallow built angle says "built angle 1.9°", not the measurement label "flat".
     facets        lean against the local base normal (a warp facet's: its least-squares plane's, with warp_mm = the
                   largest corner distance from that plane, and with 4 corners corner_off = the fit's W_FACE_NOT_FLAT
                   measure, "K +1.52 mm from the plane of A, E, H": build._corner_off), the crease rise relative to
@@ -55,9 +55,10 @@ def crease_line(c: dict) -> str:
     the range: over every edge the roll band pulled crown|shoulder to "36.9° (37.7-39.3)", v3 probe1 §5.8), "soft" on
     a soft facet's border, the step beside
     a facet|base fold when W_BORDER_RAMP reports one "(sunk 1.24 mm: a 31.9° ramp)", and the declaration. Mean and
-    range by build.deg_round at 0.1: a flat crease at 1.9997 prints "flat 1.9°", never "flat 2.0°" (< 2;
+    range by build.deg_round at 0.1: a shallow crease at 1.9997 prints "built angle 1.9°", never 2.0° (< 2;
     review2-builder2-1 P3), and the printed mean still lies inside the printed range (deg_round never decreases)."""
-    line = f"{'|'.join(c['regions'])} {c['shape']} {deg_round(c['mean_dihedral_deg'], 1):.1f}°"
+    label = "built angle" if c["shape"] == "flat" else c["shape"]
+    line = f"{'|'.join(c['regions'])} {label} {deg_round(c['mean_dihedral_deg'], 1):.1f}°"
     if c.get("warp_beside") and c.get("range_deg"):
         line += f" ({deg_round(c['range_deg'][0], 1):.1f}-{deg_round(c['range_deg'][1], 1):.1f})"
     if c.get("soft"):

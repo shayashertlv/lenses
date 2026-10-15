@@ -228,7 +228,7 @@ def shape_of(deg: float) -> str:
 
 def printed(line: str) -> tuple:
     """(mean, lo, hi) of a crease line "F1|F2 shape 12.3° (11.0-14.2) ..." (lo, hi None when no range is printed)."""
-    m = re.match(r"\S+ \w+ (-?[\d.]+)°(?: \((-?[\d.]+)-(-?[\d.]+)\))?", line)
+    m = re.match(r"\S+ (?:\w+|built angle) (-?[\d.]+)°(?: \((-?[\d.]+)-(-?[\d.]+)\))?", line)
     return float(m.group(1)), (None if m.group(2) is None else float(m.group(2))), \
         (None if m.group(3) is None else float(m.group(3)))
 
@@ -518,7 +518,7 @@ def test_a_crease_just_under_the_flat_line_never_reads_2():
     tb = build_temple(flat_pair(1.9997))
     c = next(c for c in tb.tables["creases"] if c["regions"] == ["L", "R"])
     assert c["shape"] == "flat" and c["mean_dihedral_deg"] == pytest.approx(1.9997, abs=1e-6)
-    assert RP.crease_line(c) == "L|R flat 1.9° undeclared"
+    assert RP.crease_line(c) == "L|R built angle 1.9° undeclared"
     assert next(r for r in RP.receipt(tb)["creases"] if r["pair"] == "L|R")["deg"] == 1.9
     assert [w["message"] for w in tb.warnings if w["code"] == "W_FLAT_CREASE" and w["regions"] == ["L", "R"]] == \
         ["crease L|R bends only 1.99 deg (< 2.0)"]
@@ -533,7 +533,7 @@ def test_a_crease_just_under_the_flat_line_never_reads_2():
     tb = build_temple(flat_pair(1.1997))                    # away from the line: rounded as before ("1.20", not cut)
     assert [w["message"] for w in tb.warnings if w["code"] == "W_FLAT_CREASE" and w["regions"] == ["L", "R"]] == \
         ["crease L|R bends only 1.20 deg (< 2.0)"]
-    assert next(ln for ln in RP.crease_lines(tb) if ln.startswith("L|R ")) == "L|R flat 1.2° undeclared"
+    assert next(ln for ln in RP.crease_lines(tb) if ln.startswith("L|R ")) == "L|R built angle 1.2° undeclared"
     tb = build_temple(flat_pair(2.0003, "valley"))
     c = next(c for c in tb.tables["creases"] if c["regions"] == ["L", "R"])
     assert c["shape"] == "valley" and RP.crease_line(c) == "L|R valley 2.0° declared valley"

@@ -388,36 +388,28 @@ def fixed(x: float, nd: int) -> str:
 
 # --------------------------------------------------------------------------------------------- receipt texts
 def fit_crease_parts(f: dict, base: bool) -> list[tuple[str, int]]:
-    """The fit's part of a crease line as compose parts [(text, rank)]: its angle at the longest piece's midpoint with
-    the readings' sd ("border fit -2.3 +- 1.1°" for a facet|base pair: the fit's angle across the border, WP6_V3 §3;
-    it read "fit fold", which collided with the prompt's fold bracket of two faces, v3p3 astra P3-9; "border fit" is
-    2 characters longer, so the longest line keeps its two-way share within CREASE_LINE_MAX; rank 0), where that is
-    (a facet|base pair or a pair sharing several pieces: a border turns, and its fold with it; the smoke test's
-    triangle on the arm folded -6.2 along its long side and +5 along the two short ones, built "ridge" by length;
-    rank 3), its state in the fit's own words (fit.STATE_TEXT of the crease's ``state``: certain = |angle| > 2 sd and
-    > 2 deg in the readings-only fit; flat within 2 sd = |angle| + 2 sd < MIN_CREASE_DEG, so no declaration builds
-    within the readings; else open: a declaration then sets it; rank 0; v3-integrate-2: the lab printed "open" for
-    a "flat within 2 sd" crease, inviting a declaration the fit then refuses), held by a declaration (no sd: the
-    declaration sets it), the bound it rests on (rank 4), and a
-    declaration's readings-only angle and its chi2 cost when it costs (rank 1). The fit's own range along the edge is
-    left out: the builder's range is printed (one range per crease, v3-integrate-1). Angles carry their unit ("fit
-    +16.0 +- 2.7°"; session2's "fit +16.0 +- 2.7" beside the builder's "17.3°" had none; v3p3-clean-lab)."""
-    what = "border fit" if base else "fit"
-    if f.get("held"):
-        at_min = abs(abs(float(f["deg"])) - FIT.MIN_CREASE_DEG) <= 0.01
-        parts = [(f"; {what} {RD.signed(f['deg'], 1)}°" + (" (held at the declared minimum)" if at_min else
-                                                          " (held by its declaration)"), 0)]
-    else:
-        parts = [(f"; {what} {RD.signed(f['deg'], 1)} +- {f['sd_deg']:.1f}°", 0)]
+    """Original measurement and uncertainty, kept separate from the builder's current geometry.
+
+    Measurement and state are rank 0; the position along a border is rank 3. A declaration's holding/cost facts
+    are rank 1 and thickness bounds rank 4. The original angle is not repeated in the cost clause, leaving room
+    for existing two-way-border evidence. An unresolved measurement is never labelled geometrically flat.
+    """
+    what = "border measurement" if base else "measurement"
+    measured = f.get("free_deg") if f.get("free_deg") is not None else f["deg"]
+    sd = f.get("free_sd_deg") if f.get("free_sd_deg") is not None else f["sd_deg"]
+    parts = [(f"; {what} {RD.signed(measured, 1)} +- {sd:.1f}°", 0)]
     if f.get("at") and (base or (f.get("borders") or 1) > 1):
         parts.append((f" at d {f['at'][0]:.1f} y {f['at'][1]:.1f}", 3))
     state = f.get("state") or ("certain" if f.get("certain") else "open")
-    parts.append((f", {FIT.STATE_TEXT.get(state, state)}", 0))
+    parts.append((f", {dict(certain='sign-certain', open='unresolved', flat='flat within error').get(state, state)}", 0))
+    if f.get("held"):
+        at_min = abs(abs(float(f["deg"])) - FIT.MIN_CREASE_DEG) <= 0.01
+        parts.append(("; built held at the declared minimum" if at_min else "; built held by its declaration", 1))
     if f.get("bound"):
         parts.append((f", the thickness bound holds {', '.join(f['bound'][:3])} (the sd is without it)", 4))
     if f.get("declared") and (f.get("dchi2") is None or f["dchi2"] > FIT.COST_SHOWN) and f.get("free_deg") is not None:
         cost = "cannot hold" if f.get("dchi2") is None else f"cost chi2 +{f['dchi2']:.1f}"
-        parts.append((f" (readings-only {RD.signed(f['free_deg'], 1)} +- {f['free_sd_deg']:.1f}°, {cost})", 1))
+        parts.append((f" ({cost})", 1))
     return parts
 
 
@@ -796,8 +788,9 @@ def edge_changes(ref, tb) -> list[str]:
     for k in sorted(set(a) & set(b)):
         (sa, da), (sb, db) = a[k], b[k]
         if sa != sb and "flat" in (sa, sb):
-            what = "an edge appears" if sa == "flat" else "the edge goes flat"
-            out.append(f"{'|'.join(k)} {sa} {_deg(da)}° -> {sb} {_deg(db)}° ({what})")
+            what = "the built fold exceeds 2°" if sa == "flat" else "the built fold falls below 2°"
+            la, lb = ("built angle" if s == "flat" else s for s in (sa, sb))
+            out.append(f"{'|'.join(k)} {la} {_deg(da)}° -> {lb} {_deg(db)}° ({what})")
     return out
 
 
@@ -1233,10 +1226,27 @@ class Lab(SceneHooks):
             for v in self.state["variants"]:
                 if v.get("call_id") == call_id:
                     v["unseen"] = True
+            changed_comparison = False
+            for c in self.state.get("crease_comparisons", {}).values():
+                if c.get("call_id") == call_id:
+                    c.update(unseen=True, delivered=False)
+                    changed_comparison = True
             fin = self.state.get("finish")
             if fin and fin.get("call_id") == call_id:
                 self.state.setdefault("finish_unseen", []).append(fin)
                 self.state["finish"] = None
+            if changed_comparison:
+                self.save()  # cancellation must remain unseen even if the process stops before another tool call
+
+    def mark_delivered(self, call_id: str, tool_name: str) -> None:
+        """Called only after the outer SDK output limiter successfully returns all comparison images."""
+        if tool_name != "facet_crease_compare":
+            return
+        with self.state_lock:
+            for c in self.state.get("crease_comparisons", {}).values():
+                if c.get("call_id") == call_id and call_id not in self._unseen and not c.get("unseen"):
+                    c["delivered"] = True
+        self.save()
 
     def _unread(self, call_id: str) -> None:
         """A photo_read the SDK timed out stored readings Astra never saw (v3p3 safety P3-2: a later set_node mode
@@ -1298,7 +1308,7 @@ class Lab(SceneHooks):
         st = self.state
         return (st.get("start_checkpoint") is not None and len(st["revisions"]) == 1 and not st["judgements"]
                 and not st["variants"] and not S.astra_compares(st) and not st.get("readings")
-                and not st.get("reading_log") and not S.object_text(st)
+                and not st.get("reading_log") and not S.object_text(st) and not st.get("crease_comparisons")
                 and all(e.get("kind") == "prepare" for e in st["events"]))
 
     # ---------------------------------------------------------------------------------------------- prepare
@@ -1653,7 +1663,8 @@ class Lab(SceneHooks):
         for c in tb.tables["creases"]:
             if c["kind"] != "crease":
                 continue
-            text = f"{'|'.join(c['regions'])} {c['shape']} {RP.deg_round(c['mean_dihedral_deg'], 1):.1f}°"
+            shape = "built angle" if c["shape"] == "flat" else c["shape"]
+            text = f"{'|'.join(c['regions'])} {shape} {RP.deg_round(c['mean_dihedral_deg'], 1):.1f}°"
             st = c.get("step")
             if st and abs(float(st["height_mm"])) >= RAMP_BRIEF_MM:
                 text += f" ({RP.ramp_clause(float(st['height_mm']), float(st['slope_deg']), st.get('d_mm'))})"
@@ -2027,13 +2038,16 @@ class Lab(SceneHooks):
             self.state.setdefault("host_errors", []).append({"call_id": call_id, "stage": stage, "message": msg})
         return {"status": "refused", "code": code, "stage": stage, "edit": None, "message": msg}
 
-    def _fit_build(self, design: dict, call_id: str | None = None) -> tuple:
+    def _fit_build(self, design: dict, call_id: str | None = None, *, validate_visible: bool = True) -> tuple:
         """(FitResult, build) of a design, or a refusal dict: the fit's own (stage "fit": E_FIT_SHAPE, E_FIT) or the
         spec's parse inside the fit (stage "spec": E_SHORT_EDGE, E_SPEC, E_OUTLINE...; v3p3 e2e P3-2: a parse refusal
         read as stage "fit"), with its fields (REFUSAL_FIELDS) and, for a node it names (an E_SHORT_EDGE crossing at a
         node that "cannot move"), outline_facts; or the builder's (stage "build") with its facts only (no remedy
         added, WP6_V3 P6); any other exception of either is _host_error's (E_FIT / E_BUILD; WorkerFailed stays fatal,
         though neither calls the worker)."""
+        if validate_visible:
+            from .crease_angles import validate_design
+            validate_design(self, design)
         try:
             fit = FIT.fit_spec(design, readings=self.readings())
         except TempleError as e:
@@ -2060,6 +2074,18 @@ class Lab(SceneHooks):
         except Exception as e:  # noqa: BLE001 - as the fit's
             return self._host_error("build", "E_BUILD", e, call_id), None
         return fit, tb
+
+    def crease_compare(self, call_id: str, parent_revision: int, facets: list[str], moving_facet: str,
+                       shape: str, angles_deg: list[float], photos=None, judgement=None) -> dict:
+        from .crease_angles import compare
+        return self._judged(judgement, call_id, "facet_crease_compare", lambda: compare(
+            self, call_id, parent_revision, facets, moving_facet, shape, angles_deg, photos))
+
+    def visible_angle(self, call_id: str, comparison_id: str, degrees: float, reason: str,
+                      judgement=None, apply: bool = True, photos=None) -> dict:
+        from .crease_angles import choose
+        return self._judged(judgement, call_id, "facet_visible_angle", lambda: choose(
+            self, call_id, comparison_id, degrees, reason, apply, photos))
 
     def edit(self, call_id: str, parent_revision: int, reset_layout: bool, edits: list, judgement, note: str,
              object: str | None = None, apply: bool = True, photos=None) -> dict:      # noqa: A002 - the tool's name
