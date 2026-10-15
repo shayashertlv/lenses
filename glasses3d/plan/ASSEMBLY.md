@@ -439,9 +439,10 @@ Items, in this order (A before B):
    drawing cropped to the same box, side by side at the largest size the image limit allows (a call may return
    several images; history stays append-only). Add automatic close-up pairs at native resolution from the part-id
    masks: frame outer edge/corner, inner lens rim, lens markings, hinge/arm root, arm tip. Report colours of shaded
-   walls and inner rims as well as the lit face (information). Keep the worn front view in every call. Read how the
-   provider handles `detail: "high"` images from the installed SDK/docs (no web); if a size is unknown, write the
-   exact question for the owner.
+   walls and inner rims as well as the lit face (information). Keep the worn front view in every call. Find how the
+   provider handles `detail: "high"` images for `gpt-6-astra` (installed SDK/docs and the official OpenAI web
+   documentation, cited with URL and date; web research allowed by the owner on 2026-10-15); if still unknown,
+   write the exact question for the owner.
 2. **Finish after a real look** (procedure, not a likeness gate): `finish` first returns the full-size pairs and
    close-ups for every usable photo and asks, per photo, what still differs; it accepts only on a second call that
    lists those differences (or "none") per photo. Replace `instructions.py:118-119`'s "listing remaining differences
