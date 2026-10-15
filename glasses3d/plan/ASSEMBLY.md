@@ -387,6 +387,22 @@ Astra's own material choice (run 3: metallic 0.60, grey tint 0.50; the shader's 
    - (c) `tests.proofs.assembly_m1` and the affected suites as §1 describes.
 5. Show the owner (b), the front photo first. Change no material, colour, coating or geometry; start no paid run.
 
+**Status 2026-10-15:** M5-fix-3 and M5-fix-4 done (`763349d`, `179ac43`). Oakley run 4 (`20261015T062433-662a82`,
+$10.61, 60 requests, finished by itself) was accepted by the owner: "as far as i can see the model is perfect"
+(job `reviews/verdicts.jsonl`, GLB SHA `98131458…`). **M5 step 1 is closed.** Run 4's GLB is the accepted
+assembled Oakley; keep it unchanged as the regression reference.
+
+### M5-step-2 prep. Prada job, ready for an owner decision ($0; added 2026-10-15 by Claude)
+Prada tests what Oakley did not: `temple_stage` (WP6's faceted temples) inside a full job. No Prada job exists yet.
+1. Create it with `python -m glasses3d job create` from the Prada photos WP6 used (list each source path and SHA).
+   Description: the owner's own earlier Prada note, verbatim, naming where it came from; if none exists, stop and
+   ask the owner for one. Specifications: only the owner's. Nothing of ours goes into owner-verbatim fields.
+2. Check every photo's view and wearer's-side label by eye against the photo.
+3. Print the exact brief, instructions and tool descriptions Astra will receive; confirm `temple_stage`'s stated
+   scope matches Prada's temples as the photos show them, and that the money figures are the owner's $20 / $23.
+4. Make the run request and estimate (fresh run, effort max, $20 settled stop, $23 maximum reserve), then stop for
+   the owner's approval. Start no paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
