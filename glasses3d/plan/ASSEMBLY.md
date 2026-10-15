@@ -367,7 +367,13 @@ Astra's own material choice (run 3: metallic 0.60, grey tint 0.50; the shader's 
    - the description says: this is the like-for-like colour check (same renderer as the owner's AR, same viewpoint
      and background as each photo); judge lens hue, lightness and see-through and frame colour here; reflection
      highlights from the AR's fixed room light are expected and are not lens colour; AR face views show the worn result.
-2. **Instructions:** one core line naming the tool as the colour check against the photos. Stay within the
+   - **Both views in every call** (owner, 2026-10-15: "im just making sure that when astra will edit the lenses that
+     it will also look at the glasses on a person (ar view) in addition to the white background view"): from the
+     same export, the same sheet also shows the worn front on the existing test face (the M5-fix-3 portrait, eyes
+     legible). Astra never sees the white-background check without the worn view.
+2. **Instructions:** one core line naming the tool as the colour check against the photos, and saying that after
+   every lens or frame colour/material change Astra judges both views: the photos' background (does it match the
+   photos?) and the worn view (does it look like this product on a person, eyes visible?). Stay within the
    8,000-character limit by tightening wording elsewhere without removing any guidance; if that is impossible, stop
    and say so.
 3. **`finish` includes the front-photo comparison** from this tool in its report and the delivery, as information
