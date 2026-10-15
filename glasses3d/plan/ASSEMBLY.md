@@ -403,6 +403,73 @@ Prada tests what Oakley did not: `temple_stage` (WP6's faceted temples) inside a
 4. Make the run request and estimate (fresh run, effort max, $20 settled stop, $23 maximum reserve), then stop for
    the owner's approval. Start no paid run.
 
+### M5-fix-5. After Prada run 1: Astra must see close up, finish on a real look, arms posed per photo ($0; added 2026-10-15 by Claude)
+Prada run 1 (`prada-beige-86248315`, request `20261015T083404-b50f0d`, $11.90, finished by itself with ~$8 left).
+Owner: "the glasses look like shit, it looks like some half assed the job. i feels like astra doesnt even look
+because the result makes no sense". He named front shape, arms and lens details (not colour). Claude's diagnosis
+(two read-only reviews of the run records, file/call references below):
+- **Astra judged from thumbnails** (Claude's plan error, the M2 image policy): every tool returns one image of at
+  most 1024 px, so the six-photo `compare_look_to_photos` sheet is 1024x990 with 24 tiles (~200 px per pair).
+  `read_image` can open any full-size panel, but in 81 calls Astra zoomed 4 times and never on its own model beside
+  a photo. It called the bright white lens mark "one subtle lens wordmark".
+- **Front:** raw polygon rings (calls 0002, 0044): a flat block 6.6-8.8 mm deep, a continuous 1.45 mm ledge around
+  the outside (meant as "broad corner facets"), the lens set 2.1 mm behind a 90° wall, a 0.22 mm 3-segment bevel,
+  then every edge >20° marked sharp (0050). Depth never measured. Astra noted "not rounded enough" (7), "too sharp
+  edges ... I should round the corners" (52) and then moved on; at 77 the clay render shows the ledge and it wrote
+  "It's all coming together nicely!". `execute_blender_code` documents only `g3d.lens_coating`; outline
+  comparisons cannot see rounding; the 100k-triangle limit was hit at 125,130 (0064).
+- **Gold band in the rims:** the acetate inner wall in Astra's strongly yellow frame colour (0050), visible on
+  shaded walls; the look tool reports one frame median, which matched on the lit face.
+- **White lens mark:** tagged partRole `lens` because the tool text says "Tag hardware and logos with their
+  supporting component's role" (`agent/tools/__init__.py:318-319`); the viewer turns tone mapping off for lens parts
+  (`arview/src/render/renderer.ts:734`), so a grey non-transmitting marking clips to white.
+- **Finishing early:** reasoning "I don't need to use it all" (74); `agent/instructions.py:118-119` says "listing
+  remaining differences is better than running out"; the finish summary omitted the front edges Astra had flagged.
+- **Arms:** the stage's cameras assume the as-authored arm opening in every photo ("hinge opening is not
+  calibrated", `agent/temple_lab/rigid_pose.py:112-118`); real photos open the arms differently (run 8's accepted
+  basis had 03 -2.0°, 06 +8.1°, 02 +6.7/+2.2°; 10° moves a tip ~20 mm). The specialist widened the tail and found it
+  "cannot be reconciled ... at the supplied fixed cameras/authored pose"; nothing can fit an opening now (WP6's
+  `fit_theta`, removed in `c102efb`, had a recorded occlusion defect). The parent's cameras were fitted once to its
+  first guess with `default` mattes (01 includes floor reflection; fits 06 0.787, 03 0.799, 01 0.684 vs run 8's
+  0.922/0.880/0.873). The arm plan curve and hook were never measured. `splice_chain` leaves steps
+  (`agent/temple_lab/geometry.py:226-242`). `compare_look_to_photos` draws authored arms, not each photo's opening.
+Items, in this order (A before B):
+**A. See, and finish on a real look**
+1. **Full-size pairs.** `compare_look_to_photos` (and `finish`) return one image per photo: the photo and the AR
+   drawing cropped to the same box, side by side at the largest size the image limit allows (a call may return
+   several images; history stays append-only). Add automatic close-up pairs at native resolution from the part-id
+   masks: frame outer edge/corner, inner lens rim, lens markings, hinge/arm root, arm tip. Report colours of shaded
+   walls and inner rims as well as the lit face (information). Keep the worn front view in every call. Read how the
+   provider handles `detail: "high"` images from the installed SDK/docs (no web); if a size is unknown, write the
+   exact question for the owner.
+2. **Finish after a real look** (procedure, not a likeness gate): `finish` first returns the full-size pairs and
+   close-ups for every usable photo and asks, per photo, what still differs; it accepts only on a second call that
+   lists those differences (or "none") per photo. Replace `instructions.py:118-119`'s "listing remaining differences
+   is better than running out" with: remaining money is for visible differences from the photos; before finishing,
+   revisit every difference you noted during the run and fix it or report it; keep enough to finish.
+3. **Lens markings are not lens glass:** the viewer keeps tone mapping for lens-tagged parts that do not transmit
+   (general rule in `glasses3d/arview`, never `ar/`); fix the tool sentence so markings get a sensible role.
+4. **Front cross-section capability:** document the existing `g3d` helpers Astra can use in `execute_blender_code`'s
+   description; if none sweeps a rounded acetate section (crowned face, rounded outer and inner edges, facets only
+   where named) along a rim outline, add one, proven on a synthetic outline. Instructions: measure front depth and
+   edge rounding from side/top/angled photos (`photo_read`) and reproduce the photo cross-section; facets are local
+   where the photos show them.
+5. **Cost:** measure on Prada run 1's saved requests what the larger images add per look call and per run.
+**B. Arms posed per photo**
+6. **Per-photo arm opening:** fit each photo's left and right arm opening with its camera in `fit_cameras` (port WP6's
+   opening fit from history, fix its recorded occlusion defect; hold an arm with no visible pixels fixed); pass the
+   openings to `temple_stage` and draw each photo's opening in `compare_to_photos`, `compare_look_to_photos` and
+   `photo_read` (`temple_side`). Set `glossy_floor` mattes at intake for photos on a reflective floor.
+7. **Stage inputs:** the stage brief states camera conflicts from reading residuals as facts; the stage warns when a
+   photo's arm fit is poor; give the stage arm plan-curve/hook readings (tip crossings, outline fits from 03/06/01
+   with each photo's opening free); `splice_chain` blends or warns on steps. Parent instructions: if the stage ends
+   stuck on a camera/pose conflict, refit cameras with openings and run it again.
+8. **Proofs ($0):** (a) opening fit on synthetic known openings, then on the Prada photos compared with run 8's
+   fitted openings as an independent reference; (b) the new full-size pairs and close-ups on Prada run 1's delivered
+   GLB, shown to the owner (they must make the boxy front, rim band and white mark obvious); (c) the lens-mark viewer
+   fix on that GLB; (d) `tests.proofs.assembly_m1` and the affected suites as §1 describes; (e) the cost measurement.
+   Change no product model; start no paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
