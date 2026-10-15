@@ -216,6 +216,16 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
         assert path.is_relative_to(ar_path.parent) and approvals.file_sha256(path) == rec["sha256"]
     for sheet in ar["sheets"]:
         assert local(sheet).is_file()
+    comparison = report["look_comparison"]
+    assert comparison["status"] == "ok" and comparison["informational_only"]
+    assert len(comparison["views"]) == 1 and comparison["views"][0]["view_kind"] == "front"
+    assert comparison["export_sha256"] == report["glb_sha256"]
+    for asset in comparison["assets"]:
+        assert approvals.file_sha256(local(asset["path"])) == asset["sha256"]
+    worn = comparison["worn_capture"]
+    assert approvals.file_sha256(local(worn["report"])) == worn["report_sha256"]
+    assert read(local(worn["report"]))["input"]["sha256"] == report["glb_sha256"]
+    assert report["finish_images"]
 
     for path in job.rglob("*"):
         if path.is_file():
@@ -277,6 +287,7 @@ def run():
                                                       "stations_table": False}),
                replay.tool_call("compare_to_photos", {"refs": None, "parts": "all", "size_px": 640, "basis": None}),
                replay.tool_call("export_glb"), replay.tool_call("arview_capture"),
+               replay.tool_call("compare_look_to_photos", {"refs": None, "basis": None}),
                replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR."})]
     transport = replay.ScriptedOpenAI(replies)
     settings = replace(job_run.settings_default(), max_turns=len(replies) + 1)
@@ -292,7 +303,7 @@ def run():
     receipt_checks = check_receipts(job, spec.run_id, [
         "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "seat_lens", "seat_lens",
         "check_lens_seating", "compare_to_photos", "export_glb",
-        "arview_capture", "finish"])
+        "arview_capture", "compare_look_to_photos", "finish"])
     basis = json.loads(next((job / "cameras").rglob("cameras.json")).read_text())
     for name, rec in basis["images"].items():
         _, yaw, pitch, _, _ = TRUTH[name]

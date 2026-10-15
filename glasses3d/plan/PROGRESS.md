@@ -33,6 +33,121 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5-fix-4: photo-camera AR colour comparisons ($0, 2026-10-15)
+
+Started clean in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout on `glasses3d` at
+`44c4165 ASSEMBLY M5-fix-4: every colour check also shows the worn view (owner)`.
+The owner's verdict and requirement, verbatim:
+
+> the color arent close
+>
+> the lens is transparent after the fix which is good!
+>
+> im just making sure that when astra will edit the lenses that it will also look at the glasses on a person (ar view) in addition to the white background view
+
+These close the pending M5-fix-3 colour question: transparency improved; colour was rejected. They do not authorize
+a paid run or edits to the product. No material, colour, coating or geometry is changed during this tool work.
+
+**Implementation and technical choices:**
+
+- `compare_look_to_photos` is registered in the main session (24 tools). It exports the current head, reads the
+  frozen basis without fitting it, defaults to every usable camera, accepts `refs`/`basis`, and orders front first.
+  Each photo's outermost border pixels are counted once: median RGB is the AR background; the 95th-percentile
+  channel distance and fraction within five levels describe border uniformity, with no rejection threshold.
+- Camera conversion preserves yaw/pitch/roll, off-axis eye offsets, principal-point pixel centres and authored
+  metres. Photos use the same uniform resampling grid as the camera, capped at 1280 pixels. Perspective at or below
+  1e-9 is explicitly reported as a distant pinhole at 10,000 frame extents, with its approximation bound. No bridge
+  offset or automatic face scale is added to explicit-camera geometry. Frozen temple openings are reported;
+  this appearance tool draws the authored geometry without articulating it.
+- One sheet pairs each photo and AR drawing at the same crop, with a paired lens close-up and a large worn-front
+  portrait from the **same export**. All native per-photo sheets, renders, part IDs, cameras, the worn capture's
+  report and its 35 native images remain hash-bound. Lens/frame medians and CIE L* use the same part-ID regions
+  in both images, eroded three pixels. These are information, not appearance gates; registration limitations and
+  fixed-room highlights are stated. A failed/missing worn capture yields unavailable evidence, never a photo-only
+  success. The compact sheet reserves 300 pixels of height for the portrait even with many photo rows.
+- The new instruction line requires both photo-background colour match and worn-face likeness/visible eyes after
+  every lens/frame colour or material edit. Existing guidance and the owner's requirements remain; instructions
+  total **7,991 characters**, below 8,000. `finish` adds the frozen front comparison and reuses its fresh worn AR
+  capture. Missing comparison evidence remains informational. Delivery preserves separate AR receipts, comparison
+  assets and the actual mixed image emitted to Astra. Regression tests reload delivery after source-image removal.
+- A temporary white `silhouette` override accompanies explicit-camera beauty and part IDs. It supplies scalar
+  coverage independent of the part palette, restores authored materials after drawing, and does not affect beauty
+  or worn modes. The GPU regression checks identical occupied support to the existing part-ID pass.
+
+**Evidence and verification:** both source GLBs are copied unchanged: accepted SHA
+`2c46877ad2d90d5e51a0c79b2b9dbfa40f8cd1daa99fbaf98e96b4cd3cc59688`; run-3 re-export SHA
+`32e86e30e206e6c7243e8a5e6ebd85a60b5b40bbc450b53726340795c019e716`.
+Six-photo and individual front sheets for both are under `data/assembly/m5fix4-d/{accepted,run3-reexport}/work/
+arview/proof-look/` (`comparison.png`, `photo-000-comparison.png`). Measured photo backgrounds in reference order
+are `#ffffff`, `#ffffff`, `#e4e3e3`, `#fefefe`, `#fdfdfd`, `#fefefe`. The sheets show the colour disagreement without
+editing it: the photos have light violet/green lenses; both models remain greyer/darker, with visible eyes when worn.
+Front lens median RGB / L*: accepted photo **[152,149,163] / 62.89**, drawing **[78,95,88] / 38.77**;
+run-3 mask photo **[151,151,162] / 63.02**, drawing **[118,130,129] / 53.55**. Masks differ between models and
+the statistics are contextual image evidence, not physical transmission or a colour acceptance rule.
+
+`tests.proofs.assembly_m1` now actually invokes the new tool before finish: **12 scripted requests**, delivered,
+**97.609 s**, **$0**, clean transport/tool/image/budget receipts, **35 verified native AR images**, front comparison
+and same-export worn evidence in the delivery. Synthetic job: `synthetic-assembly-proof-75f3eaf3`. Focused SDK,
+instruction and delivery checks passed 213, then the final composed evidence tests passed with **27** look tests
+(overlapping counts). AR **498 unit + 106 QA** tests passed; TypeScript exited 0.
+
+**Camera proof instrumentation:** initial attempts are retained in `m5fix4-b`/`m5fix4-c`. Thresholding coloured
+part IDs at 24 against Blender alpha at 127 compared different edge coverage. A uniform white diagnostic fixed
+that ambiguity, but native AR's four samples encode only 0/64/128/191/255: treating every 128 tie as inside
+slightly dilates silhouettes and fills tiny notches. Its native IoUs were .998466/.998317/.997351/.997430/
+.997998/.994520; reference-03's largest binary edge distance was 2.236 pixels. These were not likeness failures
+or evidence to edit the cameras. Projected vertices agree algebraically to <7e-13 pixels; soft-coverage centroid
+differences were <.012 pixels, and almost all extra pixels were exactly the half-coverage ties.
+
+The corrected proof integrates the same native pixel areas on a fixed **4x4 subpixel grid in both renderers**.
+AR tiles stay within the 1280 viewport limit; Blender uses the equivalent higher-resolution camera. The original
+IoU >= .995 / maximum edge <=2 native-pixel limits remain unchanged. An independent synthetic diagonal-edge
+witness encloses .405/.595 of a pixel but yields .5/.5 with four samples; the fixed integration distinguishes
+.4375/.5625. Independent read-only review checked the projection and tile math. Saved evidence checks pass for
+all **96 tiles**, with identical part-ID/white-mask occupied support and exactly matching high-resolution Blender
+projection scaling. Eight-bit coverage quantization remains bounded by half a level; no seed/threshold search,
+camera refit, photograph rejection or product edit was used. `m5fix4-d/coverage-integrity.json` records the witness.
+
+**Final camera proof passes** (`m5fix4-d/proof.json`):
+
+| Frozen reference | IoU | Largest edge offset, native px | Actual Blender projection error, px |
+|---|---:|---:|---:|
+| 01 front | .999888 | 1.000 | .000134 |
+| 02 angled | .999851 | 1.000 | .000190 |
+| 03 right | .999803 | 1.414 | .000065 |
+| 04 back | .999834 | 1.000 | .000338 |
+| 05 left | .999813 | 1.000 | .000091 |
+| 06 top | .999511 | 1.000 | .000273 |
+
+The matrix check uses Blender's actual camera projection, independently of the host algebra, at the existing
+.01-pixel float32 allowance. All input GLB/basis hashes remain unchanged. Initial proof attempts and their failed
+instrument measurements remain available. A final independent read-only review rehashed all 18 recorded inputs
+with zero mismatches. The real Oakley cameras are perspective with zero eye offsets; 18 separate analytical cases
+cover orthographic approximation, nonzero eye offsets, roll and oblique angles. This proves conversion, not the
+frozen cameras' likeness to the photos. The final proof took **1345.375 s** because I overlapped its large GPU
+renders with the full suite; the first two high-resolution renders suffered severe contention. Subsequent checks
+are sequential. This was a scheduling mistake, not a reason to change a quality or timing threshold.
+
+The initial full Python run (`-n 8 --dist loadfile`) finished in **1337.09 s**: **3357 passed, 27 failed, 2 skipped**.
+One assertion still expected the old composite finish timeout: updated the contract to 1090 s (existing stages
+plus the added capture and SDK margin), and pinned the new tool's 760 s. The other failures comprise the known
+launcher/QoS inheritance interaction and GPU timeouts/cascades in dome, seeing, lighting and the real temple-lab
+test. Sequential reruns of all affected modules with the launcher's descendant watcher disabled finished in
+**285.90 s: 115 passed, 1 failed**. Every timeout/cascade recovered, including seeing, lighting and the real
+temple-lab integration. The remaining failure is exactly the already-documented `test_photo_v1_pixels_are_unchanged`:
+**199 reference-01/native pixels** versus its unchanged **114.24-pixel allowance**, matching the original
+84b5bf5 baseline reproduction recorded under M5-fix-3. No golden, threshold, quality rule or existing render timing
+assertion was changed. This pre-existing issue stays open; the full suite is not claimed completely green.
+
+Photoprint ran separately with `-n 2 --dist loadfile` and **31,684,460 KB** of free commit before launch:
+**314 passed in 209.80 s**, exit 0. Across the main suite, its targeted reruns and photoprint, the distinct final
+results are **3697 passed, 1 pre-existing failure, 2 skipped** (overlapping rerun/focused counts are not added).
+M5-fix-4 items 1-5 are complete at **$0**, with the existing pixel-baseline failure explicitly open. The front-first
+comparison sheets and all six views are retained for owner review; no appearance acceptance is inferred.
+Detached logs and PID/time/argv/exit receipts are named `data/assembly/m5fix4_*`; all launches use BLAS=1 and
+EcoQoS opt-out. No paid API call or run request was made. Product assets remain unchanged; only the explicit
+implementation, tests and this progress record are committed on `glasses3d`, without pushing.
+
 ## Assembly M5-fix-3: transparent solids and visible lens evidence ($0, 2026-10-15)
 
 Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, clean on `glasses3d` at
@@ -118,7 +233,7 @@ no blocker; their topology and paging observations were covered before the full-
 authored scale and fixed lens environment 1. `data/assembly/m5fix3-copy-a/review.json` holds the verified webcam URL
 and process receipt; opening it in the Codex browser panel was queued. It is the same Astra model and does not
 replace the immutable delivery. The before/after front-face image is `m5fix3-copy-a/before-after-face.png`.
-The owner's right/close/wrong colour verdict remains pending; record their answer verbatim when received.
+The owner's subsequent verdict is recorded verbatim under M5-fix-4 above: colour rejected, transparency improved.
 
 ## Assembly M5 Oakley run 3: approved fresh run, finished delivery (2026-10-14)
 

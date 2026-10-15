@@ -3,6 +3,7 @@
  *  meshes), and restored in `finally`.
  *
  *  - 'part-id': one flat colour per mesh (lens meshes all magenta, reserved), black background.
+ *  - 'silhouette': all eyewear white on black, an unambiguous raster coverage diagnostic.
  *  - 'lens-mask': lens meshes white, every other eyewear mesh black (it still hides the lens behind it), black background.
  *  - 'normals': view-space normals of every eyewear mesh, black background.
  *  - 'lens-hidden' / 'lens-only': the beauty render (one unguarded pass) with the lens meshes hidden / with only the lens
@@ -12,9 +13,9 @@
  *  current clip planes (a hard cut where the beauty render fades over the last 5 mm). */
 import {Color, DoubleSide, Material, MeshBasicMaterial, MeshNormalMaterial, SRGBColorSpace} from 'three';
 
-export const RENDER_OVERRIDES = Object.freeze(['part-id', 'lens-mask', 'lens-hidden', 'lens-only', 'normals'] as const);
+export const RENDER_OVERRIDES = Object.freeze(['part-id', 'silhouette', 'lens-mask', 'lens-hidden', 'lens-only', 'normals'] as const);
 export type RenderOverride = typeof RENDER_OVERRIDES[number];
-export const FLAT_OVERRIDES: ReadonlySet<RenderOverride> = new Set(['part-id', 'lens-mask', 'normals']);
+export const FLAT_OVERRIDES: ReadonlySet<RenderOverride> = new Set(['part-id', 'silhouette', 'lens-mask', 'normals']);
 export const LENS_ID_RGB = Object.freeze([255, 0, 255] as const);
 export type PartSide = 'left' | 'right' | 'centre';
 export interface PaletteEntry {
@@ -107,7 +108,7 @@ function withClip<T extends Material>(material: T, uniforms: ClipUniforms, clip:
   return material;
 }
 
-/** The flat override material for one mesh slot. `rgb` is used by part-id and lens-mask. */
+/** The flat override material for one mesh slot. `rgb` is used by all flat colour overrides. */
 export function flatOverrideMaterial(override: RenderOverride, rgb: readonly [number, number, number], uniforms: ClipUniforms,
   clip: boolean, side: 0 | 1 | null): Material {
   // Packed view-space normals, not tone-mapped (the canvas still encodes them to sRGB like every other pixel).

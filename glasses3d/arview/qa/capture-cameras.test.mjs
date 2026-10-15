@@ -1,7 +1,7 @@
 /** arview capture --cameras <cameras.json> --no-face, end to end on the GPU (the REAL orchestrator in this process): a box
  *  GLB seen from two explicit cameras, no face.
  *
- *  - exit 0, the report says no face and names the cameras file by sha256; two images per camera, nothing else;
+ *  - exit 0, the report says no face and names the cameras file by sha256; three images per camera;
  *  - each part-id silhouette lies exactly where the cameras file's pinhole projection puts the model's corners (the
  *    box parts' bounding box, within 1.5 px), so the camera reached the renderer unchanged (no face fit, no auto scale);
  *  - the beauty image's corner is the camera's own background colour (the frame the lenses transmit);
@@ -71,7 +71,8 @@ test('--cameras --no-face renders each explicit camera exactly, without a face',
     assert.equal(report.request.no_face, true); assert.equal(report.request.fixed_scale, true); assert.equal(report.request.poses, null);
     assert.deepEqual(report.request.cameras.ids, ['front_above', 'side_px']);
     assert.deepEqual(report.images.map(image => image.file).sort(),
-      ['front_above__beauty.png', 'front_above__part-id.png', 'side_px__beauty.png', 'side_px__part-id.png']);
+      ['front_above__beauty.png', 'front_above__part-id.png', 'front_above__silhouette.png',
+        'side_px__beauty.png', 'side_px__part-id.png', 'side_px__silhouette.png']);
     assert.equal(report.portrait, null, 'no face, no portrait');
     assert.deepEqual(report.poses.map(entry => [entry.id, entry.kind, entry.explicit]), [['front_above', 'explicit_camera', true], ['side_px', 'explicit_camera', true]]);
     assert.deepEqual(report.poses[0].meta, {note: 'test'});
@@ -81,6 +82,12 @@ test('--cameras --no-face renders each explicit camera exactly, without a face',
     for (const spec of parseCameraSet(cameras).cameras) {
       const partId = decodePng(fs.readFileSync(path.join(out, `${spec.id}__part-id.png`)));
       assert.deepEqual([partId.width, partId.height], [spec.width, spec.height]);
+      const silhouette = decodePng(fs.readFileSync(path.join(out, `${spec.id}__silhouette.png`)));
+      for (let y = 0; y < partId.height; y++) for (let x = 0; x < partId.width; x++) {
+        const rgb = pixel(silhouette, x, y);
+        assert.ok(rgb[0] === rgb[1] && rgb[1] === rgb[2], 'coverage is a scalar');
+        assert.equal(rgb[0] > 0, Math.max(...pixel(partId, x, y)) > 0, 'same geometry/coverage as part-id');
+      }
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (let y = 0; y < partId.height; y++) for (let x = 0; x < partId.width; x++) {
         if (Math.max(...pixel(partId, x, y)) <= 40) continue;

@@ -151,8 +151,9 @@ HARD_TIMEOUT_S = {
     "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
     "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,
     "deliver": 600, "pick_surface_point": 30, "read_image": 30, "read_report": 30, "scene_summary": 30,
-    # Composite finish: export 120 + AR 300 + fallback bounds 30/render 300 + host margin 30.
-    "finish": 780, "budget_status": 30,
+    "compare_look_to_photos": 750,  # export 120 + photo-camera 280 + worn capture 280 + host margin
+    # Composite finish: existing 780 + optional front-photo AR comparison (reuses the worn capture).
+    "finish": 1080, "budget_status": 30,
     # the facet tools (WP6_FACETS §4.3): 3 x the slowest call measured on the Prada lab (agent/temple_lab, a warm
     # worker, studio_dome_v1 and photo_env, 2026-10-11), rounded up, never below 30 s: inspect 0.3 s, photo_image
     # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached);

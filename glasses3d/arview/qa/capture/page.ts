@@ -354,12 +354,12 @@ function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unkno
 }
 
 /** One render of the explicit camera: the beauty image (the try-on's draw, no hair, no face shadows, no guard: there is no
- *  face) or the part-id silhouette on black. */
+ *  face), part IDs on black, or scalar white-on-black silhouette coverage. */
 async function renderCamera(request: {variant: CameraVariant; file: string}): Promise<Record<string, unknown>> {
   const instance = instanceOf();
   if (!instance.explicitCameraPosed) throw new Error('renderCamera: no explicit camera is posed.');
   const warnings: string[] = [];
-  const timing: FrameTimings = request.variant === 'part-id' ? instance.render(null, {override: 'part-id'})
+  const timing: FrameTimings = request.variant !== 'beauty' ? instance.render(null, {override: request.variant})
     : instance.render(null, {hair: false, shadows: false, guard: false});
   const pixels = instance.readback();
   if (pixels.width !== state.source.width || pixels.height !== state.source.height) {

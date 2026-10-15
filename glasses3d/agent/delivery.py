@@ -200,11 +200,43 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
     ar = scene.last_ar
     capture, raw, shown, contact = _capture_files(root, ar, exp["sha256"])
     return _package(root, result, exp, checkpoint, finished["fingerprint"], exit_head,
-                    finished.get("summary", ""), ar, model, capture, raw, shown, contact)
+                    finished.get("summary", ""), ar, model, capture, raw, shown, contact,
+                    look=finished.get("look_comparison"), finish_images=finished.get("images", []))
+
+
+def _map_paths(value, paths):
+    if isinstance(value, dict):
+        return {key: _map_paths(item, paths) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_map_paths(item, paths) for item in value]
+    return paths.get(value, value) if isinstance(value, str) else value
+
+
+def _look_files(root, look, glb_sha, files):
+    """Optional likeness evidence has no quality gate, but successful evidence must retain its bytes/identity."""
+    if not look or look.get("status") != "ok":
+        return copy.deepcopy(look)
+    path, data = _read(root, look.get("report"), look.get("report_sha256", ""))
+    doc = _document(data, "look comparison")
+    if doc.get("schema") != "g3d.look_comparison/1" or doc.get("export_sha256") != glb_sha:
+        raise DeliveryError("look comparison does not bind this export")
+    if any(doc.get(key) != value for key, value in look.items() if key not in ("report", "report_sha256")):
+        raise DeliveryError("look comparison differs from its saved report")
+    paths = {}
+    for asset in doc.get("assets", []):
+        original, payload = _read(root, asset["path"], asset["sha256"])
+        if not original.is_relative_to(path.parent):
+            raise DeliveryError("look asset escapes comparison directory")
+        name = "look/" + original.relative_to(path.parent).as_posix()
+        files[name], paths[str(original)] = payload, name
+    converted = _map_paths(doc, paths)
+    name = "look/comparison-report.json"
+    files[name] = _json_bytes(converted)
+    return {**converted, "report": name, "report_sha256": _sha(files[name])}
 
 
 def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar, model,
-             capture, raw, shown, contact, *, source=None, selection=None):
+             capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=()):
     """Package evidence without changing a check's result. Drafts never enter the finish validator."""
     draft = source is not None
     files = {"model.glb": model}
@@ -261,6 +293,15 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
               "arview": ar_record, "cost": owner_money(result.get("budget")),
               "summary": summary, "finished": not draft, "accepted_finish": not draft,
               "run_status": result.get("status")}
+    if look is not None:
+        report["look_comparison"] = _look_files(root, look, exp["sha256"], files)
+    if look and look.get("status") == "ok":
+        report["finish_images"] = []
+        for index, image in enumerate(finish_images):
+            path, data = _read(root, image["path"], image["sha256"])
+            name = f"finish-images/{index:02d}{path.suffix.lower()}"
+            files[name] = data
+            report["finish_images"].append({"path": name, "sha256": _sha(data)})
     if draft:
         report.update(source_checkpoint=copy.deepcopy(source), checkpoint_selection=selection,
                       failed_checks=_failed_checks(report))
@@ -287,6 +328,13 @@ def _failed_checks(report):
 
 def _resolved_report(directory: Path, report: dict) -> dict:
     report = copy.deepcopy(report)
+    look = report.get("look_comparison")
+    if look and look.get("status") == "ok":
+        paths = {a["path"]: str(_inside(directory, a["path"])) for a in look["assets"]}
+        paths[look["report"]] = str(_inside(directory, look["report"]))
+        report["look_comparison"] = _map_paths(look, paths)
+    for image in report.get("finish_images", []):
+        image["path"] = str(_inside(directory, image["path"]))
     ar = report["arview"]
     if ar.get("report"):
         ar["report"] = str(_inside(directory, ar["report"]))
@@ -401,6 +449,15 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     elif "arview/report.json" not in records:
         raise DeliveryError("delivery manifest is incomplete")
     _capture_files(directory, report.get("arview"), sha, draft=draft)
+    look = report.get("look_comparison")
+    if look and look.get("status") == "ok":
+        _, look_bytes = _read(directory, look["report"], look["report_sha256"])
+        doc = _document(look_bytes, "look comparison")
+        if (doc.get("export_sha256") != sha or
+                any(doc.get(key) != value for key, value in look.items() if key not in ("report", "report_sha256"))):
+            raise DeliveryError("packaged look comparison differs from the delivered export/report")
+        for asset in look["assets"]:
+            _read(directory, asset["path"], asset["sha256"])
     sheets = manifest.get("contact_sheets")
     if (sheets != report["arview"]["sheets"] or (not sheets and not draft)
             or any(path not in records for path in sheets)):

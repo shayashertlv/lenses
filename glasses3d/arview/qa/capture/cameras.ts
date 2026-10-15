@@ -22,7 +22,7 @@
  *
  *  A camera-space point (X, Y, Z) (Z < 0 in front) lands at u = cx + fx X / -Z, v = cy - fy Y / -Z (`projectPixel`). Each
  *  camera yields `<id>__beauty.png` (on its background) and `<id>__part-id.png` (flat part colours on black, the
- *  silhouette). */
+ *  silhouette), plus `<id>__silhouette.png` (white on black, for unambiguous edge coverage). */
 
 export const CAMERAS_SCHEMA = 'arview.cameras/1';
 export const CAMERA_ID = /^[a-z0-9][a-z0-9_-]{0,60}$/;
@@ -30,7 +30,7 @@ export const MAX_CAMERAS = 64;
 export const CAMERA_SIZE = Object.freeze({minWidth: 64, maxWidth: 1280, minHeight: 64, maxHeight: 1280});
 /** The scene is in centimetres (the try-on's virtual camera space); the cameras file is in metres. */
 export const METRES_TO_SCENE = 100;
-export const CAMERA_VARIANTS = Object.freeze(['beauty', 'part-id'] as const);
+export const CAMERA_VARIANTS = Object.freeze(['beauty', 'part-id', 'silhouette'] as const);
 export type CameraVariant = typeof CAMERA_VARIANTS[number];
 
 export interface ExplicitCameraSpec {

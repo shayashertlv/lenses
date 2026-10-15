@@ -21,6 +21,12 @@ The assembled Astra capture adds `--worn-sides` to the seven standard poses: clo
 hair off and the renderer's existing face/head depth meshes visibly shaded in plain skin. Full frames and crop
 rectangles are retained. This is the same hiding geometry, with no new face image or invented ears; the crop runs
 from the near lens edge past the fixed buried temple return. These views explain how the temples sit when worn.
+
+The assembled `compare_look_to_photos` tool uses explicit photo cameras and each photo's measured border colour,
+and includes the same export worn on the pinned test face in every sheet. Colour/lightness measurements are
+information only. Explicit-camera captures retain beauty, part-id and a white-on-black silhouette diagnostic;
+the latter gives scalar edge coverage independent of the part palette. All overrides are temporary and restore
+the authored materials after drawing. Finished deliveries also retain the front-photo comparison and worn view.
 AR spreads, returns and clips the arms, so compare their product length and shape with `compare_to_photos` and
 `photo_read`, not AR. Fixed authored scale and the original seven poses are unchanged.
 

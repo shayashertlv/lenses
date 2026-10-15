@@ -1297,7 +1297,7 @@ export class TryOnRenderer {
     }
   }
 
-  /** part-id, lens-mask and normals (override.ts): flat materials on every eyewear mesh, black background, no guard, hair,
+  /** part-id, silhouette, lens-mask and normals: flat materials on every eyewear mesh, black background, no guard, hair,
    *  shadows or look-through; overlays hidden; the face and head depth occluders kept; temples cut at the live clip. */
   private renderFlat(override: RenderOverride): FrameTimings {
     const root = this.eyewearRoot, tracked = this.facePose.visible || this.explicitCamera, showEyewear = tracked && this.fitRevealed;
@@ -1319,7 +1319,7 @@ export class TryOnRenderer {
         const lensMesh = slots.some(isOpticalMaterial);
         const profile = partVisibilityOf(object), side = profileTempleSide(object);
         const rgb: readonly [number, number, number] = override === 'part-id' ? (lensMesh ? LENS_ID_RGB : partColour(frameIndex++))
-          : lensMesh ? [255, 255, 255] : [0, 0, 0];
+          : override === 'silhouette' || lensMesh ? [255, 255, 255] : [0, 0, 0];
         const replaced = slots.map(material => {
           const lens = isOpticalMaterial(material);
           const cut = !lens && (!profile || profile.region === 'temple_left' || profile.region === 'temple_right');

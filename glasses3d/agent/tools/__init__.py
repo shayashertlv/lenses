@@ -24,7 +24,7 @@ from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from ..money import owner_money
 from ..tool_reports import bounded_tool, limit_output, report_tool
-from . import arview
+from . import arview, look
 from .images import compact_sheet, MAX_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
@@ -34,7 +34,7 @@ from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
-              "export_glb", "arview_capture", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report")
+              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report")
 FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
 
 
@@ -123,7 +123,7 @@ def _sheets(result: dict, name: str) -> list[dict]:
         records.append({"path": result["sheet"], "view": name})
     rendered_views = [(f"reference:{rec['ref']}" if rec.get("ref") else
                        f"canonical:{key}" if rec.get("kind") == "canonical" else key)
-                      for key, rec in (result.get("views") or {}).items()]
+                      for key, rec in (result.get("views") or {}).items()] if name == "render_views" else []
     for i, path in enumerate(result.get("sheets") or []):
         views = rendered_views[i * VIEWS_PER_SHEET:(i + 1) * VIEWS_PER_SHEET] if name == "render_views" else []
         records.append({"path": path, "view": ", ".join(views) if views else f"{name} sheet {i + 1}",
@@ -268,7 +268,16 @@ def build_tools(scene, settings=None) -> list:
                         result = {"status": "ok", "result": result}
                     result.setdefault("call_id", cid)
                     result.setdefault("checkpoint", (scene.s.head or {}).get("id"))
-                    output = _output(scene, cid, name, result)
+                    try:
+                        output = _output(scene, cid, name, result)
+                    except (ValueError, KeyError, TypeError, OSError) as error:
+                        if name != "finish" or result.get("image_source") != "arview_and_look":
+                            raise
+                        # Optional comparison output must not create a new finish gate. AR integrity still applies.
+                        result["look_comparison"] = {"status": "unavailable", "informational_only": True,
+                                                     "code": "E_IMAGE", "message": str(error)}
+                        result.update(images=result["arview"]["images"], image_source="arview")
+                        output = _output(scene, cid, name, result)
                 except FATAL:
                     raise
                 except (ValueError, KeyError, TypeError, OSError) as error:
@@ -494,6 +503,8 @@ def build_tools(scene, settings=None) -> list:
         compact image; a refusal lists every failed check with diagnostic images. Only accepted completes the run.
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
+        Also includes a frozen front-photo colour comparison and the same-export worn portrait as information;
+        missing photo cameras or comparison images do not block finish.
 
         Args:
             summary: What was built and any remaining differences from the photos.
@@ -516,11 +527,15 @@ def build_tools(scene, settings=None) -> list:
             result = {"status": "refused" if failures else "accepted", "call_id": cid,
                       "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
                       "export": exp, "arview": ar, "summary": summary, "failures": failures}
+            result["look_comparison"] = (look.capture(scene.root, exp, cid, front_only=True, worn=ar) if bound else
+                                         {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"})
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
                               message="Finish checks failed: " + ", ".join(f["check"] for f in failures))
             if ar.get("images"):
                 result.update(images=ar["images"], image_source="arview")
+                if result["look_comparison"].get("images"):
+                    result.update(images=ar["images"] + result["look_comparison"]["images"], image_source="arview_and_look")
             else:
                 # This is diagnostic evidence only. It can never satisfy the AR acceptance check.
                 try:
@@ -537,7 +552,7 @@ def build_tools(scene, settings=None) -> list:
 
     tools = [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
             render_views, compare_to_photos, pick_surface_point, photo_read_tool(scene, tool, call),
-            export_glb, arview_capture, read_image, budget_status,
+            export_glb, arview_capture, look.tool_for(scene, tool, call), read_image, budget_status,
             finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
             photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call)]
     return [bounded_tool(item, getattr(scene, "root", None)) for item in tools]
