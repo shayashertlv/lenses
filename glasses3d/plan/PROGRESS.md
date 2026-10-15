@@ -31,12 +31,136 @@ temple-occlusion warnings. After M5-fix-3 and M5-fix-4, the separately approved 
 normally at $10.611259 on c0015**, with specification and AR checks passing without warnings, visible lens
 transparency, and seating still reported as failing. **The owner visually accepted run 4 on 2026-10-15:
 "as far as i can see the model is perfect".** This closes the known-product Oakley validation in M5 step 1;
-Prada, FT1119 and the three unseen products remain unvalidated by this assembly run. No further paid run is
-authorized or started.
+Prada run 1 subsequently completed normally at **$11.903198 settled**, delivering **c0010** with specification,
+seating and AR checks passing. Its temple stage applied the selected revision but reported unresolved top/rear
+likeness. **Prada owner visual acceptance is pending**; FT1119 and the three unseen products have not been run.
+No further paid run is authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## M5-step-2 Prada run 1: finished delivery and review (2026-10-15)
+
+**Finished normally, not a money-stop draft. Spent $11.903198 settled; held $0; unknown $0.** Job
+**`prada-beige-86248315`**, request **`20261015T083404-b50f0d`**, final checkpoint **c0010**. The model is
+recognizably Prada, with close front colour and visibly transparent lenses. The outstanding visual issue is the
+temple configuration across the top, rear and right-side photos. Technical finish is not owner acceptance;
+no Prada verdict was entered and no other paid run was started.
+
+Owner approval, recorded verbatim through `job approve`:
+
+> I approve Prada run 1: job prada-beige-86248315, request 20261015T083404-b50f0d, fresh run, effort max, $20 settled stop and $23 maximum reserve. please start the run, then when the results are in please perform a review
+
+**Execution and identity:** started from the clean primary checkout on `glasses3d` at **bee5e42**, using the
+already-estimated request (expected $15.282279). Fresh, zero history, effort max, $20 settled stop / $23 reserve,
+no turn cap. Detached keeper PID 18408 launched 08:45:01 UTC; model loop 08:45:04–09:37:03 UTC, **3,119.752 s**;
+keeper exited **0** at 09:37:05 UTC. Forty-second monitoring, BLAS threads one and descendant EcoQoS opt-out
+remained active; parallel camera fits used six workers. Native heartbeat maximum gap **2.14 s**, zero write
+failures. No silent stall, unknown API outcome, teardown error or checkpoint failure. No code, job brief or
+reference photo was changed by Codex during the run; only Astra authored the model.
+
+**Accounting and approval audit:** **81/81 requests settled**, no rejected HTTP requests, dangling holds or
+reconciliation entries. Parent **49 requests / $7.192743**; the one temple stage **32 / $4.710455**. Every receipt
+was independently repriced and agrees with the job ledger and final budget. Largest temporary hold
+**$2.628588**, request 81; peak settled plus in-flight hold **$14.347861** ($11.719273 already settled plus that
+hold), below $23. The hold was released at settlement; it is not an additional charge. Peak counted input
+**144,751 tokens**; aggregate cached-input share **95.4706%**. No money limit violation. Exact owner words,
+approval/request hashes, max settings, six beige inputs and description verified; all **627 implementation
+files** matched the saved receipt/source archive and clean bee5e42 before this log update. The six input hashes
+remain unchanged, with no black photo sent to either parent or child. Evidence:
+`data/assembly/m5-prada-prep/review/accounting-audit.json`; native
+`data/jobs/prada-beige-86248315/runs/20261015T083404-b50f0d/{result.json,budget.json,transport/}` and
+`data/jobs/prada-beige-86248315/budget/job-ledger.json`.
+
+**What Astra did:** built a continuous full-rim acetate front/bridge, integral nasal bearing surfaces, curved
+closed taupe lenses, broad faceted temples with full inward hooks, gold hinge parts, bilateral PRADA/MILANO
+markings and simplified crests, inner-arm markings, and a single lens etch. It corrected the initial overly white
+acetate using both photo-background and same-export worn comparisons. It discarded a front-decimation trial and
+instead reduced lens tessellation, retaining the better front. Final export **98,946 triangles / 2,360,492 bytes**,
+22 primitives, no external textures, baked transforms, metre units, +Y up/+Z forward, bridge underside at origin.
+Overall width **145.64 mm is Astra's scale assumption**; no owner dimensions or model number were supplied.
+Astra's final summary explicitly acknowledges unresolved top/rear tips, right-side outline and approximate crest.
+
+**Temple integration proved in a real job:** `temple_stage` entered at parent c0002, ran for **19m 00.895s**, and
+returned `finish: stuck` for unresolved visual agreement, with successful execution/hard checks. It deliberately
+selected **revision 7 / original child c0009**, restored it as child c0014, and applied it as parent c0003.
+All three fingerprints match; the fitted-spec SHA is revision 7, not latest applied trial 9 or built variant 11.
+Independent GLB-array comparison shows only Temple_L/R geometry/normals changed; front, lenses, hinges, materials,
+transforms and UVs were preserved. Stage solids closed, Euler 2, planar checks pass, minimum thickness **3.24 mm**.
+The front border-ramp warning remains. Six crossing readings came only from photos 02/05, so zero fitted residual
+with zero degrees of freedom is not independent multi-view agreement. Astra retained the measured facets after
+trials could not reconcile top/rear and side views. Evidence: `review/stage-audit.json` under the prep folder;
+run tool `0008-temple_stage`, `0040-facet_finish`, and the stage receipt.
+
+**Final technical checks:** all **7 specification rows pass**, no specification error or live triangle-budget
+failure. Both primary lenses are independently closed/outward with zero boundary/nonmanifold edges,
+**2,247.036 mm³ volume each**, single-sided, transmission **1**, IOR **1.49**, roughness **0.045**. Opaque frame
+material is unchanged by the exporter single-sided policy. Seating passes **768/768 acetate stations**, capture
+**0.8204–0.8898 mm** against the 0.6 mm rule. An earlier helper repair was refused at c0004 for excessive face
+deformation; Astra then added a smooth 0.72 mm buried lens margin and rechecked successfully. Seating remains
+information under the owner's policy, not a finish gate. Decorative lens glyph component #8 is reported
+zero-thickness/nonclosed: do not extend the closed-primary-lens result to every lettering component.
+
+AR capture exits **0**, fixed scale, front portrait/checker and both close ±50° worn sides included. Eyes, skin
+texture and checker squares are plainly visible through both lenses. Front lens background response **0.513** is
+display-RGB information, **not physical VLT**. Four spec warnings remain: **6 front / 18 left-temple / 22
+right-temple zero-area triangles**, plus temple roots only **1.62 mm** above lens centre. The AR report has those
+four plus two broad-temple classification warnings and **LIVE SITE DIFFERS (arm spread)**: this review renderer
+spreads from guard z −19.8 mm; live `ar/` pivots at thin-shaft boundary z −77 mm, potentially hiding proximal broad
+arms in turned views. Astra's summary omitted these three renderer warnings; preserve them here. Front and
+temples are separate model objects despite the heuristic warning's generic wording. No renderer or gate changed.
+Full technical audit: `data/assembly/m5-prada-prep/review/technical_audit.json`.
+
+**Visual review of all six beige photos and final AR:** warm cream replaces the initial chalk-white look; front
+and angled grey/taupe lens colour is close, while the side-on crop looks more golden. Front lens median RGB is
+**[186,181,173]** in both reference and drawing; frame **[232,226,201]** reference versus **[232,227,204]** drawing.
+These support the eye judgment but are not appearance gates. Final basis-01 geometry comparisons on c0010:
+
+| Reference / wearer view | Silhouette IoU | Mean contour distance |
+|---|---:|---:|
+| 04 front / both | 95.14% | 0.645 mm |
+| 02 angled / left | 88.99% | 1.412 mm |
+| 05 side / left | 84.04% | 1.962 mm |
+| 03 top / both | 80.32% | 1.365 mm |
+| 06 rear / both | 76.34% | 3.274 mm |
+| 01 side / right | 68.96% | 5.801 mm |
+
+The right-side matte includes visible floor reflection/shadow; its number is not a pure shape-error measurement.
+Rear hooks visibly project too far inward and terminate higher than the reference; top tips and the right-side
+far arm also differ. Existing evidence cannot separate camera, pose and geometry contributions, so this is not
+proven to be simply short arms. Left-side projected reach is close. Facets are real, visible in normal passes and
+worn sides, but the hinge-side triangle is faint and small arm-to-hook steps are less smooth than the photo.
+Front bridge/corner bevels are sharper; crest/hardware are simplified and lens etch remains more conspicuous on
+the face. A second fitted basis exists from c0006; finish uses its front camera, while the final six-view audit
+uses basis-01. Do not claim improvement by comparing numbers across those bases. Detailed eye review with native
+image paths: `data/assembly/m5-prada-prep/review/visual-review.md`.
+
+**Infrastructure finding, not repaired during the run:** four font-loader refusals (calls 53–56) cost
+**$0.411204 settled**, including **$0.288771** of retries after the first misleading suggestion. The sandbox says
+to use `load_font(family)`, but the existing trusted worker loader has no general tool wrapper; neither bare
+`load_font` nor `g3d.load_font` is callable. Font files exist. Astra recovered with geometric PRADA glyphs and
+Blender's default MILANO font. Future repair should expose the existing allowlisted loader as a journaled host
+tool, keeping arbitrary file reads blocked. No capability/gate was changed. Evidence: `review/font-loader-finding.json`.
+
+**Delivery/review:** immutable delivery
+`20261015T083404-b50f0d-99b86662482797375bfea35d0b91b33447d564942cf349d558f1af857415a94e`, GLB SHA
+`7a0f508530daf5b3253479a3090c5e2d2450fbbbf1c21f18b66ab4ea0eb77d4a`. Native delivery report and manifest hashes
+verified. `job review prada-beige-86248315 --port 0` started verified WMI-detached webcam server PID **33532**,
+port **58592**, bound to these exact bytes and fixed lens environment 1; page queued in Codex. URL/binding in
+`data/jobs/prada-beige-86248315/review/current.json`. Unedited short-path evidence copies, all hash-checked:
+
+- `data/assembly/m5-prada-prep/review/front-photo-and-worn.png` (front photo first, final finish comparison);
+- `data/assembly/m5-prada-prep/review/ar-contact-sheet.jpg` (portrait, checker, ±50° worn sides, standard poses);
+- `data/assembly/m5-prada-prep/review/front-angle-side-and-worn.png` and `side-photo-and-worn.png`;
+- `data/assembly/m5-prada-prep/review/six-view-geometry.png` (Blender/clay/overlay evidence; judge colour in AR);
+- `data/assembly/m5-prada-prep/review/image-manifest.json` (original paths, hashes and delivery binding).
+
+Only this progress log is committed with an explicit path. No runtime code changed, so no new test or full-suite
+rerun was warranted: verification was the real end-to-end run, final spec/seating/AR checks and independent
+read-only receipt, source, geometry and visual audits. The **197/197** offline intake tests from prep remain the
+relevant code-test baseline. No photos, jobs, model assets or local evidence committed; never pushed. Await owner
+visual judgment; no further paid run authorized.
 
 ## M5-step-2 Prada prep: ready for owner approval ($0, 2026-10-15)
 
