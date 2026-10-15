@@ -38,7 +38,67 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
-## M5-step-2 Prada prep: owner description missing; photos checked ($0, 2026-10-15)
+## M5-step-2 Prada prep: ready for owner approval ($0, 2026-10-15)
+
+Resumed clean on `glasses3d` at `6be1cbd`, after the owner supplied the missing description in this chat's reply
+to question `call_11ac9dc3eaca415ca217378f3a742fb9`. **That latest owner reply is the description's source**, not
+the older Studio research or a coding-agent paraphrase. The job stores the exact 306-character reply, including
+the first line's trailing space and no final newline, byte-for-byte. Local verbatim copy:
+`data/assembly/m5-prada-prep/owner-description.txt`; SHA
+`38161f1e2bfd61fca102eb851838046cf1d166a56c072522113a0c6b0c3baaec`.
+
+**Items 1-4 completed at $0; waiting for approval:**
+
+1. Normal CLI `python -m glasses3d job create` created **`prada-beige-86248315`**, named **Prada beige**, from
+   the six beige source photos listed in the source-photo audit below. Description is the owner's exact material,
+   polished-beige finish and logo note. No separate owner measurements/specification file was supplied, so
+   `specs_json` is exactly `{}`; no researched size, SKU or generated facts were added. Photos were copied without
+   re-encoding. Job JSON SHA `b070a416e0a17fa3e2dbbe31509510621cbd83eadc2f88a365b046a6e59537ce`.
+2. All **six copied photos** were checked against the original WP6 sources and visually rechecked. Labels remain:
+   **01 side/right; 02 angled/left; 03 top/both; 04 front/both; 05 side/left; 06 rear/both** (wearer's sides).
+   **6/6 hashes match; zero black photos.** The original source paths and full SHA-256 values are in the next
+   section and `data/assembly/m5-prada-prep/photo-audit.json`. The front-first labelled sheet remains
+   `data/assembly/m5-prada-prep/beige-photos-labelled.jpg`.
+3. Printed and inspected the actual prepared brief, invocation, instructions and every tool description, including
+   the nested temple registry. Saved all exact schemas, text, settings, photo IDs and hashes under
+   **`data/assembly/m5-prada-prep/run-inputs/`**. Parent: **24 tools / 7,991 instruction characters** (under 8,000).
+   Child: **8 tools**, with its separate **9,497-character** specialist instructions and matching approval contract.
+   `temple_stage` fits the photographed broad, solid acetate bodies with faceted outer faces; its documented
+   single-material/body-outline/hinge-capture limits still apply to Astra's future geometry. Metal hinges remain
+   separate. Its catalog contains only `reference-01` through `reference-06`, all target photos. No historical
+   black photo, WP6 scene, fitted temple, camera basis or conversation is imported. The child's future brief must
+   be generated from the parent's current geometry and cameras at stage entry; it cannot exist before that model.
+   Parent invocation explicitly says **$20 settled stop / $23 reserve**. Parent and child settings are max effort
+   and share those enforced limits; no Astra-selected money argument exists. Retain the earlier audit's wording
+   caveat: the child's first message calls remaining reserve an "allowance" and does not restate $20 there;
+   subsequent shared footers do. This is a known presentation limitation, not another spending allowance.
+4. `job estimate prada-beige-86248315 --cap 23 --settled-stop 20` created fresh request
+   **`20261015T083404-b50f0d`**, request SHA
+   **`e163cf30b49ff784aaf3f85933f14f9f8623e0af525fcc733caa822fdcca2721`**. Expected cost **$15.282279**;
+   growth-only range **$13.525186-$20.843376** (CLI conservatively displays **$15.29, $13.53-$20.85**).
+   Effort **max**, settled stop **$20**, maximum reserve **$23**, no turn cap, **fresh / not a resume**.
+   Forecast assumes 60 replies and historical temple-run growth; it is not a confidence interval or a separately
+   forecast parent-plus-specialist workload. The upper estimate exceeds $20; only the live money guard bounds
+   requests, and completion before a money stop is not guaranteed. No approval has been written or consumed.
+
+**Verification:** input preparation was recomputed with socket connections forbidden. Description bytes, all six
+sent image identities, fresh zero-history input, settings, tool contracts and request SHA agree. Independent audit
+reconstructed the same parent and nested schemas and verified all **12 preview-file hashes**. No worker was
+started, no existing scene/checkpoint/history exists in this fresh job, and the empty template will be created by
+the authorized runner. The run directory contains only its approval request. `git check-ignore` confirms the job,
+photos and evidence stay local.
+
+Relevant existing suites (`test_jobs`, `test_brief`, `test_instructions`, `test_session_inputs`, `test_approvals`,
+`test_job_cli`, `test_temple_stage_budget`) passed **197/197 in 16.21 s**, using **8 workers, --dist loadfile**,
+BLAS threads one, with **29.0 GiB free commit** checked before launch. Log and exit 0:
+`data/assembly/m5-prada-prep/intake-tests.{log,exit}`. These are offline tests using synthetic temporary approvals;
+the Prada request remains unapproved. No new test or runtime code was written, and no full model regression suite
+was repeated for this job-data/progress-only prep. **Actual spend $0; no API request or paid run.**
+
+Only PROGRESS.md is committed with an explicit path; no photos/job artifacts or code are committed, nothing pushed.
+Next action is the owner's explicit approval of this job/request and estimate. Do not start a paid run until then.
+
+## M5-step-2 Prada prep: initial missing-description audit, resolved above ($0, 2026-10-15)
 
 Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, branch `glasses3d`, clean at
 `cbc5cfc`; the requested ancestry check passed. Read ASSEMBLY's new M5-step-2 prep. Latest owner restriction,
