@@ -1,5 +1,90 @@
 # glasses3d progress
 
+## 2026-10-15 — M5-fix-7 hinge-side triangle investigation complete ($0)
+
+Confirmed the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at **`69bf095`**.
+Owner comment, verbatim: **"the issue i see is that the facets are missing the triangle which is mostly close to
+the lenses frame. it is seen a bit in some view but barely, not like it should be, theres a noticeable difference
+between the triangles in the reference images. other than that im pretty happy with the results"**.
+Owner instruction, verbatim: **"let codex investigate please"**.
+
+Scope: ASSEMBLY M5-fix-7 items 1–2 only. Trace both temple stages in Prada run 2 `20261015T142422-a3e947`, measure
+the delivered hinge-side triangle, inspect the actual photo readings and Astra's close-up observations, then
+compare controlled angle variants under the AR renderer at the frozen photo cameras. Diagnostic copies only;
+no delivery/model/job/source/gate changes and no paid calls. Before the investigation, **225 delivery/input/
+checkpoint files** were hash-recorded in `data/assembly/m5-fix-7/protected-assets-before.json`; the final delivery
+GLB is `6c37275210ac54a543b63d8ecb10404eebc4a43a3dfc4b989db90b0166a99477`. The reproducible read-only guard is
+`data/assembly/m5-fix-7/check_unchanged.py`.
+
+**Finding:** the delivered triangle exists as `fore` A-C-D beside `logo` A-B-C, but their normal bend is only
+**1.7297°**, with at most **0.3172 mm inward X relief** from the extended logo plane. The exported normal bend is
+1.72957°/1.72976° on the two temples. Both final temple position/normal/index arrays exactly match the selected
+second-stage export; core-to-GLB position error is at most 0.00001432 mm. Neither export nor `soft:true` erased the
+facet. The `W_FLAT_CREASE` warning reports a small angle without changing it.
+
+**Both stages traced.** Stage 1 (`e7644a295eabc9ff`, selected r0007) used different corner names: `front|logo`,
+shared A-D. Request 31's ridge declaration was refused at **+8.1 chi-squared >4.0**. Request 32 retried without
+the refused declaration; Astra knowingly kept the **−3.649° ±2.155°** shallow valley. Its later shared-node
+variants made a stronger triangle but also changed other faces/outline, so it finished `stuck`. Stage 2
+(`a400ed17eaf07593`, selected r0005) rebuilt after a camera refit. `fore|logo` was **+1.733° ±2.310°, state=open**,
+undeclared. The receipt also called its small built bend `flat`. Request 66 said **"AC is flat within its error,
+left undeclared."** That is not the fit's evidence state: statistical flatness would require |angle|+2sd<2.5°,
+but here it is 6.35°. Stage 2 never attempted this ridge declaration. Its later crease refusals concerned
+`aft|logo`, and its 10.2°/20.7° variants moved a shared corner and several faces, not this triangle alone.
+
+**The photos were available to Astra.** Request 59 supplied native photo/render/crease/geometry close-ups of
+the correct triangle in references 05 and 02. Request 62 discussed other differences; request 70's `stuck` summary
+omitted this specific weak edge. The parent saw subsequent AR/native details and said upper boundaries were less
+prominent, but did not identify this triangle in its final defects. This supports a missed visual correction and
+an explicit open-versus-flat interpretation error, not a claim that no close-ups reached Astra.
+
+**Measurement limit:** stage-2 A/C/D have original `W_RESIDUAL` warnings: chi-squared **19.316/20.904/23.688**
+against 8.8, including **16.5/16.9 pixel** discrepancies for C. B is consistent. The small downstream fit cost
+does not clear those original disagreements. The photos show a clearer triangle, but these readings do not
+establish its exact physical depth/angle. No brightness-to-depth inference, new calibration research, or pick
+movement to force a result was made. Saved native photo/pick/reprojection sheets are under `photo-picks/`.
+
+**$0 controls:** adding only the existing `fore|logo: ridge` declaration to the retained design in memory passes
+unchanged checks: **2.4961°**, **+0.115734 chi-squared**, closed manifold, Euler 2, minimum thickness 1.000001 mm.
+This unused permitted action does not prove that 2.5° would look sufficient. The separate AR experiment rendered
+**36 native images**: predeclared **1.73° / 6.73° / 11.73° / 16.73°** through all six frozen photo cameras, plus
+lighting and normal controls. All **six unchanged controls match the delivery drawings pixel for pixel**. Larger
+angles make the triangle more distinct under identical light, while lighting can still hide a larger fold.
+The diagnostic copies also move adjoining closure surfaces and are not validated product candidates; no angle
+was selected as the physically correct answer. The first capture filename collision and first wrong-side crop
+attempt were caught in review, preserved, and excluded from final sheets/metrics.
+
+**Recommendation, not implemented:** distinguish small built angle from unresolved/flat measurement evidence;
+carry original pixel-consistency warnings beside the fold; give Astra an isolated crease-angle comparison at
+frozen photo cameras and in AR; carry unresolved named visible-face differences into the specialist/parent finish
+reports. Keep existing fit, thickness, manifold and declaration checks. An automatic visual-minimum override of
+conflicting readings would be a separate policy change needing owner approval; this investigation does not prove
+the current gate wrong or change one.
+
+Full committed review: `plan/REVIEW_20261015_PRADA_FACET.md`. Local evidence root:
+`data/assembly/m5-fix-7/`, with `forensics/report.md`, `geometry/FINDINGS.md`, complete call extracts/measurements/
+hashes and reproducible scripts. Photo-first sheets: `renders/reference-05-angle-series.png`,
+`reference-02-angle-series.png`, `reference-01-angle-series.png`, plus `reference-05-light-controls.png`,
+`reference-02-light-controls.png` and both normal controls. `renders/diagnostic-gallery.html` indexes the evidence.
+These are local diagnostic comparisons, not a new delivery. All cost **$0**; no API calls or web transmission.
+
+**Verification:** main suite, `-n 8 --dist loadfile` excluding photoprint: **3,581 passed, 2 skipped, 3 failed,
+734.04 s**. Failures: existing native-image baseline (203 pixels under load against 114.24), render timing
+67.546 s against 60 s, and the power-management test whose initial state was changed by the launcher's descendant
+EcoQoS watcher. Photoprint separately with `-n 2 --dist loadfile`: **314 passed, 213.41 s**. Isolated whole seeing
+module plus the image-baseline and power-management tests, with the descendant watcher disabled so the QoS test
+can measure its initial state: **23 passed, 1 failed, 101.90 s**. Render timing and QoS passed; the previously
+recorded native-image failure remains **199 pixels >114.24**. Its threshold is untouched; this unrelated existing
+failure remains open. Logs/argument/PID/exit receipts: `data/assembly/m5fix7-full.*`, `m5fix7-photoprint.*`,
+`m5fix7-isolated_qos.*`. No new regression test was added for a documentation-only investigation.
+
+The final protected-asset guard passed **225/225 files unchanged**, including the immutable delivery, checkpoint
+and owner inputs; `protected-assets-after.json` records the result. `git diff --check` passed. This entry and the
+full review are the only committed changes, with explicit paths on `glasses3d`; nothing was pushed. M5-fix-7
+items 1–2 are complete. No recommendation was implemented and no paid run started. The next implementation
+requires a new scope decision; the correct physical photo angle and the existing native-image baseline remain
+unresolved, explicitly separated from this completed diagnosis.
+
 ## 2026-10-15 — M5-fix-6 complete; Prada run 2 delivered and reviewed
 
 Confirmed the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at `7053e44`.
