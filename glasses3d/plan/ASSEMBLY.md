@@ -312,11 +312,13 @@ double-sided transmissive material into the transmission input on this GPU, so t
 already darkened. Astra could not see this: `arview_capture` renders only skin backgrounds with `--no-portrait`
 (`agent/tools/arview.py:119-121`), so no eyes or pattern were ever behind its lenses.
 1. **The exporter writes closed lenses single-sided** (general, in `g3d/export_glb.py`, where lens-role material
-   copies are made, ~685-705, or in the post-export JSON patch, ~729+). For a lens-role material whose every mesh
-   is a closed 2-manifold with outward normals (positive signed volume), export `doubleSided: false`; a closed
-   solid never needs its back faces drawn. An open or inward-facing lens mesh keeps its authored setting and the
-   export report says why in one plain note, so Astra can fix its mesh. Frame and temple materials are untouched.
+   copies are made, ~685-705, or in the post-export JSON patch, ~729+). For a see-through material (exported
+   transmission > 0: lenses, and crystal/translucent frame parts, which hit the same Three behaviour) whose every
+   mesh is a closed 2-manifold with outward normals (positive signed volume), export `doubleSided: false`; a closed
+   solid never needs its back faces drawn. An open or inward-facing mesh keeps its authored setting and the
+   export report says why in one plain note, so Astra can fix its mesh. Opaque materials are untouched.
    The export receipt records which materials were changed. Do not edit the viewer: the GLB must be right for any viewer.
+   (Amended 2026-10-15 by Claude: from lens-role only to every see-through material; same cause, same rule.)
 2. **Astra sees eyes and a pattern behind the lenses.** Add to `arview_capture` (and therefore `finish`) the front
    worn portrait on the CLI's existing pinned test face (`--no-portrait` removed) and one front view on the existing
    checker background. Keep everything it has now (the 7 skin poses, the ±50° worn views, fixed scale, hair off,
@@ -327,8 +329,9 @@ already darkened. Astra could not see this: `arview_capture` renders only skin b
 3. **Proof ($0):**
    - (a) re-export run 3's checkpoint c0007 in a copy job with the fixed exporter: only the lens `doubleSided`
      changes (plus receipt/note); its capture shows the eyes and its response matches the diagnostic copy (~0.12);
-   - (b) synthetic cases: a closed outward lens becomes single-sided; a closed inward lens and an open lens surface
-     keep their setting with the note; non-lens double-sided materials are unchanged;
+   - (b) synthetic cases: a closed outward lens and a closed outward crystal frame part become single-sided; a
+     closed inward lens and an open lens surface keep their setting with the note; opaque double-sided materials
+     are unchanged;
    - (c) `tests.proofs.assembly_m1` and the affected suites as §1 describes.
 4. **Show the owner.** Serve the (a) re-export in the webcam review, labelled as "run 3 re-exported with the lens
    fix, same Astra model, not a new delivery", so the owner can judge the lens colour with transparency restored.
