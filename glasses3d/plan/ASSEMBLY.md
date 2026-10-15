@@ -490,6 +490,23 @@ etc". Rule recorded in `glasses3d/AGENTS.md` ("Jobs hold only the owner's inputs
    and estimate (effort max, $20 settled stop, $23 maximum reserve), and stop for the owner's approval unless he
    has already approved it with a condition the estimate meets.
 
+### M5-fix-7. The temple's hinge-side triangle facet (investigate first, $0; added 2026-10-15 by Claude)
+Prada run 2 (`20261015T142422-a3e947`, $16.23, xhigh, c0017). Owner: "the issue i see is that the facets are missing
+the triangle which is mostly close to the lenses frame. it is seen a bit in some view but barely, not like it should
+be, theres a noticeable difference between the triangles in the reference images. other than that im pretty happy
+with the results". Then: "let codex investigate please". This is the open WP6 item "Visible faces" (PROGRESS "WP6 v3":
+an edge the photos show crisply can be measured at only a few degrees and is then built too faint; run 8's
+hinge-side face; the fit refused Astra's ridge declaration; proposal: a declaration with a visible minimum angle,
+chosen from renders and honoured over the readings, plus one prompt rule). The owner's request reopens that item.
+1. **Investigate ($0, read-only on the delivery):** in run 2's two temple stages, what Astra declared, measured
+   (readings, fold angle and its error) and built for that triangle; what the fit or builder refused or flattened;
+   how deep/angled the face is in the delivered GLB versus what the photos show (native `hinge_root` and side/angled
+   pairs); whether Astra saw the difference in its close-ups and what it said. Separate geometry from lighting: render
+   the delivered temple with the face at its built angle and at a few larger angles in the AR viewer at the photo
+   cameras, beside the photos.
+2. **Report to the owner in plain words** with labelled images (photo first), the cause, and a recommended general
+   fix to tools/instructions. Change no product model and no gate; start no paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
