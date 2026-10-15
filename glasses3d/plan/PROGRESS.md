@@ -1,6 +1,6 @@
 # glasses3d progress
 
-## 2026-10-15 — M5-fix-6 and Prada run 2 preparation (in progress)
+## 2026-10-15 — M5-fix-6 complete; Prada run 2 delivered and reviewed
 
 Confirmed the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at `7053e44`.
 Owner effort words, verbatim: **"ok give me a prompt for another run, effort: one below max"**.
@@ -29,16 +29,16 @@ SHA256 `38161f1e2bfd61fca102eb851838046cf1d166a56c072522113a0c6b0c3baaec`, specs
 bytes/order/view labels remain unchanged: 01 right side, 02 left angled, 03 top, 04 front, 05 left side, 06 rear.
 The job has no pending verdict notes; no historical conversation text or extra hints are injected. Parent: 24 tools,
 7,919 instruction characters (under 8,000). Specialist: 8 tools and its existing 9,497-character separate prompt.
-Both use `xhigh`; before launch, the existing operational reset will archive the previous generated runtime and
-verify the empty template, rather than resume the old scene or conversation.
+Both use `xhigh`; before launch, the existing operational reset archived the previous generated runtime and
+verified the empty template, with no old scene or conversation resumed.
 
 The input audit caught the installed Agents SDK refusing a dynamic mapping in a strict tool schema before any
 request. The public `mattes` argument is therefore a strict list of `{photo, mode}` records, normalized into the
 internal per-photo mapping with duplicate/alias/conflict checks. The full real registry now constructs successfully.
 Initial effort/CLI/stage suite: **152 passed, 70.98 s**; focused automatic-matte/schema checks: **23 passed, 3.08 s**;
 proof-control tests: **3 passed**. After the source-byte and frozen-basis checks were added, the complete lightweight
-affected run passed **162 tests in 14.23 s**. `git diff --check` is clean. The real-photo proof and final regression
-results follow when complete.
+affected run passed **162 tests in 14.23 s**. `git diff --check` was clean. The real-photo proof and final regression
+results follow below.
 
 The real six-reference bounded tool output was also exercised: a 67,972-character full diagnostic becomes
 11,157 aggregate text characters (under 12,000), retaining every chosen matte and reason directly. Each pair of
@@ -92,6 +92,95 @@ Logs: `data/assembly/m5fix6-m1-final.*`. The unchanged final-code repeat **passe
 clean receipts, $0** (`data/assembly/m5fix6-m1-final-retry.*`). The one-off Windows publish error did not recur.
 M5-fix-6 items 1–2 and the requested effort support are complete; the pre-existing golden mismatch remains open.
 
+Implementation/proofs committed **`215ddec`** on `glasses3d`, with a clean working tree before the paid request.
+Prada run 2 request **`20261015T142422-a3e947`**: expected **$15.349873**, growth-only range
+**$13.592758–$20.918514**, historical max-cost forecast with no assumed `xhigh` discount. Expected cost is below
+the owner's $20 condition. Parent and specialist are both approval-bound to `xhigh`, no reply cap, **$20 settled
+stop / $23 maximum reserve**. `job approve` recorded the owner's words verbatim:
+**"I approve Prada run 2 if the estimate is under $20: fresh run on job prada-beige-86248315, effort one below max,
+$20 settled stop, $23 maximum reserve."** Request SHA256
+`38c04da8311703578c096c63c3f0d27c7faef90d58a2426b65df9c481c6989b6`.
+
+The previous generated runtime was archived intact to `data/assembly/m5prada2-prior-active/` (1,380 hashed files;
+spec files moved without being inspected). Original job/brief/photos/seed, old runs, immutable deliveries and job
+ledger were preserved. Offline reset verified c0000, the bridge datum EMPTY only, zero product objects and no
+conversation; evidence `data/assembly/m5prada2-fresh-start.json`. Started detached at **2026-10-15 14:25:17 UTC**,
+runner status `data/jobs/prada-beige-86248315/runs/20261015T142422-a3e947/runner-status.json`. This is the only
+authorized paid run. No code, product input, brief or photo changes during it.
+
+**Final result: spent $16.230932 (settled).** The detached runner exited **0** at **2026-10-15 15:51:01 UTC**;
+the run completed normally after **104 requests / 5,138.063 s** and published a **finished delivery, c0017**.
+There are **zero held, unknown, rejected or open requests**. This is a technical finish, not an owner acceptance.
+Every request and provider response echo used **`xhigh`**: parent **51 requests / $7.671140**; temple stage 1
+**31 / $5.090143**; temple stage 2 **22 / $3.469649**. The specialist costs are included in the total. The largest
+individual hold was **$3.108625** (request 104, 183,154 input tokens and a 16,384 output-token allowance); that
+request settled for **$0.247184** and released its hold. The cumulative job ledger is **$28.134130**, including
+Prada run 1; it is not run 2's spend. All 104 receipts, archived usage and tariffs reconcile exactly with the
+closed run/job ledgers and delivery. Evidence: `data/assembly/m5-fix-6/prada2-accounting-audit.{json,py}`.
+The original job JSON, seed and all six photos remain byte-identical to the approval audit. No other paid run
+was started. Monitoring was continuous, including the long CPU camera fits, and is saved in
+`data/assembly/m5-fix-6/20261015T142422-a3e947-monitor.jsonl`.
+
+Immutable delivery ID:
+`20261015T142422-a3e947-593bbd3adea061528de663b5af67c221e2d7754110e9d14cdbc216989c4f7568`.
+Its GLB SHA256 is `6c37275210ac54a543b63d8ecb10404eebc4a43a3dfc4b989db90b0166a99477`;
+manifest SHA256 `33fc54c9054adcccb9230f3455c50853091a9dc96d6ba3ac6132d57859530093`.
+All **216 manifest files** and c0017's saved checkpoint/fingerprint were verified. The delivery is under
+`data/jobs/prada-beige-86248315/deliveries/` plus that ID. The native image inventory and final independent review
+are `data/assembly/m5-fix-6/review-discovery/prada-run2-{inventory.json,visual-review.md}`. All six full pairs and
+49 detail crops are bound to this final GLB, with zero mismatches or stale images.
+
+**What Astra did:** it built a complete cream-beige acetate frame, curved transparent warm-gray lenses,
+sculpted temples, gold hinges and small Prada marks. Its approximately 145 mm width is an estimate, not an owner
+measurement. It used two temple-specialist stages; both returned their best revision as `stuck`, and the parent
+applied the verified results. Their remaining issue was the upper shoulder/transverse facets and hook plan shape.
+After inspecting its first camera fit, Astra itself chose `glossy_floor` overrides for all six photos and refit
+to frozen `basis-02`; these are runtime tool choices, not coding-agent additions to the job. It revisited the
+lenses, inner rims, lettering and hinge leaves and supplied per-photo differences at finish. Its final summary
+explicitly acknowledges top-facet/hook mismatch, simplified bevels and typography, stronger depth-wall shading,
+and low nasal capture. It reports no exact description/photo fact conflict and follows the pale cream photos
+over the optional honey/warm-nude wording.
+
+**Visual review (all six native pairs, all 49 native details, worn front/checker and both worn sides):** the front
+colour and warm-gray tint are close, and eyes/checker squares are clearly visible through both lenses. Front
+shared-mask median sRGB: frame photo `[232,226,201]`, model `[231,224,200]`; lens photo `[186,181,173]`, model
+`[184,179,172]`. These are appearance measurements, not a colour-calibrated certification. The complete six-view
+model still has substantial differences:
+
+- From above, the broad sculpted temple shoulders/ridges read as narrow flat strips; hooks are shorter and
+  more angular, and the photographed gold hinges are much less exposed.
+- Angled/top views show broad shiny gold/beige inner walls instead of the thinner muted rim in the photos.
+  The images establish the mismatch but do not alone separate geometry, lighting and material contributions.
+- Front bevels and arm ends are harder than the rounded polished photo edges. The lens mark is sharper and
+  outline-like; the small temple crest is simplified. Rear opening proportions, saddle and bends differ.
+- Top colour is less close (frame median photo `[234,227,201]`, model `[222,215,188]`); a good front colour
+  match does not imply a good match at every angle.
+
+**Validation / seating / AR:** `validate_spec` passes with no errors or live-site specification failures. It
+reports four zero-area-triangle warnings (temples 18/20, lenses 136/137), not a clean-mesh claim. Seating is
+informational under the owner's policy and **does not pass its diagnostic**: **40/371 stations per lens** are
+below the acetate 0.6 mm rule, worst nasal capture **0.1898 mm**. All stations are enclosed, with front/back
+hidden shares 1.0; there is no exposed lens gap in the reviewed front. No gate was altered. AR capture passes
+at fixed scale with warnings; front display-RGB background response is **0.510**, which is not physical
+transmission/VLT. **The AR report warns that the live site's arm-spread pivot differs from this review renderer:
+the live site may hide arms in turned views that the review captures draw.** Neither the live site nor its
+deployment was changed. `job review` started on the exact immutable delivery at port **8786**; receipt
+`data/assembly/m5-fix-6/prada2-review-command.json`. The owner also requested the orbitable 3D viewer during review.
+Opened the final model in the in-app browser at **http://127.0.0.1:57416/** and visually verified the rendered
+glasses and c0017 label. The ignored `data/assembly/m5-fix-6/prada2-viewer/` package serves only its ten local
+assets (Three 0.185.1), with original GLB bytes/materials and front/angled/top/side/temple cameras. Its lighting
+is explicitly labelled as viewer-specific. All ten assets return 200 and the served model hash equals the
+delivery hash. Detached hidden server PID **12476**, launch receipt `prada2-viewer/server.json`; the viewer tab
+is retained as a deliverable. This adds no product edits or paid calls.
+
+Full pairs are photo-left/model-right, in front-first order: delivery `look/photo-000/full-pair.png` = 04 front,
+`001` = 01 right side, `002` = 02 left angled, `003` = 03 top, `004` = 05 left side, `005` = 06 rear. Each directory
+also contains the unchanged native `outer_corner`, `inner_rim`, `lens_mark`, `hinge_root` and `arm_tip` comparison
+tiles where visible. Same-export worn image: `look/worn-front.png`; AR sheet: `contact-sheets/01.jpg`.
+The complete local review gallery is `data/assembly/m5-fix-6/review-discovery/prada-run2-review-gallery.html`;
+its 182 local references exist and all 68 referenced image-file hashes are unchanged.
+No model or material was changed for this review; it cost **$0**.
+
 Started fresh on 2026-10-10 when WP6 was rebuilt. The previous log (to 62b25e4) and the WP6 v1 design are in
 [archive/20261010](archive/20261010/README.md); older snapshots are in [archive/20261008](archive/20261008/README.md).
 Archived files are evidence, never instructions. The WP6 v1 handoff, the two session prompts and the Astra temple lab
@@ -128,7 +217,8 @@ seating and AR checks passing. Its temple stage applied the selected revision bu
 likeness. **The owner rejected Prada run 1 on 2026-10-15** (verbatim below); FT1119 and the three unseen products have not been run.
 The owner has conditionally authorized exactly one fresh Prada run 2 on the unchanged job at effort one below max,
 $20 settled stop and $23 maximum reserve, only after M5-fix-6 items 1–2 are proven and a fresh estimate is under $20.
-It has not started; preparation is recorded above.
+It completed as `20261015T142422-a3e947`, delivered c0017 for **$16.230932 settled**; preparation, accounting and
+the six-view review are recorded above. The owner has not accepted this delivery.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
