@@ -338,6 +338,49 @@ already darkened. Astra could not see this: `arview_capture` renders only skin b
    Ask him one question: is the lens colour now right, close, or wrong? Record his words verbatim. Do not change the
    colour, coating or any geometry, and do not start a paid run.
 
+### M5-fix-4. Like-for-like colour check: the AR renderer on each photo's background ($0; added 2026-10-15 by Claude)
+M5-fix-3 (`763349d`) made the lens see-through (owner: "the lens is transparent after the fix which is good!").
+Owner on run 3's re-export, by webcam, with a strip of the photo lens beside a strip of the AR lens: "the color
+arent close", and his proposal: Astra should check the colour of its model with images on a white background, the
+same as the reference photos. Claude's $0 check confirms it is the missing test: through the AR renderer's existing
+explicit-camera mode (`arview capture <glb> --cameras <file> --no-face`, `arview/qa/capture/cameras.ts`: "a dev-capture
+mode for comparing a model with product photos"), on the front photo's own white (#ffffff), both run 3's re-export and
+the owner-accepted Oakley show a dark grey-green lens; the photo shows a light violet lens with a green centre
+(`data/assembly/claude-white-check/white-check-compact.png`; approximate hand-placed camera, colour comparison only).
+Astra never had this view: AR captures put a face or skin behind the lens, and `render_views` (white allowed) is
+Blender's renderer, not the one the owner judges in; Astra used it once, before colouring the lens. The darkness is
+Astra's own material choice (run 3: metallic 0.60, grey tint 0.50; the shader's see-through coefficient includes
+`(1 - metallic)`), which it could not see. Do not change the material for Astra.
+1. **A new general tool for Astra** (for example `compare_look_to_photos`), registered in the main session:
+   - export the current head as `arview_capture` does, then draw it with the AR renderer's explicit-camera mode
+     through each requested photo's frozen fitted camera (default: every usable camera in the job's frozen basis;
+     `refs` and `basis` arguments like `compare_to_photos`), with no face, at the authored size and the one fixed
+     lens-reflection setting;
+   - the background is each photo's own background colour, measured from its border (median of border pixels;
+     report the colour and how uniform the border is);
+   - convert the frozen camera exactly (`g3d_host/camera.py`, `cameras.py`, `blender_camera.py`) into
+     `arview.cameras/1` (row-major view matrix in metres, fx, fy, cx, cy, size within 1280 px), including the
+     off-axis eye offsets; a perspective-0 camera becomes an equivalent distant pinhole, stated in the result;
+   - return one sheet: for each photo, the photo and the AR drawing cropped to the same box side by side, plus a
+     close-up pair of the lenses; report as information (never a gate) the median colour and lightness of the lens
+     region and the frame region in photo and drawing, using the AR part-id masks eroded a few pixels;
+   - the description says: this is the like-for-like colour check (same renderer as the owner's AR, same viewpoint
+     and background as each photo); judge lens hue, lightness and see-through and frame colour here; reflection
+     highlights from the AR's fixed room light are expected and are not lens colour; AR face views show the worn result.
+2. **Instructions:** one core line naming the tool as the colour check against the photos. Stay within the
+   8,000-character limit by tightening wording elsewhere without removing any guidance; if that is impossible, stop
+   and say so.
+3. **`finish` includes the front-photo comparison** from this tool in its report and the delivery, as information
+   for Astra and the owner, not a finish requirement.
+4. **Proof ($0):**
+   - (a) camera conversion: on the owner-accepted Oakley with the frozen basis `data/assembly/m5fix1-camera-roll-a`
+     basis 01, the AR part-id silhouette and the Blender silhouette at the same camera agree for every usable photo
+     (report IoU and the largest edge offset; a disagreement is a conversion defect to fix, not a likeness result);
+   - (b) the sheets for all usable photos on the accepted Oakley and on run 3's re-export
+     (`data/assembly/m5fix3-copy-a/.../run3-reexport.glb`);
+   - (c) `tests.proofs.assembly_m1` and the affected suites as §1 describes.
+5. Show the owner (b), the front photo first. Change no material, colour, coating or geometry; start no paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
