@@ -38,6 +38,67 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## M5-step-2 Prada prep: owner description missing; photos checked ($0, 2026-10-15)
+
+Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, branch `glasses3d`, clean at
+`cbc5cfc`; the requested ancestry check passed. Read ASSEMBLY's new M5-step-2 prep. Latest owner restriction,
+verbatim: **"only use the beige model images! no black model images!"** No paid call was made.
+
+**Item 1 is waiting for the owner's exact description.** No owner-authored earlier Prada note was found in the
+original Studio evidence. All three checked job records have `description: ""`:
+
+- `C:/Users/Shay/PycharmProjects/lenses/automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/job.json`
+  (SHA `e94ad68c111c98a0532d7b4cc07ac657542c56ddb093a2da91397dff52540ed8`);
+- `C:/Users/Shay/PycharmProjects/lenses/automation/data/blender_agent/studio/jobs/ff56ff2da2244c89b799f4a0605fb862/job.json`
+  (SHA `19640da1d015fa1d2b92b03eabb8ddb3946848d0cbb192b8ebe76c5364b1224c`);
+- `C:/Users/Shay/PycharmProjects/lenses-recovery/automation-cleanup-20261003T071535Z/moved/claude-review/evidence/prada-latest/job.json`.
+
+Both Studio briefs, the primary prepared brief, both saved initial run prompts and both read-only conversation
+databases were checked. Each database has one user-role row containing the software-assembled brief/invocation
+and six images, with no separate human note. The eight specifications in each of the three records are explicitly
+`spec_provenance.kind: "web"` (24 provenance entries checked), not owner-supplied specifications. The old WP6
+brief is generated technical prose. None is copied into owner-verbatim fields. Asked the owner for the exact Prada
+description, as ASSEMBLY item 1 explicitly requires. **No new job, request, estimate or approval exists yet.**
+
+**Independent work while that answer is pending:** all six beige source photos were inspected by eye, with a second
+independent visual audit agreeing on all six view/side labels. Side means the wearer's side facing the camera.
+They are the exact six target photos from the accepted WP6 run-8 package; **6/6 source bytes and SHA-256 values
+match** `glasses3d/data/wp6v2/lab/package_008/inputs/lab.json` and its copied images. That package's only other
+photos are black B1/B2/B3; all three are excluded. No model, old scene or old camera basis is selected for the fresh job.
+
+Every source path below is under the absolute source directory
+`C:/Users/Shay/PycharmProjects/lenses/automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/images/`:
+
+| Source file | View | Wearer's side | SHA-256 |
+|---|---|---|---|
+| `reference-01.webp` | side | right | `e1788c4c8869a11963f262514b0c8d9954c5e4345456bf29e87fd10d6fa1ba1a` |
+| `reference-02.webp` | angled | left | `5141b9783a543e16fb3cf8cf9d29d20cb158e8ded182ef23e352e8fa2c73652f` |
+| `reference-03.png` | top | both | `44b21912def3f898071ea281b74dcfc27b9e394b81bc2d00c3189cad2df27305` |
+| `reference-04.png` | front | both | `010633ef45943b5d5c9a532f9b0c55216ef4690cbebcd4bbfede50845bd316b6` |
+| `reference-05.png` | side | left | `f63752815dba9f40a39442faee48c704c847fd40a41b53da4a9fa559762ef1ea` |
+| `reference-06.png` | rear | both | `1bfe0852faf6513a409fdc041bebe9403da3dfc419baae1aaa637e2582a95e8f` |
+
+Local evidence: `glasses3d/data/assembly/m5-prada-prep/{photo-audit.json,views.json,beige-photos-labelled.jpg}`.
+The audit includes full absolute paths, image sizes and WP6 manifest SHA. The front-first labelled sheet was
+visually verified. Originals are unchanged. `git check-ignore -v` confirms these local artifacts are ignored.
+
+**Preliminary tool audit, not completion of item 3:** `temple_stage` describes single-material slab temple bodies,
+one top/bottom outline, a vertical inner face and a faceted outer surface. This fits the beige Prada arm bodies
+shown; metal hinges and branding remain distinct. Capture still needs eligible geometry and fitted cameras from
+the fresh run. The specialist receives only the new job's photos, so there is no automatic black-photo import.
+The parent defaults and initial invocation state max effort, $20 settled stop and $23 reserve. The child uses the
+same guard/stop, but `agent/temple_lab/stage.py:256-258` calls remaining reserve a stage "allowance" in its initial
+message without restating the settled-stop value there; shared tool footers do state it. Record this wording caveat
+for the full item-3 input review; no budget enforcement bypass was found and no code was changed.
+
+**Next:** receive the owner's description, create the beige-only fresh job with exact owner text and only sourced
+owner specs, dump/check the actual brief, instructions, all tool descriptions and stage contract, then prepare the
+max-effort $20 settled / $23 reserve request and estimate. The forecast's 60 replies are an estimate, not a turn
+cap or a separately forecast parent-plus-specialist workload. Stop for explicit approval after showing that estimate.
+Items 1-4 are not claimed complete. No full regression suite was run for this interrupted data/document-only prep;
+the executed checks are 6/6 image decodes/dimensions, 6/6 source/WP6 hashes, both visual label audits and ignored-file
+verification. Only this progress record is committed, with an explicit path; nothing pushed.
+
 ## Oakley run 4: owner acceptance and final review ($0, 2026-10-15)
 
 Owner requested: "please review run 4. as far as i can see the model is perfect". Recorded the exact verdict
