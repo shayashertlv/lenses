@@ -27,11 +27,116 @@ Oakley run 2 subsequently delivered a reserve-limit draft at $15.468835. M5-fix-
 calibration research has stopped. The historical disagreement evidence remains below. The owner then approved
 exactly one fresh Oakley run 3. It completed normally at $6.478750, published a finished c0007 delivery, and
 did not call `temple_stage`.** Specification validation passes; seating reports 70 failing stations and AR retains
-temple-occlusion warnings. Owner visual acceptance is pending. No additional paid run is authorized or started.
+temple-occlusion warnings. After M5-fix-3 and M5-fix-4, the separately approved fresh **Oakley run 4 completed
+normally at $10.611259 on c0015**, with specification and AR checks passing without warnings, visible lens
+transparency, and seating still reported as failing. Owner visual acceptance is pending. No further paid run is
+authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Assembly M5 Oakley run 4: approved fresh run, finished delivery (2026-10-15)
+
+Started clean in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout on `glasses3d` at
+`179ac43 Add photo-camera AR colour comparisons with worn evidence`. Owner authorization, verbatim:
+
+> start a fresh Oakley run 4 on job oakley-oo9208-v2-3e057bab, effort max, $20 settled stop and $23 maximum reserve.
+
+- **Request and approval:** new request `20261015T062433-662a82`, expected **$15.285399**, historical growth
+  range **$13.528285-$20.846819**, reported before launch. Max effort, **$20 settled stop / $23 maximum reserve**;
+  approval recorded with `job approve` and the exact owner words. Request SHA
+  `fdf0fff7de25215364a705ada532b7de126c437cb711db81107ff4dfd055d787`. Only this paid run was started.
+- **Fresh start:** preserved the previous generated session/checkpoints/cameras/work/worker/heartbeat under
+  `data/assembly/m5oakley4-prior-active/`, verifying **395 archived files** and **10 stable input/approval files**.
+  Job definition, seed, photos and brief were unchanged. The offline seed check showed only the bridge marker,
+  verified **c0000**, zero product objects and no conversation. Receipt: `m5oakley4-fresh-start.json`.
+  The real run records `resume:false`, zero history items and all six original photos. Snapshot is clean
+  `179ac43` with all **24 tools**, including `compare_look_to_photos`. Credentials were loaded only by the existing
+  runner loader; no credential contents were read or printed by the coding agent.
+- **Execution:** detached keeper PID **34184**, runner launcher PID **10476**, actual Python PID **34552**;
+  UTC **06:25:41-07:21:45** (Jerusalem **09:25:41-10:21:45**), **3364.701 s / 56 min 4.7 s**. Exit **0**;
+  no run error, teardown error or transcript error. Read-only monitoring sampled every 40 seconds and live updates
+  continued throughout: `m5oakley4-monitor.jsonl`, `m5oakley4_monitor.{log,receipt.json,status.json}`; monitor exit 0.
+  BLAS threads were one, detached throttling opt-out enabled, with no competing heavy test pool.
+- **Result:** **spent $10.611259 (settled)** across **60 requests / 60 tools**, no continuation. Finished normally
+  on **c0015**, with **$0 held / $0 unknown**. It did not hit a money stop. `finish` accepted, and the immutable
+  delivery is `deliveries/20261015T062433-662a82-73e35056be8298367b381cf79e641bbe4d6e6c5f60897bdd0874f0e7fca7ad66/`.
+  GLB SHA **`981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`**, **607,988 bytes**,
+  **40 objects / 25,848 triangles**. Checkpoint fingerprint
+  `721236f39ab8a2ff1662e8bef8396c7e55cec7737b745ba46de74f4e98624b58`.
+- **Checks and limitations:** specification validation passes with no errors/warnings; final AR capture passes
+  with no errors/warnings. Print is not required for the plain finish. Seating is a report and remains false:
+  **148 required FAIL, 256 PASS, 26 TRANSITION / 430 required stations**; another **470** stations are visible by
+  design. The dry-run grow operation refused concave notches, without mutation. Astra retained the notch silhouette
+  and vents instead of filling them to force a pass. Finish's front lens background-response number is **0.168**
+  (display-RGB diagnostic, not physical VLT or a gate). All appearance acceptance remains with the owner.
+- **Astra's summary:** it built the complete double-curved shield, vented brow, retention pods, silver emblems,
+  lens lettering, nose pads, hinged forked temples and rubber earsocks. It used a uniform thin-film coating to
+  produce moving green/cyan and violet hues, with no painted colour patch. Eyes and the checker remain visible.
+  It reports less saturated lens colour than the studio photos, localized room reflections, approximate lettering
+  and pod transitions, and uncertain top/right-side correspondence. Scale is inferred (about 145 mm fixed front,
+  159 mm open temple spread), not measured. Top contour discrepancy is about **3.95 mm**, versus **0.75 mm** front.
+- **Owner review:** `job review` started a verified detached WMI server, PID **27320**, port **61179**, bound to
+  the immutable GLB above with fixed lens environment 1. `review/current.json` contains the complete webcam URL;
+  the browser panel was requested in Codex. The immutable front comparison is `look/photo-000-comparison.png`,
+  combined comparison `look/comparison.png`, and AR contact sheet **`contact-sheets/01.jpg`** under the delivery.
+  The six-photo sheet is `work/arview/call_6iTfyMnPU3adkT9fDEh2QaPZ-look/comparison.png`: labeled c0014 but bound
+  to the identical final GLB SHA above (the c0015 checkpoint edit changed metadata, not the exported asset).
+  The front sheet visibly retains all four brow openings and shows the eyes through the lens. Colour still
+  differs from the photo; no owner acceptance is inferred from the technical finish.
+
+**Independent final accounting/integrity audit:** all **60 archived responses**, event hashes, transport/SDK
+receipts and budget usage rows agree. `JobLedger.scan(write=False)` reprices cleanly with no warnings or blocking
+issues. Run spend is exactly **10,611,259 microUSD**. Peak input **193,623 tokens**; largest single hold
+**$3.239488** on request 60. Every request began below the $20 settled stop; the largest settled-plus-held amount
+was **$13.635033**, below $23. All ten stable input/approval files and the regenerated brief retain their hashes;
+all **627** frozen implementation files and source-archive members match clean `179ac43`. `load_delivery` verifies
+the immutable delivery. The expected post-run change is this progress entry. No accounting discrepancy was found.
+
+**Independent final model/tool audit:** **11/11** explicit `compare_look_to_photos` calls succeeded, each with
+the matching export's worn portrait, plus the front comparison at finish. The later checks include all six photos.
+`lens_coating` was actually called **8 times** (tools 0003, 0010, 0017, 0020, 0022, 0033, 0036, 0044).
+Final GLB: uniform **435 nm** film, film IOR **1.8**, iridescence factor **1**, transmission **0.94**, roughness
+**0.10**, tint **[0.44, 0.30, 0.50]**, single-sided. Bulk optical IOR **6** is explicitly an effective appearance
+approximation selected by Astra, not a measured glass property. **Zero `temple_stage` calls**; temples were
+authored directly. Two tool refusals recovered: private `__doc__` access at 0009 (no mutation), and the concave
+`seat_lens` dry run at 0043 (no mutation). No paid request failed.
+
+Six frozen-front seating-repair pairs were returned (0027, 0029, 0033, 0041, 0044, 0049). Independent visual review
+finds central vents remain open in all six, as do the outer vents; 0044 narrows the outermost ends. The diagonal
+lens shading streaks introduced at 0027 were repaired at 0029. The final front/face/checker images show violet
+edges and a green/cyan centre with visible eyes/checker. On white the colour is still less saturated and distributed
+differently from the reference, with conspicuous localized fixed-room highlights. These are observations, not
+owner acceptance.
+
+Final **basis-04** all-product photo comparison (`cameras/basis-04/compares.jsonl`); all cameras are usable under
+the existing lens-optional criterion, which does not certify likeness or metrology:
+
+| Photo | IoU | Mean contour discrepancy, mm | p90, mm |
+|---|---:|---:|---:|
+| 01 front | .944103 | .7531 | 2.1235 |
+| 02 angled | .926641 | 1.0264 | 2.9934 |
+| 03 right | .840142 | 1.5006 | 3.2982 |
+| 04 back | .862717 | 1.3579 | 3.7259 |
+| 05 left | .899073 | .9187 | 2.6202 |
+| 06 top | .588766 | 3.9450 | 13.7631 |
+
+Each repair's native frozen front images are under the job's `work/seating_reports/<id>/{before,after}/front-white.png`
+(also `front_native.png`), with no report warnings:
+
+| Tool | Checkpoint pair | Report id |
+|---|---|---|
+| 0027 | c0007 -> c0008 | `84751447e2231c4400096a81` |
+| 0029 | c0008 -> c0009 | `fda71c62c35bdebc5fe54abd` |
+| 0033 | c0009 -> c0010 | `0989fe6e2781ca3b7f9a4b14` |
+| 0041 | c0011 -> c0012 | `4e1a4be0009e84adf4baf124` |
+| 0044 | c0012 -> c0013 | `87df0ee80f6cb99556bfa144` |
+| 0049 | c0013 -> c0014 | `5ff9999e6f953009ecbb23ff` |
+
+No implementation, brief, job definition or photos were changed for this run. Only this progress record is
+committed; no new regression suite is needed for a log-only change. The actual run's validation, capture and
+immutable delivery are the verification. Nothing pushed.
 
 ## Assembly M5-fix-4: photo-camera AR colour comparisons ($0, 2026-10-15)
 
