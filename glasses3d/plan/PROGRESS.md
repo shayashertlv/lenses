@@ -1,5 +1,120 @@
 # glasses3d progress
 
+## 2026-10-15 — Prada run 3 (xhigh, fresh run; draft at $16.700063)
+
+Started in the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at
+**`42c616d`**. Job `prada-beige-86248315`, its exact 306-character owner description, empty specifications,
+six beige photos and seed were unchanged. No product hints, owner notes, source changes or gate changes were
+added. Owner authorization recorded verbatim: **"I approve Prada run 3 if the estimate is under $20: fresh run
+on job prada-beige-86248315, effort one below max, $20 settled stop, $23 maximum reserve."**
+
+Fresh request **`20261015T185027-2f6756`**, SHA-256
+`5f430fcec69309030c556d4a10bf2ff4589952a85a6fc5e2c3d7cc5bd7c1a331`, estimated **$15.350957**
+(growth-only range **$13.593841-$20.919729**). The expected estimate met the owner's under-$20 condition;
+the estimate used the historical max-effort corpus without inventing an xhigh discount. Approved with `job approve`,
+then launched detached at **18:52:56 UTC**. Parent and specialist both **xhigh**, $20 settled stop, $23 maximum
+reserve, no reply cap. No other paid run was started.
+
+**Exactly what was sent:** the parent had 24 tools and 7,979 instruction characters; the specialist had 10 tools
+and 9,322 formatted instruction characters, including `facet_crease_compare` and `facet_visible_angle`.
+The first actual request matched the approval's exact instructions, tool schemas, settings and six original
+high-detail images: 01 right side (1376x768), 02 left angled (2048x1365), 03 top (1448x1086), 04 front
+(1190x474), 05 left side (1226x682), 06 rear (1468x680). Job SHA-256 remains
+`b070a416e0a17fa3e2dbbe31509510621cbd83eadc2f88a365b046a6e59537ce`. Previous generated runtime was preserved
+in `data/assembly/m5prada3-prior-active` (2,052 hashed files); an offline reset verified empty c0000, only the
+bridge datum EMPTY, no product objects or conversation. The actual specialist handoff also began with no child
+history: the six original photos plus six current-model evidence overlays, parent c0001, 18 captured assets and
+15 camera-basis files hash-verified. Input hashes matched again after the run. Credentials were loaded only by
+the existing secure runner; no credential or .env contents were read.
+
+**Outcome and accounting:** **spent $16.700063 (settled)**. All **88/88** provider responses and ledger rows
+reconcile exactly: parent 55 requests / **$11.395410**, specialist 33 / **$5.304653**, all xhigh. Final held and
+unknown amounts are both **$0**. This run is distinct from the job's cumulative **$44.834193**, which includes
+**$28.134130** from prior runs. The runner ended `budget_limit` after 4,774.533 seconds and published draft
+**c0018**, rather than an accepted finish. Final GLB SHA-256:
+`b7b71e1bec5e1977e7f9a70257da2299108b46aa8db611b13ab6262c17df6da1`.
+
+The first `finish` call generated final AR/photo evidence and returned **`review_required`**. Its required next
+request counted **273,293 input tokens**, up from 246,969, crossing the configured 272k long-context tariff
+threshold. The conservative hold became **$8.061125** ($6.832325 input plus $1.228800 maximum output), above
+the **$6.299937** reserve remaining. Request 89 was blocked **before sending**; none of that $8.061125 was held
+or charged. Astra therefore never received/acknowledged that final evidence in another model response.
+This was a reserve refusal during final review, not a $20 settled-stop hit or a rejected geometry export.
+
+The immutable delivery is
+`data/jobs/prada-beige-86248315/deliveries/20261015T185027-2f6756-a125c9eec48b82be6e46a1bdb7f781cb6ea56aa3ef417ca3cd2dc3317b1f5013/`.
+The run's own delivery receipt, manifest, checkpoint/GLB and all archived files were independently verified.
+The AR contact sheet is `contact-sheets/01.jpg` inside that delivery. Preflight, first-request/child-input audits,
+continuous heartbeat log, final accounting and reserve calculation are under `data/assembly/m5prada3-preflight/`;
+the initial final-delivery inventory is `data/assembly/m5prada3-review/inventory.json`.
+
+**Triangle comparison and final geometry:** Astra used one specialist stage (`eaff14f785fed241`). At request 34,
+`facet_crease_compare` made comparison `crease016` for front|logo: baseline **2.691663 degrees**, alternatives
+**5 / 10 / 15 degrees**. Five and ten passed and were shown beside photos 05/02. Fifteen was refused because it
+would flatten the distinct, sign-certain front|base midpoint to 1.49744 degrees, below the existing 2-degree
+boundary. The original target measurement was **+2.69848 +/-2.66251 degrees, unresolved**, not a certified angle.
+At request 35, `facet_visible_angle` successfully selected **5 degrees**, revision r3/c0009. Its stated preference
+was the clearer triangle with less local reading displacement than ten degrees (1.53 versus 4.86 sd).
+
+The subsequent hook changes refused stale comparison evidence. Astra branched from pre-choice r2, retained r10,
+and did not repeat the comparison; this lost the visual declaration and returned the specialist result to 2.69
+degrees. Its `stuck` summary honestly carried the faint triangle and other unresolved crown/hook mismatches back
+to the parent. The parent then explicitly repaired the actual temple mesh in request 70, c0008 -> c0009, aiming
+for approximately five degrees, and compared its appearance again. This was a direct mesh edit, not a renewed
+comparison-bound declaration. Its stored original construction is explicitly marked historical.
+
+Independent plane fits to the **actual delivered GLB** measure **4.978398 degrees (+X)** and
+**4.978407 degrees (-X)**. Both temples' POSITION, triangle, NORMAL and world-transform arrays are identical to
+the c0009/c0011 exports: the angle survived. Later seam/normal repairs were front-frame-only. Request 70 also
+made all temple polygons smooth and cleared custom normals; mean exported front/logo shading-normal separation
+is 4.5634/4.6004 degrees, with face-normal deviation up to 1.59 degrees. These are shading diagnostics, not a
+claim that five degrees is the photo's true angle or that shading alone explains every likeness difference.
+The old specialist thickness/reading receipts do not validate the later manual deformation. Exact history,
+candidate refusal, actual geometry and final hash checks are in `stage1-angle-trace.*`, `parent-crease-trace.*`
+and `final-delivery-audit.*` under `data/assembly/m5prada3-preflight/`.
+
+**Final checks:** strict specification/export validation passes, with eight warnings (small degenerate triangles
+and bridge underside at +0.63 mm). Lens seating passes **392/392 enclosed stations per lens**, about **0.80 mm**
+support against the **0.60 mm** pass level. No failed checks are listed. AR capture completed with warnings.
+The export is **10,275,656 bytes (9.8 MiB), 240,546 triangles**: it exceeds the live-site 8 MB / 100,000-triangle
+limits, which are reported rather than silently treated as passed. The last front remesh increased that object's
+triangles from 15,698 to 193,090. These limits and the draft's missing final Astra acknowledgment remain open.
+
+**Visual review, original photo first:** all six final photo-camera comparisons already existed in the first
+finish's pending-review report and bind to the exact delivered GLB. The draft manifest itself does not include a
+look report; `review-inventory.json` separately binds that run-generated evidence to the delivery, rather than
+pretending it was acknowledged by Astra. **126 source assets** were hash-verified and copied into the ignored
+review folder. No extra render, model edit or provider call was needed. Native photo/drawing pairs preserve one
+source pixel per output pixel; saved pixel copies were verified. Front reference 04 is first, followed by 01,
+02, 03, 05 and 06. Inspected, identical-coordinate crops of 01/02/05 show the near-frame triangle and adjoining
+logo face. All pairs and crops are in `data/assembly/m5prada3-review/final-pairs/`; original AR/worn evidence is
+kept alongside them. This is a review of the unchanged draft, not a replacement delivery.
+The self-contained `data/assembly/m5prada3-review/gallery.html` presents all six pairs front-first, three triangle
+close-ups and the original worn/checker/AR views (15 verified images total). Its relative links and image hashes
+pass `gallery-check.json`. It is served locally at `http://127.0.0.1:51783/gallery.html` and queued in the Codex
+browser panel; the standalone file and all assets remain available after that local server stops.
+
+The front outline and smoke lens tint are reasonably close in these frozen-camera views, and eyes remain visible
+through the lenses in AR. The near-frame triangle is physically present at approximately five degrees, but its
+boundary/plane contrast remains much weaker than in photos 01/05. The broad arms look flatter and less polished;
+the top-view crown/ridge is simplified, hook/facet transitions are harder, and rear tips differ. The bridge
+underside is more angular, inner-wall highlights stronger, and tiny crest/lettering details are simplified.
+This review does **not** call the triangle likeness resolved or the model owner-accepted. Lighting is not matched
+to the original photography, and the off-axis fitted cameras are visual comparisons, not certified measurements.
+
+Astra's finish summary described a complete warm-beige faceted frame, curved see-through grey-brown lenses,
+multi-faceted inward-return temples, integral nose contacts, gold five-barrel hinges, branding and one lens mark.
+It disclosed the unsupplied dimensions (about 150 mm overall / 145 mm front), simplified crest, angular saddle
+and shoulders, top-view crown/rear-tip mismatch, strong inner-wall highlights and inconsistent cross-view hinge
+measurements. This summary preceded the final generated evidence that Astra never received in another response.
+
+**Verification and scope:** accounting audit passes (88 exact settlements, all xhigh, no holds/unknown charges),
+delivery audit passes (all 40 manifest files hash-match), input audit passes, and review assets/pixels verify.
+No sent request crossed the 272k tariff threshold; the largest actual hold was $3.906313 for request 88, which
+settled at $0.259935. The refused next count is the runner-recorded provider counter result, not a new audit API
+call; raw count response/request 89 was not independently archived. No source code changed, so no code-suite
+rerun was needed for this run/review task. Only this PROGRESS record is committed, with an explicit path; no push.
+
 ## 2026-10-15 — M5-fix-8 visible crease choices ($0, copies only)
 
 Started in the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at **`958fe7d`**.
