@@ -507,6 +507,34 @@ chosen from renders and honoured over the readings, plus one prompt rule). The o
 2. **Report to the owner in plain words** with labelled images (photo first), the cause, and a recommended general
    fix to tools/instructions. Change no product model and no gate; start no paid run.
 
+### M5-fix-8. Facet edges the photos show crisply: angle chosen by the look when measurement can't decide ($0; added 2026-10-15 by Claude)
+Codex's M5-fix-7 review (`2d6a485`, `plan/REVIEW_20261015_PRADA_FACET.md`): the hinge-side triangle is built at
+1.73° (~0.32 mm). Stage 1's convex ridge was refused by the reading check and a 3.65° valley kept; stage 2 measured
+1.73° ± 2.31° (unresolved), the tool printed "flat", and Astra left it undeclared; declaring it passes the checks but
+gives only ~2.5°. Larger folds (+5/+10/+15°) read more clearly in AR room light, most in photo 02; lighting also
+limits it. **Owner decision, 2026-10-15**, asked "When the photo measurements can't decide how sharp a facet edge
+is, may Astra choose the angle from how the photos look (comparing a few angles side by side), instead of building
+it nearly flat?", answered **"Yes, by the look (Recommended)"** (option text: Astra compares several angles against
+the photo close-ups and picks the one that looks right; measurements that are certain still win, and every other
+check stays). Items:
+1. **Honest labels:** report a crease's built angle separately from its measurement state (sign-certain /
+   unresolved / flat within error). Never print "flat" for an unresolved measurement.
+2. **Crease-angle comparison** in the temple specialist: for one named crease, build 3-5 local alternatives
+   (preserving adjacent faces as far as the builder allows), draw each in the AR viewer at the frozen photo cameras
+   where the face is visible, beside the native photo close-ups, in the AR room light the owner judges in (other
+   lighting as information). Report reading residuals, wall thickness and affected geometry per alternative.
+3. **Visible-angle declaration (owner-approved policy):** when a crease's measurement is unresolved, Astra may
+   declare the angle it chose from that comparison; the builder honours it over the unresolved readings and the
+   report records the declaration and its comparison. A sign-certain measurement that contradicts it still refuses.
+   Every hard refusal stays (closed solid, thickness, declared ridge/valley = built, strict spec validity).
+4. **Instructions** (specialist and one parent line): a facet edge the photos show crisply but the build shows
+   faintly is a difference to fix with items 2-3; carry any unresolved named facet mismatch, with its crop, into the
+   stage summary and the finish review.
+5. **Proof ($0, copies only):** on a copy of Prada run 2's temple stage state, the comparison for the hinge-side
+   triangle; a declared visible angle that builds, passes the hard checks and shows the triangle in the AR pairs; a
+   conflicting declaration against a sign-certain reading still refused; `tests.proofs.assembly_m1` and the affected
+   suites as §1 describes. Show the owner photo-first images. Change no delivered model; start no paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
