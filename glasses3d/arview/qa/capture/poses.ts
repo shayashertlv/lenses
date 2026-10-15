@@ -87,9 +87,10 @@ export const SAFE_FILE = /^[a-z0-9][a-z0-9_.-]{0,150}\.png$/;
 
 /** The deterministic capture plan: poses in order, each with its renders in order (flat variants first, then the
  *  backgrounds in the given order). */
-export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: readonly BackgroundName[] | null; depthCm: number; wornSides?: boolean}): CapturePlan {
+export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: readonly BackgroundName[] | null; depthCm: number; wornSides?: boolean; lensEvidence?: boolean}): CapturePlan {
   if (!(POSE_SET_NAMES as readonly string[]).includes(set)) throw new Error(`Unknown pose set ${String(set)}.`);
   const backgrounds = options.backgrounds?.length ? [...options.backgrounds] : [...SET_BACKGROUNDS[set]];
+  if (options.lensEvidence) for (const name of ['skin', 'dark'] as const) if (!backgrounds.includes(name)) backgrounds.push(name);
   const angles: {yaw: number; pitch: number; junction: boolean}[] = [];
   if (set === 'default' || set === 'all') for (const [yaw, pitch] of DEFAULT_POSE_ANGLES) angles.push({yaw, pitch, junction: false});
   if (set === 'junction' || set === 'all') for (const [yaw, pitch] of JUNCTION_POSE_ANGLES) angles.push({yaw, pitch, junction: true});
@@ -105,6 +106,7 @@ export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: reado
     };
     for (const variant of flat) add(variant, null);
     for (const background of backgrounds) add('beauty', background);
+    if (options.lensEvidence && planned.id === 'front' && !backgrounds.includes('checker')) add('beauty', 'checker');
     if (set === 'all') {add('lens-hidden', backgrounds[0]!); add('lens-only', backgrounds[0]!);}
     poses.push(Object.freeze({pose: planned, renders: Object.freeze(renders)}));
   }
@@ -113,8 +115,10 @@ export function buildCapturePlan(set: PoseSetName, options: {backgrounds?: reado
     poses.push(Object.freeze({pose: planned, renders: Object.freeze([
       Object.freeze({variant: 'part-id' as const, background: null, file: renderFile(planned.id, 'part-id', null), crops: false}),
       Object.freeze({variant: 'beauty' as const, background: 'skin' as const, file: renderFile(planned.id, 'beauty', 'skin'), crops: false}),
+      ...(options.lensEvidence ? [Object.freeze({variant: 'beauty' as const, background: 'dark' as const,
+        file: renderFile(planned.id, 'beauty', 'dark'), crops: false})] : []),
     ])}));
-    renderCount += 2;
+    renderCount += options.lensEvidence ? 3 : 2;
   }
   return Object.freeze({set, backgrounds: Object.freeze(backgrounds), poses: Object.freeze(poses), renderCount, plannedCropCount,
     plannedWornCropCount: options.wornSides ? 2 : 0});

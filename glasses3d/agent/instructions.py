@@ -106,7 +106,8 @@ CORE_GUIDANCE = {
     "export_glb": "Use `export_glb` to read status, sha256, validate_spec and seat_check. Seating is diagnostic; "
         "specification and print validity still gate finish. Inspect photo likeness separately.",
     "arview_capture": "Use `arview_capture` to inspect the sheets at authored scale across the AR poses. Read "
-        "status, errors and warnings, and match export_sha256 to the export you assessed.",
+        "status, errors and warnings, and match export_sha256 to the export you assessed. Judge see-through lenses "
+        "on the test-face portrait and checker against the photos; background response is information, not a gate.",
     "budget_status": "Use `budget_status` to plan against settled_stop_usd and remaining_to_stop_usd; settled_usd, "
         "remaining_usd and planning also report spend and reserve capacity.",
     "finish": "Call `finish` to export, check and AR-capture the current head in one call. "

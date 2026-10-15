@@ -30,7 +30,7 @@ def main():
     report = json.loads(Path(result["report"]).read_text(encoding="utf-8"))
     assert report["request"]["fixed_scale"] is True
     assert report["request"]["plan"]["poses"] == STANDARD + ["yaw_p50", "yaw_m50"]
-    assert len(report["images"]) == report["planned_images"] == 20
+    assert len(report["images"]) == report["planned_images"] == 35
     for pose in report["poses"]:
         assert pose["fitting"]["mode"] == "fixed" and pose["fitting"]["scale"] == 1
     crops = result["worn_views"]
@@ -40,7 +40,7 @@ def main():
         assert crop["head"] == "same occlusion meshes" and crop["hair"] is False
         assert arview.sha256(Path(crop["path"])) == crop["sha256"]
     emitted, _ = _image(out, result["images"][0]["path"], trusted_output=True)
-    assert emitted["size_px"] == emitted["source_size_px"] == [1024, 1000]
+    assert emitted["size_px"] == emitted["source_size_px"] == [1024, 1012]
     with Image.open(out / emitted["path"]) as shown, Image.open(result["images"][0]["path"]) as source:
         assert ImageChops.difference(shown.convert("RGB"), source.convert("RGB")).getbbox() is None
     # Independently capture the unchanged seven-pose path and compare every native standard panel byte-for-byte.
@@ -54,7 +54,7 @@ def main():
     plain_report = json.loads((plain / "report.json").read_text(encoding="utf-8"))
     original = {image["file"]: image["sha256"] for image in plain_report["images"]}
     matches = [{"file": image["file"], "same": image["sha256"] == original[image["file"]]}
-               for image in report["images"] if image["pose"] in STANDARD]
+               for image in report["images"] if image["file"] in original]
     assert len(matches) == 14 and all(row["same"] for row in matches)
     proof = {"status": "passed", "cost_usd": 0, "accepted_asset": str(ACCEPTED), "accepted_sha256": SHA,
              "capture": result, "emitted_image": emitted, "standard_panels_unchanged": matches,

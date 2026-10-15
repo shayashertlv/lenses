@@ -5,6 +5,22 @@ import {buildCapturePlan, cropFile, paintBackground, poseId, renderFile, SAFE_FI
 import {wornCropRect} from './capture/worn.ts';
 import {parseCaptureArgs} from './capture/cli.ts';
 
+test('lens evidence keeps existing views, adds nine background pairs and exactly one front checker', () => {
+  const base = buildCapturePlan('default', {depthCm: 23, wornSides: true});
+  const plan = buildCapturePlan('default', {depthCm: 23, wornSides: true, lensEvidence: true});
+  assert.equal(plan.poses.length, 9);
+  assert.equal(plan.renderCount, 28);
+  assert.equal(plan.plannedWornCropCount, 2);
+  for (const [index, pose] of plan.poses.entries()) {
+    for (const render of base.poses[index].renders) assert.ok(pose.renders.some(r => JSON.stringify(r) === JSON.stringify(render)));
+    for (const background of ['skin', 'dark']) assert.equal(pose.renders.filter(r => r.variant === 'beauty' && r.background === background).length, 1);
+  }
+  assert.deepEqual(plan.poses.flatMap(p => p.renders.filter(r => r.background === 'checker').map(() => p.pose.id)), ['front']);
+  const options = parseCaptureArgs(['m.glb', '--poses', 'default', '--out', 'o', '--lens-evidence']);
+  assert.equal(options.lensEvidence, true); assert.equal(options.portrait, true);
+  assert.throws(() => parseCaptureArgs(['m.glb', '--cameras', 'c.json', '--out', 'o', '--no-face', '--lens-evidence']), /requires the posed backgrounds/);
+});
+
 test('worn sides add +/-50, preserving every standard pose/render and authored distance', () => {
   const base = buildCapturePlan('default', {depthCm: 23});
   const plan = buildCapturePlan('default', {depthCm: 23, wornSides: true});

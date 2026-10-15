@@ -150,7 +150,7 @@ export async function main(argv) {
   const inputSha = sha256(glbBytes);
   const glb = readGlbInput(new Uint8Array(glbBytes.buffer, glbBytes.byteOffset, glbBytes.byteLength));
   const plan = cameraSet ? {set: null, backgrounds: [], poses: [], renderCount: cameraSet.cameras.length * CAMERA_VARIANTS.length, plannedCropCount: 0, plannedWornCropCount: 0}
-    : buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm, wornSides: options.wornSides});
+    : buildCapturePlan(options.poses, {backgrounds: options.backgrounds, depthCm: options.depthCm, wornSides: options.wornSides, lensEvidence: options.lensEvidence});
   const stepMs = Math.round(options.stepTimeoutS * 1000);
   const warnings = [], errors = [], images = [], poses = [], timings = [], idPalette = [];
   const page_ = {console_errors: [], console_warnings: [], page_errors: [], failed_responses: [], blocked_external: [], navigations: 0};
@@ -201,7 +201,7 @@ export async function main(argv) {
     chromium_args: ['--enable-gpu', '--use-angle=d3d11', '--ignore-gpu-blocklist']};
   const request = {glb: glbPath, poses: options.poses, out, backgrounds: plan.backgrounds, size: `${options.width}x${options.height}`,
     depth_cm: options.depthCm, fixed_scale: options.fixedScale, clip: options.clipZM ?? 'auto', lensenv: options.lensEnvIntensity,
-    crop_upscale: options.cropUpscale, portrait: options.portrait, worn_sides: options.wornSides, live_probe: options.liveProbe, step_timeout_s: options.stepTimeoutS,
+    crop_upscale: options.cropUpscale, portrait: options.portrait, worn_sides: options.wornSides, lens_evidence: options.lensEvidence, live_probe: options.liveProbe, step_timeout_s: options.stepTimeoutS,
     plan: {poses: plan.poses.map(entry => entry.pose.id), renders: plan.renderCount, junction_crops: plan.plannedCropCount, worn_crops: plan.plannedWornCropCount}};
   if (cameraSet) {
     // The explicit-camera mode replaces the pose-set fields that do not apply (recorded as such, never as defaults).

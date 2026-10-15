@@ -618,7 +618,8 @@ def test_worker_capacity_is_bounded_by_free_commit_and_cpu(monkeypatch):
 def test_arview_fixed_scale_exit_mapping_and_image_integrity(scene, monkeypatch, code, status):
     monkeypatch.setattr(AR.shutil, "which", lambda name: "node.exe")
     def run_capture(argv, log_dir, **kw):
-        assert "--fixed-scale" in argv and "--no-portrait" in argv and "--worn-sides" in argv
+        assert "--fixed-scale" in argv and "--no-portrait" not in argv and "--worn-sides" in argv
+        assert "--lens-evidence" in argv
         assert argv[argv.index("--lensenv") + 1] == str(AR.LENS_ENV_INTENSITY) == "1"
         assert argv[argv.index("--poses") + 1] == "default"
         out = Path(argv[argv.index("--out") + 1])

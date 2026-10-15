@@ -452,6 +452,8 @@ def build_tools(scene, settings=None) -> list:
     @tool("arview_capture")
     async def arview_capture(ctx: ToolContext):
         """Inspect seven standard AR poses plus close worn sides at yaw +50/-50, fixed authored size and lens reflections.
+        The front test-face portrait and checker show how see-through the lenses look when worn; judge them against
+        the photos. Per-view lens background response is information, not physical transmission/VLT or a finish gate.
         Worn sides draw the actual head occluders in plain skin, hair off, to show how temples sit when worn. AR spreads,
         returns and clips temples behind its canonical head (not measured ears); judge product temple length and shape
         with compare_to_photos and photo_read. Returns one sheet and full capture report; 0=ok, 1=infrastructure,

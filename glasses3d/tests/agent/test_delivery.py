@@ -139,6 +139,29 @@ def test_next_delivery_and_source_cleanup_cannot_change_previous_identity(tmp_pa
     assert D.load_delivery(tmp_path, second["id"])["glb_sha256"] == second["glb_sha256"]
 
 
+def test_lens_evidence_native_images_and_zero_response_survive_finished_delivery(tmp_path):
+    scene, result = make_finished(tmp_path)
+    ar = scene.last_ar
+    source = Path(ar["report"])
+    capture = json.loads(source.read_text())
+    for name, kind in [("portrait__a__eyes.png", "portrait"), ("front__checker__beauty.png", "pose"),
+                       ("front__dark__beauty.png", "pose")]:
+        path = source.parent / name
+        Image.new("RGB", (40, 30), "blue").save(path)
+        capture["images"].append({"file": name, "kind": kind, "sha256": digest(path)})
+    source.write_text(json.dumps(capture))
+    diagnostic = {"informational_only": True, "views": [{"view": "front", "status": "measured",
+                  "mean_channel_background_response_gain": 0.0}]}
+    ar.update(report_sha256=digest(source), lens_background_response=diagnostic)
+    published = D.deliver_finished(tmp_path, scene, result)
+    loaded = D.load_delivery(tmp_path)
+    assert published["status"] == "delivered"
+    assert loaded["report_data"]["arview"]["lens_background_response"] == diagnostic
+    report = Path(loaded["report_data"]["arview"]["report"])
+    for rec in capture["images"]:
+        assert digest(report.parent / rec["file"]) == rec["sha256"]
+
+
 def test_same_finished_run_is_idempotent_without_rewriting_snapshot(tmp_path):
     scene, result = make_finished(tmp_path)
     first = D.deliver_finished(tmp_path, scene, result)

@@ -282,7 +282,7 @@ async function render(request: {variant: VariantName; background: BackgroundName
   const images: Record<string, unknown>[] = [];
   const full = await emitCanvas(request.file, canvasOf(pixels, {x: 0, y: 0, width: pixels.width, height: pixels.height}));
   images.push({...full, kind: 'pose', crop: null, side: null});
-  if (state.pose?.worn && request.variant === 'beauty') {
+  if (state.pose?.worn && request.variant === 'beauty' && request.background === 'skin') {
     const worn = frameWornSide();
     if (worn?.rect) {
       const file = request.file.replace(/\.png$/, '__worn.png');

@@ -28,6 +28,9 @@ check that the live scene is unchanged afterwards. Changed:
   object whose matrix is mirrored or non-uniformly scaled the corner normals are captured first, mapped by the
   inverse-transpose, and set again after the bake (Mesh.transform does not carry them through such a matrix);
 - loose edges and vertices are never exported (they would become non-triangle primitives);
+- see-through materials (exported transmission > 0), on lenses or frame parts, are single-sided when every whole
+  evaluated mesh using them is a closed outward 2-manifold. Open/inward uses keep their sidedness with a note;
+  opaque materials are untouched. Only the exported JSON changes; the receipt names each changed material;
 - the GLB is written to a temporary file next to the target, patched (authored node, mesh and material names are
   restored: Blender would add ".001" to the copies) and moved into place only after every check passed, with a retry
   on a transient Windows sharing violation;
@@ -57,6 +60,7 @@ import time
 from pathlib import Path
 
 import bpy
+import bmesh
 import numpy as np
 from mathutils import Matrix, Vector
 
@@ -534,6 +538,54 @@ def _role(obj) -> tuple[str | None, str, str | None]:
     return r_dat, "data", None
 
 
+def solid_orientation(mesh) -> dict:
+    """Check the entire evaluated surface, before glTF splits it by material/UV/normal.
+
+    Every connected shell must be closed, consistently wound and outward. A positive total volume alone can hide
+    an inward small shell inside a larger outward one. Loose vertices/edges are ignored, just as in the export.
+    This only inspects topology/winding: it never welds vertices or changes authored geometry or normals.
+    """
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.delete(bm, geom=[edge for edge in bm.edges if not edge.link_faces], context="EDGES")
+        edges = [edge for edge in bm.edges if edge.link_faces]
+        verts = [vert for vert in bm.verts if vert.link_faces]
+        if not edges or any(not edge.is_manifold for edge in edges) or any(not vert.is_manifold for vert in verts):
+            return {"outward_solid": False, "reason": "mesh is open or not a closed 2-manifold"}
+        if any(not edge.is_contiguous for edge in edges):
+            return {"outward_solid": False, "reason": "mesh has inconsistent face winding"}
+        mesh.calc_loop_triangles()
+        coordinates = np.asarray([vert.co for vert in mesh.vertices], dtype=np.float64)
+        triangles = np.asarray([tri.vertices for tri in mesh.loop_triangles], dtype=np.int64)
+        polygons = np.asarray([tri.polygon_index for tri in mesh.loop_triangles], dtype=np.int64)
+        remaining = set(bm.faces)
+        volumes = []
+        while remaining:
+            seed = remaining.pop()
+            faces, todo = [seed], [seed]
+            while todo:
+                for edge in todo.pop().edges:
+                    for face in edge.link_faces:
+                        if face in remaining:
+                            remaining.remove(face)
+                            faces.append(face)
+                            todo.append(face)
+            # Local origin and float64 arithmetic avoid cancellation for small, translated solids.
+            points = coordinates[triangles[np.isin(polygons, [face.index for face in faces])]]
+            points -= points[0, 0].copy()
+            extent = float(np.abs(points).max())
+            volume = float(np.einsum("ij,ij->", np.cross(points[:, 1], points[:, 2]), points[:, 0])) / 6
+            volumes.append(volume)
+            if volume <= np.finfo(float).eps * extent ** 3 * 64:
+                return {"outward_solid": False, "reason": "mesh has an inward-facing or zero-volume shell",
+                        "signed_volumes_m3": volumes}
+        return {"outward_solid": True, "signed_volumes_m3": volumes}
+    finally:
+        bm.free()
+
+
 def export_glb(path: str | Path, scene=None) -> dict:
     """Export `scene` (default: the active scene) to `path` (.glb). Returns the receipt; raises ExportError."""
     scene = scene or bpy.context.scene
@@ -631,6 +683,7 @@ def export_glb(path: str | Path, scene=None) -> dict:
         roles_by_material: dict[str, set] = {}
         optical_sources: dict[str, list] = {}        # exported copy name -> active authored optical controls
         coating_ranges: dict[str, dict] = {}        # only the helper's scalar, untextured coating controls
+        material_meshes: dict[str, list] = {}       # temporary material name -> whole evaluated mesh checks
         renormalised = []
         seat_extras: dict = {}
         print_extras: dict = {}
@@ -682,6 +735,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
             if textured and not mesh.uv_layers:
                 notes.append(f"{obj.name}: material(s) {textured} sample an image texture but the mesh has no UV map "
                              f"(the texture cannot map; add UVs)")
+            used_slots = {poly.material_index for poly in mesh.polygons}
+            solid = solid_orientation(mesh)
             for index, slot in enumerate(evaluated_obj.material_slots):
                 mat = slot.material
                 if mat is None:
@@ -703,6 +758,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
                     if film_range:
                         coating_ranges[cp.name] = film_range
                 mesh.materials[index] = copies[key]
+                if index in used_slots:
+                    material_meshes.setdefault(copies[key].name, []).append({"object": obj.name, **solid})
             receipt["objects"].append({"source": obj.name, "partRole": role, "vertices": len(mesh.vertices),
                                        "triangles": len(mesh.loop_triangles),
                                        "materials": [s.material.name if s.material else None
@@ -729,7 +786,22 @@ def export_glb(path: str | Path, scene=None) -> dict:
         doc_before, binary = glb_patch.read_chunks(tmp_glb.read_bytes())
         receipt["optical_warnings"] = []
         receipt["coating_ranges"] = []
+        receipt["single_sided_materials"] = []
         for m in doc_before.get("materials", []):
+            transmission = (m.get("extensions") or {}).get("KHR_materials_transmission", {})
+            if float(transmission.get("transmissionFactor", 0)) > 0:
+                shown = mat_names.get(m.get("name"), m.get("name"))
+                uses = material_meshes.get(m.get("name"), [])
+                if uses and all(use["outward_solid"] for use in uses):
+                    if m.get("doubleSided", False):
+                        m["doubleSided"] = False
+                        receipt["single_sided_materials"].append({"material": shown,
+                            "partRole": m.get("extras", {}).get("partRole"), "meshes": uses,
+                            "previous_double_sided": True, "double_sided": False})
+                else:
+                    reasons = "; ".join(f"{use['object']}: {use['reason']}" for use in uses
+                                        if not use["outward_solid"]) or "no verified mesh use"
+                    notes.append(f"See-through material {shown!r} keeps its sidedness: {reasons}.")
             # Blender omits minimum for uniform thin films. Preserve the helper's explicit range while
             # keeping the standard glTF meaning: no thickness texture => uniform maximum, not a gradient.
             iridescence = (m.get("extensions") or {}).get("KHR_materials_iridescence")

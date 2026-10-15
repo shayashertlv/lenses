@@ -33,6 +33,93 @@ passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray 
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
 
+## Assembly M5-fix-3: transparent solids and visible lens evidence ($0, 2026-10-15)
+
+Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, clean on `glasses3d` at
+`84b5bf5 ASSEMBLY M5-fix-3 item 1: apply the single-sided rule to every see-through closed solid`.
+Read the amended M5-fix-3 and executed its items in order. No paid API call or run request was made.
+
+**Implementation and technical choices:**
+
+- The exporter examines whole evaluated meshes after transform baking, before glTF splits them into material,
+  normal and UV primitives. Every face-connected shell must be a closed 2-manifold, consistently wound and have
+  positive signed volume. Volume uses Blender's actual loop triangles in float64 around a local origin. Wire-only
+  edges and loose vertices are ignored because they are not exported; a pinched nonmanifold vertex is not ignored.
+  This is an inspection of a temporary mesh, with no geometry repair or authored-material edit.
+- For **every exported transmission factor > 0**, including crystal frame parts, `doubleSided` becomes false only
+  when every used mesh qualifies. Open, inward, inconsistently wound and zero-volume uses retain their sidedness
+  with one plain note naming the material and reason. Opaque materials are untouched. Unused slots do not count;
+  existing role-specific material copies are assessed independently. The export receipt's
+  `single_sided_materials` records each change and its mesh evidence.
+- `arview_capture`, also used by `finish` and draft finalization, keeps seven standard skin poses and both close
+  +/-50-degree worn views. It now includes the existing pinned face-a portrait and one front checker. The new
+  optional CLI `--lens-evidence` adds skin/dark pairs at all nine synthetic poses; its default invocation changes
+  no pre-existing CLI capture mode. The normal tool capture has **35 native images**, all hash-bound in the raw
+  report and copied into delivery. The single **1024x1012** sheet prioritizes condition-a eye detail, then checker,
+  worn sides and standard poses. The normal image policy need not shrink it again.
+- Authored scale, fixed lens environment **1**, posed/worn visible-head and hair-off behavior remain. The added
+  portrait preserves the CLI's existing face fixture, hair-mask and lighting-condition contract; condition a is
+  the runtime-lighting portrait shown on the sheet. No viewer material/shader, colour, coating or geometry changed.
+- `lens_background_response` repeats the earlier review's method: decode each view's lens palette and tolerance,
+  erode three pixels with a 7x7 square, then divide skin-minus-dark display RGB by **[160,129,107]**. All nine
+  synthetic views are reported, with source filenames/hashes. Missing pairs/interior pixels are unavailable, never
+  invented zero. Portraits have no controlled pair and are judged visually. Values are not clipped and have no
+  passing threshold; they are not physical transmission or VLT. A short priority-visible summary retains the
+  per-view numbers when the full tool result is paged. Tests verify zero response still permits finished delivery.
+
+**Run-3 copy proof:** `data/assembly/m5fix3-copy-a/proof.json` (30.719 s, $0, zero model requests).
+The copy job is `jobs/run-3-re-export-proof-copy-269cb90e` under that directory. Original c0007 SHA remains
+`b506e111b40640c3c68746dcfb798fe28a450d55e422d6f8e97c64146cbdd383`; the original job/photos and delivered GLB
+retain their hashes. Re-export SHA is **`32e86e30e206e6c7243e8a5e6ebd85a60b5b40bbc450b53726340795c019e716`**.
+
+- Exact GLB comparison: **BIN byte-identical; JSON differs only at materials 6 and 7 `doubleSided`: true -> false**.
+  These are `Emerald cyan violet interference shield` and `Polished smoke lens edge`, both on the same closed
+  shield. The amended general rule includes the transmissive edge; keeping material 7 double-sided would be a
+  special case. Every other optical/material/geometry field is identical. All nine before/after part-ID images
+  have identical hashes. Specification passes; existing seating and temple warnings remain reports.
+- Fresh before/after captures each produced 35 images and passed. Front background response is
+  **0.0159085885 -> 0.1201689863 (7.55x)**, agreeing with the prior isolated single-sided diagnostic's own-mask
+  **0.1201514668**. The earlier 0.120977 used an intersection with the accepted model's different mask. Eyes are
+  visibly restored. Native crops are in the copy job's `work/arview/{before,after}/portrait__a__eyes.png`;
+  labelled unchanged pixels are in `data/assembly/m5fix3-copy-a/before-after-face.png`.
+- The accepted-Oakley preservation proof also passes: `data/assembly/m5fix3-worn-preserved/proof.json`.
+  All **14 original standard panels are byte-identical** to the seven-pose CLI path, and both worn sides retain
+  the visible head/hair-off contract. This proof was updated to assert the additive 35-image layout, retaining
+  the old exact-pixel preservation assertions.
+
+**Verification:** focused checks passed **95**, then **141** (overlapping counts). Synthetic regressions cover
+closed lenses/crystal frames, open/inward/opaque controls, mixed material uses, disconnected shells, pinched
+vertices, inconsistent winding, nonplanar faces, mirrored/nonuniform transforms, unused slots and loose wires.
+`tests.proofs.assembly_m1` passed in **108.422 s**, **11 scripted requests**, clean receipts and **35 verified AR
+images** in the finished delivery, actual **$0**. AR **498 unit + 106 QA** tests pass and TypeScript exits 0. An
+initial AR unit assertion omitted the new additive `lensEvidence: false` default; corrected its expected object,
+with the complete unit suite passing afterwards. Full Python main (`-n 8 --dist loadfile`) finished in **676.64 s**:
+**3355 passed, 2 failed, 2 skipped**. Photoprint (`-n 2 --dist loadfile`) passed **314** in **209.83 s**.
+The two main-suite failures were checked in isolation, with the launcher's descendant QoS watcher disabled:
+**22 passed, 1 failed**. The process opt-out test then passed; the frozen `photo_v1` render still failed.
+
+**Open, pre-existing full-suite failure:** `tests/test_render_dome.py::test_photo_v1_pixels_are_unchanged`.
+Reference-01/native has **199 differing pixels** alone (195 in the loaded full run), above its unchanged
+**114.24-pixel allowance**. To establish whether this change introduced it, extracted the Blender runtime at
+the original **84b5bf5** into an ignored scratch directory using `git archive`, pointed only the diagnostic host's
+worker path at it, and ran the exact same unchanged test. The original runtime also fails with **199 pixels**,
+max difference **4/255**, mean **0.0003961/255**. Its source scene matches the original pinned SHA; no source,
+golden, threshold or test was changed. This is an existing frozen-render discrepancy, not a green full suite.
+Evidence: `data/assembly/m5fix3-render-baseline/proof.json` and `m5fix3_render_baseline.{log,status.json,receipt.json}`.
+Across the full runs and isolated QoS recovery: **3670 distinct Python tests passed, 1 still failing, 2 skipped**.
+The M5-fix-3 synthetic, copy-job, M1 and accepted-view preservation proofs all pass. Repairing the unrelated
+frozen renderer/golden is left open; WP6 has not been reopened and no gate was weakened.
+Long checks use detached logs and PID/argv/time/exit receipts under `data/assembly/m5fix3_*`, BLAS=1 and the
+existing EcoQoS opt-out. No quality threshold was loosened. Independent read-only exporter/capture reviews found
+no blocker; their topology and paging observations were covered before the full-suite run.
+
+**Owner review:** served detached on **127.0.0.1:58103**, PID **30272** (WMI), with the exact label
+**"run 3 re-exported with the lens fix, not a new delivery"**. Live verification confirms the served model hash,
+authored scale and fixed lens environment 1. `data/assembly/m5fix3-copy-a/review.json` holds the verified webcam URL
+and process receipt; opening it in the Codex browser panel was queued. It is the same Astra model and does not
+replace the immutable delivery. The before/after front-face image is `m5fix3-copy-a/before-after-face.png`.
+The owner's right/close/wrong colour verdict remains pending; record their answer verbatim when received.
+
 ## Assembly M5 Oakley run 3: approved fresh run, finished delivery (2026-10-14)
 
 Started clean in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout on `glasses3d` at

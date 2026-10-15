@@ -65,6 +65,7 @@ export interface CaptureOptions {
   readonly depthCm: number;
   readonly fixedScale: boolean;
   readonly wornSides: boolean;
+  readonly lensEvidence: boolean;
   /** null: 'auto', the clip the renderer derives from the model's own temples. */
   readonly clipZM: number | null;
   readonly lensEnvIntensity: number | null;
@@ -92,6 +93,7 @@ export const USAGE = [
   '  --depth-cm N                     synthetic face distance, 15-80 cm (default 23, the prototype\'s)',
   '  --fixed-scale                    render at the authored size instead of the live auto-fit',
   '  --worn-sides                     append close yaw +50/-50 views with the actual head occluders visible, hair off',
+  '  --lens-evidence                  add skin/dark pairs for each pose and a checker when the front pose is included',
   '  --clip auto|<metres>             temple clip override (default auto: derived from the model\'s temples)',
   '  --lensenv N                      lens reflection multiplier handed to the renderer (0.3-4)',
   '  --crop-upscale 1|2               nearest-neighbour upscale of junction crops (default 1, native pixels)',
@@ -107,7 +109,7 @@ export const USAGE = [
   '            4 refused or unchecked by arview (nothing rendered); 1 infrastructure failure; 2 usage error',
 ].join('\n');
 
-const FLAGS = new Set(['fixed-scale', 'no-portrait', 'live-probe', 'no-face', 'worn-sides']);
+const FLAGS = new Set(['fixed-scale', 'no-portrait', 'live-probe', 'no-face', 'worn-sides', 'lens-evidence']);
 const VALUED = new Set(['poses', 'out', 'backgrounds', 'size', 'depth-cm', 'clip', 'lensenv', 'crop-upscale', 'step-timeout-s', 'cameras']);
 /** Options a camera file replaces (it sets each image's size and background; no face means no depth, clip or crops). */
 const NOT_WITH_CAMERAS = ['poses', 'backgrounds', 'size', 'depth-cm', 'clip', 'crop-upscale'] as const;
@@ -217,7 +219,7 @@ export function parseCaptureArgs(argv: readonly string[]): CaptureOptions {
   }
 
   return Object.freeze({glb, poses: poses as PoseSetName, out, backgrounds: backgrounds ? Object.freeze(backgrounds) : null, width, height,
-    depthCm, fixedScale: flags.has('fixed-scale'), wornSides: flags.has('worn-sides'), clipZM, lensEnvIntensity, cropUpscale, portrait: !flags.has('no-portrait'),
+    depthCm, fixedScale: flags.has('fixed-scale'), wornSides: flags.has('worn-sides'), lensEvidence: flags.has('lens-evidence'), clipZM, lensEnvIntensity, cropUpscale, portrait: !flags.has('no-portrait'),
     liveProbe: flags.has('live-probe'), stepTimeoutS, cameras: null, noFace: false});
 }
 
@@ -242,6 +244,7 @@ function stepTimeoutOf(values: ReadonlyMap<string, string>): number {
  *  validated by the orchestrator before any server or browser starts (a bad file is a usage error too). */
 function parseCameraCapture(glb: string, cameras: string, values: ReadonlyMap<string, string>, flags: ReadonlySet<string>): CaptureOptions {
   if (flags.has('worn-sides')) throw new UsageError('--worn-sides cannot be combined with --cameras (worn views need a face).');
+  if (flags.has('lens-evidence')) throw new UsageError('--lens-evidence cannot be combined with --cameras (requires the posed backgrounds).');
   for (const name of NOT_WITH_CAMERAS) {
     if (values.has(name)) {
       throw new UsageError(`--${name} cannot be combined with --cameras (the camera file sets each image's size and background; without a face there `
@@ -253,6 +256,6 @@ function parseCameraCapture(glb: string, cameras: string, values: ReadonlyMap<st
   if (!out) throw new UsageError('--out <dir> is required.');
   // The authored size and no portrait are implied (a metric camera, no face); --fixed-scale and --no-portrait are accepted.
   return Object.freeze({glb, poses: null, out, backgrounds: null, width: DEFAULT_SIZE.width, height: DEFAULT_SIZE.height, depthCm: DEFAULT_DEPTH_CM,
-    fixedScale: true, wornSides: false, clipZM: null, lensEnvIntensity: lensEnvOf(values), cropUpscale: 1, portrait: false, liveProbe: flags.has('live-probe'),
+    fixedScale: true, wornSides: false, lensEvidence: false, clipZM: null, lensEnvIntensity: lensEnvOf(values), cropUpscale: 1, portrait: false, liveProbe: flags.has('live-probe'),
     stepTimeoutS: stepTimeoutOf(values), cameras, noFace: true});
 }
