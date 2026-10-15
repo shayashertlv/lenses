@@ -19,7 +19,8 @@ def source_job(tmp_path, *, posed=True, rigid=False):
     cp = root / "checkpoints" / "c0007.blend"
     cp.write_bytes(b"CURRENT EDITED SCENE")
     export = root / "current.glb"
-    export.write_bytes(b"CURRENT EXPORTED SCENE")
+    from glasses3d.tests import glbfab
+    export.write_bytes(glbfab.build(glbfab.default_parts(),role_where="node"))
     rows, images, paths = [], {}, {}
     for n, name in enumerate(("left view.png", "custom.front.png")):
         p = root / "images" / name

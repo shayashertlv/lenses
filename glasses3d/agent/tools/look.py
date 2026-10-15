@@ -10,7 +10,7 @@ from scipy.ndimage import binary_erosion
 from ...g3d_host import compare as C
 from ...g3d_host.ar_camera import explicit_camera
 from .. import procs
-from . import arview
+from . import arview, look_panels
 
 SCHEMA = "g3d.look_comparison/1"
 
@@ -120,11 +120,13 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             raise ValueError("current export bytes changed or are unavailable")
         directory = arview.output_dir(root, call_id + "-look")
         rows, cameras = [], []
+        geometry = look_panels.load_geometry(model)
         for index, rid in enumerate(wanted):
             photo = bs.photo(rid)
             background = border_colour(photo)
             cam = explicit_camera(bs.camera(rid), bs.frame, bs.shape(rid), name=f"photo-{index:03d}",
-                                  background=background["hex"])
+                                  background=background["hex"], size_px=min(4096, max(photo.shape[:2])),
+                                  temple_pose=bs.pose(rid))
             cameras.append(cam)
             resized = C.resample_box(photo, [0, 0, photo.shape[1], photo.shape[0]], cam["meta"]["pixel_scale"],
                                      (cam["height"], cam["width"]))
@@ -167,6 +169,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                 for role, mask in masks.items():
                     interior = binary_erosion(mask, structure=np.ones((7, 7), bool))
                     row["colours"][role] = {"photo": colour_stats(photo, interior), "drawing": colour_stats(drawing, interior)}
+                panels = look_panels.build_panels(row, report["id_palette"], geometry, directory / name)
+                row.update(panels)
         if worn is None:
             worn = arview.capture(root, export, call_id + "-worn", timeout_s=timeout_s)
         path, report = verified_report(root, worn, export["sha256"])
@@ -181,9 +185,6 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             target = worn_directory / image["file"]
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path.parent / image["file"], target)
-        for row in rows:
-            row["sheet_path"] = str(directory / (row["camera"]["id"] + "-comparison.png"))
-            sheet([row], portrait, row["sheet_path"], compact=False)
         overview = directory / "comparison.png"
         sheet(rows, portrait, overview, compact=True)
         result = {**base, "status": "ok", "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
@@ -193,12 +194,15 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                                    "export_sha256": export["sha256"], "portrait_sha256": rec["sha256"]},
                   "fixed_scale": True, "lens_env_intensity": arview.LENS_ENV_INTENSITY,
                   "summary": "Photo-camera AR colour check plus same-export worn front. Colours are information, not a gate. "
-                             "Fixed-room highlights are not lens colour. Read native per-photo sheets for detail.",
+                             "Fixed-room highlights are not lens colour. Full pairs and native details are separate images.",
                   "method": "Median sRGB and CIE L* in AR lens/frame part-id masks eroded 3 pixels, applied identically "
                             "to photo and drawing. Registration can mix photo regions; no tone/colour normalization. "
-                            "Model is unposed; any frozen temple opening is reported, not applied to geometry.",
-                  "images": [{"path": str(overview), "sha256": arview.sha256(overview),
-                              "view": "Photo backgrounds and worn front: " + ", ".join(wanted)}]}
+                            "Frozen per-photo temple deltas are applied to tagged temple parts and their markings. "
+                            "The worn view resets to the authored model before the normal face fit.",
+                  "overview_path": str(overview), "image_delivery": "separate",
+                  "images": [image for row in rows for image in row["images"]] + [
+                      {"path": str(portrait), "sha256": arview.sha256(portrait),
+                       "view": "Same export worn front on the test face"}]}
         result["assets"] = [{"path": str(p), "sha256": arview.sha256(p)} for p in sorted(directory.rglob("*"))
                             if p.is_file() and p.suffix in (".png", ".json")]
         report_path = directory / "comparison-report.json"
@@ -217,9 +221,12 @@ def tool_for(scene, tool, call):
         Judge lens hue, lightness and see-through and frame colour against the photos. Fixed-room reflection
         highlights are expected and are not lens colour. Every successful call also shows the worn front on the
         test face, eyes legible, from the SAME export. Always judge both views after a colour/material change.
-        Returns one sheet plus native per-photo/lens-detail sheets and informational median colours/lightness.
-        No colour gate. Unusable cameras and missing evidence are reported. Frozen temple openings are reported;
-        geometry is drawn as authored, without posing. Perspective-0 cameras use a stated distant-pinhole approximation.
+        Returns full-size photo/drawing pairs and separate native details of corners, inner rims, lens marks,
+        arm roots and tips, plus the worn front. Front-facing surfaces, depth walls and inner-rim walls have
+        separate colour reports, including their rendered/photo shading; surface selection is geometric.
+        No colour gate. Unusable cameras and missing evidence are reported. Frozen temple openings are applied
+        per photo; the worn view uses the authored model and face fit. Perspective-0 cameras use a stated
+        distant-pinhole approximation.
 
         Args:
             refs: Photo ids or original filenames; null uses every usable frozen camera, front photo first.

@@ -33,12 +33,253 @@ transparency, and seating still reported as failing. **The owner visually accept
 "as far as i can see the model is perfect".** This closes the known-product Oakley validation in M5 step 1;
 Prada run 1 subsequently completed normally at **$11.903198 settled**, delivering **c0010** with specification,
 seating and AR checks passing. Its temple stage applied the selected revision but reported unresolved top/rear
-likeness. **Prada owner visual acceptance is pending**; FT1119 and the three unseen products have not been run.
+likeness. **The owner rejected Prada run 1 on 2026-10-15** (verbatim below); FT1119 and the three unseen products have not been run.
 No further paid run is authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## M5-fix-5: close-up evidence, finish review and per-photo arm openings (2026-10-15; complete at $0)
+
+Owner verdict, verbatim:
+
+> the glasses look like shit, it looks like some half assed the job. i feels like astra doesnt even look because the result makes no sense
+
+This rejects the delivery's appearance and supersedes the earlier pending-acceptance status. The technical
+checks below did not establish likeness. Work began in the primary checkout on `glasses3d`, clean at `e589672`;
+the owner's read-only web authorization `cece8af` was already the current HEAD when checked. No merge or pull
+was needed. No paid call or product model, brief or photo edit is authorized by this repair.
+
+**Provider image research, accessed 2026-10-15:** exact model `gpt-6-astra`. High detail uses 32 px patches,
+a 2,500-patch resizing budget and a 65,535 px edge limit, without enlarging smaller inputs. After the documented
+resizing and floor adjustment, estimated image tokens are `ceil(patches * 1.2)` (the guide notes possible
+one-token rounding differences). `original` supports greater detail, preserves dimensions within the edge
+limit and rejects above 30,000 patches; `auto` follows `original`. PNG/JPEG/WEBP/nonanimated GIF are supported;
+the request limits are 1,500 images and 512 MB. No separate per-image compressed-byte limit is stated.
+Source: https://developers.openai.com/api/docs/guides/images-vision (2026-10-15).
+These are image-only estimates, not total request cost:
+https://developers.openai.com/api/docs/guides/image-cost-calculator (2026-10-15).
+
+Standard prices match the local frozen tariff: per million tokens, $10 input / $1 cached read / $12.50 cache
+write / $50 output; above 272k input, input/cache rates double and output rises 1.5x for the entire request.
+Source: https://developers.openai.com/api/docs/models/gpt-6-astra (2026-10-15).
+Image-containing prefixes can be cached, but repetition alone guarantees no hit: the rendered prefix, content,
+order and detail must match and a compatible cache must remain available. Astra's eligible prefix starts at
+1,024 visible tokens, within the same organization/processing region; the current documented default TTL is
+30 minutes after write/reuse. Sources: https://developers.openai.com/api/docs/guides/prompt-caching and
+https://developers.openai.com/cookbook/examples/prompt_caching101 (both 2026-10-15; older cookbook used only
+for image identity, not prices). Historical responses' legacy `prompt_cache_retention: 24h` does not establish
+actual cache lifetime. No cache settings or budget policy were changed.
+
+**Receipt cross-check ($0):** all 141 Oakley run-4 and Prada run-1 receipts hash-match and reprice. Oakley:
+60 requests, $10.611259, 6,305,036 input tokens / 6,103,979 cached (96.8112%), peak 193,623 input. Prada:
+81 requests, $11.903198, 5,967,353 input / 5,697,067 cached (95.4706%), peak 144,751. No prefix rewrite in
+either parent/child history. Only Prada reference-02 (2048x1365) exceeds high's patch budget: calculated
+processed dimensions 1920x1280, 2,880 image tokens. Receipts aggregate images, text and tool schemas; they
+do not isolate image tokens or identify which image was cached, so they cannot independently prove the image
+formula. Sources and exact request/response/image hashes: `data/assembly/m5-fix-5/image-provider-research.md`
+and `.json`. This research sent only generic documentation queries, no repository content or product assets.
+
+**Item 1 implementation:** each photo's full pair and native detail crops are separate image outputs with
+append-only history and accurate output indices. Pairs fit the documented high patch budget including labels;
+close-ups never upscale. Photo captures retain native pixels up to a stated 4096 px local rendering bound,
+independent of the unchanged 1280 px webcam cap. Geometry supplements the part-id masks to distinguish lens
+markings and actual front/inner walls; surface colours are informational. Focused checks so far: panel tests
+10 passed, SDK/projection look tests 24 passed, explicit-camera renderer tests 8 passed. Independent checks on
+all six Prada views found exact photo raster identity, all 56 output hashes correct, native detail pixels,
+and at most one interior pixel disagreement between host first-hit geometry and the AR part-ID pass. A
+56-panel report exposed blank image labels after text truncation; labels now reserve space before the JSON
+summary (37 blank labels to zero, 10,126 characters under the unchanged 12,000 cap). Label/image-policy checks:
+62 passed, one OS symlink skip. The lossless report retains everything omitted from the bounded summary.
+
+**Items 2–4:** finish now requires a delivered, immutable-evidence-bound first review and a second call naming
+differences for every usable photo. Checkpoint, export, cameras and photo hashes invalidate stale reviews;
+image failure cannot complete the procedure. No visual score was added. Independent review also reproduced
+post-image report/journal failures leaving undelivered hashes marked as shown. All failed output paths now
+invalidate delivery bookkeeping, and failed finish clears its receipt; cleanup preserves the original exception.
+Focused checks: 153 passed, one OS skip, including cancellation, failed-comparison image redelivery and first/
+second finish persistence failures. Instructions reserve the remaining money for visible differences and require
+revisiting earlier observations. With the Part B camera-conflict/refit instruction, the prompt is 7,919 characters
+against the unchanged 8,000-character cap.
+
+The AR viewer now leaves tone mapping enabled for non-transmitting lens-tagged decoration. The unchanged
+Prada c0010 GLB was captured before and after in `data/assembly/m5-fix-5/c0010-copy/`; both copies and the
+original retain SHA-256 `7a0f508530daf5b3253479a3090c5e2d2450fbbbf1c21f18b66ab4ea0eb77d4a`.
+The front marking's median sRGB changes from [197,185,154] to [188,177,147], L* 75.41 to 72.39. It was bright,
+but these pixels were not numerically clipped to white. Size, lettering, colour and geometry remain unchanged;
+the renderer fix does not make the oversized mark match the photo. Optical/capture tests: 13 passed.
+
+Existing section/loft helpers are documented, and `g3d.acetate_section` plus `g3d.sweep_rim` provide a closed
+rounded acetate rim with an optional crowned face and explicitly named local sharp spans. Synthetic rounded,
+Z-wrapped and locally faceted rings each have 4,896 vertices / 9,792 triangles, Euler zero, positive volume,
+closed oriented manifold topology and a clear opening. Smooth cases export no sharp normal splits; the local
+facet preserves its 18 explicit sharp edges. Blender proof exit 0 in 7.47 s; 281 focused tests plus two live
+sandboxed worker tests passed. Artifacts: `data/assembly/m5-fix-5/rim-proof/`. No product geometry was authored.
+
+**Item 5 cost proof:** no API request; all 81 historical Prada receipts reprice exactly to $11.903198.
+Regenerated c0002/c0005/c0006/c0010 look calls preserve their exact export, frozen basis and requested photos.
+New image-only input, keeping that same conversation and its observed non-image usage, totals **$13.503954**
+under stable prefix reuse: **+$1.600756**. The 32-request temple history remains exactly $4.710455; the 49-request
+parent changes. Per look (tool sequence 7/51/61/75), added tokens are 9,095 / 8,939 / 18,546 / 9,086; first writes
+cost $0.113688 / $0.111738 / $0.231825 / $0.113575. Including their later cached appearances, contributions are
+$0.486583 / $0.370969 / $0.584199 / $0.159005. Exact-byte deduplication retains 25 / 25 / 41 / 28 new images;
+the third call has 15 identical earlier images, referenced rather than resent. Previous panels stay append-only.
+
+Peak input becomes 190,417 tokens, 143 images and about 18.0 MB; no request crosses 272,000. Historical finish's
+output was never read by another request. The new second-finish input therefore sits outside the 81-request
+comparison: 56 new images / 22,455 estimated image tokens, **$0.280688** at first cache-write rate. Anchored to
+the old final input plus accumulated new images it reaches 212,872 tokens, with 59,128 tokens before the rate
+threshold. Added tool text, instructions/schema changes and the new response/output are not priced here.
+These are conditional image-input measurements, **not a new paid-run estimate or spend**. If only added images
+never reuse cache, the same trajectory is $25.348148. Losing all cached reads yields $73.282540 at plain-input
+rates or $90.864417 if those inputs are cache writes; these are sensitivities, not forecasts or new budgets.
+
+Proof exit 0, 33 cost/replay tests passed. Exact dimensions, image hashes, SDK output indices, parent/child
+partitions and per-request charges: `data/assembly/m5-fix-5/cost/cost.json`, with capture receipts alongside it.
+The images use the official documented formula; aggregate receipts cannot establish individual image cache
+hits. Read-only independent review found no blocking A1–5 regression.
+
+**Item 6, verified controls:** the opening fitter evaluates the whole scene, retaining the other arm and all
+occluders. A side with no first-hit visible pixels retains its input opening. Camera and opening refinement use
+one common image-loss grid, with per-side visibility and camera-coupling diagnostics; those diagnostics are
+information, not new fit/finish gates. Sixteen independent hidden-arm controls and three joint camera/opening
+cases passed the original declared tolerances (IoU >=0.98, opening error <=0.8 degrees, yaw/pitch error <=1 degree).
+An independent near-plane regression reproduced an invalid trial aborting a valid input; invalid proposals are
+now rejected while the valid fit survives. Candidate records retain their individual openings and source hashes.
+
+Frozen openings propagate to silhouette comparisons, photo measurements, the private temple basis and explicit
+AR photo cameras. Worn rendering returns to the authored pose. Six preselected synthetic GPU/host views passed
+integrated coverage IoU 0.997215–0.999904 against the unchanged 0.995 requirement, interior part ownership 100%,
+independent projection error <=1.18e-12 px and vertex error <=2.78e-17 m. Authored beauty/part-ID/silhouette bytes
+are identical before/after temporary openings. Shared geometry and tangent directions are preserved. Proof:
+`data/assembly/m5-fix-5/pose-parity-coverage/proof.json` (exit 0, 16.797 s). Its `attempts.md` retains the failed
+centre-ray/any-GPU-pixel comparisons and the fixed four-sample MSAA area witness reused from assembly_m5fix4;
+no view, geometry, angle or existing threshold was changed to pass. Focused AR pose/camera tests: 13 passed;
+host panels/intake: 60 passed; TypeScript check passed.
+Complete AR regression: 505 renderer tests and 106 capture/QA tests passed, in 22.05 s and 42.69 s respectively;
+TypeScript check exit 0. Two independent thin-arm controls also prove that native-visible arms missed by the
+coarse search grid are reported as visible rather than hidden.
+
+Reflective floors are declared explicitly at intake, with an explicit matte mode taking precedence. Before
+reading fit scores, visual inspection selected glossy-floor masks for Prada 01/03/05/06 and ordinary masks for
+02/04. The initial all-glossy exploration is retained separately; corrected 02/04 fits have explicit byte/mode/
+code-bound reuse lineage. Visibility holds now use the whole native photo, not the foreground fitting crop:
+four independent controls cover coarse-grid aliasing and a visible arm outside that crop on both sides.
+The accepted model's full-photo audit found all 12 per-arm visibility counts unchanged from the saved native
+check; no camera, opening, observed flag or fit metric changed. Evidence:
+`data/assembly/m5-fix-5/accepted-native-visibility-equivalence.json`.
+
+Final accepted-Prada proof: **all six usable**, source bytes unchanged, final verification exit 0 in 10.46 s;
+`data/assembly/m5-fix-5/accepted-hinge-native-final/report.json`. The original six-photo optimization took
+777.56 s; the corrected angled fit/proof took 137.75 s. These are conditional fits: all real openings report
+weak/camera-coupled local sensitivity, not uniquely established physical angles. The historical reference uses
+a different authored model and its unobserved side-photo zeros are not measurements.
+
+| Photo / declared view | IoU | New +X / -X opening delta, degrees | Historical +X / -X, degrees |
+|---|---:|---:|---:|
+| 04 front | .9794 | +0.08 / +0.36 | +0.05 / -0.03 |
+| 01 right side | .9432 | +9.52 / +0.86 | 0 / 0 (unobserved) |
+| 02 left angled | .9346 | +7.07 / +4.24 | +6.68 / +2.18 |
+| 03 top | .9064 | -2.13 / -2.30 | -1.99 / -1.91 |
+| 05 left side | .9453 | +1.23 / +7.05 | 0 / 0 (unobserved) |
+| 06 rear | .9313 | +7.20 / +7.51 | +8.12 / +8.07 |
+
+No original job, photo, accepted model or delivered model is edited. Existing jobs keep their original intake
+records; future preparation must explicitly declare reflective-floor photos through the documented intake field.
+
+**Item 7 implementation:** every private temple package now contains native photo-matte traces, separate
+opening-aware model projections, visible-arm outline residuals, conditional tip-line crossings and 13 image-plane
+profile stations per side/photo. The numerical profiles are in the brief, and hash-bound overlays are actual
+startup ReferenceInputs; they are not inaccessible JSON-only attachments or new photo IDs. No parent photo_read
+call is required. Existing parent picks are accepted only after current basis/model/camera/photo hashes and a
+fresh numerical recomputation agree; stale/refused/changed/unreadable reports are explicitly excluded. Rounded,
+occluded or ambiguous tips do not acquire invented sharp corners or cross-photo 3D coordinates. Prior comparison
+residuals keep their locations/numbers without claiming an irreconcilable camera limit. Poor arm fit remains an
+informational warning. Focused package/evidence tests: 67 passed; updated CLI prose contract: 43 passed.
+
+`splice_chain` reports the final joining ramp's rise/span, slope and turn for outline, inner and base chains,
+after all edits. It does not alter geometry or add a gate. Restored, replaced, full-chain and unchanged natural
+joins suppress stale notes. Twelve new cases plus existing temple-lab suites: **207 passed in 97.23 s**. One old
+assertion expected no notes after deliberately creating a notch; it now preserves its original stale bend/
+beyond suppression checks while requiring the newly requested current join report.
+
+Accepted-model host evidence proof: `data/assembly/m5-fix-5/b7-accepted-1/proof.json`, exit 0, six unchanged
+photos plus six separate evidence overlays, 12 startup ReferenceInputs. The independent reviewer checked 03/06/01,
+the bindings, actual input delivery and distinction between observations/predictions. No product bytes changed.
+The delivered c0010 copy now also has a complete six-photo basis bound to its own model, retaining earlier bases
+separately. Its rear fit remains poor (IoU .8450, mean contour 20.95 px / 3.24 mm), despite passing the unchanged
+camera-usability checks. This is reported to the specialist, not converted into a geometry instruction or a claim
+that the photos cannot agree. Original jobs and deliveries remain unchanged.
+
+**Separate B7 startup cost scenario:** the six accepted-model overlays add 9,458 image tokens by the documented
+formula. Added brief text is **estimated**, not token-counted: 9,844 tokens using the existing local 0.42-token/
+character model. Across the saved 32 child requests, these additions cost $0.241275 on first cache write plus
+$0.598362 over 31 cached repetitions: **+$0.839637**. If every addition is written every time, **+$7.720800**.
+These assumptions do not revise the A5 image-only replay or predict Astra's future decisions. Startup bindings
+and the normal estimate include actual new images/text; no budget or money policy changes. Actual spend: $0.
+
+**Actual private-stage preparation proof:** `data/assembly/m5-fix-5/b7-c0010-stage-1/proof.json`, exit 0
+in 37.3 s. The disposable copy restores the exact verified c0010 checkpoint (SHA `478717d75cf5377ee204142d1919683fd274fcdee5f8b714d1b4c3dd76da7ed7`)
+and exports the unchanged delivered GLB. All six opening records survive into the private basis. The exact
+nested child tool contract matches the parent's schema, and all 12 first-message image hashes match their
+ReferenceInputs. The saved child input is unapproved proof evidence; no provider client or API call ran.
+Rear06's per-arm p90 residuals are 40.20 / 52.21 native pixels, with ambiguous tips and explicit poor-fit notes.
+For this delivered-model package, the separate startup scenario is 9,458 image tokens plus 10,005 **modeled**
+text tokens: $0.243287 first write + $0.603353 repeated reads = **+$0.846640** over the saved 32 child requests;
+all additions written every time would be +$7.785195. These use the same conditional assumptions above.
+
+Final front04/right-side01 AR pairs use this copy's complete `basis-03` and the exact stored openings in both
+host and renderer. Nineteen returned panels, same-export worn front included, proof exit 0 in 20.5 s:
+`data/assembly/m5-fix-5/b7-final-opening-capture.json`. The GLB and basis hashes remain unchanged. The images
+make the front ledge, thick inner wall and square temple sections visible; they are diagnostics of the original
+delivery, not a repaired product or new delivery. Isolated before/after lettering captures retain their original
+common camera so viewer correction is not confused with later camera/opening changes. Owner-facing native
+copies are in `data/assembly/m5-fix-5/owner-review/`.
+
+The full main suite ran 11:42:05–11:55:22 UTC with `-n 8 --dist loadfile`, after 26.88 GiB free commit,
+BLAS=1 and pytest-worker EcoQoS opt-out (`data/assembly/m5-fix-5/full-1.*`): **3,536 passed, two skipped,
+three failed in 794.85 s**. Failures: temple fit speed 57.8125 ms against 50 ms, seeing render 135.782 s against
+60 s under load, and the previously documented `photo_v1` golden mismatch of 199 pixels against 114.24 allowed.
+The timing checks and pixel baseline will be rerun alone; no threshold or golden image was changed.
+
+Final independent review found that restoring an unobserved arm to its input could reveal it or hide the other
+arm while leaving stale counts. Four mirrored analytical controls reproduced the defect (four failed in 1.43 s);
+a monotonic final-state recheck restores hidden/unobserved sides to their invocation inputs and reports the actual
+returned geometry. All **90 affected checks passed in 135.19 s**, including those four red/green controls and all
+opening, native visibility, evidence, rigid-pose, general-fit and partial-seeing tests. The final source audit
+rerendered all 24 arm counts across the 12 real-photo rows; none enters that reset path, and every saved count,
+camera, opening and metric is unchanged (`data/assembly/m5-fix-5/final-source-real-no-reset-audit.json`).
+Independent final review found no remaining requirement, gate, capability-delivery or cost-label blocker.
+Photoprint: **314 passed in 209.04 s**, `-n 2 --dist loadfile`, exit 0, starting with 27.42 GiB free commit
+(`data/assembly/m5-fix-5/photoprint-1.*`). End-to-end `tests.proofs.assembly_m1`: **passed in 110.828 s**,
+13 scripted requests including both finish calls, all usable photo comparisons, immutable delivery, 36 verified
+image blobs and 35 AR images, clean receipts, actual spend $0. Proof: `data/assembly/m1-proof-8f7d6d86/proof.json`;
+launcher log/receipt: `data/assembly/m5fix5_m1.*`. Isolated rerun, including the whole seeing module and temple
+speed check: **23 passed, one failed in 96.23 s** (`data/assembly/m5fix5_isolated.*`). Only the established
+`test_photo_v1_pixels_are_unchanged` remains red, again exactly 199 reference-01/native pixels. It was already
+reproduced on unchanged code in the earlier M5-fix-4 record; its golden image and limits remain unchanged.
+
+The real no-camera/seating finish proof also passes: **32.0 s**, eight tool calls, zero model requests,
+immutable delivery, failed seating retained as information, both automatic and manual repairs accompanied by
+before/after reports, and explicit two-call review with an empty photo list. `data/assembly/ff5/proof.json`;
+launcher `data/assembly/m5fix5_finish_3.*`. Its old single-call/seating-refusal expectations were updated to the
+owner's already-decided M5-fix-2 policy and this milestone's two-call procedure. An initial proof-reader failure
+was fixed by paging the public, hash-verified `read_report` result instead of asserting against its shortened
+summary; independent review confirmed unchanged substantive assertions. A second attempt completed the finish
+checks but hit Windows' ordinary-path limit at 263 characters when publishing under the deeply nested proof
+directory. The extended-path read proved the image exists with the exact manifest hash
+(`data/assembly/m5-fix-5/finish-long-path-diagnosis.json`). The same proof passed at the shorter output root;
+both failed attempts remain preserved, with no production or threshold workaround.
+
+**Closeout:** items 1–8 implemented and proven, Part A before Part B. All original product models, checkpoint
+chains, photos and jobs remain unchanged; the diagnostic copies are not new deliveries. Actual spend **$0**,
+no paid API request, no new paid-run approval or launch. Final source and independent reviews found no blocker;
+the one pre-existing golden-pixel failure and real-photo camera/angle ambiguity remain explicit. The delivered
+Prada's appearance is still owner-rejected and is not repaired by these infrastructure changes. Future Prada
+intake must explicitly declare the visually identified reflective-floor photos; original job metadata was not
+silently rewritten. This changeset, based on `cece8af`, commits only the 68 explicitly listed source/test/log
+paths on `glasses3d`; local evidence and binary assets remain ignored. Never pushed.
 
 ## M5-step-2 Prada run 1: finished delivery and review (2026-10-15)
 

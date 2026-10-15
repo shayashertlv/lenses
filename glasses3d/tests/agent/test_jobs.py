@@ -112,6 +112,28 @@ def test_explicit_photo_matte_mode_roundtrips(tmp_path, mode):
     assert J.view_specs(root)[photo.name] == {'kind': 'rear_threequarter', 'side': 'left', 'matte_mode': mode}
 
 
+@pytest.mark.parametrize('explicit', [None, 'default', 'open_frame'])
+def test_reflective_floor_resolves_at_intake_and_preserves_explicit_choice(tmp_path, explicit):
+    args, photo = setup_inputs(tmp_path)
+    declaration = {'kind': 'front', 'side': 'both', 'reflective_floor': True}
+    if explicit is not None:
+        declaration['matte_mode'] = explicit
+    args['views'].write_text(json.dumps({photo.name: declaration}))
+    root = J.create_job(**args)
+    expected = explicit or 'glossy_floor'
+    assert J.load_job(root)['images'][0]['matte_mode'] == expected
+    assert J.view_specs(root)[photo.name] == {**declaration, 'matte_mode': expected}
+    assert (root / J.load_job(root)['images'][0]['file']).read_bytes() == photo.read_bytes()
+
+
+@pytest.mark.parametrize('value', ['true', 1, None])
+def test_reflective_floor_is_explicit_boolean(tmp_path, value):
+    args, photo = setup_inputs(tmp_path)
+    args['views'].write_text(json.dumps({photo.name: {'kind': 'front', 'side': None, 'reflective_floor': value}}))
+    with pytest.raises(J.JobError, match='reflective_floor'):
+        J.create_job(**args)
+
+
 @pytest.mark.parametrize('mode', [None, 1, 'supplied', 'guess'])
 def test_unknown_matte_mode_refuses_intake_and_reload(tmp_path, mode):
     args, photo = setup_inputs(tmp_path)

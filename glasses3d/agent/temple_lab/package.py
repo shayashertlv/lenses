@@ -8,7 +8,7 @@ import shutil
 from PIL import Image, ImageOps
 
 from glasses3d.g3d_host import compare as C
-from . import cli, pose_basis
+from . import cli, pose_basis, arm_evidence
 from .lab import LAB_SCHEMA, Lab, read, sha, write_json_atomic
 
 
@@ -124,9 +124,13 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     if rig not in cli.MATCHED_RIGS:
         raise ValueError("unknown temple-stage render rig")
     cameras = read(private_basis.dir / C.CAMERAS_JSON)["images"]
+    evidence,evidence_assets = arm_evidence.prepare(inputs,private_basis,inputs/'parent.glb',photos,
+                                                   parent_root=parent_root,parent_basis=basis)
+    assets.extend(evidence_assets)
     brief = cli.brief_text(scene.job.get("name") or "Job", photos, cameras, rig=rig,
                            conflicts=scene.job.get("camera_conflicts") or (),
                            precision=scene.job.get("reading_precision"))
+    brief += arm_evidence.brief_text(evidence)
     brief += "\nOwner description:\n" + scene.job.get("description", "") + "\n"
     if scene.job.get("specs") is not None:
         brief += "Owner specifications:\n" + scene.job.get("specs_json", str(scene.job["specs"])) + "\n"
@@ -137,7 +141,9 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     copy(cli.HERE / "instructions.txt", "instructions.txt", sha(cli.HERE / "instructions.txt"))
     write_json_atomic(inputs / "lab.json", {"schema": LAB_SCHEMA, "rig": rig, "product": scene.job.get("name"),
                                              "assets": assets, "photos": photos, "source": source,
-                                             "basis": bound_basis})
+                                             "basis": bound_basis,
+                                             "arm_evidence":{"report":"arm-evidence/report.json",
+                                                             "images":evidence['images']}})
     job = {"schema": "g3d.job/1", "name": f"{scene.job.get('name')}: temple stage", "rig": rig,
            "implementation": cli.implementation(), "scope": "private stage on the captured current parent head"}
     write_json_atomic(root / "job.json", job)
@@ -149,4 +155,7 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     target = [r["id"] for r in photos if r["role"] == "target"]
     compared = target + [r["id"] for r in photos if r["role"] == "colourway"]
     return {**out, "source": source, "basis": bound_basis, "photo_ids": target, "compare_ids": compared,
-            "image_ids": compared + [r["id"] for r in photos if r["role"] == "reference"]}
+            "image_ids": compared + [r["id"] for r in photos if r["role"] == "reference"],
+            "arm_evidence":{"report":"inputs/arm-evidence/report.json",
+                            "images":len(evidence['images']),
+                            "verified_parent_readings":len(evidence['parent_readings']['verified'])}}

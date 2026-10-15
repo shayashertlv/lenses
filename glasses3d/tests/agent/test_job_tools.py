@@ -312,16 +312,20 @@ def test_finish_exports_and_captures_fresh_without_requiring_prior_ar(finish_sce
         "export_sha256": scene.export["sha256"] if prior == "current" else "stale", "status": "ok", "exit_code": 0}
     output = invoke(scene, "finish", {"summary": "done"})
     out = record(output)
-    assert out["status"] == "accepted" and scene.finish == out
+    assert out["status"] == "review_required" and scene.finish is None
     assert out["call_id"] == "call_test" and out["export"]["validate_spec"]["ok"]
     assert out["failures"] == [] and out["image_source"] == "arview"
     assert [step[0] for step in scene.finish_steps] == ["export", "ar"]
     assert scene.finish_steps[0][1] == {"call_id": "call_test"}
     assert scene.finish_steps[1][1] == out["export"]
     assert scene.finish_steps[1][2:] == ("call_test", {"timeout_s": loop.hard_timeout_s("arview_capture") - 10})
-    assert scene.last_ar is scene.finish["arview"]
+    assert scene.last_ar == out["arview"]
     assert out["arview"]["images"] == out["images"]
     assert sum(isinstance(part, ToolOutputImage) for part in output) == 1
+    final = record(invoke(scene, "finish", {"summary": "done; photo evidence unavailable",
+                   "review_call_id": "call_test", "per_photo": []}, cid="call_second"))
+    assert final["status"] == "accepted" and scene.finish == final
+    assert [step[0] for step in scene.finish_steps] == ["export", "ar", "export", "ar"]
 
 
 @pytest.mark.parametrize("ar", [{}, {"status": "infrastructure_failed", "exit_code": 1},

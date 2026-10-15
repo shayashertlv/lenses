@@ -65,6 +65,7 @@ class JobScene(SceneHooks):
         self.events = list(state.get("events", []))
         self.images = list(state.get("images", []))
         self.finish = state.get("finish")
+        self.finish_review = state.get("finish_review")
         self.last_ar = state.get("last_ar")
         self.best_checkpoint = state.get("best_checkpoint")
         self._unseen = set(state.get("unseen", []))
@@ -78,6 +79,7 @@ class JobScene(SceneHooks):
         with self._state_lock:
             write_json_atomic(self.state_path, {"schema": STATE_SCHEMA, "events": self.events,
                                                "images": self.images, "finish": self.finish,
+                                               "finish_review": self.finish_review,
                                                "last_ar": self.last_ar, "best_checkpoint": self.best_checkpoint,
                                                "unseen": sorted(self._unseen)})
 
@@ -117,8 +119,13 @@ class JobScene(SceneHooks):
                 previous.update(event)
             if event["mutating"]:
                 self.finish = None
+                self.finish_review = None
+            if tool == "fit_cameras":
+                self.finish_review = None
             if call_id in self._unseen and self.finish and self.finish.get("call_id") == call_id:
                 self.finish = None
+            if call_id in self._unseen and self.finish_review and self.finish_review.get("call_id") == call_id:
+                self.finish_review = None
             self.save()
             if self._review_log is not None:
                 self._review_log.record_journal(call_id, event)
@@ -127,6 +134,8 @@ class JobScene(SceneHooks):
         self._review_log = log
         # A reused scene object may serve a fresh run with no previous conversation.
         self._emitted_images = {}
+        self.finish_review = None
+        self.save()
 
     def journal_entries(self):
         with self._state_lock:
@@ -174,6 +183,7 @@ class JobScene(SceneHooks):
             changed = True
         if changed:
             self.finish = None
+            self.finish_review = None
             self.save()
 
     def restore(self, checkpoint_id, *, reason):
@@ -187,6 +197,7 @@ class JobScene(SceneHooks):
                 self.events.append({"kind": "rollback", "checkpoint": checkpoint_id,
                                     "checkpoint_before": before, "head": self.s.head["id"], "reason": reason})
                 self.finish = None
+                self.finish_review = None
                 self.save()
             return {"checkpoint": out["checkpoint"], "restored_from": checkpoint_id}
 
@@ -298,6 +309,8 @@ class JobScene(SceneHooks):
             self._unseen.add(call_id)
             if self.finish and self.finish.get("call_id") == call_id:
                 self.finish = None
+            if self.finish_review and self.finish_review.get("call_id") == call_id:
+                self.finish_review = None
             self.save()
 
     def close(self):

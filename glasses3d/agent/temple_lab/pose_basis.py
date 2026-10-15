@@ -35,6 +35,12 @@ def pose_metadata(rec: dict) -> dict:
                 or any(float(v) != 0. for v in theta.values()) or observed != {"+1": False, "-1": False}):
             raise ValueError("an authored rigid pose must be an uncalibrated, unobserved two-sided identity")
         return deepcopy(provenance)
+    if isinstance(provenance, dict) and provenance.get("mode") == "articulated_fit":
+        if provenance.get("opening_calibrated") != any(observed.values()):
+            raise ValueError("articulated calibration status disagrees with observed opening evidence")
+        # Basis already verifies every source hash; copying must not replace a
+        # weak/unobserved fit with the stronger generic 'declared' provenance.
+        return deepcopy(provenance)
     return {"mode": "declared", "opening_calibrated": True,
             "theta_observed": deepcopy(observed)}
 
@@ -99,7 +105,7 @@ def build(source: C.Basis, root: Path, photos: list[dict], *, call_id: str,
         with Image.open(matte) as im:
             if list(reversed(im.size)) != old["shape"]:
                 raise ValueError(f"{rid}: frozen matte dimensions disagree")
-        for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed"):
+        for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed", "pose_provenance", "opening_fit"):
             if old.get(key) != rec.get(key):
                 raise ValueError(f"{rid}: opening metadata differs from the frozen source")
         patch = pose_updates.get(rid, {})

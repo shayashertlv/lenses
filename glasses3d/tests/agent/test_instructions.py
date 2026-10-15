@@ -113,7 +113,9 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
         for field in fields:
             assert field in I.CORE_GUIDANCE[name]
     assert "before the settled stop" in I.CORE_GUIDANCE["finish"]
-    assert "remaining differences is better than running out" in I.CORE_GUIDANCE["finish"]
+    assert "revisit every difference" in I.CORE_GUIDANCE["finish"]
+    assert "fix it or report it" in I.CORE_GUIDANCE["finish"]
+    assert "per_photo differences" in I.CORE_GUIDANCE["finish"]
 
     # Check the implementation's actual dictionary keys, rather than accepting a new field invented in the text.
     root = Path(__file__).parents[2]

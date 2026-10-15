@@ -72,6 +72,12 @@ def _view(value, name: str) -> dict:
         if matching:
             candidates = matching
     out = {"view_kind": kind, "side": side, "fit_kinds": candidates}
+    if 'reflective_floor' in value:
+        if type(value['reflective_floor']) is not bool:
+            raise JobError(f"{name}: reflective_floor must be a boolean")
+        out['reflective_floor'] = value['reflective_floor']
+        if value['reflective_floor']:
+            out['matte_mode'] = 'glossy_floor'
     if 'matte_mode' in value:
         from glasses3d.g3d_host.matte import MODES
         if not isinstance(value['matte_mode'], str) or value['matte_mode'] not in MODES:
@@ -228,9 +234,12 @@ def load_job(root) -> dict:
         names.add(name)
         files.add(row.get("file"))
         checked = _view({"kind": row.get("view_kind"), "side": row.get("side"),
+                         **({'reflective_floor': row['reflective_floor']} if 'reflective_floor' in row else {}),
                          **({'matte_mode': row['matte_mode']} if 'matte_mode' in row else {})}, name)
         if checked["fit_kinds"] != row.get("fit_kinds"):
             raise JobError(f"{name}: view candidates differ from the declared kind")
+        if checked.get('matte_mode') != row.get('matte_mode'):
+            raise JobError(f"{name}: matte_mode differs from the declared reflective floor")
         for file_key, sha_key in (("file", "sha256"), ("sent_file", "sent_sha256")):
             relative = row.get(file_key)
             if not isinstance(relative, str) or _sha(_asset(root, relative).read_bytes()) != row.get(sha_key):
@@ -245,6 +254,7 @@ def image_paths(job_root) -> dict[str, Path]:
 
 def view_specs(job_root) -> dict[str, dict]:
     return {row["original_name"]: {"kind": row["view_kind"], "side": row["side"],
+                                  **({'reflective_floor': row['reflective_floor']} if 'reflective_floor' in row else {}),
                                   **({'matte_mode': row['matte_mode']} if 'matte_mode' in row else {})}
             for row in load_job(job_root)["images"]}
 

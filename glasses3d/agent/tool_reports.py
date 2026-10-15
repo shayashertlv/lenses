@@ -171,6 +171,83 @@ def _body(text):
         return {"status": "reported", "text": text}, ""
 
 
+def _short(value, limit):
+    value = str(value)
+    return value if len(value) <= limit else value[:max(0, limit - 1)] + "…"
+
+
+def _image_label(text, record, ordinal, view_chars):
+    """Keep identity fields intact; only the human-readable view may be abbreviated."""
+    record = record if isinstance(record, dict) else {}
+    digest = record.get("sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{12,64}", digest):
+        match = re.search(r"sha256 ([0-9a-f]{12,64})\b", text)
+        digest = match.group(1) if match else None
+    origin = record.get("reused_from_call") or record.get("call_id")
+    reused = bool(record.get("reused_from_call"))
+    if not origin:
+        match = re.search(r"Same image already delivered in call (.*?)\.$", text, re.S)
+        reused = bool(match)
+        if not match:
+            match = re.match(r"Image: call (.*?); checkpoint ", text, re.S)
+        origin = match.group(1) if match else None
+    view = record.get("view")
+    if not isinstance(view, str):
+        match = re.search(r"; view (.*?); (?:[^\n]*?; )?sha256 [0-9a-f]+", text, re.S)
+        view = match.group(1) if match else text
+    label = f"Image {ordinal}"
+    if view_chars:
+        label += ": " + _short(view, view_chars)
+    if digest:
+        label += f"; sha256 {digest[:12]}"
+    if origin:
+        label += f"; {'reused from' if reused else 'call'} {origin}"
+    return label
+
+
+def _tail_text(output, texts, body, footer):
+    """Reserve a nonempty label for EVERY image/reuse before spending text on the summary.
+
+    A huge number of panels can outgrow even compact view/hash/call labels. In that case a short I<n>
+    key identifies the exact original text_parts entry in the lossless report. No image is moved or dropped.
+    """
+    labels = [(position, index, text) for position, (index, text) in enumerate(texts[1:], 1)
+              if text.startswith("Image") or
+              index + 1 < len(output) and getattr(output[index + 1], "type", None) == "image"]
+    label_indices = {index for _, index, _ in labels}
+    # The regular budget footer is <500 characters. Preserve it exactly, whether appended to the
+    # first JSON text (facet tools) or supplied as a final text part (main tools).
+    footer = _short(footer, 1000) if len(footer) > 1000 else footer
+    tail, ordinary_budget = {}, 2000
+    for index, text in reversed(texts[1:]):
+        if index in label_indices:
+            continue
+        limit = min(ordinary_budget, 1000 if index == texts[-1][0] else 500)
+        tail[index] = _short(text, limit) if limit else ""
+        ordinary_budget -= len(tail[index])
+    budget = TEXT_LIMIT - 2000 - len(footer) - sum(map(len, tail.values()))
+    records = body.get("images", []) if isinstance(body, dict) else []
+    if not isinstance(records, list):
+        records = []
+    if len(labels) == 1 and isinstance(body, dict) and isinstance(body.get("image_receipt"), dict):
+        records = [body["image_receipt"]]
+    mapped = records if len(records) == len(labels) else [{} for _ in labels]
+    candidates = None
+    for view_chars in (96, 48, 16, 0):
+        candidates = {index: _image_label(text, record, position, view_chars)
+                      for (position, index, text), record in zip(labels, mapped)}
+        if sum(map(len, candidates.values())) <= budget:
+            break
+    else:
+        candidates = {index: f"I{position}" for position, index, _ in labels}
+        if sum(map(len, candidates.values())) > budget:
+            raise ValueError("too many image identities for the fixed tool text limit; full output is saved")
+    tail.update(candidates)
+    note = ("Each Image n or In label identifies text_parts[n] in full_report, which retains the exact original "
+            "view, SHA-256 and source/reuse call; image positions are unchanged.") if labels else None
+    return tail, footer, note
+
+
 def limit_output(root, call_id, tool, output):
     """Cap aggregate text, including image labels and footer, preserving image positions and all original text."""
     if isinstance(output, str):
@@ -185,14 +262,9 @@ def limit_output(root, call_id, tool, output):
     record = {"schema": REPORT_SCHEMA, "tool": tool, "call_id": call_id, "result": body,
               "text_parts": [{"output_index": index, "text": text} for index, text in texts]}
     receipt = save_report(root, record)
-    # Never remove/reorder images or their adjacent text parts. All shortened labels and footers remain in record.
-    tail_budget = 2_000
-    tail = {}
-    for index, value in reversed(texts[1:]):
-        n = min(len(value), 500, tail_budget)
-        tail[index] = value[:n]
-        tail_budget -= n
-    footer = footer[:min(500, tail_budget)]
+    # Never remove/reorder images or their adjacent text parts. Every label gets space, including reused images
+    # whose label is their only output; all originals remain in the lossless report.
+    tail, footer, label_note = _tail_text(output, texts, body, footer)
     available = TEXT_LIMIT - sum(map(len, tail.values())) - len(footer)
     candidate = None
     tables = _tables(body)
@@ -202,14 +274,19 @@ def limit_output(root, call_id, tool, output):
             compact = {"result": compact}
         compact.update(paged=True, full_report=receipt,
                        paging_note="Summary only. read_report can retrieve every value, table, filter or text page.")
+        if label_note:
+            compact["image_label_note"] = label_note
         if tables:
             compact["table_summaries"] = tables
         candidate = dumps(compact)
         if len(candidate) <= available:
             break
     else:
-        candidate = dumps({"status": str(body.get("status", "reported"))[:80] if isinstance(body, dict) else "reported",
-                           "paged": True, "full_report": receipt, "table_summaries": summarize(tables, width=1, levels=3, string_chars=80)})
+        compact = {"status": str(body.get("status", "reported"))[:80] if isinstance(body, dict) else "reported",
+                   "paged": True, "full_report": receipt}
+        if label_note:
+            compact["image_label_note"] = label_note
+        candidate = dumps(compact)
     if len(candidate) > available:
         raise ValueError("tool report receipt exceeds text policy")
     out = list(output)

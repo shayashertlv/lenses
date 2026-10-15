@@ -174,3 +174,93 @@ def test_external_failure_and_timeout_paths_are_bounded(tmp_path):
     assert len(asyncio.run(tool.on_invoke_tool(ctx, "{}"))) <= R.TEXT_LIMIT
     assert len(tool.failure_error_function(ctx, ValueError())) <= R.TEXT_LIMIT
     assert len(tool.timeout_error_function(ctx, TimeoutError())) <= R.TEXT_LIMIT
+
+
+def panel_output(count, *, reused=False, footer_in_body=False):
+    footer = ("spent $11.90 (settled); held $0.00; settled stop $20.00 (reserve cap $23.00) · "
+              "context 127982 tokens\nAbout $8.10 left; finish your best checkpoint soon.")
+    records, parts = [], [None]
+    for index in range(count):
+        digest = hashlib.sha256(f"panel-{index}".encode()).hexdigest()
+        record = {"view": f"photo-{index:03d}: inner rim native detail 1.1", "sha256": digest,
+                  "call_id": "current-call-with-provider-identity", "output_index": None if reused else len(parts) + 1}
+        if reused:
+            record["reused_from_call"] = "earlier-call-with-provider-identity"
+        label = (f"Image: call {record['call_id']}; checkpoint c0010; revision c0010; view {record['view']}; "
+                 f"sha256 {digest[:12]}.")
+        if reused:
+            label += f" Same image already delivered in call {record['reused_from_call']}."
+        parts.append(ToolOutputText(text=label))
+        if not reused:
+            parts.append(ToolOutputImage(image_url="data:image/png;base64,eA==", detail="high"))
+        records.append(record)
+    parts[0] = ToolOutputText(text=R.dumps({"status": "ok", "images": records, "large": "x" * 20_000})
+                             + ("\n" + footer if footer_in_body else ""))
+    if not footer_in_body:
+        parts.append(ToolOutputText(text=footer))
+    return parts, records, footer
+
+
+@pytest.mark.parametrize("reused", [False, True])
+@pytest.mark.parametrize("footer_in_body", [False, True])
+def test_many_panels_keep_each_identity_origin_footer_and_original(tmp_path, reused, footer_in_body):
+    original, records, footer = panel_output(56, reused=reused, footer_in_body=footer_in_body)
+    before = [part.model_dump() for part in original]
+    output = R.limit_output(tmp_path, "current", "compare_look_to_photos", original)
+    assert text_count(output) <= R.TEXT_LIMIT and len(output) == len(original)
+    labels = [part.text for part in output[1:] if part.type == "text" and part.text != footer]
+    assert len(labels) == len(records)
+    for label, rec in zip(labels, records):
+        assert label and rec["sha256"][:12] in label
+        assert rec.get("reused_from_call", rec["call_id"]) in label
+        assert "photo-" in label
+        assert ("reused from" in label) is reused
+    if footer_in_body:
+        assert R._body(output[0].text)[1] == "\n" + footer
+    else:
+        assert output[-1].text == footer
+    for index, part in enumerate(original):
+        if part.type == "image":
+            assert output[index] is part
+    assert [part.model_dump() for part in original] == before
+    body, _ = R._body(output[0].text)
+    saved = json.loads((tmp_path / body["full_report"]["path"]).read_text(encoding="utf8"))
+    assert saved["text_parts"] == [{"output_index": index, "text": part.text}
+                                    for index, part in enumerate(original) if part.type == "text"]
+
+
+@pytest.mark.parametrize("reused", [False, True])
+def test_extreme_panel_count_uses_unique_lossless_identity_keys(tmp_path, reused):
+    original, records, footer = panel_output(1024, reused=reused)
+    output = R.limit_output(tmp_path, "current", "compare_look_to_photos", original)
+    assert text_count(output) <= R.TEXT_LIMIT and len(output) == len(original)
+    labels = [part.text for part in output[1:-1] if part.type == "text"]
+    assert labels == [f"I{index + 1}" for index in range(len(records))]
+    assert len(set(labels)) == len(records) and output[-1].text == footer
+    body = R._body(output[0].text)[0]
+    assert "text_parts[n]" in body["image_label_note"]
+    saved = json.loads((tmp_path / body["full_report"]["path"]).read_text(encoding="utf8"))
+    for index, label in enumerate(labels):
+        original_label = saved["text_parts"][int(label[1:])]["text"]
+        assert records[index]["sha256"][:12] in original_label
+        assert records[index].get("reused_from_call", records[index]["call_id"]) in original_label
+    for index, part in enumerate(original):
+        if part.type == "image":
+            assert output[index] is part
+
+
+def test_short_outputs_are_returned_unchanged(tmp_path):
+    image = ToolOutputImage(image_url="data:image/png;base64,eA==", detail="high")
+    output = [ToolOutputText(text='{"status":"ok"}'), ToolOutputText(text="Original label"), image,
+              ToolOutputText(text="spent $0 (settled)")]
+    assert R.limit_output(tmp_path, "short", "fixture", output) is output
+    assert not (tmp_path / "work").exists()
+
+
+def test_many_nonimage_tail_parts_still_respect_aggregate_limit(tmp_path):
+    original = [ToolOutputText(text=R.dumps(long_result()))]
+    original += [ToolOutputText(text="ordinary diagnostic " * 1000) for _ in range(100)]
+    original.append(ToolOutputText(text="spent $0 (settled); held $0"))
+    output = R.limit_output(tmp_path, "current", "fixture", original)
+    assert text_count(output) <= R.TEXT_LIMIT and len(output) == len(original)
+    assert output[-1] is not None and output[-1].text == original[-1].text

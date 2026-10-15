@@ -166,7 +166,8 @@ def test_receipt_identity_and_versions(w):
     assert r["blender"].startswith("5.2") and r["python"].startswith("3.13")
     assert r["safe_mode_selfcheck"] == {"unlisted_edges": []}
     assert r["g3d_facade"]["errors"] == {}
-    assert set(r["g3d_facade"]["names"]) == {"loft_sections", "polygon_section", "check_round_corners", "lens_coating"}
+    assert set(r["g3d_facade"]["names"]) == {"loft_sections", "polygon_section", "check_round_corners", "lens_coating",
+                                          "acetate_section", "sweep_rim"}
     assert w.hello["pid"] == w.proc.pid and len(w.hello["fingerprint"]) == 64
     assert w.ready_s < 60
 
@@ -276,6 +277,18 @@ def test_a_garbage_frame_ends_the_worker(tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ exec
+def test_closed_rim_helpers_execute_through_runtime_guard(plain):
+    r = plain.call("exec", {"code": "import math\n"
+        "outline = [(20*math.cos(i*math.tau/32), 15*math.sin(i*math.tau/32), 0) for i in range(32)]\n"
+        "section = g3d.acetate_section(5, 4, .5, .6)\n"
+        "result = g3d.sweep_rim(outline, section, name='Synthetic facade rim')\n"
+        "ob = bpy.data.objects[result['object']]\nme = ob.data\n"
+        "bpy.data.objects.remove(ob, do_unlink=True)\nbpy.data.meshes.remove(me)"}, deadline_s=60)
+    assert r["status"] == "ok", r
+    assert r["result"]["status"] == "ok" and r["result"]["closed"]
+    assert r["result"]["euler"] == 0 and r["result"]["sharp_edges"] == 0
+
+
 def test_exec_ok_returns_result_stdout_and_delta(w):
     r = w.call("exec", {"code": "import bmesh\nbm = bmesh.new()\nbmesh.ops.create_cube(bm, size=4)\n"
                                 "me = bpy.data.meshes.new('T1')\nbm.to_mesh(me)\nbm.free()\n"

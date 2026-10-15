@@ -91,8 +91,6 @@ images are restored even when later saved requests contain image-policy text stu
                 raise ReplayError("tool policy must return an input item")
             if new.get("type") != item.get("type") or new.get("call_id") != item.get("call_id"):
                 raise ReplayError("tool policy changed the call identity")
-            if len(image_refs(new)) > 1 and item.get("type") == "function_call_output":
-                raise ReplayError("compact policy returned more than one tool image")
             admitted.append(new)
         replayed = {**deepcopy(headers), "input": deepcopy(admitted)}
         if rebuilt and replayed["input"][:len(rebuilt[-1]["input"])] != rebuilt[-1]["input"]:

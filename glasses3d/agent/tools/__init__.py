@@ -24,8 +24,8 @@ from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from ..money import owner_money
 from ..tool_reports import bounded_tool, limit_output, report_tool
-from . import arview, look
-from .images import compact_sheet, MAX_IMAGE_SIDE, IMAGE_POLICY
+from . import arview, look, finish_review
+from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
 from .temple import temple_tool
@@ -90,7 +90,9 @@ def single_threaded_blas():
                 os.environ[name] = value
 
 
-def _image(root, path, *, region=None, trusted_output=False) -> tuple[dict, str]:
+def _image(root, path, *, region=None, trusted_output=False, max_side=MAX_IMAGE_SIDE) -> tuple[dict, str]:
+    if type(max_side) is not int or not 1 <= max_side <= LOOK_IMAGE_SIDE:
+        raise ValueError("invalid local image size bound")
     areas = ("images", "reference_images", "work", "cameras") if trusted_output else ("images", "reference_images", "work")
     source = arview.confined(root, path, areas=areas)
     with Image.open(source) as opened:
@@ -102,7 +104,7 @@ def _image(root, path, *, region=None, trusted_output=False) -> tuple[dict, str]
                     or not 0 <= region[1] < region[3] <= image.height):
                 raise ValueError("region is [left, top, right, bottom] inside the oriented image")
             image = image.crop(region)
-        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
+        image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         image.save(buf, format="PNG")
     data = buf.getvalue()
@@ -142,11 +144,14 @@ def _sheets(result: dict, name: str) -> list[dict]:
 
 def _output(scene, call_id, name, result):
     records, images = [], []
+    separate = result.get("image_delivery") == "separate"
     for rec in _sheets(result, name):
-        meta, url = _image(scene.root, rec["path"], region=rec.get("region"), trusted_output=name != "read_image")
+        max_side = LOOK_IMAGE_SIDE if separate else MAX_IMAGE_SIDE
+        meta, url = _image(scene.root, rec["path"], region=rec.get("region"), trusted_output=name != "read_image",
+                           max_side=max_side)
         record = {**rec, **meta, "call_id": call_id, "kind": rec.get("kind", name),
                   "checkpoint": rec.get("checkpoint") or scene.s.head["id"],
-                  "view": rec.get("view") or name, "output_index": len(images) + 2}
+                  "view": rec.get("view") or name, "output_index": None, "max_side_px": max_side}
         if name == "read_image":
             if Path(meta["source_path"]).parts[0] in {"images", "reference_images"}:
                 record.update(context_role="reference", checkpoint="source", revision=f"source:{meta['source_sha256'][:12]}")
@@ -162,7 +167,7 @@ def _output(scene, call_id, name, result):
                     if previous.get("revision"):
                         record["revision"] = previous["revision"]
         records.append(record)
-    if len(records) > 1:
+    if len(records) > 1 and not separate:
         sources = records
         panels = []
         for record in sources:
@@ -184,7 +189,8 @@ def _output(scene, call_id, name, result):
         emitted = {}
     emitted = dict(emitted)
     for record in records:
-        meta, url = _image(scene.root, record["path"], trusted_output=True)
+        meta, url = _image(scene.root, record["path"], trusted_output=True,
+                           max_side=record.get("max_side_px", MAX_IMAGE_SIDE))
         label = (f"Image: call {call_id}; checkpoint {record['checkpoint']}; "
                  f"revision {record.get('revision') or record['checkpoint']}; view {record['view']}; "
                  f"sha256 {record['sha256'][:12]}.")
@@ -194,6 +200,7 @@ def _output(scene, call_id, name, result):
             images.append(ToolOutputText(text=label + f" Same image already delivered in call {record['reused_from_call']}."))
         else:
             emitted[record["sha256"]] = call_id
+            record["output_index"] = len(images) + 2
             images.extend([ToolOutputText(text=label), ToolOutputImage(image_url=url, detail="high")])
     if records:
         result["images"] = records
@@ -273,15 +280,19 @@ def build_tools(scene, settings=None) -> list:
                     except (ValueError, KeyError, TypeError, OSError) as error:
                         if name != "finish" or result.get("image_source") != "arview_and_look":
                             raise
-                        # Optional comparison output must not create a new finish gate. AR integrity still applies.
+                        # Preserve AR diagnostics, but missing delivered photo evidence cannot complete review.
                         result["look_comparison"] = {"status": "unavailable", "informational_only": True,
                                                      "code": "E_IMAGE", "message": str(error)}
+                        scene.finish_review = None
+                        result.update(status="refused", code="E_IMAGE", message=str(error))
+                        result["failures"].append({"check": "image_output", "code": "E_IMAGE", "message": str(error)})
                         result.update(images=result["arview"]["images"], image_source="arview")
                         output = _output(scene, cid, name, result)
                 except FATAL:
                     raise
                 except (ValueError, KeyError, TypeError, OSError) as error:
                     if name == "finish" and isinstance(result, dict) and "export" in result:
+                        scene.finish_review = None
                         result = {**result, "status": "refused", "code": "E_IMAGE", "images": [],
                                   "message": str(error)[:1000], "failures": [*result.get("failures", []),
                                   {"check": "image_output", "code": "E_IMAGE", "message": str(error)[:1000]}]}
@@ -295,11 +306,28 @@ def build_tools(scene, settings=None) -> list:
                     output = [ToolOutputText(text=json.dumps(result))]
                 runtime = getattr(ctx, "context", None)
                 footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
-                output = limit_output(scene.root, cid, name, [*output, ToolOutputText(text=footer)])
-                if name == "finish" and result.get("status") == "accepted":
-                    # Images and lossless text persistence must succeed before accepting the finish.
-                    scene.finish = result
-                scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
+                try:
+                    output = limit_output(scene.root, cid, name, [*output, ToolOutputText(text=footer)])
+                    if name == "finish":
+                        finish_review.delivered(scene, result)
+                        if result.get("status") == "accepted" and cid not in getattr(scene, "_unseen", getattr(scene, "unseen", ())):
+                            # Images and lossless text persistence must succeed before accepting the finish.
+                            scene.finish = result
+                    scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
+                except BaseException as delivery_error:
+                    if name == "finish":
+                        scene.finish = None
+                        scene.finish_review = None
+                    # _output has already registered image hashes. A failed final text/report
+                    # or receipt/journal delivery must not deduplicate later against unseen pixels.
+                    try:
+                        scene.mark_unseen(cid)
+                        if hasattr(scene, "save"):
+                            scene.save()
+                    except Exception as cleanup_error:
+                        # Preserve the original report/journal failure, including its traceback.
+                        delivery_error.add_note(f"Could not persist unseen-output invalidation: {cleanup_error}")
+                    raise
                 return output
             finally:
                 scene.lock.release()
@@ -315,8 +343,22 @@ def build_tools(scene, settings=None) -> list:
                                    seating_repair: bool = False):
         """Run bpy code in the live scene; validated changes create a checkpoint. Files and imports are restricted.
 
-        The exporter accepts only partRole values lens, frame and temple. Tag hardware and logos with their
-        supporting component's role; do not invent additional roles such as hinge or logo.
+        The exporter accepts only partRole values lens, frame and temple. Tag hardware by its supporting component.
+        Lens markings are non-transmitting decoration: use frame for separate marking meshes/materials, keeping
+        lens for the optical glass. Temple markings use temple. Do not invent hinge or logo roles.
+
+        g3d.polygon_section(points, corners) makes a 2D profile: each corner is 'sharp', ['round', radius_mm]
+        or ['chamfer', width_mm]. g3d.loft_sections(stations, path=None, caps=True, name=None, material=None,
+        part_role=None) lofts profiles along an OPEN path; each station has t, points and optional sharp flags.
+        g3d.check_round_corners(obj, axis=2) reports the section's rounding resolution.
+        For a CLOSED front rim, g3d.acetate_section(width_mm, depth_mm, edge_round_mm, crown_mm, segments=8)
+        makes rounded inner/outer edges; crown_mm (default 0) is the front rise above fillet tangency.
+        Pass it to g3d.sweep_rim(outline, section,
+        sections=None, name=None, material=None, part_role='frame'). Outline is a sampled closed 3D centreline in
+        scene mm, without repeating its first point; profile u is outward and v faces +Z. Optional sections gives
+        a matching-index profile per outline point for measured variation/local facets. With name, create a new
+        object; without name, inspect the construction report. This is a rim sweep, not a filled lens opening.
+        Measure section depth/rounding in side, top and angled photos; keep sharp facets local where shown.
 
         g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
         authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB;
@@ -324,7 +366,7 @@ def build_tools(scene, settings=None) -> list:
         The helper preserves transmission and other optics. Inspect export warnings and fixed-scale AR to judge it.
         For ANY manual seating/support repair set seating_repair=True: the host returns front before/after at
         one frozen camera. Preserve every opening and feature visible in the photos, including vents.
-        This visual report is not a gate; the required geometric seating check is unchanged.
+        This visual report and geometric seating results are information to weigh against the photos.
 
         Args:
             code: Python code using bpy and the allowed g3d helpers.
@@ -373,7 +415,11 @@ def build_tools(scene, settings=None) -> list:
     @tool("fit_cameras")
     async def fit_cameras(ctx: ToolContext, reason: str, refs: list[str] | None = None, workers: int | None = None,
                           off_axis: bool = False):
-        """Fit photo cameras from current geometry and each photo's declared view and matte mode.
+        """Fit photo cameras and each arm's opening from current geometry and the declared view/matte.
+        Openings are per-photo deltas from the authored GLB. Hidden arms stay fixed; inspect opening_fit
+        visibility and camera/angle ambiguity, not only overlap. The frozen pose reaches photo comparisons,
+        AR look comparisons, photo_read with temple_side, and temple_stage. Reflective-floor photos use
+        the intake's glossy_floor matte (declare reflective_floor: true or matte_mode: glossy_floor).
         Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
         retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
         stages that need a complete camera set.
@@ -476,8 +522,9 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("read_image")
     async def read_image(ctx: ToolContext, path: str, region: list[int] | None = None):
-        """Read an oriented image or crop, at most 1024 pixels on either side. Tool calls return one compact sheet;
-        full panels remain at their reported paths. Crop a native panel to inspect small details. Identical images
+        """Read an oriented image or crop, at most 1024 pixels on either side. Look comparisons and finish return
+        separate full pairs and details; other renders use compact sheets with native panels at reported paths.
+        Crop a native panel to inspect small details. Identical images
         already delivered in this run are referenced by their earlier call without changing conversation history.
 
         Args:
@@ -497,17 +544,23 @@ def build_tools(scene, settings=None) -> list:
         return await call(ctx, "budget_status", status)
 
     @tool("finish")
-    async def finish(ctx: ToolContext, summary: str):
-        """Finalize in one call: export the current head, check specification, all-frame seating and print freshness,
-        then capture fixed-scale AR. Separate export/AR calls are optional inspections. Returns all reports and one
-        compact image; a refusal lists every failed check with diagnostic images. Only accepted completes the run.
+    async def finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
+                     per_photo: list[finish_review.PhotoDifference] | None = None):
+        """Finish in two calls. First export/check the current head, capture fixed-scale AR and show every usable
+        photo's full pair and native details plus the worn front. Inspect them, then call again with its review_call_id
+        and exactly one per_photo entry {ref, differences} for each required ref. State visible differences or 'none'.
+        Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
+        No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
+        A refusal lists every failed quality check with diagnostics. Only accepted completes the run.
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
-        Also includes a frozen front-photo colour comparison and the same-export worn portrait as information;
-        missing photo cameras or comparison images do not block finish.
+        Differences are information, not a likeness score or appearance gate. Do not claim a usable photo reviewed
+        when its images failed to capture. Keep budget to inspect and revisit visible differences before finalizing.
 
         Args:
             summary: What was built and any remaining differences from the photos.
+            review_call_id: Null for the first call; the delivered first call's id on the second.
+            per_photo: Null for the first call; one ref and nonblank differences text (or 'none') per required photo.
         """
         def finish_current(cid):
             scene.finish = None
@@ -525,9 +578,10 @@ def build_tools(scene, settings=None) -> list:
                     or ar.get("export_sha256") != exp.get("sha256") or not ar.get("images")):
                 failures.append({"check": "arview", "code": "E_AR", "report": ar})
             result = {"status": "refused" if failures else "accepted", "call_id": cid,
+                      "image_delivery": "separate",
                       "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
                       "export": exp, "arview": ar, "summary": summary, "failures": failures}
-            result["look_comparison"] = (look.capture(scene.root, exp, cid, front_only=True, worn=ar) if bound else
+            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar) if bound else
                                          {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"})
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
@@ -547,6 +601,7 @@ def build_tools(scene, settings=None) -> list:
                     fallback = {"status": "error", "code": "E_DIAGNOSTIC", "message": str(error)}
                 result.update(diagnostic_render=fallback, image_source="scene_render_fallback",
                               images=_sheets(fallback, "render_views"))
+            finish_review.apply(scene, result, review_call_id, per_photo)
             return result
         return await call(ctx, "finish", finish_current)
 

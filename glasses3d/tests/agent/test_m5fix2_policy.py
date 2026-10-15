@@ -14,9 +14,12 @@ def test_failed_seating_report_does_not_block_finish_and_is_not_rewritten(finish
                 "reasons": ["visible edge unsupported"], "stations": [{"capture_mm": -.7}]}]}
     finish_scene.export["seat_check"] = deepcopy(expected)
     result = record(invoke(finish_scene, "finish", {"summary": "Edge matches the photos; seating report has a gap."}))
+    assert result["status"] == "review_required" and result["failures"] == []
+    result = record(invoke(finish_scene, "finish", {"summary": "Seating gap reported; no usable photo cameras.",
+                    "review_call_id": "call_test", "per_photo": []}, cid="second"))
     assert result["status"] == "accepted" and result["failures"] == []
     assert result["export"]["seat_check"] == expected == finish_scene.finish["export"]["seat_check"]
-    assert [step[0] for step in finish_scene.finish_steps] == ["export", "ar"]
+    assert [step[0] for step in finish_scene.finish_steps] == ["export", "ar", "export", "ar"]
 
 
 def test_failed_seating_survives_finished_delivery_and_reload(tmp_path):

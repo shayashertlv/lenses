@@ -2314,11 +2314,26 @@ class Seeing:
         bdir.mkdir(parents=True)
         imgs = {n: Path(images[n]) for n in names}
         try:
+            initial_openings = {}
+            try:
+                previous = C.load_basis(self.root)
+            except C.NoBasis:
+                previous = None
+            # A delta only transfers automatically when authored geometry and
+            # photo bytes are identical. Geometry revisions start in their own
+            # authored pose; a missing prior is never a measured zero.
+            if previous is not None and previous.meta.get("model", {}).get("sha256") == exp["sha256"]:
+                for rid, row in previous.refs.items():
+                    name = row.get("image")
+                    if (name in imgs and row.get("theta_deg") is not None
+                            and C.sha256_file(imgs[name]) == row.get("photo_sha256")):
+                        initial_openings[name] = row["theta_deg"]
             self_qos = procs.opt_out_self()
             with procs.DescendantsOptOut() as qos:
                 res = fit_views.fit_views(exp["path"], imgs, {n: views[n] for n in names}, bdir, skip=tuple(skip),
                                           front_parts=front_parts, workers=workers, n_refine=n_refine,
                                           candidates=candidates, off_axis=off_axis,
+                                          initial_openings=initial_openings or None,
                                           matte_modes={n: (matte_modes or {}).get(n) for n in names},
                                           log=log or (lambda *_: None))
             bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
@@ -2376,6 +2391,8 @@ class Seeing:
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
+                "theta_deg": rec.get("theta_deg"), "theta_observed": rec.get("theta_observed"),
+                "pose_provenance": rec.get("pose_provenance"), "opening_fit": rec.get("opening_fit"),
                 **({"camera": camera, "off_axis": f["off_axis"], "sign": f.get("sign")}
                    if f.get("off_axis") is not None else {}),
                 **{key: value for key, value in f.items()

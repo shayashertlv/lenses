@@ -1,4 +1,4 @@
-"""Real $0 single-call finalization, including failed seating with images and immutable delivery."""
+"""Real $0 finalization, including seating reports, two-call visual review and immutable delivery."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ from agents.tool import ToolOutputImage
 from agents.tool_context import ToolContext
 from PIL import Image
 
-from glasses3d.agent import delivery, jobs, procs
+from glasses3d.agent import delivery, jobs, procs, tool_reports
 from glasses3d.agent.job_scene import JobScene
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
 from glasses3d.agent.tools import build_tools
@@ -27,7 +27,7 @@ def run(out):
     Image.new("RGB", (16, 16), "white").save(photos / "front.png")
     views = out / "views.json"
     views.write_text(json.dumps({"front.png": {"kind": "front", "side": "both"}}))
-    root = jobs.create_job(images=photos, views=views, name="One-call finish proof",
+    root = jobs.create_job(images=photos, views=views, name="Finish procedure proof",
                           description="Synthetic fixture; no product or model inference.", jobs_root=out / "jobs")
     scene = JobScene(root)
     tools = {tool.name: tool for tool in build_tools(scene)}
@@ -39,8 +39,24 @@ def run(out):
         context = ToolContext(context=None, tool_name=name, tool_call_id=cid, tool_arguments=raw)
         output = asyncio.run(tools[name].on_invoke_tool(context, raw))
         result = json.loads(output[0].text)
+        summary, pages = result, 0
+        if result.get("paged"):
+            # Assert the lossless diagnostics, not a sampled table in the bounded model-facing summary.
+            chunks, offset = [], 0
+            while True:
+                page = tool_reports.read_report(root, summary["full_report"]["id"], mode="text",
+                                                offset=offset, limit=8000)
+                assert page["status"] == "ok"
+                chunks.append(page["text"])
+                pages += 1
+                if page["next_offset"] is None:
+                    break
+                assert page["next_offset"] > offset
+                offset = page["next_offset"]
+            result = json.loads("".join(chunks))
         image_count = sum(isinstance(item, ToolOutputImage) for item in output)
-        calls.append({"tool": name, "result": result, "images": image_count})
+        calls.append({"tool": name, "result": result, "images": image_count,
+                      "bounded_summary": summary, "lossless_pages": pages})
         procs.write_json_atomic(out / "calls.json", calls)
         return result, image_count
 
@@ -58,12 +74,12 @@ def run(out):
             "    lens.data.update()\n",
             "label": "declared fixture with lens radius below the rim aperture"})
         assert declared["status"] == "ok", declared
-        refused, images = invoke("finish", {"summary": "Unseated fixture must remain refused."})
-        assert refused["status"] == "refused" and scene.finish is None, refused
-        assert any(item["check"] == "seating" for item in refused["failures"]), refused
+        unseated, images = invoke("finish", {"summary": "Unseated fixture must retain the failed seating report."})
+        assert unseated["status"] == "review_required" and scene.finish is None, unseated
+        assert not unseated["export"]["seat_check"]["ok"] and not unseated["failures"], unseated
         assert all(lens["frame_type_source"] == "g3d_seat"
-                   for lens in refused["export"]["seat_check"]["lenses"])
-        assert images == 1 and refused["image_source"] == "arview", refused
+                   for lens in unseated["export"]["seat_check"]["lenses"])
+        assert images == 1 and unseated["image_source"] == "arview", unseated
         for side in (-1, 1):
             seated, _ = invoke("seat_lens", {"lens": f"Lens_{side}", "frame_type": "acetate"})
             assert seated["status"] == "ok", seated
@@ -82,10 +98,13 @@ def run(out):
             assert report["before"]["source_render_sha256"] != report["after"]["source_render_sha256"]
             assert shown == 1
         scene.last_ar = {"status": "ok", "exit_code": 0, "export_sha256": "stale"}
-        accepted, images = invoke("finish", {"summary": "Synthetic frame and lenses finalized in one call."})
+        evidence, _ = invoke("finish", {"summary": "Synthetic frame and lenses ready for visual review."})
+        assert evidence["status"] == "review_required" and scene.finish is None, evidence
+        accepted, images = invoke("finish", {"summary": "Synthetic AR reviewed; no usable photo camera in this proof.",
+            "review_call_id": evidence["call_id"], "per_photo": []})
         assert accepted["status"] == "accepted" and not accepted["failures"], accepted
         assert accepted["arview"]["fixed_scale"] is True
-        assert images == 1 or (images == 0 and all(rec.get("reused_from_call") == refused["call_id"]
+        assert images == 1 or (images == 0 and all(rec.get("reused_from_call") in {unseated["call_id"], evidence["call_id"]}
                                                   for rec in accepted["images"]))
         assert accepted["arview"]["images"] == accepted["images"]
         assert scene.finish is accepted or scene.finish == accepted

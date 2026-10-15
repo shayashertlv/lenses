@@ -346,7 +346,8 @@ function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unkno
   context.fillStyle = camera.background; context.fillRect(0, 0, camera.width, camera.height);
   state.background = null; state.pose = null; state.detection = null; state.sides = [];
   const assetToCamera = assetToCameraScene(camera), projection = projectionMatrix(camera);
-  instance.poseCamera(state.source, {assetToCamera, projection, nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE});
+  instance.poseCamera(state.source, {assetToCamera, projection, nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE,
+    ...(camera.temple_pose !== undefined ? {temple_pose: camera.temple_pose} : {})});
   return {id: camera.id, explicit: instance.explicitCameraPosed, background: camera.background, render_size: instance.renderSize,
     intrinsics_px: {fx: camera.fx, fy: camera.fy, cx: camera.cx, cy: camera.cy}, near_m: camera.near, far_m: camera.far,
     camera: instance.cameraState(), asset_to_world: instance.assetMatrixWorld(), fitting: instance.fitting,

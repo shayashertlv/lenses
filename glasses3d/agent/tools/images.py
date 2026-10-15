@@ -4,7 +4,9 @@ import math
 from PIL import Image, ImageDraw, ImageOps
 
 MAX_IMAGE_SIDE = 1024
-IMAGE_POLICY = "g3d.append_only_compact/1"
+# Local delivery bound, not a claim about the provider's maximum image dimensions.
+LOOK_IMAGE_SIDE = 65535
+IMAGE_POLICY = "g3d.append_only_panels/2"
 
 
 def compact_sheet(images):

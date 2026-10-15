@@ -1114,7 +1114,12 @@ def test_bend_and_beyond_notes_tell_the_revision_after_the_last_edit(slab_tb):
     spliced, notes = G.apply_edits(slab, [node("E", None, None, "reading"), splice], readings={"E": rec},
                                    facts=facts)
     assert G.outline_edge(spliced, d, y) == "bottom" and G.beyond_text(spliced, "E", d, y) is None
-    assert notes == [] and facts == {"outline_bends": [], "deleted_creases": []}
+    # M5-fix-5: the obsolete beyond/bend notes remain suppressed, while this final notch now has join facts.
+    assert facts["outline_bends"] == [] and facts["deleted_creases"] == []
+    assert len(facts["splice_joins"]) == 2
+    assert notes == [r["message"] for r in facts["splice_joins"]]
+    assert all(r["chain"] == "outline.bottom" and r["d_mm"] == pytest.approx(d)
+               for r in facts["splice_joins"])
     # a bend whose knot a later splice replaced (E rides the edge to the new chain): no bend
     line = G._interp(bot, 70.15)
     notch = node("E", 70.15, line - 0.97, "mm", 5.0) | {"outline": "bottom"}

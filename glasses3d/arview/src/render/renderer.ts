@@ -73,6 +73,8 @@ import type {TempleClipConfiguration} from './temple-clip.ts';
 import {createTempleVisibility, createTempleVisibilityConfiguration,
   TEMPLE_VISIBILITY_PARAMETERS} from './temple-visibility.ts';
 import {createRearDrop} from './rear-drop.ts';
+import {createPhotoTemplePose, parsePhotoTemplePose} from './photo-temple-pose.ts';
+import type {PhotoTemplePose} from './photo-temple-pose.ts';
 import {createProtection, nasalRoi, protectionProjection} from './protection.ts';
 import type {PixelRect, ProtectionConfiguration} from './protection.ts';
 import {buildTempleContinuityModel, projectTempleContinuity} from './continuity.ts';
@@ -88,7 +90,7 @@ import {DEFAULT_SHADOW_SETTINGS, EyewearShadow, normalizeShadowSettings} from '.
 import type {ShadowSettings} from './eyewear-shadow.ts';
 import {ShadowReceiver} from './shadow-receiver.ts';
 import {EYEWEAR_FIT, EyewearFitSession, observeFitWidth} from './eyewear-fit.ts';
-import {isOpticalMaterial, isTranslucentFrameMaterial} from '../eyewear/optical-material.ts';
+import {applyTransmissionToneMapping, isOpticalMaterial, isTranslucentFrameMaterial} from '../eyewear/optical-material.ts';
 import type {GltfSource, LensIdentificationReport} from '../eyewear/optical-material.ts';
 import {applyVolumeAttenuationScale} from './eyewear-volume.ts';
 import {createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin, setCameraTransmissionSource, setCrystalLookThroughSource} from './translucent-twin.ts';
@@ -150,6 +152,7 @@ export interface ExplicitCamera {
   readonly projection: readonly number[];
   readonly nearCm: number;
   readonly farCm: number;
+  readonly temple_pose?: PhotoTemplePose;
 }
 
 export interface RendererOptions {
@@ -330,6 +333,7 @@ export class TryOnRenderer {
   private templeClip: ReturnType<typeof createTempleClip> | null = null;
   private templeVisibility: ReturnType<typeof createTempleVisibility> | null = null;
   private rearDrop: ReturnType<typeof createRearDrop> | null = null;
+  private photoTemplePose: ReturnType<typeof createPhotoTemplePose> | null = null;
   private hairOcclusion: ReturnType<typeof createHairOcclusion> | null = null;
   private lensMeshes: Mesh[] = [];
   /** The lens_identification block of the load (WP1_DESIGN.md §2): one entry per glTF material. */
@@ -562,7 +566,9 @@ export class TryOnRenderer {
   /** The frame report's temple-end text: the endpoint states, or 'fixed cap' without them; at an explicit camera
    *  (poseCamera) the arms are drawn as authored, with no cap or clip, and the text says so. */
   private get templeEndStateText(): string {
-    if (this.explicitCamera) return 'authored (explicit camera: no spread, terminal return or clip)';
+    if (this.explicitCamera) return this.photoTemplePose?.active
+      ? 'photo opening (explicit camera: frozen hinge deltas, no spread, terminal return or clip)'
+      : 'authored (explicit camera: no spread, terminal return or clip)';
     return this.templeEndpointReport ? `${this.templeEndpointReport.negativeState}/${this.templeEndpointReport.positiveState}` : 'fixed cap';
   }
   private get templeEndMaximumZM(): number {
@@ -590,7 +596,8 @@ export class TryOnRenderer {
   /** Set once the completion gate was switched off because the previous frame's fence never signalled. */
   get syncUnavailable(): string | null {return this.syncFailure;}
   get renderSize(): {width: number; height: number} {
-    const width = Math.min(this.frameWidth, MAX_RENDER_WIDTH);
+    // Photo comparisons retain native detail; live webcam performance keeps its existing cap.
+    const width = Math.min(this.frameWidth, this.explicitCamera ? 4096 : MAX_RENDER_WIDTH);
     return {width, height: Math.max(1, Math.round(width * this.frameHeight / Math.max(1, this.frameWidth)))};
   }
   get captureSnapshot(): CaptureGeometry | null {
@@ -722,6 +729,7 @@ export class TryOnRenderer {
     // lens identification (every material's class decided once, read by every consumer below) and the measured §2 rows.
     // A §2 refusal throws here.
     const normalized = normalizeModel(eyewearScene, this.modelReport, source);
+    this.photoTemplePose = createPhotoTemplePose(eyewearScene);
     this.eyewearRoot = eyewearScene;
     eyewearScene.traverse(object => {if (object instanceof Mesh) this.partNames.set(object, nodeName(object, source));});
     this.lensIdentificationReport = normalized.classification.lensIdentification;
@@ -730,8 +738,7 @@ export class TryOnRenderer {
     eyewearScene.traverse(object => {
       if (!(object instanceof Mesh)) return;
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-        // Every physically transmitting surface shows the camera image, which is not tone-mapped: neither is it.
-        if (isOpticalMaterial(material) || isTranslucentFrameMaterial(material)) material.toneMapped = false;
+        applyTransmissionToneMapping(material);
       }
     });
     asset.add(eyewearScene); this.eyewearPose.add(asset);
@@ -1007,8 +1014,10 @@ export class TryOnRenderer {
    *  `timestampMs` is the frame's capture time, shared by pose and contact-depth filters. */
   pose(frame: HTMLCanvasElement, detection: Detection, timestampMs: number = performance.now()): boolean {
     if (this.disposed) return false;
+    const cameraModeChanged = this.explicitCamera;
     if (this.explicitCamera) {
       // Back from a camera without a face (poseCamera): the try-on's own virtual camera again.
+      this.photoTemplePose?.reset();
       this.explicitCamera = false;
       this.camera.near = VIRTUAL_CAMERA.nearCm; this.camera.far = VIRTUAL_CAMERA.farCm; this.camera.updateProjectionMatrix();
     }
@@ -1016,7 +1025,7 @@ export class TryOnRenderer {
     this.clearPresentation(false);
     try {
       if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
-      if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
+      if (cameraModeChanged || this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
         this.frameWidth = frame.width; this.frameHeight = frame.height;
         const {width, height} = this.renderSize;
         this.renderer.setSize(width, height, false);
@@ -1141,9 +1150,12 @@ export class TryOnRenderer {
     if (frame.width <= 0 || frame.height <= 0) throw new Error('The camera frame is empty.');
     const placement = new Matrix4().fromArray(view.assetToCamera);
     if (Math.abs(placement.determinant()) < 1e-12) throw new Error('The explicit camera\'s placement is singular.');
+    const templePose = view.temple_pose === undefined ? {} : parsePhotoTemplePose(view.temple_pose);
     this.templeEndpointPending = false;
     this.clearPresentation(false);
-    if (this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
+    const cameraModeChanged = !this.explicitCamera;
+    this.explicitCamera = true;
+    if (cameraModeChanged || this.frameWidth !== frame.width || this.frameHeight !== frame.height) {
       this.frameWidth = frame.width; this.frameHeight = frame.height;
       const {width, height} = this.renderSize;
       this.renderer.setSize(width, height, false);
@@ -1163,6 +1175,7 @@ export class TryOnRenderer {
     camera.updateMatrixWorld();
     // The authored arms: no fixed spread, no terminal return (both restore the original storage), no clip, no overlays, no hair.
     this.rearDrop?.setTerminalFit(null); this.rearDrop?.setShape(0, 0);
+    this.photoTemplePose?.apply(templePose);
     this.templeClip?.set(null); this.templeVisibility?.set(null); this.hairOcclusion?.set(false, this.hairStartZ);
     // eyewearPose x the asset's own matrix (the centimetre scale and bridge offset) = the requested placement.
     const asset = this.eyewearAsset; asset.updateMatrix();

@@ -242,6 +242,77 @@ def _splice(pts: list, d_from: float, d_to: float, points: list, i: int) -> list
     return out
 
 
+def _splice_join_candidates(chain: str, before: list, lo: float, hi: float, points: list,
+                            edit_index: int) -> list[dict]:
+    """External joins introduced by a splice; the final neighbours are read only after all edits."""
+    left = [p for p in before if p[0] < lo]
+    right = [p for p in before if p[0] > hi]
+    joins = []
+    if points:
+        if left:
+            joins.append((points[0][0], -1))
+        if right:
+            joins.append((points[-1][0], 1))
+    elif left and right:                         # deleting knots creates a bridge between retained ends
+        joins = [(left[-1][0], 1), (right[0][0], -1)]
+    return [{"chain": chain, "edit_index": edit_index, "d_mm": float(d), "side": side,
+             "before": copy.deepcopy(before)} for d, side in joins]
+
+
+def _splice_join_facts(s: dict, original: dict, candidates: list[dict]) -> list[dict]:
+    """Facts, not repairs or gates: changed final joining ramps, including inner/base chains.
+
+    A piecewise-linear chain is continuous, so a short ramp is never called a literal discontinuity. The value
+    change, rise/run and slope turn make a step-like join visible without an appearance verdict. The existing
+    snap and flat-crease precision suppress insignificant notes. Original-shape restoration suppresses notes even
+    when a second splice repaired the first; replaced or deleted boundaries cannot leave stale facts.
+    """
+    facts = []
+    for c in candidates:
+        chain, d, side = c["chain"], c["d_mm"], c["side"]
+        q = [[float(x), float(y)] for x, y in _chain(s, chain)]
+        held = [j for j, p in enumerate(q) if abs(p[0] - d) <= 1e-9]
+        if not held:
+            continue
+        k = held[0]
+        j = k + side
+        if not 0 <= j < len(q):
+            continue
+        lo, hi = sorted((q[k][0], q[j][0]))
+        # Also include the other neighbour: its slope determines the boundary turn.
+        around = q[max(0, k - 1):min(len(q), k + 2)]
+        original_chain = _chain(original, chain)
+        sample = sorted({p[0] for p in around} | {p[0] for p in original_chain
+                        if around[0][0] <= p[0] <= around[-1][0]})
+        if all(abs(_interp(q, x) - _interp(original_chain, x)) <= 1e-9 for x in sample):
+            continue
+        a, b = q[min(k, j)], q[max(k, j)]
+        rise, run = b[1] - a[1], hi - lo
+        angle = math.degrees(math.atan2(rise, run))
+        before = c["before"]
+        was = _interp(before, d)
+        delta = q[k][1] - was
+        old_angle = math.degrees(math.atan2(_interp(before, hi) - _interp(before, lo), run))
+        turn = _turn_deg(q, k) if 0 < k < len(q) - 1 else 0.0
+        old_k = next((j for j in range(1, len(before) - 1) if abs(before[j][0] - d) <= 1e-9), None)
+        old_turn = _turn_deg(before, old_k) if old_k is not None else 0.0
+        if abs(delta) < snap_of(s) and abs(angle - old_angle) < FLAT_CREASE_DEG \
+                and abs(turn - old_turn) < FLAT_CREASE_DEG:
+            continue
+        message = (f"splice_chain {chain} join from edits[{c['edit_index']}] at d {d:.2f}: final value "
+                   f"{q[k][1]:.2f} mm ({delta:+.2f} mm from its pre-splice line); joining ramp "
+                   f"d {lo:.2f}-{hi:.2f} rises {rise:+.2f} mm over {run:.2f} mm "
+                   f"(slope {angle:+.1f} deg, before {old_angle:+.1f} deg); "
+                   f"turn {turn:.1f} deg (before {old_turn:.1f} deg).")
+        facts.append({"chain": chain, "edit_index": c["edit_index"], "d_mm": d,
+                      "joining_side": "before" if side < 0 else "after", "value_mm": q[k][1],
+                      "pre_splice_value_mm": was, "value_change_mm": delta,
+                      "ramp_d_mm": [lo, hi], "ramp_rise_mm": rise, "ramp_run_mm": run,
+                      "slope_deg": angle, "pre_splice_slope_deg": old_angle,
+                      "turn_deg": turn, "pre_splice_turn_deg": old_turn, "message": message})
+    return facts
+
+
 def _offset(pts: list, d_from: float, d_to: float, delta: float, taper: float, i: int) -> list:
     """Add delta x w(d) to the chain, w = 1 over [d_from, d_to] falling linearly to 0 over taper_mm outside; knots
     are inserted at the breakpoints inside the chain (no geometry change by themselves)."""
@@ -642,14 +713,17 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
     """The edits applied to a copy of the design ``spec`` (module doc); ``readings`` = the stored readings by name
     (state["readings"]) for set_node mode "reading". Returns (canonical design, notes); raises EditError. ``facts``
     (a dict, optional) receives the notes the lab's receipt states on lines of their own: "outline_bends" (the bends
-    set_node outline knots make, _bend_text) and "deleted_creases" (_deleted_crease_text), each a list of notes."""
+    set_node outline knots make, _bend_text) and "deleted_creases" (_deleted_crease_text), each a list of notes;
+    "splice_joins" contains structured final joining-ramp facts when a splice occurred."""
     if not isinstance(edits, list) or len(edits) > EDITS_MAX:
         raise EditError(f"edits must be a list of at most {EDITS_MAX} operations")
     s = copy.deepcopy(canonical_design(spec))
+    original = copy.deepcopy(s)
     if reset_layout:
         s["nodes"], s["facets"], s["creases"] = {}, {}, []
     notes, deleted_nodes, set_facets, set_creases, gone_creases = [], {}, {}, {}, []
     told = []                           # [(notes index, "bend" | "beyond", data)]: told of the final design below
+    splice_joins, had_splice = [], False
     for i, e in enumerate(edits):
         op = e.get("op") if isinstance(e, dict) else None
         if op == "set_node":
@@ -718,6 +792,13 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
                 if not isinstance(pts, list) or len(pts) > CHAIN_POINTS_MAX:
                     raise EditError(f"points must be a list of at most {CHAIN_POINTS_MAX} [d, value]", i)
                 _set_chain(s, chain, _splice([list(p) for p in _chain(s, chain)], d_from, d_to, pts, i))
+                had_splice = True
+                splice_joins = [c for c in splice_joins if not
+                                (c["chain"] == chain and d_from <= c["d_mm"] <= d_to)]
+                new_joins = _splice_join_candidates(chain, pts_before, d_from, d_to, pts, i)
+                keys = {(c["chain"], c["d_mm"], c["side"]) for c in new_joins}
+                splice_joins = [c for c in splice_joins if (c["chain"], c["d_mm"], c["side"]) not in keys]
+                splice_joins += new_joins
             else:
                 delta = _num(e.get("delta_mm"), "delta_mm", i, DELTA_LIMIT_MM)
                 taper = _num(e.get("taper_mm"), "taper_mm", i, D_LIMIT_MM)
@@ -758,8 +839,13 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
     notes = [n for n in notes if n is not None]
     deleted = [_deleted_crease_text(gone_creases, s["creases"])] if gone_creases else []
     notes += deleted
+    joins = _splice_join_facts(s, original, splice_joins)
+    notes += [r["message"] for r in joins]
     if facts is not None:
         facts["outline_bends"], facts["deleted_creases"] = bends, deleted
+        facts.pop("splice_joins", None)
+        if had_splice:
+            facts["splice_joins"] = joins
     return canonical_design(s), notes
 
 

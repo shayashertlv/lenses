@@ -14,7 +14,7 @@ import time
 from glasses3d.agent import approvals as A, cli, delivery, job_run, procs, replay, review
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire
 from glasses3d.agent.session_inputs import NOTE_PREFIX
-from glasses3d.tests.proofs.assembly_m1 import run as assembly
+from glasses3d.tests.proofs.assembly_m1 import run as assembly, TRUTH
 
 
 def run():
@@ -35,9 +35,13 @@ def run():
         for index in (1, 2):
             transport = replay.ScriptedOpenAI([
                 replay.tool_call("scene_summary", {"objects": None}),
-                replay.tool_call("finish", {"summary": "Offline resume proof: review note received; geometry retained."})
+                replay.tool_call("finish", {"summary": "Offline resume proof: review note received; geometry retained."}),
+                replay.tool_call("finish", {"summary": "Offline resume proof: reviewed all comparison evidence.",
+                    "review_call_id": f"call_{100 * index + 2:04d}", "per_photo": [
+                        {"ref": Path(name).stem, "differences": "Scripted procedure proof; no automated likeness judgment."}
+                        for name in TRUTH]})
             ], id_start=100 * index + 1)
-            settings = replace(job_run.settings_default(), max_turns=3)
+            settings = replace(job_run.settings_default(), max_turns=4)
             spec, _ = job_run.prepare_run(root, f"offline-review-resume-{index}", settings=settings,
                                            write_request=True, resume=True)
             assert len(spec.owner_notes) == 1 and spec.owner_notes[0].endswith(notes)
@@ -45,7 +49,7 @@ def run():
                              owner_words="Synthetic offline proof only; no paid call authorized.", recorded_by="offline proof")
             outcome = asyncio.run(job_run.execute_run(root, spec.run_id, resume=True, offline_handler=transport.handle))
             assert outcome["result"]["status"] == "completed" and outcome["delivery"]["status"] == "delivered", outcome
-            assert len(transport.creates) == len(transport.counts) == 2
+            assert len(transport.creates) == len(transport.counts) == 3
             assert not transport.violations and not transport.unexpected
             receipt = json.loads((root / "runs" / spec.run_id / "input-receipt.json").read_text())
             assert receipt["notes_sent"] == (1 if index == 1 else 0)

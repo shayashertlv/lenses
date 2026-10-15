@@ -11,23 +11,30 @@
  *
  *    {"schema": "arview.cameras/1", "cameras": [{
  *       "id": "photo_05",                     file-safe: [a-z0-9][a-z0-9_-]*, unique
- *       "width": 1200, "height": 600,         render size in pixels (width <= 1280, height 64-1280)
+ *       "width": 1200, "height": 600,         render size in pixels (each side 64-4096)
  *       "background": "#f3f2f0",              flat sRGB background
  *       "view": [16 numbers],                 asset-local metres -> camera metres, ROW-major 4x4, a rotation (det +1, no mirror)
  *                                             plus a translation; the camera looks down -Z with +Y up and +X right
  *       "fx": 1800, "fy": 1800,               focal lengths in render pixels
  *       "cx": 600, "cy": 300,                 principal point in render pixels, y down, integer = a pixel CENTRE
- *       "near": 0.5, "far": 4.0               clip planes in metres (0 < near < far)
+ *       "near": 0.5, "far": 4.0,              clip planes in metres (0 < near < far)
+ *       "temple_pose": {                      optional deltas from authored pose, + means tip outward
+ *         "+1": {"theta_deg": 6, "axis_xz_mm": [68, -2]},
+ *         "-1": {"theta_deg": 2, "axis_xz_mm": [-68, -2]}
+ *       }                                     axes are signed asset-local MILLIMETRES; tagged temple parts move
  *    }, ...]}
  *
  *  A camera-space point (X, Y, Z) (Z < 0 in front) lands at u = cx + fx X / -Z, v = cy - fy Y / -Z (`projectPixel`). Each
  *  camera yields `<id>__beauty.png` (on its background) and `<id>__part-id.png` (flat part colours on black, the
  *  silhouette), plus `<id>__silhouette.png` (white on black, for unambiguous edge coverage). */
 
+import {parsePhotoTemplePose} from '../../src/render/photo-temple-pose.ts';
+import type {PhotoTemplePose} from '../../src/render/photo-temple-pose.ts';
+
 export const CAMERAS_SCHEMA = 'arview.cameras/1';
 export const CAMERA_ID = /^[a-z0-9][a-z0-9_-]{0,60}$/;
 export const MAX_CAMERAS = 64;
-export const CAMERA_SIZE = Object.freeze({minWidth: 64, maxWidth: 1280, minHeight: 64, maxHeight: 1280});
+export const CAMERA_SIZE = Object.freeze({minWidth: 64, maxWidth: 4096, minHeight: 64, maxHeight: 4096});
 /** The scene is in centimetres (the try-on's virtual camera space); the cameras file is in metres. */
 export const METRES_TO_SCENE = 100;
 export const CAMERA_VARIANTS = Object.freeze(['beauty', 'part-id', 'silhouette'] as const);
@@ -42,6 +49,8 @@ export interface ExplicitCameraSpec {
   readonly view: readonly number[];
   readonly fx: number; readonly fy: number; readonly cx: number; readonly cy: number;
   readonly near: number; readonly far: number;
+  /** Optional per-photo deltas from authored arms; signed axes in asset-local millimetres. */
+  readonly temple_pose?: PhotoTemplePose;
   /** Free-form caller data, copied into the report untouched. */
   readonly meta?: unknown;
 }
@@ -88,8 +97,14 @@ export function parseCameraSet(value: unknown): CameraSet {
     if (!(fx > 0) || !(fy > 0)) throw new CameraSetError(`${where}: fx and fy must be positive.`);
     if (!(near > 0) || !(far > near)) throw new CameraSetError(`${where}: near and far must satisfy 0 < near < far (metres), got ${near}, ${far}.`);
     if (far / near > 1e6) throw new CameraSetError(`${where}: far / near is ${Math.round(far / near)}; keep it under 1e6 so the depth buffer resolves the model.`);
+    let templePose: PhotoTemplePose | undefined;
+    if (entry.temple_pose !== undefined) {
+      try {templePose = parsePhotoTemplePose(entry.temple_pose);}
+      catch (error) {throw new CameraSetError(`${where}: ${error instanceof Error ? error.message : String(error)}`);}
+    }
     return Object.freeze({id, width: width as number, height: height as number, background: background.toLowerCase(), view: Object.freeze([...view as number[]]),
-      fx, fy, cx: entry.cx as number, cy: entry.cy as number, near, far, ...(entry.meta !== undefined ? {meta: entry.meta} : {})});
+      fx, fy, cx: entry.cx as number, cy: entry.cy as number, near, far, ...(entry.meta !== undefined ? {meta: entry.meta} : {}),
+      ...(templePose !== undefined ? {temple_pose: templePose} : {})});
   });
   return Object.freeze({schema: CAMERAS_SCHEMA, cameras: Object.freeze(cameras)});
 }

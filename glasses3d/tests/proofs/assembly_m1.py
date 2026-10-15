@@ -175,7 +175,8 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
         assert args["tool"] == rec["tool"] == jr["tool"] == journal[cid]["tool"] == name
         assert isinstance(rec["result"], list) and rec["result"][0]["type"] == "text"
         output = json.loads(rec["result"][0]["text"])
-        assert output["status"] == jr["status"] == journal[cid]["status"] == expected_status.get(name, "ok"), (name, output)
+        status = "review_required" if name == "finish" and i < n else expected_status.get(name, "ok")
+        assert output["status"] == jr["status"] == journal[cid]["status"] == status, (name, output)
         if name == "render_views":
             rendered = read(local(output["manifest"]))
             views = list(rendered["views"].values())
@@ -218,7 +219,8 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
         assert local(sheet).is_file()
     comparison = report["look_comparison"]
     assert comparison["status"] == "ok" and comparison["informational_only"]
-    assert len(comparison["views"]) == 1 and comparison["views"][0]["view_kind"] == "front"
+    assert {row["ref"] for row in comparison["views"]} == {Path(name).stem for name in TRUTH}
+    assert comparison["views"][0]["view_kind"] == "front"
     assert comparison["export_sha256"] == report["glb_sha256"]
     for asset in comparison["assets"]:
         assert approvals.file_sha256(local(asset["path"])) == asset["sha256"]
@@ -288,7 +290,11 @@ def run():
                replay.tool_call("compare_to_photos", {"refs": None, "parts": "all", "size_px": 640, "basis": None}),
                replay.tool_call("export_glb"), replay.tool_call("arview_capture"),
                replay.tool_call("compare_look_to_photos", {"refs": None, "basis": None}),
-               replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR."})]
+               replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR."}),
+               replay.tool_call("finish", {"summary": "Reviewed every full photo comparison, native detail and worn front in this scripted procedure proof.",
+                   "review_call_id": "call_0012", "per_photo": [
+                       {"ref": Path(name).stem, "differences": "Scripted procedure proof; no automated likeness judgment."}
+                       for name in TRUTH]})]
     transport = replay.ScriptedOpenAI(replies)
     settings = replace(job_run.settings_default(), max_turns=len(replies) + 1)
     spec, _ = job_run.prepare_run(job, "offline-proof", settings=settings, write_request=True)
@@ -303,7 +309,7 @@ def run():
     receipt_checks = check_receipts(job, spec.run_id, [
         "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "seat_lens", "seat_lens",
         "check_lens_seating", "compare_to_photos", "export_glb",
-        "arview_capture", "compare_look_to_photos", "finish"])
+        "arview_capture", "compare_look_to_photos", "finish", "finish"])
     basis = json.loads(next((job / "cameras").rglob("cameras.json")).read_text())
     for name, rec in basis["images"].items():
         _, yaw, pitch, _, _ = TRUTH[name]

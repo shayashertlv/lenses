@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {BoxGeometry, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshPhysicalMaterial,
   MeshStandardMaterial, PerspectiveCamera, Scene, ShaderMaterial} from 'three';
 import type {Material, WebGLRenderer} from 'three';
-import {classifyAssetMaterials, isOpticalMaterial} from '../src/eyewear/optical-material.ts';
+import {applyTransmissionToneMapping, classifyAssetMaterials, isOpticalMaterial} from '../src/eyewear/optical-material.ts';
 import {buildTempleContinuityModel} from '../src/render/continuity.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 import {createTempleTerminalFit} from '../src/render/temple-terminal-fit.ts';
@@ -34,6 +34,28 @@ function visibilityContext(root: Group) {
   scene.add(eyewearPose);
   return {renderer: {} as WebGLRenderer, scene, eyewearPose, camera: new PerspectiveCamera(60, 1, 1, 1000)};
 }
+
+test('lens-tagged opaque and alpha-blended marks retain tone mapping; physical transmission alone bypasses it', t => {
+  const geometry = new BoxGeometry(.01, .01, .001);
+  t.after(() => geometry.dispose());
+  for (const [role, transmission, opacity, expected] of [
+    ['lens', 0, 1, true], ['lens', 0, .4, true], ['lens', .8, 1, false],
+    ['frame', .8, 1, false], ['frame', 0, 1, true], ['temple', 0, 1, true],
+  ] as const) {
+    const material = new MeshPhysicalMaterial({color: 0x777777, transmission, opacity, transparent: opacity < 1});
+    t.after(() => material.dispose());
+    const mesh = new Mesh(geometry, material); mesh.userData.partRole = role;
+    classifyAssetMaterials(new Group().add(mesh));
+    const before = [material.color.toArray(), material.transmission, material.opacity, material.roughness];
+    applyTransmissionToneMapping(material);
+    assert.equal(material.toneMapped, expected, `${role}, transmission ${transmission}, opacity ${opacity}`);
+    assert.deepEqual([material.color.toArray(), material.transmission, material.opacity, material.roughness], before);
+  }
+  const opaque = new MeshStandardMaterial({toneMapped: false}); t.after(() => opaque.dispose());
+  const mesh = new Mesh(geometry, opaque); mesh.userData.partRole = 'frame';
+  classifyAssetMaterials(new Group().add(mesh)); applyTransmissionToneMapping(opaque);
+  assert.equal(opaque.toneMapped, false, 'an authored opaque frame setting stays untouched');
+});
 
 // Replaces 'untagged materials keep the legacy transmission rule across material classes', which read the class live
 // from unclassified materials: the class is now decided once at load. Unclassified, nothing is optical; classified alone

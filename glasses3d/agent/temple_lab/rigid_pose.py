@@ -12,12 +12,8 @@ import json
 from pathlib import Path
 import re
 
-import numpy as np
-
-from glasses3d.g3d.temple import measure as MS
-from glasses3d.g3d_host import compare as C, pose as PO
+from glasses3d.g3d_host import compare as C, pose as PO, hinge_axes
 from glasses3d.g3d_host.fit_views import rigid_fit_marker
-from . import geometry as G
 
 
 def _sha(path):
@@ -30,35 +26,10 @@ def _digest(value):
 
 def derive_axes(captured_glb, captured_sha256) -> dict:
     """Use the existing temple-body and knuckle rules, with no guessed or photo-measured hinge anchors."""
-    path = Path(captured_glb)
-    if not _digest(captured_sha256) or _sha(path) != captured_sha256:
+    if not _digest(captured_sha256):
         raise ValueError("captured temple source GLB differs from its SHA-256")
-    parts = G.glb_parts(path)
-    if not parts or any(not np.isfinite(part["V"]).all() for part in parts):
-        raise ValueError("captured temple source has no finite geometry")
-    boxes = [(p["V"].min(0), p["V"].max(0), p["role"]) for p in parts]
-    axes, bodies = {}, {}
-    for side in (1, -1):
-        body = G.temple_body(parts, side)
-        hinge_z = float(body["V"][:, 2].max())
-        axis = MS.knuckle_axis(boxes, side, hinge_z)
-        if axis is None:
-            raise ValueError(
-                f"captured temple source has no geometric knuckle axis for side {side:+d}; "
-                f"recognition requires a temple-role part centered on that side, with world X and Z "
-                f"bounding-box extents each strictly below {MS.KNUCKLE_MAX_MM:g} mm and center Z "
-                f"within {MS.HINGE_NEAR_MM:g} mm of the temple-front hinge plane. "
-                "This is a tool recognition heuristic, not a product geometry requirement; "
-                "do not shrink real hardware just to satisfy it.")
-        key = f"{side:+d}"
-        axes[key] = [side * abs(float(axis[0])), float(axis[1])]
-        bodies[key] = body["name"]
-    PO.parse_pose({k: {"theta_deg": 0.0, "axis_xz_mm": v} for k, v in axes.items()})
-    if _sha(path) != captured_sha256:
-        raise ValueError("captured temple source changed while deriving hinge axes")
-    return {"hinge_axis_xz_mm": axes,
-            "axis_source": {"glb_sha256": captured_sha256, "method": "temple_body_and_knuckle_bbox",
-                            "temple_bodies": bodies}}
+    derived = hinge_axes.derive_axes(captured_glb, captured_sha256, require_both=True)
+    return {k:derived[k] for k in ("hinge_axis_xz_mm", "axis_source")}
 
 
 def materialize(source_basis, captured_glb, captured_sha256) -> dict:

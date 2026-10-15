@@ -4,7 +4,7 @@ import numpy as np
 from .blender_camera import as_camera, as_frame, axes
 
 
-def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280):
+def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280, temple_pose=None):
     """Asset-local mm -> camera metres, preserving roll, off-axis eye and pixel centres.
 
     Orthographic views use a distant pinhole (1e4 frame extents). This is an explicit approximation,
@@ -12,7 +12,7 @@ def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280):
     """
     cam, frame = as_camera(cam), as_frame(frame)
     h, w = shape_hw
-    if not (64 <= size_px <= 1280 and h > 0 and w > 0 and frame.extent > 0 and cam.scale > 0
+    if not (64 <= size_px <= 4096 and h > 0 and w > 0 and frame.extent > 0 and cam.scale > 0
             and cam.perspective >= 0):
         raise ValueError("invalid camera size, scale, frame or perspective")
     scale = min(1., size_px / max(h, w))
@@ -33,6 +33,11 @@ def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280):
             "near": max(distance * .001, distance - 10 * extent, 1e-6), "far": distance + 10 * extent,
             "meta": {"source_camera": cam.to_dict(), "frame": frame.to_dict(), "native_shape": [h, w],
                      "pixel_scale": scale, "orthographic_approximation": cam.perspective <= 1e-9}}
+    if temple_pose is not None:
+        from .pose import parse_pose
+        parsed = parse_pose(temple_pose)
+        spec["temple_pose"] = {f"{side:+d}": {"theta_deg": theta, "axis_xz_mm": [side * axis[0], axis[1]]}
+                               for side, (theta, axis) in parsed.items()}
     if cam.perspective <= 1e-9:
         radius = np.sqrt(3) / 2
         bound = cam.scale * scale * (radius + np.hypot(cam.eye_x, cam.eye_y)) * k * radius / (1 - k * radius)

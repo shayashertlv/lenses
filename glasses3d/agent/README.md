@@ -17,6 +17,12 @@ Create `views.json` with exactly one entry per photo, for example:
 Kinds are the camera fitter's explicit view kinds; unsupported or missing kinds are refused. Side is `left`, `right`,
 `both` or `null`. Original bytes are retained. Exceptionally large reference payloads get a transport copy at the
 same pixel dimensions; both hashes are bound into the approval.
+For a photo on a reflective floor, add `"reflective_floor": true` to its view record; intake selects the
+existing `glossy_floor` matte. An explicit `matte_mode` (`default`, `glossy_floor` or `open_frame`) takes
+precedence. View/side and floor declarations are checked by eye at intake, never inferred from filenames.
+Camera fitting also estimates each visible temple's opening relative to the current exported model and
+reports hidden or camera-coupled angles. Those frozen deltas are used by photo comparisons, photo readings
+and the temple stage; the worn AR view starts from the authored model.
 
 ```powershell
 & glasses3d/.venv/Scripts/python.exe -m glasses3d job create --images C:/photos --views C:/photos/views.json --name "Product" --description "Exact owner description" --specs C:/photos/specs.json

@@ -707,7 +707,7 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
     """The v3 brief lines that are not per photo: which cameras were fitted on their own and which were moved from
     another photo's with its theta (lineage_text), how precisely photo_read reads which kind of point (the job's
     READING_PRECISION), the theta lever (readings.THETA_SD_DEG; d x pi / 180 mm per degree) and a camera-model
-    conflict worded as a limit of the camera model, never as doubt about the photo (owner rule)."""
+    prior comparison worded as a measured difference, never as a proved camera limit or doubt about a photo."""
     from glasses3d.agent.temple_lab import readings as RD
     ids = {"reference-05.png": "05", "reference-02.png": "02", "black-side.png": "B1"}
     recs = {"05": {"camera": {"yaw": 90.0}}, "02": {"camera": {"yaw": 30.0}},
@@ -742,17 +742,18 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
     assert "faces stay flat" not in th and "edges straight" not in th
     assert [round(d * math.pi / 180.0, 1) for d in (75, 85)] == [1.3, 1.5]            # WP6_V3 §0.3: ~1.3 at d 75-85
     c = cli.conflict_text(PRADA.CAMERA_CONFLICTS[0])
-    assert c == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame rigid, "
-                 "each temple a rigid arm turned about its hinge), the outer outline that photo 03 shows at d 10-40 "
-                 "and the other photos cannot be matched together: they differ there by up to about 2.2 mm, 03's "
-                 "further out, on both temples. This is a limit of the camera model, not of the photo.")
+    assert c == ("Supplied prior comparison: the outer outline that photo 03 shows at d 10-40 and the other photos "
+                 "had a reported difference there of up to about 2.2 mm, 03's further out, on both temples, under "
+                 "that comparison's calibration. Check the current camera/opening fit and reading residuals before "
+                 "drawing a geometry conclusion; this observation alone does not establish an irreconcilable "
+                 "camera model.")
     back = cli.conflict_text(PRADA.CAMERA_CONFLICTS[1])
-    assert back == ("Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame "
-                    "rigid, each temple a rigid arm turned about its hinge), the outer outline that photos 03 and 06 "
-                    "show near d 75 and the two-direction readings of the side and angled photos cannot be matched "
-                    "together: they differ there by up to about 2.7 mm, the readings further out, on the charted "
-                    "temple (the mirrored temple was not checked). This is a limit of the camera model, not of the "
-                    "photos.")
+    assert back == ("Supplied prior comparison: the outer outline that photos 03 and 06 show near d 75 and the "
+                    "two-direction readings of the side and angled photos had a reported difference there of up to "
+                    "about 2.7 mm, the readings further out, on the charted temple (the mirrored temple was not "
+                    "checked), under that comparison's calibration. Check the current camera/opening fit and "
+                    "reading residuals before drawing a geometry conclusion; this observation alone does not "
+                    "establish an irreconcilable camera model.")
     for text in (c, back):
         for doubt in ("wrong", "error", "inconsistent", "unreliable", "bad", "fault", "distort", "trust", "ignore",
                       "suspect", "not real"):
@@ -781,7 +782,7 @@ def test_camera_conflicts_and_reading_precision_are_job_data():
     assert defaults["camera_conflicts"] == () and defaults["reading_precision"] is None
     photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"}]
     plain = cli.brief_text("Frame X", photos, {"reference-01.png": {"camera": {"yaw": 90.0, "pitch": 5.0}}})
-    assert "Camera-model conflict" not in plain and "Readings (photo_read)" not in plain
+    assert "Supplied prior comparison" not in plain and "Readings (photo_read)" not in plain
     assert "As-authored temple pose; hinge opening is not calibrated for: 01." in plain
     assert "Each camera fit includes the temples' hinge opening (theta)" not in plain
     mid = cli.G3D / PRADA.CAMERA_CONFLICTS[0]["evidence"]
@@ -936,7 +937,7 @@ def test_brief_on_the_real_pose_basis():
     for pointer in ("charted temple", "mirrored temple", "square-on", "at a moderate angle", "edge-on", "Directions",
                     "look along creases that run front to back", "Glossy photos", "faces that point straight up",
                     "revision 0", "glossy black", "fixed light, studio_dome_v1", "edge rounding", "bottom outline",
-                    "Camera-model conflict", "were not fitted", "What you may change", "a tone step marks where an "
+                    "Supplied prior comparison", "were not fitted", "What you may change", "a tone step marks where an "
                     "edge is"):
         assert pointer in brief, pointer                               # what the instructions say the brief gives
     low = brief.lower()

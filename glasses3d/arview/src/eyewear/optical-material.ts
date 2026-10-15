@@ -317,3 +317,14 @@ export function isTranslucentFrameMaterial(material: Material): boolean {
 
 /** True for a material classified as lens. An unclassified material is never optical. */
 export function isOpticalMaterial(material: Material): boolean {return materialClassOf(material) === 'lens';}
+
+/** Transmitted camera pixels already have their display response. Opaque lens markings and mirrors
+ *  still need the renderer's normal tone mapping, even when their authored component role is lens.
+ *  Alpha blending alone is not physical optical transmission. Opaque frame settings are untouched. */
+export function applyTransmissionToneMapping(material: Material): void {
+  if (isOpticalMaterial(material)) {
+    material.toneMapped = !(material instanceof MeshPhysicalMaterial && material.transmission > 0);
+  } else if (isTranslucentFrameMaterial(material)) {
+    material.toneMapped = false;
+  }
+}

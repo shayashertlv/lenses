@@ -78,18 +78,30 @@ def test_unexplained_saved_history_changes_are_refused(change):
         restore_append_only([a, b], identity)
 
 
-@pytest.mark.parametrize("change", ["identity", "two-images", "not-dict"])
+@pytest.mark.parametrize("change", ["identity", "not-dict"])
 def test_bad_new_policy_cannot_be_reported_as_success(change):
     def transform(item):
         if change == "identity":
             item["call_id"] = "wrong"
-        elif change == "two-images":
-            item["output"].append(image("extra"))
         else:
             return None
         return item
     with pytest.raises(ReplayError):
         restore_append_only([request([photo_input(), output()])], transform)
+
+
+def test_multiple_new_images_are_admitted_once_without_rewriting_prior_history():
+    a = request([photo_input(), output()])
+    b = request([photo_input(), output(), output("next")])
+    calls = []
+    def transform(item):
+        calls.append(item["call_id"])
+        item["output"].extend([image("detail-a"), image("detail-b")])
+        return item
+    rebuilt, rewrites = restore_append_only([a, b], transform)
+    assert calls == ["call-one", "next"] and rewrites == []
+    assert rebuilt[1]["input"][:len(rebuilt[0]["input"])] == rebuilt[0]["input"]
+    assert len(rebuilt[0]["input"][1]["output"]) == 4
 
 
 def test_six_photos_are_required_on_every_source_and_replay_request():

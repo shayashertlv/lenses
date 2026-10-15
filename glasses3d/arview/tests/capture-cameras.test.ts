@@ -64,7 +64,7 @@ test('a bad cameras file is a CameraSetError naming the camera and the problem, 
     [set(camera({id: 'Front'})), /id must match/],
     [set(camera({id: '../x'})), /id must match/],
     [set(camera(), camera()), /"front" is given twice/],
-    [set(camera({width: 1920})), /width must be an integer 64-1280/],
+    [set(camera({width: 4097})), /width must be an integer 64-4096/],
     [set(camera({height: 10.5})), /height must be an integer/],
     [set(camera({background: 'white'})), /background must be "#rrggbb"/],
     [set(camera({view: [1, 0, 0]})), /16 finite numbers/],
@@ -80,7 +80,7 @@ test('a bad cameras file is a CameraSetError naming the camera and the problem, 
   for (const [value, pattern] of cases) {
     assert.throws(() => parseCameraSet(value), (error: unknown) => error instanceof CameraSetError && pattern.test(error.message), JSON.stringify(value).slice(0, 120));
   }
-  assert.equal(CAMERA_SIZE.maxWidth, 1280, 'the renderer never draws wider (MAX_RENDER_WIDTH)');
+  assert.equal(CAMERA_SIZE.maxWidth, 4096, 'explicit photo cameras retain native detail; webcam cap is separate');
 });
 
 test('the placement and projection handed to the renderer put asset points where the pinhole camera says, through three', () => {
@@ -150,6 +150,7 @@ function detection(distanceCm = 45): Detection {
 interface Draw {background: unknown; meshes: {name: string; visible: boolean; overlay: boolean}[]}
 interface Internal {
   scene: Scene; eyewearPose: Group; facePose: Group; camera: PerspectiveCamera;
+  eyewearRoot: Group;
   surfaceMesh: Mesh | null; templeHeadShell: Mesh | null;
   rearDrop: {spreadM: number; terminalFit: unknown} | null;
   templeClip: {configuration: unknown} | null;
@@ -260,6 +261,43 @@ test('the next face pose returns to the virtual camera and the try-on arm shape'
   const lost = {...detection(), matrix: null} as unknown as Detection;
   instance.pose(frame, lost, 200); instance.render(null);
   assert.ok(draws.at(-1)!.meshes.every(mesh => !mesh.visible), 'no face, no explicit camera: nothing drawn');
+});
+
+test('frozen photo arm opening is restored before the next camera and before a worn face', async t => {
+  const a = await configured({fixedScale: true}), b = await configured({fixedScale: true});
+  t.after(() => {a.instance.dispose(); b.instance.dispose();});
+  const positions = (state: Internal) => {
+    const values: Record<string, number[]> = {};
+    state.eyewearRoot.traverse(object => {
+      if (object instanceof Mesh && !object.userData.templeVisibilityOverlay) {
+        values[object.name] = Array.from(object.geometry.getAttribute('position').array);
+      }
+    });
+    return values;
+  };
+  a.instance.poseCamera(frame, {...explicit().view, temple_pose: {'+1': {theta_deg: 14, axis_xz_mm: [68, -2]}}});
+  assert.match(a.instance.render(null, {hair: false, guard: false, shadows: false}).templeEndState, /^photo opening/);
+  const opened = positions(a.internal);
+  a.instance.poseCamera(frame, explicit().view);
+  b.instance.poseCamera(frame, explicit().view);
+  assert.deepEqual(positions(a.internal), positions(b.internal));
+  assert.notDeepEqual(opened.Temple_R, positions(a.internal).Temple_R);
+  a.instance.poseCamera(frame, {...explicit().view, temple_pose: {'-1': {theta_deg: -9, axis_xz_mm: [-68, -2]}}});
+  a.instance.pose(frame, detection(), 100);
+  b.instance.pose(frame, detection(), 100);
+  assert.deepEqual(positions(a.internal), positions(b.internal));
+});
+
+test('native photo capture keeps 2048 pixels and switching back restores the webcam cap at the same source size', async t => {
+  const {instance} = await configured({fixedScale: true});
+  t.after(() => instance.dispose());
+  const source = {width: 2048, height: 1024} as HTMLCanvasElement;
+  instance.poseCamera(source, explicit(camera({width: 2048, height: 1024})).view);
+  assert.deepEqual(instance.renderSize, {width: 2048, height: 1024});
+  instance.pose(source, detection(), 100);
+  assert.deepEqual(instance.renderSize, {width: 1280, height: 640});
+  instance.poseCamera(source, explicit(camera({width: 2048, height: 1024})).view);
+  assert.deepEqual(instance.renderSize, {width: 2048, height: 1024});
 });
 
 test('poseCamera needs the authored size and usable input; nothing changes when it refuses', async t => {

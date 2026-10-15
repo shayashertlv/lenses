@@ -64,7 +64,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import cameras, fitmesh
+from . import cameras, fitmesh, hinge_axes, hinge_fit, pose
 from . import matte as M
 from .camera import CAMERA_FIELDS, Camera
 
@@ -332,12 +332,30 @@ def rigid_fit_marker(model_sha256: str, photo_sha256: str, camera: dict) -> dict
             "temple_delta_deg": {"+1": 0.0, "-1": 0.0}}
 
 
+def articulated_fit_marker(model_sha256, photo_sha256, camera, theta, axes, observed, axis_source, initial_theta):
+    """Bind a fitted pose to the exact authored model, photo, camera and axes."""
+    def digest(value):
+        return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                         allow_nan=False).encode("utf-8")).hexdigest()
+    return {"mode": "articulated_fit", "schema": "g3d.articulated_camera_fit/1",
+            "opening_calibrated": any(observed.values()),
+            "meaning": "per-photo opening delta from the captured authored GLB; unobserved sides retain input",
+            "source_model_sha256": model_sha256, "photo_sha256": photo_sha256,
+            "camera_sha256": digest(camera), "axes_sha256": digest(axes), "theta_sha256": digest(theta),
+            "axis_source": axis_source, "input_theta_deg": initial_theta}
+
+
 def _candidate_record(r: dict, ppm: float) -> dict:
     m = r["metrics"]
     return {"view": r["view"], "camera": _cam(r["camera"]), "loss": r["loss"], "loss_common_level": r.get("common_loss"),
             "iou": m["iou"], "contour_mean_px": m["contour_mean_px"], "px_per_mm_at_front_pivot": ppm,
             "contour_mean_mm": m["contour_mean_px"] / ppm, "sign": r["sign"],
             "winner_origin": r["refine"]["origin"], "evaluations": r["fit"].evals,
+            **({"theta_deg":r['opening']['theta_deg'], "theta_observed":r['opening']['theta_observed'],
+                "hinge_axes":"shared top-level hinge_axis_xz_mm",
+                "opening_selection":r['opening']['opening_fit']['selected'],
+                "opening_common_losses":r['opening']['opening_fit']['common_losses']}
+               if 'opening' in r else {}),
             **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'},
             **({"off_axis": r["refine"]["off_axis"]} if "off_axis" in r["refine"] else {})}
 
@@ -382,8 +400,67 @@ def _fit_context(glb_path, skip, front_parts, mesh=None, pivot=None):
     mesh = mesh if mesh is not None else fitmesh.load_fit_mesh(glb_path, skip=skip)
     pivot = pivot if pivot is not None else mesh.front_pivot(front_parts)
     policy, optional = lens_loss_policy(glb_path, mesh)
-    return {'model': _model_record(glb_path, mesh, pivot, skip, front_parts),
-            'lens_loss': policy, 'optional_parts': optional}
+    model = _model_record(glb_path, mesh, pivot, skip, front_parts)
+    roles = pose.part_roles(glb_path)
+    opening = hinge_axes.derive_axes(glb_path, model['sha256'], mesh=mesh, roles=roles)
+    return {'model': model, 'lens_loss': policy, 'optional_parts': optional,
+            'opening': opening, 'part_roles': roles}
+
+
+def _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axis, initial_theta):
+    """Keep rigid and articulated candidates on ONE final grid, preserving existing camera gates."""
+    axes, roles = context['opening']['hinge_axis_xz_mm'], context['part_roles']
+    alternatives = []
+    initial_mesh = pose.posed(mesh, {k: {"theta_deg": initial_theta.get(k, 0.), "axis_xz_mm": v}
+                                   for k, v in axes.items()}, roles)
+    for result in results:
+        proposal = hinge_fit.refine(mesh, roles, axes, fg, result['camera'], result['view'], pivot,
+                                    initial_theta=initial_theta, ignore_faces=ignore_faces, off_axis=off_axis)
+        alternatives.append((result, proposal))
+    points = []
+    for result, proposal in alternatives:
+        for candidate_mesh, cam in ((initial_mesh, result['camera']), (proposal['mesh'], proposal['camera'])):
+            points.append(cameras.project(candidate_mesh.scene().hull, cam))
+    points = np.vstack(points)
+    level = cameras.Level(fg, cameras.FINAL_W, 'opening_common', margin=cameras.FINAL_ROI_MARGIN,
+                          include_xyxy=(*points.min(0), *points.max(0)))
+    level.ignore_faces = ignore_faces
+    for result, proposal in alternatives:
+        rigid_loss = level.loss(initial_mesh.scene(), result['camera'])
+        articulated_loss = level.loss(proposal['mesh'].scene(), proposal['camera'])
+        kept = articulated_loss < rigid_loss
+        proposal['opening_fit'].update(common_losses={'input_pose': float(rigid_loss),
+                                                      'articulated': float(articulated_loss)},
+                                      selected='articulated' if kept else 'input_pose')
+        if kept:
+            result['camera'], result['posed_mesh'] = proposal['camera'], proposal['mesh']
+            vf = cameras.ViewFit(result['view'], fg, proposal['mesh'].scene(), pivot)
+            vf.set_ignore(ignore_faces)
+            if off_axis:
+                vf.eye_limit = float(np.linalg.norm(mesh.frame.to_norm(mesh.V), axis=1).max())
+            result['sign'] = vf.pitch_twin(result['camera'])
+            result['fit'].evals += vf.evals
+        else:
+            result['posed_mesh'] = initial_mesh
+            proposal['theta_deg'] = {k: initial_theta.get(k, 0.) for k in axes}
+            proposal['theta_observed'] = {k: False for k in axes}
+            visible = initial_mesh.scene().render(result['camera'], fg.shape)['face_id']
+            tags = pose.side_of_faces(mesh, roles)
+            for key, row in proposal['opening_fit']['per_side'].items():
+                sensitivity = {name:row.pop(name) for name in
+                    ('camera_coupling','independent_px_per_degree','one_pixel_sensitivity_deg','sensitivity_note')
+                    if name in row}
+                row.update(proposed_deg=row['theta_deg'], theta_deg=proposal['theta_deg'][key],
+                           proposed_visible_pixels_final=row.get('visible_pixels_final'),
+                           visible_pixels_final=int(np.count_nonzero((visible>=0) & (tags[np.maximum(visible,0)]==int(key)))),
+                           proposal_sensitivity=sensitivity, identifiability='unobserved',
+                           observed=False, status='input_pose_selected_on_common_loss')
+        result['opening'] = proposal
+        result['common_loss'] = result['loss'] = float(min(rigid_loss, articulated_loss))
+        metrics = cameras.native_metrics(result['posed_mesh'].scene(), result['camera'], fg,
+                                          cameras.matte_roi(fg), ignore_faces)
+        result['metrics'] = {k:v for k,v in metrics.items() if k not in ('mask', 'face_id')}
+    return min(results, key=lambda r:r['common_loss']), results
 
 
 def _matte_mode(requested: str | None, context: dict) -> str:
@@ -400,7 +477,8 @@ def _matte_mode(requested: str | None, context: dict) -> str:
 def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, skip=(), front_parts=None,
               candidates: tuple[str, ...] | None = None, n_refine: int | None = None,
               cross_winners: dict[str, dict] | None = None, overlay_path: str | Path | None = None,
-              matte_mode: str | None = None, _model_context: dict | None = None, off_axis: bool = False) -> dict:
+              matte_mode: str | None = None, _model_context: dict | None = None, off_axis: bool = False,
+              initial_theta: dict | None = None, fit_openings: bool = True) -> dict:
     """Fit one photo to the model (runs in a worker process; returns plain data). ``candidates`` overrides the kind's
     views; ``cross_winners`` = {view: camera dict} of already fitted photos, used as cross seeds for a
     ``CROSS_RECEIVERS`` candidate. An absent ``matte_mode`` uses open_frame only for actual optional lens faces;
@@ -422,7 +500,13 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         raise ValueError('the model changed since shared camera-fit preparation')
     matte_mode = _matte_mode(matte_mode, context)
     ignore_faces = np.isin(mesh.part, context['optional_parts']) if context['optional_parts'] else None
-    scene = mesh.scene()
+    axes = ((context.get('opening') or {}).get('hinge_axis_xz_mm') or {}) if fit_openings else {}
+    initial_theta = {f'{int(k):+d}': float(v) for k,v in (initial_theta or {}).items()}
+    if set(initial_theta)-set(axes):
+        raise ValueError('initial openings require recognized, signed hinge axes')
+    initial_mesh = pose.posed(mesh, {k:{'theta_deg':initial_theta.get(k, 0.),'axis_xz_mm':v}
+                                   for k,v in axes.items()}, context.get('part_roles') or {})
+    scene = initial_mesh.scene()
     photo_sha = sha256_file(Path(image_path))
     img = M.load_photo(image_path)
     fg = M.matte(img, mode=matte_mode)
@@ -437,6 +521,9 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         sources = sorted(winners)
     best, results = cameras.fit_best(fg, scene, pivot, [(v, None) for v in cands], nr, cross=cross,
                                      ignore_faces=ignore_faces, **({"off_axis": True} if off_axis else {}))
+    if axes:
+        best, results = _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axis, initial_theta)
+        scene = best['posed_mesh'].scene()
     pivot_mm = mesh.frame.to_mm(pivot[None])[0]
     ppm = {id(r): cameras.px_per_mm_at(r["camera"], mesh.frame, pivot_mm) for r in results}
     cam, m, p = best["camera"], best["metrics"], ppm[id(best)]
@@ -478,10 +565,29 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         "model": model,
     }
     if off_axis:
-        rec["off_axis"] = best["refine"]["off_axis"]
+        rec["off_axis"] = dict(best["refine"]["off_axis"])
+        if axes:
+            limit = float(np.linalg.norm(mesh.frame.to_norm(mesh.V), axis=1).max())
+            rec['off_axis'].update(camera_after_opening_fit=rec['camera'],
+                opening_fit_eye_domain=[-limit,limit],
+                opening_fit_at_eye_bound=any(abs(v) >= limit*(1-1e-5) for v in (cam.eye_x,cam.eye_y)))
+            if rec['off_axis']['opening_fit_at_eye_bound']:
+                flags.append('opening_fit_candidate_at_eye_bound')
     if sha256_file(Path(image_path)) != photo_sha or sha256_file(Path(glb_path)) != model['sha256']:
         raise ValueError('photo or model changed during fitting')
-    if rec["status"] == "ok":
+    if axes:
+        opening = best['opening']
+        rec.update(theta_deg=opening['theta_deg'], theta_observed=opening['theta_observed'],
+                   hinge_axis_xz_mm=axes, opening_fit=opening['opening_fit'])
+        rec['opening_fit']['unavailable'] = context['opening']['unavailable']
+        rec['pose_provenance'] = articulated_fit_marker(model['sha256'], photo_sha, rec['camera'],
+            rec['theta_deg'], axes, rec['theta_observed'], context['opening']['axis_source'],
+            {k:initial_theta.get(k, 0.) for k in axes})
+    elif context.get('opening') and fit_openings:
+        rec['opening_fit'] = {'schema':'g3d.opening_fit/1', 'status':'unavailable',
+                              'unavailable':context['opening']['unavailable'],
+                              'note':'Rigid camera retained; no unrecognized hinge angle was invented.'}
+    if rec["status"] == "ok" and not axes:
         rec["rigid_fit"] = rigid_fit_marker(rec["model"]["sha256"], rec["image_sha256"], rec["camera"])
     if overlay_path is not None:
         op = Path(overlay_path)
@@ -546,7 +652,8 @@ def _per_name(value, names, what: str) -> dict:
 def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[str, str], out_dir: str | Path, *,
               skip=(), front_parts=None, candidates: dict[str, tuple[str, ...]] | None = None,
               n_refine: int | dict[str, int] | None = None, workers: int | None = None, log=print,
-              matte_modes: str | dict[str, str | None] | None = None, off_axis: bool = False) -> dict:
+              matte_modes: str | dict[str, str | None] | None = None, off_axis: bool = False,
+              initial_openings: dict[str, dict] | None = None) -> dict:
     """Fit a camera for every photo in ``images`` (name -> path) against the model, each with the candidates of its
     view kind in ``views`` (name -> kind, ``view_candidates``), on the schedule above. Writes
     ``out_dir/cameras.json`` and ``out_dir/overlay_<name stem>.png`` per photo; returns the cameras.json content.
@@ -569,6 +676,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
     cands = {n: (tuple(c) if c else None) for n, c in _per_name(candidates, names, "candidates").items()}
     nref = _per_name(n_refine, names, "n_refine")
     modes = _per_name(matte_modes, names, 'matte_modes')
+    openings = _per_name(initial_openings, names, 'initial_openings')
     for name, mode in modes.items():
         if mode is not None and (not isinstance(mode, str) or mode not in M.MODES):
             raise ValueError(f'{name}: unknown matte mode {mode!r}; known: {M.MODES}')
@@ -593,6 +701,7 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                  "candidates": cands[n], "n_refine": nref[n], "cross_winners": winners,
                  "matte_mode": modes[n], "_model_context": context,
                  "off_axis": off_axis,
+                 "initial_theta": openings[n],
                  "overlay_path": out_dir / f"overlay_{Path(n).stem}.png"})
 
     first = [n for n in names if not receives(n)]

@@ -81,7 +81,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from scipy import ndimage
 
-from . import cameras, fitmesh, raster
+from . import cameras, fitmesh, raster, pose
 from . import matte as M
 from .camera import CAMERA_FIELDS, EYE_FIELDS, Camera, NormFrame, project_mm
 from .fit_views import CAMERAS_JSON, contour_summary, overlay_image
@@ -255,9 +255,23 @@ class Basis:
                 raise ValueError(f"{rid}: fit diagnostic evidence differs from cameras.json")
             if ref.get("lens_loss") != raw.get("lens_loss"):
                 raise ValueError(f"{rid}: lens loss evidence differs from cameras.json")
-            for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed", "fit_status"):
+            for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed", "fit_status", "pose_provenance", "opening_fit"):
                 if ref.get(key) != raw.get(key):
                     raise ValueError(f"{rid}: frozen pose or camera lineage differs from cameras.json ({key})")
+            provenance = ref.get("pose_provenance") or {}
+            if provenance.get("mode") == "articulated_fit":
+                from .fit_views import articulated_fit_marker
+                theta, axes = ref.get("theta_deg"), ref.get("hinge_axis_xz_mm")
+                observed = ref.get("theta_observed")
+                if (not isinstance(theta, dict) or not isinstance(axes, dict) or not isinstance(observed, dict)
+                        or set(theta) != set(axes) or set(theta) != set(observed)
+                        or any(type(v) is not bool for v in observed.values())):
+                    raise ValueError(f"{rid}: incomplete articulated opening evidence")
+                pose.parse_pose({k:{"theta_deg":v,"axis_xz_mm":axes[k]} for k,v in theta.items()})
+                expected = articulated_fit_marker(model.get("sha256"), raw.get("image_sha256"), ref["camera"],
+                    theta, axes, observed, provenance.get("axis_source"), provenance.get("input_theta_deg"))
+                if provenance != expected:
+                    raise ValueError(f"{rid}: articulated source hashes or provenance differ from frozen evidence")
             # Older imports omitted transport; when present it must still describe the frozen source.
             if "transport" in ref and ref["transport"] != raw.get("transport"):
                 raise ValueError(f"{rid}: frozen camera transport differs from cameras.json")
@@ -374,7 +388,8 @@ def load_basis(job_root, basis_id: str | None = None) -> Basis:
     return Basis(basis_root(job_root) / basis_id, job_root)
 
 
-OPTIONAL_IMAGE_FIELDS = ("theta_deg", "theta_observed", "hinge_axis_xz_mm", "colourway", "fit_status", "lens_loss")
+OPTIONAL_IMAGE_FIELDS = ("theta_deg", "theta_observed", "hinge_axis_xz_mm", "colourway", "fit_status", "lens_loss",
+                         "pose_provenance", "opening_fit")
 FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags", "iou", "contour_mean_px",
                        "contour_mean_mm", "contour_p90_px", "contour_p90_mm", "px_per_mm_at_front_pivot",
                        "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",

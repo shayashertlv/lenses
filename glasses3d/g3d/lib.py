@@ -2,6 +2,7 @@
 
     g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners                              (WP6, temple_bpy)
     g3d.lens_coating                                                                         (coating)
+    g3d.acetate_section, g3d.sweep_rim                                                        (rim_bpy)
 
 Seating runs through the trusted g3d_call worker protocol. Helpers with internal file I/O (export_glb, print_uv,
 attach_print, faceted_temple with a spec path) are never facade names. The facade is a fresh module object
@@ -17,7 +18,8 @@ import types
 
 TEMPLE_NAMES = ("loft_sections", "polygon_section", "check_round_corners")
 COATING_NAMES = ("lens_coating",)
-NAMES = TEMPLE_NAMES + COATING_NAMES
+RIM_NAMES = ("acetate_section", "sweep_rim")
+NAMES = TEMPLE_NAMES + COATING_NAMES + RIM_NAMES
 
 
 def build() -> tuple[types.ModuleType, dict]:
@@ -36,6 +38,12 @@ def build() -> tuple[types.ModuleType, dict]:
             setattr(facade, name, getattr(coating, name))
     except Exception as exc:  # noqa: BLE001
         errors["coating"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from . import rim_bpy
+        for name in RIM_NAMES:
+            setattr(facade, name, getattr(rim_bpy, name))
+    except Exception as exc:  # noqa: BLE001
+        errors["rim"] = f"{type(exc).__name__}: {exc}"
     facade.lib = facade
     facade.__all__ = [n for n in NAMES if hasattr(facade, n)]
     return facade, errors

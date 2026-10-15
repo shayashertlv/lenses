@@ -466,20 +466,19 @@ def precision_text(precision: dict | None) -> str | None:
 
 
 def conflict_text(c: dict) -> str:
-    """One known camera-model conflict of the job (CAMERA_CONFLICTS), as a limit of the camera model: the photos'
-    outline there and ``against`` (default: the other photos) cannot be matched together under it; how far apart and
-    whose lies further out; never a doubt about a photo (owner rule)."""
+    """A supplied prior comparison (CAMERA_CONFLICTS), preserving its measured location and difference.
+    The comparison is not a proof that the current fitted cameras/openings cannot agree."""
     ids = list(c["photos"])
     d = c["d_mm"]
     where = f"near d {d:g}" if isinstance(d, (int, float)) else f"at d {d[0]:g}-{d[1]:g}"
     many = len(ids) > 1
     which = f"photo{'s' if many else ''} {_and(ids)} show{'' if many else 's'}"
     further = f", {c['further_out']}" if c.get("further_out") else ""
-    return (f"Camera-model conflict: under the job's camera model (one pinhole camera per photo, the frame rigid, each "
-            f"temple a rigid arm turned about its hinge), the {c['what']} that {which} {where} and "
-            f"{c.get('against') or 'the other photos'} cannot be matched together: they differ there by up to about "
-            f"{c['up_to_mm']:g} mm{further}, on {c['temples']}. This is a limit of the camera model, not of the "
-            f"photo{'s' if many else ''}.")
+    return (f"Supplied prior comparison: the {c['what']} that {which} {where} and "
+            f"{c.get('against') or 'the other photos'} had a reported difference there of up to about "
+            f"{c['up_to_mm']:g} mm{further}, on {c['temples']}, under that comparison's calibration. "
+            "Check the current camera/opening fit and reading residuals before drawing a geometry conclusion; "
+            "this observation alone does not establish an irreconcilable camera model.")
 
 
 def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: str = DEFAULT_RIG,
@@ -758,7 +757,11 @@ def instructions_text(root: Path, k: int) -> str:
 
 
 def references(lab) -> list:
-    """Every photo of the package, in lab.json order (the target photos first): the first message's images."""
+    """Every original photo, then bound observation overlays: the first message's images.
+
+    Evidence overlays are separate ReferenceInputs, never extra photo IDs or
+    calibration targets. Their exact bytes/sizes enter startup binding and cost.
+    """
     rows = lab.manifest["photos"]
     targets = [r for r in rows if r.get("role", "target") == "target"]
     others = [r for r in rows if r.get("role", "target") != "target"]
@@ -776,6 +779,16 @@ def references(lab) -> list:
                          + ("calibrated camera)" if row["role"] == "colourway" else "reference only, no camera)"))
             out.append(ReferenceInput(label=label, path=row["path"], image_url=data_url(p), detail="high",
                                       view=row["view"], size_px=size))
+    for row in (lab.manifest.get('arm_evidence') or {}).get('images',[]):
+        p=(lab.root/'inputs'/row['path']).resolve()
+        if not p.is_relative_to((lab.root/'inputs').resolve()) or sha(p)!=row['sha256']:
+            raise ValueError('arm observation image changed or escaped its package')
+        with Image.open(p) as im:
+            size=im.size
+        if list(size)!=row['size_px']:
+            raise ValueError('arm observation image dimensions changed')
+        out.append(ReferenceInput(label=row['label'],path=row['path'],image_url=data_url(p),detail='high',
+                                  view=row['view'],size_px=size))
     return out
 
 

@@ -43,6 +43,18 @@ def test_border_median_and_uniformity_no_gate():
     assert look.border_colour(photo)["uniformity"]["fraction_within_5_levels"] < 1
 
 
+def test_explicit_camera_retains_validated_opening_units_and_does_not_change_camera():
+    pose = {'+1': {'theta_deg': 9, 'axis_xz_mm': [68, -2]}, '-1': {'theta_deg': -4, 'axis_xz_mm': [-67, -3]}}
+    kwargs = dict(cam=Camera(35, 10, 0, .2, 900, 319.5, 239.5), frame=NormFrame((0, 0, -70), 140),
+                  shape_hw=(480, 640), name='test', background='#ffffff')
+    authored = explicit_camera(**kwargs)
+    posed = explicit_camera(**kwargs, temple_pose=pose)
+    assert posed.pop('temple_pose') == pose
+    assert posed == authored
+    with pytest.raises(ValueError, match='axis x'):
+        explicit_camera(**kwargs, temple_pose={'-1': {'theta_deg': 2, 'axis_xz_mm': [68, 0]}})
+
+
 def test_colour_statistics_report_black_white_and_empty():
     mask = np.ones((10, 10), bool)
     assert look.colour_stats(np.zeros((10, 10, 3), np.uint8), mask)["median_lightness_Lstar"] == 0
@@ -71,8 +83,26 @@ def test_successful_sdk_comparison_emits_one_sheet_with_list_view_records(scene,
     assert out["images"][0]["size_px"] == [1024, 990]
 
 
+def test_full_pairs_remain_separate_at_declared_size_and_history_is_immutable(scene, monkeypatch):
+    paths = [scene.root / "work" / f"pair-{i}.png" for i in range(3)]
+    for i, path in enumerate(paths):
+        Image.new("RGB", (2048, 700 + i), (i * 70, 40, 120)).save(path)
+    monkeypatch.setattr(look, "capture", lambda *a, **kw: {"status": "ok", "image_delivery": "separate",
+        "images": [{"path": str(p), "view": f"photo {i}"} for i, p in enumerate(paths)]})
+    first = invoke(scene, "compare_look_to_photos", {"refs": None, "basis": None})
+    before = [part.model_dump() for part in first]
+    result = record(first)
+    assert sum(isinstance(p, ToolOutputImage) for p in first) == 3
+    assert [r["output_index"] for r in result["images"]] == [2, 4, 6]
+    assert [r["size_px"] for r in result["images"]] == [[2048, 700 + i] for i in range(3)]
+    second = invoke(scene, "compare_look_to_photos", {"refs": None, "basis": None})
+    assert not any(isinstance(p, ToolOutputImage) for p in second)
+    assert all(r["output_index"] is None for r in record(second)["images"])
+    assert [part.model_dump() for part in first] == before
+
+
 @pytest.mark.parametrize("bad_image", [False, True])
-def test_finish_keeps_optional_comparison_informational_and_ar_separate(finish_scene, monkeypatch, bad_image):
+def test_finish_comparison_is_separate_and_failed_image_never_completes_review(finish_scene, monkeypatch, bad_image):
     scene = finish_scene
     image = scene.root / "work/look.png"
     if not bad_image:
@@ -81,10 +111,13 @@ def test_finish_keeps_optional_comparison_informational_and_ar_separate(finish_s
                         "images": [{"path": str(image), "sha256": digest(image) if image.exists() else "missing"}]})
     parts = invoke(scene, "finish", {"summary": "diagnostic only"})
     out = record(parts)
-    assert out["status"] == "accepted" and sum(isinstance(p, ToolOutputImage) for p in parts) == 1
     if bad_image:
+        assert out["status"] == "refused" and scene.finish is None and scene.finish_review is None
+        assert sum(isinstance(p, ToolOutputImage) for p in parts) == 1
         assert out["look_comparison"]["status"] == "unavailable" and out["image_source"] == "arview"
     else:
+        assert out["status"] == "review_required" and scene.finish is None
+        assert sum(isinstance(p, ToolOutputImage) for p in parts) == 2
         assert out["image_source"] == "arview_and_look"
         assert out["arview"]["images"] != out["images"]
 
@@ -144,9 +177,14 @@ def test_sdk_finish_delivery_keeps_independent_evidence_after_source_cleanup(sce
         "status": "unavailable", "images": [], "informational_only": True, "message": "no frozen front"}
     monkeypatch.setattr(look, "capture", lambda *a, **kw: result)
     parts = invoke(scene, "finish", {"summary": "composed SDK evidence"})
+    first = record(parts)
+    assert first["status"] == "review_required"
+    assert sum(isinstance(p, ToolOutputImage) for p in parts) == (2 if available else 1)
+    parts = invoke(scene, "finish", {"summary": "composed SDK evidence; no usable cameras",
+                   "review_call_id": "call_test", "per_photo": []}, cid="second")
     finish = record(parts)
     assert finish["status"] == "accepted"
-    assert sum(isinstance(p, ToolOutputImage) for p in parts) == 1
+    assert not any(isinstance(p, ToolOutputImage) for p in parts)  # unchanged bytes already delivered
     assert scene.last_ar["sheets"] == original_ar["sheets"]
     shown_hash = finish["images"][0]["sha256"]
     delivered = delivery.deliver_finished(scene.root, scene, run)
