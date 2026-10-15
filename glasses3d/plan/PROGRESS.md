@@ -29,12 +29,68 @@ exactly one fresh Oakley run 3. It completed normally at $6.478750, published a 
 did not call `temple_stage`.** Specification validation passes; seating reports 70 failing stations and AR retains
 temple-occlusion warnings. After M5-fix-3 and M5-fix-4, the separately approved fresh **Oakley run 4 completed
 normally at $10.611259 on c0015**, with specification and AR checks passing without warnings, visible lens
-transparency, and seating still reported as failing. Owner visual acceptance is pending. No further paid run is
+transparency, and seating still reported as failing. **The owner visually accepted run 4 on 2026-10-15:
+"as far as i can see the model is perfect".** This closes the known-product Oakley validation in M5 step 1;
+Prada, FT1119 and the three unseen products remain unvalidated by this assembly run. No further paid run is
 authorized or started.
 Claude's independent rerun of `tests.proofs.assembly_m1`
 passed (90.0 s, 11 scripted requests, delivered, receipts clean, $0). The stray repo-root `data/assembly/
 m1-proof-b8bb88d4` was moved to `glasses3d/data/assembly/m1-proof-b8bb88d4-from-root`. Every paid run still needs
 an estimate and the owner's explicit approval.
+
+## Oakley run 4: owner acceptance and final review ($0, 2026-10-15)
+
+Owner requested: "please review run 4. as far as i can see the model is perfect". Recorded the exact verdict
+**"as far as i can see the model is perfect"** through `job verdict ... accept`, explicitly binding run 4's
+delivery id and GLB SHA **`981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`**. Ledger entry
+**`verdict-6cb0c4050a3b47b8bb09c0a7c419ecaa`**, at **07:58:09 UTC**, sequence 1, record SHA
+`e21c1408d1c04fd1262324dd6f08024095c309bbc46f403fa1a2951e2143ee4c`, is in the job's
+`reviews/verdicts.jsonl`; `read_verdicts` verified the chain, head receipt and immutable delivery binding.
+This is the owner's visual acceptance of the exact delivered product, not an inferred verdict from passing tools.
+
+**Review conclusion:** preserve run 4 unchanged as the accepted end-to-end Oakley reference. The fresh review of
+the saved front, six-photo sheet, checker, +/-50-degree worn sides, all six seating-repair pairs and tool journals
+supports the intended AR result. Eyes are visible through the shield, violet/green-cyan coating is present in the
+export, all four brow openings remain, and the nose carrier/pads, clamps, emblems, complete forked temples,
+earsocks and small lens markings are present. Specification and AR checks are clean. No evidence in this review
+warrants changing the model the owner accepted; no model or pipeline edits were made.
+
+**What the run demonstrated:** Astra used the new photo-background and same-export worn comparison eleven times,
+then finish supplied the front pair again. It revised the optical material using the actual exported AR appearance
+and invoked the coating helper eight times. This exercised M5-fix-3's single-sided export and M5-fix-4's paired
+appearance evidence in a complete paid run, ending in owner acceptance. The report-only seating policy allowed
+local repairs while preserving photographed vents/notches. These observations support the workflow on this product;
+one accepted Oakley run does not establish performance on other products or prove an isolated causal effect of
+any one change. `temple_stage` and photo printing were not exercised, so their assembled paid validation remains open.
+
+**Run efficiency/reliability:** the accepted result cost **$10.611259**, below its **$15.285399** forecast and
+**$20** settled stop, and finished through `finish`, not a turn or budget cutoff. Four camera fits consumed
+**1380.608 s / 23 min 0.608 s**, **41.0%** of the **3364.701 s** run; each used Astra's selected four workers.
+All eleven dedicated colour/worn comparisons together took **227.496 s / 3 min 47.496 s**. Total tool time was
+**1703.673 s**; provider waiting **1366.107 s**; pre-request counting/budget overhead **290.167 s**, plus about
+4.75 s startup/bookkeeping. The saved trace identifies fitting as the largest future speed investigation target,
+without justifying any change to checks, capabilities or this accepted model.
+
+Caching covered **6,103,979 / 6,305,036 cumulative input tokens (96.811%)**; there were **193,497 cache-written**,
+**7,560 plain input**, and **40,259 output tokens**. Only the initial request lacked cache hits. Peak context
+**193,623** remained below the 272,000-token pricing step. Largest primary tool JSON was **11,527 characters**
+and Astra read six report pages, so the 12k paging policy worked. Two safe tool refusals recovered, with no
+paid request failure, transcript/teardown error, unknown charge or heartbeat write failure; maximum heartbeat gap
+was **2.187 s**. No new automation blocker was found. All 60 responses/receipts reconcile to settled spend.
+
+**Keep the numerical limitations:** colour saturation/distribution and fixed-room highlights differ from the studio
+photos; top/right outline correspondence remains imperfect. The final top mean discrepancy is **3.945 mm**
+(IoU **.588766**) and right **1.501 mm** (IoU **.840142**), against front **.753 mm** (IoU **.944103**).
+These combine model shape, camera calibration and temple pose/registration; current evidence cannot assign all
+the error to either the model or camera. The appearance tool renders authored geometry without articulating the
+temples. The last six-photo sheet uses **basis-03/c0014**, with exactly the final exported GLB bytes; finish's
+front and the final numerical comparison use **basis-04/c0015**. Seating's **148 FAIL / 26 TRANSITION** remain
+honest informational results. No gate, tolerance or diagnostic was weakened, and these reports do not overturn
+the owner's visual acceptance. Dimensions and optical parameters are appearance estimates, not measured product data.
+
+The previous run-closeout section retains the full receipt audit, costs, model identifiers, final camera table,
+and six before/after repair paths. This review made **$0** of API calls. The only new records are the owner verdict
+and this progress log; no new run is authorized or started.
 
 ## Assembly M5 Oakley run 4: approved fresh run, finished delivery (2026-10-15)
 
@@ -2399,6 +2455,11 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
 
 ## Decisions (owner's words verbatim)
 
+- **2026-10-15, Oakley run 4 visually accepted:** "as far as i can see the model is perfect". Accepted immutable
+  GLB SHA `981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`, c0015, run
+  `20261015T062433-662a82`; asset-bound ledger verdict `verdict-6cb0c4050a3b47b8bb09c0a7c419ecaa`.
+  Preserve this accepted result. Seating/photo-fit diagnostics remain in the record; no other paid run approved.
+
 - **2026-10-14, Oakley run 3:** "I approve Oakley run 3 on job oakley-oo9208-v2-3e057bab: a fresh run (not a
   resume), effort max, $20 settled stop, $23 maximum reserve. Create the run request and estimate. If the estimate
   is under $20, start it detached, as for run 2. If not, stop and tell me. Change no code, job, brief or photos
@@ -2482,6 +2543,12 @@ The general rule stays: never loosen a gate to get a pass; if a gate is wrong, p
 answer fails it) and ask the owner.
 
 ## Known-good references
+
+**Oakley assembled run 4, visually accepted 2026-10-15**, is now an additional known-good end-to-end reference:
+job `oakley-oo9208-v2-3e057bab`, run `20261015T062433-662a82`, c0015, GLB SHA
+`981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`. Owner: "as far as i can see the model is perfect".
+The job's `reviews/verdicts.jsonl` binds the acceptance to the immutable delivery. Earlier accepted assets and
+frozen regression fixtures remain historical evidence and are not replaced by this record.
 
 FT1123 crystal, Oakley OO9208 v2 and INVU IA22403B v2, re-accepted by the owner on 2026-10-06 (asset-bound verdicts
 in `data/ledger/owner_verdicts.jsonl`). **Prada PR 17WS is an open failure**: its older "looks great" verdict
