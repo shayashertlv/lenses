@@ -37,13 +37,13 @@ def prove_child_input(root, parent_job):
         cli.check_package(root,lab)
         settings=stage.settings()
         spec=StageSpec('temple_stage',cli.instructions_text(root,settings.finish_k),
-                       stage.registry(lab,settings),(root/'inputs/brief.txt').read_text(encoding='utf-8'),
+                       stage.registry(lab,settings),(root/'inputs/brief.txt').read_bytes().decode('utf-8'),
                        settings,photos=cli.references(lab),
                        scene_note=(f"Current job head captured in revision 0 at {lab.s.head['id']}. "
                                    "This temple stage has a $23 allowance inside the job's approval. "
                                    "The tool footer reports the shared job's totals; both limits apply."),
                        contract=cli.tool_contract(),
-                       contract_brief=(root/'inputs/contract-brief.txt').read_text(encoding='utf-8'))
+                       contract_brief=(root/'inputs/contract-brief.txt').read_bytes().decode('utf-8'))
         assert not contract_problems(spec.contract,instructions=spec.instructions,tools=spec.tools,
                                      brief=spec.contract_brief)
         actual=StageContract.from_spec(spec,'23')

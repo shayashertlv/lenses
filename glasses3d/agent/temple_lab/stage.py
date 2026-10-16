@@ -67,7 +67,10 @@ class PhotoCatalog:
         return min(VARIANT_PHOTOS_MAX, VARIANT_TARGETS_MAX + sum(r["role"] == "colourway" for r in self.rows))
 
 
-def contract(job, parent_settings, maximum_usd):
+def contract(job, parent_settings, maximum_usd, owner_edit=None):
+    if owner_edit:
+        from . import owner_stage
+        return owner_stage.contract(job, parent_settings, maximum_usd, owner_edit)
     from ..loop import StageContract, StageSpec
     from .cli import K_TOKEN, tool_contract
     child_settings = settings(parent_settings)
@@ -274,14 +277,16 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
     try:
         check_package(folder, lab)
         lab.start()
+        # Briefs are bound data: preserve CRLF, lone CR and UTF-8 bytes exactly. The instruction
+        # contract retains its existing canonical text path through instructions_text above.
         spec = StageSpec("temple_stage", instructions_text(folder, child_settings.finish_k),
-                         registry(lab, child_settings), (folder / "inputs/brief.txt").read_text(encoding="utf-8"),
+                         registry(lab, child_settings), (folder / "inputs/brief.txt").read_bytes().decode("utf-8"),
                          child_settings, photos=references(lab),
                          scene_note=(f"Current job head captured in revision 0 at {lab.s.head['id']}. "
                                      f"This temple stage has a ${cap_usd} allowance inside the job's approval. "
                                      "The tool footer reports the shared job's totals; both limits apply."),
                          contract=tool_contract(),
-                         contract_brief=(folder / "inputs/contract-brief.txt").read_text(encoding="utf-8"))
+                         contract_brief=(folder / "inputs/contract-brief.txt").read_bytes().decode("utf-8"))
         outcome = bridge.run(runtime, spec, lab, cap_usd, call_id)
         write_json_atomic(folder / "stage-outcome.json", outcome)
         bridge.check()

@@ -37,7 +37,7 @@ def test_all_optional_specialists_are_absent_until_registered_and_fit_cap(tools)
     core = I.build_instructions(tools)
     registered = set(TOOL_NAMES) & I.SPECIALIST_GUIDANCE.keys()
     assert registered == {"seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire",
-                          "temple_stage", "photo_print"}
+                          "temple_stage", "photo_print", "labelled_model_map"}
     assert I.named_tools(core) & I.SPECIALIST_GUIDANCE.keys() == registered
     pending = I.SPECIALIST_GUIDANCE.keys() - registered
     for name in pending:
@@ -45,6 +45,15 @@ def test_all_optional_specialists_are_absent_until_registered_and_fit_cap(tools)
         assert I.named_tools(text) == frozenset(TOOL_NAMES) | {name}
     all_tools = [*tools, *(SimpleNamespace(name=name) for name in pending)]
     assert len(I.build_instructions(all_tools)) <= I.MAX_INSTRUCTION_CHARS
+
+
+def test_owner_edit_teaching_keeps_all_tools_and_owner_priority_within_cap(tools):
+    registered = [*tools, *(SimpleNamespace(name=name) for name in I.EDIT_GUIDANCE)]
+    text = I.build_instructions(registered, owner_edit={"phase": "edit"})
+    assert len(text) <= I.MAX_INSTRUCTION_CHARS
+    assert I.named_tools(text) == {t.name for t in registered}
+    assert "outranks photo readings" in text and "Every physical hard check remains" in text
+    assert "Do not mutate geometry" in text and "before and after" in text
 
 
 @pytest.mark.parametrize("bad_registry", ["missing", "unknown", "duplicate"])

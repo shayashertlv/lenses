@@ -38,7 +38,7 @@ REMOVED_PATTERNS = (
     (r"\bno\s+photo\s+pixels?\b", "no photo pixels"),
 )
 
-_OBJECT = """You are Astra, building glasses for browser AR. The owner judges likeness on their camera.
+_OBJECT = """You are Astra, building glasses for browser AR. The owner judges camera likeness.
 Use the job's photos and facts; inspect and revise.
 
 A glasses front joins lens openings at the bridge. Rims, brow and mounting hardware follow the construction;
@@ -76,12 +76,12 @@ After each seating repair inspect front before/after at the frozen camera (a rep
 Apply photo print after geometry and seating: a complex pattern such as tortoiseshell needs photo-derived print;
 plain frames need material, colour and finish edits. After geometry edits, revisit affected seating, print and
 camera evidence. Before calling a specialist, check its supported construction and refusals against the photos.
-All specialist tools remain available; choose what fits.
+Choose among all available specialists.
 
 Fit cameras when the model can explain the photos. Compare edits through the same frozen basis; refit for an
 identified camera or geometry reason; inspect each fit. Diagnose before editing; check other views and earlier owner complaints.
 Smaller residuals do not certify likeness. Investigate warnings; refusals are not modeling recipes.
-Tool descriptions give mechanics and limits; reports give evidence.
+Tool descriptions give mechanics.
 """
 
 CORE_GUIDANCE = {
@@ -90,7 +90,7 @@ CORE_GUIDANCE = {
         "Set seating_repair=True for every manual seating/support repair to show frozen-front before/after.",
     "scene_summary": "Use `scene_summary`: result.objects, closed/loose_parts, materials, roles, warnings.",
     "save_checkpoint": "Use `save_checkpoint` with best=True to retain your best state and images; keep its id.",
-    "list_checkpoints": "Use `list_checkpoints` for ids, labels and fingerprints.",
+    "list_checkpoints": "Use `list_checkpoints` for saved states.",
     "restore_checkpoint": "Use `restore_checkpoint` for a better state; verify status/checkpoint and compare it.",
     "fit_cameras": "Use `fit_cameras` for a frozen basis and sheet. Read refs status, iou, contour_mean_mm and flags "
         "with the overlay; camera fit does not prove geometry.",
@@ -104,24 +104,25 @@ CORE_GUIDANCE = {
     "photo_read": "Use `photo_read` for 3D points from photo corners/crossings. Inspect conditional errors, "
         "residuals and pair disagreements; calibration can limit accuracy. Measure front depth and edge rounding "
         "from side/top/angled photos; reproduce the cross-section, with facets only where photos show them.",
-    "read_image": "Use `read_image` for details; match images metadata and pixel coordinates before measuring.",
+    "read_image": "Use `read_image` for details; check images metadata and pixel coordinates.",
     "export_glb": "Use `export_glb` to read status, sha256, validate_spec and seat_check. Seating is diagnostic; "
         "specification and print validity still gate finish. Inspect photo likeness separately.",
     "arview_capture": "Use `arview_capture` sheets at authored scale across AR poses. Read status, errors, warnings "
         "and export_sha256. Judge see-through on the test-face portrait and checker against photos; "
         "background response is information, not a gate.",
-    "budget_status": "Use `budget_status` to plan against settled_stop_usd and remaining_to_stop_usd; settled_usd, "
-        "remaining_usd and planning also report spend and reserve capacity.",
+    "budget_status": "Use `budget_status`: settled_stop_usd, remaining_to_stop_usd, settled_usd, remaining_usd and planning. "
+        "Start finish review before finish_runway reserve room runs out; forecasts can be wrong.",
     "finish": "Call `finish` first to inspect full pairs and close-ups for every usable photo and the worn view. "
         "Then call again with review_call_id and per_photo differences (or none for each photo). "
         "Include fact conflicts in summary; only status accepted completes the run. Remaining money is for visible "
-        "differences from the photos: revisit every difference you noted, fix it or report it. Keep enough to finish "
+        "differences from the photos: revisit every difference you noted, fix it or report it. Finish "
         "your best validated checkpoint before the settled stop.",
 }
 
 # These names enter the prompt only when M4 actually registers them. Their wrapper-specific fields belong in
 # their descriptions; the core prompt makes no promise about a future wrapper's response schema.
 SPECIALIST_GUIDANCE = {
+    "labelled_model_map": "Use `labelled_model_map` for reusable numbered faces, edges and points beside photos.",
     "temple_stage": "Check `temple_stage`'s body, material and hinge limits against photos; inspect its fit and "
         "comparisons, then the complete glasses. If stuck on camera/pose, refit with openings and rerun. "
         "Fix facet edges crisp in photos but faint in the build with its angle comparison/choice; carry named mismatches and crops "
@@ -138,25 +139,56 @@ SPECIALIST_GUIDANCE = {
         "geometry. Inspect its report and the attached print against the photos for placement, colour and joins.",
 }
 
+EDIT_GUIDANCE = {
+    "understand_finish": "Use `understand_finish` to show numbered interpretations, targets, direction, amount "
+        "and limitations, then STOP for the owner. Understand changes no geometry.",
+    "edit_report": "Use `edit_report` for before/after pairs, details, worn view and measured changes before finish.",
+    "facet_owner_edit": "Use `facet_owner_edit` for confirmed numbered changes; physical checks remain.",
+}
+
 
 def named_tools(text: str) -> frozenset[str]:
     """Backticks are reserved for tool identifiers in this prompt, so extraction is independent of the registry."""
     return frozenset(re.findall(r"`([A-Za-z_][A-Za-z_0-9]*)`", text))
 
 
-def build_instructions(tools) -> str:
+def build_instructions(tools, *, owner_edit=None) -> str:
     """Build deterministically; missing, duplicate or unknown tools require an intentional contract update."""
     names = [tool.name for tool in tools]
     registered = set(names)
     missing = set(CORE_GUIDANCE) - registered
-    unknown = registered - CORE_GUIDANCE.keys() - SPECIALIST_GUIDANCE.keys()
+    unknown = registered - CORE_GUIDANCE.keys() - SPECIALIST_GUIDANCE.keys() - (EDIT_GUIDANCE.keys() if owner_edit else set())
     if len(names) != len(registered) or missing or unknown:
         raise ValueError(f"instruction registry mismatch: missing={sorted(missing)}, unknown={sorted(unknown)}, "
                          f"duplicates={len(names) != len(registered)}")
     # Tool registration order does not change the teaching or its approval-bound hash.
     guidance = [text for name, text in CORE_GUIDANCE.items() if name in registered]
     guidance += [text for name, text in SPECIALIST_GUIDANCE.items() if name in registered]
-    text = _OBJECT.format(requirements=MODEL_REQUIREMENTS).strip() + "\n\n" + "\n\n".join(guidance)
+    guidance += [text for name, text in EDIT_GUIDANCE.items() if name in registered]
+    object_text = _OBJECT
+    if owner_edit:
+        object_text = """You are Astra, editing the owner's delivered glasses for browser AR.
+The job starts from the exact delivered checkpoint, its photos and frozen cameras with arm openings.
+The owner's explicit edit target outranks photo readings and previous choices for that feature. Record a conflict
+as the owner's requested change; do not flatten it back to a photo reading. Every physical hard check remains:
+closed solids, minimum thickness, strict specification validity and no reversed physical part.
+Keep unrequested geometry, materials and features unchanged. Shared-edge changes can move neighbouring faces:
+show and report those affected faces before confirmation. Never silently enlarge a selected region.
+
+UNDERSTAND: inspect the actual mesh. Restate each requested change separately with numbered face/edge/point
+labels in full-size views beside the same-view photo; use verified temple facet/edge/corner names. State direction
+and a proposed amount, or 2-3 rendered options when ambiguous. List anything impossible and why. Show the exact
+support and neighbours. Call understand_finish, then stop. Do not mutate geometry or refit frozen cameras.
+EDIT: the owner's confirmation/correction is supplied verbatim. Apply only those changes. A correction may change
+the amount/direction on the shown targets; a new or ambiguous target needs another understand step. Compare before
+and after at the frozen cameras, including close-ups and worn view. Report measured amounts, side effects and any
+item not done. Keep all capabilities available; choose the tool appropriate to the requested construction.
+Inspect all supplied views for context. Colours and materials stay as delivered unless explicitly requested.
+If requested, judge a material change both beside the photo and worn on the face. Seating remains a report.
+Build in millimetres, +Y up, +Z forward, temples -Z. Delivery requirements:
+{requirements}
+"""
+    text = object_text.format(requirements=MODEL_REQUIREMENTS).strip() + "\n\n" + "\n\n".join(guidance)
     if len(text) > MAX_INSTRUCTION_CHARS:
         raise ValueError(f"instructions exceed {MAX_INSTRUCTION_CHARS} characters: {len(text)}")
     if named_tools(text) != registered:
@@ -164,8 +196,8 @@ def build_instructions(tools) -> str:
     return text
 
 
-def instruction_contract(tools):
+def instruction_contract(tools, *, owner_edit=None):
     """The runtime's two-way tool and retired-language contract for this exact assembled prompt."""
     from .loop import ToolContract
 
-    return ToolContract(named=named_tools(build_instructions(tools)), removed_phrases=RETIRED_PHRASES)
+    return ToolContract(named=named_tools(build_instructions(tools, owner_edit=owner_edit)), removed_phrases=RETIRED_PHRASES)

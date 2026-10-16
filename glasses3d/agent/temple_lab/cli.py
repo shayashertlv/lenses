@@ -807,7 +807,8 @@ def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, est
     check_package(root, lab)
     tools = registry(lab, settings)
     instructions = instructions_text(root, settings.finish_k)
-    brief = (root / "inputs" / "brief.txt").read_text(encoding="utf-8")
+    # Approval binds the exact stored text, including CRLF or lone CR; do not normalize owner input.
+    brief = (root / "inputs" / "brief.txt").read_bytes().decode("utf-8")
     photos = references(lab)
     contract = tool_contract()
     problems = contract_problems(contract, instructions=instructions, brief=brief, tools=tools)

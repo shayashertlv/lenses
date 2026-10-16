@@ -360,6 +360,35 @@ def test_prepare_refusals(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------- make_spec
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"], ids=["lf", "crlf", "cr"])
+def test_make_spec_preserves_exact_prepared_brief_newlines(tmp_path, newline):
+    """The stored brief is immutable input text, including its original newline bytes."""
+    root, _ = package(tmp_path)
+    path = root / "inputs/brief.txt"
+    canonical = path.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    exact = canonical.replace("\n", newline)
+    path.write_bytes(exact.encode("utf-8"))
+    # Prepare a coherent test package with this encoding; do not bypass input verification.
+    manifest_path = root / "inputs/lab.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    next(row for row in manifest["assets"] if row["path"] == "brief.txt")["sha256"] = sha(path)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    lab = lab_on(root)
+    settings = T.run_settings(effort="high", max_turns=40)
+    spec, _ = cli.make_spec(root, "exact-brief", settings, "20", write_request=True, lab=lab,
+                            estimate={"text": "offline test estimate"})
+    assert spec.brief == exact
+    assert path.read_bytes() == spec.brief.encode("utf-8")
+    run = root / "runs/exact-brief"
+    request = json.loads((run / "approval-request.json").read_text(encoding="utf-8"))["request"]
+    assert request["run_inputs"]["brief_sha256"] == sha(path)
+    assert A.canonical_json(L._check_bound_request(run, spec)["run_inputs"]) == A.canonical_json(request["run_inputs"])
+    assert not (run / "approval.json").exists() and not A.is_consumed(run)
+    if newline != "\n":
+        with pytest.raises(A.ApprovalRefused, match="brief differs"):
+            A.run_input_binding(root, canonical, spec.photos)
+
+
 def test_make_spec_binds_the_facet_settings_and_writes_an_unapproved_request(tmp_path):
     root, _ = package(tmp_path)
     lab = lab_on(root)

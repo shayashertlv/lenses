@@ -118,7 +118,9 @@ def test_stage_bridge_cancelled_before_submission_never_runs_inference():
 
 
 def orchestrated(tmp_path, monkeypatch, *, outcome_status="completed", stale=False, exit_change=None,
-                 damage_export=False, cancel_after_prepare=False, finish_change=None):
+                 damage_export=False, cancel_after_prepare=False, finish_change=None,
+                 brief_bytes=b"Owner wording retained", contract_bytes=b"Host contract wording",
+                 check_input_binding=False):
     """Exercise the actual stage orchestrator with a private fake worker, never a second loop."""
     from glasses3d.agent.temple_lab import stage, cli, package
     root = tmp_path / "job"
@@ -137,8 +139,9 @@ def orchestrated(tmp_path, monkeypatch, *, outcome_status="completed", stale=Fal
     def prepare(_scene, folder, _call_id):
         inputs = folder / "inputs"
         inputs.mkdir(parents=True)
-        (inputs / "brief.txt").write_text("Owner wording retained", encoding="utf-8")
-        (inputs / "contract-brief.txt").write_text("Host contract wording", encoding="utf-8")
+        (inputs / "brief.txt").write_bytes(brief_bytes)
+        (inputs / "contract-brief.txt").write_bytes(contract_bytes)
+        (folder / "job.json").write_text('{"schema":"g3d.job/1","name":"stage control"}', encoding="utf-8")
         return {"source": source}
 
     class FakeLab:
@@ -175,7 +178,16 @@ def orchestrated(tmp_path, monkeypatch, *, outcome_status="completed", stale=Fal
 
         def run(self, runtime, spec, lab, cap, call_id):
             assert cap == "2" and call_id == "stage-control"
-            assert spec.brief == "Owner wording retained" and spec.contract_brief == "Host contract wording"
+            assert spec.brief == brief_bytes.decode("utf-8")
+            assert spec.contract_brief == contract_bytes.decode("utf-8")
+            if check_input_binding:
+                from glasses3d.agent import approvals as A
+                binding = A.run_input_binding(lab.root, spec.brief, [])
+                assert binding["brief_sha256"] == hashlib.sha256(brief_bytes).hexdigest()
+                normalized = spec.brief.replace("\r\n", "\n").replace("\r", "\n")
+                if normalized != spec.brief:
+                    with pytest.raises(A.ApprovalRefused, match="brief differs"):
+                        A.run_input_binding(lab.root, normalized, [])
             return {"status": outcome_status, "exit_checkpoint": {"verified": True,
                 "id": lab.s.head["id"], "sha256": lab.s.head["sha256"], **(exit_change or {})}}
 
@@ -196,6 +208,19 @@ def test_stage_orchestrator_applies_fitted_spec_once_to_captured_parent_and_clos
     assert args[:2] == ("temple_stage", "temple_stage_apply")
     assert args[2] == {"spec": {"schema": "fitted-test-spec"}, "source_fingerprint": "f" * 64}
     assert kwargs["call_id"] == "stage-control"
+
+
+@pytest.mark.parametrize("brief_bytes,contract_bytes", [
+    (b"Owner wording\nkept exactly\n", b"Host contract\nwording\n"),
+    (b"Owner wording\r\nkept exactly\r\n", b"Host contract\r\nwording\r\n"),
+    ("Owner beige café \r\nsecond\nthird\rfourth".encode("utf-8"),
+     b"Host contract\r\nsecond\nthird\rfourth"),
+])
+def test_stage_first_message_preserves_exact_saved_input_bytes(tmp_path, monkeypatch, brief_bytes, contract_bytes):
+    run, applied, closed, private = orchestrated(tmp_path, monkeypatch,
+        brief_bytes=brief_bytes, contract_bytes=contract_bytes, check_input_binding=True)
+    assert run()["status"] == "ok"
+    assert len(applied) == 1 and closed == private
 
 
 @pytest.mark.parametrize("status", ["stage_budget_limit", "turn_limit", "failed"])

@@ -46,16 +46,47 @@ class _Session(BlenderSession):
     def restore_checkpoint(self, cid, call_id=None):
         call_id = call_id or self.new_call_id("restore_checkpoint")
         before = (self.head or {}).get("id")
+        if self.owner.owner_edit and self.owner.owner_edit["phase"] == "understand" and cid != before:
+            return {"status": "refused", "code": "E_UNDERSTAND_READ_ONLY", "checkpoint": before,
+                    "message": "Understand stops for owner confirmation before any geometry change."}
         out = super().restore_checkpoint(cid, call_id=call_id)
         self.owner.record_call(call_id, "restore_checkpoint", before, (self.head or {}).get("id"), out)
         return out
 
+    def _mutating(self, tool, method, params, deadline_s, call_id, label, t0, *, arguments):
+        edit = self.owner.owner_edit
+        if edit and edit["phase"] == "understand":
+            out = {"status": "refused", "code": "E_UNDERSTAND_READ_ONLY", "checkpoint": self.head["id"],
+                   "message": "Understand is read-only. Show numbered targets and stop for owner confirmation."}
+            self._journal(tool, call_id, arguments, out, self.head, None)
+            return out
+        before = self.head
+        out = super()._mutating(tool, method, params, deadline_s, call_id, label, t0, arguments=arguments)
+        if edit and out.get("status") == "ok" and self.head["fingerprint"] != before["fingerprint"]:
+            from .owner_edits import ScopeGuard
+            try:
+                check = ScopeGuard(self.owner.owner_edit_authority).verify(self.owner)
+            except Exception as error:
+                check = {"ok": False, "message": f"Scope verification failed: {type(error).__name__}: {error}"}
+            if not check.get("ok"):
+                restored = super().restore_checkpoint(before["id"], call_id=call_id + "-scope-rollback")
+                out = {"status": "refused", "code": "E_OWNER_EDIT_SCOPE", "message": "Edit rolled back: " + str(check),
+                       "checkpoint": self.head["id"], "restored_to": before["id"], "scope_check": check}
+                self._journal(tool, call_id, arguments, out, before, None)
+            else:
+                out["owner_scope_check"] = check
+        return out
+
 
 class JobScene(SceneHooks):
-    def __init__(self, root, job=None, selftest=False):
+    def __init__(self, root, job=None, selftest=False, *, captured_seed=None, captured_fingerprint=None):
         self.root = Path(root).resolve()
         job_path = self.root / "job.json"
         self.job = job if job is not None else json.loads(job_path.read_text(encoding="utf-8"))
+        from . import edits
+        self.owner_edit = edits.load(self.root)
+        self.owner_edit_authority = edits.Authority(self.root) if self.owner_edit else None
+        self.captured_fingerprint = captured_fingerprint
         self.lock = threading.RLock()
         self._state_lock = threading.RLock()
         self.state_path = self.root / "work" / "job_scene" / "state.json"
@@ -70,7 +101,9 @@ class JobScene(SceneHooks):
         self.best_checkpoint = state.get("best_checkpoint")
         self._unseen = set(state.get("unseen", []))
         self._review_log = None
-        self.seed_path = self.root / "inputs" / "seed.blend"
+        self.seed_path = Path(captured_seed).resolve() if captured_seed else self.root / "inputs" / "seed.blend"
+        if captured_seed and (not self.seed_path.is_relative_to(self.root / "work") or not captured_fingerprint):
+            raise ValueError("a host-captured stage seed must be bound to a fingerprint inside its work directory")
         self.s = _Session(self, seed_blend=self.seed_path, selftest=selftest,
                           calls_dir=self.root / "work" / "session_calls")
         self.seeing = Seeing(self.s)
@@ -94,7 +127,12 @@ class JobScene(SceneHooks):
                 log.write_text(out.stdout + "\n" + out.stderr, encoding="utf-8")
                 if out.returncode or not self.seed_path.is_file():
                     raise RuntimeError(f"starting scene creation failed (exit {out.returncode}); see {log}")
-            return self.s.start()
+            result = self.s.start()
+            if self.owner_edit and len(self.s.index.checkpoints()) == 1:
+                if self.s.head["fingerprint"] != (self.captured_fingerprint or self.owner_edit["source"]["fingerprint"]):
+                    self.s.close()
+                    raise ValueError("edit seed does not match the delivered fingerprint")
+            return result
 
     def checkpoint(self, label, call_id=None):
         with self.lock:

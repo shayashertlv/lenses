@@ -10,7 +10,14 @@ from ..temple_lab import stage
 
 
 def temple_tool(scene, call, parent_settings, fatal):
-    child_settings = stage.settings(parent_settings)
+    owner_edit = getattr(scene, "owner_edit", None)
+    if owner_edit:
+        from ..temple_lab import owner_stage
+        child_settings = owner_stage.settings(parent_settings, owner_edit)
+        run_stage = owner_stage.run
+    else:
+        child_settings = stage.settings(parent_settings)
+        run_stage = stage.run
 
     @function_tool(timeout=None, failure_error_function=fatal_tool_errors(*fatal, *STAGE_FATAL))
     async def temple_stage(ctx: ToolContext):
@@ -50,10 +57,20 @@ def temple_tool(scene, call, parent_settings, fatal):
         # checks the owner's settled stop before every request; capping holds at that stop would stop early.
         bridge = stage.StageBridge(asyncio.get_running_loop())
         try:
-            return await call(ctx, "temple_stage", lambda cid: stage.run(
+            return await call(ctx, "temple_stage", lambda cid: run_stage(
                 scene, runtime, bridge, cid, usd_text(maximum), child_settings))
         except asyncio.CancelledError:
             bridge.cancel()
             raise
 
+    if owner_edit:
+        temple_stage.description = (
+            "Work on the exact current mesh in a private owner-edit specialist session. It retains all general "
+            "tools and facet_owner_edit; it does not rebuild a template or replace current geometry with stale "
+            "construction coordinates. In understand mode it only inspects and prepares labelled targets. In "
+            "confirmed edit mode the owner's named feature targets outrank photos and earlier choices, within "
+            "the host-sealed support. Other geometry, materials, UVs and settings stay unchanged; every physical "
+            "and strict specification check remains. Only a completed accepted child can apply its actual mesh "
+            "patch, and only if the parent still matches the captured head. Read its summary and compare the "
+            "result. The same owner settled stop and reserve govern all child requests; no new money is granted.")
     return temple_stage

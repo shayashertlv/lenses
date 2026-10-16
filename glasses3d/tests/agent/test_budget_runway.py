@@ -75,7 +75,7 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
         assert ("finish your best checkpoint soon" in footer) is (index == 3)
         if index == 3:
             assert "\nAbout $5.00 left; finish your best checkpoint soon." in footer
-            assert "Finish performs export, checks and AR capture in one call." in footer
+            assert "Finish needs a first evidence call and a second review call." in footer
             assert body["budget"]["settled_micro_usd"] == settled
             assert body["budget"]["settled_stop_usd"] == "20.000000"
             assert body["budget"]["remaining_to_stop_usd"] == "5.000000"
@@ -140,29 +140,31 @@ def test_footer_is_separate_from_json_and_preserves_image_positions(tmp_path, sc
     Image.new("RGB", (8, 8), (40, 60, 80)).save(path)
     scene.seeing.render_views = lambda **kwargs: {"status": "ok", "sheets": [str(path)],
                                                 "views": {"front": {"kind": "canonical"}}}
-    output = invoke(scene, "render_views", context=L.RunStatus(guard))
+    runtime = L.RunStatus(guard)
+    output = invoke(scene, "render_views", context=runtime)
     data = record(output)
     assert len(output) == 4 and data["images"][0]["output_index"] == 2
     assert isinstance(output[1], ToolOutputText) and "view canonical:front" in output[1].text
     assert isinstance(output[2], ToolOutputImage) and output[2].image_url.startswith("data:image/png;base64,")
-    assert _footer(output) == L.RunStatus(guard).footer()
+    assert _footer(output) == runtime.footer()
     assert "About $5.00 left" in _footer(output)
 
 
 @pytest.mark.parametrize("kind", ["busy", "refused"])
 def test_early_tool_results_also_carry_the_runway_footer(tmp_path, scene, kind):
     guard = _settled_guard(tmp_path, tokens=600_000)
+    runtime = L.RunStatus(guard)
     if kind == "busy":
         class BusyLock:
             def acquire(self, **kwargs):
                 return False
         scene.lock = BusyLock()
-        output = invoke(scene, "scene_summary", context=L.RunStatus(guard))
+        output = invoke(scene, "scene_summary", context=runtime)
         assert record(output)["code"] == "E_BUSY"
     else:
-        output = invoke(scene, "read_image", {"path": "work/missing.png"}, context=L.RunStatus(guard))
+        output = invoke(scene, "read_image", {"path": "work/missing.png"}, context=runtime)
         assert record(output)["status"] == "refused"
-    assert len(output) == 2 and _footer(output) == L.RunStatus(guard).footer()
+    assert len(output) == 2 and _footer(output) == runtime.footer()
     assert "About $5.00 left" in _footer(output)
 
 

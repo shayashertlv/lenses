@@ -147,6 +147,7 @@ class RunRefused(Exception):
 # The SDK accepts a timeout only on async function tools (tool.py:2925-2928). execute_blender_code's hard timeout is
 # its soft timeout + 30 s per call, so its SDK timeout covers the largest soft timeout (600 s).
 HARD_TIMEOUT_S = {
+    "labelled_model_map": 600, "understand_finish": 180, "edit_report": 1680, "facet_owner_edit": 660,
     "seat_lens": 150, "hide_eyewire": 150, "unseat_lens": 150, "unhide_eyewire": 150, "check_lens_seating": 120,
     "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
     "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,
@@ -894,6 +895,26 @@ class RunStatus:
     def __init__(self, guard: BudgetGuard | None = None, runtime=None):
         self.guard = guard
         self.runtime = runtime
+        self.finish_configured = False
+        self.finish_reference_count = None
+        self.finish_evidence = None
+
+    def configure_finish(self, scene):
+        self.finish_configured = True
+        images = getattr(scene, "job", {}).get("images")
+        if isinstance(images, list):
+            self.finish_reference_count = len(images)
+
+    def finish_runway(self, *, evidence=None, review_ready=False):
+        from .finish_runway import project
+        if self.guard is None or not self.finish_configured:
+            return None
+        return project(self.guard.summary(), self.guard.tariff, reference_count=self.finish_reference_count,
+                       evidence=evidence or self.finish_evidence, review_ready=review_ready)
+
+    def note_finish_evidence(self, evidence):
+        if evidence is not None:
+            self.finish_evidence = evidence
 
     async def run_stage(self, spec: StageSpec, scene: SceneHooks, cap_usd, call_id):
         if self.runtime is None:
@@ -912,12 +933,12 @@ class RunStatus:
                                           if summary.get("remaining_to_stop_usd") is not None else None),
                 "context_tokens": summary["planning"]["last_counted_input_tokens"]}
 
-    def footer(self) -> str:
-        return footer_text(**self.numbers())
+    def footer(self, *, finish_runway=None) -> str:
+        return footer_text(**self.numbers(), finish_runway=finish_runway or self.finish_runway())
 
 
 def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
-                remaining_to_stop_usd=None, held_usd=None, unknown_usd=None) -> str:
+                remaining_to_stop_usd=None, held_usd=None, unknown_usd=None, finish_runway=None) -> str:
     def usd(value):
         return "n/a" if value is None else f"${value:.2f}"
     money = money_text({"settled_usd": settled_usd, "held_usd": held_usd, "unknown_usd": unknown_usd}, places=2)
@@ -927,7 +948,10 @@ def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_
     if (settled_stop_usd is not None and settled_usd is not None
             and cap_to_micro(settled_usd) * 4 >= cap_to_micro(settled_stop_usd) * 3):
         text += (f"\nAbout {usd(remaining_to_stop_usd)} left; finish your best checkpoint soon. "
-                 "Finish performs export, checks and AR capture in one call.")
+                 "Finish needs a first evidence call and a second review call.")
+    if finish_runway:
+        from .finish_runway import text as runway_text
+        text += "\n" + runway_text(finish_runway)
     return text
 
 

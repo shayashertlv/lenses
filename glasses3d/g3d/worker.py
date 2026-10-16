@@ -760,6 +760,16 @@ def m_export_glb(params):
             "unchanged": fp0 == fp1, "seconds": round(time.perf_counter() - t0, 4)}
 
 
+def m_model_map_snapshot(params):
+    from glasses3d.g3d.model_map_bpy import snapshot
+    return snapshot(params, ROOT)
+
+
+def m_owner_edit_apply(params):
+    from glasses3d.g3d import owner_mesh_bpy
+    return _mutating(params, lambda: owner_mesh_bpy.apply(params, ROOT))
+
+
 METHODS = {
     "ping": m_ping, "exec": m_exec, "exec_unvalidated": m_exec_unvalidated, "fingerprint": m_fingerprint,
     "checkpoint_save": m_checkpoint_save, "checkpoint_restore": m_checkpoint_restore, "load_font": m_load_font,
@@ -768,6 +778,8 @@ METHODS = {
     "temple_lab_build": m_temple_lab_build, "temple_variants_render": m_temple_variants_render,
     "temple_variants_export": m_temple_variants_export,
     "temple_stage_apply": m_temple_stage_apply,
+    "model_map_snapshot": m_model_map_snapshot,
+    "owner_edit_apply": m_owner_edit_apply,
 }
 
 

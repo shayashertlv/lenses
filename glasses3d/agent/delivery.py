@@ -201,7 +201,8 @@ def _prepare(root: Path, scene, result: dict) -> tuple[dict, dict[str, bytes]]:
     capture, raw, shown, contact = _capture_files(root, ar, exp["sha256"])
     return _package(root, result, exp, checkpoint, finished["fingerprint"], exit_head,
                     finished.get("summary", ""), ar, model, capture, raw, shown, contact,
-                    look=finished.get("look_comparison"), finish_images=finished.get("images", []))
+                    look=finished.get("look_comparison"), finish_images=finished.get("images", []),
+                    owner_edit_report=finished.get("owner_edit_report"))
 
 
 def _map_paths(value, paths):
@@ -212,7 +213,7 @@ def _map_paths(value, paths):
     return paths.get(value, value) if isinstance(value, str) else value
 
 
-def _look_files(root, look, glb_sha, files):
+def _look_files(root, look, glb_sha, files, *, prefix="look"):
     """Optional likeness evidence has no quality gate, but successful evidence must retain its bytes/identity."""
     if not look or look.get("status") != "ok":
         return copy.deepcopy(look)
@@ -227,16 +228,16 @@ def _look_files(root, look, glb_sha, files):
         original, payload = _read(root, asset["path"], asset["sha256"])
         if not original.is_relative_to(path.parent):
             raise DeliveryError("look asset escapes comparison directory")
-        name = "look/" + original.relative_to(path.parent).as_posix()
+        name = prefix + "/" + original.relative_to(path.parent).as_posix()
         files[name], paths[str(original)] = payload, name
     converted = _map_paths(doc, paths)
-    name = "look/comparison-report.json"
+    name = prefix + "/comparison-report.json"
     files[name] = _json_bytes(converted)
     return {**converted, "report": name, "report_sha256": _sha(files[name])}
 
 
 def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar, model,
-             capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=()):
+             capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=(), owner_edit_report=None):
     """Package evidence without changing a check's result. Drafts never enter the finish validator."""
     draft = source is not None
     files = {"model.glb": model}
@@ -309,6 +310,23 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
         report["validate_spec"]["path"] = "model.glb"
     if "glb" in report["seating"]:
         report["seating"]["glb"] = "model.glb"
+    if owner_edit_report is not None:
+        _, edit_bytes = _read(root, owner_edit_report["path"], owner_edit_report["sha256"])
+        edit = _document(edit_bytes, "owner edit report")
+        if edit.get("fingerprint") != fingerprint or edit.get("after", {}).get("export_sha256") != exp["sha256"]:
+            raise DeliveryError("owner edit report does not describe this delivered checkpoint")
+        edit["before"] = _look_files(root, edit["before"], edit["before"]["export_sha256"], files,
+                                    prefix="owner-edit/before")
+        edit["after"] = _look_files(root, edit["after"], exp["sha256"], files, prefix="owner-edit/after")
+        images = []
+        for i, rec in enumerate(edit["images"]):
+            path, data = _read(root, rec["path"], rec.get("sha256"))
+            name = f"owner-edit/images/{i:04d}{path.suffix}"
+            files[name] = data
+            images.append({**rec, "path": name, "sha256": _sha(data)})
+        edit["images"] = images
+        files["owner-edit/report.json"] = _json_bytes(edit)
+        report["owner_edit_report"] = {"path": "owner-edit/report.json", "sha256": _sha(files["owner-edit/report.json"])}
     files["report.json"] = _json_bytes(report)
     manifest = {"schema": SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
                 "glb_sha256": exp["sha256"], "model": "model.glb", "report": "report.json",

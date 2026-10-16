@@ -186,6 +186,33 @@ def test_owner_words_are_bound_but_separate_from_host_instruction_contract(tmp_p
     assert assets["brief.txt"] == sha(root / "inputs" / "brief.txt")
 
 
+@pytest.mark.parametrize("description,specs_json", [
+    ("Café beige \r\nKeep the owner spacing.\r\n", '{\r\n  "caption": "owner wording"\r\n}'),
+    ("Café beige \r\nSecond\nThird\rFourth", '{\r\n  "caption": "owner wording",\n  "width": 4\r}'),
+])
+def test_stage_package_preserves_embedded_owner_newline_bytes(tmp_path, description, specs_json):
+    import json
+    from glasses3d.agent import approvals as A
+    scene, _, _ = source_job(tmp_path)
+    scene.job.update(description=description, specs=json.loads(specs_json), specs_json=specs_json)
+    root = tmp_path / "stage"
+    package.prepare(scene, root, "exact-owner-bytes", lab_class=PrepLab)
+    brief = (root / "inputs/brief.txt").read_bytes()
+    suffix = "\nOwner description:\n" + description + "\nOwner specifications:\n" + specs_json + "\n"
+    assert brief.endswith(suffix.encode("utf-8"))
+    manifest = read(root / "inputs/lab.json")
+    basis = C.load_basis(root)
+    cameras = read(basis.dir / C.CAMERAS_JSON)["images"]
+    expected_contract = package.contract_brief(manifest["photos"], cameras, manifest["rig"]).encode("utf-8")
+    assert (root / "inputs/contract-brief.txt").read_bytes() == expected_contract
+    assets = {r["path"]: r["sha256"] for r in manifest["assets"]}
+    assert all(assets[name] == sha(root / "inputs" / name) for name in ("brief.txt", "contract-brief.txt"))
+    lab = object.__new__(Lab)
+    lab.root, lab.manifest = root, manifest
+    binding = A.run_input_binding(root, brief.decode("utf-8"), cli.references(lab))
+    assert binding["brief_sha256"] == assets["brief.txt"]
+
+
 def test_standalone_generic_sources_copy_supplied_target_mattes(tmp_path):
     scene, basis, _ = source_job(tmp_path)
     write_json_atomic(scene.root / "images" / "manifest.json", {"name": scene.job["name"],

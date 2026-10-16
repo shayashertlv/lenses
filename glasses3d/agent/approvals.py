@@ -129,7 +129,7 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
     if seen != expected:
         raise ApprovalRefused("stale", "the run does not carry every job reference image")
     brief_path = job_dir / "inputs" / "brief.txt"
-    if brief_path.exists() and brief_path.read_text(encoding="utf-8") != brief:
+    if brief_path.exists() and brief_path.read_bytes().decode("utf-8") != brief:
         raise ApprovalRefused("stale", "the run brief differs from inputs/brief.txt")
     return {"brief_sha256": sha256_bytes(brief.encode("utf-8")), "photos": rows}
 

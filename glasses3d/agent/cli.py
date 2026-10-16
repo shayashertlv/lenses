@@ -14,6 +14,11 @@ from .loop import EFFORTS, RunRefused
 from .money import owner_money
 
 
+def owner_text_file(path):
+    with Path(path).open(encoding="utf-8", newline="") as stream:
+        return stream.read()
+
+
 def parser():
     ap = argparse.ArgumentParser(prog="python -m glasses3d")
     group = ap.add_subparsers(dest="group", required=True)
@@ -29,9 +34,26 @@ def parser():
     ledger_dir = Path(__file__).resolve().parents[1] / "data/ledger"
     migrate.add_argument("--source", type=Path, default=ledger_dir / "owner_verdicts.jsonl")
     migrate.add_argument("--ledger", type=Path, default=ledger_dir / "verdicts.jsonl")
+    edit = commands.add_parser("edit")
+    edit.add_argument("id")
+    edit.add_argument("--delivery-id")
+    edit.add_argument("--source-runtime", type=Path, help="explicit archived runtime containing this delivery's exact checkpoint/cameras")
+    edit.add_argument("--edit-id")
+    words = edit.add_mutually_exclusive_group(required=True)
+    words.add_argument("--request")
+    words.add_argument("--request-file", type=Path)
+    words.add_argument("--confirm")
+    words.add_argument("--confirm-file", type=Path)
+    words.add_argument("--correct")
+    words.add_argument("--correct-file", type=Path)
+    edit.add_argument("--effort", choices=EFFORTS, default="high")
+    edit.add_argument("--cap", required=True)
+    edit.add_argument("--settled-stop", required=True)
     for name in ("show", "estimate", "approve", "run", "stop", "review", "verdict"):
         cmd = commands.add_parser(name)
         cmd.add_argument("id")
+        cmd.add_argument("--edit-id")
+        cmd.add_argument("--round")
         if name in ("approve", "run"):
             cmd.add_argument("--run-id")
         if name == "estimate":
@@ -107,6 +129,33 @@ def dispatch(args):
                                specs=args.specs, jobs_root=args.jobs_root)
         return {"status": "created", "job_id": root.name, "path": str(root)}
     root = resolve_job(args.id, args.jobs_root)
+    if args.command == "edit":
+        from dataclasses import replace
+        from . import edits
+        if any(v is not None for v in (args.confirm, args.confirm_file, args.correct, args.correct_file)):
+            if not args.edit_id or args.delivery_id:
+                raise ValueError("confirmation needs --edit-id and cannot select another delivery")
+            words = (args.confirm if args.confirm is not None else args.correct if args.correct is not None
+                     else owner_text_file(args.confirm_file or args.correct_file))
+            round_root = edits.create_edit(edits.confined(root / "edits", args.edit_id), words,
+                                           correction=args.correct is not None or args.correct_file is not None)
+        else:
+            if args.edit_id:
+                raise ValueError("a new request creates a new edit id; use --confirm for the existing understanding")
+            words = args.request if args.request is not None else owner_text_file(args.request_file)
+            round_root = edits.create_understand(root, words, delivery_id=args.delivery_id, source_runtime=args.source_runtime)
+        settings = replace(job_run.settings_default(), effort=args.effort, settled_stop_usd=args.settled_stop)
+        spec, _ = job_run.prepare_run(round_root, settings=settings, cap=args.cap, write_request=True)
+        doc = edits.load(round_root)
+        return {"status": "awaiting_separate_run_approval", "edit_id": doc["edit_id"],
+                "phase": doc["phase"], "round_path": str(round_root), "run_id": spec.run_id,
+                "request": procs.read_json(round_root / "runs" / spec.run_id / "approval-request.json"),
+                "next": "Use job approve and job run with this round_path, or --edit-id and --round."}
+    if getattr(args, "edit_id", None):
+        from . import edits
+        root = edits.resolve_round(root, args.edit_id, args.round)
+    elif getattr(args, "round", None):
+        raise ValueError("--round requires --edit-id")
     if args.command == "show":
         return {"job": jobs.load_job(root), "heartbeat": procs.read_json(root / "heartbeat.json"),
                 "pending_run": A.latest_pending_run(root), **delivery_status(root)}
@@ -125,6 +174,10 @@ def dispatch(args):
         (root / "stop.requested").write_text("Owner requested stop.\n", encoding="utf-8")
         return {"status": "stop_requested", "job_id": root.name}
     if args.command == "review":
+        from . import edits
+        edit = edits.load(root)
+        if edit and edit["phase"] == "understand":
+            return edits.review_understanding(root, args.port)
         return review.review_job(root, delivery_id=args.delivery_id, port=args.port)
     if args.command == "verdict":
         delivery_id, digest = args.delivery_id, args.sha256

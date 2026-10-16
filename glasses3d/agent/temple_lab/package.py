@@ -134,9 +134,10 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     brief += "\nOwner description:\n" + scene.job.get("description", "") + "\n"
     if scene.job.get("specs") is not None:
         brief += "Owner specifications:\n" + scene.job.get("specs_json", str(scene.job["specs"])) + "\n"
-    (inputs / "brief.txt").write_text(brief, encoding="utf-8")
+    # Keep embedded owner text verbatim; platform newline translation can turn CRLF into CRCRLF.
+    (inputs / "brief.txt").write_bytes(brief.encode("utf-8"))
     assets.append({"path": "brief.txt", "sha256": sha(inputs / "brief.txt")})
-    (inputs / "contract-brief.txt").write_text(contract_brief(photos, cameras, rig), encoding="utf-8")
+    (inputs / "contract-brief.txt").write_bytes(contract_brief(photos, cameras, rig).encode("utf-8"))
     assets.append({"path": "contract-brief.txt", "sha256": sha(inputs / "contract-brief.txt")})
     copy(cli.HERE / "instructions.txt", "instructions.txt", sha(cli.HERE / "instructions.txt"))
     write_json_atomic(inputs / "lab.json", {"schema": LAB_SCHEMA, "rig": rig, "product": scene.job.get("name"),

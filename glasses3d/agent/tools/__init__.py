@@ -23,8 +23,9 @@ from ..loop import STAGE_FATAL, fatal_tool_errors, footer_text, sdk_timeout_s, h
 from ..seeing import VIEWS_PER_SHEET
 from ..worker_client import WorkerDied
 from ..money import owner_money
+from ..finish_runway import observation as runway_observation
 from ..tool_reports import bounded_tool, limit_output, report_tool
-from . import arview, look, finish_review
+from . import arview, look, finish_review, model_map, owner_edit
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
@@ -34,7 +35,7 @@ from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
-              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report")
+              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map")
 FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
 
 
@@ -257,7 +258,8 @@ def build_tools(scene, settings=None) -> list:
 
     def tool(name):
         def wrap(fn):
-            return function_tool(fn, name_override=name, timeout=sdk_timeout_s(name),
+            timeout = sdk_timeout_s(name) + (450 if getattr(scene, "owner_edit", None) else 0)
+            return function_tool(fn, name_override=name, timeout=timeout,
                                  failure_error_function=fatal_tool_errors(*FATAL),
                                  timeout_error_function=timeout_text(name))
         return wrap
@@ -266,8 +268,10 @@ def build_tools(scene, settings=None) -> list:
         cid = getattr(ctx, "tool_call_id", None) or f"{name}-{time.time_ns()}"
 
         def locked():
+            runtime = getattr(ctx, "context", None)
+            if hasattr(runtime, "configure_finish"):
+                runtime.configure_finish(scene)
             if not scene.lock.acquire(timeout=0):
-                runtime = getattr(ctx, "context", None)
                 footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
                 return [ToolOutputText(text=json.dumps({"status": "busy", "code": "E_BUSY",
                                                         "message": "a previous scene tool is still running"})),
@@ -276,6 +280,9 @@ def build_tools(scene, settings=None) -> list:
             result = None
             try:
                 try:
+                    if (getattr(scene, "owner_edit", None) and
+                            (name == "fit_cameras" or (scene.owner_edit["phase"] == "understand" and name == "finish"))):
+                        raise ValueError("Keep the frozen edit cameras. Understand ends with understand_finish, without model changes.")
                     result = action(cid)
                     if not isinstance(result, dict):
                         result = {"status": "ok", "result": result}
@@ -310,8 +317,15 @@ def build_tools(scene, settings=None) -> list:
                     else:
                         result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
                     output = [ToolOutputText(text=json.dumps(result))]
-                runtime = getattr(ctx, "context", None)
-                footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
+                observed = runway_observation(name, result)
+                runway = (runtime.finish_runway(evidence=observed, review_ready=result.get("status") == "review_required")
+                          if hasattr(runtime, "finish_runway") else None)
+                if name == "finish" and result.get("status") == "review_required" and runway:
+                    result["finish_runway"] = runway
+                    output[0] = ToolOutputText(text=json.dumps(owner_money(result), ensure_ascii=False,
+                                                             separators=(",", ":"), allow_nan=False))
+                footer = (runtime.footer(finish_runway=runway) if hasattr(runtime, "finish_runway") else
+                          runtime.footer() if hasattr(runtime, "footer") else footer_text())
                 try:
                     output = limit_output(scene.root, cid, name, [*output, ToolOutputText(text=footer)])
                     if name == "finish":
@@ -320,7 +334,21 @@ def build_tools(scene, settings=None) -> list:
                             # Images and lossless text persistence must succeed before accepting the finish.
                             scene.finish = result
                     scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
+                    if name == "labelled_model_map":
+                        model_map.mark_delivered(scene.root, result, True)
+                    if name == "understand_finish":
+                        owner_edit.mark_delivered(scene, result, True)
+                    if name == "edit_report":
+                        owner_edit.mark_report_delivered(scene, result, True)
+                    if hasattr(runtime, "note_finish_evidence"):
+                        runtime.note_finish_evidence(observed)
                 except BaseException as delivery_error:
+                    if name == "labelled_model_map":
+                        model_map.mark_delivered(scene.root, result, False)
+                    if name == "understand_finish":
+                        owner_edit.mark_delivered(scene, result, False)
+                    if name == "edit_report":
+                        owner_edit.mark_report_delivered(scene, result, False)
                     if name == "finish":
                         scene.finish = None
                         scene.finish_review = None
@@ -552,10 +580,13 @@ def build_tools(scene, settings=None) -> list:
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
         """Return settled spend, settled_stop_usd and remaining_to_stop_usd after open/unknown holds, plus the
-        separate reserve cap and the next request's estimated hold. Plan against the settled stop."""
+        separate reserve cap, next request hold and finish_runway's projected second-finish hold. Future evidence
+        and replies are estimates; its reserve warning is not a completion guarantee. Plan against the settled stop."""
         def status(cid):
-            guard = getattr(getattr(ctx, "context", None), "guard", None)
-            return {"status": "ok", "budget": guard.summary() if guard is not None else None}
+            runtime = getattr(ctx, "context", None)
+            guard = getattr(runtime, "guard", None)
+            return {"status": "ok", "budget": guard.summary() if guard is not None else None,
+                    "finish_runway": runtime.finish_runway() if hasattr(runtime, "finish_runway") else None}
         return await call(ctx, "budget_status", status)
 
     @tool("finish")
@@ -616,6 +647,13 @@ def build_tools(scene, settings=None) -> list:
                     fallback = {"status": "error", "code": "E_DIAGNOSTIC", "message": str(error)}
                 result.update(diagnostic_render=fallback, image_source="scene_render_fallback",
                               images=_sheets(fallback, "render_views"))
+            if getattr(scene, "owner_edit", None):
+                report = owner_edit.delivered_report(scene)
+                if report is None:
+                    result.update(status="refused", code="E_EDIT_REPORT", message="Call edit_report on this head before finish.")
+                    result["failures"].append({"check": "owner_edit_report", "code": "E_EDIT_REPORT"})
+                else:
+                    result["owner_edit_report"] = report
             finish_review.apply(scene, result, review_call_id, per_photo)
             return result
         return await call(ctx, "finish", finish_current)
@@ -624,5 +662,9 @@ def build_tools(scene, settings=None) -> list:
             render_views, compare_to_photos, pick_surface_point, photo_read_tool(scene, tool, call),
             export_glb, arview_capture, look.tool_for(scene, tool, call), read_image, budget_status,
             finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
-            photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call)]
+            photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call),
+            model_map.tool_for(scene, tool, call)]
+    if getattr(scene, "owner_edit", None):
+        from .. import owner_edits
+        tools += owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]
     return [bounded_tool(item, getattr(scene, "root", None)) for item in tools]

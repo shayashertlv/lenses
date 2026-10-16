@@ -10,7 +10,7 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from . import approvals as A, brief, estimate as E, jobs
-from . import delivery as D, verdicts, procs
+from . import delivery as D, verdicts, procs, edits
 from .budget import cap_to_micro
 from .job_scene import JobScene
 from .instructions import build_instructions, instruction_contract
@@ -43,6 +43,11 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     root = Path(root).resolve()
     job = jobs.load_job(root)
     settings = settings or settings_default()
+    owner_edit = edits.load(root)
+    if owner_edit:
+        if resume or settings.smoke:
+            raise ValueError("each owner edit round is a fresh separately approved conversation")
+        settings = replace(settings, finish_tool="understand_finish" if owner_edit["phase"] == "understand" else "finish")
     if any(value is not None for value in (settings.context_guard_tokens, settings.context_guard_bytes,
                                            settings.context_guard_every_requests)):
         raise ValueError("job history is append-only; context guard epochs require a new unguarded run request")
@@ -56,10 +61,11 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
         if settings.max_turns != 1 or settings.max_output_tokens != 4096 or settings.max_continuations != 0:
             raise ValueError("smoke requires one request, 4096 output tokens and no continuations")
     scene = scene or JobScene(root, job=job)
+    scene.scripted = offline_handler is not None
     tools = build_tools(scene, settings)
-    stages = () if settings.smoke else (temple_stage.contract(job, settings, cap),)
-    instructions = instructions_text(tools)
-    text = brief.build_brief(job)
+    stages = () if settings.smoke else (temple_stage.contract(job, settings, cap, **({"owner_edit": owner_edit} if owner_edit else {})),)
+    instructions = build_instructions(tools, owner_edit=owner_edit) if owner_edit else instructions_text(tools)
+    text = brief.build_brief(job) + (edits.brief_suffix(owner_edit) if owner_edit else "")
     photos = jobs.references(root)
     notes = verdicts.pending_notes(root)
     request = A.build_request(root, instructions_sha256=hashlib.sha256(instructions.encode()).hexdigest(),
@@ -70,8 +76,9 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     spec = RunSpec(job_dir=root, run_id=run_id, instructions=instructions, tools=tools, brief=text, photos=photos,
                    owner_notes=notes, current_request_sha256=A.request_sha256(request), settings=settings,
                    requested_cap_usd=cap, stage_contracts=stages,
-                   resume=resume, scene_note="Resume the saved head." if resume else "Start with the empty job template.",
-                   contract=instruction_contract(tools), contract_brief=brief.host_text(job),
+                   resume=resume, scene_note=("Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
+                       if owner_edit else "Resume the saved head." if resume else "Start with the empty job template."),
+                   contract=instruction_contract(tools, owner_edit=owner_edit), contract_brief=brief.host_text(job),
                    offline_handler=offline_handler,
                    env_file=env_file,
                    offline_api_key="sk-offline-job-proof" if offline_handler is not None else None)
@@ -168,6 +175,27 @@ def _publish_result(root, run_id, scene, result, *, smoke=False):
     if smoke:
         # A connectivity proof has no product deliverable and cannot certify a finish.
         return {"status": "smoke_only", "finished": False, "accepted_finish": False}
+    edit = getattr(scene, "owner_edit", None)
+    if edit and edit["phase"] == "understand":
+        artifact = Path(root) / "work/owner_edit/understanding.json"
+        accepted = result.get("status") == "completed" and artifact.is_file()
+        if accepted:
+            try:
+                understanding = edits.read(artifact)
+                shown = edits.read(artifact.with_name("understanding-delivery.json"))
+                state = Path(root) / "work/job_scene/state.json"
+                unseen = edits.read(state).get("unseen", []) if state.exists() else []
+                accepted = (understanding.get("status") == "awaiting_owner_confirmation"
+                            and shown.get("delivered") is True and shown.get("sha256") == edits.sha(artifact)
+                            and shown.get("call_id") == understanding.get("call_id")
+                            and shown.get("call_id") not in unseen
+                            and understanding.get("source_fingerprint") == edit["source"]["fingerprint"])
+            except (OSError, ValueError, KeyError, TypeError):
+                accepted = False
+        page = edits.understanding_page(root) if accepted else None
+        return {"status": "awaiting_owner_confirmation" if accepted else "understanding_incomplete",
+                "finished": False, "accepted_finish": False, "geometry_changed": False,
+                "understanding": str(artifact) if accepted else None, "review_page": str(page) if page else None}
     delivery = (D.deliver_draft(root, scene, result) if result.get("status") in D.DRAFT_STATUSES
                 else deliver_finished(root, scene, result))
     # Also retain an explicit no-usable-checkpoint attempt when there is nothing the owner can review.
