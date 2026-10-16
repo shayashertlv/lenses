@@ -535,6 +535,46 @@ check stays). Items:
    conflicting declaration against a sign-certain reading still refused; `tests.proofs.assembly_m1` and the affected
    suites as §1 describes. Show the owner photo-first images. Change no delivered model; start no paid run.
 
+### M5-fix-9 + M6. A finish that is never stranded, and an owner edit mode ($0 build; added 2026-10-16 by Claude)
+Prada run 3 (`20261015T185027-2f6756`, xhigh, $16.70) ended as a **draft**: the second `finish` call (the full-size
+review) counted 273,293 input tokens, over the 272k price step; its worst-case hold $8.06 exceeded the $6.30 reserve
+room, so request 89 was refused before sending. Astra chose 5° for the hinge-side triangle (comparison 5/10°; 15°
+refused by a sign-certain neighbour), still faint. Owner, 2026-10-16: "ok this is the next run a i want to try. id like
+to use effort=high and id like for you and codex to add an edit option at the end where the user will be able to talk
+about specific stuff (i.e. "on the temple, the triangle facet which is nearest to the frame should be more angled, its
+boarder with the logo facet should be more outwards and its left boarder should be more inward. in addition the top of
+the temples should be going narrower towards the top point of the top triangle facet .")". This revives the owner's
+earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode was built and removed in Sept 2026
+(modeling_auto); this one is a full tool session with a confirm step.
+**A. Finish never stranded (M5-fix-9)**
+1. `budget_status`, the footer and the first `finish` result state the reserve the second finish call will need at
+   the current context, using the guard's own formula (`agent/budget.py:615-626`), and warn when the remaining
+   reserve room approaches it; one instruction line says to start the finish review while that room remains. No
+   change to the guard, the $20 stop, the $23 maximum, the tariff or caching. Prove on run 3's saved requests that
+   the warning would have fired before request 88.
+**B. Owner edit mode (M6)**
+2. **`job edit`** starts an edit session from a chosen delivery or draft of a job: the delivered checkpoint, the same
+   photos, frozen cameras with arm openings, all tools and the temple specialist, fresh conversation. The owner's
+   request text goes in verbatim as "Owner's edit request". Each round is a separate request with its own estimate
+   and the owner's approval; money terms are the owner's.
+3. **Step 1, understand (no geometry change):** Astra restates each requested change separately; marks the exact
+   faces, edges or points it means on labelled images (numbered labels on full-size model views beside the same-view
+   photo; for temples, the specialist's own facet/edge/corner names); states the direction and a proposed amount, or
+   2-3 rendered options for ambiguous amounts; lists anything it cannot do and why. Then it stops. Add the general
+   labelled-map tool this needs (numbered faces/edges for any part; the owner can reuse the numbers later).
+4. **Step 2, edit** after the owner confirms or corrects (his reply goes in verbatim): Astra makes only the confirmed
+   changes, then shows before/after full-size pairs, close-ups and the worn view, and reports what changed, by how
+   much, and anything not done. Unrequested geometry stays unchanged (report any side effect).
+5. **The owner's explicit request is the target for that feature:** it outranks photo readings and earlier choices
+   (the temple specialist must accept a requested change that contradicts a reading, recording it as the owner's
+   request); hard refusals stay (closed solid, minimum thickness, strict spec validity, no reversed physical part).
+6. **Proof ($0, scripted offline Astra):** on a copy of Prada run 3's draft, the owner's example request goes through
+   both steps: understand produces the labelled images and an interpretation per item; a scripted edit applies the
+   four confirmed changes through the real tools; before/after images and the change report are produced. Then
+   `tests.proofs.assembly_m1` and the affected suites as §1 describes.
+7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
+   reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
