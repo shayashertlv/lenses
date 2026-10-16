@@ -585,6 +585,13 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    full-size image; (b) in the demo's after images the unchanged PRADA/MILANO lettering is buried by the moved
    temple surface: markings attached to or lying on an edited surface must follow that surface by default, and the
    understand reply must list them; never leave a marking silently hidden. Prove both on the walkthrough copy.
+6d. **Instruction size limits (Claude, 2026-10-16):** `MAX_INSTRUCTION_CHARS = 8000` (`agent/instructions.py:8`,
+   from `plan/WP7_DESIGN.md:107`) and the specialist's 9,500 are self-imposed focus budgets, not provider limits;
+   they cost almost nothing (cached input) and recent fixes squeezed wording to fit (7,989/8,000). Raise them to
+   16,000 and 19,000. Do not shorten guidance to make room; where M5-fix-5/8 and M6 compressed wording only to fit,
+   restore the clearer wording, with no change of meaning. Keep the contract tests (named tools exist, retired
+   phrases absent, size within the new limits).
+   **Owner, 2026-10-16: "lets have codex fix the problems and only run then"** — 6c and 6d before run 4.
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
