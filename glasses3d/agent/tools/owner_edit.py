@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from PIL import Image, ImageDraw
 
 from .. import edits, procs
-from . import model_map, look
+from . import model_map, look, owner_preview
 from ...g3d import owner_markings
 
 
@@ -24,7 +24,7 @@ class Interpretation(BaseModel):
     operation_json: str
 
 
-def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limitations):
+def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limitations, preview_receipt=None):
     doc = edits.load(scene.root)
     if not doc or doc["phase"] != "understand":
         raise ValueError("understand_finish is only for an understand round")
@@ -53,6 +53,16 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
     following_markings = owner_markings.summary(operations)
     files = {row["path"]: row["sha256"] for row in evidence["evidence_files"]}
     files[evidence["map_path"]] = evidence["map_sha256"]
+    preview = None
+    images = list(evidence["images"])
+    if preview_receipt is not None:
+        preview = owner_preview.load_verified(scene, preview_receipt)
+        if (preview["map_id"] != map_id or preview["map_sha256"] != map_sha256 or
+                preview["capture_receipts"] != capture_receipts or preview["base_operations"] != operations):
+            raise ValueError("preview must show these exact operations, targets and amounts on this map")
+        files.update(preview["evidence_files"])
+        files[preview["preview_receipt"]] = preview["preview_sha256"]
+        images += preview["images"]
     path = scene.root / "work/owner_edit/understanding.json"
     artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": "awaiting_owner_confirmation",
                 "call_id": call_id, "request_text": doc["request_text"], "source_fingerprint": doc["source"]["fingerprint"],
@@ -62,12 +72,17 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
                 "map_id": map_id, "map_sha256": map_sha256, "evidence_files": files,
                 "capture_receipts": capture_receipts, "geometry_changed": False}
     artifact["scripted"] = bool(getattr(scene, "scripted", False))
+    if preview is not None:
+        artifact["amount_preview"] = {key: preview[key] for key in
+            ("preview_receipt", "preview_sha256", "call_id")}
+        artifact["amount_preview"]["options"] = [{key: option[key] for key in
+            ("id", "label", "scale", "operations")} for option in preview["options"]]
     procs.write_json_atomic(path, artifact)
     return {"status": "accepted", "next": "STOP: awaiting owner confirmation; the edit needs its own estimate and approval.",
             "understanding": str(path), "understanding_sha256": edits.sha(path),
             "interpretations": records, "limitations": limitations, "geometry_changed": False,
             "following_markings": following_markings, "legend": evidence.get('legend', []),
-            "image_delivery": "separate", "images": evidence["images"]}
+            "amount_preview": artifact.get("amount_preview"), "image_delivery": "separate", "images": images}
 
 
 def mark_delivered(scene, result, delivered=True):
@@ -173,9 +188,11 @@ def change_report(scene, call_id, summary, not_done):
 def tools_for(scene, tool, call):
     @tool("understand_finish")
     async def understand_finish(ctx: ToolContext, map_id: str, map_sha256: str, capture_receipts: list[str],
-                                items: list[Interpretation], limitations: list[str]):
+                                items: list[Interpretation], limitations: list[str], preview_receipt: str | None = None):
         """Stop the understand round after showing each requested change. Supply the successfully shown map
-        receipt(s), numbered interpretations, direction and proposed amount, or selected rendered option.
+        receipt(s), numbered interpretations, direction and base proposed amount. After preview_owner_edit,
+        pass its preview_receipt unchanged: the host attaches its shown options, images and exact amounts;
+        the owner selects an option at confirmation. Do not choose for the owner.
         operation_json names the exact operation and drawn support; it cannot expand any target. List impossible
         or ambiguous requests explicitly. This accepts understanding only, not a product finish or paid edit.
 
@@ -192,7 +209,7 @@ def tools_for(scene, tool, call):
         attachments refuse. Show this list to the owner as part of understanding, before confirmation.
         """
         return await call(ctx, "understand_finish", lambda cid: understand(scene, cid, map_id, map_sha256,
-                                                                          capture_receipts, items, limitations))
+                                                                          capture_receipts, items, limitations, preview_receipt))
 
     @tool("edit_report")
     async def edit_report(ctx: ToolContext, summary: str, not_done: list[str]):

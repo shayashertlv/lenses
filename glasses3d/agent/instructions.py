@@ -124,10 +124,11 @@ CORE_GUIDANCE = {
     "compare_to_photos": "Use `compare_to_photos` at the frozen basis after a geometric revision. Inspect each "
         "refs sheet alongside contour_mean_mm, model_only_px, photo_only_px and delta. Locate the visible mismatch "
         "before deciding whether geometry, an opening or the fitted camera explains it. Read native crops for detail.",
-    "compare_look_to_photos": "After each lens/frame colour or material edit, use `compare_look_to_photos`. "
-        "Inspect the separate full-size photo/render pairs and close-ups, then the worn front on the test face. "
-        "Judge photo-background colour match and worn-face likeness together, including visible eyes. Small contact "
-        "sheets and numeric lens-background response cannot replace this look.",
+    "compare_look_to_photos": "After each shape, colour or material edit, use `compare_look_to_photos`. "
+        "Inspect the separate full-size photo/render pairs and close-ups for edges, rounding, rims, facets and "
+        "other changed details, then the worn front on the test face. Judge photo-background colour match and "
+        "worn-face likeness together, including visible eyes. Geometric metrics, small contact sheets and "
+        "numeric lens-background response cannot replace this look.",
     "export_glb": "Use `export_glb` when checking the exported state. Read status, sha256, validate_spec, "
         "seat_check and print_check, including warnings about lost optical effects. A valid export does not prove likeness.",
     "arview_capture": "Use `arview_capture` for fixed authored-scale AR sheets and the worn side views with a "
@@ -140,8 +141,11 @@ CORE_GUIDANCE = {
         "while this reserve room remains; later evidence and replies can change the forecast.",
     "finish": "Call `finish` in two steps on your best current checkpoint, before the settled stop. The first "
         "call exports, checks specification and print freshness, captures AR, and returns full pairs and native "
-        "close-ups for every usable photo plus the worn front. Inspect them: revisit every difference you noted, "
-        "fix it or report it. The second call supplies that delivered review_call_id and exactly one per_photo "
+        "close-ups for every usable photo plus the worn front. Inspect them and revisit every difference you noted. "
+        "Remaining money is for fixing visible differences. Do not finish while a visible difference you can "
+        "still fix remains and the finish reserve allows another fix within the owner's limits. If a difference "
+        "cannot be fixed within those constraints, report what prevents it. The second call supplies that "
+        "delivered review_call_id and exactly one per_photo "
         "differences entry for each required ref (write 'none' only when you see none). If there are no usable "
         "cameras, state the unavailable evidence and supply per_photo=[]. Scene, camera or photo changes require "
         "a new first call. Put remaining differences and fact conflicts in summary. Only status accepted completes "
@@ -187,6 +191,15 @@ SPECIALIST_GUIDANCE = {
 }
 
 EDIT_GUIDANCE = {
+    "preview_owner_edit": "In UNDERSTAND, use `preview_owner_edit` when the owner needs to choose an amount. "
+        "Supply the shown map_id, map_sha256 and capture_receipts, the ordered base operations_json list, and "
+        "two or three options with distinct ids, plain labels and distinct positive finite scales. A scale "
+        "multiplies every base delta_mm or delta_deg; it does not change targets, support, axes or direction. "
+        "Each option starts independently from the same selected checkpoint in a private worker. Inspect "
+        "the native photo/before/option comparisons, target close-ups, exact operations and following_markings. "
+        "Use refs null for all usable frozen photo cameras; report unavailable views or refused choices. "
+        "The selected source stays unchanged. Keep the successfully delivered preview_receipt for understanding; "
+        "a refused preview supplies no selectable options.",
     "understand_finish": "End UNDERSTAND with `understand_finish`. Number the requested items consecutively "
         "from 1 and give each a label, interpretation, direction, amount, exact target_ids and operation_json. "
         "Use only delivered capture receipts and the scope_ref_sha256 of the support actually drawn. An operation "
@@ -195,11 +208,17 @@ EDIT_GUIDANCE = {
         "limitations. The tool discovers and seals nearby supported surface markings in following_markings; "
         "its understanding shows their names and supporting surfaces before confirmation. Check that list against "
         "the visible lettering and decoration; do not promise an attachment the tool did not identify. "
+        "After an amount preview, retain the same base operation_json in the items and pass its unchanged "
+        "preview_receipt. The host binds the shown options and their exact amounts to this understanding. "
+        "Explain each option by id and amount; the owner must explicitly select an option in confirmation. "
+        "Do not choose an option or silently use the base amount for them. "
         "Acceptance ends understanding only: STOP for the owner's confirmation and a separately "
         "approved edit round.",
     "facet_owner_edit": "In EDIT, use `facet_owner_edit` with the confirmed operation_ids in their recorded "
-        "order. Normally corrections is null. An explicitly supplied owner correction can revise numerical "
-        "direction/amount on the same shown target and axis; it cannot add targets or enlarge support. Repeating "
+        "order. With a selected preview, apply its complete ordered operation group and keep corrections null. "
+        "Its exact amounts cannot be replaced; another amount needs another shown preview. Without a selected "
+        "preview, an explicitly supplied owner correction can revise numerical direction/amount on the same "
+        "shown target and axis; it cannot add targets or enlarge support. Otherwise corrections is null. Repeating "
         "an applied id does not repeat its displacement. Sealed following_markings move with their supporting "
         "surface automatically. Ambiguous attachments or newly buried/intersecting markings refuse; inspect "
         "legibility and other-object occlusion in the actual images as well as measured changes and checks.",
@@ -221,7 +240,8 @@ does not authorize changing unrelated geometry, authored materials, UVs or topol
 preserve them; list a request that needs an unsupported change instead of claiming it can be done.
 
 UNDERSTAND: inspect, explain, then stop.
-Do not mutate geometry. Inspect the actual current mesh and every relevant photo. Restate each requested change
+Do not mutate the selected source geometry. Amount previews may alter isolated copies only. Inspect the actual
+current mesh and every relevant photo. Restate each requested change
 as a separate numbered item. Identify its face, edge or point using a short label and plain-words legend in
 full-size model views beside the same-view photo. Use the map's verified temple facet/edge/corner names where
 available. State which arm, which direction and a proposed numerical amount, with units and a reason for the
@@ -232,16 +252,19 @@ Inspect markings on each affected surface, including lettering and decorative me
 attachments follow the surface by default and must appear in the understanding's marking list. Report an
 unsupported or uncertain attachment as a limitation. Never silently leave a marking hidden by the moved surface.
 
-For an ambiguous amount, propose a clear amount or two or three options. Show rendered alternatives only if the
-available read-only tools can produce them without changing the source; this mode does not provide a general
-deformation-preview tool. Otherwise state that limitation and explain the options in words. For unclear targets,
-show the alternatives on the unchanged map and ask the owner to identify one. List anything not possible and why.
+When the amount needs a choice, show two or three feasible amounts with the amount-preview tool before asking
+for confirmation. Inspect its full-size comparisons and target close-ups, and state the actual displacement or
+rotation for each labelled option. Preview scales vary amounts of the same ordered operations, not their target,
+support, axis or direction. For unclear targets, show the alternatives on the unchanged map and ask the owner to
+identify one before preparing amount choices. List unavailable previews and anything not possible, with reasons.
 The host accepts only operations on the exact support shown to the owner. Finish this phase through the
 understanding tool and wait; an accepted understanding is neither an edit nor permission to spend on another round.
 
 EDIT: make only the confirmed changes, then show their result.
 The owner's confirmation or correction is supplied verbatim with the shown understanding. Read both. Use the
-confirmed operation IDs and their sealed support. A new target, operation kind, axis or larger support needs a new
+confirmed operation IDs and their sealed support. If the owner selected a preview, its exact ordered operations
+replace the base proposed amounts; the whole group must be applied together, including through manual edits.
+A new target, operation kind, axis or larger support needs a new
 understanding round. Preserve unrequested features, and move attached markings with their supporting edited
 surface rather than burying them. Inspect before and after lettering and other small details explicitly.
 Compare the actual result at the unchanged photo cameras, including full-size pairs, close-ups and worn views.
@@ -259,18 +282,22 @@ and child requests share them. The owner's delivery requirements are:
 # Owner mode uses the same available tools but cannot inherit construction/refitting or photo-over-owner advice.
 EDIT_OVERRIDES = {
     "execute_blender_code": "`execute_blender_code` remains available under the phase and scope checks. "
-        "UNDERSTAND cannot execute model changes. In EDIT, prefer the recorded owner operations; any manual "
+        "UNDERSTAND cannot execute changes to the selected source. In EDIT, prefer the recorded owner operations; any manual "
         "change must implement their exact confirmed positions, directions and amounts within sealed support, "
         "and preserve authored materials, UVs and topology. "
         "Set seating_repair=True for any authorized manual seating/support repair and inspect its before/after.",
     "fit_cameras": "`fit_cameras` is retained in the registry but refused in owner-edit rounds: the selected "
         "source's frozen cameras and openings stay fixed for both phases and all before/after comparisons.",
-    "compare_look_to_photos": "Use `compare_look_to_photos` to inspect full photo/render pairs, native details "
-        "and the worn front. Judge the confirmed feature against the owner's target and use the photos for "
-        "context; do not change unrequested colour or material to reduce a photo difference.",
+    "compare_look_to_photos": "After each authorized shape change in EDIT, use `compare_look_to_photos` to "
+        "inspect full-size photo/render pairs, close-ups of the changed details and the worn front. Judge the "
+        "confirmed feature against the owner's target and use the photos for context; geometry metrics alone "
+        "cannot establish the result. Do not change unrequested colour or material to reduce a photo difference.",
     "temple_stage": "`temple_stage` opens a private owner-edit specialist on the exact current mesh, with the "
         "same phase, general tools and scope checks. It does not run the ordinary template-rebuilding facet lab. "
-        "UNDERSTAND only prepares targets; EDIT may return an accepted scoped mesh patch. Read its result and "
+        "UNDERSTAND prepares targets and may preview amounts on isolated copies; EDIT may return an accepted "
+        "scoped mesh patch. Child UNDERSTAND previews are advisory: before sealing its understanding, the parent "
+        "must show its own map and obtain its own delivered preview receipt. Child receipts do not bind the "
+        "parent's understanding. Read its result and "
         "inspect the complete glasses. Child requests share the parent's settled stop and reserve cap.",
     "seat_lens": "`seat_lens` remains available but a reconstruction that changes topology or exceeds the "
         "confirmed support is refused in this mode. Do not perform an unrequested seating repair.",
@@ -288,7 +315,11 @@ EDIT_OVERRIDES = {
     "finish": "`finish` is refused in UNDERSTAND. In EDIT, first obtain and inspect edit_report on the current "
         "head, then finish in two calls before the settled stop. The first exports, checks specification and "
         "print freshness, captures AR and returns every usable photo's full pair and details plus the worn front. "
-        "Inspect them against the confirmed target; the second supplies the delivered review_call_id and exactly "
+        "Inspect them against the confirmed target. Remaining money is for fixing visible differences within "
+        "the confirmed scope. Do not finish while a visible difference from the confirmed target can still be "
+        "fixed by an authorized operation and the finish reserve allows that fix within the owner's limits. "
+        "This never permits changing sealed targets, directions, amounts or support; report differences requiring "
+        "new authority instead. The second call supplies the delivered review_call_id and exactly "
         "one per_photo differences entry per required ref ('none' only if none is visible). No usable cameras "
         "requires an honest unavailable-evidence statement and per_photo=[]. Changes require a fresh first call. "
         "Only status accepted completes the edit; include remaining differences, side effects and undone items "
@@ -296,7 +327,7 @@ EDIT_OVERRIDES = {
 }
 
 _WORKFLOW = (
-    "scene_summary", "read_image", "read_report", "labelled_model_map", "understand_finish",
+    "scene_summary", "read_image", "read_report", "labelled_model_map", "preview_owner_edit", "understand_finish",
     "execute_blender_code", "save_checkpoint", "list_checkpoints", "restore_checkpoint", "fit_cameras",
     "render_views", "pick_surface_point", "photo_read", "compare_to_photos", "temple_stage", "facet_owner_edit",
     "check_lens_seating", "hide_eyewire", "seat_lens", "unseat_lens", "unhide_eyewire", "photo_print",

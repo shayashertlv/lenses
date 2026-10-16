@@ -169,6 +169,16 @@ def confirmed_transition(sealed, current, before_fingerprint):
     Least squares proposes a binary subset only; exact replay is the acceptance test.
     """
     before = sealed["snapshot"]
+    if sealed.get("selected_preview"):
+        if _positions_equal(current, expected_positions(before, [])):
+            return []
+        if not _positions_equal(current, expected_positions(before, sealed["all_operations"])):
+            raise M.OwnerMeshError("E_OWNER_AMOUNT", "the edited mesh must equal the complete selected preview option")
+        if before_fingerprint == sealed["source_fingerprint"]:
+            return sealed["all_operations"]
+        if any(row.get("fingerprint") == before_fingerprint for row in sealed["receipts"]):
+            return []
+        raise M.OwnerMeshError("E_OWNER_AMOUNT", "selected preview has no confirmed operation receipt")
     byid = {op["id"]: op for op in sealed["all_operations"]}
     used = set()
     if before_fingerprint != sealed["source_fingerprint"]:
@@ -221,6 +231,13 @@ class ScopeGuard:
             sealed = self.authority.resolve(None, scene.s.head)
             current, path = snapshot(scene)
             result = verify_snapshots(sealed["snapshot"], current, sealed["all_operations"])
+            if (sealed.get("selected_preview") and current.get("fingerprint") not in
+                    (sealed["source_fingerprint"], sealed["selected_preview"]["fingerprint"])):
+                raise M.OwnerMeshError("E_OWNER_AMOUNT", "the edited scene must match the selected preview, including normals")
+            if sealed.get("selected_preview") and not (
+                    _positions_equal(current, expected_positions(sealed["snapshot"], [])) or
+                    _positions_equal(current, expected_positions(sealed["snapshot"], sealed["all_operations"]))):
+                raise M.OwnerMeshError("E_OWNER_AMOUNT", "only the unchanged source or complete selected preview is authorized")
             expected = getattr(scene, "_owner_expected_positions", None)
             recognized = []
             if expected is not None:
@@ -264,6 +281,8 @@ def corrected_operations(sealed, corrections):
     operations = copy.deepcopy(sealed["operations"])
     if not corrections:
         return operations
+    if sealed.get("selected_preview"):
+        raise M.OwnerMeshError("E_OWNER_AUTHORITY", "selected preview amounts cannot be replaced; request another shown preview")
     if not sealed.get("correction"):
         raise M.OwnerMeshError("E_OWNER_AUTHORITY", "changed amounts require an explicit owner correction round")
     byid = {op["id"]: op for op in operations}
@@ -343,6 +362,9 @@ def tool_for(scene, tool, call):
         specification checks remain. Unrequested geometry, materials and UVs stay unchanged. Repeating an
         applied ID never repeats its displacement. An explicit owner correction may revise numeric direction
         or amount on the same shown target and axis; it cannot expand the support or create a new target.
+        For a selected rendered preview, apply the complete recorded operation group in its shown order,
+        with corrections null. Its amounts cannot be replaced, even in a correction round; a different
+        amount needs another shown preview. General edit tools must produce that same complete option.
         The surface markings listed in the confirmed understanding follow their surface automatically.
         Newly buried marking vertices and new surface intersections refuse. Older understandings that omit
         detected markings must be renewed before editing; no dependency is silently added after confirmation.

@@ -53,7 +53,7 @@ def test_owner_edit_teaching_keeps_all_tools_and_owner_priority_within_cap(tools
     assert len(text) <= I.MAX_INSTRUCTION_CHARS
     assert I.named_tools(text) == {t.name for t in registered}
     assert "outranks photo readings" in text and "Every physical hard check remains" in text
-    assert "Do not mutate geometry" in text and "before and after" in text
+    assert "Do not mutate the selected source geometry" in text and "before and after" in text
 
 
 @pytest.mark.parametrize("phase", ["understand", "edit"])
@@ -125,6 +125,48 @@ def test_faint_facet_guidance_keeps_named_evidence_through_finish(tools):
     assert "named mismatches and crops from the stage summary into the finish review" in text
 
 
+def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(tools):
+    main = I.build_instructions(tools)
+    assert "After each shape, colour or material edit, use `compare_look_to_photos`" in main
+    assert "full-size photo/render pairs and close-ups for edges, rounding, rims, facets" in main
+    assert "Do not finish while a visible difference you can still fix remains" in main
+    assert "finish reserve allows another fix within the owner's limits" in main
+    owner = {"phase": "edit"}
+    text = I.build_instructions(build_tools(SimpleNamespace(root=None, owner_edit=owner)), owner_edit=owner)
+    assert "After each authorized shape change in EDIT, use `compare_look_to_photos`" in text
+    assert "fixed by an authorized operation" in text and "finish reserve allows that fix" in text
+    assert "never permits changing sealed targets, directions, amounts or support" in text
+    assert "`finish` is refused in UNDERSTAND" in text
+    assert "STOP for the owner's confirmation" in text
+
+
+def test_amount_choice_teaching_uses_delivered_preview_and_explicit_owner_selection(tools):
+    main = I.build_instructions(tools)
+    assert "preview_owner_edit" not in I.named_tools(main)
+    owner = {"phase": "understand"}
+    registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+    text = I.build_instructions(registered, owner_edit=owner)
+    assert "preview_owner_edit" in I.named_tools(text)
+    assert text.index("Use `labelled_model_map`") < text.index("use `preview_owner_edit`") < text.index("with `understand_finish`")
+    for phrase in ("two or three options", "distinct positive finite scales", "same selected checkpoint",
+                   "native photo/before/option comparisons", "target close-ups", "following_markings",
+                   "selected source stays unchanged", "successfully delivered preview_receipt",
+                   "same base operation_json", "owner must explicitly select an option",
+                   "Do not choose an option or silently use the base amount", "STOP for the owner's confirmation",
+                   "complete ordered operation group and keep corrections null",
+                   "another amount needs another shown preview", "Without a selected preview",
+                   "whole group must be applied together, including through manual edits",
+                   "Child UNDERSTAND previews are advisory", "own delivered preview receipt"):
+        assert phrase in text
+    assert "does not provide a general" not in text
+    assert "deformation-preview tool" not in text
+    # The live schema must support the values the prompt asks Astra to pass, rather than advertising a future tool.
+    names = {tool.name: tool for tool in registered}
+    assert set(names["preview_owner_edit"].params_json_schema["properties"]) == {
+        "map_id", "map_sha256", "capture_receipts", "operations_json", "options", "refs"}
+    assert "preview_receipt" in names["understand_finish"].params_json_schema["properties"]
+
+
 def test_report_guidance_names_fields_the_current_tools_return(tools):
     # Keep this focused on the fields the prose asks Astra to act on. These correspond to the actual wrappers and
     # Seeing return records, not to the superseded WP7 checks.json proposal.
@@ -143,7 +185,9 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
             assert field in I.CORE_GUIDANCE[name]
     assert "before the settled stop" in I.CORE_GUIDANCE["finish"]
     assert "revisit every difference" in I.CORE_GUIDANCE["finish"]
-    assert "fix it or report it" in I.CORE_GUIDANCE["finish"]
+    assert "Remaining money is for fixing visible differences" in I.CORE_GUIDANCE["finish"]
+    assert "Do not finish while a visible difference you can still fix remains" in I.CORE_GUIDANCE["finish"]
+    assert "finish reserve allows another fix within the owner's limits" in I.CORE_GUIDANCE["finish"]
     assert "per_photo differences" in I.CORE_GUIDANCE["finish"]
 
     # Check the implementation's actual dictionary keys, rather than accepting a new field invented in the text.

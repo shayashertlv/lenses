@@ -126,6 +126,10 @@ class Script:
         return self.edit(index)
 
     def understand(self, index):
+        if index == 7 and self.plan.get("amount_options"):
+            preview = result(self.root, "proof-amount-preview")
+            args = {**self.finish_args, "preview_receipt": preview["preview_receipt"]}
+            return "understand_finish", args, "proof-understand-stop", self.root, {"accepted"}
         cid = f"proof-map-{index}"
         if index == 0:
             return "labelled_model_map", {"photos":PHOTOS,"focus":None,"kind":"parts",
@@ -174,14 +178,19 @@ class Script:
                 "direction":"Mirrored on both temples; signed X depth only, Y/Z outline fixed.",
                 "amount":amounts[number-1],"target_ids":sorted({k for o in group for k in o["target_ids"]}),
                 "operation_json":json.dumps([concise_operation(o,self.scopes[o["id"]]) for o in group])})
-        return "understand_finish", {"map_id":self.maps["map_id"],"map_sha256":self.map_sha,
+        self.finish_args = {"map_id":self.maps["map_id"],"map_sha256":self.map_sha,
             "capture_receipts":self.receipts,"items":items,"limitations":[
                 LABEL + "; proposed amounts are an instrument demonstration, not the owner's final design approval.",
                 "The current manually edited mesh is authoritative; stored construction supplies verified names only.",
                 "Local weighted border movements create varying face slopes; no single uniform final dihedral is claimed.",
                 "Magenta shows moved-vertex influence, black fixed vertices; amber is the separate normal-only ring.",
-                "The top narrowing is interpreted as depth taper toward the apex; Y/Z outline coordinates stay fixed, but depth changes can shift a projected silhouette."]}, \
-            "proof-understand-stop", self.root, {"accepted"}
+                "The top narrowing is interpreted as depth taper toward the apex; Y/Z outline coordinates stay fixed, but depth changes can shift a projected silhouette."]}
+        if self.plan.get("amount_options"):
+            return "preview_owner_edit", {"map_id":self.maps["map_id"], "map_sha256":self.map_sha,
+                "capture_receipts":self.receipts, "operations_json":json.dumps([
+                    op for item in items for op in json.loads(item["operation_json"])]),
+                "options":self.plan["amount_options"], "refs":PHOTOS}, "proof-amount-preview", self.root, {"ok"}
+        return "understand_finish", self.finish_args, "proof-understand-stop", self.root, {"accepted"}
 
     def edit(self, index):
         stage_call = "proof-owner-stage"
@@ -190,8 +199,9 @@ class Script:
             return "temple_stage", {}, stage_call, self.root, {"ok"}
         # The parent awaits the specialist, so the first child request follows the outstanding stage call.
         # Do not require the parent's stage event until the child has finished.
+        operation_ids = [o["id"] for o in edits.Authority(child).resolve()["operations"]]
         rows = {
-            1:("facet_owner_edit",{"operation_ids":[o["id"] for o in self.plan["operations"]],"corrections":None},"proof-child-edit",child,{"ok"}),
+            1:("facet_owner_edit",{"operation_ids":operation_ids,"corrections":None},"proof-child-edit",child,{"ok"}),
             2:("edit_report",{"summary":LABEL + ": all four mirrored depth changes applied to actual mesh; adjacent slope/normal effects shown.","not_done":[]},"proof-child-report",child,{"ok"}),
             3:("finish",{"summary":LABEL + ": first specialist image review.","review_call_id":None,"per_photo":None},"proof-child-finish-1",child,{"review_required"}),
             5:("edit_report",{"summary":LABEL + ": accepted specialist's exact mesh copied back; same four changes, no template rebuild.","not_done":[]},"proof-parent-report",self.root,{"ok"}),
@@ -243,9 +253,15 @@ async def run_round(root, run_id, plan, phase, out):
     return report
 
 
-async def prove(out, plan_path):
+async def prove(out, plan_path, amount_preview=False):
     out=Path(out).resolve(); out.mkdir(parents=True,exist_ok=False)
     plan=read(plan_path)
+    if amount_preview:
+        # Predeclared fractions of the already tested demonstration, never tuned after seeing the result.
+        plan["amount_options"] = [{"id":"A", "label":"Half the proposed movement", "scale":.5},
+                                  {"id":"B", "label":"Three quarters of the proposed movement", "scale":.75},
+                                  {"id":"C", "label":"The full proposed movement", "scale":1.0}]
+        plan["selected_option"] = "B"
     procs.write_json_atomic(out/"predeclared-operations.json",plan)
     diagnostics=plan_path.parent
     procs.write_json_atomic(out/"prior-normal-diagnostics.json",{
@@ -270,7 +286,18 @@ async def prove(out, plan_path):
     assert any("triangle facet nearest the frame" in row["description"] for row in doc["legend"])
     assert doc["following_markings"], "Understand must explicitly list the markings carried by the surface edit"
     assert all(not e.get("mutating") for e in read(first/"work/job_scene/state.json")["events"])
-    second=edits.create_edit(first.parent,CONFIRMATION)
+    if amount_preview:
+        preview = result(first, "proof-amount-preview")
+        assert preview["source_unchanged"] and len(preview["options"]) == 3
+        assert doc["amount_preview"]["preview_sha256"] == preview["preview_sha256"]
+        assert all(option["checks"]["confirmed_amounts_match"] for option in preview["options"])
+        assert all(option["full_pairs"] and option["target_details"] for option in preview["options"])
+        first_hashes = edits.tree_hashes(first)
+    second=edits.create_edit(first.parent,CONFIRMATION, option_id=plan.get("selected_option"))
+    if amount_preview:
+        assert first_hashes == edits.tree_hashes(first), "Confirming changed the understanding copy"
+        chosen = next(option for option in preview["options"] if option["id"] == plan["selected_option"])
+        assert edits.Authority(second).resolve()["operations"] == chosen["operations"]
     assert not (second/"runs").exists(), "A prior round approval must not be inherited"
     edited=await run_round(second,"proof-edit",plan,"edit",out)
     assert edited["outcome"]["delivery"]["finished"] is True
@@ -285,6 +312,12 @@ async def prove(out, plan_path):
         "owner_request":REQUEST,"proposed_amounts_mm":[.20,.15,.15,.15],"operations":8,
         "predeclaration":plan["predeclaration"],"code_sha256":G.digest(source_binding)}
     report["proposal_sha256"]=sha256(out/"predeclared-operations.json")
+    if amount_preview:
+        assert edited["outcome"]["delivery"]["report_data"]["fingerprint"] == chosen["export"]["fingerprint"]
+        report["amount_preview"] = {"receipt":str(first / preview["preview_receipt"]),
+            "sha256":preview["preview_sha256"], "options":plan["amount_options"],
+            "selected_option":plan["selected_option"], "selected_operations_match":True,
+            "selected_export_fingerprint":chosen["export"]["fingerprint"], "images":preview["images"]}
     procs.write_json_atomic(out/"report.json",report)
     print(json.dumps({k:report[k] for k in ("status","seconds","actual_spend_usd","original_files_unchanged")}),flush=True)
 
@@ -292,6 +325,7 @@ async def prove(out, plan_path):
 def main():
     from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
     parser=argparse.ArgumentParser(); parser.add_argument("--out",required=True); parser.add_argument("--plan",default=str(DEFAULT_PLAN))
+    parser.add_argument("--amount-preview", action="store_true")
     args=parser.parse_args()
     os.environ["G3D_OFFLINE"]="1"
     for key in ("OPENAI_API_KEY","OPENAI_BASE_URL","OPENAI_ORG_ID","OPENAI_PROJECT_ID","OPENAI_ADMIN_KEY",
@@ -300,7 +334,7 @@ def main():
     disable_sdk_tracing()
     with procs.DescendantsOptOut(), LoopbackOnly() as network, ProductionTransportTripwire() as clients:
         try:
-            asyncio.run(prove(args.out,Path(args.plan)))
+            asyncio.run(prove(args.out,Path(args.plan),args.amount_preview))
         finally:
             if Path(args.out).is_dir():
                 procs.write_json_atomic(Path(args.out)/"offline-isolation.json",{

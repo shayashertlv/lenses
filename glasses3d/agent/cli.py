@@ -39,6 +39,7 @@ def parser():
     edit.add_argument("--delivery-id")
     edit.add_argument("--source-runtime", type=Path, help="explicit archived runtime containing this delivery's exact checkpoint/cameras")
     edit.add_argument("--edit-id")
+    edit.add_argument("--option", help="exact amount option id from the shown understanding; required when options were previewed")
     words = edit.add_mutually_exclusive_group(required=True)
     words.add_argument("--request")
     words.add_argument("--request-file", type=Path)
@@ -138,8 +139,11 @@ def dispatch(args):
             words = (args.confirm if args.confirm is not None else args.correct if args.correct is not None
                      else owner_text_file(args.confirm_file or args.correct_file))
             round_root = edits.create_edit(edits.confined(root / "edits", args.edit_id), words,
-                                           correction=args.correct is not None or args.correct_file is not None)
+                                           correction=args.correct is not None or args.correct_file is not None,
+                                           option_id=args.option)
         else:
+            if args.option:
+                raise ValueError("--option selects an existing preview with --confirm or --correct")
             if args.edit_id:
                 raise ValueError("a new request creates a new edit id; use --confirm for the existing understanding")
             words = args.request if args.request is not None else owner_text_file(args.request_file)

@@ -25,7 +25,7 @@ from ..worker_client import WorkerDied
 from ..money import owner_money
 from ..finish_runway import observation as runway_observation
 from ..tool_reports import bounded_tool, limit_output, report_tool
-from . import arview, look, finish_review, model_map, owner_edit
+from . import arview, look, finish_review, model_map, owner_edit, owner_preview
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
@@ -338,6 +338,8 @@ def build_tools(scene, settings=None) -> list:
                         model_map.mark_delivered(scene.root, result, True)
                     if name == "understand_finish":
                         owner_edit.mark_delivered(scene, result, True)
+                    if name == "preview_owner_edit":
+                        owner_preview.mark_delivered(scene, result, True)
                     if name == "edit_report":
                         owner_edit.mark_report_delivered(scene, result, True)
                     if hasattr(runtime, "note_finish_evidence"):
@@ -347,6 +349,8 @@ def build_tools(scene, settings=None) -> list:
                         model_map.mark_delivered(scene.root, result, False)
                     if name == "understand_finish":
                         owner_edit.mark_delivered(scene, result, False)
+                    if name == "preview_owner_edit":
+                        owner_preview.mark_delivered(scene, result, False)
                     if name == "edit_report":
                         owner_edit.mark_report_delivered(scene, result, False)
                     if name == "finish":
@@ -666,5 +670,5 @@ def build_tools(scene, settings=None) -> list:
             model_map.tool_for(scene, tool, call)]
     if getattr(scene, "owner_edit", None):
         from .. import owner_edits
-        tools += owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]
+        tools += [owner_preview.tool_for(scene, tool, call)] + owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]
     return [bounded_tool(item, getattr(scene, "root", None)) for item in tools]

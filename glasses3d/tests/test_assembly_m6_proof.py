@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from glasses3d.tests.proofs import assembly_m6_owner_edit as P
 
 
@@ -20,14 +22,27 @@ def test_scripted_explanation_units_are_readable_without_altering_owner_words():
     assert "boarder" in P.REQUEST and "facet ." in P.REQUEST
 
 
-def test_proof_edit_routes_through_actual_specialist_and_two_reviews(tmp_path):
+def test_proof_edit_routes_through_actual_specialist_and_two_reviews(tmp_path, monkeypatch):
+    child = tmp_path / "work/temple_stage" / P.hashlib.sha256(b"proof-owner-stage").hexdigest()[:16]
+
+    def confirmed_operations(authority, operation_ids=None, current_head=None):
+        assert authority.root == child
+        return {"operations": [{"id": "selected-2"}, {"id": "selected-1"}]}
+
+    monkeypatch.setattr(P.edits.Authority, "resolve", confirmed_operations)
     s=P.Script(tmp_path,{"operations":[{"id":"one"}]},"edit",tmp_path)
     assert s.edit(0)[0]=="temple_stage"
     assert s.edit(1)[0]=="facet_owner_edit"
-    assert s.edit(1)[1]=={"operation_ids":["one"],"corrections":None}
+    assert s.edit(1)[1]=={"operation_ids":["selected-2","selected-1"],"corrections":None}
     assert s.edit(2)[0]=="edit_report" and s.edit(3)[0]=="finish"
     assert s.edit(5)[0]=="edit_report" and s.edit(6)[0]=="finish"
     assert s.edit(1)[3].is_relative_to(tmp_path/"work/temple_stage")
+
+
+def test_proof_edit_requires_confirmed_child_authority(tmp_path):
+    s=P.Script(tmp_path,{"operations":[{"id":"one"}]},"edit",tmp_path)
+    with pytest.raises(ValueError, match="owner confirmation is required"):
+        s.edit(1)
 
 
 def test_source_inventory_never_reads_credential_or_launch_specs(tmp_path):

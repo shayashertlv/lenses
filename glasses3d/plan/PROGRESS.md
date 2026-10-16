@@ -1,5 +1,105 @@
 # glasses3d progress
 
+## 2026-10-16 — M6 6f: money for visible fixes, shape review and amount previews ($0)
+
+Started clean on **`glasses3d`** at **`49c36e5`**, confirmed with `git log --oneline -1`.
+Completed ASSEMBLY M6 **6f(a), (b) and (c)**. No provider/API call, real estimate request,
+paid run or push was made during this work. All demonstrations used disposable copies.
+
+**Instructions:** Astra main, owner edit and the ordinary temple specialist now explicitly say that
+remaining money is for fixing visible differences, and not to finish while a difference can still be
+fixed within the owner's limits and finish reserve. Owner edits remain confined to confirmed authority;
+UNDERSTAND still stops for confirmation. Shape edits now require the full-size photo/render pairs and
+native close-ups as well as geometry comparisons. The look tool description includes shape details.
+Effective text sizes are **13,453** characters for main, **15,719** for owner modes and **14,231** for the
+ordinary K=4 temple specialist, within the retained 16,000/19,000 limits. The four owner bodies are
+identical; separate host briefs supply phase and verbatim owner words.
+
+**Amount choices:** `preview_owner_edit` accepts two or three distinct positive amount scales for
+already shown, sealed operations. It changes only translation/taper distance or rotation angle. Each
+choice starts from the exact source checkpoint in a separate private worker, with no inherited run or
+owner edit authority. It checks exact replay, geometry, following markings and strict export, then
+returns native PHOTO / BEFORE / OPTION comparisons and common close-up boxes at frozen photo cameras.
+The original model/head/checkpoint remain unchanged. Narrow crops get enough white header padding
+without resizing their image pixels. Short temporary jobs and hash-checked `work/pv-assets` archives
+avoid Windows path failures when evidence is copied into the nested specialist; all workers close and
+temporary jobs are removed after archiving usable images, reports, exports and actual snapshots.
+
+The understand reply includes every option, exact amounts, images, markings and the plain legend.
+Confirmation requires an explicit `--option`; stale, unseen, undelivered or altered evidence refuses
+before the edit copy is made. The selected option must be applied as the complete ordered group, with
+the same final scene fingerprint, including normals. Subsets, reordering, changed correction amounts
+and partial manual edits cannot replace the shown result. Another amount needs another shown preview.
+Briefs retain exact ordered parameters and receipt references without repeating host-owned mesh arrays.
+The offline `create_edit` helper was exercised; the real `job edit` command was not run because it also
+prepares a real estimate.
+
+**Independent review:** the complete texts and changed contracts were checked against code, schemas,
+brief construction and owner decisions. The 89-block author audit and independent reviews resolved
+scale/no-op, delivery, immutable selection, ordering, normals, child-preview authority, narrow-heading,
+Windows path and oversized-brief findings. Final code, instruction, native-image and gallery verdicts:
+**no outstanding findings**. Durable record: `plan/INSTRUCTIONS_REVIEW_6F_20261016.md`. Complete texts,
+brief templates, exact hashes and review scripts are under `data/assembly/m6-6f/instructions/` and
+`review/`. These reviews do not claim owner appearance acceptance or proof of Astra's reasoning.
+
+**Real-tool walkthrough:** `tests.proofs.assembly_m6_owner_edit --amount-preview` passed in
+**1,108.075 s** (**1,113.203 s** process time). Three amounts were predeclared, without tuning:
+**A = 50%, B = 75%, C = 100%** of the existing eight mirrored operations. The base maximum movements
+remain 0.20 mm triangle slope, 0.15 mm outward logo border, 0.15 mm inward other border and 0.15 mm
+crown taper. Its scripted confirmation selects B only to exercise the machinery; it is not the owner's
+choice or approval. Eight understand requests and eight parent/child edit requests use fresh synthetic
+approvals and conversations at effort `high`. Fixed mock counts/usage are procedure fixtures, not spend
+or a cost forecast. External network attempts and production transport constructions were both zero.
+
+All **417 protected original files** stayed unchanged. The independent saved-array audit verifies the
+same source seed/arrays for A/B/C, exact scaling, **2 temples + 14 listed markings** changed, and **30
+other objects** unchanged. B's preview, child and parent object arrays, scene state and fingerprint are
+identical: `73a351b9232517614f8abfc19699546e1edfd5bb41f30b8cd9946c0490efec1d`.
+Replay and mirror errors are **0 mm**. Each temple has 539 moved vertices, maximum combined B movement
+**0.262496948 mm**, and minimum thickness **2.895103455 mm**, above 1 mm. Marking standoff remains
+positive (minimum **0.034877735 mm**), without burial or intersections. **302** immutable authority
+hashes and **285** preview evidence hashes were verified in both rounds.
+
+Evidence is in `data/assembly/m6-6f/walkthrough-final-3/`. Earlier attempts are retained: the first
+exposed a proof-harness operation-order mismatch; the second reached confirmation but exposed Windows
+MAX_PATH in the specialist handoff. Actual narrow images also exposed overlapping headings. These
+were fixed generally and independently reviewed before the successful frozen-source third attempt;
+operation amounts, geometry gates and visual acceptance criteria were not adjusted to obtain a pass.
+
+**Owner-visible evidence:** `data/assembly/m6-6f/owner-review/index.html`, served locally for this
+session at `http://127.0.0.1:51342/`, shows all **81** native comparisons plus **3** lettering close-ups,
+the exact request, amounts, all **14** marking disclosures and **14** legend entries. PRADA/MILANO and
+the crest remain visible in A/B/C. Independent review verified all image body pixels, shared cameras
+and crop boxes, readable headings, links and provenance. The full instruction page contains all three
+unique texts and three complete brief templates; nine assembled TXT exports are retained.
+
+**Validation:** final focused feature suites: **280 passed in 32.55 s**; independent focused review:
+**143 passed in 11.89 s**. Full non-photoprint suite (`-n 8 --dist loadfile`): **3,846 passed, 2 skipped,
+4 failed in 826.72 s**. One failure was an old proof-routing test whose bare fixture did not supply the
+new confirmed child authority. Its fixture now deliberately differs from the plan and checks exact
+confirmed order; an additional real-authority test requires refusal without confirmation. Both proof
+test modules passed **6 tests in 3.92 s**, independently rechecked (**6 in 7.31 s**). No runtime or proof
+implementation changed after the successful walkthrough. The other failures were the known golden
+mismatch and two parallel-load timing limits: **128.304 s >60 s** for rendering and **56.25 ms >50 ms**
+for the temple fit benchmark. Isolated seeing/render/fit modules completed **138 passed, 1 failed in
+191.40 s**; both timing checks passed. Only the already recorded `test_photo_v1_pixels_are_unchanged`
+remains: **199 reference-01/native pixels >114.24 allowed**, identical to the earlier isolated baseline
+and this full run. No golden or threshold was changed; the full suite is not described as green.
+Photoprint (`-n 2 --dist loadfile`): **314 passed in 223.67 s**. These focused counts overlap broader runs.
+
+`tests.proofs.assembly_m1` passed in **166.984 s** (**170.719 s** process time): **13** successful tools,
+**26** transport files, **36** verified image blobs and **35** verified AR images; clean receipts,
+**actual spend $0**. Full logs, argv/PID/timestamp/exit receipts are under `data/assembly/m6-6f/validation/`.
+Heavy jobs ran sequentially and detached, with BLAS capped at one and process power throttling disabled
+where applicable. Final integrity checks cover the **17** reviewed source/test files, **9** exports,
+**169** frozen walkthrough source files and **417** original files. All changes are committed with
+explicit paths on `glasses3d`; nothing is pushed.
+
+After this $0 work, the owner gave the following new direction, recorded verbatim. Paid-run preparation
+is separate from the completed 6f proof and validation above:
+
+> after youre done please perform a paid run. effort=high, cutoff 20$ reserve doesnt matter, the run should be able to run all the way to 20$, whatever the final amount is it will be alright (it wont be more than 30$ overall i think so its ok, just make the cutoff 20$ and i dont want the work to be cutoff prematurely because of some idiotic reserving rule!)
+
 ## 2026-10-16 — M6 6c–6e: readable labels, following markings and rewritten instructions ($0)
 
 Started in `C:\Users\Shay\PycharmProjects\lenses`, branch **`glasses3d`**, clean at **`0b5bfd9`**;

@@ -529,6 +529,15 @@ def test_visible_angle_policy_is_unresolved_only_and_carries_visual_evidence():
     assert "carry this evidence into its whole-product finish review" in text
 
 
+def test_specialist_keeps_money_for_fixable_differences_and_the_remaining_review():
+    text = " ".join(instructions_raw().split())
+    assert "Only the owner sets the active settled stop and reserve cap" in text
+    assert "Remaining money is for fixing visible differences" in text
+    assert "Do not finish while a visible difference you can still fix remains" in text
+    assert "finish reserve allows another fix within the owner's limits" in text
+    assert "stage finish and, when nested, the parent's whole-product review" in text
+
+
 def test_instructions_carry_no_retired_phrase():
     """None of v2's removed tools and rules (cli.RETIRED_PHRASES: fades, crease+rise planes, the solve option that
     "moves least", "do not redeclare", photo_compare's depths parameter, the top / rear outer-edge offset tables, the

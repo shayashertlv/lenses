@@ -217,10 +217,11 @@ def tool_for(scene, tool, call):
 
     @tool("compare_look_to_photos")
     async def compare_look_to_photos(ctx: ToolContext, refs: list[str] | None = None, basis: str | None = None):
-        """Like-for-like colour check: the owner's AR renderer at each frozen photo camera and measured border colour.
-        Judge lens hue, lightness and see-through and frame colour against the photos. Fixed-room reflection
+        """Like-for-like shape and appearance check: the owner's AR renderer at each frozen photo camera.
+        Judge shape details, lens hue, lightness and see-through and frame colour against the photos. Fixed-room reflection
         highlights are expected and are not lens colour. Every successful call also shows the worn front on the
-        test face, eyes legible, from the SAME export. Always judge both views after a colour/material change.
+        test face, eyes legible, from the SAME export. After shape edits and colour/material edits, inspect the
+        full-size photo pairs and native close-ups, and judge the worn view too.
         Returns full-size photo/drawing pairs and separate native details of corners, inner rims, lens marks,
         arm roots and tips, plus the worn front. Front-facing surfaces, depth walls and inner-rim walls have
         separate colour reports, including their rendered/photo shading; surface selection is geometric.

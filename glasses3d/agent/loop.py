@@ -147,7 +147,7 @@ class RunRefused(Exception):
 # The SDK accepts a timeout only on async function tools (tool.py:2925-2928). execute_blender_code's hard timeout is
 # its soft timeout + 30 s per call, so its SDK timeout covers the largest soft timeout (600 s).
 HARD_TIMEOUT_S = {
-    "labelled_model_map": 600, "understand_finish": 180, "edit_report": 1680, "facet_owner_edit": 660,
+    "labelled_model_map": 600, "preview_owner_edit": 2400, "understand_finish": 180, "edit_report": 1680, "facet_owner_edit": 660,
     "seat_lens": 150, "hide_eyewire": 150, "unseat_lens": 150, "unhide_eyewire": 150, "check_lens_seating": 120,
     "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
     "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,

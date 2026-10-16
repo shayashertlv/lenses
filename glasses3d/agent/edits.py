@@ -60,7 +60,43 @@ def load(root):
         if understanding.get("schema") != UNDERSTANDING_SCHEMA:
             raise ValueError("unsupported understanding artifact")
         doc["understanding"] = understanding
+        selected = selected_amount(root, understanding, doc.get("selected_preview_option"))
+        if selected is not None:
+            doc["selected_operations"] = selected["operations"]
+            doc["selected_preview"] = selected
     return doc
+
+
+def selected_amount(root, understanding, option_id):
+    """Resolve only the immutable, shown option; a confirmation cannot invent an amount."""
+    binding = understanding.get("amount_preview")
+    if not binding:
+        if option_id is not None:
+            raise ValueError("no amount preview was shown for this understanding")
+        return None
+    if not isinstance(option_id, str) or not option_id.strip():
+        raise ValueError("select a shown amount with --option when confirming")
+    path = confined(root, binding["preview_receipt"])
+    if (sha(path) != binding["preview_sha256"] or
+            understanding["evidence_files"].get(binding["preview_receipt"]) != binding["preview_sha256"]):
+        raise ValueError("amount preview changed since understanding")
+    preview = read(path)
+    if (preview.get("schema") != "g3d.owner_amount_preview/1" or
+            preview.get("source_fingerprint") != understanding["source_fingerprint"] or
+            preview.get("map_id") != understanding["map_id"] or
+            preview.get("map_sha256") != understanding["map_sha256"] or
+            preview.get("call_id") != binding["call_id"] or
+            preview.get("base_operations") != understanding["operations"]):
+        raise ValueError("amount preview does not match the shown understanding")
+    matches = [option for option in preview["options"] if option["id"] == option_id]
+    if len(matches) != 1:
+        raise ValueError("--option must name one exact shown amount option")
+    for name, digest in preview["evidence_files"].items():
+        if understanding["evidence_files"].get(name) != digest or sha(confined(root, name)) != digest:
+            raise ValueError("amount preview evidence changed")
+    selected = copy.deepcopy({key: matches[0][key] for key in ("id", "label", "scale", "operations")})
+    selected["fingerprint"] = matches[0]["export"]["fingerprint"]
+    return selected
 
 
 def brief_suffix(doc):
@@ -73,12 +109,30 @@ def brief_suffix(doc):
         understanding = doc["understanding"]
         shown = {key: understanding[key] for key in
                  ("schema", "source_fingerprint", "items", "limitations", "map_id", "map_sha256", "capture_receipts",
-                  "following_markings", "legend")
+                  "following_markings", "legend", "amount_preview")
                  if key in understanding}
+        if isinstance(shown.get("amount_preview"), dict):
+            binding = shown["amount_preview"]
+            shown["amount_preview"] = {**binding, "options": [
+                _choice_summary(option) for option in binding["options"]]}
         text += ("\n\nNumbered understanding and exact target references (full immutable authority is in "
                  "inputs/understanding.json; tools resolve the shown support hashes):\n"
                  + json.dumps(shown, ensure_ascii=False))
+        if doc.get("selected_preview"):
+            text += ("\n\nOwner-selected rendered amount (these exact operations replace the base proposed amounts "
+                     "above; the targets and support stay the same. Full sealed support is in the immutable "
+                     "preview receipt; tools resolve it without needing vertex arrays in this brief):\n" +
+                     json.dumps(_choice_summary(doc["selected_preview"]), ensure_ascii=False))
     return text
+
+
+def _choice_summary(option):
+    """Teach exact chosen amounts without duplicating thousands of host-owned mesh entries."""
+    if not isinstance(option, dict):
+        return option  # readable placeholders used by the instruction export
+    return {**{key: option[key] for key in ("id", "label", "scale", "fingerprint") if key in option},
+            "operations": [{key: op[key] for key in ("id", "kind", "target_ids", "params")}
+                           for op in option["operations"]]}
 
 
 def _copy_inputs(source, target):
@@ -181,7 +235,7 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
     return root
 
 
-def create_edit(edit_root, confirmation_text, *, correction=False):
+def create_edit(edit_root, confirmation_text, *, correction=False, option_id=None):
     """The second round requires a delivered, unchanged understanding. It is never implicitly approved."""
     edit_root = Path(edit_root).resolve()
     if not isinstance(confirmation_text, str) or not confirmation_text.strip():
@@ -202,6 +256,19 @@ def create_edit(edit_root, confirmation_text, *, correction=False):
         raise ValueError("understanding must be shown to the owner before an edit round")
     if understanding["source_fingerprint"] != doc["source"]["fingerprint"]:
         raise ValueError("understanding is not of the selected delivery")
+    selected = selected_amount(previous, understanding, option_id)
+    if selected is not None:
+        from types import SimpleNamespace
+        from .tools import owner_preview
+        # Recheck delivery before copying. The edit later relies on immutable copied bytes,
+        # not a mutable delivery sidecar or an agent-provided replacement operation.
+        head = CheckpointIndex(previous / "checkpoints").head
+        owner_preview.load_verified(SimpleNamespace(root=previous, _unseen=unseen,
+            s=SimpleNamespace(head=head, fingerprint=lambda: head["fingerprint"] if head else None)),
+            understanding["amount_preview"]["preview_receipt"])
+    for name, digest in understanding["evidence_files"].items():
+        if sha(confined(previous, name)) != digest:
+            raise ValueError("understanding evidence changed")
     root = edit_root / "round-002-edit"
     _copy_inputs(previous, root)
     shutil.copytree(previous / "cameras", root / "cameras")
@@ -220,9 +287,11 @@ def create_edit(edit_root, confirmation_text, *, correction=False):
     new = copy.deepcopy(doc)
     new.update(phase="edit", round=2, confirmation_text=confirmation_text, correction=bool(correction),
                understanding_sha256=sha(artifact))
+    if selected is not None:
+        new["selected_preview_option"] = selected["id"]
     new["immutable_files"].update(understanding["evidence_files"])
     new["immutable_files"]["inputs/understanding.json"] = sha(artifact)
-    _refresh_brief(root, {**new, "understanding": understanding})
+    _refresh_brief(root, {**new, "understanding": understanding, "selected_preview": selected})
     procs.write_json_atomic(root / "inputs/owner-edit.json", new)
     index["rounds"].append(root.name)
     procs.write_json_atomic(edit_root / "edit.json", index)
@@ -249,8 +318,10 @@ class Authority:
         if not doc or doc["phase"] != "edit":
             raise ValueError("owner confirmation is required before edits")
         understanding = doc["understanding"]
-        operations = understanding["operations"]
+        operations = doc.get("selected_operations", understanding["operations"])
         requested = [op["id"] for op in operations] if operation_ids is None else operation_ids
+        if doc.get("selected_preview") and requested != [op["id"] for op in operations]:
+            raise ValueError("the selected preview must be applied as its complete ordered operation group")
         if len(set(requested)) != len(requested) or set(requested) - {op["id"] for op in operations}:
             raise ValueError("operation ids must name distinct confirmed items")
         snapshot = read(confined(self.root, understanding["snapshot_path"]))
@@ -262,6 +333,7 @@ class Authority:
                 "all_operations": copy.deepcopy(operations),
                 "applied_operation_ids": [op for row in receipts for op in row.get("operation_ids", [])],
                 "receipts": receipts, "correction": doc.get("correction", False),
+                "selected_preview": doc.get("selected_preview"),
                 "request_text": doc["request_text"], "confirmation_text": doc["confirmation_text"],
                 "confirmation_sha256": hashlib.sha256(doc["confirmation_text"].encode()).hexdigest()}
 
@@ -299,6 +371,19 @@ def understanding_page(root):
             f"<li>{esc(row['label'])} = {esc(row['description'])}</li>" for row in doc['legend']) + '</ul>')
     body.append("<h2>Limitations and neighbouring effects</h2><ul>" +
                 "".join(f"<li>{esc(value)}</li>" for value in doc["limitations"]) + "</ul>")
+    if doc.get("amount_preview"):
+        binding = doc["amount_preview"]
+        preview = read(confined(root, binding["preview_receipt"]))
+        body.append("<h2>Choose an amount when confirming</h2><p>Each option starts from the same unchanged "
+                    "source. Use the displayed option id with --option in the confirmation command.</p>")
+        for option in preview["options"]:
+            body.append(f"<h3>{esc(option['id'])}: {esc(option['label'])}</h3><p>"
+                        f"{option['scale']:g} × the base amounts above.</p>")
+        for image in preview["images"]:
+            target = confined(root, image["path"])
+            rel = Path("../..") / target.relative_to(root)
+            body.append(f"<figure><figcaption>{esc(image.get('view', 'Amount preview'))}</figcaption>"
+                        f"<a href='{esc(rel.as_posix())}'><img src='{esc(rel.as_posix())}'></a></figure>")
     seen = set()
     for reference in doc["capture_receipts"]:
         capture = read(confined(root, reference))
