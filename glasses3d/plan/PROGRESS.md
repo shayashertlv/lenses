@@ -73,6 +73,84 @@ shown before retry. Preparation made no API calls. Independent retry preflight v
 source/words, fresh round state, approval binding and inherited limits, with **no blocker**. The repair
 and its explicit regression paths are committed before the authorized retry is launched.
 
+**Retry outcome:** atomic repair committed as **fd09595**. Retry launched at **11:37:10 UTC** from that
+clean snapshot, keeper **40676**, command **39368**. Independent startup audit verified all **691**
+frozen/current source files, exact owner text, six photos, source fingerprint and reduced parent/child
+limits. The atomic failure did not recur. Astra inspected native photo comparisons, normal-direction
+renders, close-ups and labelled maps, then drafted four diagnostic interpretations without executable
+operations. The current owner operation set is translate/rotate/taper, not dedicated planar-facet or
+lens-surface repair; it also could not uniquely identify the requested upper-front-corner line.
+
+A second, independently confirmed contract defect blocked completion: `understand_finish` required
+both nonempty items and nonempty operations per item, while its instructions required listing
+unsupported/ambiguous requests. Requests **28, 29 and 30** tried the legitimate diagnostic forms
+(numbered empty-operation items; all limitations; numbered items with empty targets/operations) and
+were all refused. There was no valid all-unsupported finish without fabricated/no-op authority.
+Codex requested a graceful stop at **11:47:40 UTC** for this infrastructure dead end. The in-flight
+request settled; the runner exited **11:47:52 UTC**, exit **1**, result `stopped`, with **31 requests /
+$4.393589**, held/unknown **$0**. Combined paid cost is **$6.296180**. No money cutoff or reserve refusal
+ended either attempt. This is not a completed understanding or edit, and no amount preview exists.
+
+**Reporting repair, entirely at $0:** each numbered interpretation now has an explicit disposition:
+executable, unsupported or needs clarification. Blocked items require an explanation and empty
+operations. Their optional diagnostic targets must actually appear in a delivered map. A fully
+blocked request can end cleanly as `diagnostic_only`, retaining its labelled evidence and reasons,
+without edit or preview authority. Mixed requests keep blocked items visibly undone and grant
+authority only to executable operations. Parent publication and private specialist results verify
+delivery/source/evidence; confirmation refuses an empty edit before creating a new round. Existing
+support, physical, normal and marking checks remain. Additional checks reject individually zero-effect
+operations and cancelling groups using the worker's local float32 positions.
+
+The owner instructions now explain these outcomes and never propose placeholder operations. The
+complete runtime owner text is **15,990 characters**, within 16,000; UNDERSTAND, EDIT and the private
+owner specialist receive the same body. Main and ordinary temple instructions are unchanged.
+Export: `data/assembly/m6prada4-edit-request/diagnostic-fix/instructions/owner-instructions.txt`, SHA
+`f021a0e572197f6c80e4b904aa1965ed2023a8dd1d4e5e15363daab22ae8ace1`.
+
+**Offline validation:** focused author suites **220 passed in 15.09 s**; the instruction/schema suite
+**75 passed in 5.73 s**. Root affected suites **433 passed in 47.40 s**, process exit 0, covering owner
+understanding/edit/preview/marking lifecycle, maps, instructions, brief, CLI, stage budgets,
+interruptions and deliveries. **`tests.proofs.assembly_m1` passed in 161.594 s**, process exit 0:
+13 tools, 26 transport files, 36 image blobs and 35 AR images verified, spend **$0**. Logs and process
+receipts: `data/assembly/m6prada4-edit-retry1/validation-diagnostic/`. These are targeted validation
+results, not a new claim that the previously recorded full-suite golden mismatch has passed.
+
+**Independent review: no findings.** The reviewer checked code, authority boundaries and complete
+runtime instruction text for both phases in actual parent/private-specialist registries. Its
+disposition/instruction suites passed **102 tests**; final post-grammar-trim instructions passed
+**75 in 4.29 s**. The final report binds 12 source/test file hashes and the full owner instruction
+hash: `data/assembly/m6prada4-edit-retry1/final-contract-review.json`, SHA
+`47a001ab65143e63b93bb83511eabb9f75b2306fd75aeae2660db852b41905bb`.
+An independent synthetic test reused saved request 28 with only test disposition/reason fields added,
+intercepting all writes in memory. It retained all four items, verified **86 evidence hashes** and
+**101 protected files**, produced zero operations/markings/preview, and refused edit authority.
+The paid attempt remains rejected; this test did not repair or accept the product. Report
+`saved-request28-contract-review.json` in the same folder, SHA
+`13c2a980f79720bdbeaa5a26ddcf2338d145e82654d3dc052a73d6ac71c29a5f`.
+
+No further paid retry is planned in this pass. The local review page below shows Astra's saved
+diagnostic attempt and actual labelled images as rejected/incomplete; no old receipt was changed or
+retroactively accepted. Dedicated surface/normal repair capability remains an open feature gap;
+the model and its delivered GLB remain unchanged. The reporting repair does not fix the four requested
+product defects and supplies no amount options for them.
+
+**Saved diagnostic review:** `data/assembly/m6prada4-edit-retry1/owner-review/index.html`, opened at
+**http://127.0.0.1:53764/**, shows request 28's exact four interpretations, all seven limitations and
+marking disclosures, eight plain legend descriptions and the owner's exact words. **32 text fields**
+verify verbatim. **44 image files** are copied byte for byte: the six photos, labelled photo/model
+comparisons, native tiles, legends and two existing normal-direction diagnostics. No new render,
+retouch or geometry was made. All **51 hashed public files** served byte-exact; the allowlist contains
+52 paths including the manifest. Browser inspection confirms the page visibly says **no executable
+edits or amount options**, **host rejected**, and **no model changed**. This presentation does not
+retroactively accept the run. Manifest SHA:
+`129280cab3334e4f563a6762e593876cf2412e1c07c74afb5b1884b1ed4904b7`.
+
+Independent final audit of the retry reprices all **31** responses, confirms all **68** protected
+original and **29** immutable round files, and finds only unchanged c0000. No child stage ran in the
+retry. Request 31 returned `scene_summary` after stop was requested; the stop was observed before
+that tool executed (30 executed tools total). `stopped-audit.json` SHA:
+`463f47b7ea4ffc8c2c6a3fedabcafd1267910e012834ac8c87b76560a96fad31`.
+
 The owner also requested a movable 3D viewer. The exact delivered GLB is available in the local orbit
 viewer at **http://127.0.0.1:58500/** (drag to rotate, scroll to zoom, right-drag to pan), with provenance
 under `data/assembly/m6prada4-viewer/`. This is separate from the AR camera viewer previously shown.

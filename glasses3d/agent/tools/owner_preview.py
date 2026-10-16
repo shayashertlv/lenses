@@ -427,6 +427,8 @@ def load_verified(scene, relative_receipt):
     if (receipt['source_fingerprint'] != head['fingerprint'] or receipt['source_checkpoint_sha256'] != head['sha256'] or
             receipt['source_head'] != head):
         raise ValueError('preview source does not match this understanding')
+    if not receipt.get('base_operations') or any(not option.get('operations') for option in receipt['options']):
+        raise ValueError('amount preview requires nonempty executable operations')
     evidence = model_map.validate_understanding(scene.root, receipt['map_id'], receipt['map_sha256'],
                                                receipt['capture_receipts'], receipt['base_operations'])
     base = owner_markings.seal(edits.read(evidence['snapshot_path']), evidence['operations'])
@@ -447,7 +449,8 @@ def tool_for(scene, tool, call):
     async def preview_owner_edit(ctx: ToolContext, map_id: str, map_sha256: str, capture_receipts: list[str],
                                  operations_json: str, options: list[PreviewOption], refs: list[str] | None = None):
         """Show two or three proposed amount choices during understand without changing the source model.
-        Supply the exact operations_json list supported by already delivered labelled_model_map receipts.
+        Supply a nonempty list of executable operations_json supported by delivered labelled_model_map receipts.
+        Unsupported and needs_clarification items grant no preview authority; never use no-op placeholders.
         Each option has a safe stable id, a plain label and a distinct positive scale. Scale changes only
         delta_mm (translate/taper) or delta_deg (rotation); targets, supports, axes and markings stay fixed.
         Every option starts from the same verified checkpoint in an isolated worker, passes exact-operation,

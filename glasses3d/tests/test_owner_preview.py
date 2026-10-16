@@ -108,6 +108,15 @@ def preview(h, *, call_id='preview', operations=None, choices=None):
                      json.dumps(operations or [h.op]), choices or CHOICES, refs=['ref01'])
 
 
+def test_diagnostic_empty_operations_cannot_start_a_preview_or_private_worker(harness):
+    h = harness
+    before = edits.tree_hashes(h.root)
+    with pytest.raises(ValueError, match='nonempty list'):
+        P.preview(h.scene, 'diagnostic', 'test-map', h.evidence['map_sha256'], ['shown-map.json'],
+                  '[]', CHOICES)
+    assert not h.calls and edits.tree_hashes(h.root) == before
+
+
 def test_scale_changes_only_amount_and_keeps_input_exact():
     source, op = marked_fixture()
     operations = owner_markings.seal(source, [op])

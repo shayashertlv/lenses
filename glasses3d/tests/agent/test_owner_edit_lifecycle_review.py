@@ -155,7 +155,9 @@ def test_second_round_uses_exact_shown_understanding_and_new_confirmation(select
     artifact_path = first / "work/owner_edit/understanding.json"
     artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": "awaiting_owner_confirmation",
                 "call_id": "understand-final", "source_fingerprint": f.chosen["fingerprint"],
-                "snapshot_path": name, "evidence_files": {name: edits.sha(snapshot)}, "operations": []}
+                "snapshot_path": name, "evidence_files": {name: edits.sha(snapshot)}, "operations": [{
+                    "id": "shown-move", "kind": "translate_region", "target_ids": ["shown-face"],
+                    "params": {"delta_mm": [.3, 0, 0]}}]}
     _write(artifact_path, artifact)
     _write(artifact_path.with_name("understanding-delivery.json"), {
         "schema": "g3d.owner_understanding_delivery/1", "call_id": "understand-final",
@@ -478,7 +480,9 @@ def test_each_round_refreshes_only_copied_brief_and_binds_exact_owner_words(sele
     artifact_path = first / "work/owner_edit/understanding.json"
     artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": "awaiting_owner_confirmation",
                 "call_id": "understand-final", "source_fingerprint": f.chosen["fingerprint"],
-                "snapshot_path": relative, "evidence_files": {relative: edits.sha(snapshot)}, "operations": []}
+                "snapshot_path": relative, "evidence_files": {relative: edits.sha(snapshot)}, "operations": [{
+                    "id": "shown-move", "kind": "translate_region", "target_ids": ["shown-face"],
+                    "params": {"delta_mm": [.75, 0, 0]}}]}
     _write(artifact_path, artifact)
     _write(artifact_path.with_name("understanding-delivery.json"), {
         "schema": "g3d.owner_understanding_delivery/1", "call_id": "understand-final",

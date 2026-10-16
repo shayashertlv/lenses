@@ -174,6 +174,7 @@ class Script:
         for number in range(1,5):
             group = [o for o in self.plan["operations"] if o["item"] == number]
             items.append({"number":number,"label":labels[number-1],
+                "disposition":"executable","reason":"Shown finite surface displacement.",
                 "interpretation":LABEL + ": " + readable_units(self.plan["interpretations"][number-1]),
                 "direction":"Mirrored on both temples; signed X depth only, Y/Z outline fixed.",
                 "amount":amounts[number-1],"target_ids":sorted({k for o in group for k in o["target_ids"]}),

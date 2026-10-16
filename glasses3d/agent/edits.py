@@ -18,6 +18,36 @@ SCHEMA = "g3d.owner_edit/1"
 UNDERSTANDING_SCHEMA = "g3d.owner_understanding/1"
 
 
+def blocked_items(understanding):
+    """Older sealed executable understandings predate explicit item dispositions."""
+    return [item for item in understanding.get("items", [])
+            if item.get("disposition", "executable") != "executable"]
+
+
+def require_executable(understanding):
+    if understanding.get("status") == "diagnostic_only" or not understanding.get("operations"):
+        raise ValueError("no executable edit authority; resolve the diagnostic blockers in a new understanding")
+    items = understanding.get("items", [])
+    if any("disposition" in item for item in items):
+        proposed = []
+        for item in items:
+            disposition = item.get("disposition")
+            value = json.loads(item["operation_json"])
+            if disposition == "executable":
+                group = value if isinstance(value, list) else [value]
+                if not group:
+                    raise ValueError("executable item has no operations")
+                proposed.extend(group)
+            elif disposition in {"unsupported", "needs_clarification"}:
+                if value != [] or not item.get("reason", "").strip():
+                    raise ValueError("blocked items cannot grant edit authority")
+            else:
+                raise ValueError("understanding item needs an explicit disposition")
+        concise = lambda op: {key: op[key] for key in ("id", "kind", "target_ids", "params")}
+        if [concise(op) for op in proposed] != [concise(op) for op in understanding["operations"]]:
+            raise ValueError("sealed operations differ from executable items")
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -59,6 +89,7 @@ def load(root):
         understanding = read(root / "inputs/understanding.json")
         if understanding.get("schema") != UNDERSTANDING_SCHEMA:
             raise ValueError("unsupported understanding artifact")
+        require_executable(understanding)
         doc["understanding"] = understanding
         selected = selected_amount(root, understanding, doc.get("selected_preview_option"))
         if selected is not None:
@@ -118,6 +149,8 @@ def brief_suffix(doc):
         text += ("\n\nNumbered understanding and exact target references (full immutable authority is in "
                  "inputs/understanding.json; tools resolve the shown support hashes):\n"
                  + json.dumps(shown, ensure_ascii=False))
+        if blocked_items(understanding):
+            text += "\nOnly executable items grant edit authority. Unsupported and needs_clarification items remain undone."
         if doc.get("selected_preview"):
             text += ("\n\nOwner-selected rendered amount (these exact operations replace the base proposed amounts "
                      "above; the targets and support stay the same. Full sealed support is in the immutable "
@@ -247,6 +280,7 @@ def create_edit(edit_root, confirmation_text, *, correction=False, option_id=Non
         raise ValueError("start another job edit from the latest delivery for a further edit round")
     artifact = previous / "work/owner_edit/understanding.json"
     understanding = read(artifact)
+    require_executable(understanding)
     shown = read(artifact.with_name("understanding-delivery.json"))
     state_path = previous / "work/job_scene/state.json"
     unseen = read(state_path).get("unseen", []) if state_path.exists() else []
@@ -322,6 +356,8 @@ class Authority:
         requested = [op["id"] for op in operations] if operation_ids is None else operation_ids
         if doc.get("selected_preview") and requested != [op["id"] for op in operations]:
             raise ValueError("the selected preview must be applied as its complete ordered operation group")
+        if not requested:
+            raise ValueError("at least one confirmed executable operation is required")
         if len(set(requested)) != len(requested) or set(requested) - {op["id"] for op in operations}:
             raise ValueError("operation ids must name distinct confirmed items")
         snapshot = read(confined(self.root, understanding["snapshot_path"]))
@@ -354,12 +390,17 @@ def understanding_page(root):
     doc = read(root / "work/owner_edit/understanding.json")
     esc = html.escape
     title = "scripted by Codex, not Astra" if doc.get("scripted") else "Astra: understand"
-    body = [f"<h1>{esc(title)}</h1><p>The model is unchanged. Confirm or correct these numbered changes. "
-            "The edit is a separate round with its own estimate and approval.</p>",
+    invitation = ("Diagnostic only: no executable edit is available. Resolve the listed blockers before a new understanding."
+                  if doc.get("status") == "diagnostic_only" else
+                  "Confirm or correct executable items only. Blocked items remain undone. "
+                  "The edit is a separate round with its own estimate and approval.")
+    body = [f"<h1>{esc(title)}</h1><p>The model is unchanged. {invitation}</p>",
             f"<h2>Owner's edit request (verbatim)</h2><pre>{esc(doc['request_text'])}</pre>"]
     labels = {row['target_id']: row['label'] for row in doc.get('legend', [])}
     for item in doc["items"]:
         body += [f"<h2>{item['number']}. {esc(item['label'])}</h2>",
+                 f"<p>Disposition: {esc(item.get('disposition', 'executable').replace('_', ' '))}. "
+                 f"{esc(item.get('reason', ''))}</p>",
                  f"<p>{esc(item['interpretation'])}</p><p>{esc(item['direction'])}; {esc(item['amount'])}</p>",
                  f"<p>Targets: {esc(', '.join(labels.get(key, key) for key in item['target_ids']))}</p>"]
     if doc.get('following_markings'):

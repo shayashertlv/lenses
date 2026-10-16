@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from agents.tool_context import ToolContext
+import numpy as np
 from pydantic import BaseModel, ConfigDict
 from PIL import Image, ImageDraw
 
-from .. import edits, procs
+from .. import edits, owner_edits, procs
 from . import model_map, look, owner_preview
 from ...g3d import owner_markings
 
@@ -18,6 +20,8 @@ class Interpretation(BaseModel):
     number: int
     label: str
     interpretation: str
+    disposition: Literal["executable", "unsupported", "needs_clarification"]
+    reason: str
     direction: str
     amount: str
     target_ids: list[str]
@@ -30,32 +34,56 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         raise ValueError("understand_finish is only for an understand round")
     if scene.s.fingerprint() != doc["source"]["fingerprint"]:
         raise ValueError("understand cannot change the delivered model")
-    records = [item.model_dump() if hasattr(item, "model_dump") else item for item in items]
+    records = [Interpretation.model_validate(item).model_dump() for item in items]
     if not records or [r["number"] for r in records] != list(range(1, len(records) + 1)):
         raise ValueError("interpret each item separately with consecutive numbers starting at 1")
     operations = []
+    diagnostic_targets = set()
     for item in records:
-        if any(not item[key].strip() for key in ("label", "interpretation", "direction", "amount")):
-            raise ValueError("each item needs its label, interpretation, direction and proposed amount")
+        if any(not item[key].strip() for key in ("label", "interpretation")):
+            raise ValueError("each item needs its label and interpretation")
         value = json.loads(item["operation_json"])
+        if item["disposition"] != "executable":
+            if value != [] or not item["reason"].strip():
+                raise ValueError("blocked items need operation_json=[] and an explanatory reason")
+            diagnostic_targets.update(item["target_ids"])
+            continue
+        if any(not item[key].strip() for key in ("direction", "amount")):
+            raise ValueError("executable items need direction and proposed amount")
         group = value if isinstance(value, list) else [value]
-        if not group or set(key for op in group for key in op["target_ids"]) != set(item["target_ids"]):
+        if (not group or any(not isinstance(op, dict) for op in group) or not item["target_ids"] or
+                set(key for op in group for key in op["target_ids"]) != set(item["target_ids"])):
             raise ValueError("interpretation and operation must name the same shown targets")
         operations.extend(group)
     if len({op["id"] for op in operations}) != len(operations):
         raise ValueError("operation IDs must be unique")
+    if not capture_receipts:
+        raise ValueError("understanding requires at least one successfully delivered map capture")
     evidence = model_map.validate_understanding(scene.root, map_id, map_sha256, capture_receipts, operations)
+    if not diagnostic_targets.issubset(evidence["annotated_target_ids"]):
+        raise ValueError("a diagnostic target was not shown in the delivered map")
     operations = evidence.get("operations", operations)
     if evidence["source"]["fingerprint"] != doc["source"]["fingerprint"]:
         raise ValueError("the shown map is not of the selected delivered checkpoint")
     snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
-    operations = owner_markings.seal(snapshot, operations)
+    operations = owner_markings.seal(snapshot, operations) if operations else []
+    if operations:
+        original = before = owner_edits.expected_positions(snapshot, [])
+        for count in range(1, len(operations) + 1):
+            after = owner_edits.expected_positions(snapshot, operations[:count])
+            if all(np.array_equal(before[key].astype(np.float32), after[key].astype(np.float32)) for key in before):
+                raise ValueError("executable operations must move their shown support; do not invent no-op placeholders")
+            before = after
+        if all(np.array_equal(original[key].astype(np.float32), after[key].astype(np.float32)) for key in original):
+            raise ValueError("executable operation group leaves the source unchanged; do not invent no-op placeholders")
     following_markings = owner_markings.summary(operations)
     files = {row["path"]: row["sha256"] for row in evidence["evidence_files"]}
     files[evidence["map_path"]] = evidence["map_sha256"]
     preview = None
     images = list(evidence["images"])
     if preview_receipt is not None:
+        if not operations:
+            raise ValueError("diagnostic-only understanding cannot bind an amount preview")
         preview = owner_preview.load_verified(scene, preview_receipt)
         if (preview["map_id"] != map_id or preview["map_sha256"] != map_sha256 or
                 preview["capture_receipts"] != capture_receipts or preview["base_operations"] != operations):
@@ -64,7 +92,8 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         files[preview["preview_receipt"]] = preview["preview_sha256"]
         images += preview["images"]
     path = scene.root / "work/owner_edit/understanding.json"
-    artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": "awaiting_owner_confirmation",
+    disposition = "awaiting_owner_confirmation" if operations else "diagnostic_only"
+    artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": disposition,
                 "call_id": call_id, "request_text": doc["request_text"], "source_fingerprint": doc["source"]["fingerprint"],
                 "items": records, "operations": operations, "limitations": limitations,
                 "following_markings": following_markings, "legend": evidence.get('legend', []),
@@ -78,7 +107,9 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         artifact["amount_preview"]["options"] = [{key: option[key] for key in
             ("id", "label", "scale", "operations")} for option in preview["options"]]
     procs.write_json_atomic(path, artifact)
-    return {"status": "accepted", "next": "STOP: awaiting owner confirmation; the edit needs its own estimate and approval.",
+    next_step = ("STOP: awaiting owner confirmation of executable items only; the edit needs its own estimate and approval."
+                 if operations else "STOP: diagnostic only; no executable edit is available. Resolve the listed blockers before a new understanding.")
+    return {"status": "accepted", "disposition": disposition, "next": next_step,
             "understanding": str(path), "understanding_sha256": edits.sha(path),
             "interpretations": records, "limitations": limitations, "geometry_changed": False,
             "following_markings": following_markings, "legend": evidence.get('legend', []),
@@ -175,7 +206,7 @@ def change_report(scene, call_id, summary, not_done):
                 "fingerprint": scene.s.head["fingerprint"], "checkpoint": scene.s.head["id"],
                 "authority_sha256": edits.sha(scene.root / "inputs/owner-edit.json"), "scope_check": guard,
                 "operations": current_receipts, "historical_receipts_not_currently_verified": receipts if not current_receipts else [],
-                "not_done": not_done,
+                "not_done": not_done, "blocked_items": edits.blocked_items(understanding),
                 "without_operation_receipt": [op["id"] for op in understanding["operations"] if op["id"] not in applied],
                 "before": before, "after": after, "images": images, "image_delivery": "separate",
                 "side_effects": guard["changes"]}
@@ -193,8 +224,13 @@ def tools_for(scene, tool, call):
         receipt(s), numbered interpretations, direction and base proposed amount. After preview_owner_edit,
         pass its preview_receipt unchanged: the host attaches its shown options, images and exact amounts;
         the owner selects an option at confirmation. Do not choose for the owner.
-        operation_json names the exact operation and drawn support; it cannot expand any target. List impossible
-        or ambiguous requests explicitly. This accepts understanding only, not a product finish or paid edit.
+        Each item needs disposition executable, unsupported or needs_clarification, plus reason (empty is allowed
+        only for executable items). Blocked items require operation_json="[]"; direction and amount may be empty.
+        Their optional target_ids are diagnostic labels from the delivered map, never permission to edit.
+        Executable items require direction, amount, nonempty target_ids and actual nonzero operations on drawn
+        support; never invent a no-op for a blocked request. All-blocked items finish as diagnostic_only: no edit
+        or amount-preview authority. Mixed results retain blocked items as undone. This accepts understanding
+        only, not a product finish or paid edit.
 
         Each operation_json is one object or a list for mirrored changes: id, kind, target_ids,
         scope_ref_sha256 (a support hash returned by the shown map), and params. An explicit scope object from
@@ -203,7 +239,7 @@ def tools_for(scene, tool, call):
         zero at the first point to the full displacement at the second, multiplied by the shown support weights.
         Coordinates are asset millimetres. Positive X is outward only on the positive-X temple. A rigid outer-face
         rotation can make a thin edge; slope changes at fixed length/height preserve a graph-shaped wall.
-        Propose only feasible changes, retaining all physical checks; state unsupported requests in limitations.
+        Propose only feasible changes, retaining all physical checks; explain blockers in each item's reason.
         The host automatically seals and lists nearby surface markings in following_markings. Those markings
         follow the confirmed surface while preserving their surface-relative offset; ambiguous or unsupported
         attachments refuse. Show this list to the owner as part of understanding, before confirmation.

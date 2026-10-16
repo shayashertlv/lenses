@@ -106,7 +106,15 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         if child.owner_edit["phase"] == "understand":
             if child.s.fingerprint() != source["head"]["fingerprint"]:
                 raise ValueError("understand specialist changed its source")
+            from ..job_run import _publish_result
+            published = _publish_result(child.root, call_id, child, outcome)
+            if published["status"] not in {"awaiting_owner_confirmation", "diagnostic_only"}:
+                return {"status": "refused", "code": "E_STAGE_INCOMPLETE", "stage": outcome,
+                        "message": "owner specialist understanding was not successfully delivered; parent is unchanged"}
+            understanding = edits.read(published["understanding"])
             return {"status": "ok", "stage": outcome, "parent_unchanged": True,
+                    "understanding_status": published["status"], "interpretations": understanding["items"],
+                    "limitations": understanding["limitations"], "blocked_items": edits.blocked_items(understanding),
                     "package": folder.relative_to(scene.root).as_posix(),
                     "message": "Private understanding is available for the parent to show; no edit is applied."}
         finished = child.finish

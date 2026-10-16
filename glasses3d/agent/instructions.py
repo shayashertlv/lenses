@@ -200,20 +200,23 @@ EDIT_GUIDANCE = {
         "Use refs null for all usable frozen photo cameras; report unavailable views or refused choices. "
         "The selected source stays unchanged. Keep the successfully delivered preview_receipt for understanding; "
         "a refused preview supplies no selectable options.",
-    "understand_finish": "End UNDERSTAND with `understand_finish`. Number the requested items consecutively "
-        "from 1 and give each a label, interpretation, direction, amount, exact target_ids and operation_json. "
-        "Use only delivered capture receipts and the scope_ref_sha256 of the support actually drawn. An operation "
-        "can be translate_region, rotate_region or taper_region as described by the tool; coordinates are asset "
-        "millimetres, so outward has opposite X signs on the two arms. List unsupported or ambiguous items in "
-        "limitations. The tool discovers and seals nearby supported surface markings in following_markings; "
-        "its understanding shows their names and supporting surfaces before confirmation. Check that list against "
-        "the visible lettering and decoration; do not promise an attachment the tool did not identify. "
+    "understand_finish": "End UNDERSTAND with `understand_finish`. Number items consecutively "
+        "from 1, with label, interpretation, disposition and reason. Executable items need: "
+        "direction, amount, exact target_ids and operation_json, using the drawn support's scope_ref_sha256. "
+        "Use unsupported or needs_clarification for blocked items, with an explanatory reason and operation_json=[]; "
+        "direction and amount may be empty. Diagnostic target_ids must be shown; they grant no authority. "
+        "Never invent no-op placeholders. All-blocked requests end as diagnostic_only, without edit/preview "
+        "authority. Mixed plans leave blocked items undone. "
+        "Always supply delivered capture receipts. Operations are translate_region, rotate_region or taper_region; "
+        "coordinates are asset millimetres, so outward has opposite X signs on the two arms. The tool seals nearby "
+        "supported surface markings in following_markings. Check its names and supporting surfaces against visible "
+        "lettering and decoration before confirmation; do not promise an attachment it did not identify. "
         "After an amount preview, retain the same base operation_json in the items and pass its unchanged "
         "preview_receipt. The host binds the shown options and their exact amounts to this understanding. "
         "Explain each option by id and amount; the owner must explicitly select an option in confirmation. "
         "Do not choose an option or silently use the base amount for them. "
-        "Acceptance ends understanding only: STOP for the owner's confirmation and a separately "
-        "approved edit round.",
+        "Acceptance ends understanding only: STOP for the owner's confirmation of executable items and a separately "
+        "approved edit round, or for clarification/repair of diagnostic blockers.",
     "facet_owner_edit": "In EDIT, use `facet_owner_edit` with the confirmed operation_ids in their recorded "
         "order. With a selected preview, apply its complete ordered operation group and keep corrections null. "
         "Its exact amounts cannot be replaced; another amount needs another shown preview. Without a selected "
@@ -241,12 +244,11 @@ preserve them; list a request that needs an unsupported change instead of claimi
 
 UNDERSTAND: inspect, explain, then stop.
 Do not mutate the selected source geometry. Amount previews may alter isolated copies only. Inspect the actual
-current mesh and every relevant photo. Restate each requested change
-as a separate numbered item. Identify its face, edge or point using a short label and plain-words legend in
-full-size model views beside the same-view photo. Use the map's verified temple facet/edge/corner names where
-available. State which arm, which direction and a proposed numerical amount, with units and a reason for the
-amount. A shared edge can affect neighbouring faces: draw the complete support, fixed points and affected
-neighbours before confirmation; never silently enlarge a selected region.
+current mesh and every relevant photo. Restate each request separately, including unsupported or unclear requests.
+Identify known faces, edges or points with short labels and a plain-words legend in full-size model views beside same-view photos,
+using verified temple facet/edge/corner names where available. For executable items, state the arm, direction
+and proposed amount, with units and a reason. Draw complete support, fixed points and affected neighbours:
+a shared edge can affect adjacent faces; never silently enlarge a selected region.
 
 Inspect markings on each affected surface, including lettering and decorative meshes. Explain that supported
 attachments follow the surface by default and must appear in the understanding's marking list. Report an

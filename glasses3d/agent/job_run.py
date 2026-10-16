@@ -186,15 +186,19 @@ def _publish_result(root, run_id, scene, result, *, smoke=False):
                 shown = edits.read(artifact.with_name("understanding-delivery.json"))
                 state = Path(root) / "work/job_scene/state.json"
                 unseen = edits.read(state).get("unseen", []) if state.exists() else []
-                accepted = (understanding.get("status") == "awaiting_owner_confirmation"
+                accepted = (understanding.get("status") in {"awaiting_owner_confirmation", "diagnostic_only"}
+                            and bool(understanding.get("operations")) ==
+                                (understanding.get("status") == "awaiting_owner_confirmation")
                             and shown.get("delivered") is True and shown.get("sha256") == edits.sha(artifact)
                             and shown.get("call_id") == understanding.get("call_id")
                             and shown.get("call_id") not in unseen
-                            and understanding.get("source_fingerprint") == edit["source"]["fingerprint"])
+                            and understanding.get("source_fingerprint") == edit["source"]["fingerprint"]
+                            and all(edits.sha(edits.confined(root, name)) == digest
+                                    for name, digest in understanding["evidence_files"].items()))
             except (OSError, ValueError, KeyError, TypeError):
                 accepted = False
         page = edits.understanding_page(root) if accepted else None
-        return {"status": "awaiting_owner_confirmation" if accepted else "understanding_incomplete",
+        return {"status": understanding["status"] if accepted else "understanding_incomplete",
                 "finished": False, "accepted_finish": False, "geometry_changed": False,
                 "understanding": str(artifact) if accepted else None, "review_page": str(page) if page else None}
     delivery = (D.deliver_draft(root, scene, result) if result.get("status") in D.DRAFT_STATUSES

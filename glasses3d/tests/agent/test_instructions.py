@@ -167,6 +167,21 @@ def test_amount_choice_teaching_uses_delivered_preview_and_explicit_owner_select
     assert "preview_receipt" in names["understand_finish"].params_json_schema["properties"]
 
 
+def test_owner_diagnostic_contract_requires_disposition_and_teaches_no_authority():
+    owner = {"phase": "understand"}
+    registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+    text = I.build_instructions(registered, owner_edit=owner)
+    for phrase in ("every relevant photo", "full-size model views", "unsupported or needs_clarification",
+                   "explanatory reason and operation_json=[]", "Never invent no-op placeholders",
+                   "All-blocked requests end as diagnostic_only", "Mixed plans leave blocked items undone"):
+        assert phrase in text
+    tool = next(tool for tool in registered if tool.name == "understand_finish")
+    schema = tool.params_json_schema["$defs"]["Interpretation"]
+    assert {"disposition", "reason"}.issubset(schema["required"])
+    assert schema["properties"]["disposition"]["enum"] == ["executable", "unsupported", "needs_clarification"]
+    assert "diagnostic_only" in tool.description and "never invent a no-op" in tool.description
+
+
 def test_report_guidance_names_fields_the_current_tools_return(tools):
     # Keep this focused on the fields the prose asks Astra to act on. These correspond to the actual wrappers and
     # Seeing return records, not to the superseded WP7 checks.json proposal.

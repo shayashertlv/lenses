@@ -172,12 +172,15 @@ def test_understanding_reply_and_page_disclose_every_following_marking(tmp_path,
                                                    'request_text': 'Move the face.'})
     evidence = {'operations': [op], 'source': {'fingerprint': 'same'}, 'snapshot_path': str(source),
                 'evidence_files': [], 'map_path': 'map.json', 'map_sha256': 'sha', 'images': [],
+                'annotated_target_ids': ['F1'],
                 'legend': [{'label': 'T1', 'target_id': 'F1', 'description': 'Side face'}]}
     monkeypatch.setattr(owner_edit.model_map, 'validate_understanding', lambda *args: evidence)
     scene = SimpleNamespace(root=tmp_path, s=SimpleNamespace(fingerprint=lambda: 'same'))
     items = [{'number': 1, 'label': 'Side face', 'interpretation': 'Move the face.', 'direction': 'Outward',
+              'disposition': 'executable', 'reason': '',
               'amount': '.5 mm', 'target_ids': ['F1'], 'operation_json': json.dumps(op)}]
-    result = owner_edit.understand(scene, 'stop', 'map', 'sha', [], items, [])
+    (tmp_path/'capture.json').write_text('{"views": []}')
+    result = owner_edit.understand(scene, 'stop', 'map', 'sha', ['capture.json'], items, [])
     assert [r['object_name'] for r in result['following_markings']] == ['Surface mark']
     artifact = json.loads((tmp_path/'work/owner_edit/understanding.json').read_text())
     assert artifact['operations'][0]['marking_attachments'][0]['object_id'] == 'O0002'
