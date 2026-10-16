@@ -610,6 +610,19 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    - **Independent review:** a separate reviewer reads the new texts against the code and lists every mismatch,
      gap, contradiction or unclear sentence; fix and repeat until the review finds none.
    Show the owner the full new texts and a short list of what changed and why. No paid run until he says so.
+6f. **Claude's review of 6c-6e (`051b5e7`, 2026-10-16):** labels ("T2 = triangle facet nearest the frame, left
+   arm") and following markings work (PRADA/MILANO intact in the after images); the rewrite is clear, ordered and
+   product-independent. Three gaps before the paid run:
+   (a) the rewrite dropped the explicit rule that remaining money is for visible differences (Prada run 1: "I don't
+   need to use it all"); state plainly: do not finish while a visible difference you can still fix remains and the
+   finish reserve allows another fix;
+   (b) the main text ties `compare_look_to_photos` (full-size pairs + close-ups) to colour/material edits only and
+   sends shape edits to `compare_to_photos`; Prada's failures were shape detail (edges, rounding, rims, facets):
+   after shape edits too, inspect the full-size pairs and close-ups;
+   (c) edit mode's understand step cannot show a proposed amount, only describe it ("no general deformation-preview
+   tool"), so the owner first sees "how much" after a paid edit round. Add a read-only preview: apply the proposed
+   operations (2-3 amounts) to a private copy and return photo/before/option pairs and close-ups, leaving the source
+   unchanged; the owner picks an option in his confirmation. Prove on the walkthrough copy.
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
