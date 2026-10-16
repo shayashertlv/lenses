@@ -44,6 +44,14 @@ function camera(overrides: Record<string, unknown> = {}): Record<string, unknown
 }
 const set = (...cameras: Record<string, unknown>[]) => ({schema: CAMERAS_SCHEMA, cameras});
 
+test('explicit surface diagnostic light is validated and omission remains the review default', () => {
+  const lit = parseCameraSet(set(camera({lighting: {preset: 'side_studio', intensity: .8}})));
+  assert.deepEqual(lit.cameras[0]!.lighting, {preset: 'side_studio', intensity: .8});
+  assert.equal(parseCameraSet(set(camera())).cameras[0]!.lighting, undefined);
+  assert.throws(() => parseCameraSet(set(camera({lighting: {preset: 'unknown', intensity: .8}}))), CameraSetError);
+  assert.throws(() => parseCameraSet(set(camera({lighting: {preset: 'side_studio', intensity: 0}}))), CameraSetError);
+});
+
 test('a valid cameras file parses: values kept, background lower-cased, caller meta kept, file names per variant', () => {
   const parsed = parseCameraSet(set(camera({meta: {photo: 'reference-05.png'}}), camera({id: 'side_p90', view: lookAt([0.5, 0.05, -0.06])})));
   assert.equal(parsed.cameras.length, 2);

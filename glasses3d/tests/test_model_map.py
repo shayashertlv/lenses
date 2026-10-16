@@ -175,7 +175,7 @@ def test_movement_legend_requires_an_actual_support_scope(tmp_path, monkeypatch)
     monkeypatch.setattr(G,"project",lambda points,camera:(np.full((len(points),2),30.),np.ones(len(points))))
     monkeypatch.setattr(G,"visible_points",lambda points,camera,geometry:np.ones(len(points),dtype=bool))
     out=M._annotate(row,s,[chosen],SimpleNamespace(),np.array(["O0001"],object),np.array([0]),[scope],tmp_path,0)
-    assert out["legend"]=="magenta: movement, black: fixed, amber: normal influence"
+    assert out["legend"]=="magenta: selected support, black: fixed, amber: normal influence"
     assert out["support_scopes"]==[scope]
 
 

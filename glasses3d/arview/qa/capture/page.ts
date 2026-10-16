@@ -341,6 +341,7 @@ async function render(request: {variant: VariantName; background: BackgroundName
  *  flat background at its own size (what the lenses transmit); TryOnRenderer.poseCamera does the rest. */
 function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unknown> {
   const instance = instanceOf(), camera = request.camera;
+  instance.setLighting(camera.lighting ?? null);
   state.source.width = camera.width; state.source.height = camera.height;
   const context = state.source.getContext('2d')!;
   context.fillStyle = camera.background; context.fillRect(0, 0, camera.width, camera.height);
@@ -349,6 +350,7 @@ function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unkno
   instance.poseCamera(state.source, {assetToCamera, projection, nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE,
     ...(camera.temple_pose !== undefined ? {temple_pose: camera.temple_pose} : {})});
   return {id: camera.id, explicit: instance.explicitCameraPosed, background: camera.background, render_size: instance.renderSize,
+    lighting: camera.lighting ?? 'unmodified runtime default',
     intrinsics_px: {fx: camera.fx, fy: camera.fy, cx: camera.cx, cy: camera.cy}, near_m: camera.near, far_m: camera.far,
     camera: instance.cameraState(), asset_to_world: instance.assetMatrixWorld(), fitting: instance.fitting,
     ...(camera.meta !== undefined ? {meta: camera.meta} : {})};

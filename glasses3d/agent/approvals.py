@@ -175,6 +175,11 @@ def write_approval_request(run_dir, *, job_id: str, request: dict, estimate: dic
                            requested_cap_usd=None) -> dict:
     """``job estimate``: a new run directory's approval-request.json (created exclusively)."""
     run_dir = Path(run_dir)
+    from . import edit_capabilities
+    try:
+        edit_capabilities.require_round(run_dir.parent.parent)
+    except ValueError as exc:
+        raise ApprovalRefused("stale", str(exc)) from exc
     if is_consumed(run_dir):
         raise ApprovalRefused("consumed", f"run {run_dir.name} already consumed an approval; estimate a new run")
     if not isinstance(request, dict) or request.get("schema") != REQUEST_SCHEMA:
@@ -221,6 +226,15 @@ def write_approval(run_dir, *, max_usd, owner_words: str, recorded_by: str = "cl
     raw, request = _read_json(request_path, "approval-request.json")
     if request.get("schema") != APPROVAL_REQUEST_SCHEMA or request.get("run_id") != run_dir.name:
         raise ApprovalRefused("invalid", "approval-request.json is not this run's request")
+    from . import edit_capabilities
+    try:
+        coverage = edit_capabilities.require_round(run_dir.parent.parent)
+    except ValueError as exc:
+        raise ApprovalRefused("stale", str(exc)) from exc
+    if coverage is not None:
+        current_inputs = input_digests(run_dir.parent.parent)
+        if any(request.get("request", {}).get(key) != value for key, value in current_inputs.items()):
+            raise ApprovalRefused("stale", "edit inputs or dry run changed after the estimate; estimate again before approval")
     if not isinstance(owner_words, str) or not owner_words.strip():
         raise ApprovalRefused("invalid", "the owner's exact words are required")
     maximum = _cap(max_usd, "the approved amount")

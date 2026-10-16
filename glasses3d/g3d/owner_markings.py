@@ -79,6 +79,7 @@ def discover(snapshot, operations):
     indexed = M.objects(snapshot)
     moving = {}
     for op in operations:
+        if op['kind']=='transform_marking':continue
         oid = op['scope']['object_id']
         weights, _ = M.scope_vertices(op['scope'], indexed[oid])
         moving.setdefault(oid, set()).update(i for i, w in weights.items() if w)
@@ -154,6 +155,16 @@ def seal(snapshot, operations):
     result = copy.deepcopy(operations)
     attachments = discover(snapshot, operations)
     for op in result:
+        if op['kind']=='transform_marking':
+            indexed=M.objects(snapshot);sid=op['params'].get('surface_object_id');mid=op['scope']['object_id']
+            if sid not in indexed or sid==mid:_error('marking transform needs a different captured supporting mesh')
+            surface=indexed[sid]
+            fake={'kind':'translate_region','scope':{'object_id':sid,'vertex_weights':[{'vertex_id':i,'weight':1.} for i in range(len(surface['vertices_local']))],
+                 'fixed_vertex_ids':[],'affected_polygon_ids':list(range(len(surface['polygons'])))}}
+            found=[a for a in discover(snapshot,[fake]) if a['object_id']==mid]
+            if len(found)!=1 or len(found[0]['bindings'])!=len(indexed[mid]['vertices_local']):_error('the complete marking must lie on the named supporting surface')
+            op['marking_attachments']=found
+            continue
         weights, _ = M.scope_vertices(
             op['scope'], next(o for o in snapshot['objects'] if o['id'] == op['scope']['object_id']))
         moving = {i for i, w in weights.items() if w}

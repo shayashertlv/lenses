@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 from .. import edits, owner_edits, procs
 from . import model_map, look, owner_preview
 from ...g3d import owner_markings
+from ...g3d import owner_surface
 
 
 class Interpretation(BaseModel):
@@ -67,7 +68,18 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         raise ValueError("the shown map is not of the selected delivered checkpoint")
     snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
     operations = owner_markings.seal(snapshot, operations) if operations else []
-    if operations:
+    if owner_surface.active(operations):
+        if preview_receipt is None:
+            raise ValueError('surface operations require a delivered two-or-three-amount preview before confirmation')
+        original = before = owner_surface.signature(snapshot)
+        for count in range(1, len(operations)+1):
+            after = owner_surface.signature(owner_surface.state(snapshot, operations[:count])[0])
+            if before == after:
+                raise ValueError('executable operations must change geometry or shading; no no-op placeholders')
+            before = after
+        if original == after:
+            raise ValueError('executable group leaves geometry and shading unchanged')
+    elif operations:
         original = before = owner_edits.expected_positions(snapshot, [])
         for count in range(1, len(operations) + 1):
             after = owner_edits.expected_positions(snapshot, operations[:count])
@@ -107,8 +119,11 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         artifact["amount_preview"]["options"] = [{key: option[key] for key in
             ("id", "label", "scale", "operations")} for option in preview["options"]]
     procs.write_json_atomic(path, artifact)
-    next_step = ("STOP: awaiting owner confirmation of executable items only; the edit needs its own estimate and approval."
-                 if operations else "STOP: diagnostic only; no executable edit is available. Resolve the listed blockers before a new understanding.")
+    if any(item['disposition'] != 'executable' for item in records):
+        next_step = ("STOP: preserve this diagnostic evidence; resolve every blocked item in a new understanding "
+                     "before a paid EDIT round. No blocked item grants edit authority.")
+    else:
+        next_step = "STOP: awaiting owner confirmation; the edit needs its own estimate and approval."
     return {"status": "accepted", "disposition": disposition, "next": next_step,
             "understanding": str(path), "understanding_sha256": edits.sha(path),
             "interpretations": records, "limitations": limitations, "geometry_changed": False,
@@ -229,7 +244,8 @@ def tools_for(scene, tool, call):
         Their optional target_ids are diagnostic labels from the delivered map, never permission to edit.
         Executable items require direction, amount, nonempty target_ids and actual nonzero operations on drawn
         support; never invent a no-op for a blocked request. All-blocked items finish as diagnostic_only: no edit
-        or amount-preview authority. Mixed results retain blocked items as undone. This accepts understanding
+        or amount-preview authority. Mixed results retain diagnostic evidence, but every blocked item must be
+        resolved in a new understanding before a paid EDIT round. This accepts understanding
         only, not a product finish or paid edit.
 
         Each operation_json is one object or a list for mirrored changes: id, kind, target_ids,
@@ -237,11 +253,72 @@ def tools_for(scene, tool, call):
         that same map is also accepted. translate_region takes delta_mm [x,y,z]; rotate_region takes
         axis_points_mm [[x,y,z],[x,y,z]] and delta_deg; taper_region takes that axis and delta_mm, ramping from
         zero at the first point to the full displacement at the second, multiplied by the shown support weights.
+        flatten_face takes strength (greater than zero through one), optionally keep_boundary (default true).
+        It projects the complete selected patch onto its boundary plane; a nonplanar locked boundary refuses.
+        keep_boundary=false explicitly includes boundary movement within the shown support and reports it;
+        shared neighbouring faces are part of that shown influence. repair_shading takes strength and mode
+        flat or smooth; it changes selected loop normals without moving any vertex. refine_curved_surface takes
+        strength; its default uses local cubic tangent interpolation from the selected shading normals and splits
+        shared internal edges with curved midpoints. Fully split triangles become four triangles; boundary triangles
+        and larger polygons use a centre fan. Shared source normals are averaged within the selection.
+        New normals use shared quadratic endpoint/chord controls, retaining shared-edge continuity, not derivative continuity.
+        Original vertices, patch boundary edges and the opposite surface stay fixed by default. Original UV
+        values stay exact; new per-face values interpolate each face's UVs independently, retaining seams.
+        Split edges inherit their sharp/selection flags. Default refinement reports a quadratic fit residual
+        when available, otherwise quadric_fit_unavailable_reason; missing fit does not block local tangent interpolation. Select a
+        single curved side, not the front and back together. Unknown attributes and verified temple charts
+        refuse refinement. These three operations require complete faces with unit support and a delivered
+        preview_receipt with two or three amounts; the owner must choose an exact option before editing.
+        refine_curved_surface also accepts relax_interior=true, requiring a valid quadratic fit, to project the selected patch's original
+        interior vertices toward a fitted quadratic surface, with cubic smoothstep falloff over 10% of the
+        frozen patch span near fixed boundary segments and points. New curvature offsets use the same fade.
+        This mode inserts fitted curvature with interpolated source residuals; boundaries and fixed points stay exact.
+        It may reduce interior kinks but cannot promise to remove a kink at a fixed boundary. Inspect the reported
+        fit and previews. Both modes retain the original
+        minimum opposite-surface clearance, measured with an exact graph check; unprovable charts refuse.
+          material_adjust takes strength, material_index, values with base_color RGBA, roughness, metallic,
+          transmission, coat_weight, coat_roughness, ior or alpha. Select every face using that DATA-linked slot;
+          the material is copied so other objects stay unchanged. Linked shader inputs and OBJECT overrides refuse.
+          edge_shape round takes strength, mode round, radius_mm, edge_vertex_ids [a,b], segments (2-16).
+          It makes a circular fillet of a straight convex edge with planar adjoining faces and one planar end cap
+          at each endpoint (three incident faces). Show all adjoining faces/end caps; their planes stay unchanged.
+          Mode sharpen takes strength, mode sharpen and smaller radius_mm; it uses the saved authored fillet recipe.
+          radius zero restores its original sharp corner. Arbitrary existing arcs, complex corners, material
+          boundaries and UV seams refuse. For a generic part give positive minimum_mm in this confirmed preview;
+          it is a geometric clearance floor, not a manufacturing safety claim, and cannot weaken a declared floor.
+          thickness takes strength and signed offset_mm along area-weighted selected surface normals; unselected
+          opposite points stay fixed, and the existing declared minimum thickness and no-crossing checks remain.
+          Generic thinning also requires positive minimum_mm. Other generic deformations retain measured original
+          minimum clearance. The preview reports the requested and resulting floor before owner confirmation.
+          scale_region takes strength, positive factors [x,y,z], anchor_mm. bend_region takes strength, unit axis,
+          perpendicular direction, anchor_mm, angle_deg strictly between -90 and90, and positive length_mm;
+          its angle has quadratic falloff along positive direction and the shown support weights.
+          transform_marking takes strength, surface_object_id, anchor_mm, perpendicular u_axis/normal,
+          translate_uv_mm [u,v], positive scale [u,v], angle_deg. Select the complete marking at unit weight;
+          its original stand-off follows the named surface, which stays unchanged; a reported minimum outward
+          clearance lift can keep long lettering triangles clear. Leaving that surface refuses.
+          mesh_cleanup takes strength, welding exact duplicate selected vertices and removing zero-area faces.
+          consistent_normals takes strength; select a whole connected closed shell to orient it consistently and
+          blend orientation corrections while retaining valid authored smooth and split normals.
+          symmetrize takes strength and explicit pairs [[source_vertex_id,destination_vertex_id]] about X=0.
+          controlled_decimate takes strength and max_removed_vertices; only planar interior fans without sharp,
+          UV, material or marking boundaries can be removed. Curved or protected regions may remain unchanged.
+          Every new operation needs the labelled map, plain legend, two or three distinct rendered amounts,
+          preview_receipt and owner selection. Topology edits must be last on their object until a fresh map.
+        Normal-changing operations mark every shared edge incident to the shown normal influence as sharp for
+        independent face normal spaces, preserving existing sharp flags. These flags move no vertices; equal intended normals stay
+        continuous. Inspect the added_sharp_edges in normal_fan_encoding before confirmation. Encoded storage
+        must match the planned normal fans exactly; decoded vectors must stay within encoding quantization bounds.
         Coordinates are asset millimetres. Positive X is outward only on the positive-X temple. A rigid outer-face
         rotation can make a thin edge; slope changes at fixed length/height preserve a graph-shaped wall.
         Propose only feasible changes, retaining all physical checks; explain blockers in each item's reason.
         The host automatically seals and lists nearby surface markings in following_markings. Those markings
-        follow the confirmed surface while preserving their surface-relative offset; ambiguous or unsupported
+          follow the confirmed surface with their surface-relative offset. Refinement, edge/radius edits, thickness,
+          scale, bend and marking transforms can add a measured minimum
+          outward clearance lift so a long marking triangle cannot intersect the edited surface between its
+          vertices; inspect and report marking_clearance or outward_clearance_lift_mm in the option checks before
+          asking for confirmation.
+        Ambiguous or unsupported
         attachments refuse. Show this list to the owner as part of understanding, before confirmation.
         """
         return await call(ctx, "understand_finish", lambda cid: understand(scene, cid, map_id, map_sha256,

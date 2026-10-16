@@ -30,6 +30,8 @@
 
 import {parsePhotoTemplePose} from '../../src/render/photo-temple-pose.ts';
 import type {PhotoTemplePose} from '../../src/render/photo-temple-pose.ts';
+import {validateLighting} from '../../src/render/lighting.ts';
+import type {LightingConfig} from '../../src/render/lighting.ts';
 
 export const CAMERAS_SCHEMA = 'arview.cameras/1';
 export const CAMERA_ID = /^[a-z0-9][a-z0-9_-]{0,60}$/;
@@ -51,6 +53,8 @@ export interface ExplicitCameraSpec {
   readonly near: number; readonly far: number;
   /** Optional per-photo deltas from authored arms; signed axes in asset-local millimetres. */
   readonly temple_pose?: PhotoTemplePose;
+  /** Optional diagnostic light; omission restores the unmodified review light. */
+  readonly lighting?: LightingConfig;
   /** Free-form caller data, copied into the report untouched. */
   readonly meta?: unknown;
 }
@@ -102,9 +106,14 @@ export function parseCameraSet(value: unknown): CameraSet {
       try {templePose = parsePhotoTemplePose(entry.temple_pose);}
       catch (error) {throw new CameraSetError(`${where}: ${error instanceof Error ? error.message : String(error)}`);}
     }
+    let lighting: LightingConfig | undefined;
+    if (entry.lighting !== undefined) {
+      try {lighting = validateLighting(entry.lighting as LightingConfig);}
+      catch (error) {throw new CameraSetError(`${where}: ${error instanceof Error ? error.message : String(error)}`);}
+    }
     return Object.freeze({id, width: width as number, height: height as number, background: background.toLowerCase(), view: Object.freeze([...view as number[]]),
       fx, fy, cx: entry.cx as number, cy: entry.cy as number, near, far, ...(entry.meta !== undefined ? {meta: entry.meta} : {}),
-      ...(templePose !== undefined ? {temple_pose: templePose} : {})});
+      ...(templePose !== undefined ? {temple_pose: templePose} : {}), ...(lighting !== undefined ? {lighting} : {})});
   });
   return Object.freeze({schema: CAMERAS_SCHEMA, cameras: Object.freeze(cameras)});
 }

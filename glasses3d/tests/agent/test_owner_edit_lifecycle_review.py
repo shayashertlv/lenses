@@ -18,6 +18,15 @@ def _write(path, value):
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
+def _cover_round(root):
+    """The fixture explicitly maps its one synthetic request before estimating."""
+    from glasses3d.agent import edit_capabilities as C
+    words = edits.load(root)["request_text"]
+    C.install(root, C.check(words, {"schema": C.MAPPING_SCHEMA, "request_text": words, "items": [{
+        "id": "I1", "label": "Move the shown face", "start": 0, "end": len(words), "text": words,
+        "operation_kinds": ["translate_region"]}]}))
+
+
 @pytest.fixture
 def selected_source(tmp_path, monkeypatch):
     photos = tmp_path / "photos"
@@ -96,6 +105,7 @@ def test_new_round_needs_its_own_approval_and_binds_verbatim_request(selected_so
     f = selected_source
     words = "\nPlease move edge 2 out by 0.4 mm.  "
     root = edits.create_understand(f.source, words, destination=f.destination)
+    _cover_round(root)
 
     def request():
         doc = edits.load(root)
@@ -282,6 +292,7 @@ def test_edit_run_approval_binds_the_actual_owner_specialist_contract(selected_s
     from glasses3d.agent.temple_lab import owner_stage
     f = selected_source
     root = edits.create_understand(f.source, "Move the shown face.", destination=f.destination)
+    _cover_round(root)
     spec, scene = job_run.prepare_run(root, "independent-estimate", write_request=True)
     expected = owner_stage.contract(jobs.load_job(root), spec.settings, "23", edits.load(root))
     assert spec.stage_contracts == (expected,)
@@ -466,6 +477,7 @@ def test_each_round_refreshes_only_copied_brief_and_binds_exact_owner_words(sele
     source_hashes = edits.tree_hashes(f.source)
     words = "  Move the numbered face.\r\nKeep all other geometry.  "
     first = edits.create_understand(f.source, words, destination=f.destination)
+    _cover_round(first)
     first_doc = edits.load(first)
     spec, scene = job_run.prepare_run(first, "understand-estimate", write_request=True)
     assert spec.brief == brief.build_brief(jobs.load_job(first)) + edits.brief_suffix(first_doc)
@@ -483,6 +495,7 @@ def test_each_round_refreshes_only_copied_brief_and_binds_exact_owner_words(sele
                 "snapshot_path": relative, "evidence_files": {relative: edits.sha(snapshot)}, "operations": [{
                     "id": "shown-move", "kind": "translate_region", "target_ids": ["shown-face"],
                     "params": {"delta_mm": [.75, 0, 0]}}]}
+    artifact["items"] = [{"number": 1, "operation_json": json.dumps(artifact["operations"][0])}]
     _write(artifact_path, artifact)
     _write(artifact_path.with_name("understanding-delivery.json"), {
         "schema": "g3d.owner_understanding_delivery/1", "call_id": "understand-final",

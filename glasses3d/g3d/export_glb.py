@@ -687,8 +687,16 @@ def export_glb(path: str | Path, scene=None) -> dict:
         renormalised = []
         seat_extras: dict = {}
         print_extras: dict = {}
+        surface_reports = []
         for obj, evaluated_obj, mesh in evaluated:
             role = roles[obj]
+            from .surface_quality_bpy import inspect_object
+            try:
+                surface_reports.append({"object": obj.name, "role": role,
+                                        **inspect_object(obj, mesh, origin_mm=origin)})
+            except (ValueError, KeyError, TypeError, RuntimeError) as error:
+                surface_reports.append({"object": obj.name, "informational_only": True,
+                                        "status": "unavailable", "message": str(error)})
             for key in list(mesh.keys()):
                 del mesh[key]
             if bake_transform(mesh, transform @ obj.matrix_world):
@@ -766,6 +774,8 @@ def export_glb(path: str | Path, scene=None) -> dict:
                                                      for s in evaluated_obj.material_slots]})
         if renormalised:
             receipt["normals_reset"] = renormalised
+        receipt["surface_quality"] = {"schema": "g3d.surface_quality/1", "informational_only": True,
+                                      "objects": surface_reports}
         if seat_extras:
             receipt["seat_extras"] = seat_extras
         if print_extras:

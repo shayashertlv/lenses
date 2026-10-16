@@ -1608,11 +1608,20 @@ def _validate_spec(spec: RunSpec) -> None:
 
 def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
     """Recompute from current job bytes and the exact payload; never trust the caller's cached sha."""
+    from . import edit_capabilities
+    try:
+        edit_capabilities.require_round(spec.job_dir)
+    except ValueError as exc:
+        raise ApprovalRefused("stale", str(exc)) from exc
     try:
         document = json.loads((run_dir / "approval-request.json").read_text(encoding="utf-8"))
         request = document["request"]
     except (OSError, ValueError, KeyError, TypeError):
         raise ApprovalRefused("invalid", "approval-request.json is unreadable") from None
+    if document.get("offline_only") is True and (
+            os.environ.get(OFFLINE_ENV) != "1" or spec.offline_handler is None
+            or not isinstance(spec.offline_api_key, str) or not spec.offline_api_key.startswith("sk-offline-")):
+        raise ApprovalRefused("invalid", "offline-only synthetic approval cannot authorize a production run")
     if request_sha256(request) != spec.current_request_sha256:
         raise ApprovalRefused("stale", "the run's request sha differs from the approved request")
     current = build_request(spec.job_dir, instructions_sha256=instructions_sha256(spec.instructions),

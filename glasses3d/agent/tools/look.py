@@ -171,6 +171,49 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                     row["colours"][role] = {"photo": colour_stats(photo, interior), "drawing": colour_stats(drawing, interior)}
                 panels = look_panels.build_panels(row, report["id_palette"], geometry, directory / name)
                 row.update(panels)
+        # Same immutable model, cameras and materials; only this diagnostic light differs.
+        # Missing diagnostics are reported as information and do not invent a quality gate.
+        from ...g3d_host import surface_quality
+        try:
+            surface = surface_quality.report(model)
+        except (OSError, ValueError, KeyError, TypeError, np.linalg.LinAlgError) as error:
+            surface = {"schema": "g3d.surface_quality/1", "informational_only": True,
+                       "measurement_status": "unavailable", "measurement_error": str(error)}
+        native_receipt = export.get("receipt")
+        if native_receipt:
+            try:
+                surface["native_facets"] = json.loads(arview.confined(root, native_receipt).read_text(encoding="utf-8")).get("surface_quality", {})
+            except (OSError, ValueError, TypeError):
+                surface["native_facets"] = {"status": "unavailable"}
+        surface_images = []
+        surface["views"] = []
+        try:
+            for start in range(0, len(cameras), 64):
+                batch = [{**cam, "lighting": {"preset": "side_studio", "intensity": .8}} for cam in cameras[start:start+64]]
+                camera_path = directory / f"surface-cameras-{start:03d}.json"
+                procs.write_json_atomic(camera_path, {"schema": "arview.cameras/1", "cameras": batch})
+                out = directory / f"surface-{start:03d}"
+                code, timed_out = arview.run_capture([node, str(arview.ARVIEW / "bin/arview.mjs"), "capture", str(model),
+                    "--cameras", str(camera_path), "--no-face", "--fixed-scale", "--lensenv", str(arview.LENS_ENV_INTENSITY),
+                    "--out", str(out)], directory, timeout_s=timeout_s)
+                if timed_out or code not in (0, 3):
+                    raise ValueError(f"side-light capture failed (exit {code}, timeout {timed_out})")
+                report_path = out / "report.json"
+                _, diagnostic = verified_report(root, {"report": str(report_path), "report_sha256": arview.sha256(report_path),
+                    "export_sha256": export["sha256"]}, export["sha256"])
+                captures.append(str(report_path))
+                for row in rows[start:start+64]:
+                    name = row["camera"]["id"]
+                    side = {**row, "drawing_path": str(out / f"{name}__beauty.png"),
+                            "part_id_path": str(out / f"{name}__part-id.png")}
+                    panels = look_panels.build_panels(side, diagnostic["id_palette"], geometry,
+                        directory / ("surface-"+name), surface_only=True)
+                    surface_images.extend(panels["images"])
+                    surface["views"].append({"ref": row["ref"], "light": "side_studio", "details": panels["details"],
+                                              "drawing_path": side["drawing_path"]})
+            surface["status"] = "measured"
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            surface.update(status="unavailable", message=str(error))
         if worn is None:
             worn = arview.capture(root, export, call_id + "-worn", timeout_s=timeout_s)
         path, report = verified_report(root, worn, export["sha256"])
@@ -199,8 +242,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                             "to photo and drawing. Registration can mix photo regions; no tone/colour normalization. "
                             "Frozen per-photo temple deltas are applied to tagged temple parts and their markings. "
                             "The worn view resets to the authored model before the normal face fit.",
-                  "overview_path": str(overview), "image_delivery": "separate",
-                  "images": [image for row in rows for image in row["images"]] + [
+                  "overview_path": str(overview), "image_delivery": "separate", "surface_quality": surface,
+                  "images": [image for row in rows for image in row["images"]] + surface_images + [
                       {"path": str(portrait), "sha256": arview.sha256(portrait),
                        "view": "Same export worn front on the test face"}]}
         result["assets"] = [{"path": str(p), "sha256": arview.sha256(p)} for p in sorted(directory.rglob("*"))
@@ -225,6 +268,10 @@ def tool_for(scene, tool, call):
         Returns full-size photo/drawing pairs and separate native details of corners, inner rims, lens marks,
         arm roots and tips, plus the worn front. Front-facing surfaces, depth walls and inner-rim walls have
         separate colour reports, including their rendered/photo shading; surface selection is geometric.
+        Also returns side-light native close-ups of facet flatness, front shading seams and lens ripple,
+        with measured planarity, degenerates, tessellation and normal discontinuities as information only.
+        Intentional creases also make normal jumps; use the photos to decide what belongs. A missing side-light
+        diagnostic is reported and is not a new finish gate. Review lighting and material settings stay unchanged.
         No colour gate. Unusable cameras and missing evidence are reported. Frozen temple openings are applied
         per photo; the worn view uses the authored model and face fit. Perspective-0 cameras use a stated
         distant-pinhole approximation.

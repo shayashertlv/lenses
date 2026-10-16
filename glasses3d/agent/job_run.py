@@ -10,7 +10,7 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from . import approvals as A, brief, estimate as E, jobs
-from . import delivery as D, verdicts, procs, edits
+from . import delivery as D, verdicts, procs, edits, edit_capabilities
 from .budget import cap_to_micro
 from .job_scene import JobScene
 from .instructions import build_instructions, instruction_contract
@@ -45,6 +45,7 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     settings = settings or settings_default()
     owner_edit = edits.load(root)
     if owner_edit:
+        edit_capabilities.require_round(root, owner_edit)
         if resume or settings.smoke:
             raise ValueError("each owner edit round is a fresh separately approved conversation")
         settings = replace(settings, finish_tool="understand_finish" if owner_edit["phase"] == "understand" else "finish")

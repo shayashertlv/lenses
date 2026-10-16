@@ -133,7 +133,8 @@ def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(too
     assert "finish reserve allows another fix within the owner's limits" in main
     owner = {"phase": "edit"}
     text = I.build_instructions(build_tools(SimpleNamespace(root=None, owner_edit=owner)), owner_edit=owner)
-    assert "After each authorized shape change in EDIT, use `compare_look_to_photos`" in text
+    assert "After each authorized edit in EDIT, use `compare_look_to_photos`" in text
+    assert "photo pairs, details, side-light checks and the worn front" in text
     assert "fixed by an authorized operation" in text and "finish reserve allows that fix" in text
     assert "never permits changing sealed targets, directions, amounts or support" in text
     assert "`finish` is refused in UNDERSTAND" in text
@@ -173,7 +174,8 @@ def test_owner_diagnostic_contract_requires_disposition_and_teaches_no_authority
     text = I.build_instructions(registered, owner_edit=owner)
     for phrase in ("every relevant photo", "full-size model views", "unsupported or needs_clarification",
                    "explanatory reason and operation_json=[]", "Never invent no-op placeholders",
-                   "All-blocked requests end as diagnostic_only", "Mixed plans leave blocked items undone"):
+                   "All-blocked requests end as diagnostic_only", "Mixed plans are diagnostic only",
+                   "Any blocked item prevents paid EDIT"):
         assert phrase in text
     tool = next(tool for tool in registered if tool.name == "understand_finish")
     schema = tool.params_json_schema["$defs"]["Interpretation"]

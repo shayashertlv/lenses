@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...g3d import owner_mesh as M, owner_markings
+from ...g3d import owner_surface
 from .. import edits, jobs, owner_edits, procs
 from ..job_scene import JobScene
 from . import look, model_map
@@ -65,8 +66,12 @@ def scaled_operations(operations, scale):
             if isinstance(params['delta_deg'], bool) or not isinstance(params['delta_deg'], (int, float)):
                 raise ValueError('delta_deg must be finite')
             params['delta_deg'] *= scale
+        elif kind in owner_surface.OPERATION_KINDS:
+            params['strength'] *= scale
+            if not 0 < params['strength'] <= 1:
+                raise ValueError('scaled surface strength must be greater than zero through one')
         else:
-            raise ValueError('preview supports translate_region, taper_region and rotate_region')
+            raise ValueError('unknown preview operation')
         if any(not math.isfinite(float(x)) for x in params.get('delta_mm', [params.get('delta_deg', 0)])):
             raise ValueError('scaled amount must remain finite')
     return result
@@ -316,12 +321,15 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
         if len({op['id'] for op in base_operations}) != len(base_operations):
             raise ValueError('preview operations must have distinct IDs')
         choices = [{**choice, 'operations': scaled_operations(base_operations, choice['scale'])} for choice in choices]
-        position_digests = {_positions_digest({obj['id']: obj['vertices_local'] for obj in source['objects']})}
+        special = owner_surface.active(base_operations)
+        position_digests = {owner_surface.signature(source) if special else
+                            _positions_digest({obj['id']: obj['vertices_local'] for obj in source['objects']})}
         for choice in choices:
             M.plan(source, choice['operations'])  # reject impossible amounts before starting any private worker
-            digest = _positions_digest(owner_edits.expected_positions(source, choice['operations']))
+            digest = (owner_surface.signature(owner_surface.state(source, choice['operations'])[0]) if special else
+                      _positions_digest(owner_edits.expected_positions(source, choice['operations'])))
             if digest in position_digests:
-                raise ValueError('preview choices must change the source and produce distinct actual geometry')
+                raise ValueError('preview choices must change the source and produce distinct actual geometry or shading')
             position_digests.add(digest)
         directory = scene.root/'work/pv'/hashlib.sha256(call_id.encode()).hexdigest()[:20]
         directory.mkdir(parents=True, exist_ok=False)
@@ -452,7 +460,11 @@ def tool_for(scene, tool, call):
         Supply a nonempty list of executable operations_json supported by delivered labelled_model_map receipts.
         Unsupported and needs_clarification items grant no preview authority; never use no-op placeholders.
         Each option has a safe stable id, a plain label and a distinct positive scale. Scale changes only
-        delta_mm (translate/taper) or delta_deg (rotation); targets, supports, axes and markings stay fixed.
+        delta_mm (translate/taper), delta_deg (rotation), or strength for every surface, material, edge,
+        thickness, scale, bend, marking and mesh-health operation (scaled strength must stay greater than zero
+        through one). Discrete cleanup amounts may coincide; choose two or three actually distinct options.
+        Targets, supports,
+        axes and marking attachments stay fixed. Surface operations always need two or three distinct previews.
         Every option starts from the same verified checkpoint in an isolated worker, passes exact-operation,
         physical and strict-export checks, and uses the frozen photo cameras. Returns native photo/before/option
         triples, target close-ups at shared boxes, following_markings and a hash-bound preview_receipt.

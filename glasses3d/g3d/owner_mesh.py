@@ -15,6 +15,9 @@ import numpy as np
 
 from .temple.build import mesh_topology
 from .temple.spec import DEFAULT_OPTIONS
+from . import owner_surface
+
+OPERATION_KINDS = frozenset({'translate_region', 'rotate_region', 'taper_region'}) | owner_surface.OPERATION_KINDS
 
 POSITION_TOL_MM = 2e-5  # float32 Blender positions; never a thickness allowance
 AREA_EPS_MM2 = 1e-10
@@ -305,6 +308,10 @@ def physical(obj, vertices=None, *, reference=None):
 
 def plan(snapshot, operations):
     """Compute a local patch from captured raw topology; input arrays remain untouched."""
+    if owner_surface.active(operations):
+        target, reports = owner_surface.state(snapshot, operations)
+        return {'schema': 'g3d.owner_surface_patch/1', 'snapshot_sha256': digest(snapshot),
+                'target': target, 'operations': reports}
     indexed = objects(snapshot)
     if not operations or len({r.get("id") for r in operations}) != len(operations):
         raise OwnerMeshError("E_OWNER_ARGS", "operation IDs must be nonempty and distinct")

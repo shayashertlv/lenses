@@ -9,6 +9,83 @@ import numpy as np
 
 from . import owner_mesh as M
 from . import export_glb
+from . import owner_surface
+from . import owner_materials_bpy
+from . import owner_normals_bpy
+
+
+def _surface_apply(snapshot, operations):
+    target, reports = owner_surface.state(snapshot, operations)
+    old = M.objects(snapshot)
+    for oid, row in M.objects(target).items():
+        source = old[oid]
+        if row == source:
+            continue
+        obj = bpy.data.objects.get(source['name'])
+        if obj is None or obj.type != 'MESH' or obj.data.name != source['mesh_name']:
+            raise M.OwnerMeshError('E_OWNER_STALE', 'the selected mesh is absent')
+        me = obj.data
+        if ([list(v.co) for v in me.vertices] != source['vertices_local'] or
+                [list(p.vertices) for p in me.polygons] != source['polygons']):
+            raise M.OwnerMeshError('E_OWNER_STALE', 'source changed after its trusted snapshot')
+        if owner_materials_bpy.apply(obj,source,row) and all(row[k]==source[k] for k in ('vertices_local','polygons','corner_normals','polygon_smooth','uv_layers')):
+            continue
+        sharp = {tuple(sorted(edge.vertices)): bool(edge.use_edge_sharp) for edge in me.edges}
+        sharp=owner_surface.split_edge_values(sharp,row.get('_surface_edge_splits',[]))
+        remap=row.get('_surface_vertex_remap')
+        if '_surface_sharp_edges' in row:
+            sharp={tuple(sorted(e)):True for e in row['_surface_sharp_edges']}
+        elif remap is not None:
+            sharp={tuple(sorted((remap[a],remap[b]))):value for (a,b),value in sharp.items() if remap[a] is not None and remap[b] is not None}
+        if row['polygons'] != source['polygons'] or len(row['vertices_local'])!=len(source['vertices_local']):
+            me.clear_geometry()
+            me.from_pydata(row['vertices_local'], [], row['polygons'])
+            me.update()
+            for layer in list(me.uv_layers): me.uv_layers.remove(layer)
+            for uv in row.get('uv_layers', []):
+                layer = me.uv_layers.new(name=uv['name'])
+                layer.data.foreach_set('uv', np.asarray(uv['uv'], np.float32).ravel())
+            for uv in row.get('uv_layers', []):
+                if uv.get('active_render'): me.uv_layers[uv['name']].active_render = True
+                if uv.get('active_clone'): me.uv_layers[uv['name']].active_clone = True
+            if 'uv_active_index' in source: me.uv_layers.active_index = source['uv_active_index']
+            for record in source.get('attributes', []):
+                name = record['name']
+                if name not in ('.select_vert', '.select_poly', '.select_edge'):continue
+                values = record['values']
+                if name == '.select_vert':
+                    parents=row.get('_surface_vertex_parents')
+                    values = [values[i] for i in parents] if parents is not None else values+[[False]]*(len(row['vertices_local'])-len(source['vertices_local']))
+                elif name == '.select_poly':
+                    values = [values[i] for i in row['_surface_polygon_parents']]
+                else:
+                    by_edge = {tuple(sorted((remap[a],remap[b]) if remap is not None else (a,b))):values[i] for i,(a,b) in enumerate(source['edges']) if remap is None or remap[a] is not None and remap[b] is not None}
+                    by_edge=owner_surface.split_edge_values(by_edge,row.get('_surface_edge_splits',[]))
+                    values = [by_edge.get(tuple(sorted(e.vertices)),[False]) for e in me.edges]
+                attribute = me.attributes.get(name) or me.attributes.new(name,record['data_type'],record['domain'])
+                field, _, dtype = export_glb._ATTR_ACCESS[record['data_type']]
+                attribute.data.foreach_set(field,np.asarray(values,dtype=dtype).ravel())
+        else:
+            me.vertices.foreach_set('co', np.asarray(row['vertices_local'], np.float32).ravel())
+        for poly, smooth, material in zip(me.polygons, row.get('polygon_smooth', []), row.get('polygon_material', [])):
+            if poly.use_smooth != smooth: poly.use_smooth = smooth
+            if poly.material_index != material: poly.material_index = material
+        me.update()
+        for edge in me.edges:
+            wanted = sharp.get(tuple(sorted(edge.vertices)), False)
+            if edge.use_edge_sharp != wanted: edge.use_edge_sharp = wanted
+        if not any(a['name'] == 'sharp_edge' for a in source.get('attributes', [])):
+            attribute = me.attributes.get('sharp_edge')
+            if attribute is not None and not any(v.value for v in attribute.data): me.attributes.remove(attribute)
+        me.update()
+        try:owner_normals_bpy.write(me,row['corner_normals'])
+        except ValueError as exc:raise M.OwnerMeshError('E_OWNER_NORMALS',str(exc)) from exc
+        if row.get('edge_radius_recipe')!=source.get('edge_radius_recipe'):
+            from .owner_edge_radius import PROPERTY
+            if row.get('edge_radius_recipe') is None:
+                if PROPERTY in me:del me[PROPERTY]
+            else:me[PROPERTY]=json.dumps(row['edge_radius_recipe'],sort_keys=True,separators=(',',':'))
+    return {'status': 'ok', 'result': {'schema': 'g3d.owner_surface_patch/1', 'operations': reports}}
 
 
 def _transport_normals(obj, before, after, affected):
@@ -53,6 +130,10 @@ def apply(params, root):
         snapshot = json.loads(path.read_text(encoding="utf-8"))
         if M.digest(snapshot) != params["snapshot_sha256"]:
             raise M.OwnerMeshError("E_OWNER_SNAPSHOT", "the source snapshot changed")
+        if owner_surface.active(params['operations']):
+            if 'target_snapshot_path' in params:
+                raise M.OwnerMeshError('E_OWNER_SURFACE', 'surface operations replay their confirmed plan; private topology transfer is unavailable')
+            return _surface_apply(snapshot, params['operations'])
         target = None
         if "target_snapshot_path" in params:
             target_path = Path(params["target_snapshot_path"]).resolve()

@@ -283,7 +283,8 @@ def test_receipt_identity_and_versions(w):
     assert r["safe_mode_selfcheck"] == {"unlisted_edges": []}
     assert r["g3d_facade"]["errors"] == {}
     assert set(r["g3d_facade"]["names"]) == {"loft_sections", "polygon_section", "check_round_corners", "lens_coating",
-                                          "acetate_section", "sweep_rim"}
+                                          "acetate_section", "sweep_rim", "quadratic_lens", "mesh_cleanup",
+                                          "consistent_normals", "symmetrize_mesh", "controlled_decimate"}
     assert w.hello["pid"] == w.proc.pid and len(w.hello["fingerprint"]) == 64
     assert w.ready_s < 60
 

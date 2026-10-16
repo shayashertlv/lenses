@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from glasses3d.g3d import owner_mesh as M
 from glasses3d.g3d import owner_markings as markings
+from glasses3d.g3d import owner_surface as surface
 from .procs import write_json_atomic
 
 
@@ -42,6 +43,10 @@ def snapshot(scene, label="owner-check"):
 
 def verify_snapshots(baseline, current, operations):
     """Only confirmed vertices and their incident normals may change; every other datum stays fixed."""
+    if surface.active(operations):
+        if baseline == current:
+            return {'ok': True, 'status': 'ok', 'changes': [], 'outside_support_unchanged': True}
+        return surface.verify(baseline, current, operations)
     markings.require_bound(baseline, operations)
     old, new = M.objects(baseline), M.objects(current)
     if set(old) != set(new) or baseline["origin_mm"] != current["origin_mm"]:
@@ -56,7 +61,7 @@ def verify_snapshots(baseline, current, operations):
         support.setdefault(oid, set()).update(i for i, w in weights.items() if w)
         affected.setdefault(oid, set()).update(faces)
     variable = {"vertices_local", "vertices_world_mm", "positions_sha256", "corner_normals",
-                "normal_attributes", "evaluated", "triangles", "triangle_polygons"}
+                "normal_attributes", "normal_intent", "evaluated", "triangles", "triangle_polygons"}
     changes, checks = [], {}
     for oid, a in old.items():
         b = new[oid]
@@ -133,6 +138,9 @@ def verify_snapshots(baseline, current, operations):
 
 def expected_positions(source, operations):
     """Exact float32 local representation produced by one confirmed worker call."""
+    if surface.active(operations):
+        target, _ = surface.state(source, operations)
+        return {o['id']: np.asarray(o['vertices_local']) for o in target['objects']}
     indexed = M.objects(source)
     world, _, _ = M.deformation(source, operations)
     result = {oid: np.asarray(obj["vertices_local"], float).copy() for oid, obj in indexed.items()}
@@ -152,6 +160,8 @@ def _positions_equal(current, expected):
 
 
 def _advance(source, operations):
+    if surface.active(operations):
+        return surface.state(source, operations)[0]
     out = copy.deepcopy(source)
     positions = expected_positions(source, operations)
     for obj in out["objects"]:
@@ -169,6 +179,13 @@ def confirmed_transition(sealed, current, before_fingerprint):
     Least squares proposes a binary subset only; exact replay is the acceptance test.
     """
     before = sealed["snapshot"]
+    if surface.active(sealed['all_operations']):
+        if current.get('fingerprint') == sealed['source_fingerprint']:
+            return []
+        if not sealed.get('selected_preview'):
+            raise M.OwnerMeshError('E_OWNER_AUTHORITY', 'surface edits require a rendered preview selected by the owner')
+        surface.verify(before, current, sealed['all_operations'])
+        return sealed['all_operations'] if before_fingerprint == sealed['source_fingerprint'] else []
     if sealed.get("selected_preview"):
         if _positions_equal(current, expected_positions(before, [])):
             return []
@@ -320,6 +337,8 @@ def apply(scene, operation_ids, call_id, *, corrections=None):
         current, path = snapshot(scene, "owner-before")
         verify_snapshots(sealed["snapshot"], current, sealed["all_operations"])
         plan = M.plan(current, operations)  # compute/check first, without writing scene state
+        if surface.active(operations) and not sealed.get('selected_preview'):
+            raise M.OwnerMeshError('E_OWNER_AUTHORITY', 'surface edits require an owner-selected rendered preview')
         before = copy.deepcopy(scene.s.head)
         scene._owner_expected_positions = expected_positions(current, operations)
         try:

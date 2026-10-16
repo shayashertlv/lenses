@@ -3,6 +3,8 @@
     g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners                              (WP6, temple_bpy)
     g3d.lens_coating                                                                         (coating)
     g3d.acetate_section, g3d.sweep_rim                                                        (rim_bpy)
+    g3d.quadratic_lens                                                                      (lens_surface_bpy)
+    g3d.mesh_cleanup, g3d.consistent_normals, g3d.symmetrize_mesh, g3d.controlled_decimate      (mesh_health_bpy)
 
 Seating runs through the trusted g3d_call worker protocol. Helpers with internal file I/O (export_glb, print_uv,
 attach_print, faceted_temple with a spec path) are never facade names. The facade is a fresh module object
@@ -19,7 +21,9 @@ import types
 TEMPLE_NAMES = ("loft_sections", "polygon_section", "check_round_corners")
 COATING_NAMES = ("lens_coating",)
 RIM_NAMES = ("acetate_section", "sweep_rim")
-NAMES = TEMPLE_NAMES + COATING_NAMES + RIM_NAMES
+SURFACE_NAMES = ("quadratic_lens",)
+HEALTH_NAMES = ("mesh_cleanup", "consistent_normals", "symmetrize_mesh", "controlled_decimate")
+NAMES = TEMPLE_NAMES + COATING_NAMES + RIM_NAMES + SURFACE_NAMES + HEALTH_NAMES
 
 
 def build() -> tuple[types.ModuleType, dict]:
@@ -44,6 +48,18 @@ def build() -> tuple[types.ModuleType, dict]:
             setattr(facade, name, getattr(rim_bpy, name))
     except Exception as exc:  # noqa: BLE001
         errors["rim"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from . import lens_surface_bpy
+        for name in SURFACE_NAMES:
+            setattr(facade, name, getattr(lens_surface_bpy, name))
+    except Exception as exc:
+        errors["surface"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from . import mesh_health_bpy
+        for name in HEALTH_NAMES:
+            setattr(facade, name, getattr(mesh_health_bpy, name))
+    except Exception as exc:
+        errors["mesh_health"] = f"{type(exc).__name__}: {exc}"
     facade.lib = facade
     facade.__all__ = [n for n in NAMES if hasattr(facade, n)]
     return facade, errors

@@ -23,6 +23,7 @@ from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire
 from glasses3d.agent.receipts import BlobStore
 from glasses3d.tests.test_cameras_fit import WRAP, bar, ring
 from glasses3d.tests.test_fit_views_synthetic import lens, photo, TRUTH as FIT_TRUTH
+from glasses3d.tests.proofs.offline_job_approval import prepare_offline_request
 
 ROOT = Path(__file__).resolve().parents[2]
 # Exercise a canonical-name collision and an ordinary filename with a space through
@@ -297,9 +298,7 @@ def run():
                        for name in TRUTH]})]
     transport = replay.ScriptedOpenAI(replies)
     settings = replace(job_run.settings_default(), max_turns=len(replies) + 1)
-    spec, _ = job_run.prepare_run(job, "offline-proof", settings=settings, write_request=True)
-    approvals.write_approval(job / "runs" / spec.run_id, max_usd="23",
-                             owner_words="Synthetic offline proof only; no paid call authorized.", recorded_by="offline proof")
+    spec, _ = prepare_offline_request(job, "offline-proof", transport.handle, settings=settings)
     outcome = asyncio.run(job_run.execute_run(job, spec.run_id, offline_handler=transport.handle))
     procs.write_json_atomic(work / "outcome.json", outcome)
     assert outcome["result"]["status"] == "completed", outcome

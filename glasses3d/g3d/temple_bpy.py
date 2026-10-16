@@ -16,8 +16,9 @@ scene, places the temples, writes once, and reports. Conventions:
   `targets` given ({"+x": name, "-x": name} or names whose x sign picks the side). Not a temple-role mesh, shape keys,
   or a modifier other than WeightedNormal: E_TARGET; more than one material slot: E_MULTI_MATERIAL (multi-material
   temples are deferred);
-- the mesh is the core's polygons as they are: facet cells as planar n-gons, every other outer cell (warp, base,
-  ramp) as the core's own triangles, so Blender and the GLB share the core's triangulation; sharp_edge = the core's
+- the mesh starts as the core's polygons: facet cells as planar n-gons, every other outer cell (warp, base,
+  ramp) as the core's own triangles. If Blender tessellates a planar n-gon into a zero-area ear, only that polygon
+  is emitted as the core's checked triangles, keeping its boundary, loop normals and UVs; sharp_edge = the core's
   sharp set; the facet-cell polygons (TempleBuild.flat_polys) carry their face normal as custom normals, and so do
   the roll polygons' corners on the line where the roll leaves such a facet (tangent there; one smooth fan holds one
   custom normal); a warp facet's cells (v3: the core's triangles) carry its design surface's normal at every corner
@@ -30,7 +31,8 @@ scene, places the temples, writes once, and reports. Conventions:
   `g3d_temple_backup`; `unfaceted_temple` puts the very same datablocks back (byte-identical);
 - decals="auto": parts lying within 1 mm of the old temple surface that are open or thin (measure.is_surface_decal)
   move by CHART TRANSFER: each decal vertex keeps the chart (d, y) of its foot point on the old temple surface and its
-  signed standoff from it, and lands at the new surface X(d, y) plus that standoff along the new surface normal (the
+  signed standoff from it. The old foot-point normal chooses the inner or outer chart; inner print stays inside.
+  It lands at that new surface X(d, y) plus the standoff along its outward normal (the
   -X side mirrored). Motion is reported per decal; W_DECAL_SPANS_CREASE when one decal lands on more than one region;
 - a null hinge axis is filled from the knuckles (default_axis) for the build only: the receipt's spec_sha256 and the
   extras' canonical spec stay the spec as written (the host's sha of the same spec); the filled axis is reported
@@ -47,7 +49,7 @@ scene, places the temples, writes once, and reports. Conventions:
   geometry or transform edits start a new frozen generation; the earliest mesh remains the exact undo backup. UV
   seams crossing a new face add tessellation on that face's existing triangle planes, with shared intersections
   propagated and original corner normals interpolated. UVs, layer names and active flags survive revisions and
-  variants; the no-UV core mesh keeps its original topology.
+  variants; the no-UV core mesh keeps its original topology except for those degenerate-ear repairs.
 Geometry problems never raise: every function returns a dict with "status" and, when refused, "code".
 """
 from __future__ import annotations
@@ -300,13 +302,13 @@ def _signed_distance(bvh, P, side) -> np.ndarray:
     return out
 
 
-class OuterSurface:
-    """The core's outer surface (outer and roll polygons) as a function of the chart (d, y): a BVH over its triangles
+class _ChartSurface:
+    """The core's inner surface, or outer plus roll surface, as a function of the chart (d, y): a BVH over its triangles
     flattened to (d, y, 0) finds the triangle containing (or nearest to) a point, whose plane X = a + b d + c y gives
     the value (extended beyond the outline by that plane), its polygon the outward normal and the region label."""
 
-    def __init__(self, tb):
-        kinds = np.array([k in TB.OUTER_KINDS for k in tb.poly_kind])
+    def __init__(self, tb, *, inner=False):
+        kinds = np.array([k == "inner" if inner else k in TB.OUTER_KINDS for k in tb.poly_kind])
         sel = kinds[tb.tri_poly]
         self.T = tb.tris[sel]
         self.tri_poly = tb.tri_poly[sel]
@@ -333,6 +335,14 @@ class OuterSurface:
         c = self.coef[k]
         p = self.tri_poly[k]
         return float(c[0] + c[1] * d + c[2] * y), self.normals[p], self.region[p], inside
+
+
+class OuterSurface(_ChartSurface):
+    """Outer chart plus the distinct inner chart needed to keep inner markings inside."""
+
+    def __init__(self, tb):
+        super().__init__(tb)
+        self.inner = _ChartSurface(tb, inner=True)
 
 
 def find_decals(old_bvh, side, scene, origin, exclude) -> list:
@@ -370,20 +380,27 @@ def find_decals(old_bvh, side, scene, origin, exclude) -> list:
 def transfer_decal(V, old_bvh, surf: OuterSurface, side: int, hinge: dict) -> dict:
     """Chart transfer of one decal (module docstring): per vertex the foot point Q on the old temple (nearest), the
     signed standoff s = +-|P - Q| (+ on the outward side of the old face), Q's chart (d, y) -> the new surface point
-    S(d, y) + s n(d, y), mirrored for side -1. Returns {"V_new", "standoff", "moves", "regions", "outside"}."""
+    S(d, y) + s n(d, y), mirrored for side -1. The old normal's local X sign selects inner versus outer chart.
+    An edge-facing foot point has no supported (d,y) chart and is refused. Returns the movement and region report."""
     n = len(V)
     Q = np.zeros((n, 3))
+    old_normals = np.zeros((n, 3))
     s = np.zeros(n)
     for i, p in enumerate(V):
         loc, nrm, _, dist = old_bvh.find_nearest(Vector(tuple(map(float, p))))
         Q[i] = np.array(loc)
+        old_normals[i] = np.array(nrm)
         s[i] = dist if float(np.dot(p - Q[i], np.array(nrm))) >= 0 else -dist
     Lq = TB.to_local(Q, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"], side=side)
+    Ln = TB.to_local(Q + old_normals, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"], side=side) - Lq
     P = np.zeros((n, 3))
     regions, outside = set(), 0
     for i in range(n):
         d, y = float(Lq[i, 0]), float(Lq[i, 1])
-        X, nrm, reg, inside = surf.at(d, y)
+        if abs(Ln[i, 2]) <= 1e-7:
+            raise ValueError("decal foot point lies on a temple edge face without an inner/outer chart")
+        chart = surf.inner if Ln[i, 2] < 0 else surf
+        X, nrm, reg, inside = chart.at(d, y)
         P[i] = np.array([d, y, X]) + s[i] * nrm
         regions.add(reg)
         outside += not inside
@@ -525,6 +542,73 @@ def _set_uv(me, uv):
                 me.edges[eidx[key]].use_seam = True
             edge_uv[key] = values
     me.update()
+
+
+def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, triangle_polygons=None):
+    """Replace only n-gons whose Blender tessellation creates a zero-area ear.
+
+    The core retains collinear boundary vertices to keep adjacent cells closed.
+    Blender may choose an ear consisting solely of such a run even though the
+    core's checked triangulation has positive area. Use that checked triangulation
+    for affected polygons, retaining every boundary vertex, corner normal and UV.
+    Seam-split polygons use the same robust ear clipper in their stable coordinates.
+    This does not weld vertices, remove triangles or relax the solid checks.
+    """
+    mesh.calc_loop_triangles()
+    vertices = np.asarray([v.co[:] for v in mesh.vertices], float)
+    bad = set()
+    for tri in mesh.loop_triangles:
+        p = vertices[list(tri.vertices)]
+        if np.linalg.norm(np.cross(p[1]-p[0], p[2]-p[0])) <= 2e-12:
+            bad.add(tri.polygon_index)
+    if not bad:
+        return mesh, 0
+    stable = np.asarray(stable_vertices, float)
+    saved_normals = np.asarray([n.vector[:] for n in mesh.corner_normals], float)
+    canonical = {}
+    if triangles is not None:
+        for tri, pi in zip(triangles, triangle_polygons):
+            canonical.setdefault(int(pi), []).append(list(map(int, tri)))
+    polys, source_loops, source_polys = [], [], []
+    for poly in mesh.polygons:
+        ids = list(poly.vertices)
+        loop_for = dict(zip(ids, poly.loop_indices))
+        pieces = [ids]
+        if poly.index in bad:
+            pieces = canonical.get(poly.index)
+            if pieces is None:
+                points = stable[ids]
+                _, _, vh = np.linalg.svd(points-points.mean(0), full_matrices=False)
+                projected = (points-points.mean(0)) @ vh[:2].T
+                winding = AR.poly_area(projected)
+                order = list(range(len(ids))) if winding > 0 else list(range(len(ids)-1, -1, -1))
+                pieces = [[ids[i] for i in tri] for tri in AR.ear_clip(projected, order)]
+            oriented = []
+            for piece in pieces:
+                p = vertices[piece]
+                normal = np.cross(p[1]-p[0], p[2]-p[0])
+                if np.linalg.norm(normal) <= 2e-12:
+                    raise TempleError('E_TARGET', 'temple triangle collapses at Blender precision', reason='zero_area_tessellation')
+                if normal @ np.asarray(poly.normal) < 0:
+                    piece = piece[::-1]
+                oriented.append(piece)
+            pieces = oriented
+        for piece in pieces:
+            polys.append(piece)
+            source_polys.append(poly.index)
+            source_loops.extend(loop_for[i] for i in piece)
+    sharp = [tuple(e.vertices) for e in mesh.edges if e.use_edge_sharp]
+    uv = {'active_index': mesh.uv_layers.active_index,
+          'layers': [{'name': layer.name, 'active_render': layer.active_render, 'active_clone': layer.active_clone,
+                      'uv': np.asarray([x.uv[:] for x in layer.data])[source_loops]} for layer in mesh.uv_layers]}
+    replacement, _ = build_mesh(mesh.name+' | checked ears', vertices, polys, sharp, [],
+                                np.zeros((len(polys), 3)), list(mesh.materials),
+                                uv=uv if uv['layers'] else None, corners=saved_normals[source_loops])
+    for dest, source in zip(replacement.polygons, source_polys):
+        dest.use_smooth = mesh.polygons[source].use_smooth
+        dest.material_index = mesh.polygons[source].material_index
+    replacement.update()
+    return replacement, len(bad)
 
 
 def corner_normals(tb, polys, n_poly, n_faded=None) -> np.ndarray:
@@ -1049,6 +1133,14 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
                                     "split_faces": geometry["split_faces"]}
     elif uv is not None:
         _set_uv(me, uv)
+    safe, repaired = _repair_degenerate_tessellation(
+        me, tb.V if geometry is None else geometry['V'],
+        tb.tris if geometry is None else None, tb.tri_poly if geometry is None else None)
+    if safe is not me:
+        planned.append(safe)
+        bpy.data.meshes.remove(me)
+        me = safe
+    plan['retriangulated_polygons'] = repaired
     plan["mesh"] = me
     plan["sharp_edges"] = nsharp
     plan["custom_corners"] = int(np.count_nonzero(np.any(corners != 0.0, axis=1)))
@@ -1115,6 +1207,7 @@ def _side_receipt(plan) -> dict:
                                           "regions")} for d in plan["decals"]],
             "hinge": plan["hinge"], "hinge_parts": plan.get("hinge_parts", []), "warnings": plan["warnings"],
             "uv_tessellation": plan.get("uv_tessellation"),
+            "retriangulated_polygons": plan.get("retriangulated_polygons", 0),
             "planned_vertices": len(plan["mesh"].vertices), "planned_polygons": len(plan["mesh"].polygons)}
 
 

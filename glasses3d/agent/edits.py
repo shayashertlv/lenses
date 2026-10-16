@@ -83,6 +83,11 @@ def load(root):
     for name, digest in doc["immutable_files"].items():
         if sha(confined(root, name)) != digest:
             raise ValueError(f"owner edit input changed: {name}")
+    coverage_path = confined(root, "inputs/edit-capabilities.json")
+    if coverage_path.is_file():
+        coverage = read(coverage_path)
+        doc["capability_mapping"] = {key: coverage[key] for key in
+                                     ("request_sha256", "items", "notice")}
     if doc["phase"] == "edit":
         if not isinstance(doc.get("confirmation_text"), str) or not doc["confirmation_text"].strip():
             raise ValueError("edit requires the owner's verbatim confirmation or correction")
@@ -135,6 +140,13 @@ def brief_suffix(doc):
     text += "\n\nEdit phase: " + doc["phase"]
     text += ("\nThe owner's explicit requested feature target outranks photo readings and earlier choices. "
              "All physical hard checks remain. Keep unrequested geometry unchanged and report adjacent effects.")
+    if doc.get("capability_mapping"):
+        text += ("\n\nHost's $0 declared capability mapping (not owner wording or semantic certification):\n"
+                 + json.dumps(doc["capability_mapping"], ensure_ascii=False)
+                 + "\nKeep this item order in the numbered understanding, one item per declared request. "
+                 "Each item needs its own operations; do not collapse items or substitute another operation kind. "
+                 "If photo/model inspection finds an unsupported or ambiguous item, report that blocker honestly. "
+                 "A paid EDIT cannot proceed while any item remains blocked.")
     if doc["phase"] == "edit":
         text += "\n\nOwner's confirmation or correction (verbatim):\n" + doc["confirmation_text"]
         understanding = doc["understanding"]
@@ -150,7 +162,8 @@ def brief_suffix(doc):
                  "inputs/understanding.json; tools resolve the shown support hashes):\n"
                  + json.dumps(shown, ensure_ascii=False))
         if blocked_items(understanding):
-            text += "\nOnly executable items grant edit authority. Unsupported and needs_clarification items remain undone."
+            text += ("\nBlocked items grant no edit authority. Resolve every unsupported or needs_clarification item "
+                     "in a new understanding before a paid EDIT round.")
         if doc.get("selected_preview"):
             text += ("\n\nOwner-selected rendered amount (these exact operations replace the base proposed amounts "
                      "above; the targets and support stay the same. Full sealed support is in the immutable "

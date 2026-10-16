@@ -212,14 +212,34 @@ def test_run7_warp_crown_exports_its_shading(run7_warp_run):
     tb = build_temple(spec)
     assert st[1]["status"] == "ok", st[1]
     t = next(t for t in st[2]["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)
-    W, polys, _ = tb.world(1)
-    assert t["polys"] == polys and len(t["sharp"]) == len(tb.sharp)
+    W, core_polys, core_tris = tb.world(1)
+    polys = t['polys']
+    sources, cursor = [], 0
+    for pi, polygon in enumerate(core_polys):
+        if polys[cursor] == polygon:
+            sources.append(pi)
+            cursor += 1
+        else:
+            expected = core_tris[tb.tri_poly == pi].tolist()
+            assert polys[cursor:cursor+len(expected)] == expected
+            sources.extend([pi]*len(expected))
+            cursor += len(expected)
+    assert cursor == len(polys) and len(t["sharp"]) == len(tb.sharp)
+    ok, chi = closed_manifold(polys)
+    assert ok and chi == 2
+    actual_points=np.asarray(t['V'])[np.asarray(t['T'])]
+    area=np.linalg.norm(np.cross(actual_points[:, 1]-actual_points[:, 0], actual_points[:, 2]-actual_points[:, 0]),axis=1)/2
+    assert area.min() > 1e-12
     cn = np.array(t["corner_normals"])
     starts = np.cumsum([0] + [len(p) for p in polys])
     dn = design_corner_normals(tb)
     want = {k: n for k, n in zip(dn, _world_dirs_plus_x(tb, np.array(list(dn.values()))))}
     assert len(dn) > 1000
-    assert max(_ang(cn[starts[i] + polys[i].index(v)], want[(i, v)]) for (i, v) in dn) <= 0.1
+    source_corners = {}
+    for pi, polygon in enumerate(polys):
+        for j, v in enumerate(polygon):
+            source_corners.setdefault((sources[pi], v), []).append(cn[starts[pi]+j])
+    assert max(_ang(n, want[key]) for key in dn for n in source_corners[key]) <= 0.1
     assert st[3]["status"] == "exported", st[3]
     g = GLB.load(glb)
     prim = [p for p in g.primitives if p.node_name == RIGHT]

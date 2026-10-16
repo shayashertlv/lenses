@@ -1,4 +1,4 @@
-"""Local job CLI. Estimates are free; approvals are explicit and single-use."""
+"""Local job CLI. Edit coverage is offline; approvals are explicit and single-use."""
 from __future__ import annotations
 
 import argparse
@@ -40,6 +40,7 @@ def parser():
     edit.add_argument("--source-runtime", type=Path, help="explicit archived runtime containing this delivery's exact checkpoint/cameras")
     edit.add_argument("--edit-id")
     edit.add_argument("--option", help="exact amount option id from the shown understanding; required when options were previewed")
+    edit.add_argument("--coverage", type=Path, help="ready $0 job edit-check report matching the exact request and executable implementation")
     words = edit.add_mutually_exclusive_group(required=True)
     words.add_argument("--request")
     words.add_argument("--request-file", type=Path)
@@ -50,6 +51,13 @@ def parser():
     edit.add_argument("--effort", choices=EFFORTS, default="high")
     edit.add_argument("--cap", required=True)
     edit.add_argument("--settled-stop", required=True)
+    check = commands.add_parser("edit-check", help="$0 explicit item-to-operation mapping; no estimate, worker or API")
+    check.add_argument("id", help="source job or existing owner-edit round")
+    check_words = check.add_mutually_exclusive_group()
+    check_words.add_argument("--request")
+    check_words.add_argument("--request-file", type=Path)
+    check.add_argument("--mapping", type=Path, help="g3d.edit_item_map/1 JSON with exact request text, labelled spans and operation_kinds")
+    check.add_argument("--output", type=Path, help="save the local report here; existing edit rounds also install ready reports into their inputs")
     for name in ("show", "estimate", "approve", "run", "stop", "review", "verdict"):
         cmd = commands.add_parser(name)
         cmd.add_argument("id")
@@ -130,9 +138,24 @@ def dispatch(args):
                                specs=args.specs, jobs_root=args.jobs_root)
         return {"status": "created", "job_id": root.name, "path": str(root)}
     root = resolve_job(args.id, args.jobs_root)
+    if args.command == "edit-check":
+        from . import edits, edit_capabilities as capabilities
+        edit_doc = edits.load(root)
+        words = (args.request if args.request is not None else owner_text_file(args.request_file)
+                 if args.request_file is not None else edit_doc["request_text"] if edit_doc else None)
+        if words is None:
+            raise ValueError("edit-check needs --request or --request-file for a source job")
+        mapping = edits.read(args.mapping) if args.mapping else None
+        report = capabilities.check(words, mapping)
+        if report["status"] == "ready" and edit_doc is not None:
+            capabilities.install(root, report)
+            capabilities.require_round(root)
+        if args.output:
+            capabilities.write_report(args.output, report)
+        return report
     if args.command == "edit":
         from dataclasses import replace
-        from . import edits
+        from . import edits, edit_capabilities as capabilities
         if any(v is not None for v in (args.confirm, args.confirm_file, args.correct, args.correct_file)):
             if not args.edit_id or args.delivery_id:
                 raise ValueError("confirmation needs --edit-id and cannot select another delivery")
@@ -147,7 +170,12 @@ def dispatch(args):
             if args.edit_id:
                 raise ValueError("a new request creates a new edit id; use --confirm for the existing understanding")
             words = args.request if args.request is not None else owner_text_file(args.request_file)
+            if args.coverage is None:
+                raise ValueError("run job edit-check at $0 first, then supply its ready report with --coverage")
+            capabilities.require_ready(edits.read(args.coverage), words)
             round_root = edits.create_understand(root, words, delivery_id=args.delivery_id, source_runtime=args.source_runtime)
+        if args.coverage is not None:
+            capabilities.install(round_root, edits.read(args.coverage))
         settings = replace(job_run.settings_default(), effort=args.effort, settled_stop_usd=args.settled_stop)
         spec, _ = job_run.prepare_run(round_root, settings=settings, cap=args.cap, write_request=True)
         doc = edits.load(round_root)
@@ -224,6 +252,8 @@ def main(argv=None):
         print(json.dumps(owner_money(result), indent=2, ensure_ascii=False, default=str))
         if isinstance(result, dict) and "result" in result:
             return 0 if result["result"].get("status") == "completed" else 1
+        if isinstance(result, dict) and result.get("schema") == "g3d.edit_capabilities/1":
+            return 0 if result["status"] == "ready" else 2
         return 0
     except (A.ApprovalRefused, RunRefused, BudgetGuardError, procs.DetachError, ValueError, OSError) as exc:
         print(json.dumps({"status": "refused", "message": str(exc)}), file=sys.stderr)

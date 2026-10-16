@@ -1,5 +1,56 @@
 # glasses3d progress
 
+## 2026-10-16 — M7/M8 implementation and copy proofs complete; desktop full-run test next
+
+Owner's question, verbatim: **"any other mesh editing tools astra might need?"**
+Follow-up, verbatim: **"after youre done with everything please run the automation for a test but instead of astra api, use desktop gpt (you!, use astra xhigh and with no other convos memory) this way will be able to test without additional spending"**.
+The owner selected **"Full photo-to-3D run on a fresh copy of the Prada job"**.
+That test starts after the implementation commit, using fresh `gpt-6-astra` desktop tasks at
+`xhigh`, exact pipeline input packets and no inherited conversation history. It is still pending.
+No external API call, paid run, product estimate request, delivered-model edit or push is authorized.
+Earlier paid approvals are not used. Starting branch: `glasses3d`, clean HEAD **7b9cd13**.
+
+The four causes are traced to the actual run 4: request 63's piecewise thickness deformation
+bends the logo and temple faces; request 73's geometric front cut plus sharp shading creates the
+corner line; request 63's six-ring lenses are coarse. The historical 464 zero-area count is not
+c0015's current count. General temple triangulation/planarity/marking-transfer fixes, curved-lens
+sampling, informational side-light review, all M7/M8 scoped edit operations and the complete-item
+$0 capability check are implemented. Every new owner operation requires labelled support,
+2–3 real scratch amounts, explicit owner selection, sealed markings and unchanged hard checks.
+
+Details and limits: [M7_M8_RESULTS.md](M7_M8_RESULTS.md). Owner-readable evidence:
+`data/assembly/m7-m8-review-v1/index.html`. Final M7 copies: `m7/surface-copy-v10`,
+`final-gallery-v5`, `reflection-final-v3`, `surface-operations-gallery-v1`; M8 evidence index:
+`m8/final-regeneration-manifest-v1.json`, plus `m8/deform-v5` and its scale gallery/diagram.
+All delivered inputs stay unchanged. These are demonstration copies, not owner acceptance.
+The plane-preserving temple proposal moves shared corners (maximum 6.734 mm). The front repair
+retains its geometric cut: 14 main edges per side have shading jump ≤ 0.0072°, while a boundary
+edge and unselected back edges remain. Lens highlights improve subtly; measured geometric fold
+falls 4.693→3.385° and p95 1.294→0.654°, without claiming an optical-ripple measurement.
+
+Final verification found and fixed two genuine Blender normal-storage faults: restoring fan
+flags after encoding changed its decoding basis, and the inverse encoder snapped some directions
+to the wrong integer angle. Scoped fan planning, private deterministic angle correction and exact
+saved-code/decoded-direction checks now pass without widening the bound. Superseded failed
+proofs are retained as failures. Final v10 worst component error 0.000540 is below the unchanged
+0.000775 bound; all audited saved-copy hashes remain unchanged.
+
+Full suite excluding photoprint: **4,003 passed, 2 skipped, 4 failed**. The helper-inventory test
+was updated; it and timing/UV tests pass in isolation (**4 passed**). Independent `7b9cd13`
+checkout reproduces the golden-render failure (203 pixels vs current 199); all 18 direct baseline/
+current comparisons pass the unchanged tolerance (0–9 changed pixels). That historical failure
+remains unresolved; no threshold or golden image changed. Photoprint: **313 passed**, plus its
+unchanged subprocess import test passes from repository root (**1 passed**). AR: **506 passed**,
+typecheck passed. Final affected suite: **400 passed**. Final PN delta: **13** independent tests;
+instruction/preview: **131**; map: **23**. Final `tests.proofs.assembly_m1`: **passed in 229.656 s**,
+13 scripted tool steps, 64 image blobs, 35 AR images, strict delivery checks, **$0 actual API spend**.
+The final offline fixture calls no estimator and cannot be spent by production.
+
+Independent reviews of every changed emitted instruction/tool description and final deltas have
+**no remaining findings**: `m7/final-text-review-v3/review.json` and
+`m7/final-text-review-v4/delta-review.json`. Source and exported-text hashes are bound in the review.
+Implementation commit and the requested full fresh desktop automation test are next; never push.
+
 ## 2026-10-16 — Prada owner edit: paid UNDERSTAND round authorized
 
 The owner requested the automation edit flow for run 4 checkpoint **c0015**, then supplied this

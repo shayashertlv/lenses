@@ -330,7 +330,7 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     annotated = Image.alpha_composite(annotated, overlay).convert("RGB")
     full = Image.new("RGB", (photo.width*2,photo.height+44), "white")
     full.paste(photo,(0,44)); full.paste(annotated,(photo.width,44))
-    legend = ("magenta: movement, black: fixed, amber: normal influence" if scopes
+    legend = ("magenta: selected support, black: fixed, amber: normal influence" if scopes
               else "numbered actual-mesh targets")
     ImageDraw.Draw(full).text((12,10), f"{row['ref']} | PHOTO | MODEL — {legend}", font=_font(), fill="black")
     full = L.append_legend(full, target_legend, _font(22))

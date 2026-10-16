@@ -160,7 +160,8 @@ def test_mixed_items_keep_blockers_but_only_real_operations_and_markings_gain_au
     assert doc["understanding"]["items"] == records
     assert edits.blocked_items(doc["understanding"]) == records[1:]
     assert "Blocked items remain undone" in edits.understanding_page(h.root).read_text(encoding="utf-8")
-    assert "Unsupported and needs_clarification items remain undone" in edits.brief_suffix(doc)
+    assert "Resolve every unsupported or needs_clarification item" in edits.brief_suffix(doc)
+    assert "before a paid EDIT round" in result["next"]
     authority = edits.Authority(second)
     sealed = authority.resolve()
     assert [operation["id"] for operation in sealed["all_operations"]] == ["move"]

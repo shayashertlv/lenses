@@ -398,6 +398,39 @@ def build_tools(scene, settings=None) -> list:
         object; without name, inspect the construction report. This is a rim sweep, not a filled lens opening.
         Measure section depth/rounding in side, top and angled photos; keep sharp facets local where shown.
 
+        g3d.quadratic_lens(outline_xy_mm, coefficients, thickness_mm, centre_xy_mm=None,
+        max_edge_mm=1.5, max_chord_mm=0.003, name=None, material=None) constructs a closed lens with smooth
+        analytic normals: z=c0+c1*x+c2*y+c3*x*x+c4*x*y+c5*y*y; rear z is front z minus axial thickness.
+        The simple outline must be star-shaped about the centre (default its point mean). It preserves its
+        straight XY boundary segments and splits front/rear shading from the rim. max_edge_mm bounds optical
+        surface edges in 3D, excluding rim diagonals; max_chord_mm bounds their midpoint chord error. Both are
+        measured and reported. These bounds do not describe the difference from the product photographs.
+        Thickness is axial, not a minimum normal-thickness certificate. Check seating after construction.
+        Use measured curvature coefficients and inspect both review and side-light surface panels. For shapes
+        this quadratic cannot express, construct the needed surface with equivalent density and continuous
+        normals. Piecewise vertex offsets can create unrequested crease lines or warp planar facets; use
+        plane-aware operations and inspect planarity after any such edit. Export preserves authored normals;
+        it does not automatically flatten, smooth or guess the intended shape.
+
+        Main-run mesh-health helpers use the same checked planners as owner edits. Each accepts an object or
+        object name, vertex_ids=None (the entire visible mesh), strength=1.0 and dry_run=False; use dry_run=True
+        to inspect the proposal without a write. g3d.mesh_cleanup removes exact selected duplicate vertices and
+        zero-area faces, preserving retained positions. It is not a distance-based weld. g3d.consistent_normals
+        needs complete selected closed shells and repairs orientation; inspect smooth shading and facet splits.
+        g3d.symmetrize_mesh(obj, pairs, ...) takes explicit [source_vertex_id, destination_vertex_id] pairs and
+        moves destinations toward the source reflected about asset X=0. Show both sides in the selection.
+        g3d.controlled_decimate(obj, max_removed_vertices=1, ...) removes selected planar interior fan vertices
+        only; it preserves retained positions, silhouette, sharp edges, material/UV seams and attachment triangles.
+        Curved or protected regions may have no safe reduction. Strength controls the repair amount/removal count;
+        discrete repairs can have identical outcomes. Helpers return checked proposals and following markings,
+        or a reason for refusal, and roll back touched meshes on failure. Normal changes use independent face
+        normal spaces throughout the selected support's normal influence, marking its shared edges as sharp
+        and reporting added flags in normal_fan_encoding.
+        Existing sharp flags remain; added flags move no vertices, and equal intended normals stay continuous.
+        Inspect added_sharp_edges and the rendered shading. Helpers never relax closed-solid,
+        applicable thickness or strict export checks. In owner edit mode use the labelled, previewed and
+        confirmed owner operations; these construction helpers do not grant extra edit authority.
+
         g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
         authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB;
         the untextured film uses the maximum thickness. Both thickness limits are retained in the GLB.
@@ -597,7 +630,7 @@ def build_tools(scene, settings=None) -> list:
     async def finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
                      per_photo: list[finish_review.PhotoDifference] | None = None):
         """Finish in two calls. First export/check the current head, capture fixed-scale AR and show every usable
-        photo's full pair and native details plus the worn front. Inspect them, then call again with its review_call_id
+        photo's full pair and native details, side-light surface checks and the worn front. Inspect them, then call again with its review_call_id
         and exactly one per_photo entry {ref, differences} for each required ref. State visible differences or 'none'.
         Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.

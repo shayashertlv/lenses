@@ -263,7 +263,7 @@ def _pair(photo, drawing, box, path, title, max_side):
             "patches_32px": ((result.width + 31) // 32) * ((result.height + 31) // 32)}
 
 
-def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=HIGH_MAX_SIDE):
+def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=HIGH_MAX_SIDE, surface_only=False):
     """Build a full pair and visible native detail pairs, leaving worn-front delivery to the caller.
 
     detail:high's 2500 32px-patch budget includes labels/gaps (round each dimension up).
@@ -287,8 +287,9 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
     box = row.get("crop_box") or [0, 0, photo.width, photo.height]
     full = _pair(photo, drawing, box, directory / "full-pair.png", f"{row['ref']}: full photo / AR", max_side)
     full.update(view=f"{row['ref']}: full photo / AR", kind="look_full_pair", ref=row["ref"])
-    images, details = [full], []
-    candidates = {key: [] for key in DETAIL_KINDS}
+    images, details = ([] if surface_only else [full]), []
+    kinds = ("facet_flatness", "shading_seam", "lens_ripple") if surface_only else DETAIL_KINDS
+    candidates = {key: [] for key in (*DETAIL_KINDS, *kinds)}
     glasses = _components(selected["glass"], 16)
     for component in glasses:
         rim = binary_dilation(component, iterations=8) & selected["front"]
@@ -316,7 +317,18 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
                 candidates[kind].append((box, {"lens_mark": "small non-transmitting geometry within 0.3 mm of glass; area <=2% of glass",
                     "hinge_root": "visible proximal 15% of an authored/geometrically inferred arm's depth span",
                     "arm_tip": "visible distal 15% of an authored/geometrically inferred arm's depth span"}[kind]))
-    for kind in DETAIL_KINDS:
+    if surface_only:
+        for component in glasses:
+            candidates["lens_ripple"].append((_box(component, 16), "visible lens surface; inspect moving highlights for coarse tessellation or normal jumps"))
+        for part in np.unique(selected["part"]):
+            if part < 0:
+                continue
+            mask = selected["part"] == part
+            if geometry.temples[part]:
+                candidates["facet_flatness"].append((_box(mask, 16), "visible temple surface; inspect planes and unintended internal lines"))
+            if geometry.front[part]:
+                candidates["shading_seam"].append((_box(mask, 16), "visible front; inspect top corners and shading seams"))
+    for kind in kinds:
         if not candidates[kind]:
             reason = "no visible qualifying geometry in this photo; not evidence the feature is absent from the product"
             if kind == "lens_mark":
@@ -327,8 +339,9 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
         for c, (box, method) in enumerate(candidates[kind]):
             for tile, crop in enumerate(_tiles(box, min(DETAIL_SIDE, (max_side - 8) // 2, max_side - 42))):
                 path = directory / f"{kind}-{c:02d}-{tile:02d}.png"
-                rec = _pair(photo, drawing, crop, path, f"{row['ref']}: {kind} / native pixels", max_side)
-                rec.update(view=f"{row['ref']}: {kind} {c + 1}.{tile + 1}", kind="look_detail", detail_kind=kind,
+                light = " / SIDE LIGHT" if surface_only else ""
+                rec = _pair(photo, drawing, crop, path, f"{row['ref']}: {kind}{light} / native pixels", max_side)
+                rec.update(view=f"{row['ref']}: {kind}{light} {c + 1}.{tile + 1}", kind="surface_detail" if surface_only else "look_detail", detail_kind=kind,
                            ref=row["ref"], selection_method=method)
                 images.append(rec)
                 recs.append(rec)
