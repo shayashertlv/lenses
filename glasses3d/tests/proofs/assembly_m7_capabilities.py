@@ -35,8 +35,11 @@ def run(out):
     assert len(sentences) == 4 and "".join(sentences) == words
     # Keep the exact single-space owner sentence separators rather than normalizing
     # the request into a different string for the checker.
+    # The front line includes an authored geometric ramp as well as split shading.
+    # Shading alone cannot reverse that measured geometry cause.
     record = mapping([line.strip() for line in sentences], [
-        ["flatten_face"], ["flatten_face"], ["repair_shading"], ["refine_curved_surface"],
+        ["flatten_face"], ["flatten_face"], ["taper_region", "repair_shading"],
+        ["refine_curved_surface"],
     ])
     record["request_text"] = words
     for item in record["items"]:

@@ -1,11 +1,16 @@
 # glasses3d progress
 
-## 2026-10-16 — M7/M8 committed; desktop test found a facade-registration bug
+## 2026-10-16 — M7/M8 copy proofs reviewed; full desktop test still running
 
 Owner's question, verbatim: **"any other mesh editing tools astra might need?"**
 Follow-up, verbatim: **"after youre done with everything please run the automation for a test but instead of astra api, use desktop gpt (you!, use astra xhigh and with no other convos memory) this way will be able to test without additional spending"**.
 The owner selected **"Full photo-to-3D run on a fresh copy of the Prada job"**.
-Implementation committed **d39f954** with 96 explicit source/test/documentation paths. The full test
+Tooling committed **d39f954** with 96 explicit source/test/documentation paths. A final accuracy
+review caught that the initial front copy repaired shading but retained the geometric crease.
+The existing ordered taper-and-shading tools now remove that cause in two native copy previews.
+Independent execution of the new packaged proof runner reproduces both snapshots and GLBs
+byte-for-byte with unchanged inputs; its final review has no findings
+(`m7/ordered-owner-review-v1/independent-review.json`). The full test
 then started on `prada-fresh-desktop-m7-m8-151f4802`, using fresh `gpt-6-astra` desktop tasks at
 `xhigh`, exact pipeline input packets and no inherited conversation history. Its six photo hashes,
 view declarations, description and specifications match the original intake; no old model, cameras
@@ -18,7 +23,10 @@ lazy imports, now preloaded during trusted setup without weakening the audit gua
 script succeeds unchanged on a separate scratch scene (13 objects, zero runtime violations).
 Independent follow-up review: no findings (`m7/final-facade-review-v1/review.json`).
 The final assembly proof passed in **200.172 s**, with 13 scripted steps and zero actual API spend.
-A fresh full desktop restart follows the fix commit. The stopped-attempt audit proves zero external API/network/production transport
+The fix is committed as **090f95b**. Full desktop test v2 is now running on fresh job
+`prada-fresh-desktop-m7-m8-v2-9488f012`; audit and mailbox:
+`data/assembly/desktop-prada-m7m8-v2`. It uses only the original input photos/description/specs
+and view declarations, with no v1 model, choices or history. The stopped-attempt audit proves zero external API/network/production transport
 activity. The unchanged guard retains a synthetic unknown reservation of $0.8192 for the cancelled
 request; this is not a provider charge and was not reconciled to disguise the cancellation.
 No external API call, paid run, product estimate request, delivered-model edit or push is authorized.
@@ -33,13 +41,22 @@ $0 capability check are implemented. Every new owner operation requires labelled
 2–3 real scratch amounts, explicit owner selection, sealed markings and unchanged hard checks.
 
 Details and limits: [M7_M8_RESULTS.md](M7_M8_RESULTS.md). Owner-readable evidence:
-`data/assembly/m7-m8-review-v1/index.html`. Final M7 copies: `m7/surface-copy-v10`,
+`data/assembly/m7-m8-review-v2/index.html`. M7 copies: `m7/surface-copy-v10`,
 `final-gallery-v5`, `reflection-final-v3`, `surface-operations-gallery-v1`; M8 evidence index:
 `m8/final-regeneration-manifest-v1.json`, plus `m8/deform-v5` and its scale gallery/diagram.
 All delivered inputs stay unchanged. These are demonstration copies, not owner acceptance.
-The plane-preserving temple proposal moves shared corners (maximum 6.734 mm). The front repair
-retains its geometric cut: 14 main edges per side have shading jump ≤ 0.0072°, while a boundary
-edge and unselected back edges remain. Lens highlights improve subtly; measured geometric fold
+The plane-preserving temple proposal moves shared corners (maximum 6.734 mm). The final front
+proposal reverses the measured Z ramp and then repairs shading through one ordered F1/F2/N1/N2
+operation list. All 21 traced cut edges per side have maximum geometric fold
+**44.6093 → 24.1341 → 0.09854°**, with full-result shading jump ≤ **0.01703°**. Maximum Z
+motion is **2.434 mm**; X/Y, topology and unrelated objects stay exact. Closed/strict checks
+pass; all **652 seating stations** still pass with unchanged inputs, though some wall distances
+change. Its optional local opposing-wall thickness check remains unsupported because both walls
+move; no whole-front minimum certificate is claimed and no check was weakened. The shoulder
+remains visually rounder than the photo. Evidence: `m7/front-geometry-mixed-v1`; earlier
+shading-only proofs remain preserved as limited results. The $0 front mapping now requires
+both taper and shading; fresh M7/M8 CLI reports are in `m7/capabilities-front-geometry-v6`,
+with **23** capability tests passing. Lens highlights improve subtly; measured geometric fold
 falls 4.693→3.385° and p95 1.294→0.654°, without claiming an optical-ripple measurement.
 
 Final verification found and fixed two genuine Blender normal-storage faults: restoring fan

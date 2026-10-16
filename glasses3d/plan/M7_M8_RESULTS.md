@@ -1,10 +1,16 @@
 # M7/M8 implementation and copy proofs
 
-Status: implementation, copy proofs and independent instruction reviews are complete.
+Status: the edit tooling and recorded copy demonstrations are complete. A final accuracy
+review caught that the initial front-corner demonstration repaired shading while retaining
+the authored crease. A new copy proof uses the existing ordered taper-and-shading operations
+to remove that geometry cause. Independent review now has no findings; the packaged replay
+produces byte-identical snapshots and GLBs on fresh copies. The full fresh desktop automation
+test is still running.
 Implementation commit: **d39f954**. The first fresh desktop test on
 `prada-fresh-desktop-m7-m8-151f4802` found a facade-registration gap and was stopped before
-geometry changed. The general fix, independent review and final assembly proof are complete. A fresh
-full restart follows the fix commit.
+geometry changed. The general fix, independent review and final assembly proof are complete. Fix commit:
+**090f95b**. Full desktop test v2 is running on fresh job
+`prada-fresh-desktop-m7-m8-v2-9488f012`; evidence: `data/assembly/desktop-prada-m7m8-v2`.
 These copies are not owner-accepted models. Visual limits and remaining geometric
 creases are disclosed below; no delivered model was edited.
 
@@ -41,6 +47,25 @@ used the outer chart. The fix chooses the chart from the original surface normal
 preserves stand-off and rejects an unsupported edge-facing chart. On the corrected
 copy, inner lettering stays inside with movement below **0.000047 mm**.
 
+The final front proposal reverses request 73's measured Z ramp with the existing
+`taper_region`, then repairs normals with `repair_shading`. Both amounts are one ordered,
+source-bound F1/F2/N1/N2 list through the normal planner, native writer and verifier.
+Across all 21 traced main, boundary and back cut edges per side, the maximum geometric
+fold is **44.6093 → 24.1341 → 0.09854°**; the full result's shading jump is at most
+**0.01703°**. Maximum Z movement is **2.434 mm**; X/Y, topology, lenses and unrelated
+objects remain exact. Closed-solid and strict-export checks pass. All **652 seating
+stations** still pass with unchanged inputs, although some wall-distance measurements
+change. Evidence: `data/assembly/m7/front-geometry-mixed-v1`.
+
+This arbitrary front has no verified temple thickness chart. Its optional local opposing-wall
+measurement refuses this deformation because both walls move; that refusal is retained.
+Preserved axial intervals are not a certificate of minimum thickness in every direction.
+No existing check was bypassed or weakened. The corrected shoulder still appears rounder
+than the photo's crisp transitions, so this is an unaccepted cause-removing proposal,
+not a claim of restored overall likeness. Original c0015 is the visual before; the operation
+source has previously corrected temples, with its front position, triangle, normal and material
+arrays verified identical to the original. Both previews show that provenance explicitly.
+
 ## Implementation and edit contract
 
 All new operations use the existing source-bound owner workflow: a short map label
@@ -66,9 +91,13 @@ Closed-solid, orientation, minimum-thickness and strict-spec checks remain in fo
 | `controlled_decimate` | Removes only selected coplanar interior fans that preserve the exact surface. Protects silhouette, boundary, sharp edges, UV/material boundaries, authored normal fields and markings. |
 
 The exact minimum-thickness checker uses projected triangle intersections, including
-the moved surface and its unchanged opposing surface. Unprovable charts, crossings,
-moving opposing components and missing coverage refuse the edit. It does not silently
-substitute a sparse sample or bounding-box thickness.
+the moved surface and its unchanged opposing surface. For operations that require this
+checker, unprovable charts, crossings, moving opposing components and missing coverage
+refuse the edit. It does not silently substitute a sparse sample or bounding-box thickness.
+The older taper operation retains its existing physical contract: closed oriented solids
+and the declared minimum for verified temple constructions. It does not acquire a generic
+whole-front minimum certificate by being combined with shading repair. The final front
+proof records its additional local-wall measurement as unsupported, not passed.
 
 The native normal witness verifies Blender's exact stored split-normal encoding,
 planned fan flags and decoded vector error. The planner supplies independent face
@@ -101,12 +130,17 @@ confirmation remain necessary. The reproducible M7/M8 mapping proof is
 
 All paths below are local ignored evidence, not committed model assets.
 
-The complete owner-readable page is `data/assembly/m7-m8-review-v1/index.html`.
+The complete owner-readable page is `data/assembly/m7-m8-review-v2/index.html`.
 Its images are copied byte-for-byte from the individual evidence galleries.
-Final M7 combined proof: `data/assembly/m7/surface-copy-v10`; photo-first room and
+Lens-refinement and shading-only operation proof: `data/assembly/m7/surface-copy-v10`; room and
 side-light gallery: `final-gallery-v5`; extra fixed-camera reflections:
 `reflection-final-v3`. The L1/L2/F1/F2 labelled group and both amounts are in
 `surface-operations-gallery-v1`. These start from the already rebuilt temple copy.
+The final geometry-and-shading front proof is `front-geometry-mixed-v1`, with its original-c0015
+photo-first room/side comparisons in `front-geometry-mixed-gallery-v1` and actual source-bound
+F1/F2/N1/N2 labels in `front-geometry-mixed-selections-v1`. The generic native replay helper is
+`tests/proofs/assembly_ordered_owner_copy.py`; its exact inputs are the recorded source copy,
+`work/model_maps/baseline/snapshot.json` and `ordered-options.json` in that proof.
 
 Each lens front goes from **880 to 3,600 triangles**. Maximum geometric fold falls
 **4.6929 → 3.3853°**, 95th percentile **1.2941 → 0.6536°**; no measured interior
@@ -114,15 +148,21 @@ normal seam or degenerate front triangle appears. Original points and outline st
 fixed. The highlight change is subtle in the chosen views; mesh measurements do not
 measure optical ripple or establish owner acceptance.
 
-On each front corner, **14 selected main cut edges** go from roughly **38–43°** shading
+In the earlier shading-only demonstration, **14 selected main cut edges** go from roughly **38–43°** shading
 jumps to at most **0.0072°**. Every vertex stays fixed. The authored geometric crease
 remains; one boundary edge still has a **35.37°** shading jump and six unselected back
 edges retain their existing jumps (up to **44.21°**). Grouped measurements retain all
-these edges rather than reporting only the improved subset.
+these edges rather than reporting only the improved subset. This remains evidence of the
+shading-only operation, but the final front proposal above also removes the geometry cause.
 
-The final half/full native normal audit passes exact stored-code, fan-space and
+The v10 half/full native normal audit passes exact stored-code, fan-space and
 decoded-direction checks. Worst component error is **0.000540**, below the unchanged
 **0.000775** roundoff bound. All saved-copy hashes remain unchanged during audit.
+The later mixed front proof also passes, with worst component error **0.000572** under
+the same bound.
+Independent execution of the packaged ordered-copy runner reproduces both final snapshots
+and GLBs byte-for-byte, with unchanged inputs. Its final code/evidence/wording review has
+no findings: `data/assembly/m7/ordered-owner-review-v1/independent-review.json`.
 
 | Example | Evidence |
 |---|---|
@@ -166,8 +206,10 @@ angles and perfect planarity simultaneously.
   **16 passed**, plus the nonfinite-decoder regression.
 - Both actual `job edit-check` CLI reports are ready at $0: all four M7 items and
   all seven M8 items. The exact verbatim request bytes are preserved on Windows.
-  Current reports: `data/assembly/m7/capabilities-final-v5/{m7,m8}-cli-report.json`,
-  regenerated after the last implementation change.
+  Current reports: `data/assembly/m7/capabilities-front-geometry-v6/{m7,m8}-cli-report.json`.
+  The front item now names both `taper_region` and `repair_shading`; shading alone cannot
+  remove the measured geometric cause. All **23** capability tests pass after this proof
+  mapping correction. No production implementation changed for the combined front proof.
 - After the final quadratic-normal change: **13** independent refinement/review
   tests, **131** instruction/preview tests and **23** map tests pass.
 - Final `tests.proofs.assembly_m1` **passed in 200.172 seconds**: 13 scripted tool
@@ -197,3 +239,13 @@ on a separate empty scratch scene, creating 13 objects without runtime violation
 Independent review has no remaining findings:
 `data/assembly/m7/final-facade-review-v1/review.json`. The earlier text exports remain
 byte-identical. Original stopped-attempt evidence and its synthetic ledger remain intact.
+
+The fresh v2 run has also exercised the new surface report through the ordinary main-run
+tools. Its first constructed scene contains 20 objects. The six-photo comparison reports
+measured, informational-only surface quality, exported-normal measurements for all 20
+objects, and 89 side-light details alongside 49 ordinary details and six full photo pairs.
+There were no measurement errors or unusable references. Named-facet measurements are
+explicitly unavailable for these manually constructed objects without builder provenance;
+the report does not invent facet labels. Astra explicitly requested the per-object surface
+measurements through `read_report`. This establishes consumption of the new diagnostics,
+not a finished model or owner acceptance. Full-run completion is still pending.
