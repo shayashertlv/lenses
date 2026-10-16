@@ -59,16 +59,17 @@ def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
     assert len(assert_money_invariants(job, RUN, transport)) == 14
 
 
-@pytest.mark.parametrize("counted,expected_requests,expected_spend,expected_counts", [
-    (400_000, 2, 20_000_000, 2),  # reaches the settled stop; third request is neither counted nor reserved
-    (540_000, 1, 13_500_000, 2),  # below the settled stop, but the next reservation would exceed $23
+@pytest.mark.parametrize("cap,counted,expected_requests,expected_spend,expected_counts", [
+    ("23", 400_000, 2, 20_000_000, 2),  # reaches the stop; third request is neither counted nor reserved
+    ("23", 540_000, 1, 13_500_000, 2),  # below the stop, but the next reservation would exceed $23
+    ("44.2788", 540_000, 2, 27_000_000, 2),  # owner-approved headroom admits the last request at $13.50
 ])
 def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
-        tmp_path, counted, expected_requests, expected_spend, expected_counts):
-    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=10, settled_stop_usd="20")
+        tmp_path, cap, counted, expected_requests, expected_spend, expected_counts):
+    settings = L.RunSettings(effort="high", max_output_tokens=16384, max_turns=10, settled_stop_usd="20")
     usage = R.default_usage(counted, output_tokens=0, reasoning_tokens=0)
     replies = [R.tool_call("scene_summary", {}, counted=counted, usage=usage) for _ in range(3)]
-    job, transport, result, _ = run_once(tmp_path, replies, cap="23", settings=settings)
+    job, transport, result, _ = run_once(tmp_path, replies, cap=cap, settings=settings)
     assert result["status"] == "budget_limit"
     assert result["budget"]["settled_micro_usd"] == expected_spend
     assert len(transport.creates) == expected_requests and len(transport.counts) == expected_counts
@@ -77,7 +78,7 @@ def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
     settled = 0
     for row in assert_money_invariants(job, RUN, transport, refused_count=expected_counts - expected_requests):
         assert settled < 20_000_000
-        assert settled + row["reserved_micro_usd"] <= 23_000_000
+        assert settled + row["reserved_micro_usd"] <= B.cap_to_micro(cap)
         settled += row["settled_micro_usd"]
     config = json.loads((job / "runs" / RUN / "run-config.json").read_text())
     assert config["settled_stop_usd"] == result["settings"]["settled_stop_usd"] == "20.000000"

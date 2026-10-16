@@ -1,5 +1,40 @@
 # glasses3d progress
 
+## 2026-10-16 — Owner-authorized high-effort run: remove premature reserve refusal
+
+The new owner direction quoted in the 6f entry below authorizes a paid run after the completed $0 work,
+at **effort high**, with **$20 settled spending as the cutoff for starting another request** and the
+last in-flight request allowed to finish. The owner's predicted total under $30 is not treated as a
+new hard cap; no guarantee of that total was made. M6 6f is committed as **`70608ea`**.
+
+The generic job wrapper previously rejected any reserve above $23, independently of the $20 settled
+stop. It now accepts an explicitly approved finite reserve; $23 remains the default, and the maximum
+settled stop remains $20. Approval binding, shared main/child accounting, token counting and the
+per-request guard remain intact. There is no output shrinking, history rewriting or reply limit.
+Main and ordinary/owner temple children inherit effort high and the full 16,384 output-token limit.
+
+For the current standard/global frozen tariff, the largest supported next request (922,000 input and
+16,384 output tokens) needs **$24.278800** of reserve. Starting below $20 therefore needs a technical
+reserve ceiling of **$44.278799** in the extreme case; the selected run will use **$44.28**, rounded up.
+This covers the supported next request under these settings; it is not an expected cost or a promise
+that the model will finish. The user was told the conservative ceiling and that final cost below $30
+cannot be guaranteed. No request is counted or sent once settled spending reaches $20.
+
+**Validation and independent review:** job CLI, shared stage budget and loop suites: **112 passed in
+70.43 s**; budget guard, pricing and job-ledger regressions: **160 passed in 8.36 s**. Independent
+verification: **247 passed in 75.17 s**, overlapping the author checks. Tests prove the former $13.50
+early refusal with a $23 reserve, admission of the final request with the larger approved reserve,
+full main/child limits at $19.99, refusal at/above $20 before counting, stale/insufficient approval
+refusal and prior-run total isolation. The final four-file diff has **no review findings** and passes
+`git diff --check`. These tests used offline transports only; no actual job estimate, approval,
+credential-file read or paid call occurred during the policy change. The 6f M1 and broader suite
+results remain recorded below, including the known golden mismatch. No instruction text changed.
+
+Next: prepare a new locally computed estimate bound to the committed code and unchanged Prada inputs,
+record the existing owner authorization, archive only the previous generated runtime, verify the
+empty seed offline, then launch one fresh high-effort run through the existing secure CLI. Prior
+deliveries, runs, input files and cumulative ledger will be preserved. Never push.
+
 ## 2026-10-16 — M6 6f: money for visible fixes, shape review and amount previews ($0)
 
 Started clean on **`glasses3d`** at **`49c36e5`**, confirmed with `git log --oneline -1`.

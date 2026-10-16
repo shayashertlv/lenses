@@ -51,8 +51,9 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     if any(value is not None for value in (settings.context_guard_tokens, settings.context_guard_bytes,
                                            settings.context_guard_every_requests)):
         raise ValueError("job history is append-only; context guard epochs require a new unguarded run request")
-    if cap_to_micro(cap) > 23_000_000:
-        raise ValueError("job reservation cap cannot exceed the owner's $23 limit")
+    # $23 remains the default. A different finite reserve is bound to this run's explicit owner approval;
+    # it does not raise the settled-spend stop or bypass the per-request reservation guard.
+    cap_to_micro(cap)
     if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) > 20_000_000:
         raise ValueError("job settled-spend stop must be at most the owner's $20 limit")
     if settings.smoke:

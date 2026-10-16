@@ -128,6 +128,38 @@ def test_prepared_settings_preserve_bound_nondefault_behaviour(job):
     assert rebuilt.current_request_sha256 == spec.current_request_sha256
 
 
+@pytest.mark.parametrize("approved_cap", ["23", "44.2788"])
+def test_explicit_larger_reserve_keeps_settled_stop_and_requires_covering_approval(job, approved_cap):
+    selected = command("estimate", job, "--effort", "high", "--cap", "44.2788", "--settled-stop", "20")
+    settings = selected["request"]["settings"]
+    assert selected["requested_cap_micro_usd"] == 44_278_800
+    assert settings["settled_stop_usd"] == "20.000000" and settings["effort"] == "high"
+    assert settings["max_output_tokens"] == 16_384 and settings["max_turns"] is None
+    child = settings["stages"][0]
+    assert child["maximum_micro_usd"] == 44_278_800
+    assert child["settings"]["settled_stop_usd"] == "20.000000"
+    assert child["settings"]["effort"] == "high" and child["settings"]["max_output_tokens"] == 16_384
+    restored, cap = job_run.prepared_settings(job, selected["run_id"])
+    assert cap == "44.278800" and restored.settled_stop_usd == "20.000000"
+    rebuilt, _ = job_run.prepare_run(job, selected["run_id"], settings=restored, cap=cap)
+    assert rebuilt.current_request_sha256 == selected["request_sha256"]
+    command("approve", job, "--run-id", selected["run_id"], "--max-usd", approved_cap,
+            "--owner-words", "Offline test: allow the final in-flight request; stop new requests at $20 settled.")
+    run = job / "runs" / selected["run_id"]
+    if approved_cap == "23":
+        with pytest.raises(A.ApprovalRefused, match="below the requested"):
+            A.check_approval(run, current_request_sha256=rebuilt.current_request_sha256, requested_cap_usd=cap)
+    else:
+        approval = A.check_approval(run, current_request_sha256=rebuilt.current_request_sha256,
+                                    requested_cap_usd=cap)
+        assert approval.requested_cap_micro == approval.max_micro == 44_278_800
+        changed, _ = job_run.prepare_run(job, selected["run_id"],
+                                         settings=replace(restored, settled_stop_usd="19"), cap=cap)
+        with pytest.raises(A.ApprovalRefused, match="changed since"):
+            A.check_approval(run, current_request_sha256=changed.current_request_sha256, requested_cap_usd=cap)
+    assert not (run / "budget.json").exists()
+
+
 @pytest.mark.parametrize("changes", [{"context_guard_tokens": 150000},
                                      {"context_guard_every_requests": 3}, {"context_guard_bytes": 100000}])
 def test_job_refuses_history_rewriting_settings(job, changes):
@@ -207,7 +239,8 @@ def test_stop_writes_request_in_correct_job(job):
     assert (job / "stop.requested").read_text() == "Owner requested stop.\n"
 
 
-@pytest.mark.parametrize("option,value", [("--cap", "24"), ("--settled-stop", "21"),
+@pytest.mark.parametrize("option,value", [("--cap", "nan"), ("--cap", "inf"), ("--cap", "-1"), ("--cap", "0"),
+                                          ("--settled-stop", "21"),
                                           ("--cap", "nonsense"), ("--settled-stop", "nonsense")])
 def test_invalid_money_settings_are_reported_without_traceback(job, capsys, option, value):
     assert cli.main(["job", "estimate", str(job), option, value]) == 2
