@@ -626,6 +626,37 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
+### M7. Surface quality: flat facets, clean front corners, smooth lenses ($0 first; added 2026-10-16 by Claude)
+Prada run 4 (`20261016T092442-0c5459`, effort high, $16.21, c0015, finished normally). Owner's edit request,
+verbatim: "the logo triangle has a vertical outward line from its bottom center to its middle. the facets on the
+temple arent flat triangles, their angles look good but they should be each a flat plane. at the top outer corners
+of the front frame theres a weird line which makes the front incorrect (visibility depends on lighting). the lenses
+are not smooth, when the light hits them you can see rigdeness." The paid UNDERSTAND round spent $6.30 and produced
+nothing: $1.90 lost to a Windows path-length bug (fixed `fd09595`), $4.39 to `understand_finish` refusing an honest
+"unsupported" result (fixed `d6d163b`); translate/rotate/taper cannot express any of the four requests.
+These are surface-quality defects that will recur on every product, so fix them where they are made, not only in
+paid edit rounds:
+1. **Diagnose all four at $0** on the delivered c0015 GLB, photo first: for each, reproduce it in the AR renderer
+   under the review light and at least one other light, and establish the cause with measurements: facet planarity
+   (best-fit-plane residual per named facet), shading normals (smooth vs split across facet edges, custom normals,
+   the 464 zero-area temple triangles), lens tessellation density and normal continuity, and what geometry or normals
+   create the front-corner line. Name which tool, builder step, exporter step or Astra edit produced each cause
+   (e.g. run 3's request 70 made all temple polygons smooth and cleared custom normals).
+2. **Fix the causes in the producing tools** (general, product-independent): e.g. faceted bodies keep flat faces
+   and split normals at declared facet edges; the temple builder never leaves degenerate triangles; lenses export
+   with smooth, continuous normals and enough tessellation for their curvature; whatever creates the corner line.
+   Never edit this delivery by hand.
+3. **Astra sees surface quality in the main run:** a surface-quality check (planarity per facet, shading seams,
+   lens ripple) reported with close-ups under a raking light, in `compare_look_to_photos` and the finish review,
+   as information, not a gate.
+4. **Owner edit operations** (Codex's proposal): flatten a selected face onto its plane (keeping borders, angles and
+   attached markings), repair shading without moving geometry, and refine a curved surface (keeping curvature,
+   thickness, outline and seating); each with labelled selection, scratch-copy previews, confirmation and checks.
+5. **No more wasted paid edit rounds:** before any paid UNDERSTAND/EDIT round, a $0 dry run checks that every
+   requested item maps to an available operation; if not, build it first.
+6. **Proof ($0):** items 1-4 shown photo-first on a copy of c0015 (the four defects before/after); `assembly_m1` and
+   the affected suites. Then stop for the owner.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
