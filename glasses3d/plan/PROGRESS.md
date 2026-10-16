@@ -15,7 +15,7 @@ Main and ordinary/owner temple children inherit effort high and the full 16,384 
 
 For the current standard/global frozen tariff, the largest supported next request (922,000 input and
 16,384 output tokens) needs **$24.278800** of reserve. Starting below $20 therefore needs a technical
-reserve ceiling of **$44.278799** in the extreme case; the selected run will use **$44.28**, rounded up.
+reserve ceiling of **$44.278799** in the extreme case; this run used **$44.28**, rounded up.
 This covers the supported next request under these settings; it is not an expected cost or a promise
 that the model will finish. The user was told the conservative ceiling and that final cost below $30
 cannot be guaranteed. No request is counted or sent once settled spending reaches $20.
@@ -30,10 +30,73 @@ refusal and prior-run total isolation. The final four-file diff has **no review 
 credential-file read or paid call occurred during the policy change. The 6f M1 and broader suite
 results remain recorded below, including the known golden mismatch. No instruction text changed.
 
-Next: prepare a new locally computed estimate bound to the committed code and unchanged Prada inputs,
-record the existing owner authorization, archive only the previous generated runtime, verify the
-empty seed offline, then launch one fresh high-effort run through the existing secure CLI. Prior
-deliveries, runs, input files and cumulative ledger will be preserved. Never push.
+**Launch:** policy change committed as **`95e41e4`**. The free local estimate for 60 replies is
+**$15.506123**, growth-only range **$13.749009–$21.092310**; its historical corpus does not guarantee a
+new generic-job cost. Exact owner words are recorded in the bound approval. Fresh run
+**`20261016T092442-0c5459`** started at **09:25:40 UTC**, keeper PID **6368**, command PID **26120**
+(Python runner PID **26220**). Saved configuration confirms high/16,384/unlimited replies/$20 settled
+stop/$44.28 reserve, production standard/global tariff, no output shrinking and `resume=false`.
+The existing secure runner alone loads the explicit credential-file path; no credential was inspected.
+
+Prior generated runtime was moved within the workspace to `data/assembly/prada4-old/`, with reparse and
+resolved-path checks. The offline fresh-start verification passed (exit 0, **09:25:19 UTC**), verifying
+archived hashes, original input/delivery preservation, absent conversation and only the empty origin
+marker at checkpoint `c0000` (fingerprint `cd2b85909396b5e6c14c852d04d47bc86bbea92d0eabfe4c4a62b90a67f7e24b`).
+Its scripts were independently reviewed, including recomputing the current approval hash before any
+move. Estimate/approval/reset made zero provider calls; the paid run is separate. Local operational
+receipts are in `data/assembly/m6prada4-preflight/`; live status/log/ledger are under this run's folder.
+Independent startup review passed: actual first provider request contains the exact reviewed main
+instructions, unchanged brief and six original high-detail photos. All **690** archived source files
+match the clean `95e41e4` implementation snapshot; only subsequent PROGRESS bookkeeping differs in the
+working tree. All **2,095** archived old-runtime files and **356** protected inputs/deliveries/request
+files match their preflight hashes (the now-active cumulative ledger is deliberately excluded).
+
+**Outcome:** the run completed normally, exit **0**, at **10:43:16 UTC** (**77 min 36 s** process
+elapsed). All **94** requests settled, totaling **$16.207990**; held and unknown amounts are **$0**.
+The $20 stop and $44.28 reserve did not terminate or refuse a request. Astra chose to finish with
+**$3.792010** remaining before the settled stop. The cumulative four-run job ledger is **$61.042183**
+(prior **$44.834193** plus this run), not this run's spending limit. No further paid run was started.
+
+The temple specialist returned successfully after its visual comparisons and geometry corrections.
+The main model underwent two complete six-photo camera fits (roughly 18 minutes each), repeated
+native appearance comparisons, lens seating, lettering and further corrections after first finish
+evidence. The final finish was accepted at **`c0015`**, with specification and lens seating checks
+passing and print checking `not_required`. This run's product geometry was produced by Astra through
+the pipeline; Codex did not supply geometry, product hints or intervention during the run. Healthy
+local fitting was left running, with read-only worker/progress checks and regular owner updates.
+
+Immutable delivery:
+`20261016T092442-0c5459-97950e05ea5533d5fbccfe04c8a7474cf9e8011354fd588d7da1fab8b5206a28`.
+GLB SHA-256: **`0a5f32222ccd2e105671cbcdc8c36ceee8cb29f4759e80775cf25c2e23244b4d`**.
+Delivery includes the model, report, six native photo/model pairs, close-ups and contact sheet.
+A verified detached local AR review server is ready on **127.0.0.1:8254**, bound to these exact bytes;
+its receipt is `data/assembly/m6prada4-preflight/review.json`. This is technical finish acceptance,
+**not owner approval of likeness**.
+
+**Remaining limitations are retained:** Astra reports more angular bridge/rear saddle geometry,
+approximate temple planes/shoulders and hook silhouettes, simplified hardware and reconstructed
+lettering/crests, and some broader/warmer inner-rim highlights. It states further retopology/artwork
+could not be completed reliably within the remaining run budget while retaining final review.
+Overall width around 145 mm is Astra's assumption because no dimensions were supplied. The export
+passes strict specification validation with warnings: **246 + 218** zero-area triangles on the temples
+and **32 + 32** on hinge leaves. AR capture is `captured_with_warnings`: the existing live-site arm
+spread pivots later than this local viewer, so turned views on the live site may hide the forward
+arm portion. The lens logo is correctly excluded from brow measurements as a decal. No warning,
+threshold or gate was removed; the live root application and `ar/` were untouched.
+
+**Final independent audit:** no accounting or integrity findings. All **94 raw provider responses**
+reprice exactly: parent **56 requests / $10.024389**, specialist **38 / $6.183601**. Every request
+started below $20 (highest settled start **$15.930646**), without overlapping reservations or budget
+refusals. Maximum observed pre-send committed money was **$19.747209**, below the selected reserve;
+the larger-reserve boundary was exercised by offline tests, not reached in this paid run. All **355**
+protected files, **2,095** archived runtime files, **690** frozen implementation files and **214**
+immutable final delivery files verify exactly. Only the intended cumulative ledger/current-delivery
+pointer and PROGRESS bookkeeping changed. Both lenses pass all **326** seating points; the report's
+right-lens `drilled_holes=1` diagnostic is retained without inferring an additional failure.
+Audit: `data/assembly/m6prada4-preflight/final-audit.json`, SHA-256
+**`a5c1c3b8af9668c08925c032f8c8f9c0a29478321d9f15971e7301c523ee6e2b`**.
+The runner has exited and no further paid calls are made. Final documentation is committed with its
+explicit path; nothing is pushed. Work stops here pending the owner's review.
 
 ## 2026-10-16 — M6 6f: money for visible fixes, shape review and amount previews ($0)
 
