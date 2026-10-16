@@ -28,8 +28,50 @@ Independent read-only preflight found **no blocker**: exact owner text; all **29
 files, **68** protected source files and six copied photos match; request hash recomputes exactly;
 parent and specialist bind the approved settings and `understand_finish`. The runtime refuses
 source mutation during UNDERSTAND, previews use scratch copies, and successful publication stops
-at `awaiting_owner_confirmation`. No production code changed; the earlier tests remain applicable.
-Paid launch is the next step using the existing detached secure runner, with no resume or runtime reset.
+at `awaiting_owner_confirmation`. No production code had changed at this preflight.
+
+**Launch:** clean commit **ebb2f85**, **11:25:38 UTC**; keeper PID **30924**, command PID **40264**.
+The existing detached secure runner is used, with no resume or runtime reset. It alone loads the
+explicit credential-file path. A second independent audit verified the actual first provider request:
+exact owner wording and reviewed instructions, six original high-detail photos, approved settings and
+UNDERSTAND finish. All **690** frozen/current source files match the clean implementation snapshot;
+all original and immutable round files still match. Initial round checkpoint c0000 has the source
+c0015 scene fingerprint. `startup-audit.json` in the operational folder records this; no blocker found.
+
+**Infrastructure stop:** the specialist rendered its labelled-map images, but twice failed while
+writing `capture-delivery.json`. Independent diagnosis found existing capture directories and images,
+a **248-character** destination and a **264-character** temporary filename (the writer appended PID
+and thread ID), exceeding legacy Windows MAX_PATH. Codex requested a graceful stop at 11:29:44 UTC
+to avoid repeated paid infrastructure retries. It exited at **11:29:48 UTC**, exit **1**, result
+`stopped`, with **15 settled requests / $1.902591**, held and unknown **$0**, and no teardown errors.
+This is an incomplete understanding, not a model edit or accepted interpretation. All source geometry
+and saved evidence are preserved; no receipt was manually marked delivered and no gate was bypassed.
+
+**General repair:** `procs.write_json_atomic` now creates a short, exclusive temporary filename in
+the destination directory, closes it before the existing retrying atomic replacement, and cleans up
+on failure. JSON formatting and delivery hashes are retained. Real filesystem regression reproduces
+the nested map receipt destination length; additional tests cover simultaneous writers, sharing-denial
+retries/exhaustion, original-file preservation and serialization failures. Direct atomic/map/process
+checks: **40 passed in 14.32 s**. Lifecycle/CLI/shared-stage money/budget/interruption checks:
+**196 passed in 15.97 s**. Offline **`tests.proofs.assembly_m1` passed in 157.75 s**, process exit 0:
+13 tools, 26 transport files, 36 image blobs and 35 AR images verified, actual spend **$0**.
+Independent review reproduced both legacy failures on a copied real receipt, then verified fixed
+delivery true/false at temp length 244 and unchanged capture bytes. Its five regression tests passed
+in 3.52 s, with **no findings**. No instruction, modelling operation or geometry gate changed.
+Independent stopped-run audit reprices all 15 raw responses exactly (parent **10 / $1.580623**,
+child **5 / $0.321968**), verifies all 68 original and 29 immutable round files, and confirms only
+unchanged c0000 checkpoints in parent/child, with no understanding or delivery published.
+
+**Retry preparation, within the same approved money limits:** fresh isolated UNDERSTAND copy
+**edit-ba5f9714be / round-001-understand**, run **20261016T113219-03262c**, keeps the exact source and
+owner words. The first attempt's settled amount is subtracted: retry settled cutoff **$18.097409**,
+reserve cap **$42.377409**. Thus neither parent nor specialist may start a request once combined
+settled spend reaches $20, and combined reserved spending is bounded by $44.28. Independent guard
+arithmetic verifies sufficient room for the largest supported next request. The fresh local estimate
+is **$15.693950** (same historical range), or **$17.596541** including the stopped attempt; this was
+shown before retry. Preparation made no API calls. Independent retry preflight verifies exact
+source/words, fresh round state, approval binding and inherited limits, with **no blocker**. The repair
+and its explicit regression paths are committed before the authorized retry is launched.
 
 The owner also requested a movable 3D viewer. The exact delivered GLB is available in the local orbit
 viewer at **http://127.0.0.1:58500/** (drag to rotate, scroll to zoom, right-drag to pan), with provenance

@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -657,10 +658,18 @@ def replace_with_retry(src, dst) -> None:
 
 def write_json_atomic(path, value) -> None:
     path = Path(path)
+    payload = json.dumps(value, indent=1, default=str)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(value, indent=1, default=str), encoding="utf-8")
-    replace_with_retry(tmp, path)
+    # Appending IDs to the destination name can exceed Windows MAX_PATH even
+    # when the destination itself fits. Exclusive creation also isolates writers.
+    fd, temporary = tempfile.mkstemp(prefix=".g3d-", suffix=".tmp", dir=path.parent)
+    tmp = Path(temporary)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+        replace_with_retry(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def read_json(path) -> dict | None:
