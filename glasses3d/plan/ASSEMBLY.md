@@ -579,6 +579,12 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    confirmation; the edit result (before/after images and change report). Astra's replies are scripted by Codex and
    must be labelled "scripted by Codex, not Astra"; every image and geometry change must come from the real tools.
    Then stop and wait for the owner's go before item 7.
+6c. **Before the first real edit round** (Claude's review of the walkthrough `56baab1`, 2026-10-16): (a) the labelled
+   map shows raw mesh ids ("F127388 front"); give the owner short labels per round (1, 2, 3 ... or T1, E2, P3) with a
+   plain-words legend ("1 = triangle facet nearest the frame, left arm") and labels large enough to read on the
+   full-size image; (b) in the demo's after images the unchanged PRADA/MILANO lettering is buried by the moved
+   temple surface: markings attached to or lying on an edited surface must follow that surface by default, and the
+   understand reply must list them; never leave a marking silently hidden. Prove both on the walkthrough copy.
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
