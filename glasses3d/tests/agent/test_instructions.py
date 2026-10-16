@@ -22,7 +22,7 @@ def test_current_registry_is_complete_and_named_independently(tools):
     assert I.named_tools(text) == frozenset(TOOL_NAMES) == I.instruction_contract(tools).named
     assert contract_problems(I.instruction_contract(tools), instructions=text, brief="Job facts.", tools=tools) == []
     assert text == I.build_instructions(list(reversed(tools)))
-    assert len(text) <= I.MAX_INSTRUCTION_CHARS == 8000
+    assert len(text) <= I.MAX_INSTRUCTION_CHARS == 16_000
 
 
 def test_owner_table_is_exact_and_included_once(tools):
@@ -54,6 +54,19 @@ def test_owner_edit_teaching_keeps_all_tools_and_owner_priority_within_cap(tools
     assert I.named_tools(text) == {t.name for t in registered}
     assert "outranks photo readings" in text and "Every physical hard check remains" in text
     assert "Do not mutate geometry" in text and "before and after" in text
+
+
+@pytest.mark.parametrize("phase", ["understand", "edit"])
+def test_owner_phase_contract_matches_its_actual_registry_and_brief(phase):
+    from glasses3d.agent import edits
+    owner = {"phase": phase, "request_text": "Move the shown face outward.",
+             "confirmation_text": "Yes, that face and amount.", "understanding": {}}
+    tools = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+    text = I.build_instructions(tools, owner_edit=owner)
+    assert contract_problems(I.instruction_contract(tools, owner_edit=owner), instructions=text,
+                             brief=edits.brief_suffix(owner), tools=tools) == []
+    assert text.count(MODEL_REQUIREMENTS) == 1
+    assert len(text) <= I.MAX_INSTRUCTION_CHARS
 
 
 @pytest.mark.parametrize("bad_registry", ["missing", "unknown", "duplicate"])
@@ -94,12 +107,12 @@ def test_runtime_contract_refuses_each_retired_literal(tools, phrase):
 
 
 def test_guidance_teaches_recorded_decisions_and_stage_order(tools):
-    text = I.build_instructions(tools)
+    text = " ".join(I.build_instructions(tools).split())
     for phrase in ("closed solid", "Every supplied reference image is an authoritative photo",
                    "Photos decide appearance", "Report every conflict", "A colourway name does not determine",
                    "Small branding stays", "Room reflections on lenses are not defects", "one fixed reflection",
                    "crystal and translucent", "complex pattern such as tortoiseshell", "photo-derived print",
-                   "plain frames need material, colour", "earlier owner complaints"):
+                   "Plain frames need material, colour", "earlier owner complaints"):
         assert phrase in text
     assert text.index("Develop the complete frame and lenses") < text.index("Resolve lens") < text.index("Apply photo print")
     assert text.index("Use `export_glb`") < text.index("Use `arview_capture`") < text.index("Call `finish`")
@@ -107,7 +120,8 @@ def test_guidance_teaches_recorded_decisions_and_stage_order(tools):
 
 def test_faint_facet_guidance_keeps_named_evidence_through_finish(tools):
     text = I.build_instructions(tools)
-    assert "facet edges crisp in photos but faint in the build" in text and "angle comparison/choice" in text
+    assert "facet edges crisp in photos but faint in the build" in text
+    assert "angle comparison/choice" in text
     assert "named mismatches and crops from the stage summary into the finish review" in text
 
 

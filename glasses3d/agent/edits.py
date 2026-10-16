@@ -72,7 +72,8 @@ def brief_suffix(doc):
         text += "\n\nOwner's confirmation or correction (verbatim):\n" + doc["confirmation_text"]
         understanding = doc["understanding"]
         shown = {key: understanding[key] for key in
-                 ("schema", "source_fingerprint", "items", "limitations", "map_id", "map_sha256", "capture_receipts")
+                 ("schema", "source_fingerprint", "items", "limitations", "map_id", "map_sha256", "capture_receipts",
+                  "following_markings", "legend")
                  if key in understanding}
         text += ("\n\nNumbered understanding and exact target references (full immutable authority is in "
                  "inputs/understanding.json; tools resolve the shown support hashes):\n"
@@ -284,10 +285,18 @@ def understanding_page(root):
     body = [f"<h1>{esc(title)}</h1><p>The model is unchanged. Confirm or correct these numbered changes. "
             "The edit is a separate round with its own estimate and approval.</p>",
             f"<h2>Owner's edit request (verbatim)</h2><pre>{esc(doc['request_text'])}</pre>"]
+    labels = {row['target_id']: row['label'] for row in doc.get('legend', [])}
     for item in doc["items"]:
         body += [f"<h2>{item['number']}. {esc(item['label'])}</h2>",
                  f"<p>{esc(item['interpretation'])}</p><p>{esc(item['direction'])}; {esc(item['amount'])}</p>",
-                 f"<p>Targets: {esc(', '.join(item['target_ids']))}</p>"]
+                 f"<p>Targets: {esc(', '.join(labels.get(key, key) for key in item['target_ids']))}</p>"]
+    if doc.get('following_markings'):
+        body.append('<h2>Markings that follow the edited surface</h2><ul>' + ''.join(
+            f"<li>{esc(row['object_name'])} follows {esc(row['surface_object_name'])}, keeping its distance from the surface.</li>"
+            for row in doc['following_markings']) + '</ul>')
+    if doc.get('legend'):
+        body.append('<h2>Label legend</h2><ul>' + ''.join(
+            f"<li>{esc(row['label'])} = {esc(row['description'])}</li>" for row in doc['legend']) + '</ul>')
     body.append("<h2>Limitations and neighbouring effects</h2><ul>" +
                 "".join(f"<li>{esc(value)}</li>" for value in doc["limitations"]) + "</ul>")
     seen = set()

@@ -15,6 +15,7 @@ from ...g3d_host import pose
 from .. import procs
 from . import arview, look, look_panels
 from . import model_map_geometry as G
+from . import model_map_labels as L
 
 SCHEMA = "g3d.model_map/1"
 
@@ -89,7 +90,7 @@ def validate_understanding(root, map_id, map_sha256, capture_receipts, operation
     manifest = load_map(root, map_id, map_sha256)
     state_path=Path(root)/"work/job_scene/state.json"
     unseen=set(_read(state_path).get("unseen",[])) if state_path.is_file() else set()
-    shown, scopes, files, images = set(), {}, [], []
+    shown, scopes, files, images, legend = set(), {}, [], [], {}
     for reference in capture_receipts:
         path = _bound(root, reference)
         receipt = _read(path)
@@ -102,6 +103,15 @@ def validate_understanding(root, map_id, map_sha256, capture_receipts, operation
             _bound(root, asset["path"], asset["sha256"])
             files.append(asset)
         shown.update(receipt["annotated_target_ids"])
+        for row in receipt.get("target_legend", []):
+            if row["target_id"] not in receipt["annotated_target_ids"]:
+                raise ValueError("A legend entry names a target absent from the shown map")
+            prior = legend.get(row["target_id"])
+            if prior is not None and prior != row:
+                raise ValueError("The same target has conflicting owner labels in the shown maps")
+            if any(old["label"] == row["label"] and old["target_id"] != row["target_id"] for old in legend.values()):
+                raise ValueError("A displayed label cannot name two targets")
+            legend[row["target_id"]] = row
         scopes.update({G.digest(s):s for s in receipt["support_scopes"]})
         files.extend([{"path": _relative(root, path), "sha256": arview.sha256(path)},
                       {"path": _relative(root, path.with_name(path.stem + "-delivery.json")),
@@ -129,7 +139,7 @@ def validate_understanding(root, map_id, map_sha256, capture_receipts, operation
     return {"snapshot_path": str(_bound(root, manifest["snapshot"]["path"], manifest["snapshot"]["sha256"])),
             "source": manifest["source"], "evidence_files": manifest["assets"] + files,
             "images": images, "map_path": f"work/model_maps/{map_id}/map.json", "map_sha256": map_sha256,
-            "annotated_target_ids": sorted(shown),"operations":resolved}
+            "annotated_target_ids": sorted(shown),"operations":resolved,"legend":list(legend.values())}
 
 
 def _font(size=18):
@@ -190,7 +200,10 @@ def _select(manifest, focus, kind):
     return [t for t in manifest["targets"].values() if t["kind"] == kinds[kind]]
 
 
-def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes, directory, page):
+def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes, directory, page,
+              display_labels=None, descriptions=None):
+    display_labels = {} if display_labels is None else display_labels
+    descriptions = {} if descriptions is None else descriptions
     camera = row["camera"]
     photo = Image.open(row["photo"]).convert("RGB")
     drawing = Image.open(row["drawing"]).convert("RGB")
@@ -239,7 +252,13 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
         if mask is None or mask.any():
             available.append((count if mask is None else int(mask.sum()), value, mask))
     available.sort(key=lambda item: (-item[0], item[1]["id"]))
-    shown = available[page * 24:(page + 1) * 24]
+    # A fixed label-cell grid guarantees readable nonoverlapping tags even when
+    # every target projects to one small cluster. Smaller images get more pages.
+    label_cell_w, label_cell_h = 110, 38
+    columns = max(1, camera["width"] // label_cell_w)
+    rows_count = max(1, (camera["height"] - 8) // label_cell_h)
+    page_size = min(24, columns * rows_count)
+    shown = available[page * page_size:(page + 1) * page_size]
     shown=[(count,value,mask if mask is not None else ((hit_obj==value["object_id"]) &
             (True if value["kind"]=="object" else np.isin(hit_poly,value["polygon_ids"]))))
            for count,value,mask in shown]
@@ -248,7 +267,8 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     annotated = drawing.convert("RGBA")
     overlay = Image.new("RGBA", drawing.size)
     draw = ImageDraw.Draw(overlay)
-    labels, shown_ids, drawn_scopes, normal_masks = [], [], [], []
+    labels, shown_ids, drawn_scopes, normal_masks, target_legend, occupied = [], [], [], [], [], set()
+    label_draws = []
     for index, (_, value, mask) in enumerate(shown):
         color = [(0, 114, 178), (213, 94, 0), (0, 158, 115), (204, 121, 167), (230, 159, 0)][index % 5]
         obj = objects[value["object_id"]]
@@ -266,15 +286,21 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
         centroid = np.array([np.mean(xx), np.mean(yy)])
         j = np.argmin((xx-centroid[0])**2 + (yy-centroid[1])**2)
         x, y = int(xx[j]), int(yy[j])
-        label = value["id"] + (" " + "/".join(value["aliases"]) if value["aliases"] else "")
-        width=draw.textbbox((0,0),label,font=_font())[2]
-        lx=min(max(4,x+5),max(4,camera["width"]-width-5))
-        ly=min(max(4,y-21),camera["height"]-26)
-        box = draw.textbbox((lx,ly), label, font=_font())
-        draw.rectangle((box[0]-3,box[1]-2,box[2]+3,box[3]+2), fill=(255,255,255,235))
-        draw.text((lx,ly), label, font=_font(), fill=(*color,255))
+        label_row = L.allocate(value, obj, display_labels, descriptions)
+        target_legend.append(label_row)
+        label = label_row["label"]
+        label_font = _font(28)
+        width=draw.textbbox((0,0),label,font=label_font)[2]
+        slots = [(col,row_number) for col in range(columns) for row_number in range(rows_count)
+                 if (col,row_number) not in occupied]
+        col,row_number = min(slots,key=lambda slot:(4+slot[0]*label_cell_w+width/2-x)**2+
+                           (4+slot[1]*label_cell_h+14-y)**2)
+        occupied.add((col,row_number))
+        lx,ly = 4+col*label_cell_w,4+row_number*label_cell_h
+        box = draw.textbbox((lx,ly), label, font=label_font)
+        label_draws.append((x,y,lx,ly,width,box,label,color))
         shown_ids.append(value["id"])
-        labels.append({"id": value["id"], "aliases": value["aliases"], "visible_pixels": int(mask.sum()),
+        labels.append({"id": value["id"], **label_row, "font_px":28, "aliases": value["aliases"], "visible_pixels": int(mask.sum()),
                        "source_editable": value["source_editable"],"label_box":[max(0,box[0]-3),max(0,box[1]-2),min(camera["width"],box[2]+3),min(camera["height"],box[3]+2)]})
     # Every explicitly displayed influence is drawn using its actual weighted vertices.
     for scope in scopes:
@@ -295,12 +321,19 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
                 color = (30,30,30,255) if vi in fixed else (180,0,100,round(70+185*w))
                 draw.ellipse((x-2,y-2,x+2,y+2), fill=color)
         drawn_scopes.append(scope)
+    # All leaders and support marks are below every opaque text box.
+    for x,y,lx,ly,width,box,label,color in label_draws:
+        draw.line((x,y,lx+width/2,ly+14),fill=(*color,255),width=2)
+    for x,y,lx,ly,width,box,label,color in label_draws:
+        draw.rectangle((box[0]-3,box[1]-2,box[2]+3,box[3]+2), fill=(255,255,255,255))
+        draw.text((lx,ly),label,font=_font(28),fill=(*color,255))
     annotated = Image.alpha_composite(annotated, overlay).convert("RGB")
     full = Image.new("RGB", (photo.width*2,photo.height+44), "white")
     full.paste(photo,(0,44)); full.paste(annotated,(photo.width,44))
     legend = ("magenta: movement, black: fixed, amber: normal influence" if scopes
               else "numbered actual-mesh targets")
     ImageDraw.Draw(full).text((12,10), f"{row['ref']} | PHOTO | MODEL — {legend}", font=_font(), fill="black")
+    full = L.append_legend(full, target_legend, _font(22))
     pair = directory / (row["ref"] + "-full.png")
     full.save(pair)
     # Native crop tiles, not resized substitutes. Full native pairs remain separately available.
@@ -321,18 +354,28 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
             piece = Image.new("RGB", ((x1-x0)*2,y1-y0+35),"white")
             piece.paste(photo.crop(tile),(0,35)); piece.paste(annotated.crop(tile),(x1-x0,35))
             ImageDraw.Draw(piece).text((7,7), f"{row['ref']} | PHOTO first | MODEL map | native tile {i+1}", font=_font(15), fill="black")
+            # Each label's legend is supplied as its own image when necessary;
+            # native model pixels and 28px tags must never shrink to fit long text.
             path = directory / f"{row['ref']}-tile-{i:03d}.png"
             piece.save(path)
-            images.append({"path": str(path), "sha256": arview.sha256(path), "view": f"{row['ref']} map native tile {i+1}: {','.join(shown_ids)}"})
+            images.append({"path": str(path), "sha256": arview.sha256(path), "view": f"{row['ref']} map native tile {i+1}: {','.join(r['label'] for r in target_legend)}"})
+        for i in range(0,len(target_legend),4):
+            entries = target_legend[i:i+4]
+            legend_image = L.append_legend(Image.new("RGB",(1000,1),"white"),entries,_font(24))
+            path = directory / f"{row['ref']}-legend-{i:03d}.png"
+            legend_image.save(path)
+            images.append({"path":str(path),"sha256":arview.sha256(path),
+                           "view":f"{row['ref']} legend: " + "; ".join(f"{entry['label']} = {entry['description']}" for entry in entries)})
     return {"ref": row["ref"], "full_pair": str(pair), "full_pair_sha256": arview.sha256(pair),
             "labels": labels, "annotated_target_ids": shown_ids, "support_scopes": drawn_scopes,
-            "legend": legend,
-            "visible_target_count": len(available), "page": page, "pages": (len(available)+23)//24,
+            "legend": legend,"target_legend":target_legend,
+            "visible_target_count": len(available), "page": page,"page_size":page_size,
+            "pages": (len(available)+page_size-1)//page_size,
             "images": images, "camera": camera, "native_photo_shape": [photo.height,photo.width]}
 
 
 def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=None,
-            support_scopes=None, page=0, timeout_s=280):
+            support_scopes=None, page=0, timeout_s=280, label_descriptions=None):
     root = Path(scene.root).resolve()
     if type(page) is not int or page < 0:
         raise ValueError("page must be a nonnegative integer")
@@ -370,6 +413,11 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
         if manifest["basis"] != bs.id:
             raise ValueError("The frozen camera basis changed; make a new map")
         snapshot = _snapshot(root,manifest)
+    labels_path = directory / "display-labels.json"
+    display_labels = _read(labels_path) if labels_path.exists() else {}
+    descriptions = L.validate_descriptions(label_descriptions, manifest["targets"], display_labels)
+    if focus:
+        focus = [L.resolve(key, manifest["targets"], display_labels) for key in focus]
     selected = _select(manifest,focus,kind)
     scopes = None
     if support_scopes:
@@ -398,26 +446,29 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     report = _photo_render(root,export,rows,output,timeout_s)
     geometry = look_panels.load_geometry(export["path"])
     source_obj,source_poly,mapping = G.export_correspondence(snapshot,geometry)
-    views = [_annotate(row,snapshot,selected,geometry,source_obj,source_poly,scopes,output,page) for row in rows]
+    views = [_annotate(row,snapshot,selected,geometry,source_obj,source_poly,scopes,output,page,
+                      display_labels,descriptions) for row in rows]
+    procs.write_json_atomic(labels_path, display_labels)
     shown = sorted({key for row in views for key in row["annotated_target_ids"]})
     drawn = {G.digest(s):s for row in views for s in row["support_scopes"]}
     assets = [{"path":_relative(root,p),"sha256":arview.sha256(p)} for p in sorted(output.rglob("*")) if p.is_file()]
     map_sha = arview.sha256(directory/"map.json")
     images = [image for row in views for image in row["images"]]
+    target_legend = [display_labels[key] for key in shown]
     objects={o["id"]:o for o in snapshot["objects"]}
     details=[{**target(manifest,key),"positions_world_mm":[objects[target(manifest,key)["object_id"]]["vertices_world_mm"][i]
               for i in target(manifest,key)["vertex_ids"]]} for key in shown]
     suggested=[G.support(snapshot,manifest["targets"],[key]) for key in shown if target(manifest,key)["source_editable"]]
     receipt = {"schema":"g3d.model_map_capture/1","map_id":map_id,"map_sha256":map_sha,
                "source":manifest["source"],"annotated_target_ids":shown,"support_scopes":list(drawn.values()),
-               "views":views,"images":images,"assets":assets,"export_correspondence":mapping,
+               "views":views,"images":images,"assets":assets,"export_correspondence":mapping,"target_legend":target_legend,
                "ar_report":_relative(root,report),"read_only":True}
     receipt_path = output/"capture.json"
     procs.write_json_atomic(receipt_path,receipt)
     return {"status":"ok","schema":SCHEMA,"map_id":map_id,"map_sha256":map_sha,
             "manifest_path":str(directory/"map.json"),"capture_receipt":_relative(root,receipt_path),
             "capture_sha256":arview.sha256(receipt_path),"annotated_target_ids":shown,
-            "summary":[f"{key}: {target(manifest,key)['kind']} {'/'.join(target(manifest,key)['aliases'])} on {target(manifest,key)['object_name']}" for key in shown],
+            "summary":[f"{r['label']} = {r['description']}" for r in target_legend],"target_legend":target_legend,
             "target_details":details,"suggested_unit_scopes":suggested,
             "scope_refs":[{"sha256":key,"target_ids":scope["target_ids"],"weighted_vertices":len(scope["vertex_weights"]),
                            "affected_polygons":len(scope["affected_polygon_ids"]),
@@ -425,7 +476,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
             "support_scopes":list(drawn.values()),"full_size_pairs":[row["full_pair"] for row in views],
             "views":views,"image_delivery":"separate","images":images,
             "notes":["Photo first; frozen camera/opening; actual mesh positions, no model changes.",
-                     "IDs are reusable only with this exact map hash. Adjacent affected polygons are recorded in every scope.",
+                     "Short labels stay the same within this map; each legend binds a label to an exact target ID. Operation IDs use those exact IDs.",
                      "Amber shows the separate normal-influence ring; its vertex positions remain fixed unless a movement weight also applies.",
                      "Support dots show all influenced vertices, including occluded vertices; black dots are fixed. Face/edge labels use first-hit visibility."]}
 
@@ -436,9 +487,10 @@ def tool_for(scene, tool, call):
     @tool("labelled_model_map")
     async def labelled_model_map(ctx: ToolContext, photos: list[str] | None = None, focus: list[str] | None = None,
                                  kind: str = "faces", map_id: str | None = None, supports_json: str | None = None,
-                                 page: int = 0):
+                                 page: int = 0, label_descriptions_json: str | None = None):
         """Show numbered actual model parts/faces/edges/points beside the same full-size photo.
-        Start automatically, then focus visible O/F/E/P IDs. IDs persist within the immutable map.
+        Short labels O1/T1/E1/P1 identify parts/surfaces/borders/corners; a plain legend names each one.
+        Start automatically, then focus displayed short labels or exact target IDs. Reuse map_id to keep labels.
         Verified temple facet/edge/corner names accompany current actual geometry, even after manual edits.
         For understand, draw the exact operation support (weights/fixed vertices) via supports_json before
         confirming it. The catalogue and full-size pairs remain available losslessly; native tiles are shown.
@@ -446,7 +498,7 @@ def tool_for(scene, tool, call):
 
         Args:
             photos: Frozen reference IDs or original filenames; null uses all usable photos, front first.
-            focus: Previously displayed target IDs; null discovers parts/features automatically.
+            focus: Previously displayed short labels or target IDs; null discovers parts/features automatically.
             kind: parts, faces, edges or points.
             map_id: Existing map ID to keep the same numbers; null creates a fresh map.
             supports_json: Optional JSON list. A concise {target_ids, fixed_target_ids} descriptor selects those
@@ -456,8 +508,12 @@ def tool_for(scene, tool, call):
                 can reference that SHA instead of repeating the full vertex arrays. target_details and suggested
                 scopes are losslessly available through read_report; a suggestion is not approval evidence until drawn.
             page: Zero-based page of at most 24 visible labels per photo; complete catalogue is retained.
+            label_descriptions_json: Optional JSON object mapping target IDs or known short labels to plain words
+                describing the feature and side. Supply before first showing that target; descriptions then stay
+                fixed for this map. Automatic descriptions use verified names and the part's role and side.
         """
         supports = json.loads(supports_json) if supports_json else None
         return await call(ctx,"labelled_model_map",lambda cid:capture(scene,cid,photos=photos,focus=focus,
-            kind=kind,map_id=map_id,support_scopes=supports,page=page))
+            kind=kind,map_id=map_id,support_scopes=supports,page=page,
+            label_descriptions=json.loads(label_descriptions_json) if label_descriptions_json else None))
     return labelled_model_map

@@ -406,7 +406,7 @@ def test_make_spec_binds_the_facet_settings_and_writes_an_unapproved_request(tmp
         L.tool_registry_sha256(spec.tools)
     assert doc["request_sha256"] == spec.current_request_sha256 and doc["estimate"] == {"text": "test estimate"}
     sent = (run / "instructions-sent.txt").read_text(encoding="utf-8")
-    assert sent == spec.instructions and "at least 5 distinct applied heads" in sent and cli.K_TOKEN not in sent
+    assert sent == spec.instructions and "at least 5 distinct applied heads" in sent.lower() and cli.K_TOKEN not in sent
     assert req["instructions_sha256"] == L.instructions_sha256(sent)
     raw = (run / "instructions-sent.txt").read_bytes()                  # the exact bytes sent: LF, on every platform
     assert b"\r" not in raw and hashlib.sha256(raw).hexdigest() == req["instructions_sha256"]
@@ -472,11 +472,10 @@ def test_make_spec_refuses_drift_and_a_used_package(tmp_path, monkeypatch):
 # reached 13,974 of a 14,000-character cap, with 96 phrases pinned by a test"); those pins are retired with v2.
 V3_TOOLS = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
             "facet_finish", "read_report", "facet_crease_compare", "facet_visible_angle")
-INSTRUCTIONS_MAX = 9_500                        # WP6_V3 §6 (amended 2026-10-13: the blind stand-in test needed the
-#                                                 clip-to-outline and top-strip sentences; a rule budget, not 14k)
+INSTRUCTIONS_MAX = 19_000                       # ASSEMBLY M6 6d: focus budget, not a provider limit.
 # Product words of the Prada job (the brief carries the job's facts; its face labels in the v2 runs: crown, logo,
 # nose, shoulder, lower, tail; its materials and markings) and the colours of its photos.
-PRODUCT_WORDS = ("prada", "acetate", "logo", "crown", "nose", "shoulder", "milano", "hallmark", "lettering", "cream",
+PRODUCT_WORDS = ("prada", "acetate", "logo", "crown", "nose", "shoulder", "milano", "hallmark", "cream",
                  "black", "tortoise", "havana", "pr 17ws", "prs 17ws")
 PHOTO_ID_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:0[1-9]|B[1-9])(?![A-Za-z0-9_])")
 
@@ -486,15 +485,15 @@ def instructions_raw() -> str:
 
 
 def finish_clauses(text: str) -> dict:
-    """The FINISHING paragraph's numbered preconditions {n: clause} (whitespace collapsed), and the text after them."""
-    fin = " ".join(text.split("FINISHING", 1)[1].split())
-    parts = re.split(r"\((\d)\)", fin)
-    return {int(n): clause for n, clause in zip(parts[1::2], parts[2::2])}
+    """The workflow's finish preconditions, independent of line wrapping."""
+    fin = text.split("Its procedural requirements are:", 1)[1].split("These conditions", 1)[0]
+    parts = re.split(r"(?m)^(\d)\. ", fin)
+    return {int(n): " ".join(clause.split()) for n, clause in zip(parts[1::2], parts[2::2])}
 
 
 def test_instructions_name_every_v3_tool_once_with_k_and_fit_the_cap(tmp_path):
     """Every v3 tool is named (as loop.contract_problems finds a name), the run's K replaces the one {K} token, and the
-    prompt stays within WP6_V3's cap (INSTRUCTIONS_MAX, 9,500 characters since 2026-10-13)."""
+    prompt stays within ASSEMBLY M6 6d's 19,000-character focus budget."""
     raw = instructions_raw()
     for name in V3_TOOLS:
         assert re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", raw), name
@@ -503,7 +502,7 @@ def test_instructions_name_every_v3_tool_once_with_k_and_fit_the_cap(tmp_path):
     (tmp_path / "inputs").mkdir()
     (tmp_path / "inputs" / "instructions.txt").write_text(raw, encoding="utf-8")
     text = cli.instructions_text(tmp_path, 4)
-    assert cli.K_TOKEN not in text and "at least 4 distinct applied heads" in text
+    assert cli.K_TOKEN not in text and "at least 4 distinct applied heads" in text.lower()
     (tmp_path / "inputs" / "instructions.txt").write_text(raw.replace(cli.K_TOKEN, "4"), encoding="utf-8")
     with pytest.raises(ValueError, match="once"):
         cli.instructions_text(tmp_path, 4)
@@ -521,10 +520,13 @@ def test_instructions_carry_no_job_facts():
 
 def test_visible_angle_policy_is_unresolved_only_and_carries_visual_evidence():
     text = " ".join(instructions_raw().split())
-    assert 'unresolved ("open") does not mean flat' in text
-    assert "overrides only unresolved local readings" in text
-    assert "certain measurements, closed-solid, thickness, declared shape and strict-spec checks still win" in text
-    assert "unresolved named facet mismatches and their crops into the stage summary and finish review" in text
+    assert "Unresolved does not mean flat" in text
+    assert "Only unresolved measurements permit a visible-angle declaration" in text
+    assert "overrides unresolved local readings while retaining residuals" in text
+    assert "certain contradictory measurements still refuse" in text
+    assert "closed-solid, thickness, declared-shape and strict-spec failures" in text
+    assert "named facet or outline mismatch with its photo/crop reference" in text
+    assert "carry this evidence into its whole-product finish review" in text
 
 
 def test_instructions_carry_no_retired_phrase():
@@ -569,15 +571,12 @@ def test_retired_phrases_ban_the_depths_parameter_not_the_word():
 
 
 def test_instructions_finish_text_is_what_finish_missing_checks():
-    """The FINISHING paragraph states the preconditions state.finish_missing returns (1-4 for any finish, 5 for stuck
+    """The finish paragraph states the preconditions state.finish_missing returns (1-4 for any finish, 5 for stuck
     only), in the state's own terms: K and the one head-distinctness rule (state.DIFFERENT_ATTEMPT), the variants
     spread (geometry.VARIANT_DISTINCT_MM), best_checkpoint compared at every photo with a camera (the
     ``camera_photos`` it is given: a photo of another colour counts), the object note, and stuck's last STUCK_LAST
     judgements on STUCK_LAST distinct heads with none "better" and a variants call after the latest applied head.
-    NOT pinned: (5)'s verb for that variants call. The instructions (and WP6_V3 §6) say it was "judged", while
-    state.finish_missing checks that one was "shown" (state.py: "a facet_variants result with a rendered variant
-    since the latest applied head"), and a judgement can name a compare_id only (state.check_judgement), so no variants
-    result can be judged (review 2026-10-12, P3). Pin the word here once lab-e1 and the coordinator settle it."""
+    The variants result must be shown; it has no compare_id and cannot receive a compare judgement."""
     from glasses3d.agent.temple_lab import geometry as G
     from glasses3d.agent.temple_lab import state as S
     pre = finish_clauses(instructions_raw())
@@ -586,15 +585,18 @@ def test_instructions_finish_text_is_what_finish_missing_checks():
     kw = dict(best_revision=0, k=4, distinct=lambda a, b: a != b, camera_photos=["01", "B1"], has_object=False)
     assert [m["precondition"] for m in S.finish_missing(st, status="matched", **kw)] == [1, 2, 3, 4]
     assert [m["precondition"] for m in S.finish_missing(st, status="stuck", **kw)] == [1, 2, 3, 4, 5]
-    assert cli.K_TOKEN in pre[1] and "distinct applied heads" in pre[1] and S.DIFFERENT_ATTEMPT in pre[1]
-    assert "facet_variants" in pre[2] and "at least 3 variants" in pre[2] and \
+    assert cli.K_TOKEN in pre[1] and "distinct applied heads" in pre[1] and "compared in full" in pre[1]
+    assert "built surface or outline" in pre[1] and f"at least {G.HEAD_DISTINCT_MM:g} mm" in pre[1]
+    assert "every other counted head" in pre[1]
+    assert "facet_variants" in pre[2] and "at least three variants pairwise" in pre[2] and \
         f"at least {G.VARIANT_DISTINCT_MM:g} mm apart" in pre[2]
     assert f"at least {G.HEAD_DISTINCT_MM:g} mm" in S.DIFFERENT_ATTEMPT
-    assert "best_checkpoint" in pre[3] and "every photo with a camera" in pre[3]
+    assert "best revision" in pre[3] and "every photo with a camera" in pre[3] and "full comparison" in pre[3]
     assert "object note" in pre[4]
-    assert pre[5].lstrip().startswith("for stuck") and "facet_variants" in pre[5] and "latest applied head" in pre[5]
-    assert f"the last {S.STUCK_LAST} judgements cover {S.STUCK_LAST} distinct heads with none \"better\"" in pre[5]
-    assert "refused with the missing ones named" in pre[5]
+    assert pre[5].lstrip().startswith("For stuck") and "variants result with a rendered alternative was shown" in pre[5]
+    assert "after the latest applied head" in pre[5]
+    assert S.STUCK_LAST == 3 and "three judgements cover three distinct heads with none rated better" in pre[5]
+    assert "A refusal names unmet conditions or validation failure" in instructions_raw()
     # behind the words: a compare of best_checkpoint's revision at 01 only leaves the photo of another colour (B1)
     # missing; an object note clears 4
     st["compares"].append({"compare_id": "cmp001", "checkpoint": "c1", "fingerprint": "f1", "revision": 0,

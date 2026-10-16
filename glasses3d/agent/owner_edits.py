@@ -13,6 +13,7 @@ from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict
 
 from glasses3d.g3d import owner_mesh as M
+from glasses3d.g3d import owner_markings as markings
 from .procs import write_json_atomic
 
 
@@ -41,10 +42,12 @@ def snapshot(scene, label="owner-check"):
 
 def verify_snapshots(baseline, current, operations):
     """Only confirmed vertices and their incident normals may change; every other datum stays fixed."""
+    markings.require_bound(baseline, operations)
     old, new = M.objects(baseline), M.objects(current)
     if set(old) != set(new) or baseline["origin_mm"] != current["origin_mm"]:
         raise M.OwnerMeshError("E_OWNER_SCOPE", "objects or the bridge origin changed outside the confirmed target")
-    support, affected = {}, {}
+    support, affected = markings.support(old, operations)
+    marking_ids = set(support)
     for op in operations:
         oid = op["scope"]["object_id"]
         if oid not in old:
@@ -101,7 +104,7 @@ def verify_snapshots(baseline, current, operations):
         ev = b.get("evaluated", {})
         if not ev.get("topology_matches_source") or not ev.get("positions_match_source"):
             raise M.OwnerMeshError("E_OWNER_CORRESPONDENCE", "the edited modifier result no longer corresponds to the captured mesh")
-        checks[oid] = M.physical(b, reference=a)
+        checks[oid] = (markings.validate_marking(b, va, vb) if oid in marking_ids else M.physical(b, reference=a))
         if len(ids):
             distances = np.linalg.norm(vb[ids]-va[ids], axis=1)
             changes.append({"object_id": oid, "object": a["name"], "changed_vertex_ids": ids.tolist(),
@@ -123,20 +126,17 @@ def verify_snapshots(baseline, current, operations):
         if left != right:
             raise M.OwnerMeshError("E_OWNER_SCOPE", "unrequested scene or datablock state changed")
     return {"ok": True, "status": "ok", "changes": changes, "physical": checks,
-            "outside_support_unchanged": True, "materials_uvs_transforms_unchanged": True}
+            "outside_support_unchanged": True, "materials_uvs_transforms_unchanged": True,
+            "marking_surface_checks": markings.surface_checks(baseline,
+                {oid: np.asarray(o['vertices_world_mm']) for oid, o in new.items()}, operations)}
 
 
 def expected_positions(source, operations):
     """Exact float32 local representation produced by one confirmed worker call."""
     indexed = M.objects(source)
-    world = {oid: np.asarray(obj["vertices_world_mm"], float).copy() for oid, obj in indexed.items()}
-    touched = set()
-    for op in operations:
-        oid = op["scope"]["object_id"]
-        world[oid], _ = M.displaced(world[oid], op, indexed[oid])
-        touched.add(oid)
+    world, _, _ = M.deformation(source, operations)
     result = {oid: np.asarray(obj["vertices_local"], float).copy() for oid, obj in indexed.items()}
-    for oid in touched:
+    for oid in world:
         obj = indexed[oid]
         matrix = np.asarray(obj.get("matrix_world", np.eye(4)), float)
         before = np.asarray(obj["vertices_world_mm"], float)
@@ -343,6 +343,9 @@ def tool_for(scene, tool, call):
         specification checks remain. Unrequested geometry, materials and UVs stay unchanged. Repeating an
         applied ID never repeats its displacement. An explicit owner correction may revise numeric direction
         or amount on the same shown target and axis; it cannot expand the support or create a new target.
+        The surface markings listed in the confirmed understanding follow their surface automatically.
+        Newly buried marking vertices and new surface intersections refuse. Older understandings that omit
+        detected markings must be renewed before editing; no dependency is silently added after confirmation.
 
         Args:
             operation_ids: The confirmed operation IDs to apply, in the host's recorded order.

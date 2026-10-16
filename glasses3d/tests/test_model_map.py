@@ -155,6 +155,10 @@ def test_boundary_visibility_uses_its_continuous_rays_not_adjacent_pixel_count(t
     out=M._annotate(row,s,[chosen],SimpleNamespace(),np.array(["O0001"],object),np.array([0]),[],tmp_path,0)
     assert out["annotated_target_ids"]==([chosen["id"]] if visible else [])
     assert out["legend"] == "numbered actual-mesh targets"
+    if visible:
+        assert out["labels"][0]["label"] in ("P1", "E1")
+        assert out["labels"][0]["font_px"] >= 26
+        assert out["target_legend"][0]["target_id"] == chosen["id"]
 
 
 def test_movement_legend_requires_an_actual_support_scope(tmp_path, monkeypatch):
@@ -217,3 +221,79 @@ def test_hidden_point_is_not_visible_merely_because_adjacent_face_is_visible():
     matrix=np.eye(4); matrix[2,3]=-1
     camera={"view":matrix.ravel().tolist(),"fx":10000,"fy":10000,"cx":50,"cy":50,"width":100,"height":100}
     assert G.visible_points([[0,0,0],[0,0,-1]],camera,geometry).tolist() == [True,False]
+
+
+def test_short_labels_stay_stable_across_views_and_resolve_to_exact_mesh_ids():
+    from glasses3d.agent.tools import model_map_labels as L
+    obj = snapshot()["objects"][0]
+    left = {"id":"F127388", "kind":"face_region", "side":1,"aliases":["front"]}
+    right = {**left,"id":"F123456","side":-1}
+    labels = {}
+    a = L.allocate(left,obj,labels,{left["id"]:"triangle nearest the frame, left arm"})
+    b = L.allocate(right,obj,labels,{right["id"]:"triangle nearest the frame, right arm"})
+    assert (a["label"],b["label"]) == ("T1","T2")
+    assert L.allocate(left,obj,labels,{}) == a
+    assert L.resolve("T1",{left["id"]:left,right["id"]:right},labels) == left["id"]
+    assert L.resolve(left["id"],{left["id"]:left},labels) == left["id"]
+    with pytest.raises(ValueError,match="fixed for this map"):
+        L.allocate(left,obj,labels,{left["id"]:"different target"})
+
+
+def test_complete_plain_legend_is_on_the_image_without_resizing_native_pixels():
+    from PIL import Image
+    from glasses3d.agent.tools import model_map_labels as L
+    original = Image.new("RGB",(500,200),(17,43,65))
+    result = L.append_legend(original,[{"label":"T1","description":"triangle nearest the frame, left arm"}],M._font(22))
+    assert result.width == original.width and result.height > original.height
+    np.testing.assert_array_equal(np.asarray(result)[:200],np.asarray(original))
+    assert np.any(np.asarray(result)[200:] < 100), "legend text must be visibly drawn"
+
+
+def test_understanding_carries_the_hash_bound_plain_legend(tmp_path):
+    mid,sha,result,op=bundle(tmp_path)
+    path=tmp_path/result["capture_receipt"]
+    doc=json.loads(path.read_text())
+    row={"label":"T1","target_id":op["target_ids"][0],"description":"front surface"}
+    doc["target_legend"]=[row]
+    path.write_text(json.dumps(doc)); result["capture_sha256"]=arview.sha256(path)
+    M.mark_delivered(tmp_path,result)
+    assert M.validate_understanding(tmp_path,mid,sha,[result["capture_receipt"]],[op])["legend"] == [row]
+
+
+def test_clustered_labels_remain_readable_and_long_legends_do_not_shrink_native_tiles(tmp_path, monkeypatch):
+    """Even coincident projected targets need distinct unobscured tags and legible delivered legends."""
+    from PIL import Image
+    width, height = 800, 474
+    for name in ("photo", "drawing", "ids"):
+        Image.new("RGB", (width, height), "white").save(tmp_path / (name + ".png"))
+    row = {"ref": "cluster", "camera": {"width": width, "height": height},
+           **{key: str(tmp_path / (name + ".png")) for key, name in
+              (("photo", "photo"), ("drawing", "drawing"), ("part_id", "ids"))}}
+    source = snapshot()
+    point = next(t for t in G.catalogue(source)["targets"].values() if t["kind"] == "point")
+    targets = [{**point, "id": f"P{i:04d}", "aliases": [f"corner {i}"]} for i in range(1, 25)]
+    descriptions = {t["id"]: "longword" * 22 for t in targets}
+    monkeypatch.setattr(M.look_panels, "posed_geometry", lambda geometry, pose: geometry)
+    monkeypatch.setattr(G, "first_hits", lambda *args: np.full((height, width), -1, dtype=int))
+    monkeypatch.setattr(G, "project", lambda points, camera:
+                        (np.full((len(points), 2), 250.), np.ones(len(points))))
+    monkeypatch.setattr(G, "visible_points", lambda points, camera, geometry: np.ones(len(points), dtype=bool))
+    result = M._annotate(row, source, targets, SimpleNamespace(), np.array(["O0001"], object),
+                         np.array([0]), [], tmp_path, 0, {}, descriptions)
+    assert len(result["labels"]) == 24
+    image = np.asarray(Image.open(result["full_pair"]))
+    for i, label in enumerate(result["labels"]):
+        x0, y0, x1, y1 = label["label_box"]
+        assert label["font_px"] >= 26
+        for other in result["labels"][i + 1:]:
+            a, b, c, d = other["label_box"]
+            assert not (x0 < c and x1 > a and y0 < d and y1 > b), "owner labels overlap"
+        box = image[44 + y0:44 + y1, width + x0:width + x1]
+        assert np.all(box[0] == 255) and np.all(box[-1] == 255)
+        assert np.all(box[:, 0] == 255) and np.all(box[:, -1] == 255), "leader crossed an opaque label box"
+    for record in result["images"]:
+        delivered = Image.open(record["path"])
+        assert max(delivered.size) <= 2048, "text must not force native labels to shrink during delivery"
+        if "-legend-" in record["path"]:
+            pixels = np.asarray(delivered)
+            assert np.all(pixels[:, -8:] == 255), "long legend words clipped at the right edge"

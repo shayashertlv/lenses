@@ -142,6 +142,7 @@ def snapshot(params, root):
         if me.shape_keys is not None:
             unsupported_edit_state.append("Shape-key mesh: raw local edit requires a dedicated shape-key operation")
         record = {"id": f"O{index + 1:04d}", "name": obj.name, "mesh_name": me.name, "type": obj.type,
+                  "parent_name": obj.parent.name if obj.parent else None,
                   "role": str(obj.get("partRole", me.get("partRole", ""))),
                   "side": 1 if np.mean(np.asarray(raw["vertices_world_mm"])[:, 0]) > 0 else -1,
                   "matrix_world": [list(row) for row in obj.matrix_world], **raw,
@@ -165,7 +166,17 @@ def snapshot(params, root):
     after = checkpoint.fingerprint()
     if after != before:
         return {"status": "failed", "unchanged": False, "fingerprint_before": before, "fingerprint_after": after}
+    unsupported = []
+    for obj in bpy.context.scene.objects:
+        if obj.hide_render or obj.type not in {"FONT", "CURVE", "SURFACE", "META", "CURVES", "VOLUME", "GREASEPENCIL"}:
+            continue
+        matrix = np.asarray(obj.matrix_world, float)
+        corners = np.asarray(obj.bound_box, float) @ matrix[:3, :3].T+matrix[:3, 3]-origin
+        unsupported.append({'name': obj.name, 'type': obj.type,
+                            'parent_name': obj.parent.name if obj.parent else None,
+                            'bbox_world_mm': [corners.min(0).tolist(), corners.max(0).tolist()]})
     document = {"schema": "g3d.mesh_snapshot/1", "fingerprint": before, "scene_state": initial_state, "origin_mm": origin.tolist(),
+                "unsupported_rendered_geometry": unsupported,
                 "coordinate_system": "Current raw Blender mesh; asset mm = scene world mm minus bridge origin", "objects": objects}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, ensure_ascii=False, separators=(",", ":"), allow_nan=False), encoding="utf-8")

@@ -74,6 +74,24 @@ def readable_units(text):
     return re.sub(r"(?<=\d)mm\b", " mm", re.sub(r"(?<=[A-Za-z])(?=\d)", " ", text))
 
 
+def legend_descriptions(manifest, keys):
+    """Scripted interpretation of the verified names; only the walkthrough has product-specific language."""
+    names = {"front":"triangle facet nearest the frame", "logo":"facet carrying the lettering",
+             "crown":"top triangle facet", "upper":"upper facet behind the lettering",
+             "lower":"lower facet", "tail":"facet leading into the arm tip"}
+    result = {}
+    for key in keys:
+        value = manifest["targets"][key]
+        side = "left" if value["side"] == 1 else "right"
+        aliases = value["aliases"]
+        if value["kind"] == "point":
+            phrase = "corner " + "/".join(aliases)
+        else:
+            phrase = ", ".join(names.get(name, name.replace("_", " ") + " facet") for name in aliases)
+        result[key] = f"{phrase or 'selected surface'}, {side} arm"
+    return result
+
+
 class Script:
     """Adaptive values come only from actual preceding local tool receipts, never fabricated IDs."""
     def __init__(self, root, plan, phase, out):
@@ -111,7 +129,7 @@ class Script:
         cid = f"proof-map-{index}"
         if index == 0:
             return "labelled_model_map", {"photos":PHOTOS,"focus":None,"kind":"parts",
-                "map_id":None,"supports_json":None,"page":0}, cid, self.root, {"ok"}
+                "map_id":None,"supports_json":None,"page":0,"label_descriptions_json":None}, cid, self.root, {"ok"}
         if self.maps is None:
             first = result(self.root, "proof-map-0")
             self.maps = maps.load_map(self.root, first["map_id"], first["map_sha256"])
@@ -128,7 +146,7 @@ class Script:
             focus = sorted({key for o in group for key in o["target_ids"]})
             return "labelled_model_map", {"photos":PHOTOS,"focus":focus,"kind":"faces",
                 "map_id":self.maps["map_id"],"supports_json":json.dumps([self.scopes[o["id"]] for o in group]),
-                "page":0}, cid, self.root, {"ok"}
+                "page":0,"label_descriptions_json":json.dumps(legend_descriptions(self.maps,focus))}, cid, self.root, {"ok"}
         if index == 5:
             object_ids={scope["object_id"] for scope in self.scopes.values()}
             corner_ids=[key for key,value in self.maps["targets"].items()
@@ -136,7 +154,8 @@ class Script:
                         and set(value["aliases"]).intersection({"A","C","E","D"})]
             assert len(corner_ids)==8, "Both current temples need their four verified physical corner names"
             return "labelled_model_map", {"photos":PHOTOS,"focus":corner_ids,"kind":"points",
-                "map_id":self.maps["map_id"],"supports_json":None,"page":0},cid,self.root,{"ok"}
+                "map_id":self.maps["map_id"],"supports_json":None,"page":0,
+                "label_descriptions_json":json.dumps(legend_descriptions(self.maps,corner_ids))},cid,self.root,{"ok"}
         if index != 6:
             raise AssertionError("Understand must stop immediately after accepted understand_finish")
         for number in range(1,6):
@@ -247,6 +266,9 @@ async def prove(out, plan_path):
     doc=read(first/"work/owner_edit/understanding.json")
     assert doc["request_text"] == REQUEST and len(doc["items"]) == 4 and len(doc["operations"]) == 8
     assert doc["geometry_changed"] is False
+    assert doc["legend"] and all(len(row["label"]) <= 4 for row in doc["legend"])
+    assert any("triangle facet nearest the frame" in row["description"] for row in doc["legend"])
+    assert doc["following_markings"], "Understand must explicitly list the markings carried by the surface edit"
     assert all(not e.get("mutating") for e in read(first/"work/job_scene/state.json")["events"])
     second=edits.create_edit(first.parent,CONFIRMATION)
     assert not (second/"runs").exists(), "A prior round approval must not be inherited"

@@ -1,5 +1,100 @@
 # glasses3d progress
 
+## 2026-10-16 — M6 6c–6e: readable labels, following markings and rewritten instructions ($0)
+
+Started in `C:\Users\Shay\PycharmProjects\lenses`, branch **`glasses3d`**, clean at **`0b5bfd9`**;
+`git log --oneline -1` confirmed the requested commit. Completed ASSEMBLY M6 items **6c, 6d and 6e**.
+No API call, estimate request, paid run or push was made. All geometry demonstrations used a copy.
+
+Owner's words, recorded verbatim:
+
+> in the prompt i dont want a paid run to start, i want codex to fix the problems, to recreate the instructions, to review the code and instructions to make sure the instructions are very good and is perfect.
+
+**6c — labels:** the owner sees short stable labels such as **T2 = triangle facet nearest the frame, left arm**,
+with plain descriptions supplied before first display. Raw mesh identities remain the internal authority for
+exact operations. Captures seal the short-label legend, and the understand reply/page uses it. Labels have
+28-pixel text, collision-free placement and opaque boxes drawn after leader lines. Full-size pairs include the
+complete legend; delivered native tiles retain their pixels and use separate readable legend pages. Independent
+stress verification put 24 labels at one projected point and checked long unbroken descriptions: no collisions,
+crossed text or clipping. The walkthrough's page includes its full sealed legend and actual corner maps.
+
+**6c — markings:** supported marking meshes attached to or lying on the edited surface are discovered at
+`understand_finish`, listed as `following_markings`, and sealed before confirmation. Their vertices follow the
+surface using a barycentric surface foot and transported triangle-frame offset. The exact operation replay,
+scope checks and private specialist handoff include those dependencies. Ambiguous/unsupported attachments,
+newly buried vertices, new surface intersections and legacy confirmations missing required dependencies refuse.
+The understand reply and change report disclose the markings and their supporting surfaces. No product-name
+special case was added to runtime code.
+
+**6d/6e — instruction rewrite:** raised the main/owner limit to **16,000** and the ordinary temple specialist's
+focus budget to **19,000**. Rewrote all texts in workflow order, with explicit tool fields, supported operations,
+measurement/evidence requirements, finish steps and money authority. Effective sizes: **13,126** characters for
+Astra main, **13,992** for the default K=4 ordinary specialist, and **13,200** for owner understand/edit mode.
+The owner phases and private owner specialist share the same complete text; the brief selects the phase and
+includes the exact request/confirmation. Full-size photo review, depth/rounding measurement, arm openings,
+unresolved visible facet angles, lens markings, seating as a report, two-call finish, retained tools and the
+owner's later edit priority are covered without fixture facts or product names.
+
+An author audit mapped **88 statement blocks** to code/owner decisions and source hashes. A separate reviewer
+checked the complete texts against code, tool descriptions and brief construction. Findings about report-field
+placement, the optional-lens matte exception, label-description timing, attachment discovery, exact finite-edit
+authority, ordinary/private specialist differences and finish/solve wording were corrected and re-reviewed.
+Final result: **no remaining findings**. The durable review summary is
+`plan/INSTRUCTIONS_REVIEW_20261016.md`; full source audit, exports and exact-hash independent reviews are under
+`data/assembly/m6-6cde/instructions/` and `review/`. This is a clean review result, not a claim of mathematical
+perfection or owner appearance acceptance.
+
+**Complete real-tool walkthrough:** `tests.proofs.assembly_m6_owner_edit` passed in **718.844 s**
+(**723.140 s** process wall time), with seven scripted understand requests and eight parent/child edit requests.
+All eight original predeclared mirrored operations and their amounts remained unchanged: up to **0.20 mm**
+triangle slope, **0.15 mm** outward logo border, **0.15 mm** inward other border and up to **0.15 mm** crown taper.
+Both rounds used separate synthetic approvals and fresh conversations at effort `high`; replies and confirmation
+are labelled **"scripted by Codex, not Astra"**. This proves host behavior, not Astra reasoning or owner approval.
+All **417** protected original job/photo/camera/checkpoint/delivery files stayed unchanged. Loopback isolation
+and the production-client tripwire recorded zero external attempts and zero production transport constructions.
+Mock usage/ledger entries are not spend; actual spend was **$0**.
+
+The independent saved-array audit passed: only **2 temples + 14 listed markings** changed, while **30 other
+objects** stayed exact. The specialist and parent complete object arrays, scene state and fingerprint match:
+`2230123eaabaa2b4651f7c98819da970e855ac275a23ea3fd985422b2741e34e`.
+Independent replay reproduces every final float32 position exactly. Each temple has **539** moved vertices,
+maximum combined displacement **0.349998474 mm**, and minimum thickness **2.895103455 mm**, above **1 mm**.
+The temples remain exact mirrors (**0 mm** error). Materials, UVs, topology, transforms, authored normals and
+decoded normals outside the permitted influence remain exact. All 14 markings retain positive separation
+(minimum **0.034879652 mm**), with no newly buried vertices or surface intersections. The audit verifies
+**185** immutable authority hashes. Evidence: `walkthrough/final-array-audit.json` within the local evidence root.
+
+**Owner-visible proof:** `data/assembly/m6-6cde/owner-review/index.html`, served locally for this session at
+`http://127.0.0.1:51341/`, shows the exact request, understand reply, legend, marking list, scripted confirmation,
+six-view photo/before/after comparison, corner maps and worn views. PRADA/MILANO is visibly intact in both ref05
+and ref02 after images. The two close-ups contain exact native source pixels in PHOTO / BEFORE / AFTER order;
+all **16** images have source/hash provenance in `images.json`. Independent artifact review is clean after adding
+the initially missing right-arm legend. `full-instructions.html` shows all three complete unique instruction
+texts and both complete phase brief templates; all eight assembled TXT exports are also retained.
+
+**Validation:** full non-photoprint suite, `-n 8 --dist loadfile`: **3,774 passed, 2 skipped, 3 failed in
+823.29 s**. One failure was an old test requiring the specialist's exact previous prose. The test now checks all
+five shared finish requirements against code-derived counts/distances, and rejects omitted requirements and the
+impossible "variants judged" condition. Its full module passed **74 tests in 3.32 s**; independent supplemental
+review is clean. Production instruction hashes stayed unchanged. The other failures were the known golden image
+mismatch and a load-sensitive render timing limit (**132.931 s >60 s**). The isolated seeing/render modules
+completed **43 passed, 1 failed in 112.33 s**: timing passed, and only the already recorded
+`test_photo_v1_pixels_are_unchanged` remained (**199 reference-01/native pixels >114.24 allowed**; the parallel
+run had 195). The earlier isolated baseline also had 199. No golden, threshold or rendering method was changed;
+the full suite is not described as green. Photoprint, `-n 2 --dist loadfile`: **314 passed in 210.04 s**.
+
+`tests.proofs.assembly_m1` passed in **159.156 s** (**162.531 s** process wall time): **13** scripted requests,
+**26** transport files, **13** successful tools, **36** verified image blobs and **35** verified AR images, clean
+receipts and **actual spend $0**. Earlier focused instruction/CLI/marking, label and final mesh/marking checks
+passed **133**, **23** and **31** tests respectively; these overlap the full suite and are not added to its total.
+Timestamp/argv/PID/exit receipts and complete logs are in `data/assembly/m6-6cde/validation/`. Long jobs ran detached,
+with BLAS threads capped at one, process power throttling disabled where applicable and no concurrent heavy pools.
+Final integrity verification rechecked **21** reviewed file/export hashes, **168** walkthrough source hashes and
+all **417** protected original files: unchanged.
+
+Implementation, regressions and this progress record are committed together with explicit paths on `glasses3d`.
+**Stopped after 6c–6e. No API call, estimate request, paid run or push.**
+
 ## 2026-10-16 — M5-fix-9 + M6: finish warning and confirmed owner edits ($0)
 
 Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, branch `glasses3d`, clean at

@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 
 from .. import edits, procs
 from . import model_map, look
+from ...g3d import owner_markings
 
 
 class Interpretation(BaseModel):
@@ -47,12 +48,16 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
     operations = evidence.get("operations", operations)
     if evidence["source"]["fingerprint"] != doc["source"]["fingerprint"]:
         raise ValueError("the shown map is not of the selected delivered checkpoint")
+    snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
+    operations = owner_markings.seal(snapshot, operations)
+    following_markings = owner_markings.summary(operations)
     files = {row["path"]: row["sha256"] for row in evidence["evidence_files"]}
     files[evidence["map_path"]] = evidence["map_sha256"]
     path = scene.root / "work/owner_edit/understanding.json"
     artifact = {"schema": edits.UNDERSTANDING_SCHEMA, "status": "awaiting_owner_confirmation",
                 "call_id": call_id, "request_text": doc["request_text"], "source_fingerprint": doc["source"]["fingerprint"],
                 "items": records, "operations": operations, "limitations": limitations,
+                "following_markings": following_markings, "legend": evidence.get('legend', []),
                 "snapshot_path": Path(evidence["snapshot_path"]).relative_to(scene.root).as_posix(),
                 "map_id": map_id, "map_sha256": map_sha256, "evidence_files": files,
                 "capture_receipts": capture_receipts, "geometry_changed": False}
@@ -61,6 +66,7 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
     return {"status": "accepted", "next": "STOP: awaiting owner confirmation; the edit needs its own estimate and approval.",
             "understanding": str(path), "understanding_sha256": edits.sha(path),
             "interpretations": records, "limitations": limitations, "geometry_changed": False,
+            "following_markings": following_markings, "legend": evidence.get('legend', []),
             "image_delivery": "separate", "images": evidence["images"]}
 
 
@@ -158,6 +164,7 @@ def change_report(scene, call_id, summary, not_done):
                 "without_operation_receipt": [op["id"] for op in understanding["operations"] if op["id"] not in applied],
                 "before": before, "after": after, "images": images, "image_delivery": "separate",
                 "side_effects": guard["changes"]}
+    artifact['following_markings'] = understanding.get('following_markings', [])
     path = scene.root / "work/owner_edit/change-report.json"
     procs.write_json_atomic(path, artifact)
     return {**artifact, "report": str(path), "report_sha256": edits.sha(path)}
@@ -180,6 +187,9 @@ def tools_for(scene, tool, call):
         Coordinates are asset millimetres. Positive X is outward only on the positive-X temple. A rigid outer-face
         rotation can make a thin edge; slope changes at fixed length/height preserve a graph-shaped wall.
         Propose only feasible changes, retaining all physical checks; state unsupported requests in limitations.
+        The host automatically seals and lists nearby surface markings in following_markings. Those markings
+        follow the confirmed surface while preserving their surface-relative offset; ambiguous or unsupported
+        attachments refuse. Show this list to the owner as part of understanding, before confirmation.
         """
         return await call(ctx, "understand_finish", lambda cid: understand(scene, cid, map_id, map_sha256,
                                                                           capture_receipts, items, limitations))

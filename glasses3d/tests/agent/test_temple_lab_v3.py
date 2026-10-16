@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import json
 import math
+import re
 import threading
 from pathlib import Path
 
@@ -631,22 +632,61 @@ def test_tool_texts_state_what_the_code_does():
 
 
 def test_the_prompt_states_the_finish_rule_finish_checks():
-    """The prompt's FINISHING clauses (instructions.txt, the coordinator's) are facet_finish's own (FINISH_DOC, from
-    "(1)" to "the run continues.", K substituted): the code checks that a facet_variants result was SHOWN after the
-    latest applied head (a variants sheet has no compare_id, so no judgement can name it), counts full compares only
-    for (1) and (3), and one judgement per compare for (5). Fails while the prompt says otherwise (review 2026-10-12:
-    the prompt's (5) "a facet_variants call was judged" is a condition no tool can meet)."""
+    """The workflow prose and tool description teach all five actual finish requirements.
+
+    They need not have identical punctuation or wording. Counts and distances come from the code; the distinct
+    heads, full-photo coverage and stuck conditions remain explicit. In particular, variants are shown, never
+    judged: variant sheets have no compare_id, so the historical 'a facet_variants call was judged' is impossible.
+    Behavioural pass/refusal cases for each requirement are exercised below in this module.
+    """
     raw = (HERE.parents[2] / "agent" / "temple_lab" / "instructions.txt").read_text(encoding="utf-8")
     k = 4
-    text = " ".join(raw.replace("{K}", str(k)).split())
-    doc = " ".join(T.FINISH_DOC.format(k=k, different=S.DIFFERENT_ATTEMPT, last=S.STUCK_LAST,
-                                       spread=S.SPREAD_VARIANTS, spread_mm=G.VARIANT_DISTINCT_MM,
-                                       judgement=T.JUDGEMENT_TEXT).split())
+    text = raw.replace("{K}", str(k)).split("Its procedural requirements are:", 1)[1].split("These conditions", 1)[0]
+    doc = T.FINISH_DOC.format(k=k, different=S.DIFFERENT_ATTEMPT, last=S.STUCK_LAST,
+                              spread=S.SPREAD_VARIANTS, spread_mm=G.VARIANT_DISTINCT_MM,
+                              judgement=T.JUDGEMENT_TEXT).split("Otherwise", 1)[0]
 
-    def clauses(t: str) -> str:
-        i, j = t.index("(1) "), t.index("the run continues.")
-        return t[i:j]
-    assert clauses(text) == clauses(doc)
+    def clauses(value):
+        # Only the finish block is passed, so workflow headings cannot be mistaken for preconditions.
+        parts = re.split(r"(?:\((\d)\)|(?m:^(\d)\.))\s+", value)
+        result = {}
+        for offset in range(1, len(parts), 3):
+            number = int(parts[offset] or parts[offset + 1])
+            clause = " ".join(parts[offset + 2].lower().split()).replace('"', '')
+            result[number] = re.sub(r"\bthree\b", "3", clause)
+        return result
+
+    required = {
+        1: (rf"at least {k} distinct applied heads.*compared in full", r"built (?:temple )?surface or outline",
+            rf"at least {re.escape(f'{G.HEAD_DISTINCT_MM:g}')} mm somewhere",
+            r"every other (?:head counted|counted head)"),
+        2: (r"one facet_variants call rendered", rf"at least {S.SPREAD_VARIANTS} variants pairwise",
+            rf"at least {re.escape(f'{G.VARIANT_DISTINCT_MM:g}')} mm apart"),
+        3: (r"best(?:_checkpoint's revision| revision)", r"full compar(?:e|ison)",
+            r"every photo with a camera", r"a zoom alone does not count"),
+        4: (r"an object note exists",),
+        5: (r"^for stuck", r"(?:facet_)?variants result with a rendered (?:variant|alternative) was shown",
+            r"after the latest applied head",
+            rf"the last {S.STUCK_LAST} judgements cover {S.STUCK_LAST} distinct heads with none (?:rated )?better",
+            r"one judgement per compar(?:e|ison)"),
+    }
+
+    def check(actual):
+        assert set(actual) == set(required)
+        for number, patterns in required.items():
+            for pattern in patterns:
+                assert re.search(pattern, actual[number]), (number, pattern, actual[number])
+        assert not re.search(r"(?:facet_)?variants? (?:call|result|sheet)[^.]*\bjudged\b", actual[5])
+
+    for value in (text, doc):
+        actual = clauses(value)
+        check(actual)
+        # Keep the assertion sensitive to an omitted requirement and to the old unfulfillable judgement rule.
+        for number in required:
+            with pytest.raises(AssertionError):
+                check({key: clause for key, clause in actual.items() if key != number})
+        with pytest.raises(AssertionError):
+            check({**actual, 5: actual[5].replace("was shown", "was judged")})
 
 
 def test_the_instructions_name_exactly_the_registry():

@@ -308,7 +308,34 @@ def plan(snapshot, operations):
     indexed = objects(snapshot)
     if not operations or len({r.get("id") for r in operations}) != len(operations):
         raise OwnerMeshError("E_OWNER_ARGS", "operation IDs must be nonempty and distinct")
-    positions, affected, receipts = {}, {}, []
+    positions, affected, receipts = deformation(snapshot, operations)
+    output = []
+    from . import owner_markings as markings
+    marking_ids = set(markings.support(indexed, operations)[0])
+    for oid, xyz in positions.items():
+        obj = indexed[oid]
+        initial = np.asarray(obj["vertices_world_mm"], dtype=float)
+        checks = (markings.validate_marking(obj, initial, xyz) if oid in marking_ids else physical(obj, xyz))
+        changed = np.flatnonzero(np.any(xyz != initial, axis=1))
+        output.append({"object_id": oid, "object_name": obj["name"],
+                       "source_topology_sha256": obj["topology_sha256"],
+                       "source_positions_sha256": obj["positions_sha256"],
+                       "vertex_ids": changed.tolist(), "positions_world_mm": xyz[changed].tolist(),
+                       "affected_polygon_ids": sorted(affected[oid]),
+                       "normal_affected_polygon_ids": sorted(normal_faces(obj, affected[oid])), "physical": checks})
+    return {"schema": "g3d.owner_mesh_patch/1", "snapshot_sha256": digest(snapshot),
+            "patches": output, "operations": receipts, "following_markings": markings.summary(operations),
+            "marking_surface_checks": markings.surface_checks(snapshot, positions, operations)}
+
+
+def deformation(snapshot, operations):
+    """Replay geometry and its sealed marking dependencies without changing source arrays."""
+    from . import owner_markings as markings
+    markings.require_bound(snapshot, operations)
+    indexed = objects(snapshot)
+    positions = {oid: np.asarray(obj['vertices_world_mm'], float).copy() for oid, obj in indexed.items()}
+    dependent, affected = markings.support(indexed, operations)
+    touched, receipts = set(dependent), []
     for op in operations:
         oid = op["scope"]["object_id"]
         if oid not in indexed:
@@ -320,29 +347,19 @@ def plan(snapshot, operations):
         if not ev.get("topology_matches_source") or not ev.get("positions_match_source") or users != 1:
             raise OwnerMeshError("E_OWNER_CORRESPONDENCE", "this object has no unique editable source/evaluated mesh correspondence")
         initial = np.asarray(obj["vertices_world_mm"], dtype=float)
-        old = positions.get(oid, initial)
+        old = positions[oid]
         new, faces = displaced(old, op, obj)
+        markings.follow(indexed, positions, op, old, new)
         positions[oid] = new
+        touched.add(oid)
         affected.setdefault(oid, set()).update(faces)
         distance = np.linalg.norm(new-old, axis=1)
         receipts.append({"id": op["id"], "kind": op["kind"], "target_ids": op.get("target_ids", []),
                          "params": copy.deepcopy(op["params"]), "object_id": oid,
                          "changed_vertex_ids": np.flatnonzero(distance > 0).tolist(),
-                         "affected_polygon_ids": sorted(faces), "maximum_move_mm": float(distance.max())})
-    output = []
-    for oid, xyz in positions.items():
-        obj = indexed[oid]
-        checks = physical(obj, xyz)
-        initial = np.asarray(obj["vertices_world_mm"], dtype=float)
-        changed = np.flatnonzero(np.any(xyz != initial, axis=1))
-        output.append({"object_id": oid, "object_name": obj["name"],
-                       "source_topology_sha256": obj["topology_sha256"],
-                       "source_positions_sha256": obj["positions_sha256"],
-                       "vertex_ids": changed.tolist(), "positions_world_mm": xyz[changed].tolist(),
-                       "affected_polygon_ids": sorted(affected[oid]),
-                       "normal_affected_polygon_ids": sorted(normal_faces(obj, affected[oid])), "physical": checks})
-    return {"schema": "g3d.owner_mesh_patch/1", "snapshot_sha256": digest(snapshot),
-            "patches": output, "operations": receipts}
+                         "affected_polygon_ids": sorted(faces), "maximum_move_mm": float(distance.max()),
+                         "marking_attachments": copy.deepcopy(op.get('marking_attachments', []))})
+    return {oid: positions[oid] for oid in sorted(touched)}, affected, receipts
 
 
 def between(source, target, operations):
@@ -350,7 +367,10 @@ def between(source, target, operations):
     old, new = objects(source), objects(target)
     if set(old) != set(new) or source["origin_mm"] != target["origin_mm"]:
         raise OwnerMeshError("E_OWNER_SCOPE", "private mesh objects or origin differ")
-    allowed, affected = {}, {}
+    from . import owner_markings as markings
+    markings.require_bound(source, operations)
+    allowed, affected = markings.support(old, operations)
+    marking_ids = set(allowed)
     for op in operations:
         oid = op["scope"]["object_id"]
         weights, faces = scope_vertices(op["scope"], old[oid])
@@ -371,7 +391,7 @@ def between(source, target, operations):
         ids = np.flatnonzero(np.any(a != b, axis=1))
         if set(ids)-allowed[oid]:
             raise OwnerMeshError("E_OWNER_SCOPE", "private stage moved vertices outside confirmed support")
-        checks = physical(final, reference=obj)
+        checks = (markings.validate_marking(final, a, b) if oid in marking_ids else physical(final, reference=obj))
         if len(ids) or obj["corner_normals"] != final["corner_normals"]:
             patches.append({"object_id": oid, "object_name": obj["name"],
                 "vertex_ids": ids.tolist(), "positions_world_mm": b[ids].tolist(),
