@@ -572,6 +572,13 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    both steps: understand produces the labelled images and an interpretation per item; a scripted edit applies the
    four confirmed changes through the real tools; before/after images and the change report are produced. Then
    `tests.proofs.assembly_m1` and the affected suites as §1 describes.
+6b. **Show the owner the edit mode before any paid run** (owner, 2026-10-16: "before the paid  run i want codex to
+   show me the edit mode and an example of how astra reacts to an edit (codex should mimic what astra will return
+   just to check everything works"): walk through item 6 as the owner will experience it, in order: the exact command
+   or message he writes; the understand reply exactly as he would receive it (text and labelled images); a sample
+   confirmation; the edit result (before/after images and change report). Astra's replies are scripted by Codex and
+   must be labelled "scripted by Codex, not Astra"; every image and geometry change must come from the real tools.
+   Then stop and wait for the owner's go before item 7.
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
