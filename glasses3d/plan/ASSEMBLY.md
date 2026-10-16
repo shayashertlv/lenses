@@ -657,6 +657,28 @@ paid edit rounds:
 6. **Proof ($0):** items 1-4 shown photo-first on a copy of c0015 (the four defects before/after); `assembly_m1` and
    the affected suites. Then stop for the owner.
 
+### M8. More owner-edit operations and mesh-health helpers (after M7; added 2026-10-16 by Claude)
+Owner asked: "any other mesh editing tools astra might need?". In main runs Astra already has full Blender through
+`execute_blender_code`; the gaps are (a) owner-edit mode, which today allows only translate/rotate/taper (plus M7's
+flatten/shading/refine) with materials, UVs and topology frozen (`g3d/owner_mesh.py:386`), and (b) reliable helpers
+for recurring mesh faults. Each new edit operation gets the same labelled selection, scratch-copy previews of 2-3
+amounts, owner confirmation, scoped checks and following markings. In priority order:
+1. **Colour/material adjust** (edit mode): change tint, lightness, transmission, gloss or coating of a named
+   material, previewed with `compare_look_to_photos` (photo background + worn view). Owners will ask "lens a bit
+   darker" / "frame warmer"; today that is refused.
+2. **Round or sharpen edges** (edit mode): change the rounding radius of a selected edge run, keeping the adjoining
+   faces; allowed to change topology inside the selected region only.
+3. **Thicker / thinner** (edit mode): offset a region along its surface normal, keeping the opposite side,
+   minimum thickness and attached markings.
+4. **Scale a part or region about an anchor** (edit mode): bigger/smaller, wider/narrower (lens opening, bridge,
+   temple height), keeping joins to neighbours.
+5. **Bend with falloff** (edit mode): gradual bend of a region about an axis (temple tip drop, frame wrap).
+6. **Move / resize / rotate a marking on its surface** (edit mode): logo size and placement.
+7. **Mesh health for Astra** (main run, also usable in edit mode): remove degenerate triangles and duplicate
+   vertices, make normals consistent; symmetrize a part about X=0 (left/right copies that drift apart);
+   controlled decimation that keeps silhouette, sharp edges and markings when a model grows heavy.
+Each with a $0 proof on a copy (before/after, photo first), the instruction lines, and the M7 dry-run mapping.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
