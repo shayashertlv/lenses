@@ -1,5 +1,141 @@
 # glasses3d progress
 
+## 2026-10-16 — M5-fix-9 + M6: finish warning and confirmed owner edits ($0)
+
+Started in the primary `C:\Users\Shay\PycharmProjects\lenses` checkout, branch `glasses3d`, clean at
+**`3580970`** (the required commit). Executed ASSEMBLY items 1–6 and 6b, Part A before Part B.
+No API request, paid token count, provider client, product-delivery change or paid run is authorized by this proof.
+The next paid run and each real edit round still require a fresh estimate and the owner's separate approval.
+
+Owner's words, recorded verbatim:
+
+> ok this is the next run a i want to try. id like to use effort=high and id like for you and codex to add an edit option at the end where the user will be able to talk about specific stuff (i.e. "on the temple, the triangle facet which is nearest to the frame should be more angled, its boarder with the logo facet should be more outwards and its left boarder should be more inward. in addition the top of the temples should be going narrower towards the top point of the top triangle facet .")
+
+> before the paid  run i want codex to show me the edit mode and an example of how astra reacts to an edit (codex should mimic what astra will return just to check everything works
+
+**Part A:** `budget_status`, the footer and first finish result project the second finish's conservative hold
+using the existing tariff/guard formula. The projection includes future replies and final image/text evidence,
+shows its assumptions and price-step crossing, and warns while there is still room for a current request plus
+the review. It is informational: it neither reserves extra money nor guarantees completion. No guard, $20
+settled stop, $23 maximum reserve, tariff, caching or history policy changed. The saved Prada run 3 replay
+first warns after request **78**, before request 88: settled **$13.740982**, reserve room **$9.259018**,
+projected second-review hold **$8.222275**. The first finish projects **$8.544975**, compared with the actual
+later refused **$8.061125** hold. The replay reads all 88 saved requests, leaves their bytes unchanged, and
+performs zero network/count calls. Evidence: `data/assembly/m5-fix-9/runway-replay-2/report.json`;
+Part A focused verification **97 passed in 7.86 s**.
+
+**Owner edit lifecycle:** `job edit` copies the chosen immutable delivery's exact verified checkpoint and
+hash-bound frozen camera basis, retaining photos and arm openings, with a fresh conversation. It does not pick
+the newer job head. Each understand/edit round has its own request, estimate, ledger and approval. Exact owner
+request and confirmation bytes, including CRLF, are retained and approval-bound. Optional stored briefs are
+refreshed only in the copy, preserving the original as `inputs/source-brief.txt`. The understand phase can use
+all read/report tools but cannot mutate the scene; `understand_finish` publishes numbered interpretations,
+proposed directions/amounts, labelled evidence and limitations, then stops. Confirmation/correction creates a
+separate edit round; neither old approval nor old conversation carries over. `job review --edit-id ...` shows
+the local understanding page before confirmation, and normal delivery review after an edit.
+
+**Target and physical policy:** the general `labelled_model_map` uses actual current geometry and stable
+numbered part/face/edge/point IDs, photo-first native-size pairs, and hash-bound capture receipts. Verified
+temple construction supplies familiar facet/edge/corner names without rebuilding stale templates. A confirmed
+owner request outranks contrary photo readings on the named feature; the observations remain recorded. The
+specialist edits a private copy of the actual current mesh, then hands back its verified accepted mesh.
+Closed solids, minimum thickness, physical orientation and strict export validation remain mandatory.
+Only shown support vertices may move, only by the confirmed finite operations; neighboring geometry and normal
+effects must be shown. Materials, UVs, transforms, topology and unrequested datablocks stay exact. Authored
+custom normals outside the shown normal-only influence are preserved. Incorrect amounts inside the right
+region, stale/private drift, missing accepted finishes and unseen image reports all refuse. Current operation
+receipts make retries idempotent. A correction can revise direction/amount on the shown target; changing the
+target itself needs a new understanding. This first geometry workflow does not promise unsupported topology
+or material edits: those limitations must be stated in the understand reply.
+
+**Actual two-round proof:** `tests.proofs.assembly_m6_owner_edit`,
+`data/assembly/m6-owner-edit/walkthrough-2/report.json`: **passed in 678.387 s**, seven scripted understand
+requests and eight parent/child edit requests, all at **$0**. The understand round stopped with no geometry
+change; a separate scripted confirmation, request and single-use approval were required for the edit round.
+Both used effort `high`. Real tools, the actual private temple specialist and Blender applied all four
+predeclared changes on both temples (eight operations): triangle slope up to **0.20 mm**, logo border outward
+**0.15 mm**, other border inward **0.15 mm**, crown depth taper up to **0.15 mm**. They were not tuned after
+the proof began. The top taper was explicitly interpreted as depth narrowing with Y/Z coordinates fixed;
+projection through oblique cameras may still shift. All **417** protected original job/photo/camera/checkpoint/
+delivery files remained unchanged. Loopback-only isolation and the production-client tripwire recorded zero
+external attempts and zero production transport constructions; SDK tracing was disabled and credentials
+scrubbed from the test environment. Mock ledger entries are not spend.
+
+The original draft fingerprint is `e7d1a864e8572b578d31a63f4c8405c382de5468fd85a9e7803c795e9ea80a3c`.
+The child accepted checkpoint and parent transferred checkpoint **c0001** have identical complete scene state
+and fingerprint `6fa1afa094718058c8403bbec15d6a813da285ffc9d30f6bad8f16880b012faa`.
+Independent saved-array audit (`walkthrough-2/final-array-audit.json`): **539 vertices per temple** move;
+largest combined displacement **0.349998474 mm**, because two edits overlap. Both sides remain exactly
+mirrored (zero mm error). Minimum paired thickness remains **2.895103455 mm**, above the existing **1 mm**
+requirement. Closed-solid, physical and strict export checks pass. All **44 other objects**, fixed positions,
+UVs, materials, transforms, sharp flags and authored normal encoding remain exact. A whole-region front/logo
+plane fit changes **4.67233° to 6.74219°** on both sides, but the rounded/nonplanar boundary has residuals
+**0.307 / 0.357 mm**: this is an informative region fit, not one uniform final dihedral.
+
+**Visible side effect, not repaired:** the moved temple surface partly hides the unchanged PRADA/MILANO
+lettering in the actual ref05/ref02 after images. Keeping logo geometry exact does not preserve its visibility.
+The walkthrough and a supplemental real `edit_report` explicitly disclose this; moving the logo would require
+including that change in a new confirmed understanding. The scripted finish proves the workflow and hard
+checks only. It is **not owner design acceptance**, and the demonstration does not claim the design is ready.
+
+The first full attempt was preserved and rolled back when Blender's normal setter changed **194 / 213
+`sharp_edge` flags**. The general fix leaves authored encoded normals and sharp flags untouched for finite
+vertex edits, allowing only computed normals in the already shown influence. A direct follow-up exposed only
+the selected objects' derived `summary.bbox_mm` change; the redundant whole-scene comparison now permits that
+derived summary alone, while exact confirmed positions and every authored field remain checked. The direct
+real-worker proof then passed in **39.234 s**. No threshold, hard gate, source product or proposed amount was
+weakened or changed. A separate labelled-map check corrected premature native-pixel filtering of tiny edge/
+point targets; the existing continuous first-hit visibility test still decides visibility, and occluded points
+remain unlabelled as visible. This supplement is explicitly separate from the sealed original understanding.
+
+All simulated replies and confirmation are labelled **"scripted by Codex, not Astra"**. The full owner
+walkthrough shows the exact request/command, numbered understand reply and real labelled images, the stop,
+sample confirmation, actual photo/before/after pairs (front first), temple close-ups, worn views and change
+report. Artifacts stay local under `data/assembly/m6-owner-edit/`; none are committed.
+
+The owner-facing gallery is `walkthrough-2/owner-walkthrough/index.html`, served locally at
+`http://127.0.0.1:51340/` for this session. Its 25 images are byte-for-byte copies of tool outputs, with an
+`images.json` SHA manifest. The final point-label supplement (`supplement/final-points/report.json`) produced
+22 images with all eight mirrored A/C/E/D corner IDs visible across the six cameras; it left the source
+fingerprint unchanged. The honest-report supplement produced 92 images and preserved all 603 files of the
+already sealed copy delivery. It changed no geometry and published no replacement delivery.
+
+Independent final read-only review found no critical blockers in the reserve warning, separate approvals,
+immutable source/confirmation binding, specialist handoff or final map visibility predicate. Its focused
+lifecycle suite passed **33 tests in 3.60 s**. Final map/proof/lifecycle checks passed **56 tests in 4.29 s**
+(these focused sets overlap; their counts are not added to the full-suite total).
+
+**Integration corrections from the full suite:** the declared registry order placed the new map tool before
+seating while the actual registry appends it; the declaration now matches the unchanged actual tool order.
+The stronger exact-text approval check exposed newline normalization in the old temple CLI/stage readers.
+They now decode the saved UTF-8 bytes exactly, rather than weakening approval binding. The ordinary stage's
+brief writers also preserve embedded owner text without Windows newline translation; the existing stage-evidence
+proof reads those bytes consistently. Focused LF/CRLF/lone-CR and mixed-text tests reject normalized substitutions.
+The registry suite passed **67 tests in 9.23 s**, and the temple CLI passed **48 tests in 9.07 s**.
+The ordinary stage/history/loop checks passed **53 tests in 22.97 s**; after the writer correction,
+the package/stage checks passed **43 tests in 4.99 s** (overlapping sets). Both reader and writer
+regressions were reproduced before repair; no approval or integrity check was relaxed.
+
+**Full validation:** non-photoprint `-n 8 --dist loadfile` completed **3,737 passed, 2 skipped,
+11 failed in 800.60 s**. Eight failures were the registry declaration and newline-reader regressions
+fixed above. The render timing failure passed in isolation; the process-QoS failure came from the full-run
+descendant watcher overriding the test's intentional default state, and its module passed **12 tests in
+3.01 s** without that watcher. Isolated seeing/render modules completed **43 passed, 1 failed in 111.43 s**.
+The one remaining failure is the previously recorded `test_photo_v1_pixels_are_unchanged`: **199
+reference-01/native pixels >114.24 allowed**, identical to the baseline. Its golden image, threshold and
+rendering method are untouched. Photoprint `-n 2 --dist loadfile`: **314 passed in 217.52 s**.
+All task regressions are resolved; the full suite is not described as green because that old baseline
+failure remains. The final `tests.proofs.assembly_m1` rerun after all compatibility fixes passed in
+**156.390 s** (160.016 s process wall time): 13 scripted requests, 26 transport files, 13 successful tools,
+36 verified image blobs and 35 verified AR images, clean receipts, **actual spend $0**. Validation logs and
+timestamp/PID/argv/exit receipts are under `data/assembly/m6-owner-edit/validation/`.
+
+Implementation and regressions committed with explicit paths as **`8b9d915`**, on `glasses3d`; no push.
+This progress entry records the evidence and owner walkthrough in a separate documentation commit.
+**Stopped before any paid run.** Next action is the owner's go for a new paid run and its estimate/approval;
+understanding and editing remain separately estimated and approved rounds. The demo's proposed amounts and
+scripted confirmation are not owner design acceptance or paid-run authorization.
+
 ## 2026-10-15 — Prada run 3 (xhigh, fresh run; draft at $16.700063)
 
 Started in the primary checkout `C:\Users\Shay\PycharmProjects\lenses`, branch `glasses3d`, clean at
