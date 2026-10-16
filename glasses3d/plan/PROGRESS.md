@@ -1,5 +1,40 @@
 # glasses3d progress
 
+## 2026-10-16 — Prada owner edit: paid UNDERSTAND round authorized
+
+The owner requested the automation edit flow for run 4 checkpoint **c0015**, then supplied this
+request verbatim (including spelling):
+
+> the logo triangle has a vertical outward line from its bottom center to its middle. the facets on the temple arent flat triangles, their angles look good but they should be each a flat plane. at the top outer corners of the front frame theres a weird line which makes the front incorrect (visibility depends on lighting). the lenses are not smooth, when the light hits them you can see rigdeness.
+
+Separate paid authorization, verbatim: **"you got it. start a paid run when youre ready"**. This follows
+the stated proposal of high effort and a $20 settled cutoff for the UNDERSTAND step. The existing
+owner preference against premature reserve refusal is retained: **$44.28 technical reserve**,
+16,384 output tokens, no reply cap. The $20 settled stop prevents starting another request at/above
+$20; a final in-flight request may take spending above it. The conservative reserve is not an
+expected charge. Geometry EDIT still follows the shown interpretation and the owner's confirmation.
+
+Created an isolated copy, **edit-4dc7778164 / round-001-understand**, from immutable delivery
+`20261016T092442-0c5459-97950e05ea5533d5fbccfe04c8a7474cf9e8011354fd588d7da1fab8b5206a28`.
+Source c0015, fingerprint `6df25bfb71ed7c978933188340b7c4bc68bbda9d92f49bf897d315b7034824ed`,
+GLB SHA `0a5f32222ccd2e105671cbcdc8c36ceee8cb29f4759e80775cf25c2e23244b4d`, frozen **basis-02**.
+No additional product hints or geometry were supplied. The local estimate for run
+**20261016T112347-a85604** is **$15.693950**, growth-only range **$13.936846–$21.671398**, assuming
+60 replies; its old temple-run corpus is not a guarantee for this edit step. The estimate and reserve
+semantics were shown before launch. Copy, estimate and approval used offline network/transport
+tripwires, with **zero API calls**. Operational receipts: `data/assembly/m6prada4-edit-request/`.
+
+Independent read-only preflight found **no blocker**: exact owner text; all **29** immutable round
+files, **68** protected source files and six copied photos match; request hash recomputes exactly;
+parent and specialist bind the approved settings and `understand_finish`. The runtime refuses
+source mutation during UNDERSTAND, previews use scratch copies, and successful publication stops
+at `awaiting_owner_confirmation`. No production code changed; the earlier tests remain applicable.
+Paid launch is the next step using the existing detached secure runner, with no resume or runtime reset.
+
+The owner also requested a movable 3D viewer. The exact delivered GLB is available in the local orbit
+viewer at **http://127.0.0.1:58500/** (drag to rotate, scroll to zoom, right-drag to pan), with provenance
+under `data/assembly/m6prada4-viewer/`. This is separate from the AR camera viewer previously shown.
+
 ## 2026-10-16 — Owner-authorized high-effort run: remove premature reserve refusal
 
 The new owner direction quoted in the 6f entry below authorizes a paid run after the completed $0 work,
