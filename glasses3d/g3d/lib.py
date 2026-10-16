@@ -55,6 +55,10 @@ def build() -> tuple[types.ModuleType, dict]:
     except Exception as exc:
         errors["surface"] = f"{type(exc).__name__}: {exc}"
     try:
+        # Health planners import these lazily to avoid their internal cycles.
+        # Resolve them while building the trusted facade, before the worker arms
+        # its audit guard; importing bytecode under that guard is rightly denied.
+        from . import owner_normal_plan, owner_thickness, owner_edge_radius
         from . import mesh_health_bpy
         for name in HEALTH_NAMES:
             setattr(facade, name, getattr(mesh_health_bpy, name))

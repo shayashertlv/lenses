@@ -308,6 +308,38 @@ def test_legitimate_snippets_pass(name):
     assert S.validate(LEGIT[name]) == [], [str(v) for v in S.validate(LEGIT[name])]
 
 
+@pytest.mark.parametrize("name", sorted(S.G3D_LIB_NAMES))
+def test_every_registered_facade_helper_passes_static_and_runtime_routes(name):
+    from glasses3d.g3d import lib
+    assert S.G3D_LIB_NAMES == frozenset(lib.NAMES)
+    for code in (f"result = g3d.{name}()",
+                 f"from g3d import {name}\nresult = {name}()",
+                 f"from g3d.lib import {name} as helper\nresult = helper()"):
+        assert S.validate(code) == [], code
+    facade = types.ModuleType("g3d.lib")
+    marker = object()
+    setattr(facade, name, marker)
+    guard = S.RuntimeGuard(g3d_facade=facade)
+    builtins = guard.builtins()
+    for module in ("g3d", "g3d.lib"):
+        assert builtins["__import__"](module, None, None, (name,)) is facade
+    assert builtins["getattr"](facade, name) is marker
+    assert f"g3d.{name}" in S.HINTS["g3d"]
+
+
+@pytest.mark.parametrize("name", ["quadratic_lens", "mesh_cleanup", "consistent_normals",
+                                  "symmetrize_mesh", "controlled_decimate"])
+def test_new_facade_helpers_do_not_expose_implementation_or_function_globals(name):
+    assert S.validate(f"result = g3d.{name}.__globals__")
+    assert S.validate(f"from g3d.{name} import build")
+    facade = types.ModuleType("g3d.lib")
+    guard = S.RuntimeGuard(g3d_facade=facade)
+    with pytest.raises(PermissionError):
+        guard.builtins()["__import__"](f"g3d.{name}")
+    with pytest.raises(PermissionError):
+        guard.builtins()["getattr"](lambda: None, "__globals__")
+
+
 @pytest.mark.parametrize("name", ["seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire"])
 def test_seating_operations_require_the_trusted_host_tools(name):
     for code in (f"g3d.{name}()", f"from g3d.lib import {name}", f"getattr(g3d, '{name}')"):

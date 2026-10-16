@@ -46,6 +46,8 @@ import threading
 import types
 from dataclasses import dataclass
 
+from .lib import NAMES as _FACADE_NAMES
+
 MAX_CODE_BYTES = 200_000
 MAX_AST_NODES = 40_000
 MAX_NESTING_DEPTH = 32
@@ -81,8 +83,7 @@ HINTS = {
     "preferences": "nothing: preferences are not scene state (export settings are fixed by export_glb())",
     "undo": "restore_checkpoint(id)",
     "file_path": "nothing: file paths are host-controlled",
-    "g3d": "the g3d facade (g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners, g3d.lens_coating, "
-           "g3d.acetate_section, g3d.sweep_rim); "
+    "g3d": "the g3d facade (" + ", ".join(f"g3d.{name}" for name in _FACADE_NAMES) + "); "
            "use the named seating tools for seat_lens, hide_eyewire, check_lens_seating, unseat_lens, unhide_eyewire",
 }
 
@@ -103,9 +104,10 @@ MODULE_PATHS = ALLOWED_MODULES | ALLOWED_SUBMODULES
 #: names prebound in every snippet's namespace (local name -> module path)
 PREBOUND_MODULES = {"bpy": "bpy", "bmesh": "bmesh", "mathutils": "mathutils", "np": "numpy", "g3d": "g3d"}
 PREBOUND_NAMES = frozenset({"result"})
-#: the g3d facade (g3d/lib.py): in-memory geometry/material authoring, no file I/O inside
-G3D_LIB_NAMES = frozenset({"loft_sections", "polygon_section", "check_round_corners", "lens_coating",
-                         "acetate_section", "sweep_rim"})
+#: Share the explicit facade registry with its builder. Importing lib only
+#: loads stdlib types; Blender implementations load later, inside lib.build().
+#: Both AST paths/from-imports and runtime imports/getattr use this same set.
+G3D_LIB_NAMES = frozenset(_FACADE_NAMES)
 #: module attributes that lead outside the allowlist, measured in Blender 5.2 (a `--probe` worker recomputes them and
 #: reports any edge missing here as `safe_mode_selfcheck.unlisted_edges` in its receipt; test_wp2_worker asserts none)
 ESCAPE_EDGES = {

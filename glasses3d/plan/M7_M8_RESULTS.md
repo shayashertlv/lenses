@@ -1,7 +1,10 @@
 # M7/M8 implementation and copy proofs
 
 Status: implementation, copy proofs and independent instruction reviews are complete.
-The requested fresh desktop automation test is next, after the implementation commit.
+Implementation commit: **d39f954**. The first fresh desktop test on
+`prada-fresh-desktop-m7-m8-151f4802` found a facade-registration gap and was stopped before
+geometry changed. The general fix, independent review and final assembly proof are complete. A fresh
+full restart follows the fix commit.
 These copies are not owner-accepted models. Visual limits and remaining geometric
 creases are disclosed below; no delivered model was edited.
 
@@ -163,16 +166,34 @@ angles and perfect planarity simultaneously.
   **16 passed**, plus the nonfinite-decoder regression.
 - Both actual `job edit-check` CLI reports are ready at $0: all four M7 items and
   all seven M8 items. The exact verbatim request bytes are preserved on Windows.
-  Current reports: `data/assembly/m7/capabilities-final-v4/{m7,m8}-cli-report.json`,
+  Current reports: `data/assembly/m7/capabilities-final-v5/{m7,m8}-cli-report.json`,
   regenerated after the last implementation change.
 - After the final quadratic-normal change: **13** independent refinement/review
   tests, **131** instruction/preview tests and **23** map tests pass.
-- Final `tests.proofs.assembly_m1` **passed in 229.656 seconds**: 13 scripted tool
+- Final `tests.proofs.assembly_m1` **passed in 200.172 seconds**: 13 scripted tool
   steps, 26 verified transport files, 64 verified image blobs, 35 verified AR images,
   strict delivery checks, **$0 actual API spend**. No estimator or owner-approval
   writer is called by the final offline fixture. Its synthetic approval is rejected
-  by production preflight. Log: `data/assembly/m7/assembly-m1-final-v2.log`.
+  by production preflight. Log: `data/assembly/m7/assembly-m1-final-v3.log`.
 - Independent review of all changed emitted instruction texts and tool descriptions
   has **no remaining findings**. Evidence: `final-text-review-v3/review.json` and
   `final-text-review-v4/delta-review.json` under `data/assembly/m7`.
-- Implementation commit and the requested fresh desktop Astra xhigh run are next.
+- Implementation committed **d39f954**. The first fresh desktop Astra xhigh attempt selected
+  the documented `g3d.quadratic_lens`, but the code executor still allowed only the six older
+  facade helpers and refused it. This integration gap escaped the initial instruction review.
+  The attempt stopped at verified empty checkpoint `c0000`; a general registration fix,
+  guarded-worker regressions and another independent review precede a fresh restart.
+  Evidence: `data/assembly/desktop-prada-m7m8-v1/stopped-attempt-audit.json`. External API
+  calls, network attempts and production transports are zero. The ordinary ledger retains
+  the cancelled request's synthetic $0.8192 unknown reservation; it is not a charge, was not
+  reconciled, and prevented the harness from claiming an all-zero final ledger.
+
+The follow-up fix shares the explicit `lib.NAMES` registry with both static and runtime
+facade checks and their refusal hints. The armed-worker regression also exposed lazy
+health-helper imports; three internal dependencies now preload during trusted facade
+setup. No audit or physical rule is relaxed. **272** safety/real-worker tests and the
+existing **33** worker tests pass. The exact refused Astra script then succeeds unchanged
+on a separate empty scratch scene, creating 13 objects without runtime violations.
+Independent review has no remaining findings:
+`data/assembly/m7/final-facade-review-v1/review.json`. The earlier text exports remain
+byte-identical. Original stopped-attempt evidence and its synthetic ledger remain intact.

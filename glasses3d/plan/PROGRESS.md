@@ -1,12 +1,26 @@
 # glasses3d progress
 
-## 2026-10-16 — M7/M8 implementation and copy proofs complete; desktop full-run test next
+## 2026-10-16 — M7/M8 committed; desktop test found a facade-registration bug
 
 Owner's question, verbatim: **"any other mesh editing tools astra might need?"**
 Follow-up, verbatim: **"after youre done with everything please run the automation for a test but instead of astra api, use desktop gpt (you!, use astra xhigh and with no other convos memory) this way will be able to test without additional spending"**.
 The owner selected **"Full photo-to-3D run on a fresh copy of the Prada job"**.
-That test starts after the implementation commit, using fresh `gpt-6-astra` desktop tasks at
-`xhigh`, exact pipeline input packets and no inherited conversation history. It is still pending.
+Implementation committed **d39f954** with 96 explicit source/test/documentation paths. The full test
+then started on `prada-fresh-desktop-m7-m8-151f4802`, using fresh `gpt-6-astra` desktop tasks at
+`xhigh`, exact pipeline input packets and no inherited conversation history. Its six photo hashes,
+view declarations, description and specifications match the original intake; no old model, cameras
+or history were copied. Evidence: `data/assembly/desktop-prada-m7m8-v1`. The first build selected
+the documented quadratic-lens helper, but the safe-mode facade allowlist still contained only
+the six older helpers and refused it before geometry changed. The attempt was stopped at verified
+`c0000`. Registration now shares the explicit facade registry; actual worker tests also caught
+lazy imports, now preloaded during trusted setup without weakening the audit guard.
+**272** safety/armed-worker tests and **33** existing worker tests pass. The exact refused
+script succeeds unchanged on a separate scratch scene (13 objects, zero runtime violations).
+Independent follow-up review: no findings (`m7/final-facade-review-v1/review.json`).
+The final assembly proof passed in **200.172 s**, with 13 scripted steps and zero actual API spend.
+A fresh full desktop restart follows the fix commit. The stopped-attempt audit proves zero external API/network/production transport
+activity. The unchanged guard retains a synthetic unknown reservation of $0.8192 for the cancelled
+request; this is not a provider charge and was not reconciled to disguise the cancellation.
 No external API call, paid run, product estimate request, delivered-model edit or push is authorized.
 Earlier paid approvals are not used. Starting branch: `glasses3d`, clean HEAD **7b9cd13**.
 
@@ -42,14 +56,15 @@ current comparisons pass the unchanged tolerance (0–9 changed pixels). That hi
 remains unresolved; no threshold or golden image changed. Photoprint: **313 passed**, plus its
 unchanged subprocess import test passes from repository root (**1 passed**). AR: **506 passed**,
 typecheck passed. Final affected suite: **400 passed**. Final PN delta: **13** independent tests;
-instruction/preview: **131**; map: **23**. Final `tests.proofs.assembly_m1`: **passed in 229.656 s**,
+instruction/preview: **131**; map: **23**. Final `tests.proofs.assembly_m1`: **passed in 200.172 s**,
 13 scripted tool steps, 64 image blobs, 35 AR images, strict delivery checks, **$0 actual API spend**.
 The final offline fixture calls no estimator and cannot be spent by production.
 
 Independent reviews of every changed emitted instruction/tool description and final deltas have
 **no remaining findings**: `m7/final-text-review-v3/review.json` and
 `m7/final-text-review-v4/delta-review.json`. Source and exported-text hashes are bound in the review.
-Implementation commit and the requested full fresh desktop automation test are next; never push.
+Implementation is committed. The initial instruction review missed the facade integration gap;
+the desktop test exposed it, and the corrected facade passed another independent review. Nothing pushed.
 
 ## 2026-10-16 — Prada owner edit: paid UNDERSTAND round authorized
 
