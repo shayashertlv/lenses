@@ -592,6 +592,24 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    restore the clearer wording, with no change of meaning. Keep the contract tests (named tools exist, retired
    phrases absent, size within the new limits).
    **Owner, 2026-10-16: "lets have codex fix the problems and only run then"** — 6c and 6d before run 4.
+6e. **Recreate and review the instructions (owner, 2026-10-16: "in the prompt i dont want a paid run to start, i want
+   codex to fix the problems, to recreate the instructions, to review the code and instructions to make sure the
+   instructions are very good and is perfect.")** Rewrite Astra's main instructions, the temple specialist's
+   instructions and the edit-mode (understand/edit) instructions from scratch within the new limits, ordered by the
+   workflow Astra actually follows, plain and unambiguous, each rule stated once. Review standard, all required:
+   - **Matches the code:** every statement about a tool, argument, report field, refusal, check, money figure or
+     finish step is verified against the current code and its tool description; nothing promises behaviour the code
+     lacks; nothing the code requires is missing.
+   - **No contradictions** between the main instructions, specialist instructions, edit-mode instructions, tool
+     descriptions and the brief.
+   - **Covers every owner decision** that affects Astra (ASSEMBLY §4 D1-D5 and every later "owner" decision in
+     M5-fix-2..M6) and every lesson from Oakley runs 1-4 and Prada runs 1-3 that Astra can act on (e.g. judge from
+     full-size pairs and close-ups, measure depth and rounding instead of guessing, arm openings per photo, visible
+     facet angles when measurement is unresolved, lens markings are not glass, finish only after a real look).
+   - **Product-independent:** no product names, measurements or fixture-specific remedies.
+   - **Independent review:** a separate reviewer reads the new texts against the code and lists every mismatch,
+     gap, contradiction or unclear sentence; fix and repeat until the review finds none.
+   Show the owner the full new texts and a short list of what changed and why. No paid run until he says so.
 7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
