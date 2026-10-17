@@ -690,7 +690,11 @@ in the append-only history (25-41 new images per look call, 56 per first finish)
 will hit this wall. The desktop test also had no money stop, so it never felt the finish runway.
 1. **Fewer images, same pixels:** each photo's full pair and its close-ups become one composed image within the
    documented high-detail patch budget (close-ups at native pixels, never downscaled), so a look call adds about one
-   image per photo. History stays append-only.
+   image per photo. History stays append-only. **No part is ever shrunk** (owner, 2026-10-17, recalling Prada run 1's
+   1024 px collage: "didnt we had a problem where we already sent collages instead of images and astra didnt zoom
+   in?"): if a photo's pair and close-ups do not fit the budget, use a second image instead of scaling. Proof: every
+   part of every composed image is pixel-identical to the separate image it replaces, and the provider's documented
+   resizing leaves the composed image unchanged.
 2. **Safety valve:** when the next request would pass 80% of the image limit, payload limit or the 272k price step,
    the host asks Astra for a written state summary (current best checkpoint, open differences, decisions) and continues
    in a fresh conversation with the photos, that summary and the latest evidence; record it (one cache rebuild).
