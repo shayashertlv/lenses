@@ -90,6 +90,8 @@ Only the owner sets money limits. The active run supplies its settled stop and r
 share them. A reserve hold is a temporary allowance for a request, not settled spend. Do not choose a child budget
 or change the run's limits. Use the finish-reserve warning early enough to inspect evidence and correct remaining
 visible differences. Tools can refuse invalid work or the run can stop before completion; report those facts.
+If the active run specifies settled-only mode, parent and specialist share that settled cutoff without a reserve
+cap or finish-reserve requirement. Estimated future response costs do not reduce the available settled budget.
 """
 
 CORE_GUIDANCE = {

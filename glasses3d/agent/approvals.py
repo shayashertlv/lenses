@@ -258,11 +258,13 @@ class ApprovedRun:
     max_micro: int
     requested_cap_micro: int
     owner_words: str
+    settled_only: bool = False
 
     def binding(self) -> dict:
         return {"approval_sha256": self.approval_sha256, "approval_request_sha256": self.approval_request_sha256,
                 "request_sha256": self.request_sha256, "max_micro_usd": self.max_micro,
-                "requested_cap_micro_usd": self.requested_cap_micro}
+                "requested_cap_micro_usd": self.requested_cap_micro,
+                **({"settled_only": True} if self.settled_only else {})}
 
 
 def check_approval(run_dir, *, current_request_sha256: str, requested_cap_usd=None) -> ApprovedRun:
@@ -285,6 +287,9 @@ def check_approval(run_dir, *, current_request_sha256: str, requested_cap_usd=No
     if not isinstance(inner, dict) or request_sha256(inner) != request.get("request_sha256"):
         raise ApprovalRefused("invalid", "approval-request.json does not hash to its own request_sha256")
     settings = inner.get("settings") if isinstance(inner.get("settings"), dict) else {}
+    settled_only = settings.get("settled_only", False)
+    if type(settled_only) is not bool:
+        raise ApprovalRefused("invalid", "settled_only must be a boolean")
     if any(request.get(key) != settings.get(key) for key in REQUIRED_SETTINGS):
         raise ApprovalRefused("invalid", "approval-request.json disagrees with its own settings")
     if approval.get("approval_request_sha256") != sha256_bytes(request_raw):
@@ -311,9 +316,13 @@ def check_approval(run_dir, *, current_request_sha256: str, requested_cap_usd=No
     if maximum < requested:
         raise ApprovalRefused("below_cap", f"the owner approved ${usd_text(maximum)}, below the requested "
                                            f"${usd_text(requested)}")
+    if settled_only and (settings.get("fit_output_to_budget", False)
+                         or _cap(settings.get("settled_stop_usd"), "the settled-only stop") != requested):
+        raise ApprovalRefused("invalid", "settled-only approval requires its exact settled stop and no output fitting")
     return ApprovedRun(run_id=run_dir.name, request_sha256=request["request_sha256"],
                        approval_sha256=sha256_bytes(approval_raw), approval_request_sha256=sha256_bytes(request_raw),
-                       max_micro=maximum, requested_cap_micro=requested, owner_words=owner_words)
+                       max_micro=maximum, requested_cap_micro=requested, owner_words=owner_words,
+                       settled_only=settled_only)
 
 
 def latest_pending_run(job_dir) -> str | None:

@@ -10,6 +10,9 @@ is an httpx2 request hook (``before_request``) and response hook (``after_respon
   case (every input token at the cache-write rate plus the whole output cap), persist the row (fsync, then an atomic
   replace) and only then let the request go;
 * one open request at a time: a new request is refused while the previous row is ``held``;
+* explicit approval-bound ``settled_only`` mode still records each request's liability, but estimated holds
+  never gate spending or shrink output. Admit while shared settled charges are below the approved stop;
+  the final response can cross it. Unknown charges still end spending until reconciled;
 * after a response: every 200 that names gpt-6-astra with an id and status completed or incomplete is settled from its
   own usage (``settled_from: transport``); a 4xx (429 included) settles at $0 (``rejected_4xx``); a 5xx, a non-JSON or
   otherwise unusable 200, a connection error or a timeout keeps the full hold (``unknown``) and ends the run's spending;
@@ -148,13 +151,16 @@ class StageBudget:
         self.before = guard.ledger.totals()
         self.denied = None
         self.fit_output_to_budget = guard.fit_output_to_budget if fit_output_to_budget is None else fit_output_to_budget
+        if guard.ledger.settled_only and self.fit_output_to_budget:
+            raise BudgetGuardError("settled-only mode cannot fit output to an estimated reservation")
 
     def summary(self):
         totals = self.guard.ledger.totals()
         fields = ("settled_micro_usd", "held_micro_usd", "unknown_micro_usd", "committed_micro_usd")
         out = {key: totals[key] - self.before[key] for key in fields}
+        balance = out["settled_micro_usd" if self.guard.ledger.settled_only else "committed_micro_usd"]
         return {**out, "maximum_micro_usd": self.maximum_micro,
-                "remaining_micro_usd": max(0, self.maximum_micro - out["committed_micro_usd"]),
+                "remaining_micro_usd": max(0, self.maximum_micro - balance),
                 "request_sequences": [row["sequence"] for row in self.guard.ledger.rows[self.start:]],
                 "denied": self.denied}
 
@@ -408,6 +414,9 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
         if data.get("tariff") != tariff.to_dict():
             raise ValueError("tariff")
         cap = _int(data.get("maximum_micro_usd"))
+        settled_only = data.get("settled_only", False)
+        if type(settled_only) is not bool or (settled_only and cap <= 0):
+            raise ValueError("settled-only mode or stop")
         rows = data.get("rows")
         if not isinstance(rows, list):
             raise ValueError("rows")
@@ -422,6 +431,9 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
         if approval is not None and not (
                 cap == _int(approval.get("requested_cap_micro_usd")) <= _int(approval.get("max_micro_usd"))):
             raise ValueError("cap differs from the consumed approval")
+        if approval is not None and (type(approval.get("settled_only", False)) is not bool
+                                     or approval.get("settled_only", False) != settled_only):
+            raise ValueError("settled-only mode differs from the consumed approval")
         if not isinstance(data.get("reconciliations"), list):
             raise ValueError("reconciliations")
         reconciliations = {}
@@ -443,7 +455,10 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
                 raise ValueError("reconciliation provenance")
             reconciliations[seq] = item
         over_reservation = False
+        prior_settled, prior_unresolved = 0, False
         for index, row in enumerate(rows, 1):
+            if settled_only and (prior_settled >= cap or prior_unresolved):
+                raise ValueError("request after settled-only stop or unresolved liability")
             if not isinstance(row, dict) or tuple(sorted(row)) != tuple(sorted(ROW_FIELDS)):
                 raise ValueError("row fields")
             if type(row["sequence"]) is not int or row["sequence"] != index:
@@ -468,12 +483,14 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
                 if any(row[key] is not None for key in ("request_id", "response_id", "http_status",
                                                          "settled_micro_usd", "usage", "settled_from", "reason")):
                     raise ValueError("held row carries an outcome")
+                prior_unresolved = True
                 continue
             if outcome == "unknown":
                 if amount is not None or usage is not None or source is not None:
                     raise ValueError("unknown row carries a settlement")
                 if not isinstance(row["reason"], str) or not row["reason"]:
                     raise ValueError("unknown row without a reason")
+                prior_unresolved = True
                 continue
             if source not in SETTLED_FROM:
                 raise ValueError("settled_from")
@@ -510,6 +527,7 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
                     raise ValueError("transport reconcile provenance")
             if amount > reservation:
                 over_reservation = True
+            prior_settled += amount
             if (outcome == "settled" and usage["input_tokens"] != row["input_tokens"]
                     and data.get("violation") is None
                     and (data.get("blocked") or {}).get("kind") != "InputCountMismatch"):
@@ -519,7 +537,7 @@ def validate_ledger(data, tariff: Tariff | None = None) -> dict:
         totals = ledger_totals(rows)
         if data.get("totals") != totals:
             raise ValueError("totals")
-        if data.get("violation") is None and totals["committed_micro_usd"] > cap:
+        if not settled_only and data.get("violation") is None and totals["committed_micro_usd"] > cap:
             raise ValueError("committed above the cap")
         return totals
     except (KeyError, TypeError, ValueError, PricingError) as error:
@@ -539,12 +557,19 @@ class RunLedger:
 
     # -- construction
     @classmethod
-    def create(cls, path, maximum_usd, *, run_id: str | None = None, approval: dict | None = None) -> "RunLedger":
+    def create(cls, path, maximum_usd, *, run_id: str | None = None, approval: dict | None = None,
+               settled_only: bool = False) -> "RunLedger":
         maximum_micro = cap_to_micro(maximum_usd)
+        if type(settled_only) is not bool or (settled_only and maximum_micro <= 0):
+            raise BudgetGuardError("settled-only mode requires a boolean and a positive settled stop")
+        if approval is not None and approval.get("settled_only", False) is not settled_only:
+            raise BudgetGuardError("settled-only mode differs from the consumed approval")
         tariff = Tariff.frozen(service_tier="default", region="global")
         data = {"schema": LEDGER_SCHEMA, "run_id": run_id, "created": now_iso(), "maximum_micro_usd": maximum_micro,
                 "tariff": tariff.to_dict(), "approval": approval, "rows": [], "violation": None, "blocked": None,
                 "reconciliations": [], "totals": ledger_totals([])}
+        if settled_only:
+            data["settled_only"] = True
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Exclusive creation establishes ownership (and consumes the run's approval); never reset a prior ledger.
@@ -562,6 +587,29 @@ class RunLedger:
             raise LedgerInvalid("budget ledger unreadable or not JSON") from None
         tariff = Tariff.frozen()
         validate_ledger(data, tariff)
+        if data.get("settled_only") and data.get("approval") is not None:
+            # This opt-in changes admission semantics. Verify the consumed owner's actual
+            # request, not just two editable mode markers in the ledger and its receipt.
+            from .approvals import request_sha256
+            receipt = data["approval"]
+            try:
+                request_path, approval_path = path.parent / "approval-request.json", path.parent / "approval.json"
+                if _is_link(request_path) or _is_link(approval_path):
+                    raise ValueError("approval links")
+                request_raw, approval_raw = read_bytes_with_retry(request_path), read_bytes_with_retry(approval_path)
+                request, approval = json.loads(request_raw), json.loads(approval_raw)
+                settings = request["request"]["settings"]
+                if (sha256_bytes(request_raw) != receipt["approval_request_sha256"]
+                        or sha256_bytes(approval_raw) != receipt["approval_sha256"]
+                        or approval["approval_request_sha256"] != receipt["approval_request_sha256"]
+                        or approval["request_sha256"] != receipt["request_sha256"]
+                        or request_sha256(request["request"]) != receipt["request_sha256"]
+                        or settings.get("settled_only") is not True
+                        or settings.get("fit_output_to_budget", False)
+                        or cap_to_micro(settings.get("settled_stop_usd")) != data["maximum_micro_usd"]):
+                    raise ValueError("settled-only approval binding")
+            except (OSError, ValueError, KeyError, TypeError, BudgetGuardError):
+                raise LedgerInvalid("settled-only ledger differs from its consumed owner approval") from None
         return cls(path, data, tariff=tariff, fresh=False)
 
     # -- reading
@@ -572,6 +620,10 @@ class RunLedger:
     @property
     def maximum_micro(self) -> int:
         return self.data["maximum_micro_usd"]
+
+    @property
+    def settled_only(self) -> bool:
+        return self.data.get("settled_only", False)
 
     @property
     def violation(self):
@@ -614,16 +666,21 @@ class RunLedger:
 
     # -- transitions
     def reserve(self, input_tokens: int, max_output_tokens: int) -> dict:
-        """Hold the worst case of one request or raise before anything is sent."""
+        """Persist one request's liability after checking the approved reserve or settled-only policy."""
         try:
             reservation = self.tariff.reserve_micro(input_tokens, max_output_tokens)
         except PricingError:
             raise BudgetGuardError("Token counter returned an invalid or unsupported input count") from None
         if self.open_row() is not None:
             raise BudgetGuardError("The previous request has no recorded outcome; one request at a time")
-        committed = self.totals()["committed_micro_usd"]
-        if committed + reservation > self.maximum_micro:
-            raise BudgetExceeded(reservation_refusal(reservation, self.maximum_micro, self.totals()))
+        totals = self.totals()
+        if self.settled_only:
+            if totals["unknown_micro_usd"] or any(row["outcome"] == "unknown" for row in self.rows):
+                raise BudgetGuardError("An unresolved request liability blocks further inference")
+            if totals["settled_micro_usd"] >= self.maximum_micro:
+                raise BudgetExceeded(f"Settled spend reached the ${usd_text(self.maximum_micro)} stop; no inference sent")
+        elif totals["committed_micro_usd"] + reservation > self.maximum_micro:
+            raise BudgetExceeded(reservation_refusal(reservation, self.maximum_micro, totals))
         row = _new_row(len(self.rows) + 1, input_tokens, max_output_tokens, reservation)
 
         def mutate():
@@ -845,11 +902,14 @@ class BudgetGuard:
     """
 
     def __init__(self, client_for_count, ledger_path, maximum_usd, *, run_id: str | None = None,
-                 approval: dict | None = None, fit_output_to_budget: bool = False, settled_stop_usd=None):
+                 approval: dict | None = None, fit_output_to_budget: bool = False, settled_stop_usd=None,
+                 settled_only: bool = False):
         cap_to_micro(maximum_usd)       # refuse a bad cap before anything else (no ledger is created)
         settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
+        self._validate_settled_only(settled_only, cap_to_micro(maximum_usd), settled_stop, fit_output_to_budget)
         _check_counter(client_for_count)
-        self._setup(client_for_count, RunLedger.create(ledger_path, maximum_usd, run_id=run_id, approval=approval))
+        self._setup(client_for_count, RunLedger.create(ledger_path, maximum_usd, run_id=run_id,
+                                                     approval=approval, settled_only=settled_only))
         self.fit_output_to_budget = fit_output_to_budget
         self.settled_stop_micro = settled_stop
 
@@ -861,11 +921,19 @@ class BudgetGuard:
             raise BudgetGuardError("A guard attaches only to a ledger created by this process with no rows")
         _check_counter(client_for_count)
         settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
+        cls._validate_settled_only(ledger.settled_only, ledger.maximum_micro, settled_stop, fit_output_to_budget)
         guard = cls.__new__(cls)
         guard._setup(client_for_count, ledger)
         guard.fit_output_to_budget = fit_output_to_budget
         guard.settled_stop_micro = settled_stop
         return guard
+
+    @staticmethod
+    def _validate_settled_only(mode, maximum, stop, fit_output):
+        if type(mode) is not bool:
+            raise BudgetGuardError("settled_only must be a boolean")
+        if mode and (stop is None or stop != maximum or stop <= 0 or fit_output):
+            raise BudgetGuardError("settled-only mode requires an equal positive settled stop and no output fitting")
 
     def _setup(self, client_for_count, ledger: RunLedger) -> None:
         self.client_for_count = client_for_count.with_options(max_retries=0)
@@ -921,9 +989,10 @@ class BudgetGuard:
         """Numbers and identifiers only: settled, open and unknown holds, the cap and what remains."""
         totals = self.ledger.totals()
         cap = self.ledger.maximum_micro
-        remaining = max(0, cap - totals["committed_micro_usd"])
+        balance = totals["settled_micro_usd" if self.ledger.settled_only else "committed_micro_usd"]
+        remaining = max(0, cap - balance)
         stop = self.settled_stop_micro
-        remaining_to_stop = None if stop is None else max(0, stop - totals["committed_micro_usd"])
+        remaining_to_stop = None if stop is None else max(0, stop - balance)
         outcomes = totals["outcomes"]
         return {
             "maximum_micro_usd": cap, "settled_micro_usd": totals["settled_micro_usd"],
@@ -940,6 +1009,7 @@ class BudgetGuard:
             "violation": self.ledger.violation, "blocked": self.ledger.blocked,
             "blocked_reason": self.blocked_reason, "blocked_kind": self.blocked_kind,
             "planning": self.planning(),
+            **({"settled_only": True} if self.ledger.settled_only else {}),
         }
 
     def planning(self) -> dict:
@@ -947,7 +1017,8 @@ class BudgetGuard:
         counted request's serialized bytes, input images and count time (ms) are recorded beside its tokens
         (v3p3-verify-15: bytes and images were only logged; the loop's context guard fires on tokens or bytes)."""
         totals = self.ledger.totals()
-        remaining = max(0, self.ledger.maximum_micro - totals["committed_micro_usd"])
+        balance = totals["settled_micro_usd" if self.ledger.settled_only else "committed_micro_usd"]
+        remaining = max(0, self.ledger.maximum_micro - balance)
         settled = [row["settled_micro_usd"] for row in self.ledger.rows if row["outcome"] == "settled"]
         if self._last_request_size is None:
             input_tokens = output_limit = next_hold = None
@@ -1036,6 +1107,8 @@ class BudgetGuard:
                 # Edit (4): the previous request has no recorded outcome; never send a second one beside it.
                 raise BudgetGuardError(f"Request {open_row['sequence']} has no recorded outcome yet; "
                                        "one request at a time")
+            if self.ledger.settled_only and any(row["outcome"] == "unknown" for row in self.ledger.rows):
+                raise BudgetGuardError("An unresolved request liability blocks further inference")
             if (self.settled_stop_micro is not None
                     and self.ledger.totals()["settled_micro_usd"] >= self.settled_stop_micro):
                 raise BudgetExceeded(f"Settled spend reached the ${usd_text(self.settled_stop_micro)} stop; "
@@ -1094,9 +1167,10 @@ class BudgetGuard:
             self._last_request_body = (body_bytes, images, count_ms)
             hold = self.tariff.reserve_micro(input_tokens, output_limit)
             committed = self.ledger.totals()["committed_micro_usd"]
-            if hold > self.ledger.maximum_micro - committed:
+            if not self.ledger.settled_only and hold > self.ledger.maximum_micro - committed:
                 raise BudgetExceeded(reservation_refusal(hold, self.ledger.maximum_micro, self.ledger.totals()))
-            if self._stage_budget is not None and hold > self._stage_budget.summary()["remaining_micro_usd"]:
+            if (not self.ledger.settled_only and self._stage_budget is not None
+                    and hold > self._stage_budget.summary()["remaining_micro_usd"]):
                 self._stage_budget.denied = "the next reservation exceeds the stage allowance; no inference sent"
                 raise StageBudgetExceeded(self._stage_budget.denied, request)
             try:
@@ -1664,7 +1738,8 @@ class JobLedger:
         paid.acquire(job_id=self.job_dir.name, run_id=run_id)
         try:
             cap = Decimal(approved.requested_cap_micro) / Decimal(MICRO)     # exact; floors back to the same micro
-            ledger = RunLedger.create(run_dir / "budget.json", str(cap), run_id=run_id, approval=approved.binding())
+            ledger = RunLedger.create(run_dir / "budget.json", str(cap), run_id=run_id,
+                                      approval=approved.binding(), settled_only=approved.settled_only)
         except BaseException:
             paid.release()
             raise

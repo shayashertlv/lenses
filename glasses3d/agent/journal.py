@@ -13,6 +13,8 @@
 * a dead worker (hard timeout, EOF, exit, frame error) is restarted on the head and verified; the result is
   `worker_restarted` and the call is never replayed (upstream issue #279). At most 2 restart attempts per call; 3
   restarts within 10 minutes raise WorkerFailed (the run ends `failed_worker` at the verified head);
+* a live worker's RPC `FrameError` reply (an unserializable result) restores the head and journals the original
+  error, then raises WorkerFailed. Retrying through a model reply cannot repair a broken worker result contract;
 * a call still running at its soft timeout + 1 s starts a warm spare worker on the head in the background (the head
   cannot move while the call runs), so a hard kill costs the verification, not a Blender start (Blender needs 3.1-3.4 s
   to reach the worker script on this machine under load); a call that ends in time discards the spare.
@@ -55,7 +57,7 @@ class CheckpointMismatch(RuntimeError):
 
 
 class WorkerFailed(RuntimeError):
-    """The worker cannot be kept alive (restart limit or a restart that cannot be verified)."""
+    """The worker cannot continue safely: failed recovery or an invalid RPC result."""
 
     def __init__(self, message: str, head: dict | None):
         super().__init__(message)
@@ -340,6 +342,8 @@ class BlenderSession:
                 self._journal(tool, call_id, arguments, out, head, None)
                 return out
             except WorkerError as exc:
+                if exc.etype == "FrameError":
+                    self._fatal_frame_error(exc, tool, call_id, arguments, head, t0)
                 res = {"status": "error", "traceback": f"{exc.etype}: {exc.message}", "worker_error": True,
                        "fingerprint_before": None}
             self._discard_spare()
@@ -402,6 +406,8 @@ class BlenderSession:
         except WorkerDied as exc:
             return self._after_death(exc, tool, call_id, t0)
         except WorkerError as exc:
+            if exc.etype == "FrameError":
+                self._fatal_frame_error(exc, tool, call_id, params, self.head, t0)
             out = {"status": "error", "call_id": call_id, "message": f"{exc.etype}: {exc.message}",
                    "traceback": exc.traceback, "restored_to": None}
             try:                                  # a method that raised midway must not leave the scene moved
@@ -424,6 +430,32 @@ class BlenderSession:
             out["restored_to"] = self.head["id"]
         out["seconds"] = round(time.perf_counter() - t0, 4)
         return out
+
+    def _fatal_frame_error(self, exc, tool, call_id, arguments, head, t0):
+        """Recover scene state, retain the RPC evidence, and stop instead of inviting another paid retry."""
+        self._discard_spare()
+        out = {"status": "failed_worker", "call_id": call_id, "checkpoint": head["id"],
+               "restored_to": None, "restore_verified": False, "message": str(exc),
+               "worker_error": {"type": exc.etype, "message": exc.message, "traceback": exc.traceback}}
+        try:
+            try:
+                self._restore(head)
+            except WorkerDied as died:
+                # A lost rollback response still follows the existing verified restart path.
+                out["recovery"] = self._after_death(died, tool, call_id, t0)
+            out.update(checkpoint=self.head["id"], restored_to=self.head["id"], restore_verified=True)
+        except (WorkerError, WorkerFailed, CheckpointMismatch) as restore_error:
+            out["restore_error"] = f"{type(restore_error).__name__}: {restore_error}"
+        out["seconds"] = round(time.perf_counter() - t0, 4)
+        message = (f"{tool}: {exc}; " +
+                   (f"restored verified checkpoint {out['restored_to']}" if out["restore_verified"] else
+                    f"checkpoint restoration failed: {out['restore_error']}"))
+        try:
+            self._journal(tool, call_id, arguments, out, head, None)
+        except OSError as journal_error:
+            # Persistence failure must not turn this transport fault back into E_ARGS either.
+            message += f"; could not journal worker failure: {journal_error}"
+        raise WorkerFailed(message, self.head) from exc
 
     def record_call(self, tool: str, call_id: str, arguments: dict, result: dict) -> None:
         """Journal a host tool call (render_views, compare_to_photos, pick_surface_point, fit_cameras)."""

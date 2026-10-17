@@ -87,13 +87,16 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         child.start()
         bridge.check()
         tools = registry(child, child_settings)
+        money_note = (f"Shared settled-only stop ${child_settings.settled_stop_usd}; no reservation cutoff. "
+                      if child_settings.settled_only else
+                      f"Working settled stop ${child_settings.settled_stop_usd}; this stage's remaining reserve "
+                      f"${cap_usd} is inside the same owner approval. ")
         spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=child.owner_edit), tools,
             brief.build_brief(child.job) + edits.brief_suffix(child.owner_edit), child_settings,
             photos=jobs.references(folder),
             scene_note=(f"Private owner-edit specialist: exact current parent head {source['head']['id']}. "
                         "No template or earlier specification has replaced this mesh. "
-                        f"Working settled stop ${child_settings.settled_stop_usd}; this stage's remaining reserve "
-                        f"${cap_usd} is inside the same owner approval. The shared footer reports job totals."),
+                        + money_note + "The shared footer reports job totals."),
             contract=instruction_contract(tools, owner_edit=child.owner_edit), contract_brief=brief.host_text(child.job))
         outcome = bridge.run(runtime, spec, child, cap_usd, call_id)
         write_json_atomic(folder / "stage-outcome.json", outcome)

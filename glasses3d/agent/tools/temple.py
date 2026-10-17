@@ -53,8 +53,8 @@ def temple_tool(scene, call, parent_settings, fatal):
             return await call(ctx, "temple_stage", lambda cid: {
                 "status": "refused", "code": "E_STAGE_BUDGET",
                 "message": "the owner's budget has no available runway, or a request remains unsettled"})
-        # This scope duplicates the remaining global reserve, not a new spending allowance. The shared guard
-        # checks the owner's settled stop before every request; capping holds at that stop would stop early.
+        # The shared guard applies the approved money policy to every child request. In settled-only mode
+        # this remaining amount is informational; estimated holds cannot exhaust the stage early.
         bridge = stage.StageBridge(asyncio.get_running_loop())
         try:
             return await call(ctx, "temple_stage", lambda cid: run_stage(
@@ -73,4 +73,10 @@ def temple_tool(scene, call, parent_settings, fatal):
             "and strict specification check remains. Only a completed accepted child can apply its actual mesh "
             "patch, and only if the parent still matches the captured head. Read its summary and compare the "
             "result. The same owner settled stop and reserve govern all child requests; no new money is granted.")
+    if getattr(parent_settings, "settled_only", False):
+        temple_stage.description = temple_stage.description.replace(
+            "The same settled stop and maximum reserve govern every child request.",
+            "Parent and specialist share one settled-only stop; estimated reservations cannot stop requests early.").replace(
+            "The same owner settled stop and reserve govern all child requests; no new money is granted.",
+            "Parent and specialist share one settled-only stop; estimated reservations cannot stop requests early.")
     return temple_stage

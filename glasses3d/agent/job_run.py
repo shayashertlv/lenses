@@ -52,11 +52,14 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     if any(value is not None for value in (settings.context_guard_tokens, settings.context_guard_bytes,
                                            settings.context_guard_every_requests)):
         raise ValueError("job history is append-only; context guard epochs require a new unguarded run request")
-    # $23 remains the default. A different finite reserve is bound to this run's explicit owner approval;
-    # it does not raise the settled-spend stop or bypass the per-request reservation guard.
+    # Legacy runs retain their approved reserve cap. Explicit settled-only approvals instead bind this
+    # amount to the actual settled stop, with no reservation-based admission limit.
     cap_to_micro(cap)
     if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) > 20_000_000:
         raise ValueError("job settled-spend stop must be at most the owner's $20 limit")
+    if settings.settled_only and (cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd)
+                                 or settings.fit_output_to_budget or settings.smoke):
+        raise ValueError("settled-only approval amount must equal the settled stop; no output fitting or smoke")
     if settings.smoke:
         if resume or cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd):
             raise ValueError("smoke requires a fresh isolated session and equal settled stop and reserve cap")

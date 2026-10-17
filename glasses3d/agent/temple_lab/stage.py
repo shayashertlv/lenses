@@ -23,6 +23,7 @@ def settings(parent=None):
     return RunSettings(effort=getattr(parent, "effort", "max"),
                        max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
+                       settled_only=getattr(parent, "settled_only", False),
                        reset_tool_choice=False, finish_tool="facet_finish", finish_k=4)
 
 
@@ -279,12 +280,15 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         lab.start()
         # Briefs are bound data: preserve CRLF, lone CR and UTF-8 bytes exactly. The instruction
         # contract retains its existing canonical text path through instructions_text above.
+        money_note = ("Parent and specialist share the same settled-only stop; there is no reservation cutoff. "
+                      "The tool footer reports the shared job's settled charges." if child_settings.settled_only else
+                      f"This temple stage has a ${cap_usd} allowance inside the job's approval. "
+                      "The tool footer reports the shared job's totals; both limits apply.")
         spec = StageSpec("temple_stage", instructions_text(folder, child_settings.finish_k),
                          registry(lab, child_settings), (folder / "inputs/brief.txt").read_bytes().decode("utf-8"),
                          child_settings, photos=references(lab),
                          scene_note=(f"Current job head captured in revision 0 at {lab.s.head['id']}. "
-                                     f"This temple stage has a ${cap_usd} allowance inside the job's approval. "
-                                     "The tool footer reports the shared job's totals; both limits apply."),
+                                     + money_note),
                          contract=tool_contract(),
                          contract_brief=(folder / "inputs/contract-brief.txt").read_bytes().decode("utf-8"))
         outcome = bridge.run(runtime, spec, lab, cap_usd, call_id)

@@ -1,5 +1,44 @@
 # glasses3d progress
 
+## 2026-10-17 — Prada run 5 infrastructure repair; settled-only rerun authorized
+
+Started clean on `glasses3d` at **25cc366**; owner approved one fresh unchanged
+`prada-beige-86248315` run, high parent/specialist, **$20 settled cutoff / $44.28 reserve**
+(run 4 terms). Estimate shown: **$15.61**, historical growth range **$13.85–$21.57**.
+Run **20261017T081338-de2e4f**, detached 08:14:31–08:45:42 UTC, exit **2**;
+**spent $2.299551 (settled)**, 26 parent requests, 0 specialist requests, held/unknown **$0**.
+At 08:42:54, specialist preparation failed before inference: `prepare-r0` returned
+`FrameError: ... Out of range float values are not JSON compliant: nan`.
+The tool exposed it as `E_ARGS`, so the parent continued five requests ($0.564336)
+before monitoring detected it and requested stop at 08:44 UTC; stop observed 08:45:22.
+No application code changes during the run. All owner inputs/seed/photos match their request hashes.
+Draft publication then failed with **WinError 5** renaming its pending delivery directory.
+The owner canceled the review and requested a fix.
+Preflight/authorization/receipts: `data/assembly/m9prada5-preflight/`; old runtime preserved in `prada5-old/`.
+Follow-up monitor paused after the runner exited.
+
+The saved failing receipt independently reproduced one nonfinite value: the +X hinge leaf's old gap had
+no inward-facing x-ray intersection. Missing clearance now reports `null` plus a reason; measured gaps,
+embedding warnings and geometry remain unchanged. Live worker `FrameError` replies restore the verified
+checkpoint, preserve the original error in the journal and stop as `failed_worker`, before another paid request.
+The exact saved build passed once on a copy through the real worker RPC in **7.622 s**, c0000→c0001;
+reopened fingerprint verified, all **100** original files unchanged, **0 API calls / fits / renders**.
+Evidence: `data/assembly/m9prada5-nan-diagnosis/`.
+
+Owner's new authorization: **"after youre done fixing, rerun. no bs money reserve this time, i dont care about
+astras possible responses, only as we pass 20$ cutoff the run not a cent before!"**
+Added explicit approval-bound `settled_only` mode: **$20 actual settled charges shared by parent and specialist**,
+no estimated reservation cutoff or output shrinking. The final in-flight response may cross $20; the next paid
+request is refused before counting. Unknown outcomes still stop spending. Legacy reserve approvals retain their
+original behavior. Job inputs remain unchanged; the new run uses high/high and no turn cap.
+Delivery directory publication now retries transient Windows permission denials with the existing bounded delay
+schedule, preserving immutable destination verification and the previous delivery on persistent failure.
+Complete diff reviewed and findings fixed. **30 infrastructure cases pass** (the initial two SDK-wrapper
+assertions were corrected and all 14 transport cases reran successfully); **176 selected money, approval,
+parent/child, instruction and publication cases passed in 17.35 s**. Sixteen workers from **25.78 GiB** free
+commit, BLAS=1, power throttling off. No full suite or other proof. The newly authorized fresh run is next;
+scripts and test logs are in `data/assembly/m9prada6-preflight/`. No push.
+
 ## 2026-10-17 — M9 item 1 only: lossless per-photo evidence pages ($0)
 
 Started clean on `glasses3d` at **a21dde9**. `compare_look_to_photos` and the first

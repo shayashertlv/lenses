@@ -8,6 +8,7 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import shutil
+import time
 from uuid import uuid4
 
 from . import procs
@@ -528,10 +529,17 @@ def _publish(root, manifest, files):
             for name, data in files.items():
                 _write_file(_inside(stage, name), data)
             _write_file(stage / "manifest.json", _json_bytes(manifest))
-            try:
-                os.rename(stage, dest)
-            except FileExistsError:  # another identical delivery won; verification below decides whether it is valid
-                pass
+            for delay in procs.REPLACE_DELAYS_S + (None,):
+                try:
+                    os.rename(stage, dest)
+                    break
+                except FileExistsError:  # another delivery won; verification below decides whether it is valid
+                    break
+                except PermissionError:
+                    # Windows scanners can briefly hold the new directory. Keep rename's no-overwrite contract.
+                    if delay is None:
+                        raise
+                    time.sleep(delay)
         finally:
             if stage.exists():
                 # This is our freshly generated staging directory, resolved and confined before removing it.

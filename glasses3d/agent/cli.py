@@ -72,6 +72,8 @@ def parser():
             cmd.add_argument("--max-output-tokens", type=int)
             cmd.add_argument("--cap")
             cmd.add_argument("--settled-stop")
+            cmd.add_argument("--settled-only", action="store_true",
+                             help="stop on settled charges only; no estimated-reservation cutoff")
         elif name == "approve":
             cmd.add_argument("--max-usd", required=True)
             cmd.add_argument("--owner-words", required=True)
@@ -193,13 +195,15 @@ def dispatch(args):
                 "pending_run": A.latest_pending_run(root), **delivery_status(root)}
     if args.command == "estimate":
         from dataclasses import replace
-        cap = args.cap if args.cap is not None else ("1" if args.smoke else "23")
+        cap = args.cap if args.cap is not None else (
+            (args.settled_stop or "20") if args.settled_only else ("1" if args.smoke else "23"))
         settings = job_run.settings_smoke(cap) if args.smoke else job_run.settings_default()
         settings = replace(settings, effort=args.effort if args.effort is not None else settings.effort,
                            max_turns=(settings.max_turns if args.smoke and args.turns is None else args.turns),
                            max_output_tokens=(args.max_output_tokens if args.max_output_tokens is not None
                                               else settings.max_output_tokens),
-                           settled_stop_usd=args.settled_stop if args.settled_stop is not None else settings.settled_stop_usd)
+                           settled_stop_usd=args.settled_stop if args.settled_stop is not None else settings.settled_stop_usd,
+                           settled_only=args.settled_only)
         spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True)
         return procs.read_json(root / "runs" / spec.run_id / "approval-request.json")
     if args.command == "stop":

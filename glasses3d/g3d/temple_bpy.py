@@ -451,13 +451,17 @@ def hinge_report(new_bvh, old_bvh, side, axis, hinge_z, scene, origin, exclude, 
         else:
             rec["gap_mm"] = _leaf_gap(new_bvh, V, side)
             rec["old_gap_mm"] = _leaf_gap(old_bvh, V, side)
+            for field in ("gap_mm", "old_gap_mm"):
+                if rec[field] is None:
+                    rec[field.removesuffix("_mm") + "_unavailable"] = "no inward-facing x-ray intersection"
             rep["leaves"].append(rec)
     return rep
 
 
-def _leaf_gap(bvh, V, side) -> float:
+def _leaf_gap(bvh, V, side) -> float | None:
     """Closest approach of a hinge leaf to the temple's inner face along x: for each leaf vertex whose x-ray meets the
-    temple, side * (inner face x - vertex x) (+ = a gap inboard of the inner face, - = embedded); the minimum."""
+    temple, side * (inner face x - vertex x) (+ = a gap inboard of the inner face, - = embedded); the minimum.
+    None means no inward-facing hit, not zero clearance. Receipts must remain strict JSON for the worker RPC."""
     best = np.inf
     d = Vector((float(side), 0.0, 0.0))
     for p in V:
@@ -466,7 +470,7 @@ def _leaf_gap(bvh, V, side) -> float:
         if hit[0] is None or hit[1].dot(d) > 0:
             continue
         best = min(best, side * (hit[0].x - float(p[0])))
-    return float(best) if np.isfinite(best) else float("nan")
+    return float(best) if np.isfinite(best) else None
 
 
 def _local(ob, W_asset, origin):
@@ -1168,7 +1172,11 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
     plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, h["z_mm"], scene, origin, excl_h, parts=hparts)
     for lf in plan["hinge"]["leaves"]:
         g = lf["gap_mm"]
-        if g > TS.HINGE_LEAF_GAP_MM or -g > TS.HINGE_LEAF_EMBED_MM:
+        if g is None:
+            plan["warnings"].append({"code": "W_HINGE_LEAF", "part": lf["name"], "gap_mm": None,
+                                     "message": f"hinge leaf {lf['name']}: gap not measurable "
+                                                f"({lf['gap_unavailable']})"})
+        elif g > TS.HINGE_LEAF_GAP_MM or -g > TS.HINGE_LEAF_EMBED_MM:
             plan["warnings"].append({"code": "W_HINGE_LEAF", "part": lf["name"], "gap_mm": g,
                                      "message": f"hinge leaf {lf['name']} {'gap' if g > 0 else 'embedded'} "
                                                 f"{abs(g):.2f} mm"})
