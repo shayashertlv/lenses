@@ -1,5 +1,22 @@
 # glasses3d progress
 
+## 2026-10-17 — M10 stopped under the owner's two-failure rule ($0)
+
+Started clean on `glasses3d` at required HEAD `b34027c`. Source c0016's front uses one
+material, no UV layers, and custom normals. Run 6 request 77 explicitly recesses three
+outer lip rings by `0.35 * max(0, abs(x) + 1.55*y - 83.5)` mm, then applies 35-degree
+smooth-by-angle and sharp-preserving weighted normals: the corner effect includes geometry.
+Proposal generation failed twice (package import, then noneditable-target scope refusal),
+so all implementation/proof work stopped as requested. A separate inspection script also
+failed once because its `inspect.py` name shadowed Python's standard module. No retry followed.
+No previews or tool application completed; focused tests and `assembly_m1` were not run.
+The unfinished diff was reviewed once, archived with its two new files under ignored
+`data/assembly/m10/incomplete/`, then removed from the working tree. Diagnosis script:
+`data/assembly/m10/diagnosis/corner_diagnosis.py`; it produced no final report.
+Delivered GLB SHA remains `b5f473c9134dc4820fef3698310abe232683bbfffa8106217183e251f9384339`.
+Zero API calls, $0 spend, no delivered-model edits, no paid run or push. M10 remains incomplete.
+Resume only after the owner authorizes continuing past this stop; diagnose the scope refusal first.
+
 ## 2026-10-17 — Owner reports editor result looks unchanged
 
 Owner on c0002: "it looks like nothing changed". Treat the requested visual correction as
