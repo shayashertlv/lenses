@@ -1,5 +1,29 @@
 # glasses3d progress
 
+## 2026-10-17 — Prada clarified editor completed at $4.786939 settled
+
+Owner clarified: "both temples. t41 right lower point, inwards means towards the head. run the editor with 10$, same rules as before".
+This authorized a new **$10 editor allowance**. Run **20261017T130117-53c9ef** completed
+**13:02:37–13:15:39 UTC**, exit **0**, accepted **c0002**: **spent $4.786939 (settled)**,
+28 parent requests, no specialist requests; held/unknown **$0**, unspent **$5.213061**.
+High/high, 16,384 output, no turn cap, reservation refusal or output shrinking.
+Used the ordinary revision workflow on an isolated copy of run 6's c0016, with a fresh
+conversation containing archival understanding evidence and both verbatim owner notes;
+the prior UNDERSTAND artifacts and source job/session/delivery remain unchanged.
+This was not a sealed M6 operation edit. The full-history proposal was never launched.
+Both lower temple junctions moved **1 mm toward the head** with their exterior markings;
+front corners received a **50% local normal blend**, with no front geometry/material change.
+c0002 corrected the temple transition ripples without adding another millimetre of movement.
+Specification, lens seating and AR checks passed; 34 objects / 99,828 export triangles.
+Export warnings increased from **71 to 74 degenerate temple triangles**; bridge underside
+**+0.59 mm** is unchanged. Front shading improvement is subtle; visual acceptance is pending.
+Exact-result AR and 3D viewers verified in the browser; GLB SHA
+`0a0dcb43623ea7af69fa44522957092ba02885d4f90ca38a609045e7146c1a4f`.
+Receipts: `data/assembly/prada6-editor2-ops/`; isolated job: `data/assembly/p6edit2/prada-beige-86248315/`;
+viewer: `data/assembly/prada6-editor2-viewer/`. Monitor paused after completion.
+No infrastructure failure, application code changes, paid retry, test suite, proof or push.
+Completion commit includes only this explicit PROGRESS path.
+
 ## 2026-10-17 — Prada owner-edit preview completed; clarification needed
 
 Owner authorized **$10 total**, same settled-only/high-high rules, for the verbatim
