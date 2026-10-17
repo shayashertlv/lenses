@@ -1,5 +1,21 @@
 # glasses3d progress
 
+## 2026-10-17 — Prada run 6 launched with $20 settled-only cutoff
+
+Fixes committed **bf09cca** on `glasses3d`, clean before launch. New request/approval
+**20261017T090817-2b59b9**, unchanged `prada-beige-86248315`, high/high, 16,384 output,
+no turn cap or output fitting, explicit **$20 settled-only** mode in parent/child and consumed ledger.
+Estimate shown **$15.61** (historical growth range **$13.85–$21.57**). Previous generated runtime
+archived as `data/assembly/prada6-old/`; owner input hashes preserved and empty c0000 verified offline.
+Detached start **09:09:15 UTC**, keeper **42052**, child **1620**; operation scripts/receipts in
+`data/assembly/m9prada6-preflight/`. At **09:16:51 UTC**, healthy local camera fitting on c0002,
+10 settled requests, **$0.863678 settled**, held/unknown **$0**. Five independent fits active;
+BLAS=1 and live power-throttling opt-out verified. No application code changes during the run.
+Background monitor `monitor-prada-run-5` now tracks run 6 every five minutes, quiet while unchanged.
+Next: monitor this exact existing run; never restart paid calls after an infrastructure failure. On exit,
+report final settled spend/status, provide the result's AR/3D viewers if available, record/commit PROGRESS
+with an explicit path, and pause the monitor. The canceled run-5 visual review remains canceled. Never push.
+
 ## 2026-10-17 — Prada run 5 infrastructure repair; settled-only rerun authorized
 
 Started clean on `glasses3d` at **25cc366**; owner approved one fresh unchanged
