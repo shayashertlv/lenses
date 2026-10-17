@@ -57,7 +57,10 @@ def _capture_complete(binding, look):
     required_paths.update(str(image["path"]) for row in rows for detail in row["details"]
                           for image in detail.get("images", []))
     required_paths.add(str(look["worn_front_path"]))
-    if not required_paths <= {str(image["path"]) for image in look.get("images", [])}:
+    delivered_paths = {str(image["path"]) for image in look.get("images", [])}
+    delivered_paths.update(str(part["path"]) for image in look.get("images", [])
+                           if image.get("kind") == "look_composed" for part in image.get("parts", []))
+    if not required_paths <= delivered_paths:
         return "Some comparison panels or the worn portrait are not included in the tool output."
     return None
 

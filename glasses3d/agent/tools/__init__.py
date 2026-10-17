@@ -603,7 +603,8 @@ def build_tools(scene, settings=None) -> list:
     @tool("read_image")
     async def read_image(ctx: ToolContext, path: str, region: list[int] | None = None):
         """Read an oriented image or crop, at most 1024 pixels on either side. Look comparisons and finish return
-        separate full pairs and details; other renders use compact sheets with native panels at reported paths.
+        full pairs and automatic details combined per photo without shrinking; other renders use compact sheets
+        with native panels at reported paths.
         Crop a native panel to inspect small details. Identical images
         already delivered in this run are referenced by their earlier call without changing conversation history.
 
@@ -630,7 +631,8 @@ def build_tools(scene, settings=None) -> list:
     async def finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
                      per_photo: list[finish_review.PhotoDifference] | None = None):
         """Finish in two calls. First export/check the current head, capture fixed-scale AR and show every usable
-        photo's full pair and native details, side-light surface checks and the worn front. Inspect them, then call again with its review_call_id
+        photo's full pair and automatic native details together, including side-light surface checks, without shrinking
+        any panel (additional images for overflow), plus the worn front. Inspect them, then call again with its review_call_id
         and exactly one per_photo entry {ref, differences} for each required ref. State visible differences or 'none'.
         Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
@@ -664,7 +666,7 @@ def build_tools(scene, settings=None) -> list:
                       "image_delivery": "separate",
                       "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
                       "export": exp, "arview": ar, "summary": summary, "failures": failures}
-            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar) if bound else
+            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar, combine=True) if bound else
                                          {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"})
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",

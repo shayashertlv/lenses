@@ -1,5 +1,23 @@
 # glasses3d progress
 
+## 2026-10-17 — M9 item 1 only: lossless per-photo evidence pages ($0)
+
+Started clean on `glasses3d` at **a21dde9**. `compare_look_to_photos` and the first
+`finish` review now pack each photo's existing full pair, automatic close-ups and side-light
+details into PNG pages without resizing, rotating or cropping any panel (labels included).
+Overflow uses additional pages; original panels and append-only history remain intact.
+High detail stays within **2,500 32px patches / 65,535 px per edge**; official source verified
+2026-10-17: https://developers.openai.com/api/docs/guides/images-vision.
+Complete diff reviewed; fixed shared-capture scope so owner-edit reports keep their individual details.
+Final focused/affected checks: **122 passed in 13.45 s** (including 15 new composition cases),
+16 workers from **26.89 GiB** free commit, BLAS=1 and power throttling off.
+`tests.proofs.assembly_m1` ran **once**, passed in **173.625 s**, 13 scripted steps, $0 actual spend.
+One offline saved-history count for `prada-fresh-desktop-m7-m8-v2-9488f012`, preserving byte dedup:
+**1,591 → 354 images** (6 initial + 89 unaffected + 259 combined look images; 22 look calls, no finish).
+No rendering for that count. Evidence/logs: `data/assembly/m9-item1/`; example:
+`combined/call_0216/reference-05/combined-01.png` (3360×724, 2,415 patches).
+No API calls, paid run, full suite, other proof or push. M9 items 2–4 remain untouched.
+
 ## 2026-10-17 — M7/M8 copy proofs reviewed; full desktop test stopped at image limit
 
 Owner's question, verbatim: **"any other mesh editing tools astra might need?"**

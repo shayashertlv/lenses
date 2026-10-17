@@ -10,7 +10,7 @@ from scipy.ndimage import binary_erosion
 from ...g3d_host import compare as C
 from ...g3d_host.ar_camera import explicit_camera
 from .. import procs
-from . import arview, look_panels
+from . import arview, look_panels, look_composition
 
 SCHEMA = "g3d.look_comparison/1"
 
@@ -99,7 +99,8 @@ def verified_report(root, record, digest):
     return path, report
 
 
-def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, worn=None, timeout_s=280):
+def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, worn=None, timeout_s=280,
+            combine=False):
     """Return an informational refusal on missing evidence; never alter the frozen basis or the export."""
     root = Path(root).resolve()
     base = {"schema": SCHEMA, "informational_only": True, "export_sha256": export.get("sha256"),
@@ -230,6 +231,19 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             shutil.copyfile(path.parent / image["file"], target)
         overview = directory / "comparison.png"
         sheet(rows, portrait, overview, compact=True)
+        # Pack only this call's evidence, per photo. Keep the labelled source panels
+        # and detail reports intact; neither historical outputs nor close-up selection change.
+        images = [image for row in rows for image in row["images"]] + surface_images
+        if combine:
+            images = []
+            for row in rows:
+                sources = row["images"] + [image for image in surface_images if image["ref"] == row["ref"]]
+                row["composed_images"] = look_composition.compose(
+                    sources, directory / row["camera"]["id"] / "combined", row["ref"])
+                images.extend(row["composed_images"])
+        delivery_note = ("Each photo's full pair and native details are combined without changing pixels; "
+                         "overflow uses additional images." if combine else
+                         "Full pairs and native details are separate images.")
         result = {**base, "status": "ok", "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
                   "cameras_sha256": bs.meta["cameras_json_sha256"], "views": rows,
                   "unusable_refs": bs.unusable_refs(), "worn_front_path": str(portrait), "capture_reports": captures,
@@ -237,13 +251,13 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                                    "export_sha256": export["sha256"], "portrait_sha256": rec["sha256"]},
                   "fixed_scale": True, "lens_env_intensity": arview.LENS_ENV_INTENSITY,
                   "summary": "Photo-camera AR colour check plus same-export worn front. Colours are information, not a gate. "
-                             "Fixed-room highlights are not lens colour. Full pairs and native details are separate images.",
+                             "Fixed-room highlights are not lens colour. " + delivery_note,
                   "method": "Median sRGB and CIE L* in AR lens/frame part-id masks eroded 3 pixels, applied identically "
                             "to photo and drawing. Registration can mix photo regions; no tone/colour normalization. "
                             "Frozen per-photo temple deltas are applied to tagged temple parts and their markings. "
                             "The worn view resets to the authored model before the normal face fit.",
                   "overview_path": str(overview), "image_delivery": "separate", "surface_quality": surface,
-                  "images": [image for row in rows for image in row["images"]] + surface_images + [
+                  "images": images + [
                       {"path": str(portrait), "sha256": arview.sha256(portrait),
                        "view": "Same export worn front on the test face"}]}
         result["assets"] = [{"path": str(p), "sha256": arview.sha256(p)} for p in sorted(directory.rglob("*"))
@@ -265,8 +279,10 @@ def tool_for(scene, tool, call):
         highlights are expected and are not lens colour. Every successful call also shows the worn front on the
         test face, eyes legible, from the SAME export. After shape edits and colour/material edits, inspect the
         full-size photo pairs and native close-ups, and judge the worn view too.
-        Returns full-size photo/drawing pairs and separate native details of corners, inner rims, lens marks,
-        arm roots and tips, plus the worn front. Front-facing surfaces, depth walls and inner-rim walls have
+        Returns each photo's full-size photo/drawing pair combined with its automatic native details of corners,
+        inner rims, lens marks, arm roots and tips. Every panel keeps its pixels, including labels; overflow uses
+        another image within high-detail limits, never shrinking any panel. Also returns the worn front.
+        Front-facing surfaces, depth walls and inner-rim walls have
         separate colour reports, including their rendered/photo shading; surface selection is geometric.
         Also returns side-light native close-ups of facet flatness, front shading seams and lens ripple,
         with measured planarity, degenerates, tessellation and normal discontinuities as information only.
@@ -281,5 +297,5 @@ def tool_for(scene, tool, call):
             basis: Frozen basis id; null uses the latest usable basis. Does not fit or modify cameras.
         """
         return await call(ctx, "compare_look_to_photos", lambda cid: capture(
-            scene.root, scene.seeing.export_head(call_id=cid), cid, refs=refs, basis=basis))
+            scene.root, scene.seeing.export_head(call_id=cid), cid, refs=refs, basis=basis, combine=True))
     return compare_look_to_photos

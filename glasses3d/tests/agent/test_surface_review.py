@@ -13,7 +13,8 @@ from glasses3d.g3d_host.camera import Camera, NormFrame
 
 
 @pytest.mark.parametrize("failure", ["measurement", "side_light"])
-def test_surface_diagnostic_failure_retains_ordinary_photo_and_worn_evidence(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize("combine", [False, True])
+def test_surface_diagnostic_failure_retains_ordinary_photo_and_worn_evidence(tmp_path, monkeypatch, failure, combine):
     root = tmp_path
     model = root / "work/model.glb"
     model.parent.mkdir()
@@ -33,7 +34,8 @@ def test_surface_diagnostic_failure_retains_ordinary_photo_and_worn_evidence(tmp
 
     def panels(row, palette, geometry, output, **kwargs):
         return {"images": [{"path": row["drawing_path"], "sha256": look.arview.sha256(Path(row["drawing_path"])),
-                            "view": "ordinary evidence"}], "details": []}
+                            "view": "ordinary evidence", "ref": row["ref"],
+                            "kind": "surface_detail" if kwargs.get("surface_only") else "look_full_pair"}], "details": []}
     monkeypatch.setattr(look.look_panels, "build_panels", panels)
 
     def write_capture(folder, cameras, portrait=False):
@@ -67,10 +69,11 @@ def test_surface_diagnostic_failure_retains_ordinary_photo_and_worn_evidence(tmp
         return {"schema": "g3d.surface_quality/1", "informational_only": True, "objects": []}
     monkeypatch.setattr(surface_quality, "report", measured)
     worn = write_capture(root / "work/worn-source", [], portrait=True)
-    result = look.capture(root, export, "independent-review", worn=worn)
+    result = look.capture(root, export, "independent-review", worn=worn, combine=combine)
     assert result["status"] == "ok", result.get("message", result)
     assert result["views"][0]["images"] and result["worn_front_path"]
     assert len(result["images"]) >= 2
+    assert any(image.get("kind") == "look_composed" for image in result["images"]) == combine
     diagnostic = result["surface_quality"]
     if failure == "measurement":
         assert diagnostic["measurement_status"] == "unavailable"
