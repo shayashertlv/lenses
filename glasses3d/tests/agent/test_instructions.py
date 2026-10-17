@@ -156,7 +156,7 @@ def test_amount_choice_teaching_uses_delivered_preview_and_explicit_owner_select
                    "Do not choose an option or silently use the base amount", "STOP for the owner's confirmation",
                    "complete ordered operation group and keep corrections null",
                    "another amount needs another shown preview", "Without a selected preview",
-                   "whole group must be applied together, including through manual edits",
+                   "requires the complete ordered group, including through manual edits",
                    "Child UNDERSTAND previews are advisory", "own delivered preview receipt"):
         assert phrase in text
     assert "does not provide a general" not in text
@@ -172,7 +172,7 @@ def test_owner_diagnostic_contract_requires_disposition_and_teaches_no_authority
     owner = {"phase": "understand"}
     registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
     text = I.build_instructions(registered, owner_edit=owner)
-    for phrase in ("every relevant photo", "full-size model views", "unsupported or needs_clarification",
+    for phrase in ("Inspect the mesh and relevant photos", "native photo/before/option comparisons", "unsupported or needs_clarification",
                    "explanatory reason and operation_json=[]", "Never invent no-op placeholders",
                    "All-blocked requests end as diagnostic_only", "Mixed plans are diagnostic only",
                    "Any blocked item prevents paid EDIT"):

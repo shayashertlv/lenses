@@ -119,11 +119,16 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         artifact["amount_preview"]["options"] = [{key: option[key] for key in
             ("id", "label", "scale", "operations")} for option in preview["options"]]
     procs.write_json_atomic(path, artifact)
+    if getattr(scene, "_review_log", None) is None:
+        procs.write_json_atomic(path.with_name("understanding-usage.json"), {
+            "schema": "g3d.owner_understanding_usage/1", "requests": 0, "settled_usd": "0.000000",
+            "settled_micro_usd": 0, "mode": "local_tool_calls"})
     if any(item['disposition'] != 'executable' for item in records):
         next_step = ("STOP: preserve this diagnostic evidence; resolve every blocked item in a new understanding "
                      "before a paid EDIT round. No blocked item grants edit authority.")
     else:
-        next_step = "STOP: awaiting owner confirmation; the edit needs its own estimate and approval."
+        next_step = ("STOP: awaiting owner selection of a shown option; job edit-apply applies the exact "
+                     "preview locally at $0. Only a new or unclear request needs another understanding.")
     return {"status": "accepted", "disposition": disposition, "next": next_step,
             "understanding": str(path), "understanding_sha256": edits.sha(path),
             "interpretations": records, "limitations": limitations, "geometry_changed": False,
@@ -235,7 +240,9 @@ def tools_for(scene, tool, call):
     @tool("understand_finish")
     async def understand_finish(ctx: ToolContext, map_id: str, map_sha256: str, capture_receipts: list[str],
                                 items: list[Interpretation], limitations: list[str], preview_receipt: str | None = None):
-        """Stop the understand round after showing each requested change. Supply the successfully shown map
+        """Stop the short understand round after diagnosing and showing only each requested change; no whole-model
+        review is needed. Measure the visible cause before choosing operation kinds, never map by a keyword.
+        For movement toward the head, show top and rear as well as side views. Supply the successfully shown map
         receipt(s), numbered interpretations, direction and base proposed amount. After preview_owner_edit,
         pass its preview_receipt unchanged: the host attaches its shown options, images and exact amounts;
         the owner selects an option at confirmation. Do not choose for the owner.

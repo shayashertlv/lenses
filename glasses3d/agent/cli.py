@@ -51,6 +51,15 @@ def parser():
     edit.add_argument("--effort", choices=EFFORTS, default="high")
     edit.add_argument("--cap", required=True)
     edit.add_argument("--settled-stop", required=True)
+    apply = commands.add_parser("edit-apply", help="$0 host apply of one sealed, shown preview on a fresh copy; no API")
+    apply.add_argument("id", help="source job with --edit-id, or its understand round path")
+    apply.add_argument("--edit-id")
+    apply.add_argument("--option", required=True)
+    apply_words = apply.add_mutually_exclusive_group(required=True)
+    apply_words.add_argument("--confirm")
+    apply_words.add_argument("--confirm-file", type=Path)
+    apply.add_argument("--output", type=Path, help="new copy directory; leave the understanding index unchanged")
+    apply.add_argument("--tool-test", action="store_true", help="label an authorized illustrative copy, not a product choice")
     check = commands.add_parser("edit-check", help="$0 explicit item-to-operation mapping; no estimate, worker or API")
     check.add_argument("id", help="source job or existing owner-edit round")
     check_words = check.add_mutually_exclusive_group()
@@ -140,6 +149,17 @@ def dispatch(args):
                                specs=args.specs, jobs_root=args.jobs_root)
         return {"status": "created", "job_id": root.name, "path": str(root)}
     root = resolve_job(args.id, args.jobs_root)
+    if args.command == "edit-apply":
+        from . import edits, owner_apply
+        if args.edit_id:
+            edit_root = edits.confined(root / "edits", args.edit_id)
+        else:
+            doc = edits.load(root)
+            if not doc or doc["phase"] != "understand":
+                raise ValueError("edit-apply needs an understand round path or a source job with --edit-id")
+            edit_root = root.parent
+        words = args.confirm if args.confirm is not None else owner_text_file(args.confirm_file)
+        return owner_apply.apply_preview(edit_root, words, args.option, destination=args.output, tool_test=args.tool_test)
     if args.command == "edit-check":
         from . import edits, edit_capabilities as capabilities
         edit_doc = edits.load(root)

@@ -1,5 +1,25 @@
 # glasses3d progress
 
+## 2026-10-17 — M10 resumed and proved locally ($0)
+
+Resumed the archived implementation from required HEAD `6d2a66c` on `glasses3d`.
+The corner refusal was an empty selection (`face` versus catalogue `face_region`), not
+uneditable geometry; general errors now distinguish empty/unknown/multi-object/noneditable targets.
+Source-bound diagnosis requires measured evidence before mapping: request 77's corner recess is
+up to 1.029 mm, with a 54-degree custom-normal seam on one untextured material.
+Photo-first native previews show 25/60/100% dent removal plus shading repair, and both temple
+junctions moved 1/3/5 mm toward the head in top/rear/both-side views. `job edit-apply` applied
+60% corner repair and 3 mm temple movement to separate tool-test copies; both GLBs are byte-identical
+to their selected previews, with scope/physical/strict-export checks passing. No owner visual acceptance.
+Evidence and models: `data/assembly/m10/review.html`, `{corner,temple}-proof/proof.json`.
+Focused tests: 251 pass (four initial failures repaired once); `assembly_m1` passed once in 239 s
+(`data/assembly/m1-proof-24540545/proof.json`; an earlier import-only launcher error ran no proof steps).
+Preview pools used three independent workers, capped by free GiB / 1.3 up to 16; focused tests used
+16 then 9 workers, legacy assembly fitting retained its 10-worker cap. BLAS 1; power throttling off.
+Reviewed the diff once. Helper launch/scope/delivery-metadata errors were repaired once each;
+no unresolved repeated problem or 20-minute stall. Delivered GLB remains `b5f473c9…2b1db8`.
+Zero API calls, $0, no delivered-model edits, no paid run or push. Short understanding reports usage.
+
 ## 2026-10-17 — M10 stopped under the owner's two-failure rule ($0)
 
 Started clean on `glasses3d` at required HEAD `b34027c`. Source c0016's front uses one

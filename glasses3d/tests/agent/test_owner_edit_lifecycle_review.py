@@ -21,10 +21,13 @@ def _write(path, value):
 def _cover_round(root):
     """The fixture explicitly maps its one synthetic request before estimating."""
     from glasses3d.agent import edit_capabilities as C
+    from .test_edit_capabilities import diagnosis
     words = edits.load(root)["request_text"]
+    measured = diagnosis()
+    measured['source_fingerprint'] = edits.load(root)['source']['fingerprint']
     C.install(root, C.check(words, {"schema": C.MAPPING_SCHEMA, "request_text": words, "items": [{
         "id": "I1", "label": "Move the shown face", "start": 0, "end": len(words), "text": words,
-        "operation_kinds": ["translate_region"]}]}))
+        "operation_kinds": ["translate_region"], 'diagnosis': measured}]}))
 
 
 @pytest.fixture

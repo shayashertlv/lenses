@@ -159,9 +159,16 @@ def catalogue(snapshot):
 
 
 def support(snapshot, targets, target_ids, *, vertex_weights=None, fixed_vertex_ids=()):
+    if not target_ids:
+        raise ValueError("Support selection is empty; select actual catalogue target ids")
+    missing = [key for key in target_ids if key not in targets]
+    if missing:
+        raise ValueError("Support names unknown catalogue target ids: " + ", ".join(missing))
     chosen = [targets[key] for key in target_ids]
-    if not chosen or len({t["object_id"] for t in chosen}) != 1 or any(not t["source_editable"] for t in chosen):
-        raise ValueError("Support requires editable targets on one actual object")
+    if len({t["object_id"] for t in chosen}) != 1:
+        raise ValueError("Support targets must belong to one actual object")
+    if any(not t["source_editable"] for t in chosen):
+        raise ValueError("Support requires editable targets with source mesh correspondence")
     obj = next(o for o in snapshot["objects"] if o["id"] == chosen[0]["object_id"])
     allowed = set().union(*(set(t["vertex_ids"]) for t in chosen))
     fixed = sorted(set(fixed_vertex_ids))

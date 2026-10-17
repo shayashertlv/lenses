@@ -281,7 +281,7 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
     return root
 
 
-def create_edit(edit_root, confirmation_text, *, correction=False, option_id=None):
+def create_edit(edit_root, confirmation_text, *, correction=False, option_id=None, destination=None):
     """The second round requires a delivered, unchanged understanding. It is never implicitly approved."""
     edit_root = Path(edit_root).resolve()
     if not isinstance(confirmation_text, str) or not confirmation_text.strip():
@@ -316,7 +316,9 @@ def create_edit(edit_root, confirmation_text, *, correction=False, option_id=Non
     for name, digest in understanding["evidence_files"].items():
         if sha(confined(previous, name)) != digest:
             raise ValueError("understanding evidence changed")
-    root = edit_root / "round-002-edit"
+    root = Path(destination).resolve() if destination is not None else edit_root / "round-002-edit"
+    if root.is_relative_to(previous):
+        raise ValueError("an edit copy must be outside its unchanged understand round")
     _copy_inputs(previous, root)
     shutil.copytree(previous / "cameras", root / "cameras")
     # Maps/captures retain their relative paths; original bytes become approval-bound inputs too.
@@ -340,8 +342,9 @@ def create_edit(edit_root, confirmation_text, *, correction=False, option_id=Non
     new["immutable_files"]["inputs/understanding.json"] = sha(artifact)
     _refresh_brief(root, {**new, "understanding": understanding, "selected_preview": selected})
     procs.write_json_atomic(root / "inputs/owner-edit.json", new)
-    index["rounds"].append(root.name)
-    procs.write_json_atomic(edit_root / "edit.json", index)
+    if destination is None:
+        index["rounds"].append(root.name)
+        procs.write_json_atomic(edit_root / "edit.json", index)
     return root
 
 
@@ -406,9 +409,16 @@ def understanding_page(root):
     invitation = ("Diagnostic only: no executable edit is available. Resolve the listed blockers before a new understanding."
                   if doc.get("status") == "diagnostic_only" else
                   "Confirm or correct executable items only. Blocked items remain undone. "
-                  "The edit is a separate round with its own estimate and approval.")
+                  "Select a shown option to apply its exact operations locally at $0 with job edit-apply. "
+                  "A new or unclear request needs another understanding.")
     body = [f"<h1>{esc(title)}</h1><p>The model is unchanged. {invitation}</p>",
             f"<h2>Owner's edit request (verbatim)</h2><pre>{esc(doc['request_text'])}</pre>"]
+    usage_path = root / "work/owner_edit/understanding-usage.json"
+    if usage_path.is_file():
+        usage = read(usage_path)
+        spent = ("unavailable" if usage.get("settled_usd") is None else "$" + str(usage["settled_usd"]))
+        body.append(f"<p>Understanding: {esc(str(usage['requests']))} requests; "
+                    f"{esc(spent)} settled.</p>")
     labels = {row['target_id']: row['label'] for row in doc.get('legend', [])}
     for item in doc["items"]:
         body += [f"<h2>{item['number']}. {esc(item['label'])}</h2>",

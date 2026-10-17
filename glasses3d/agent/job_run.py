@@ -201,10 +201,23 @@ def _publish_result(root, run_id, scene, result, *, smoke=False):
                                     for name, digest in understanding["evidence_files"].items()))
             except (OSError, ValueError, KeyError, TypeError):
                 accepted = False
+        budget = result.get("budget") or {}
+        settled = budget.get("settled_usd")
+        micro = budget.get("settled_micro_usd")
+        if settled is None and micro is not None:
+            settled = f"{micro / 1_000_000:.6f}"
+        if not budget and getattr(scene, "_review_log", None) is None:
+            settled, micro = "0.000000", 0
+        usage = {"schema": "g3d.owner_understanding_usage/1", "run_id": run_id,
+                 "requests": result.get("requests", 0), "settled_usd": settled,
+                 "settled_micro_usd": micro}
+        if accepted:
+            procs.write_json_atomic(Path(root) / "work/owner_edit/understanding-usage.json", usage)
         page = edits.understanding_page(root) if accepted else None
         return {"status": understanding["status"] if accepted else "understanding_incomplete",
                 "finished": False, "accepted_finish": False, "geometry_changed": False,
-                "understanding": str(artifact) if accepted else None, "review_page": str(page) if page else None}
+                "understanding": str(artifact) if accepted else None, "review_page": str(page) if page else None,
+                "usage": usage}
     delivery = (D.deliver_draft(root, scene, result) if result.get("status") in D.DRAFT_STATUSES
                 else deliver_finished(root, scene, result))
     # Also retain an explicit no-usable-checkpoint attempt when there is nothing the owner can review.

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import json
+import hashlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,9 +14,21 @@ from .test_owner_edit_lifecycle_review import selected_source
 
 
 def mapping(words, kinds=("translate_region",), *, items=None):
-    return {"schema": C.MAPPING_SCHEMA, "request_text": words, "items": items if items is not None else [{
+    result = {"schema": C.MAPPING_SCHEMA, "request_text": words, "items": items if items is not None else [{
         "id": "I1", "label": "Move the labelled region", "start": 0, "end": len(words), "text": words,
         "operation_kinds": list(kinds)}]}
+    for item in result['items']:
+        item['diagnosis'] = diagnosis()
+    return result
+
+
+def diagnosis():
+    path = Path(__file__).resolve()
+    return {'source_fingerprint': hashlib.sha256(b'c0001 fingerprint').hexdigest(),
+            'cause': 'Synthetic selected point has measured transverse offset.',
+            'measurements': [{'name': 'offset', 'value': 1.0, 'unit': 'mm'}],
+            'evidence': [{'path': str(path), 'sha256': edits.sha(path)}],
+            'operation_rationale': 'Translate the measured point by the specified displacement.'}
 
 
 def round_with_coverage(fixture, words="Move the shown face."):
@@ -200,3 +214,32 @@ def test_cli_new_edit_requires_a_ready_report_before_copying(selected_source, mo
     with pytest.raises(ValueError, match="edit-check"):
         cli.dispatch(cli.parser().parse_args(["job", "edit", str(selected_source.source),
             "--request", "Move the shown face.", "--cap", "1", "--settled-stop", "1"]))
+
+
+def test_keyword_mapping_without_measured_diagnosis_is_not_ready():
+    words = 'The corner texture looks different.'
+    declaration = mapping(words, ('repair_shading',))
+    del declaration['items'][0]['diagnosis']
+    result = C.check(words, declaration)
+    assert result['status'] == 'needs_mapping'
+    assert 'diagnosis_required' in {row['code'] for row in result['diagnostics']}
+
+
+def test_diagnosis_bound_to_selected_source(selected_source):
+    root = edits.create_understand(selected_source.source, 'Move the face.', destination=selected_source.destination)
+    declaration = mapping('Move the face.')
+    declaration['items'][0]['diagnosis']['source_fingerprint'] = 'a' * 64
+    report = C.check('Move the face.', declaration)
+    with pytest.raises(ValueError, match='selected source'):
+        C.install(root, report)
+
+
+def test_diagnosis_evidence_tamper_refuses_before_mapping(tmp_path):
+    path = tmp_path / 'measurement.json'
+    path.write_text('{"offset_mm":1}')
+    declaration = mapping('Move the face.')
+    declaration['items'][0]['diagnosis']['evidence'] = [{'path': str(path), 'sha256': edits.sha(path)}]
+    report = C.check('Move the face.', declaration)
+    path.write_text('{"offset_mm":4}')
+    with pytest.raises(ValueError, match='evidence changed'):
+        C.require_ready(report, 'Move the face.')

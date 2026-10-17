@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+from concurrent.futures import ProcessPoolExecutor
+from types import SimpleNamespace
 
 import numpy as np
 from agents.tool_context import ToolContext
@@ -22,6 +24,52 @@ from . import look, model_map
 from .images import LOOK_IMAGE_SIDE
 
 SCHEMA = 'g3d.owner_amount_preview/1'
+
+
+def preview_workers(tasks):
+    from . import free_commit_bytes
+    return min(tasks, max(1, min(16, math.floor(free_commit_bytes() / 2**30 / 1.3))))
+
+
+def _option_process(root, folder, checkpoint, head, source, operations, refs, basis):
+    """Each independent option owns a separate Blender process and local evidence."""
+    from ..offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
+    disable_sdk_tracing()
+    procs.opt_out_self()
+    with LoopbackOnly(), ProductionTransportTripwire(), procs.DescendantsOptOut():
+        return _run_option(SimpleNamespace(root=root), folder, checkpoint, head, source, operations, refs, basis)
+
+
+def revealing_refs(root, basis, operations, refs):
+    """Depth movements need transverse photos; never infer the operation from prose."""
+    bs = look.C.load_basis(root, basis)
+    usable = bs.usable_refs()
+    wanted = list(usable) if refs is None else [look.C.ref_id(name) for name in refs]
+    transverse = any(op['kind'] in ('translate_region', 'taper_region') and
+                     abs(op['params']['delta_mm'][0]) > 0 for op in operations)
+    if transverse:
+        wanted += [rid for rid in usable if bs.refs[rid].get('view_kind') in ('top', 'rear', 'side')]
+    return list(dict.fromkeys(wanted))
+
+
+def projection_effects(source, options, operations, before):
+    """Native projected displacement per shown operation/view; side depth can be invisible."""
+    rows = []
+    for choice in options:
+        for op in operations:
+            oid = op['scope']['object_id']
+            ids = [r['vertex_id'] for r in op['scope']['vertex_weights'] if r['weight'] > 0]
+            a, b = M.objects(source)[oid], M.objects(choice['snapshot'])[oid]
+            for view in before['views']:
+                camera = view['camera']
+                uv0, z0 = model_map.G.project(model_map._asset_points(a, camera)[ids], camera)
+                uv1, z1 = model_map.G.project(model_map._asset_points(b, camera)[ids], camera)
+                valid = (z0 > 0) & (z1 > 0) & np.isfinite(uv0).all(axis=1) & np.isfinite(uv1).all(axis=1)
+                delta = np.linalg.norm(uv1[valid] - uv0[valid], axis=1)
+                rows.append({'option': choice['id'], 'operation': op['id'], 'ref': view['ref'],
+                             'view_kind': view['view_kind'], 'max_displacement_px': float(delta.max()) if len(delta) else None,
+                             'note': 'Projection only; includes occluded support. Judge the photo-first rendered close-up.'})
+    return rows
 
 
 class PreviewOption(BaseModel):
@@ -318,6 +366,7 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
         if source['fingerprint'] != head['fingerprint'] or evidence['source']['fingerprint'] != head['fingerprint']:
             raise ValueError('preview map is not of the selected unchanged delivery')
         base_operations = owner_markings.seal(source, evidence['operations'])
+        refs = revealing_refs(scene.root, doc['source']['basis'], base_operations, refs)
         if len({op['id'] for op in base_operations}) != len(base_operations):
             raise ValueError('preview operations must have distinct IDs')
         choices = [{**choice, 'operations': scaled_operations(base_operations, choice['scale'])} for choice in choices]
@@ -352,11 +401,16 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
                 raise ValueError('source preview evidence unavailable: '+str(before.get('message', before)))
             before = _capture_record(before)
             rendered = []
-            for index, choice in enumerate(choices):
-                _unchanged(scene, head, checkpoint)
-                result = _run_option(scene, scratch/f'option-{index}', checkpoint, head, source,
-                                     choice['operations'], refs, doc['source']['basis'])
-                rendered.append({**choice, **result})
+            from . import single_threaded_blas
+            workers = preview_workers(len(choices))
+            with single_threaded_blas(), procs.DescendantsOptOut(), ProcessPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_option_process, scene.root, scratch/f'option-{index}', checkpoint,
+                                       head, source, choice['operations'], refs, doc['source']['basis'])
+                           for index, choice in enumerate(choices)]
+                for choice, future in zip(choices, futures):
+                    rendered.append({**choice, **future.result()})
+                    _unchanged(scene, head, checkpoint)
+            effects = projection_effects(source, rendered, base_operations, before)
             boxes = _boxes(source, rendered, base_operations, before, evidence.get('legend', []))
             panels = scratch/'panels'; panels.mkdir()
             images, _ = _pictures(scratch, panels, before, rendered, boxes)
@@ -396,6 +450,7 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
                    'following_markings': owner_markings.summary(base_operations), 'before_evidence': before,
                    'before_export': before_export,
                    'shared_target_boxes': boxes, 'images': images, 'image_delivery': 'separate',
+                   'projection_effects': effects, 'workers': workers, 'selected_refs': refs,
                    'archived_evidence': list(archives.values()),
                    'archive_note': 'Verified archive copies are canonical confirmation evidence. Original temporary paths and unchanged raw report paths are historical rendering provenance; the temporary jobs are removed after all workers close.',
                    'evidence_files': files, 'preview_receipt': relative, 'source_unchanged': True,
@@ -471,6 +526,9 @@ def tool_for(scene, tool, call):
         No run, approval, estimate or source edit is started. A refused amount produces no selectable preview.
         Reuse the option id and preview receipt when asking the owner to choose in the understand reply.
         refs null uses every usable frozen camera; a list selects photo ids or original filenames.
+        Transverse X movements also include available top, rear and side photos, because a side view alone
+        cannot show depth. Projection effects report displacement in each view. Options use independent
+        workers sized to free commit memory / 1.3 GiB, capped at 16, with one BLAS thread.
         """
         return await call(ctx, 'preview_owner_edit', lambda cid: preview(scene, cid, map_id, map_sha256,
                            capture_receipts, operations_json, options, refs=refs))

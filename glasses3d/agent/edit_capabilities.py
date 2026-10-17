@@ -10,14 +10,51 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 
 SCHEMA = "g3d.edit_capabilities/1"
 MAPPING_SCHEMA = "g3d.edit_item_map/1"
 RELATIVE_PATH = "inputs/edit-capabilities.json"
 NOTICE = ("Explicit mapping only: this check does not understand natural language or certify the interpretation. "
+          "Measure the selected source and record its cause before choosing operations; keywords are not a diagnosis. "
           "Each requested change must have its own exact-text item. Labelled selections, rendered amount previews, "
           "owner confirmation, and all physical hard checks remain required.")
+
+
+def diagnosis_errors(value):
+    """Require inspectable, source-bound measurements, not a keyword-to-tool guess."""
+    required = {"source_fingerprint", "cause", "measurements", "evidence", "operation_rationale"}
+    if not isinstance(value, dict) or set(value) != required:
+        return ["Each item needs a source-bound diagnosis before operation mapping."]
+    errors = []
+    fingerprint = value["source_fingerprint"]
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint):
+        errors.append("Diagnosis needs the actual source fingerprint.")
+    if any(not isinstance(value[k], str) or not value[k].strip() for k in ("cause", "operation_rationale")):
+        errors.append("Diagnosis needs a measured cause and operation rationale.")
+    measurements = value["measurements"]
+    if not isinstance(measurements, list) or not measurements:
+        errors.append("Diagnosis needs measurements with numbers and units.")
+    else:
+        for row in measurements:
+            if (not isinstance(row, dict) or set(row) != {"name", "value", "unit"}
+                    or any(not isinstance(row[k], str) or not row[k].strip() for k in ("name", "unit"))
+                    or type(row["value"]) not in (int, float) or not math.isfinite(row["value"])):
+                errors.append("Every diagnosis measurement needs a name, finite numeric value and unit.")
+    evidence = value["evidence"]
+    if not isinstance(evidence, list) or not evidence:
+        errors.append("Diagnosis needs hashed local measurement evidence.")
+    else:
+        for row in evidence:
+            if not isinstance(row, dict) or set(row) != {"path", "sha256"} or not isinstance(row["path"], str):
+                errors.append("Invalid diagnosis evidence reference.")
+                continue
+            path = Path(row["path"])
+            if (not path.is_absolute() or not path.is_file()
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != row["sha256"]):
+                errors.append("Diagnosis evidence changed or is missing.")
+    return errors
 
 
 def digest(value):
@@ -35,7 +72,7 @@ def catalog():
     package = Path(__file__).resolve().parents[1]
     kinds = sorted(owner_mesh.OPERATION_KINDS)
     paths = [*package.glob("g3d/owner_*.py"), package / "agent/owner_edits.py", package / "agent/edits.py",
-             package / "agent/tools/owner_edit.py", package / "agent/tools/owner_preview.py",
+             package / "agent/tools/owner_edit.py", package / "agent/tools/owner_preview.py", package / "agent/owner_apply.py",
              Path(__file__).resolve()]
     implementation = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in sorted(set(paths))}
@@ -62,9 +99,12 @@ def check(request_text, mapping=None):
         covered, identifiers = set(), set()
         for number, item in enumerate(mapping["items"], 1):
             issue = lambda code, message: errors.append({"code": code, "item": number, "message": message})
-            if not isinstance(item, dict) or set(item) != {"id", "label", "start", "end", "text", "operation_kinds"}:
-                issue("invalid_item", "Each item needs id, label, start, end, text and operation_kinds only.")
+            if not isinstance(item, dict) or set(item) not in ({"id", "label", "start", "end", "text", "operation_kinds"},
+                    {"id", "label", "start", "end", "text", "operation_kinds", "diagnosis"}):
+                issue("invalid_item", "Each item needs id, label, start, end, text, operation_kinds and diagnosis only.")
                 continue
+            for message in diagnosis_errors(item.get("diagnosis")):
+                issue("diagnosis_required", message)
             if (not isinstance(item["id"], str) or not item["id"].strip() or item["id"] in identifiers
                     or not isinstance(item["label"], str) or not item["label"].strip()):
                 issue("invalid_label", "Items need distinct nonempty ids and plain-words labels.")
@@ -130,6 +170,8 @@ def install(root, report):
     if doc is None:
         raise ValueError("coverage can be installed only in an owner-edit round")
     require_ready(report, doc["request_text"])
+    if any(item["diagnosis"]["source_fingerprint"] != doc["source"]["fingerprint"] for item in report["items"]):
+        raise ValueError("diagnosis is not of the selected source model")
     path = write_report(edits.confined(root, RELATIVE_PATH), report)
     doc["capability_mapping"] = {key: report[key] for key in ("request_sha256", "items", "notice")}
     doc["immutable_files"][RELATIVE_PATH] = edits.sha(path)
@@ -153,6 +195,9 @@ def require_round(root, owner_edit=None):
     if not path.is_file():
         raise ValueError("edit capability dry run is missing; run job edit-check before estimate, approval or paid UNDERSTAND/EDIT")
     report = require_ready(edits.read(path), doc["request_text"])
+    source = doc.get("source") or edits.load(root)["source"]
+    if any(item["diagnosis"]["source_fingerprint"] != source["fingerprint"] for item in report["items"]):
+        raise ValueError("diagnosis is not of the selected source model")
     if doc["phase"] == "edit":
         understanding = doc["understanding"]
         if edits.blocked_items(understanding):

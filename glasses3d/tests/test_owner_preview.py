@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import shutil
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 import numpy as np
@@ -34,7 +35,7 @@ def capture(root, export, call_id, *, refs=None, basis=None):
     Image.fromarray(photo).save(folder/'photo.png')
     drawing = photo.copy(); drawing[80:110, 140:165] = [12, 34, 56]
     Image.fromarray(drawing).save(folder/'drawing.png')
-    result = {'status': 'ok', 'basis': basis, 'views': [{'ref': 'ref01',
+    result = {'status': 'ok', 'basis': basis, 'views': [{'ref': 'ref01', 'view_kind': 'side',
               'camera': {'width': 320, 'height': 240}, 'photo_path': str(folder/'photo.png'),
               'drawing_path': str(folder/'drawing.png')}], 'capture_reports': []}
     write(folder/'report.json', result)
@@ -77,6 +78,19 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(P.model_map.G, 'project', lambda xyz, camera:
                         (np.column_stack([xyz[:, 0]*10+100, -xyz[:, 2]*10+60]), np.ones(len(xyz))))
     monkeypatch.setattr(P.look, 'capture', capture)
+    monkeypatch.setattr(P.look.C, 'load_basis', lambda *args: SimpleNamespace(
+        usable_refs=lambda: ['ref01'], refs={'ref01': {'view_kind': 'side'}}))
+    monkeypatch.setattr(P.look.C, 'ref_id', lambda value: value)
+    class InlinePool:
+        def __init__(self, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def submit(self, fn, *args):
+            future = Future()
+            try: future.set_result(fn(*args))
+            except Exception as error: future.set_exception(error)
+            return future
+    monkeypatch.setattr(P, 'ProcessPoolExecutor', InlinePool)
     calls = []
     real_run_option = P._run_option
 
@@ -101,6 +115,38 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr(P, '_run_option', fake_run)
     return SimpleNamespace(root=root, scene=scene, source=source, op=operation, evidence=evidence, doc=doc,
                            checkpoint=checkpoint, head=head, calls=calls, real_run_option=real_run_option)
+
+
+def test_depth_preview_adds_top_rear_and_sides_without_keyword_mapping(monkeypatch):
+    refs = {name: {'view_kind': kind} for name, kind in
+            [('f','front'), ('s1','side'), ('s2','side'), ('t','top'), ('r','rear')]}
+    monkeypatch.setattr(P.look.C, 'load_basis', lambda *args: SimpleNamespace(usable_refs=lambda: list(refs), refs=refs))
+    monkeypatch.setattr(P.look.C, 'ref_id', lambda value: value)
+    op = {'kind':'translate_region','params':{'delta_mm':[3,0,0]}}
+    assert P.revealing_refs(None, None, [op], ['s1']) == ['s1','s2','t','r']
+    op['params']['delta_mm'] = [0,0,3]
+    assert P.revealing_refs(None, None, [op], ['f']) == ['f']
+
+
+def test_preview_pool_scales_to_available_memory_and_task_count(monkeypatch):
+    from glasses3d.agent import tools
+    monkeypatch.setattr(tools, 'free_commit_bytes', lambda: 4*2**30)
+    assert P.preview_workers(20) == 3
+    monkeypatch.setattr(tools, 'free_commit_bytes', lambda: 100*2**30)
+    assert P.preview_workers(20) == 16
+    assert P.preview_workers(3) == 3
+
+
+def test_projection_reports_hidden_depth_in_side_view():
+    # A lateral change is optically absent when viewed along X, but visible along Z.
+    source = {'schema':'g3d.mesh_snapshot/1','objects':[{'id':'O','vertices_world_mm':[[0,0,0]], 'side':0, 'role':'frame'}]}
+    after = copy.deepcopy(source); after['objects'][0]['vertices_world_mm']=[[3,0,0]]
+    cameras = [{'ref':'front','view_kind':'front','camera':{'view':[1,0,0,0, 0,1,0,0, 0,0,1,-1, 0,0,0,1], 'fx':1000,'fy':1000,'cx':0,'cy':0}},
+               {'ref':'side','view_kind':'side','camera':{'view':[0,0,1,0, 0,1,0,0, -1,0,0,-1, 0,0,0,1], 'fx':1000,'fy':1000,'cx':0,'cy':0}}]
+    op={'id':'move','scope':{'object_id':'O','vertex_weights':[{'vertex_id':0,'weight':1}]}}
+    rows=P.projection_effects(source,[{'id':'B','snapshot':after}],[op],{'views':cameras})
+    assert rows[0]['max_displacement_px'] == pytest.approx(3)
+    assert rows[1]['max_displacement_px'] == pytest.approx(0)
 
 
 def preview(h, *, call_id='preview', operations=None, choices=None):
@@ -419,6 +465,8 @@ def test_real_sdk_records_preview_delivery_only_after_images_and_final_output(ha
     from agents.tool import ToolOutputImage
     from glasses3d.agent import tools as T
     h = harness; result = preview(h, call_id='sdk-preview')
+    # The shared image adapter reserves refs for a mapping of per-photo sheets.
+    assert 'selected_refs' in result and 'refs' not in result
     sdk_scene.root, sdk_scene.s = h.root, h.scene.s
     sdk_scene.owner_edit = h.doc
     monkeypatch.setattr(P, 'preview', lambda *args, **kwargs: copy.deepcopy(result))
