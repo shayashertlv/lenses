@@ -704,6 +704,29 @@ will hit this wall. The desktop test also had no money stop, so it never felt th
    pairs front first, side-light close-ups, worn view), so he can judge whether the new tools helped.
 Proofs on saved requests/copies; `assembly_m1` and the affected suites. No paid run.
 
+### M10. Edits you can see before you pay ($0; added 2026-10-17 by Claude)
+Prada run 6 (`20261017T090817-2b59b9`, high, settled-only $20, **$18.52**, c0016) is the best Prada so far (front,
+angled and side pairs close; flat facets; the near-frame triangle visible). Owner's edit request (verbatim in
+`data/assembly/prada6-edit1-ops/owner-request.txt`): front upper outer corners "visibly different texture"; near-frame
+temple triangle's lower-left point (right-side view) "more inward", clarified "both temples ... inwards means towards
+the head". UNDERSTAND cost **$7.22** (45 requests); the editor ran the ordinary revision workflow, not sealed M6
+operations, cost **$4.79**: temple junctions moved 1 mm toward the head (perpendicular to the side view, so barely
+visible there) and front corners got a 50% shading-normal blend only. Owner: **"it looks like nothing changed"**.
+Causes: no amount was ever shown to the owner before spending; the amount was chosen for him; the $0 mapping matched
+"texture" to `repair_shading` without diagnosing the corner; understanding two sentences took 45 requests.
+1. **Diagnose before mapping ($0):** for each requested item, measure what produces the visible effect on the
+   source model (as in M7) before choosing operation kinds; never map by keyword.
+2. **Previews in the views that show the change:** each item gets 2-3 clearly different amounts (for a move: e.g.
+   1/3/5 mm) on scratch copies, shown in the views where that direction is visible (toward the head: top and rear
+   as well as side), photo first; the owner picks one or asks for others.
+3. **Apply the picked option without another paid round:** once the owner picks a previewed option, the host applies
+   exactly that operation (it is the owner's own edit through the tool, already previewed and checked) and shows
+   the result; a paid Astra round is needed only to interpret a new or unclear request.
+4. **Short understanding:** the understand step produces the labelled map, per-item interpretation and previews
+   only, no whole-model review; report its request count and cost.
+5. **Proof ($0)** on a copy of run 6's c0016 with the owner's two items: diagnosis, previews (photo first), apply of
+   one picked option. Lean verification (owner, 2026-10-17): focused tests + `assembly_m1` once, no full suite.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
