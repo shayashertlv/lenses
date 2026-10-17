@@ -1,5 +1,20 @@
 # glasses3d progress
 
+## 2026-10-17 — M10 corrected to the edge nearest the frame ($0)
+
+Owner clarified: "the edge which is nearest to the frame!" The previous temple previews
+targeted the wrong lower junction, shared with Logo. Corrected to the frame-side edge's
+lower end (actual vertex 321 on both temples; edge 321–322), using the front triangle's D
+influence on paired walls. New photo-first 1/3/5 mm top/rear/both-side previews and exact
+3 mm tool application are in `data/assembly/m10/frame-side/`; `audit.json` confirms the
+requested movement and zero movement of all 177 Logo vertices and 30 shared-edge vertices
+per temple. Applied GLB `64717f13acff…8085f3` matches the preview bytes; safety checks pass.
+Updated the local 3D viewer and review page; inspected corrected 1/3/5 mm models and views.
+Three preview workers (23.1 GiB free commit, capacity 16, three tasks), BLAS 1, throttling off.
+No production code changes; focused coordinate/source checks passed. Prior 251 focused tests
+and the single `assembly_m1` pass remain recorded above the archived work; neither repeated.
+No visual acceptance claimed. $0, no API calls, delivered-model changes or push.
+
 ## 2026-10-17 — M10 shared-edge review and interactive viewer ($0)
 
 Owner: "the corner looks better"; questioned whether the triangle moved its shared logo-facet edge.
