@@ -1,5 +1,24 @@
 # glasses3d progress
 
+## 2026-10-17 — Prada owner-edit preview completed; clarification needed
+
+Owner authorized **$10 total**, same settled-only/high-high rules, for the verbatim
+front-corner appearance and temple-triangle request. UNDERSTAND round
+`data/assembly/prada6-edit1/round-001-understand`, run **20261017T115447-db8e9a**,
+completed **11:56:21–12:25:19 UTC**, exit **0**: **spent $7.221697 (settled)**,
+45 parent requests, no specialist requests, held/unknown **$0**; **$2.778303 remains**
+for this entire edit request. No reservation refusal, output shrinking or turn cap.
+Source is run 6's immutable c0016 delivery; the source and round c0000 remain unchanged.
+Front shading previews at 50%/100% passed operation and export checks on isolated copies,
+but the stronger option makes the chamfer band more distinct; this is not a completed visual fix.
+The temple item needs clarification of the T42/T41 lower junction, inward depth versus
+movement within the side view, and both temples versus right only. No temple move or EDIT applied.
+One final-preview refusal was a mismatched capture list; Astra regenerated the preview and
+delivered the accepted understanding. No infrastructure failure or application code changes.
+Existing review served and its 23 images verified loaded; monitor paused. Next: clarify the
+shown interpretation before EDIT, preserving the remaining total allowance. Operational receipts
+are in `data/assembly/prada6-edit1-ops/`. No test suite, proof, paid retry or push; commit only this path.
+
 ## 2026-10-17 — Prada run 6 completed at $18.521022 settled
 
 Run **20261017T090817-2b59b9** on unchanged `prada-beige-86248315` completed,
