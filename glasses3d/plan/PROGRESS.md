@@ -1,5 +1,25 @@
 # glasses3d progress
 
+## 2026-10-17 — Selected 3 mm temples + 60% corners combined ($0)
+
+Owner authorized both selections together on a fresh copy of run 6 c0016. Applied the
+sealed corner and corrected frame-side temple operations sequentially through the local
+edit tool; combined GLB `f44492b9054f…9fe534`. Full object snapshots exactly match the
+selected individual edits; other objects and the delivered source are unchanged. Scope,
+amount, physical and strict export checks pass, including the fixed logo/shared edge.
+The first mixed batch failed strict normal-intent equality on floating-point roundoff;
+sequential composition passed every existing check without changing a gate.
+Evidence: `data/assembly/m10/combined/combined.json`, `component-comparison.json`,
+photo-first `comparison.png`, interactive `viewer/`, and `ar-capture.json` (pass).
+Viewer and local AR use the same verified bytes; browser viewer visually checked, AR
+test-face/worn captures inspected. Live camera remains awaiting access in the browser.
+AR reports 37/34 degenerate temple triangles and bridge underside +0.59 mm; local AR
+also reports its arm-spread difference from the deployed site. No combined owner verdict.
+23.8 GiB free commit: capacity 16, one dependent combination task; BLAS 1, throttling off.
+No production code change or repeat suite: prior 251 focused tests and single assembly_m1
+pass stand; new artifact checks above pass. Reviewed this diff once. $0, zero API calls,
+no delivered-model edits, paid run or push. Artifacts stay ignored; progress-only commit.
+
 ## 2026-10-17 — Owner accepts the corrected 3 mm temple edit
 
 Owner: "3mm looks good". Accepted the corrected frame-side lower-end movement on both
