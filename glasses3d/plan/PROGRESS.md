@@ -1,5 +1,16 @@
 # glasses3d progress
 
+## 2026-10-17 — Owner accepts the corrected 3 mm temple edit
+
+Owner: "3mm looks good". Accepted the corrected frame-side lower-end movement on both
+temples, bound to GLB `64717f13acff…8085f3`; local record:
+`data/assembly/m10/frame-side/owner-verdict-3mm.json`. It was already applied exactly by
+the tool on a copy. This is acceptance of that edit, not a combined model or AR verdict.
+Next recommended step: preview both changes together on a fresh copy (selected 3 mm
+temples plus the 60% corner repair previously shown), then owner review in 3D/AR.
+The corner was described as "looks better"; no separate final strength selection recorded.
+No model changes, tests, API calls, spend or push for this acceptance record.
+
 ## 2026-10-17 — M10 corrected to the edge nearest the frame ($0)
 
 Owner clarified: "the edge which is nearest to the frame!" The previous temple previews
