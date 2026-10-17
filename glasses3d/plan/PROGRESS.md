@@ -1,5 +1,19 @@
 # glasses3d progress
 
+## 2026-10-17 — Owner reports editor result looks unchanged
+
+Owner on c0002: "it looks like nothing changed". Treat the requested visual correction as
+**not accepted**. Read-only inspection confirmed the viewer loaded the edited GLB (`0a0dcb43…`).
+The delivered front has exactly unchanged triangle positions and materials; its largest
+normal change is **2.906°** (504 triangle corners changed by more than 0.1°).
+An independent coordinate audit confirmed both T41 lower junctions move **1.000 mm toward
+the head**, with their height and along-arm position unchanged. Saved same-camera photo
+pairs show only a small visible change; automated completion does not establish this edit's success.
+No new paid calls, rendering, tests, proofs or model changes. The editor's settled spend remains
+**$4.786939**, with **$5.213061** unspent. Front audit script:
+`data/assembly/prada6-editor2-ops/inspect_delivered_delta.py`. Next work must address the
+owner's visible result, not cite the successful process exit as acceptance.
+
 ## 2026-10-17 — Prada clarified editor completed at $4.786939 settled
 
 Owner clarified: "both temples. t41 right lower point, inwards means towards the head. run the editor with 10$, same rules as before".
