@@ -679,6 +679,27 @@ amounts, owner confirmation, scoped checks and following markings. In priority o
    controlled decimation that keeps silhouette, sharp edges and markings when a model grows heavy.
 Each with a $0 proof on a copy (before/after, photo first), the instruction lines, and the M7 dry-run mapping.
 
+### M9. The image wall, and a desktop test that behaves like a paid run ($0; added 2026-10-17 by Claude)
+M7/M8 are done (`d39f954`..`790f85e`, `plan/M7_M8_RESULTS.md`): all four defects traced to run 4's own edits
+(request 63's thickness deformation bent the facets; request 73's corner cut + sharp shading made the line; six-ring
+lenses), tool fixes and scoped edit operations built and proven on copies. The owner's free full test ("desktop gpt
+... astra xhigh ... no other convos memory") ran 216 responses / 15 h 26 m on fresh job
+`prada-fresh-desktop-m7-m8-v2-9488f012` and ended `payload_limit`: the next request carried **1,591 images /
+157.1 MB**, over the provider's **1,500-image** request limit, with no finish. Every full-size pair and close-up stays
+in the append-only history (25-41 new images per look call, 56 per first finish), so long runs and edit sessions
+will hit this wall. The desktop test also had no money stop, so it never felt the finish runway.
+1. **Fewer images, same pixels:** each photo's full pair and its close-ups become one composed image within the
+   documented high-detail patch budget (close-ups at native pixels, never downscaled), so a look call adds about one
+   image per photo. History stays append-only.
+2. **Safety valve:** when the next request would pass 80% of the image limit, payload limit or the 272k price step,
+   the host asks Astra for a written state summary (current best checkpoint, open differences, decisions) and continues
+   in a fresh conversation with the photos, that summary and the latest evidence; record it (one cache rebuild).
+3. **Desktop parity:** the desktop test applies the paid run's money terms with the local token estimate and the real
+   tariff (simulated settled spend, $20 cutoff, finish runway), so it ends the way a paid run would.
+4. **Show the owner, at $0:** the desktop test's best checkpoint c0016 beside run 4's c0015 and the photos (full-size
+   pairs front first, side-light close-ups, worn view), so he can judge whether the new tools helped.
+Proofs on saved requests/copies; `assembly_m1` and the affected suites. No paid run.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
