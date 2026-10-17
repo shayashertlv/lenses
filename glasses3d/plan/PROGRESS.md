@@ -1,5 +1,24 @@
 # glasses3d progress
 
+## 2026-10-17 — Prada run 6 completed at $18.521022 settled
+
+Run **20261017T090817-2b59b9** on unchanged `prada-beige-86248315` completed,
+exit **0**, **09:09:15–11:02:43 UTC**, accepted finish at verified **c0016**.
+**Spent $18.521022 (settled)**: parent **57 requests / $13.580810**, specialist
+**33 / $4.940212**; all **90** settled, held/unknown **$0**. High/high, 16,384 output,
+no turn cap; requests 88–90 continued despite estimates exceeding the remaining cap.
+Completion was voluntary below $20, with no reservation refusal or output shrinking.
+No application code changes or infrastructure failure. Camera fitting took about 50 minutes;
+one 600-second cleanup timeout restored c0008 before the parent recovered with a different edit.
+Three font-loading refusals exposed missing `load_font` registration; left unchanged during this run.
+Final specification/AR checks passed; immutable GLB SHA
+`b5f473c9134dc4820fef3698310abe232683bbfffa8106217183e251f9384339` (99,828 triangles).
+Warnings: 71 degenerate temple triangles and bridge underside +0.59 mm. Astra reports remaining
+rear arm-opening, facet and lighting differences; automated completion is not owner visual acceptance.
+Exact-delivery AR and 3D viewers verified; receipts in `data/assembly/m9prada6-preflight/`
+and `data/assembly/m9prada6-viewer/`. Monitor paused. No additional paid calls, tests, canceled
+visual review or push; completion commit includes only this explicit PROGRESS path.
+
 ## 2026-10-17 — Prada run 6 launched with $20 settled-only cutoff
 
 Fixes committed **bf09cca** on `glasses3d`, clean before launch. New request/approval
