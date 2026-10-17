@@ -1,5 +1,16 @@
 # glasses3d progress
 
+## 2026-10-17 — M10 shared-edge review and interactive viewer ($0)
+
+Owner: "the corner looks better"; questioned whether the triangle moved its shared logo-facet edge.
+Archived before/after mesh comparison confirms it: on each temple, 29/30 shared-edge vertices move,
+from 0 to 2.954 mm inward; the lower junction moves 3 mm and 108/177 logo-facet vertices follow.
+The temple result is not visually accepted. No corrective geometry edit was requested or made.
+Local viewer: `data/assembly/m10/viewer/` (`serve.py`, `server.json`); verified original/1/3/5 mm
+and corner-60% GLBs, orbit/zoom, top/rear/side presets, original/selected shared-edge overlays.
+Browser comparison controls and actual rendered model verified; no repeat suite or assembly proof.
+No API calls, spend, delivered-model changes or push. Viewer assets remain ignored local evidence.
+
 ## 2026-10-17 — M10 resumed and proved locally ($0)
 
 Resumed the archived implementation from required HEAD `6d2a66c` on `glasses3d`.
