@@ -188,7 +188,7 @@ def test_mesh_overrides_swap_a_copy_only(job):
 @pytest.mark.parametrize("params, match", [
     ({"views_pose": {"+2": {"theta_deg": 1, "axis_xz_mm": [64.6, -10.1]}}}, "'\\+1' or '-1'"),
     ({"views_pose": {"+1": {"theta_deg": 1, "axis_xz_mm": [-64.6, -10.1]}}}, "other side"),
-    ({"views_pose": {"-1": {"theta_deg": 60, "axis_xz_mm": [-64.6, -10.1]}}}, "within"),
+    ({"views_pose": {"-1": {"theta_deg": "Infinity", "axis_xz_mm": [-64.6, -10.1]}}}, "finite"),
     ({"rig": "studio_dome_v9"}, "unknown rig"),
     ({"views_overrides": {"no such object": "x"}}, "not a rendered mesh"),
     ({"views_overrides": {"Temple right | faceted sweep and ear bend": "no such mesh"}}, "no mesh datablock"),

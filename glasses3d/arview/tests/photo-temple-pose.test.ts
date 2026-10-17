@@ -104,7 +104,8 @@ test('photo opening moves both temples and their own markings, resets without ac
 
 test('camera pose schema refuses non-finite/wrong-side axes before capture', () => {
   for (const value of [null, [], {'0': {theta_deg: 1, axis_xz_mm: [1, 2]}},
-    {'+1': {theta_deg: NaN, axis_xz_mm: [68, -2]}}, {'-1': {theta_deg: 2, axis_xz_mm: [68, -2]}},
+    {'+1': {theta_deg: NaN, axis_xz_mm: [68, -2]}}, {'+1': {theta_deg: Infinity, axis_xz_mm: [68, -2]}},
+    {'+1': {theta_deg: 2, axis_xz_mm: [68, Infinity]}}, {'-1': {theta_deg: 2, axis_xz_mm: [68, -2]}},
     {'+1': {theta_deg: 2, axis_xz_mm: [68]}}]) assert.throws(() => parsePhotoTemplePose(value), /temple_pose/);
   const camera = {id: 'a', width: 640, height: 480, view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, -.5, 0, 0, 0, 1],
     background: '#ffffff', fx: 500, fy: 500, cx: 319.5, cy: 239.5, near: .1, far: 1,
@@ -112,4 +113,62 @@ test('camera pose schema refuses non-finite/wrong-side axes before capture', () 
   const result = parseCameraSet({schema: 'arview.cameras/1', cameras: [camera]});
   assert.deepEqual(result.cameras[0]!.temple_pose, camera.temple_pose);
   assert.ok(Object.isFrozen(result.cameras[0]!.temple_pose!['+1']!.axis_xz_mm));
+});
+
+test('finite folded, shifted and full-turn photo deltas preserve raw poses, markings and source buffers', async () => {
+  const file = buildGlb({parts: {...defaultParts(),
+    marking_R: {box: [70, 70.1, 3, 5, -50, -30], material: 'frame', role: 'temple'},
+    marking_L: {box: [-70.1, -70, 3, 5, -50, -30], material: 'frame', role: 'temple'}}}).glb;
+  const fileBefore = file.slice(), report = new ModelReportBuilder('test', 'test', []);
+  const loaded = await loadModel(file, report, {url: 'http://127.0.0.1/test.glb', renderer: null,
+    plugins: [() => ({name: 'stub', loadTexture: async () => new Texture()})]});
+  normalizeModel(loaded.gltf.scene, report, loaded.source);
+  const meshes: Mesh[] = [];
+  loaded.gltf.scene.traverse(o => {if (o instanceof Mesh) meshes.push(o);});
+  const temple = meshes.find(m => m.name === 'Temple_R')!, front = meshes.find(m => m.name === 'Bridge')!;
+  front.geometry = temple.geometry; // A front sharing a temple buffer must remain fixed.
+  for (const mesh of meshes) {
+    const count = mesh.geometry.getAttribute('position').count;
+    mesh.geometry.setAttribute('normal', new BufferAttribute(Float32Array.from(Array.from({length: count}, () => [0, 0, 1]).flat()), 3));
+    mesh.geometry.setAttribute('tangent', new BufferAttribute(Float32Array.from(Array.from({length: count}, (_, i) => [1, 0, 0, i % 2 ? -1 : 1]).flat()), 4));
+  }
+  const records = meshes.map(mesh => ({mesh, original: mesh.geometry,
+    position: Float32Array.from(mesh.geometry.getAttribute('position').array),
+    normal: Float32Array.from(mesh.geometry.getAttribute('normal').array),
+    tangent: Float32Array.from(mesh.geometry.getAttribute('tangent').array)}));
+  const controller = createPhotoTemplePose(loaded.gltf.scene);
+  for (const theta of [-1e308, -720, -550, -180, -90, 0, 60, 180, 330, 550, 720, 1e308]) {
+    const raw = {'+1': {theta_deg: theta, axis_xz_mm: [68, -2]}, '-1': {theta_deg: theta, axis_xz_mm: [-68, -2]}};
+    const before = structuredClone(raw), pose = parsePhotoTemplePose(raw);
+    assert.equal(pose['+1']!.theta_deg, theta); assert.equal(pose['-1']!.theta_deg, theta);
+    for (let repeat = 0; repeat < 2; repeat++) {
+      controller.apply(pose);
+      for (const rec of records) {
+        const side = /^(Temple|marking)_R$/.test(rec.mesh.name) ? 1 : /^(Temple|marking)_L$/.test(rec.mesh.name) ? -1 : 0;
+        const radians = theta * side * (Math.PI / 180), c = Math.cos(radians), s = Math.sin(radians);
+        const position = rec.mesh.geometry.getAttribute('position'), normal = rec.mesh.geometry.getAttribute('normal'), tangent = rec.mesh.geometry.getAttribute('tangent');
+        for (let i = 0; i < position.count; i++) {
+          const x = rec.position[i * 3]!, y = rec.position[i * 3 + 1]!, z = rec.position[i * 3 + 2]!;
+          const expected = side ? [side * .068 + c * (x - side * .068) - s * (z + .002), y,
+            -.002 + s * (x - side * .068) + c * (z + .002)] : [x, y, z];
+          const actual = [position.getX(i), position.getY(i), position.getZ(i)];
+          actual.forEach((value, axis) => assert.ok(Number.isFinite(value) && Math.abs(value - expected[axis]!) < 3e-8));
+          assert.ok(Math.abs(normal.getX(i) + s) < 1e-7 && Math.abs(normal.getZ(i) - c) < 1e-7);
+          assert.ok(Math.abs(tangent.getX(i) - c) < 1e-7 && Math.abs(tangent.getZ(i) - s) < 1e-7);
+          assert.equal(tangent.getW(i), i % 2 ? -1 : 1);
+        }
+        assert.deepEqual(Float32Array.from(rec.original.getAttribute('position').array), rec.position);
+        assert.deepEqual(Float32Array.from(rec.original.getAttribute('normal').array), rec.normal);
+        assert.deepEqual(Float32Array.from(rec.original.getAttribute('tangent').array), rec.tangent);
+      }
+    }
+    assert.deepEqual(raw, before);
+    controller.reset();
+    for (const rec of records) {
+      assert.deepEqual(Float32Array.from(rec.mesh.geometry.getAttribute('position').array), rec.position);
+      assert.deepEqual(Float32Array.from(rec.mesh.geometry.getAttribute('normal').array), rec.normal);
+      assert.deepEqual(Float32Array.from(rec.mesh.geometry.getAttribute('tangent').array), rec.tangent);
+    }
+  }
+  assert.deepEqual(file, fileBefore);
 });

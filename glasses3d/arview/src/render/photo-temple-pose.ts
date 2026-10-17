@@ -53,7 +53,8 @@ export function createPhotoTemplePose(root: Object3D) {
   let active = false;
   const apply = (pose: PhotoTemplePose) => {
     for (const record of records) {
-      const opening = pose[record.side], angle = (opening?.theta_deg ?? 0) * Number(record.side) * Math.PI / 180;
+      // Group the conversion factor so every finite degree value stays finite before the trigonometry.
+      const opening = pose[record.side], angle = (opening?.theta_deg ?? 0) * Number(record.side) * (Math.PI / 180);
       const c = Math.cos(angle), s = Math.sin(angle), x0 = (opening?.axis_xz_mm[0] ?? 0) / 1000, z0 = (opening?.axis_xz_mm[1] ?? 0) / 1000;
       const geometry = record.mesh.geometry, position = geometry.getAttribute('position'), normal = geometry.getAttribute('normal'),
         tangent = geometry.getAttribute('tangent');

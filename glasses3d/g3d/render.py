@@ -123,7 +123,6 @@ LENS_MATERIALS = {"dark_tint_v1": {"shader": "emission", "emission_rgb": (0.006,
 PASSES =("native", "clay", "normal", "native_linear", "gloss_black")
 LINEAR_PASSES = ("native_linear", "gloss_black")
 POSE_SIDES = {"+1": 1, "1": 1, "-1": -1}
-POSE_MAX_DEG = 45.0
 TEMPLE_MIN_REACH_MM = 60.0           # a temple body reaches this far back (= temple_bpy.temple_candidates)
 TEMPLE_MIN_OFFSET_MM = 20.0          # and is centred this far from x = 0 (one rule with g3d_host/pose.temple_body)
 ENGINES = {"eevee": "BLENDER_EEVEE", "cycles": "CYCLES"}
@@ -283,7 +282,11 @@ def pose_matrix(side: int, theta_deg: float, axis_xz) -> np.ndarray:
 
 
 def parse_pose(pose) -> dict:
-    """{side: (theta_deg, (axis_x, axis_z))} of a view's pose (asset mm), or {} for None. Raises RenderRefused."""
+    """{side: (theta_deg, (axis_x, axis_z))} of a temporary view, or {} for None.
+
+    Finite angles retain their raw value, including full turns and shifted fitter deltas, as on the host and AR
+    paths. This is a rigid rendering transform, not a physical hinge limit. Malformed/nonfinite poses refuse.
+    """
     if pose is None:
         return {}
     if not isinstance(pose, dict):
@@ -298,8 +301,8 @@ def parse_pose(pose) -> dict:
             ax, az = (float(v) for v in rec["axis_xz_mm"])
         except (KeyError, TypeError, ValueError):
             raise RenderRefused(f"pose {key}: needs theta_deg and axis_xz_mm [x, z]") from None
-        if not all(math.isfinite(v) for v in (th, ax, az)) or abs(th) > POSE_MAX_DEG:
-            raise RenderRefused(f"pose {key}: theta_deg must be finite and within +-{POSE_MAX_DEG:g}")
+        if not all(math.isfinite(v) for v in (th, ax, az)):
+            raise RenderRefused(f"pose {key}: angle and axis values must be finite")
         if side * ax <= 0:
             raise RenderRefused(f"pose {key}: axis x {ax} lies on the other side")
         out[side] = (th, (ax, az))

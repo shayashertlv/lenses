@@ -1,6 +1,6 @@
 # glasses3d progress
 
-## 2026-10-16 — M7/M8 copy proofs reviewed; full desktop test still running
+## 2026-10-17 — M7/M8 copy proofs reviewed; full desktop test stopped at image limit
 
 Owner's question, verbatim: **"any other mesh editing tools astra might need?"**
 Follow-up, verbatim: **"after youre done with everything please run the automation for a test but instead of astra api, use desktop gpt (you!, use astra xhigh and with no other convos memory) this way will be able to test without additional spending"**.
@@ -23,7 +23,7 @@ lazy imports, now preloaded during trusted setup without weakening the audit gua
 script succeeds unchanged on a separate scratch scene (13 objects, zero runtime violations).
 Independent follow-up review: no findings (`m7/final-facade-review-v1/review.json`).
 The final assembly proof passed in **200.172 s**, with 13 scripted steps and zero actual API spend.
-The fix is committed as **090f95b**. Full desktop test v2 is now running on fresh job
+The fix is committed as **090f95b**. Full desktop test v2 ran on fresh job
 `prada-fresh-desktop-m7-m8-v2-9488f012`; audit and mailbox:
 `data/assembly/desktop-prada-m7m8-v2`. It uses only the original input photos/description/specs
 and view declarations, with no v1 model, choices or history. The stopped-attempt audit proves zero external API/network/production transport
@@ -31,6 +31,35 @@ activity. The unchanged guard retains a synthetic unknown reservation of $0.8192
 request; this is not a provider charge and was not reconciled to disguise the cancellation.
 No external API call, paid run, product estimate request, delivered-model edit or push is authorized.
 Earlier paid approvals are not used. Starting branch: `glasses3d`, clean HEAD **7b9cd13**.
+
+The v2 test ended **`payload_limit`**, without `finish` or delivery, after **216** desktop
+responses and **15 h 26 m 27 s** (2026-10-16 15:46:07 to 2026-10-17 07:12:34 UTC).
+Its next request had **1,591 images / 157.1 MB** and exceeded the unchanged **1,500-image**
+guard; inference 217 was not sent. The last comparison succeeded. Exit candidate is c0017,
+best is c0016; these are fresh-job checkpoints, not the original delivered c0015. Branding,
+hardware and some facet/camera differences remain unfinished. No limit was changed and no
+restart followed. Actual external API cost/calls, network attempts and production transports
+are zero; the v2 settled/held/unknown ledgers are all zero. Desktop subscription usage is
+not measured. Runtime was **090f95b**; **cf53063** changed only copy proofs and documentation.
+
+After terminal status, the independently reviewed renderer-contract fix was applied: finite
+raw photo-view angles now cross the host/Blender/AR interfaces consistently, and AR avoids
+an intermediate overflow. Call 70 had rejected a frozen near-178-degree delta under Blender's
+stale +/-45 parser restriction. No physical model gate or frozen camera basis changes.
+The six files match their reviewed staged bytes. The captured original-comparison replay
+passed in **61.285 s** with identical arguments, raw basis, source fingerprint and exported GLB,
+six fresh comparisons and unchanged protected/copied inputs. It proves only that boundary;
+the captured c0008's existing seating failures and live-site triangle advisory remain.
+Applied-code review has no findings. Both $0 M7/M8 capability reports remain ready. Final
+post-fix affected suite: **166 passed, one existing golden-render failure** (same 199 pixels).
+Full AR: **507 passed**, TypeScript passed. Independent replay-evidence review has no findings.
+The assembly proof **passed in 192.594 s** after correcting a launch-only missing package-parent
+`PYTHONPATH`: 13 steps, 26 verified transport files, 64 image blobs, 35 AR images, strict delivery
+checks and **$0 actual API spend**. The initial import failure is preserved; no source was changed
+for it. Final log: `m7/temple-pose-contract-v1/applied-validation-m1-v2/assembly-m1.log`;
+proof: `data/assembly/m1-proof-39363d70/proof.json`, job `synthetic-assembly-proof-fbcbd275`.
+Terminal run audit: `data/assembly/desktop-prada-m7m8-v2/terminal-audit.json`; replay:
+`data/assembly/m7/temple-pose-contract-v1/exact-replay-after-fix-01/replay-report.json`.
 
 The four causes are traced to the actual run 4: request 63's piecewise thickness deformation
 bends the logo and temple faces; request 73's geometric front cut plus sharp shading creates the

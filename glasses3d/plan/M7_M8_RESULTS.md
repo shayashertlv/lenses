@@ -5,11 +5,11 @@ review caught that the initial front-corner demonstration repaired shading while
 the authored crease. A new copy proof uses the existing ordered taper-and-shading operations
 to remove that geometry cause. Independent review now has no findings; the packaged replay
 produces byte-identical snapshots and GLBs on fresh copies. The full fresh desktop automation
-test is still running.
+test ended at the unchanged request-image limit before finish or delivery.
 Implementation commit: **d39f954**. The first fresh desktop test on
 `prada-fresh-desktop-m7-m8-151f4802` found a facade-registration gap and was stopped before
 geometry changed. The general fix, independent review and final assembly proof are complete. Fix commit:
-**090f95b**. Full desktop test v2 is running on fresh job
+**090f95b**. Full desktop test v2 ran on fresh job
 `prada-fresh-desktop-m7-m8-v2-9488f012`; evidence: `data/assembly/desktop-prada-m7m8-v2`.
 These copies are not owner-accepted models. Visual limits and remaining geometric
 creases are disclosed below; no delivered model was edited.
@@ -30,9 +30,9 @@ The original photo-first room/side-light evidence is under
 
 | Defect | Measured cause and producer |
 |---|---|
-| Vertical ridge inside the logo triangle | Run 4 request **63** applied a piecewise thickness multiplier along the arm. Its knot at depth 24 mm lies near the logo triangle's bottom corner and introduces a **9.664°** geometric slope break. Retained core vertices have maximum plane residual **1.369 mm**. The deformation also retains stale custom normals. It is not run 3 request 70's smooth-shading edit or a GLB exporter seam. |
+| Vertical ridge inside the logo triangle | Run 4 **`execute_blender_code` request 63** applied a piecewise thickness multiplier along the arm. Its knot at depth 24 mm lies near the logo triangle's bottom corner and introduces a **9.664°** geometric slope break. Retained core vertices have maximum plane residual **1.369 mm**. The deformation also retains stale custom normals. It is not run 3 request 70's smooth-shading edit or a GLB exporter seam. |
 | Temple facets are not planes | The same request 63 changes thickness and the arm's base offset along its length, bending previously fitted faces. Corresponding core-vertex residual maxima are front **0.207**, logo **1.369**, rear **0.618**, upper **2.652 mm**. The original upper face was explicitly declared a warped four-corner face. Current native footprint measurements include slightly different boundary samples: left maxima **0.200201 / 1.374582 / 0.622329 / 2.686606 mm**; right upper **2.70422 mm**. |
-| Line at the front's upper outer corners | Initial request **9** introduced a provisional corner cut. Request **73** replaced it with a bisect along `side*x + 1.4*y = 82`, lowered the outside by `0.5*max(0, side*x + 1.4*y - 82)`, and marked edges sharp. Fourteen principal cut edges have geometric breaks **38.51–38.86°** and split shading normals about **38.5–43.2°**. This is authored geometry plus sharp shading, not export damage. |
+| Line at the front's upper outer corners | Initial request **9** introduced a provisional corner cut. **`execute_blender_code` request 73** replaced it with a bisect along `side*x + 1.4*y = 82`, lowered the outside by `0.5*max(0, side*x + 1.4*y - 82)`, and marked edges sharp. Fourteen principal cut edges have geometric breaks **38.51–38.86°** and split shading normals about **38.5–43.2°**. This is authored geometry plus sharp shading, not export damage. |
 | Ridged lens highlights | Request **63** rebuilt each lens with **6 rings × 80 outline samples**, 962 vertices and 1,920 triangles overall; the front has 880 triangles. Front edge lengths are median **2.9437**, 95th percentile **4.5509**, maximum **5.7568 mm**. Interior corner normals are continuous; the 160 sharp rim edges are intentional. The source front's geometric normal changes reach **4.6929°**. Coarse curved geometry and normal interpolation create the reflection stepping; no lens degenerate triangle was found. |
 
 The plan's historical **464 zero-area temple triangles** are not a current c0015
@@ -248,4 +248,74 @@ There were no measurement errors or unusable references. Named-facet measurement
 explicitly unavailable for these manually constructed objects without builder provenance;
 the report does not invent facet labels. Astra explicitly requested the per-object surface
 measurements through `read_report`. This establishes consumption of the new diagnostics,
-not a finished model or owner acceptance. Full-run completion is still pending.
+not a finished model or owner acceptance. The full run ended unfinished at the request-image limit.
+
+## Full desktop test outcome and follow-up renderer fix
+
+The fresh `gpt-6-astra` / `xhigh` test ran from **2026-10-16 15:46:07 UTC** to
+**2026-10-17 07:12:34 UTC**, about **15 hours 26 minutes 27 seconds**. Each of its
+**216** desktop responses used a fresh context containing only the exact ordinary pipeline
+packet, without this conversation, other jobs or outside modelling hints. Production runtime
+was **090f95b**; the later **cf53063** commit changed only copy-proof code and documentation.
+
+The terminal status is **`payload_limit`**, not success. The next request contained **1,591
+images (157.1 MB)**, exceeding the existing **1,500-image** guard; inference 217 was not sent.
+The 512 MB byte limit was not the failing limit. The last appearance comparison completed;
+the model never called `finish`, and no delivery was created. Current exit checkpoint is
+**c0017**, a warmer-colour candidate; the model's best remains **c0016**. These belong to the
+fresh test job and are unrelated to the old delivered c0015. Branding, hardware and some
+facet/camera differences remain unfinished. Limits were neither raised nor bypassed, and
+the run was not restarted after this terminal result.
+
+External API calls, actual API cost, network attempts and production transports are **zero**.
+The v2 run/job ledgers have zero settled, held and unknown amounts. Desktop subscription
+usage is not measured. The original delivery hash remains exact, and all six fresh photo
+byte/decoded hashes, description, specs and view declarations match the original intake.
+The terminal audit is `data/assembly/desktop-prada-m7m8-v2/terminal-audit.json`.
+Its 216 tools comprise **211 ok, two errors and three refusals**. Recorded desktop-response
+wait is **47,196.07 s** (including inference and orchestration); host tools total **7,934.73 s**,
+including **6,275.33 s** of camera fits. These are measured durations, not cost estimates.
+The last photo-first overview is the fresh job's `work/arview/call_0216-look/comparison.png`;
+the final candidate was not reviewed by Astra after that render.
+
+This adapter started a separate fresh desktop agent for every response, replaying the exact
+accumulated SDK packet each time. That is different from one continuing desktop agent or the
+normal API execution path. The logs do not separate model thinking from orchestration within
+the response-wait total, so this is not a matched speed benchmark for ordinary product runs.
+Seven fits, 97 report reads and 22 appearance comparisons also made this a long investigation.
+The existing `max_turns: null` setting remained unchanged. The abnormal duration should have
+been identified and explained earlier; continued process activity did not establish reasonable
+test progress. Isolation from other conversations did not itself require a new agent per tool.
+
+The test also exposed a separate renderer-interface mismatch: call 70's private original
+comparison rejected finite raw temple angles near -178 degrees under Blender's old +/-45
+parser restriction, although the fitter, host transform and AR path accept those rigid
+photo-view deltas. The independently reviewed fix aligns the rendering interfaces without
+clamping, normalizing or changing a frozen camera basis. Structural/nonfinite input refusals
+and all model-quality checks remain unchanged. The AR degree conversion also groups its
+constant factor to avoid intermediate overflow for finite extreme inputs. This is a temporary
+view-transform contract, not a new physical hinge range or an approval of the fitted angles.
+
+The six reviewed source/test files were applied only after the full run terminated and match
+the staged candidate bytes. The exact captured original-comparison replay **passed in 61.285 s**:
+all six fresh comparisons completed with identical arguments, raw basis, source fingerprint and
+exported GLB; all 41 protected files and 34 copied frozen inputs stayed unchanged. It made no
+network attempt or production transport. This stops before specialist inference or revision-zero
+construction. The captured c0008's existing seating failures and live-site triangle advisory are
+retained; a passed comparison is not model acceptance. Evidence:
+`data/assembly/m7/temple-pose-contract-v1/exact-replay-after-fix-01/replay-report.json`.
+Applied-code review has no findings. Both capability reports remain ready after the patch
+(four M7 items, seven M8 items, zero API calls/cost). Independent replay-evidence review also
+has no findings (`temple-pose-contract-v1/applied-review-v1/replay-evidence-review.md`).
+Post-fix affected Python: **166 passed, one failed**, the same existing
+`test_photo_v1_pixels_are_unchanged` golden mismatch at 199 pixels. Full AR: **507 passed**;
+TypeScript check passed. Logs: `temple-pose-contract-v1/applied-validation-v1`.
+The first assembly-proof launch lacked the package-parent `PYTHONPATH` and failed at import
+before proof startup. Its log is preserved. With the repository parent available and no source
+change, **`tests.proofs.assembly_m1` passed in 192.594 s** (196.359 s process wall time):
+13 scripted tool steps, 26 verified transport files, 64 image blobs, 35 AR images, clean receipts
+and strict delivery checks, **$0 actual API spend**. Fresh proof:
+`data/assembly/m1-proof-39363d70/proof.json`; job `synthetic-assembly-proof-fbcbd275`;
+launch/log receipt: `temple-pose-contract-v1/applied-validation-m1-v2`.
+The existing golden-render mismatch remains the only failure in the post-fix affected suite;
+no threshold, golden image, physical gate or payload limit was changed.
