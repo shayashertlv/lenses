@@ -696,10 +696,12 @@ will hit this wall. The desktop test also had no money stop, so it never felt th
    in?"): if a photo's pair and close-ups do not fit the budget, use a second image instead of scaling. Proof: every
    part of every composed image is pixel-identical to the separate image it replaces, and the provider's documented
    resizing leaves the composed image unchanged.
-2. **Safety valve:** when the next request would pass 80% of the image limit, payload limit or the 272k price step,
+2. **Safety valve — DONE 2026-10-18 (`ded8b77`).** When the next request would pass 80% of the image limit,
+   payload limit or the 272k price step,
    the host asks Astra for a written state summary (current best checkpoint, open differences, decisions) and continues
    in a fresh conversation with the photos, that summary and the latest evidence; record it (one cache rebuild).
-3. **Desktop parity:** the desktop test applies the paid run's money terms with the local token estimate and the real
+3. **Desktop parity — DONE 2026-10-18 (`ded8b77`).** The desktop test applies the paid run's money terms
+   with the local token estimate and the real
    tariff (simulated settled spend, $20 cutoff, finish runway), so it ends the way a paid run would.
 4. **Show the owner, at $0:** the desktop test's best checkpoint c0016 beside run 4's c0015 and the photos (full-size
    pairs front first, side-light close-ups, worn view), so he can judge whether the new tools helped.

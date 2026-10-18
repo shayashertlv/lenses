@@ -1,5 +1,45 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 task 4: M9 safety valve and desktop parity ($0)
+
+Completed `data/review_20261018/briefs/task4_safety_valve.md`; implementation `ded8b775ca7fc531f84b67e5e6771cdb39ace470`.
+Main, owner-edit and temple requests renew strictly past 80% of imported image/payload limits or the frozen
+long-context price step. A normally admitted summary is followed by a fresh conversation carrying every owner
+photo, unchanged evidence pixels, Astra's attributed summary and host facts. An unaffordable summary uses facts.
+Old conversation rows remain unchanged; the new session pointer and receipt commit atomically. Recovery retains
+archived tool outputs. Pending main finish reviews restart; specialist pending judgement survives. Run/delivery
+reports and `job show` list renewals, including a SQLite fallback after interrupted receipt export.
+
+Desktop counts are local estimates; simulated usage settles at the real frozen tariff through the unchanged
+stop/reserve rules, including explicit settled-only terms. Reports label the simulation and unavailable reasoning.
+The mailbox wait is asynchronous. Legacy context-filter settings remain approval-readable but no longer rewrite
+runtime history. No static instructions/tool descriptions changed; exact new renewal text is in the task report.
+
+Final focused proofs and instruction contracts: **124 passed in 36.24 s**. Main image/payload/token cases each
+renew once and finish/deliver; old SQLite bytes and all owner photos/evidence are checked. Summary fallback,
+real finish restart, specialist shared accounting, crash recovery, both desktop money modes and a genuine
+UNDERSTAND round pass. The latter uses offline-only approval, preserves source/approval bytes and publishes
+awaiting owner confirmation; it makes no geometry or visual-quality claim. `job show` normal/fallback checks pass.
+
+Full non-print: **4,482 passed, 2 skipped, 10 failed in 869.27 s** (14 workers). Four obsolete pruning/fixed-history
+money expectations were updated; their files then passed all **27 tests** without changing money assertions.
+The other six reran serially: **5 passed, 1 failed in 177.19 s**. Only the known photo_v1 golden mismatch remains:
+**199 changed pixels vs 114.24 allowed**; golden, tolerance and timing gates unchanged. Photoprint: **314 passed
+in 211.43 s**, 4 workers. `assembly_m1`: **passed in 201.594 s**, 13 scripted requests/tools, 26 transport receipts,
+12 image blobs and 35 AR images verified, clean receipts; `data/assembly/m1-proof-ea7508f9/proof.json`.
+
+Saved desktop re-pricing, using existing M9 lossless compositions and illustrative 1,000-token summaries:
+renewals before requests **49/88/140/177**, peak **98 images / 54,847,032 bytes / 231,057 estimated tokens**.
+Equal-work simulated exposure falls from **$211.047981 to $46.026766**; this comparison ignores admission.
+The historical $20/$23 terms instead admit 93 saved replies plus 2 summaries, then stop before 94 at
+**$20.001541 simulated**. Actual reasoning/cache usage is unavailable; no finish is inferred from saved replies.
+
+Report, exact Astra text, proof numbers, re-pricing scripts and logs: `data/review_20261018/codex/task4_report.md`.
+Long checks were detached/logged with PID/arguments/UTC/exit receipts, BLAS 1 and EcoQoS opt-out; about 40 GiB
+free commit supported the capped 14-worker pool. Pool-heavy jobs ran sequentially. Arview suites were skipped
+because no arview code changed; the assembly proof still checks production AR capture. No paid API call, push,
+root-app/ar change, product constant, owner-input addition, weakened gate or data/binary commit. Actual spend **$0**.
+
 ## 2026-10-18 — ASSEMBLY M11 item 3: what Astra sees and reads ($0)
 
 Completed all seven items in `data/review_20261018/briefs/task3_what_astra_sees.md` on `62638eb`.
