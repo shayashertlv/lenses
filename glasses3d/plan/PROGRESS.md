@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-18 — Claude accepted M11 task 7 ($0)
+
+Task 7 (`df9fe23`) reviewed by Claude: report `data/review_20261018/codex/task7_report.md`. The owner-accepted FT1119
+`print.png` replays byte-identical (`ac4280e9…`), so the stop rule did not apply; WP4 grades unchanged. Changed
+assertions in existing tests read: the level-compare tests are stricter (neutral pixels stay in unless independently
+identified as reflections), the matte test follows the SEAT-3 cap recognition, part names match exactly; none
+weakened. Reran new and touched tests: 70 + 237 passed (including the slow accepted-print replay), no skips.
+
 ## 2026-10-18 — ASSEMBLY M11 task 7: print and seating generality ($0)
 
 Completed `data/review_20261018/briefs/task7_print_seating.md`. Photo projection, admission, occlusion and calibration
