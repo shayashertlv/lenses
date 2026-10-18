@@ -452,17 +452,15 @@ def test_read_only_scope_check_replays_current_receipt_without_reapplying_or_dup
     source = snapshot(obj)
     op = operation(obj)
     amount = .75 if corrected else .5
-    current = copy.deepcopy(source)
-    for key in ("vertices_local", "vertices_world_mm"):
-        for vertex in (1, 2, 5, 6):
-            current["objects"][0][key][vertex][0] += amount
     applied_op = copy.deepcopy(op)
     applied_op["params"] = {"delta_mm": [amount, 0, 0]}
+    current = owner_edits._advance(source, [applied_op])
+    current["fingerprint"] = "current-fp"
     receipt = {"fingerprint": "current-fp", "operations": [applied_op], "operation_ids": [op["id"]]}
     sealed = {"snapshot": source, "source_fingerprint": "source-fp", "all_operations": [op],
               "receipts": [receipt], "authority_sha256": "authority", "round_id": "edit:2",
               "confirmation_sha256": "confirmation", "request_text": "Move outward.",
-              "confirmation_text": "Use 0.75 mm." if corrected else "Yes."}
+              "confirmation_text": "Use 0.75 mm." if corrected else "Yes.", "correction": corrected}
     recorded = []
     authority = SimpleNamespace(resolve=lambda *args: sealed, record_applied=recorded.append)
     scene = SimpleNamespace(owner_edit_authority=authority,
@@ -473,7 +471,7 @@ def test_read_only_scope_check_replays_current_receipt_without_reapplying_or_dup
             "status": "exported", "validate_spec": {"ok": True}, "sha256": "export"}))
     monkeypatch.setattr(owner_edits, "snapshot", lambda *args: (current, tmp_path / "current.json"))
     result = owner_edits.ScopeGuard(authority).verify(scene)
-    assert result["ok"] is True
+    assert result["ok"] is True, result
     assert result["confirmed_amounts_match"] is True
     assert recorded == []
 

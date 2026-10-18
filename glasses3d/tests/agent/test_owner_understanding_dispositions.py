@@ -9,6 +9,9 @@ import pytest
 from glasses3d.agent import edits, job_run
 from glasses3d.agent.loop import FinishOnAccepted
 from glasses3d.agent.tools import owner_edit, model_map
+from glasses3d.agent.tools import owner_preview
+from glasses3d.g3d import owner_markings
+from glasses3d.agent.journal import CheckpointIndex
 from glasses3d.agent.tools import model_map_geometry as G
 from glasses3d.tests.test_owner_markings import fixture as marked_fixture
 from .test_owner_edit_lifecycle_review import selected_source, _write
@@ -63,7 +66,43 @@ def item(h, number=1, disposition="unsupported", *, located=True):
             "operation_json": json.dumps(h.operation) if executable else "[]"}
 
 
+def shown_preview(h, items):
+    # The unit fixture supplies shown amounts, not a free pass around preview
+    # verification. Real rendering/isolation is exercised by test_owner_preview.
+    operations = []
+    for row in items:
+        if row.get('disposition') == 'executable':
+            value = json.loads(row['operation_json'])
+            operations.extend(value if isinstance(value, list) else [value])
+    evidence = model_map.validate_understanding(h.root, h.mid, edits.sha(h.map),
+        [h.capture_result['capture_receipt']], operations)
+    operations = owner_markings.seal(edits.read(evidence['snapshot_path']), evidence['operations'])
+    checkpoint = h.root / 'checkpoints/c0000.blend'
+    checkpoint.parent.mkdir(exist_ok=True)
+    checkpoint.write_bytes((h.root / 'inputs/seed.blend').read_bytes())
+    head = {**h.fixture.chosen, 'id': 'c0000', 'file': checkpoint.name}
+    h.scene.s.head = head
+    if not (checkpoint.parent / 'index.jsonl').exists():
+        CheckpointIndex(checkpoint.parent).append(head)
+    receipt = {'schema': owner_preview.SCHEMA, 'status': 'ok', 'call_id': 'shown-preview',
+               'source_fingerprint': head['fingerprint'], 'source_head': head,
+               'source_checkpoint_sha256': head['sha256'], 'map_id': h.mid, 'map_sha256': edits.sha(h.map),
+               'capture_receipts': [h.capture_result['capture_receipt']], 'base_operations': operations,
+               'options': [{'id': key, 'label': label, 'scale': scale,
+                            'operations': owner_preview.scaled_operations(operations, scale),
+                            'export': {'fingerprint': key * 16}}
+                           for key, label, scale in [('half', 'Half', .5), ('full', 'Full', 1.)]],
+               'evidence_files': {row['path']: row['sha256'] for row in evidence['evidence_files']},
+               'images': evidence['images'], 'preview_receipt': 'work/pv/test/preview.json'}
+    receipt_path = h.root / receipt['preview_receipt']
+    _write(receipt_path, receipt)
+    owner_preview.mark_delivered(h.scene, {**receipt, 'preview_sha256': edits.sha(receipt_path)})
+    return receipt['preview_receipt']
+
+
 def finish(h, items, **kwargs):
+    if 'preview_receipt' not in kwargs and any(row.get('disposition') == 'executable' for row in items):
+        kwargs['preview_receipt'] = shown_preview(h, items)
     result = owner_edit.understand(h.scene, "understand-final", h.mid, edits.sha(h.map),
                                   [h.capture_result["capture_receipt"]], items, [], **kwargs)
     result["call_id"] = "understand-final"
@@ -155,7 +194,7 @@ def test_mixed_items_keep_blockers_but_only_real_operations_and_markings_gain_au
     result = finish(h, records)
     assert result["disposition"] == "awaiting_owner_confirmation"
     assert result["following_markings"][0]["object_name"] == "Surface mark"
-    second = edits.create_edit(h.fixture.destination, "Apply the executable change only.")
+    second = edits.create_edit(h.fixture.destination, "Apply the executable change only.", option_id='full')
     doc = edits.load(second)
     assert doc["understanding"]["items"] == records
     assert edits.blocked_items(doc["understanding"]) == records[1:]

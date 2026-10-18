@@ -19,6 +19,8 @@ from . import model_map_geometry as G
 from . import model_map_labels as L
 
 SCHEMA = "g3d.model_map/1"
+TARGETS_PER_PAGE = 256
+EDGE_SAMPLES_PER_PAGE = 4096
 
 
 def _read(path):
@@ -182,30 +184,65 @@ def _photo_render(root, export, rows, directory, timeout_s):
     return path
 
 
-def _select(manifest, focus, kind):
+def _select(manifest, focus, kind, *, target_page=0, with_paging=False):
     kinds = {"parts": "object", "faces": "face_region", "edges": "edge_chain", "points": "point"}
     if kind not in kinds:
         raise ValueError("kind must be parts, faces, edges or points")
+    if type(target_page) is not int or target_page < 0:
+        raise ValueError("target_page must be a nonnegative integer")
     if focus:
         explicit = [target(manifest, key) for key in focus]
+        explicit_vertices = {base['id']: set(base['vertex_ids']) for base in explicit}
         selected = []
         for value in manifest["targets"].values():
             if value["kind"] != kinds[kind]:
                 continue
             for base in explicit:
                 if value["id"] == base["id"] or (base["kind"] != kinds[kind] and value["object_id"] == base["object_id"] and
-                    (base["kind"] == "object" or set(value["vertex_ids"]).intersection(base["vertex_ids"]))):
+                    (base["kind"] == "object" or explicit_vertices[base['id']].intersection(value["vertex_ids"]))):
                     selected.append(value)
                     break
-        return selected
-    return [t for t in manifest["targets"].values() if t["kind"] == kinds[kind]]
+    else:
+        selected = [t for t in manifest["targets"].values() if t["kind"] == kinds[kind]]
+    total = len(selected)
+    start = target_page * TARGETS_PER_PAGE
+    selected = selected[start:start + TARGETS_PER_PAGE]
+    paging = {'target_page': target_page, 'target_page_size': TARGETS_PER_PAGE,
+              'target_count': total, 'target_pages': (total + TARGETS_PER_PAGE - 1) // TARGETS_PER_PAGE,
+              'candidate_target_ids': [value['id'] for value in selected]}
+    return (selected, paging) if with_paging else selected
+
+
+def _edge_samples(obj, value, points, projected, sample_page):
+    """A bounded, losslessly pageable window of the chain's native ray samples.
+
+    Prefix sums index the window directly: later sample pages never build or raycast
+    earlier pages. Every sample from the former unbounded scan remains reachable.
+    """
+    edges = np.asarray([obj['edges'][index] for index in value['edge_ids']], int).reshape((-1, 2))
+    lengths = np.linalg.norm(projected[edges[:, 1]] - projected[edges[:, 0]], axis=1)
+    counts = np.where(np.isfinite(lengths), np.clip(np.nan_to_num(lengths, nan=0., posinf=0.) / 2 + 1,
+                                                  2, 10000), 2).astype(np.int64)
+    ends = np.cumsum(counts)
+    total = int(ends[-1]) if len(ends) else 0
+    indexes = np.arange(sample_page * EDGE_SAMPLES_PER_PAGE,
+                        min(total, (sample_page + 1) * EDGE_SAMPLES_PER_PAGE))
+    if not len(indexes):
+        return np.empty((0, 3)), total
+    selected = np.searchsorted(ends, indexes, side='right')
+    starts = np.concatenate(([0], ends[:-1]))
+    fraction = ((indexes - starts[selected]) / (counts[selected] - 1))[:, None]
+    a, b = edges[selected].T
+    return points[a] * (1-fraction) + points[b] * fraction, total
 
 
 def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes, directory, page,
-              display_labels=None, descriptions=None):
+              display_labels=None, descriptions=None, *, sample_page=0):
     display_labels = {} if display_labels is None else display_labels
     descriptions = {} if descriptions is None else descriptions
     camera = row["camera"]
+    if type(sample_page) is not int or sample_page < 0:
+        raise ValueError('sample_page must be a nonnegative integer')
     photo = Image.open(row["photo"]).convert("RGB")
     drawing = Image.open(row["drawing"]).convert("RGB")
     ids = np.asarray(Image.open(row["part_id"]).convert("RGB"))
@@ -217,41 +254,48 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     okay = hits >= 0
     hit_obj[okay], hit_poly[okay] = source_obj[hits[okay]], source_poly[hits[okay]]
     objects = {o["id"]: o for o in snapshot["objects"]}
-    counts = {}
+    counts, object_counts, projections = {}, {}, {}
     for oid,obj in objects.items():
         pixels=hit_poly[hit_obj==oid]
         counts[oid]=np.bincount(pixels[pixels>=0],minlength=len(obj["polygons"]))
+        object_counts[oid] = len(pixels)
+
+    def projected_object(oid):
+        if oid not in projections:
+            points = _asset_points(objects[oid], camera)
+            projections[oid] = (points, G.project(points, camera)[0])
+        return projections[oid]
+
     available = []
+    sample_counts = {}
     for value in selected:
-        count=int((hit_obj==value["object_id"]).sum()) if value["kind"]=="object" else int(counts[value["object_id"]][value["polygon_ids"]].sum())
+        count=object_counts[value["object_id"]] if value["kind"]=="object" else int(counts[value["object_id"]][value["polygon_ids"]].sum())
         # Boundary points/edges can be continuously visible even when their tiny
         # adjacent polygons contain no native pixel centre. Their own rays decide.
         if not count and value["kind"] in ("object", "face_region"):
             continue
         if value["kind"] in ("point", "edge_chain"):
             obj = objects[value["object_id"]]
-            points = _asset_points(obj,camera)
+            points, projected = projected_object(value['object_id'])
             if value["kind"] == "point":
                 samples = points[value["vertex_ids"]]
             else:
-                projected,_ = G.project(points,camera)
-                samples=[]
-                for ei in value["edge_ids"]:
-                    a,b=obj["edges"][ei]
-                    length=float(np.linalg.norm(projected[b]-projected[a]))
-                    count=max(2,min(10000,int(length/2)+1)) if np.isfinite(length) else 2
-                    samples.extend(points[a]*(1-t)+points[b]*t for t in np.linspace(0,1,count))
-                samples=np.asarray(samples)
+                samples, sample_count = _edge_samples(obj, value, points, projected, sample_page)
+                sample_counts[value['id']] = sample_count
+            if not len(samples):
+                continue
             visible_samples=G.visible_points(samples,camera,posed)
             xy,_=G.project(samples[visible_samples],camera)
-            mask=np.zeros(hits.shape,bool)
-            for x,y in np.rint(xy).astype(int):
-                if 0<=x<mask.shape[1] and 0<=y<mask.shape[0]:
-                    mask[y,x]=True
+            xy = np.rint(xy[np.isfinite(xy).all(axis=1)]).astype(int)
+            xy = xy[(xy[:, 0] >= 0) & (xy[:, 0] < hits.shape[1]) &
+                    (xy[:, 1] >= 0) & (xy[:, 1] < hits.shape[0])]
+            # Keep sparse pixels until the 24 displayed labels are selected.
+            # Dense masks for every candidate cost gigabytes at native resolution.
+            pixels = np.unique(xy[:, 1]*hits.shape[1] + xy[:, 0])
         else:
-            mask=None
-        if mask is None or mask.any():
-            available.append((count if mask is None else int(mask.sum()), value, mask))
+            pixels=None
+        if pixels is None or len(pixels):
+            available.append((count if pixels is None else len(pixels), value, pixels))
     available.sort(key=lambda item: (-item[0], item[1]["id"]))
     # A fixed label-cell grid guarantees readable nonoverlapping tags even when
     # every target projects to one small cluster. Smaller images get more pages.
@@ -260,9 +304,14 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     rows_count = max(1, (camera["height"] - 8) // label_cell_h)
     page_size = min(24, columns * rows_count)
     shown = available[page * page_size:(page + 1) * page_size]
-    shown=[(count,value,mask if mask is not None else ((hit_obj==value["object_id"]) &
-            (True if value["kind"]=="object" else np.isin(hit_poly,value["polygon_ids"]))))
-           for count,value,mask in shown]
+    def visible_mask(value, pixels):
+        if pixels is None:
+            return ((hit_obj == value['object_id']) &
+                    (True if value['kind'] == 'object' else np.isin(hit_poly, value['polygon_ids'])))
+        mask = np.zeros(hits.shape, bool)
+        mask.ravel()[pixels] = True
+        return mask
+    shown = [(count, value, visible_mask(value, pixels)) for count, value, pixels in shown]
     if scopes is None:
         scopes=[]
     annotated = drawing.convert("RGBA")
@@ -273,8 +322,6 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     for index, (_, value, mask) in enumerate(shown):
         color = [(0, 114, 178), (213, 94, 0), (0, 158, 115), (204, 121, 167), (230, 159, 0)][index % 5]
         obj = objects[value["object_id"]]
-        points = _asset_points(obj, camera)
-        xy, _ = G.project(points, camera)
         if value["kind"] in ("object", "face_region"):
             tint = np.zeros((*mask.shape, 4), np.uint8)
             tint[mask] = (*color, 55)
@@ -313,7 +360,7 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
         tint = np.zeros((*normal_mask.shape, 4), np.uint8)
         tint[normal_mask] = (255, 190, 0, 65)
         overlay.alpha_composite(Image.fromarray(tint))
-        xy, _ = G.project(_asset_points(obj, camera), camera)
+        _, xy = projected_object(scope['object_id'])
         fixed = set(scope["fixed_vertex_ids"])
         for weight in scope["vertex_weights"]:
             vi, w = weight["vertex_id"], weight["weight"]
@@ -374,14 +421,22 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
             "legend": legend,"target_legend":target_legend,
             "visible_target_count": len(available), "page": page,"page_size":page_size,
             "pages": (len(available)+page_size-1)//page_size,
+            "sample_page": sample_page, "edge_samples_per_page": EDGE_SAMPLES_PER_PAGE,
+            "edge_sample_pages": {key: (count+EDGE_SAMPLES_PER_PAGE-1)//EDGE_SAMPLES_PER_PAGE
+                                  for key, count in sample_counts.items()},
             "images": composed, "source_images": images, "camera": camera, "native_photo_shape": [photo.height,photo.width]}
 
 
 def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=None,
-            support_scopes=None, page=0, timeout_s=LOOK_CAPTURE_DEADLINE_S, label_descriptions=None):
+            support_scopes=None, page=0, timeout_s=LOOK_CAPTURE_DEADLINE_S, label_descriptions=None,
+            target_page=0, sample_page=0):
     root = Path(scene.root).resolve()
     if type(page) is not int or page < 0:
         raise ValueError("page must be a nonnegative integer")
+    if type(target_page) is not int or target_page < 0:
+        raise ValueError("target_page must be a nonnegative integer")
+    if type(sample_page) is not int or sample_page < 0:
+        raise ValueError('sample_page must be a nonnegative integer')
     export = scene.seeing.export_head(call_id=call_id)
     if export.get("status") != "exported":
         raise ValueError("A current export is required for the model map")
@@ -421,7 +476,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     descriptions = L.validate_descriptions(label_descriptions, manifest["targets"], display_labels)
     if focus:
         focus = [L.resolve(key, manifest["targets"], display_labels) for key in focus]
-    selected = _select(manifest,focus,kind)
+    selected, target_paging = _select(manifest,focus,kind,target_page=target_page,with_paging=True)
     scopes = None
     if support_scopes:
         scopes = [_scope(root,manifest,s) for s in support_scopes]
@@ -430,7 +485,10 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
                 value = target(manifest,key)
                 if value not in selected:
                     selected.append(value)
-    capture_id = "v-" + G.digest([call_id,kind,focus,page,support_scopes])[:20]
+    if len(selected) > TARGETS_PER_PAGE:
+        raise ValueError('map support exceeds 256 candidates; focus its exact targets or split support captures')
+    target_paging['candidate_target_ids'] = [value['id'] for value in selected]
+    capture_id = "v-" + G.digest([call_id,kind,focus,page,target_page,sample_page,support_scopes])[:20]
     output = directory/"captures"/capture_id
     output.mkdir(parents=True,exist_ok=False)
     wanted = bs.usable_refs() if photos is None else [C.ref_id(name) for name in photos]
@@ -450,7 +508,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     geometry = look_panels.load_geometry(export["path"])
     source_obj,source_poly,mapping = G.export_correspondence(snapshot,geometry)
     views = [_annotate(row,snapshot,selected,geometry,source_obj,source_poly,scopes,output,page,
-                      display_labels,descriptions) for row in rows]
+                      display_labels,descriptions,sample_page=sample_page) for row in rows]
     procs.write_json_atomic(labels_path, display_labels)
     shown = sorted({key for row in views for key in row["annotated_target_ids"]})
     drawn = {G.digest(s):s for row in views for s in row["support_scopes"]}
@@ -465,6 +523,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     receipt = {"schema":"g3d.model_map_capture/1","map_id":map_id,"map_sha256":map_sha,
                "source":manifest["source"],"annotated_target_ids":shown,"support_scopes":list(drawn.values()),
                "views":views,"images":images,"assets":assets,"export_correspondence":mapping,"target_legend":target_legend,
+               "target_paging":target_paging,
                "ar_report":_relative(root,report),"read_only":True}
     receipt_path = output/"capture.json"
     procs.write_json_atomic(receipt_path,receipt)
@@ -473,6 +532,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
             "capture_sha256":arview.sha256(receipt_path),"annotated_target_ids":shown,
             "summary":[f"{r['label']} = {r['description']}" for r in target_legend],"target_legend":target_legend,
             "target_details":details,"suggested_unit_scopes":suggested,
+            "target_paging":target_paging,
             "scope_refs":[{"sha256":key,"target_ids":scope["target_ids"],"weighted_vertices":len(scope["vertex_weights"]),
                            "affected_polygons":len(scope["affected_polygon_ids"]),
                            "normal_affected_polygons":len(scope["normal_affected_polygon_ids"])} for key,scope in drawn.items()],
@@ -480,6 +540,8 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
             "views":views,"image_delivery":"separate","images":images,
             "notes":["Photo first; frozen camera/opening; actual mesh positions, no model changes.",
                      "Short labels stay the same within this map; each legend binds a label to an exact target ID. Operation IDs use those exact IDs.",
+                     "At most 256 candidates are tested per target_page; page selects visible labels within that batch. The full catalogue and exact focus remain available.",
+                     "Each edge target tests at most 4096 ray samples per sample_page; edge_sample_pages gives the continuation count without dropping any chain samples.",
                      "Amber shows the separate normal-influence ring; its vertex positions remain fixed unless a movement weight also applies.",
                      "Support dots show all influenced vertices, including occluded vertices; black dots are fixed. Face/edge labels use first-hit visibility."]}
 
@@ -490,7 +552,8 @@ def tool_for(scene, tool, call):
     @tool("labelled_model_map")
     async def labelled_model_map(ctx: ToolContext, photos: list[str] | None = None, focus: list[str] | None = None,
                                  kind: str = "faces", map_id: str | None = None, supports_json: str | None = None,
-                                 page: int = 0, label_descriptions_json: str | None = None):
+                                 page: int = 0, label_descriptions_json: str | None = None,
+                                 target_page: int = 0, sample_page: int = 0):
         """Show numbered actual model parts/faces/edges/points beside the same full-size photo.
         Short labels O1/T1/E1/P1 identify parts/surfaces/borders/corners; a plain legend names each one.
         Start automatically, then focus displayed short labels or exact target IDs. Reuse map_id to keep labels.
@@ -511,7 +574,11 @@ def tool_for(scene, tool, call):
                 All support stays within its targets. Successful images return scope_refs; understand_finish
                 can reference that SHA instead of repeating the full vertex arrays. target_details and suggested
                 scopes are losslessly available through read_report; a suggestion is not approval evidence until drawn.
-            page: Zero-based page of at most 24 visible labels per photo; complete catalogue is retained.
+            page: Zero-based page of at most 24 visible labels per photo within the current target/sample batch.
+            target_page: Zero-based batch of at most 256 candidates of the selected kind. target_paging gives
+                total candidates and batches; the full catalogue is retained. Exact focus reaches any target.
+            sample_page: Zero-based batch of at most 4096 visibility rays per edge target. Each view returns
+                edge_sample_pages for continuation. All chain samples remain reachable; no support is removed.
             label_descriptions_json: Optional JSON object mapping target IDs or known short labels to plain words
                 describing the feature and side. Supply before first showing that target; descriptions then stay
                 fixed for this map. Automatic descriptions use verified names and the part's role and side.
@@ -519,5 +586,6 @@ def tool_for(scene, tool, call):
         supports = json.loads(supports_json) if supports_json else None
         return await call(ctx,"labelled_model_map",lambda cid:capture(scene,cid,photos=photos,focus=focus,
             kind=kind,map_id=map_id,support_scopes=supports,page=page,
-            label_descriptions=json.loads(label_descriptions_json) if label_descriptions_json else None))
+            label_descriptions=json.loads(label_descriptions_json) if label_descriptions_json else None,
+            target_page=target_page,sample_page=sample_page))
     return labelled_model_map

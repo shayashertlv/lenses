@@ -30,6 +30,8 @@ def _surface_apply(snapshot, operations):
             raise M.OwnerMeshError('E_OWNER_STALE', 'source changed after its trusted snapshot')
         if owner_materials_bpy.apply(obj,source,row) and all(row[k]==source[k] for k in ('vertices_local','polygons','corner_normals','polygon_smooth','uv_layers')):
             continue
+        if all(row[k]==source[k] for k in ('vertices_local','polygons','corner_normals','polygon_smooth','uv_layers')):
+            continue
         sharp = {tuple(sorted(edge.vertices)): bool(edge.use_edge_sharp) for edge in me.edges}
         sharp=owner_surface.split_edge_values(sharp,row.get('_surface_edge_splits',[]))
         remap=row.get('_surface_vertex_remap')
@@ -88,34 +90,6 @@ def _surface_apply(snapshot, operations):
     return {'status': 'ok', 'result': {'schema': 'g3d.owner_surface_patch/1', 'operations': reports}}
 
 
-def _transport_normals(obj, before, after, affected):
-    """Carry each original loop normal through its changed face's local affine map."""
-    normals = np.asarray(obj["corner_normals"], float).copy()
-    loop_start = 0
-    for pid, ids in enumerate(obj["polygons"]):
-        if pid not in affected:
-            loop_start += len(ids)
-            continue
-        old, new = before[ids], after[ids]
-        found = None
-        for k in range(1, len(ids)-1):
-            a, b = old[k]-old[0], old[k+1]-old[0]
-            c, d = new[k]-new[0], new[k+1]-new[0]
-            n, nn = np.cross(a, b), np.cross(c, d)
-            if np.linalg.norm(n) > 1e-10:
-                if np.linalg.norm(nn) <= 1e-10:
-                    raise M.OwnerMeshError("E_OWNER_PHYSICAL", "the edit collapses a previously nondegenerate face")
-                found = np.column_stack((c, d, nn/np.linalg.norm(nn))) @ np.linalg.inv(
-                    np.column_stack((a, b, n/np.linalg.norm(n))))
-                break
-        if found is not None:
-            vals = normals[loop_start:loop_start+len(ids)] @ np.linalg.inv(found)
-            vals /= np.maximum(np.linalg.norm(vals, axis=1, keepdims=True), 1e-30)
-            normals[loop_start:loop_start+len(ids)] = vals
-        loop_start += len(ids)
-    return normals
-
-
 def apply(params, root):
     """Host-authenticated patch only; source file and current mesh identities are rechecked."""
     allowed = {"snapshot_path", "snapshot_sha256", "operations", "expect_fingerprint",
@@ -132,7 +106,13 @@ def apply(params, root):
             raise M.OwnerMeshError("E_OWNER_SNAPSHOT", "the source snapshot changed")
         if owner_surface.active(params['operations']):
             if 'target_snapshot_path' in params:
-                raise M.OwnerMeshError('E_OWNER_SURFACE', 'surface operations replay their confirmed plan; private topology transfer is unavailable')
+                target_path=Path(params['target_snapshot_path']).resolve()
+                if not target_path.is_relative_to(root) or target_path.suffix!='.json':
+                    raise M.OwnerMeshError('E_OWNER_SNAPSHOT','target snapshot must stay inside its job')
+                target=json.loads(target_path.read_text(encoding='utf-8'))
+                if M.digest(target)!=params.get('target_snapshot_sha256'):
+                    raise M.OwnerMeshError('E_OWNER_SNAPSHOT','the private target snapshot changed')
+                owner_surface.verify(snapshot,target,params['operations'])
             return _surface_apply(snapshot, params['operations'])
         target = None
         if "target_snapshot_path" in params:

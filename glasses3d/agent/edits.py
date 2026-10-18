@@ -16,6 +16,7 @@ from .journal import CheckpointIndex
 
 SCHEMA = "g3d.owner_edit/1"
 UNDERSTANDING_SCHEMA = "g3d.owner_understanding/1"
+RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "data/oe"
 
 
 def blocked_items(understanding):
@@ -191,6 +192,8 @@ def _copy_inputs(source, target):
             tree_hashes(folder)  # reject linked files before copying
             shutil.copytree(folder, target / name)
     (target / "inputs").mkdir(exist_ok=True)
+    from .print_freshness import carry_evidence
+    carry_evidence(source, target)
 
 
 def _refresh_brief(root, doc):
@@ -210,6 +213,8 @@ def _source_basis(source, report, supplied=None, *, source_runtime=None):
     from glasses3d.g3d_host.compare import Basis, load_basis
     runtime = Path(source_runtime).resolve() if source_runtime else source
     candidates = []
+    if report.get("owner_applied", {}).get("source_basis"):
+        candidates.append(report["owner_applied"]["source_basis"])
     if report.get("look_comparison"):
         candidates.append(report["look_comparison"])
     # Draft delivery predates look packaging; its run's tool receipts retain the exact exported comparison.
@@ -261,10 +266,12 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
         raise ValueError("the delivery checkpoint bytes changed")
     frozen = _source_basis(source, report, basis, **({"source_runtime": runtime} if source_runtime else {}))
     edit_id = "edit-" + uuid4().hex[:10]
-    edit_root = Path(destination).resolve() if destination else source / "edits" / edit_id
+    # Fixed-depth runtime: neither a long product slug nor editing an edited
+    # delivery adds another runtime directory generation on Windows.
+    edit_root = Path(destination).resolve() if destination else RUNTIME_ROOT / edit_id
     if edit_root.exists():
         raise ValueError("edit destination already exists")
-    root = edit_root / "round-001-understand"
+    root = edit_root / ("round-001-understand" if destination is not None else "u1")
     _copy_inputs(source, root)
     shutil.copyfile(blend, root / "inputs/seed.blend")
     shutil.copytree(frozen.dir, root / "cameras" / frozen.id)
@@ -273,24 +280,29 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
            "checkpoint": row["id"], "fingerprint": row["fingerprint"], "checkpoint_sha256": row["sha256"],
            "export_sha256": saved["glb_sha256"], "basis": frozen.id},
            "immutable_files": {"job.json": sha(root / "job.json"), "inputs/seed.blend": row["sha256"],
-             **{"cameras/" + frozen.id + "/" + p: digest for p, digest in tree_hashes(frozen.dir).items()}}}
+             **{"cameras/" + frozen.id + "/" + p: digest for p, digest in tree_hashes(frozen.dir).items()},
+             **{"work/print/" + p: digest for p, digest in tree_hashes(root / "work/print").items()}}}
     _refresh_brief(root, doc)
     procs.write_json_atomic(root / "inputs/owner-edit.json", doc)
     procs.write_json_atomic(edit_root / "edit.json", {"schema": SCHEMA, "edit_id": edit_id,
         "source_job": str(source), "rounds": [root.name]})
+    if destination is None:
+        procs.write_json_atomic(confined(source, Path("edits") / edit_id / "location.json"),
+            {"schema": "g3d.owner_edit_location/1", "edit_id": edit_id, "source_job": str(source)})
     return root
 
 
-def create_edit(edit_root, confirmation_text, *, correction=False, option_id=None, destination=None):
+def create_edit(edit_root, confirmation_text, *, correction=False, option_id=None, destination=None, record=True):
     """The second round requires a delivered, unchanged understanding. It is never implicitly approved."""
     edit_root = Path(edit_root).resolve()
     if not isinstance(confirmation_text, str) or not confirmation_text.strip():
         raise ValueError("owner confirmation or correction must be nonempty text")
     index = read(edit_root / "edit.json")
-    previous = confined(edit_root, index["rounds"][-1])
+    previous = next((confined(edit_root, name) for name in reversed(index["rounds"])
+                     if read(confined(edit_root, Path(name) / "inputs/owner-edit.json")).get("phase") == "understand"), None)
+    if previous is None:
+        raise ValueError("an unchanged understanding round is required")
     doc = load(previous)
-    if doc["phase"] != "understand":
-        raise ValueError("start another job edit from the latest delivery for a further edit round")
     artifact = previous / "work/owner_edit/understanding.json"
     understanding = read(artifact)
     require_executable(understanding)
@@ -316,7 +328,7 @@ def create_edit(edit_root, confirmation_text, *, correction=False, option_id=Non
     for name, digest in understanding["evidence_files"].items():
         if sha(confined(previous, name)) != digest:
             raise ValueError("understanding evidence changed")
-    root = Path(destination).resolve() if destination is not None else edit_root / "round-002-edit"
+    root = Path(destination).resolve() if destination is not None else edit_root / ("a" + uuid4().hex[:8])
     if root.is_relative_to(previous):
         raise ValueError("an edit copy must be outside its unchanged understand round")
     _copy_inputs(previous, root)
@@ -342,14 +354,40 @@ def create_edit(edit_root, confirmation_text, *, correction=False, option_id=Non
     new["immutable_files"]["inputs/understanding.json"] = sha(artifact)
     _refresh_brief(root, {**new, "understanding": understanding, "selected_preview": selected})
     procs.write_json_atomic(root / "inputs/owner-edit.json", new)
-    if destination is None:
+    if destination is None and record:
+        record_round(edit_root, root)
+    return root
+
+
+def record_round(edit_root, root):
+    """Append a round without changing earlier entries; local apply calls this after delivery."""
+    edit_root, root = Path(edit_root).resolve(), Path(root).resolve()
+    if root.parent != edit_root:
+        raise ValueError("recorded edit round must be inside its edit root")
+    index = read(edit_root / "edit.json")
+    if root.name not in index["rounds"]:
         index["rounds"].append(root.name)
         procs.write_json_atomic(edit_root / "edit.json", index)
+
+
+def edit_location(source, edit_id):
+    source = Path(source).resolve()
+    legacy = confined(source / "edits", edit_id)
+    pointer = legacy / "location.json"
+    if not pointer.exists():
+        return legacy
+    doc = read(pointer)
+    if doc != {"schema": "g3d.owner_edit_location/1", "edit_id": edit_id, "source_job": str(source)}:
+        raise ValueError("edit location does not belong to this source job")
+    root = confined(RUNTIME_ROOT, edit_id)
+    index = read(root / "edit.json")
+    if index.get("source_job") != str(source) or index.get("edit_id") != edit_id:
+        raise ValueError("edit runtime does not belong to this source job")
     return root
 
 
 def resolve_round(source, edit_id, round_name=None):
-    edit_root = confined(Path(source).resolve() / "edits", edit_id)
+    edit_root = edit_location(source, edit_id)
     index = read(edit_root / "edit.json")
     name = round_name or index["rounds"][-1]
     if name not in index["rounds"]:

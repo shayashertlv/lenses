@@ -36,9 +36,9 @@ def test_markings_are_discovered_and_follow_translations_without_changing_other_
     np.testing.assert_allclose(b-a, np.tile([side*.5, 0, 0], (len(a), 1)), atol=1e-6)
     assert doc == original
     patch = M.plan(doc, ops)
-    assert len(patch['patches']) == 2
+    assert len(patch['target']['objects']) == 2
     assert M.between(doc, after, ops)['patches'][1]['object_id'] == 'O0002'
-    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source', 'receipts': []}
+    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source', 'receipts': [],'selected_preview':{'id':'A'}}
     assert confirmed_transition(sealed, after, 'source')[0]['id'] == op['id']
 
 
@@ -61,8 +61,8 @@ def test_unlisted_marking_or_wrong_marking_displacement_is_refused():
     with pytest.raises(M.OwnerMeshError, match='older understanding'):
         verify_snapshots(doc, after, [op])
     after['objects'][1]['vertices_local'][0][0] += .03
-    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source', 'receipts': []}
-    with pytest.raises(M.OwnerMeshError, match='directions and amounts'):
+    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source', 'receipts': [],'selected_preview':{'id':'A'}}
+    with pytest.raises(M.OwnerMeshError, match='confirmed surface operation'):
         confirmed_transition(sealed, after, 'source')
 
 
@@ -99,7 +99,7 @@ def test_caller_attachment_is_overwritten_and_open_decals_stay_open():
     op['marking_attachments'] = [{'object_id': 'untrusted'}]
     ops = A.seal(doc, [op])
     patch = M.plan(doc, ops)
-    assert patch['patches'][1]['physical']['open_surface_marking']
+    assert verify_snapshots(doc,patch['target'],ops)['physical']['O0002']['open_surface_marking']
 
 
 def test_two_call_replay_preserves_exact_float32_positions_and_no_duplicate_motion():
@@ -108,9 +108,10 @@ def test_two_call_replay_preserves_exact_float32_positions_and_no_duplicate_moti
     ops = A.seal(doc, [op, other])
     middle = _advance(doc, ops[:1])
     final = _advance(middle, ops[1:])
-    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source',
+    sealed = {'snapshot': doc, 'all_operations': ops, 'source_fingerprint': 'source','selected_preview':{'id':'A'},
               'receipts': [{'fingerprint': 'middle', 'operations': ops[:1]}]}
-    assert confirmed_transition(sealed, final, 'middle')[0]['id'] == 'item-2'
+    assert confirmed_transition(sealed,final,'source')==ops
+    assert confirmed_transition(sealed,final,'middle')==[]
 
 
 def test_nearest_triangle_interior_edge_and_vertex():
@@ -175,12 +176,17 @@ def test_understanding_reply_and_page_disclose_every_following_marking(tmp_path,
                 'annotated_target_ids': ['F1'],
                 'legend': [{'label': 'T1', 'target_id': 'F1', 'description': 'Side face'}]}
     monkeypatch.setattr(owner_edit.model_map, 'validate_understanding', lambda *args: evidence)
+    preview={'map_id':'map','map_sha256':'sha','capture_receipts':['capture.json'],'base_operations':A.seal(doc,[op]),
+        'evidence_files':{},'preview_receipt':'preview.json','preview_sha256':'preview','images':[],'call_id':'preview',
+        'options':[{'id':key,'label':key,'scale':scale,'operations':A.seal(doc,[op])} for key,scale in [('A',.5),('B',1.)]]}
+    monkeypatch.setattr(owner_edit.owner_preview,'load_verified',lambda *args:preview)
+    (tmp_path/'preview.json').write_text(json.dumps(preview))
     scene = SimpleNamespace(root=tmp_path, s=SimpleNamespace(fingerprint=lambda: 'same'))
     items = [{'number': 1, 'label': 'Side face', 'interpretation': 'Move the face.', 'direction': 'Outward',
               'disposition': 'executable', 'reason': '',
               'amount': '.5 mm', 'target_ids': ['F1'], 'operation_json': json.dumps(op)}]
     (tmp_path/'capture.json').write_text('{"views": []}')
-    result = owner_edit.understand(scene, 'stop', 'map', 'sha', ['capture.json'], items, [])
+    result = owner_edit.understand(scene, 'stop', 'map', 'sha', ['capture.json'], items, [],'preview.json')
     assert [r['object_name'] for r in result['following_markings']] == ['Surface mark']
     artifact = json.loads((tmp_path/'work/owner_edit/understanding.json').read_text())
     assert artifact['operations'][0]['marking_attachments'][0]['object_id'] == 'O0002'

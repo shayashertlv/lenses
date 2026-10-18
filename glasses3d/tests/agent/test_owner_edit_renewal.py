@@ -16,11 +16,12 @@ from glasses3d.agent.job_scene import JobScene
 from glasses3d.tests.proofs.offline_job_approval import prepare_offline_request
 from .loop_support import ledger_rows
 from .test_owner_edit_lifecycle_review import selected_source, _cover_round
-from .test_owner_understanding_dispositions import shown, item
+from .test_owner_understanding_dispositions import shown, item, shown_preview
 
 
 def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, monkeypatch):
     h = shown
+    preview_receipt = shown_preview(h, [item(h, disposition="executable")])
     source_before = edits.tree_hashes(h.fixture.source)
     _cover_round(h.root)
     doc = edits.load(h.root)
@@ -30,10 +31,9 @@ def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, m
 
     scene = JobScene(h.root)
     checkpoint = scene.s.ck_dir / "c0000.blend"
-    checkpoint.parent.mkdir(parents=True)
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
     checkpoint.write_bytes(scene.seed_path.read_bytes())
-    scene.s.index.append({"id": "c0000", "kind": "start", "file": checkpoint.name,
-                          "sha256": edits.sha(checkpoint), "fingerprint": doc["source"]["fingerprint"]})
+    assert scene.s.index.head["id"] == "c0000"
     monkeypatch.setattr(scene.s, "start", lambda: {"head": scene.s.head, "worker": None})
     monkeypatch.setattr(scene.s, "fingerprint", lambda: doc["source"]["fingerprint"])
 
@@ -51,7 +51,7 @@ def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, m
         R.tool_call("compare_to_photos", call_id="owner-compare"), R.message(summary),
         R.tool_call("understand_finish", {"map_id": h.mid, "map_sha256": edits.sha(h.map),
             "capture_receipts": [h.capture_result["capture_receipt"]],
-            "items": [item(h, disposition="executable")], "limitations": [], "preview_receipt": None},
+            "items": [item(h, disposition="executable")], "limitations": [], "preview_receipt": preview_receipt},
             call_id="owner-understand-finish")],
         count_tokens=lambda body: (B.Tariff.frozen().long_context_input_tokens * 4 // 5 + 1
                                    if marker in json.dumps(body) else 100))

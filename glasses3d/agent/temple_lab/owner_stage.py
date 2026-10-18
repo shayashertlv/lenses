@@ -80,7 +80,7 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
     from ..job_scene import JobScene
     from .stage import money_note, progress, record_failure
     bridge.check()
-    folder = scene.root / "work/temple_stage" / hashlib.sha256(call_id.encode()).hexdigest()[:16]
+    folder = scene.root / "work/os" / hashlib.sha256(call_id.encode()).hexdigest()[:12]
     source = prepare(scene, folder)
     child = JobScene(folder, captured_seed=source["seed"], captured_fingerprint=source["head"]["fingerprint"])
     child.scripted = bool(getattr(scene, "scripted", False))

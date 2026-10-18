@@ -92,7 +92,7 @@ def _digest_ok(value):
 
 
 def _validate(row, sequence, previous):
-    if not isinstance(row, dict) or row.get("schema") != SCHEMA or row.get("scope") != "product":
+    if not isinstance(row, dict) or row.get("schema") != SCHEMA or row.get("scope") not in {"product", "tool_test"}:
         raise VerdictError("unsupported verdict record")
     if type(row.get("sequence")) is not int or row["sequence"] != sequence or row.get("previous_sha256") != previous:
         raise VerdictError("verdict chain order changed")
@@ -189,6 +189,8 @@ def _validate_deliveries(root, rows):
         delivery = checked[row["delivery_id"]]
         if delivery["glb_sha256"] != row["glb_sha256"] or delivery["manifest_sha256"] != row["manifest_sha256"]:
             raise VerdictError("verdict delivery binding changed")
+        if row["scope"] != ("tool_test" if delivery.get("report_data", {}).get("tool_test") is True else "product"):
+            raise VerdictError("verdict scope differs from the immutable delivery")
         if row.get("checkpoint") is not None and row["checkpoint"] != _checkpoint(delivery):
             raise VerdictError("verdict checkpoint binding changed")
 
@@ -231,7 +233,8 @@ def append_verdict(root, verdict, notes, delivery_id=None, expected_sha256=None,
         delivery = _delivery(root, delivery_id)
         if expected_sha256 is not None and delivery["glb_sha256"] != expected_sha256:
             raise VerdictError("reviewed GLB sha256 differs from the selected delivery")
-        return _append(path, rows, [{"schema": SCHEMA, "id": "verdict-" + uuid4().hex, "scope": "product",
+        return _append(path, rows, [{"schema": SCHEMA, "id": "verdict-" + uuid4().hex,
+                                    "scope": "tool_test" if delivery.get("report_data", {}).get("tool_test") is True else "product",
                                     "origin": "live", "recorded_at": datetime.now(timezone.utc).isoformat(),
                                     "job_id": Path(root).resolve().name, "delivery_id": delivery["id"],
                                     "glb_sha256": delivery["glb_sha256"], "manifest_sha256": delivery["manifest_sha256"],
@@ -245,7 +248,7 @@ def pending_notes(root):
     Do not mark these sent from a run receipt: a prepared or failed run need not have delivered its input. The
     unique verdict id keeps repeated owner requests distinct; the immutable GLB identity explains their scope.
     """
-    return [_note(row) for row in read_verdicts(root) if row["verdict"] == "changes"]
+    return [_note(row) for row in read_verdicts(root) if row["verdict"] == "changes" and row["scope"] == "product"]
 
 
 def _note(row):
@@ -272,7 +275,7 @@ def resume_checkpoint(root, items):
         texts.extend([content] if isinstance(content, str) else
                      [part.get("text", "") for part in content or []
                       if isinstance(part, dict) and part.get("type") == "input_text"])
-    pending = [row for row in read_verdicts(root) if row["verdict"] == "changes"
+    pending = [row for row in read_verdicts(root) if row["verdict"] == "changes" and row["scope"] == "product"
                and NOTE_PREFIX + _note(row) not in texts]
     if not pending:
         return None

@@ -159,7 +159,7 @@ def test_refinement_cannot_cross_opposite_side_despite_positive_total_volume():
     source,op=patch();obj=source['objects'][0];obj['role']='lens'
     for i in range(9):obj['vertices_local'][i+9][2]=obj['vertices_local'][i][2]-.15
     assert M.physical(obj)['volume_mm3'] > 0
-    with pytest.raises(M.OwnerMeshError,match='graph thickness'):
+    with pytest.raises(M.OwnerMeshError,match='graph thickness|triangle crossing'):
         S.state(source,[op])
 
 
@@ -167,7 +167,7 @@ def test_flatten_cannot_thin_a_shell_below_its_original_minimum():
     source,op=patch();obj=source['objects'][0];obj['role']='lens'
     for i in range(9):obj['vertices_local'][i+9][2]=obj['vertices_local'][i][2]-.05
     op.update(kind='flatten_face',params={'strength':1.,'keep_boundary':False})
-    with pytest.raises(M.OwnerMeshError,match='graph thickness'):
+    with pytest.raises(M.OwnerMeshError,match='graph thickness|triangle crossing'):
         S.state(source,[op])
 
 

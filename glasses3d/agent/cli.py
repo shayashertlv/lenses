@@ -134,6 +134,8 @@ def delivery_status(root):
         finished = report.get("finished", True)  # historical immutable deliveries required an accepted finish
         current = {"status": "finished" if finished else "draft", "finished": finished,
                    "accepted_finish": report.get("accepted_finish", finished),
+                   "delivery_kind": report.get("delivery_kind", "astra_run"),
+                   "tool_test": report.get("tool_test", False),
                    "run_status": report.get("run_status", "completed"), "delivery_id": saved["delivery_id"],
                    "glb_sha256": saved["glb_sha256"], "report": saved["report"],
                    "checks": {key: report.get(key) for key in ("validate_spec", "seating", "print_check", "arview")}}
@@ -153,7 +155,7 @@ def dispatch(args):
     if args.command == "edit-apply":
         from . import edits, owner_apply
         if args.edit_id:
-            edit_root = edits.confined(root / "edits", args.edit_id)
+            edit_root = edits.edit_location(root, args.edit_id)
         else:
             doc = edits.load(root)
             if not doc or doc["phase"] != "understand":
@@ -184,7 +186,7 @@ def dispatch(args):
                 raise ValueError("confirmation needs --edit-id and cannot select another delivery")
             words = (args.confirm if args.confirm is not None else args.correct if args.correct is not None
                      else owner_text_file(args.confirm_file or args.correct_file))
-            round_root = edits.create_edit(edits.confined(root / "edits", args.edit_id), words,
+            round_root = edits.create_edit(edits.edit_location(root, args.edit_id), words,
                                            correction=args.correct is not None or args.correct_file is not None,
                                            option_id=args.option)
         else:

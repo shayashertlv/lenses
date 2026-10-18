@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from glasses3d.agent import edits, owner_edits
 from glasses3d.agent.tools import owner_preview as P
 from glasses3d.g3d import owner_markings
+from glasses3d.g3d_host.camera import Camera
 from glasses3d.tests.test_owner_markings import fixture as marked_fixture
 from glasses3d.tests.agent.test_job_tools import scene as sdk_scene, invoke, record
 
@@ -47,7 +48,7 @@ def export(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b'strict local test export')
     return {'status': 'exported', 'path': str(path), 'sha256': edits.sha(path),
-            'validate_spec': {'ok': True}, 'seat_check': {'glb': str(path)}}
+            'validate_spec': {'ok': True}, 'print_check': {'ok': True}, 'seat_check': {'glb': str(path)}}
 
 
 @pytest.fixture
@@ -79,7 +80,8 @@ def harness(tmp_path, monkeypatch):
                         (np.column_stack([xyz[:, 0]*10+100, -xyz[:, 2]*10+60]), np.ones(len(xyz))))
     monkeypatch.setattr(P.look, 'capture', capture)
     monkeypatch.setattr(P.look.C, 'load_basis', lambda *args: SimpleNamespace(
-        usable_refs=lambda: ['ref01'], refs={'ref01': {'view_kind': 'side'}}))
+        usable_refs=lambda: ['ref01'], refs={'ref01': {'view_kind': 'side'}},
+        camera=lambda rid: Camera(90, 0, 0, 0, 1000, 160, 120), pose=lambda rid: None))
     monkeypatch.setattr(P.look.C, 'ref_id', lambda value: value)
     class InlinePool:
         def __init__(self, **kwargs): pass
@@ -120,12 +122,15 @@ def harness(tmp_path, monkeypatch):
 def test_depth_preview_adds_top_rear_and_sides_without_keyword_mapping(monkeypatch):
     refs = {name: {'view_kind': kind} for name, kind in
             [('f','front'), ('s1','side'), ('s2','side'), ('t','top'), ('r','rear')]}
-    monkeypatch.setattr(P.look.C, 'load_basis', lambda *args: SimpleNamespace(usable_refs=lambda: list(refs), refs=refs))
+    cameras = {key: Camera(yaw, pitch, 0, 0, 1000, 160, 120) for key, yaw, pitch in
+               [('f', 0, 0), ('s1', 90, 0), ('s2', -90, 0), ('t', 0, 90), ('r', 180, 0)]}
+    monkeypatch.setattr(P.look.C, 'load_basis', lambda *args: SimpleNamespace(
+        usable_refs=lambda: list(refs), refs=refs, camera=lambda rid: cameras[rid]))
     monkeypatch.setattr(P.look.C, 'ref_id', lambda value: value)
     op = {'kind':'translate_region','params':{'delta_mm':[3,0,0]}}
-    assert P.revealing_refs(None, None, [op], ['s1']) == ['s1','s2','t','r']
+    assert P.revealing_refs(None, None, [op], ['s1','s2']) == ['s1','s2','f','t','r']
     op['params']['delta_mm'] = [0,0,3]
-    assert P.revealing_refs(None, None, [op], ['f']) == ['f']
+    assert P.revealing_refs(None, None, [op], ['f']) == ['f','s1','s2','t']
 
 
 def test_preview_pool_scales_to_available_memory_and_task_count(monkeypatch):
@@ -133,7 +138,7 @@ def test_preview_pool_scales_to_available_memory_and_task_count(monkeypatch):
     monkeypatch.setattr(tools, 'free_commit_bytes', lambda: 4*2**30)
     assert P.preview_workers(20) == 3
     monkeypatch.setattr(tools, 'free_commit_bytes', lambda: 100*2**30)
-    assert P.preview_workers(20) == 16
+    assert P.preview_workers(20) == 14
     assert P.preview_workers(3) == 3
 
 
@@ -409,7 +414,7 @@ def test_nested_understand(harness, monkeypatch):
     assert P.load_verified(h.scene, result['preview_receipt'])['options'] == result['options']
 
 
-@pytest.mark.parametrize('failure', [None, 'start', 'apply', 'wrong_amount', 'strict_export', 'capture'])
+@pytest.mark.parametrize('failure', [None, 'start', 'apply', 'wrong_amount', 'strict_export', 'print_evidence', 'capture'])
 def test_real_option_coordinator_applies_exact_worker_method_and_always_closes(harness, monkeypatch, failure):
     h = harness; children = []
     operations = owner_markings.seal(h.source, [h.op])
@@ -439,7 +444,10 @@ def test_real_option_coordinator_applies_exact_worker_method_and_always_closes(h
             self.current = owner_edits._advance(self.current, applied)
             return {'status': 'ok'}
         def export(self, call_id):
-            return {'status': 'refused'} if failure == 'strict_export' else export(self.root)
+            result = {'status': 'refused'} if failure == 'strict_export' else export(self.root)
+            if failure == 'print_evidence':
+                result['print_check'] = {'ok': False}
+            return result
     monkeypatch.setattr(P, 'JobScene', Child)
     monkeypatch.setattr(P.owner_edits, 'snapshot', lambda child, label:
                         (copy.deepcopy(child.current), write(child.root/'work'/f'{label}.json', child.current)))

@@ -68,9 +68,9 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         raise ValueError("the shown map is not of the selected delivered checkpoint")
     snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
     operations = owner_markings.seal(snapshot, operations) if operations else []
-    if owner_surface.active(operations):
-        if preview_receipt is None:
-            raise ValueError('surface operations require a delivered two-or-three-amount preview before confirmation')
+    if operations and preview_receipt is None:
+        raise ValueError('every executable operation group requires a delivered two-or-three-amount preview before confirmation')
+    if any(op['kind'] in owner_surface.OPERATION_KINDS for op in operations):
         original = before = owner_surface.signature(snapshot)
         for count in range(1, len(operations)+1):
             after = owner_surface.signature(owner_surface.state(snapshot, operations[:count])[0])
@@ -81,12 +81,14 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
             raise ValueError('executable group leaves geometry and shading unchanged')
     elif operations:
         original = before = owner_edits.expected_positions(snapshot, [])
+        requested_objects = {op['scope']['object_id'] for op in operations}
         for count in range(1, len(operations) + 1):
             after = owner_edits.expected_positions(snapshot, operations[:count])
-            if all(np.array_equal(before[key].astype(np.float32), after[key].astype(np.float32)) for key in before):
+            key = operations[count-1]['scope']['object_id']
+            if np.array_equal(before[key].astype(np.float32), after[key].astype(np.float32)):
                 raise ValueError("executable operations must move their shown support; do not invent no-op placeholders")
             before = after
-        if all(np.array_equal(original[key].astype(np.float32), after[key].astype(np.float32)) for key in original):
+        if all(np.array_equal(original[key].astype(np.float32), after[key].astype(np.float32)) for key in requested_objects):
             raise ValueError("executable operation group leaves the source unchanged; do not invent no-op placeholders")
     following_markings = owner_markings.summary(operations)
     files = {row["path"]: row["sha256"] for row in evidence["evidence_files"]}
@@ -243,7 +245,8 @@ def tools_for(scene, tool, call):
         """Stop the short understand round after diagnosing and showing only each requested change; no whole-model
         review is needed. Measure the visible cause before choosing operation kinds, never map by a keyword.
         For movement toward the head, show top and rear as well as side views. Supply the successfully shown map
-        receipt(s), numbered interpretations, direction and base proposed amount. After preview_owner_edit,
+        receipt(s), numbered interpretations, direction and base proposed amount. Every executable group,
+        including translate, rotate and taper, requires two or three delivered amount previews. After preview_owner_edit,
         pass its preview_receipt unchanged: the host attaches its shown options, images and exact amounts;
         the owner selects an option at confirmation. Do not choose for the owner.
         Each item needs disposition executable, unsupported or needs_clarification, plus reason (empty is allowed

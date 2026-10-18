@@ -18,7 +18,7 @@ def _error(message):
     raise OwnerMeshError("E_OWNER_MARKING", message)
 
 
-def nearest(points, vertices, triangles):
+def nearest(points, vertices, triangles, orientation=1):
     """Exact closest points on nondegenerate triangles; deterministic identity ties."""
     triangles = np.asarray(triangles, int)
     xyz = np.asarray(vertices, float)[triangles]
@@ -29,7 +29,7 @@ def nearest(points, vertices, triangles):
     if not len(valid):
         _error("the attachment surface has no nondegenerate triangle")
     a, ab, ac, cross, area = a[valid], ab[valid], ac[valid], cross[valid], area[valid]
-    normals = cross/area[:, None]
+    normals = orientation*cross/area[:, None]
     d00, d01, d11 = np.einsum('ij,ij->i', ab, ab), np.einsum('ij,ij->i', ab, ac), np.einsum('ij,ij->i', ac, ac)
     den = area*area  # cross-product form avoids cancellation for very slender triangles
     result = []
@@ -118,7 +118,8 @@ def discover(snapshot, operations):
                 if attached:
                     _error(f"attached marking {mark['name']} has no nearby surface attachment")
                 continue
-            found = nearest(points, v, triangles[eligible])
+            from .owner_surface import orientation_sign
+            found = nearest(points, v, triangles[eligible],orientation_sign(surface))
             if max(row[2] for row in found) > measure.DECAL_NEAR_MM:
                 if attached:
                     _error(f"attached marking {mark['name']} exceeds the supported surface distance; cannot follow safely")
@@ -321,8 +322,9 @@ def surface_checks(source, world, operations):
         nearby = np.flatnonzero(np.all(xyz.max(1) >= lo, axis=1) & np.all(xyz.min(1) <= hi, axis=1))
         if not len(nearby):
             _error(f"marking {mark['name']} no longer lies on its edited surface")
-        old_sd = np.asarray([r[3] for r in nearest(old_mark, old_surface, tri[nearby])])
-        new_sd = np.asarray([r[3] for r in nearest(new_mark, new_surface, tri[nearby])])
+        from .owner_surface import orientation_sign
+        old_sd = np.asarray([r[3] for r in nearest(old_mark, old_surface, tri[nearby],orientation_sign(surface))])
+        new_sd = np.asarray([r[3] for r in nearest(new_mark, new_surface, tri[nearby],orientation_sign(surface))])
         buried = np.flatnonzero((old_sd > M.POSITION_TOL_MM) & (new_sd < -M.POSITION_TOL_MM))
         old_cross = _pierced(old_mark, mark['triangles'], old_surface, tri)
         new_cross = _pierced(new_mark, mark['triangles'], new_surface, tri)

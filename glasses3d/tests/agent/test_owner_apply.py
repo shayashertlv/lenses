@@ -25,21 +25,24 @@ def local_apply(tmp_path, monkeypatch):
                 "fingerprint": target}
     preview_path = "work/pv/example/preview.json"
     exported = {"status": "exported", "fingerprint": target, "sha256": "c" * 64,
-                "validate_spec": {"ok": True}, "path": str(root / "work/applied.glb")}
+                "validate_spec": {"ok": True}, "print_check": {"ok": True},
+                "path": str(root / "work/applied.glb")}
     _write(root / preview_path, {"options": [{**selected, "export": exported,
         "full_pairs": [{"path": "C:/unavailable/original.png", "sha256": edits.sha(image),
                          "view": "top: photo / before / option B"}]}],
         "evidence_files": {image.relative_to(root).as_posix(): edits.sha(image)}})
     doc = {"selected_preview": selected, "selected_preview_option": "B", "selected_operations": ops,
            "request_text": "Both temples toward the head.",
-           "source": {"fingerprint": source},
+           "source": {"fingerprint": source, "basis": "basis-001"},
            "understanding": {"amount_preview": {"preview_receipt": preview_path}}}
     calls = []
     session = SimpleNamespace(head={"id": "c0000", "fingerprint": source})
     session.fingerprint = lambda: session.head["fingerprint"]
     scene = SimpleNamespace(s=session, owner_edit_authority=object(),
         seeing=SimpleNamespace(export_head=lambda cid: dict(exported)),
+        exit_checkpoint=lambda: {"verified": True},
         start=lambda: calls.append("start"), close=lambda: calls.append("close"))
+    _write(root / "cameras/basis-001/basis.json", {"id": "basis-001"})
 
     def apply(scene, ids, call_id):
         calls.append((ids, call_id))
@@ -50,6 +53,10 @@ def local_apply(tmp_path, monkeypatch):
     monkeypatch.setattr(edits, "load", lambda path: doc)
     monkeypatch.setattr(owner_apply.edit_capabilities, "require_round", lambda *args: None)
     monkeypatch.setattr(owner_apply, "JobScene", lambda path: scene)
+    monkeypatch.setattr(edits, "record_round", lambda *args: None)
+    from glasses3d.agent.tools import arview
+    monkeypatch.setattr(arview, "capture", lambda *args: {"status": "ok"})
+    monkeypatch.setattr(owner_apply.delivery, "deliver_owner_applied", lambda *args: {"status": "delivered"})
     monkeypatch.setattr(owner_apply.owner_edits, "apply", apply)
     monkeypatch.setattr(owner_apply.owner_edits, "ScopeGuard",
                         lambda authority: SimpleNamespace(verify=lambda scene: {"ok": True}))
@@ -67,6 +74,7 @@ def test_apply_exact_order_with_native_sealed_evidence_and_no_paid_round(local_a
     assert result["settled_usd"] == "0.000000" and result["visual_acceptance"] is False
     assert result["tool_test"] and result["exact_preview_fingerprint"]
     assert result["export_matches_preview_bytes"]
+    assert result["delivery"]["status"] == "delivered"
     assert h.calls == ["start", (["near-left", "near-right"], "host-preview-apply"), "close"]
     assert result["images"][0]["path"] == str(h.image)
     assert "sealed selected preview" in (h.root / "work/owner_edit/applied-preview.html").read_text()
@@ -147,14 +155,14 @@ def test_explicit_copy_destination_keeps_original_understanding_index_unchanged(
     finish(h, [item(h, disposition="executable")])
     before = edits.tree_hashes(h.root.parent)
     destination = tmp_path / "separate-copy"
-    copied = edits.create_edit(h.root.parent, "Apply exactly.", destination=destination)
+    copied = edits.create_edit(h.root.parent, "Apply exactly.", option_id="full", destination=destination)
     assert copied == destination
     assert edits.tree_hashes(h.root.parent) == before
     assert edits.load(copied)["confirmation_text"] == "Apply exactly."
     with pytest.raises(ValueError, match="outside its unchanged"):
-        edits.create_edit(h.root.parent, "Apply exactly.", destination=h.root / "nested-copy")
+        edits.create_edit(h.root.parent, "Apply exactly.", option_id="full", destination=h.root / "nested-copy")
     with pytest.raises(FileExistsError):
-        edits.create_edit(h.root.parent, "Apply exactly.", destination=destination)
+        edits.create_edit(h.root.parent, "Apply exactly.", option_id="full", destination=destination)
 
 
 def test_understanding_reports_local_zero_and_final_settled_count(shown):

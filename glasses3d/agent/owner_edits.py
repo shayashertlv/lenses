@@ -240,6 +240,31 @@ def confirmed_transition(sealed, current, before_fingerprint):
     raise M.OwnerMeshError("E_OWNER_AMOUNT", "the changed vertices do not match the confirmed operation directions and amounts; use facet_owner_edit for an exact operation group")
 
 
+def _recorded_operations(sealed, fingerprint):
+    """Replay only already applied historical authority, never grant a new amount."""
+    if sealed.get("selected_preview") or fingerprint == sealed["source_fingerprint"]:
+        return None
+    templates = {op["id"]: op for op in sealed["all_operations"]}
+    operations, used = [], set()
+    for receipt in sealed["receipts"]:
+        for saved in receipt.get("operations", []):
+            ident = saved.get("id")
+            if ident not in templates or ident in used:
+                raise M.OwnerMeshError("E_OWNER_REPLAY", "historical receipt contains an unknown or repeated operation")
+            op = copy.deepcopy(templates[ident])
+            params = saved.get("params")
+            if (not isinstance(params, dict) or set(params) != set(op["params"])
+                    or params.get("axis_points_mm") != op["params"].get("axis_points_mm")
+                    or (params != op["params"] and not sealed.get("correction"))):
+                raise M.OwnerMeshError("E_OWNER_REPLAY", "historical receipt exceeds its confirmed correction authority")
+            op["params"] = copy.deepcopy(params)
+            operations.append(op)
+            used.add(ident)
+        if receipt.get("fingerprint") == fingerprint:
+            return operations
+    return None
+
+
 class ScopeGuard:
     def __init__(self, authority):
         self.authority = authority
@@ -248,7 +273,12 @@ class ScopeGuard:
         try:
             sealed = self.authority.resolve(None, scene.s.head)
             current, path = snapshot(scene)
-            result = verify_snapshots(sealed["snapshot"], current, sealed["all_operations"])
+            recorded = _recorded_operations(sealed, scene.s.head["fingerprint"])
+            if recorded is not None and (scene.s.fingerprint() != scene.s.head["fingerprint"] or
+                                         current.get("fingerprint") != scene.s.head["fingerprint"]):
+                raise M.OwnerMeshError("E_OWNER_REPLAY", "historical receipt no longer matches the actual scene")
+            result = verify_snapshots(sealed["snapshot"], current,
+                                      recorded if recorded is not None else sealed["all_operations"])
             if (sealed.get("selected_preview") and current.get("fingerprint") not in
                     (sealed["source_fingerprint"], sealed["selected_preview"]["fingerprint"])):
                 raise M.OwnerMeshError("E_OWNER_AMOUNT", "the edited scene must match the selected preview, including normals")
@@ -261,7 +291,7 @@ class ScopeGuard:
             if expected is not None:
                 if not _positions_equal(current, expected):
                     raise M.OwnerMeshError("E_OWNER_AMOUNT", "the actual mesh differs from the host-resolved confirmed amounts")
-            else:
+            elif recorded is None:
                 current_fingerprint = scene.s.head["fingerprint"]
                 if (current_fingerprint == sealed["source_fingerprint"] or
                         any(r.get("fingerprint") == current_fingerprint for r in sealed["receipts"])):

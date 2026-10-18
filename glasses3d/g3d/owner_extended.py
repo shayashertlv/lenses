@@ -49,7 +49,7 @@ def plan_object(obj,operation):
     else:edits.append({'index':index,'original_name':definition['name'],'name':after['name']})
     return result,{'selected_polygon_ids':sorted(selected),'strength':strength,'geometry_unchanged':True,
                    'material_before':definition,'material_after':after,'isolated_material_copy':True,
-                   'physical':M.physical(obj)}
+                   'physical':{'status':'unchanged','geometry_unchanged':True}}
 
 
 def _vector(value,name,unit=False):
@@ -106,7 +106,8 @@ def deform(obj,operation):
         normals=np.zeros_like(world)
         for f in faces:
             p=obj['polygons'][f];points=before[p]
-            n=np.sum(np.cross(points,np.roll(points,-1,axis=0)),axis=0)
+            points=points-points[0]
+            n=np.sum(np.cross(points,np.roll(points,-1,axis=0)),axis=0)*S.orientation_sign(obj)
             normals[p]+=n
         lengths=np.linalg.norm(normals[ids],axis=1)
         if np.any(lengths<1e-10):S.error('selected normal offset has an undefined vertex normal')
@@ -150,9 +151,9 @@ def transform_marking(obj,surface,operation):
     local[:,:2]=xy@rotation.T+strength*move
     virtual=local@basis+anchor
     points=np.asarray(surface['vertices_world_mm'],float);tri=surface['triangles']
-    old=marks.nearest(before,points,tri);found=marks.nearest(virtual,points,tri);world=[]
+    old=marks.nearest(before,points,tri,S.orientation_sign(surface));found=marks.nearest(virtual,points,tri,S.orientation_sign(surface));world=[]
     for candidate,prior,row in zip(virtual,old,found):
-        triangle=points[tri[row[0]]];n=np.cross(triangle[1]-triangle[0],triangle[2]-triangle[0]);n/=np.linalg.norm(n)
+        triangle=points[tri[row[0]]];n=np.cross(triangle[1]-triangle[0],triangle[2]-triangle[0]);n*=S.orientation_sign(surface)/np.linalg.norm(n)
         if n@normal<=0:S.error('marking projection reached the opposite surface')
         foot=np.asarray(row[1])@triangle
         # Projection must remain inside the supporting patch, never clamp a moved
@@ -163,7 +164,7 @@ def transform_marking(obj,surface,operation):
     lift=0.
     if gap<0:
         baseline=owner_thickness.marking_gap(before,obj['triangles'],points,tri,normal)
-        lift=float(max(baseline,0)-gap)+float(abs(np.spacing(np.float32(np.max(abs(world))))))*4
+        lift=max(0.,float(min(baseline,0)-gap))+float(abs(np.spacing(np.float32(np.max(abs(world))))))*4
         world+=lift*normal
     result=copy.deepcopy(obj);matrix=np.asarray(obj.get('matrix_world',np.eye(4)),float)
     origin=before[0]-np.asarray(obj['vertices_local'][0])@matrix[:3,:3].T-matrix[:3,3]

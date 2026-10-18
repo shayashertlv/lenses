@@ -241,7 +241,7 @@ def _look_files(root, look, glb_sha, files, *, prefix="look"):
 
 def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar, model,
              capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=(), owner_edit_report=None,
-             final_delivery_failure=None):
+             final_delivery_failure=None, owner_applied=None):
     """Package evidence without changing a check's result. Drafts never enter the finish validator."""
     draft = source is not None
     files = {"model.glb": model}
@@ -338,6 +338,18 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
         edit["images"] = images
         files["owner-edit/report.json"] = _json_bytes(edit)
         report["owner_edit_report"] = {"path": "owner-edit/report.json", "sha256": _sha(files["owner-edit/report.json"])}
+    if owner_applied is not None:
+        application = copy.deepcopy(owner_applied)
+        for i, image in enumerate(application["images"]):
+            _, payload = _read(root, image["path"], image["sha256"])
+            name = f"owner-applied/{i:04d}.png"
+            files[name] = payload
+            image["path"] = name
+        files["owner-applied/report.json"] = _json_bytes(application)
+        report.update(accepted_finish=False, delivery_kind="owner_applied", tool_test=application["tool_test"],
+                      owner_applied={"path": "owner-applied/report.json",
+                                     "sha256": _sha(files["owner-applied/report.json"]),
+                                     "source_basis": application.get("source_basis")})
     files["report.json"] = _json_bytes(report)
     manifest = {"schema": SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
                 "glb_sha256": exp["sha256"], "model": "model.glb", "report": "report.json",
@@ -433,6 +445,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     validation, seating = report.get("validate_spec"), report.get("seating")
     printing = report.get("print_check")
     draft = report.get("finished") is False
+    local_apply = report.get("delivery_kind") == "owner_applied"
     if "finished" in report and type(report["finished"]) is not bool:
         raise DeliveryError("delivery finished flag is invalid")
     if (manifest.get("glb_sha256") != sha or (pointer and pointer.get("glb_sha256") != sha)
@@ -443,14 +456,34 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
             or not report.get("checkpoint") or not report.get("fingerprint") or not isinstance(exit_head, dict)
             or (not draft and (validation.get("ok") is not True or exit_head.get("verified") is not True
                                or exit_head.get("id") != report.get("checkpoint")
-                               or ("accepted_finish" in report and report["accepted_finish"] is not True)
-                               or ("run_status" in report and report["run_status"] != "completed")))
+                               or ("accepted_finish" in report and report["accepted_finish"] is not (not local_apply))
+                               or ("run_status" in report and report["run_status"] !=
+                                   ("owner_applied" if local_apply else "completed"))))
             or (seating is not None and (not isinstance(seating, dict)
                                          or (not draft and type(seating.get("ok")) is not bool)))
             or (printing is not None and (not isinstance(printing, dict)
                                          or (not draft and printing.get("ok") is not True)
                                          or printing.get("glb_sha256") != sha))):
         raise DeliveryError("delivery report does not bind the validated finished model")
+    if local_apply:
+        binding = report.get("owner_applied") or {}
+        _, application_bytes = _read(directory, binding.get("path"), binding.get("sha256", ""))
+        application = _document(application_bytes, "owner applied preview")
+        if (draft or application.get("schema") != "g3d.owner_applied_preview/1"
+                or application.get("status") != "applied" or application.get("api_requests") != 0
+                or application.get("settled_usd") != "0.000000"
+                or application.get("tool_test") is not report.get("tool_test")
+                or type(report.get("tool_test")) is not bool
+                or application.get("exact_preview_fingerprint") is not True
+                or application.get("export_matches_preview_bytes") is not True
+                or application.get("export", {}).get("sha256") != sha
+                or application.get("preview_export_sha256") != sha
+                or application.get("export", {}).get("fingerprint") != report["fingerprint"]
+                or application.get("option", {}).get("fingerprint") != report["fingerprint"]
+                or application.get("source_basis") != binding.get("source_basis")):
+            raise DeliveryError("owner application does not bind its exact preview and delivered model")
+        for image in application.get("images", []):
+            _read(directory, image["path"], image["sha256"])
     if draft:
         source = report.get("source_checkpoint")
         if (report.get("accepted_finish") is not False
@@ -526,6 +559,28 @@ def deliver_finished(root, scene, result) -> dict:
         return {"status": "not_finished", "run_status": result.get("status")}
     root = Path(root).resolve()
     manifest, files = _prepare(root, scene, result)
+    return _publish(root, manifest, files)
+
+
+def deliver_owner_applied(root, export, exit_head, ar, application):
+    """Publish a verified local owner choice with ordinary immutable review evidence.
+
+    This is an owner application, never an Astra finish or a product acceptance.
+    The same strict export, print, AR and verified-checkpoint conditions apply.
+    """
+    from types import SimpleNamespace
+    root = Path(root).resolve()
+    result = {"status": "owner_applied", "run_id": "owner-apply", "exit_checkpoint": exit_head,
+              "budget": {"settled_micro_usd": 0, "requests": 0}}
+    # Reuse the complete finished-export validation before packaging local authority.
+    scene = SimpleNamespace(finish={"status": "accepted", "checkpoint": export.get("checkpoint"),
+        "fingerprint": export.get("fingerprint"), "export": export}, last_ar=ar)
+    _prepare(root, scene, result)
+    _, model = _read(root, export["path"], export["sha256"])
+    capture, raw, shown, contact = _capture_files(root, ar, export["sha256"])
+    manifest, files = _package(root, result, export, export["checkpoint"], export["fingerprint"], exit_head,
+        "Owner-selected preview applied exactly at $0; visual acceptance remains the owner's decision.",
+        ar, model, capture, raw, shown, contact, owner_applied=application)
     return _publish(root, manifest, files)
 
 

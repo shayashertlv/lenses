@@ -133,8 +133,10 @@ def test_manual_edit_must_equal_selected_preview_not_a_different_operation_order
     source = snapshot(obj)
     move = operation(obj, [.2,0,0])
     rotate = copy.deepcopy(move)
-    rotate.update(id="rotate", kind="rotate_region",
-                  params={"axis_points_mm":[[0,0,0],[0,0,-6]],"delta_deg":3})
+    # Noncommuting, physically valid amounts: scaling followed by a widening.
+    # Rotating only one wall would create a zero-thickness rim and must refuse.
+    rotate.update(id="scale", kind="scale_region",
+                  params={'strength':1.,'factors':[1.1,1.,1.],'anchor_mm':[0.,0.,0.]})
     operations = [rotate,move]
     sealed = {"snapshot":source,"source_fingerprint":"source", "all_operations":operations,
               "selected_preview":{"id":"A"}, "receipts":[]}
@@ -143,7 +145,7 @@ def test_manual_edit_must_equal_selected_preview_not_a_different_operation_order
     if variant == "complete":
         assert owner_edits.confirmed_transition(sealed,current,"source") == operations
     else:
-        with pytest.raises(ValueError, match="complete selected preview"):
+        with pytest.raises(ValueError, match="confirmed surface operation"):
             owner_edits.confirmed_transition(sealed,current,"source")
 
 

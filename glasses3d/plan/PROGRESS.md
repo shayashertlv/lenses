@@ -1,5 +1,48 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 task 5: owner edit safety, previews and delivery ($0)
+
+Completed `data/review_20261018/briefs/task5_owner_edit.md`. Generic translate/rotate/taper now preserve the
+source minimum and reject new crossings on actual triangle coordinates. Source certificates are reused;
+changed-region proofs retain exact multiplicity and the unchanged remainder, while higher requested floors
+check the whole target. Float32 chart normalization preserves thickness heights and cannot discard narrow
+nonwall surfaces. Physical outside, normal transport and batch/sequential behavior agree under reflection;
+valid normals stay unchanged. Tilted decimation/fillets, evaluated-normal refusals, and open-mesh material edits
+are covered. Main-run mesh-health helpers preload the crossing checker before the worker audit guard.
+
+Every executable group requires delivered two-or-three-amount previews. Revealing views use fitted camera
+directions. Model maps page candidates/ray samples and reuse projections without removing catalogue access.
+Failed applies leave understanding retryable; each selected choice gets a distinct copy and is recorded only
+after success. Fixed-depth runtime/stage paths avoid owner-edit generation growth. Copies retain hash-bound
+print evidence and still run the current print checker. Exact shown bytes become immutable local deliveries
+with AR/spec/seating/print reports; review works and scripted edit-tool verdicts stay in `tool_test` scope.
+Nearby touched P3s cover actual tessellation, marking sink depth, partial backward normals and exact export bytes.
+
+Native 62,016-triangle apply passed the unchanged 180-second deadline: **123.202 s cold / 43.001 s cached**;
+the worker independently computed its source certificate once. Real Prada run 6 wall-piercing and missing-preview
+calls refuse. Fresh M10: preparation **34.359 s**, three previews / 54 images **274.234 s**, exact B apply
+**145.922 s**; delivery/review/copy-only verdict checks pass and all 985 source files stay unchanged. M6 with
+amount previews passed **2,714.146 s**, eight original operations, separate UNDERSTAND/EDIT approvals, exact
+selected fingerprint and unchanged source/archive files. Its historical checkpoint/capability/path harness
+adapters are documented. These owner proofs predate only the final preload and plain-float diagnostic fixes;
+neither changes geometry math. Fresh final-code M1 passed **174.766 s**, 13 requests/tools, 26 transport receipts,
+12 image blobs, 35 AR images; `data/assembly/m1-proof-0f675e4c/proof.json`.
+
+Final non-print suite: **4,575 passed, 2 skipped, 5 failed in 770.01 s**, 14 workers. All four timing/timeout
+failures pass when rerun individually; only the known photo_v1 golden mismatch remains (**199 pixels vs 114.24
+allowed**, unchanged). The two skips require unavailable Windows symlink privileges. Photoprint: **314 passed
+in 171.57 s**, four workers. An earlier run exposed two real facade/JSON integration errors; both failed alone,
+passed after the two-line fix, and pass in the final suite. Its three long temporary-path failures also pass
+with the shorter test-run path. No golden, tolerance or timing gate was changed. Baseline failing regressions,
+all retries, source hashes, exact changed Astra/owner text and per-item file/test evidence are in
+`data/review_20261018/codex/task5_report.md`.
+
+Long checks were detached/logged with PID/arguments/UTC/exit receipts, BLAS 1, EcoQoS opt-out, approximately
+41 GiB free commit and no overlapping heavy pools. Arview JavaScript suites were skipped because no arview
+file changed; the assembly proofs exercise production AR. No paid call, push, delivered-model edit, root-app/ar
+change, product constant, weakened gate or data/binary commit. No owner visual acceptance was claimed. Actual
+spend **$0**.
+
 ## 2026-10-18 — ASSEMBLY M11 task 4: M9 safety valve and desktop parity ($0)
 
 Completed `data/review_20261018/briefs/task4_safety_valve.md`; implementation `ded8b775ca7fc531f84b67e5e6771cdb39ace470`.

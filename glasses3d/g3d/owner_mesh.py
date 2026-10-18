@@ -28,6 +28,12 @@ class OwnerMeshError(ValueError):
         super().__init__(message)
         self.code, self.facts = code, facts
 
+    def __reduce__(self):
+        # Exception.args contains only the message, while this constructor also
+        # requires a code. Preserve both and the structured evidence across the
+        # private preview process pool instead of breaking exception unpickling.
+        return type(self), (self.code, str(self)), self.__dict__
+
     def result(self):
         return {"status": "refused", "code": self.code, "message": str(self), **self.facts}
 
@@ -158,7 +164,7 @@ def _area(poly):
     return abs(float(np.sum(_cross(poly, np.roll(poly, -1, axis=0)))))/2 if len(poly) >= 3 else 0.
 
 
-def graph_thickness(vertices, triangles, side, minimum_mm):
+def graph_thickness(vertices, triangles, side, minimum_mm, *, footprint=None, wall_angle=0., position_error=0.):
     """Exact PL graph difference on every positive-area outer/inner overlap polygon.
 
     Each projected triangle must be covered exactly once by the opposite surface.
@@ -173,13 +179,18 @@ def graph_thickness(vertices, triangles, side, minimum_mm):
         tri = tri[:, ::-1]
     points = v[tri]
     area2 = _cross(points[:, 1, :2]-points[:, 0, :2], points[:, 2, :2]-points[:, 0, :2])
-    outer, inner = np.flatnonzero(area2 > AREA_EPS_MM2), np.flatnonzero(area2 < -AREA_EPS_MM2)
+    area_limit = 0.
+    outer, inner = np.flatnonzero(area2 > area_limit), np.flatnonzero(area2 < -area_limit)
     if not len(outer) or not len(inner):
         raise OwnerMeshError("E_OWNER_GRAPH", "the actual mesh has no two opposing graph surfaces")
     p, q = points[outer], points[inner][:, ::-1]
     p_area, q_area = abs(area2[outer])/2, abs(area2[inner])/2
     pmn, pmx = p[:, :, :2].min(1), p[:, :, :2].max(1)
     qmn, qmx = q[:, :, :2].min(1), q[:, :, :2].max(1)
+    def relevant(lo, hi):
+        return (np.ones(len(lo), dtype=bool) if footprint is None else
+                np.all(hi >= footprint[0], axis=1) & np.all(lo <= footprint[1], axis=1))
+    active_p, active_q = relevant(pmn, pmx), relevant(qmn, qmx)
     # A spatial grid is only an exact candidate accelerator; every touching cell is visited.
     spans = np.r_[pmx-pmn, qmx-qmn]
     cell = max(float(np.median(np.max(spans, axis=1))), .1)
@@ -200,6 +211,8 @@ def graph_thickness(vertices, triangles, side, minimum_mm):
             for y in range(a[1], b[1]+1):
                 candidates.update(bins.get((x, y), []))
         for j in sorted(candidates):
+            if not active_p[i] and not active_q[j]:
+                continue
             if np.any(lo > qmx[j]) or np.any(hi < qmn[j]):
                 continue
             poly = _intersection(p[i, :, :2], q[j, :, :2])
@@ -214,8 +227,11 @@ def graph_thickness(vertices, triangles, side, minimum_mm):
                 smallest, where = float(values[k]), poly[k].tolist()
             overlaps += 1
     # Arithmetic tolerance scales by triangle area, not physical thickness.
-    mismatch_p = abs(covered_p-p_area) > np.maximum(1e-7, p_area*1e-7)
-    mismatch_q = abs(covered_q-q_area) > np.maximum(1e-7, q_area*1e-7)
+    def coverage_error(points,area):
+        perimeter=np.linalg.norm(points-np.roll(points,1,axis=1),axis=2).sum(1)
+        return np.maximum(np.maximum(1e-7,area*1e-7),position_error*perimeter)
+    mismatch_p = active_p & (abs(covered_p-p_area) > coverage_error(p,p_area))
+    mismatch_q = active_q & (abs(covered_q-q_area) > coverage_error(q,q_area))
     if np.any(mismatch_p) or np.any(mismatch_q):
         raise OwnerMeshError("E_OWNER_GRAPH", "the actual surfaces do not form one non-overlapping pair of graphs",
                              outer_uncovered_or_overlapping=int(mismatch_p.sum()),
@@ -269,7 +285,8 @@ def physical(obj, vertices=None, *, reference=None):
     used = {v for p in polys for v in p}
     euler = len(used)-len(edges)+len(polys)
     a, b, c = vertices[tris[:, 0]], vertices[tris[:, 1]], vertices[tris[:, 2]]
-    volume = float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()/6)
+    orientation = -1 if np.linalg.det(np.asarray(obj.get('matrix_world', np.eye(4)))[:3, :3]) < 0 else 1
+    volume = orientation * float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum()/6)
     if topo["open"] or topo["dup"] or volume <= 0:
         raise OwnerMeshError("E_NOT_CLOSED", "the actual mesh is not a closed oriented positive solid",
                              open_edges=len(topo["open"]), duplicate_edges=len(topo["dup"]),
@@ -285,7 +302,7 @@ def physical(obj, vertices=None, *, reference=None):
         for i in p[1:]:
             parent[find(i)] = find(p[0])
     component_volumes = {}
-    amounts = np.einsum("ij,ij->i", a, np.cross(b, c))/6
+    amounts = orientation * np.einsum("ij,ij->i", a, np.cross(b, c))/6
     for triangle, amount in zip(tris, amounts):
         key = find(int(triangle[0]))
         component_volumes[key] = component_volumes.get(key, 0.) + float(amount)
@@ -299,9 +316,9 @@ def physical(obj, vertices=None, *, reference=None):
         tmin = aliases.get("options", {}).get("t_min_mm", DEFAULT_OPTIONS["t_min_mm"])
         thickness = paired_thickness(obj, vertices, float(tmin), reference or obj)
         if thickness is None:
-            thickness = graph_thickness(vertices, tris, obj.get("side"), float(tmin))
+            thickness = graph_thickness(vertices, tris if orientation>0 else tris[:,::-1], obj.get("side"), float(tmin))
     else:
-        thickness = {"status": "not_applicable", "reason": "No verified temple graph construction; no new graph or genus rule imposed on other parts"}
+        thickness = {"status": "requires_edit_certificate", "reason": "Generic geometry edits require source-bound minimum-thickness and no-crossing proof"}
     return {"closed": True, "euler": euler, "volume_mm3": volume,
             "component_volumes_mm3": list(component_volumes.values()), "thickness": thickness}
 

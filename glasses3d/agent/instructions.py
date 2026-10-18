@@ -244,9 +244,8 @@ EDIT_GUIDANCE = {
         "another understanding. Any blocked item prevents paid EDIT until clarified or repaired.",
     "facet_owner_edit": "In EDIT, use `facet_owner_edit` with the confirmed operation_ids in their recorded "
         "order. With a selected preview, apply its complete ordered operation group and keep corrections null. "
-        "Its exact amounts cannot be replaced; another amount needs another shown preview. Without a selected "
-        "preview, an explicitly supplied owner correction can revise numerical direction/amount on the same "
-        "shown target and axis; it cannot add targets or enlarge support. Otherwise corrections is null. Repeating "
+        "Its exact amounts cannot be replaced; another amount or direction needs another shown preview. "
+        "Every executable group requires a delivered preview and owner selection. Corrections is null. Repeating "
         "an applied id does not repeat its displacement. Sealed following_markings move with their supporting "
         "surface automatically. Ambiguous attachments or newly buried/intersecting markings refuse; inspect "
         "legibility and other-object occlusion in the actual images as well as measured changes and checks.",

@@ -30,7 +30,7 @@ def _records(obj):
 
 
 def _cross(v,p):
-    a=v[p];return np.sum(np.cross(a,np.roll(a,-1,axis=0)),axis=0)
+    a=v[p]-v[p[0]];return np.sum(np.cross(a,np.roll(a,-1,axis=0)),axis=0)
 
 
 def _zero_polygon(v,indices):
@@ -94,7 +94,7 @@ def _cleanup(obj,records,v,selected,strength,support):
     for j,r in enumerate(records):
         if j in selected:
             r['p']=[remap.get(i,i) for i in r['p']]
-            if _zero_polygon(v,r['p']) and not pending.intersection(r['p']):
+            if _zero_polygon(np.asarray(obj['vertices_local']),r['p']) and not pending.intersection(r['p']):
                 removed.append(j);continue
             if len(set(r['p']))!=len(r['p']):S.error('duplicate weld would create a self-touching polygon')
         rows.append(r)
@@ -146,10 +146,17 @@ def _consistent(records,v,selected,strength,sharp):
     # dedicated repair_shading operation and never becomes blanket flat shading.
     corrected=0
     for j in selected:
-        r=records[j];n=normals[j]/np.linalg.norm(normals[j]);old=np.asarray(r['normal'],float);old/=np.linalg.norm(old,axis=1)[:,None]
+        r=records[j];n=normals[j]/np.linalg.norm(normals[j]);old=np.asarray(r['normal'],float)
         bad=old@n<0;corrected+=int(sum(bad));changed=old.copy()
         for k in np.flatnonzero(bad):
-            tangent=np.cross(old[k],np.eye(3)[int(np.argmin(abs(old[k])))])
+            old[k]/=np.linalg.norm(old[k])
+            # Follow the face-normal plane toward the outward hemisphere.
+            # Double-cross projection stays perpendicular even near antipodes.
+            tangent=np.cross(np.cross(old[k],n),old[k])
+            if not np.any(tangent):
+                edges=np.roll(v[r['p']],-1,axis=0)-v[r['p']]
+                tangents=edges-(edges@old[k])[:,None]*old[k]
+                tangent=tangents[int(np.argmax(np.linalg.norm(tangents,axis=1)))]
             tangent/=np.linalg.norm(tangent)
             changed[k]=-old[k] if strength==1 else old[k]*math.cos(math.pi*strength)+tangent*math.sin(math.pi*strength)
         r['normal']=changed.tolist()
@@ -187,10 +194,11 @@ def _decimate(obj,records,v,selected,strength,maximum,operation):
         cross=np.array([_cross(v,r['p']) for r in rows]);length=np.linalg.norm(cross,axis=1)
         if np.any(length<=1e-12):continue
         n=cross[0]/length[0]
-        # Exact same supporting plane: no curved-surface approximation and no
-        # tolerance that silently changes the solid or its minimum thickness.
-        if not _exact_planar(v[ring+[vid]]):continue
-        if np.min(cross@n/length)<1-1e-12:continue
+        # Stored local coordinates avoid transform roundoff. A tilted plane
+        # authored in float32 is recognized only within representation ULPs.
+        local=np.asarray(obj['vertices_local'],float)
+        if not _exact_planar(local[ring+[vid]]):continue
+        if np.min(cross@n/length)<0:continue
         turns=[np.dot(np.cross(v[ring[(i+1)%len(ring)]]-v[ring[i]],v[ring[(i+2)%len(ring)]]-v[ring[(i+1)%len(ring)]]),n) for i in range(len(ring))]
         if min(turns)<=1e-10:continue
         automatic=not obj.get('has_custom_normals',False) and not any(r['smooth'] for r in rows)
@@ -212,7 +220,8 @@ def _decimate(obj,records,v,selected,strength,maximum,operation):
         if any(values[i][0]!=values[vid][0] for i in ring):continue
         for layer in range(len(obj.get('uv_layers',[]))):
             ids=ring+[vid];uv=np.asarray([values[i][1][layer] for i in ids])
-            if not _exact_affine(v[ids],uv,n):valid=False;break
+            localnormal=_cross(local,ring);localnormal/=np.linalg.norm(localnormal)
+            if not _exact_affine(local[ids],uv,localnormal):valid=False;break
         if not valid:continue
         replacement={**rows[0],'p':ring,'normal':[values[i][0] for i in ring],
                      'uv':[[values[i][1][layer] for i in ring] for layer in range(len(obj.get('uv_layers',[])))]}
@@ -222,14 +231,15 @@ def _decimate(obj,records,v,selected,strength,maximum,operation):
     return records,{'removed_interior_vertex_ids':removed,'requested_maximum':maximum,
                     'surface_positions_unchanged':True,'silhouette_sharp_edges_material_uv_and_markings_preserved':True,
                     'automatic_flat_faces_recomputed':automatic_flat_normals,
-                    'method':'exact planar convex fans only; curved or protected areas remain unchanged'}
+                    'method':'planar convex fans within float32 coordinate representation error; curved or protected areas remain unchanged'}
 
 
 def _exact_planar(points):
-    p=[[Fraction(float(x)) for x in row] for row in points]
-    u=[p[1][i]-p[0][i] for i in range(3)];w=[p[2][i]-p[0][i] for i in range(3)]
-    n=[u[1]*w[2]-u[2]*w[1],u[2]*w[0]-u[0]*w[2],u[0]*w[1]-u[1]*w[0]]
-    return any(n) and all(sum(n[i]*(q[i]-p[0][i]) for i in range(3))==0 for q in p[3:])
+    from .owner_surface import representation_tolerance
+    centered=np.asarray(points,float)-np.mean(points,axis=0)
+    _,singular,axes=np.linalg.svd(centered,full_matrices=False)
+    tolerance=representation_tolerance(points)
+    return singular[1]>tolerance and np.max(abs(centered@axes[-1]))<=tolerance
 
 
 def _exact_affine(points,values,normal):
@@ -258,15 +268,9 @@ def plan_object(obj,operation):
         support={r['vertex_id'] for r in operation['scope']['vertex_weights'] if r['weight']==1}
         rows,remap,report=_cleanup(obj,rows,v,selected,strength,support)
     elif kind=='consistent_normals':
-        # Source corner normals are local vectors; geometry here is world mm.
-        matrix=np.asarray(obj.get('matrix_world',np.eye(4)),float)
-        for j,r in enumerate(rows):
-            if j not in selected:continue
-            n=np.asarray(r['normal'])@np.linalg.inv(matrix[:3,:3]);n/=np.linalg.norm(n,axis=1)[:,None];r['normal']=n.tolist()
-        rows,report=_consistent(rows,v,selected,strength,_sharp(obj))
-        for j,r in enumerate(rows):
-            if j not in selected:continue
-            n=np.asarray(r['normal'])@matrix[:3,:3];n/=np.linalg.norm(n,axis=1)[:,None];r['normal']=n.tolist()
+        # Both winding and corner vectors are authored in local space. Avoid
+        # world reflections and leave each already-correct vector bit-exact.
+        rows,report=_consistent(rows,np.asarray(obj['vertices_local'],float),selected,strength,_sharp(obj))
     elif kind=='controlled_decimate':
         maximum=params['max_removed_vertices']
         if type(maximum) is not int or not 1<=maximum<=10000:S.error('max_removed_vertices must be an integer from1 through10000')

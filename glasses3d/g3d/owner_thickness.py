@@ -5,7 +5,8 @@ true crossings from cancellation at shared zero-clearance rim edges; no physical
 thickness tolerance or threshold is changed.
 """
 from fractions import Fraction as F
-from functools import lru_cache
+from collections import Counter
+import hashlib
 import numpy as np
 
 
@@ -36,25 +37,41 @@ def plane(triangle):
     return a[2]-x*a[0]-y*a[1],x,y
 
 
-@lru_cache(maxsize=24)
-def _minimum(vertices,triangles):
+def _minimum(vertices,triangles, *, footprint=None, wall_angle=0., position_error=0.):
     points=[tuple(F(v) for v in row) for row in vertices]
     outer,inner=[],[]
+    xyz=np.asarray(vertices)
     for ids in triangles:
         p=[points[i] for i in ids]
         area=cross(sub(p[1],p[0]),sub(p[2],p[0]))
+        # Even a very narrow, representable triangle may contain a crossing.
+        # Only an exactly vertical projection has no graph domain.
+        if area==0:continue
         if area>0:outer.append((ids,p,plane(p)))
         elif area<0:
             p=p[::-1];inner.append((ids,p,plane(p)))
     if not outer or not inner:raise ValueError('the exact surface has no opposing graph pair')
-    xyz=np.asarray(vertices)
     lo=np.array([xyz[list(row[0]),:2].min(0) for row in inner])
     hi=np.array([xyz[list(row[0]),:2].max(0) for row in inner])
+    active_inner=(np.ones(len(lo),bool) if footprint is None else
+                  np.all(hi>=footprint[0],axis=1)&np.all(lo<=footprint[1],axis=1))
+    # Spatial acceleration only: every bounding-box candidate is retained.
+    cell=max(float(np.median(np.max(hi-lo,axis=1))),.1)
+    bins={}
+    for j,(mn,mx) in enumerate(zip(lo,hi)):
+        a,b=np.floor(mn/cell).astype(int),np.floor(mx/cell).astype(int)
+        for x in range(a[0],b[0]+1):
+            for y in range(a[1],b[1]+1):bins.setdefault((x,y),[]).append(j)
     smallest=None;overlaps=0
     for ids,p,pc in outer:
         mn=xyz[list(ids),:2].min(0);mx=xyz[list(ids),:2].max(0)
-        candidates=np.flatnonzero(np.all(hi>=mn,axis=1)&np.all(lo<=mx,axis=1))
-        for j in candidates:
+        active=footprint is None or (np.all(mx>=footprint[0]) and np.all(mn<=footprint[1]))
+        a,b=np.floor(mn/cell).astype(int),np.floor(mx/cell).astype(int)
+        candidates=set()
+        for x in range(a[0],b[0]+1):
+            for y in range(a[1],b[1]+1):candidates.update(bins.get((x,y),()))
+        for j in sorted(candidates):
+            if (not active and not active_inner[j]) or np.any(hi[j]<mn) or np.any(lo[j]>mx):continue
             _,q,qc=inner[j]
             poly=intersection([(v[0],v[1]) for v in p],[(v[0],v[1]) for v in q])
             if len(poly)<3:continue
@@ -68,13 +85,107 @@ def _minimum(vertices,triangles):
     return smallest,overlaps
 
 
-def minimum(vertices,triangles):
+def minimum(vertices,triangles, *, footprint=None, wall_angle=0., position_error=0.):
     # owner_mesh graph coordinates [X thickness,Y height,Z -horizontal].
     xyz=np.asarray(vertices,float)
     chart=np.c_[-xyz[:,2],xyz[:,1],xyz[:,0]]
-    value,count=_minimum(tuple(tuple(float(x) for x in p) for p in chart),tuple(tuple(int(i) for i in t) for t in triangles))
+    value,count=_minimum(chart,triangles,footprint=footprint,wall_angle=wall_angle,position_error=position_error)
     return value,{'minimum_mm':float(value),'exact_fraction':str(value),'overlap_polygons':count,
                   'method':'exact rational projected-triangle intersection'}
+
+
+# Digest keys and small certificates only: no retained mesh/triangle tuples.
+_certificates={}
+
+
+def source_certificate(coordinates,triangles, *, wall_angle=0., position_error=0.):
+    """Reuse an immutable source proof across options/rechecks in one process.
+
+    A new source, topology or frozen chart necessarily has a new digest. The
+    trusted worker independently checks it once; no caller-supplied certificate
+    can bypass a physical refusal.
+    """
+    from . import owner_mesh as M
+    v=np.ascontiguousarray(coordinates,dtype=np.float64)
+    t=np.ascontiguousarray(triangles,dtype=np.int64)
+    key=hashlib.sha256(repr((v.shape,t.shape,wall_angle,position_error)).encode()+v.tobytes()+t.tobytes()).hexdigest()
+    if key not in _certificates:
+        try:M.graph_thickness(v,t,1,1e-12,wall_angle=wall_angle,position_error=position_error)
+        except M.OwnerMeshError as exc:
+            if exc.code!='E_TOO_THIN':raise
+        _certificates[key]=minimum(v,t,wall_angle=wall_angle,position_error=position_error)
+    value,report=_certificates[key]
+    return value,{**report,'source_certificate_sha256':key}
+
+
+def changed_footprint(source,target,source_chart,target_chart):
+    """Bounds of every changed triangle; the complement is proven unchanged.
+
+    Compare actual tessellations as well as vertices. A topology-changing
+    operation cannot borrow an unchanged-remainder certificate from old fans.
+    """
+    def rows(obj,chart):
+        result=Counter()
+        for ids in obj['triangles']:
+            points=chart[np.asarray(ids,int)];key=tuple(map(tuple,points))
+            key=min(key,key[1:]+key[:1],key[2:]+key[:2])
+            result[key]+=1
+        return result
+    before,after=rows(source,source_chart),rows(target,target_chart)
+    changed=[np.asarray(k)[:,:2] for k in (before-after)]+[np.asarray(k)[:,:2] for k in (after-before)]
+    if not changed:return None
+    xy=np.concatenate(changed)
+    return xy.min(0),xy.max(0)
+
+
+def wall_polygons(xyz,polygons,angle,position_error,*,with_caps=False):
+    """Identify planar rims joining both graph surfaces, never narrow bevels.
+
+    A near-vertical bevel can still determine a strictly positive wall floor.
+    Angular similarity alone therefore grants no exemption: a rim must meet
+    both opposing non-wall surfaces in the captured topology.
+    """
+    walls=set();positive=set();negative=set()
+    for i,p in enumerate(polygons):
+        points=np.asarray(xyz)[p];center=points.mean(0)
+        normal=np.cross(points-center,np.roll(points,-1,axis=0)-center).sum(0)
+        length=np.linalg.norm(normal)
+        if length==0:continue
+        normal/=length
+        if abs(normal[2])<=angle and np.max(abs((points-center)@normal))<=position_error:
+            walls.add(i)
+        elif normal[2]>0:positive.update(p)
+        elif normal[2]<0:negative.update(p)
+    rims={i for i in walls if positive.intersection(polygons[i]) and negative.intersection(polygons[i])}
+    return (rims,positive|negative) if with_caps else rims
+
+
+def vertical_chart(xyz,polygons,angle,*,walls=None,surface_vertices=None):
+    """Represent float32-vertical edges by one projected coordinate.
+
+    Only projection coordinates are coalesced, within the declared input
+    representation bound. Heights and every physical thickness floor stay exact.
+    Connected nearly vertical edges share one mean, independent of winding/order.
+    """
+    xyz=np.asarray(xyz,float).copy();parent=list(range(len(xyz)))
+    def find(i):
+        while parent[i]!=i:parent[i]=parent[parent[i]];i=parent[i]
+        return i
+    edge_faces={}
+    for i,p in enumerate(polygons):
+        for a,b in zip(p,p[1:]+p[:1]):edge_faces.setdefault(tuple(sorted((a,b))),set()).add(i)
+    for (a,b),faces in edge_faces.items():
+        # A boundary shared with a graph surface carries real clearance, even
+        # when its width is below the wall-classification angular bound.
+        if walls is not None and not faces.issubset(walls):continue
+        if surface_vertices is not None and not {a,b}.issubset(surface_vertices):continue
+        delta=xyz[a]-xyz[b]
+        if np.linalg.norm(delta[:2])<=angle*abs(delta[2]):parent[find(a)]=find(b)
+    groups={}
+    for i in range(len(xyz)):groups.setdefault(find(i),[]).append(i)
+    for ids in groups.values():
+        if len(ids)>1:xyz[ids,:2]=xyz[ids,:2].mean(0)
+    return xyz
 
 
 def marking_gap(mark_vertices,mark_triangles,surface_vertices,surface_triangles,normal):
@@ -134,9 +245,16 @@ def local_patches(source,target,faces,*,preserve_original=True,minimum_mm=None):
         if i not in chosen and not np.array_equal(v[p],w[p]):
             raise ValueError('local wall check requires every unselected polygon to stay unchanged')
     parents=target.get('_surface_polygon_parents',list(range(len(target['polygons']))))
-    source_tri=np.asarray(source['triangles'],int);source_pid=np.asarray(source['triangle_polygons'],int)
+    def polygon_ids(obj):
+        if 'triangle_polygons' in obj:return obj['triangle_polygons']
+        fans=[[p[0],p[k],p[k+1]] for p in obj['polygons'] for k in range(1,len(p)-1)]
+        if obj['triangles']!=fans:raise ValueError('local wall proof requires actual triangle-to-polygon correspondence')
+        return [i for i,p in enumerate(obj['polygons']) for _ in range(len(p)-2)]
+    source_tri=np.asarray(source['triangles'],int);source_pid=np.asarray(polygon_ids(source),int)
     target_tri=np.asarray(target['triangles'],int)
-    target_pid=np.asarray([parents[i] for i in target['triangle_polygons']],int)
+    target_pid=np.asarray([parents[i] for i in polygon_ids(target)],int)
+    orientation=S.orientation_sign(source)
+    if orientation<0:source_tri=source_tri[:,::-1];target_tri=target_tri[:,::-1]
     by_vertex={}
     for i in faces:
         for vertex in polygons[i]:by_vertex.setdefault(vertex,set()).add(i)
@@ -160,7 +278,7 @@ def local_patches(source,target,faces,*,preserve_original=True,minimum_mm=None):
         fixed=sorted({i for edge in boundary for i in edge})
         if not boundary or not np.array_equal(v[fixed],w[fixed]):
             raise ValueError('local wall check needs an unchanged, nonempty patch boundary')
-        center,basis,_=S._chart(v,polygons,component)
+        center,basis,_=S._chart(v,polygons,component,orientation=orientation)
         xyz=(v-center)@basis.T;after_xyz=(w-center)@basis.T
         exact=[tuple(F(float(x)) for x in p) for p in xyz]
         exact_after=[tuple(F(float(x)) for x in p) for p in after_xyz]

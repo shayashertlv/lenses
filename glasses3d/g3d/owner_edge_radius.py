@@ -10,17 +10,21 @@ import numpy as np
 PROPERTY='g3d_owner_edge_recipe'
 
 
-def _normal(v,p):
+def _normal(v,p,orientation=1):
     from . import owner_surface as S
-    n=S.face_vectors(v,[p])[0]
-    if np.max(abs((v[p]-v[p[0]])@n))>1e-7:S.error('radius fillet requires planar adjoining faces and end caps')
-    turns=[np.cross(v[p[(i+1)%len(p)]]-v[p[i]],v[p[(i+2)%len(p)]]-v[p[(i+1)%len(p)]])@n for i in range(len(p))]
-    if min(turns)<-1e-10:S.error('radius fillet requires convex adjoining faces and end caps')
+    n=S.face_vectors(v,[p],orientation)[0]
+    tolerance=S.representation_tolerance(v[p])
+    if np.max(abs((v[p]-v[p[0]])@n))>tolerance:S.error('radius fillet requires planar adjoining faces and end caps')
+    turns=[orientation*np.cross(v[p[(i+1)%len(p)]]-v[p[i]],v[p[(i+2)%len(p)]]-v[p[(i+1)%len(p)]])@n for i in range(len(p))]
+    if min(turns)<-tolerance*np.ptp(v[p],axis=0).max():S.error('radius fillet requires convex adjoining faces and end caps')
     return n
 
 
 def _inside(point,v,p,n):
-    return all(np.cross(v[b]-v[a],point-v[a])@n>=-1e-8 for a,b in zip(p,p[1:]+p[:1]))
+    from . import owner_surface as S
+    winding=S.face_vectors(v,[p])[0]
+    tolerance=S.representation_tolerance(v[p])*np.ptp(v[p],axis=0).max()
+    return all(np.cross(v[b]-v[a],point-v[a])@winding>=-tolerance for a,b in zip(p,p[1:]+p[:1]))
 
 
 def _geometry(base,a,b,radius,segments):
@@ -38,14 +42,14 @@ def _geometry(base,a,b,radius,segments):
         if len(faces)!=3 or len(cap)!=1:S.error('fillet endpoints need exactly three incident faces')
         caps.append(cap.pop())
     if caps[0]==caps[1]:S.error('fillet needs distinct end caps')
-    normals={i:_normal(v,polys[i]) for i in incident};n1,n2=normals[f1],normals[f2]
+    normals={i:_normal(v,polys[i],S.orientation_sign(base)) for i in incident};n1,n2=normals[f1],normals[f2]
     axis=v[b]-v[a];axis/=np.linalg.norm(axis);dot=float(n1@n2)
     if not -1+1e-8<dot<1-1e-8:S.error('selected edge is flat or reversed')
     angle=math.acos(dot)
     shift=-radius*(n1+n2)/(1+dot)
     # The cylinder centre must lie on the inward side of both adjoining faces.
     for f,other in ((f1,f2),(f2,f1)):
-        if max((v[polys[other]]-v[a])@normals[f])>1e-7:S.error('radius fillet requires a convex edge')
+        if max((v[polys[other]]-v[a])@normals[f])>S.representation_tolerance(v[polys[other]]):S.error('radius fillet requires a convex edge')
     output=v.tolist();rings=[];parent=list(range(len(v)))
     for endpoint,cap in zip((a,b),caps):
         capnormal=normals[cap];den=float(axis@capnormal)

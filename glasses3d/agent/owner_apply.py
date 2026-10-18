@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-from . import edit_capabilities, edits, owner_edits, procs
+from . import delivery, edit_capabilities, edits, owner_edits, procs
 from .job_scene import JobScene
 
 
@@ -56,7 +56,7 @@ def apply_preview(edit_root, confirmation_text, option_id, *, destination=None, 
     """
     if not isinstance(option_id, str) or not option_id.strip():
         raise ValueError("an exact shown preview option is required")
-    root = edits.create_edit(edit_root, confirmation_text, option_id=option_id, destination=destination)
+    root = edits.create_edit(edit_root, confirmation_text, option_id=option_id, destination=destination, record=False)
     doc = edits.load(root)
     if not doc.get("selected_preview"):
         raise ValueError("offline apply requires an existing sealed rendered option")
@@ -83,6 +83,10 @@ def apply_preview(edit_root, confirmation_text, option_id, *, destination=None, 
             raise ValueError("selected preview failed strict export validation")
         if exported.get("fingerprint") != doc["selected_preview"]["fingerprint"]:
             raise ValueError("export does not belong to the exact selected preview")
+        if not exported.get("print_check", {}).get("ok"):
+            raise ValueError("selected preview failed retained print verification")
+        if exported["sha256"] != choice["export"]["sha256"]:
+            raise ValueError("applied export bytes differ from the shown preview")
         # A concurrent modification of copied authority/evidence cannot be reported
         # as successful just because an earlier load passed.
         final_doc = edits.load(root)
@@ -99,9 +103,18 @@ def apply_preview(edit_root, confirmation_text, option_id, *, destination=None, 
                   "export_matches_preview_bytes": exported["sha256"] == choice["export"]["sha256"],
                   "images": images, "image_provenance": "sealed selected preview, exact applied fingerprint",
                   "round_path": str(root)}
+        basis_id = doc["source"]["basis"]
+        report["source_basis"] = {"basis": basis_id,
+            "basis_sha256": edits.sha(edits.confined(root, Path("cameras") / basis_id / "basis.json"))}
+        from .tools import arview
+        ar = arview.capture(root, exported, "host-preview-ar")
+        exit_head = scene.exit_checkpoint()
+        published = delivery.deliver_owner_applied(root, exported, exit_head, ar, report)
         path = root / "work/owner_edit/applied-preview.json"
         procs.write_json_atomic(path, report)
         page = _page(root, report)
-        return {**report, "report": str(path), "review_page": str(page)}
+        if destination is None:
+            edits.record_round(edit_root, root)
+        return {**report, "report": str(path), "review_page": str(page), "delivery": published}
     finally:
         scene.close()

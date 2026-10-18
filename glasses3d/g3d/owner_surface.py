@@ -19,12 +19,13 @@ OPERATION_KINDS = frozenset({'flatten_face', 'repair_shading', 'refine_curved_su
 
 
 def active(operations):
-    return any(op['kind'] in OPERATION_KINDS for op in operations)
+    # One deterministic shading policy applies to standalone and mixed edits.
+    return any(op['kind'] in OPERATION_KINDS | {'translate_region', 'rotate_region', 'taper_region'} for op in operations)
 
 
-def error(message, code='E_OWNER_SURFACE'):
+def error(message, code='E_OWNER_SURFACE', **facts):
     from .owner_mesh import OwnerMeshError
-    raise OwnerMeshError(code, message)
+    raise OwnerMeshError(code, message, **facts)
 
 
 def split_edge_values(values, splits):
@@ -58,11 +59,23 @@ def selected(obj, operation):
     return faces
 
 
-def face_vectors(vertices, polygons):
+def orientation_sign(obj):
+    """World winding reverses under reflection; physical outside does not."""
+    return -1 if np.linalg.det(np.asarray(obj.get('matrix_world', np.eye(4)))[:3, :3]) < 0 else 1
+
+
+def representation_tolerance(points):
+    """Eight float32 coordinate ULPs, solely for represented-plane predicates."""
+    scale = max(float(np.max(np.abs(points))), np.finfo(np.float32).tiny)
+    return float(abs(np.spacing(np.float32(scale)))) * 8
+
+
+def face_vectors(vertices, polygons, orientation=1):
     out = []
     for poly in polygons:
         points = vertices[poly]
-        vector = np.sum(np.cross(points, np.roll(points, -1, axis=0)), axis=0)
+        points = points-points[0]
+        vector = np.sum(np.cross(points, np.roll(points, -1, axis=0)), axis=0)*orientation
         length = np.linalg.norm(vector)
         if length <= 1e-10:
             error('selected surface contains a degenerate face; clean the mesh first')
@@ -70,7 +83,7 @@ def face_vectors(vertices, polygons):
     return np.asarray(out)
 
 
-def _chart(vertices, polygons, faces):
+def _chart(vertices, polygons, faces, orientation=1):
     ids = sorted({v for i in faces for v in polygons[i]})
     points = vertices[ids]
     center = points.mean(0)
@@ -78,7 +91,7 @@ def _chart(vertices, polygons, faces):
     if len(singular) < 2 or singular[1] <= 1e-8:
         error('selected surface does not span a plane')
     n = axes[2]
-    outward = face_vectors(vertices, [polygons[i] for i in faces]).mean(0)
+    outward = face_vectors(vertices, [polygons[i] for i in faces], orientation).mean(0)
     if n @ outward < 0:
         n = -n
     u = axes[0]; v = np.cross(n, u)
@@ -86,8 +99,8 @@ def _chart(vertices, polygons, faces):
     return center, basis, ids
 
 
-def _quadratic(vertices, polygons, faces):
-    center, basis, ids = _chart(vertices, polygons, faces)
+def _quadratic(vertices, polygons, faces, orientation=1):
+    center, basis, ids = _chart(vertices, polygons, faces, orientation)
     xyz = (vertices[ids]-center) @ basis.T
     x, y, z = xyz.T
     design = np.c_[np.ones(len(x)), x, y, x*x, x*y, y*y]
@@ -142,23 +155,83 @@ def _relax_falloff(vertices, ids, boundary_edges, fixed_ids, *, points=None, wid
     return t*t*(3-2*t),width
 
 
+def authored_normals(obj):
+    witness=obj.get('normal_intent')
+    if witness and all(witness.get(k) for k in ('encoded_matches','normal_space_matches','decoded_within_quantization')):
+        return np.asarray(witness['intent_normals'],float)
+    return np.asarray(obj['corner_normals'],float)
+
+
+def rigid_rotation_normals(obj,operation):
+    """Use the confirmed rotation itself, avoiding host/Blender SVD differences."""
+    matrix=np.asarray(obj.get('matrix_world',np.eye(4)))[:3,:3]
+    normals=authored_normals(obj)@np.linalg.inv(matrix)
+    line=np.asarray(operation['params']['axis_points_mm'],float)
+    axis=line[1]-line[0];axis/=np.linalg.norm(axis)
+    angle=math.radians(operation['params']['delta_deg']);c,s=math.cos(angle),math.sin(angle)
+    normals=(normals*c+np.cross(axis,normals)*s+(normals@axis)[:,None]*axis*(1-c))@matrix
+    normals/=np.linalg.norm(normals,axis=1)[:,None]
+    return normals.astype(np.float32).astype(float).tolist()
+
+
 def transport_normals(obj, after_local):
-    """Carry each old loop normal through its face's actual local affine motion."""
+    """Fit every polygon vertex, preserving rigid motion without a sliver frame.
+
+    Float32 translations may perturb edge vectors by a few ULPs. Recognize that
+    representation error before fitting; no physical acceptance gate uses it.
+    """
     before=np.asarray(obj['vertices_local'],float);after=np.asarray(after_local,float)
-    normals=np.asarray(obj['corner_normals'],float).copy();cursor=0
+    if np.array_equal(before,after):return copy.deepcopy(obj['corner_normals'])
+    normals=authored_normals(obj).copy();cursor=0
     for poly in obj['polygons']:
         a,b=before[poly],after[poly]
         if np.array_equal(a,b):cursor+=len(poly);continue
-        for k in range(1,len(poly)-1):
-            u,v=a[k]-a[0],a[k+1]-a[0];uu,vv=b[k]-b[0],b[k+1]-b[0]
-            n,nn=np.cross(u,v),np.cross(uu,vv)
-            if np.linalg.norm(n)<=1e-10:continue
-            if np.linalg.norm(nn)<=1e-10:error('surface-following collapses a previously nondegenerate marking face')
-            transform=np.column_stack((uu,vv,nn/np.linalg.norm(nn))) @ np.linalg.inv(np.column_stack((u,v,n/np.linalg.norm(n))))
-            values=normals[cursor:cursor+len(poly)] @ np.linalg.inv(transform)
-            values/=np.linalg.norm(values,axis=1)[:,None]
-            normals[cursor:cursor+len(poly)]=values
-            break
+        tol=max(representation_tolerance(a),representation_tolerance(b))
+        delta=b-a
+        if np.max(abs(delta-delta.mean(0)))<=tol:
+            cursor+=len(poly);continue
+        # Use explicit three-component arithmetic and accurately summed normal
+        # equations. Host and Blender ship different LAPACK implementations;
+        # SVD/lstsq can encode different float32 values near exact zero. The
+        # full polygon supplies the frame, never its possibly sliver first fan.
+        def dot(x,y):return math.fsum(float(i)*float(j) for i,j in zip(x,y))
+        def cross(x,y):return np.array([x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0]])
+        def length(x):return math.sqrt(dot(x,x))
+        aa=a-np.array([math.fsum(a[:,i])/len(a) for i in range(3)])
+        bb=b-np.array([math.fsum(b[:,i])/len(b) for i in range(3)])
+        crosses=[cross(x,y) for x,y in zip(aa,np.roll(aa,-1,axis=0))]
+        source_normal=np.array([math.fsum(row[i] for row in crosses) for i in range(3)])
+        extent=max(length(row) for row in aa)
+        if length(source_normal)<=tol*extent:
+            error('surface-following cannot resolve the motion of a degenerate face')
+        source_normal/=length(source_normal)
+        tangent=max((row-dot(row,source_normal)*source_normal for row in aa),key=lambda row:dot(row,row))
+        tangent/=length(tangent);bitangent=cross(source_normal,tangent)
+        uv=[(dot(row,tangent),dot(row,bitangent)) for row in aa]
+        a00=math.fsum(u*u for u,v in uv);a01=math.fsum(u*v for u,v in uv);a11=math.fsum(v*v for u,v in uv)
+        determinant=a00*a11-a01*a01
+        if determinant<=tol*tol*max(a00,a11):
+            error('surface-following cannot resolve the motion of a degenerate face')
+        rhs0=np.array([math.fsum(uv[j][0]*bb[j,i] for j in range(len(uv))) for i in range(3)])
+        rhs1=np.array([math.fsum(uv[j][1]*bb[j,i] for j in range(len(uv))) for i in range(3)])
+        mapped_u=(a11*rhs0-a01*rhs1)/determinant
+        mapped_v=(a00*rhs1-a01*rhs0)/determinant
+        mapped_normal=cross(mapped_u,mapped_v);area=length(mapped_normal)
+        if area<=np.finfo(float).eps*length(mapped_u)*length(mapped_v):
+            error('surface-following collapses a previously nondegenerate marking face')
+        mapped_normal/=area
+        dual_u=cross(mapped_v,mapped_normal);dual_v=cross(mapped_normal,mapped_u)
+        dual_n=cross(mapped_u,mapped_v);volume=dot(mapped_u,dual_u)
+        values=[]
+        for value in normals[cursor:cursor+len(poly)]:
+            moved=(dot(value,tangent)*dual_u+dot(value,bitangent)*dual_v+dot(value,source_normal)*dual_n)/volume
+            values.append(moved/length(moved))
+        values=np.asarray(values)
+        original=normals[cursor:cursor+len(poly)]
+        directions=original/np.linalg.norm(original,axis=1)[:,None]
+        unchanged=np.max(abs(values-directions),axis=1)<=64*np.finfo(float).eps
+        values[unchanged]=original[unchanged]
+        normals[cursor:cursor+len(poly)]=values.astype(np.float32).astype(float)
         cursor+=len(poly)
     return normals.tolist()
 
@@ -181,32 +254,88 @@ def preserve_minimum_thickness(source, target, faces, *, preserve_original=True,
         vertices=np.asarray(target['vertices_world_mm'])
         check=M.paired_thickness(target,vertices,required,source)
         if check is None:
-            check=M.graph_thickness(vertices,target['triangles'],source['side'],required)
+            tri=np.asarray(target['triangles'],int)
+            if orientation_sign(target)<0:tri=tri[:,::-1]
+            check=M.graph_thickness(vertices,tri,source['side'],required)
         return {'method': 'existing verified temple chart and declared minimum retained','declared_thickness':check}
     try:floor=owner_thickness.minimum_floor(minimum_mm,preserve_original=preserve_original)
     except ValueError as exc:error(str(exc),'E_TOO_THIN')
+    from . import owner_intersections
+    crossing=owner_intersections.no_new_crossings(source,target)
     center, basis, _ = _chart(np.asarray(source['vertices_world_mm']), source['polygons'], faces)
+    orientation = -1 if np.linalg.det(np.asarray(source.get('matrix_world', np.eye(4)))[:3,:3]) < 0 else 1
+    if orientation < 0:
+        basis[1:] *= -1
+    chart_normalizations=[];chart_cache={};chart_walls={};chart_caps={}
     def chart(obj):
+        if id(obj) in chart_cache:return chart_cache[id(obj)]
         xyz = (np.asarray(obj['vertices_world_mm'])-center) @ basis.T
-        return np.c_[xyz[:,2], xyz[:,1], -xyz[:,0]]
-    def measure(obj):
+        walls,caps=owner_thickness.wall_polygons(xyz,obj['polygons'],wall_angle,position_error,with_caps=True)
+        parents=(list(range(len(obj['polygons']))) if obj is source or obj['polygons']==source['polygons'] else
+                 obj.get('_surface_polygon_parents',list(range(len(obj['polygons'])))))
+        walls={i for i in walls if parents[i] in source_walls}
+        chart_walls[id(obj)]=walls
+        chart_caps[id(obj)]=caps
+        normalized=owner_thickness.vertical_chart(xyz,obj['polygons'],wall_angle,walls=walls,surface_vertices=caps)
+        chart_normalizations.append(float(np.max(np.linalg.norm(normalized[:,:2]-xyz[:,:2],axis=1))))
+        if chart_normalizations[-1]>position_error:
+            error('chart normalization exceeds float32 representation uncertainty','E_OWNER_GRAPH')
+        xyz=normalized
+        chart_cache[id(obj)]=np.c_[xyz[:,2], xyz[:,1], -xyz[:,0]]
+        return chart_cache[id(obj)]
+    # Near-vertical float32 walls are classified by normal angle, never by an
+    # absolute projected area. This is representation error, not a wall allowance.
+    raw=np.asarray(source['vertices_world_mm'])
+    span=max(float(np.ptp(raw,axis=0).max()),1.)
+    wall_angle=8*np.finfo(np.float32).eps*max(float(np.max(abs(raw))),span)/span
+    position_error=wall_angle*span
+    source_walls=owner_thickness.wall_polygons((raw-center)@basis.T,source['polygons'],wall_angle,position_error)
+    def triangles(obj):
+        rows=np.asarray(obj['triangles'],int)
+        pids=obj.get('triangle_polygons')
+        if pids is None:
+            fans=[[p[0],p[k],p[k+1]] for p in obj['polygons'] for k in range(1,len(p)-1)]
+            if obj['triangles']!=fans:error('wall proof requires actual triangle-to-polygon correspondence','E_OWNER_GRAPH')
+            pids=[i for i,p in enumerate(obj['polygons']) for _ in range(len(p)-2)]
+        chart(obj)
+        # A wall parent may contain a real, narrow bevel. Only rim triangles
+        # whose every vertex also belongs to retained graph surfaces can be
+        # omitted; a wall-only shoulder must keep its exact projected domain.
+        rows=rows[[i not in chart_walls[id(obj)] or not set(row).issubset(chart_caps[id(obj)])
+                   for i,row in zip(pids,rows)]]
+        return rows if orientation>0 else rows[:,::-1]
+    def measure(obj,footprint=None):
         coordinates=chart(obj)
         try:
-            M.graph_thickness(coordinates,obj['triangles'],1,1e-12)
+            M.graph_thickness(coordinates,triangles(obj),1,1e-12,footprint=footprint,wall_angle=wall_angle,position_error=position_error)
         except M.OwnerMeshError as exc:
             if exc.code!='E_TOO_THIN':raise
             # Coverage has already passed. Exact evaluation distinguishes a
             # genuine crossing from a zero-thickness common rim.
-        return owner_thickness.minimum(coordinates,obj['triangles'])
+        return owner_thickness.minimum(coordinates,triangles(obj),footprint=footprint,wall_angle=wall_angle,position_error=position_error)
     try:
-        baseline,before=measure(source)
+        baseline,before=owner_thickness.source_certificate(chart(source),triangles(source),wall_angle=wall_angle,position_error=position_error)
     except M.OwnerMeshError as exc:
         if exc.code!='E_OWNER_GRAPH':raise
         try:
-            return owner_thickness.local_patches(source,target,faces,preserve_original=preserve_original,minimum_mm=minimum_mm)
+            return {**owner_thickness.local_patches(source,target,faces,preserve_original=preserve_original,minimum_mm=minimum_mm),
+                    'no_new_crossings':crossing}
         except ValueError as local_error:
             raise M.OwnerMeshError('E_OWNER_GRAPH',str(local_error)) from local_error
-    actual,after=measure(target)
+    def xy_chart(obj):
+        coordinates=chart(obj)
+        return np.c_[-coordinates[:,2],coordinates[:,1],coordinates[:,0]]
+    footprint=owner_thickness.changed_footprint(source,target,xy_chart(source),xy_chart(target))
+    if footprint is None:
+        actual,after=baseline,{**before,'unchanged_tessellation':True,'scope':'whole_target'}
+    elif floor>baseline:
+        # An unchanged region is certified only to the old source minimum. A
+        # higher requested floor needs the whole target, including that region.
+        actual,after=measure(target)
+        after={**after,'scope':'whole_target'}
+    else:
+        actual,after=measure(target,footprint)
+        after={**after,'scope':'edited_footprint'}
     if baseline<0:
         error('source has a true crossing of its opposing surfaces','E_TOO_THIN')
     required=max(baseline if preserve_original else 0,floor)
@@ -215,6 +344,12 @@ def preserve_minimum_thickness(source, target, faces, *, preserve_original=True,
                               before=before,after=after)
     return {'method':'exact opposite-surface graph intersections in the frozen source chart',
             'before':before,'after':after,'original_minimum_preserved':actual>=baseline,
+            'unchanged_remainder_proven':True,
+            'no_new_crossings':crossing,
+            'representation_position_bound_mm':float(position_error),
+            'maximum_chart_projection_normalization_mm':max(chart_normalizations,default=0.),
+            'edited_footprint_mm':None if footprint is None else [v.tolist() for v in footprint],
+            'global_minimum_lower_bound_mm':float(min(baseline,actual) if after['scope']=='edited_footprint' else actual),
             'required_minimum_mm':float(required),'required_minimum_exact':str(required)}
 
 
@@ -228,7 +363,8 @@ def plan_object(obj, operation):
     ev = obj.get('evaluated', {})
     users = obj.get('shared_mesh_users', 1)
     if (not ev.get('topology_matches_source') or not ev.get('positions_match_source') or
-            (len(users) if isinstance(users, list) else users) != 1 or obj.get('unsupported_edit_state')):
+            (len(users) if isinstance(users, list) else users) != 1 or obj.get('unsupported_edit_state') or
+            kind!='material_adjust' and obj.get('unsupported_normal_edit_state')):
         error('surface edits need a unique editable mesh without unsupported state')
     if operation['kind'] in owner_extended.OPERATION_KINDS:
         return owner_extended.plan_object(obj,operation)
@@ -255,7 +391,7 @@ def plan_object(obj, operation):
     smooth = list(obj.get('polygon_smooth', [False]*len(polygons)))
     reports = {'selected_polygon_ids': faces, 'strength': strength}
     if kind == 'flatten_face':
-        center, basis, ids = _chart(vertices, polygons, faces)
+        center, basis, ids = _chart(vertices, polygons, faces, orientation_sign(obj))
         edges = {}
         for i in faces:
             for a, b in zip(polygons[i], polygons[i][1:]+polygons[i][:1]):
@@ -289,7 +425,7 @@ def plan_object(obj, operation):
         mode = params['mode']
         if mode not in ('flat', 'smooth'):
             error('repair_shading mode is flat or smooth')
-        vectors = {i: n for i, n in zip(faces, face_vectors(vertices, [polygons[i] for i in faces]))}
+        vectors = {i: n for i, n in zip(faces, face_vectors(vertices, [polygons[i] for i in faces], orientation_sign(obj)))}
         averaged = np.zeros_like(vertices)
         for i in faces:
             averaged[polygons[i]] += vectors[i]
@@ -316,7 +452,7 @@ def plan_object(obj, operation):
             error('refinement cannot safely interpolate attributes: '+', '.join(unknown))
         use_pn=not params.get('relax_interior',False)
         try:
-            project, curved_normals, residual = _quadratic(vertices, polygons, faces)
+            project, curved_normals, residual = _quadratic(vertices, polygons, faces, orientation_sign(obj))
         except M.OwnerMeshError as exc:
             if not use_pn:raise
             # Local tangent interpolation does not depend on a global fit. A
@@ -341,7 +477,7 @@ def plan_object(obj, operation):
             patch_ids=sorted({v for i in faces for v in polygons[i]})
             boundary_edges=[edge for edge,count in counts.items() if count==1]
             frozen=vertices.copy()
-            fade_center,fade_basis,_=_chart(frozen,polygons,faces)
+            fade_center,fade_basis,_=_chart(frozen,polygons,faces,orientation_sign(obj))
             fade_chart=(frozen-fade_center)@fade_basis[:2].T
             weights,width=_relax_falloff(fade_chart,patch_ids,boundary_edges,fixed)
             def relax_fade(points):
@@ -475,6 +611,7 @@ def state(source, operations):
     reports = []
     retopologized=set()
     for op in operations:
+        prior_normals={mid:(obj['corner_normals'],obj['polygons']) for mid,obj in objects.items()}
         oid = op['scope']['object_id']; old = objects[oid]
         if oid in retopologized:
             error('a topology-changing operation must be last for this object; capture a fresh map for a later edit','E_OWNER_SCOPE')
@@ -494,18 +631,18 @@ def state(source, operations):
                 for attachment in op.get('marking_attachments', []):
                     mid = attachment['object_id']; ids = [b['vertex_id'] for b in attachment['bindings']]
                     points = world[mid][ids]
-                    previous = markings.nearest(np.asarray(objects[mid]['vertices_world_mm'])[ids], np.asarray(old['vertices_world_mm']), old['triangles'])
-                    found = markings.nearest(points, np.asarray(after['vertices_world_mm']), after['triangles'])
+                    previous = markings.nearest(np.asarray(objects[mid]['vertices_world_mm'])[ids], np.asarray(old['vertices_world_mm']), old['triangles'],orientation_sign(old))
+                    found = markings.nearest(points, np.asarray(after['vertices_world_mm']), after['triangles'],orientation_sign(after))
                     for vid, prior, row in zip(ids, previous, found):
                         triangle = np.asarray(after['vertices_world_mm'])[after['triangles'][row[0]]]
-                        n = np.cross(triangle[1]-triangle[0], triangle[2]-triangle[0]); n /= np.linalg.norm(n)
+                        n = np.cross(triangle[1]-triangle[0], triangle[2]-triangle[0]); n *= orientation_sign(after)/np.linalg.norm(n)
                         world[mid][vid] = np.asarray(row[1]) @ triangle+prior[3]*n
                     # A long lettering triangle can cut through a refined curved
                     # patch between its correctly transported vertices. Preserve
                     # its complete shape with the minimum outward clearance lift.
                     from . import owner_thickness
                     normal=np.mean(face_vectors(np.asarray(after['vertices_world_mm']),
-                                     [after['triangles'][r[0]] for r in found]),axis=0)
+                                     [after['triangles'][r[0]] for r in found],orientation_sign(after)),axis=0)
                     normal/=np.linalg.norm(normal)
                     gap=owner_thickness.marking_gap(world[mid],objects[mid]['triangles'],
                             np.asarray(after['vertices_world_mm']),after['triangles'],normal)
@@ -517,7 +654,7 @@ def state(source, operations):
                         # Outward float32 rounding protects exact nonintersection;
                         # it changes the proposed movement, never the acceptance threshold.
                         rounding=float(abs(np.spacing(np.float32(np.max(abs(world[mid]))))))*4
-                        lift=float(max(baseline_gap,0)-gap)+rounding
+                        lift=max(0.,float(min(baseline_gap,0)-gap))+rounding
                         world[mid]+=normal*lift
                         report.setdefault('marking_clearance',[]).append({'object_id':mid,'object_name':objects[mid]['name'],
                             'outward_lift_mm':lift,'normal':normal.tolist(),'reason':'triangle-interior clearance after curved refinement'})
@@ -532,15 +669,47 @@ def state(source, operations):
                     markings.validate_marking(mark, np.asarray(M.objects(source)[mid]['vertices_world_mm']), np.asarray(mark['vertices_world_mm']))
             reports.append({'id': op['id'], 'kind': op['kind'], 'params': copy.deepcopy(op['params']), **report})
         else:
-            # Existing finite transformations keep their established validation.
+            # Finite transforms use the same float32 geometry, normal transport
+            # and physical proof whether alone or followed by a surface edit.
             snapshot = {**result, 'objects': list(objects.values())}
+            if old.get('unsupported_edit_state') or old.get('unsupported_normal_edit_state'):
+                error('finite edits need an editable mesh without unsupported state')
             world, _, rows = M.deformation(snapshot, [op])
             for mid, vertices in world.items():
                 obj = objects[mid]; matrix = np.asarray(obj.get('matrix_world', np.eye(4)))
+                prior=copy.deepcopy(obj)
                 local = ((vertices+source['origin_mm']-matrix[:3,3]) @ np.linalg.inv(matrix[:3,:3]).T).astype(np.float32).astype(float)
-                obj['corner_normals']=transport_normals(obj,local)
+                same=np.all(vertices==np.asarray(obj['vertices_world_mm']),axis=1)
+                local[same]=np.asarray(obj['vertices_local'])[same]
+                weights,_=M.scope_vertices(op['scope'],old)
+                uniform=(not op['scope'].get('fixed_vertex_ids') and
+                         set(weights)==set(range(len(old['vertices_local']))) and all(w==1 for w in weights.values()))
+                obj['corner_normals']=(rigid_rotation_normals(obj,op) if op['kind']=='rotate_region' and uniform
+                                       else transport_normals(obj,local))
                 obj['vertices_local'] = local.tolist(); obj['vertices_world_mm'] = (local @ matrix[:3,:3].T+matrix[:3,3]-source['origin_mm']).tolist()
+                if mid==oid:
+                    rows[0]['physical']=M.physical(obj,reference=prior)
+                    if obj['vertices_local']!=prior['vertices_local']:
+                        reference=prior
+                        rigid=(op['kind'] in ('translate_region','rotate_region') and
+                               uniform and
+                               not (prior.get('role')=='temple' and prior.get('aliases',{}).get('status')=='verified_topology'))
+                        if rigid:
+                            # Compare in the requested rigid pose. A source-fixed
+                            # axis would mistake rotated side walls for a thin rim.
+                            # The captured float32 target still must meet the exact
+                            # ideal-source floor; no rounding allowance is granted.
+                            reference=copy.deepcopy(prior)
+                            reference['vertices_world_mm']=vertices.tolist()
+                            rows[0]['rigid_reference_pose']=op['kind']
+                        rows[0]['minimum_thickness']=preserve_minimum_thickness(reference,obj,op['scope']['affected_polygon_ids'])
             reports.extend(rows)
+        for mid,obj in objects.items():
+            normals,polygons=prior_normals[mid]
+            if obj['corner_normals']!=normals or obj['polygons']!=polygons:
+                # A captured encoder witness describes the preceding normals.
+                # Later batch operations must transport the newly planned ones.
+                obj.pop('normal_intent',None)
         result['objects'] = list(objects.values())
         for attachment in op.get('marking_attachments', []):
             mid, sid = attachment['object_id'], attachment['surface_object_id']
@@ -549,8 +718,8 @@ def state(source, operations):
             before_surface, after_surface = original[sid], objects[sid]
             old_points = np.asarray(before_mark['vertices_world_mm']); new_points = np.asarray(after_mark['vertices_world_mm'])
             old_surface = np.asarray(before_surface['vertices_world_mm']); new_surface = np.asarray(after_surface['vertices_world_mm'])
-            old_sd = np.array([r[3] for r in markings.nearest(old_points, old_surface, before_surface['triangles'])])
-            new_sd = np.array([r[3] for r in markings.nearest(new_points, new_surface, after_surface['triangles'])])
+            old_sd = np.array([r[3] for r in markings.nearest(old_points, old_surface, before_surface['triangles'],orientation_sign(before_surface))])
+            new_sd = np.array([r[3] for r in markings.nearest(new_points, new_surface, after_surface['triangles'],orientation_sign(after_surface))])
             if np.any((old_sd > M.POSITION_TOL_MM) & (new_sd < -M.POSITION_TOL_MM)):
                 error('surface operation would bury a marking', 'E_OWNER_MARKING')
             old_cross = markings._pierced(old_points, before_mark['triangles'], old_surface, before_surface['triangles'])
@@ -617,10 +786,18 @@ def verify(source, current, operations):
         witness=now.get('normal_intent')
         normals_changed=want['corner_normals']!=prior['corner_normals'] or want['polygons']!=prior['polygons']
         if witness is not None and (not material_edit or normals_changed):
+            intent=np.asarray(witness['intent_normals'],np.float32)
+            intended=b.astype(np.float32)
+            matches=np.array_equal(intent,intended)
             if (not witness.get('encoded_matches') or not witness.get('normal_space_matches')
                     or not witness.get('decoded_within_quantization')
-                    or not np.array_equal(np.asarray(witness['intent_normals'],np.float32),b.astype(np.float32))):
-                error('normal intent or encoded normals differ from the confirmed plan','E_OWNER_AMOUNT')
+                    or not matches):
+                error('normal intent or encoded normals differ from the confirmed plan','E_OWNER_AMOUNT',
+                    object_id=oid,object_name=prior['name'],normal_witness={key:witness.get(key) for key in
+                        ('encoded_matches','normal_space_matches','decoded_within_quantization')},
+                    planned_normal_vectors_match=matches,
+                    mismatched_normal_corners=(int(np.count_nonzero(np.any(intent!=intended,axis=1)))
+                        if intent.shape==intended.shape else None))
         elif 'scene_state' in current and normals_changed:
             error('planned shading needs an exact Blender encoding witness','E_OWNER_AMOUNT')
         elif a.shape!=b.shape or not np.array_equal(a,b):
@@ -629,8 +806,23 @@ def verify(source, current, operations):
         if not ev.get('topology_matches_source') or not ev.get('positions_match_source'):
             error('edited evaluated mesh no longer corresponds to source')
         marking = any(a['object_id'] == oid for op in operations for a in op.get('marking_attachments', []))
-        checks[oid] = (markings.validate_marking(now, np.asarray(prior['vertices_world_mm']), np.asarray(now['vertices_world_mm']))
+        geometry_unchanged=all(now.get(k)==prior.get(k) for k in ('vertices_local','polygons'))
+        material_only=material_edit and geometry_unchanged and not normals_changed
+        if material_only:
+            if ev.get('corner_normals')!=prior.get('evaluated',{}).get('corner_normals'):
+                error('material adjustment changed evaluated normals','E_OWNER_NORMALS')
+        elif ev.get('normals_match_source') is False:
+            error('evaluated normals override the confirmed authored normals','E_OWNER_NORMALS')
+        checks[oid] = ({'status':'unchanged','geometry_unchanged':True} if material_only else
+                       markings.validate_marking(now, np.asarray(prior['vertices_world_mm']), np.asarray(now['vertices_world_mm']))
                        if marking else M.physical(now, reference=prior))
+        if not marking and not geometry_unchanged and now.get('triangles')!=want.get('triangles'):
+            # The captured Blender tessellation must preserve the clearance
+            # already certified on the proposed geometry, including concave ngons.
+            scope={f for op in operations if op['scope']['object_id']==oid for f in op['scope']['affected_polygon_ids']}
+            parents=want.get('_surface_polygon_parents',list(range(len(want['polygons']))))
+            faces=[i for i,parent in enumerate(parents) if parent in scope]
+            checks[oid]['captured_tessellation_clearance']=preserve_minimum_thickness(want,now,faces)
         # Non-shading data on unchanged topology is byte-for-byte protected. For a
         # refinement the planner refuses unknown attributes before any mutation.
         if prior['polygons'] == now['polygons'] and len(prior['vertices_local'])==len(now['vertices_local']):

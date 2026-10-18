@@ -18,7 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ...g3d import owner_mesh as M, owner_markings
 from ...g3d import owner_surface
-from .. import edits, jobs, owner_edits, procs
+from ...g3d_host.blender_camera import axes
+from .. import edits, jobs, owner_edits, procs, print_freshness
 from ..job_scene import JobScene
 from ..tool_timeouts import OWNER_APPLY_DEADLINE_S, PREVIEW_OPTIONS_MAX
 from . import look, model_map, look_composition, native_panels
@@ -28,7 +29,7 @@ SCHEMA = 'g3d.owner_amount_preview/1'
 
 def preview_workers(tasks):
     from . import free_commit_bytes
-    return min(tasks, max(1, min(16, math.floor(free_commit_bytes() / 2**30 / 1.3))))
+    return min(tasks, max(1, min(14, math.floor(free_commit_bytes() / 2**30 / 1.3))))
 
 
 def _option_process(root, folder, checkpoint, head, source, operations, refs, basis):
@@ -40,15 +41,59 @@ def _option_process(root, folder, checkpoint, head, source, operations, refs, ba
         return _run_option(SimpleNamespace(root=root), folder, checkpoint, head, source, operations, refs, basis)
 
 
-def revealing_refs(root, basis, operations, refs):
-    """Depth movements need transverse photos; never infer the operation from prose."""
+def revealing_refs(root, basis, operations, refs, *, source=None):
+    """Keep requested views and add cameras with a transverse view of actual motion.
+
+    Raw view labels never decide visibility. With a snapshot, rotations use their
+    supported vertices' actual displacement; without one their rotation plane is
+    conservatively visible from every camera. Camera selection is not an occlusion
+    or physical-validity gate; the rendered evidence remains the judgement.
+    """
     bs = look.C.load_basis(root, basis)
     usable = bs.usable_refs()
     wanted = list(usable) if refs is None else [look.C.ref_id(name) for name in refs]
-    transverse = any(op['kind'] in ('translate_region', 'taper_region') and
-                     abs(op['params']['delta_mm'][0]) > 0 for op in operations)
-    if transverse:
-        wanted += [rid for rid in usable if bs.refs[rid].get('view_kind') in ('top', 'rear', 'side')]
+    if refs is None:
+        return list(dict.fromkeys(wanted))
+    motions = []
+    positions = {}
+    for op in operations:
+        if op['kind'] not in ('translate_region', 'taper_region', 'rotate_region'):
+            continue
+        obj = M.objects(source)[op['scope']['object_id']] if source is not None else None
+        if obj is not None:
+            before = positions.get(obj['id'])
+            if before is None:
+                before = np.asarray(obj['vertices_world_mm'], float)
+            after, _ = M.displaced(before, op, obj)
+            positions[obj['id']] = after
+            delta = after-before
+        elif op['kind'] == 'rotate_region':
+            # Without support coordinates every direction in the rotation plane
+            # is possible, so retain all fitted views rather than guess a radius.
+            wanted.extend(usable)
+            continue
+        else:
+            delta = np.asarray([op['params']['delta_mm']], float)
+        lengths = np.linalg.norm(delta, axis=1)
+        moving = lengths > 1e-12
+        if moving.any():
+            motions.append((obj, delta[moving] / lengths[moving, None]))
+    if not motions:
+        return list(dict.fromkeys(wanted))
+    for rid in usable:
+        toward = axes(bs.camera(rid))[2]
+        for obj, directions in motions:
+            # Frozen arm openings rotate the displacement with the physical arm.
+            if obj is not None and obj.get('role') == 'temple':
+                posed = model_map._asset_points({**obj, 'vertices_world_mm': directions.tolist()},
+                                                {'temple_pose': bs.pose(rid)})
+                origin = model_map._asset_points({**obj, 'vertices_world_mm': [[0., 0., 0.]]},
+                                                 {'temple_pose': bs.pose(rid)})
+                directions = posed-origin
+            projected_fraction = np.sqrt(np.maximum(0., 1.-(directions @ toward)**2))
+            if np.any(projected_fraction >= .5):
+                wanted.append(rid)
+                break
     return list(dict.fromkeys(wanted))
 
 
@@ -206,6 +251,7 @@ def _prepare(scene, folder, checkpoint, head):
             shutil.copytree(scene.root/name, folder/name)
             if edits.tree_hashes(folder/name) != expected:
                 raise ValueError('private preview inputs differ from the source')
+    print_freshness.carry_evidence(scene.root, folder)
     seed = folder/'work/preview-source.blend'
     seed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(checkpoint, seed)
@@ -237,10 +283,13 @@ def _run_option(scene, folder, checkpoint, head, source, operations, refs, basis
         exported = child.seeing.export_head('preview-export')
         if exported.get('status') != 'exported' or not exported.get('validate_spec', {}).get('ok'):
             raise ValueError('preview option failed strict specification export')
+        if not exported.get('print_check', {}).get('ok'):
+            raise ValueError('preview option failed current print evidence verification')
         captured = look.capture(folder, exported, 'preview-option', refs=refs, basis=basis)
         if captured.get('status') != 'ok':
             raise ValueError('preview option evidence unavailable: '+str(captured.get('message', captured)))
-        return {'checks': {**checks, 'confirmed_amounts_match': True, 'strict_spec': exported['validate_spec']},
+        return {'checks': {**checks, 'confirmed_amounts_match': True, 'strict_spec': exported['validate_spec'],
+                           'print_check': exported['print_check']},
                 'after_evidence': _capture_record(captured), 'export': exported, 'snapshot': after,
                 'before_snapshot': {'path': str(path), 'sha256': edits.sha(path)},
                 'after_snapshot': {'path': str(after_path), 'sha256': edits.sha(after_path)},
@@ -353,19 +402,24 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
         if source['fingerprint'] != head['fingerprint'] or evidence['source']['fingerprint'] != head['fingerprint']:
             raise ValueError('preview map is not of the selected unchanged delivery')
         base_operations = owner_markings.seal(source, evidence['operations'])
-        refs = revealing_refs(scene.root, doc['source']['basis'], base_operations, refs)
         if len({op['id'] for op in base_operations}) != len(base_operations):
             raise ValueError('preview operations must have distinct IDs')
         choices = [{**choice, 'operations': scaled_operations(base_operations, choice['scale'])} for choice in choices]
-        special = owner_surface.active(base_operations)
-        position_digests = {owner_surface.signature(source) if special else
-                            _positions_digest({obj['id']: obj['vertices_local'] for obj in source['objects']})}
         for choice in choices:
-            M.plan(source, choice['operations'])  # reject impossible amounts before starting any private worker
+            refs = revealing_refs(scene.root, doc['source']['basis'], choice['operations'], refs, source=source)
+        special = any(op['kind'] in owner_surface.OPERATION_KINDS for op in base_operations)
+        requested_objects = {op['scope']['object_id'] for op in base_operations}
+        position_digests = {owner_surface.signature(source) if special else
+                            _positions_digest({obj['id']: obj['vertices_local'] for obj in source['objects']
+                                               if obj['id'] in requested_objects})}
+        for choice in choices:
             digest = (owner_surface.signature(owner_surface.state(source, choice['operations'])[0]) if special else
-                      _positions_digest(owner_edits.expected_positions(source, choice['operations'])))
+                      _positions_digest({oid: positions for oid, positions in
+                                         owner_edits.expected_positions(source, choice['operations']).items()
+                                         if oid in requested_objects}))
             if digest in position_digests:
                 raise ValueError('preview choices must change the source and produce distinct actual geometry or shading')
+            M.plan(source, choice['operations'])  # reject impossible amounts before starting any private worker
             position_digests.add(digest)
         directory = scene.root/'work/pv'/hashlib.sha256(call_id.encode()).hexdigest()[:20]
         directory.mkdir(parents=True, exist_ok=False)
@@ -506,17 +560,18 @@ def tool_for(scene, tool, call):
         thickness, scale, bend, marking and mesh-health operation (scaled strength must stay greater than zero
         through one). Discrete cleanup amounts may coincide; choose two or three actually distinct options.
         Targets, supports,
-        axes and marking attachments stay fixed. Surface operations always need two or three distinct previews.
+        axes and marking attachments stay fixed. Every executable operation group needs two or three distinct previews.
         Every option starts from the same verified checkpoint in an isolated worker, passes exact-operation,
-        physical and strict-export checks, and uses the frozen photo cameras. Returns native photo/before/option
+        physical, strict-export and current-print-evidence checks, and uses the frozen photo cameras. Returns native photo/before/option
         triples and target close-ups at shared boxes, composed per photo; overflow uses additional images without
         shrinking pixels. Also returns following_markings and a hash-bound preview_receipt.
         No run, approval, estimate or source edit is started. A refused amount produces no selectable preview.
         Reuse the option id and preview receipt when asking the owner to choose in the understand reply.
         refs null uses every usable frozen camera; a list selects photo ids or original filenames.
-        Transverse X movements also include available top, rear and side photos, because a side view alone
-        cannot show depth. Projection effects report displacement in each view. Options use independent
-        workers sized to free commit memory / 1.3 GiB, capped at 16, with one BLAS thread.
+        Movement previews also add fitted cameras where supported translation, taper or rotation projects
+        transversely, regardless of raw photo labels; requested views remain included. Projection effects report
+        displacement in each view. Options use independent workers sized to free commit memory / 1.3 GiB,
+        capped at 14, with one BLAS thread.
         """
         return await call(ctx, 'preview_owner_edit', lambda cid: preview(scene, cid, map_id, map_sha256,
                            capture_receipts, operations_json, options, refs=refs))

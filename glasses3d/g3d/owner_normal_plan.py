@@ -21,7 +21,7 @@ def plan(source,target,operations):
     reports=[]
     for oid,scope in allowed.items():
         before,after=old[oid],current[oid]
-        if all(before[k]==after[k] for k in ('vertices_local','polygons','corner_normals','polygon_smooth')):continue
+        if all(before.get(k)==after.get(k) for k in ('vertices_local','polygons','corner_normals','polygon_smooth')):continue
         edges={};cursor=0
         for i,poly in enumerate(after['polygons']):
             corners={v:cursor+j for j,v in enumerate(poly)};cursor+=len(poly)

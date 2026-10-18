@@ -151,7 +151,8 @@ def _delivery_context(delivered):
     report = delivered.get("report_data") or {}
     finished = report.get("finished") is not False  # immutable historical deliveries were accepted finishes
     ar = report.get("arview") or {}
-    return {"finished": finished, "accepted_finish": finished,
+    return {"finished": finished, "accepted_finish": report.get("accepted_finish", finished),
+            "delivery_kind": report.get("delivery_kind", "astra_run"), "tool_test": report.get("tool_test", False),
             "run_status": report.get("run_status", "completed" if finished else None),
             "delivery_report": delivered.get("report"),
             "delivery_checks": {"validate_spec": copy.deepcopy(report.get("validate_spec")),

@@ -79,12 +79,27 @@ def _bakes(root):
             if record["identity"] is None:
                 raise ValueError("invalid print manifest identity")
             MF.texture_eligibility(man, man["parts"])
-            png = _local(root, man.get("print_png"))
+            relocation = path.parent / "relocation.json"
+            mapping = _json(relocation) if relocation.is_file() else None
+            def evidence(key):
+                if mapping is None:
+                    return _local(root, man.get(key))
+                if (mapping.get("schema") != "g3d.print_relocation/1" or
+                        mapping.get("manifest_sha256") != record["manifest_sha256"]):
+                    raise ValueError("invalid retained print relocation")
+                row = mapping["files"][key]
+                if row["original"] != man.get(key):
+                    raise ValueError("retained print relocation differs from manifest")
+                local = _local(root, str(path.parent / row["file"]))
+                if not local.is_relative_to(path.parent) or _sha(local.read_bytes()) != row["sha256"]:
+                    raise ValueError("retained print evidence changed")
+                return local
+            png = evidence("print_png")
             raw = png.read_bytes()
             if _sha(raw) != man["print_sha256"]:
                 raise ValueError("print.png changed since the bake")
             record["pixels"] = _pixels(raw)
-            source = _local(root, man.get("glb"))
+            source = evidence("glb")
             if _sha(source.read_bytes()) != man.get("glb_sha256"):
                 raise ValueError("source GLB changed since the bake")
             application = path.parent / "application.json"
@@ -102,10 +117,50 @@ def _bakes(root):
                 raise ValueError("application print differs from the bake")
             if app.get("texture_parts") != man["texture_parts"]:
                 raise ValueError("application eligibility differs from the bake")
+            record["resolved_files"] = {"print_png": png, "glb": source}
         except (OSError, ValueError, KeyError, TypeError) as exc:
             record["errors"].append(str(exc))
         out.append(record)
     return out
+
+
+def carry_evidence(source, target):
+    """Retain exact successful bake bytes on a copy, with confined, hash-checked relocation.
+
+    Manifest/application bytes stay unchanged. Only the two physical evidence
+    files receive new locations; the ordinary full manifest checker still runs.
+    """
+    from .edits import confined
+    from .procs import write_json_atomic
+    source, target = Path(source).resolve(), Path(target).resolve()
+    def retain(path, payload):
+        path = confined(target, path)
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise ValueError("retained print evidence destination collision")
+        else:
+            path.write_bytes(payload)
+    for bake in _bakes(source):
+        if bake["errors"]:
+            continue  # inactive failed bakes grant no authority; active prints still refuse
+        folder = confined(target, Path("work/print") / ("p" + bake["manifest_sha256"][:16]))
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, original in (("print_manifest.json", bake["manifest"]), ("application.json", bake["application"])):
+            payload = Path(original).read_bytes()
+            retain(folder / name, payload)
+        files = {}
+        for key, local in bake["resolved_files"].items():
+            name = "print.png" if key == "print_png" else "source.glb"
+            payload = local.read_bytes()
+            retain(folder / name, payload)
+            files[key] = {"original": bake["data"][key], "file": name, "sha256": _sha(payload)}
+        relocation = confined(target, folder / "relocation.json")
+        record = {"schema": "g3d.print_relocation/1", "manifest_sha256": bake["manifest_sha256"], "files": files}
+        if relocation.exists():
+            if _json(relocation) != record:
+                raise ValueError("retained print relocation destination collision")
+        else:
+            write_json_atomic(relocation, record)
 
 
 def check_current_print(glb_path, root) -> dict:
@@ -207,7 +262,8 @@ def check_current_print(glb_path, root) -> dict:
                         failures.append("the attached object is not an eligible part of that bake")
                         continue
                     try:
-                        check = MF.check_glb(glb_path, bake["data"])
+                        check = MF.check_glb(glb_path, {**bake["data"],
+                            **{key: str(value) for key, value in bake["resolved_files"].items()}})
                     except AttributeError as exc:
                         # The existing manifest reader also parses nested JSON
                         # (including arbitrary extras). Keep malformed shapes at

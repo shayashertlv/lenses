@@ -176,7 +176,8 @@ def test_amount_choice_teaching_uses_delivered_preview_and_explicit_owner_select
                    "same base operation_json", "owner must explicitly select an option",
                    "Do not choose an option or silently use the base amount", "STOP for the owner's confirmation",
                    "complete ordered operation group and keep corrections null",
-                   "another amount needs another shown preview", "Without a selected preview",
+                       "another amount or direction needs another shown preview",
+                       "Every executable group requires a delivered preview and owner selection",
                    "requires the complete ordered group, including through manual edits",
                    "Child UNDERSTAND previews are advisory", "own delivered preview receipt"):
         assert phrase in text

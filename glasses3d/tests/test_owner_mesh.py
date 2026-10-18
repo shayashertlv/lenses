@@ -3,7 +3,7 @@ import copy
 import numpy as np
 import pytest
 
-from glasses3d.g3d import owner_mesh as M
+from glasses3d.g3d import owner_mesh as M, owner_surface as S
 from glasses3d.agent.owner_edits import corrected_operations, verify_snapshots, confirmed_transition, _advance
 
 
@@ -43,15 +43,16 @@ def test_actual_thickness_and_local_patch(side):
     assert M.physical(obj)["thickness"]["minimum_mm"] == pytest.approx(3.)
     patch=M.plan(snapshot(obj),[operation(obj)])
     assert obj == before
-    got=patch["patches"][0]
-    assert got["vertex_ids"] == [1,2,5,6]
+    got=patch["operations"][0]
+    assert got["changed_vertex_ids"] == [1,2,5,6]
     assert got["physical"]["thickness"]["minimum_mm"] == pytest.approx(3.5)
 
 
 def test_owner_target_does_not_rewrite_or_gate_on_photo_reading():
     obj=box(); obj["reading"]={"X":5,"sd":.001,"state":"certain"}
     patch=M.plan(snapshot(obj),[operation(obj)])
-    assert patch["patches"][0]["positions_world_mm"][0][0] == 5.5
+    target,_=S.state(snapshot(obj),[operation(obj)])
+    assert target['objects'][0]['vertices_world_mm'][1][0] == 5.5
     assert obj["reading"] == {"X":5,"sd":.001,"state":"certain"}
 
 
@@ -70,11 +71,11 @@ def test_scope_rejects_unrelated_position_material_or_uv():
     obj=box(); obj["material_sha256"]="material";obj["uv_layers"]=[]
     source=snapshot(obj); op=operation(obj)
     for key,value in [("material_sha256","changed"),("uv_layers",[{}])]:
-        current=copy.deepcopy(source);current["objects"][0][key]=value
-        with pytest.raises(M.OwnerMeshError,match="unrequested"):
+        current=_advance(source,[op]);current["objects"][0][key]=value
+        with pytest.raises(M.OwnerMeshError):
             verify_snapshots(source,current,[op])
-    current=copy.deepcopy(source);current["objects"][0]["vertices_world_mm"][0][0]+=.1
-    with pytest.raises(M.OwnerMeshError,match="outside"):
+    current=_advance(source,[op]);current["objects"][0]["vertices_local"][0][0]+=.1
+    with pytest.raises(M.OwnerMeshError,match="vertices_local"):
         verify_snapshots(source,current,[op])
 
 
@@ -88,7 +89,7 @@ def test_rotating_only_outer_boundary_cannot_create_a_zero_thickness_rim():
 def test_taper_changes_angle_at_fixed_graph_coordinates():
     obj=box(); op=operation(obj)
     op["kind"]="taper_region";op["params"]={"axis_points_mm":[[5,0,0],[5,0,-6]],"delta_mm":[-.5,0,0]}
-    result=M.plan(snapshot(obj),[op]);assert result["patches"][0]["physical"]["thickness"]["minimum_mm"]==pytest.approx(2.5)
+    result=M.plan(snapshot(obj),[op]);assert result["operations"][0]["physical"]["thickness"]["minimum_mm"]==pytest.approx(2.5)
 
 
 def test_correction_never_expands_kind_axis_or_scope():
@@ -103,24 +104,29 @@ def test_correction_never_expands_kind_axis_or_scope():
     with pytest.raises(M.OwnerMeshError):corrected_operations(sealed,rows)
 
 
-def test_generic_parts_do_not_inherit_temple_thickness_model():
+def test_generic_parts_require_source_bound_thickness_certificate():
     obj=box(role="frame");obj["aliases"]={"status":"unavailable"}
-    assert M.physical(obj)["thickness"]["status"] == "not_applicable"
+    assert M.physical(obj)["thickness"]["status"] == "requires_edit_certificate"
+    patch=M.plan(snapshot(obj),[operation(obj)])
+    check=patch['operations'][0]['minimum_thickness']
+    assert check['original_minimum_preserved']
+    assert check['unchanged_remainder_proven']
 
 
 def test_same_vertices_wrong_amount_is_not_owner_authority():
     obj=box(); source=snapshot(obj); op=operation(obj)
-    sealed={"snapshot":source,"all_operations":[op],"source_fingerprint":"source","receipts":[]}
+    sealed={"snapshot":source,"all_operations":[op],"source_fingerprint":"source","receipts":[],"selected_preview":{'id':'picked'}}
     correct=_advance(source,[op])
     assert [o["id"] for o in confirmed_transition(sealed,correct,"source")] == [op["id"]]
     hostile=copy.deepcopy(op);hostile["params"]["delta_mm"]=[10.,0,0]
     wrong=_advance(source,[hostile])
-    assert verify_snapshots(source,wrong,[op])["ok"]  # support and solid alone are insufficient
-    with pytest.raises(M.OwnerMeshError,match="directions and amounts"):
+    with pytest.raises(M.OwnerMeshError,match="confirmed surface operation"):
+        verify_snapshots(source,wrong,[op])
+    with pytest.raises(M.OwnerMeshError,match="confirmed surface operation"):
         confirmed_transition(sealed,wrong,"source")
 
 
-def test_general_tool_can_apply_confirmed_nonprefix_subset_and_continue():
+def test_general_tool_requires_preview_and_the_complete_selected_group():
     source=snapshot(box());one=operation(source["objects"][0]);two=copy.deepcopy(one)
     two["id"]="item-2";two["params"]["delta_mm"]=[.25,0,0]
     # Distinct supports make the subset independently identifiable.
@@ -130,10 +136,13 @@ def test_general_tool_can_apply_confirmed_nonprefix_subset_and_continue():
     one["scope"]["affected_polygon_ids"]=[0,2,3,5]
     sealed={"snapshot":source,"all_operations":[one,two],"source_fingerprint":"source","receipts":[]}
     middle=_advance(source,[two])
-    assert [o["id"] for o in confirmed_transition(sealed,middle,"source")] == ["item-2"]
-    sealed["receipts"]=[{"fingerprint":"middle","operations":[two]}]
-    final=_advance(middle,[one])
-    assert [o["id"] for o in confirmed_transition(sealed,final,"middle")] == ["item-1"]
+    with pytest.raises(M.OwnerMeshError,match='rendered preview'):
+        confirmed_transition(sealed,middle,'source')
+    sealed['selected_preview']={'id':'picked'}
+    with pytest.raises(M.OwnerMeshError,match='confirmed surface operation'):
+        confirmed_transition(sealed,middle,'source')
+    final=_advance(source,[one,two])
+    assert [o['id'] for o in confirmed_transition(sealed,final,'source')]==['item-1','item-2']
 
 
 def test_selected_derived_bbox_can_follow_verified_vertices_but_other_summary_cannot():

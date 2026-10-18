@@ -165,16 +165,24 @@ def snapshot(params, root):
         em = evaluated.to_mesh(preserve_all_data_layers=True, depsgraph=depsgraph)
         try:
             ev = _mesh(em, evaluated.matrix_world, origin)
+            ev['corner_normals']=[list(n.vector) for n in em.corner_normals]
         finally:
             evaluated.to_mesh_clear()
         same_topology = raw["polygons"] == ev["polygons"] and len(raw["vertices_local"]) == len(ev["vertices_local"])
         ev["topology_matches_source"] = same_topology
         ev["positions_match_source"] = same_topology and bool(np.allclose(raw["vertices_world_mm"], ev["vertices_world_mm"], rtol=0, atol=1e-7))
+        ev['normals_match_source']=same_topology and ev['corner_normals']==[list(n.vector) for n in me.corner_normals]
         material_names = [m.name if m else None for m in me.materials]
         material_records = [{"name": m.name, "digest": initial_state["materials"].get(m.name)}
                             for m in me.materials if m]
         other_attributes, unsupported = _other_attributes(me)
         unsupported_edit_state = [f"Unsupported attribute: {name}" for name in unsupported]
+        unsupported_normal_edit_state = []
+        if not ev['normals_match_source']:
+            unsupported_normal_edit_state.append('Evaluated corner normals differ from the editable source; apply the normal-changing modifier before editing geometry or authored normals')
+        for modifier in obj.modifiers:
+            if (modifier.show_viewport or modifier.show_render) and modifier.type in {'WEIGHTED_NORMAL','NORMAL_EDIT'}:
+                unsupported_normal_edit_state.append('Normal-changing modifier '+modifier.name+': apply it before editing authored normals')
         if me.shape_keys is not None:
             unsupported_edit_state.append("Shape-key mesh: raw local edit requires a dedicated shape-key operation")
         record = {"id": f"O{index + 1:04d}", "name": obj.name, "mesh_name": me.name, "type": obj.type,
@@ -208,6 +216,10 @@ def snapshot(params, root):
                   "shared_mesh_users": sorted(o.name for o in bpy.data.objects if o.data == me),
                   "modifiers": [{"name": m.name, "type": m.type, "show_render": bool(m.show_render)} for m in obj.modifiers],
                   "evaluated": ev, "aliases": _aliases(obj, raw)}
+        # Omit an empty diagnostic so earlier valid saved preview targets retain
+        # their exact protected metadata. Nonempty refusals remain explicit.
+        if unsupported_normal_edit_state:
+            record['unsupported_normal_edit_state']=unsupported_normal_edit_state
         objects.append(record)
     after = checkpoint.fingerprint()
     if after != before:
