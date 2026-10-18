@@ -462,7 +462,8 @@ def test_compact_receipt(builds):
     assert rows[1][0] - rows[0][0] == 10.0 and rows[-1][0] == tb.spec.d1
     assert {k: v for k, v in rs.items() if k != "stations"} == r
     assert r["thickness"]["min_mm"] == round(tb.tables["thickness"]["min_mm"], 2)
-    assert r["checks"] == {"closed": True, "euler": 2, "volume_mm3": round(tb.checks["volume_mm3"], 1), "planar": True}
+    assert r["checks"] == {"closed": True, "euler": 2, "volume_mm3": round(tb.checks["volume_mm3"], 1), "planar": True,
+                           "float32_degenerate_triangles": 0}
     assert r["budget"]["core_ms"] == 12.3 and r["spec_sha256"] == tb.spec.sha256
     assert len(text) <= 1500, len(text)                                # 1377 chars on 2026-10-11 (2061 with stations)
     assert report.merge_lines(["a", "b"], ["b", "c"]) == ["a", "b", "c"]

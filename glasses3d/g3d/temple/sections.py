@@ -7,7 +7,7 @@ max(8, ceil(8 theta / 90 deg)) segments, theta = the corner's turning angle; its
 vertex carries a sharp flag, so lofts keep crisp longitudinal edges only where the section has corners.
 
 check_round_corners(points, sharp=None) applies the only shape rule kept from the old prompt: a rounded corner (a run
-of smooth vertices whose turns are each < 45 deg and add up to >= 20 deg) needs >= 8 points per 90 deg. It reports,
+of smooth vertices whose turns are each < 45 deg and add up to >= 20 deg) needs >= 8 segments per 90 deg. It reports,
 it never refuses. `loops_from_segments` chains mesh-section segments into closed loops for the mesh form.
 """
 from __future__ import annotations
@@ -111,12 +111,19 @@ def polygon_section(points, corners=None) -> dict:
             src.append(i)
             kinds.append("round")
     Q = np.asarray(pts)
-    keep = np.ones(len(Q), bool)
+    keep = []
     for k in range(len(Q)):
-        if np.linalg.norm(Q[k] - Q[k - 1]) < 1e-9 and k > 0:
-            keep[k] = False
+        if keep and np.linalg.norm(Q[k] - Q[keep[-1]]) < 1e-9:
+            if sharp[k]:
+                keep[-1] = k                     # merged round/chamfer tangent retains its sharp anchor
+        else:
+            keep.append(k)
+    if len(keep) > 1 and np.linalg.norm(Q[keep[0]] - Q[keep[-1]]) < 1e-9:
+        if sharp[keep[-1]]:
+            keep[0] = keep[-1]
+        keep.pop()
     return {"points": Q[keep], "sharp": np.asarray(sharp)[keep], "corner": np.asarray(src)[keep],
-            "kind": [kk for kk, ok in zip(kinds, keep) if ok]}
+            "kind": [kinds[k] for k in keep]}
 
 
 def check_round_corners(points, sharp=None, closed: bool = True) -> dict:
@@ -124,17 +131,28 @@ def check_round_corners(points, sharp=None, closed: bool = True) -> dict:
     P = np.asarray(points, np.float64)
     n = len(P)
     sharp = np.zeros(n, bool) if sharp is None else np.asarray(sharp, bool)
+    original = np.arange(n)
+    # A mesh section adds collinear points where the cutting plane crosses triangle diagonals. They are not
+    # extra arc segments, nor breaks between rounded corners. Retain sharp anchors and open endpoints.
+    keep = [i for i in range(n) if sharp[i] or (not closed and i in (0, n - 1))
+            or abs(_turn(P[i - 1], P[i], P[(i + 1) % n])) > 1e-9]
+    P, sharp, original = P[keep], sharp[keep], original[keep]
+    n = len(P)
     idx = range(n) if closed else range(1, n - 1)
     turn = np.zeros(n)
     for i in idx:
         turn[i] = _turn(P[i - 1], P[i], P[(i + 1) % n])
     smooth = (~sharp) & (np.abs(np.degrees(turn)) < ROUND_RUN_KINK_DEG) & (np.abs(turn) > 1e-9)
-    if not closed:
+    if not closed and n:
         smooth[0] = smooth[-1] = False
     rounds = []
     visited = np.zeros(n, bool)
-    starts = [i for i in range(n) if smooth[i] and not smooth[i - 1 if closed or i > 0 else i]] if not smooth.all() \
-        else [0]
+    lengths = np.linalg.norm(np.roll(P, -1, axis=0) - P, axis=1)
+    end = lengths > STRAIGHT_RATIO * np.roll(lengths, 1)
+    starts = [i for i in range(n) if smooth[i] and (not smooth[i - 1] or end[i - 1])]
+    whole_loop = bool(n and closed and smooth.all() and not end.any())
+    if whole_loop:
+        starts = [0]
     for s0 in starts:
         if visited[s0]:
             continue
@@ -144,24 +162,22 @@ def check_round_corners(points, sharp=None, closed: bool = True) -> dict:
             visited[i % n] = True
             run.append(i % n)
             j = i % n
-            seg_in = float(np.linalg.norm(P[j] - P[j - 1]))
-            seg_out = float(np.linalg.norm(P[(j + 1) % n] - P[j]))
             i += 1
             if not closed and i >= n:
                 break
-            if seg_out > STRAIGHT_RATIO * seg_in and len(run) > 1:
+            if end[j]:
                 break                                  # a straight edge ends the rounded run
         if len(run) == 1 and not closed:
             pass
         tot = float(np.degrees(np.sum(turn[run])))
         if abs(tot) < ROUND_RUN_MIN_DEG:
             continue
-        segs = len(run) - 1                       # tangent ends and interior points: m + 1 vertices, m segments
+        segs = len(run) if whole_loop else len(run) - 1  # a closed circle also has its closing segment
         need = max(1, int(math.ceil(ROUND_SEGMENTS_PER_90 * abs(tot) / 90.0 - 1e-9)))
-        rounds.append({"start": int(run[0]), "vertices": len(run), "segments": segs, "turn_deg": tot,
+        rounds.append({"start": int(original[run[0]]), "vertices": len(run), "segments": segs, "turn_deg": tot,
                        "needed_segments": need, "ok": segs >= need})
     return {"ok": all(r["ok"] for r in rounds), "rounds": rounds,
-            "rule": ">= 8 points per 90 deg on rounded corners (reported, never refused)"}
+            "rule": ">= 8 segments per 90 deg on rounded corners (reported, never refused)"}
 
 
 def loops_from_segments(seg: np.ndarray, tol: float = 1e-6) -> list[np.ndarray]:
@@ -186,6 +202,7 @@ def loops_from_segments(seg: np.ndarray, tol: float = 1e-6) -> list[np.ndarray]:
             continue
         loop = [start]
         prev, cur = None, start
+        closed = False
         while True:
             nxt = None
             for nb in adj[cur]:
@@ -197,10 +214,11 @@ def loops_from_segments(seg: np.ndarray, tol: float = 1e-6) -> list[np.ndarray]:
                 break
             used.add((min(cur, nxt), max(cur, nxt)))
             if nxt == start:
+                closed = True
                 break
             loop.append(nxt)
             prev, cur = cur, nxt
-        if len(loop) >= 3:
+        if closed and len(loop) >= 3:
             loops.append(np.array([pts[k] for k in loop]))
     return loops
 
@@ -220,4 +238,4 @@ def check_round_corners_mesh(V, F, axis: int = 2, stations=None, n_stations: int
             r = check_round_corners(loop)
             out.append({"station": float(s), "points": len(loop), **r})
     return {"ok": all(r["ok"] for r in out), "sections": out,
-            "rule": ">= 8 points per 90 deg on rounded corners (reported, never refused)"}
+            "rule": ">= 8 segments per 90 deg on rounded corners (reported, never refused)"}

@@ -3153,10 +3153,12 @@ def _visible_fit(pb, free, baseline, declared, single, readings, model, choices)
                         "built_normal_deg": got, "changed_corners": local})
 
     # Exact position/camera/other-face preservation is structural; explicit checks make that invariant reviewable.
-    allowed_rows = {int(pb.xrow[n]) for n in changed if n in pb.xrow}
+    # A local corner may be read, typed or prior-only. Its own rows all belong to the permitted rotation;
+    # camera rows and every other corner remain protected (weak priors are not unrelated observations).
+    allowed_rows = {int(row) for n in changed for row in pb.rows_of.get(n, [])}
     residual_before = pb.A @ baseline.z - pb.b
     residual_after = pb.A @ z - pb.b
-    protected_rows = [i for i in range(len(pb.b)) if i not in allowed_rows]
+    protected_rows = [i for i in range(len(pb.b)) if i not in allowed_rows and not pb.weak[i]]
     if protected_rows and np.max(np.abs(residual_after[protected_rows] - residual_before[protected_rows])) > 1e-8:
         refuse("the local rotation would change an unrelated reading or camera residual")
     if len(pb.e) and np.max(np.abs(pb.C @ z - pb.e)) > 1e-7:
@@ -3567,7 +3569,7 @@ def _result(pb: _Problem, free: Lsq, sol: Lsq, declared: list, single: dict, rea
                 dr, yr = float(rd["d"]), float(rd["y"])
             except (TypeError, ValueError):
                 continue
-            dn, yn = pb.nodes[n]
+            dn, yn = pb.cur_nodes[n]
             off = math.hypot(dn - dr, yn - yr)
             sdd, sdy = _dy_sd(rd)
             carry, each = 0.0, []                     # a read corner's X carried along the faces in its pinned part

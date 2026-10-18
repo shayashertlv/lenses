@@ -72,7 +72,7 @@ REFUSALS = ("E_SPEC", "E_TARGET", "E_MULTI_MATERIAL", "E_OUTLINE", "E_OUTLINE_NO
             "E_CHAMFER", "E_ROLL", "E_CREASE_SHAPE", "E_TRIANGULATE", "E_NOT_CLOSED",
             "E_FIT_SHAPE", "E_FIT")                       # E_FIT*: raised by fit.py (WP6_V3 §3), listed here
 WARNINGS = ("W_CONDITIONING", "W_FLAT_CREASE", "W_BORDER_RAMP",
-            "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION",
+            "W_ARM_NORMAL_SPREAD", "W_DECAL_SPANS_CREASE", "W_DECAL_NOT_MOVED", "W_HINGE_LEAF", "W_KNUCKLE_PENETRATION",
             "W_FACE_NOT_FLAT", "W_FIT_SOLVED", "W_FIT_PRIOR", "W_FIT_OFF_READING",   # fit.py's (FIT_WARNINGS)
             "W_WARP_TWIST",                                                          # ... a warp's turn
             "W_WARP_CHORD")                                                          # a warp's chord error
@@ -93,12 +93,14 @@ HINGE_LEAF_GAP_MM = 0.2                 # W_HINGE_LEAF: leaf-to-inner-face gap a
 HINGE_LEAF_EMBED_MM = 0.5               # ... or the leaf embedded deeper than this
 KNUCKLE_PENETRATION_MM = 0.1            # W_KNUCKLE_PENETRATION
 DEDUPE_MM = 1e-7                        # vertices closer than this are one vertex
+MIN_FEATURE_MM = 1e-3                  # minimum chart feature for float32-metre output
 TILE_TOL_MM2 = 1e-6                     # region areas must tile the outline within this
 MIN_HEIGHT_MM = 0.3                     # outline height (side view) below this anywhere: E_OUTLINE
 CHAMFER_TAPER_RATIO = 4.0               # default taper_mm = min(4 width, (d1 - d0) / 2)
 ROUND_SEGMENTS_PER_90 = 8               # the round-corner rule: >= 8 points per 90 deg, never fewer than 8 segments
 COLLINEAR_AREA_MM2 = 1e-6               # three plane points spanning less than this are collinear
 ROLL_BANDS = 8                          # core roll: stacked chamfer sub-bands per quarter arc
+MIN_ROUND_MM = MIN_FEATURE_MM / (1.0 - math.cos(math.pi / (2.0 * ROLL_BANDS)))
 ROLL_HEIGHT_SHARE = 0.45                # roll_mm <= 0.45 x outline height - chamfer widths
 WARP_MIN_CORNERS = 4                    # a "warp" facet needs this many corners (three always lie on one plane)
 SOFT_BAND_MM = 6.0                      # a soft facet's border band with the base (others: border_band_mm)
@@ -149,11 +151,26 @@ def _plain(x):
 plain = _plain
 
 
+def triangle_degenerate_float32(world_mm, triangles) -> np.ndarray:
+    """Delivery's eight-float32-ulp altitude rule after storing world coordinates as float32 metres.
+
+    Kept numpy-only for Blender. Tests cross-check the host delivery validator's constants and actual GLBs.
+    """
+    t = (np.asarray(world_mm, np.float64) / 1000.0).astype(np.float32).astype(np.float64)[triangles]
+    e1, e2, e3 = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0], t[:, 2] - t[:, 1]
+    area2 = np.linalg.norm(np.cross(e1, e2), axis=1)
+    longest = np.sqrt(np.maximum(np.maximum((e1*e1).sum(axis=1), (e2*e2).sum(axis=1)), (e3*e3).sum(axis=1)))
+    return area2 <= 8 * np.finfo(np.float32).eps * np.abs(t).max(axis=(1, 2)) * longest
+
+
 # --------------------------------------------------------------------------------------------- canonical form
 def _num(x, where: str) -> float:
     if isinstance(x, bool) or not isinstance(x, (int, float, np.integer, np.floating)):
         raise TempleError("E_SPEC", f"{where} must be a number, got {type(x).__name__}", where=where)
-    v = float(x)
+    try:
+        v = float(x)
+    except OverflowError:
+        raise TempleError("E_SPEC", f"{where} must be finite", where=where) from None
     if not math.isfinite(v):
         raise TempleError("E_SPEC", f"{where} must be finite, got {v}", where=where)
     return v
@@ -438,6 +455,10 @@ def canonical(spec: dict) -> dict:
     for k in ("t_min_mm", "station_step_mm", "planar_tol_mm", "border_band_mm"):
         if opts[k] <= 0:
             raise TempleError("E_SPEC", f"options.{k} must be > 0, got {opts[k]}", option=k)
+    for k in ("station_step_mm", "border_band_mm"):
+        if opts[k] < MIN_FEATURE_MM:
+            raise TempleError("E_SPEC", f"options.{k} {opts[k]:g} mm is below the float32-safe minimum feature "
+                              f"{MIN_FEATURE_MM:g} mm", option=k, minimum_mm=MIN_FEATURE_MM)
     if opts["planar_tol_mm"] > PLANAR_TOL_MAX_MM:
         raise TempleError("E_SPEC", f"options.planar_tol_mm must be <= {PLANAR_TOL_MAX_MM:g}, got "
                           f"{opts['planar_tol_mm']}", option="planar_tol_mm")
@@ -449,6 +470,10 @@ def canonical(spec: dict) -> dict:
     roll = _num(spec.get("roll_mm", 0.0), "roll_mm")
     if roll < 0:
         raise TempleError("E_SPEC", f"roll_mm must be >= 0, got {roll}")
+    if 0 < roll < MIN_ROUND_MM:
+        raise TempleError("E_ROLL", f"roll_mm {roll:g} makes a sampled band below the float32-safe minimum feature "
+                          f"{MIN_FEATURE_MM:g} mm; roll_mm must be 0 or >= {MIN_ROUND_MM:.9g} mm",
+                          minimum_mm=MIN_ROUND_MM, feature_mm=MIN_FEATURE_MM)
     return {"schema": SCHEMA, "hinge": hinge, "outline": outline, "inner": _pairs(spec["inner"], "inner"),
             "base": base, "nodes": nodes, "facets": facets, "creases": creases, "chamfers": chamfers, "roll_mm": roll,
             "options": opts}
@@ -624,6 +649,10 @@ def _outline(c: dict) -> tuple[np.ndarray, np.ndarray]:
     r = c["outline"]["tip_round_mm"]
     if r < 0:
         raise TempleError("E_OUTLINE", f"tip_round_mm must be >= 0, got {r}")
+    if 0 < r < MIN_ROUND_MM:
+        raise TempleError("E_OUTLINE", f"tip_round_mm {r:g} makes a sampled band below the float32-safe minimum feature "
+                          f"{MIN_FEATURE_MM:g} mm; tip_round_mm must be 0 or >= {MIN_ROUND_MM:.9g} mm",
+                          minimum_mm=MIN_ROUND_MM, feature_mm=MIN_FEATURE_MM)
     if r > 0:
         top, _ = _round_corner(top, np.array([0.0, -1.0]), r, "top")
         bot, _ = _round_corner(bot, np.array([0.0, 1.0]), r, "bottom")
@@ -933,6 +962,10 @@ def _check_chamfers(ps: ParsedSpec) -> None:
                               f"[{ps.d0:g}, {ps.d1:g}] with d0 < d1", chamfer=i)
         if ch["width_mm"] <= 0 or ch["depth_mm"] <= 0:
             raise TempleError("E_CHAMFER", f"chamfers[{i}]: width_mm and depth_mm must be > 0", chamfer=i)
+        for key in ("width_mm", "depth_mm", "taper_mm"):
+            if 0 < ch[key] < MIN_FEATURE_MM:
+                raise TempleError("E_CHAMFER", f"chamfers[{i}].{key} {ch[key]:g} mm is below the float32-safe "
+                                  f"minimum feature {MIN_FEATURE_MM:g} mm", chamfer=i, minimum_mm=MIN_FEATURE_MM)
         if ch["taper_mm"] < 0 or ch["taper_mm"] > (b - a) / 2 + 1e-12:
             raise TempleError("E_CHAMFER", f"chamfers[{i}].taper_mm {ch['taper_mm']:g} must be in [0, (d1 - d0) / 2]",
                               chamfer=i)

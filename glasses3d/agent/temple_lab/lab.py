@@ -404,6 +404,9 @@ def fit_crease_parts(f: dict, base: bool) -> list[tuple[str, int]]:
         parts.append((f" at d {f['at'][0]:.1f} y {f['at'][1]:.1f}", 3))
     state = f.get("state") or ("certain" if f.get("certain") else "open")
     parts.append((f", {dict(certain='sign-certain', open='unresolved', flat='flat within error').get(state, state)}", 0))
+    if f.get("visible_angle"):
+        visible = f["visible_angle"]
+        parts.append((f"; visible dihedral {visible['degrees']:g} deg from comparison {visible['comparison_id']}", 0))
     if f.get("held"):
         at_min = abs(abs(float(f["deg"])) - FIT.MIN_CREASE_DEG) <= 0.01
         parts.append(("; built held at the declared minimum" if at_min else "; built held by its declaration", 1))
@@ -1866,7 +1869,10 @@ class Lab(SceneHooks):
                         "nodes": {"columns": ["d", "y", "design", "t", "X", "source", "residual_mm", "residual_sd",
                                               "sd_X", "fitted_at"], "rows": nodes},
                         "facets": facets,
-                        "creases": [f"{'|'.join(c['facets'])} {c['shape']}" for c in design["creases"]]},
+                        "creases": [f"{'|'.join(c['facets'])} {c['shape']}" +
+                                    (f"; visible dihedral {c['visible_angle']['degrees']:g} deg from comparison "
+                                     f"{c['visible_angle']['comparison_id']}" if c.get("visible_angle") else "")
+                                    for c in design["creases"]]},
                "readings": {"columns": ["kind", "d", "y", "X", "sd_X", "t", "model_t", "photos", "warnings"],
                             "rows": readings},
                **({"unused_readings": unused} if (unused := unused_readings(design, fit, self.readings())) else {}),
@@ -2110,11 +2116,14 @@ class Lab(SceneHooks):
         node that "cannot move"), outline_facts; or the builder's (stage "build") with its facts only (no remedy
         added, WP6_V3 P6); any other exception of either is _host_error's (E_FIT / E_BUILD; WorkerFailed stays fatal,
         though neither calls the worker)."""
-        if validate_visible:
-            from .crease_angles import validate_design
-            validate_design(self, design)
         try:
+            if validate_visible:
+                from .crease_angles import validate_design
+                validate_design(self, design)
             fit = FIT.fit_spec(design, readings=self.readings())
+        except LabRefusal as e:
+            return {"status": "refused", "code": e.code, "stage": "comparison", "edit": None,
+                    "message": e.message, **e.fields}, None
         except TempleError as e:
             out = {"status": "refused", "code": e.code, "stage": "fit" if e.code.startswith("E_FIT") else "spec",
                    "edit": None, "message": brief(e.message, FIT_REFUSAL_MAX)}

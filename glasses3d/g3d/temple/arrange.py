@@ -1,7 +1,8 @@
 """2D geometry in the temple's (d, y) chart (plan/WP6_FACETS.md §2.2). numpy only.
 
 `build_arrangement(boundary, segments)` cuts the outline polygon by every segment (facet edges, chamfer lines, station
-chords), splits edges at every crossing or touching point, merges vertices closer than DEDUPE_MM, and walks the
+chords), splits edges at every crossing or touching point, merges vertices within the caller's tolerance (normally
+DEDUPE_MM, MIN_FEATURE_MM for the full solid), and walks the
 half-edge structure into faces. Every bounded face is a simple CCW polygon of the planar subdivision; the faces tile
 the outline (checked to TILE_TOL_MM2). A component that does not touch the outline (a facet floating inside it) is
 joined to it by full-height station chords through its first and last vertex in d, and a face that would visit a
@@ -14,16 +15,18 @@ segments whose tag kind the caller lists in `inside` (the builder: stations, rol
 
 `ear_clip` triangulates one simple CCW polygon (collinear vertices allowed), always the fattest ear first; polygons of
 up to SMALL_POLY corners run the same rule element by element; when that fails or leaves a boundary edge uncovered,
-`_ear_clip_robust` (a distance-scaled containment test) triangulates it instead.
+`_ear_clip_robust` (a distance-scaled containment test) triangulates it instead. Internal diagonals of sub-feature
+triangles then flip only when this improves their minimum altitude, keeping all vertices and boundary edges.
 """
 from __future__ import annotations
 
 import math
+import heapq
 from dataclasses import dataclass, field
 
 import numpy as np
 
-from .spec import DEDUPE_MM, TILE_TOL_MM2, TempleError
+from .spec import DEDUPE_MM, MIN_FEATURE_MM, TILE_TOL_MM2, TempleError
 
 PARALLEL_SIN = 1e-9      # segments whose directions differ by less than this (sine) are parallel
 
@@ -126,12 +129,14 @@ def _on_boundary(m, A, B) -> bool:
 
 
 class VertexPool:
-    """Vertices merged within DEDUPE_MM (grid hash with neighbour cells; first come keeps its coordinates)."""
+    """Vertices merged strictly below tol (grid hash; first come keeps its coordinates)."""
 
     def __init__(self, tol: float = DEDUPE_MM):
         self.tol = tol
         self.pts: list[tuple[float, float]] = []
         self.grid: dict[tuple[int, int], list[int]] = {}
+        self.merge_count = 0
+        self.merge_max_mm = 0.0
 
     def add(self, p) -> int:
         x, y = float(p[0]), float(p[1])
@@ -140,7 +145,13 @@ class VertexPool:
             for j in range(gy - 1, gy + 2):
                 for k in self.grid.get((i, j), ()):
                     q = self.pts[k]
-                    if abs(q[0] - x) <= self.tol and abs(q[1] - y) <= self.tol:
+                    distance = math.hypot(q[0] - x, q[1] - y)
+                    # Preserve exact minimum features despite rounding in intersection coordinates.
+                    slack = 8 * math.ulp(max(abs(x), abs(y), abs(q[0]), abs(q[1]), 1.0))
+                    if distance == 0 or distance < self.tol - slack:
+                        if distance > DEDUPE_MM:
+                            self.merge_count += 1
+                            self.merge_max_mm = max(self.merge_max_mm, distance)
                         return k
         self.pts.append((x, y))
         self.grid.setdefault((gx, gy), []).append(len(self.pts) - 1)
@@ -160,6 +171,7 @@ class Arrangement:
     interior_pts: np.ndarray          # (faces, 2) a point strictly inside each face
     face_tris: list = field(default_factory=list)       # each face's ear clipping (computed once)
     chords_added: list = field(default_factory=list)
+    feature_snaps: dict = field(default_factory=dict)
 
     def edge_faces(self) -> dict:
         """(a, b) directed half-edge -> face index (faces are CCW: the face lies on the half-edge's left)."""
@@ -170,7 +182,8 @@ class Arrangement:
         return out
 
 
-def build_arrangement(boundary: np.ndarray, segments: list, chord_fn=None, inside: tuple = ()) -> Arrangement:
+def build_arrangement(boundary: np.ndarray, segments: list, chord_fn=None, inside: tuple = (),
+                      merge_tol: float = DEDUPE_MM) -> Arrangement:
     """Planar subdivision of the CCW polygon `boundary` by `segments` [(p, q, tag)]. `chord_fn(d)` returns the
     full-height station segment at d (used to join floating components); without it floating parts are refused."""
     boundary = np.asarray(boundary, np.float64)
@@ -178,7 +191,7 @@ def build_arrangement(boundary: np.ndarray, segments: list, chord_fn=None, insid
         raise TempleError("E_OUTLINE", "the outline polygon is not counter-clockwise in (d, y)")
     extra: list = []
     for _ in range(4):
-        arr = _build(boundary, list(segments) + extra, inside)
+        arr = _build(boundary, list(segments) + extra, inside, merge_tol)
         if isinstance(arr, Arrangement):
             arr.chords_added = [t for _, _, t in extra]
             return arr
@@ -193,7 +206,7 @@ def build_arrangement(boundary: np.ndarray, segments: list, chord_fn=None, insid
     raise TempleError("E_TRIANGULATE", "could not join every component of the arrangement to the outline")
 
 
-def _build(boundary: np.ndarray, segments: list, inside: tuple = ()):
+def _build(boundary: np.ndarray, segments: list, inside: tuple = (), merge_tol: float = DEDUPE_MM):
     nb = len(boundary)
     edges = [(boundary[i], boundary[(i + 1) % nb], ("boundary",)) for i in range(nb)]
     for p, q, tag in segments:
@@ -234,7 +247,7 @@ def _build(boundary: np.ndarray, segments: list, inside: tuple = ()):
             tt = float((e - A[i]) @ R[i]) / max(L[i] ** 2, 1e-30)
             if -ei[k] <= tt <= 1 + ei[k]:
                 params[i].append(min(max(tt, 0.0), 1.0))
-    pool = VertexPool()
+    pool = VertexPool(merge_tol)
     for p in boundary:
         pool.add(p)
     und: dict[tuple[int, int], set] = {}
@@ -347,13 +360,15 @@ def _build(boundary: np.ndarray, segments: list, inside: tuple = ()):
                           f"{dom:.9f} mm^2", tiled_mm2=float(areas.sum()), outline_mm2=dom)
     face_tris = [ear_clip(V, f) for f in faces]
     for f, t in zip(faces, face_tris):
-        if not t:                                  # every corner on one line within 1e-12 (a sliver of no area)
+        if not t:                                  # every corner on one line within EAR_TOL_MM
             raise TempleError("E_TRIANGULATE", "a face of the arrangement has no area (its corners are collinear)",
                               at=V[f[0]].tolist(), n=len(f))
     interior = np.array([_fattest_centroid(V, t) for t in face_tris])
     tags = {k: tuple(sorted(v, key=repr)) for k, v in und.items()}
     return Arrangement(V=V, faces=faces, areas=areas, edge_tags=tags, boundary_loop=bl, interior_pts=interior,
-                       face_tris=face_tris)
+                       face_tris=face_tris, feature_snaps={"count": pool.merge_count,
+                                                         "max_mm": pool.merge_max_mm,
+                                                         "tolerance_mm": merge_tol})
 
 
 def _box_pairs(A: np.ndarray, B: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -405,11 +420,11 @@ def ear_clip(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
     angle is largest (ties: the first). Returns index triples (CCW). When that fails (no ear, or triangles that do not
     hold every boundary edge once: a run of collinear vertices whose float noise let an ear's diagonal lie along the
     run, which then fell out as zero-area triangles) the polygon is clipped again by _ear_clip_robust; only its
-    failure raises E_TRIANGULATE. Every triangulation that held before is unchanged."""
+    failure raises E_TRIANGULATE. A final diagonal pass improves sub-feature triangle altitudes."""
     try:
         tris = _ear_clip_fast(V, idx)
         if _covers(idx, tris):
-            return tris
+            return _improve_thin_tris(V, tris)
     except TempleError as e:
         err = e
     else:
@@ -421,6 +436,60 @@ def ear_clip(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         raise err
     if not _covers(idx, tris):
         raise err
+    return _improve_thin_tris(V, tris)
+
+
+def _tri_height(V, tri):
+    a, b, c = V[list(tri)]
+    return _cross(a, b, c) / max(math.dist(a, b), math.dist(b, c), math.dist(c, a), 1e-30)
+
+
+def _improve_thin_tris(V, tris):
+    """Flip internal diagonals to improve thin triangles, keeping every boundary edge.
+
+    Greedy ears can fan a long, densely sampled boundary from its nearly collinear end corner. Only triangulations
+    with a sub-feature altitude enter this pass; no vertex, boundary or already safe triangulation moves. Strictly
+    increasing each pair's minimum altitude prevents cycles, with deterministic order and a queue of affected edges.
+    """
+    heights = [_tri_height(V, t) for t in tris]
+    if not heights or min(heights) >= MIN_FEATURE_MM:
+        return tris
+    tris = list(tris)
+    directed = {(t[k], t[(k+1)%3]): (i, t[(k+2)%3])
+                for i, t in enumerate(tris) for k in range(3)}
+    pending = {tuple(sorted(e)) for e in directed}
+    queue = list(pending)
+    heapq.heapify(queue)
+    while queue:
+        a, b = heapq.heappop(queue)
+        pending.remove((a, b))
+        first, other = directed.get((a, b)), directed.get((b, a))
+        if first is None or other is None:
+            continue
+        i, c = first
+        j, d = other
+        if min(heights[i], heights[j]) >= MIN_FEATURE_MM:
+            continue
+        if (c, d) in directed or (d, c) in directed:
+            continue
+        left, right = (c, a, d), (c, d, b)
+        h1, h2 = _tri_height(V, left), _tri_height(V, right)
+        if min(h1, h2) <= max(EAR_TOL_MM, min(heights[i], heights[j]) * (1 + 1e-10)):
+            continue
+        for ti in (i, j):
+            old = tris[ti]
+            for k in range(3):
+                del directed[(old[k], old[(k+1)%3])]
+        tris[i], tris[j] = left, right
+        heights[i], heights[j] = h1, h2
+        for ti in (i, j):
+            t = tris[ti]
+            for k in range(3):
+                directed[(t[k], t[(k+1)%3])] = (ti, t[(k+2)%3])
+                edge = tuple(sorted((t[k], t[(k+1)%3])))
+                if edge not in pending:
+                    heapq.heappush(queue, edge)
+                    pending.add(edge)
     return tris
 
 
@@ -441,7 +510,7 @@ def _covers(idx: list, tris: list) -> bool:
 def _ear_clip_robust(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
     """ear_clip's rule with a scale-aware containment test: a vertex within EAR_TOL_MM of an ear (each edge function
     >= -EAR_TOL_MM x the edge's length) blocks it, so an ear's diagonal never runs along a run of collinear boundary
-    vertices (they fan from the opposite corner instead); strictly convex corners only (cross > 1e-12)."""
+    vertices (they fan from the opposite corner instead); convex ears must have altitude > EAR_TOL_MM."""
     pts = [(float(V[i, 0]), float(V[i, 1])) for i in idx]
     idx = list(idx)
     tris: list[tuple[int, int, int]] = []
@@ -451,7 +520,8 @@ def _ear_clip_robust(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         for k in range(n):
             a, b, c = pts[k - 1], pts[k], pts[(k + 1) % n]
             abx, aby = b[0] - a[0], b[1] - a[1]
-            if abx * (c[1] - a[1]) - aby * (c[0] - a[0]) <= 1e-12:
+            if abx * (c[1] - a[1]) - aby * (c[0] - a[0]) <= EAR_TOL_MM * max(
+                    math.dist(a, b), math.dist(b, c), math.dist(c, a)):
                 continue
             bcx, bcy, cax, cay = c[0] - b[0], c[1] - b[1], a[0] - c[0], a[1] - c[1]
             la, lb, lc = math.hypot(bcx, bcy), math.hypot(cax, cay), math.hypot(abx, aby)
@@ -480,7 +550,8 @@ def _ear_clip_robust(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         idx.pop(bk)
         pts.pop(bk)
     a, b, c = pts
-    if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > 1e-12:
+    if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > EAR_TOL_MM * max(
+            math.dist(a, b), math.dist(b, c), math.dist(c, a)):
         tris.append((idx[0], idx[1], idx[2]))
     return tris
 
@@ -491,7 +562,8 @@ def _ear_clip_fast(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
     tris: list[tuple[int, int, int]] = []
     if len(idx) == 3:
         P = V[idx]
-        if abs(_cross(P[0], P[1], P[2])) > 1e-12:
+        if abs(_cross(P[0], P[1], P[2])) > EAR_TOL_MM * max(
+                np.linalg.norm(P[1]-P[0]), np.linalg.norm(P[2]-P[0]), np.linalg.norm(P[2]-P[1])):
             tris.append((idx[0], idx[1], idx[2]))
         return tris
     if len(idx) <= SMALL_POLY:
@@ -504,7 +576,8 @@ def _ear_clip_fast(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         a, b, c = P[prev], P, P[nxt]
         ab, bc, ca = b - a, c - b, a - c
         cr = ab[:, 0] * (c[:, 1] - a[:, 1]) - ab[:, 1] * (c[:, 0] - a[:, 0])
-        cand = cr > 1e-12
+        la, lb, lc = (np.hypot(*bc.T), np.hypot(*ca.T), np.hypot(*ab.T))
+        cand = cr > EAR_TOL_MM * np.maximum(np.maximum(la, lb), lc)
         if not cand.any():
             raise TempleError("E_TRIANGULATE", "degenerate region (no convex corner left)",
                               at=V[idx[0]].tolist(), n=n)
@@ -512,7 +585,8 @@ def _ear_clip_fast(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         c1 = ab[:, None, 0] * (Y - a[:, None, 1]) - ab[:, None, 1] * (X - a[:, None, 0])
         c2 = bc[:, None, 0] * (Y - b[:, None, 1]) - bc[:, None, 1] * (X - b[:, None, 0])
         c3 = ca[:, None, 0] * (Y - c[:, None, 1]) - ca[:, None, 1] * (X - c[:, None, 0])
-        inside = (c1 >= -1e-12) & (c2 >= -1e-12) & (c3 >= -1e-12)
+        inside = ((c1 >= -EAR_TOL_MM * lc[:, None]) & (c2 >= -EAR_TOL_MM * la[:, None]) &
+                  (c3 >= -EAR_TOL_MM * lb[:, None]))
         rows = np.arange(n)
         inside[rows, prev] = inside[rows, rows] = inside[rows, nxt] = False
         same = np.zeros_like(inside)                     # a vertex at an ear corner's position (a pinch)
@@ -530,7 +604,8 @@ def _ear_clip_fast(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
         k = int(np.argmax(q))
         tris.append((idx[(k - 1) % n], idx[k], idx[(k + 1) % n]))
         idx.pop(k)
-    if abs(_cross(V[idx[0]], V[idx[1]], V[idx[2]])) > 1e-12:
+    a, b, c = V[idx]
+    if abs(_cross(a, b, c)) > EAR_TOL_MM * max(math.dist(a,b), math.dist(b,c), math.dist(c,a)):
         tris.append((idx[0], idx[1], idx[2]))
     return tris
 
@@ -540,48 +615,4 @@ SMALL_POLY = 16          # ear_clip runs this rule in plain Python up to this ma
 
 def _ear_clip_small(V: np.ndarray, idx: list) -> list[tuple[int, int, int]]:
     """ear_clip's rule, element by element (the same ears, the same order)."""
-    pts = [(float(V[i, 0]), float(V[i, 1])) for i in idx]
-    idx = list(idx)
-    tris: list[tuple[int, int, int]] = []
-    while len(idx) > 3:
-        n = len(idx)
-        best, bk, any_cand = -1.0, -1, False
-        for k in range(n):
-            a, b, c = pts[k - 1], pts[k], pts[(k + 1) % n]
-            abx, aby = b[0] - a[0], b[1] - a[1]
-            if abx * (c[1] - a[1]) - aby * (c[0] - a[0]) <= 1e-12:
-                continue
-            any_cand = True
-            bcx, bcy, cax, cay = c[0] - b[0], c[1] - b[1], a[0] - c[0], a[1] - c[1]
-            bad = False
-            for j in range(n):
-                if j in ((k - 1) % n, k, (k + 1) % n):
-                    continue
-                x, y = pts[j]
-                if (abx * (y - a[1]) - aby * (x - a[0]) >= -1e-12 and bcx * (y - b[1]) - bcy * (x - b[0]) >= -1e-12
-                        and cax * (y - c[1]) - cay * (x - c[0]) >= -1e-12):
-                    if not any(abs(x - q[0]) < 1e-12 and abs(y - q[1]) < 1e-12 for q in (a, b, c)):
-                        bad = True
-                        break
-            if bad:
-                continue
-            la, lb, lc = math.hypot(bcx, bcy), math.hypot(cax, cay), math.hypot(abx, aby)
-            if lb * lc == 0 or la * lc == 0:
-                q = 0.0
-            else:
-                angA = math.acos(max(-1.0, min(1.0, (lb * lb + lc * lc - la * la) / (2 * lb * lc))))
-                angB = math.acos(max(-1.0, min(1.0, (la * la + lc * lc - lb * lb) / (2 * la * lc))))
-                q = min(angA, angB, math.pi - angA - angB)
-            if q > best:
-                best, bk = q, k
-        if not any_cand:
-            raise TempleError("E_TRIANGULATE", "degenerate region (no convex corner left)", at=list(pts[0]), n=n)
-        if bk < 0:
-            raise TempleError("E_TRIANGULATE", "no ear found (region not simple?)", at=list(pts[0]), n=n)
-        tris.append((idx[(bk - 1) % n], idx[bk], idx[(bk + 1) % n]))
-        idx.pop(bk)
-        pts.pop(bk)
-    a, b, c = pts
-    if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > 1e-12:
-        tris.append((idx[0], idx[1], idx[2]))
-    return tris
+    return _improve_thin_tris(V, _ear_clip_robust(V, idx))

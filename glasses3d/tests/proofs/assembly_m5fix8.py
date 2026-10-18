@@ -419,17 +419,18 @@ def run_copy_proof(out, source=DEFAULT_STAGE, protected_inventory=None):
                 if result.get('status') != 'refused' or result.get('code') != code:
                     raise AssertionError(f'{label}: expected {code}, got {result}')
                 negatives.append({'control': label, 'result': result})
-            # A fresh changed-reading state on this disposable copy must invalidate the original comparison.
+            # Change a bound corner's real numeric reading on this disposable copy, not an unrelated store key.
             old_readings = copy.deepcopy(lab.state.get('readings'))
+            bound_reading = next(iter(sorted(comparison['choice_dependencies']['readings'])))
             try:
-                lab.state.setdefault('readings', {})['proof-only-stale-sentinel'] = {'proof': True}
+                lab.state['readings'][bound_reading]['X'] += .125
                 stale = invoke('facet_visible_angle', {**common, 'comparison_id': cid, 'degrees': SELECTED_DEG})
             finally:
                 lab.state['readings'] = old_readings
                 lab.save()
             if stale.get('status') != 'refused' or stale.get('code') != 'E_COMPARISON_STALE':
-                raise AssertionError('changed reading store did not invalidate the comparison')
-            negatives.append({'control': 'changed_readings_on_copy_only', 'result': stale})
+                raise AssertionError('changed bound reading did not invalidate the comparison')
+            negatives.append({'control': 'changed_bound_reading_on_copy_only', 'reading': bound_reading, 'result': stale})
             report['negative_controls'] = negatives
             selected = next(c for c in comparison['alternatives'] if c['degrees'] == SELECTED_DEG)
             if selected.get('status') != 'eligible' or selected['capture']['spec'].get('ok') is not True:
@@ -445,6 +446,14 @@ def run_copy_proof(out, source=DEFAULT_STAGE, protected_inventory=None):
             if applied.get('status') != 'applied':
                 raise AssertionError('visible angle application failed: '+json.dumps(applied))
             rid = lab.head_record()['revision']
+            from glasses3d.agent.temple_lab.crease_angles import validate_design
+            try:
+                lab.state['readings']['proof-only-unrelated-sentinel'] = {'proof': True}
+                validate_design(lab, lab.design(rid))
+                report['retained_choice_survives_unrelated_reading'] = True
+            finally:
+                del lab.state['readings']['proof-only-unrelated-sentinel']
+                lab.save()
             tb = lab.build(rid)
             chosen_crease = next(c for c in lab.fit_result(rid).creases if c['name'] == 'fore|logo')
             report['selected_crease_label'] = F._crease_line(chosen_crease)

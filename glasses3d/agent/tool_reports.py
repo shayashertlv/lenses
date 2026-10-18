@@ -218,6 +218,10 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
     for key in ("review_call_id", "required_refs", "usable_refs", "unusable_refs"):
         if key in body:
             answer[key] = reference_field(body[key], _pointer(pointer, key))
+    if body.get("schema") == "g3d.crease_angle_comparison/1" and isinstance(body.get("summary"), dict):
+        # This bounded five-choice summary is the direct decision record. Large
+        # fit dependencies and export tables must not crowd its numbers out.
+        answer["summary"] = body["summary"]
     if isinstance(body.get("review"), dict):
         answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
                             ("required_refs", "review_call_id", "unavailable", "appearance_is_information")
@@ -235,7 +239,7 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
 
 def _merge_required(compact, required):
     for key, value in required.items():
-        if key in ("required_refs", "review_call_id", "usable_refs", "unusable_refs", "surface_quality"):
+        if key in ("required_refs", "review_call_id", "usable_refs", "unusable_refs", "surface_quality", "summary"):
             compact[key] = value
         elif isinstance(value, dict) and isinstance(compact.get(key), dict):
             if compact[key].get("kind") in ("object", "array") and "read_pointer" in compact[key]:

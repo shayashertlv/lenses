@@ -299,8 +299,9 @@ def _splice_join_facts(s: dict, original: dict, candidates: list[dict]) -> list[
         if abs(delta) < snap_of(s) and abs(angle - old_angle) < FLAT_CREASE_DEG \
                 and abs(turn - old_turn) < FLAT_CREASE_DEG:
             continue
-        message = (f"splice_chain {chain} join from edits[{c['edit_index']}] at d {d:.2f}: final value "
-                   f"{q[k][1]:.2f} mm ({delta:+.2f} mm from its pre-splice line); joining ramp "
+        op = c.get("op", "splice_chain")
+        message = (f"{op} {chain} join from edits[{c['edit_index']}] at d {d:.2f}: final value "
+                   f"{q[k][1]:.2f} mm ({delta:+.2f} mm from its pre-edit line); joining ramp "
                    f"d {lo:.2f}-{hi:.2f} rises {rise:+.2f} mm over {run:.2f} mm "
                    f"(slope {angle:+.1f} deg, before {old_angle:+.1f} deg); "
                    f"turn {turn:.1f} deg (before {old_turn:.1f} deg).")
@@ -723,7 +724,7 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
         s["nodes"], s["facets"], s["creases"] = {}, {}, []
     notes, deleted_nodes, set_facets, set_creases, gone_creases = [], {}, {}, {}, []
     told = []                           # [(notes index, "bend" | "beyond", data)]: told of the final design below
-    splice_joins, had_splice = [], False
+    splice_joins, had_splice, offset_joins = [], False, []
     for i, e in enumerate(edits):
         op = e.get("op") if isinstance(e, dict) else None
         if op == "set_node":
@@ -740,6 +741,8 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
                     told.append((len(notes), "bend", (bend[0], name) + bend[1:]))
                     notes.append(None)
                 for edge in OUTLINE_EDGES:
+                    if chains[edge] == _chain(s, f"outline.{edge}"):
+                        continue
                     notes += _carry(s, f"outline.{edge}", riding[edge], f"the knot set_node {name} put on "
                                     f"outline.{edge}", i, chains[edge])
             if is_read(node[2]):        # a read corner beyond the model's outline: the photos put the edge there
@@ -802,6 +805,13 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
             else:
                 delta = _num(e.get("delta_mm"), "delta_mm", i, DELTA_LIMIT_MM)
                 taper = _num(e.get("taper_mm"), "taper_mm", i, D_LIMIT_MM)
+                if taper == 0:
+                    # A continuous piecewise-linear chain needs a finite join. Keep it just beyond snapping,
+                    # rather than letting its length depend on the next pre-existing knot.
+                    from glasses3d.g3d.temple.spec import MIN_FEATURE_MM
+                    taper = snap_of(s) + MIN_FEATURE_MM
+                    offset_joins += [{**c, "op": "offset_chain"} for c in _splice_join_candidates(
+                        chain, pts_before, d_from, d_to, [[d_from, 0], [d_to, 0]], i)]
                 _set_chain(s, chain, _offset(pts, d_from, d_to, delta, taper, i))
             notes += _carry(s, chain, riding, f"{op} {chain}", i, [list(p) for p in pts_before])
         elif op == "set_scalar":
@@ -841,11 +851,16 @@ def apply_edits(spec: dict, edits: list, *, reset_layout: bool = False, readings
     notes += deleted
     joins = _splice_join_facts(s, original, splice_joins)
     notes += [r["message"] for r in joins]
+    offsets = _splice_join_facts(s, original, offset_joins)
+    notes += [r["message"] for r in offsets]
     if facts is not None:
         facts["outline_bends"], facts["deleted_creases"] = bends, deleted
         facts.pop("splice_joins", None)
+        facts.pop("offset_joins", None)
         if had_splice:
             facts["splice_joins"] = joins
+        if offset_joins:
+            facts["offset_joins"] = offsets
     return canonical_design(s), notes
 
 

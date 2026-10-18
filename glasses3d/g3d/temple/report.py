@@ -147,7 +147,9 @@ def receipt(tb, *, core_ms: float | None = None, include_stations: bool = False)
                              "slope_deg": _r(r["slope_deg"], 1), "length_mm": _r(r["length_mm"])}
                             for r in t["border_ramps"]],
            "snaps": [{"what": s["what"], "from": _r(s["from"], 4), "to": _r(s["to"], 4)} for s in tb.spec.snaps],
+           "feature_snaps": plain(tb.arr.feature_snaps),
            "checks": {"closed": tb.checks["closed"], "euler": tb.checks["euler"],
+                      "float32_degenerate_triangles": tb.checks["float32_degenerate_triangles"],
                       "volume_mm3": _r(tb.checks["volume_mm3"], 1),
                       "planar": tb.checks["planarity_max_mm"] <= tb.spec.options["planar_tol_mm"]},
            "budget": {"core_ms": _r(core_ms, 1)}}

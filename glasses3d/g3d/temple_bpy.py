@@ -32,6 +32,9 @@ scene, places the temples, writes once, and reports. Conventions:
 - decals="auto": parts lying within 1 mm of the old temple surface that are open or thin (measure.is_surface_decal)
   move by CHART TRANSFER: each decal vertex keeps the chart (d, y) of its foot point on the old temple surface and its
   signed standoff from it. The old foot-point normal chooses the inner or outer chart; inner print stays inside.
+  The source chart is the same as UV transfer: untagged sources use their current world pose (opening 0), tagged
+  sources use their saved hinge/opening. Top, bottom and cap foot points are refused with E_TARGET. Rendered parts
+  within 3 mm that cannot be transferred are named in the receipt and W_DECAL_NOT_MOVED warnings.
   It lands at that new surface X(d, y) plus the standoff along its outward normal (the
   -X side mirrored). Motion is reported per decal; W_DECAL_SPANS_CREASE when one decal lands on more than one region;
 - a null hinge axis is filled from the knuckles (default_axis) for the build only: the receipt's spec_sha256 and the
@@ -63,7 +66,7 @@ from pathlib import Path
 
 import bpy
 import numpy as np
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 from . import export_glb as EX
@@ -84,6 +87,8 @@ PROP_BACKUP = "g3d_temple_backup"
 PROP_VARIANT = "g3d_variant"
 DECAL_NEAR_MM = MS.DECAL_NEAR_MM   # a decal lies within this of the old temple surface (the shared rule:
 DECAL_THIN_MM = MS.DECAL_THIN_MM   # measure.is_surface_decal)
+MARKING_NEAR_MM = 3.0             # report nearby rendered parts omitted by the narrower decal transfer rule
+DECAL_CHART_COS = math.sqrt(0.5)   # a normal more than 45 degrees from local X is an unsupported edge chart
 EDGE_SLACK_MM = 1e-3               # a (d, y) this near the outer triangles is inside (float32 BVH, ~1e-4 mm drift)
 HINGE_NEAR_MM = MS.HINGE_NEAR_MM   # hinge parts (the shared rule: measure.hinge_part_kind)
 HINGE_X_MM = MS.HINGE_X_MM
@@ -345,25 +350,26 @@ class OuterSurface(_ChartSurface):
         self.inner = _ChartSurface(tb, inner=True)
 
 
-def find_decals(old_bvh, side, scene, origin, exclude) -> list:
+def find_decals(old_bvh, side, scene, origin, exclude, *, unmoved=None) -> list:
     """[(object, V asset mm, signed distances to the old temple)] of the surface decals on one side: every vertex
     within DECAL_NEAR_MM of the old temple surface, and measure.is_surface_decal (open, or thin by its box or along
     the surface normal)."""
     out = []
+    layer, _ = EX.render_view_layer(scene, bpy.context.view_layer)
+    visible = EX.render_status(layer)
     for ob in scene.objects:
-        if ob in exclude or ob.type != "MESH" or len(ob.data.vertices) == 0:
+        if ob in exclude or visible.get(ob, "not in render layer") is not None \
+                or ob.type not in {"MESH", "FONT", "CURVE", "SURFACE", "META"}:
             continue
-        V, _, polys = mesh_arrays(ob, origin)
+        V, _, polys = mesh_arrays(ob, origin, evaluated=ob.type != "MESH")
+        if not len(V):
+            continue
         lo, hi = _bbox(V)
         if side * (lo[0] + hi[0]) <= 0:
             continue
-        far = False
-        for v in V:                                   # cheap rejection first: any vertex beyond DECAL_NEAR_MM
-            loc, _, _, dist = old_bvh.find_nearest(Vector(tuple(map(float, v))))
-            if loc is None or dist > DECAL_NEAR_MM:
-                far = True
-                break
-        if far:
+        distances = [old_bvh.find_nearest(Vector(tuple(map(float, v))))[3] for v in V]
+        distances = np.asarray([np.inf if d is None else d for d in distances])
+        if distances.min() > MARKING_NEAR_MM:
             continue
         E = {}
         for p in polys:
@@ -371,17 +377,24 @@ def find_decals(old_bvh, side, scene, origin, exclude) -> list:
                 e = (min(p[k], p[(k + 1) % len(p)]), max(p[k], p[(k + 1) % len(p)]))
                 E[e] = E.get(e, 0) + 1
         open_ = any(c == 1 for c in E.values())
-        sd = _signed_distance(old_bvh, V, side)
-        if MS.is_surface_decal(sd, float(np.min(hi - lo)), open_):
+        sd = _signed_distance(old_bvh, V, side) if distances.max() <= DECAL_NEAR_MM else None
+        if ob.type == "MESH" and sd is not None and MS.is_surface_decal(sd, float(np.min(hi - lo)), open_):
             out.append((ob, V, sd))
+        elif unmoved is not None:
+            reason = (f"{ob.type} geometry is not a transferable mesh decal" if ob.type != "MESH" else
+                      f"some vertices lie more than {DECAL_NEAR_MM:g} mm from the old temple" if sd is None else
+                      f"closed geometry is thicker than {DECAL_THIN_MM:g} mm")
+            unmoved.append({"name": ob.name, "type": ob.type, "reason": reason,
+                            "min_distance_mm": float(distances.min()), "max_distance_mm": float(distances.max())})
     return out
 
 
-def transfer_decal(V, old_bvh, surf: OuterSurface, side: int, hinge: dict) -> dict:
+def transfer_decal(V, old_bvh, surf: OuterSurface, side: int, hinge: dict, *, source_hinge=None) -> dict:
     """Chart transfer of one decal (module docstring): per vertex the foot point Q on the old temple (nearest), the
     signed standoff s = +-|P - Q| (+ on the outward side of the old face), Q's chart (d, y) -> the new surface point
     S(d, y) + s n(d, y), mirrored for side -1. The old normal's local X sign selects inner versus outer chart.
-    An edge-facing foot point has no supported (d,y) chart and is refused. Returns the movement and region report."""
+    source_hinge describes the old surface, independently of the destination hinge. An edge-facing foot point
+    (>45 degrees from local X) has no supported (d,y) chart and is refused. Returns movement and region reports."""
     n = len(V)
     Q = np.zeros((n, 3))
     old_normals = np.zeros((n, 3))
@@ -391,14 +404,18 @@ def transfer_decal(V, old_bvh, surf: OuterSurface, side: int, hinge: dict) -> di
         Q[i] = np.array(loc)
         old_normals[i] = np.array(nrm)
         s[i] = dist if float(np.dot(p - Q[i], np.array(nrm))) >= 0 else -dist
-    Lq = TB.to_local(Q, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"], side=side)
-    Ln = TB.to_local(Q + old_normals, hinge["z_mm"], hinge["axis_xz_mm"], hinge["opening_deg"], side=side) - Lq
+    source_hinge = hinge if source_hinge is None else source_hinge
+    Lq = TB.to_local(Q, source_hinge["z_mm"], source_hinge["axis_xz_mm"], source_hinge["opening_deg"], side=side)
+    Ln = TB.to_local(Q + old_normals, source_hinge["z_mm"], source_hinge["axis_xz_mm"],
+                     source_hinge["opening_deg"], side=side) - Lq
     P = np.zeros((n, 3))
     regions, outside = set(), 0
     for i in range(n):
         d, y = float(Lq[i, 0]), float(Lq[i, 1])
-        if abs(Ln[i, 2]) <= 1e-7:
-            raise ValueError("decal foot point lies on a temple edge face without an inner/outer chart")
+        if abs(Ln[i, 2]) < DECAL_CHART_COS:
+            raise TempleError("E_TARGET", "decal foot point lies on a top, bottom or cap face without a supported "
+                              "inner/outer chart (surface normal is more than 45 degrees from local X)",
+                              vertex=i, normal_local=Ln[i].tolist())
         chart = surf.inner if Ln[i, 2] < 0 else surf
         X, nrm, reg, inside = chart.at(d, y)
         P[i] = np.array([d, y, X]) + s[i] * nrm
@@ -548,8 +565,9 @@ def _set_uv(me, uv):
     me.update()
 
 
-def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, triangle_polygons=None):
-    """Replace only n-gons whose Blender tessellation creates a zero-area ear.
+def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, triangle_polygons=None, *,
+                                    world_vertices=None, delivery_matrix=None):
+    """Replace only n-gons whose Blender tessellation fails the delivery's float32 area rule.
 
     The core retains collinear boundary vertices to keep adjacent cells closed.
     Blender may choose an ear consisting solely of such a run even though the
@@ -560,11 +578,24 @@ def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, trian
     """
     mesh.calc_loop_triangles()
     vertices = np.asarray([v.co[:] for v in mesh.vertices], float)
-    bad = set()
-    for tri in mesh.loop_triangles:
-        p = vertices[list(tri.vertices)]
-        if np.linalg.norm(np.cross(p[1]-p[0], p[2]-p[0])) <= 2e-12:
-            bad.add(tri.polygon_index)
+    world_vertices = vertices if world_vertices is None else np.asarray(world_vertices, float)
+    tessellation = np.asarray([tri.vertices[:] for tri in mesh.loop_triangles], np.int64)
+    flags = TS.triangle_degenerate_float32(world_vertices, tessellation)
+    bad = {tri.polygon_index for tri, flagged in zip(mesh.loop_triangles, flags) if flagged}
+    delivery_vertices = world_vertices
+    if delivery_matrix is not None:
+        # Scaling to metres can choose different Blender ears. Inspect precisely the transform and
+        # retessellation the exporter will perform, retaining polygon IDs on this unlinked temporary copy.
+        probe = mesh.copy()
+        try:
+            EX.bake_transform(probe, delivery_matrix)
+            probe.calc_loop_triangles()
+            delivery_vertices = np.asarray([v.co[:] for v in probe.vertices], float) * 1000.
+            faces = np.asarray([tri.vertices[:] for tri in probe.loop_triangles], np.int64)
+            flags = TS.triangle_degenerate_float32(delivery_vertices, faces)
+            bad.update(tri.polygon_index for tri, flagged in zip(probe.loop_triangles, flags) if flagged)
+        finally:
+            bpy.data.meshes.remove(probe)
     if not bad:
         return mesh, 0
     stable = np.asarray(stable_vertices, float)
@@ -591,8 +622,10 @@ def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, trian
             for piece in pieces:
                 p = vertices[piece]
                 normal = np.cross(p[1]-p[0], p[2]-p[0])
-                if np.linalg.norm(normal) <= 2e-12:
-                    raise TempleError('E_TARGET', 'temple triangle collapses at Blender precision', reason='zero_area_tessellation')
+                if TS.triangle_degenerate_float32(world_vertices, [piece])[0] \
+                        or TS.triangle_degenerate_float32(delivery_vertices, [piece])[0]:
+                    raise TempleError('E_TARGET', 'temple triangle is degenerate at float32 delivery precision',
+                                      reason='float32_degenerate_tessellation')
                 if normal @ np.asarray(poly.normal) < 0:
                     piece = piece[::-1]
                 oriented.append(piece)
@@ -1139,7 +1172,9 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
         _set_uv(me, uv)
     safe, repaired = _repair_degenerate_tessellation(
         me, tb.V if geometry is None else geometry['V'],
-        tb.tris if geometry is None else None, tb.tri_poly if geometry is None else None)
+        tb.tris if geometry is None else None, tb.tri_poly if geometry is None else None,
+        world_vertices=np.asarray([v.co[:] for v in me.vertices], float) @ M3.T + _matrix(ob)[1] - origin,
+        delivery_matrix=Matrix.Scale(.001, 4) @ Matrix.Translation(-Vector(origin)) @ ob.matrix_world)
     if safe is not me:
         planned.append(safe)
         bpy.data.meshes.remove(me)
@@ -1153,8 +1188,15 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
     hparts = hinge_parts(side, axis, h["z_mm"], scene, origin, excl)
     plan["hinge_parts"] = [{"name": o.name, "kind": kind} for o, kind in hparts]
     if decals == "auto":                          # hinge parts are never moved, so never a decal
-        for dob, V, _ in find_decals(old_bvh, side, scene, origin, excl | {o for o, _ in hparts}):
-            tr = transfer_decal(V, old_bvh, surf, side, h)
+        from . import temple_uv_source as UVS
+        source_hinge = UVS._frame(ob, origin, h, _backup_record(ob).get("uv_written_frame"))["hinge"]
+        plan["unmoved_nearby_parts"] = []
+        for dob, V, _ in find_decals(old_bvh, side, scene, origin, excl | {o for o, _ in hparts},
+                                    unmoved=plan["unmoved_nearby_parts"]):
+            try:
+                tr = transfer_decal(V, old_bvh, surf, side, h, source_hinge=source_hinge)
+            except TempleError as exc:
+                raise TempleError(exc.code, f"decal {dob.name}: {exc.message}", decal=dob.name, **exc.fields) from exc
             dm = dob.data.copy()
             dm.name = dob.data.name + " | g3d decal (planned)"
             planned.append(dm)
@@ -1168,6 +1210,9 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
             if len(tr["regions"]) > 1:
                 plan["warnings"].append({"code": "W_DECAL_SPANS_CREASE", "decal": dob.name, "regions": tr["regions"],
                                          "message": f"decal {dob.name} spans {'|'.join(tr['regions'])}"})
+        for part in plan["unmoved_nearby_parts"]:
+            plan["warnings"].append({"code": "W_DECAL_NOT_MOVED", "part": part["name"],
+                                     "message": f"nearby part {part['name']} ({part['type']}) not moved: {part['reason']}"})
     excl_h = excl | {d["object"] for d in plan["decals"]}
     plan["hinge"] = hinge_report(new_bvh, old_bvh, side, axis, h["z_mm"], scene, origin, excl_h, parts=hparts)
     for lf in plan["hinge"]["leaves"]:
@@ -1214,6 +1259,7 @@ def _side_receipt(plan) -> dict:
             "decals": [{k: d[k] for k in ("name", "vertices", "outside", "max_move_mm", "mean_move_mm", "standoff_mm",
                                           "regions")} for d in plan["decals"]],
             "hinge": plan["hinge"], "hinge_parts": plan.get("hinge_parts", []), "warnings": plan["warnings"],
+            "unmoved_nearby_parts": plan.get("unmoved_nearby_parts", []),
             "uv_tessellation": plan.get("uv_tessellation"),
             "retriangulated_polygons": plan.get("retriangulated_polygons", 0),
             "planned_vertices": len(plan["mesh"].vertices), "planned_polygons": len(plan["mesh"].polygons)}
@@ -1270,15 +1316,16 @@ def _write(plans, tb) -> None:
                 drec = bk["decals"].get(dob.name)
                 if drec is None:
                     dname = dold.name
-                    dold.name = dname + BACKUP_SUFFIX
+                    # A decal mesh may serve both temples (mirrored object copies). Retain its identity AND
+                    # name: renaming it for each owner redirects the first owner's name-based undo record.
                     dold.use_fake_user = True
                     bk["decals"][dob.name] = {"mesh": dold.name, "original_name": dname}
                     dob.data = d["mesh"]
-                    d["mesh"].name = dname
+                    d["mesh"].name = dname + " | g3d decal"
                 else:
                     dob.data = d["mesh"]
                     dold.name = dold.name + " (g3d discarded)"
-                    d["mesh"].name = drec["original_name"]
+                    d["mesh"].name = drec["original_name"] + " | g3d decal"
                     if dold.users == 0:
                         bpy.data.meshes.remove(dold)
                 ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)

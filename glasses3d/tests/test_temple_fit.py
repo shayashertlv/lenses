@@ -984,12 +984,11 @@ def test_a_reading_used_away_from_where_it_was_read_warns():
         return FX.straight(nodes={"P": [20.0, -6.0, read(64.0, 0.2)], "Q": [60.0 + dq, -6.0, {"read": r}],
                                   "R": [60.0, 6.0, read(65.0, 0.2)]}, facets={"T": ["P", "Q", "R"]})
     res = FT.fit_spec(design(10.0, 0.7))
-    (w,) = res.warnings
-    assert w["code"] == "W_FIT_OFF_READING" and w["kind"] == "position" and w["off_mm"] == pytest.approx(10.0)
-    assert w["message"] == "node Q at d 70.00, y -6.00: its reading at d 60.00 +- 0.70, y -6.00 (10.00 mm away)"
+    assert res.nodes["Q"]["d"] == pytest.approx(60.)
+    assert not res.warnings  # The built corner reaches the reading; its old design position is not a misfit.
     for dq, sd_d, warns in ((0.4, None, False), (0.6, None, True), (1.0, 0.7, False), (1.6, 0.7, True)):
         res = FT.fit_spec(design(dq, sd_d))
-        assert [x["code"] for x in res.warnings] == (["W_FIT_OFF_READING"] if warns else []), (dq, sd_d)
+        assert [x["code"] for x in res.warnings] == (["W_FIT_OFF_READING"] if warns and sd_d is None else []), (dq, sd_d)
     s = FX.straight(nodes={"P": [20.0, -6.0, 4.0], "Q": [60.0, -6.0, 4.5], "E": [40.0, 6.0, 5.27]},
                     facets={"T": ["P", "Q", "E"]})
     res = FT.fit_spec(s, readings={"E": {"X": 65.27, "sd_X": 0.4, "d": 30.0, "y": 6.0, "sd_d": 0.5}})

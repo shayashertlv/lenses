@@ -441,6 +441,7 @@ class TempRender:
         self.made: list = []                 # (collection, datablock) in creation order
         self.copies: dict = {}               # original name -> copy
         self.base: dict = {}                 # original name -> (data, matrix_world, [slot materials])
+        self.normal_modifiers: dict = {}     # original flags restored between overridden and ordinary views
         self.origin = origin_marker(scene) or [0.0, 0.0, 0.0]
 
     def _new(self, coll, *args):
@@ -478,8 +479,11 @@ class TempRender:
             sc.collection.objects.link(c)
             self.copies[obj.name] = c
             self.base[obj.name] = (obj.data, mw, mats)
+            self.normal_modifiers[obj.name] = [(m, m.show_viewport, m.show_render) for m in c.modifiers
+                                               if m.type == "WEIGHTED_NORMAL"]
             self._set_materials(c, mats)
         self.sides = temple_sides(self.objects, self.origin)
+        self.temples = {o.name for o in self.objects if _role(o) == "temple"}
         self.bodies, self.acetate = acetate_bodies(self.objects, self.origin)
         self.lenses = sorted(o.name for o in self.objects if _role(o) == "lens")
         self.lens_mats: dict = {}
@@ -778,7 +782,7 @@ class TempRender:
         else:
             self.set_view("Raw" if name == "normal" else "Standard")
             r.image_settings.color_depth = "8"
-            r.dither_intensity = self.dither0
+            r.dither_intensity = 0.0 if name == "normal" else self.dither0
 
     def _set_materials(self, c, mats) -> None:
         """Link every slot of a copy to the object and give it ``mats`` (the original's materials, by index)."""
@@ -811,6 +815,12 @@ class TempRender:
             want = bpy.data.meshes[overrides[name]] if name in overrides else data
             if c.data is not want:
                 c.data = want
+            # faceted_temple removes these modifiers when it writes the authored corner normals.
+            # Match that surface on the temporary copy, then restore the flags for a later head view.
+            variant = name in overrides and want.get("g3d_variant") is not None and name in self.temples
+            for modifier, viewport, render in self.normal_modifiers[name]:
+                modifier.show_viewport = False if variant else viewport
+                modifier.show_render = False if variant else render
             side = self.sides.get(name)
             if side in pose:
                 th, (ax, az) = pose[side]

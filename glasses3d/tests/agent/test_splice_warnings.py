@@ -93,7 +93,7 @@ def test_deletion_bridge_reports_actual_new_join_without_reinserting_knots():
 
 def test_original_restored_by_offset_and_unrelated_scalar_edits_do_not_leave_splice_notes():
     offset = {"op": "offset_chain", "chain": "outline.top", "d_from_mm": 20.0,
-              "d_to_mm": 40.0, "delta_mm": -3.0, "taper_mm": 0.0}
+              "d_to_mm": 40.0, "delta_mm": -3.0, "taper_mm": 20.0}
     facts = {}
     _, notes = G.apply_edits(design(), [splice(), offset, {"op": "set_scalar", "key": "roll_mm", "value": 0}],
                             facts=facts)

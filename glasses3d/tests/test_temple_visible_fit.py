@@ -76,6 +76,20 @@ def test_local_uncertain_reading_cost_can_exceed_old_gate_but_is_reported_honest
     assert "unresolved local-face readings" in text and "full residual cost is shown" in text
 
 
+@pytest.mark.parametrize("value,source", [(8., "typed"), (None, "solve")])
+def test_visible_angle_can_rotate_exclusive_typed_and_solved_corners(value, source):
+    s = design()
+    s["nodes"]["D"][2] = value
+    baseline = F.fit_spec(s)
+    result = F.fit_spec(select(s))
+    assert target(baseline)["state"] == "open"
+    assert target(result)["normal_deg"] == pytest.approx(12., abs=1e-7)
+    assert result.nodes["D"]["source"] == source
+    assert result.model["visible_angles"]["choices"][0]["reading_residuals"]["D"]["source"] == source
+    assert result.model["visible_angles"]["unrelated_residuals_unchanged"]
+    assert build_temple(result.spec).checks["closed"]
+
+
 @pytest.mark.parametrize("sd,valley,state", [(.01, 0., "flat"), (.05, 10., "certain"), (.05, -10., "certain")])
 def test_original_certain_and_flat_measurements_are_not_eligible(sd, valley, state):
     s = design(sd, valley)

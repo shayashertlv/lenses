@@ -18,7 +18,8 @@ Steps:
     WARP_CHORD_MM per cell, measured after the build as facets[].chord_mm; each line kept WARP_CLEAR_MM clear of the
     facet's vertices and off any edge it would graze, so no sliver triangle), retried on two more lattices and else
     left out (W_WARP_CHORD, also above WARP_CHORD_WARN_MM); an arrangement face that would visit a vertex twice (a
-    facet corner touching the outline or another facet at one point) gets a chord through that vertex;
+    facet corner touching the outline or another facet at one point) gets a chord through that vertex. Full-solid
+    vertices within MIN_FEATURE_MM merge, retaining the first boundary/facet coordinate and reporting the snaps;
  4. surfaces (planes.py: planes, coef planes, warps), then vertex values: a facet vertex takes its facet's surface; a
     vertex shared by facets takes the first label's (their planes agree there, planes.py; one value per vertex:
     continuous, never a step); a base vertex at distance delta < band from a border takes base + (1 - delta / band) x
@@ -29,13 +30,15 @@ Steps:
     so the strip's outer edge moves in to X - r and the side silhouette is unchanged. Limit:
     r <= min(min thickness - t_min, 0.45 x outline height - chamfer widths), else E_ROLL;
  6. cells and polygons: a facet cell is a face of a facet; a warp facet's faces are warp cells. Facet cells
-    (chamfered or rolled too) are planar n-gons; every other outer cell (warp, base, ramp) is the arrangement's
+    are planar n-gons; rolled cells crossing a profile break after feature snapping use the core triangles if needed
+    to retain the same planarity tolerance. Every other outer cell (warp, base, ramp) is the arrangement's
     ear-clip triangles, never an n-gon, so Blender and the GLB share the core's triangulation; inner polygons
     (planar: x_in is linear between stations), one planar quad per outline edge (top / bottom strips), a planar
     hinge-end cap and tip cap;
  7. self-checks: closed oriented 2-manifold, Euler 2, volume > 0, every polygon planar within planar_tol_mm (one
     tolerance: a spec planes.solve accepts never fails E_TRIANGULATE on its own rounding; it was 1e-9), thickness >=
-    t_min (E_TOO_THIN), outer triangles with positive (d, y) area (no self-intersection);
+    t_min (E_TOO_THIN), outer triangles with positive (d, y) area (no self-intersection), and no triangles degenerate
+    under the delivery rule after conversion to float32 metres (E_SHORT_EDGE);
  8. sharp edges: a crease edge (two different regions, facet/facet or facet/base) between facet cells always; one
     with a warp cell on either side while the crease still stands: its design dihedral (the angle between the two
     regions' surfaces, plane / warp / base, at the edge midpoint; chamfers, roll and triangulation aside) >=
@@ -78,10 +81,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import planes as PL_
-from .arrange import Arrangement, build_arrangement, clip_segment, ear_clip, poly_area, simple_polygon
-from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, FLAT_CREASE_DEG,
+from .arrange import (Arrangement, build_arrangement, clip_segment, ear_clip, poly_area, simple_polygon, EAR_TOL_MM)
+from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DEG, DEDUPE_MM, MIN_FEATURE_MM, FLAT_CREASE_DEG,
                    ROLL_BANDS, SHARP_DIHEDRAL_DEG, SOFT_BAND_MM, SOFT_SHARP_DEG, TILE_TOL_MM2, ParsedSpec, TempleError,
-                   _facet_crossings, chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile)
+                   _facet_crossings, chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile,
+                   triangle_degenerate_float32)
 
 WALL_KINDS = ("top", "bottom", "cap_hinge", "cap_tip")
 OUTER_KINDS = ("outer", "roll")
@@ -112,7 +116,7 @@ class TempleBuild:
     polys: list                       # outward polygons (vertex id lists)
     poly_kind: list                   # outer | roll | inner | top | bottom | cap_hinge | cap_tip
     poly_region: list                 # outer / roll: facet label or "base" (+ "/chamfer<i>"); others: their kind
-    poly_face: list                   # arrangement face of an outer / roll / inner polygon, else -1
+    poly_face: list                   # arrangement face, or -1 for walls and repaired cross-cell inner triangles
     poly_cell: list                   # outer / roll: the face's cell kind; others: their kind
     tris: np.ndarray                  # (m, 3) triangles of the polygons
     tri_poly: np.ndarray              # (m,) polygon of each triangle
@@ -581,7 +585,8 @@ def _plan(ps: ParsedSpec):
     prep = prepare(ps)
     stations = station_list(ps, prep)
     segs = segments(ps, prep, stations)
-    arr = build_arrangement(ps.boundary(), segs, chord_fn=lambda d: chord(ps, d), inside=INSIDE_KINDS)
+    arr = build_arrangement(ps.boundary(), segs, chord_fn=lambda d: chord(ps, d), inside=INSIDE_KINDS,
+                            merge_tol=MIN_FEATURE_MM)
     labels, chamf = _label_faces(ps, arr)
     sol = PL_.solve(ps, arr, labels)
     for shift in range(WARP_TRIES):
@@ -590,7 +595,7 @@ def _plan(ps: ParsedSpec):
             return prep, stations, arr, labels, chamf, sol, False
         try:                         # a refinement line can graze a vertex (a sliver of no area): try another lattice
             arr2 = build_arrangement(ps.boundary(), segs + extra, chord_fn=lambda d: chord(ps, d),
-                                     inside=INSIDE_KINDS)
+                                     inside=INSIDE_KINDS, merge_tol=MIN_FEATURE_MM)
             labels2, chamf2 = _label_faces(ps, arr2)
             sol2 = PL_.solve(ps, arr2, labels2)
         except TempleError:
@@ -939,6 +944,8 @@ def build_temple(spec) -> TempleBuild:
     V[:n, 2] = Xo
     V[n:, 2] = x_in
     polys, kind, region, pface, pcell, tris, tri_poly = _assemble(ps, arr, labels, chamf, froll, cells, V)
+    polys, kind, region, pface, pcell, tris, tri_poly, float32_bad = _repair_inner_ears(
+        ps, V, polys, kind, region, pface, pcell, tris, tri_poly)
     normals, planarity, areas = _newell_all(V, polys)
     checks = _self_checks(V, polys, tris, tri_poly, kind, V2, planarity)
     if not checks["closed"]:
@@ -959,9 +966,91 @@ def build_temple(spec) -> TempleBuild:
                      V=V, polys=polys, poly_kind=kind, poly_region=region, poly_face=pface, poly_cell=pcell, tris=tris,
                      tri_poly=tri_poly, sharp=sharp, flat_polys=flat, normals=normals, checks=checks, tables={},
                      warnings=list(sol.warnings) + warnings, face_ramp=ramp_kind)
+    if float32_bad:
+        raise TempleError("E_SHORT_EDGE", f"{float32_bad} triangle(s) remain below float32-metre "
+                          f"resolution after {MIN_FEATURE_MM:g} mm feature snapping",
+                          triangles=float32_bad, feature_mm=MIN_FEATURE_MM)
+    checks["float32_degenerate_triangles"] = 0
     tb.tables = _tables(tb, edge_info, B, prep, roll_info, areas, unrefined)
     _check_creases(tb)
     return tb
+
+
+def _repair_inner_ears(ps, V, polys, kind, region, pface, pcell, tris, tri_poly):
+    """Remove unsafe inner ears across artificial roll/cell borders, without moving the surface.
+
+    A vertical roll offset beside a steep outline can be safe on the curved outer surface but form a thin inner
+    strip. Inner cells share the same linear inner(d) plane, so their artificial borders need not constrain the
+    triangulation. Remove only an interior vertex whose entire incident triangle fan is coplanar, and retriangulate
+    its unchanged boundary. True inner-table kinks and every solid boundary vertex remain protected. Changed
+    polygons become the exact canonical triangles so Blender cannot restore the unsafe n-gon ears.
+    """
+    h = ps.hinge
+    world = to_world(V, h["z_mm"], h["axis_xz_mm"], h["opening_deg"])
+    inner = np.array([kind[p] == "inner" for p in tri_poly])
+    bad = triangle_degenerate_float32(world, tris)
+    if not np.any(inner & bad):
+        return polys, kind, region, pface, pcell, tris, tri_poly, int(bad.sum())
+    protected = set(tris[~inner].ravel())
+    changed = set()
+    while True:
+        bad = triangle_degenerate_float32(world, tris)
+        candidates = sorted(set(tris[bad & inner].ravel()) - protected)
+        repaired = False
+        for v in candidates:
+            incident = np.flatnonzero(np.any(tris == v, axis=1))
+            fan = tris[incident]
+            points = V[np.unique(fan)]
+            a, b, c = V[fan[0]]
+            normal = np.cross(b - a, c - a)
+            length = np.linalg.norm(normal)
+            if length == 0 or np.max(np.abs((points - a) @ normal)) > EAR_TOL_MM * length:
+                continue
+            # Opposite edges of an interior oriented fan form one closed simple ring.
+            edges = [(int(t[(k+1)%3]), int(t[(k+2)%3])) for t in fan
+                     for k in range(3) if t[k] == v]
+            following = dict(edges)
+            if len(following) != len(edges) or set(following) != set(following.values()):
+                continue
+            ring = [min(following)]
+            while following[ring[-1]] not in ring:
+                ring.append(following[ring[-1]])
+            if len(ring) != len(edges) or following[ring[-1]] != ring[0]:
+                continue
+            try:
+                replacement = np.asarray([t[::-1] for t in ear_clip(V[:, :2], ring[::-1])], np.int64)
+            except TempleError:
+                continue
+            if len(replacement) != len(ring) - 2 or triangle_degenerate_float32(world, replacement).sum() > bad[incident].sum():
+                continue
+            changed.update(int(p) for p in tri_poly[incident] if p >= 0)
+            keep_tri = np.ones(len(tris), bool)
+            keep_tri[incident] = False
+            tris = np.concatenate((tris[keep_tri], replacement))
+            tri_poly = np.concatenate((tri_poly[keep_tri], np.full(len(replacement), -1, np.int64)))
+            inner = np.concatenate((inner[keep_tri], np.ones(len(replacement), bool)))
+            repaired = True
+            break
+        if not repaired:
+            break
+    if not changed:
+        return polys, kind, region, pface, pcell, tris, tri_poly, int(bad.sum())
+    keep = [p for p in range(len(polys)) if p not in changed]
+    remap = {p: i for i, p in enumerate(keep)}
+    out_polys, out_kind, out_region, out_face, out_cell = (
+        [values[p] for p in keep] for values in (polys, kind, region, pface, pcell))
+    mapped = np.empty_like(tri_poly)
+    for i, p in enumerate(tri_poly):
+        if p in changed or p == -1:
+            mapped[i] = len(out_polys)
+            out_polys.append(tris[i].tolist())
+            out_kind.append("inner")
+            out_region.append("inner")
+            out_face.append(-1)
+            out_cell.append("inner")
+        else:
+            mapped[i] = remap[p]
+    return out_polys, out_kind, out_region, out_face, out_cell, tris, mapped, int(bad.sum())
 
 
 def _assemble(ps, arr, labels, chamf, froll, cells, V):
@@ -973,7 +1062,13 @@ def _assemble(ps, arr, labels, chamf, froll, cells, V):
         reg = labels[fi] + ("" if chamf[fi] is None else f"/chamfer{chamf[fi]}")
         k = "roll" if froll[fi] else "outer"
         et = arr.face_tris[fi]
-        if cells[fi] == "facet":
+        # Snapping a roll/station crossing onto the neighbouring vertex can cross a roll profile knot. Keep the
+        # unchanged planar-facet contract: split only that curved/rounded cell into the canonical triangles.
+        planar_facet = cells[fi] == "facet"
+        if planar_facet and froll[fi] and len(f) > 3:
+            _, err, _ = _newell_all(V, [f])
+            planar_facet = err[0] <= ps.options["planar_tol_mm"]
+        if planar_facet:
             po = len(polys)
             polys.append(list(f))
             kind.append(k)

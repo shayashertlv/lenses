@@ -4,11 +4,13 @@ product output.
 
 A fresh package (temple_lab.cli.prepare: a byte copy of the original Prada scene, the six target photos, the three
 black photos B1-B3 with their transported cameras, the pose basis, revision 0 fitted and applied) runs through
-agent/loop.run_astra with the pinned Agents SDK, the real Blender worker and the seven v3 tools (tools.TOOL_NAMES),
+agent/loop.run_astra with the pinned Agents SDK, the real Blender worker and the seven scripted v3 tools,
+with explicit coverage exemptions for newer tools proved separately (TOOL_EXEMPTIONS below),
 while api.openai.com is a MockTransport (agent/replay.ScriptedOpenAI) whose replies are scripted calls built from the
 live lab state; LoopbackOnly and the production-transport tripwire are active throughout. The run settings are exactly
-a paid run's (tools.run_settings: required tool choice kept, final only on an accepted facet_finish with K 4, the
-context guard at 240k counted input); only the approval is a synthetic OFFLINE ONLY record.
+a paid run's (tools.run_settings: required tool choice kept, final only on an accepted facet_finish with K 4).
+Request pressure uses production append-only conversation renewal; legacy context settings do not rewrite images.
+Only the approval is a synthetic OFFLINE ONLY record.
 
 The controls (tests/proofs/wp6v3_rehearsal_checks.py): six chart points CTRL (d, y, t above revision 0's base surface)
 picked in the photos by projecting them through the lab's own cameras, so every reading has an exact answer: A, H, K
@@ -17,7 +19,7 @@ images of the chart segments E-H and E-K (shallow in the side views beside their
 two photos. The layout: crown A H E K (warp: K lies off the plane of A H E), logo A K C (soft border), all from the
 readings; crown|logo builds a certain ridge, so declaring it a valley is refused E_FIT_SHAPE.
 
-The script (23 requests, one tool call each) and what it checks:
+The script (23 tool requests and one renewal summary request) and what it checks:
     inspect          facet_inspect of revision 0: one chart image, the v3 node columns (fitted_at)
     photo_image      a 05 crop at scale 2, enhanced: k 2, the stretch
     photo_black      B2 whole: a black photo, its colour
@@ -39,12 +41,11 @@ The script (23 requests, one tool call each) and what it checks:
     edit_h2          H2 = H1 with A set from the new reading and the bottom outline offset
     variants         of H2 at 05 (native panels) and B1 (gloss_black panels): flat crown, K typed 1 mm out, the tail
                      outline, and the refused valley arm; the scene unchanged, each model's edges drawn, the spread;
-                     its count is scripted above the guard threshold
-    edit_h3          the flat arm applied with no edits (the guard's request: its decision is checked, below)
-    reapply_h1       H1 applied again with no edits, after the guard's epoch (v3 has no restore): its default compare
-                     hits seeing's compare cache, so its panels are the very bytes the guard stubbed in edit_h1's
-                     output, and they must reach the next request as images (review 2026-10-12, P1, v3p3-verify-14:
-                     context guard /1 stubbed them by bytes; /2 scopes each epoch's choice to the outputs present then)
+    renewal_summary  pressure just beyond the frozen tariff's 80% threshold: a scripted written summary, no tools;
+                     every owner photo and current comparison/reading evidence carried into the fresh conversation
+    edit_h3          the flat arm applied with no edits, in the renewed conversation
+    reapply_h1       H1 applied again with no edits: its cached compare panels have the original edit_h1 bytes and
+                     reach the next request as images even after renewal removed that obsolete result from context
     finish_early     matched, judging reapply_h1's compare: E_FINISH naming exactly preconditions 1 and 3, the run goes
                      on
     inspect_slow     facet_inspect made to outlast a shortened SDK timeout: E_TIMEOUT with the footer ...
@@ -57,18 +58,15 @@ The script (23 requests, one tool call each) and what it checks:
                      (W_FIT_OFF_READING)
     variants_h5      two arms of H5 at 05 (precondition 5's variants since the latest head)
     finish           stuck with H2: accepted, exported, validated; no request after it
-and across the run: every tool called, tool_choice required on every request, each output's images in the next
+and across the run: every scripted tool called, tool_choice required except the summary's none, each output's images in the next
 request, every result's footer, no retired v2 phrase in any output, every photo in the first request (6 target + 3
 black), instructions-sent.txt byte for byte the bound text, crease_vs_head exactly where the builds flip a crease and
 diff_vs_head exactly where the parent is not the head, no network, the worker's own refusals.
 
-The context guard's decision (wp6v3_rehearsal_checks module doc): compare panels, zoom grids and variant sheets of a
-superseded result (older than the latest 2, not a compare of best_checkpoint's revision) may be stubbed, and a pick
-sheet only once its reading was read again or dropped; photo views, charts and the stored readings' pick sheets stay.
-At edit_h3's request the guard's real choice must equal expected_stubs on the state it chose from, with every class
-present (an old compare panel, an old zoom grid, the re-read and the dropped reading's sheets stubbed; the stored
-readings' sheets, the photo views, the charts, the latest results and best's compare kept), and every later request
-must carry the same stubs and no stub in any output that arrived after it.
+The renewal checks use the real temple lab's evidence selection: all current reading sheets and complete latest
+photo-compare groups. The old conversation's persisted message bytes and every prior request stay unchanged;
+the renewed request contains the original owner-photo bytes and every selected evidence digest, with no image
+stubs. Legacy ContextGuard behavior is independently covered by tests/agent/test_loop_facet.py and test_image_policy.py.
 
 Writes <out>/rehearsal.json (and <out>-run.json, the process receipt); the cost estimate (cli estimate) prices its
 tool_outputs ([W, H, cli.record_kind], each facet_variants call with its "arms") and its first request's serialized
@@ -80,10 +78,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import threading
 import time
 import traceback
@@ -92,17 +92,19 @@ import numpy as np
 from PIL import Image
 
 from glasses3d.agent import approvals as A
+from glasses3d.agent import budget as B
 from glasses3d.agent import replay as R
-from glasses3d.agent.loop import REMOVED_PHRASES, run_astra
+from glasses3d.agent import renewal as N
+from glasses3d.agent.loop import REMOVED_PHRASES, footer_text, run_astra
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
 from glasses3d.agent.temple_lab import geometry as G
-from glasses3d.agent.temple_lab import lab as LB
 from glasses3d.agent.temple_lab import readings as RD
 from glasses3d.agent.temple_lab import state as S
 from glasses3d.tests.fixtures.temple_lab_prada import prepare_kwargs
 from glasses3d.agent.temple_lab.cli import DEFAULT_RIG, RETIRED_PHRASES, make_spec, prepare, record_kind
 from glasses3d.agent.temple_lab.lab import read, sha, write_json_atomic
-from glasses3d.agent.temple_lab.tools import CONTEXT_GUARD_TOKENS, TOOL_NAMES, run_settings
+from glasses3d.agent.temple_lab.tools import TOOL_NAMES, run_settings
+from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d_host.compare import RIDGE_RGB, VALLEY_RGB
 from glasses3d.tests.proofs import wp6v3_rehearsal_checks as CH
 
@@ -112,9 +114,49 @@ LABEL = "SCRIPTED OFFLINE TOOL TEST, NOT ASTRA OUTPUT"
 SLOW_INSPECT_S = 8.0           # the simulated stuck call: facet_inspect sleeps this long ...
 SHORT_TIMEOUT_S = 3.0          # ... under this SDK timeout, so the next call finds the scene lock held
 SLOW_EDIT_S = 5.0              # the timed-out apply: facet_edit starts this late under the same short timeout
-GUARD_COUNT = CONTEXT_GUARD_TOKENS + 1_000      # one scripted count above the guard: it fires on the next request
-FOOTER = re.compile(r"\nsettled \$\d+\.\d\d / cap \$\d+\.\d\d · context \S+ tokens$")
+RENEWAL_COUNT = B.Tariff.frozen().long_context_input_tokens * 4 // 5 + 1
+SCRIPTED_TOOL_NAMES = frozenset({"facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit",
+                                "facet_variants", "facet_finish"})
+# The rehearsal controls predate these independent capabilities; do not silently claim to exercise them.
+TOOL_EXEMPTIONS = {
+    "read_report": "glasses3d/tests/agent/test_tool_reports.py",
+    "facet_crease_compare": "glasses3d/tests/proofs/assembly_m5fix8.py",
+    "facet_visible_angle": "glasses3d/tests/proofs/assembly_m5fix8.py",
+}
+
+
+def footer_pattern():
+    """Keep the production footer's exact wording, allowing only its changing numeric fields."""
+    sample = footer_text("1234.56", "9876.54", 123456789, held_usd="2345.67")
+    pattern = re.escape(sample)
+    for value in ("$1234.56", "$9876.54", "$2345.67"):
+        pattern = pattern.replace(re.escape(value), r"(?:\$\d+\.\d{2}|n/a)")
+    pattern = pattern.replace("123456789", r"(?:\d+|n/a)")
+    return re.compile(r"\n" + pattern + r"$")
+
+
+FOOTER = footer_pattern()
 CONTROL = "SCRIPTED CONTROL, not a visual judgement"
+SUMMARY_STEP = "renewal_summary"
+
+
+def prepare_script_reply(transport, steps):
+    """Only creates consume replies. Admission/renewal may count one pending request more than once."""
+    index = len(transport.creates)
+    if len(transport.replies) == index and index < len(steps):
+        transport.replies.append(steps[index][1]())
+
+
+def request_digest(body):
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def conversation_rows(root, session_id="astra"):
+    with sqlite3.connect(Path(root) / "session" / "session.sqlite") as conn:
+        return conn.execute("SELECT message_data FROM agent_messages WHERE session_id=? ORDER BY id",
+                            (session_id,)).fetchall()
+
+
 # the control points: (d, y, t mm above revision 0's base surface at (d, y)); K stands 1.1-1.5 mm off the plane of
 # A, H, E (a warp crown, 0.44 mm off one plane in the fit) and C low, so crown|logo builds a certain ~10 deg ridge
 # (host pre-check on revision 0: readings-only +9.3 +- 2.8 deg)
@@ -179,9 +221,9 @@ C_UP_MM = 2.0                  # H5 types C this far out of its reading: logo|ba
 
 
 def arms(readings: dict, labels=("flat", "kdeep", "tail", "valley")) -> list:
-    """The variant arms (each edits the parent): flat crown; K typed 1 mm further out than its reading (the fit weighs
-    it against the reading: W_FIT_OFF_READING); the tail's top outline 0.6 mm out; crown|logo declared a valley
-    (refused E_FIT_SHAPE). Host pre-check on H2: pairwise 0.84-1.08 mm between the first three."""
+    """The variant arms (each edits the parent): flat crown; K typed 1 mm further out than its reading; the tail's
+    top outline 0.6 mm out; crown|logo declared a valley (refused E_FIT_SHAPE). Camera uncertainty puts the flat
+    crown and typed K within their warning thresholds; check their stored fit numbers and actual diagnostics."""
     k = readings["K"]
     all_ = {"flat": [facet("crown", CROWN, "flat")],
             "kdeep": [node_mm("K", round(float(k["d"]), 3), round(float(k["y"]), 3), round(float(k["t"]) + 1.0, 3))],
@@ -233,8 +275,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     st: dict = {"fingerprints": [], "variant_views": [], "edit_heads": {}}
     slow = {"armed": False, "done": threading.Event()}
     slow_edit = {"armed": False, "done": threading.Event()}
-    inspect0, variants0, edit0, views0, stubs0 = (lab.inspect, lab.variants, lab.edit, lab._variant_views,
-                                                  lab.context_stubs)
+    inspect0, variants0, edit0, views0 = lab.inspect, lab.variants, lab.edit, lab._variant_views
 
     def inspect():
         if not slow["armed"]:
@@ -273,23 +314,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         finally:
             slow_edit["done"].set()
 
-    def context_stubs(shas):
-        """The guard's one choice, with a snapshot of the state it chose from (for expected_stubs)."""
-        with lab.state_lock:
-            s_ = lab.state
-            best = S.head_by_fingerprint(s_, lab.fingerprint_of(s_.get("best_checkpoint")))
-            snap = {"shas": list(shas), "images": json.loads(json.dumps(s_["images"])),
-                    "results": [[c["compare_id"], c["seq"]] for c in S.seen_compares(s_)]
-                               + [[v["id"], v["seq"]] for v in S.seen_variants(s_)],
-                    "best_compares": [c["compare_id"] for c in s_["compares"]
-                                      if best is not None and c["revision"] == best["revision"]],
-                    "stored": {n: r.get("id") for n, r in (s_.get("readings") or {}).items()},
-                    "best_checkpoint": s_.get("best_checkpoint"), "best_revision": best["revision"] if best else None}
-        out = stubs0(shas)
-        st["guard"] = {"snapshot": snap, "chosen": dict(out)}
-        return out
     lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect, variants, edit_fn, variant_views
-    lab.context_stubs = context_stubs            # the loop binds scene.context_stubs when the run starts
 
     def settle(done: threading.Event, timeout_s: float) -> None:
         """A timed-out call's thread has finished and released the scene lock."""
@@ -359,8 +384,20 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     def step_variants():
         st["h2"], st["h2_ck"] = head_rev(), lab.s.head["id"]
         return R.tool_call("facet_variants", {"parent_revision": st["h2"], "variants": arms(lab.readings()),
-                                              "photos": VARIANT_PHOTOS, "judgement": judgement(best=st["h2_ck"])},
-                           counted=GUARD_COUNT)
+                                              "photos": VARIANT_PHOTOS, "judgement": judgement(best=st["h2_ck"])})
+
+    def step_renewal_summary():
+        """Pressure on the next tool request triggers a separate, tool-free summary create."""
+        st["renewal_evidence"] = json.loads(json.dumps(lab.renewal_evidence()))
+        st["renewal_state"] = json.loads(json.dumps(lab.renewal_state()))
+        st["conversation_prefix"] = conversation_rows(root)
+        st["summary_text"] = (
+            f"1. Current head and best checkpoint: {st['h2_ck']}; {CONTROL}.\n"
+            f"2. Open differences per photo: all differences are {CONTROL}.\n"
+            "3. Decisions and reasons: flat, kdeep and tail variants were built; valley was refused.\n"
+            "4. Outstanding owner requests: none; this is a scripted offline tool test.\n"
+            "5. Next action: apply the flat variant, then reapply H1 to check cached image delivery.")
+        return R.message(st["summary_text"], counted=RENEWAL_COUNT)
 
     def variant_rev(label: str, n: int = -1) -> int | None:
         return next((i["revision"] for v in lab.state["variants"][n:][:1] for i in v["items"] if i["label"] == label),
@@ -371,7 +408,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         return R.tool_call("facet_edit", edit(st["flat"], []))
 
     def step_reapply_h1():
-        """H1 again after the guard's epoch, judging edit_h3's compare: the compare cache returns edit_h1's panels."""
+        """H1 after renewal, judging edit_h3's compare: the compare cache returns edit_h1's panels."""
         st["h3"], st["h3_ck"] = head_rev(), lab.s.head["id"]
         return R.tool_call("facet_edit", edit(st["h1"], [], judged=judgement(best=st["h2_ck"])))
 
@@ -433,6 +470,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("inspect_stale", lambda: R.tool_call("facet_inspect", {})),
         ("edit_h2", step_edit_h2),
         ("variants", step_variants),
+        (SUMMARY_STEP, step_renewal_summary),
         ("edit_h3", step_edit_h3),
         ("reapply_h1", step_reapply_h1),
         ("finish_early", step_finish_early),
@@ -445,26 +483,27 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
         ("finish", lambda: R.tool_call("facet_finish", {"status": "stuck", "best_checkpoint": st["h2_all_ck"],
                                                         "summary": CONTROL, "judgement": None})),
     ]
-    names = [n for n, _ in steps]
+    names = [n for n, _ in steps if n != SUMMARY_STEP]
+    st["request_indexes"] = {n: i for i, (n, _) in enumerate(steps)}
+    st["request_digests"] = []
     transport = R.ScriptedOpenAI([])
     stamps: list = []
 
     def handler(request):
-        if request.url.path == R.COUNT_PATH and len(transport.replies) == len(transport.counts) \
-                and len(transport.replies) < len(steps):
-            transport.replies.append(steps[len(transport.replies)][1]())
+        if request.url.path == R.COUNT_PATH:
+            prepare_script_reply(transport, steps)
         if request.url.path == R.CREATE_PATH:
             stamps.append(time.perf_counter())
+            st["request_digests"].append(request_digest(json.loads(request.content)))
         return transport.handle(request)
     spec.offline_handler = handler
     t1 = time.perf_counter()
     with LoopbackOnly() as network, ProductionTransportTripwire() as tripwire:
         result = asyncio.run(run_astra(spec, scene=lab))
     t_run = time.perf_counter() - t1
-    lab.inspect, lab.variants, lab.edit, lab._variant_views, lab.context_stubs = (inspect0, variants0, edit0, views0,
-                                                                                  stubs0)
+    lab.inspect, lab.variants, lab.edit, lab._variant_views = inspect0, variants0, edit0, views0
     records = CH.call_records(transport.creates, lab.state["images"], record_kind)
-    if len(records) == len(transport.creates) - 1:          # the accepted finish: its output is the final output
+    if len(records) == len(names) - 1 and result["status"] == "completed":  # accepted finish is the final output
         fc = next(o for o in transport.replies[len(transport.creates) - 1].output if o["type"] == "function_call")
         text = result.get("final_output") or ""
         try:
@@ -505,8 +544,12 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
                                                    and not blocked_transport.constructions,
         "no_external_network": not network.attempts and not tripwire.constructions,
         "no_api_contract_violations": not transport.violations and not transport.unexpected,
-        "every_tool_called": {r["tool"] for r in records} == set(TOOL_NAMES),
-        "tool_choice_required_on_every_request": all(b.get("tool_choice") == "required" for b in transport.creates),
+        "every_scripted_tool_called": {r["tool"] for r in records} == SCRIPTED_TOOL_NAMES,
+        "every_tool_covered_or_explicitly_exempt": SCRIPTED_TOOL_NAMES.isdisjoint(TOOL_EXEMPTIONS)
+                and SCRIPTED_TOOL_NAMES | set(TOOL_EXEMPTIONS) == set(TOOL_NAMES),
+        "tool_choice_required_except_tool_free_summary": len(transport.creates) == len(steps) and all(
+            b.get("tool_choice") == ("none" if steps[i][0] == SUMMARY_STEP else "required")
+            for i, b in enumerate(transport.creates)),
         "instructions_sent_is_the_bound_text": sha(sent) == request["instructions_sha256"]
                                                and b"\r" not in sent.read_bytes(),
         "first_request_carries_every_photo": CH.first_request_images(transport.creates[0]) == [p["sha256"] for p
@@ -522,15 +565,17 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     })
     durations = [round(b - a, 2) for a, b in zip(stamps, stamps[1:])]
     report = {"label": LABEL, "checks": checks, "passed": all(checks.values()), "rig": rig, "paid_calls": 0,
-              "prepared": prepared, "seconds": {"prepare": round(t_prepare, 1), "run": round(t_run, 1)},
+              "prepared": prepared, "tool_exemptions": TOOL_EXEMPTIONS,
+              "seconds": {"prepare": round(t_prepare, 1), "run": round(t_run, 1)},
               "controls": {n: [float(v) for v in p] for n, p in ctrl.items()},
               "result": {k: result.get(k) for k in ("status", "error", "requests", "turns_used", "tool_calls",
-                                                    "finish_notes", "context_guard", "exit_checkpoint", "settings",
+                                                    "finish_notes", "renewals", "exit_checkpoint", "settings",
                                                     "final_output")},
               "steps": [{"step": names[i], "tool": r["tool"], "status": r["status"], "code": r["code"],
                          "request": r["request"], "text_chars": r["text_chars"], "args_chars": r["args_chars"],
                          "images": [im[:3] for im in r["images"]], "stubs_when_first_sent": len(r["stubs"]),
-                         "seconds_until_next_request": durations[i] if i < len(durations) else None}
+                         "seconds_until_next_request": durations[st["request_indexes"][names[i]]]
+                         if st["request_indexes"][names[i]] < len(durations) else None}
                         for i, r in enumerate(records)],
               **detail,
               "variants_fingerprints": st["fingerprints"], "violations": transport.violations,
@@ -596,7 +641,7 @@ def check_run(lab, st: dict, by: dict, names: list, records: list, transport, re
               "variants_h5": len(pages["variants_h5"])}
     for step in ("edit_h1", "edit_h2", "edit_h3", "reapply_h1", "back_to_h2", "edit_h5"):
         expect[step] = 1 + len(by[step]["body"].get("photos") or {})
-    reach = {n: [sum(1 for im in by[n]["images"] if im[3] == "high"), k, by[n]["request"], names.index(n) + 1]
+    reach = {n: [sum(1 for im in by[n]["images"] if im[3] == "high"), k, by[n]["request"], st["request_indexes"][n] + 1]
              for n, k in expect.items()}
     checks["images_reach_the_next_request"] = all(a == b and c == d for a, b, c, d in reach.values()) \
         and all(k > 0 for k in expect.values())
@@ -736,11 +781,34 @@ def check_run(lab, st: dict, by: dict, names: list, records: list, transport, re
         and str((vviews["photos"].get("B1") or {}).get("what")).startswith("gloss-black render") \
         and str((vviews["photos"].get("05") or {}).get("what")).startswith("native render") \
         and vb.get("spread_ok") is True and "render" not in vb
+    arm_fits = {lb: (lab.fit_record(items[lb]["revision"]) or {}).get("fit", {})
+                for lb in ("flat", "kdeep", "tail") if items.get(lb, {}).get("revision") is not None}
+    flat_face = arm_fits.get("flat", {}).get("faces", {}).get("crown", {})
+    typed_k = arm_fits.get("kdeep", {}).get("nodes", {}).get("K", {})
+    k_reading = lab.readings().get("K", {})
+    k_delta = float(typed_k.get("t", float("inf"))) - float(k_reading.get("t", 0.0))
+    k_sd = float(k_reading.get("sd_X", 0.0))
+    # These controls predate propagated camera uncertainty. Requiring the old warnings would demand false claims:
+    # the flat test is below 4 per extra corner, and K's +1 mm is below two stored-reading standard deviations.
+    fit_controls = {
+        "flat_crown_within_measured_uncertainty": flat_face.get("kind") == "flat"
+            and flat_face.get("extra") == 1 and flat_face.get("not_flat") is False
+            and 0 <= float(flat_face.get("flat_chi2", float("inf"))) <= FIT.FLAT_CHI2_PER_CORNER,
+        "typed_k_one_mm_out_within_measured_uncertainty": typed_k.get("source") == "typed"
+            and abs(k_delta - 1.0) <= 0.002 and k_sd > 0 and abs(k_delta) <= FIT.OFF_READING_SD * k_sd,
+        "no_unwarranted_flat_or_typed_k_warning": not any(
+            w.get("code") == "W_FACE_NOT_FLAT" for w in arm_fits.get("flat", {}).get("warnings", []))
+            and not any(w.get("code") == "W_FIT_OFF_READING" and w.get("node") == "K"
+                        for w in arm_fits.get("kdeep", {}).get("warnings", [])),
+        "reported_warnings_match_stored_fit": len(arm_fits) == 3 and all(
+            sorted(line for line in items[lb].get("fit", []) if line.startswith("W_"))
+            == sorted(w["code"] + ": " + w["message"] for w in rec.get("warnings", []))
+            for lb, rec in arm_fits.items()),
+    }
     checks["variant_arm_fit_refusal_and_fit_lines"] = items.get("valley", {}).get("code") == "E_FIT_SHAPE" \
         and items["valley"].get("stage") == "fit" and items["valley"].get("revision") is None \
         and all(isinstance(items.get(lb, {}).get("fit"), list) and items[lb]["fit"] for lb in ("flat", "kdeep", "tail")) \
-        and any("W_FACE_NOT_FLAT" in ln for ln in items["flat"]["fit"]) \
-        and any("W_FIT_OFF_READING" in ln for ln in items["kdeep"]["fit"])
+        and all(fit_controls.values())
     checks["variant_pages_draw_each_models_edges"] = vrec.get("edge_occlusion") == "scene" and set(edges) == \
         set(VARIANT_PHOTOS) and all(set(edges[p]) == {"head", "flat", "kdeep", "tail"} and all(
             isinstance(v, int) and v > 0 for v in edges[p].values()) for p in VARIANT_PHOTOS) \
@@ -750,59 +818,72 @@ def check_run(lab, st: dict, by: dict, names: list, records: list, transport, re
     detail["variants"] = {"variants_id": vb.get("variants_id"), "passes": vviews["passes"],
                           "photos": vviews["photos"], "edges": edges, "pages": pages["variants"],
                           "page_crease_px": page_px, "items": vb.get("variants"), "pairwise_mm": vb.get("pairwise_mm")}
-    # the guard: fired once at edit_h3's request, its choice = the decision on the state it chose from, every class of
-    # the decision present, the same stubs on every later request
-    guard_req = next((n for n, body in enumerate(transport.creates) if CH.stubbed_in(body)), None)
-    g = st.get("guard") or {}
-    snap = g.get("snapshot") or {}
-    expected = CH.expected_stubs(snap) if snap else {}
-    chosen = g.get("chosen") or {}
-    sent = CH.stubbed_in(transport.creates[guard_req]) if guard_req is not None else {}
-    want_per_call = {}
-    for r in records:
-        k = sum(1 for im in r["images"] if im[4] in expected)
-        if k and r["request"] is not None and r["request"] < (guard_req or 0):
-            want_per_call[r["call_id"]] = k
-    kept = [im for r in records if r["request"] is not None and r["request"] < (guard_req or 0)
-            for im in r["images"] if im[4] not in expected]
-    why = list(expected.values())
-    classes = {"old compare panel": "superseded model" in why,
-               "old zoom grid": "superseded model (zoom grid)" in why,
-               "re-read pick sheet": "pick sheet of a reading read again" in why,
-               "dropped pick sheet": "pick sheet of a reading dropped" in why,
-               "stored pick sheets kept": sum(1 for im in kept if im[2] == "reading") == len(CTRL) - 1,
-               "photo views kept": sum(1 for im in kept if im[2] == "photo") == 2,
-               "charts kept": sum(1 for im in kept if im[2] == "chart") >= 4,
-               "latest results and best's compare kept": all(
-                   im[4] not in expected for n in ("edit_h2", "variants") for im in by[n]["images"]
-                   if im[2] != "chart")}
-    later = [CH.stubbed_in(b) for b in transport.creates[(guard_req or 0) + 1:]]
-    checks["context_guard_fired_once_at_the_guard_request"] = bool((result.get("context_guard") or {}).get("epoch")) \
-        and guard_req == names.index("variants") + 1 and CH.KEEP_LATEST == LB.CONTEXT_KEEP_LATEST
-    checks["context_guard_decision_holds"] = bool(expected) and set(chosen) == set(expected) and all(classes.values()) \
-        and {cid: len(v) for cid, v in sent.items()} == want_per_call \
-        and all(all(s.get(cid) == v for cid, v in sent.items()) for s in later) \
-        and all(set(s) <= set(sent) for s in later)              # no output that arrived after the epoch is stubbed
-    # the re-applied H1 (after the epoch): its compare panels are the bytes the guard stubbed in edit_h1's output (the
-    # compare cache), and they reach the next request as images (review 2026-10-12, P1, v3p3-verify-14)
+    detail["variant_fit_controls"] = {"checks": fit_controls, "flat_crown": flat_face,
+                                      "typed_k": typed_k, "typed_k_minus_reading_mm": k_delta,
+                                      "reading_k_sd_mm": k_sd, "flat_warning_threshold": FIT.FLAT_CHI2_PER_CORNER,
+                                      "typed_k_minus_reading_sd": k_delta / k_sd if k_sd > 0 else None,
+                                      "off_reading_sd_threshold": FIT.OFF_READING_SD}
+    # Production renewal appends a summary to the old conversation and starts a new one. It never rewrites old
+    # messages or replaces images with stubs. Count endpoints may run twice before the summary's one create.
+    summary_index = st["request_indexes"][SUMMARY_STEP]
+    summary_request = transport.creates[summary_index] if len(transport.creates) > summary_index else {}
+    fresh_request = transport.creates[summary_index + 1] if len(transport.creates) > summary_index + 1 else {}
+    renewals = result.get("renewals") or []
+    renewal = renewals[0] if len(renewals) == 1 else {}
+    expected_evidence = st.get("renewal_evidence") or []
+    selected = [row["sha256"] for row in expected_evidence]
+    fresh_images = [CH.image_meta(url)[0] for url in R.input_images(fresh_request)]
+    photo_hashes = [row["sha256"] for row in lab.manifest["photos"]]
+    fresh_text = json.dumps(fresh_request, ensure_ascii=False)
+    prefix = st.get("conversation_prefix") or []
+    archived = conversation_rows(lab.root, renewal.get("old_conversation_id", "astra"))
+    current_readings = {im[4] for im in by["read"]["images"]
+                        if images.get(im[4], {}).get("reading") not in (REREAD[0], DROP)} \
+        | {im[4] for im in by["reread"]["images"]}
+    selected_readings = {row["sha256"] for row in expected_evidence if row["kind"] == "reading"}
+    h2_compares = {im[4] for im in by["edit_h2"]["images"] if im[2] == "compare"}
+    checks["conversation_renewed_once_at_scripted_pressure"] = len(renewals) == 1 \
+        and renewal.get("summary_request_sequence") == summary_index + 1 \
+        and renewal.get("summary_skipped") is None and renewal.get("summary_text") == st.get("summary_text") \
+        and renewal.get("summary_sha256") == hashlib.sha256(st.get("summary_text", "").encode()).hexdigest() \
+        and renewal.get("old_conversation_id") != renewal.get("new_conversation_id") \
+        and renewal.get("reasons") == N.pressure(0, 0, RENEWAL_COUNT, B.Tariff.frozen()) \
+        and summary_request.get("tool_choice") == "none" \
+        and (summary_request.get("input") or [{}])[-1].get("content") == N.SUMMARY_REQUEST
+    checks["renewal_preserves_exact_photo_and_current_evidence_bytes"] = bool(expected_evidence) \
+        and fresh_images == photo_hashes + selected \
+        and [{k: v for k, v in row.items() if k != "detail"} for row in renewal.get("evidence", [])] == expected_evidence \
+        and all(row.get("detail") == "high" for row in renewal.get("evidence", [])) \
+        and selected_readings == current_readings and len(current_readings) == len(CTRL) - 1 \
+        and bool(h2_compares) and h2_compares <= set(selected) \
+        and all((renewal.get("host_state") or {}).get(k) == v for k, v in st.get("renewal_state", {}).items()
+                if k != "tool_calls_so_far") \
+        and json.dumps(N.ASTRA_SUMMARY_PREFIX + st.get("summary_text", ""), ensure_ascii=False)[1:-1] in fresh_text \
+        and fresh_request.get("tools") == transport.creates[0].get("tools") == summary_request.get("tools") \
+        and fresh_request.get("instructions") == transport.creates[0].get("instructions")
+    checks["renewal_leaves_old_conversation_and_requests_unchanged"] = bool(prefix) \
+        and archived[:len(prefix)] == prefix and len(archived) > len(prefix) \
+        and st["request_digests"] == [request_digest(body) for body in transport.creates] \
+        and not any(CH.stubbed_in(body) for body in transport.creates) \
+        and not any(item.get("type") == "function_call_output" for item in fresh_request.get("input", []))
+    # H1 after renewal: the cache returns its original compare bytes, which reach the next request as images even
+    # though the original result is no longer in the active conversation (review 2026-10-12, P1, v3p3-verify-14).
     ra, ra_body = by["reapply_h1"], by["reapply_h1"]["body"]
     ra_panels = [im[4] for im in ra["images"] if im[2] == "compare"]
     h1_panels = [im[4] for im in by["edit_h1"]["images"] if im[2] == "compare"]
-    checks["reapplied_stubbed_revision_arrives_as_images"] = ra_body.get("status") == "applied" \
-        and ra_body.get("revision") == st.get("h1") and bool(ra_panels) and set(ra_panels) <= set(expected) \
-        and set(ra_panels) <= set(h1_panels) and not ra["stubs"] and ra["request"] is not None \
-        and ra["request"] > (guard_req or 1 << 30) and len(ra["images"]) == 1 + len(ra_body.get("photos") or {}) \
-        and all(ra["call_id"] not in s for s in later)
+    checks["reapplied_revision_arrives_as_original_images_after_renewal"] = ra_body.get("status") == "applied" \
+        and ra_body.get("revision") == st.get("h1") and bool(ra_panels) and ra_panels == h1_panels \
+        and not ra["stubs"] and ra["request"] is not None and ra["request"] > summary_index + 1 \
+        and len(ra["images"]) == 1 + len(ra_body.get("photos") or {})
     detail["reapply_h1"] = {"revision": ra_body.get("revision"), "compare_id": ra_body.get("compare_id"),
-                            "panels": len(ra_panels), "panels_stubbed_at_the_epoch": sum(1 for d in ra_panels
-                                                                                         if d in expected),
+                            "panels": len(ra_panels), "original_panel_hashes": h1_panels,
+                            "reapplied_panel_hashes": ra_panels,
                             "stubs_when_sent": len(ra["stubs"]), "request": ra["request"]}
-    detail["context_guard"] = {"request": guard_req, "best_checkpoint": snap.get("best_checkpoint"),
-                               "best_revision": snap.get("best_revision"), "results": snap.get("results"),
-                               "expected": {k[:12]: (snap["images"].get(k) or {}) | {"why": v} for k, v in
-                                            expected.items()} if snap else {},
-                               "chosen_texts": sorted(chosen.values()), "per_call": want_per_call, "classes": classes,
-                               "kept_kinds": sorted({im[2] for im in kept})}
+    detail["conversation_renewal"] = {"summary_request_index": summary_index, "renewals": renewals,
+                                       "selected_evidence": expected_evidence, "fresh_image_hashes": fresh_images,
+                                       "old_prefix_rows": len(prefix), "archived_rows": len(archived),
+                                       "current_reading_hashes": sorted(current_readings),
+                                       "original_request_digests": st["request_digests"]}
     # the applied variant arm (no edits) and the crease / diff statements against the head
     b3 = by["edit_h3"]["body"]
     checks["applied_variant_is_its_revision"] = b3.get("status") == "applied" and b3.get("diff") == "no change" \

@@ -201,6 +201,47 @@ def panel_output(count, *, reused=False, footer_in_body=False):
     return parts, records, footer
 
 
+def test_crease_metrics_survive_oversized_dependencies_and_tables_with_three_images(tmp_path):
+    original, records, footer = panel_output(3, footer_in_body=True)
+    angles = [3.729716499, 6.729716499, 9.729716499, 11.729716499, 16.729716499]
+    summary = {"baseline": "built 1.73\u00b0; measurement +1.73\u00b12.31\u00b0 unresolved; /baseline"}
+    for index, degrees in enumerate(angles):
+        summary[f"angle-{index:02d}"] = (
+            f"built/requested {degrees:.3g}/{degrees:.3g}\u00b0 eligible; wall1mm; local\u0394\u03c7\u00b2+12.9; "
+            f"max|r|3.59sd; moved D; surfaces10; /alternatives/{index}")
+    for start in (0, 3):
+        summary[f"exact_requested_degrees_{start // 3 + 1}"] = "; ".join(
+            f"angle-{index:02d}={angles[index]!r}" for index in range(start, min(start + 3, len(angles))))
+    # Product comparisons carry six object tables and resolved fit dependencies; these
+    # can force the smallest report envelope even though the five-choice summary is short.
+    tables = [[{"name": f"candidate-{candidate}-object-{row}", **{
+        f"diagnostic_{column}": "finite geometry measurement " * 20 for column in range(12)}}
+        for row in range(19)] for candidate in range(6)]
+    payload = {"status": "ok", "schema": "g3d.crease_angle_comparison/1", "summary": summary,
+               "baseline": {"objects": tables[0]},
+               "alternatives": [{"degrees": degrees, "objects": tables[index + 1]}
+                                for index, degrees in enumerate(angles)],
+               "choice_dependencies": {"resolved_fits": [{"name": f"corner-{index}",
+                    "residuals": list(range(100))} for index in range(100)]},
+               "image_receipt": {"panels": records}}
+    original[0] = ToolOutputText(text=R.dumps(payload) + "\n" + footer)
+    before = [part.model_dump() for part in original]
+    output = R.limit_output(tmp_path, "crease-compare", "facet_crease_compare", original)
+    bounded, suffix = R._body(output[0].text)
+    assert bounded.get("summary") == summary
+    assert text_count(output) <= R.TEXT_LIMIT and suffix == "\n" + footer
+    assert len(output) == len(original)
+    for index, part in enumerate(original):
+        if part.type == "image":
+            assert output[index] is part
+            assert records[index // 2 - 1]["sha256"][:12] in output[index - 1].text
+    assert [part.model_dump() for part in original] == before
+    saved = json.loads((tmp_path / bounded["full_report"]["path"]).read_text(encoding="utf8"))
+    assert saved["result"] == payload
+    assert saved["text_parts"] == [{"output_index": index, "text": part.text}
+                                  for index, part in enumerate(original) if part.type == "text"]
+
+
 @pytest.mark.parametrize("reused", [False, True])
 @pytest.mark.parametrize("footer_in_body", [False, True])
 def test_many_panels_keep_each_identity_origin_footer_and_original(tmp_path, reused, footer_in_body):

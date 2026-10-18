@@ -552,7 +552,7 @@ def test_a_self_crossing_facet_is_e_spec():
     assert e.value.code == "E_SPEC" and "crosses itself" in e.value.message
 
 
-def test_ear_clip_falls_back_on_a_collinear_run():
+def test_ear_clip_handles_a_collinear_run():
     """A strip face whose left side is a run of collinear vertices (refinement lines ending on a slanted facet edge):
     the fattest-ear rule's float noise let an ear's diagonal lie along the run and failed "no ear found"; the robust
     clip fans the run from the opposite corner and covers every boundary edge once."""
@@ -560,8 +560,8 @@ def test_ear_clip_falls_back_on_a_collinear_run():
     V = np.array([[39.130099241148, -10.80617419730152], [40.0, -10.58], [40.0, 7.145305764313914],
                   [39.86445714746593, 5.999999999999999], [39.62776428036023, 4.0], [39.39107141325454, 2.0],
                   [39.15437854614884, 0.0], [39.139585241954734, -0.125], [39.130099241148, -0.20515451353574754]])
-    with pytest.raises(TempleError):
-        AR._ear_clip_fast(V, list(range(9)))
+    # Both paths now use the distance-scaled collinearity test; the fast path no longer needs to fail first.
+    assert AR._covers(list(range(9)), AR._ear_clip_fast(V, list(range(9))))
     tris = AR.ear_clip(V, list(range(9)))
     assert AR._covers(list(range(9)), tris)
     area = sum(0.5 * abs(AR._cross(V[a], V[b], V[c])) for a, b, c in tris)

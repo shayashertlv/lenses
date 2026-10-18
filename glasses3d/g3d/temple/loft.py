@@ -7,7 +7,7 @@ loft_sections(stations, path=None, caps=True):
 - path: a 3D polyline [[x, y, z], ...] (default the -Z axis from the origin: P(t) = (0, 0, -t)); each section is placed
   in the plane perpendicular to the path at t, u along B = T x N (lateral), v along N (world +Y made orthogonal to T);
 - equal counts: every station must have the same number of sharp anchors (in order); between consecutive anchors each
-  station's chain is resampled by arc length to the largest count any station has there;
+  station's chain keeps all original vertices and splits its longest segments to the largest count there;
 - quads between stations are split along their shorter diagonal; a longitudinal edge at a sharp anchor is sharp while
   its dihedral >= 6 deg; caps are ear-clipped polygons;
 - report: per strip (between section vertices j, j+1) the largest quad twist (distance of the 4th corner from the
@@ -29,17 +29,16 @@ class LoftError(ValueError):
 
 
 def _resample(chain: np.ndarray, m: int) -> np.ndarray:
-    """m + 1 points by arc length along an open chain (ends kept)."""
-    seg = np.linalg.norm(np.diff(chain, axis=0), axis=1)
-    s = np.r_[0.0, np.cumsum(seg)]
-    if s[-1] <= 0:
-        return np.repeat(chain[:1], m + 1, axis=0)
-    t = np.linspace(0.0, s[-1], m + 1)
-    return np.stack([np.interp(t, s, chain[:, 0]), np.interp(t, s, chain[:, 1])], axis=1)
+    """m + 1 points: retain every authored vertex, bisecting the longest segment until counts agree."""
+    out = np.asarray(chain, np.float64).copy()
+    while len(out) < m + 1:
+        i = int(np.argmax(np.linalg.norm(np.diff(out, axis=0), axis=1)))
+        out = np.insert(out, i + 1, 0.5 * (out[i] + out[i + 1]), axis=0)
+    return out
 
 
 def equalize(stations: list) -> tuple[list[np.ndarray], np.ndarray]:
-    """Resample every station to one vertex count between sharp anchors. Returns (sections, sharp flags)."""
+    """Subdivide every station to one vertex count between sharp anchors. Returns (sections, sharp flags)."""
     secs = []
     for st in stations:
         P = np.asarray(st["points"], np.float64)

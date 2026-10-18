@@ -138,7 +138,9 @@ Only unresolved measurements permit a visible-angle declaration. Select one succ
 the delivered comparison with facet_visible_angle and explain which photo crops it matches. Select that exact
 angle, not an interpolation. It overrides unresolved local readings while retaining residuals; certain
 contradictory measurements still refuse, as do closed-solid, thickness, declared-shape and strict-spec failures.
-Changed geometry, readings or comparison artifacts can require a new comparison. Inspect affected faces after
+After selection, the declaration binds its two faces and faces connected through corners or camera-fit terms, their
+readings, their supporting outline/inner/base segments, hinge and surface settings, plus comparison assets and frozen
+cameras. Changes outside those dependencies retain it; changing a dependency invalidates it. Inspect affected faces after
 application. If supported alternatives cannot make the border visible, retain the named mismatch and crop in the
 summary rather than calling it solved.
 

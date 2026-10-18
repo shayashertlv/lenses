@@ -23,8 +23,8 @@ distance between the rebuilt and the original side silhouettes over the last TIP
 the lowest objective wins (the smallest one on an exact tie). No tie margin: a margin would decide the radius by an
 uncalibrated constant (review D6, 2026-10-11); the report gives the objective at 0 and at the winner.
 
-Report (information, never a gate): the one-sided original -> rebuild distance (area-weighted surface samples of the
-original to the /2 core's mesh) as mean / p95 / max per region (hinge zone: the first 15 mm; bend: +-10 mm around the
+Report (information, never a gate): original -> rebuild and rebuild -> original distances (area-weighted surface
+samples) as mean / p95 / max, with original -> rebuild per region (hinge zone: the first 15 mm; bend: +-10 mm around the
 outline mid-line's sharpest downward turn; middle: between them; tip: behind the bend), the inner-face deviation (the
 original's inner face against the rebuilt x_in), the simplification error, the knots and the lengths lost.
 """
@@ -39,7 +39,8 @@ import numpy as np
 from . import SCHEMA
 from . import measure as MS
 from .build import build_temple
-from .spec import MIN_HEIGHT_MM, TempleError, _outline
+from .sections import loops_from_segments
+from .spec import DEFAULT_OPTIONS, MIN_HEIGHT_MM, TempleError, _outline
 
 STATION_STEP_MM = 1.0
 END_EPS_MM = 0.01                  # the end stations are measured this far inside the mesh's d range
@@ -109,6 +110,7 @@ def station(L: np.ndarray, F: np.ndarray, d: float) -> dict | None:
     seg = MS.slice_d(L, F, float(d))
     if len(seg) == 0:
         return None
+    _check_section_loops(seg, d)
     ys = seg[..., 0]
     yb, yt = float(ys.min()), float(ys.max())
     h = yt - yb
@@ -143,6 +145,10 @@ def end_cut(H: np.ndarray, D: np.ndarray, at_tip: bool) -> int:
         win = D <= D[0] + END_WINDOW_MM
     ref = END_HEIGHT_SHARE * float(np.median(H[win]))
     ok = np.nonzero(H >= max(ref, MIN_HEIGHT_MM))[0]
+    if not len(ok):
+        raise TempleError("E_TARGET", f"the mesh has no station with height >= {MIN_HEIGHT_MM:g} mm; "
+                          "there is no usable temple section", minimum_height_mm=MIN_HEIGHT_MM,
+                          maximum_height_mm=float(H.max()) if len(H) else 0.0)
     return int(ok[-1] if at_tip else ok[0])
 
 
@@ -354,6 +360,62 @@ def _stats(x: np.ndarray) -> dict:
 
 
 # --------------------------------------------------------------------------------------------- the template
+def _check_section_loops(seg: np.ndarray, d: float):
+    loops = loops_from_segments(seg)
+    if len(loops) != 1:
+        raise TempleError("E_TARGET", f"the mesh section at d {d:g} mm has {len(loops)} loops; "
+                          "a template section must have one closed loop (open, split or holed sections are unsupported)",
+                          d_mm=d, section_loops=len(loops))
+
+
+def _check_between_stations(L: np.ndarray, F: np.ndarray, stations: list[float]):
+    """Check every source-vertex d interval not already sampled. Section topology is constant inside it.
+
+    Sweep active triangles so a fine longitudinal source mesh does not require slicing every face at every d.
+    Intervals <= the section chainer's 1e-6 mm tolerance cannot resolve a separate loop.
+    """
+    d, vertex_d = np.unique(L[:, 0], return_inverse=True)
+    triangle_d = vertex_d[F]
+    first, last = triangle_d.min(axis=1), triangle_d.max(axis=1)
+    starts, ends = np.argsort(first), np.argsort(last)
+    active = set()
+    i_start = i_end = 0
+    measured = np.asarray(stations)
+    for k in range(len(d) - 1):
+        while i_start < len(F) and first[starts[i_start]] <= k:
+            active.add(int(starts[i_start]))
+            i_start += 1
+        while i_end < len(F) and last[ends[i_end]] <= k:
+            active.discard(int(ends[i_end]))
+            i_end += 1
+        if not active or d[k + 1] - d[k] <= 1e-6:
+            continue
+        next_station = np.searchsorted(measured, d[k], side="right")
+        if next_station < len(measured) and measured[next_station] < d[k + 1]:
+            continue
+        middle = float(0.5 * (d[k] + d[k + 1]))
+        _check_section_loops(MS.slice_d(L, F[sorted(active)], middle), middle)
+
+
+def _component_count(V: np.ndarray, F: np.ndarray) -> int:
+    """Mesh components after welding identical positions (GLB normal and UV seams split indices)."""
+    _, weld = np.unique(V, axis=0, return_inverse=True)
+    triangles = weld[F]
+    parent = np.arange(int(weld.max()) + 1)
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b, c in triangles:
+        ra = root(a)
+        parent[root(b)] = ra
+        parent[root(c)] = ra
+    return len({root(i) for i in np.unique(triangles)})
+
+
 def _side(side) -> int:
     if side in (1, -1):
         return int(side)
@@ -371,6 +433,12 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
     F = np.asarray(F, np.int64)
     if V.ndim != 2 or V.shape[1] != 3 or F.ndim != 2 or F.shape[1] != 3 or not len(F) or not np.all(np.isfinite(V)):
         raise TempleError("E_TARGET", "template_from_mesh needs finite vertices (n, 3) and triangles (m, 3)")
+    if F.min() < 0 or F.max() >= len(V):
+        raise TempleError("E_TARGET", "template_from_mesh triangle indices must refer to the supplied vertices")
+    components = _component_count(V, F)
+    if components != 1:
+        raise TempleError("E_TARGET", f"the mesh has {components} connected components; "
+                          "template_from_mesh requires one temple body", components=components)
     L, Fc = MS.chart_mesh(V, F, s, float(hinge_z))
     dlo, dhi = float(L[:, 0].min()), float(L[:, 0].max())
     if dhi - dlo < 20.0:
@@ -378,6 +446,7 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
                           length_mm=dhi - dlo)
     ds = station_ds(dlo, dhi)
     recs = [station(L, Fc, d) for d in ds]
+    _check_between_stations(L, Fc, ds)
     H = np.array([0.0 if r is None else r["height"] for r in recs])
     D = np.array(ds)
     i0, i1 = end_cut(H, D, at_tip=False), end_cut(H, D, at_tip=True)
@@ -409,11 +478,21 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
                      "bottom": rows(np.stack([Dk, Y[4, knots]], axis=1))},
             "nodes": {}, "facets": {}, "creases": [], "chamfers": [], "roll_mm": 0.0, "options": {}}
     t_fit = time.perf_counter()
-    tb = build_temple(spec)
+    try:
+        tb = build_temple(spec)
+    except TempleError as exc:
+        if exc.code == "E_TOO_THIN":
+            minimum = DEFAULT_OPTIONS["t_min_mm"]
+            raise TempleError(exc.code, f"{exc.message}; template_from_mesh uses the builder's default "
+                              f"t_min_mm={minimum:g} mm (not a measured minimum)",
+                              **exc.fields, default_t_min_mm=minimum) from exc
+        raise
     t_build = time.perf_counter()
     ps = tb.spec
     P, N = surface_samples(L, Fc, samples)
     dist = point_mesh_distance(P, tb.V, tb.tris)
+    rebuilt, _ = surface_samples(tb.V, tb.tris, samples)
+    reverse_dist = point_mesh_distance(rebuilt, L, Fc)
     bend = bend_d(D, Y[0], Y[1], ps.d0 + HINGE_ZONE_MM + BEND_HALF_MM, ps.d1 - BEND_HALF_MM)
     edges = {"hinge_zone": (-np.inf, ps.d0 + HINGE_ZONE_MM)}
     if bend is None:
@@ -455,6 +534,7 @@ def template_from_mesh(V, F, side, hinge_z: float, axis_xz, *, samples: int = SA
                                    "max_at_d": float(D[int(np.argmax(resid))])},
         "distance_original_to_rebuild": {"samples": int(samples), "all": _stats(dist), "regions": regions,
                                          "bend_d": bend},
+        "distance_rebuild_to_original": {"samples": int(samples), "all": _stats(reverse_dist)},
         "inner_deviation_mm": {**_stats(np.abs(dev)), "signed_min_mm": float(dev.min()) if len(dev) else None,
                                "signed_max_mm": float(dev.max()) if len(dev) else None,
                                "note": "original inner-face samples (normal X < -0.6, middle 76 % of the height) "

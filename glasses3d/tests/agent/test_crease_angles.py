@@ -137,11 +137,131 @@ def test_real_builder_alternatives_restore_head_and_require_delivered_output(pre
     assert selected["creases"][0]["visible_angle"]["comparison_sha256"] == out["comparison_sha256"]
     CA.validate_design(lab, selected)  # reapply unchanged choice is allowed
     selected["nodes"]["D"][0] += .1
-    with pytest.raises(S.LabRefusal, match="design changed"):
+    with pytest.raises(S.LabRefusal, match="connected layout"):
         CA.validate_design(lab, selected)
     lab.state["readings"]["new"] = {"fact": "changed"}
     with pytest.raises(S.LabRefusal, match="changed"):
         lab.visible_angle("stale", out["comparison_id"], 12., "stale", apply=False)
+
+
+@pytest.mark.parametrize("prepared", ["two"], indirect=True)
+def test_retained_choice_survives_unrelated_edit_and_reading_but_binds_connected_evidence(prepared):
+    lab = prepared
+    out = comparison(lab)
+    lab.mark_delivered("compare", "facet_crease_compare")
+    chosen = lab.visible_angle("choose", out["comparison_id"], 12., "Photo match", apply=False)
+    selected = lab.design(chosen["revision"])
+    selected["nodes"]["D2"][0] += .1
+    lab.state["readings"]["D2"] = {"name": "D2", "d": 95.1, "y": -8., "X": 68., "sd_X": 1.}
+    CA.validate_design(lab, selected)
+    fit, tb = lab._fit_build(selected)
+    assert tb is not None, fit
+    assert any("visible dihedral 12 deg from comparison" in line for line in lab._receipt(tb, fit, [])['creases'])
+    lab.state["readings"]["D"] = {"fact": "a dependency changed"}
+    with pytest.raises(S.LabRefusal, match="connected layout"):
+        CA.validate_design(lab, selected)
+
+
+def test_stale_choice_refusal_returns_stage_and_recorded_object(prepared):
+    lab = prepared
+    out = comparison(lab)
+    lab.mark_delivered("compare", "facet_crease_compare")
+    chosen = lab.visible_angle("choose", out["comparison_id"], 12., "Photo match", apply=False)
+    assert lab._apply("apply-chosen", chosen["revision"], tool="facet_edit")["status"] == "ok"
+    assert f"visible dihedral 12 deg from comparison {out['comparison_id']}" in lab.inspect()["spec"]["creases"][0]
+    edit = {"op": "set_node", "name": "D", "d_mm": 40.1, "y_mm": -8.,
+            "t": {"mode": "mm", "mm": 8.}, "outline": "none"}
+    result = lab.edit("stale-edit", chosen["revision"], False, [edit], None, "Change the corner",
+                      "The corner moved", False, None)
+    assert result["code"] == "E_COMPARISON_STALE" and result["stage"] == "comparison"
+    assert result["object"] == "recorded"
+    variants = lab.variants("stale-variants", chosen["revision"],
+                            [{"label": name, "edits": [edit]} for name in ("first", "second")], ["05"], None)
+    assert variants["status"] == "ok" and len(variants["variants"]) == 2
+    assert all(item["stage"] == "comparison" and item["code"] == "E_COMPARISON_STALE"
+               for item in variants["variants"])
+
+
+@pytest.mark.parametrize("prepared", ["two"], indirect=True)
+def test_choice_dependencies_include_disconnected_faces_coupled_by_camera_terms(prepared):
+    source = prepared.design(0)
+    for node in ("D", "D2"):
+        source["nodes"][node][2]["read"]["camera"] = {"shared-fit": [0., 0., .4]}
+    before = CA.choice_dependencies(source, {}, ["lower", "upper"])
+    source["nodes"]["D2"][0] += .1
+    assert CA.choice_dependencies(source, {}, ["lower", "upper"]) != before
+
+
+def test_choice_dependencies_follow_tee_constraints_with_different_corner_names():
+    source = design()
+    source["nodes"].update(A=[40., 8., 8.], B=[80., 8., 8.], C=[80., -8., 8.])
+    source["facets"]["neighbour"] = ["A", "B", "C"]
+    # Q=(60,0) lies on neighbour's C-A edge; U and A share position but not a node name.
+    before = CA.choice_dependencies(source, {}, ["lower", "upper"])
+    assert "neighbour" in before["facets"]
+    source["nodes"]["B"][2] += .1
+    assert CA.choice_dependencies(source, {}, ["lower", "upper"]) != before
+
+
+def test_choice_dependencies_bind_remote_station_snap_effect_on_compared_geometry():
+    source = design()
+    before = CA.choice_dependencies(source, {}, ["lower", "upper"])
+    # An unreferenced outside node is not in the shared-corner/camera graph, but parse uses its d station.
+    source["nodes"]["outside"] = [39.96, 100., None]
+    after = CA.choice_dependencies(source, {}, ["lower", "upper"])
+    assert {k: v for k, v in after.items() if k != "resolved"} == {
+        k: v for k, v in before.items() if k != "resolved"}
+    assert before["resolved"]["baseline"]["nodes"]["D"]["parsed"][0] == 40.
+    assert after["resolved"]["baseline"]["nodes"]["D"]["parsed"][0] == 39.96
+    assert not CA._same_dependencies(after, before)
+
+
+def test_retained_choice_rejects_remote_station_snap(prepared):
+    lab = prepared
+    out = comparison(lab)
+    lab.mark_delivered("compare", "facet_crease_compare")
+    chosen = lab.visible_angle("choose", out["comparison_id"], 12., "Photo match", apply=False)
+    selected = lab.design(chosen["revision"])
+    selected["nodes"]["outside"] = [39.96, 100., None]
+    with pytest.raises(S.LabRefusal, match="supporting geometry changed"):
+        CA.validate_design(lab, selected)
+
+
+@pytest.mark.parametrize("prepared", ["two"], indirect=True)
+def test_scoped_choice_cannot_exempt_a_stale_historical_whole_design_choice(prepared):
+    lab = prepared
+    first = comparison(lab)
+    saved = lab.state["crease_comparisons"][first["comparison_id"]]
+    path = lab.root / saved["file"]
+    historical = json.loads(path.read_text(encoding="utf8"))
+    del historical["choice_dependencies"]  # Manufacture the historical on-disk format, with honest new bytes/hash.
+    path.write_text(json.dumps(historical), encoding="utf8")
+    saved["sha256"] = arview.sha256(path)
+    lab.mark_delivered("compare", "facet_crease_compare")
+    chosen1 = lab.visible_angle("choose1", first["comparison_id"], 12., "First visible edge", apply=False)
+    second = lab.crease_compare("compare2", chosen1["revision"], ["lower2", "upper2"], "lower2", "ridge",
+                                [6., 12., 16.], ["05"])
+    lab.mark_delivered("compare2", "facet_crease_compare")
+    chosen2 = lab.visible_angle("choose2", second["comparison_id"], 6., "Second visible edge", apply=False)
+    selected = lab.design(chosen2["revision"])
+    CA.validate_design(lab, selected)  # Adding the second legitimate choice keeps the historical anchor intact.
+    selected["nodes"]["U"][2]["read"]["X"] += .1
+    with pytest.raises(S.LabRefusal, match="legacy whole-design"):
+        CA.validate_design(lab, selected)
+
+
+def test_dependency_snapshot_is_covered_by_immutable_comparison_hash(prepared):
+    lab = prepared
+    out = comparison(lab)
+    lab.mark_delivered("compare", "facet_crease_compare")
+    chosen = lab.visible_angle("choose", out["comparison_id"], 12., "Photo match", apply=False)
+    saved = lab.state["crease_comparisons"][out["comparison_id"]]
+    path = lab.root / saved["file"]
+    tampered = json.loads(path.read_text(encoding="utf8"))
+    tampered["choice_dependencies"]["resolved"]["baseline"]["nodes"]["D"]["parsed"][0] += .04
+    path.write_text(json.dumps(tampered), encoding="utf8")
+    with pytest.raises(S.LabRefusal, match="comparison manifest bytes changed"):
+        CA.validate_design(lab, lab.design(chosen["revision"]))
 
 
 @pytest.mark.parametrize("unseen_first", [False, True])
@@ -216,7 +336,7 @@ def test_strict_ar_spec_failure_stays_informational_but_cannot_be_selected(prepa
 
 
 @pytest.mark.parametrize("prepared", ["two"], indirect=True)
-def test_two_real_distinct_angle_choices_share_a_whole_design_anchor(prepared):
+def test_two_real_distinct_angle_choices_keep_their_own_dependency_bindings(prepared):
     lab = prepared
     first = comparison(lab)
     lab.mark_delivered("compare", "facet_crease_compare")
@@ -233,7 +353,7 @@ def test_two_real_distinct_angle_choices_share_a_whole_design_anchor(prepared):
     CA.validate_design(lab, selected)
     changed = copy.deepcopy(selected)
     changed["nodes"]["U2"][0] += .1
-    with pytest.raises(S.LabRefusal, match="design changed"):
+    with pytest.raises(S.LabRefusal, match="connected layout"):
         CA.validate_design(lab, changed)
     lab.mark_unseen("compare")
     with pytest.raises(S.LabRefusal, match="completed comparison"):

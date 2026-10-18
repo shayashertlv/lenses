@@ -46,7 +46,8 @@ from glasses3d.tests.agent.test_temple_readings import SynthBasis, corner_picks,
 # says what each value does (the blind stand-in read "a corner on that edge" as unclear) and set_facet poly that a
 # facet is clipped to the outline, so a corner may lie beyond it; re-pinned 2026-10-13, v3-standin-fix-review:
 # descriptions only, set_node outline says where the bend is stated: facet_edit's receipt, a variant's notes)
-EDITS_SCHEMA_SHA256 = "7066d267aaf610947d24f418e6414625dbef9a3d48aaf762e7c8342dc1261eed"
+# 2026-10-18 task8: zero taper describes its finite join; scalar radii state the float32-safe sampled-feature floor.
+EDITS_SCHEMA_SHA256 = "1d53f51f1da19914f3377082e158b0849722f4e5c30918433c810ad6bbd06b2b"
 READ_AT = {"Q": (40.0, 0.0, 6.4), "R": (40.0, 8.0, 7.4)}      # synthetic reading points (d, y, t) on the slab
 REMEDY_WORDS = ("apply", "restore", "then ", "photo_compare", "first", "should", "try", "instead")
 HERE = Path(__file__).resolve()
@@ -564,7 +565,18 @@ def test_description_numbers_are_the_codes():
     assert f"a weak prior of sd {FIT.PRIOR_SD_MM:g} mm toward the plain arm" in schema      # solve (owner P2-3)
     assert f"folding at least {FIT.MIN_CREASE_DEG:g} deg, or refuses E_FIT_SHAPE" in schema
     assert f"chi2 more than {FIT.ACCEPT_DCHI2:g} above" in schema
-    assert f"mm, 0 to {G.SCALAR_LIMIT_MM:g}" in schema
+    from glasses3d.g3d.temple.spec import MIN_FEATURE_MM, MIN_ROUND_MM
+    from glasses3d.agent.temple_lab import crease_angles as CA
+    assert f"mm, 0 (crisp) or {MIN_ROUND_MM:.9g} to {G.SCALAR_LIMIT_MM:g}" in schema
+    assert f"snap_mm plus {MIN_FEATURE_MM:g} mm" in schema
+    for name in T.JUDGEMENT_TOOLS:
+        assert name in flat["photo_compare"]
+    angles = tools["facet_crease_compare"].params_json_schema["properties"]["angles_deg"]
+    assert (angles["minItems"], angles["maxItems"]) == (CA.MIN_ALTERNATIVES, CA.MAX_ALTERNATIVES)
+    assert f"at least {FIT.MIN_CREASE_DEG:g}" in params("facet_crease_compare")["angles_deg"]
+    assert "maxItems" not in tools["facet_crease_compare"].params_json_schema["properties"]["photos"]
+    assert tools["facet_visible_angle"].params_json_schema["properties"]["reason"]["maxLength"] == CA.REASON_MAX
+    assert "Changes outside those dependencies retain it" in flat["facet_visible_angle"]
     assert schema.count(f"{G.NAME_RULE}; not 'base'") == 2                  # SetNode.name, SetFacet.label
     assert G.NAME_RULE == f"a letter, then up to {G.NAME_MAX - 1} letters, digits, _ or -" and G.NAME_MAX == RD.NAME_MAX
     assert G.NAME_RE.match("a" * G.NAME_MAX) and not G.NAME_RE.match("a" * (G.NAME_MAX + 1))
@@ -594,7 +606,7 @@ def test_tool_texts_state_what_the_code_does():
     assert 'a note in a refused call is kept only when the result says "object": "recorded"' in flat["facet_edit"]
     for name in ("facet_edit", "facet_variants", "facet_finish"):
         assert params[name]["$.properties.judgement"] == T.JUDGEMENT_TEXT
-    assert "count a photo as compared only when it was shown in full, not by a zoom alone" in flat["photo_compare"]
+    assert "count only full-photo comparisons" in flat["photo_compare"]
     edits = params["facet_edit"]
     assert edits["$.$defs.SetCrease.properties.facets"] == "two facet labels, or a facet and 'base' (the plain arm)"
     assert edits["$.$defs.DeleteCrease.properties.facets"] == edits["$.$defs.SetCrease.properties.facets"]
@@ -1105,7 +1117,8 @@ def test_chain_edits_carry_a_corner_on_the_edge_within_its_reading(edge_recs):
     assert spliced["nodes"]["T"][1] == pytest.approx(t["y"] - 0.1, abs=1e-3) and len(notes) == 1
     other, notes = G.apply_edits(on, [{"op": "offset_chain", "chain": "outline.bottom", "d_from_mm": 60.0,
                                        "d_to_mm": 70.0, "delta_mm": 0.6, "taper_mm": 0.0}])
-    assert other["nodes"] == on["nodes"] and notes == []                    # T is on the top edge, not the bottom
+    assert other["nodes"] == on["nodes"]  # T is on the top edge, not the bottom; only join facts remain.
+    assert len(notes) == 2 and all("offset_chain outline.bottom join" in n for n in notes)
 
 
 # --------------------------------------------------------------------------------------------- the blind stand-in

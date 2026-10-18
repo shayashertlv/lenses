@@ -264,7 +264,8 @@ def test_run7_warp_crown_exports_its_shading(run7_warp_run):
 
 def test_warp_temple_is_written_and_exported(warp_run):
     """WP6_V3 §2's Blender layer: a warp facet W (P3 1.5 mm off) beside a soft flat facet S. Written: the core's
-    polygons (the Blender numpy core = the host's), closed, Euler 2, every sharp edge and no more (no fan split); each
+    polygons or their checked canonical triangles (the Blender numpy core = the host's), closed, Euler 2,
+    every sharp edge and no more (no fan split); each
     warp triangle corner carries the design surface's normal (design_corner_normals), each soft-border ramp corner the
     facet's face normal, within 0.1 deg. Exported: every GLB vertex of the +X temple within 1e-4 mm of a core vertex
     and every core vertex within 1e-4 mm of a GLB vertex; at every vertex of a W|S or W|base crease the GLB holds two
@@ -276,8 +277,19 @@ def test_warp_temple_is_written_and_exported(warp_run):
     assert st[2]["status"] == "ok", st[2]
     assert any(f["label"] == "W" and "warp_mm" in f for f in st[2]["facets"])
     t = next(t for t in st[3]["temples"] if float(np.array(t["V"])[:, 0].mean()) > 0)     # the +X temple
-    W, polys, _ = tb.world(1)
-    assert t["polys"] == polys and np.abs(np.array(t["V"]) - W).max() <= 1e-4
+    W, core_polys, core_tris = tb.world(1)
+    polys = t["polys"]
+    sources, cursor = [], 0
+    for pi, polygon in enumerate(core_polys):
+        if polys[cursor] == polygon:
+            sources.append(pi)
+            cursor += 1
+        else:
+            expected = core_tris[tb.tri_poly == pi].tolist()
+            assert polys[cursor:cursor + len(expected)] == expected
+            sources.extend([pi] * len(expected))
+            cursor += len(expected)
+    assert cursor == len(polys) and np.abs(np.array(t["V"]) - W).max() <= 1e-4
     ok, chi = closed_manifold(t["polys"])
     assert ok and chi == 2 and len(t["sharp"]) == len(tb.sharp)
     cn = np.array(t["corner_normals"])
@@ -287,7 +299,11 @@ def test_warp_temple_is_written_and_exported(warp_run):
     warp_corners = [(i, v) for (i, v) in dn if tb.poly_cell[i] == "warp"]
     soft_corners = [(i, v) for (i, v) in dn if tb.poly_region[i] == "base"]
     assert len(warp_corners) > 500 and len(soft_corners) >= 10
-    worst = max(_ang(cn[starts[i] + polys[i].index(v)], want[(i, v)]) for (i, v) in warp_corners + soft_corners)
+    source_corners = {}
+    for pi, polygon in enumerate(polys):
+        for j, v in enumerate(polygon):
+            source_corners.setdefault((sources[pi], v), []).append(cn[starts[pi] + j])
+    worst = max(_ang(n, want[key]) for key in warp_corners + soft_corners for n in source_corners[key])
     assert worst <= 0.1, worst
     assert st[4]["status"] == "exported", st[4]
     g = GLB.load(glb)

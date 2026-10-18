@@ -84,18 +84,21 @@ from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_
 from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
 from glasses3d.agent.tool_timeouts import RunningTool, busy_result, clear_running
 from glasses3d.g3d.temple import fit as FIT
-from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, SOFT_BAND_MM, SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError
+from glasses3d.g3d.temple.spec import (DEFAULT_OPTIONS, MIN_FEATURE_MM, MIN_ROUND_MM, SOFT_BAND_MM,
+                                     SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError)
 from glasses3d.g3d_host import compare as C
 from . import geometry as G
 from . import readings as RD
 from . import sheets as SH
 from . import state as ST
+from . import crease_angles as CA
 from .lab import NOTE_MAX, VARIANT_TARGETS_MAX, VARIANTS_MAX, VARIANTS_MIN, data_url
 from .state import LabRefusal
 
 CONTEXT_GUARD_TOKENS = 240_000          # §4.3: the one-epoch image filter from this many counted input tokens
 TOOL_NAMES = ("facet_inspect", "photo_image", "photo_read", "photo_compare", "facet_edit", "facet_variants",
               "facet_finish", "read_report", "facet_crease_compare", "facet_visible_angle")
+JUDGEMENT_TOOLS = ("facet_edit", "facet_variants", "facet_crease_compare", "facet_visible_angle", "facet_finish")
 Chain = Literal["outline.top", "outline.bottom", "inner", "base.top", "base.bottom"]
 SNAP_MM = DEFAULT_OPTIONS["snap_mm"]    # a node within this of an outline edge lies on it (the parse snaps it there)
 CHAIN_TEXT = ("outline.top / outline.bottom: the outline's top / bottom edge (value y; a node on it, within "
@@ -208,8 +211,9 @@ class OffsetChain(Input):
     d_from_mm: float
     d_to_mm: float
     delta_mm: float
-    taper_mm: float = Field(description="outside d_from..d_to the offset falls linearly to 0 over this many mm (0 = "
-                                        "none)")
+    taper_mm: float = Field(description="outside d_from..d_to the offset falls linearly to 0 over this many mm; "
+                                        f"0 uses a short joining ramp of snap_mm plus {MIN_FEATURE_MM:g} mm, "
+                                        "reported in the result")
 
 
 class SetScalar(Input):
@@ -217,7 +221,8 @@ class SetScalar(Input):
     key: Literal["roll_mm", "tip_round_mm"] = Field(
         description="roll_mm: the rounding of both outline edges along the temple (0 = crisp); tip_round_mm: the "
                     "rounding of the two tip corners")
-    value: float = Field(description=f"mm, 0 to {G.SCALAR_LIMIT_MM:g}")
+    value: float = Field(description=f"mm, 0 (crisp) or {MIN_ROUND_MM:.9g} to {G.SCALAR_LIMIT_MM:g}; "
+                                    f"smaller nonzero radii have sampled features below {MIN_FEATURE_MM:g} mm and refuse")
 
 
 EDIT_MODELS = (SetNode, DeleteNode, SetFacet, DeleteFacet, SetCrease, DeleteCrease, SpliceChain, OffsetChain,
@@ -385,9 +390,9 @@ PHOTO_COMPARE_DOC = f"""Compare the applied head with photos at their fitted cam
     {C.ZOOM_PANEL_PX[0]} x {C.ZOOM_PANEL_PX[1]} native px, smaller beyond; the text gives k): photo | render / photo
     with the model's outline and its creases labelled with their angles | the geometry view or the render with the
     creases. points_px: pixels
-    charted to (d, y, t) on the model. Returns a compare_id; the next facet_edit, facet_variants or facet_finish
-    carries a judgement of it, one entry per photo shown (zoomed photos included). facet_variants and facet_finish
-    count a photo as compared only when it was shown in full, not by a zoom alone.
+    charted to (d, y, t) on the model. Returns a compare_id; the next {', '.join(JUDGEMENT_TOOLS[:-1])} or {JUDGEMENT_TOOLS[-1]}
+    carries its judgement, per shown photo including zooms. facet_variants and facet_finish count only full-photo
+    comparisons.
 
     Args:
         photos: Photo ids with a camera, or {DEFAULT_PHOTOS}; [] with a zoom: the zooms only.
@@ -444,7 +449,7 @@ FACET_VARIANTS_DOC = f"""Build {VARIANTS_MIN} to {VARIANTS_MAX} variants of pare
         judgement: {JUDGEMENT_TEXT}
     """
 
-CREASE_COMPARE_DOC = """Compare 3-5 absolute crease angles beside the current built angle and native photo crops in
+CREASE_COMPARE_DOC = f"""Compare {CA.MIN_ALTERNATIVES}-{CA.MAX_ALTERNATIVES} absolute crease angles beside the current built angle and native photo crops in
     AR room light, at the frozen photo cameras. The real builder preserves the adjacent face and changes only the
     chosen face's exclusive corners; unsupported sharing/warped faces refuse. Every alternative reports its actual
     angle, reading residuals, thickness, changed geometry and hard checks, including refused alternatives. No model
@@ -456,7 +461,7 @@ CREASE_COMPARE_DOC = """Compare 3-5 absolute crease angles beside the current bu
         facets: The two named facets of the crease, excluding base.
         moving_facet: Which of those two faces may turn; the adjacent face stays fixed.
         shape: ridge or valley; a certain contradictory measurement refuses.
-        angles_deg: 3-5 distinct absolute normal dihedral angles, in degrees (at least 2.5 and below 180).
+        angles_deg: {CA.MIN_ALTERNATIVES}-{CA.MAX_ALTERNATIVES} distinct absolute normal dihedral angles, in degrees (at least {FIT.MIN_CREASE_DEG:g} and below 180).
         photos: Frozen photo camera ids where the face is visible; crops are tiled at native scale.
         judgement: The judgement of the latest compare when due, else null.
     """
@@ -465,8 +470,9 @@ VISIBLE_ANGLE_DOC = """Declare one successfully rendered angle from facet_crease
     The builder honours this angle over unresolved local readings, retaining their residuals in the report. Certain
     measurements, closed-solid, thickness, declared ridge/valley and strict specification checks still win. Changed
     inputs or comparison artifacts require a fresh comparison; unseen or refused alternatives cannot be selected.
-    Existing editing and measurement tools remain available. A later geometry or reading change may require a new
-    comparison for a retained visible-angle declaration.
+    After selection, the declaration binds its two faces and faces connected through corners or camera-fit terms, those
+    corners' readings, their supporting outline/inner/base segments, hinge and surface settings, plus comparison
+    assets and frozen cameras. Changes outside those dependencies retain it. Changing a dependency invalidates it.
 
     Args:
         comparison_id: The completed angle comparison that was shown.
@@ -737,8 +743,8 @@ def registry(lab, settings=None) -> list:
     async def facet_crease_compare(ctx: ToolContext, parent_revision: int,
                                    facets: Annotated[list[str], Field(min_length=2, max_length=2)],
                                    moving_facet: str, shape: Literal["ridge", "valley"],
-                                   angles_deg: Annotated[list[float], Field(min_length=3, max_length=5)],
-                                   photos: Annotated[list[PhotoId], Field(min_length=1, max_length=vmax)],
+                                   angles_deg: Annotated[list[float], Field(min_length=CA.MIN_ALTERNATIVES, max_length=CA.MAX_ALTERNATIVES)],
+                                   photos: Annotated[list[PhotoId], Field(min_length=1)],
                                    judgement: Judgement | None):
         return await call(ctx, "facet_crease_compare", lambda cid: lab.crease_compare(
             cid, parent_revision, facets, moving_facet, shape, angles_deg, photos, judged(judgement)))
@@ -746,7 +752,7 @@ def registry(lab, settings=None) -> list:
     @tool("facet_visible_angle")
     @doc(VISIBLE_ANGLE_DOC)
     async def facet_visible_angle(ctx: ToolContext, comparison_id: str, degrees: float,
-                                  reason: Annotated[str, Field(min_length=1, max_length=NOTE_MAX)],
+                                  reason: Annotated[str, Field(min_length=1, max_length=CA.REASON_MAX)],
                                   judgement: Judgement | None, apply: bool, photos: list[PhotoId] | None):
         return await call(ctx, "facet_visible_angle", lambda cid: lab.visible_angle(
             cid, comparison_id, degrees, reason, judged(judgement), apply, photos))

@@ -8,19 +8,26 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from glasses3d.agent.procs import write_json_atomic
-from glasses3d.agent.tools import arview, look
 from glasses3d.agent.tool_timeouts import (CREASE_ALTERNATIVES_MAX as MAX_ALTERNATIVES,
                                           CREASE_COMPARE_WORK_S as COMPARE_WORK_DEADLINE_S,
                                           CREASE_MIN_REMAINING_S)
 from glasses3d.g3d.temple import build as B, fit as FIT
 from glasses3d.g3d.temple.spec import VISIBLE_ANGLE_TOL_DEG
 from glasses3d.g3d_host import compare as C
-from . import geometry as G, state as S, crease_ar as AR
+from . import geometry as G, state as S
 from .recovery import restore_head
 
 SCHEMA = "g3d.crease_angle_comparison/1"
 MIN_ALTERNATIVES = 3
 ANGLE_TOLERANCE_DEG = VISIBLE_ANGLE_TOL_DEG
+REASON_MAX = 1000
+# Numerical comparisons only: a disconnected solve can reorder SVD columns and change its last few bits.
+# Raw design/read/evidence inputs stay exact; this is far below the fitter's 1e-6 mm position tolerance.
+RESOLVED_ATOL = 1e-9
+
+# Tool descriptions consume the contract constants above while the parent tool registry imports this package.
+from glasses3d.agent.tools import arview, look
+from . import crease_ar as AR
 
 
 def digest(value):
@@ -86,6 +93,124 @@ def declaration(base, pair, moving_facet, shape, degrees, comparison_id, compari
     return design
 
 
+def choice_dependencies(design, readings, pair):
+    """Inputs to the two compared faces, independent of unrelated nodes, facets and stored readings.
+
+    Adjacent faces sharing corners or camera-fit unknowns are included because the joint fit couples them. Chain
+    segments are clipped to the participating faces' d span; edits beyond it cannot alter their interpolated values.
+    The numerical options, hinge, rounding and chamfer settings remain bound as they affect the built surfaces.
+    """
+    design = G.canonical_design(design)
+    problem = FIT._Problem(design)
+    labels = set(pair)
+    names = {n for label in labels for n in design["facets"][label]["poly"]}
+    all_names = {n for facet in design["facets"].values() for n in facet["poly"]}
+    contacts = {label: set(facet["poly"]) for label, facet in design["facets"].items()}
+    aliases = []
+    for constraint in problem.eq_def:
+        if constraint[0] == "tee":
+            contacts[constraint[2]].add(constraint[1])
+        elif constraint[0] == "same":
+            aliases.append(set(constraint[1:]))
+
+    def camera_terms(node):
+        value = design["nodes"][node][2]
+        observed = value.get("read", {}).get("camera", {}) if isinstance(value, dict) else {}
+        stored = readings.get(node, {}).get("camera_shift", {})
+        return {key for terms in (observed, stored) for key, delta in (terms or {}).items() if any(delta)}
+
+    cameras = {n: camera_terms(n) for n in all_names}
+    # Stored readings also participate: eligibility restores them even for typed/solve corners.
+    while True:
+        before = names.copy()
+        shared_cameras = {key for n in names for key in cameras[n]}
+        names |= {n for n in all_names if shared_cameras.intersection(cameras[n])}
+        for alias in aliases:
+            if names.intersection(alias):
+                names |= alias
+        joined = {label for label, nodes in contacts.items() if names.intersection(nodes)}
+        more = {n for label in joined for n in contacts[label]}
+        labels |= joined
+        names |= more
+        if names == before:
+            break
+    lo = min(design["nodes"][n][0] for n in names)
+    hi = max(design["nodes"][n][0] for n in names)
+    out = {k: copy.deepcopy(v) for k, v in design.items() if k not in {"nodes", "facets", "creases"}}
+    for chain in G.CHAINS:
+        pts = G._chain(design, chain)
+        ds = sorted({lo, hi} | {d for d, _ in pts if lo < d < hi})
+        G._set_chain(out, chain, [[d, G._interp(pts, d)] for d in ds])
+    out.update(nodes={n: design["nodes"][n] for n in sorted(names)},
+               facets={label: design["facets"][label] for label in sorted(labels)},
+               creases=[c for c in design["creases"] if set(c["facets"]) != set(pair)
+                        and labels.intersection(c["facets"])],
+               readings={n: readings[n] for n in sorted(names) if n in readings})
+    out["resolved"] = _resolved_dependencies(design, readings, pair, names, labels)
+    return out
+
+
+def _resolved_dependencies(design, readings, pair, names, labels):
+    """Bind what the full fit actually puts on these faces, including nonlocal geometric coupling.
+
+    Shared unknowns alone are insufficient: a remote node's d station can snap a compared corner, another edge
+    can limit its position solve, and a moving outline knot can change a remote segment. Resolve the complete
+    problem, then retain only this component's fitted surfaces and original-reading eligibility. An independent
+    component may change freely when neither local result changes. No result here authorizes a visible choice.
+    """
+    baseline = copy.deepcopy(design)
+    baseline["creases"] = [c for c in baseline["creases"] if set(c["facets"]) != set(pair)]
+    measurement = copy.deepcopy(baseline)
+    measurement["creases"] = []
+    for n in {n for f in measurement["facets"].values() for n in f["poly"]}:
+        if n in readings:
+            measurement["nodes"][n][2] = FIT.read_payload(readings[n])
+
+    def snapshot(source, stored=None):
+        result = FIT.fit_spec(source, readings=stored)
+        parsed = FIT._Problem(result.spec).ps
+        lo = min(parsed.nodes[n][0] for n in names)
+        hi = max(parsed.nodes[n][0] for n in names)
+
+        def chain(points):
+            pts = np.asarray(points)
+            ds = sorted({lo, hi} | {float(d) for d in pts[:, 0] if lo < d < hi})
+            return [[d, float(np.interp(d, pts[:, 0], pts[:, 1]))] for d in ds]
+
+        return {"nodes": {n: {"parsed": list(parsed.nodes[n]),
+                              "fit": {k: result.nodes[n].get(k) for k in ("d", "y", "X", "sd_X")}}
+                          for n in sorted(names)},
+                "facets": {label: result.spec["facets"][label] for label in sorted(labels)},
+                "outline": {"top": chain(parsed.top), "bottom": chain(parsed.bottom)},
+                "inner": chain(np.c_[parsed.inner.d, parsed.inner.v]),
+                "base": {key: chain(np.c_[table.d, table.v]) for key, table in
+                         (("top", parsed.t_top), ("bottom", parsed.t_bot))},
+                "creases": {"|".join(c["pair"]): {k: c.get(k) for k in
+                    ("deg", "sd_deg", "free_deg", "free_sd_deg", "normal_deg", "mean_dihedral_deg",
+                     "free_mean_deg", "free_mean_sd_deg", "state")}
+                    for c in result.creases if labels.intersection(c["pair"])}}
+
+    return {"baseline": snapshot(baseline, readings), "measurement": snapshot(measurement)}
+
+
+def _same_resolved(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same_resolved(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same_resolved(x, y) for x, y in zip(a, b))
+    if isinstance(a, (int, float)) and not isinstance(a, bool) and isinstance(b, (int, float)) and not isinstance(b, bool):
+        return math.isclose(a, b, rel_tol=0.0, abs_tol=RESOLVED_ATOL)
+    return a == b
+
+
+def _same_dependencies(current, saved):
+    if current is None:
+        return False
+    return ({k: v for k, v in current.items() if k != "resolved"} ==
+            {k: v for k, v in saved.items() if k != "resolved"} and
+            _same_resolved(current.get("resolved"), saved.get("resolved")))
+
+
 def actual_angle(tb, pair):
     rec = next((r for r in tb.tables["creases"] if r.get("kind") == "crease" and
                 set(r["regions"]) == set(pair)), None)
@@ -141,6 +266,7 @@ def compare(lab, call_id, parent_revision, facets, moving_facet, shape, angles_d
     directory = lab.work / "crease_angles" / comparison_id
     directory.mkdir(parents=True, exist_ok=False)
     baseline_tb = lab.build(parent)
+    baseline_angle = actual_angle(baseline_tb, pair)
     base = lab.design(parent)
     rows = AR.photo_rows(lab, photos, directory)
     candidates, builds = [], {"baseline": baseline_tb}
@@ -183,7 +309,7 @@ def compare(lab, call_id, parent_revision, facets, moving_facet, shape, angles_d
     result = exported.get("result") or {}
     if exported.get("status") != "ok" or result.get("status") != "ok" or not result.get("unchanged"):
         raise ValueError("read-only candidate export did not complete unchanged")
-    baseline = {"label": "baseline", "status": "baseline", "built_degrees": actual_angle(baseline_tb, pair)}
+    baseline = {"label": "baseline", "status": "baseline", "built_degrees": baseline_angle}
     for item in [baseline]+candidates:
         if item.get("status") == "refused":
             continue
@@ -206,6 +332,7 @@ def compare(lab, call_id, parent_revision, facets, moving_facet, shape, angles_d
     if binding(lab, parent) != source:
         raise S.LabRefusal("E_COMPARISON_STALE", "comparison inputs changed during capture")
     record = {"schema": SCHEMA, "comparison_id": comparison_id, "source_binding": source,
+        "choice_dependencies": choice_dependencies(base, lab.readings(), pair),
         "parent_revision": parent, "facets": list(pair), "moving_facet": moving_facet, "shape": shape,
         "angle_tolerance_deg": ANGLE_TOLERANCE_DEG, "baseline": baseline, "alternatives": candidates,
         "photos": shown, "images": images, "export_context": {"decal_source": lab.state["start_checkpoint"],
@@ -252,8 +379,8 @@ def choose(lab, call_id, comparison_id, degrees, reason, apply, photos):
     rec, sha = evidence(lab, comparison_id)
     if binding(lab, rec["parent_revision"]) != rec["source_binding"]:
         raise S.LabRefusal("E_COMPARISON_STALE", "design, head, readings, photos, materials or frozen cameras changed; compare again")
-    if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
-        raise S.LabRefusal("E_ARGS", "give the visual reason in 1..1000 characters")
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > REASON_MAX:
+        raise S.LabRefusal("E_ARGS", f"give the visual reason in 1..{REASON_MAX} characters")
     item = next((c for c in rec["alternatives"] if c["degrees"] == degrees and c["status"] == "eligible"), None)
     if not item or not any(r.get("visible_pixels_by_variant", {}).get(item["label"], 0) for r in rec["photos"]):
         raise S.LabRefusal("E_COMPARISON_CHOICE", "choose one exact angle whose hard checks passed and whose named face was shown")
@@ -276,17 +403,13 @@ def choose(lab, call_id, comparison_id, degrees, reason, apply, photos):
 
 
 def validate_design(lab, design):
-    """Every choice keeps its own evidence; one complete compared candidate must anchor the current design.
-
-    A later whole-model comparison can include earlier choices. Generic edits cannot silently reuse that chain.
-    Applying an unchanged chosen revision changes only the head, not its immutable inputs or comparison.
-    """
-    has_choices, anchored = False, False
+    """Retained declarations bind their local fit dependencies and immutable external comparison evidence."""
+    legacy_expected = []
+    legacy_design = copy.deepcopy(design)
     for crease in design.get("creases", []):
         v = crease.get("visible_angle")
         if not v:
             continue
-        has_choices = True
         rec, sha = evidence(lab, v["comparison_id"])
         if (sha != v["comparison_sha256"] or set(rec["facets"]) != set(crease["facets"]) or
             rec["shape"] != crease["shape"] or rec["moving_facet"] != v["moving_facet"] or
@@ -294,12 +417,30 @@ def validate_design(lab, design):
             raise S.LabRefusal("E_COMPARISON_CHOICE", "visible declaration does not match its completed comparison")
         expected = declaration(lab.design(rec["parent_revision"]), rec["facets"], rec["moving_facet"],
                                rec["shape"], v["degrees"], v["comparison_id"], sha, v["reason"])
-        anchored |= G.design_sha256(design) == G.design_sha256(expected)
+        scoped = rec.get("choice_dependencies")
+        if scoped is not None:
+            try:
+                current_scope = choice_dependencies(design, lab.readings(), rec["facets"])
+            except (KeyError, TypeError, ValueError):
+                current_scope = None
+            if not _same_dependencies(current_scope, scoped):
+                raise S.LabRefusal("E_COMPARISON_STALE", "the compared faces' connected layout, readings or supporting geometry changed; this visible-angle declaration has no current comparison")
+            # A new scoped choice cannot exempt an older whole-design declaration from its own anchor.
+            # Project only this new choice back to its source declaration when checking historical anchors.
+            legacy_design["creases"] = [c for c in legacy_design["creases"]
+                                         if set(c["facets"]) != set(rec["facets"])]
+            legacy_design["creases"].extend(copy.deepcopy(c) for c in lab.design(rec["parent_revision"])["creases"]
+                                            if set(c["facets"]) == set(rec["facets"]))
+        else:  # Historical comparison manifests did not save their reading subset.
+            legacy_expected.append(expected)
         current = binding(lab, rec["parent_revision"])
         # Applying/reapplying that exact revision changes the head. Its immutable source and external evidence do not.
         source = rec["source_binding"]
         ignored = {"head_revision", "head_fingerprint"}
+        if scoped is not None:
+            ignored |= {"readings_sha256"}
         if {k: x for k, x in current.items() if k not in ignored} != {k: x for k, x in source.items() if k not in ignored}:
-            raise S.LabRefusal("E_COMPARISON_STALE", "readings, assets or frozen cameras changed after this visible-angle comparison; compare again")
-    if has_choices and not anchored:
-        raise S.LabRefusal("E_COMPARISON_STALE", "the design changed after these visible-angle comparisons; remove the stale declaration and compare again")
+            raise S.LabRefusal("E_COMPARISON_STALE", "comparison assets, frozen cameras or bound source inputs changed; this visible-angle declaration has no current comparison")
+    if legacy_expected and not any(G.design_sha256(legacy_design) == G.design_sha256(expected)
+                                   for expected in legacy_expected):
+        raise S.LabRefusal("E_COMPARISON_STALE", "the design changed after these legacy whole-design visible-angle comparisons; their retained declarations have no current comparison")

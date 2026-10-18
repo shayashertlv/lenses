@@ -1,5 +1,44 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 task 8: temple geometry, fitting and stage tools ($0)
+
+Completed `data/review_20261018/briefs/task8_temple_tools.md`. Builder arrangements use a 0.001 mm feature floor,
+scale-aware ears and strictly improving internal diagonals. Float32-unsafe inner ears are repaired only through
+coplanar interior fans; real kinks still refuse. Exact-minimum gaps survive coordinate rounding. Native stored and
+exported tessellation is checked with delivery's rule. All 96 eligible review-fuzz layouts and 12 steep-edge cases
+have zero bad triangles. Helpers preserve rounded vertices, check all corners and refuse split/holed/open bodies.
+
+Fitting warnings use actual fitted positions; visible-angle choices support typed/solved local corners while
+protecting unrelated strong evidence. Choices bind their connected geometry/readings and effective fit dependencies;
+unrelated changes survive, bound changes refuse. Receipts/instructions reflect this. Zero taper has a finite local
+join; unchanged outline edges carry no corners. Variant normals, decal warnings/refusals, shared-mesh undo and
+UV/opening consistency are repaired. Bounded crease reports retain exact candidate metrics even when table summaries
+force pagination; the strict native proof exposed and verifies this correction. Sign-certain, manifold, thickness,
+declared-shape and strict-spec gates remain.
+
+Exact-Git accepted-geometry census: 77 rows, 48 supported builds, 19 same refusals, 10 historically unsafe subminimum-roll
+intermediate refusals. Accepted run8 r0025 maximum sampled/all-vertex surface difference is 0.0000634117634 mm; selected
+assembled r0006 is 0.000107402787 mm, thickness unchanged. All assembled intermediates max 0.00131354698 mm. The selected
+face-only crease-range endpoint change of 0.819051676 degrees is disclosed with unchanged all-edge extrema and tiny mean
+change; no new geometry acceptance gate is invented. Four real accepted GLB temple primitives have zero bad triangles.
+
+Full non-print: **4,822 passed, 2 skipped, 13 failed in 895.94 s** (14 workers, loadfile). The exact-floor snap defect is
+fixed without changing the old test; post-fix serial coverage is **405 passed / 1 slow deselected in 129.14 s**. All 13 failures
+were rerun alone: 11 pass; the camera-refit test's existing order dependency passes in the isolated full camera module
+(3 passed in 140.18s (0:02:20)); the pre-existing photo_v1 golden mismatch remains 199 pixels vs 114.24 allowed. No threshold or
+golden changed. Full photoprint: **372 passed in 387.19 s** (4 workers). Final fresh T5: **49/49 checks**, 24 requests / 23 tools,
+prepare 33.2 s / run 104.0 s. Final M1: **166.860 s**, 13 requests/tools, 26 receipts, 12 image blobs, 35 AR images.
+M5 passes with independent selected angle **11.729716499015 degrees**, certain-sign refusal,
+bound-reading invalidation and unrelated-reading retention. Its archived camera-provenance wording was re-frozen
+through production code on disposable copies; all 385 original and 407 compatibility-source files remain unchanged.
+
+Final 77-row replay and accepted native export pass on frozen sources. Existing full-scene etch/hallmark warnings
+are disclosed and reproduced with the old writer; temple bodies are safe. Per-finding lines, old-failing tests,
+exact changed Astra text, process receipts, accepted diffs and commit hash are in
+`data/review_20261018/codex/task8_report.md`. One superseded diagnostic experiment is preserved paused under the
+no-kill rule, with resume receipt. No paid call, push, root-app/`ar/` edit, source-asset change or data/binary commit.
+WP6 method unchanged; no new owner/Claude visual acceptance claimed. Actual spend **$0**.
+
 ## 2026-10-18 — Claude accepted M11 task 7 ($0)
 
 Task 7 (`df9fe23`) reviewed by Claude: report `data/review_20261018/codex/task7_report.md`. The owner-accepted FT1119
