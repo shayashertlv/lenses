@@ -1,5 +1,16 @@
 # glasses3d progress
 
+## 2026-10-18 — Claude accepted M11 task 8 ($0)
+
+Task 8 (`4c5bf5c`) reviewed by Claude: report `data/review_20261018/codex/task8_report.md`. All 77 accepted temple
+geometries (fixtures, run 8 revisions, assembled stage) compare exactly equal before/after; T5 rehearsal 49/49, M1 and
+`assembly_m5fix8` passed. Changed assertions in existing tests read: visible-angle refusals still fire (now only for
+bound dependencies, message "connected layout"), the M5 proof's stale control now changes a bound reading, the
+off-reading warning compares the built corner; none weakened. Reran new and touched tests: 593 passed, 1 skipped
+(Windows symlink). Codex left its superseded `t8geometry2` experiment paused (about 1.1 GB, resume/stop receipt in
+`task8_experiment_final_pause.json`). Task 9 brief extended by Claude: `test_wp2_fit_cameras.py` order dependency and
+a serial pass for timing tests that fail under full-suite load.
+
 ## 2026-10-18 — ASSEMBLY M11 task 8: temple geometry, fitting and stage tools ($0)
 
 Completed `data/review_20261018/briefs/task8_temple_tools.md`. Builder arrangements use a 0.001 mm feature floor,
