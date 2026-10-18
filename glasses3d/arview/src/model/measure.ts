@@ -1,3 +1,4 @@
+import {WEARER_SIDES} from './sides.ts';
 /** The measured §2 rows (units, origin, orientation), ported line for line from `glasses3d/g3d_host/spec.py`
  *  (`_units`, `_orientation`, `_origin`, `_temple_points`, `plane_points`), so arview and the Python validator decide
  *  the same files the same way. Pure and three-free: the caller hands over world-space metres.
@@ -193,7 +194,7 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
   const ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]] as const;
   const tx = TEMPLE_X_MM / 1000, reach = TEMPLE_REACH_Z_MM / 1000, Vf = g.frame.vertices, Vl = g.lens.vertices;
   const temples: Record<string, number | null> = {}, missing: string[] = [], absent: string[] = [];
-  for (const [side, sign] of [['left', -1], ['right', 1]] as const) {
+  for (const [side, sign] of WEARER_SIDES) {
     let zmin = Infinity;
     for (let i = 0; i < Vf.length; i += 3) if (Vf[i]! * sign > tx) zmin = Math.min(zmin, Vf[i + 2]!);
     const found = Number.isFinite(zmin);
@@ -237,7 +238,7 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
       const d = mid(rightY) - mid(leftY);
       sink.measure('lens_halves_dy_mm', round(d * 1000, 3));
       if (Math.abs(d) * 1000 > ROLL_TOL_MM) {
-        sink.fail('orientation', `rolled: the right lens half's centre is ${signed(d * 1000, 1)} mm higher than the left's (must be within `
+        sink.fail('orientation', `rolled: the left lens half's centre (+X) is ${signed(d * 1000, 1)} mm higher than the right's (-X) (must be within `
           + `${ROLL_TOL_MM.toFixed(0)} mm; real frames <= 0.16 mm)`);
       }
     } else sink.warn('roll not measured: lens geometry on one side of x = 0 only');
@@ -252,7 +253,7 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
     }
   } else sink.warn('+Y up, roll and lens position not measured: no measurable lens geometry');
   const slopes: Record<string, number> = {};
-  for (const [side, sign] of [['left', -1], ['right', 1]] as const) {
+  for (const [side, sign] of WEARER_SIDES) {
     if (missing.includes(side)) continue;
     const P = templePoints(g.frame, sign, PITCH_Z_MM, PITCH_PLANES_MM, PITCH_MIN_SPAN_MM);
     let zmin = Infinity, zmax = -Infinity;

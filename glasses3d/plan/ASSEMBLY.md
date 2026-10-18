@@ -460,7 +460,8 @@ Items, in this order (A before B):
 6. **Per-photo arm opening:** fit each photo's left and right arm opening with its camera in `fit_cameras` (port WP6's
    opening fit from history, fix its recorded occlusion defect; hold an arm with no visible pixels fixed); pass the
    openings to `temple_stage` and draw each photo's opening in `compare_to_photos`, `compare_look_to_photos` and
-   `photo_read` (`temple_side`). Set `glossy_floor` mattes at intake for photos on a reflective floor.
+   `photo_read` (`temple_side`). The former "Set `glossy_floor` mattes at intake" instruction is superseded by
+   M5-fix-6: coding agents add no floor details; `fit_cameras` handles floor reflections automatically.
 7. **Stage inputs:** the stage brief states camera conflicts from reading residuals as facts; the stage warns when a
    photo's arm fit is poor; give the stage arm plan-curve/hook readings (tip crossings, outline fits from 03/06/01
    with each photo's opening free); `splice_chain` blends or warns on steps. Parent instructions: if the stage ends

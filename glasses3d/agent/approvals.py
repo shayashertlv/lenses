@@ -115,6 +115,22 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
     else:
         expected = {p.resolve() for p in root.rglob("*") if p.is_file()
                     and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".gif")}
+        manifest_path = root / "lab.json"
+        if manifest_path.is_file():
+            _, manifest = _read_json(manifest_path, "lab.json")
+            if manifest.get("schema") == "g3d.temple_lab/2":
+                for row in manifest.get("photos", []):
+                    if not row.get("sent_path") or row["sent_path"] == row.get("path"):
+                        continue
+                    original = (root / row["path"]).resolve()
+                    transport = (root / row["sent_path"]).resolve()
+                    if (original == transport or not original.is_relative_to(root) or not transport.is_relative_to(root)
+                            or original not in expected or transport not in expected
+                            or file_sha256(original) != row.get("sha256")
+                            or file_sha256(transport) != row.get("sent_sha256")):
+                        raise ApprovalRefused("stale", "lab original or transport photo changed")
+                    # Both copies remain bound by input_digests; only the recorded transport is sent.
+                    expected.remove(original)
     rows, seen = [], set()
     for photo in photos:
         path = (root / photo.path).resolve()

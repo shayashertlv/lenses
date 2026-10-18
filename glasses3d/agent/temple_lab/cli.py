@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import functools
 import json
 import math
@@ -757,7 +758,7 @@ def instructions_text(root: Path, k: int) -> str:
 
 
 def references(lab) -> list:
-    """Every original photo, then bound observation overlays: the first message's images.
+    """Every photo's recorded transport bytes, then bound observation overlays.
 
     Evidence overlays are separate ReferenceInputs, never extra photo IDs or
     calibration targets. Their exact bytes/sizes enter startup binding and cost.
@@ -768,16 +769,25 @@ def references(lab) -> list:
     out = []
     for group, rows_ in (("target", targets), ("other", others)):
         for i, row in enumerate(rows_, 1):
-            p = lab.root / "inputs" / row["path"]
+            relative = row.get("sent_path", row["path"])
+            p = (lab.root / "inputs" / relative).resolve()
+            if not p.is_relative_to((lab.root / "inputs").resolve()):
+                raise ValueError("reference photo escaped its package")
+            if row.get("sent_sha256") is not None and sha(p) != row["sent_sha256"]:
+                raise ValueError("reference photo transport bytes changed")
             with Image.open(p) as im:
                 size = ImageOps.exif_transpose(im).size
+                mime = Image.MIME[im.format]
+            if row.get("sent_mime", mime) != mime:
+                raise ValueError("reference photo transport MIME differs")
             if group == "target":
                 label = f"TARGET PHOTO {row['id']} ({i} of {len(rows_)})"
             else:
                 label = (f"{(row.get('colour') or 'other colour').upper()} PHOTO {row['id']} ({i} of {len(rows_)}; "
                          f"the same model in {colour_text(row)}, "
                          + ("calibrated camera)" if row["role"] == "colourway" else "reference only, no camera)"))
-            out.append(ReferenceInput(label=label, path=row["path"], image_url=data_url(p), detail="high",
+            image_url = f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode("ascii")
+            out.append(ReferenceInput(label=label, path=relative, image_url=image_url, detail="high",
                                       view=row["view"], size_px=size))
     for row in (lab.manifest.get('arm_evidence') or {}).get('images',[]):
         p=(lab.root/'inputs'/row['path']).resolve()

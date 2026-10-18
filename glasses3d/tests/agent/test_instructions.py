@@ -25,6 +25,27 @@ def test_current_registry_is_complete_and_named_independently(tools):
     assert len(text) <= I.MAX_INSTRUCTION_CHARS == 16_000
 
 
+def test_sandbox_font_and_export_hints_name_real_tools(tools):
+    from glasses3d.g3d.safe_mode import HINTS
+    names = {tool.name for tool in tools}
+    assert {"load_font", "export_glb", "finish", "execute_blender_code"} <= names
+    assert "load_font tool" in HINTS["font"] and "execute_blender_code" in HINTS["font"]
+    assert "export_glb tool" in HINTS["export"] and "finish tool" in HINTS["export"]
+    assert "deliver()" not in " ".join(HINTS.values())
+
+
+def test_intake_and_history_documentation_matches_owner_rules():
+    root = Path(__file__).parents[2]
+    readme = (root / "agent/README.md").read_text(encoding="utf-8")
+    plan = (root / "plan/ASSEMBLY.md").read_text(encoding="utf-8")
+    assert "`reflective_floor` and `matte_mode` are owner-only fields" in readme
+    assert "Coding agents may label only view kind and side" in readme
+    assert "automatic matte selection" in readme
+    assert "append-only: earlier messages and images are never replaced" in readme
+    assert "superseded generated images become labelled notes" not in readme
+    assert 'former "Set `glossy_floor` mattes at intake" instruction is superseded' in plan
+
+
 def test_owner_table_is_exact_and_included_once(tools):
     text = I.build_instructions(tools)
     plan = (Path(__file__).parents[2] / "plan/PLAN.md").read_text(encoding="utf-8")

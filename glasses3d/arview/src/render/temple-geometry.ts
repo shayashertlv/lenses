@@ -1,3 +1,4 @@
+import {SIDE_NAMES} from '../model/sides.ts';
 /** Temples by position, per side, and the temple clip derived from them (WP1_DESIGN.md §3).
  *
  *  A temple is found whatever its opacity: crystal (transmissive) and alpha-blended frame parts are temples exactly
@@ -11,7 +12,7 @@
  *  - Authored path (valid LENSES_part_visibility, validated once at load): the temple_left / temple_right region of
  *    that side (part-visibility.ts checks that temple_left lies at x < 0 and temple_right at x > 0), with the same
  *    reach rule. Its presence is cross-checked against the positional rule; a disagreement is a warning.
- *  Sides are by geometry: index 0 is x < 0 ('left' in the §2 Orientation wording, the temple clip's negative-X cutoff),
+ *  Sides are by geometry: index 0 is x < 0 (wearer's right, the temple clip's negative-X cutoff),
  *  index 1 is x > 0.
  *
  *  The clip is the stash QA rule (qa/temple-cutoff.mjs at stash@{0}, lines 38-44), ported here and used by the renderer
@@ -41,7 +42,7 @@ export const TEMPLE_TIP_GUARD_M = 1e-6;
 
 export type TempleSideName = 'left' | 'right';
 /** Side index 0 is x < 0, 1 is x > 0. */
-export const TEMPLE_SIDE_NAMES: readonly [TempleSideName, TempleSideName] = Object.freeze(['left', 'right'] as const);
+export const TEMPLE_SIDE_NAMES: readonly [TempleSideName, TempleSideName] = SIDE_NAMES;
 const SIDE_WHERE = ['x < -45 mm', 'x > +45 mm'] as const;
 
 export interface TempleSide {
@@ -275,11 +276,11 @@ export function templeLoadFallbacks(inventory: Pick<TempleInventory, 'sides'>, c
 /** The report form of an inventory and a clip decision (model report measurements `temples` and `temple_clip`). */
 export function templeMeasurements(inventory: TempleInventory, clip: TempleClipDecision): {temples: Record<string, unknown>; temple_clip: Record<string, unknown>} {
   const round = (metres: number | null): number | null => metres === null ? null : Math.round(metres * 1e5) / 100;
-  const side = (entry: TempleSide) => ({present: entry.present, source: entry.source, tip_z_mm: round(entry.tipZM), root_z_mm: round(entry.rootZM),
+  const side = (entry: TempleSide) => ({x_sign: entry.side === 'right' ? -1 : 1, present: entry.present, source: entry.source, tip_z_mm: round(entry.tipZM), root_z_mm: round(entry.rootZM),
     vertices: entry.vertexCount, parts: entry.parts.slice(0, 8), ...(entry.missing ? {missing: entry.missing} : {})});
   return {
     temples: {decided_by: inventory.profiled ? 'LENSES_part_visibility' : 'position', lens_rear_z_mm: round(inventory.lensRearZM),
-      left: side(inventory.sides[0]), right: side(inventory.sides[1])},
+      right: side(inventory.sides[0]), left: side(inventory.sides[1])},
     temple_clip: {clip_m: clip.clipZM, source: clip.source, derived_m: clip.derivedZM, handover_m: clip.handoverZM,
       shorter_side: clip.shorterSide, floor_m: TEMPLE_CLIP_FLOOR_LOCAL_Z_M, range_m: [TEMPLE_CLIP_FARTHEST_LOCAL_Z_M, TEMPLE_CLIP_NEAREST_LOCAL_Z_M]},
   };

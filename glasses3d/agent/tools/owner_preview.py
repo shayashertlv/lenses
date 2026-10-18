@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import numpy as np
 from agents.tool_context import ToolContext
-from PIL import Image, ImageDraw
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...g3d import owner_mesh as M, owner_markings
@@ -21,8 +21,7 @@ from ...g3d import owner_surface
 from .. import edits, jobs, owner_edits, procs
 from ..job_scene import JobScene
 from ..tool_timeouts import OWNER_APPLY_DEADLINE_S, PREVIEW_OPTIONS_MAX
-from . import look, model_map
-from .images import LOOK_IMAGE_SIDE
+from . import look, model_map, look_composition, native_panels
 
 SCHEMA = 'g3d.owner_amount_preview/1'
 
@@ -295,34 +294,13 @@ def _triple(paths, destination, title, option_label, *, option_id=None, box=None
             opened.append(image.convert('RGB'))
     if len({im.size for im in opened}) != 1:
         raise ValueError('preview photo/before/option must share the exact camera pixel grid')
-    if box is not None:
-        opened = [im.crop(box) for im in opened]
-    w, h = opened[0].size
+    crop = box if box is not None else [0, 0, *opened[0].size]
     headers = ['PHOTO', 'BEFORE', 'OPTION '+(option_id or option_label.split(':', 1)[0])]
-    font = model_map._font(18)
-    measure = ImageDraw.Draw(Image.new('RGB', (1, 1)))
-    column = max(w, 120, max(measure.textbbox((0, 0), label, font=font)[2] for label in headers)+16)
-    padding = (column-w)//2
-    canvas = Image.new('RGB', (3*column, h+40), 'white')
-    drawing = ImageDraw.Draw(canvas)
-    for i, (im, label) in enumerate(zip(opened, headers)):
-        canvas.paste(im, (i*column+padding, 40))
-        drawing.text((i*column+8, 9), label, fill='black', font=font)
-    canvas.save(destination)
-    record = {'path': str(destination), 'sha256': edits.sha(destination), 'view': title+'; native photo / before / '+option_label,
-              'kind': 'owner_amount_detail' if box else 'owner_amount_full', 'native_pixels': True, 'box': box,
-              'headers': headers, 'source_panel_size_px': [w, h], 'panel_width_px': column,
-              'panel_content_origin_px': [padding, 40]}
-    if max(canvas.size) <= LOOK_IMAGE_SIDE:
-        return record, [record]
-    # Keep the full native triple on disk, and deliver labelled native tiles if a
-    # future output bound is smaller than the comparison. Never shrink a detail.
-    tiles = []
-    for y in range(0, canvas.height, LOOK_IMAGE_SIDE):
-        for x in range(0, canvas.width, LOOK_IMAGE_SIDE):
-            path = destination.with_name(destination.stem+f'-tile-{x}-{y}.png')
-            canvas.crop((x, y, min(x+LOOK_IMAGE_SIDE, canvas.width), min(y+LOOK_IMAGE_SIDE, canvas.height))).save(path)
-            tiles.append({**record, 'path': str(path), 'sha256': edits.sha(path), 'view': record['view']+f'; native tile at {x},{y}'})
+    record, tiles = native_panels.comparison(opened, crop, destination, title, headers,
+                                             gap=0, font=model_map._font(18))
+    for item in [record, *tiles]:
+        item.update(view=title+'; native photo / before / '+option_label,
+                    kind='owner_amount_detail' if box else 'owner_amount_full', box=box)
     return record, tiles
 
 
@@ -335,19 +313,27 @@ def _pictures(root, directory, before, options, boxes):
             raise ValueError('preview options must render the same frozen photo references')
         pairs, details = [], []
         for rid, row in old.items():
+            sources = []
             final = after[rid]
             if row['camera'] != final['camera'] or edits.sha(row['photo_path']) != edits.sha(final['photo_path']):
                 raise ValueError('preview camera or source photo differs between options')
             paths = [row['photo_path'], row['drawing_path'], final['drawing_path']]
             label = f"{option['id']}: {option['label']}"
             full, delivered = _triple(paths, directory/f"{option['id']}-{rid}-full.png", rid, label, option_id=option['id'])
-            pairs.append(full); images.extend(delivered)
+            pairs.append(full); sources.extend(delivered)
             for group in boxes[rid]:
                 path = directory/f"{option['id']}-{rid}-{group['id']}.png"
                 title = rid+'; '+', '.join(group['labels'])
                 detail, delivered = _triple(paths, path, title, label, option_id=option['id'], box=group['box'])
                 detail.update(object_id=group['object_id'], target_ids=group['target_ids'])
-                details.append(detail); images.extend(delivered)
+                details.append(detail); sources.extend(delivered)
+            for item in sources:
+                item.update(ref=rid, option_id=option['id'])
+                files[_relative(root, item['path'])] = item['sha256']
+            pages = look_composition.compose(sources, directory/f"{option['id']}-{rid}-combined", rid)
+            for item in pages:
+                item.update(option_id=option['id'], native_pixels=True)
+            images.extend(pages)
             for item in [*pairs[-1:], *details]:
                 files[_relative(root, item['path'])] = item['sha256']
         option['full_pairs'], option['target_details'] = pairs, details
@@ -388,7 +374,7 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
             raise ValueError('source needs a strict valid export for amount comparison')
         # A short host-owned root also works when understand is itself a deeply
         # nested specialist. Every worker closes before this directory is removed.
-        with tempfile.TemporaryDirectory(prefix='g3d-pv-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='g3d-pv-', ignore_cleanup_errors=True) as temporary:
             scratch = Path(temporary).resolve()
             baseline = scratch/'before'
             _prepare(scene, baseline, checkpoint, head)
@@ -424,7 +410,7 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
                     return {key: canonical(item, key) for key, item in value.items()}
                 if isinstance(value, list):
                     return [canonical(item, field) for item in value]
-                if (field not in {'path', 'photo_path', 'drawing_path', 'report', 'receipt', 'capture_reports', 'glb'} or
+                if (field not in {'path', 'full_comparison_path', 'photo_path', 'drawing_path', 'report', 'receipt', 'capture_reports', 'glb'} or
                         not isinstance(value, str) or not Path(value).is_absolute()):
                     return value
                 if value not in archives:
@@ -523,7 +509,8 @@ def tool_for(scene, tool, call):
         axes and marking attachments stay fixed. Surface operations always need two or three distinct previews.
         Every option starts from the same verified checkpoint in an isolated worker, passes exact-operation,
         physical and strict-export checks, and uses the frozen photo cameras. Returns native photo/before/option
-        triples, target close-ups at shared boxes, following_markings and a hash-bound preview_receipt.
+        triples and target close-ups at shared boxes, composed per photo; overflow uses additional images without
+        shrinking pixels. Also returns following_markings and a hash-bound preview_receipt.
         No run, approval, estimate or source edit is started. A refused amount produces no selectable preview.
         Reuse the option id and preview receipt when asking the owner to choose in the understand reply.
         refs null uses every usable frozen camera; a list selects photo ids or original filenames.

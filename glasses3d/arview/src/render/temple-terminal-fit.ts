@@ -107,7 +107,7 @@ export function createTempleTerminalFitEvaluator(root: Object3D, input: FitInput
   });
   const short = ([0, 1] as const).filter(side => wanted[side] && counts[side] === 0);
   if (short.length) {
-    return unavailableFit(`the ${short.map(side => side === 0 ? 'left (x < 0)' : 'right (x > 0)').join(' and ')} arm${short.length > 1 ? 's have' : ' has'} `
+    return unavailableFit(`the ${short.map(side => side === 0 ? "wearer's right (x < 0)" : "wearer's left (x > 0)").join(' and ')} arm${short.length > 1 ? 's have' : ' has'} `
       + `no geometry in the terminal band z ${(maximumZM * 1000).toFixed(1)}..${(endZM * 1000).toFixed(1)} mm (it ends before the buried cap)`);
   }
   return Object.assign((fitScale: number): TempleTerminalFit | null => {

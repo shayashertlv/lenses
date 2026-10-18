@@ -22,7 +22,7 @@ Changed here (WP2_DESIGN §4): every violation is collected (Astra fixes them al
 use instead; `import numpy as np` style aliases are canonicalised (bpy aliases stay denied; a name may alias one module
 only); `np`, `bpy`, `bmesh`, `mathutils` and the `g3d` facade are prebound; a lambda is allowed as a value and never as a
 call target; every `_`-prefixed attribute is denied; from-import names are checked against the denied names too (closes
-`from numpy import load`); `.format` only on a literal whose fields reach no `_` name; getattr/setattr/hasattr/delattr
+`from numpy import load`); `.format` only on a literal whose field segments pass the attribute rules; getattr/setattr/hasattr/delattr
 with a COMPUTED name pass the static walk and are checked at run time; any module object used as a value is refused
 (an attribute chain must start at the module name); module attributes that lead out of the allowlist (`typing.sys`,
 `enum.bltns`, `json.codecs`, `bpy_extras.object_utils.bpy`, measured in Blender 5.2) are denied; limits 200 KB, 40,000
@@ -73,8 +73,9 @@ HINTS = {
                   "save_checkpoint(label) labels one and restore_checkpoint(id) goes back",
     "render": "render_views(...) for inspection renders (custom cameras allowed) and compare_to_photos(...) to compare "
               "with the photos; output paths are host-owned",
-    "export": "export_glb() (validates the spec too) or deliver()",
-    "font": "load_font(family) (arial, arialbd, times, timesbd, calibri, segoeui)",
+    "export": "the export_glb tool (validates the spec too); use the finish tool to complete the run",
+    "font": "the load_font tool with family arial, arialbd, times, timesbd, calibri or segoeui; "
+            "then assign bpy.data.fonts[result.name] to the text curve's font in execute_blender_code",
     "text": "scene custom properties for notes, e.g. bpy.context.scene['notes'] = '...'",
     "image_save": "nothing: images you generate or edit are packed into the next checkpoint automatically",
     "image_load": "bpy.data.images.new(...) and fill its pixels; image files are host tools",
@@ -599,11 +600,16 @@ class _Validator(ast.NodeVisitor):
                     self.fail(".format() only on a string literal (use an f-string)", node)
                 else:
                     try:
-                        for _, field, _, _ in string.Formatter().parse(recv.value):
-                            if field and ("._" in field or field.startswith("_") or "[_" in field
-                                          or any(seg.startswith("_") for seg in field.replace("[", ".").split("."))):
-                                self.fail("a format field reaches a private attribute", node)
-                                break
+                        pending = [recv.value]
+                        while pending:
+                            for _, field, spec, _ in string.Formatter().parse(pending.pop()):
+                                # Nested replacement fields in a format spec also perform C-level getattr.
+                                if spec and ("{" in spec or "}" in spec):
+                                    pending.append(spec)
+                                for segment in (field or "").replace("[", ".").replace("]", ".").split("."):
+                                    rule = _name_rule(segment, False)
+                                    if rule:
+                                        self.fail(f"a format field reaches a forbidden attribute: {rule[0]}", node, rule[1])
                     except ValueError:
                         self.fail("malformed format string", node)
         else:

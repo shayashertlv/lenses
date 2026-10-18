@@ -12,10 +12,11 @@
  *  - `geometry.lens_top_vs_brow`, the `images` (file, pose, background, variant, sha256), `timings`.
  *  Exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or is unverified; 4 refused or unchecked by
  *  arview (nothing rendered), or refused by the capture itself (`capture_refusal`: arview rendered a model whose external
- *  resource could not be read, which §1 refuses); 1 infrastructure failure. A capture warning (a missing crop, a fit fallback, a page error,
- *  a skipped portrait), any warning, error or fallback in the model report (the posed renderer's, or the portrait
+ *  resource could not be read, which §1 refuses); 1 infrastructure failure. A capture warning (a missing crop, a fit fallback, a skipped portrait), any warning, error or fallback in the model report (the posed renderer's, or the portrait
  *  renderer's, mirrored into the top-level warnings as 'model: ...' / 'portrait model: ...') makes the status
- *  'captured_with_warnings'; it never changes the exit code by itself. */
+ *  'captured_with_warnings'; capture errors instead exit 1 with 'infrastructure_failed'. A capture refusal remains exit 4. */
+
+import {SIDE_CONVENTION} from '../../src/model/sides.ts';
 
 export const CAPTURE_REPORT_SCHEMA = 'arview.capture/1';
 export type CaptureStatus = 'captured' | 'captured_with_warnings' | 'refused' | 'unchecked' | 'infrastructure_failed';
@@ -193,6 +194,7 @@ export function captureOutcome(input: Pick<CaptureReportInput, 'infrastructureFa
   const modelStatus = input.modelReport?.status;
   if (modelStatus === 'refused') return {status: 'refused', exitCode: EXIT.refused};
   if (modelStatus === 'unchecked') return {status: 'unchecked', exitCode: EXIT.refused};
+  if (input.errors.length) return {status: 'infrastructure_failed', exitCode: EXIT.infrastructure};
   if (modelStatus !== 'rendered') return {status: 'infrastructure_failed', exitCode: EXIT.infrastructure};
   const specOk = input.spec?.available === true && input.spec.report.ok === true;
   // A model warning or error, or a fallback the renderer took for this model (a units rescale, a missing temple's fixed
@@ -205,6 +207,7 @@ export function captureOutcome(input: Pick<CaptureReportInput, 'infrastructureFa
 /** Assemble report.json. Pure: the same input always gives the same report. */
 export function assembleCaptureReport(input: CaptureReportInput): {report: Record<string, unknown>; exitCode: number} {
   const warnings = [...input.warnings];
+  const errors = [...input.errors];
   const spec = input.spec;
   let specBlock: Record<string, unknown>;
   if (!spec) {
@@ -216,6 +219,9 @@ export function assembleCaptureReport(input: CaptureReportInput): {report: Recor
   } else {
     specBlock = {available: true, ok: spec.report.ok, rows: spec.report.rows, errors: spec.report.errors, warnings: spec.report.warnings,
       command: spec.command, ms: spec.ms, report: spec.report};
+    if (typeof spec.report.sha256 === 'string' && spec.report.sha256 !== input.input.sha256) {
+      errors.push(`spec.py checked bytes with sha256 ${spec.report.sha256}, not the captured ${input.input.sha256}: the file changed during capture.`);
+    }
   }
   const model = input.modelReport;
   const comparison = spec?.available ? compareSpecRows(spec.report, model) : {disagreements: [], compared: [], uncompared: []};
@@ -251,18 +257,19 @@ export function assembleCaptureReport(input: CaptureReportInput): {report: Recor
   const reasons = unique([...pythonLive.map(text => `spec.py: ${text}`), ...runtimeLive.map(text => `arview: ${text}`)]);
   const live = liveVerdict(reasons, input.liveProbe ?? null);
   if (live.contradiction) warnings.push(live.contradiction);
-  const outcome = captureOutcome({...input, warnings: unique(warnings)});
+  const outcome = captureOutcome({...input, warnings: unique(warnings), errors: unique(errors)});
   const report: Record<string, unknown> = {
-    schema: CAPTURE_REPORT_SCHEMA, created_at: input.createdAt, status: outcome.status, exit_code: outcome.exitCode,
+    schema: CAPTURE_REPORT_SCHEMA, side_convention: SIDE_CONVENTION, created_at: input.createdAt, status: outcome.status, exit_code: outcome.exitCode,
     infrastructure_failure: input.infrastructureFailure, capture_refusal: input.captureRefusal ?? null, chromium_process: input.chromiumProcess ?? null,
     tool: input.tool, gpu: input.gpu, input: input.input, request: input.request,
     spec: specBlock, runtime, live_site_would_fail: live,
     geometry: {lens_top_vs_brow: input.geometry ?? null},
     poses: input.poses, images: input.images, planned_images: input.plannedImages, id_palette: input.idPalette,
     portrait: input.portrait ?? null,
-    warnings: unique(warnings), errors: unique([...input.errors]),
+    warnings: unique(warnings), errors: unique(errors),
     timings: input.timings, implementation: input.implementation, page: input.page,
-    notes: ['Images are unmirrored; the live webcam page shows a mirror image (src/style.css #mirror scaleX(-1)).',
+    notes: ["Side names identify the wearer: +X is left, -X is right. Legacy LENSES_part_visibility region IDs temple_left (-X) and temple_right (+X) remain unchanged.",
+      'Images are unmirrored; the live webcam page shows a mirror image (src/style.css #mirror scaleX(-1)).',
       'part-id and normals renders are valid for the front and the junction: their temples are cut hard at the renderer\'s clip, '
         + 'where the beauty render fades over the last 5 mm.',
       'The posed captures use synthetic landmarks of the canonical face on flat backgrounds (no face image); the face and head '

@@ -1,5 +1,39 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 item 3: what Astra sees and reads ($0)
+
+Completed all seven items in `data/review_20261018/briefs/task3_what_astra_sees.md` on `62638eb`.
+New EXIF-oriented inputs get upright transport copies; temple stages reuse recorded transport bytes,
+including oversized photos and GIF, with both original and sent hashes bound. Legacy bytes stay intact.
+Public side names use the wearer (+X left, -X right) across Python/arview reports, crops, worn sides and
+warnings; old part-region identifiers retain their meaning. Astra now has a checkpointed, allowlisted
+`load_font` tool. Sandbox hints name real tools; every format-field segment and nested spec uses the
+attribute policy, with direct generator-frame/code audit coverage. Comparisons tile at native pixels,
+compose edit close-ups and wrap labels; the 501-pixel corner defect is fixed. Required review fields and
+surface diagnostics survive the text cap with explicit lossless paging when needed. Camera overlays are
+readable through confined `read_image` paths. Capture integrity errors exit nonzero; unavailable validators,
+verified portrait evidence and private child temp paths are reported accurately. Intake/history documents
+now follow owner-only floor fields and append-only history; the old matte-at-intake instruction is superseded.
+
+Focused photo tests: 105 + 57 passed; native delivery: 150 passed; side/spec/capture Python: 172 passed;
+final instruction contracts: 77 passed. Old-code proofs fail for every assigned item; independent reviews
+and an 18-case extreme report-paging audit passed. Main/understand/edit prompts are 15,950/15,756/15,756
+characters, below the unchanged 16,000 cap. Exact changed Astra instructions/tool descriptions are printed
+in `data/review_20261018/codex/task3_report.md`, with per-item file/test evidence and the commit hash.
+
+Full non-print: 4,452 passed, 2 skipped, 6 failed in 821.20 s (14 workers, exit 1). All five timing/Blender
+timeout failures passed in isolation: 5 passed, 1 failed in 165.06 s. Only the known photo_v1 golden mismatch
+remains: 204 changed pixels versus 114.24 allowed (195 under load); golden and threshold unchanged.
+Photoprint: 314 passed in 171.49 s (4 workers, exit 0). Arview: 507 unit tests, 111 QA tests and TypeScript
+check passed, including the actual 35-image production capture. `assembly_m1` passed in 175.375 s: 13
+scripted requests/tools, 26 transport receipts, 12 image blobs and 35 AR images verified; clean receipts,
+actual spend $0. Proof: `data/assembly/m1-proof-f0b2bada/proof.json`.
+
+Long checks ran sequentially, detached/logged with PID, arguments, UTC times and exit receipts, BLAS 1,
+EcoQoS opt-out and basetemp under `data/ptc`; about 42 GiB free commit supported the capped 14-worker pool.
+Complete scoped diff and independent reviews done. No paid API calls, push, root-app/ar changes, product
+constants, owner-input additions, history rewrites or weakened gates. All evidence remains ignored.
+
 ## 2026-10-18 — ASSEMBLY M11 item 2: resume, sessions, recovery and timeouts ($0)
 
 Completed `data/review_20261018/briefs/task2_resume_sessions.md` on task 1's accepted baseline.

@@ -1,10 +1,12 @@
 """Current-head stage capture, exact photo IDs, calibration reuse and refusal regressions; no Blender."""
+import base64
 from copy import deepcopy
+import io
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 
 from glasses3d.agent.temple_lab import cli, package, pose_basis
 from glasses3d.agent.temple_lab.lab import Lab, read, sha, write_json_atomic
@@ -12,7 +14,7 @@ from glasses3d.g3d_host import compare as C
 from glasses3d.tests.agent.test_temple_lab_cli import PrepLab
 
 
-def source_job(tmp_path, *, posed=True, rigid=False):
+def source_job(tmp_path, *, posed=True, rigid=False, photo_case=None):
     root = tmp_path / "parent"
     (root / "images").mkdir(parents=True)
     (root / "checkpoints").mkdir()
@@ -22,14 +24,38 @@ def source_job(tmp_path, *, posed=True, rigid=False):
     from glasses3d.tests import glbfab
     export.write_bytes(glbfab.build(glbfab.default_parts(),role_where="node"))
     rows, images, paths = [], {}, {}
-    for n, name in enumerate(("left view.png", "custom.front.png")):
+    first = "left view" + {"rotated": ".jpg", "gif": ".gif"}.get(photo_case, ".png")
+    for n, name in enumerate((first, "custom.front.png")):
         p = root / "images" / name
-        Image.new("RGB", (40, 32), (30, 80 + n, 100)).save(p)
+        pixels = Image.new("RGB", (40, 32), (30, 80 + n, 100))
+        pixels.paste("red", (1, 2, 11, 7))
+        if n == 0 and photo_case == "rotated":
+            exif = Image.Exif()
+            exif[274] = 6
+            pixels.save(p, exif=exif)
+        else:
+            pixels.save(p)
+        if n == 0 and photo_case == "oversize":
+            # Valid PNG with trailing bytes: real 20 MiB boundary, cheap to decode.
+            with p.open("ab") as stream:
+                stream.write(b"\0" * (20 * 1024 * 1024))
+        with Image.open(p) as im:
+            w, h = ImageOps.exif_transpose(im).size
         matte = root / f"mask{n}.png"
-        Image.new("L", (40, 32), 255).save(matte)
+        Image.new("L", (w, h), 255).save(matte)
         rows.append({"original_name": name, "file": f"images/{name}", "sha256": sha(p),
                      "view_kind": "side" if n == 0 else "front", "side": "left" if n == 0 else None})
-        images[name] = {"image": str(p), "image_sha256": sha(p), "shape": [32, 40], "status": "ok",
+        if photo_case is not None:
+            from glasses3d.agent import jobs as J
+            details, transport = J._image(p.read_bytes(), name)
+            rows[-1].update(details)
+            rows[-1]["sent_file"] = rows[-1]["file"]
+            if transport is not None:
+                (root / "reference_images").mkdir(exist_ok=True)
+                sent = f"reference_images/reference-{n + 1:03d}{rows[-1].pop('transport_suffix')}"
+                (root / sent).write_bytes(transport)
+                rows[-1]["sent_file"] = sent
+        images[name] = {"image": str(p), "image_sha256": sha(p), "shape": [h, w], "status": "ok",
                         "view_kind": rows[-1]["view_kind"], "colourway": "target",
                         "camera": dict(yaw=90 if n == 0 else 0, pitch=8, roll=0, perspective=.2,
                                        scale=38, center_x=20, center_y=16),
@@ -247,3 +273,88 @@ def test_explicit_photo_rename_keeps_camera_in_brief_and_original_basis_identity
     photos = read(root / "inputs" / "lab.json")["photos"]
     with_lineage = cli.brief_text("Renamed photos", photos, cameras)
     assert "camera moved from OwnerProfile's by matching" in with_lineage
+
+
+@pytest.mark.parametrize("photo_case", ["rotated", "oversize", "gif"])
+def test_stage_sends_parent_transport_bytes_keeps_original_basis_and_binds_both(tmp_path, photo_case):
+    import numpy as np
+    from glasses3d.agent import approvals as A
+    from glasses3d.agent.session_inputs import image_identity
+    from glasses3d.g3d_host import matte
+
+    scene, original_basis, _ = source_job(tmp_path, photo_case=photo_case)
+    source_files = {p: sha(p) for p in scene.root.rglob("*") if p.is_file()}
+    root = tmp_path / "stage"
+    package.prepare(scene, root, "photo-transport", lab_class=PrepLab)
+    lab = object.__new__(Lab)
+    lab.root, lab.manifest = root, read(root / "inputs/lab.json")
+    lab.verify_inputs()
+    references = cli.references(lab)
+    photo_rows = lab.manifest["photos"]
+    copied_basis = C.load_basis(root)
+    for source_row, copied_row, reference in zip(scene.job["images"], photo_rows, references):
+        sent = base64.b64decode(reference.image_url.split(",", 1)[1])
+        assert sent == (scene.root / source_row["sent_file"]).read_bytes()
+        assert image_identity(reference.image_url) == (source_row["sent_sha256"], source_row["sent_mime"], len(sent))
+        assert reference.path == copied_row["sent_path"]
+        assert sha(root / "inputs" / copied_row["path"]) == source_row["sha256"]
+        assert copied_basis.refs[copied_row["basis_ref"]]["photo_sha256"] == source_row["sha256"]
+        assert copied_basis.photo(copied_row["basis_ref"]).tolist() == original_basis.photo(copied_row["basis_ref"]).tolist()
+        with Image.open(io.BytesIO(sent)) as raw:
+            assert raw.getexif().get(274, 1) == 1
+            assert raw.size == reference.size_px == tuple(copied_row["size_px"])
+            assert np.array_equal(np.asarray(raw.convert("RGB")), matte.load_photo(root / "inputs" / copied_row["path"]))
+    if photo_case == "oversize":
+        assert (scene.root / scene.job["images"][0]["file"]).stat().st_size > 20 * 1024 * 1024
+    elif photo_case == "gif":
+        assert references[0].image_url.startswith("data:image/gif;base64,")
+    brief = (root / "inputs/brief.txt").read_bytes().decode("utf-8")
+    binding = A.run_input_binding(root, brief, references)
+    assert len(binding["photos"]) == len(references)  # Includes every bound arm overlay too.
+    digests = {r["path"]: r["sha256"] for r in A.input_digests(root)["inputs"]}
+    for row in photo_rows:
+        assert digests["inputs/" + row["path"]] == row["sha256"]
+        assert digests["inputs/" + row["sent_path"]] == row["sent_sha256"]
+    with pytest.raises(A.ApprovalRefused, match="every job reference"):
+        A.run_input_binding(root, brief, references[1:])
+    assert {p: sha(p) for p in source_files} == source_files
+
+
+def test_legacy_stage_manifest_keeps_original_reference_bytes_and_binding(tmp_path):
+    from glasses3d.agent import approvals as A
+    scene, _, _ = source_job(tmp_path)
+    root = tmp_path / "stage"
+    package.prepare(scene, root, "legacy-transport", lab_class=PrepLab)
+    manifest = read(root / "inputs/lab.json")
+    for row in manifest["photos"]:
+        for key in ("sent_path", "sent_mime", "sent_sha256"):
+            row.pop(key, None)
+    write_json_atomic(root / "inputs/lab.json", manifest)
+    lab = object.__new__(Lab)
+    lab.root, lab.manifest = root, manifest
+    before = A.input_digests(root)
+    references = cli.references(lab)
+    for row, reference in zip(manifest["photos"], references):
+        assert reference.path == row["path"]
+        assert base64.b64decode(reference.image_url.split(",", 1)[1]) == (root / "inputs" / row["path"]).read_bytes()
+    brief = (root / "inputs/brief.txt").read_bytes().decode("utf-8")
+    assert len(A.run_input_binding(root, brief, references)["photos"]) == len(references)
+    assert A.input_digests(root) == before
+
+
+@pytest.mark.parametrize("which", ["path", "sent_path"])
+def test_stage_original_and_transport_are_verified_before_approval(tmp_path, which):
+    from glasses3d.agent import approvals as A
+    scene, _, _ = source_job(tmp_path, photo_case="rotated")
+    root = tmp_path / "stage"
+    package.prepare(scene, root, "damaged-copy", lab_class=PrepLab)
+    lab = object.__new__(Lab)
+    lab.root, lab.manifest = root, read(root / "inputs/lab.json")
+    references = cli.references(lab)
+    row = lab.manifest["photos"][0]
+    (root / "inputs" / row[which]).write_bytes(b"changed after preparation")
+    with pytest.raises(ValueError, match="input bytes changed"):
+        lab.verify_inputs()
+    brief = (root / "inputs/brief.txt").read_bytes().decode("utf-8")
+    with pytest.raises(A.ApprovalRefused, match="lab original or transport photo changed"):
+        A.run_input_binding(root, brief, references)

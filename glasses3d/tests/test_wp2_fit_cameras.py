@@ -97,6 +97,7 @@ def test_fit_cameras_freezes_basis_01_close_to_the_truth(job):
         fg = M.matte(M.load_photo(job["images"][name]))
         assert (bs.matte(rid) == fg).all()                                        # the frozen matte is the fit's
         assert Image.open(bs.dir / rec["overlay"]).size == (SHAPE[1], SHAPE[0])
+        assert fit["refs"][rid]["overlay"] == f"cameras/{bs.id}/{rec['overlay']}"
     assert bs.refs["reference-02"]["view"] == "left"
     assert fit["sheet"] and max(Image.open(fit["sheet"]).size) <= 2048
     if procs.available():                                                        # EcoQoS opted out: host + pool

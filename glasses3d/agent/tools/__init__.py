@@ -32,7 +32,7 @@ from .temple import temple_tool
 from .photo_print import photo_print_tool
 from .photo_read import photo_read_tool
 
-TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
+TOOL_NAMES = ("execute_blender_code", "load_font", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
               "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map")
 FATAL = FATAL_TOOL_ERRORS
@@ -96,11 +96,21 @@ def single_threaded_blas():
                 os.environ[name] = value
 
 
+def _read_image_path(root, path):
+    source = arview.confined(root, path, areas=("images", "reference_images", "work", "cameras"))
+    parts = source.relative_to(Path(root).resolve()).parts
+    if parts[0] == "cameras" and not (len(parts) == 3 and parts[1].startswith("basis-")
+            and source.suffix.lower() == ".png"
+            and (source.name.startswith("overlay_") or source.name == "overlays_sheet.png")):
+        raise ValueError("camera images must be basis overlay PNGs or overlays_sheet.png")
+    return source
+
+
 def _image(root, path, *, region=None, trusted_output=False, max_side=MAX_IMAGE_SIDE) -> tuple[dict, str]:
     if type(max_side) is not int or not 1 <= max_side <= LOOK_IMAGE_SIDE:
         raise ValueError("invalid local image size bound")
-    areas = ("images", "reference_images", "work", "cameras") if trusted_output else ("images", "reference_images", "work")
-    source = arview.confined(root, path, areas=areas)
+    source = (arview.confined(root, path, areas=("images", "reference_images", "work", "cameras"))
+              if trusted_output else _read_image_path(root, path))
     with Image.open(source) as opened:
         image = ImageOps.exif_transpose(opened).convert("RGB")
         original_size = image.size
@@ -450,6 +460,20 @@ def build_tools(scene, settings=None) -> list:
             return repair_report(scene, cid, action, FATAL) if seating_repair else action()
         return await call(ctx, "execute_blender_code", execute)
 
+    @tool("load_font")
+    async def load_font(ctx: ToolContext, family: Literal["arial", "arialbd", "times", "timesbd", "calibri", "segoeui"]):
+        """Load and pack an allowlisted local font into the scene through the trusted worker; no file path is accepted.
+        Returns result.name, result.family and result.file. In execute_blender_code, assign
+        bpy.data.fonts[the returned result.name] to a text curve's font. A scene change creates a checkpoint.
+        Missing installed fonts refuse with E_FONT. This does not create or place lettering.
+
+        Args:
+            family: Fixed font family: arial, arialbd, times, timesbd, calibri or segoeui.
+        """
+        return await call(ctx, "load_font", lambda cid: scene.s.call_mutating(
+            "load_font", "load_font", {"family": family}, deadline_s=hard_timeout_s("load_font"),
+            label=f"load font {family}", call_id=cid))
+
     @tool("scene_summary")
     async def scene_summary(ctx: ToolContext, objects: list[str] | None = None):
         """Inspect units, axes, origin, objects, materials, mesh topology and role warnings; null means all objects."""
@@ -596,7 +620,10 @@ def build_tools(scene, settings=None) -> list:
         Worn sides draw the actual head occluders in plain skin, hair off, to show how temples sit when worn. AR spreads,
         returns and clips temples behind its canonical head (not measured ears); judge product temple length and shape
         with compare_to_photos and photo_read. Returns one sheet and full capture report; 0=ok, 1=infrastructure,
-        2=usage, 3=spec failed, 4=refused. Auto-fit is always disabled."""
+        2=usage, 3=spec failed or validator unavailable, 4=refused. Auto-fit is always disabled.
+        Side names in reports and crop filenames use the wearer's side (+X left, -X right).
+        Capture errors return infrastructure_failed; validator_unavailable means no Python spec verdict was obtained.
+        portrait is true only when captured portrait images were verified."""
         def capture(cid):
             exp = scene.seeing.export_head(call_id=cid)
             result = arview.capture(scene.root, exp, cid, timeout_s=AR_CAPTURE_DEADLINE_S)
@@ -613,11 +640,12 @@ def build_tools(scene, settings=None) -> list:
         already delivered in this run are referenced by their earlier call without changing conversation history.
 
         Args:
-            path: Job-relative image path inside images, reference_images or work.
+            path: Job-relative image path inside images, reference_images or work, or cameras/basis-*/overlay_*.png
+                and cameras/basis-*/overlays_sheet.png camera-fit diagnostics.
             region: Optional [left, top, right, bottom] crop in oriented-image pixels.
         """
         return await call(ctx, "read_image", lambda cid: {"status": "ok", "images": [
-            {"path": str(arview.confined(scene.root, path)), "region": region, "view": path}]})
+            {"path": str(_read_image_path(scene.root, path)), "region": region, "view": path}]})
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
@@ -640,11 +668,13 @@ def build_tools(scene, settings=None) -> list:
         photo's full pair and automatic native details together, including side-light surface checks, without shrinking
         any panel (additional images for overflow), plus the worn front. Inspect them, then call again with its review_call_id
         and exactly one per_photo entry {ref, differences} for each required ref. State visible differences or 'none'.
+        If review.required_refs carries read_pointer/count instead of a list, retrieve every page with read_report first.
         Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
         A refusal lists every failed quality check with diagnostics. Only accepted completes the run.
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
+        Usable photo cameras require complete captured review evidence; EDIT also requires a delivered edit_report.
         Differences are information, not a likeness score or appearance gate. Do not claim a usable photo reviewed
         when its images failed to capture. Keep budget to inspect and revisit visible differences before finalizing.
 
@@ -703,7 +733,7 @@ def build_tools(scene, settings=None) -> list:
             return result
         return await call(ctx, "finish", finish_current)
 
-    tools = [execute_blender_code, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
+    tools = [execute_blender_code, load_font, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
             render_views, compare_to_photos, pick_surface_point, photo_read_tool(scene, tool, call),
             export_glb, arview_capture, look.tool_for(scene, tool, call), read_image, budget_status,
             finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),

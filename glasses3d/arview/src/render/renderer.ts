@@ -124,7 +124,7 @@ export interface RenderedPart {
   readonly name: string;
   /** The decided lens/frame class (WP1_DESIGN.md §2); 'mixed' only for a hand-built multi-material mesh. */
   readonly class: 'lens' | 'frame' | 'mixed';
-  /** By geometry, never by name: 'left' x < 0, 'right' x > 0, 'centre' when the part crosses x = 0. */
+  /** By geometry, never by name: wearer's 'right' x < 0, 'left' x > 0, 'centre' when the part crosses x = 0. */
   readonly side: PartSide;
   /** A near-arm visibility overlay (a clone the renderer draws over an arm), not an authored part. */
   readonly overlay: boolean;
@@ -473,7 +473,7 @@ export class TryOnRenderer {
       const overlay = object.userData.templeVisibilityOverlay === true;
       const decided = meshClassOf(object) ?? 'frame';
       box.setFromBufferAttribute(object.geometry.getAttribute('position') as BufferAttribute);
-      const side: PartSide = box.max.x <= 0 ? 'left' : box.min.x >= 0 ? 'right' : 'centre';
+      const side: PartSide = box.max.x <= 0 ? 'right' : box.min.x >= 0 ? 'left' : 'centre';
       found.push({mesh: object, name: this.partNames.get(object) ?? object.name, class: decided, side, overlay});
     });
     return found;

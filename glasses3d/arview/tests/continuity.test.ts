@@ -58,11 +58,11 @@ test('continuity without pins is per side: an arm ending before the clip loses o
   assert.deepEqual(buildTempleContinuityModel(scene, derived.clipZM).sides.map(side => side.length), [33, 33]);
   // A handed-over clip behind the right arm's tip: only that arm has no section there.
   const handed = deriveTempleClip(inventory, -.14);
-  assert.match(handed.warnings.join(), /at or behind the right temple's tip \(z -100\.0 mm\)/);
+  assert.match(handed.warnings.join(), /at or behind the left temple's tip \(z -100\.0 mm\)/);
   const model = buildTempleContinuityModel(scene, handed.clipZM);
   assert.deepEqual(model.sides.map(side => side.length), [33, 0]);
   assert.equal(model.missing?.length, 1); assert.equal(model.missing![0]!.side, 1);
-  assert.match(model.missing![0]!.reason, /^the right arm has no cross-section at z -10\d\.\d mm \(the 33 sections run from z -16\.0 mm to the clip at z -140\.0 mm\)/);
+  assert.match(model.missing![0]!.reason, /^the left arm has no cross-section at z -10\d\.\d mm \(the 33 sections run from z -16\.0 mm to the clip at z -140\.0 mm\)/);
   const paths = projectTempleContinuity(model, {eyewearMatrix: new Matrix4().makeTranslation(0, 0, -45).toArray(),
     offsetCm: [0, 3.271027, 6.531958919387042], sourceAspect: 4 / 3, width: 640, height: 480, dropM: 0});
   assert.deepEqual(paths?.map(path => path.side), [0]);

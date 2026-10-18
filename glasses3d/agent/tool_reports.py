@@ -123,9 +123,9 @@ def summarize(value, pointer="/result", *, width=6, levels=5, string_chars=500):
         return {"kind": "object" if isinstance(value, dict) else "array", "count": len(value),
                 "read_pointer": pointer}
     if isinstance(value, dict):
-        keys = sorted(value, key=lambda key: (PRIORITY.index(key) if key in PRIORITY else len(PRIORITY),
-                                              list(value).index(key)))
-        maximum = max(12, width * 4)
+        # Stable sorting retains insertion order for equal priorities without quadratic index lookups.
+        keys = sorted(value, key=lambda key: PRIORITY.index(key) if key in PRIORITY else len(PRIORITY))
+        maximum = len(keys) if pointer == "/result" else max(12, width * 4)
         answer = {key: summarize(value[key], _pointer(pointer, key), width=width, levels=levels-1,
                                  string_chars=string_chars) for key in keys[:maximum]}
         if len(keys) > maximum:
@@ -205,7 +205,47 @@ def _image_label(text, record, ordinal, view_chars):
     return label
 
 
-def _tail_text(output, texts, body, footer):
+def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, pointer="/result"):
+    """Protocol echoes are exact; diagnostic summaries stay visible even in the smallest envelope."""
+    if not isinstance(body, dict):
+        return {}
+    answer = {}
+    def reference_field(value, path):
+        if page_refs and isinstance(value, (list, dict)) and len(dumps(value)) > 512:
+            return {"count": len(value), "read_pointer": path,
+                    "read_note": "Required values exceed the text budget. Read every page here with read_report before echoing them."}
+        return value
+    for key in ("review_call_id", "required_refs", "usable_refs", "unusable_refs"):
+        if key in body:
+            answer[key] = reference_field(body[key], _pointer(pointer, key))
+    if isinstance(body.get("review"), dict):
+        answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
+                            ("required_refs", "review_call_id", "unavailable", "appearance_is_information")
+                            if key in body["review"]}
+    if "surface_quality" in body:
+        answer["surface_quality"] = summarize(body["surface_quality"], _pointer(pointer, "surface_quality"),
+            width=width, levels=max(1, levels), string_chars=string_chars)
+    if isinstance(body.get("look_comparison"), dict):
+        look = _must_show(body["look_comparison"], width=width, levels=levels, string_chars=string_chars,
+                          page_refs=page_refs, pointer=_pointer(pointer, "look_comparison"))
+        if look:
+            answer["look_comparison"] = look
+    return answer
+
+
+def _merge_required(compact, required):
+    for key, value in required.items():
+        if key in ("required_refs", "review_call_id", "usable_refs", "unusable_refs", "surface_quality"):
+            compact[key] = value
+        elif isinstance(value, dict) and isinstance(compact.get(key), dict):
+            if compact[key].get("kind") in ("object", "array") and "read_pointer" in compact[key]:
+                compact[key] = {}
+            _merge_required(compact[key], value)
+        else:
+            compact[key] = value
+
+
+def _tail_text(output, texts, body, footer, *, body_reserve=2000):
     """Reserve a nonempty label for EVERY image/reuse before spending text on the summary.
 
     A huge number of panels can outgrow even compact view/hash/call labels. In that case a short I<n>
@@ -225,7 +265,7 @@ def _tail_text(output, texts, body, footer):
         limit = min(ordinary_budget, 1000 if index == texts[-1][0] else 500)
         tail[index] = _short(text, limit) if limit else ""
         ordinary_budget -= len(tail[index])
-    budget = TEXT_LIMIT - 2000 - len(footer) - sum(map(len, tail.values()))
+    budget = TEXT_LIMIT - body_reserve - len(footer) - sum(map(len, tail.values()))
     records = body.get("images", []) if isinstance(body, dict) else []
     if not isinstance(records, list):
         records = []
@@ -264,7 +304,18 @@ def limit_output(root, call_id, tool, output):
     receipt = save_report(root, record)
     # Never remove/reorder images or their adjacent text parts. Every label gets space, including reused images
     # whose label is their only output; all originals remain in the lossless report.
-    tail, footer, label_note = _tail_text(output, texts, body, footer)
+    minimum_required = _must_show(body, width=1, levels=1, string_chars=80)
+    page_refs = False
+    try:
+        tail, footer, label_note = _tail_text(output, texts, body, footer,
+            body_reserve=max(2000, len(dumps(minimum_required)) + 1200))
+    except ValueError:
+        # Unbounded owner photo names/counts cannot always fit even before diagnostics.
+        # Keep the field and explicit retrieval contract, never silently omit or sample it.
+        page_refs = True
+        minimum_required = _must_show(body, width=1, levels=1, string_chars=80, page_refs=True)
+        tail, footer, label_note = _tail_text(output, texts, body, footer,
+            body_reserve=max(2000, len(dumps(minimum_required)) + 1200))
     available = TEXT_LIMIT - sum(map(len, tail.values())) - len(footer)
     candidate = None
     tables = _tables(body)
@@ -272,6 +323,7 @@ def limit_output(root, call_id, tool, output):
         compact = summarize(body, width=width, levels=levels, string_chars=chars)
         if not isinstance(compact, dict):
             compact = {"result": compact}
+        _merge_required(compact, _must_show(body, width=width, levels=levels, string_chars=chars, page_refs=page_refs))
         compact.update(paged=True, full_report=receipt,
                        paging_note="Summary only. read_report can retrieve every value, table, filter or text page.")
         if label_note:
@@ -284,6 +336,7 @@ def limit_output(root, call_id, tool, output):
     else:
         compact = {"status": str(body.get("status", "reported"))[:80] if isinstance(body, dict) else "reported",
                    "paged": True, "full_report": receipt}
+        _merge_required(compact, minimum_required)
         if label_note:
             compact["image_label_note"] = label_note
         candidate = dumps(compact)

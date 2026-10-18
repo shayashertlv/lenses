@@ -264,3 +264,61 @@ def test_many_nonimage_tail_parts_still_respect_aggregate_limit(tmp_path):
     output = R.limit_output(tmp_path, "current", "fixture", original)
     assert text_count(output) <= R.TEXT_LIMIT and len(output) == len(original)
     assert output[-1] is not None and output[-1].text == original[-1].text
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_required_review_and_surface_fields_survive_long_outputs(tmp_path, nested):
+    refs = [f"view-{n:03d}" for n in range(40)]
+    diagnostics = {"status": "measured", "planarity": {"worst_mm": .12},
+                   "views": [{"ref": ref, "details": ["measurement" * 500] * 8} for ref in refs]}
+    payload = {"status": "review_required", **{f"early_{n}": "x" * 8000 for n in range(20)},
+               "review": {"required_refs": refs, "review_call_id": "call-first-review",
+                          "binding": {"photos": [{"ref": ref, "sha256": "d" * 64} for ref in refs]}},
+               "look_comparison" if nested else "surface_quality": (
+                   {"surface_quality": diagnostics, "usable_refs": refs, "unusable_refs": {"bad": "fit failed"}}
+                   if nested else diagnostics)}
+    output = R.limit_output(tmp_path, "finish", "finish", [ToolOutputText(text=R.dumps(payload))])
+    body, _ = R._body(output[0].text)
+    assert text_count(output) <= R.TEXT_LIMIT
+    assert body["review"]["required_refs"] == refs
+    assert body["review"]["review_call_id"] == "call-first-review"
+    look = body["look_comparison"] if nested else body
+    assert look["surface_quality"]["status"] == "measured"
+    if nested:
+        assert look["usable_refs"] == refs and look["unusable_refs"] == {"bad": "fit failed"}
+    rid = body["full_report"]["id"]
+    page = R.read_report(tmp_path, rid, "/result/review/required_refs", limit=100)
+    assert [entry["value"] for entry in page["entries"]] == refs
+    saved = json.loads((tmp_path / body["full_report"]["path"]).read_text(encoding="utf-8"))
+    assert saved["result"] == payload
+
+
+def test_mandatory_echo_fields_survive_small_envelope_after_image_labels(tmp_path):
+    output, _, _ = panel_output(1024)
+    body, _ = R._body(output[0].text)
+    body["review"] = {"required_refs": [f"reference-{n}" for n in range(60)], "review_call_id": "review-1"}
+    body["surface_quality"] = {"status": "measured", "views": [{"detail": "d" * 10000}] * 20}
+    output[0] = ToolOutputText(text=R.dumps(body))
+    result = R.limit_output(tmp_path, "finish", "finish", output)
+    visible, _ = R._body(result[0].text)
+    assert text_count(result) <= R.TEXT_LIMIT
+    assert visible["review"] == body["review"]
+    assert visible["surface_quality"]["status"] == "measured"
+
+
+def test_oversized_required_reference_list_has_explicit_lossless_paging_without_tool_failure(tmp_path):
+    refs = [f"reference-{n:03d}-" + "x" * 120 for n in range(100)]
+    payload = {"status": "review_required", "review": {"required_refs": refs, "review_call_id": "review-100"}}
+    output = R.limit_output(tmp_path, "review-100", "finish", [ToolOutputText(text=R.dumps(payload))])
+    body, _ = R._body(output[0].text)
+    assert text_count(output) <= R.TEXT_LIMIT
+    assert body["review"]["review_call_id"] == "review-100"
+    field = body["review"]["required_refs"]
+    assert field["count"] == 100 and field["read_pointer"] == "/result/review/required_refs"
+    assert "Required values" in field["read_note"]
+    result, offset = [], 0
+    while offset is not None:
+        page = R.read_report(tmp_path, body["full_report"]["id"], field["read_pointer"], offset, 20)
+        result.extend(entry["value"] for entry in page["entries"])
+        offset = page["next_offset"]
+    assert result == refs

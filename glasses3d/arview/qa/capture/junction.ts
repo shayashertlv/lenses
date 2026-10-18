@@ -1,9 +1,10 @@
+import {WEARER_SIDES} from '../../src/model/sides.ts';
 /** Lens-brow junction geometry (pure; port_review/arview.json analysis.capture.junction_crop_method).
  *
  *  Measured once per model on the normalised scene the renderer draws (asset-local metres, transforms baked), from
  *  TRIANGLE slices, never vertex bins (the prototype's junction_geom.py binned vertices and skipped sparse brows
  *  silently) and never by name:
- *  - sides by geometry: 'left' is x < 0 and 'right' x > 0, as g3d_host/spec.py names them; a shield's single lens is
+ *  - sides by geometry: 'right' is x < 0 and 'left' x > 0 (wearer's sides), as g3d_host/spec.py names them; a shield's single lens is
  *    split at x = 0 by the slicing itself (a station only meets the triangles that cross its plane);
  *  - per side, the lens x-range (lens-class vertices on that side of x = 0) is trimmed by 8 % at each end and sampled at
  *    24 stations; each station slices the lens and the non-lens front (triangles whose centroid lies in front of
@@ -273,7 +274,7 @@ export function lensTopVsBrow(lens: ArrayLike<number>, frame: ArrayLike<number> 
     + `lens surface; ${decal.area_mm2} mm², ${(decal.area_fraction * 100).toFixed(1)} % of the lens area): a decal, not brow, so it is left out of the `
     + 'lens-top-vs-brow reading');
   const sides: JunctionSideReport[] = [];
-  for (const [side, sign] of [['left', -1], ['right', 1]] as const) {
+  for (const [side, sign] of WEARER_SIDES) {
     // The side's lens x-range from TRIANGLE extents clipped at x = 0, not from vertices: a shield's single lens has
     // vertices only near its two ends, yet covers both sides up to the bridge.
     let lo = Infinity, hi = -Infinity;

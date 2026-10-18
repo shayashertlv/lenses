@@ -124,7 +124,7 @@ CASES = [
     (dict(patch=p_missing_image), {"format"}, "missing external resource"),
     (dict(patch=p_no_scenes), {"format"}, "no scenes"),
     (dict(patch=p_texcoord_minus_one), {"format"}, "texCoord -1"),
-    (dict(parts=without("Temple_L")), {"orientation"}, "temple left missing"),
+    (dict(parts=without("Temple_L")), {"orientation"}, "temple right missing"),
 ]
 
 
@@ -218,7 +218,7 @@ def test_a_deep_wrap_without_a_temple_is_not_a_wrong_axis(tmp_path):
         parts[name] = ((x0, x1, y0, y1, -46, z1), material, role)          # 47 mm deep, 45 mm tall
     r = check(tmp_path, parts=without("Temple_L", parts=parts))
     assert failed(r) == {"orientation"}, r["errors"]
-    assert all("temple left missing" in e for e in r["errors"]), r["errors"]
+    assert all("temple right missing" in e for e in r["errors"]), r["errors"]
     assert any(w.startswith("up axis not judged on the lenses: their depth (z 47.0 mm) is within 3 mm") for w in r["warnings"]), r["warnings"]
     deeper = dict(parts)
     for name in ("Shield_L", "Shield_R"):
@@ -375,11 +375,11 @@ def test_split_bridge_with_no_crossing_is_unverifiable_at_any_offset(tmp_path):
 def test_temples_need_45_mm_and_60_mm_per_side(tmp_path):
     narrow = replace("Temple_R", (33, 37, 2, 8, -140, -2), replace("Temple_L", (-37, -33, 2, 8, -140, -2)))
     r = check(tmp_path, parts=narrow)
-    assert any("temple left missing" in e for e in r["errors"]) and any("temple right missing" in e
+    assert any("temple right missing" in e for e in r["errors"]) and any("temple left missing" in e
                                                                           for e in r["errors"])
     short = replace("Temple_L", (-70, -66, 2, 8, -55, -2))
     r = check(tmp_path, "short.glb", parts=short)
-    assert failed(r) == {"orientation"} and any("temple left missing" in e for e in r["errors"]), r["errors"]
+    assert failed(r) == {"orientation"} and any("temple right missing" in e for e in r["errors"]), r["errors"]
 
 
 def test_unit_window_and_warning_band(tmp_path):
@@ -492,7 +492,7 @@ def with_screw(**kw):
 @pytest.mark.parametrize("kw, row, text", [
     (with_screw(offset_mm=(0, 10, 0)), "origin", "bridge underside is at y +10.00"),          # r9-like
     (with_screw(scale=1.0), "units", "millimetre-scaled"),
-    (with_screw(parts=without("Temple_L", "Temple_R")), "orientation", "temple left missing"),
+    (with_screw(parts=without("Temple_L", "Temple_R")), "orientation", "temple right missing"),
     (with_screw(pre_mm=trans(0, 4, 0) @ np.diag([-1, -1, 1, 1])), "orientation", "not +Y up"),
     (with_screw(offset_mm=(3, 0, 0)), "origin", "the lenses are centred at x +3.00 mm"),
 ])
@@ -506,7 +506,7 @@ def test_a_small_compressed_part_cannot_hide_failures_it_could_not_cure(tmp_path
 def test_compressed_parts_downgrade_only_what_they_could_change(tmp_path):
     r = check(tmp_path, compressed=True, target="Temple_L")       # the left temple could reach -60 mm
     assert r["ok"], r["errors"]
-    assert any("orientation unverified: temple left missing" in w for w in r["warnings"]), r["warnings"]
+    assert any("orientation unverified: temple right missing" in w for w in r["warnings"]), r["warnings"]
     r = check(tmp_path, "lens.glb", compressed=True, target="Lens_R")    # a one-sided lens box joins its half exactly
     assert r["ok"], r["errors"]
     assert r["measurements"]["lens_halves_dy_mm"] == pytest.approx(0.0, abs=1e-6)

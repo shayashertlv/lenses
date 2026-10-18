@@ -14,7 +14,7 @@ from ...g3d_host.ar_camera import explicit_camera
 from ...g3d_host import pose
 from .. import procs
 from ..tool_timeouts import LOOK_CAPTURE_DEADLINE_S, MODEL_MAP_SNAPSHOT_DEADLINE_S
-from . import arview, look, look_panels
+from . import arview, look, look_panels, look_composition, native_panels
 from . import model_map_geometry as G
 from . import model_map_labels as L
 
@@ -351,28 +351,30 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
                 y0=max(0,min(photo.height-500,(b+d)//2-250))
                 tiles.append([x0,y0,min(photo.width,x0+500),min(photo.height,y0+500)])
         for i, tile in enumerate(tiles):
-            x0,y0,x1,y1 = tile
-            piece = Image.new("RGB", ((x1-x0)*2,y1-y0+35),"white")
-            piece.paste(photo.crop(tile),(0,35)); piece.paste(annotated.crop(tile),(x1-x0,35))
-            ImageDraw.Draw(piece).text((7,7), f"{row['ref']} | PHOTO first | MODEL map | native tile {i+1}", font=_font(15), fill="black")
             # Each label's legend is supplied as its own image when necessary;
             # native model pixels and 28px tags must never shrink to fit long text.
             path = directory / f"{row['ref']}-tile-{i:03d}.png"
-            piece.save(path)
-            images.append({"path": str(path), "sha256": arview.sha256(path), "view": f"{row['ref']} map native tile {i+1}: {','.join(r['label'] for r in target_legend)}"})
+            _, native = native_panels.comparison([photo, annotated], tile, path,
+                f"{row['ref']} | native tile {i+1}", ["PHOTO", "MODEL map"], font=_font(15))
+            for item in native:
+                item.update(ref=row["ref"], kind="model_map_detail",
+                            view=f"{row['ref']} map native tile {i+1}: {','.join(r['label'] for r in target_legend)}")
+            images.extend(native)
         for i in range(0,len(target_legend),4):
             entries = target_legend[i:i+4]
             legend_image = L.append_legend(Image.new("RGB",(1000,1),"white"),entries,_font(24))
             path = directory / f"{row['ref']}-legend-{i:03d}.png"
             legend_image.save(path)
             images.append({"path":str(path),"sha256":arview.sha256(path),
+                           "ref":row["ref"],"kind":"model_map_legend",
                            "view":f"{row['ref']} legend: " + "; ".join(f"{entry['label']} = {entry['description']}" for entry in entries)})
+    composed = look_composition.compose(images, directory / (row["ref"] + "-combined"), row["ref"])
     return {"ref": row["ref"], "full_pair": str(pair), "full_pair_sha256": arview.sha256(pair),
             "labels": labels, "annotated_target_ids": shown_ids, "support_scopes": drawn_scopes,
             "legend": legend,"target_legend":target_legend,
             "visible_target_count": len(available), "page": page,"page_size":page_size,
             "pages": (len(available)+page_size-1)//page_size,
-            "images": images, "camera": camera, "native_photo_shape": [photo.height,photo.width]}
+            "images": composed, "source_images": images, "camera": camera, "native_photo_shape": [photo.height,photo.width]}
 
 
 def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=None,
@@ -494,7 +496,8 @@ def tool_for(scene, tool, call):
         Start automatically, then focus displayed short labels or exact target IDs. Reuse map_id to keep labels.
         Verified temple facet/edge/corner names accompany current actual geometry, even after manual edits.
         For understand, draw the exact operation support (weights/fixed vertices) via supports_json before
-        confirming it. The catalogue and full-size pairs remain available losslessly; native tiles are shown.
+        confirming it. The catalogue and full-size pairs remain available losslessly; native tiles and legends
+        are composed per photo without shrinking pixels, with overflow in additional images.
         No geometry, photos, frozen cameras or temple openings change.
 
         Args:

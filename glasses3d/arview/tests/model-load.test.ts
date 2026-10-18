@@ -191,7 +191,7 @@ const CASES: readonly Case[] = [
   {name: 'missing image', build: b({patch: pMissingImage}), rows: [...SPEC_ROWS], text: 'missing external resource', refused: 'format', compare: ['format']},
   {name: 'no scenes', build: b({patch: pNoScenes}), rows: [...SPEC_ROWS], text: 'no scenes', refused: 'format', compare: ['format']},
   {name: 'texCoord -1', build: b({patch: pTexCoordMinusOne}), rows: ['format'], text: 'texCoord -1', refused: null},
-  {name: 'temple left missing', build: b({parts: without(['Temple_L'])}), rows: ['orientation'], text: 'temple left missing', refused: null},
+  {name: 'temple right missing', build: b({parts: without(['Temple_L'])}), rows: ['orientation'], text: 'temple right missing', refused: null},
   // test_orientation_and_cascade_failures
   {name: 'Z up', build: b({rotateZUp: true}), rows: ['orientation'], text: "Y is not the lenses' middle axis", includes: true, refused: null},
   {name: 'rolled +25', build: b({preMm: rot('z', 25)}), rows: ['orientation'], text: 'rolled', includes: true, refused: null},
@@ -397,8 +397,8 @@ test('only the default scene is handed to three; every omission is said, and the
 });
 
 test('the page lists every failed row, not only the warnings (reportLines): orientation, implausible units, a refusal', async () => {
-  const cases: [Record<string, Part>, string[]][] = [[without(['Temple_L']), ['Orientation: temple left missing']],
-    [without(['Temple_L', 'Temple_R']), ['Orientation: temple left missing', 'Orientation: temple right missing']]];
+  const cases: [Record<string, Part>, string[]][] = [[without(['Temple_L']), ['Orientation: temple right missing']],
+    [without(['Temple_L', 'Temple_R']), ['Orientation: temple right missing', 'Orientation: temple left missing']]];
   for (const [parts, expected] of cases) {
     const report = await check(buildGlb({parts}));
     const lines = reportLines(report);
@@ -406,7 +406,7 @@ test('the page lists every failed row, not only the warnings (reportLines): orie
       assert.ok(lines.some(line => line.kind === 'error' && line.text.startsWith(prefix)), `${prefix} in ${lines.map(line => line.text).join(' | ')}`);
       assert.ok(report.errors.some(error => error.startsWith(prefix.replace('Orientation', 'orientation'))), report.errors.join(' | '));
     }
-    assert.ok(!report.warnings.some(warning => warning.includes('temple left missing')), 'the row writes no warning of its own: only the row carries it');
+    assert.ok(!report.warnings.some(warning => warning.includes('temple right missing')), 'the row writes no warning of its own: only the row carries it');
   }
   const units = await check(buildGlb({preMm: diag(0.6, 0.6, 0.6)}));
   assert.ok(reportLines(units).some(line => line.kind === 'error' && line.text.startsWith('Units: ') && line.text.includes('not a plausible frame width')),
@@ -765,7 +765,7 @@ test('every row that renders anyway says why, and every fallback is a warning to
   assert.ok(report.warnings.some(w => /^origin x judged on the front region \(z >= -23\.0 mm\): no lens geometry spans x = 0$/.test(w)), report.warnings.join(' | '));
   // Orientation: a box temple with no vertex in the pitch slab is measured on plane sections; a missing one is not measured.
   report = await check(buildGlb({parts: without(['Temple_L'])}));
-  assert.ok(errors(report).some(e => e.includes('temple left missing')));
+  assert.ok(errors(report).some(e => e.includes('temple right missing')));
   // Transforms: export noise within 1e-6 is baked to exact identity.
   report = await check(buildGlb({parentMatrix: trans(0, 1e-7, 0)}));
   assert.equal(failed(report).size, 0); assert.match(report.spec.transforms.detail.join(' '), /7 mesh\(es\) within 0\.000001 of identity were baked/);

@@ -159,6 +159,10 @@ def test_boundary_visibility_uses_its_continuous_rays_not_adjacent_pixel_count(t
         assert out["labels"][0]["label"] in ("P1", "E1")
         assert out["labels"][0]["font_px"] >= 26
         assert out["target_legend"][0]["target_id"] == chosen["id"]
+        from glasses3d.tests.agent.test_look_composition import assert_lossless_pages
+        assert len(out["images"]) == 1
+        assert {r["kind"] for r in out["source_images"]} == {"model_map_detail", "model_map_legend"}
+        assert_lossless_pages(out["source_images"], out["images"])
 
 
 def test_movement_legend_requires_an_actual_support_scope(tmp_path, monkeypatch):
@@ -293,7 +297,9 @@ def test_clustered_labels_remain_readable_and_long_legends_do_not_shrink_native_
         assert np.all(box[:, 0] == 255) and np.all(box[:, -1] == 255), "leader crossed an opaque label box"
     for record in result["images"]:
         delivered = Image.open(record["path"])
-        assert max(delivered.size) <= 2048, "text must not force native labels to shrink during delivery"
-        if "-legend-" in record["path"]:
-            pixels = np.asarray(delivered)
-            assert np.all(pixels[:, -8:] == 255), "long legend words clipped at the right edge"
+        from glasses3d.agent.look_cost import documented_image
+        assert documented_image(*delivered.size, "high")["processed_dimensions"] == list(delivered.size)
+        for part in record["parts"]:
+            if part["kind"] == "model_map_legend":
+                pixels = np.asarray(delivered.crop(part["box"]))
+                assert np.all(pixels[:, -8:] == 255), "long legend words clipped at the right edge"

@@ -1,3 +1,4 @@
+import {wearerSide} from '../../src/model/sides.ts';
 /** The capture page (qa/capture.html): `window.arview`, driven by qa/capture.mjs ONE STEP PER page.evaluate.
  *
  *  Every step returns plain data; every image is handed to Node through the `arviewEmit` binding the moment it exists
@@ -236,7 +237,7 @@ function frameWornSide(): {rect: CropRect | null; side: 'left' | 'right'; basis:
   }
   const projected = instance.projectAssetPoints(new Float32Array(points));
   return {rect: projected ? wornCropRect(projected, state.source.width, state.source.height) : null,
-    side: side === 0 ? 'left' : 'right', basis: 'near lens outer half, drawn temple centreline, 25 mm behind cap',
+    side: wearerSide(side), basis: 'near lens outer half, drawn temple centreline, 25 mm behind cap',
     projected: projected ? Array.from(projected) : []};
 }
 
@@ -301,7 +302,7 @@ async function render(request: {variant: VariantName; background: BackgroundName
   if (decoder && near !== null && centrelines && centrelines.sides[near].length) {
     const projected = instance.projectAssetPoints(centrelines.sides[near]);
     if (projected) {
-      const sideName = near === 0 ? 'left' : 'right';
+      const sideName = wearerSide(near);
       const armLabels = new Set(palette.flatMap((entry, index) => entry.class !== 'lens' && entry.side === sideName ? [index] : []));
       templeReach = measureTempleReach({side: near, yawDegrees: state.pose!.yaw, centreline: centrelines.sides[near], projected,
         labels: decodeLabels(pixels.data, palette, decoder), width: pixels.width, height: pixels.height, armLabels,

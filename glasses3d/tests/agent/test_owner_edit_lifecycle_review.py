@@ -264,16 +264,22 @@ def test_edit_report_returns_structured_native_details_even_without_detail_in_ca
         return {"status": "ok", "views": [{"ref": "front", "photo_path": str(image_paths["photo"]),
                 "drawing_path": str(image_paths[phase])}], "worn_front_path": str(image_paths[phase]),
                 "images": [{"path": str(image_paths["detail-" + phase]), "view": "front: outer_corner 1.1",
-                            "kind": "look_detail", "detail_kind": "outer_corner"}]}
+                            "kind": "look_detail", "detail_kind": "outer_corner", "ref": "front"}]}
 
     monkeypatch.setattr(owner_edit.look, "capture", capture)
     scene = SimpleNamespace(root=root, s=SimpleNamespace(head={"id": "c0002", "fingerprint": "new"}),
         seeing=SimpleNamespace(export_head=lambda **kwargs: {"sha256": "e" * 64}),
         owner_edit_authority=SimpleNamespace(receipts=lambda: []))
     result = owner_edit.change_report(scene, "report-test", "Changed requested edge.", [])
-    paths = {row["path"] for row in result["images"]}
+    pages = [row for row in result["images"] if row.get("kind") == "look_composed"]
+    assert len(pages) == 1
+    parts = [part for row in pages for part in row["parts"]]
+    paths = {row["path"] for row in parts}
     assert str(image_paths["detail-before"]) in paths
     assert str(image_paths["detail-after"]) in paths
+    assert {row["comparison_phase"] for row in parts if row.get("kind") == "look_detail"} == {"Before", "After"}
+    from glasses3d.tests.agent.test_look_composition import assert_lossless_pages
+    assert_lossless_pages(parts, pages)
 
 
 def test_finish_requires_edit_comparison_images_to_have_been_delivered(finish_scene):

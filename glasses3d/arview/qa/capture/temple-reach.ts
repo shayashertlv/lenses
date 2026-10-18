@@ -1,3 +1,4 @@
+import {wearerSide} from '../../src/model/sides.ts';
 /** How far back the near temple is actually drawn in a turned part-id render: a cut is never silent (pure; used by the
  *  capture page, tested in qa/capture-temple-reach.test.mjs).
  *
@@ -9,7 +10,7 @@
  *  a shortfall at the end (the drawn arm stops early) AND a hidden stretch in the middle (the cheek face-surface occluder
  *  can hide the arm's middle while it reappears further back; WP1 review E/F: that was missed).
  *
- *  Sign convention (poses.ts): yaw > 0 turns the nose toward image +x, so the asset's -X side (side 0, 'left') faces the
+ *  Sign convention (poses.ts): yaw > 0 turns the nose toward image +x, so the asset's -X side (side 0, wearer's 'right') faces the
  *  camera; yaw < 0 shows side 1. Front and pitch views see the arms end-on and are not measured. */
 
 export const TEMPLE_REACH = Object.freeze({
@@ -24,6 +25,7 @@ export const TEMPLE_REACH = Object.freeze({
 export type ReachSide = 0 | 1;
 export interface TempleReach {
   readonly side: 'left' | 'right';
+  readonly x_sign: -1 | 1;
   readonly yaw_degrees: number;
   /** The deepest station drawn (mm, asset-local z), or null when no station of this arm is drawn. */
   readonly drawn_to_z_mm: number | null;
@@ -108,7 +110,7 @@ export function measureTempleReach(input: {
   }
   const front = order.length ? centreline[order[0]! * 3 + 2]! : limit;
   const hidden = Math.max(0, (deepest ?? front) - limit);
-  return {side: input.side === 0 ? 'left' : 'right', yaw_degrees: input.yawDegrees,
+  return {side: wearerSide(input.side), x_sign: input.side === 0 ? -1 : 1, yaw_degrees: input.yawDegrees,
     drawn_to_z_mm: deepest === null ? null : round(deepest), first_hidden_z_mm: firstHidden === null ? null : round(firstHidden),
     return_start_z_mm: input.returnStartZM === null ? null : round(input.returnStartZM), cap_z_mm: round(input.capZM),
     hidden_before_return_mm: round(hidden), longest_hidden_run_mm: round(longest),
@@ -131,6 +133,6 @@ export function templeReachWarning(file: string, reach: TempleReach): string | n
   if (reach.longest_hidden_run_mm > TEMPLE_REACH.toleranceM * 1000 + 1e-6) {
     parts.push(`hidden for ${reach.longest_hidden_run_mm} mm from z ${reach.longest_hidden_run_from_z_mm} mm, ahead of ${where}, and drawn again behind`);
   }
-  return `${file}: TEMPLE CUT: the near (${reach.side}) temple is ${parts.join('; and ')}; the face/head depth occluders hide that part of the arm `
+  return `${file}: TEMPLE CUT: the near (wearer's ${reach.side}, ${reach.x_sign < 0 ? '-X' : '+X'}) temple is ${parts.join('; and ')}; the face/head depth occluders hide that part of the arm `
     + 'in this view (the drawn arm lies inside the head proxy there)';
 }

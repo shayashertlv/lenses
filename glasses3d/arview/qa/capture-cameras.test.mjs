@@ -115,7 +115,7 @@ test('--cameras --no-face renders each explicit camera exactly, without a face',
       return {n, side: entry.side};
     };
     const near = count('Temple_R'), far = count('Temple_L');
-    assert.equal(near.side, 'right'); assert.equal(far.side, 'left');
+    assert.equal(near.side, 'left'); assert.equal(far.side, 'right');
     assert.ok(near.n > 2000 && far.n < near.n / 20, `near temple ${near.n} px, far temple ${far.n} px`);
   } finally {fs.rmSync(work, {recursive: true, force: true});}
 });

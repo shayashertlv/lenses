@@ -74,8 +74,8 @@ test('a model without temples: the served report lists the fallbacks the rendere
   const {report, checked} = await served(buildGlb({parts: without(['Temple_L', 'Temple_R'])}),
     {rows: {orientation: {pass: false, detail: ['temple left missing: ...', 'temple right missing: ...']}}});
   assert.deepEqual(report.fallbacks.map(entry => [entry.subsystem, entry.stage]),
-    [['temple left', 'load'], ['temple right', 'load'], ['temple clip depth', 'load'], ['continuity', 'load']]);
-  assert.match(report.fallbacks[0].detail, /^TEMPLE LEFT MISSING: .*That side keeps a fixed cap/);
+    [['temple right', 'load'], ['temple left', 'load'], ['temple clip depth', 'load'], ['continuity', 'load']]);
+  assert.match(report.fallbacks[0].detail, /^TEMPLE RIGHT MISSING: .*That side keeps a fixed cap/);
   assert.match(report.fallbacks[2].detail, /^Temple clip: no temple on either side, so no clip can be derived; the fixed default -0\.140 m is used/);
   assert.equal(report.fallbacks[3].detail, 'The temple continuity model is unavailable (No temple on either side: there is no arm to follow.); both arms keep the fixed '
     + 'buried cap and no hair endpoint.');
@@ -89,7 +89,7 @@ test('a model without temples: the served report lists the fallbacks the rendere
   const modelPath = `/__arview/models/${sha}/model.glb`;
   const handed = await checkInNode(bytes, {url: ORIGIN + modelPath, routes: new Map([[modelPath, {bytes, type: 'model/gltf-binary', model: true}]]),
     displayName: 'model.glb', sha, clipZM: -0.1});
-  assert.deepEqual(handed.report.fallbacks.map(entry => entry.subsystem), ['temple left', 'temple right', 'continuity']);
+  assert.deepEqual(handed.report.fallbacks.map(entry => entry.subsystem), ['temple right', 'temple left', 'continuity']);
   assert.equal(handed.templeClip.cutoff_m, -0.1);
   // A model with both temples: nothing added.
   const full = await served(buildGlb());

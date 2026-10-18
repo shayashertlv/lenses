@@ -8,10 +8,10 @@ from typing import Literal
 from agents.tool_context import ToolContext
 import numpy as np
 from pydantic import BaseModel, ConfigDict
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .. import edits, owner_edits, procs
-from . import model_map, look, owner_preview
+from . import model_map, look, owner_preview, look_composition, native_panels
 from ...g3d import owner_markings
 from ...g3d import owner_surface
 
@@ -177,14 +177,11 @@ def _triple(photo, before, after, target, label):
     opened = [Image.open(path).convert("RGB") for path in (photo, before, after)]
     if len({im.size for im in opened}) != 1:
         raise ValueError("before/after images must use the same frozen photo camera and pixel grid")
-    w, h = opened[0].size
-    canvas = Image.new("RGB", (3*w, h+40), "white")
-    draw = ImageDraw.Draw(canvas)
-    for i, (im, title) in enumerate(zip(opened, ("PHOTO", "BEFORE", "AFTER"))):
-        canvas.paste(im, (i*w, 40))
-        draw.text((i*w+8, 8), f"{title} | {label}", fill="black", font_size=18)
-    canvas.save(target)
-    return {"path": str(target), "sha256": edits.sha(target), "view": f"{label}: photo, before, after (native pixels)"}
+    full, tiles = native_panels.comparison(opened, [0, 0, *opened[0].size], target, label,
+                                         ["PHOTO", "BEFORE", "AFTER"], gap=0, font=model_map._font(18))
+    for item in [full, *tiles]:
+        item.update(view=f"{label}: photo, before, after (native pixels)", ref=label, kind="owner_edit_full")
+    return full, tiles
 
 
 def change_report(scene, call_id, summary, not_done):
@@ -211,13 +208,16 @@ def change_report(scene, call_id, summary, not_done):
     old = {r["ref"]: r for r in before["views"]}
     for row in after["views"]:
         prior = old[row["ref"]]
-        images.append(_triple(row["photo_path"], prior["drawing_path"], row["drawing_path"],
-                              output / (row["ref"] + "-before-after.png"), row["ref"]))
+        full, sources = _triple(row["photo_path"], prior["drawing_path"], row["drawing_path"],
+                                output / (row["ref"] + "-before-after.png"), row["ref"])
+        # Include both ordinary and side-light details; each retains its source
+        # record inside the lossless per-photo composed pages.
+        for caption, evidence in (("Before", before), ("After", after)):
+            sources.extend(dict(r, view=caption + ": " + r["view"], comparison_phase=caption) for r in evidence["images"]
+                           if r.get("ref") == row["ref"] and r.get("kind") in ("look_detail", "surface_detail"))
+        images.extend(look_composition.compose(sources, output / (row["ref"] + "-combined"), row["ref"]))
     images += [{"path": before["worn_front_path"], "view": "Before: worn on the test face"},
                {"path": after["worn_front_path"], "view": "After: worn on the test face"}]
-    # Native per-feature close-ups remain attached and available without resampling the source views.
-    images += [dict(r, view="Before: " + r["view"]) for r in before["images"] if r.get("kind") == "look_detail"]
-    images += [dict(r, view="After: " + r["view"]) for r in after["images"] if r.get("kind") == "look_detail"]
     receipts = scene.owner_edit_authority.receipts()
     current_receipts = receipts if receipts and receipts[-1].get("fingerprint") == scene.s.fingerprint() else []
     applied = {key for row in current_receipts for key in row["operation_ids"]}
@@ -334,7 +334,8 @@ def tools_for(scene, tool, call):
     @tool("edit_report")
     async def edit_report(ctx: ToolContext, summary: str, not_done: list[str]):
         """Draw the before and after at the unchanged photo cameras, with native full pairs, close-ups and worn
-        views. Report actual displacements, confirmed operation receipts, affected neighbours and undone items.
+        views. Comparisons and close-ups are composed per photo without shrinking pixels; overflow uses more images.
+        Report actual displacements, confirmed operation receipts, affected neighbours and undone items.
         Runs unchanged strict export and physical checks. Required before finish of a confirmed edit round."""
         return await call(ctx, "edit_report", lambda cid: change_report(scene, cid, summary, not_done))
     return [understand_finish, edit_report]

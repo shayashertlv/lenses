@@ -107,17 +107,20 @@ def test_id_decoder_keeps_mixed_and_does_not_invent_markings():
 
 
 @pytest.mark.parametrize("shape", [(1280, 700), (4096, 4096), (1190, 474), (500, 500)])
-def test_pairs_use_exact_patch_budget_without_upscaling(tmp_path, shape):
+def test_pairs_keep_every_native_pixel_and_tile_over_the_patch_budget(tmp_path, shape):
     photo = Image.new("RGB", shape, (31, 47, 83))
     drawing = Image.new("RGB", shape, (91, 73, 61))
     rec = P._pair(photo, drawing, [0, 0, *shape], tmp_path / "pair.png", "pair", P.HIGH_MAX_SIDE)
-    assert rec["patches_32px"] <= 2500
-    assert rec["pair_scale"] <= 1
-    if shape in ((1280, 700), (1190, 474), (500, 500)):
-        assert rec["pair_scale"] == 1
-        with Image.open(rec["path"]) as image:
-            assert image.getpixel((0, 42)) == (31, 47, 83)
-            assert image.getpixel((shape[0] + 8, 42)) == (91, 73, 61)
+    assert rec["pair_scale"] == 1
+    coverage = np.zeros(shape[::-1], bool)
+    for tile in rec.get("native_tiles", [rec]):
+        assert tile["patches_32px"] <= 2500 and tile["native_detail"]
+        x0, y0, x1, y1 = tile["crop_box"]
+        coverage[y0:y1, x0:x1] = True
+        with Image.open(tile["path"]) as image:
+            for source, box in zip((photo, drawing), tile["panel_boxes"]):
+                assert image.crop(box).tobytes() == source.crop(tile["crop_box"]).tobytes()
+    assert coverage.all()
 
 
 def test_native_tiles_cover_entire_large_detail():

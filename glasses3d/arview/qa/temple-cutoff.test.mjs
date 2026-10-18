@@ -34,10 +34,10 @@ test('short original arms: the derived clip lies just inside the shorter tip and
   const deep = check(root, DEFAULT_TEMPLE_CUTOFF_M);
   assert.deepEqual(deep.sides.map(side => side.length), [0, 0]);
   assert.deepEqual(deep.missing.map(gap => gap.side), [0, 1]);
-  assert.match(deep.missing[0].reason, /the left arm has no cross-section at z -140\.0 mm .*ends before the clip or has a gap there/);
+  assert.match(deep.missing[0].reason, /the right arm has no cross-section at z -140\.0 mm .*ends before the clip or has a gap there/);
   const receipt = selectQATempleCutoff(root), model = check(root, receipt.cutoff_m);
   assert.equal(receipt.policy, 'authored_temple_regions'); assert.equal(receipt.source, 'derived');
-  assert.equal(receipt.cutoff_m, receipt.side_bounds[1].min_z_m + TIP_INTERIOR_GUARD_M); assert.equal(receipt.shorter_side, 'right');
+  assert.equal(receipt.cutoff_m, receipt.side_bounds[1].min_z_m + TIP_INTERIOR_GUARD_M); assert.equal(receipt.shorter_side, 'left');
   assert.equal(receipt.geometry_modified, false); assert.equal(model.sides[0].length, 33); assert.equal(model.sides[1].length, 33);
   assert.deepEqual(model.missing, []);
   for (const [index, mesh] of [left, right].entries()) assert.deepEqual(mesh.geometry.attributes.position.array, before[index]);
@@ -49,7 +49,7 @@ test('short original arms: the derived clip lies just inside the shorter tip and
 test('asymmetric arm tips use the shorter physical side; long arms retain the -0.14 m floor', t => {
   const short = fixture(t, -.16, -.12), long = fixture(t, -.16, -.15);
   const result = selectQATempleCutoff(short.root);
-  assert.equal(result.cutoff_m, result.side_bounds[1].min_z_m + TIP_INTERIOR_GUARD_M); assert.equal(result.shorter_side, 'right');
+  assert.equal(result.cutoff_m, result.side_bounds[1].min_z_m + TIP_INTERIOR_GUARD_M); assert.equal(result.shorter_side, 'left');
   assert.deepEqual(check(short.root, result.cutoff_m).sides.map(side => side.length), [33, 33]);
   const longer = selectQATempleCutoff(long.root);
   assert.equal(longer.cutoff_m, DEFAULT_TEMPLE_CUTOFF_M); assert.equal(longer.shorter_side, null, 'the floor, not an arm, sets it');
@@ -75,7 +75,7 @@ test('adjusting tip metadata never bypasses strict missing interior sections: on
   const receipt = selectQATempleCutoff(root), model = check(root, receipt.cutoff_m);
   assert.deepEqual(model.sides.map(side => side.length), [0, 33], 'the right arm keeps its path');
   assert.deepEqual(model.missing.map(gap => gap.side), [0]);
-  assert.match(model.missing[0].reason, /the left arm has no cross-section at z -(7|8|9)\d\.\d mm/);
+  assert.match(model.missing[0].reason, /the right arm has no cross-section at z -(7|8|9)\d\.\d mm/);
 });
 
 // Missing or malformed profiles are optional metadata (WP1_DESIGN.md §1): the asset's profiles are ignored and position
@@ -94,7 +94,7 @@ test('partial, missing, malformed, transformed, one-sided and too-short arms are
   // A profile on the wrong half of X (temple_left at +x) is ignored too: sides are judged by geometry.
   const swapped = fixture(t);
   swapped.left.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_right'}; swapped.right.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
-  const bySide = positional(swapped.root, /"left" region 'temple_right' lies at x -60\.0 mm, but temple_left must lie at x < 0/);
+  const bySide = positional(swapped.root, /"left" region 'temple_right' lies at x -60\.0 mm, but legacy region temple_left must lie at x < 0/);
   assert.deepEqual(bySide.side_bounds.map(side => side.present), [true, true]);
   // A transformed arm is refused once, by the load-time §2 Transforms check (src/model/normalize.ts), before any QA or
   // runtime consumer reads the scene; part-visibility no longer duplicates it (WP1_DESIGN.md §1).
@@ -119,8 +119,8 @@ test('unprofiled assets get the positional derivation: the shorter arm, just ins
   const {root} = fixture(t); root.traverse(object => {delete object.userData[PART_VISIBILITY_KEY];});
   classifyAssetMaterials(root);
   const receipt = selectQATempleCutoff(root);
-  assert.equal(receipt.policy, 'positional_temples'); assert.equal(receipt.source, 'derived'); assert.equal(receipt.shorter_side, 'right');
+  assert.equal(receipt.policy, 'positional_temples'); assert.equal(receipt.source, 'derived'); assert.equal(receipt.shorter_side, 'left');
   assert.ok(Math.abs(receipt.cutoff_m - (-.138689 + TIP_INTERIOR_GUARD_M)) < 1e-7, `cutoff ${receipt.cutoff_m}`);
-  assert.deepEqual(receipt.side_bounds.map(side => [side.side, side.present, side.source]), [['left', true, 'position'], ['right', true, 'position']]);
+  assert.deepEqual(receipt.side_bounds.map(side => [side.side, side.present, side.source]), [['right', true, 'position'], ['left', true, 'position']]);
   assert.equal(receipt.profile_warnings, undefined);
 });

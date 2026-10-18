@@ -111,7 +111,7 @@ test('a temple region on the wrong half of X is ignored for the whole asset', t 
   const f = fixture(t);
   f.left.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_right'}; f.right.userData[PART_VISIBILITY_KEY] = {version: 1, region: 'temple_left'};
   const warnings = ignored(f).join(' | ');
-  assert.match(warnings, /"left arm hardware and shaft" region 'temple_right' lies at x -61\.0 mm, but temple_left must lie at x < 0 and temple_right at x > 0/);
+  assert.match(warnings, /"left arm hardware and shaft" region 'temple_right' lies at x -61\.0 mm, but legacy region temple_left must lie at x < 0 \(wearer's right\) and temple_right at x > 0/);
   assert.match(warnings, /"right arm hardware and shaft" region 'temple_left' lies at x 61\.0 mm/);
 });
 

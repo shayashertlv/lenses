@@ -46,7 +46,9 @@ def output_dir(root: Path, call_id: str) -> Path:
 def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | None, bool]:
     """Own the entire tree through normal exit and timeout; stdout streams to disk, never an unread pipe."""
     env = {key: value for key, value in os.environ.items() if key.upper() in procs.WORKER_ENV_KEYS}
-    env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1")
+    temp = (out / "temp").resolve()
+    temp.mkdir(parents=True, exist_ok=True)
+    env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1", TEMP=str(temp), TMP=str(temp))
     proc = job = None
     with (out / "capture.log").open("ab") as log:
         try:
@@ -163,7 +165,7 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=AR_CAPTURE_DEFA
     result = {"status": "timeout" if timed_out else EXIT_STATUS.get(code, "infrastructure_failed"),
               "code": "E_TIMEOUT" if timed_out else f"ARVIEW_EXIT_{code}", "exit_code": code,
               "fixed_scale": True, "poses": "default", "worn_sides": True, "checkpoint": export["checkpoint"],
-              "portrait": True, "lens_evidence": True,
+              "portrait": False, "portrait_requested": True, "lens_evidence": True,
               "appearance_policy": AR_APPEARANCE_POLICY, "lens_env_intensity": LENS_ENV_INTENSITY,
               "glb_sha256": export["sha256"], "export_sha256": export["sha256"],
               "log": str(log_dir / "capture.log"), "images": [], "sheets": []}
@@ -177,15 +179,26 @@ def capture(root: Path, export: dict, call_id: str, *, timeout_s=AR_CAPTURE_DEFA
         if report.get("schema") != "arview.capture/1" or report.get("input", {}).get("sha256") != export["sha256"]:
             raise ValueError("capture report does not describe the exported bytes")
         records = report.get("images", [])
+        # Preserve the actual capture's errors even if image verification also fails below.
+        result.update(report=str(report_path), report_sha256=sha256(report_path), capture_status=report.get("status"),
+                      warnings=report.get("warnings", []), errors=report.get("errors", []), spec=report.get("spec"))
+        if not timed_out and code in (0, 3):
+            if report.get("errors") or report.get("status") == "infrastructure_failed":
+                result.update(status="infrastructure_failed", code="E_CAPTURE", message="capture reported errors")
+            elif (report.get("spec") or {}).get("available") is False:
+                result.update(status="validator_unavailable", code="E_VALIDATOR", message=report["spec"].get("reason"))
         for rec in records:
             file = confined(out, rec["file"], areas=(".",))
             if not file.is_file() or sha256(file) != rec.get("sha256"):
                 raise ValueError("capture image bytes differ from the report")
+        result["portrait"] = any(rec.get("kind") == "portrait" and str(rec.get("variant", "")).startswith("condition-")
+                                 for rec in records)
         worn = [rec for rec in records if rec.get("kind") == "worn_crop"]
         sheet = contact_sheet(out, worn + [rec for rec in records if rec.get("kind") != "worn_crop"])
         response = background_response(out, report)
         result.update(report=str(report_path), report_sha256=sha256(report_path), capture_status=report.get("status"),
                       warnings=report.get("warnings", []), errors=report.get("errors", []),
+                      side_convention=report.get("side_convention", "legacy capture: -X left, +X right"),
                       spec=report.get("spec"), runtime=report.get("runtime"), geometry=report.get("geometry"),
                       lens_background_response=response, summary=response_summary(response),
                       worn_views=[{**rec, "path": str(out / rec["file"])} for rec in worn])

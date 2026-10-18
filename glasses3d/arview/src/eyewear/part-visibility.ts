@@ -107,8 +107,8 @@ export function validatePartVisibility(root: Object3D, warn?: (message: string) 
       const box = new Box3().setFromBufferAttribute(position);
       const centre = (box.min.x + box.max.x) / 2, left = profile.region === 'temple_left';
       if (!box.isEmpty() && (left ? !(centre < 0) : !(centre > 0))) {
-        problems.push(`"${mesh.name}" region '${profile.region}' lies at x ${(centre * 1000).toFixed(1)} mm, but temple_left must lie at x < 0 and `
-          + 'temple_right at x > 0 (sides are judged by geometry)');
+        problems.push(`"${mesh.name}" region '${profile.region}' lies at x ${(centre * 1000).toFixed(1)} mm, but legacy region temple_left must lie at x < 0 (wearer's right) and `
+          + "temple_right at x > 0 (wearer's left; legacy region IDs are kept readable)");
       }
     }
   }

@@ -15,11 +15,12 @@ Create `views.json` with exactly one entry per photo, for example:
 ```
 
 Kinds are the camera fitter's explicit view kinds; unsupported or missing kinds are refused. Side is `left`, `right`,
-`both` or `null`. Original bytes are retained. Exceptionally large reference payloads get a transport copy at the
-same pixel dimensions; both hashes are bound into the approval.
-For a photo on a reflective floor, add `"reflective_floor": true` to its view record; intake selects the
-existing `glossy_floor` matte. An explicit `matte_mode` (`default`, `glossy_floor` or `open_frame`) takes
-precedence. View/side and floor declarations are checked by eye at intake, never inferred from filenames.
+`both` or `null`, always the wearer's side: +X is the wearer's left and -X is the wearer's right, regardless of image position.
+Original bytes are retained. EXIF-oriented photos get upright transport copies at the same oriented dimensions;
+exceptionally large payloads use the same transport mechanism. Both hashes are bound into the approval.
+`reflective_floor` and `matte_mode` are owner-only fields. Coding agents may label only view kind and side for
+testing, checked by eye and never inferred from filenames. Floor reflections are handled by `fit_cameras`:
+automatic matte selection or Astra's `mattes` override after inspecting the photos, retaining owner declarations.
 Camera fitting also estimates each visible temple's opening relative to the current exported model and
 reports hidden or camera-coupled angles. Those frozen deltas are used by photo comparisons, photo readings
 and the temple stage; the worn AR view starts from the authored model.
@@ -42,10 +43,11 @@ requests a stop before the next request. `--foreground` runs in the invoking ter
 normal path. Logs and status are under `runs/RUN_ID/`; the heartbeat is at the job root.
 
 Instructions teach the glasses construction, evidence and stage order, with the same model requirements as
-`plan/PLAN.md`. Owners' descriptions and specifications remain verbatim and approval-bound. The job image policy
-refreshes the request before request 1 and every three requests thereafter: source photos and crops remain,
-superseded generated images become labelled notes, and the latest evidence per view and the selected best
-checkpoint's images remain. `save_checkpoint` can mark that best checkpoint. The saved session keeps all images.
+`plan/PLAN.md`. Owners' descriptions and specifications remain verbatim and approval-bound. History stays
+append-only: earlier messages and images are never replaced. New tool results use bounded text with lossless
+`read_report` access, and native photo comparisons compose onto pages with additional images for overflow.
+`save_checkpoint(best=True)` marks this run's draft source if it stops before accepted finish. M9's planned
+fresh-conversation safety valve is not yet implemented; the current payload limit can still end a long run.
 
 Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.
 The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;

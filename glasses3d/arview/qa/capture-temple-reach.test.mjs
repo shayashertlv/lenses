@@ -41,7 +41,7 @@ test('an arm hidden in the MIDDLE and drawn again behind is a cut too (WP1 revie
   assert.equal(reach.longest_hidden_run_mm, 35); assert.equal(reach.longest_hidden_run_from_z_mm, -40);
   assert.equal(reach.cut, true);
   assert.match(templeReachWarning('yaw_p45__part-id.png', reach),
-    /^yaw_p45__part-id\.png: TEMPLE CUT: the near \(left\) temple is hidden for 35 mm from z -40 mm, ahead of where its fixed return behind the ear begins \(z -75 mm\), and drawn again behind/);
+    /^yaw_p45__part-id\.png: TEMPLE CUT: the near \(wearer's right, -X\) temple is hidden for 35 mm from z -40 mm, ahead of where its fixed return behind the ear begins \(z -75 mm\), and drawn again behind/);
   // One hidden station (a 5 mm gap: within the tolerance) is not a cut.
   const one = gap.slice(); one.fill(-1);
   for (let i = 0; i < n; i++) if (i !== 8) for (let y = 0; y < height; y++) one[y * width + 10 + i * 5] = 1;
@@ -70,7 +70,7 @@ test('the Prada cut (drawn to z -61 mm, the return begins at -75 mm) is a TEMPLE
   assert.equal(reach.return_start_z_mm, -75); assert.equal(reach.cap_z_mm, -115);
   assert.ok(reach.stations === 26 && reach.drawn_stations < reach.stations, 'stations behind the cap are not counted');
   const warning = templeReachWarning('yaw_p45__part-id.png', reach);
-  assert.match(warning, /^yaw_p45__part-id\.png: TEMPLE CUT: the near \(left\) temple is drawn only to z -6\d(\.\d)? mm, 1\d(\.\d)? mm short of where its fixed return behind the ear begins \(z -75 mm\)/);
+  assert.match(warning, /^yaw_p45__part-id\.png: TEMPLE CUT: the near \(wearer's right, -X\) temple is drawn only to z -6\d(\.\d)? mm, 1\d(\.\d)? mm short of where its fixed return behind the ear begins \(z -75 mm\)/);
 });
 
 test('an arm drawn to where its return begins (the fixed Prada, z -76 mm) or to its cap is not cut', () => {

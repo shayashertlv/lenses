@@ -163,6 +163,7 @@ class Report:
         return {
             "path": str(self.path),
             "sha256": sha,
+            "side_convention": "wearer: +X left, -X right",
             "ok": self.ok,
             "errors": self.errors,
             "rows": self.rows,
@@ -604,7 +605,7 @@ def _orientation(rep: Report, g: _Geo) -> None:
     lo, hi = g.lo, g.hi                                             # compressed boxes included: exact
     tx, reach = TEMPLE_X_MM / 1000.0, TEMPLE_REACH_Z_MM / 1000.0
     temples, missing, absent = {}, [], []
-    for side, sign in (("left", -1), ("right", 1)):
+    for side, sign in (("right", -1), ("left", 1)):
         sel = g.Vf[:, 0] * sign > tx
         zmin = float(g.Vf[sel][:, 2].min()) if sel.any() else None
         temples[side] = None if zmin is None else round(zmin * 1000, 2)
@@ -664,8 +665,8 @@ def _orientation(rep: Report, g: _Geo) -> None:
             d = _mid(right) - _mid(left)
             rep.measurements["lens_halves_dy_mm"] = round(d * 1000, 3)
             if abs(d) * 1000 > ROLL_TOL_MM:
-                rep.fail_unless("orientation", f"rolled: the right lens half's centre is {d * 1000:+.1f} mm higher than "
-                                               f"the left's (must be within {ROLL_TOL_MM:.0f} mm; real frames <= "
+                rep.fail_unless("orientation", f"rolled: the left lens half's centre (+X) is {d * 1000:+.1f} mm higher than "
+                                               f"the right's (-X) (must be within {ROLL_TOL_MM:.0f} mm; real frames <= "
                                                f"0.16 mm)", crossing)
         else:
             rep.warnings.append("roll not measured: lens geometry on one side of x = 0 only"
@@ -686,7 +687,7 @@ def _orientation(rep: Report, g: _Geo) -> None:
     # pitch: the temples' straight segment runs along -Z
     slopes = {}
     zp = (PITCH_Z_MM[0] / 1000.0, PITCH_Z_MM[1] / 1000.0)
-    for side, sign in (("left", -1), ("right", 1)):
+    for side, sign in (("right", -1), ("left", 1)):
         if side in missing:
             continue
         P = _temple_points(g.Vf, g.Tf, sign, PITCH_Z_MM, PITCH_PLANES_MM, min_span_mm=PITCH_MIN_SPAN_MM)
@@ -786,7 +787,7 @@ def _live_site(rep: Report, st: _State) -> None:
         rep.live_site_would_fail.append("no opaque part")
         return
     O = np.vstack(opaque)
-    for side, sel in (("left", O[:, 0] < -LIVE_TEMPLE_X_M), ("right", O[:, 0] > LIVE_TEMPLE_X_M)):
+    for side, sel in (("right", O[:, 0] < -LIVE_TEMPLE_X_M), ("left", O[:, 0] > LIVE_TEMPLE_X_M)):
         if not (O[sel][:, 2] < -0.03).any():
             rep.live_site_would_fail.append(f"no opaque temple geometry beyond {LIVE_TEMPLE_X_M*1000:.0f} mm on "
                                             f"the {side} reaching back past the hinge")

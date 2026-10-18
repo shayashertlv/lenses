@@ -2466,7 +2466,8 @@ class Seeing:
                          "fitted_refs": [C.ref_id(n) for n in names], "retained_refs": retained},
                "matte_requests": {C.ref_id(n):{"mode":resolved_mattes[n],"source":matte_sources[n]} for n in names},
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
-               "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid)) for rid, rec in bs.refs.items()},
+               "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid),
+                           basis_path=bdir.relative_to(self.root).as_posix()) for rid, rec in bs.refs.items()},
                "usable_refs": bs.usable_refs(), "unusable_refs": bs.unusable_refs(),
                "seconds": round(time.perf_counter() - t0, 1)}
         if not bs.usable_refs():
@@ -2476,13 +2477,14 @@ class Seeing:
         return out
 
     @staticmethod
-    def _fit_ref_summary(rec, *, usable):
+    def _fit_ref_summary(rec, *, usable, basis_path=None):
         f, camera = rec.get("fit") or {}, rec.get("camera") or {}
 
         def number(value, digits):
             return round(value, digits) if isinstance(value, (int, float)) and math.isfinite(value) else None
 
         return {"view_kind": rec.get("view_kind"), "view": rec.get("view"), "status": f.get("status"),
+                "overlay": (f"{basis_path}/{rec['overlay']}" if basis_path and rec.get("overlay") else rec.get("overlay")),
                 "usable": usable, "matte_mode": rec.get("matte_mode"),
                 "matte_selection": f.get("matte_selection"),
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),

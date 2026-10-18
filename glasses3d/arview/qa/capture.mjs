@@ -52,6 +52,23 @@ const PREBUNDLED = ['three', 'three/addons/loaders/GLTFLoader.js', 'three/addons
 const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const messageOf = error => error instanceof Error ? error.message : String(error);
 
+/** Re-read the completed files: the write-time digest alone cannot detect a deleted or changed output. */
+export async function verifyCaptureImages(out, images, written) {
+  const errors = [];
+  for (const image of images) {
+    if (!SAFE_FILE.test(image.file)) {errors.push(`image has an unsafe filename: ${image.file}`); continue;}
+    const record = written.get(image.file);
+    if (!record) {errors.push(`image ${image.file} is listed but was never written`); continue;}
+    try {
+      const digest = sha256(await fsp.readFile(path.join(out, image.file)));
+      if (digest !== image.sha256 || digest !== record.sha256) {
+        errors.push(`image ${image.file}: the page reported sha256 ${image.sha256}, the file has ${digest}`);
+      }
+    } catch (error) {errors.push(`image ${image.file} is missing or unreadable (${error.code ?? messageOf(error)})`);}
+  }
+  return errors;
+}
+
 class StallError extends Error {
   // The exact deadline (7500 ms prints "7.5 s", never a rounded "8 s").
   constructor(label, ms) {super(`step "${label}" did not finish within ${ms / 1000} s`); this.name = 'StallError'; this.label = label; this.deadlineMs = ms;}
@@ -176,7 +193,7 @@ export async function main(argv) {
   errors.push(...external.errors);
   if (glb.externalUris.length) warnings.push(`the GLB is not self-contained (${glb.externalUris.length} external resource(s)); PLAN §2 prefers one file`);
   // The unreadable resources go along as explicit 404 routes (modelRoutes), wherever they resolve: also for the live probe.
-  const model = {bytes: glbBytes, sha256: inputSha, servedName, resources, missing: unreadable};
+  const model = {bytes: glbBytes, sha256: inputSha, servedName, resources, missing: external.missingRoutes.map(entry => entry.uri)};
   const routes = modelRoutes(modelPath, model);
 
   // face-a: read read-only from ar/qa/fixtures and pinned; any other bytes skip the portrait (never another image).
@@ -190,7 +207,8 @@ export async function main(argv) {
     } catch (error) {warnings.push(`PORTRAIT SKIPPED: ${facePath} cannot be read (${error.code ?? messageOf(error)})`);}
   }
 
-  const specPromise = runSpecValidator(glbPath).then(value => {state.spec = value; return value;});
+  const specAbort = new AbortController();
+  const specPromise = runSpecValidator(glbPath, undefined, {signal: specAbort.signal}).then(value => {state.spec = value; return value;});
   const publicFiles = ['models/canonical-face.json', 'models/face_landmarker.task', 'models/hair/hair-only.tflite'].map(file => path.join(AR_ROOT, 'public', file));
   const before = await implementationSnapshot(publicFiles);
   const git = await gitState();
@@ -229,14 +247,15 @@ export async function main(argv) {
   const log = text => process.stderr.write(`[arview capture ${((Date.now() - started) / 1000).toFixed(1)} s] ${text}\n`);
 
   const finish = async () => {
+    for (const text of page_.page_errors) errors.push(`page error: ${text}`);
+    for (const text of page_.console_errors) warnings.push(`console error: ${text}`);
+    for (const entry of page_.failed_responses) warnings.push(`HTTP ${entry.status} for ${entry.url}`);
+    for (const url of page_.blocked_external) warnings.push(`blocked an external request: ${url}`);
+    if (page_.navigations > 1) errors.push(`the capture page navigated ${page_.navigations} times (a mid-run reload)`);
     const after = await implementationSnapshot(publicFiles).catch(error => ({error: messageOf(error)}));
     const stable = JSON.stringify(before) === JSON.stringify(after);
     if (!stable) warnings.push('the capture\'s own sources or public binaries changed during the run (implementation.before != after)');
-    for (const image of images) {
-      const record = written.get(image.file);
-      if (!record) errors.push(`image ${image.file} is listed but was never written`);
-      else if (record.sha256 !== image.sha256) errors.push(`image ${image.file}: the page reported sha256 ${image.sha256}, the file has ${record.sha256}`);
-    }
+    errors.push(...await verifyCaptureImages(out, images, written));
     for (const file of written.keys()) if (!images.some(image => image.file === file)) warnings.push(`file ${file} was written but belongs to no completed step (partial run)`);
     const {report, exitCode} = assembleCaptureReport({createdAt: new Date().toISOString(), tool, input: {path: glbPath, bytes: glbBytes.length,
       sha256: inputSha, self_contained: glb.externalUris.length === 0, external_uris: glb.externalUris, container_error: glb.containerError,
@@ -285,6 +304,7 @@ export async function main(argv) {
     await Promise.all([server ? bounded(server.close(), Math.min(5000, remaining())) : null,
       error?.pendingClose ? bounded(error.pendingClose, Math.min(5000, remaining())) : null,
       state.spec ? null : bounded(specPromise, remaining())]);
+    if (!state.spec) {specAbort.abort(); await specPromise;}
     if (error?.pendingClose) warnings.push('the stalled --live-probe skipped its graceful close (Chromium was killed instead); its ar/ dev server was closed by the abort');
     server = null;
     timings.push({step: 'abort: cleanup', ms: Date.now() - cleanupStarted});
@@ -538,11 +558,6 @@ export async function main(argv) {
     return await abort(`ERROR: ${messageOf(error).split('\n')[0].slice(0, 300)}`, error);
   } finally {process.removeListener('SIGINT', onSignal);}
 
-  for (const text of page_.page_errors) errors.push(`page error: ${text}`);
-  for (const text of page_.console_errors) warnings.push(`console error: ${text}`);
-  for (const entry of page_.failed_responses) warnings.push(`HTTP ${entry.status} for ${entry.url}`);
-  for (const url of page_.blocked_external) warnings.push(`blocked an external request: ${url}`);
-  if (page_.navigations > 1) errors.push(`the capture page navigated ${page_.navigations} times (a mid-run reload)`);
   // Close Chromium gracefully; one that does not close within 10 s is killed (tree), and the outcome is recorded.
   state.chromiumProcess = await closeChromium(chrome, 10_000);
   if (state.chromiumProcess.ended !== 'closed') warnings.push(`closing Chromium: ${state.chromiumProcess.text}`);

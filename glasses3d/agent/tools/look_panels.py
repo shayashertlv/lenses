@@ -5,18 +5,16 @@ and a single front mesh can contain its face, outer wall and inner rim. First-hi
 therefore supplement those IDs. Selection thresholds are reported, never quality gates.
 """
 from dataclasses import dataclass, field
-import hashlib
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 from scipy.ndimage import binary_dilation, binary_erosion, label
 
 from ...g3d_host import glb, lens_id, pose as PO
+from .native_panels import comparison, HIGH_PATCH_BUDGET, HIGH_MAX_SIDE
 
 DETAIL_SIDE = 500
-HIGH_PATCH_BUDGET = 2500
-HIGH_MAX_SIDE = 65535
 DETAIL_KINDS = ("outer_corner", "inner_rim", "lens_mark", "hinge_root", "arm_tip")
 
 
@@ -231,36 +229,13 @@ def _stats(image, mask):
 
 
 def _pair(photo, drawing, box, path, title, max_side):
-    a, b = photo.crop(box), drawing.crop(box)
-    header, gap = 42, 8
-    scale = min(1., (max_side - gap) / (a.width * 2), (max_side - header) / a.height)
-    def fits(s):
-        width = max(1, int(a.width * s)) * 2 + gap
-        height = max(1, int(a.height * s)) + header
-        return ((width + 31) // 32) * ((height + 31) // 32) <= HIGH_PATCH_BUDGET
-    if not fits(scale):
-        low, high = 0., scale
-        for _ in range(48):
-            mid = (low + high) / 2
-            if fits(mid):
-                low = mid
-            else:
-                high = mid
-        scale = low
-    size = (max(1, int(a.width * scale)), max(1, int(a.height * scale)))
-    if size != a.size:
-        a, b = a.resize(size, Image.Resampling.LANCZOS), b.resize(size, Image.Resampling.LANCZOS)
-    result = Image.new("RGB", (a.width * 2 + gap, a.height + header), "#ededed")
-    draw = ImageDraw.Draw(result)
-    draw.text((6, 4), title, fill="black")
-    draw.text((6, 23), "PHOTO", fill="black")
-    draw.text((a.width + gap + 6, 23), "AR / SAME CAMERA AND PIXEL BOX", fill="black")
-    result.paste(a, (0, header))
-    result.paste(b, (a.width + gap, header))
-    result.save(path)
-    return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "size_px": list(result.size),
-            "crop_box": box, "pair_scale": scale, "native_detail": scale == 1.,
-            "patches_32px": ((result.width + 31) // 32) * ((result.height + 31) // 32)}
+    full, tiles = comparison([photo, drawing], box, path, title,
+                             ["PHOTO", "AR / SAME CAMERA AND PIXEL BOX"], max_side=max_side)
+    for record in [full, *tiles]:
+        record.update(pair_scale=1., native_detail=True)
+    if tiles != [full]:
+        full["native_tiles"] = tiles
+    return full
 
 
 def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=HIGH_MAX_SIDE, surface_only=False):
@@ -287,7 +262,10 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
     box = row.get("crop_box") or [0, 0, photo.width, photo.height]
     full = _pair(photo, drawing, box, directory / "full-pair.png", f"{row['ref']}: full photo / AR", max_side)
     full.update(view=f"{row['ref']}: full photo / AR", kind="look_full_pair", ref=row["ref"])
-    images, details = ([] if surface_only else [full]), []
+    full_images = full.get("native_tiles", [full])
+    for record in full_images:
+        record.update(view=full["view"], kind=full["kind"], ref=row["ref"])
+    images, details = ([] if surface_only else full_images), []
     kinds = ("facet_flatness", "shading_seam", "lens_ripple") if surface_only else DETAIL_KINDS
     candidates = {key: [] for key in (*DETAIL_KINDS, *kinds)}
     glasses = _components(selected["glass"], 16)
@@ -304,7 +282,7 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
         oy, ox = np.nonzero(near)
         if len(ox):
             i = int(np.argmax(((ox - cx) / max(1, np.ptp(x))) ** 2 + ((oy - cy) / max(1, np.ptp(y))) ** 2))
-            radius = min(DETAIL_SIDE // 2, max(64, int(np.ptp(x) * .35)))
+            radius = min(DETAIL_SIDE // 2 - 1, max(64, int(np.ptp(x) * .35)))
             candidates["outer_corner"].append(([max(0, int(ox[i]) - radius), max(0, int(oy[i]) - radius),
                 min(photo.width, int(ox[i]) + radius + 1), min(photo.height, int(oy[i]) + radius + 1)],
                 "extreme visible front/background boundary beside a visible lens"))
@@ -343,8 +321,10 @@ def build_panels(row, palette, export_glb_or_geometry, output_dir, *, max_side=H
                 rec = _pair(photo, drawing, crop, path, f"{row['ref']}: {kind}{light} / native pixels", max_side)
                 rec.update(view=f"{row['ref']}: {kind}{light} {c + 1}.{tile + 1}", kind="surface_detail" if surface_only else "look_detail", detail_kind=kind,
                            ref=row["ref"], selection_method=method)
-                images.append(rec)
-                recs.append(rec)
+                for native in rec.get("native_tiles", [rec]):
+                    native.update({key: rec[key] for key in ("view", "kind", "detail_kind", "ref", "selection_method")})
+                    images.append(native)
+                    recs.append(native)
         details.append({"kind": kind, "status": "visible", "images": recs})
     colours = {}
     for key in ("front_face", "front_wall", "inner_rim_wall"):

@@ -105,7 +105,7 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
     copy(checkpoint, "scene.blend", head["sha256"])
     copy(exp["path"], "parent.glb", exp["sha256"])
     photos = []
-    for row, info in zip(scene.job["images"], catalog):
+    for index, (row, info) in enumerate(zip(scene.job["images"], catalog), 1):
         src = (parent_root / row["file"]).resolve()
         if not src.is_relative_to(parent_root):
             raise ValueError("photo source escaped the parent job")
@@ -113,7 +113,21 @@ def prepare(scene, destination, call_id: str, *, lab_class=Lab) -> dict:
         dst = copy(src, rel, row["sha256"])
         with Image.open(dst) as im:
             size = list(ImageOps.exif_transpose(im).size)
-        photos.append({**info, "path": rel, "size_px": size, "sha256": row["sha256"]})
+            mime = Image.MIME[im.format]
+        sent_file = row.get("sent_file", row["file"])
+        sent_sha = row.get("sent_sha256", row["sha256"])
+        sent_rel = rel
+        if sent_file != row["file"]:
+            sent_src = (parent_root / sent_file).resolve()
+            if not sent_src.is_relative_to(parent_root):
+                raise ValueError("transport photo source escaped the parent job")
+            sent_rel = f"reference_images/reference-{index:03d}{sent_src.suffix.lower()}"
+            copy(sent_src, sent_rel, sent_sha)
+        elif sent_sha != row["sha256"]:
+            raise ValueError("transport photo digest differs from its original bytes")
+        photos.append({**info, "path": rel, "size_px": size, "sha256": row["sha256"],
+                       "sent_path": sent_rel, "sent_sha256": sent_sha,
+                       "sent_mime": row.get("sent_mime", mime)})
     private_basis = pose_basis.build(basis, root, photos, call_id=call_id,
                                     captured_glb=inputs / "parent.glb", captured_sha256=exp["sha256"])
     source = {"job_root": str(parent_root), "checkpoint": head["id"], "checkpoint_sha256": head["sha256"],

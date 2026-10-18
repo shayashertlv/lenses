@@ -510,3 +510,29 @@ def test_audit_hook_is_armed_only_on_its_thread(audit, tmp_path):
     finally:
         g.disarm()
     assert out["ok"] is True and target.read_text() == "from another thread"
+
+
+@pytest.mark.parametrize("field", ["0.gi_frame", "0.gi_code", "0.gi_frame.f_globals", "0.mro",
+                                  "0.co_names", "0.load", "0.as_pointer", "0[gi_frame]", "0[x].mro"])
+def test_format_fields_use_the_attribute_policy(field):
+    code = "result = " + repr("{" + field + "}") + ".format((i for i in range(1)))"
+    assert S.validate(code)
+
+
+def test_nested_format_spec_fields_use_the_attribute_policy():
+    assert S.validate("result = '{0:{1.gi_frame}}'.format(1, (i for i in range(1)))")
+    assert not S.validate("result = '{0:0{1}d}'.format(3, 4)")
+
+
+@pytest.mark.parametrize("attribute", ["gi_frame", "gi_code"])
+def test_armed_audit_guard_blocks_generator_frame_and_code(audit, attribute):
+    guard, _ = audit
+    template = "{0." + attribute + "}"
+    generator = (i for i in range(1))
+    guard.arm()
+    try:
+        with pytest.raises(PermissionError, match=attribute):
+            template.format(generator)
+    finally:
+        refusals = guard.disarm()
+    assert f"reading {attribute!r}" in refusals

@@ -103,7 +103,7 @@ test('a one-sided model: the missing side is reported and fixed; the present arm
   assert.equal(rear.originalArmBounds.length, 1);
   const continuity = buildTempleContinuityModel(f.root, clip.clipZM);
   assert.deepEqual(continuity.sides.map(side => side.length), [33, 0]);
-  assert.deepEqual(continuity.missing, [{side: 1, reason: 'no temple on the right side'}]);
+  assert.deepEqual(continuity.missing, [{side: 1, reason: 'no temple on the left side'}]);
   const pose = new Matrix4().makeTranslation(0, 0, -45).toArray();
   const paths = projectTempleContinuity(continuity, {eyewearMatrix: pose, offsetCm: GLASSES_OFFSET_CM, sourceAspect: 4 / 3, width: 640, height: 480, dropM: 0});
   assert.deepEqual(paths?.map(path => path.side), [0], 'one projected path, for the arm that exists');
@@ -115,7 +115,7 @@ test('a one-sided model: the missing side is reported and fixed; the present arm
   assert.deepEqual([report.positiveZM, report.positiveState], [maximum, 'fallback']);
   // The terminal return: only the present arm is sampled; the missing side never makes it unavailable.
   const input = {offsetCm: GLASSES_OFFSET_CM, spreadM: .018, spreadStartZM: rear.spreadStartZM, modelCutoffZM: clip.clipZM, maximumZM: maximum};
-  assert.match(createTempleTerminalFitEvaluator(f.root, input).unavailable ?? '', /the right \(x > 0\) arm has no geometry in the terminal band/,
+  assert.match(createTempleTerminalFitEvaluator(f.root, input).unavailable ?? '', /the wearer's left \(x > 0\) arm has no geometry in the terminal band/,
     'assuming both sides, the missing arm is named');
   const oneSided = createTempleTerminalFitEvaluator(f.root, {...input, sides: inventory.present});
   assert.equal(oneSided.unavailable, null);
@@ -197,5 +197,5 @@ test('authored temple regions decide the temples, cross-checked against position
   classifyAssetMaterials(g.root);
   const mixed = templeInventory(g.root);
   assert.deepEqual(mixed.present, [true, false]);
-  assert.match(mixed.warnings.join(), /temple right: the authored temple_right region says missing but position says present; the authored region decides/);
+  assert.match(mixed.warnings.join(), /temple left: the authored temple_right region says missing but position says present; the authored region decides/);
 });

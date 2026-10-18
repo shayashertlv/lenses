@@ -8,7 +8,7 @@ Packing never resizes, rotates or crops a source panel. Overflow gets another PN
 import hashlib
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from .look_panels import HIGH_MAX_SIDE, HIGH_PATCH_BUDGET
 
@@ -92,11 +92,16 @@ def layout(sizes):
 def compose(images, output_dir, ref):
     """Keep complete source PNGs and their metadata; return only the packed images."""
     sizes = []
+    source_sizes = []
     for record in images:
         with Image.open(record["path"]) as source:
             if source.mode != "RGB":
                 raise ValueError("look composition requires RGB panels to preserve every channel")
-            sizes.append(source.size)
+            source_sizes.append(source.size)
+            if record.get("comparison_phase") in ("Before", "After"):
+                sizes.append((max(64, source.width), source.height + 24))
+            else:
+                sizes.append(source.size)
     pages = layout(sizes)
     directory = Path(output_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -106,14 +111,21 @@ def compose(images, output_dir, ref):
         parts = []
         for placement in page["parts"]:
             record = images[placement["index"]]
+            left, top = placement["box"][:2]
+            if record.get("comparison_phase") in ("Before", "After"):
+                ImageDraw.Draw(canvas).text((left + 4, top + 2), record["comparison_phase"],
+                                           font=ImageFont.load_default(size=14), fill="black")
+                top += 24
+            width, height = source_sizes[placement["index"]]
+            box = [left, top, left + width, top + height]
             with Image.open(record["path"]) as source:
-                canvas.paste(source, placement["box"][:2])
-            parts.append({**record, "box": placement["box"]})
+                canvas.paste(source, box[:2])
+            parts.append({**record, "box": box})
         path = directory / f"combined-{number:02d}.png"
         canvas.save(path)
         result.append({"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                        "size_px": list(canvas.size), "patches_32px": patches(canvas.size),
                        "kind": "look_composed", "ref": ref,
-                       "view": f"{ref}: full pair / automatic close-ups, page {number}/{len(pages)}; unchanged pixels",
+                       "view": f"{ref}: native comparisons / close-ups / labels, page {number}/{len(pages)}; unchanged pixels",
                        "parts": parts})
     return result

@@ -47,13 +47,13 @@ test('a seated lens: every station reads +0.5 mm under the brow, with the box, t
   const brow = both(box([5, 65], [7.5, 14], [-3, 3]));
   const result = lensTopVsBrow(LENS, [{name: 'Brow', triangles: brow}]);
   assert.deepEqual(result.warnings, []);
-  assert.deepEqual(result.sides.map(side => [side.side, side.x_sign]), [['left', -1], ['right', 1]]);
+  assert.deepEqual(result.sides.map(side => [side.side, side.x_sign]), [['right', -1], ['left', 1]]);
   for (const side of result.sides) {
     assert.equal(side.stations.length, 24);
-    assert.deepEqual(side.lens_x_range_mm, side.side === 'left' ? [-60, -10] : [10, 60]);
+    assert.deepEqual(side.lens_x_range_mm, side.side === 'right' ? [-60, -10] : [10, 60]);
     // 8 % trimmed from each end of the 50 mm range: stations from 14 to 56 mm.
-    close(Math.abs(side.stations.at(side.side === 'left' ? -1 : 0).x_mm), 14, 1e-3);
-    close(Math.abs(side.stations.at(side.side === 'left' ? 0 : -1).x_mm), 56, 1e-3);
+    close(Math.abs(side.stations.at(side.side === 'right' ? -1 : 0).x_mm), 14, 1e-3);
+    close(Math.abs(side.stations.at(side.side === 'right' ? 0 : -1).x_mm), 56, 1e-3);
     for (const station of side.stations) {
       close(station.lens_top_y_mm, 8, 1e-6); close(station.brow_bottom_y_mm, 7.5, 1e-6); close(station.overlap_mm, 0.5, 1e-6);
       assert.equal(station.frame_above, true); assert.equal(station.floor, false); assert.equal(station.bottom_part, 'Brow');
@@ -61,7 +61,7 @@ test('a seated lens: every station reads +0.5 mm under the brow, with the box, t
     assert.equal(side.summary.seated, 24); assert.equal(side.summary.gap, 0); assert.equal(side.summary.overlap_median_mm, 0.5);
     assert.deepEqual(Object.keys(side.summary.by_part), ['Brow']); assert.equal(side.summary.by_part.Brow.lowest_at, 24);
     assert.equal(side.basis, 'frame_above');
-    const [x0, x1] = side.side === 'left' ? [-56 - 1.5, -14 + 1.5] : [14 - 1.5, 56 + 1.5];
+    const [x0, x1] = side.side === 'right' ? [-56 - 1.5, -14 + 1.5] : [14 - 1.5, 56 + 1.5];
     close(side.box_m.min[0] / MM, x0, 1e-6); close(side.box_m.max[0] / MM, x1, 1e-6);
     close(side.box_m.min[1] / MM, 8 - 4, 1e-6); close(side.box_m.max[1] / MM, 8 + 5, 1e-6);
   }
@@ -163,7 +163,7 @@ test('a shield (one lens across the bridge) is measured on both sides, split at 
   }
   const oneSided = lensTopVsBrow(box([10, 60], [-15, 8], [-1, 1]), box([5, 65], [7.5, 14], [-3, 3]));
   assert.equal(oneSided.sides[0].basis, 'none'); assert.equal(oneSided.sides[0].box_m, null);
-  assert.match(oneSided.warnings.join(' '), /left side \(x < 0\): no lens geometry/);
+  assert.match(oneSided.warnings.join(' '), /right side \(x < 0\): no lens geometry/);
 });
 
 test('cropRect: padded bbox, minimum size around its centre, clamped; behind the camera or off-frame is null with a reason', () => {

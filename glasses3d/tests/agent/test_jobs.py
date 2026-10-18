@@ -1,6 +1,7 @@
 """Job intake uses explicit views and preserves the owner's original photo bytes ($0)."""
 import base64
 import hashlib
+import io
 import json
 
 from PIL import Image
@@ -214,6 +215,64 @@ def test_fitter_and_compare_read_same_oriented_pixels_as_job_image_tools(tmp_pat
         expected = np.asarray(ImageOps.exif_transpose(original).convert("RGB"))
     assert [fitted.shape[1], fitted.shape[0]] == row["size_px"]
     assert np.array_equal(fitted, expected)
+
+
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_reference_native_pixels_match_tools_for_every_exif_orientation(tmp_path, orientation):
+    import numpy as np
+    from glasses3d.agent import approvals as A
+    from glasses3d.agent.brief import build_brief
+    from glasses3d.g3d_host import matte
+
+    args, photo = setup_inputs(tmp_path, suffix=".jpg")
+    exif = Image.Exif()
+    exif[274] = orientation
+    pixels = Image.new("RGB", (31, 19), "red")
+    pixels.paste("blue", (1, 2, 11, 7))
+    pixels.paste("green", (20, 9, 29, 18))
+    pixels.save(photo, exif=exif, quality=95)
+    payload = photo.read_bytes()
+    root = J.create_job(**args)
+    job = J.load_job(root)
+    row, = job["images"]
+    reference, = J.references(root)
+    sent = base64.b64decode(reference.image_url.split(",", 1)[1])
+    with Image.open(io.BytesIO(sent)) as raw:
+        assert raw.getexif().get(274, 1) == 1
+        assert raw.size == reference.size_px == tuple(row["size_px"])
+        assert np.array_equal(np.asarray(raw.convert("RGB")), matte.load_photo(root / row["file"]))
+    assert (root / row["file"]).read_bytes() == payload
+    assert (row["sent_file"] == row["file"]) is (orientation == 1)
+    binding = A.run_input_binding(root, build_brief(job), [reference])
+    assert binding["photos"][0]["sha256"] == row["sent_sha256"]
+    digests = {r["path"]: r["sha256"] for r in A.input_digests(root)["inputs"]}
+    assert digests[row["file"]] == row["sha256"]
+    assert digests[row["sent_file"]] == row["sent_sha256"]
+
+
+def test_legacy_rotated_job_loads_without_changing_recorded_reference_bytes(tmp_path):
+    from glasses3d.agent import approvals as A
+    from glasses3d.agent.brief import build_brief
+
+    args, photo = setup_inputs(tmp_path, suffix=".jpg")
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (31, 19), "red").save(photo, exif=exif)
+    root = J.create_job(**args)
+    job = J.load_job(root)
+    row, = job["images"]
+    # An earlier job sent its original EXIF-bearing JPEG, as its old approval recorded.
+    if row["sent_file"] != row["file"]:
+        (root / row["sent_file"]).unlink()
+    row.update(sent_file=row["file"], sent_sha256=row["sha256"], sent_mime=row["mime"])
+    (root / "job.json").write_text(json.dumps(job), encoding="utf-8")
+    before = A.input_digests(root)
+    assert J.load_job(root) == job
+    reference, = J.references(root)
+    assert base64.b64decode(reference.image_url.split(",", 1)[1]) == photo.read_bytes()
+    assert reference.path == row["file"]
+    assert A.run_input_binding(root, build_brief(job), [reference])["photos"][0]["sha256"] == row["sha256"]
+    assert A.input_digests(root) == before
 
 
 def test_large_original_gets_same_size_transport_copy(tmp_path, monkeypatch):

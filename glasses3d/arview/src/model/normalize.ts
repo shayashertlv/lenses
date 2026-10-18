@@ -1,3 +1,4 @@
+import {WEARER_SIDES} from './sides.ts';
 /** The one normalisation pass (WP1_DESIGN.md §1): it runs on the loaded scene before any subsystem (lens-dependent
  *  rear drop, continuity, temple visibility and clip, hair occlusion, terminal fit, shadows, twins) reads it.
  *
@@ -490,7 +491,7 @@ function liveSiteNotes(report: ModelReportBuilder, measurable: readonly Mesh[], 
   for (const mesh of measurable) if (slotMaterials(mesh).some(material => classOf(material) === 'frame' && isOpaque(material))) opaqueMeshes.push(mesh);
   if (!opaqueMeshes.length) {report.wouldFailLive('no opaque part'); return;}
   const opaque = collectPoints(opaqueMeshes, root.matrixWorld.clone().invert(), material => classOf(material) === 'frame' && isOpaque(material) ? 'frame' : 'lens').frame.vertices;
-  for (const [side, sign] of [['left', -1], ['right', 1]] as const) {
+  for (const [side, sign] of WEARER_SIDES) {
     let reaches = false;
     for (let i = 0; i < opaque.length && !reaches; i += 3) reaches = opaque[i]! * sign > LIVE_TEMPLE_X_M && opaque[i + 2]! < -0.03;
     if (!reaches) report.wouldFailLive(`no opaque temple geometry beyond ${(LIVE_TEMPLE_X_M * 1000).toFixed(0)} mm on the ${side} reaching back past the hinge`);

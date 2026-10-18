@@ -106,8 +106,9 @@ def _image(payload: bytes, name: str) -> tuple[dict, bytes | None]:
             row = {"sha256": _sha(payload), "bytes": len(payload), "mime": mime,
                    "decoded_sha256": decoded, "size_px": list(oriented.size), "w": w, "h": h,
                    "exif_orientation": orientation, "sent_sha256": _sha(payload), "sent_mime": mime}
-            if len(payload) <= MAX_REFERENCE_BYTES:
+            if orientation == 1 and len(payload) <= MAX_REFERENCE_BYTES:
                 return row, None
+            # Astra's native pixel frame must match every EXIF-transposing host tool.
             # Same-size transport copies only; the immutable original stays available for inspection.
             output = io.BytesIO()
             oriented.save(output, format="PNG")

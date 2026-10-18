@@ -151,7 +151,7 @@ test('a model with no temples renders: each missing side is reported, the §2 ro
   const subsystems = report.fallbacks.map(f => f.subsystem);
   for (const expected of ['temple left', 'temple right', 'continuity', 'temple clip depth']) assert.ok(subsystems.includes(expected), `${expected} in ${subsystems.join(', ')}`);
   assert.ok(!subsystems.includes('rear drop'), 'no temple is no longer a rear-drop refusal');
-  assert.match(report.fallbacks.find(f => f.subsystem === 'temple left')!.detail, /^TEMPLE LEFT MISSING: the non-lens geometry at x < -45 mm reaches only z -2\.0 mm/);
+  assert.match(report.fallbacks.find(f => f.subsystem === 'temple right')!.detail, /^TEMPLE RIGHT MISSING: the non-lens geometry at x < -45 mm reaches only z -2\.0 mm/);
   assert.deepEqual((report.measurements.temple_clip as {source: string}).source, 'default');
   for (const fallback of report.fallbacks) assert.ok(report.warnings.includes(fallback.detail), 'every fallback is a warning');
   // What the webcam page lists (main.ts shows reportLines): the geometry defect itself, ahead of the fallbacks it caused.
@@ -189,15 +189,15 @@ test('a one-sided model: the missing side gets the fixed cap and its own report 
   t.after(() => instance.dispose());
   const report = instance.report();
   assert.equal(report.status, 'rendered');
-  assert.deepEqual(report.spec.orientation.detail.filter(d => d.startsWith('temple ')).map(d => d.slice(0, 20)), ['temple right missing']);
-  assert.deepEqual(report.fallbacks.map(f => f.subsystem), ['temple right'], 'only the missing side falls back');
-  assert.match(report.fallbacks[0]!.detail, /^TEMPLE RIGHT MISSING: the non-lens geometry at x > \+45 mm reaches only z -2\.0 mm .*That side keeps a fixed cap/);
-  const temples = report.measurements.temples as {left: {present: boolean; tip_z_mm: number}; right: {present: boolean}; decided_by: string};
-  assert.deepEqual([temples.decided_by, temples.left.present, temples.left.tip_z_mm, temples.right.present], ['position', true, -140, false]);
+  assert.deepEqual(report.spec.orientation.detail.filter(d => d.startsWith('temple ')).map(d => d.split(':')[0]), ['temple left missing']);
+  assert.deepEqual(report.fallbacks.map(f => f.subsystem), ['temple left'], 'only the missing side falls back');
+  assert.match(report.fallbacks[0]!.detail, /^TEMPLE LEFT MISSING: the non-lens geometry at x > \+45 mm reaches only z -2\.0 mm .*That side keeps a fixed cap/);
+  const temples = report.measurements.temples as {left: {present: boolean; tip_z_mm: number}; right: {present: boolean; tip_z_mm: number}; decided_by: string};
+  assert.deepEqual([temples.decided_by, temples.right.present, temples.right.tip_z_mm, temples.left.present], ['position', true, -140, false]);
   // The clip comes from the one arm there is (just inside its tip, at the -0.14 m floor here).
   assert.ok(Math.abs(instance.templeClipZM - (-.14 + 1e-6)) < 1e-9, `clip ${instance.templeClipZM}`);
   assert.deepEqual(report.measurements.temple_clip, {clip_m: instance.templeClipZM, source: 'derived', derived_m: instance.templeClipZM, handover_m: null,
-    shorter_side: 'left', floor_m: -.14, range_m: [-.2, -.045]});
+    shorter_side: 'right', floor_m: -.14, range_m: [-.2, -.045]});
   const internal = instance as unknown as {rearDrop: {diagnostics: {armSides: boolean[]; affectedVertexCountBySide: number[]}};
     continuityModel: {sides: unknown[][]; missing: {side: number}[]}};
   assert.deepEqual(internal.rearDrop.diagnostics.armSides, [true, false]);
@@ -270,8 +270,8 @@ test('the r9-style crystal renders: origin row failed, crystal drawn through its
   assert.equal(report.status, 'rendered');
   assert.deepEqual(SPEC_ROWS.filter(row => !report.spec[row].pass), ['origin']);
   const parts = instance.parts().filter(part => !part.overlay);
-  assert.deepEqual(parts.filter(part => part.class === 'lens').map(part => [part.name, part.side]), [['Lens left', 'left'], ['Lens right', 'right']]);
-  assert.deepEqual(parts.find(part => part.name === 'Temple left')?.side, 'right', 'sides come from geometry, never from names (r9 "Temple left" is at +X)');
+  assert.deepEqual(parts.filter(part => part.class === 'lens').map(part => [part.name, part.side]), [['Lens left', 'right'], ['Lens right', 'left']]);
+  assert.deepEqual(parts.find(part => part.name === 'Temple left')?.side, 'left', 'sides come from geometry, never from names (r9 "Temple left" is at +X)');
   reveal(instance); instance.pose(frame, detection(), 100); instance.render(null);
   assert.ok((instance as unknown as {translucentTwins: Map<unknown, unknown>}).translucentTwins.size > 0, 'the crystal draws through its camera twins');
 });
@@ -296,8 +296,8 @@ test('capture accessors: camera state, the asset matrix as drawn, projection of 
   assert.ok(Number.isNaN(projected[3]!), 'a point behind the camera is NaN');
   const parts = instance.parts();
   assert.deepEqual(parts.filter(part => !part.overlay).map(part => [part.name, part.class, part.side]), [
-    ['Bridge', 'frame', 'centre'], ['Brow_L', 'frame', 'left'], ['Brow_R', 'frame', 'right'], ['Lens_L', 'lens', 'left'], ['Lens_R', 'lens', 'right'],
-    ['Temple_L', 'frame', 'left'], ['Temple_R', 'frame', 'right']]);
+    ['Bridge', 'frame', 'centre'], ['Brow_L', 'frame', 'right'], ['Brow_R', 'frame', 'left'], ['Lens_L', 'lens', 'right'], ['Lens_R', 'lens', 'left'],
+    ['Temple_L', 'frame', 'right'], ['Temple_R', 'frame', 'left']]);
   assert.ok(parts.some(part => part.overlay), 'the near-arm overlays are listed and flagged');
 });
 

@@ -283,7 +283,7 @@ Options: `--backgrounds skin,dark,checker`, `--size WxH` (width <= 1280, default
 23, the prototype's), `--fixed-scale` (authored size instead of the live auto-fit), `--clip auto|<m>`, `--lensenv N`,
 `--crop-upscale 1|2`, `--no-portrait`, `--live-probe`, `--step-timeout-s N` (5-90, default 60; model loads get 1.5x, at most 95 s). Exit codes: 0
 captured and spec.py passes; 3 captured but the spec fails or the validator is unavailable (Astra is never blocked); 4
-refused or unchecked by arview (nothing rendered); 1 infrastructure failure (stall, crash, software GPU, integrity); 2
+refused or unchecked by arview (nothing rendered); 1 infrastructure failure (stall, crash, software GPU, or any capture report error); 2
 usage error. Write outputs under `glasses3d/data/` (git-ignored); the output directory must be empty.
 
 - **Poses** (`qa/capture/poses.ts`, Euler YXZ; yaw > 0 turns the nose toward image +x, so the asset's -X side is near
@@ -292,7 +292,7 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
   each side's lens-brow contact (36 images); `all` = both, on skin/dark/checker, plus normals, lens-hidden and lens-only
   (133 images). Every set adds the worn front portrait (5 images) unless `--no-portrait`. Files are
   `<pose>__<background>__<variant>.png`, `<pose>__<variant>.png` for the flat variants, `..__crop_<left|right>.png`,
-  `portrait__{source,a,b}__{full,eyes}.png`; sides are named by geometry as spec.py names them (left = x < 0).
+  `portrait__{source,a,b}__{full,eyes}.png`; sides identify the wearer (+X = left, -X = right), as in spec.py and the job's photo labels.
 - **Explicit cameras, no face** (dev capture, `qa/capture/cameras.ts`):
   `node qa/capture.mjs <model.glb> --cameras <cameras.json> --no-face --out <fresh dir> [--lensenv N] [--step-timeout-s N]`.
   For comparing a model with product photos taken from known cameras (the photos have no face). `cameras.json` (schema
@@ -510,14 +510,14 @@ rules, and the temple inventory warns that its front's outer back is drawn with 
 still applies; this exemption does not draw a frame through the wearer's head.
 
 New exports can provide explicit node extras `LENSES_part_visibility: {version: 1, region: ...}` with
-`front`, `temple_left` (native negative X), `temple_right` (positive X), or `lens`. This opt-in contract must cover
+`front`, `temple_left` (legacy ID: negative X, wearer's right), `temple_right` (positive X, wearer's left), or `lens`. This opt-in contract must cover
 every mesh primitive, agree with the identified class (region `lens` on lens parts only), and contain static
 geometry with baked authored transforms. Only an immediate glTF primitive Group may supply a part's profile;
 model-wide metadata does not substitute for ownership. The regions are optional metadata: malformed, partial, or
 conflicting profiles are ignored for the whole asset, recorded as a `part visibility` fallback listing every problem (unbaked transforms
 and non-static geometry are still refused, once, by the load-time §2 check in `src/model/normalize.ts`).
 Unprofiled assets keep the legacy behavior above; old whole-body `frame` tags are never automatically upgraded.
-Sides are judged by geometry: a `temple_left` region must lie at x < 0 and `temple_right` at x > 0 (every consumer maps
+These legacy region IDs remain readable; public side names use the wearer. A `temple_left` region must lie at x < 0 and `temple_right` at x > 0 (every consumer maps
 `temple_left` to the negative-X side), otherwise the profiles are ignored for the whole asset and position decides.
 
 For profiled assets, front pieces and their hardware remain fixed and survive all arm-specific clipping,

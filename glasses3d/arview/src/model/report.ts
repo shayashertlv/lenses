@@ -17,6 +17,7 @@
  *  - `rendered_sha256` is the SHA-256 of the exact GLB bytes parsed: the WP2 ledger binds to it, never to a handover
  *    value. */
 import type {LensIdentificationReport} from '../eyewear/lens-identification.ts';
+import {SIDE_CONVENTION} from './sides.ts';
 
 export const MODEL_REPORT_SCHEMA = 'arview.model-report/1';
 export const SPEC_ROWS = Object.freeze(['format', 'units', 'origin', 'orientation', 'transforms', 'geometry', 'components'] as const);
@@ -30,6 +31,7 @@ export type ModelStatus = 'rendered' | 'refused' | 'unchecked';
 
 export interface ModelReport {
   readonly schema: typeof MODEL_REPORT_SCHEMA;
+  readonly side_convention?: string;
   readonly url: string;
   readonly displayName: string;
   readonly status: ModelStatus;
@@ -145,7 +147,7 @@ export class ModelReportBuilder {
       return [row, Object.freeze({pass: entry.pass, detail: Object.freeze([...entry.detail])})];
     })) as Record<SpecRowName, SpecRow>;
     const errors = SPEC_ROWS.flatMap(row => spec[row].pass ? [] : spec[row].detail.map(detail => `${row}: ${detail}`));
-    return structuredClone({schema: MODEL_REPORT_SCHEMA, url: this.url, displayName: this.displayName, status,
+    return structuredClone({schema: MODEL_REPORT_SCHEMA, side_convention: SIDE_CONVENTION, url: this.url, displayName: this.displayName, status,
       refusal: [...this.refusals], unchecked: [...this.uncheckedReasons], spec, row_notes: Object.fromEntries(this.notes), errors, warnings: unique(this.warningList),
       fallbacks: this.fallbackList.map(entry => ({...entry})), lens_identification: this.lensIdentification,
       measurements: this.measured, rendered_sha256: this.sha256, live_site_would_fail: unique(this.liveSite)}) as ModelReport;

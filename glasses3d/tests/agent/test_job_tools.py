@@ -140,6 +140,40 @@ def test_mutating_call_ids_and_checkpoint_receipts(scene):
     assert record(invoke(scene, "restore_checkpoint", {"checkpoint": "c0001"}))["restored_from"] == "c0001"
 
 
+def test_load_font_uses_journaled_allowlisted_worker_method(scene):
+    result = record(invoke(scene, "load_font", {"family": "arial"}))
+    assert result["status"] == "ok" and result["checkpoint"] == "c0002"
+    tool, method, params, kwargs = scene.s.calls[0]
+    assert (tool, method, params) == ("load_font", "load_font", {"family": "arial"})
+    assert kwargs == {"deadline_s": 60, "label": "load font arial", "call_id": "call_test"}
+    assert scene.calls[0][:4] == ("call_test", "load_font", "c0001", "c0002")
+    registered = {tool.name: tool for tool in T.build_tools(scene)}
+    assert registered["load_font"].params_json_schema["properties"]["family"]["enum"] == [
+        "arial", "arialbd", "times", "timesbd", "calibri", "segoeui"]
+
+
+def test_camera_overlay_is_readable_at_native_crop_coordinates(scene):
+    path = scene.root / "cameras/basis-001/overlay_front.png"
+    path.parent.mkdir(parents=True)
+    image = Image.new("RGB", (1400, 1100), "red")
+    image.paste("blue", (1200, 900, 1300, 1000))
+    image.save(path)
+    output = invoke(scene, "read_image", {"path": "cameras/basis-001/overlay_front.png",
+                                         "region": [1200, 900, 1300, 1000]})
+    body = record(output)
+    assert body["status"] == "ok"
+    meta = body["images"][0]
+    assert meta["source_path"] == "cameras/basis-001/overlay_front.png"
+    assert meta["size_px"] == [100, 100]
+    assert Image.open(scene.root / meta["path"]).getpixel((0, 0)) == (0, 0, 255)
+
+
+@pytest.mark.parametrize("path", ["cameras/basis-001/basis.json", "cameras/basis-001/photos/front.png",
+                                  "cameras/basis-001/mattes/front.png", "cameras/basis-001/plain.png"])
+def test_read_image_only_opens_camera_diagnostic_images(scene, path):
+    assert record(invoke(scene, "read_image", {"path": path}))["status"] == "refused"
+
+
 def test_tool_docs_explain_export_roles_and_hinge_recognition():
     docs = {t.name: t.description for t in T.build_tools(SimpleNamespace())}
     assert "only partRole values lens, frame and temple" in docs["execute_blender_code"]
@@ -671,3 +705,37 @@ def test_capture_timeout_kills_the_real_process_and_its_child(tmp_path):
     while any(psutil.pid_exists(pid) for pid in pids) and time.monotonic() < deadline:
         time.sleep(.02)
     assert not any(psutil.pid_exists(pid) for pid in pids)
+
+
+@pytest.mark.parametrize("code,errors,spec,portrait,expected", [
+    (0, ["page reloaded"], {"available": True, "ok": True}, False, "infrastructure_failed"),
+    (3, [], {"available": False, "reason": "validator missing"}, False, "validator_unavailable"),
+    (0, [], {"available": True, "ok": True}, True, "ok"),
+])
+def test_capture_reports_actual_errors_validator_and_portrait(scene, monkeypatch, code, errors, spec, portrait, expected):
+    monkeypatch.setattr(AR.shutil, "which", lambda name: "node.exe")
+    def run(argv, *_args, **_kwargs):
+        out = Path(argv[argv.index("--out") + 1])
+        image = out / "capture.png"
+        Image.new("RGB", (20, 10), "blue").save(image)
+        report = {"schema": "arview.capture/1", "input": {"sha256": scene.export["sha256"]},
+                  "status": "captured_with_warnings", "errors": errors, "spec": spec,
+                  "images": [{"file": image.name, "sha256": AR.sha256(image), "pose": "front",
+                              "kind": "portrait" if portrait else "pose", "variant": "condition-a" if portrait else "beauty"}]}
+        (out / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        return code, False
+    monkeypatch.setattr(AR, "run_capture", run)
+    result = AR.capture(scene.root, scene.export, "actual")
+    assert result["status"] == expected and result["errors"] == errors, result.get("message")
+    assert result["portrait"] is portrait and result["portrait_requested"] is True
+
+
+def test_capture_sets_private_temp_for_node_and_children(tmp_path):
+    probe = tmp_path / "temp_probe.py"
+    output = tmp_path / "environment.json"
+    probe.write_text("import json,os,subprocess,sys\n"
+                     "child=subprocess.check_output([sys.executable,'-c','import os; print(os.environ[\"TEMP\"])'],text=True).strip()\n"
+                     "open(sys.argv[1],'w').write(json.dumps([os.environ['TEMP'],os.environ['TMP'],child]))\n")
+    code, timed_out = AR.run_capture([sys.executable, str(probe), str(output)], tmp_path, timeout_s=10)
+    assert code == 0 and not timed_out
+    assert json.loads(output.read_text()) == [str((tmp_path / "temp").resolve())] * 3

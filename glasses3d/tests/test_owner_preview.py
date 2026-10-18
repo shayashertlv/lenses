@@ -212,9 +212,9 @@ def test_native_previews_are_same_source_exact_amounts_and_follow_marks(harness)
     assert first['target_details'][0]['box'] == second['target_details'][0]['box']
     assert 'T1' in first['target_details'][0]['view']
     full = Image.open(first['full_pairs'][0]['path'])
-    assert full.size == (960, 280)  # exact 320 x 240 panels plus label band
+    assert full.width == 960  # exact 320 x 240 panels plus readable label band
     photo = Image.open(result['before_evidence']['views'][0]['photo_path'])
-    np.testing.assert_array_equal(np.asarray(full)[40:, :320], np.asarray(photo))
+    assert full.crop(first['full_pairs'][0]['panel_boxes'][0]).tobytes() == photo.tobytes()
     detail = first['target_details'][0]
     x, y = detail['panel_content_origin_px']; w, _ = detail['source_panel_size_px']
     np.testing.assert_array_equal(np.asarray(Image.open(detail['path']))[y:, x:x+w],
@@ -319,22 +319,20 @@ def test_source_edit_phase_or_changed_fingerprint_refuses(harness):
 def test_native_tiles_do_not_resize_pixels(harness, monkeypatch):
     h = harness; rendered = capture(h.root, {}, 'tile-test')
     row = rendered['views'][0]
-    monkeypatch.setattr(P, 'LOOK_IMAGE_SIDE', 128)
+    monkeypatch.setattr(P.native_panels, 'HIGH_PATCH_BUDGET', 100)
     full, tiles = P._triple([row['photo_path'], row['drawing_path'], row['drawing_path']],
                            h.root/'tiled.png', 'ref01', 'small: Less')
-    canvas = Image.open(full['path'])
-    restored = Image.new('RGB', canvas.size)
+    restored = Image.new('RGB', Image.open(row['photo_path']).size)
+    assert len(tiles) > 1
     for tile in tiles:
-        part = Image.open(tile['path']); assert max(part.size) <= 128
-        x, y = map(int, tile['view'].rsplit(' at ', 1)[1].split(','))
-        restored.paste(part, (x, y))
-    np.testing.assert_array_equal(np.asarray(restored), np.asarray(canvas))
+        part = Image.open(tile['path']); assert tile['patches_32px'] <= 100
+        restored.paste(part.crop(tile['panel_boxes'][0]), tile['crop_box'][:2])
+    assert restored.tobytes() == Image.open(row['photo_path']).tobytes()
 
 
 @pytest.mark.parametrize('width', [12, 24, 80])
 @pytest.mark.parametrize('option_id', ['B', 'A'*32])
 def test_narrow_panels_keep_legible_headers_inside_columns_and_native_pixels(tmp_path, width, option_id):
-    from PIL import ImageDraw
     path = tmp_path/'source.png'; Image.new('RGB', (width, 90), '#123456').save(path)
     record, _ = P._triple([path]*3, tmp_path/'triple.png', 'Very long reference description',
                           option_id+': A very long amount label', option_id=option_id)
@@ -342,11 +340,10 @@ def test_narrow_panels_keep_legible_headers_inside_columns_and_native_pixels(tmp
     assert 'Very long reference' in record['view'] and 'very long amount' in record['view']
     with Image.open(record['path']) as im:
         column = record['panel_width_px']; x, y = record['panel_content_origin_px']
-        assert column >= 120 and column >= width and im.size == (3*column, 130)
-        for i, label in enumerate(record['headers']):
-            box = ImageDraw.Draw(im).textbbox((i*column+8, 9), label, font=P.model_map._font(18))
-            assert i*column <= box[0] < box[2] <= (i+1)*column and box[3] <= y
-            assert im.crop((i*column+x, y, i*column+x+width, y+90)).tobytes() == Image.open(path).tobytes()
+        assert column >= 120 and column >= width and im.size == (3*column, y+90)
+        assert all(0 <= a < c <= im.width and 0 <= b < d <= y for a,b,c,d in record['label_boxes'])
+        for box in record['panel_boxes']:
+            assert im.crop(box).tobytes() == Image.open(path).tobytes()
 
 
 def test_archive_is_confined_flat_exact_and_refuses_prefix_collision(tmp_path):

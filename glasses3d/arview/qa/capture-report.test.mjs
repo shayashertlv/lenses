@@ -57,6 +57,13 @@ test('the validator unavailable is loud, exits 3, and the run still captures', (
   assert.match(notRun.spec.reason, /VALIDATOR UNAVAILABLE/);
 });
 
+test('a validator verdict for different bytes is an integrity error, never a successful capture', () => {
+  const spec = specOf(); spec.report.sha256 = 'different';
+  const {report, exitCode} = assembleCaptureReport(input({spec}));
+  assert.equal(exitCode, EXIT.infrastructure); assert.equal(report.status, 'infrastructure_failed');
+  assert.match(report.errors[0], /spec.py checked bytes.*not the captured/);
+});
+
 test('arview rows that disagree with spec.py are listed and warned; spec.py stays the authority', () => {
   assert.deepEqual(specDisagreements(specOf(true).report, modelOf('rendered', ['units'])), [{row: 'units', python: true, arview: false}]);
   const {report} = assembleCaptureReport(input({modelReport: modelOf('rendered', ['units'])}));
@@ -74,7 +81,7 @@ test('the cross-check fires on a REAL spec.py --full report (q001): its {pass, d
   // arview forced to fail units and origin: both must be reported (the bug read booleans and returned [] here).
   const forced = modelOf('rendered', ['units', 'origin']);
   assert.deepEqual(specDisagreements(REAL_SPEC, forced), [{row: 'units', python: true, arview: false}, {row: 'origin', python: true, arview: false}]);
-  const {report} = assembleCaptureReport(input({spec: {available: true, report: REAL_SPEC, command: ['python'], ms: 400}, modelReport: forced}));
+  const {report} = assembleCaptureReport(input({input: {path: 'm.glb', bytes: 10, sha256: REAL_SPEC.sha256}, spec: {available: true, report: REAL_SPEC, command: ['python'], ms: 400}, modelReport: forced}));
   assert.deepEqual(report.runtime.spec_disagreements.map(entry => entry.row), ['units', 'origin']);
   assert.ok(report.warnings.some(text => /disagree with spec.py on units \(spec.py pass, arview fail\), origin/.test(text)), report.warnings.join('\n'));
 });
@@ -156,7 +163,7 @@ test('missing images, capture warnings, errors and model fallbacks make the stat
   assert.ok(assembleCaptureReport(input({modelReport: bare})).report.warnings.includes('model fallback: hair occlusion off'));
   assert.equal(captureOutcome(input({plannedImages: 3})).status, 'captured_with_warnings');
   assert.equal(captureOutcome(input({warnings: ['no left junction crop']})).status, 'captured_with_warnings');
-  assert.equal(captureOutcome(input({errors: ['page error: x']})).status, 'captured_with_warnings');
+  assert.deepEqual(captureOutcome(input({errors: ['page error: x']})), {status: 'infrastructure_failed', exitCode: EXIT.infrastructure});
 });
 
 test('the live probe verdict feeds would_fail; static and runtime verdicts are kept apart', () => {
