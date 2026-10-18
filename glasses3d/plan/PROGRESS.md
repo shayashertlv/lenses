@@ -3,10 +3,8 @@
 ## Current state — 2026-10-18
 
 The assembled job, specialist, seeing, delivery and owner-edit paths work; M6–M10 implementations are present.
-M11 tasks 1–8 have landed and Claude accepted them. Task 9's tests, arview repairs and document reconciliation
-are complete with passing required checks; its entry below records the evidence. Next action: Claude reviews
-task 9's commit/report.
-No next task or paid run is authorized by this work.
+M11 tasks 1–9 have landed and Claude accepted them (task 9: `81ef7b2`); M11 is complete. Next action: the owner
+decides on M5 paid validation (each run needs his OK and an estimate). No paid run is authorized by this work.
 
 Owner acceptance remains asset-specific: WP5 FT1119 on 2026-10-08 ("Observed-slope join + Poisson is the best, set it
 and mark wp5 as done"), WP6 run 8 on 2026-10-13 ("you know what. im satisfied with wp6, lets wrap this"), and assembled
@@ -17,6 +15,15 @@ three unseen products remain open. The owner parked the review-page authored-siz
 work is complete. Standing paid terms are high effort and a $20 settled-only cutoff; each run still needs approval.
 Retained technical limits include task 6's partly open CC-12 and open CC-13/17; WP4's ten historical quality failures
 and WP5's A4/A5/B3 limitations remain recorded below.
+
+## 2026-10-18 — Claude accepted M11 task 9; M11 complete ($0)
+
+Task 9 (`81ef7b2`) reviewed by Claude: report `data/review_20261018/codex/task9_report.md`. First fully green suite:
+5,236 passed, 2 Windows symlink skips (functional, photoprint and serial timing passes), arview 512 + QA 113, check and
+build, M1. Removed assertions read: replaced by self-contained or stricter ones (SDK import now required, Blender
+skip removed, the live-`main` pricing comparison dropped for the frozen hash); the photo_v1 golden was recaptured with
+both differences recorded (environment drift; task 8's zero-dither normal pass), limits unchanged. Claude added
+`!.env.example` to the root `.gitignore` so the root app's tracked example file is not newly ignored.
 
 ## 2026-10-18 — ASSEMBLY M11 task 9: suite health, arview and current documents ($0)
 

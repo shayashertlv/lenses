@@ -2,9 +2,8 @@
 
 This folder is the assembled photo-to-3D glasses pipeline. Job intake, Astra tools, specialist stages, delivery,
 review and owner edits are implemented. WP5 and WP6 are closed by owner acceptance; assembled Oakley run 4 is
-accepted. **The active work is `plan/ASSEMBLY.md` M11**: the 2026-10-18 review repairs, tasks 1–8 accepted by Claude,
-task 9 tests/arview/documents completed and awaiting Claude review. Use PROGRESS's current-state block for the next
-action. Claude coordinates; Codex executes the saved task brief. Latest owner instructions
+accepted. **`plan/ASSEMBLY.md` M11** (the 2026-10-18 review repairs, tasks 1–9) is complete and accepted by Claude;
+next is M5 paid validation, only with the owner's OK. Use PROGRESS's current-state block for the next action. Claude coordinates; Codex executes the saved task brief. Latest owner instructions
 take precedence over repository documents. Dated history is evidence, not a command to restart completed work.
 
 ## Start here, in this order
