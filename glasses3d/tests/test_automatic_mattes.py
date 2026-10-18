@@ -121,17 +121,33 @@ def test_one_empty_alternative_keeps_both_records(fit_case,other):
     assert row['matte_alternatives']['glossy_floor']['status']==other
 
 
-def test_empty_input_direct_refuses_but_grouped_retains_both_actual_mattes(tmp_path):
+@pytest.mark.parametrize('with_lenses', [False, True], ids=['frame_only', 'coarse_browline'])
+def test_empty_input_direct_refuses_but_grouped_retains_both_actual_mattes(tmp_path, with_lenses):
     from glasses3d.tests import glbfab
     model,photo=tmp_path/'model.glb',tmp_path/'blank.png'
-    model.write_bytes(glbfab.build())
+    parts=glbfab.default_parts()
+    if not with_lenses:
+        parts={name:part for name,part in parts.items() if part[2]!='lens'}
+    model.write_bytes(glbfab.build(parts=parts))
     Image.new('RGB',(40,40),(200,200,200)).save(photo)
     with pytest.raises(ValueError,match='matte is empty'):
         FV.fit_image(model,photo,'front')
     result=FV.fit_views(model,{photo.name:photo},{photo.name:'front'},tmp_path/'fit',workers=1,log=lambda _:None)
     row=result['images'][photo.name]
-    assert row['status']=='failed' and row['camera'] is None and row['matte_mode']=='default'
-    assert set(row['matte_alternatives'])=={'default','glossy_floor'}
+    # The coarse rectangular lenses are valid plates: their brow-only frame is semi-rimless.
+    # Removing those primitives exercises real default mattes without a construction-policy mock.
+    base,floor=('open_frame','glossy_open_frame') if with_lenses else ('default','glossy_floor')
+    assert row['status']=='failed' and row['camera'] is None and row['matte_mode']==base
+    assert set(row['matte_alternatives'])=={base,floor}
+    policy=row['lens_loss']
+    assert policy['mode']==('optional' if with_lenses else 'full')
+    if with_lenses:
+        assert policy['optional_nodes']==['Lens_L','Lens_R']
+        assert len(policy['construction'])==2
+        assert all(c['frame_type']=='semi_rimless' and c['frame_type_source']=='inferred' and c['provisional'] is True
+                   for c in policy['construction'])
+    else:
+        assert policy['optional_nodes']==[] and policy['construction']==[]
     for candidate in row['matte_alternatives'].values():
         assert candidate['status']=='failed' and candidate['camera'] is None
         assert candidate['matte']['foreground_px']==0 and 'matte is empty' in candidate['refusal']
@@ -139,6 +155,7 @@ def test_empty_input_direct_refuses_but_grouped_retains_both_actual_mattes(tmp_p
     explicit=FV.fit_views(model,{photo.name:photo},{photo.name:'front'},tmp_path/'explicit',workers=1,
         matte_modes='default',log=lambda _:None)['images'][photo.name]
     assert explicit['status']=='failed' and explicit['camera'] is None and 'matte_alternatives' not in explicit
+    assert explicit['matte_mode']=='default'
 
 
 @pytest.mark.parametrize('kind,candidates,match',[

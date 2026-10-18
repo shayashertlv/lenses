@@ -39,6 +39,8 @@ A line is printed at least every 30 s.
 """
 from __future__ import annotations
 
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
+
 import argparse
 import hashlib
 import json
@@ -112,7 +114,7 @@ def _short(view: str) -> str:
 def _heldout_job(view, tx, radii):
     opt_out_ecoqos()
     job = legacy_ft1119.load_job()
-    return PP.heldout_b3(job, IN.FT1119_PARTS, view, radii_mm=radii, tx=tx, b2=True, keep_render=True)
+    return PP.heldout_b3(job, FT1119_PARTS, view, radii_mm=radii, tx=tx, b2=True, keep_render=True)
 
 
 # ----------------------------------------------------------------------------- human-readable maps
@@ -273,7 +275,7 @@ def sheets(job, res_like: dict, heldout: dict, out: Path, prog) -> list[str]:
     code_name = {v: k for k, v in CLASS_CODES.items()}
     hits = {n: _view_hits(job, lay, scene, n) for n in views}
     paths = []
-    for part in IN.FT1119_PARTS:
+    for part in FT1119_PARTS:
         pid = names.index(part)
         kind = "brow" if part.lower().startswith("brow") else "temple"
         sgn = side_of.get(part, 0)
@@ -539,7 +541,7 @@ _level = production.read_level
 
 
 def _occ(job):
-    return TX.OcclusionScene(job, job.part_ids(IN.FT1119_PARTS), TX.decal_geometry(PR.job_glb(job), job.mesh.skipped))
+    return TX.OcclusionScene(job, job.part_ids(FT1119_PARTS), TX.decal_geometry(PR.job_glb(job), job.mesh.skipped))
 
 
 def _read_heldout(out: Path, views) -> dict:
@@ -557,10 +559,10 @@ def _sheets_only(a, prog) -> int:
     job = legacy_ft1119.load_job()
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     tx = float(rep["layout"]["tx_per_mm"])
-    lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(IN.FT1119_PARTS), tx,
+    lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(FT1119_PARTS), tx,
                     atlas_max=PR.ATLAS_MAX, mirror=True)
     assert (lay.width, lay.height) == (rep["layout"]["width"], rep["layout"]["height"]), "layout differs from the bake"
-    regions = RG.build_regions(job, list(IN.FT1119_PARTS), RG.rigid_groups(job), n_samples=64)
+    regions = RG.build_regions(job, list(FT1119_PARTS), RG.rigid_groups(job), n_samples=64)
     occ = _occ(job)
     res_like = {"layout": lay, "atlas": np.asarray(Image.open(out / "print.png").convert("RGB")),
                 "classes_img": np.asarray(Image.open(out / "classes.png")),
@@ -586,7 +588,7 @@ def _main(a, prog) -> int:
            else legacy_ft1119.load_job())
     step0 = STEP0 if a.job else legacy_ft1119.cached_fixture()['step0']
     prog(f"production bake -> {out} (q001 sha {job.sources['glb_sha256'][:12]}, {len(job.views)} photos)", force=True)
-    res = production.bake_print(job, IN.FT1119_PARTS, out_dir=out, workers=a.workers,
+    res = production.bake_print(job, FT1119_PARTS, out_dir=out, workers=a.workers,
                                 step0_report=step0, compare_fill=COMPARE, calibration=a.level, thresholds=TH)
     tx = float(res["layout"].tx_per_mm)
     rep = res["report"]
@@ -609,18 +611,18 @@ def _main(a, prog) -> int:
              force=True)
         bake["A5"] = PP.seams(job, res, out)
         prog(f"A5 pass {bake['A5']['pass']}", force=True)
-        bake["A4"] = {p: PP.knockout(res, p) for p in IN.FT1119_PARTS}
+        bake["A4"] = {p: PP.knockout(res, p) for p in FT1119_PARTS}
         prog("A4 " + json.dumps({p: r["a4"].get("pass") for p, r in bake["A4"].items()}), force=True)
         bake["A4_vs_7ac7c8f"] = a4_vs_7ac7c8f(bake["A4"])
         # fix round 1: every filler at ITS OWN knockout radius, same holes (the comparison behind the choice)
-        bake["A4_fillers"] = a4_fillers(res, IN.FT1119_PARTS, a.a4_seeds, prog)
+        bake["A4_fillers"] = a4_fillers(res, FT1119_PARTS, a.a4_seeds, prog)
         bake["fill_choice"] = rep["fill"].get("choice")
         views = sorted(job.views)
         bake["A2"] = dict(zip(views, pool_map(PPF._a2_job, [(v, tx) for v in views], a.workers)))
         prog("A2 " + json.dumps({_short(v): r["pass"] for v, r in bake["A2"].items()}), force=True)
     if a.a7_serial:
         prog("A7: serial bake (workers=1)", force=True)
-        production.bake_print(job, IN.FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
+        production.bake_print(job, FT1119_PARTS, out_dir=out / "a7_serial", tx_per_mm=tx, workers=1,
                               step0_report=step0, compare_fill=COMPARE, log=print, calibration=a.level,
                               thresholds=TH)
         names = ("print.png", "classes.png", "source.png", "tier.png", "registration.json", "report_stable.json")

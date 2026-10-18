@@ -16,6 +16,8 @@ Fix round 2 of the correction round: the pair roles (only the two poses at a pho
 18 deg off are trade-off rows) and the calibration search between grid points. The tests of the deleted proof scripts
 (the level inverse of ``correction_proof``, the owner sheet's candidate rows) were deleted on 2026-10-13 with them; see
 git tag review-20261013-pre-cleanup."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import json
 import math
 import struct
@@ -145,14 +147,21 @@ def test_level_map_identity_monotone_and_keeps_chromaticity():
 
 
 def test_instrument_lstar_and_level_compare():
+    """Adaptive neutral samples stay in the comparison unless independent evidence identifies a reflection."""
     assert np.allclose(PM.lstar(np.array([[255, 255, 255], [0, 0, 0], [119, 119, 119]])), [100, 0, 50.03], atol=0.05)
     rng = np.random.default_rng(0)
     dark = rng.integers(20, 60, (500, 3)).astype(float)
-    grey = np.full((300, 3), 180.0)                                   # an achromatic highlight
+    grey = np.full((300, 3), 180.0)                                   # neutral colour alone is ambiguous
     ar = np.concatenate([dark, grey])
     photo = dark.copy()
     r = PM.level_compare(ar, photo, exclude_highlights=True)
-    assert r["highlight_share"]["ar"] == pytest.approx(300 / 800) and abs(r["ar_minus_photo"]["p50"]) < 1e-6
+    assert r["highlight_share"]["ar"] == 0 and r["ar"]["n"] == 800 and not r["pass"]
+    reflection_mask = np.r_[np.zeros(500, bool), np.ones(300, bool)]    # independently identified reflections
+    masked = PM.level_compare(ar, photo, exclude_highlights=True, ar_highlight=reflection_mask)
+    assert masked["highlight_share"]["ar"] == pytest.approx(300 / 800)
+    assert masked["ar"]["n"] == masked["photo"]["n"] == 500
+    assert abs(masked["ar_minus_photo"]["p50"]) < 1e-6 and masked["pass"]
+    assert "independent" in masked["ar_highlight_source"]
     assert not PM.level_compare(ar, photo)["pass"]
     # composition: the photo's second group is weighted to the AR's share
     pa = np.concatenate([dark, dark[:10]])
@@ -165,8 +174,8 @@ def test_instrument_lstar_and_level_compare():
 
 
 def test_level_compare_takes_an_ar_highlight_mask_that_does_not_move_with_the_print():
-    """Fix round 1: light grey PRINT pixels pass the pixel rule and would leave the target; a probe mask (the
-    renderer's reflections alone) keeps them in, and the same mask applies to every candidate."""
+    """Adaptive neutral pigment remains visible to the gate; an independent probe mask excludes only the
+    renderer's identified reflections, retaining the washed print under the same unchanged level tolerances."""
     rng = np.random.default_rng(2)
     dark = rng.integers(20, 60, (500, 3)).astype(float)
     refl = np.full((100, 3), 200.0)                                   # the renderer's reflection
@@ -176,8 +185,9 @@ def test_level_compare_takes_an_ar_highlight_mask_that_does_not_move_with_the_pr
     photo = dark.copy()
     own = PM.level_compare(ar, photo, exclude_highlights=True)
     fixed = PM.level_compare(ar, photo, exclude_highlights=True, ar_highlight=mask)
-    assert own["highlight_share"]["ar"] == pytest.approx(300 / 800) and own["pass"]          # the washed print hid
-    assert fixed["highlight_share"]["ar"] == pytest.approx(100 / 800) and not fixed["pass"]  # ... and is seen now
+    assert own["highlight_share"]["ar"] == 0 and own["ar"]["n"] == 800 and not own["pass"]
+    assert fixed["highlight_share"]["ar"] == pytest.approx(100 / 800) and not fixed["pass"]
+    assert fixed["ar"]["n"] == 700 and fixed["photo"]["n"] == 500      # all 200 washed print pixels remain
     assert fixed["ar_minus_photo"]["p50"] > 2 and "independent" in fixed["ar_highlight_source"]
     with pytest.raises(ValueError):
         PM.level_compare(ar, photo, exclude_highlights=True, ar_highlight=mask[:-1])
@@ -474,7 +484,7 @@ def test_bake_with_flatten_and_level_reads_back(ft1119_job, tmp_path):
     from glasses3d.g3d_host.photoprint import project as PR
     from glasses3d.tests.photoprint import printproof as PP
     lv = {"gain": 0.78, "gamma": 1.16}
-    res = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, workers=2,
+    res = PR.project_photo_texture(ft1119_job, FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, workers=2,
                                    log=None, level=lv, level_source="test", print_reg_mm=0.8, edge_mean_mm=1.0,
                                    edge_p90_mm=2.5, flatten="on")
     rep = res["report"]
@@ -488,5 +498,5 @@ def test_bake_with_flatten_and_level_reads_back(ft1119_job, tmp_path):
     assert r["level_reapplied"] and r["flatten_reapplied"] == rep["flatten"]["applied"]
     assert r["pass"], r
     with pytest.raises(PR.RefusedError):
-        PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, level={"gain": 0},
+        PR.project_photo_texture(ft1119_job, FT1119_PARTS, out_dir=tmp_path, tx_per_mm=8.0, level={"gain": 0},
                                  print_reg_mm=0.8, edge_mean_mm=1.0, edge_p90_mm=2.5)

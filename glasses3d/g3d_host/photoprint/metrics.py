@@ -49,16 +49,14 @@ def level_stats(rgb_px) -> dict:
             "mean": round(float(L.mean()), 2)}
 
 def part_name_matches(name, parts):
-    """Exact names take priority; tolerate only Blender's numeric duplicate suffix, preserving embedded dots."""
-    name = str(name)
-    base, dot, suffix = name.rpartition('.')
-    return name in parts or bool(dot and len(suffix) == 3 and suffix.isdigit() and base in parts)
+    """Match authored object names exactly; a numeric suffix can name a different part."""
+    return str(name) in parts
 
 
 def ar_frame_mask(part_id_rgb, palette: list, parts, *, tol: int = 24, erode: int = 1) -> np.ndarray:
     """(H, W) bool: pixels of an arview part-id render whose colour is one of ``parts``' palette colours
-    (``palette`` = the capture report's ``id_palette`` rows {'rgb', 'name'}; a Blender duplicate suffix '.001' is
-    ignored, q001.glb's own export carries it), within ``tol`` per channel, eroded ``erode`` px (the beauty render's
+    (``palette`` = the capture report's ``id_palette`` rows {'rgb', 'name'}, matched exactly), within ``tol`` per
+    channel, eroded ``erode`` px (the beauty render's
     anti-aliased silhouette pixels are mixtures with the background)."""
     a = np.asarray(part_id_rgb, np.int32)[..., :3]
     m = np.zeros(a.shape[:2], bool)
@@ -72,10 +70,29 @@ HIGHLIGHT_L = 35.0
 
 HIGHLIGHT_C = 10.0
 
-def achromatic_highlight(rgb_px) -> np.ndarray:
-    """(N,) bool: sRGB pixels that are white / grey reflections (L* > 35 and C*ab < 10), not havana pigment."""
-    lab = T.lab_of(np.asarray(rgb_px, np.float64).reshape(-1, 3))
-    return (lab[:, 0] > HIGHLIGHT_L) & (np.hypot(lab[:, 1], lab[:, 2]) < HIGHLIGHT_C)
+def achromatic_highlight(rgb_px, *, reference=None, known_black=False) -> np.ndarray:
+    """Palette-relative neutral outliers; neutral pigment alone is not reflection evidence.
+
+    ``reference`` is photo print support, never the background or evaluated render. A black-albedo probe has
+    independently removed pigment and opts into ``known_black`` to measure the renderer's reflections alone.
+    Neutral/mixed-neutral palettes need spatial evidence; this colour-only calibration conservatively keeps them.
+    """
+    rgb = np.asarray(rgb_px, np.float64).reshape(-1, 3)
+    lab = T.lab_of(rgb)
+    chroma = np.hypot(lab[:, 1], lab[:, 2])
+    if known_black:
+        return (lab[:, 0] > HIGHLIGHT_L) & (chroma < HIGHLIGHT_C)
+    reference_rgb = rgb if reference is None else np.asarray(reference, float).reshape(-1, 3)
+    informative = (np.ptp(reference_rgb, axis=1) > 25.) & (reference_rgb < 250.).all(-1)
+    if informative.sum() >= 150:
+        pigment_rgb = reference_rgb[informative]
+        ordered = (pigment_rgb[:, 0] >= pigment_rgb[:, 1]) & (pigment_rgb[:, 1] >= pigment_rgb[:, 2])
+        if ordered.mean() >= .9 and np.percentile(pigment_rgb.mean(-1), 90) < 170.:
+            # Compatibility inside the original measured colour model's domain, not an all-palette rule.
+            return (lab[:, 0] > HIGHLIGHT_L) & (chroma < HIGHLIGHT_C)
+    # A minority neutral phase is pigment too. With no spatial/probe evidence the adaptive palette cannot
+    # identify it as reflection from RGB alone; clipping is the only unambiguous colour-only exclusion.
+    return (rgb >= 250.).any(-1)
 
 def _wq(x, w, qs):
     o = np.argsort(x)
@@ -109,12 +126,13 @@ def level_compare(ar_px, photo_px, *, tol: float = LEVEL_TOL, ar_group=None, pho
     gp = np.zeros(len(photo_px), np.int64) if photo_group is None else np.asarray(photo_group)
     out = {"tol": tol, "composition_matched": ar_group is not None, "highlights_excluded": bool(exclude_highlights)}
     if exclude_highlights:
+        out["photo_highlight_source"] = "photo palette; adaptive neutral pigment/glare remains ambiguous without spatial evidence"
         if ar_highlight is not None:
             ha = np.asarray(ar_highlight, bool).reshape(-1)
             if len(ha) != len(ar_px):
                 raise ValueError(f"ar_highlight has {len(ha)} entries for {len(ar_px)} AR pixels")
         else:
-            ha = achromatic_highlight(ar_px)
+            ha = achromatic_highlight(ar_px, reference=photo_px)
         hp = achromatic_highlight(photo_px)
         out["ar_highlight_source"] = "mask (independent of the print)" if ar_highlight is not None else             "the AR pixels' own colours (moves with the print)"
         out["highlight_share"] = {"ar": round(float(ha.mean()), 4) if len(ha) else None,
@@ -148,18 +166,21 @@ def level_compare(ar_px, photo_px, *, tol: float = LEVEL_TOL, ar_group=None, pho
            "chroma_tol": CHROMA_TOL, "chroma_spread_ratio_range": list(CHROMA_SPREAD_RATIO),
            "contrast_ratio_range": list(CONTRAST_RATIO)}
     app["chroma_units"] = chroma_units(app)
-    ha_, hp_ = hue_stats_w(ar_px, wa), hue_stats_w(photo_px, wp)       # fix round 2 of step 6: hue
-    dh = (None if ha_["p50"] is None or hp_["p50"] is None else round(ha_["p50"] - hp_["p50"], 2))
+    model = hue_reference(photo_px, wp)
+    ha_, hp_ = hue_stats_w(ar_px, wa, model=model), hue_stats_w(photo_px, wp, model=model)
+    foreign = hue_excess(ar_px, wa, photo_px, wp)
+    dh = (None if ha_["p50"] is None or hp_["p50"] is None else round((ha_["p50"] - hp_["p50"] + 180.) % 360. - 180., 2))
     app["hue"] = {"ar": ha_, "photo": hp_, "p50_ar_minus_photo": dh,
-                  "magenta_share_ar_minus_photo": round(ha_["magenta_share"] - hp_["magenta_share"], 4),
+                  "magenta_share_ar_minus_photo": foreign["excess"],
                   "off_band_share_ar_minus_photo": round(ha_["off_band_share"] - hp_["off_band_share"], 4),
                   "c_min": HUE_C_MIN, "tol_deg": HUE_TOL_DEG, "magenta_excess": MAGENTA_EXCESS,
-                  "band_deg": list(HAVANA_HUE), "magenta_deg": list(MAGENTA_HUE)}
+                  "reference": model, "foreign_window": foreign, "foreign_share_ar_minus_photo": foreign["excess"]}
     app["criteria"] = {"chroma_p50": bool(abs(app["chroma_ar_minus_photo"]["p50"]) <= CHROMA_TOL),
                        **{f"chroma_{k}": _in(app["chroma_ar_over_photo"][k], CHROMA_SPREAD_RATIO) for k in ("p90", "mean")},
                        "contrast": _in(app["lstar_std_ratio"], CONTRAST_RATIO),
-                       "hue_p50": bool(dh is not None and abs(dh) <= HUE_TOL_DEG),
-                       "hue_magenta": bool(app["hue"]["magenta_share_ar_minus_photo"] <= MAGENTA_EXCESS)}
+                       "hue_p50": bool((dh is not None and abs(dh) <= HUE_TOL_DEG) or
+                                       (ha_["chromatic_share"] == hp_["chromatic_share"] == 0.)),
+                       "hue_magenta": bool(app["hue"]["foreign_share_ar_minus_photo"] <= MAGENTA_EXCESS)}
     app["pass"] = bool(all(app["criteria"].values()))
     return {**out, "ar": a, "photo": p, "ar_minus_photo": d, "appearance": app,
             "pass": bool(abs(d["p10"]) <= tol and abs(d["p50"]) <= tol)}
@@ -170,9 +191,7 @@ CONTRAST_RATIO = (0.85, 1.18)
 
 CHROMA_SPREAD_RATIO = (0.85, 1.18)
 
-HAVANA_HUE = (20.0, 100.0)
-
-MAGENTA_HUE = (300.0, 360.0)
+HUE_BAND_MIN = 5.0
 
 HUE_C_MIN = 4.0
 
@@ -183,26 +202,71 @@ MAGENTA_EXCESS = 0.02
 def _in(x, rng) -> bool:
     return bool(x is not None and rng[0] <= x <= rng[1])
 
-def hue_stats_w(rgb_px, w) -> dict:
-    """Fix round 2 of step 6: hue of sRGB pixels, weighted: over the pixels with C*ab > ``HUE_C_MIN``, the median hue
-    h_ab in degrees (circular: hues are taken within 180 deg of the havana band's centre, 60 deg, then the weighted
-    median), and, as shares of ALL the pixels' weight, the chromatic share, the magenta share (``MAGENTA_HUE``) and the
-    share off ``HAVANA_HUE``."""
+def hue_excess(ar_rgb, ar_weights, photo_rgb, photo_weights) -> dict:
+    """Largest extra chromatic share in any 60-degree arc, with the existing 5-degree hue tolerance.
+
+    A rare reference colour cannot expand an envelope and license more of itself. Count reference mass
+    within the arc plus the tolerated angular shift on both sides; count tested mass within the arc only.
+    One-degree histogram bins make this bounded work independent of image size; 360 windows cover the circle.
+    """
+    def distribution(rgb, weights):
+        lab = T.lab_of(np.asarray(rgb, float).reshape(-1, 3))
+        weights = np.asarray(weights, float)
+        hue = np.degrees(np.arctan2(lab[:, 2], lab[:, 1])) % 360.
+        valid = np.hypot(lab[:, 1], lab[:, 2]) > HUE_C_MIN
+        bins = np.floor(hue[valid]).astype(int)
+        return np.bincount(bins, weights=weights[valid], minlength=360) / max(float(weights.sum()), 1e-12)
+    a, p = distribution(ar_rgb, ar_weights), distribution(photo_rgb, photo_weights)
+    centres = np.arange(360)
+    ar_share = np.stack([np.roll(a, offset) for offset in range(-30, 30)]).sum(axis=0)
+    margin = int(HUE_TOL_DEG)
+    photo_share = np.stack([np.roll(p, offset) for offset in range(-30 - margin, 30 + margin)]).sum(axis=0)
+    index = int(np.argmax(ar_share - photo_share))
+    return {"excess": round(max(0., float(ar_share[index] - photo_share[index])), 4),
+            "centre_deg": int(centres[index]), "width_deg": 60, "reference_margin_deg": HUE_TOL_DEG,
+            "ar_share": round(float(ar_share[index]), 4), "photo_share": round(float(photo_share[index]), 4)}
+
+
+def hue_reference(rgb_px, w) -> dict:
+    """Reference-only circular hue envelope; angular tolerances stay unchanged for every pigment family."""
+    lab = T.lab_of(np.asarray(rgb_px, float).reshape(-1, 3))
+    weights = np.asarray(w, float)
+    coloured = np.hypot(lab[:, 1], lab[:, 2]) > HUE_C_MIN
+    if not coloured.any() or weights[coloured].sum() <= 0:
+        return {"centre": 0., "half_width": HUE_BAND_MIN, "chromatic": False}
+    angles = np.degrees(np.arctan2(lab[coloured, 2], lab[coloured, 1])) % 360.
+    weights = weights[coloured]
+    z = np.sum(weights * np.exp(1j * np.radians(angles)))
+    centre = float(np.degrees(np.angle(z)) % 360.)
+    relative = (angles - centre + 180.) % 360. - 180.
+    centre = float((centre + _wq(relative, weights, (50,))[0]) % 360.)
+    distances = np.abs((angles - centre + 180.) % 360. - 180.)
+    width = max(HUE_BAND_MIN, float(_wq(distances, weights, (98,))[0]) + HUE_TOL_DEG)
+    return {"centre": centre, "half_width": min(width, 180.), "chromatic": True}
+
+
+def hue_stats_w(rgb_px, w, *, model=None) -> dict:
+    """Circular weighted median about the photo's hue; foreign hue shares use its measured envelope.
+
+    ``magenta_share`` is a deprecated alias for foreign share, retained for old report readers.
+    """
     lab = T.lab_of(np.asarray(rgb_px, np.float64).reshape(-1, 3))
     w = np.asarray(w, np.float64)
     if not len(lab) or w.sum() <= 0:
         return {"p50": None, "chromatic_share": 0.0, "magenta_share": 0.0, "off_band_share": 0.0}
+    model = hue_reference(rgb_px, w) if model is None else model
     C = np.hypot(lab[:, 1], lab[:, 2])
     h = np.degrees(np.arctan2(lab[:, 2], lab[:, 1])) % 360.0
     m = C > HUE_C_MIN
-    centre = 0.5 * (HAVANA_HUE[0] + HAVANA_HUE[1])
-    rel = (h - centre + 180.0) % 360.0 - 180.0 + centre
+    centre = model["centre"]
+    delta = (h - centre + 180.) % 360. - 180.
+    rel = delta + centre
     tot = w.sum()
-    mag = m & (h >= MAGENTA_HUE[0]) & (h < MAGENTA_HUE[1])
-    off = m & ~((h >= HAVANA_HUE[0]) & (h <= HAVANA_HUE[1]))
+    off = m & (np.abs(delta) > model["half_width"])
     return {"p50": round(float(_wq(rel[m], w[m], (50,))[0]), 2) if m.any() and w[m].sum() > 0 else None,
-            "chromatic_share": round(float(w[m].sum() / tot), 4), "magenta_share": round(float(w[mag].sum() / tot), 4),
+            "chromatic_share": round(float(w[m].sum() / tot), 4), "magenta_share": round(float(w[off].sum() / tot), 4),
             "off_band_share": round(float(w[off].sum() / tot), 4)}
+
 
 def chroma_units(app: dict) -> list[float]:
     """[p50, p90, mean] of an ``appearance`` block in units of its own verdict's window (|x| <= 1 passes): the C*ab p50

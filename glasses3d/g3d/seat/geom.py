@@ -303,7 +303,8 @@ def effective_thickness(V, T) -> float:
     return 2.0 * abs(signed_volume(V, T)) / A if A > 0 else 0.0
 
 
-def local_surface_normals(C, W, cell: float = NORMAL_FIELD_CELL_MM, half: int = NORMAL_FIELD_HALF) -> np.ndarray:
+def local_surface_normals(C, W, cell: float = NORMAL_FIELD_CELL_MM, half: int = NORMAL_FIELD_HALF,
+                          queries=None) -> np.ndarray:
     """Per point, the least-spread direction (smallest eigenvector of the W-weighted covariance) of the points in the
     (2*half+1) cell box around it. On a lens this is the surface normal whatever the construction (sphere, toric,
     extruded, bullnose); the sign is arbitrary (callers use |dot|)."""
@@ -329,7 +330,9 @@ def local_surface_normals(C, W, cell: float = NORMAL_FIELD_CELL_MM, half: int = 
         hi = np.clip(np.arange(n) + half + 1, 0, n)
         lo_ = np.clip(np.arange(n) - half, 0, n)
         G = np.take(c, hi, axis=ax) - np.take(c, lo_, axis=ax)
-    cells, inv = np.unique(flat, return_inverse=True)
+    query_flat = flat if queries is None else np.ravel_multi_index(
+        np.floor((np.asarray(queries) - lo) / cell).astype(np.int64).T, shape)
+    cells, inv = np.unique(query_flat, return_inverse=True)
     g = G.reshape(10, -1)[:, cells]
     w = np.maximum(g[0], 1e-300)
     mu = g[1:4] / w
@@ -342,6 +345,33 @@ def local_surface_normals(C, W, cell: float = NORMAL_FIELD_CELL_MM, half: int = 
     S[:, 2, 2] = g[9] / w - mu[2] * mu[2]
     _, evec = np.linalg.eigh(S)
     return evec[:, :, 0][np.asarray(inv).reshape(-1)]
+
+
+def sampled_surface_normals(V, T, queries) -> np.ndarray:
+    """Area samples spread over triangles, for caps whose centroid set has collapsed onto a curve.
+
+    Longest-edge bisection bounds each sample's support by the existing 1 mm moment-grid cell. Triangle areas
+    remain the integration weights; this only repairs the normal measurement, without changing any cap gate.
+    """
+    triangles = np.asarray(V, np.float64)[np.asarray(T, np.int64)]
+    samples, weights = [], []
+    while len(triangles):
+        edges = triangles[:, [1, 2, 0]] - triangles
+        lengths = np.einsum("ijk,ijk->ij", edges, edges)
+        split = lengths.max(axis=1) > NORMAL_FIELD_CELL_MM ** 2
+        small = triangles[~split]
+        if len(small):
+            samples.append(small.mean(axis=1))
+            weights.append(np.linalg.norm(np.cross(small[:, 1] - small[:, 0], small[:, 2] - small[:, 0]), axis=1) / 2)
+        large = triangles[split]
+        if not len(large):
+            break
+        edge = lengths[split].argmax(axis=1)
+        row = np.arange(len(large))
+        a, b, c = large[row, edge], large[row, (edge + 1) % 3], large[row, (edge + 2) % 3]
+        mid = (a + b) / 2
+        triangles = np.concatenate([np.stack([a, mid, c], axis=1), np.stack([mid, b, c], axis=1)])
+    return local_surface_normals(np.concatenate(samples), np.concatenate(weights), queries=queries)
 
 
 # ------------------------------------------------------------------------------------------------ cap / wall
@@ -393,6 +423,11 @@ def split_caps(V, T, thresholds=CAP_THRESHOLDS_DEG, gate_deg: float = CAP_GATE_D
             cls[(lab == big[fi]) & gate] = 0
             cls[(lab == big[1 - fi]) & gate] = 1
             return CapSplit(cls, float(th), share, nz[fi])
+    if local_normals is None and total > 0:
+        # A fan or an ear-clipped n-gon may have all face centres on a ring. Its covariance then measures the
+        # ring's radial direction instead of the plate normal. Retry the same split with area-spread samples.
+        return split_caps(V, T, thresholds, gate_deg, face_normals,
+                          sampled_surface_normals(V, T, fc))
     raise SeatError("E_NO_CAPS", "no dihedral threshold in 20-60 deg gives two opposite caps holding >= 75% of "
                                  "the area (not a lens body: rounded all over, or not a plate)")
 

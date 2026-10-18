@@ -4,7 +4,7 @@ Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_
 `p5_temple_hinge.group/hinge`; PORT_REVIEW section 10.
 
 **Sides come from the x sign, never from part names.** q001 names its temples by the VIEWER's side (Temple_Left is at
--x, the wearer's right), so every region carries ``side`` = sign of its part's area centroid x and a name tag
+-x, the wearer's right), so every region carries ``side`` from its geometry and a name tag
 ``[+x]`` / ``[-x]``; nothing here reads 'Left' or 'Right'.
 
 - **Rigid groups.** The front piece, plus one temple group per x sign (the WP1 rule, geometry at |x| > 45 mm): the
@@ -14,7 +14,8 @@ Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_
   front, 0 % of their z range behind the temple's front end). The hinge axis is vertical (+y) through the centroid of
   the group's vertices within ``HINGE_SLAB_MM`` of its front end (q001: 0.38 mm from the hinge screw's centre in x-z).
 - **Regions** = each selected part split by facing class: the nearest of the six axes to each face normal; +z front,
-  -z back, +y top, -y bottom, +/-x named ``outer`` (away from x = 0 on the part's side) or ``inner``. Regions smaller
+  -z back, +y top, -y bottom, +/-x named ``outer`` (away from x = 0 on the face's side) or ``inner``. Parts spanning
+  both sides are also split by face-centroid x sign, so opposite ends can choose separate source photos. Regions smaller
   than ``MIN_REGION_MM2`` are kept but marked ``minor`` (never registered).
 - **Stripes** along the part's longest bounding-box axis (|x| for brows, |z| for temples): 4 mm wide, 0.5 mm guard band
   at each boundary; even stripes = fold A, odd = fold B (print correlation length 1.04 mm [R P3]).
@@ -139,18 +140,16 @@ def group_of_part(groups: list[Group], p: int) -> str:
     return "front"
 
 
-def facing_class(normals: np.ndarray, side: int) -> np.ndarray:
-    """Per face: the nearest of the six axes, named front/back/top/bottom/outer/inner (outer = away from x = 0)."""
+def facing_class(normals: np.ndarray, side: int | np.ndarray) -> np.ndarray:
+    """Nearest axis per face, with a scalar or per-face side (outer = away from x = 0)."""
     dots = np.stack([normals @ a for _, a in AXES], 1)
     k = dots.argmax(1)
-    names = []
-    for _, (nm, _a) in enumerate(AXES):
-        if nm in ("+x", "-x"):
-            sgn = 1 if nm == "+x" else -1
-            names.append("outer" if sgn * (side if side else 1) > 0 else "inner")
-        else:
-            names.append(nm)
-    return np.asarray(names, dtype=object)[k]
+    sides = np.broadcast_to(np.asarray(side), k.shape)
+    sides = np.where(sides == 0, 1, sides)
+    names = np.asarray([nm for nm, _a in AXES], dtype=object)[k]
+    xface = k >= 4
+    names[xface] = np.where(np.where(k[xface] == 4, 1, -1) * sides[xface] > 0, "outer", "inner")
+    return names
 
 
 def stripe_fold(coord: np.ndarray, stripe_mm: float = STRIPE_MM, guard_mm: float = GUARD_MM) -> np.ndarray:
@@ -184,9 +183,14 @@ def build_regions(job, parts, groups: list[Group] | None = None, *, n_samples: i
         faces_p = np.nonzero(part == p)[0]
         vp = V[np.unique(F[faces_p])]
         axis = int(np.argmax(vp.max(0) - vp.min(0)))
-        cls = facing_class(job.face_normals[faces_p], side)
-        for facing in ("front", "back", "top", "bottom", "outer", "inner"):
-            fc = faces_p[cls == facing]
+        face_side = np.sign(V[F[faces_p], 0].mean(1)).astype(int)
+        split_sides = np.any(face_side < 0) and np.any(face_side > 0)
+        sides = sorted(set(face_side.tolist())) if split_sides else [side]
+        if not split_sides:
+            face_side[:] = side
+        cls = facing_class(job.face_normals[faces_p], face_side)
+        for side, facing in ((s, f) for s in sides for f in ("front", "back", "top", "bottom", "outer", "inner")):
+            fc = faces_p[(cls == facing) & (face_side == side)]
             if len(fc) == 0:
                 continue
             vidx = np.unique(F[fc])

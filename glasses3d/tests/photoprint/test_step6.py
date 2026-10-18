@@ -33,6 +33,7 @@ from glasses3d.g3d_host.photoprint import fill as FL
 from glasses3d.g3d_host.photoprint import labels as LB
 from glasses3d.g3d_host.photoprint import shading as SH
 from glasses3d.tests.instruments import print_metrics as PM
+from glasses3d.tests.fixtures.legacy_ft1119 import HAVANA_HUE_DEG
 
 
 def _strip_mesh(n=12):
@@ -426,7 +427,7 @@ def test_chroma_hold_never_greys_and_the_hue_band_leaves_off_hue_colours_alone()
         g = SH.chroma_factor(c, lv | {"chroma_hold": True})
         f = SH.chroma_factor(c, lv | HOLD_HUE)
         lab = T.lab_of(c)
-        assert SH.hue_weight(lab)[0] == pytest.approx(want, abs=0.03), hue
+        assert SH.hue_weight(lab, HAVANA_HUE_DEG)[0] == pytest.approx(want, abs=0.03), hue
         assert f[0] == pytest.approx(1.0 + want * (g[0] - 1.0), abs=0.03 * (g[0] - 1.0) + 1e-9), hue
     rgb = np.array([[60.0, 48.0, 40.0], [190.0, 100.0, 30.0], [90.0, 90.0, 90.0]])
     assert np.array_equal(SH.level_map(rgb, lv), SH.level_map(rgb, lv | {"chroma_hold": False}))
@@ -593,7 +594,7 @@ def test_chroma_stage_reports_every_graded_pair_and_finds_an_all_pairs_level():
     ae = al["chosen_e"]
     assert al["probes"] is None and ae in st["its"] + caps
     assert AC.chroma_units_worst(ae, AC.ALL_GRADED) < AC.chroma_units_worst(ch, AC.ALL_GRADED)
-    assert ch["level"]["chroma_hold"] is True and ch["level"]["chroma_hue"] == list(SH.HAVANA_HUE_DEG)
+    assert ch["level"]["chroma_hold"] is True and ch["level"]["chroma_hue"] == list(HAVANA_HUE_DEG)
 
 
 def test_tooltest_label_names_the_hold_and_hue_band(tmp_path):

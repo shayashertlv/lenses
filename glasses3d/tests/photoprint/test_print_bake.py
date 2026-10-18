@@ -2,6 +2,8 @@
 tests, A2 at the production density 16 texels/mm; every proof number comes from the independent instrument
 (tests/instruments/print_metrics.py via tests/photoprint/printproof.py), the bake's own report only for its checks.
 Sides by x sign: q001's Temple_Left is the -x temple (the wearer's right)."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import shutil
 import tempfile
 from pathlib import Path
@@ -30,7 +32,7 @@ def outdir():
 
 @pytest.fixture(scope="module")
 def bake(ft1119_job, outdir):
-    return PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=2, log=None,
+    return PR.project_photo_texture(ft1119_job, FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, workers=2, log=None,
                                     compare_fill=("patchmatch",), **TH)
 
 
@@ -51,7 +53,7 @@ def test_print_manifest_written(bake, outdir):
     man = json.loads((outdir / "print_manifest.json").read_text(encoding="utf-8"))
     lay = bake["layout"]
     assert bake["files"]["manifest"] == str(outdir / "print_manifest.json") and "manifest_error" not in bake["files"]
-    assert man["identity_recomputed"] is False and man["layer"] == "g3d_print" and man["parts"] == list(IN.FT1119_PARTS)
+    assert man["identity_recomputed"] is False and man["layer"] == "g3d_print" and man["parts"] == list(FT1119_PARTS)
     assert (man["width"], man["height"]) == (lay.width, lay.height) and man["tx_per_mm"] == lay.tx_per_mm
     assert man["charts_sha"] == PU.glbmesh.charts_sha(lay.charts, lay.width, lay.height)
     V, F, part, names = PU.glbmesh.mesh_arrays(PU.glbmesh.read_glb(man["glb"]))
@@ -192,7 +194,7 @@ def test_cover_rule_measures_what_the_photos_see_and_pairs_mirror_partners(bake)
     old measure)."""
     rep_ = bake["report"]
     ps = rep_["parts_summary"]
-    assert rep_["below_min_cover"] == [] and rep_["texture_parts"] == list(IN.FT1119_PARTS)
+    assert rep_["below_min_cover"] == [] and rep_["texture_parts"] == list(FT1119_PARTS)
     for a, b in (("Brow_Left", "Brow_Right"), ("Temple_Left", "Temple_Right")):
         assert ps[a]["cover_rule"] == ps[b]["cover_rule"] and ps[a]["cover_rule"]["members"] == sorted([a, b])
         assert ps[a]["cover_rule"]["pooled_source_seen_share"] >= 0.30
@@ -212,10 +214,10 @@ def test_cover_rule_decides_pairs_together():
 def test_below_min_cover_parts_get_no_texture(ft1119_job, outdir, bake):
     """The no-texture path (flat grey, class no_texture, source 0, never protected, left out of texture_parts), forced
     with ``min_cover`` = 0.99 on a small bake (radii given: no knockout)."""
-    r = PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=2,
-                                 log=None, min_cover=0.99, radii_mm={p: 0.3 for p in IN.FT1119_PARTS}, **TH)
+    r = PR.project_photo_texture(ft1119_job, FT1119_PARTS, out_dir=outdir / "strict", tx_per_mm=4.0, workers=2,
+                                 log=None, min_cover=0.99, radii_mm={p: 0.3 for p in FT1119_PARTS}, **TH)
     rep_ = r["report"]
-    assert rep_["below_min_cover"] == list(IN.FT1119_PARTS) and rep_["texture_parts"] == []
+    assert rep_["below_min_cover"] == list(FT1119_PARTS) and rep_["texture_parts"] == []
     blank = r["no_texture"]
     k = r["classes"]
     assert blank.any() and np.all(k[blank] == CLASS_CODES["no_texture"]) and np.all(r["source"][blank] == 0)
@@ -340,7 +342,7 @@ def test_metal_and_highlight_holes_are_reported(bake):
 
 def test_refusals(ft1119_job, outdir):
     with pytest.raises(PR.RefusedError, match="thresholds missing"):
-        PR.project_photo_texture(ft1119_job, IN.FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, print_reg_mm=0.8)
+        PR.project_photo_texture(ft1119_job, FT1119_PARTS, out_dir=outdir, tx_per_mm=TX, print_reg_mm=0.8)
     with pytest.raises(PR.RefusedError, match="lens"):
         PR.project_photo_texture(ft1119_job, ["Lens_Left"], out_dir=outdir, tx_per_mm=TX, **TH)
     with pytest.raises(PR.RefusedError, match="metallic"):
@@ -371,7 +373,7 @@ def test_a4_fill_knockout_known_verdicts(bake):
     hole's own chart and facing class, same photo, magnification within x/: 1.25), reported with its spread as a
     DIAGNOSTIC: it never changes or excuses the verdict. With more holes in the photo texels (step 4's metal / line
     holes) a hole may find no room (reported). Update A4_KNOWN_AT_8 deliberately."""
-    rows = {p: PP.knockout(bake, p) for p in IN.FT1119_PARTS}
+    rows = {p: PP.knockout(bake, p) for p in FT1119_PARTS}
     for p, r in rows.items():
         assert r["hole_source"].startswith("printproof.knockout") and r["method"] == "quilt", p
         assert r["radius_mm"] == bake["radii"][p]
@@ -422,14 +424,14 @@ def test_a4_each_filler_at_its_own_radius(bake):
     from glasses3d.g3d_host.photoprint import fill as FL
     rb = bake["radii_by_method"]
     assert set(rb) == {"quilt", "patchmatch"} and rb["quilt"] == bake["radii"]
-    assert all(rb["quilt"][p] in FL.QUILT_RADII_MM and rb["patchmatch"][p] in FL.RADII_MM for p in IN.FT1119_PARTS)
+    assert all(rb["quilt"][p] in FL.QUILT_RADII_MM and rb["patchmatch"][p] in FL.RADII_MM for p in FT1119_PARTS)
     bm = bake["report"]["fill"]["by_method"]
     assert set(bm) == {"quilt", "patchmatch"} and bm["patchmatch"]["radii_mm"] == rb["patchmatch"]
     assert bake["report"]["fill"]["choice"] == PR.FILL_CHOICE and "owner-selected" in PR.FILL_CHOICE
     got = {}
     for m in ("quilt", "patchmatch"):
         got[m] = {}
-        for p in IN.FT1119_PARTS:
+        for p in FT1119_PARTS:
             r = PP.knockout(bake, p, method=m, radius_mm=rb[m][p])
             assert r["method"] == m and r["radius_mm"] == rb[m][p]
             assert all(h["outside_changed"] == 0 and h["hole_changed"] > 0 for h in r["holes"])
@@ -440,5 +442,5 @@ def test_a4_each_filler_at_its_own_radius(bake):
 @pytest.mark.parametrize("view", ["reference-01.png", "reference-02.png", "reference-03.png", "reference-04.png",
                                   "reference-05.png", "reference-06.png"])
 def test_a2_round_trip_at_16_per_mm(ft1119_job, view):
-    r = PP.round_trip(ft1119_job, view, 16.0, IN.FT1119_PARTS)
+    r = PP.round_trip(ft1119_job, view, 16.0, FT1119_PARTS)
     assert r["pixels"] > 1000 and r["pass"], r

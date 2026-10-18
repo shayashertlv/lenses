@@ -232,7 +232,15 @@ def part_charts(V: np.ndarray, F: np.ndarray, faces: np.ndarray, *, kind: str, t
     charts = []
     strip = np.zeros(len(faces), bool)
     if kind == "strip":
-        sp = SU.strip_param(V, F, faces, ref, cut_dir)
+        try:
+            sp = SU.strip_param(V, F, faces, ref, cut_dir)
+        except ValueError as exc:
+            # Sparse elongated meshes can lack the centreline slices needed for
+            # a strip. Planar charts still cover the same faces under the same A1.
+            charts, info = part_charts(V, F, faces, kind="caps", tx=tx,
+                                      max_aniso=max_aniso, min_grad=min_grad)
+            info["strip_fallback"] = str(exc)
+            return charts, info
         sig, _a3, auv = SU.distortion(V, F, faces, sp["s"], sp["t"])
         an = sig[:, 0] / np.maximum(sig[:, 1], 1e-9)
         maj = np.sign(np.sum(np.sign(auv) * a3 * (an < 2)))

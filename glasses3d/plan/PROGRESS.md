@@ -1,5 +1,47 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 task 7: print and seating generality ($0)
+
+Completed `data/review_20261018/briefs/task7_print_seating.md`. Photo projection, admission, occlusion and calibration
+support now follow each photo's frozen temple opening; absent openings keep authored geometry. Print diagnostics
+report inward/inconsistent winding without repairing it. Mirror UV copies and sparse elongated charts have checked
+fallbacks; one-piece fronts retain separate sides, multi-material UV post-checks inspect every primitive, and bake
+options replay in Blender. Empty gain supports, packed-key overflow and unavailable quilt donors refuse explicitly.
+
+Colour/highlight/calibration rules use measured pigment distributions and explicit reflection evidence. Synthetic
+donor shares improve from **14.44% to 100% for blonde** and **5.09% to 100% for honey**; havana, blue, green, grey,
+white and crystal stay at 100% before painted highlights. Independent colour metrics use the reference-photo palette
+and circular hue excess; thresholds remain unchanged. RGB-only neutral-pigment/glare ambiguity remains disclosed.
+Product/colourway constants moved to test fixtures. Missing FT1119 evidence skips with named paths, or fails when
+explicitly required. The new slow pytest replays the actual production bake and independent audit.
+
+Final accepted-output replay passed: **329.62 s bake / 330.560 s replay**, two inner workers, exact owner PNG SHA
+`ac4280e9d0a2b85696c1d64f7c9508f56d81f2fc2857f7925af58fd844ddd5b4`. Classes/source/tier/layout and gain arrays match;
+all sources remain unchanged. Registration differs only by pre-task removal of historical product-specific prose;
+the test explicitly migrates that expected suffix and compares every registration datum. No runtime change followed
+the successful replay. Historical WP5 A4/A5/B3 failures and the unrun full independent quality proof remain recorded.
+
+Both crystal lenses retain separate groove Booleans; untouched clear supports no longer refuse, n-gon/fan caps are
+recognized, host/Blender translucency rules agree, explicit inspection construction wins, and post-write hide errors
+roll back. Seating stays a report. Fresh WP4 grades before/after are identical: **P2 71/71; P3 34/40; P4 109/112;
+P5 31/32**, with the same report-only/owner-pending/N/A rows and ten historical quality failures. All 262 records and
+four source scenes remain unchanged except one timing value. Native two-lens, cap, material and rollback tests pass.
+
+Full non-print suite: **4,648 passed, 2 skipped, 6 failed in 902.75 s**, 14 workers, `--dist loadfile`. Four timing or
+timeout failures pass alone. The known photo_v1 golden mismatch remains **199 pixels vs 114.24 allowed**. The sixth
+failure was an old default-matte expectation: newly recognized coarse browline lenses correctly select open-frame
+mattes. Both real lens/frame-only variants now retain every empty-input refusal check; **35 tests pass in 4.24 s**.
+Full photoprint: **370 passed, 2 failed in 390.27 s**, four workers, including the passing production pin. The two
+old grey-as-glare assertions now require bad washed prints to fail and preserve explicit reflection-mask checks;
+the entire corrected module passes **20 tests in 65.69 s**. Fresh assembly M1 passed **173.828 s**, 13 requests/tools,
+26 transport receipts, 12 image blobs and 35 AR images; `data/assembly/m1-proof-f4eebbbf/proof.json`.
+
+Complete changes and tests were re-read, with independent reviews of the metric and integration assertions.
+Per-finding locations, failing-old controls, donor table, full run/retry receipts, limitations and commit hash are in
+`data/review_20261018/codex/task7_report.md`. No acceptance threshold or saved hash changed. Logged detached checks
+used BLAS1 and memory-bounded pools without heavy overlap. No paid call, push, root-app/`ar/` change, owner-input edit
+or data/binary commit. No new visual acceptance claimed; actual spend **$0**.
+
 ## 2026-10-18 — Claude accepted M11 task 6 ($0)
 
 Task 6 (`91487b7`) reviewed by Claude: report `data/review_20261018/codex/task6_report.md`; changed assertions in

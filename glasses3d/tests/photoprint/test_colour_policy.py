@@ -1,4 +1,6 @@
 """Geometry-bound donor colour policy: non-warm pigment survives every filter; warm behaviour is preserved."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 from itertools import permutations
 import json
 from types import SimpleNamespace
@@ -129,7 +131,7 @@ def test_accepted_ft_photo_keeps_exact_legacy_donor_masks(ft1119_job, photo):
     from glasses3d.g3d_host.photoprint import inputs as IN
     job = ft1119_job
     view = job.views[photo]
-    occ = TX.OcclusionScene(job, job.part_ids(IN.FT1119_PARTS), TX.decal_geometry(job.sources["glb"], job.mesh.skipped))
+    occ = TX.OcclusionScene(job, job.part_ids(FT1119_PARTS), TX.decal_geometry(job.sources["glb"], job.mesh.skipped))
     fid = occ.scene(job.mesh.V).render(view.camera, view.shape, 1)["face_id"]
     pr = (fid >= 0) & occ.is_print[fid]
     other = (fid >= 0) & ~occ.is_print[fid]

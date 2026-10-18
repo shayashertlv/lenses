@@ -26,6 +26,8 @@ every later bake).
 """
 from __future__ import annotations
 
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
+
 import argparse
 import hashlib
 import json
@@ -54,7 +56,7 @@ SCENE = IN.REPO / "automation/data/blender_agent/studio/jobs/3b8a1c7ae8114868b49
 BAKE = G3D / "data/wp5/ft1119_bake"
 OUT = G3D / "data/wp5/tooltest"
 ROUNDTRIP = G3D / "tests/blender/print_roundtrip.py"
-PARTS = list(IN.FT1119_PARTS)
+PARTS = list(FT1119_PARTS)
 LABEL = ("TOOL TEST: the WP5 FT1119 print attached to a COPY of q001 by g3d.print_uv + g3d.attach_print. "
          "Not a delivered model (Astra builds models; Claude builds tools).")      # the template; see make_label
 PAINTED = "q001_painted_TOOLTEST.glb"

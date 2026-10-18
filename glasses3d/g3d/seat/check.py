@@ -312,12 +312,18 @@ def lens_node_names(nodes, skipped) -> list:
 
 
 def frame_type_for(body, node, meas, frame_type, lower_edge, warnings):
-    """(FrameType or None, source, seat extras): g3d_seat, else the argument, else inferred (None = unknown)."""
+    """(FrameType or None, source, seat extras): inspection argument, else g3d_seat, else inferred."""
     seat = seat_extras(node)
-    if seat.get("frame_type"):
-        name, le, source = seat["frame_type"], seat.get("lower_edge", lower_edge), "g3d_seat"
-    elif frame_type is not None:
+    if frame_type is not None:
         name, le, source = frame_type, lower_edge, "argument"
+        if le is None and name == seat.get("frame_type"):
+            le = seat.get("lower_edge")
+        if seat.get("frame_type") and (name != seat["frame_type"] or
+                (name == "semi_rimless" and le is not None and le != seat.get("lower_edge", "plain"))):
+            warnings.append(f"{body.name}: inspection frame type {name!r} overrides recorded "
+                            f"{seat['frame_type']!r}; the g3d_seat declaration is unchanged")
+    elif seat.get("frame_type"):
+        name, le, source = seat["frame_type"], seat.get("lower_edge", lower_edge), "g3d_seat"
     else:
         name, le, source = infer_frame_type(meas.cls), None, "inferred"
         warnings.append(f"{body.name}: frame type inferred as {name!r} (no g3d_seat extras, no argument)"
@@ -332,7 +338,9 @@ def frame_type_for(body, node, meas, frame_type, lower_edge, warnings):
             ft = rules.frame_type(name) if name is not None else None
     else:
         ft = None
-    if ft is not None and source == "g3d_seat" and isinstance(seat.get("pass_mm"), (int, float)) \
+    same_declaration = ft is not None and ft.name == seat.get("frame_type") and (
+        ft.name != "semi_rimless" or ft.lower_edge == seat.get("lower_edge", "plain"))
+    if ft is not None and same_declaration and isinstance(seat.get("pass_mm"), (int, float)) \
             and isinstance(seat.get("target_mm"), (int, float)) and ft.pass_mm is not None:
         # the declared thresholds may raise the bar (capture_mm above the type's default) but never lower it below
         # PLAN §3's lower bound (review fix round 1: capture_mm 0 wrote acetate pass -0.20, which passed a lens

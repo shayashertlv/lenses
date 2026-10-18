@@ -55,10 +55,11 @@ import bpy
 import numpy as np
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
+from io_scene_gltf2.blender.exp.material import search_node_tree as gltf_nodes
 
 from . import export_glb as EX
 from .seat import check as CK
-from .seat import deform, geom, rules, stations
+from .seat import deform, geom, rules, stations, materials
 from .seat.intervals import DEDUPE_MM, line_intervals
 
 BACKUP_SEAT = " | g3d pre-seat"
@@ -288,27 +289,44 @@ def _role(ob) -> str | None:
 
 
 def material_translucent(mat) -> bool:
-    """§4: transmission > 0.05, alpha < 0.98 or a volume (what the glTF exporter writes as transmission, alpha or
-    KHR_materials_volume)."""
+    """Read only material inputs the installed glTF exporter can export, then use the host's shared rule."""
     if mat is None or mat.node_tree is None:
         return False
-    for n in mat.node_tree.nodes:
-        if n.bl_idname == "ShaderNodeBsdfPrincipled":
-            tw = n.inputs.get("Transmission Weight")
-            al = n.inputs.get("Alpha")
-            if tw is not None and (tw.is_linked or float(tw.default_value) > 0.05):
-                return True
-            if al is not None and (al.is_linked or float(al.default_value) < 0.98):
-                return True
-        if n.bl_idname == "ShaderNodeBsdfGlass":
-            return True
-        if n.bl_idname == "ShaderNodeOutputMaterial" and n.inputs["Volume"].is_linked:
-            return True
-    return False
+    def has_image(socket):
+        # Use the exporter's traversal without its cache: a live material may have changed since the last check.
+        matches = gltf_nodes.from_socket(socket, gltf_nodes.FilterByType(bpy.types.ShaderNodeTexImage))
+        return bool(matches and matches[0].shader_node.image is not None)
+
+    def exported_factor(socket):
+        if socket.socket is None:
+            return 0.0
+        if not socket.socket.is_linked:
+            return float(socket.socket.default_value)
+        constant, _ = gltf_nodes.get_const_from_socket(socket, "VALUE")
+        if constant is not None:
+            # The exporter simplifies linked Value nodes to constants before gathering material extensions.
+            return float(constant)
+        if has_image(socket):
+            factor, _ = gltf_nodes.get_factor_from_socket(socket, "VALUE")
+            return float(factor) if factor is not None else 1.0
+        return 0.0
+
+    tw = gltf_nodes.get_socket(mat.node_tree, "Transmission Weight")
+    alpha = gltf_nodes.get_socket(mat.node_tree, "Alpha")
+    info = gltf_nodes.gather_alpha_info(alpha.to_node_nav() if alpha.socket is not None else None)
+    pbr = {"baseColorFactor": [1, 1, 1, info["alphaFactor"] if info["alphaFactor"] is not None else 1]}
+    if has_image(alpha) or has_image(gltf_nodes.get_socket(mat.node_tree, "Base Color")):
+        pbr["baseColorTexture"] = {"index": 0}
+    ext = {"KHR_materials_transmission": {"transmissionFactor": exported_factor(tw)}}
+    thickness = gltf_nodes.get_socket_from_gltf_material_node(mat.node_tree, "Thickness")
+    if exported_factor(thickness) > 0:
+        ext["KHR_materials_volume"] = {"thicknessFactor": exported_factor(thickness)}
+    return materials.translucent({"alphaMode": info["alphaMode"], "pbrMetallicRoughness": pbr, "extensions": ext})
 
 
 def object_translucent(ob) -> bool:
-    return any(material_translucent(s.material) for s in ob.material_slots if s.material is not None)
+    used = {p.material_index for p in ob.data.polygons} if ob.type == "MESH" else set(range(len(ob.material_slots)))
+    return any(material_translucent(ob.material_slots[i].material) for i in used if i < len(ob.material_slots))
 
 
 def _extras(ob) -> dict:
@@ -816,7 +834,7 @@ def _tool_context(ob, frame_parts, scene, dg, origin, warnings):
 
 def _obstacles(col, lens_name, extra_objs, origin, dg, boxes) -> list:
     """(name, V, T) closed components the grown edge must not enter: the other lenses and the render-visible
-    non-frame objects (temples) near the lens."""
+    objects outside the supplied supporting-frame set (including unlisted frame objects) near the lens."""
     out = []
     for b, n in zip(col["bodies"], col["body_node"]):
         if n["name"] != lens_name:
@@ -1040,7 +1058,7 @@ def seat_lens(lens, frame_parts=None, frame_type=None, capture_mm=None, *, lower
     except Exception as exc:
         # A missing input object is an argument refusal. A lookup failure after writing is a failed transaction
         # like any other exception and must restore the mesh and every newly-created profile artifact.
-        args_error = isinstance(exc, LookupError) and rollback is None
+        args_error = type(exc) is LookupError and rollback is None
         if rollback is not None and ob is not None:
             if profile_started:
                 remove_profile_bpy(ob)
@@ -1144,7 +1162,7 @@ def _apply_profile(ob, kind, ft, near, nodes, origin, dg, rep) -> dict:
     cnt = np.bincount(vid, minlength=len(Vw))
     rim_g = body.source_verts[np.r_[body.fl, body.bl]]
     if (cnt[rim_g] != 1).any():
-        return dict(out, code="E_PROFILE_WALL", message="the rim has duplicate vertices (a UV seam split): weld the "
+        return dict(out, code="E_PROFILE_WALL", message="the rim has unwelded duplicate mesh vertices: weld the "
                                                         "rim before an edge profile")
     raw_of = np.full(len(Vw), -1, np.int64)
     raw_of[vid] = np.arange(len(vid))
@@ -1292,7 +1310,11 @@ def groove_attempt(fob, cutter, lens_ob, origin, solver: str, topo_before: dict,
     any WeightedNormal / Bevel), evaluated, and the acceptance test: closed, chi and components unchanged, removed
     volume = vol(cutter ^ frame) +- 1%, lens ^ frame <= 0.01 mm3. Returns (record, accepted); the modifier stays."""
     from .seat import profile as PR
-    mod = fob.modifiers.get(GROOVE_MODIFIER) or fob.modifiers.new(GROOVE_MODIFIER, "BOOLEAN")
+    mod = next((m for m in fob.modifiers if m.type == "BOOLEAN" and m.name.startswith(GROOVE_MODIFIER)
+                and m.object == cutter), None)
+    if mod is None:
+        # Keep the historical first-modifier name; Blender adds a unique suffix for additional lens cutters.
+        mod = fob.modifiers.new(GROOVE_MODIFIER, "BOOLEAN")
     mod.operation, mod.solver, mod.object = "DIFFERENCE", solver, cutter
     mod.show_viewport = mod.show_render = True
     idx = [i for i, m in enumerate(fob.modifiers) if m.type in ("WEIGHTED_NORMAL", "BEVEL")]
@@ -1355,6 +1377,9 @@ def _crystal_groove(lens_ob, A, near, nodes, origin) -> dict:
         vol0 = geom.signed_volume(before.V, before.T)
         expect = _bool_volume(fob, cutter, "INTERSECT")
         rec = {"part": fob.name, "expected_removed_mm3": round(expect, 4)}
+        if abs(expect) <= 1e-9:
+            out["parts"].append(dict(rec, status="untouched", reason="cutter does not intersect this part"))
+            continue
         ok = False
         for solver in ("EXACT", "MANIFOLD"):
             chk, good = groove_attempt(fob, cutter, lens_ob, origin, solver, tb, vol0, expect)
@@ -1643,8 +1668,6 @@ def hide_eyewire(eyewire, under, hidden_x_range_mm, *, lens=None, margin_mm: flo
         lob[PROP_RANGES] = rj
         rep["seconds"] = round(time.time() - t0, 3)
         return rep
-    except LookupError as exc:
-        return _refuse(rep, "E_ARGS", str(exc).strip("'\""))
     except _Rollback as rb:
         if rb_e is not None:
             _swap_mesh(eob, rb_e)
@@ -1657,6 +1680,7 @@ def hide_eyewire(eyewire, under, hidden_x_range_mm, *, lens=None, margin_mm: flo
         rep.update(status="refused", code=rb.code, message=rb.message, rolled_back=True)
         return rep
     except Exception as exc:
+        rolled_back = rb_e is not None or rb_l is not None
         if rb_e is not None:
             _swap_mesh(eob, rb_e)
             rb_e = None
@@ -1665,7 +1689,9 @@ def hide_eyewire(eyewire, under, hidden_x_range_mm, *, lens=None, margin_mm: flo
             _swap_mesh(lob, rb_l)
             rb_l = None
             _undo_backup(lob, "hide", undo_l)
-        rep.update(status="refused", code="E_INTERNAL", message=f"{type(exc).__name__}: {exc}",
+        args_error = type(exc) is LookupError and not rolled_back
+        rep.update(status="refused", code="E_ARGS" if args_error else "E_INTERNAL",
+                   message=f"{type(exc).__name__}: {exc}", rolled_back=rolled_back,
                    traceback=traceback.format_exc(limit=8))
         return rep
     finally:

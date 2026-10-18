@@ -100,6 +100,8 @@ precedence when the bake reads it; calibration must use a new output directory r
 """
 from __future__ import annotations
 
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
+
 import argparse
 import hashlib
 import io
@@ -126,7 +128,7 @@ ARVIEW = G3D / "arview"
 STOP_TOL = 1.0
 NO_TEXTURE = 10           # classes.png code of a part left without texture (never levelled)
 GRID = ((0.55, 0.75, 0.95), (0.85, 1.0, 1.15))
-PRINT_PART_NAMES = tuple(IN.FT1119_PARTS)
+PRINT_PART_NAMES = tuple(FT1119_PARTS)
 LOG_UNIT = math.log(0.95 / 0.75)   # one grid step in log gain (the search's distance unit) ...
 GAMMA_UNIT = 0.15                  # ... and in gamma
 K_NEAR = 6
@@ -140,7 +142,7 @@ CHROMA_UNIT_SAT = math.log(1.25)   # the chroma stage's distance unit in ln sat 
 CHROMA_UNIT_POWER = 0.3            # ... and in power
 CHROMA_STOP = 0.5                  # the stage stops when the captured worst chroma unit is within this ...
 CHROMA_MAX_ITER = 4                # ... or after this many captures past the probes
-CHROMA_FAMILY = {"chroma_hold": True, "chroma_hue": list(SH.HAVANA_HUE_DEG)}   # fix round 2 of step 6 (method 7 (c))
+CHROMA_FAMILY = {"chroma_hold": True, "chroma_hue": list(legacy_ft1119.HAVANA_HUE_DEG)}  # historical fixture calibration
 ALL_GRADED = ("calibration", "trade-off", "held-out")   # every graded role: the all-pairs chroma minimax
 L_TOL = 2.0                        # the level verdict's window (print_metrics.LEVEL_TOL)
 CONTRAST_UNIT = math.log(1.18) / 2.0     # step 6: ln(std ratio) per "L* unit" of the appearance target
@@ -348,14 +350,13 @@ def chroma_stats(row: dict, pairs, form: str = AL.TARGET) -> list:
 
 
 def hue_terms(row: dict, pair, form: str = AL.TARGET) -> dict:
-    """Fix round 2 of step 6: a pair's hue terms (``print_metrics`` ``appearance['hue']``): hue median AR / photo, the
-    magenta shares and their verdicts."""
+    """A pair's hue median, actual graded foreign-hue window, reference model and verdict."""
     ap = row[AL.key(*pair)][form]["appearance"]
     h = ap.get("hue") or {}
     if not h:
         return {}
-    return {"p50": [h["ar"]["p50"], h["photo"]["p50"]], "magenta": [h["ar"]["magenta_share"], h["photo"]["magenta_share"]],
-            "off_band": [h["ar"]["off_band_share"], h["photo"]["off_band_share"]],
+    return {"p50": [h["ar"]["p50"], h["photo"]["p50"]], "foreign_hue_window": h["foreign_window"],
+            "reference": h["reference"],
             "pass": bool(ap["criteria"].get("hue_p50") and ap["criteria"].get("hue_magenta"))}
 
 

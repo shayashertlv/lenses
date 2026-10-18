@@ -124,17 +124,8 @@ def _primitive_refs(g: Glb) -> list[lens_id.PrimitiveRef]:
 
 
 def _translucent(mat: dict | None) -> bool:
-    """§4: transmission > 0.05, alpha < 0.98 or a volume."""
-    if not isinstance(mat, dict):
-        return False
-    ext = mat.get("extensions") or {}
-    try:
-        if float((ext.get("KHR_materials_transmission") or {}).get("transmissionFactor", 0.0)) > 0.05:
-            return True
-        alpha = float(((mat.get("pbrMetallicRoughness") or {}).get("baseColorFactor") or [1, 1, 1, 1])[3])
-    except (TypeError, ValueError, IndexError):
-        return False
-    return alpha < 0.98 or "KHR_materials_volume" in ext
+    from glasses3d.g3d.seat.materials import translucent
+    return translucent(mat)
 
 
 def world_normals(normals: np.ndarray, world: np.ndarray) -> np.ndarray:

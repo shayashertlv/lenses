@@ -35,7 +35,11 @@ def seat_tools(scene, tool, call, fatal):
     async def seat_lens(ctx: ToolContext, lens: str, frame_type: FrameType, frame_parts: list[str] | None = None,
                         lower_edge: LowerEdge | None = None, capture_mm: float | None = None, dry_run: bool = False):
         """Seat one lens against its actual frame construction, after temple geometry. Crystal/translucent frame
-        materials are detected automatically and receive the V-bevel and groove. UVs are kept. Supports acetate,
+        materials are detected from exported material semantics on used faces. Acetate/metal crystal supports receive
+        a V-bevel and matching groove; translucent browline/semi_rimless supports receive a warning instead.
+        Existing face UVs are kept; newly built profile-wall UVs are unset. Rebuild UVs if those faces need a texture;
+        photo print comes last. A profile
+        requires one lens body, a welded one-ring quad wall and no custom normals. Supports acetate,
         metal, browline, semi_rimless (plain or nylor) and rimless constructions. Refuses unknown types, missing or
         ambiguous lens geometry, invalid rim loops and unsupported support geometry. The complete report
         is in result: seated/already_seated/partial/refused, reasons, warnings and affected geometry. Partial is a
@@ -53,7 +57,7 @@ def seat_tools(scene, tool, call, fatal):
         Args:
             lens: Exact lens object name from scene_summary.
             frame_type: Actual construction: acetate, metal, browline, semi_rimless or rimless.
-            frame_parts: Exact supporting frame object names, or null for visible frame parts.
+            frame_parts: Exact supporting frame object names, or null for visible frame parts; unlisted parts are obstacles.
             lower_edge: For semi_rimless, plain for a shield or nylor for a grooved edge and cord; null uses plain.
             capture_mm: Optional capture target in mm; null uses the construction default. Existing floors apply.
             dry_run: Report the plan without writing geometry or a seat declaration.
@@ -76,9 +80,9 @@ def seat_tools(scene, tool, call, fatal):
             under: Exact overlying frame object names.
             hidden_x_range_mm: One or more [x0, x1] ranges in the asset's millimetres, chosen from the photos.
             lens: Held lens object name, or null to identify it geometrically.
-            margin_mm: Burial margin in mm.
-            ramp_mm: Transition length in mm.
-            lift_max_mm: Maximum permitted lift in mm; a larger required lift is refused.
+            margin_mm: Nonnegative burial margin in mm.
+            ramp_mm: Positive transition length in mm.
+            lift_max_mm: Positive maximum permitted lift in mm; a larger required lift is refused.
             dry_run: Report the plan without changing the scene.
         """
         return await call(ctx, "hide_eyewire", lambda cid: mutate("hide_eyewire", {
@@ -103,7 +107,7 @@ def seat_tools(scene, tool, call, fatal):
         Args:
             lenses: Exact lens object names, or null for every visible lens.
             frame_parts: Supporting frame object names, or null for every visible frame part.
-            frame_type: Optional construction for this inspection; null reads recorded seat declarations.
+            frame_type: Optional construction override for this inspection; null reads recorded seat declarations.
             hidden_x_range_mm: Optional [x0, x1] inspection ranges; null reads recorded hidden ranges.
             lower_edge: Optional semi_rimless plain/nylor construction.
             stations_table: Include the detailed per-station table when diagnosing a failure.

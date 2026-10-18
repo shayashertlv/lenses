@@ -425,14 +425,15 @@ def knockout_holes(canvas_painted: np.ndarray, strip_box, tx: float) -> list[tup
     for ell in KNOCK_BANDS_MM:
         w = ell * tx
         hm = np.zeros_like(R)
-        hm[:, int(cx - w / 2):int(cx + w / 2) + 1] = True
+        hm[:, max(0, int(cx - w / 2)):min(R.shape[1], int(cx + w / 2) + 1)] = True
         hm &= Re
         if hm.sum() > 50:
             out.append((f"band{ell:g}mm", hm))
     cy = float(np.median(ys))
     bw, bh = KNOCK_BLOCK_MM[0] * tx, KNOCK_BLOCK_MM[1] * tx
     hm = np.zeros_like(R)
-    hm[int(cy - bh / 2):int(cy + bh / 2) + 1, int(cx - bw / 2):int(cx + bw / 2) + 1] = True
+    hm[max(0, int(cy - bh / 2)):min(R.shape[0], int(cy + bh / 2) + 1),
+       max(0, int(cx - bw / 2)):min(R.shape[1], int(cx + bw / 2) + 1)] = True
     hm &= Re
     if hm.sum() > 50:
         out.append(("block8x5mm", hm))
@@ -517,7 +518,9 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
         cov = ndimage.uniform_filter(donors.astype(np.float32), size=w, mode="constant")
         cy, cx = np.nonzero((cov >= 0.6) & donors)
     if not len(cy):
-        return {"out": work, "outside_changed": 0, "hole_changed": 0, "candidates": 0, **base}
+        raise ValueError(f"quilt has no usable donor windows at radius {r} px "
+                         f"({base['donor_px']} donors for {base['hole_px']} hole pixels); "
+                         "supply more photographed surface or use a smaller supported patch radius")
     kg = np.sort(rng.choice(len(cy), QUILT_K_MAX, replace=False)) if len(cy) > QUILT_K_MAX else np.arange(len(cy))
     ys, xs = np.nonzero(hole)
     y0, x0 = int(ys.min()), int(xs.min())
@@ -604,8 +607,9 @@ def quilt_call(img: np.ndarray, hole: np.ndarray, donors: np.ndarray, radius: in
     out = work.copy()
     out[hole] = res[hole]
     outside = int((out[~hole] != work[~hole]).any(-1).sum())
-    changed = int((out[hole] != work[hole]).any(-1).sum())
-    return {"out": out, "outside_changed": outside, "hole_changed": changed, "candidates": int(len(D)),
+    changed = int((out[hole] != img[hole]).any(-1).sum())
+    return {"out": out, "outside_changed": outside, "hole_changed": changed, "hole_filled": int(hole.sum()),
+            "candidates": int(len(D)),
             "relaxed": bool(relaxed), "nearest_px": int(left.sum()), "strip_t": sel_t is not None, **base}
 
 
@@ -651,7 +655,7 @@ def fill_call(method: str, img, hole, donors, radius: int, seed: int, tband=None
         if not np.array_equal(joined[~hole], np.asarray(img)[~hole]):
             raise RuntimeError("quilt boundary join changed pixels outside the hole")
         r.update(out=joined, outside_changed=0, boundary_join="slope",
-                 hole_changed=int(np.any(joined[hole] != 0, axis=-1).sum()))
+                 hole_changed=int(np.any(joined[hole] != np.asarray(img)[hole], axis=-1).sum()))
         return r
     if method == "patchmatch":
         r = patchmatch_call(img, hole, donors, radius, seed)

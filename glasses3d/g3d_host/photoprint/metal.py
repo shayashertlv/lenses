@@ -152,7 +152,11 @@ def pigment_arm(image, print_px, other_px, matte, ppm: float, hardware_px=None, 
     sup &= S.acetate_mask(img, colour_policy) & ~(img >= 250).any(-1)
     lum = img.mean(-1)[sup]
     br = pigment_ratio(img, colour_policy)[sup]
-    edges = np.arange(PALE_LUM_MIN, PALE_LUM_MAX + 1e-9, ARM_BIN)
+    # The adaptive model includes the measured light phase. Keeping the old bins for its supported dark
+    # domain preserves the accepted calculation without imposing that domain on a new palette.
+    upper = (max(PALE_LUM_MAX, float(np.ceil(np.percentile(lum, 99) / ARM_BIN) * ARM_BIN) + ARM_BIN)
+             if general and len(lum) else PALE_LUM_MAX)
+    edges = np.arange(PALE_LUM_MIN, upper + 1e-9, ARM_BIN)
     centres = (edges[:-1] + edges[1:]) / 2
     cen = np.full(len(centres), np.nan)
     spr = np.full(len(centres), np.nan)

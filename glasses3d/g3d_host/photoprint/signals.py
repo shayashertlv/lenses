@@ -6,8 +6,8 @@ Ported from the scratch `wp5lib.py` (acetate_mask, source_valid); PORT_REVIEW se
   1 px: the photo pixels that may carry print (glare, metal and background excluded).
 - ``SPECULAR_LUM`` / ``SPECULAR_SAT``: the bright achromatic (specular) colour limits shared by ``gains``,
   ``highlights`` and ``shading``.
-- The assembled print tool fits a geometry-bound ``colour_policy`` first. Its supported warm mode retains those
-  historical masks exactly. General mode admits unclipped pigment of any channel order, including neutral grey;
+- The assembled print tool fits a geometry-bound ``colour_policy`` first. Its supported dark warm domain retains
+  historical masks exactly. General and measured light warm palettes admit unclipped pigment of any channel order;
   geometry, hardware and spatial highlight filters still decide whether an admitted pixel may donate.
 
 The registration signals of step 0 (luminance, warmth, irange, the masked DoG band images ``BandImages``, ``ncc``)
@@ -32,7 +32,7 @@ COLOUR_MIN_SAMPLES = 150
 
 
 def fit_colour_policy(image, support) -> dict:
-    """Choose the historical warm model only when geometry-selected pigment samples support its channel order.
+    """Fit channel order and brightness support before deciding whether the historical domain is applicable.
 
     The caller supplies eroded rendered-print support away from other parts/hardware. Sampling must precede the
     acetate rule: otherwise grey would be excluded before the model could learn that it is pigment. Only chromatic
@@ -53,14 +53,20 @@ def fit_colour_policy(image, support) -> dict:
     bright = sup & (lum >= ACETATE_DARK)
     neutral_share = float(neutral.sum() / max(int(bright.sum()), 1))
     mode = "warm" if count >= COLOUR_MIN_SAMPLES and share >= WARM_SHARE_MIN else "general"
+    # A supported channel order does not establish a dark pigment. Retain the historical calculation only
+    # inside its measured brightness domain; extend the model when the chromatic support has a light phase.
+    # The quantile excludes sparse light outliers and is measured before any pigment rejection.
+    pigment_p90 = float(np.percentile(lum[informative], 90)) if count else None
+    adaptive = mode == "general" or (pigment_p90 is not None and pigment_p90 >= ACETATE_LUM_MAX)
     return {"schema": COLOUR_POLICY_SCHEMA, "mode": mode, "samples": int(sup.sum()),
             "informative_samples": count, "warm_share": share, "neutral_share": neutral_share,
-            "image_pixels_sha256": hashlib.sha256(np.ascontiguousarray(img).tobytes()).hexdigest(),
+            "adaptive": adaptive, "pigment_luminance_p90": pigment_p90,
+            "image_pixels_sha256": hashlib.sha256(memoryview(np.ascontiguousarray(img))).hexdigest(),
             "support_sha256": hashlib.sha256(np.packbits(sup).tobytes()).hexdigest(),
             "support_shape": list(sup.shape),
             "limitations": (["Warm-dominant mixed neutral pigment cannot be distinguished from achromatic glare "
                              "by this colour model; the historical warm masks are retained."]
-                            if mode == "warm" and neutral.any() else []),
+                            if mode == "warm" and not adaptive and neutral.any() else []),
             "reason": "supported warm pigment ordering" if mode == "warm" else
                       "neutral, non-warm, mixed, or insufficient warm evidence"}
 
@@ -71,11 +77,11 @@ def general_colour(policy) -> bool:
     if (not isinstance(policy, dict) or policy.get("schema") != COLOUR_POLICY_SCHEMA
             or policy.get("mode") not in ("warm", "general")):
         raise ValueError("invalid photo print colour policy")
-    return policy["mode"] == "general"
+    return policy["mode"] == "general" or bool(policy.get("adaptive", False))
 
 
 def acetate_mask(img, policy=None) -> np.ndarray:
-    """Pigment candidates: historical warm rule, or finite unclipped RGB under a fitted general policy."""
+    """Pigment candidates: historical supported domain, or finite unclipped RGB under a fitted adaptive policy."""
     f = np.asarray(img, np.float64)
     if general_colour(policy):
         # Geometry establishes that these pixels can be print. Bright/neutral pigment is not intrinsically

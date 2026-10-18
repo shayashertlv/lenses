@@ -31,6 +31,21 @@ GUTTER = PK.GUTTER
 ATLAS_MAX = PK.ATLAS_MAX
 
 
+def replay_options(options: dict | None = None) -> dict:
+    """Validate recorded layout settings; pre-settings bakes used these defaults."""
+    values = {"mirror": True, "atlas_max": ATLAS_MAX}
+    if options is not None:
+        if not isinstance(options, dict) or set(options) - set(values):
+            raise ValueError("layout_options must contain only mirror and atlas_max")
+        values.update(options)
+    if not isinstance(values["mirror"], bool):
+        raise ValueError("layout_options mirror must be a boolean")
+    maximum = values["atlas_max"]
+    if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum <= 0:
+        raise ValueError("layout_options atlas_max must be a positive integer")
+    return values
+
+
 @dataclass
 class PartSpec:
     name: str
@@ -56,6 +71,8 @@ class Layout:
     face_corr: dict = field(default_factory=dict)    # partner part -> correspondence (mirror.find_partner)
     info: dict = field(default_factory=dict)
     report: dict = field(default_factory=dict)
+    # Replay settings live in the print identity, not the historical layout.json.
+    layout_options: dict = field(default_factory=dict)
 
     def uv01(self) -> np.ndarray:
         """glTF texture coordinates (u = x / width, v = y / height; v down, origin at the top-left)."""
@@ -130,9 +147,20 @@ def layout(V: np.ndarray, F: np.ndarray, part: np.ndarray, names: list[str], par
         ch, inf = CH.part_charts(V, F, face_sets[nm], kind=sp.kind, tx=tx, ref=sp.ref, cut_dir=sp.cut_dir)
         per_part[nm] = ch
         info[nm] = inf
-    for b, a in partners.items():
-        per_part[b] = MR.copy_layout(per_part[a], len(face_sets[b]), corrs[b])
-        info[b] = {**info[a], "mirror_of": a}
+    for b, a in list(partners.items()):
+        try:
+            per_part[b] = MR.copy_layout(per_part[a], len(face_sets[b]), corrs[b])
+        except ValueError as exc:
+            # Geometry correspondence alone does not guarantee UV correspondence:
+            # a re-triangulated quad can cross a source chart boundary.
+            del partners[b]
+            del corrs[b]
+            sp = specs[b]
+            per_part[b], info[b] = CH.part_charts(V, F, face_sets[b], kind=sp.kind, tx=tx,
+                                                ref=sp.ref, cut_dir=sp.cut_dir)
+            info[b]["mirror_fallback"] = {"source": a, "reason": str(exc)}
+        else:
+            info[b] = {**info[a], "mirror_of": a}
     order, uvs = [], []
     for nm in parts:
         for k, (kind, fl, uv) in enumerate(per_part[nm]):
@@ -152,7 +180,8 @@ def layout(V: np.ndarray, F: np.ndarray, part: np.ndarray, names: list[str], par
     lay = Layout(faces=np.concatenate(faces_l), uv=np.concatenate(uv_l), chart=np.concatenate(chart_l),
                  part_of=np.concatenate(partof_l), parts=parts, charts=charts_meta, width=packed["width"],
                  height=packed["height"], tx_per_mm=packed["tx_per_mm"], tx_requested=float(tx_per_mm),
-                 partners=partners, face_corr=corrs, info=info)
+                 partners=partners, face_corr=corrs, info=info,
+                 layout_options={"mirror": bool(mirror), "atlas_max": int(atlas_max)})
     lay.report = CK.a1_report(V, F, lay.faces, lay.uv, lay.tx_per_mm,
                               partners=mirror_identity(lay, per_part, V, F, face_sets))
     return lay

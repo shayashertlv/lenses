@@ -78,7 +78,7 @@ from .. import raster
 from .. import texture_utils as T
 from . import metal as MT
 from . import signals as S
-from .inputs import ppm_local
+from .inputs import ppm_local, view_vertices
 from .pose import points
 from .signals import acetate_mask as S_acetate
 
@@ -158,7 +158,7 @@ def decal_geometry(glb_path, skipped: list[str]) -> dict:
     """The GLB primitives the fit mesh skipped (decals), in model mm: {'V', 'F', 'names', 'metallic', 'material'} per
     primitive concatenated (``prim`` = per-face primitive index)."""
     g = glbmod.load(glb_path)
-    Vs, Fs, prim, names, metal, mats = [], [], [], [], [], []
+    Vs, Fs, prim, names, metal, mats, roles = [], [], [], [], [], [], []
     off = 0
     want = set(skipped)
     for p in g.primitives:
@@ -171,13 +171,14 @@ def decal_geometry(glb_path, skipped: list[str]) -> dict:
         prim.append(np.full(len(p.triangles), len(names)))
         off += len(p.positions)
         names.append(p.node_name)
+        roles.append((g.nodes[p.node_index].get('extras') or {}).get('partRole'))
         metal.append(float(pbr.get("metallicFactor", 1.0)))          # glTF default 1.0
         mats.append(m.get("name"))
     if not Vs:
         return {"V": np.zeros((0, 3)), "F": np.zeros((0, 3), np.int64), "prim": np.zeros(0, np.int64), "names": [],
                 "metallic": [], "material": []}
     return {"V": np.vstack(Vs), "F": np.vstack(Fs).astype(np.int64), "prim": np.concatenate(prim), "names": names,
-            "metallic": metal, "material": mats}
+            "metallic": metal, "material": mats, "roles": roles}
 
 
 class OcclusionScene:
@@ -197,17 +198,33 @@ class OcclusionScene:
             self.is_hardware = hw
         self._cache: dict = {}
 
-    def scene(self, V: np.ndarray) -> raster.RasterScene:
-        key = raster.mesh_key(V, self.job.mesh.F, self.job.frame)
+    def scene(self, V: np.ndarray, *, pose=None) -> raster.RasterScene:
+        decal_V = self.decals['V']
+        if pose and len(decal_V):
+            from .. import pose as PO
+            decal_V = decal_V.copy()
+            openings = PO.parse_pose(pose)
+            for pid, role in enumerate(self.decals.get('roles', [])):
+                if role != 'temple':
+                    continue
+                ids = np.unique(self.decals['F'][self.decals['prim'] == pid])
+                if not len(ids):
+                    continue
+                x = (decal_V[ids, 0].min() + decal_V[ids, 0].max()) / 2
+                side = 1 if x > 0 else -1 if x < 0 else 0
+                if side in openings:
+                    angle, axis = openings[side]
+                    decal_V[ids] = PO.rot_about_hinge(decal_V[ids], side, angle, axis)
+        if len(self.decals['F']):
+            VV = np.vstack([V, decal_V])
+            FF = np.vstack([self.job.mesh.F, self.decals['F'] + len(V)])
+        else:
+            VV, FF = V, self.job.mesh.F
+        key = raster.mesh_key(VV, FF, self.job.frame)
         sc = self._cache.get(key)
         if sc is None:
             if len(self._cache) > 4:
                 self._cache.clear()
-            if len(self.decals["F"]):
-                VV = np.vstack([V, self.decals["V"]])
-                FF = np.vstack([self.job.mesh.F, self.decals["F"] + len(V)])
-            else:
-                VV, FF = V, self.job.mesh.F
             sc = raster.RasterScene(VV, FF, self.job.frame)
             self._cache[key] = sc
         return sc
@@ -377,12 +394,14 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
         raise ValueError(f"unknown occluder_rule {occluder_rule!r} (one of {OCCLUDER_RULES})")
     v = job.views[view]
     cam = cam or v.camera
-    V = job.mesh.V if V is None else V
+    V = view_vertices(job, view) if V is None else V
+    opening = getattr(v, 'pose', None)
+    scene = occ.scene(V, pose=opening) if opening else occ.scene(V)
     n = len(tex)
     idx = np.arange(n) if subset is None else np.nonzero(subset)[0]
     P, N = points(V, job.mesh.F, tex.face[idx], tex.bary[idx])
     H, W = v.shape
-    vis_g, uv = T.visible_points(P, N, cam, job.frame, occ.scene(V), (H, W), min_cos=min(min_cos, GRAZE_MIN_COS),
+    vis_g, uv = T.visible_points(P, N, cam, job.frame, scene, (H, W), min_cos=min(min_cos, GRAZE_MIN_COS),
                                  tol_mm=VIS_TOL_MM)
     cos = T.viewing_cosine(P, N, cam, job.frame)
     vis = vis_g & (cos > min_cos)                  # the same first-surface test, donor angles only
@@ -391,7 +410,7 @@ def view_samples(job, tex: Texels, view: str, occ: OcclusionScene, *, cam=None, 
     vi = np.clip(np.round(uv[:, 1]).astype(int), 0, H - 1)
     clip = clipped_mask(v.image)[vi, ui]
     ppm = ppm_local(cam, job.frame, P)
-    rr = occ.scene(V).render(cam, (H, W), 1)
+    rr = scene.render(cam, (H, W), 1)
     fid = rr["face_id"]
     dist = occluder_distance(job, occ, V, cam, (H, W), face_id=fid)
     near = dist[vi, ui] <= margin_mm * ppm

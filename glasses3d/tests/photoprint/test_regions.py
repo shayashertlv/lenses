@@ -1,5 +1,7 @@
 """Rigid groups, regions and stripes on q001 (WP5_DESIGN §5.1): sides by x sign, folds disjoint. The S' tests
 (parallax, hinges) were deleted on 2026-10-13 with step 0's Pose / Deformer; see git tag review-20261013-pre-cleanup."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import numpy as np
 import pytest
 
@@ -20,7 +22,7 @@ def groups(job):
 
 @pytest.fixture(scope="module")
 def regions(job, groups):
-    return RG.build_regions(job, IN.FT1119_PARTS, groups, n_samples=4000)
+    return RG.build_regions(job, FT1119_PARTS, groups, n_samples=4000)
 
 
 def test_sides_come_from_the_x_sign_not_the_names(job, regions):
@@ -51,7 +53,7 @@ def test_temple_groups_by_position(job, groups):
 
 
 def test_regions_cover_parts_and_mark_end_caps_minor(job, regions):
-    for name in IN.FT1119_PARTS:
+    for name in FT1119_PARTS:
         pid = job.part_ids([name])[0]
         faces = np.concatenate([r.faces for r in regions if r.part == pid])
         assert sorted(faces.tolist()) == np.nonzero(job.mesh.part == pid)[0].tolist()

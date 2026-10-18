@@ -234,13 +234,10 @@ CHROMA_REF = 10.0               # C*ab the chroma power pivots on (~ the geometr
                                 # p90, 4.4-5.8 and 15.6-18.5: the pivot lies inside the graded range, so sat stays ~1)
 CHROMA_FLOOR = 1.0              # C*ab below this count as this (a power < 1 would blow up near grey)
 CHROMA_FACTOR_MAX = 4.0         # the per-texel chroma factor never exceeds this
-HAVANA_HUE_DEG = (20.0, 100.0)  # fix round 2 of step 6: the havana hue band (CIELAB h_ab) the lift may act in. Photo 05's
-                                # brow pixels with C* > 4: 83 % in 20-80 deg, 13 % in 0-20 (red-brown), 3 % in 300-360
-                                # (magenta: dark-pixel noise; 0.2 % above C* 8); 100-300 empty
 CHROMA_HUE_TAPER_DEG = 15.0     # ... outside the band the lift falls linearly to none over this many degrees
 
 
-def hue_weight(lab: np.ndarray, band=HAVANA_HUE_DEG, taper: float = CHROMA_HUE_TAPER_DEG) -> np.ndarray:
+def hue_weight(lab: np.ndarray, band, taper: float = CHROMA_HUE_TAPER_DEG) -> np.ndarray:
     """(...,) weight in [0, 1] of CIELAB colours ``lab`` (..., 3): 1 for a hue h_ab inside ``band`` (degrees), falling
     linearly to 0 at ``taper`` degrees outside it (the circular distance to the band's nearer edge)."""
     h = np.degrees(np.arctan2(lab[..., 2], lab[..., 1])) % 360.0
@@ -293,8 +290,8 @@ def level_map(rgb: np.ndarray, level: dict | None) -> np.ndarray:
     bake's was x0.85 at radiance C* 15-25 and x0.74 at 25-60, the luminance map's darkening included) and amplified
     off-hue chroma noise (texels off 20-100 deg with C* > 5: 7.7 % radiance, 14.0 % delivered). Fix round 2 of step 6
     adds two options (``chroma_factor``): ``chroma_hold`` (the factor is never below 1: it lifts low chroma and leaves
-    the saturated tail as the luminance map leaves it) and ``chroma_hue`` (the lift acts only inside the havana hue
-    band). All are calibrated TO THE PHOTOS at their own angles with gain and gamma
+    the saturated tail as the luminance map leaves it) and ``chroma_hue`` (the lift acts only inside the explicitly
+    supplied hue band). All are calibrated TO THE PHOTOS at their own angles with gain and gamma
     (``tests/photoprint/ar_calibrate.py``)."""
     rgb = np.asarray(rgb, float)
     if not level:

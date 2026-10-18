@@ -18,6 +18,8 @@ this build rests on that PROGRESS.md does not record yet (this workflow may not 
 """
 from __future__ import annotations
 
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
+
 import json
 from pathlib import Path
 
@@ -41,7 +43,7 @@ TH = dict(THRESHOLDS)
 def _a2_job(view, tx):
     opt_out_ecoqos()
     job = legacy_ft1119.load_job()
-    return PP.round_trip(job, view, tx, IN.FT1119_PARTS)
+    return PP.round_trip(job, view, tx, FT1119_PARTS)
 
 
 def overview(job, res, path: Path) -> str:

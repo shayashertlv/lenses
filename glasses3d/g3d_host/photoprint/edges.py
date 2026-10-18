@@ -15,6 +15,8 @@ from __future__ import annotations
 import numpy as np
 from scipy import ndimage
 
+from .inputs import view_vertices
+
 EDGE_MEAN_MM = 1.0
 EDGE_P90_MM = 2.5
 MIN_EDGE_PX = 30
@@ -30,7 +32,7 @@ def view_part_edges(job, view: str, part_ids, *, cam=None, V=None, mean_mm: floa
     v = job.views[view]
     cam = cam or v.camera
     H, W = v.shape
-    scene = job.scene(V)
+    scene = job.scene(view_vertices(job, view) if V is None else V)
     r = scene.render(cam, (H, W), 1)
     m, fid = r["mask"], r["face_id"]
     fg = v.matte

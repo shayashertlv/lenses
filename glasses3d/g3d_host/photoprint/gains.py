@@ -71,6 +71,10 @@ def specular(col: np.ndarray) -> np.ndarray:
 
 def median_gain(src: np.ndarray, dst: np.ndarray) -> np.ndarray | None:
     """Per-channel linear-light median ratio dst / src, or None when a channel leaves ``GAIN_CLIP``."""
+    if not np.asarray(src).size or not np.asarray(dst).size:
+        return None
+    if not np.isfinite(src).all() or not np.isfinite(dst).all():
+        return None
     ls = np.median(T.srgb_to_linear(src).reshape(-1, 3), 0)
     ld = np.median(T.srgb_to_linear(dst).reshape(-1, 3), 0)
     if np.any(ls <= 1e-6):
@@ -143,8 +147,9 @@ def pair_gains(tex, samples: dict, views: list[str], label: np.ndarray, *, bound
                     continue
                 ca, cb = samples[views[ia]].col[ma], samples[views[ib]].col[mb]
                 ca, cb = ca[~specular(ca)], cb[~specular(cb)]
+                if min(len(ca), len(cb)) < MIRROR_MIN:
+                    continue
                 g = median_gain(cb, ca)
-                lo, hi = (ia, ib) if ia < ib else (ib, ia)
                 rec = {"a": views[ia], "b": views[ib], "kind": "mirror", "pairs": int(min(len(ca), len(cb))),
                        "regions": [int(ra), int(rb)]}
                 edges.append({**rec, "rejected": f"gain outside {list(GAIN_CLIP)}"} if g is None
@@ -202,10 +207,10 @@ def solve_gains(views: list[str], label: np.ndarray, edges: list[dict], ref: str
         out.setdefault(v, {"gain": [1.0, 1.0, 1.0], "reference": False, "connected": False})
     for v in out:
         sup = [e for e in good if v in (e["a"], e["b"]) and e["a"] in conn and e["b"] in conn]
-        out[v]["support"] = {"edges": [f"{e['a'][-6:-4]}-{e['b'][-6:-4]} {e['kind']} {e['pairs']}" for e in sup],
+        out[v]["support"] = {"edges": [f"{e['a']} - {e['b']} {e['kind']} {e['pairs']}" for e in sup],
                              "n_edges": len(sup), "pairs": int(sum(e["pairs"] for e in sup)),
                              "max_edge_pairs": int(max((e["pairs"] for e in sup), default=0)),
-                             "rejected_edges": [f"{e['a'][-6:-4]}-{e['b'][-6:-4]} {e['kind']} {e['pairs']}"
+                             "rejected_edges": [f"{e['a']} - {e['b']} {e['kind']} {e['pairs']}"
                                                 for e in edges if "gain" not in e and v in (e["a"], e["b"])]}
         out[v]["support"]["thin"] = bool(not out[v].get("reference") and out[v].get("connected")
                                          and len(sup) == 1 and sup[0]["pairs"] < THIN_SUPPORT_PAIRS)
@@ -237,13 +242,13 @@ def support_warnings(chain: dict, grp: dict, lev: dict | None = None) -> list[st
     for v, r in chain.items():
         sup = r.get("support") or {}
         if sup.get("thin"):
-            w.append(f"gains: {v[-6:-4]}'s gain {[round(x, 2) for x in r['gain']]} rests on ONE edge "
+            w.append(f"gains: {v}'s gain {[round(x, 2) for x in r['gain']]} rests on ONE edge "
                      f"({sup['edges'][0]}; < {THIN_SUPPORT_PAIRS} pairs; rejected: {sup.get('rejected_edges')})")
         if not r.get("connected"):
-            w.append(f"gains: {v[-6:-4]} is not connected to the reference (gain 1; rejected edges: "
+            w.append(f"gains: {v} is not connected to the reference (gain 1; rejected edges: "
                      f"{sup.get('rejected_edges')})")
         if r.get("at_clip"):
-            w.append(f"gains: {v[-6:-4]}'s gain {[round(x, 2) for x in r['gain']]} sits at the clip {list(GAIN_CLIP)}")
+            w.append(f"gains: {v}'s gain {[round(x, 2) for x in r['gain']]} sits at the clip {list(GAIN_CLIP)}")
     sat = [g for g in grp.get("groups", []) if g.get("saturated")]
     if sat:
         w.append(f"gains: {len(sat)} stage-2 groups sit at the clip {list(GROUP_CLIP)}: " + ", ".join(
@@ -291,6 +296,7 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     solved again (listed in 'dropped'): one outlier edge (a tiny end face) had pulled the -x temple's 163,123-texel
     outer face to the old clip. Returns {'gain': (n, 3) per texel, 'groups': [...], 'edges': [...], 'mirrors': [...],
     'rejected': [...], 'dropped': [...]}."""
+    _key_bounds(tex, painted, label)
     keys = np.where(painted, tex.region * 64 + np.maximum(label, 0), -1)
     groups = [int(k) for k in np.unique(keys[keys >= 0])]
     gi = {k: i for i, k in enumerate(groups)}
@@ -352,6 +358,8 @@ def group_gains(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
             else:
                 ca, cb = col[pts[ka]], col[pts[kb]]
                 ca, cb = ca[~specular(ca)], cb[~specular(cb)]
+                if min(len(ca), len(cb)) < MIRROR_GROUP_MIN:
+                    continue
                 la, lb = np.median(lin(ca), 0), np.median(lin(cb), 0)
                 if np.any(la <= 1e-6) or np.any(lb <= 1e-6):
                     continue
@@ -459,6 +467,21 @@ def _node_gradients(points: np.ndarray, values: np.ndarray, node: np.ndarray,
     return pinv @ rhs, normal
 
 
+def _key_bounds(tex, painted, label, *, charts=False):
+    """Refuse unsupported packed-key domains before unrelated surfaces can alias."""
+    m = np.asarray(painted, bool)
+    labels = np.asarray(label)[m]
+    if np.any(labels >= 64):
+        raise ValueError("photo print gains require each painted view index below 64")
+    if np.any(np.asarray(tex.region)[m] < 0):
+        raise ValueError("photo print gains require nonnegative painted region indices")
+    if charts:
+        # Negative labels represent the registered mixed-view tier and do not enter the level-field solver.
+        ch = np.asarray(tex.chart)[m & (np.asarray(label) >= 0)]
+        if np.any((ch < 0) | (ch >= 1024)):
+            raise ValueError("photo print gains require each painted chart index in [0, 1024)")
+
+
 def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, ref_label: int | None,
                 pairs: np.ndarray | None = None, *, tx: float = 16.0, cell: int | None = None,
                 w_boundary: float = LEVEL_W_BOUNDARY,
@@ -481,6 +504,7 @@ def level_field(tex, painted: np.ndarray, label: np.ndarray, col: np.ndarray, re
     set), 'nodes', 'boundary_pairs', 'max_abs_log'}."""
     from scipy import sparse
     from scipy.sparse.linalg import spsolve
+    _key_bounds(tex, painted, label, charts=True)
     cell = int(cell or max(2, round(LEVEL_CELL_MM * tx)))
     n = len(col)
     out_gain = np.ones((n, 3))

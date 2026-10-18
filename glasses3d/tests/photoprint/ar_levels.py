@@ -88,6 +88,8 @@ Every row records ``photo_group_share``, ``groups_excluded`` and the weight each
 """
 from __future__ import annotations
 
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
+
 import argparse
 import json
 import math
@@ -103,7 +105,7 @@ from glasses3d.g3d_host.photoprint import inputs as IN
 from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.tests.instruments import print_metrics as PM
 
-PRINT_PARTS = tuple(IN.FT1119_PARTS)
+PRINT_PARTS = tuple(FT1119_PARTS)
 GROUPS = {"brow": ("Brow_Left", "Brow_Right"), "temple": ("Temple_Left", "Temple_Right")}
 PHOTO_ERODE = 2
 FORMS = ("frame", "matched", "print")
@@ -201,7 +203,8 @@ def photo_highlights(job, view: str, cache: dict | None = None) -> np.ndarray:
     """(H, W) bool: the photo's own achromatic highlights (``print_metrics.achromatic_highlight``), in ``cache``."""
     def make():
         img = np.asarray(job.views[view].image)
-        return PM.achromatic_highlight(img.reshape(-1, 3)).reshape(img.shape[:2])
+        support = photo_mask(job, view, PRINT_PARTS, cache)
+        return PM.achromatic_highlight(img.reshape(-1, 3), reference=img[support]).reshape(img.shape[:2])
     return _cached(cache, ("photo_highlights", view), make)
 
 
@@ -298,7 +301,7 @@ def capture_pixels(cap: Path, pose: str, probe: Path | None = None):
         if not (np.array_equal(ppid, pid) and all(np.array_equal(a, b) for a, b in zip(masks, pmasks))):
             raise ValueError(f"{probe}: part-id render at {pose} differs from {cap}'s: not a probe of the same GLB")
         pb = np.asarray(Image.open(Path(probe) / f"{pose}__skin__beauty.png").convert("RGB"))
-        hl = np.concatenate([PM.achromatic_highlight(pb[m]) for m in masks])
+        hl = np.concatenate([PM.achromatic_highlight(pb[m], known_black=True) for m in masks])
     px = np.concatenate([beauty[m] for m in masks])
     gr = np.concatenate([np.full(int(m.sum()), k) for k, m in enumerate(masks)])
     return px, gr, hl
@@ -365,7 +368,7 @@ def band_energies(job, cap: Path, pose: str, short: str, probe: Path | None, occ
     hl = np.zeros(pid.shape[:2], bool)
     if probe is not None:
         pb = np.asarray(Image.open(Path(probe) / f"{pose}__skin__beauty.png").convert("RGB"))
-        hl = PM.achromatic_highlight(pb.reshape(-1, 3)).reshape(pb.shape[:2])
+        hl = PM.achromatic_highlight(pb.reshape(-1, 3), known_black=True).reshape(pb.shape[:2])
     view = f"reference-{short}.png"
     v = job.views[view]
     img = np.asarray(v.image)
@@ -625,8 +628,10 @@ def table(res: dict, names: dict | None = None) -> str:
                             f"{be.get('temple', {}).get('ratio')}" if be else ""))
             hu = ap.get("hue") if ap else None
             if hu:
-                lines.append(f"  {'':<11} {'':<26} hue p50 {hu['ar']['p50']}/{hu['photo']['p50']} magenta "
-                             f"{hu['ar']['magenta_share']}/{hu['photo']['magenta_share']} off 20-100 "
+                window = hu["foreign_window"]
+                lines.append(f"  {'':<11} {'':<26} hue p50 {hu['ar']['p50']}/{hu['photo']['p50']} foreign window "
+                             f"{window['ar_share']}/{window['photo_share']} excess {window['excess']} "
+                             f"centre {window['centre_deg']} deg; outside reference envelope "
                              f"{hu['ar']['off_band_share']}/{hu['photo']['off_band_share']}  appearance pass "
                              f"{ap.get('pass')} {[k for k, v in ap.get('criteria', {}).items() if not v]}")
             if r.get("photo_group_share") is not None:

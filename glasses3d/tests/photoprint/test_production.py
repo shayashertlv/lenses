@@ -1,4 +1,6 @@
 """G1: explicit jobs, runtime independence, frozen-input refusals and parity with independent instruments."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import json
 import subprocess
 import sys
@@ -248,7 +250,7 @@ def test_arbitrary_photo_names_and_absent_roles(ft1119_job, tmp_path):
     views = {f'product_vs_angle_{i}.jpg': replace(v, name=f'product_vs_angle_{i}.jpg')
              for i, v in enumerate(ft1119_job.views.values())}
     job = replace(ft1119_job, views=views)
-    m = Measurements(job, {'frame': IN.FT1119_PARTS})
+    m = Measurements(job, {'frame': FT1119_PARTS})
     assert m.view_name('product_vs_angle_0') == 'product_vs_angle_0.jpg'
     assert all(r['photo'].startswith('product_vs_angle_') for r in m.pair_table(job))
     r = m.measure([tmp_path], pairs=(), tradeoff=(), heldout=())
@@ -310,7 +312,8 @@ def test_dotted_part_names_are_not_truncated():
     palette = [{'name': 'acetate.outer.001', 'rgb': [10, 20, 30]},
                {'name': 'acetate.inner', 'rgb': [50, 60, 70]}]
     image = np.array([[[10, 20, 30], [50, 60, 70]]], np.uint8)
-    assert metrics.ar_frame_mask(image, palette, ['acetate.outer'], tol=0, erode=0).tolist() == [[True, False]]
+    assert metrics.ar_frame_mask(image, palette, ['acetate.outer.001'], tol=0, erode=0).tolist() == [[True, False]]
+    assert not metrics.ar_frame_mask(image, palette, ['acetate.outer'], tol=0, erode=0).any()
     assert not metrics.ar_frame_mask(image, palette, ['acetate'], tol=0, erode=0).any()
 
 

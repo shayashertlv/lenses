@@ -1,4 +1,6 @@
 """Edge gate per (view, part) on FT1119 (WP5_DESIGN §3, D2): the port reproduces the probe's R P6 table."""
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import pytest
 
 from glasses3d.g3d_host.photoprint import edges as ED
@@ -16,7 +18,7 @@ DESIGN = {"01": {"Brow_Left": (0.71, 1.13), "Brow_Right": (0.70, 1.79), "Temple_
 
 @pytest.fixture(scope="module")
 def table(ft1119_job):
-    return ED.edge_table(ft1119_job, ft1119_job.part_ids(IN.FT1119_PARTS))
+    return ED.edge_table(ft1119_job, ft1119_job.part_ids(FT1119_PARTS))
 
 
 def test_edges_reproduce_the_design_table(table):
@@ -37,4 +39,4 @@ def test_admission_follows_the_x_sign(table):
     assert adm[("reference-06.png", "Temple_Left")] and adm[("reference-06.png", "Temple_Right")]
     assert not adm[("reference-06.png", "Brow_Left")] and not adm[("reference-06.png", "Brow_Right")]
     assert all(adm[(v, p)] for v in ("reference-01.png", "reference-02.png", "reference-04.png")
-               for p in IN.FT1119_PARTS)
+               for p in FT1119_PARTS)

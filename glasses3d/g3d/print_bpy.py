@@ -20,7 +20,8 @@ print_uv
   must have the base mesh's corners), shape keys, a mesh shared by several objects, an existing ``layer`` (unless
   ``replace``), more than 8 UV layers, an export the WP3 exporter refuses, a layout failing A1;
 - ``bake`` (a bake directory, its report.json, layout.json or print_manifest.json) reproduces that bake's layout: the
-  density and the part order come from it and the result must have its atlas size and chart boxes (E_BAKE_MISMATCH);
+  density, part order, mirror choice and atlas limit come from it and the result must have its atlas size and chart
+  boxes (E_BAKE_MISMATCH); bakes predating recorded settings use mirror=True and atlas_max=4096;
 - stores ``g3d_print_uv`` (JSON) on each object: layer, texcoord (= uv_layers.find(layer); the exporter re-reads it
   from the exported mesh), tx_per_mm, atlas, parts, geometry_sha, charts_sha, uv_digest, mesh_digest;
 - keeps ``<mesh> | g3d pre-print`` (the mesh as it was, fake user; the earliest backup wins) for remove_print_uv;
@@ -255,12 +256,25 @@ def _world_tris_mm(ob, depsgraph, origin: np.ndarray) -> tuple[np.ndarray, np.nd
 
 
 def _bake_layout(bake) -> dict:
-    """layout.json of a bake (directory, report.json, layout.json or print_manifest.json next to it)."""
+    """Layout and identity settings of a bake; old bakes retain their default settings."""
     p = Path(bake)
     cands = [p / "layout.json"] if p.is_dir() else [p.parent / "layout.json"] if p.name != "layout.json" else [p]
     for c in cands:
         if c.is_file():
-            return json.loads(c.read_text(encoding="utf-8"))
+            lay = json.loads(c.read_text(encoding="utf-8"))
+            records = []
+            for name in ("print_manifest.json", "report.json"):
+                identity = c.parent / name
+                if identity.is_file():
+                    record = json.loads(identity.read_text(encoding="utf-8"))
+                    if name == "report.json":
+                        record = record.get("print_uv") or {}
+                    if "layout_options" in record:
+                        records.append(PU.replay_options(record["layout_options"]))
+            if records and any(r != records[0] for r in records):
+                raise Refusal("E_BAKE_MISMATCH", "the bake report and manifest disagree on layout_options")
+            lay["layout_options"] = records[0] if records else PU.replay_options()
+            return lay
     raise Refusal("E_ARGS", f"bake {bake}: no layout.json found")
 
 
@@ -363,7 +377,7 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
     rep = {"tool": "g3d.print_uv", "status": "failed", "layer": layer, "dry_run": bool(dry_run),
            "parts": [_name(p) for p in _as_list(parts)], "warnings": [], "objects": {}}
     swapped: list = []                                       # (object, original mesh, new mesh)
-    tmpdir = tempfile.TemporaryDirectory(prefix="g3d-print-uv-")
+    tmpdir = tempfile.TemporaryDirectory(prefix="g3d-print-uv-", ignore_cleanup_errors=True)
     tmp = Path(tmpdir.name)
     try:
         if bpy.context.mode != "OBJECT":
@@ -425,7 +439,8 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
         rep["timings"] = {"export_s": round(time.perf_counter() - t, 2)}
         t = time.perf_counter()
         try:
-            lay = PU.layout(V, F, part, gnames, names, tx)
+            options = PU.replay_options(bake_lay.get("layout_options") if bake_lay else None)
+            lay = PU.layout(V, F, part, gnames, names, tx, **options)
         except ValueError as exc:                               # the core cannot lay these parts out
             raise Refusal("E_LAYOUT", f"the print layout core refused: {exc}")
         rep["timings"]["layout_s"] = round(time.perf_counter() - t, 2)
@@ -437,7 +452,8 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
         geo = GM.geometry_sha(V, F, part, gnames, names)
         csha = GM.charts_sha(lay.charts, lay.width, lay.height)
         rep.update(atlas=[lay.width, lay.height], tx_per_mm=lay.tx_per_mm, partners=lay.partners,
-                   charts=len(lay.charts), geometry_sha=geo, charts_sha=csha)
+                   charts=len(lay.charts), geometry_sha=geo, charts_sha=csha,
+                   layout_options=lay.layout_options)
         if bake_lay is not None:
             want = GM.charts_sha(bake_lay["charts"], bake_lay["width"], bake_lay["height"])
             if csha != want:
@@ -516,21 +532,26 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
 
         # ---- post-check: export again
         t = time.perf_counter()
-        after = {p.node: p for p in _export_prims(tmp, "after")}
-        before = {p.node: p for p in prims}
+        after = {(p.node, p.index): p for p in _export_prims(tmp, "after")}
+        before = {(p.node, p.index): p for p in prims}
         rep["timings"]["postcheck_export_s"] = round(time.perf_counter() - t, 2)
         post = {}
         for ob, orig, new in swapped:
             k = new.uv_layers.find(layer)
-            pa, pb = after.get(ob.name), before.get(ob.name)
-            if pa is None or pb is None or k not in pa.texcoords:
+            keys = [key for key in before if key[0] == ob.name]
+            if (not keys or set(keys) != {key for key in after if key[0] == ob.name}
+                    or any(k not in after[key].texcoords for key in keys)):
                 raise Refusal("E_POSTCHECK", f"{ob.name}: TEXCOORD_{k} missing from the export after print_uv")
-            same_pos = np.array_equal(pa.positions_mm[pa.triangles], pb.positions_mm[pb.triangles])
-            uvt = GM.uv_texels(pa, k, lay.width, lay.height)
+            pa, pb = [after[key] for key in keys], [before[key] for key in keys]
+            same_pos = all(np.array_equal(a.positions_mm[a.triangles], b.positions_mm[b.triangles])
+                           for a, b in zip(pa, pb))
+            uvt = np.concatenate([GM.uv_texels(p, k, lay.width, lay.height) for p in pa])
             gf = plans[ob.name]["gf"]
-            uv_err = float(np.abs(uvt - lay.uv[frow[gf]]).max()) if len(pa.triangles) == len(gf) else math.inf
-            na = pa.normals[pa.triangles].astype(np.float64)
-            nb = pb.normals[pb.triangles].astype(np.float64)
+            uv_err = float(np.abs(uvt - lay.uv[frow[gf]]).max()) if len(uvt) == len(gf) else math.inf
+            if not same_pos:
+                raise Refusal("E_POSTCHECK", f"{ob.name}: export after print_uv changed primitive geometry")
+            na = np.concatenate([p.normals[p.triangles] for p in pa]).astype(np.float64)
+            nb = np.concatenate([p.normals[p.triangles] for p in pb]).astype(np.float64)
             cos = np.einsum("tcj,tcj->tc", na, nb) / np.maximum(np.linalg.norm(na, axis=2) * np.linalg.norm(nb, axis=2),
                                                                  1e-30)
             n_err = float(np.degrees(np.arccos(np.clip(cos.min(), -1, 1))))
@@ -559,7 +580,7 @@ def print_uv(parts, *, density="auto", layer: str = LAYER, dry_run: bool = False
             me = ob.data
             info = {"tool": "g3d.print_uv", "layer": layer, "texcoord": me.uv_layers.find(layer),
                     "tx_per_mm": lay.tx_per_mm, "tx_requested": tx, "atlas": [lay.width, lay.height],
-                    "parts": names, "geometry_sha": geo, "charts_sha": csha,
+                    "parts": names, "geometry_sha": geo, "charts_sha": csha, "layout_options": lay.layout_options,
                     "uv_digest": _sha_bytes(_uv_data(me, layer).tobytes()), "mesh_digest": _mesh_digest(me),
                     "polygons_split": rep["objects"][ob.name].get("polygons_split", 0)}
             ob[PROP_UV] = json.dumps(info, sort_keys=True)

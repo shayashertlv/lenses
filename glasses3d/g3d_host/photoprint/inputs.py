@@ -32,13 +32,6 @@ from ..camera import Camera, NormFrame
 from . import signals as S
 
 REPO = Path(__file__).resolve().parents[3]
-# Legacy fixture locations retained for explicit test callers. Runtime entry points never select them.
-FT1119 = {
-    "cameras": REPO / "glasses3d/data/wp3b/ft1119/cameras.json",
-    "glb": REPO / "glasses3d/data/reference/projection/q001.glb",
-    "images": REPO / "automation/data/blender_agent/studio/jobs/d4b716a6afc445f89cbed8beddad4c37/images",
-}
-FT1119_PARTS = ("Brow_Left", "Brow_Right", "Temple_Left", "Temple_Right")   # the acetate (print) parts of q001
 
 
 class InputError(ValueError):
@@ -75,6 +68,7 @@ class View:
     matte: np.ndarray            # (H, W) bool
     camera: Camera               # the WP3b camera (registration starts here)
     sha256: str | None = None
+    pose: dict | None = None     # frozen per-photo temple opening, in model mm/degrees
 
     @property
     def short(self) -> str:
@@ -223,11 +217,38 @@ def face_normals(V: np.ndarray, F: np.ndarray) -> np.ndarray:
     return n / (np.linalg.norm(n, axis=1, keepdims=True) + 1e-12)
 
 
+def view_vertices(job, view: str) -> np.ndarray:
+    """The geometry fitted to this photo; absent openings keep the authored array unchanged."""
+    from .. import pose as PO
+    opening = getattr(job.views[view], 'pose', None)
+    if not opening:
+        return job.mesh.V
+    roles = dict(zip(job.mesh.node_names, job.mesh.part_roles))
+    return PO.posed(job.mesh, opening, roles).V
+
+
 def ppm_local(cam: Camera, frame: NormFrame, P_mm: np.ndarray) -> np.ndarray:
     """Local image px per model mm at points (perspective shrinks with depth along the view axis)."""
     toward = raster.camera_basis(cam)[2]
     zn = frame.to_norm(np.asarray(P_mm, float).reshape(-1, 3)) @ toward
     return cam.scale / frame.extent / (1.0 - cam.perspective * zn)
+
+
+def _recorded_pose(rec: dict) -> dict | None:
+    """Pose from a raw camera record; use the same explicit side/axis contract as a frozen Basis."""
+    from ..pose import parse_pose
+    theta, axes = rec.get('theta_deg'), rec.get('hinge_axis_xz_mm')
+    if theta is None and axes is None:
+        return None
+    if (not isinstance(theta, dict) or not isinstance(axes, dict) or not theta or set(theta) != set(axes)
+            or set(theta) - {'+1', '-1'}):
+        raise InputError('opening angles and hinge axes must name the same explicit sides')
+    pose = {side: {'theta_deg': theta[side], 'axis_xz_mm': axes[side]} for side in theta}
+    try:
+        parse_pose(pose)
+    except (TypeError, KeyError, ValueError) as exc:
+        raise InputError(f'invalid recorded temple pose: {exc}') from exc
+    return pose
 
 
 def load_job(cameras_json: str | Path, *, images_dir: str | Path | None = None,
@@ -262,8 +283,10 @@ def load_job(cameras_json: str | Path, *, images_dir: str | Path | None = None,
             raise InputError(f"{p}: shape {img.shape[:2]} differs from the fitted {rec['shape']}")
         views[name] = View(name=name, kind=str(rec.get("view_kind", "")), image=img,
                            matte=matte_mod.matte(img, mode=rec.get('matte_mode') or 'default'),
-                           camera=Camera.from_dict(rec["camera"]), sha256=sha)
+                           camera=Camera.from_dict(rec["camera"]), sha256=sha, pose=_recorded_pose(rec))
         srcs["images"][name] = {"path": str(p), "sha256": sha, "view_kind": rec.get("view_kind")}
+        if views[name].pose is not None:
+            srcs['images'][name]['pose'] = views[name].pose
     if len(views) < 2:
         raise InputError("fewer than two fitted photos")
     job = Job(mesh=mesh, frame=frame, pivot=pivot, views=views, sources=srcs)
@@ -307,13 +330,15 @@ def job_from_dir(job_dir: str | Path, *, glb: str | Path, basis: str,
                     or fitted.get('image_sha256') != rec['photo_sha256']
                     or fitted.get('shape') != rec['shape'] or fitted.get('view_kind') != rec.get('view_kind')
                     or fitted.get('colourway') != rec.get('colourway')
+                    or fitted.get('theta_deg') != rec.get('theta_deg')
+                    or fitted.get('hinge_axis_xz_mm') != rec.get('hinge_axis_xz_mm')
                     or (fitted.get('matte_mode') or 'default') != (rec.get('matte_mode') or 'default')):
                 raise InputError(f"{rid}: missing or changed fitted camera/photo identity")
             if name in images:
                 raise InputError(f"duplicate basis image: {name}")
             images[name] = {'path': str(frozen.photo_path(rid)), 'sha256': rec['photo_sha256'],
                             'view_kind': rec.get('view_kind'), 'matte_sha256': rec.get('matte_sha256'),
-                            'matte_mode': rec.get('matte_mode', 'default')}
+                            'matte_mode': rec.get('matte_mode', 'default'), 'pose': frozen.pose(rid)}
             # Basis verifies every photo/hash first, even a failed decode. Decode only usable or existing matte
             # evidence here; a retained unreadable photo must not prevent other accepted cameras from painting.
             if frozen.is_usable(rid) or rec.get('matte'):
@@ -322,7 +347,7 @@ def job_from_dir(job_dir: str | Path, *, glb: str | Path, basis: str,
                     raise InputError(f"{rid}: photo/matte shape differs from the frozen basis")
             if frozen.is_usable(rid):
                 views[name] = View(name, str(rec.get('view_kind') or ''), photo, matte, frozen.camera(rid),
-                                   rec['photo_sha256'])
+                                   rec['photo_sha256'], pose=images[name]['pose'])
         if set(images) != set(cameras['images']):
             raise InputError("the basis must contain every attempted photo")
         # Validate every frozen photo/matte/camera above before selecting donors. An alternate colourway

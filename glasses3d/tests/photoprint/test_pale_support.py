@@ -3,6 +3,8 @@
 Controls retain hardware, coherent contamination, neutral highlights and additive-white glints. No photo or
 product coordinates enter the production rule.
 """
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import numpy as np
 from glasses3d.g3d_host.photoprint import metal as MT
 
@@ -61,7 +63,7 @@ def test_top_photo_pigment_seeds_are_reported_separately_from_confirmed_holes(ft
     from glasses3d.g3d_host.photoprint import inputs as IN, texels as TX
     job = ft1119_job
     view = job.views['reference-04.png']
-    occ = TX.OcclusionScene(job, job.part_ids(IN.FT1119_PARTS), TX.decal_geometry(job.sources['glb'], job.mesh.skipped))
+    occ = TX.OcclusionScene(job, job.part_ids(FT1119_PARTS), TX.decal_geometry(job.sources['glb'], job.mesh.skipped))
     fid = occ.scene(job.mesh.V).render(view.camera, view.shape, 1)['face_id']
     holes = MT.donor_holes(view.image, view.matte, fid, occ.is_print, occ.is_hardware, job.ppm(view.name))
     # Frozen source-photo crop identified before the repair, containing two smooth amber patches.

@@ -247,13 +247,15 @@ class Calibrator:
         return out
 
     def hue_terms(self, row: dict, pair, form: str=AL.TARGET) -> dict:
-        """Fix round 2 of step 6: a pair's hue terms (``print_metrics`` ``appearance['hue']``): hue median AR / photo, the
-        magenta shares and their verdicts."""
+        """A pair's hue median, actual graded foreign-hue window, reference model and verdict."""
         ap = row[self.measurements.key(*pair)][form]['appearance']
         h = ap.get('hue') or {}
         if not h:
             return {}
-        return {'p50': [h['ar']['p50'], h['photo']['p50']], 'magenta': [h['ar']['magenta_share'], h['photo']['magenta_share']], 'off_band': [h['ar']['off_band_share'], h['photo']['off_band_share']], 'pass': bool(ap['criteria'].get('hue_p50') and ap['criteria'].get('hue_magenta'))}
+        return {'p50': [h['ar']['p50'], h['photo']['p50']],
+                'foreign_hue_window': h['foreign_window'],
+                'reference': h['reference'],
+                'pass': bool(ap['criteria'].get('hue_p50') and ap['criteria'].get('hue_magenta'))}
 
     def grade(self, cap: Path, job, probe: Path, photos: dict) -> dict:
         """``ar_levels`` rows of one capture, with its residuals per role (``print`` form, and every form)."""

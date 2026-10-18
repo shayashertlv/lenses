@@ -353,6 +353,18 @@ def station_frames(body: LensBody, spacing: float = POINT_SPACING_MM) -> Frames:
                 sel = d < r2
             v = NAc[sel].sum(0)
             n[b0 + kk] = v / max(np.linalg.norm(v), 1e-300)
+    missing = np.linalg.norm(n, axis=1) < .5
+    if missing.any():
+        # A broad cap fan can have no face centroid near a rim station. Its boundary still has an exact adjacent
+        # cap triangle: use that surface normal instead of the zero vector (which reports false exposed edges).
+        cap_edges = {}
+        for face in np.flatnonzero(body.cls == 0):
+            tri = body.T[face]
+            for a, b in zip(tri, np.roll(tri, -1)):
+                cap_edges[tuple(sorted((int(a), int(b))))] = fn[face]
+        for k in np.flatnonzero(missing):
+            seg_k = seg_of[k]
+            n[k] = cap_edges[tuple(sorted((int(loop[seg_k]), int(loop[(seg_k + 1) % nv]))))]
     # tangent: chord between the first loop vertices >= CHORD_MM away on each side
     s2 = np.r_[sv, sv + L]
     kf = np.searchsorted(s2, s + CHORD_MM, side="left") % nv

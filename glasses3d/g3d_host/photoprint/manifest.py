@@ -62,7 +62,8 @@ def print_identity(V, F, part, names, layout) -> dict:
     return {"layer": LAYER, "parts": list(layout.parts), "tx_per_mm": float(layout.tx_per_mm),
             "tx_requested": float(layout.tx_requested), "atlas": [int(layout.width), int(layout.height)],
             "geometry_sha": GM.geometry_sha(V, F, part, names, list(layout.parts)),
-            "charts_sha": GM.charts_sha(layout.charts, layout.width, layout.height)}
+            "charts_sha": GM.charts_sha(layout.charts, layout.width, layout.height),
+            "layout_options": dict(layout.layout_options)}
 
 
 def texture_eligibility(record: dict, parts) -> tuple[list[str], list[str]]:
@@ -81,6 +82,7 @@ def texture_eligibility(record: dict, parts) -> tuple[list[str], list[str]]:
 
 
 def build_manifest(bake_dir, *, label: str | None = None) -> dict:
+    from glasses3d.g3d import printuv as PU
     out = Path(bake_dir).resolve()
     rep = json.loads((out / "report.json").read_text(encoding="utf-8"))
     lay = json.loads((out / "layout.json").read_text(encoding="utf-8"))
@@ -113,6 +115,7 @@ def build_manifest(bake_dir, *, label: str | None = None) -> dict:
             "tx_per_mm": ident["tx_per_mm"], "tx_requested": ident["tx_requested"], "parts": ident["parts"],
             "texture_parts": selected, "no_texture_parts": excluded,
             "layer": ident["layer"], "geometry_sha": ident["geometry_sha"], "charts_sha": ident["charts_sha"],
+            "layout_options": PU.replay_options(ident.get("layout_options")),
             "glb": str(glb_path), "glb_sha256": glb_sha, "mode": rep.get("mode"),
             "label": label or "photo-painted print bake (glasses3d WP5)",
             "identity_recomputed": bool(ident.get("recomputed", False))}
@@ -164,7 +167,8 @@ def expected_corners(man: dict) -> tuple[dict | None, str | None]:
     if man.get("glb_sha256") and _sha(Path(g)) != man["glb_sha256"]:
         return None, f"the bake's GLB {g} changed since the bake: TEXCOORD_k not compared with a layout"
     V, F, part, names = GM.mesh_arrays(GM.read_glb(g))
-    lay = PU.layout(V, F, part, names, list(man["parts"]), float(man["tx_requested"]))
+    lay = PU.layout(V, F, part, names, list(man["parts"]), float(man["tx_requested"]),
+                    **PU.replay_options(man.get("layout_options")))
     if GM.charts_sha(lay.charts, lay.width, lay.height) != man["charts_sha"]:
         return None, "the layout recomputed from the bake's GLB is not the manifest's (charts_sha)"
     fr = lay.face_index(len(F))

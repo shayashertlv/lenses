@@ -20,6 +20,7 @@ CAMERAS = REPO / 'glasses3d/data/wp3b/ft1119/cameras.json'
 STEP0 = REPO / 'glasses3d/data/wp5/ft1119_strip_null/report.json'
 MODEL_SHA = 'af6e9d100fcf7a30ee3862884bff6418f7166a7395c34834559c2da6fcad6cd7'
 APPROVED_PRINT_SHA = 'ac4280e9d0a2b85696c1d64f7c9508f56d81f2fc2857f7925af58fd844ddd5b4'
+HAVANA_HUE_DEG = (20.0, 100.0)  # historical FT1119 calibration band, never a default for other products
 NAMES = ('Brow_Left', 'Brow_Right', 'Eyewire_Left', 'Eyewire_Right', 'Front_hinge_Left', 'Front_hinge_Right',
          'Hinge_screw_Left', 'Hinge_screw_Right', 'Left_inner_brand_print', 'Lens_Left', 'Lens_Right',
          'Nose_pad_Left', 'Nose_pad_Right', 'Pad_mount_Left', 'Pad_mount_Right', 'Pad_stalk_Left', 'Pad_stalk_Right',
@@ -27,6 +28,22 @@ NAMES = ('Brow_Left', 'Brow_Right', 'Eyewire_Left', 'Eyewire_Right', 'Front_hing
          'T_return_Left', 'T_return_Right', 'T_vertical_Left', 'T_vertical_Right', 'Temple_hinge_Left',
          'Temple_hinge_Right', 'Temple_Left', 'Temple_Right')
 NAME_MAP = {name + '.001': name for name in NAMES}
+PRINT_PARTS = ('Brow_Left', 'Brow_Right', 'Temple_Left', 'Temple_Right')
+
+
+def missing_inputs(*, pin=False):
+    """Presence checks only: corrupt or changed local evidence must still fail, never become a skip."""
+    paths = [CAMERAS, STEP0]
+    if CAMERAS.is_file():
+        cameras = json.loads(CAMERAS.read_text(encoding='utf-8'))
+        paths.append(REPO / Path(cameras['model']['path']))
+        paths.extend(REPO / Path(rec['image']) for rec in cameras['images'].values())
+    if pin:
+        paths.append(REPO / 'glasses3d/data/wp5/ar_calibration/calibration.json')
+        accepted = REPO / 'glasses3d/data/wp5/quilt_joins_20261008/slope/bake'
+        paths.extend(accepted / name for name in ('print.png', 'classes.png', 'source.png', 'tier.png',
+                                                  'layout.json', 'registration.json'))
+    return [str(path) for path in paths if not path.is_file()]
 
 
 def sha(path):

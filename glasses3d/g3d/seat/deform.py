@@ -736,8 +736,8 @@ def seat_arrays(Vr: np.ndarray, Tr: np.ndarray, frame_parts: list, ft: rules.Fra
         return res
     if ft.in_range_rule and not ranges:
         res.code = "E_NO_RANGES"
-        res.message = ("browline needs the hidden x-ranges (g3d_hidden_x_ranges_mm from hide_eyewire, or "
-                       "hidden_x_range_mm)")
+        res.message = ("browline needs photo-supported hidden x-ranges: call hide_eyewire first, or record "
+                       "g3d_hidden_x_ranges_mm on the lens/support as a JSON list of [x0, x1] pairs")
         return res
     Vw, vid = geom.weld_exact(Vr)
     fb = factory([(V, T) for _, V, T in frame_parts])

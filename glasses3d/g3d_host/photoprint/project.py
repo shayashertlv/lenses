@@ -428,6 +428,8 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         use_views = [n for n in job.views if views == "all" or n in set(views)]
         pids = job.part_ids(parts)
         names = job.mesh.names
+        from .geometry import winding_report
+        geometry = winding_report(job, pids)
 
         # edges (D2) and regions
         t = time.perf_counter()
@@ -898,7 +900,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         worn_hidden = is_temple_t & np.isin(facing_t, list(WORN_HIDDEN["temple"]))
         source_seen = painted & (label >= 0)               # seen by the painting view, before text / highlight masks
         part_rows = {}
-        warnings = list(warnings_early) + GN.support_warnings(chain, grp, lev)
+        warnings = list(warnings_early) + geometry['warnings'] + GN.support_warnings(chain, grp, lev)
         for p in parts:
             pid = [i for i, nm in enumerate(names) if nm == p]
             sel = np.isin(tex.part, pid)
@@ -1119,7 +1121,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
                   "strip_donors": bool(strip_donors),
                   "text": {k: v for k, v in tm.items() if k not in ("mask", "distance", "see_through_mask")} | {
                       "filled": bool(text_fill.any()), "keep_photo_text": keep_photo_text},
-                  "mirror": mirror_info, "checks": checks, "warnings": warnings,
+                  "mirror": mirror_info, "checks": checks, "warnings": warnings, "geometry": geometry,
                   "classes": CLASS_CODES, "shares": {k: int((klass == v).sum()) for k, v in CLASS_CODES.items()},
                   "timings": timings, "versions": {"numpy": np.__version__, "scipy": scipy.__version__,
                                                    "python": platform.python_version()},

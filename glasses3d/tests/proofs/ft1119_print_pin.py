@@ -3,6 +3,8 @@
 Run once after print sources are frozen: python -m glasses3d.tests.proofs.ft1119_print_pin --out NEW_DIR --workers 12
 The expected PNG hash is fixed by WP5_HANDOFF. No numerical gate, threshold, seed or prior evidence is changed.
 """
+
+from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import argparse
 import json
 from pathlib import Path
@@ -33,7 +35,7 @@ def run(out: Path, workers=12):
     sources.append(FT.REPO / 'glasses3d/g3d_host/fitmesh.py')
     before = {str(path): FT.sha(path) for path in sources}
     t0 = time.perf_counter()
-    result = P.bake_print(job, IN.FT1119_PARTS, out_dir=out / 'bake', thresholds=P.THRESHOLDS,
+    result = P.bake_print(job, FT1119_PARTS, out_dir=out / 'bake', thresholds=P.THRESHOLDS,
                           calibration=calibration, workers=workers, step0_report=fixture['step0'],
                           compare_fill=('patchmatch',))
     audit = PP.audit_outputs(job, result, out / 'bake')

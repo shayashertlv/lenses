@@ -26,8 +26,8 @@ registered overlaps, and single-source mode has none; reported as off).
   raises red only) is a highlight: a hole, filled later (``thin=False`` turns the rule off).
 
 Assembly M4c passes each painting view's geometry-bound colour policy. For general palettes, thin highlights must
-raise all three channels comparably; bright neutral pigment needs local contrast before the absolute specular rule
-may remove it. The supported warm branch retains the accepted historical calculation exactly.
+raise all three channels comparably; bright neutral pigment needs local contrast or near-clipping broad-scale
+contrast before the specular rule may remove it. The supported dark warm domain retains the historical calculation.
 """
 from __future__ import annotations
 
@@ -44,6 +44,16 @@ LOCAL_SIGMA_MM = 0.5
 THIN_HALF_MM = 0.2               # step 6: thin light lines narrower than about 2 x this ...
 THIN_EXCESS = 10.0               # ... at least this many levels over their masked opening ...
 THIN_ACHROMATIC = 0.6            # ... with a blue rise >= 0.6 x the red one
+BROAD_SIGMA_MM = 2.0             # softbox bands are wider than the 0.5 mm witness neighbourhood
+
+
+def _chart_groups(tex, selected):
+    """Atlas neighbours on different charts are not neighbours on the photographed surface."""
+    if not hasattr(tex, "chart"):
+        yield selected
+        return
+    for c in np.unique(tex.chart[selected]):
+        yield selected & (tex.chart == c)
 
 
 def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, tx: float, *,
@@ -67,6 +77,9 @@ def thin_light_lines(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarra
             tG = (ch[1] - MT._masked_open(ch[1], M, fp))[tex.ii, tex.jj]
             rise = np.stack([tR, tG, tB], -1)
             light = (rise.min(-1) > 0) & (rise.min(-1) >= THIN_ACHROMATIC * np.maximum(rise.max(-1), 1e-6))
+            # The measured light pigment phase is not a glint solely because it is narrow and neutral.
+            # Gained colours are used here, so this support follows exposure correction as well.
+            light &= f.mean(-1) > np.percentile(f[sel].mean(-1), 90) + THIN_EXCESS
         else:
             light = tB >= THIN_ACHROMATIC * np.maximum(tR, 1e-6)
         out |= sel & (tw >= THIN_EXCESS) & light
@@ -98,9 +111,24 @@ def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses
     if general.any():
         if tx is None or not np.isfinite(tx) or tx <= 0:
             raise ValueError("general-colour highlight detection requires positive texels per mm")
-        # Bright grey can be pigment. The absolute bright/neutral rule needs local light evidence on these
-        # palettes, rather than deleting a whole phase of the print solely for being achromatic.
-        spec &= ~general | local
+        # Bright grey can be pigment, while a 2-4 mm white band can be glare all the way through its centre.
+        # Measure broad excess independently per painting view; a constant white/grey surface has no excess.
+        broad = np.zeros(len(f), bool)
+        upper_outlier = np.zeros(len(f), bool)
+        for li in np.unique(np.asarray(label)[general]):
+            selected = painted & (np.asarray(label) == li)
+            for sel in _chart_groups(tex, selected):
+                support = tex.image(sel, False, bool).astype(float)
+                light = tex.image(np.where(sel, lum, 0.), 0., float)
+                sg = BROAD_SIGMA_MM * float(tx)
+                mean = ndimage.gaussian_filter(light, sg) / np.maximum(ndimage.gaussian_filter(support, sg), 1e-6)
+                # Near clipping plus broad spatial evidence; neutral colour alone cannot remove pigment.
+                broad |= sel & (lum >= 250. - 2. * BRIGHTER_BY) & (lum - mean[tex.ii, tex.jj] >= BRIGHTER_BY)
+                sg = LOCAL_SIGMA_MM * float(tx)
+                near = ndimage.gaussian_filter(light, sg) / np.maximum(ndimage.gaussian_filter(support, sg), 1e-6)
+                local[sel] = lum[sel] - near[tex.ii[sel], tex.jj[sel]] >= LOCAL_EXCESS
+                upper_outlier |= sel & (lum > np.percentile(lum[sel], 90) + THIN_EXCESS)
+        spec &= ~general | (local & upper_outlier) | broad
     wit = np.zeros(len(f), bool)
     for li, ws in witnesses.items():
         sel = painted & (label == li)
@@ -117,6 +145,10 @@ def flag(tex, painted: np.ndarray, col: np.ndarray, label: np.ndarray, witnesses
         wit |= sel & np.isfinite(lmin) & (lum > lmin + BRIGHTER_BY) & (sat < smin)
     not_local = wit & ~local
     wit &= local
+    if general.any():
+        # An unregistered witness can see another pigment phase. As for specular candidates, a local
+        # difference alone must not remove the painting view's measured neutral pigment phase.
+        wit &= ~general | upper_outlier | broad
     thin_m = (thin_light_lines(tex, painted, f, label, tx, colour_policies=colour_policies)
               if (thin and tx is not None) else np.zeros(len(f), bool))
     m = spec | wit | thin_m

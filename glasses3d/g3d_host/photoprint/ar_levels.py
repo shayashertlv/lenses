@@ -103,7 +103,9 @@ class Measurements:
         parts = self.PRINT_PARTS if parts is None else parts
         v = job.views[view]
         occ = occ or self._occ(job)
-        fid = occ.scene(job.mesh.V).render(v.camera, v.shape, 1)['face_id']
+        vertices = IN.view_vertices(job, view)
+        scene = occ.scene(vertices, pose=v.pose) if getattr(v, 'pose', None) else occ.scene(vertices)
+        fid = scene.render(v.camera, v.shape, 1)['face_id']
         nf = len(job.mesh.F)
         part = np.where((fid >= 0) & (fid < nf), job.mesh.part[np.clip(fid, 0, nf - 1)], -1)
         pr = ndimage.binary_erosion(np.isin(part, job.part_ids(list(parts))), iterations=PHOTO_ERODE)
@@ -128,7 +130,8 @@ class Measurements:
 
         def make():
             img = np.asarray(job.views[view].image)
-            return PM.achromatic_highlight(img.reshape(-1, 3)).reshape(img.shape[:2])
+            support = self.photo_mask(job, view, self.PRINT_PARTS, cache)
+            return PM.achromatic_highlight(img.reshape(-1, 3), reference=img[support]).reshape(img.shape[:2])
         return self._cached(cache, ('photo_highlights', view), make)
 
     def photo_pixels(self, job, view: str, occ=None, cache: dict | None=None):
@@ -194,7 +197,7 @@ class Measurements:
             if not (np.array_equal(ppid, pid) and all((np.array_equal(a, b) for a, b in zip(masks, pmasks)))):
                 raise ValueError(f"{probe}: part-id render at {pose} differs from {cap}'s: not a probe of the same GLB")
             pb = np.asarray(Image.open(Path(probe) / f'{pose}__skin__beauty.png').convert('RGB'))
-            hl = np.concatenate([PM.achromatic_highlight(pb[m]) for m in masks])
+            hl = np.concatenate([PM.achromatic_highlight(pb[m], known_black=True) for m in masks])
         px = np.concatenate([beauty[m] for m in masks])
         gr = np.concatenate([np.full(int(m.sum()), k) for k, m in enumerate(masks)])
         return (px, gr, hl)
@@ -255,7 +258,7 @@ class Measurements:
         hl = np.zeros(pid.shape[:2], bool)
         if probe is not None:
             pb = np.asarray(Image.open(Path(probe) / f'{pose}__skin__beauty.png').convert('RGB'))
-            hl = PM.achromatic_highlight(pb.reshape(-1, 3)).reshape(pb.shape[:2])
+            hl = PM.achromatic_highlight(pb.reshape(-1, 3), known_black=True).reshape(pb.shape[:2])
         view = self.view_name(short)
         v = job.views[view]
         img = np.asarray(v.image)
