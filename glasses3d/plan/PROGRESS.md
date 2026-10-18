@@ -1,5 +1,15 @@
 # glasses3d progress
 
+## 2026-10-18 — Owner decisions recorded by Claude ($0)
+
+- Combined Prada edit (3 mm temples + 60% corners, GLB `f44492b9054f…9fe534`): owner "looks good!". It was a tool
+  test of the M10 edit tools, not a model to deliver (owner: "we were testing the new tools and their optional effects,
+  our goal wasnt to fix the model"). Record: `data/assembly/m10/combined/owner-verdict-combined.json`.
+- Review page size (`arview serve` fits the frame to the face like the live site; REVIEW_20261018 section 7): parked by
+  the owner until the hard technical work is done ("this is stuff to handle after we'll finish the hard technical part").
+- Working method from 2026-10-18: Claude dispatches Codex directly (`codex exec`, full access as the owner allowed);
+  ASSEMBLY M11. Task 1 (`9ef5cea`, `c8a1836`) reviewed by Claude: diff read, 371 new/touched tests rerun, accepted.
+
 ## 2026-10-18 — ASSEMBLY M11 item 1: run endings, money and crash safety ($0)
 
 Completed the six items in `data/review_20261018/briefs/task1_run_endings.md`.
