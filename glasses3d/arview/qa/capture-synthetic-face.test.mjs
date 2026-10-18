@@ -9,7 +9,7 @@ import {FaceSurface} from '../src/render/face-surface.ts';
 import {poseAngles} from '../src/render/pose-stabilizer.ts';
 import {validateDetection} from '../src/face/protocol.ts';
 
-const canonical = JSON.parse(fs.readFileSync(new URL('../../../ar/public/models/canonical-face.json', import.meta.url), 'utf8')).positions;
+const canonical = JSON.parse(fs.readFileSync(new URL('../public/models/canonical-face.json', import.meta.url), 'utf8')).positions;
 
 test('478 landmarks, accepted by the worker protocol; the requested YXZ angles and depth read back exactly', () => {
   for (const pose of [{yaw: 0, pitch: 0, depthCm: 23}, {yaw: 30, pitch: -20, depthCm: 23}, {yaw: -45, pitch: 0, depthCm: 40}, {yaw: 12, pitch: 20, roll: 5, depthCm: 30}]) {

@@ -4,10 +4,11 @@
  *  the camera image as `scene.background`, so Three's physical transmission shows the camera through the crystal.
  *  Pass B redraws the editable arm corridors with the hair blend and no background: Three's transmission pre-pass
  *  would capture the clear colour there and a crystal arm would go dark, and an opaque twin (transmission 0) would
- *  draw the arm opaque in exactly the corridors where an arm lives. The twin here is that opaque clone with the one
+ *  draw the arm opaque in exactly the corridors where an arm lives. The twin here is a clone with the one
  *  chunk that brings the transmitted light replaced: instead of Three's refraction sample it mixes the diffuse term
  *  toward the paired camera texture at this fragment's own pixel, attenuated by the material's volume (the same
- *  Beer-Lambert term the face shadow uses) and weighted by the material's transmission, so the arm shows the camera
+ *  Beer-Lambert term the face shadow uses, scaled by the authored thickness map) and weighted by the material's
+ *  transmission and transmission map, retaining authored alpha blending, so the arm shows the camera
  *  through its tint like it does in pass A. Refraction offsets and roughness blur are not reproduced: the corridor
  *  is narrow and the arm thin, so a straight look-through is what pass A shows there too.
  *
@@ -44,8 +45,8 @@ import {isTranslucentFrameMaterial, registerDerivedMaterial} from '../eyewear/op
 import {volumeAttenuationRgb} from './eyewear-volume.ts';
 import {CRYSTAL_REFLECTION_KNEE, REFLECTION_LIMIT_GLSL, reflectionLimitCall} from './eyewear-reflection.ts';
 
-/** Program cache key suffix. v3: separate canvas and lens-input sources selected by the shared draw-state flag. */
-export const CAMERA_TRANSMISSION_TWIN_KEY = 'camera-transmission-twin-v3';
+/** v4: authored transmission/thickness texture channels and alpha blending survive the twin. */
+export const CAMERA_TRANSMISSION_TWIN_KEY = 'camera-transmission-twin-v4';
 
 /** three 0.185.1 meshphysical.glsl.js: the clearcoat layer's composition, where the look-through is attenuated too. */
 export const TWIN_CLEARCOAT_LAYER = 'outgoingLight = outgoingLight * ( 1.0 - material.clearcoat * Fcc ) + ( clearcoatSpecularDirect + clearcoatSpecularIndirect ) * material.clearcoat;';
@@ -113,7 +114,8 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
   const existing = twins.get(material);
   if (existing) return existing;
   const twin = material.clone();
-  twin.transmission = 0; twin.transmissionMap = null; twin.transparent = false;
+  // Disable Three's transmission prepass only. Keep the authored opacity/alpha blending and both maps.
+  twin.transmission = 0;
   twin.name = `${material.name} (camera transmission twin)`;
   registerDerivedMaterial(twin, material);
   const owned = {
@@ -124,6 +126,28 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
     // The source's current hook: the arm clip, cheek/lens-input, hair occlusion and (overlay clone) relief wrappers.
     material.onBeforeCompile.call(this, shader, backend);
     Object.assign(shader.uniforms, uniforms, owned);
+    // With transmission=0 Three does not generate map UVs or refresh their uniforms. Carry each authored
+    // UV channel/transform explicitly, independently of other texture slots or whether the part is transparent.
+    let mapDeclarations = '', mapSamples = '';
+    const declaredUvChannels = new Set<number>();
+    for (const [name, texture, component] of [['Transmission', material.transmissionMap, 'r'], ['Thickness', material.thicknessMap, 'g']] as const) {
+      if (!texture) continue;
+      if (texture.matrixAutoUpdate) texture.updateMatrix();
+      const uv = texture.channel === 0 ? 'uv' : `uv${texture.channel}`;
+      const map = `twin${name}Map`, varying = `${map}Uv`, transform = `${map}Transform`;
+      shader.uniforms[map] = {value: texture};
+      shader.uniforms[transform] = {value: texture.matrix};
+      shader.vertexShader = `uniform mat3 ${transform}; varying vec2 ${varying};\n`
+        + (texture.channel && !declaredUvChannels.has(texture.channel) ? `#ifndef USE_UV${texture.channel}\nattribute vec2 ${uv};\n#endif\n` : '') + shader.vertexShader;
+      declaredUvChannels.add(texture.channel);
+      shader.vertexShader = replaceOnce(shader.vertexShader, '#include <uv_vertex>', `#include <uv_vertex>\n${varying} = (${transform} * vec3(${uv}, 1.0)).xy;`);
+      mapDeclarations += `uniform sampler2D ${map}; varying vec2 ${varying};\n`;
+      mapSamples += name === 'Transmission'
+        ? `float twinTransmissionWeight = twinTransmission * texture2D(${map}, ${varying}).${component};\n`
+        : `float twinThicknessWeight = texture2D(${map}, ${varying}).${component};\nvec3 twinVolume = twinThicknessWeight > 0.0 ? pow(twinAttenuation, vec3(twinThicknessWeight)) : vec3(1.0);\n`;
+    }
+    const transmission = material.transmissionMap ? 'twinTransmissionWeight' : 'twinTransmission';
+    const attenuation = material.thicknessMap ? 'twinVolume' : 'twinAttenuation';
     let fragment = `uniform sampler2D twinCameraSource;
       uniform sampler2D twinLensSource;
       uniform vec2 twinCameraViewport;
@@ -132,9 +156,10 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
       uniform float twinLensInput;
       uniform vec3 twinAttenuation;
       uniform float twinTransmission;
-      ` + REFLECTION_LIMIT_GLSL + shader.fragmentShader;
+      ` + mapDeclarations + REFLECTION_LIMIT_GLSL + shader.fragmentShader;
     fragment = replaceOnce(fragment, '#include <transmission_fragment>', `vec3 twinThrough = vec3( 0.0 );
       {
+        ${mapSamples}
         // The paired camera at this pixel (linear: the sRGB texture is decoded on sampling), absorbed by the
         // material's volume and tinted by its diffuse colour as Three's transmission is, weighted by the transmission,
         // less what the surface reflects. The body's own lit diffuse keeps the remaining (1 - transmission) share.
@@ -149,8 +174,8 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
           twinCameraRGB = texture2D( twinCameraSource, twinCameraUV ).rgb;
         }
         vec3 twinReflectance = EnvironmentBRDF( geometryNormal, geometryViewDir, material.specularColorBlended, material.specularF90, material.roughness );
-        twinThrough = twinTransmission * ( 1.0 - twinReflectance ) * twinCameraRGB * material.diffuseContribution * twinAttenuation;
-        totalDiffuse *= 1.0 - twinTransmission;
+        twinThrough = ${transmission} * ( 1.0 - twinReflectance ) * twinCameraRGB * material.diffuseContribution * ${attenuation};
+        totalDiffuse *= 1.0 - ${transmission};
       }`);
     // outgoingLight is now the surface's own light only; the coat's Fresnel takes its share of the look-through too.
     fragment = replaceOnce(fragment, TWIN_CLEARCOAT_LAYER, `twinThrough *= 1.0 - material.clearcoat * Fcc;
@@ -160,7 +185,7 @@ export function createCameraTransmissionTwin(material: MeshPhysicalMaterial, uni
     shader.fragmentShader = replaceOnce(fragment, '#include <opaque_fragment>', `outgoingLight = twinThrough + ${reflectionLimitCall('outgoingLight', 'twinThrough', CRYSTAL_REFLECTION_KNEE)};
       #include <opaque_fragment>`);
   };
-  twin.customProgramCacheKey = () => `${sourceKey(material)}|${CAMERA_TRANSMISSION_TWIN_KEY}`;
+  twin.customProgramCacheKey = () => `${sourceKey(material)}|maps:${material.transmissionMap?.channel ?? '-'},${material.thicknessMap?.channel ?? '-'}|${CAMERA_TRANSMISSION_TWIN_KEY}`;
   twin.needsUpdate = true;
   twins.set(material, twin);
   records.set(twin, {source: material, hook: material.onBeforeCompile, key: material.customProgramCacheKey});

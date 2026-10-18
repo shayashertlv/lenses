@@ -13,7 +13,7 @@
  *     /__arview/report.json (serve/report.ts), which the page lists before the camera opens; a check that fails or times
  *     out is an error in that report, never a silent gap.
  *  3. Serves, on 127.0.0.1 only: the build (each file pinned by sha256, re-checked on every request), the public
- *     binaries from ../../ar/public (read-only, pinned the same way; the catalog GLBs there are not served), the model at
+ *     binaries from arview/public (independent pinned cache; test GLBs live outside it), the model at
  *     /__arview/models/<sha256>/<name> with X-Arview-Sha256 and Repr-Digest headers, the external resources it names
  *     (capture/external-resources.ts, shared with arview capture: each read where spec.py reads it, the GLB's folder
  *     joined with Python's unquote(uri), so '100%.png' and '../shared/a.bin' are served while the file exists, with a
@@ -60,7 +60,7 @@ import {verifyPublicAssets} from '../scripts/prepare-assets.mjs';
 
 export const ARVIEW_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const LENSES_ROOT = path.resolve(ARVIEW_ROOT, '..', '..');
-export const AR_PUBLIC = path.join(LENSES_ROOT, 'ar', 'public');
+export const AR_PUBLIC = path.join(ARVIEW_ROOT, 'public');
 export const SERVE_DATA = path.join(LENSES_ROOT, 'glasses3d', 'data', 'arview', 'serve');
 const SCRIPT = fileURLToPath(import.meta.url);
 const STATE_SCHEMA = 'arview.serve-state/1';
@@ -223,7 +223,9 @@ export async function checkInNode(bytes, {url, routes, displayName, sha, clipZM 
       parseTimeoutMs: SERVE_CHECK_TIMEOUT_MS - 10_000,
       plugins: [geometryOnly],
       fetchResource: async resource => {
-        const route = routes.get(new URL(resource).pathname);
+        const requested = new URL(resource);
+        if (requested.origin !== new URL(url).origin) return null;
+        const route = routes.get(requested.pathname);
         return route && !route.missing ? route.bytes.buffer.slice(route.bytes.byteOffset, route.bytes.byteOffset + route.bytes.byteLength) : null;
       }});
     let templeClip = null, error = null;
@@ -282,7 +284,7 @@ async function serve(options) {
   // The pinned public binaries (face and hair models, MediaPipe runtime equal to node_modules'): a mismatch means the page
   // would run something other than what arview was tested with.
   const assets = await verifyPublicAssets(ARVIEW_ROOT);
-  for (const problem of assets.problems) if (!problem.startsWith('ar/qa/')) errors.push(`public asset check: ${problem}`);
+  for (const problem of assets.problems) if (!problem.startsWith('qa/')) errors.push(`public asset check: ${problem}`);
   for (const route of REQUIRED_PUBLIC) {
     if (!publicFiles.has(route)) errors.push(`the public binary ${route} is missing from ${AR_PUBLIC}; the page cannot start the camera pipeline without it`);
   }

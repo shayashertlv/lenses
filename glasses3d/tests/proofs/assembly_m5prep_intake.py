@@ -165,9 +165,8 @@ def run(source, out):
         assert spec.brief == source_brief and spec.photos == source_refs
         request = read(root / "runs" / RUN_ID / "approval-request.json")
         assert A.canonical_json(request["request"]["run_inputs"]) == A.canonical_json(source_binding)
-        A.write_approval(root / "runs" / RUN_ID, max_usd="23",
-                         owner_words="Scripted offline intake proof on an exact copy only; no paid call authorized.",
-                         recorded_by="offline proof")
+        from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
+        approve_offline_request(root / "runs" / RUN_ID, transport.handle, cap="23")
         result = asyncio.run(L.run_astra(spec, scene=scene))
         procs.write_json_atomic(out / "outcome.json", result)
         assert not transport.violations and not transport.unexpected

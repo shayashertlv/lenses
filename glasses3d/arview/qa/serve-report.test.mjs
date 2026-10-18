@@ -235,7 +235,7 @@ test('external resources: read where spec.py reads them (100%.png, ../, links), 
       const warning = uri => result.warnings.find(text => text.startsWith(`external resource "${uri}"`)) ?? '';
       for (const uri of ['../outside/shared.bin', '%2e%2e/outside/shared.bin']) assert.match(warning(uri), /outside the GLB's folder .*served \(spec\.py reads the same file\)/, uri);
       if (linked) assert.match(warning('link/shared.bin'), /\(a link to .*\), outside the GLB's folder/);
-      for (const uri of ['http://example.com/x.bin', '//example.com/x.bin']) assert.match(warning(uri), /absolute URI.*answers it 404, so arview refuses the model/, uri);
+      for (const uri of ['http://example.com/x.bin', '//example.com/x.bin']) assert.match(warning(uri), /absolute URI.*never fetches it, so arview refuses the model/, uri);
       // Each unreadable URI that resolves to a URL is an explicit 404 route (an absolute URI has none).
       assert.deepEqual(result.missingRoutes, [{uri: 'missing.png', route: '/__arview/models/abc/missing.png'},
         {uri: '%zz-missing.png', route: '/__arview/models/abc/%zz-missing.png'}]);

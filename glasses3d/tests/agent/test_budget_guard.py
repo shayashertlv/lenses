@@ -100,6 +100,7 @@ def test_counts_serialized_images_tools_and_schemas_before_reserving(env):
         assert secret not in env.path.read_text(encoding="utf-8")
 
 
+@pytest.mark.timing
 def test_planning_reports_numbers_before_the_cliff_without_changing_cap_or_holds(env):
     guard = BudgetGuard(env.client, env.path, "0.022")
     assert guard.planning() == {"last_counted_input_tokens": None, "max_output_tokens": None,

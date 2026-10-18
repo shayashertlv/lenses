@@ -155,6 +155,7 @@ def test_preferred_without_snapping_names_node_a():
 
 
 @pytest.mark.parametrize("r", [0.3, 0.6, 1.0])
+@pytest.mark.timing
 def test_core_roll_on_preferred_v2(r):
     s = v1_to_v2(_preferred(), snap_mm=None)                     # preferred-v2: the /2 default snapping
     t0 = build_temple(s)

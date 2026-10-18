@@ -274,6 +274,7 @@ result = names
 
 
 # ------------------------------------------------------------------------------------------------ lifecycle
+@pytest.mark.timing
 def test_receipt_identity_and_versions(w):
     r = w.receipt
     assert r["schema"] == "g3d.worker/1" and r["pid"] == w.proc.pid
@@ -432,6 +433,7 @@ def test_exec_static_refusal_never_runs(w):
     assert any("save_checkpoint" in (v["use_instead"] or "") for v in r["violations"])
 
 
+@pytest.mark.timing
 def test_soft_timeout_interrupts_a_python_loop_on_the_same_pid(w):
     t0 = time.perf_counter()
     r = w.call("exec", {"code": "x = 0\nwhile True:\n    x += 1", "soft_timeout_s": 2}, deadline_s=60)
@@ -441,6 +443,7 @@ def test_soft_timeout_interrupts_a_python_loop_on_the_same_pid(w):
     assert w.call("ping")["pid"] == w.proc.pid
 
 
+@pytest.mark.timing
 def test_a_snippet_that_swallows_the_interrupt_is_interrupted_again_and_still_times_out(w):
     code = "n = 0\nwhile n < 2:\n    try:\n        while True:\n            pass\n    except:\n        n += 1\nresult = n"
     t0 = time.perf_counter()
@@ -498,6 +501,7 @@ def test_trusted_paths_are_confined_to_the_job_root(w, tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ hard path
+@pytest.mark.timing
 def test_a_numpy_c_call_takes_the_hard_path(root):
     worker = WorkerClient(root / "hard").start()
     pid = worker.pid

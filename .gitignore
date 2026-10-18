@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.env.*
 *.egg-info/
 dist/
 build/
@@ -67,7 +68,7 @@ lenses_erroca_proposal.*
 .pytest_cache/
 
 # glasses3d: local data, outputs and binaries never enter Git (photos, job data,
-# renders, GLBs, .blend files). Test fixtures are re-included deliberately.
+# renders, models, .blend files). Fixture source code and JSON need no blanket re-include.
 /glasses3d/data/
 /glasses3d/**/output/
 /glasses3d/**/dist/
@@ -82,8 +83,18 @@ lenses_erroca_proposal.*
 /glasses3d/**/*.npz
 /glasses3d/arview/modeling/
 /glasses3d/arview/site/
-!/glasses3d/tests/fixtures/
-!/glasses3d/tests/fixtures/**
-/glasses3d/tests/fixtures/**/*.glb
-/glasses3d/tests/fixtures/**/*.blend
-/glasses3d/tests/fixtures/**/*.blend1
+/glasses3d/**/*.exr
+/glasses3d/**/*.hdr
+/glasses3d/**/*.tif
+/glasses3d/**/*.tiff
+/glasses3d/**/*.bmp
+/glasses3d/**/*.gif
+/glasses3d/**/*.gltf
+/glasses3d/**/*.bin
+/glasses3d/**/*.obj
+/glasses3d/**/*.ply
+/glasses3d/**/*.stl
+/glasses3d/**/*.fbx
+/glasses3d/**/*.mp4
+/glasses3d/**/*.mov
+/glasses3d/**/*.avi

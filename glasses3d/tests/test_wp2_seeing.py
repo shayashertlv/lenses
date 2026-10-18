@@ -82,7 +82,7 @@ def _rw(func, path, _exc):
     func(path)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def job(tmp_path_factory):
     need(PRADA_SCENE.is_file(), f"Prada scene missing: {PRADA_SCENE}")
     need(CAMERAS_JSON.is_file() and PHOTOS.is_dir(), "WP3b Prada cameras / reference photos missing")
@@ -145,6 +145,8 @@ def test_roi_metrics_are_bit_equal_to_native_metrics(job):
 
 
 def test_compare_sheets_crops_and_report(job):
+    baseline = job["seeing"].compare_to_photos(passes=())
+    assert baseline["status"] == "ok", baseline
     r = job["seeing"].compare_to_photos(refs=["reference-03", 6], crops=[
         {"ref": "reference-03", "part": "Temple left"}, {"ref": "reference-06", "box_px": [600, 150, 900, 350]}])
     assert r["status"] == "ok", r
@@ -172,6 +174,7 @@ def test_no_basis_is_e_no_basis(job, tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ renders
+@pytest.mark.timing
 def test_render_views_28_pngs_on_eevee_fingerprint_neutral(job):
     s, see = job["session"], job["seeing"]
     head0, n0 = s.head, len(s.index.checkpoints())
@@ -411,12 +414,21 @@ def test_output_paths_are_confined_to_the_work_folder(job, tmp_path):
 
 
 def test_reads_add_no_checkpoint_and_are_journaled(job):
-    s = job["session"]
-    assert s.fingerprint() == s.head["fingerprint"]
-    kinds = [r["kind"] for r in s.index.checkpoints()]
-    assert kinds.count("save") == 1 and kinds.count("restore") == 1           # only the splay and its restore
-    tools = sorted({p.name.split("-", 1)[1] for p in (job["root"] / "tools").iterdir()})
-    assert {"render_views", "compare_to_photos", "pick_surface_point", "execute_blender_code"} <= set(tools)
+    s, see = job["session"], job["seeing"]
+    before = s.index.checkpoints()
+    head = dict(s.head)
+    tools_dir = job["root"] / "tools"
+    previous = set(tools_dir.iterdir()) if tools_dir.exists() else set()
+    rendered = see.render_views(["front"], passes=("parts",), size_px=256)
+    assert rendered["status"] == "ok", rendered
+    compared = see.compare_to_photos(passes=())
+    assert compared["status"] == "ok", compared
+    picked = see.pick_surface_point("front", [[0, 0]], manifest=rendered["manifest"])
+    assert picked["status"] == "ok", picked
+    assert s.fingerprint() == head["fingerprint"] and s.head == head
+    assert s.index.checkpoints() == before
+    tools = {p.name.split("-", 1)[1] for p in set(tools_dir.iterdir()) - previous}
+    assert tools == {"render_views", "compare_to_photos", "pick_surface_point"}
     assert not s.defects, s.defects
 
 
@@ -431,7 +443,7 @@ def test_matched_compare_needs_a_pose_basis(job):
     assert r["status"] == "error" and r["code"] == "E_ARGS"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def pose_basis(job):
     need(WP6_BASIS.is_file(), "the WP6 v2 basis is missing (tests/proofs/wp6v2_basis.py makes it)")
     doc = json.loads(WP6_BASIS.read_text(encoding="utf-8"))
@@ -547,7 +559,7 @@ def test_every_compare_failure_is_journaled(job, pose_basis, monkeypatch):
     tools = job["root"] / "tools"
 
     def n_calls():
-        return len(list(tools.iterdir()))
+        return len(list(tools.glob("*")))  # a fresh job has no tool journal until its first call
     bad_args = [{"hinge_z_mm": "x"}, {"hinge_z_mm": float("nan")}, {"gains": {"colourways": {}}},
                 {"boxes": {"reference-05": {"box": [0, 0, 10], "k": 1.0}}},
                 {"boxes": {"reference-05": {"box": [0, 0, 10, 10], "k": 2.0}}}, {"boxes": [1, 2]},

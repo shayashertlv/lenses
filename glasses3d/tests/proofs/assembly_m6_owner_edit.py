@@ -239,7 +239,8 @@ async def run_round(root, run_id, plan, phase, out):
     except approvals.ApprovalRefused as exc:
         refused=True
     assert refused, "Every round must need a new approval"
-    approvals.write_approval(root/"runs"/run_id,max_usd="23",owner_words=CONFIRMATION,recorded_by=LABEL+" offline fixture")
+    from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
+    approve_offline_request(root/"runs"/run_id,handle,cap="23")
     outcome=await job_run.execute_run(root,run_id,offline_handler=handle,scene=scene)
     assert not script.transport.unexpected and not script.transport.violations
     assert not any(row.get("type") in {"function_call","function_call_output"}

@@ -1413,9 +1413,9 @@ export class TryOnRenderer {
     const submitStart = performance.now();
     let background: Texture = this.backgroundTexture;
     const shadowStart = performance.now();
-    const shadowsApplied = !!(showEyewear && this.shadowSurfaceValid && v.shadows && this.shadows
+    const wantsShadows = !!(showEyewear && this.shadowSurfaceValid && v.shadows && this.shadows
       && this.shadowSettings.enabled && (this.shadowSettings.frameStrength > 0 || this.shadowSettings.lensStrength > 0));
-    if (shadowsApplied) {
+    if (wantsShadows) {
       if (this.shadowPending || !this.shadowBackground) {
         this.shadows!.setTempleClip(this.templeClip?.configuration ?? null);
         this.shadowBackground = this.shadows!.render(this.camera, this.backgroundTexture, width, height, this.shadowSettings,
@@ -1424,6 +1424,7 @@ export class TryOnRenderer {
       }
       background = this.shadowBackground;
     }
+    const shadowsApplied = background !== this.backgroundTexture;
     const shadowMs = performance.now() - shadowStart;
     this.scene.background = background;
     const protection = this.protectionConfiguration, nose = this.nasalRect;

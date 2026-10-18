@@ -1,5 +1,59 @@
 # glasses3d progress
 
+## Current state — 2026-10-18
+
+The assembled job, specialist, seeing, delivery and owner-edit paths work; M6–M10 implementations are present.
+M11 tasks 1–8 have landed and Claude accepted them. Task 9's tests, arview repairs and document reconciliation
+are complete with passing required checks; its entry below records the evidence. Next action: Claude reviews
+task 9's commit/report.
+No next task or paid run is authorized by this work.
+
+Owner acceptance remains asset-specific: WP5 FT1119 on 2026-10-08 ("Observed-slope join + Poisson is the best, set it
+and mark wp5 as done"), WP6 run 8 on 2026-10-13 ("you know what. im satisfied with wp6, lets wrap this"), and assembled
+Oakley run 4 on 2026-10-15 ("as far as i can see the model is perfect", GLB `98131458…`). Prada has no accepted
+assembled product. The combined M10 copy's 2026-10-18 "looks good!" is a tool-test verdict: "we were testing the new
+tools and their optional effects, our goal wasnt to fix the model". M9.4's owner comparison, assembled FT1119 and the
+three unseen products remain open. The owner parked the review-page authored-size choice until the hard technical
+work is complete. Standing paid terms are high effort and a $20 settled-only cutoff; each run still needs approval.
+Retained technical limits include task 6's partly open CC-12 and open CC-13/17; WP4's ten historical quality failures
+and WP5's A4/A5/B3 limitations remain recorded below.
+
+## 2026-10-18 — ASSEMBLY M11 task 9: suite health, arview and current documents ($0)
+
+Implemented `data/review_20261018/briefs/task9_tests_docs.md`. Seeing/checkpoint/camera tests establish their own
+state; wall-clock gates have a separate serial `timing` pass with unchanged budgets. SDK import failures now fail
+collection. Pricing pins an immutable source revision. Offline proofs use unspendable fixture approvals; M1 creates
+jobs inside its proof workspace. Fixture temporaries clean up; the basis proof fully builds/verifies a candidate
+before publication, retaining/restoring the old directory if the Windows rename sequence fails. Ignore-policy and
+failure-injection tests cover these paths. Requirement files lock the installed Windows CPython 3.12 dependency
+closure with exact wheel hashes; no versions were upgraded. Official hash source, read 2026-10-18:
+`https://pypi.org/pypi/<package>/<version>/json`; a clean-resolution hash-checked dry run resolved 98 packages.
+
+The photo_v1 golden was recaptured with preserved evidence and unchanged tolerance. Replaying the original
+`62b25e4` renderer now differs from the original golden by 33–199 native / 30–232 clay pixels (at most six levels),
+with 0–9 normal pixels: environment drift. Comparing current code with that recapture separately exposed task 8's
+intentional zero-dither numeric-normal change (39,547–65,393 mostly one-level pixels). The new golden is the first
+capture of reviewed task-8 baseline `308f4bf`; its independent repeat differs by at most 11 pixels. Original and both
+old-code captures remain intact. Exact input hashes, Blender build and per-view differences are in
+`data/review_20261018/codex/task9_golden.json` and `task9_golden_task8.json`.
+
+Crystal twins preserve transmission/thickness maps and opacity; shadow reports reflect the pass result. Absolute
+resource URIs are missing without a fetch, QA routes match origin and path, and malformed-GLB agreement cases use
+the stricter answer. Viewer assets/fixtures are an independent SHA-pinned cache sourced from immutable Git objects;
+routine live `ar/` edits cannot change them. Documents now distinguish current implementation, dated plans and owner
+acceptance. README parser contracts cover job/lab/capture/serve commands; `job edit` exposes `--settled-only`.
+
+Verification: root functional **4,838 passed / 2 Windows symlink skips in 1077.65 s** (`-n 8 --dist loadfile`),
+photoprint **369 passed in 408.69 s** (`-n 4 --dist loadfile`), serial timing **29 passed in 266.62 s**. All **5,238**
+collected cases are accounted for: **5,236 passed, 2 environment skips**, no slow-test exclusions. Initial full run
+had one real-lab variant-render failure; saved output/timestamps indicate its unchanged 37.5 s deadline expired
+under load. Its serial proof renders both variants and passes the original image/fingerprint checks. Earlier
+failures remain recorded. Arview **512 unit / 113 QA passed**, check/build exit 0; production capture **35/35** images.
+M1 passed in **169.344 s**, **13** scripted requests/tools, **26** transport files, **12** image blobs, **35** AR images,
+clean receipts; its job is under `data/assembly/m1-proof-3893162f/jobs/`. Per-item changes, limits, evidence and commit
+hash: `data/review_20261018/codex/task9_report.md`. No paid call, push, `ar/`/root-app change or data/binary commit;
+actual spend **$0**. Task 9 awaits Claude's review, not a new product acceptance.
+
 ## 2026-10-18 — Claude accepted M11 task 8 ($0)
 
 Task 8 (`4c5bf5c`) reviewed by Claude: report `data/review_20261018/codex/task8_report.md`. All 77 accepted temple
@@ -4298,12 +4352,13 @@ unapproved; no M5 request has been sent.
 | WP | State |
 |---|---|
 | WP0 / WP1 / WP3 / WP3b | Complete and tested |
-| WP4 | Trusted seating tools integrated and proof refreshed in M4a; all 24 real-product tests pass without stale skips. Quality verdicts remain P2 71/71, P3 34/40 (+2 report), P4 109/112 (+2 pending), P5 31/32 (+1 N/A, +2 report): 10 known quality failures remain failures. Junction captures and photo-derived hide ranges remain unbuilt, outside M4 scope. D4 crystal Boolean choice is recorded in ASSEMBLY; no quality gate was loosened. |
+| WP4 | Integrated seating tools; task 7 refreshed all four product scenes with unchanged P2 71/71, P3 34/40 (+2 report), P4 109/112 (+2 pending), P5 31/32 (+1 N/A, +2 report): ten known quality failures remain. Crystal groove/cap/translucency and rollback repairs are tested. Junction captures exist in arview; photo-derived hide ranges remain outside the completed seating work. No quality gate was loosened. |
 | WP5 | Complete by owner visual acceptance 2026-10-08, FT1119 only: observed-slope join + Poisson is the default (`4304c1d`). Not an all-proofs pass: A4/A5/B3 failures stay recorded ([WP5_HANDOFF](WP5_HANDOFF.md)) |
 | WP6 | **Complete by owner acceptance 2026-10-13** ("you know what. im satisfied with wp6, lets wrap this"), after paid run 8 `facet-astra-008` on the v3 tools ([WP6_V3.md](WP6_V3.md), section "WP6 v3" below). Result: run 8's best checkpoint c0015, revision 25 (`data/wp6v2/viewer/new_astra_run8.glb`). Left open at closing: the hinge-side face reads too faint (built 2.2° off the logo) and Astra's images pile up unlabelled ("Open at closing" below). (v2 stopped by the owner after run 7; v1 retired 2026-10-10, tag `wp6-v1-final`) |
-| WP2 | A–F and all M4 specialist stages assembled and proven offline in M0–M4, including immutable delivery and owner review |
-| WP7 | Implemented and proven in M2 ([WP7_DESIGN.md](WP7_DESIGN.md)); specialist tools and teaching registered and tested in M4 |
-| WP8 | Not started (paid; owner OK per run) |
+| WP2 | A–F and specialist stages assembled; immutable delivery, owner review, M6–M10 edit workflow and M9 fresh-conversation renewal implemented. M11 repairs are in tasks 1–9; task 9 awaits Claude review. |
+| WP7 | Generic loop, specialist teaching and owner-edit capabilities implemented/proven; money transport, renewal and offline simulation repaired in tasks 1/4 ([WP7_DESIGN.md](WP7_DESIGN.md)). |
+| WP8 / M5 | Started: smoke complete, Oakley run 4 owner-accepted 2026-10-15. Prada's six main runs and the accepted M10 tool-test copy are not an accepted assembled product. Assembled FT1119 and three unseen products remain; owner approval required per paid run. |
+| M6–M11 | M6–M10 implementations complete; M9.4 owner comparison remains unrecorded. M11 tasks 1–8 Claude-accepted; task 9 completed and verified, awaiting Claude review. See the current-state block and ASSEMBLY status table. |
 
 ## WP6 v2 build order (WP6_FACETS §6)
 
@@ -4719,6 +4774,19 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
 
 ## Decisions (owner's words verbatim)
 
+Later dated decisions supersede earlier terms only where stated. Run-specific approvals below are historical;
+they grant no standing authority to start another paid run.
+
+- **2026-10-16/17, standing money/effort amendment:** "effort=high, cutoff 20$ reserve doesnt matter" (2026-10-16);
+  "after youre done fixing, rerun. no bs money reserve this time, i dont care about astras possible responses, only as
+  we pass 20$ cutoff the run not a cent before!" (2026-10-17). High effort and settled-only $20 replace the original
+  max-effort/$23-reserve policy. Parent and specialist share the cutoff; the in-flight response may cross $20,
+  with no next request at or above it. Unknown charges still stop spending. Each new paid run needs its own approval.
+- **2026-10-18, coordinator method:** "every token used by you should go managing this project, and you should use
+  codex for the actual labor". Claude dispatches a saved brief and reviews Codex's work before the next task.
+- **2026-10-18, M10 combined copy:** "looks good!"; "we were testing the new tools and their optional effects, our
+  goal wasnt to fix the model". Tool-test acceptance only, not acceptance of an assembled Prada product.
+
 - **2026-10-15, Oakley run 4 visually accepted:** "as far as i can see the model is perfect". Accepted immutable
   GLB SHA `981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`, c0015, run
   `20261015T062433-662a82`; asset-bound ledger verdict `verdict-6cb0c4050a3b47b8bb09c0a7c419ecaa`.
@@ -4751,8 +4819,9 @@ Open at closing (proposed after run 8, not built; the owner closed WP6 without t
   the same labels (checked by eye: 01 front, 02 angled wearer-left, 03 side right, 04 rear, 05 side left, 06 top), the
   owner's original note verbatim as the description, specs `{}`. Brief fix `cdb52a2`: side labels are the wearer's
   side. Run request `20261013T163235-772629`: expected $14.96, range $13.20-$20.12, $20 settled stop, $23 reserve.
-- **2026-10-13, smoke turn pre-approved:** "Yes, cap $1" — one real request on the Oakley job after ASSEMBLY M5-prep
-  items 1-4 pass, $1 settled stop and $1 reserve cap. Oakley run 1 still needs its own OK and estimate.
+- **2026-10-13, smoke turn approved and completed:** "Yes, cap $1" — the one-request Oakley smoke subsequently
+  completed that day under its $1 settled stop/$1 reserve cap. The original requirement for Oakley run 1's separate
+  approval and estimate was also fulfilled later; neither approval is pending or reusable.
 
 - **2026-10-13, WP6 closed:** "you know what. im satisfied with wp6, lets wrap this".
 - **2026-10-13, after run 8:** "the closest triangle to the lenses is not visible since its plane is barely

@@ -247,6 +247,11 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     .map(primitive => primitive.node));
   const isSkinned = (mesh: Mesh): boolean => (mesh as Mesh & {isSkinnedMesh?: boolean}).isSkinnedMesh === true
     || skinnedNodes.has(gltfNodeIndex(mesh, source) ?? -1);
+  const hasMorphTargets = (mesh: Mesh): boolean => {
+    const association = source?.associations.get(mesh);
+    return Object.values(mesh.geometry.morphAttributes).some(attributes => attributes.length > 0)
+      || jsonPrims.some(primitive => primitive.mesh === association?.meshes && primitive.primitive === association?.primitives && primitive.morphTargets);
+  };
   if (json) {
     const users = new Map<number, Set<number>>();
     for (const primitive of jsonPrims) users.set(primitive.mesh, (users.get(primitive.mesh) ?? new Set()).add(primitive.node));
@@ -277,7 +282,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     const bad: string[] = [];
     const position = geometry.getAttribute('position'), index = geometry.getIndex() as IndexAttribute | null;
     if (isSkinned(mesh)) report.refuse('geometry', `${label}: skinned mesh (the model must be static)`);
-    if (Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) report.refuse('geometry', `${label}: morph targets (the model must be static)`);
+    if (hasMorphTargets(mesh)) report.refuse('geometry', `${label}: morph targets (the model must be static)`);
     if (!position || position.itemSize < 3) {
       // Valid glTF that clients skip (a primitive without POSITION): spec.py fails the Format row ("geometry
       // unreadable") and checks the rest, so arview does the same, leaves it out of every measurement, and does not
@@ -336,7 +341,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
     triangleTotal += triangles;
     // A skinned mesh is refused but still measured in its bind pose (spec.py fails the row for skins and measures every
     // primitive that passes the per-primitive checks); morph targets are left out, as spec.py does.
-    if (bad.length || Object.values(geometry.morphAttributes).some(attributes => attributes.length > 0)) {excluded.add(label); continue;}
+    if (bad.length || hasMorphTargets(mesh)) {excluded.add(label); continue;}
     if (!triangles) {report.warn(`${label}: primitive has no triangles`); continue;}
     // Flat at the precision the file stores it in (spec.py DEGENERATE_FLOAT32_ULPS): the height over the longest edge
     // within 8 float32 steps of the triangle's largest coordinate. Never an area in file units: the rule scales with the

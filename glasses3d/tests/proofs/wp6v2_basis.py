@@ -72,6 +72,7 @@ from glasses3d.g3d_host import matte as M
 from glasses3d.g3d_host import pose as P
 from glasses3d.agent import seeing as SEEING
 from glasses3d.g3d_host.camera import Camera
+from glasses3d.tests.proofs.atomic_basis import rebuild_basis
 
 G3D = Path(__file__).resolve().parents[2]
 DATA = G3D / "data"
@@ -259,7 +260,7 @@ def transported_twin(want: dict, src_name: str, src: dict, axis: dict) -> tuple[
     return rec, fg, repro
 
 
-def main() -> dict:
+def build_basis(out: Path, published: Path) -> dict:
     assert sha(GLOSSY) == GLOSSY_SHA, "the glossy WP3b cameras.json changed"
     fits_sha = sha(FITS)
     fits = json.loads(FITS.read_text(encoding="utf-8"))
@@ -271,9 +272,7 @@ def main() -> dict:
     knuckles = knuckle_check(glb_path)
     for k in ("+1", "-1"):
         assert max(abs(v) for v in knuckles[k]["delta_mm"]) <= 0.05, knuckles
-    if OUT.exists():
-        shutil.rmtree(OUT)
-    (OUT / "mattes").mkdir(parents=True)
+    (out / "mattes").mkdir(parents=True)
     axis = {"+1": [AXIS_XZ[0], AXIS_XZ[1]], "-1": [-AXIS_XZ[0], AXIS_XZ[1]]}
     images, photos = {}, {}
     for i in range(1, 7):
@@ -301,7 +300,7 @@ def main() -> dict:
     rgb = M.load_photo(bs)
     side_matte, side_note = MATTES[SUPPLIED_MATTE["black-side"]]
     fg = side_matte(rgb)
-    mp = OUT / "mattes" / "black-side.png"
+    mp = out / "mattes" / "black-side.png"
     Image.fromarray((fg * 255).astype(np.uint8)).save(mp)
     f = fits["black-side"]
     images["black-side.png"] = {
@@ -319,7 +318,7 @@ def main() -> dict:
         rid = C.ref_id(want["image"])
         sources[rid] = C.ref_id(src_name)
         rec, fg, repro[rid] = transported_twin(want, src_name, images[src_name], axis)
-        mp = OUT / rec["matte_file"]
+        mp = out / rec["matte_file"]
         Image.fromarray((fg * 255).astype(np.uint8)).save(mp)
         rec["matte_file_sha256"] = sha(mp)
         images[want["image"]] = rec
@@ -349,9 +348,9 @@ def main() -> dict:
                                      "proofs/wp6v2_basis.py model_check); not the fit IoU (top-level iou), so the gain "
                                      "views are unchanged (seeing.gain_view_rank)"}}
     # 1. a scratch import for the model checks ($0: the compare's raster on the basis's model, no Blender)
-    C.write_json(OUT / "cameras.json", doc)
-    scratch = OUT / "model_check_job"
-    b0 = C.import_cameras_json(scratch, OUT / "cameras.json", photos, reason="WP6 v2 pose basis (model check)")
+    C.write_json(out / "cameras.json", doc)
+    scratch = out / "model_check_job"
+    b0 = C.import_cameras_json(scratch, out / "cameras.json", photos, reason="WP6 v2 pose basis (model check)")
     mesh = fitmesh.load_fit_mesh(glb_path, skip=tuple(b0.skip), frame=b0.frame)
     roles = P.part_roles(glb_path)
     checks = {}
@@ -371,21 +370,26 @@ def main() -> dict:
         t = rec["transport"]
         assert t["mean_bidirectional_px"] <= 1.5 and t["mask_iou_after_warp"] >= 0.98, (rid, t["target_matte"])
     # 2. the basis itself, imported into the check job
-    C.write_json(OUT / "cameras.json", doc)
-    check = OUT / "check_job"
-    b = C.import_cameras_json(check, OUT / "cameras.json", photos, reason="WP6 v2 pose basis (proof import)")
+    C.write_json(out / "cameras.json", doc)
+    check = out / "check_job"
+    b = C.import_cameras_json(check, out / "cameras.json", photos, reason="WP6 v2 pose basis (proof import)")
     poses = {rid: b.pose(rid) for rid in b.refs}
     assert all(poses.values()), poses
     assert [rid for rid in b.refs if b.colourway(rid) == "variant"] == ["black-side", "black-angled", "black-front"]
     for rid in sources:
         assert b.refs[rid]["fit"]["iou"] is None and b.refs[rid]["matte_note"] == MATTES["white_background"][1]
-        supplied = np.asarray(Image.open(OUT / "mattes" / f"{rid}.png").convert("L")) > 127
+        supplied = np.asarray(Image.open(out / "mattes" / f"{rid}.png").convert("L")) > 127
         assert np.array_equal(b.matte(rid), supplied), rid
     assert b.refs["black-side"]["matte_note"] == MATTES["dark_studio"][1]
     from glasses3d.agent.seeing import Seeing          # the gain views: unchanged by the twins (seeing.gain_view_rank)
     gain_views = {cw: g["rid"] for cw, g in Seeing.gain_views(b, (0.0, 0.0, 0.0))[0].items()}
     assert gain_views == {"target": "reference-04", "variant": "black-side"}, gain_views
-    rep = {"cameras_json": str(OUT / "cameras.json"), "cameras_json_sha256": sha(OUT / "cameras.json"),
+    # Source metadata describes the published location. Frozen photo paths are
+    # absolute external inputs; cameras, mattes and overlays are basis-relative.
+    for imported in (b0, b):
+        imported.meta['source'] = f"imported {published / 'cameras.json'}"
+        C.write_json(imported.dir / 'basis.json', imported.meta)
+    rep = {"cameras_json": str(published / "cameras.json"), "cameras_json_sha256": sha(out / "cameras.json"),
            "fits_sha256": fits_sha, "glossy_sha256": GLOSSY_SHA, "knuckle_check": knuckles,
            "refs": {rid: {"theta_deg": b.theta(rid), "colourway": b.colourway(rid), "fg_px": r["fg_px"],
                           "matte_mode": r["matte_mode"], "matte_note": r.get("matte_note"),
@@ -400,8 +404,12 @@ def main() -> dict:
                                     "records' model_check, their source photos' and black-side's are for comparison",
                             **checks},
            "probe_reproduction": repro, "gain_views": gain_views, "basis_notes": b.meta["notes"]}
-    C.write_json(OUT / "report.json", rep)
+    C.write_json(out / "report.json", rep)
     return rep
+
+
+def main() -> dict:
+    return rebuild_basis(OUT, build_basis)
 
 
 if __name__ == "__main__":

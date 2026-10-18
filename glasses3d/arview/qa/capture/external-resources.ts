@@ -23,6 +23,8 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import {LoaderUtils} from 'three';
+import {isAbsoluteUri} from '../../src/model/glb.ts';
+export {isAbsoluteUri} from '../../src/model/glb.ts';
 
 /** Media types of glTF external resources (buffers and images); anything else is application/octet-stream. */
 export const RESOURCE_CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({'.bin': 'application/octet-stream', '.png': 'image/png',
@@ -47,12 +49,6 @@ export function pythonUnquote(text: string): string {
     }
     return decoder.decode(Uint8Array.from(bytes));
   });
-}
-
-/** An absolute URL: a scheme ('http:', 'file:', a drive letter 'C:') or a network path ('//host/...'). The page cannot
- *  fetch it from the loopback server, so neither tool serves it. */
-export function isAbsoluteUri(uri: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(uri) || uri.startsWith('//') || uri.startsWith('\\\\');
 }
 
 /** The pathname arview's loader requests for `uri` when the model is served at `modelPath` (load.ts: resourceBase, then
@@ -129,7 +125,7 @@ export async function resolveExternalResources(glbPath: string, uris: readonly s
   const missing = (uri: string, why: string, route: string | null = null): void => {
     result.unreadable.push(uri);
     if (route !== options.modelPath) {
-      result.warnings.push(`external resource "${uri}" ${why}; ${options.tool} answers it 404${route ? ` (at ${route})` : ''}, so arview refuses the model `
+      result.warnings.push(`external resource "${uri}" ${why}; ${route ? `${options.tool} answers it 404 (at ${route})` : 'arview never fetches it'}, so arview refuses the model `
         + '(§1 Format: a missing external resource)');
     }
     if (route === null) return;

@@ -1,7 +1,7 @@
 """$0 assembly proof: actual Blender photos, new job, scripted SDK, fitted cameras, AR and delivery.
 
 Run with the repository Python, as a module. All provider transports are mocked and non-loopback network is refused.
-Artifacts are retained under data/assembly and data/jobs. No product-specific runtime inputs are used.
+Artifacts and synthetic jobs are retained under data/assembly only. No product-specific runtime inputs are used.
 """
 from __future__ import annotations
 
@@ -274,9 +274,10 @@ def run():
     viewfile.write_text(json.dumps({name: {"kind": values[0], "side": "left" if name == "side.png" else None}
                                    for name, values in TRUTH.items()}), encoding="utf-8")
     created = cli.dispatch(cli.parser().parse_args([
-        "job", "create", "--images", str(photos), "--views", str(viewfile), "--name", "Synthetic assembly proof",
+        "job", "--jobs-root", str(work / "jobs"), "create", "--images", str(photos), "--views", str(viewfile), "--name", "Synthetic assembly proof",
         "--description", "Procedural wrapped elliptical frame, dark lenses, two temples and one nose pad."]))
     job = Path(created["path"])
+    assert job.resolve().is_relative_to((work / "jobs").resolve()), job
     replies = [replay.tool_call("execute_blender_code", {"code": code, "soft_timeout_s": 120, "label": "build"}),
                replay.tool_call("scene_summary", {"objects": None}),
                replay.tool_call("fit_cameras", {"reason": "Fit the rebuilt truth geometry to all rendered photos", "refs": None, "workers": None}),

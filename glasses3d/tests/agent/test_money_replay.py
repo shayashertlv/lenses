@@ -19,7 +19,7 @@ import sys
 import httpx2
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents.items import ModelResponse  # noqa: E402
 from agents.usage import Usage  # noqa: E402
 

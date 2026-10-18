@@ -183,6 +183,51 @@ class Glb:
             return np.maximum(out, -1.0) if info.min < 0 else out
         return arr.astype(np.float64) if dtype.kind == "f" else arr.astype(np.int64)
 
+    def validate_loaded_references(self) -> None:
+        """Reject dangling attributes and overlong reached views, including semantics this reader never decodes.
+
+        A browser cannot load these primitives faithfully. Check only default-scene references; missing external
+        bytes retain the spec validator's existing missing-resource report. Compression still stays bounds-only.
+        """
+        accessors = self.doc.get("accessors", [])
+        buffer_views = self.doc.get("bufferViews", [])
+        buffers = self.doc.get("buffers", [])
+        for primitive in self.primitives:
+            raw = self.meshes[primitive.mesh_index]["primitives"][primitive.primitive_index]
+            indices = list((raw.get("attributes") or {}).values())
+            if "indices" in raw:
+                indices.append(raw["indices"])
+            for target in raw.get("targets", []):
+                indices.extend(target.values())
+            for index in indices:
+                if not (type(index) is int and 0 <= index < len(accessors)):
+                    raise GlbError(f"accessor {index!r} does not exist")
+                accessor = accessors[index]
+                views = [accessor["bufferView"]] if "bufferView" in accessor else []
+                sparse = accessor.get("sparse", {})
+                views.extend(sparse[key]["bufferView"] for key in ("indices", "values") if key in sparse)
+                for view_index in views:
+                    if not (type(view_index) is int and 0 <= view_index < len(buffer_views)):
+                        raise GlbError(f"bufferView {view_index!r} does not exist")
+                    view = buffer_views[view_index]
+                    if not isinstance(view, dict):
+                        raise GlbError(f"bufferView {view_index} is not an object")
+                    if any(ext in view.get("extensions", {}) for ext in COMPRESSION_EXTENSIONS):
+                        continue
+                    buffer_index = view.get("buffer")
+                    if not (type(buffer_index) is int and 0 <= buffer_index < len(buffers)):
+                        raise GlbError(f"buffer {buffer_index!r} does not exist")
+                    buffer = buffers[buffer_index]
+                    if not isinstance(buffer, dict):
+                        raise GlbError(f"buffer {buffer_index} is not an object")
+                    start, length = view.get("byteOffset", 0), view.get("byteLength")
+                    if type(start) is not int or start < 0 or type(length) is not int or length < 0:
+                        raise GlbError(f"bufferView {view_index} has invalid byte bounds")
+                    uri = buffer.get("uri")
+                    if isinstance(uri, str) and not uri.startswith("data:") and not self.resolve(uri).is_file():
+                        continue  # The existing missing-resource row reports exactly this absent external file.
+                    self._view_bytes(view_index)
+
 
 def node_local_matrix(node: dict) -> np.ndarray:
     if "matrix" in node:

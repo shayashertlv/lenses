@@ -52,6 +52,23 @@ const failed = (report: ModelReport): Set<SpecRowName> => new Set(SPEC_ROWS.filt
 const errors = (report: ModelReport): string[] => SPEC_ROWS.flatMap(row => report.spec[row].pass ? [] : report.spec[row].detail.map(detail => `${row}: ${detail}`));
 const sorted = (rows: Iterable<string>): string[] => [...rows].sort();
 
+test('absolute resource URIs are missing before any fetch, even when a CORS host would return valid bytes', async () => {
+  for (const uri of ['https://cdn.example/models/canonical-face.json', 'http://cdn.example/texture.png', '//cdn.example/a.bin', 'C:/asset.png']) {
+    for (const kind of ['image', 'buffer'] as const) {
+      const {doc, bin} = splitGlb(buildGlb().glb);
+      if (kind === 'image') doc.images = [{uri}];
+      else (doc.buffers as Json[]).push({uri, byteLength: 4});
+      let requests = 0;
+      const {report} = await checkModel(joinGlb(doc, bin), {url: URL_BASE + 'model.glb', renderer: null, plugins: [stubTextures],
+        fetchResource: async () => {requests++; return pngBytes(4, 4).slice().buffer;}});
+      assert.equal(requests, 0, `${kind}: ${uri}`);
+      assert.equal(report.status, 'refused');
+      assert.equal(report.spec.format.pass, false);
+      assert.match(report.refusal.join('\n'), /absolute URI is never fetched/);
+    }
+  }
+});
+
 /* ---------------------------------------------------------------------------------------------- JSON patches */
 type Patch = NonNullable<BuildOptions['patch']>;
 const pInstancing: Patch = (doc, add) => {

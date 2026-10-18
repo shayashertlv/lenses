@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from glasses3d.g3d_host import blender
 
+pytestmark = pytest.mark.timing  # shares the UV fixture's fixed Blender deadline
+
 
 @pytest.mark.skipif(blender.blender_exe() is None, reason='Blender is not installed')
 def test_current_and_retained_temple_mesh_ownership_is_symmetric(tmp_path):

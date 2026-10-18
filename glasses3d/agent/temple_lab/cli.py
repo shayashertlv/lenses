@@ -1133,7 +1133,7 @@ def high_text(mix: str) -> str:
 
 # The approval text's statement of what "up to" covers (review 2026-10-12, P2: the v3 mix is an unmeasured assumption,
 # and a read-heavier run than the typical one passed the old top).
-MIX_ASSUMED = ("The v3 tool mix is assumed (no v3 run has been measured): \"up to\" covers only the listed mixes, each "
+MIX_ASSUMED = ("The historical tool-mix forecast has not been recalibrated from v3 runs: \"up to\" covers only the listed mixes, each "
                "at the high output: the typical mix, every reply an edit, and a read-heavy mix (photo_read "
                f"{MIXES['read_heavy']['photo_read']} in {sum(MIXES['read_heavy'].values())}).")
 

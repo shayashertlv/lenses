@@ -179,8 +179,19 @@ def bake_inputs(source, destination):
 
 
 @lru_cache(maxsize=1)
+def _owned_cached_fixture():
+    # Direct proof/script callers have no pytest tmp_path_factory. Retain the
+    # owner with the fixture so Python removes its private copy at process exit.
+    temporary = tempfile.TemporaryDirectory(prefix='g3d-ft1119-test-')
+    try:
+        return temporary, prepare(Path(temporary.name) / 'inputs')
+    except BaseException:
+        temporary.cleanup()
+        raise
+
+
 def cached_fixture():
-    return prepare(Path(tempfile.mkdtemp(prefix='g3d-ft1119-test-')) / 'inputs')
+    return _owned_cached_fixture()[1]
 
 
 def load_job(*, with_astra=True):

@@ -1,7 +1,7 @@
 /** The worn front portrait of `arview capture` (port of 75ae133:ar/qa/portrait-preview.mjs with
  *  stash@{0}:ar/qa/portrait-preview.html; analysis.capture.portrait_method). Page side, one step per function.
  *
- *  Input: face-a.jpg only, read read-only from ../../ar/qa/fixtures and served by the orchestrator after its sha256
+ *  Input: face-a.jpg only, read from the viewer-owned qa/fixtures and served by the orchestrator after its sha256
  *  matched the pinned b6491464…; there is no option for any other face image. Only face-a's inferred pose is rendered
  *  (no invented turns). Flow: decode at native size -> CPU face detection + CPU hair segmentation -> eye crop
  *  (landmarks 33/263) -> the renderer -> the SAME detection posed 51 times over 5 s -> condition a (runtime lighting)

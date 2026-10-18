@@ -469,6 +469,7 @@ def test_compact_receipt(builds):
     assert report.merge_lines(["a", "b"], ["b", "c"]) == ["a", "b", "c"]
 
 
+@pytest.mark.timing
 def test_core_budget_per_temple():
     spec = FX.prada_default()
     times = []

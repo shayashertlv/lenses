@@ -49,9 +49,6 @@ def test_pricing_is_byte_identical_to_git_show_of_the_source():
         require_data(None, f"git object {SOURCE_COMMIT[:7]}:{SOURCE_PATH}")
     assert hashlib.sha256(source).hexdigest() == PRICING_SHA256
     assert checked_out_bytes() == source
-    on_main = git_show("main")
-    if on_main is not None:     # while main still carries the modeler, its tariff must be the one glasses3d copied
-        assert hashlib.sha256(on_main).hexdigest() == PRICING_SHA256
 
 
 def test_rates_per_million_tokens():

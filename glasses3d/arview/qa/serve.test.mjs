@@ -149,10 +149,10 @@ test('foreground serve: headers, page, model with its sha256, the report endpoin
     assert.equal(await (await fetch(`${origin}/`)).text(), html);
     const script = await fetch(origin + /src="(\/assets\/main-[^"]+\.js)"/.exec(html)[1]);
     assert.equal(script.status, 200); isolationHeaders(script, 'script'); assert.match(script.headers.get('content-type'), /^text\/javascript/);
-    // A public binary, read-only from ar/public, and what is never served.
+    // A public binary from the independent pinned cache, and what is never served.
     const face = await fetch(`${origin}/models/canonical-face.json`);
     assert.equal(face.status, 200); isolationHeaders(face, 'public file');
-    assert.ok(Buffer.from(await face.arrayBuffer()).equals(fs.readFileSync(path.join(LENSES, 'ar/public/models/canonical-face.json'))));
+    assert.ok(Buffer.from(await face.arrayBuffer()).equals(fs.readFileSync(path.join(ARVIEW, 'public/models/canonical-face.json'))));
     for (const route of ['/models/amber-horizon.glb', '/src/main.ts', '/package.json', '/__arview/models/x.glb', '/__arview/nope', '/qa/serve.mjs']) {
       const response = await fetch(origin + route);
       assert.equal(response.status, 404, route); isolationHeaders(response, route);
@@ -195,7 +195,7 @@ test('foreground serve: headers, page, model with its sha256, the report endpoin
     assert.equal(second.code, 1, second.stderr); assert.match(second.stderr, /already serves .*r9-like\.glb/);
 
     // The page itself, driven like the owner drives it, with face-a (the only face image arview uses, read read-only from
-    // ar/qa/fixtures and pinned) streamed as the camera (the port of the old qa/astra-preview-smoke.mjs synthetic webcam):
+    // the viewer-owned cache and pinned) streamed as the camera (the port of the old qa/astra-preview-smoke.mjs synthetic webcam):
     // before the camera, the served report and sha256; after Open camera, the renderer's report and the RENDERED sha256,
     // the fit settles on the face with hair masks, Hold & audit shows the glasses changing visible pixels, Close camera
     // ends the stream.

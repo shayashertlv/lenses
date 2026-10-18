@@ -691,6 +691,7 @@ def test_arview_refuses_corrupt_image_or_report(scene, monkeypatch, defect):
     assert result["images"] == []
 
 
+@pytest.mark.timing
 def test_capture_timeout_kills_the_real_process_and_its_child(tmp_path):
     pid_file = tmp_path / "pids.json"
     script = tmp_path / "tree.py"

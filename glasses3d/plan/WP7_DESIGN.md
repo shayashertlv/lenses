@@ -1,9 +1,14 @@
 # WP7: instructions for the assembled glasses job
 
-Active design, 2026-10-13. This implements [ASSEMBLY.md](ASSEMBLY.md) M2. It replaces the 2026-10-07 proposal in this
+Historical M2 design, 2026-10-13, amended 2026-10-18. This implements [ASSEMBLY.md](ASSEMBLY.md) M2. It replaces the 2026-10-07 proposal in this
 file, which preceded WP6 v2/v3 and described retired tools. That proposal remains available at the local Git tag
 `review-20261013-pre-cleanup`; its evidence remains in [wp7/evidence.md](wp7/evidence.md). Historical observations
 remain evidence, not instructions to rebuild the old rule matrix.
+
+**Current authority:** `agent/instructions.py`, the registered descriptions in `agent/tools/`, and the specialist's
+`agent/temple_lab/instructions.txt`. M6 6d–6f and [INSTRUCTIONS_REVIEW_6F_20261016](INSTRUCTIONS_REVIEW_6F_20261016.md)
+supersede this original catalogue and size policy; M11 tasks 1–8 add the current safety/evidence contracts.
+The original §3 size and §4 history-rewriting policy are superseded by the current amendments below.
 
 The generic job prompt is `agent/instructions.py`. `build_instructions(tools)` builds it from the actual registry,
 and `instruction_contract(tools)` supplies the runtime contract. Product facts belong in the job brief and photos.
@@ -52,7 +57,9 @@ The prompt develops these ideas in order:
 
 ## 2. Tool contract
 
-The current registry has 14 tools. Backticks in the prompt identify tool names, so the set of named tools is extracted
+The following table is the original 14-tool M2 subset, not the current registry's count. The live registry also
+contains measuring, look, font, specialist and owner-edit capabilities as applicable to the run phase.
+Backticks in the prompt identify tool names, so the set of named tools is extracted
 from the assembled text independently of the registry. Construction refuses missing core tools, unknown tools and
 duplicate names. Registry order does not change the assembled text or its approval-bound hash.
 
@@ -60,7 +67,7 @@ duplicate names. Registry order does not change the assembled text or its approv
 |---|---|
 | execute_blender_code | status and the returned checkpoint |
 | scene_summary | result.objects, closed, loose_parts, materials, roles and warnings |
-| save_checkpoint | returned checkpoint id and best=True for retention of the best state's images |
+| save_checkpoint | returned checkpoint id; best=True marks this run's preferred draft checkpoint, not an image-retention promise |
 | list_checkpoints | ids, labels and fingerprints |
 | restore_checkpoint | status and current checkpoint after restoration |
 | fit_cameras | basis, sheet and each refs entry's status, iou, contour_mean_mm and flags |
@@ -104,11 +111,10 @@ them into the approved request; do not edit them or reject them because they quo
 brief text is passed into this language contract. `brief.host_text(job)` and `RunSpec.contract_brief` provide that
 separation; legacy callers retain the whole-brief check unless they explicitly supply the host-authored text.
 
-The assembled generic instruction text must be **at most 8,000 characters**, including the exact owner table and all
-registered specialist guidance. It is a character limit, not an estimated token promise. Fix an overrun by removing
-redundant explanation or moving mechanics into the appropriate tool description. The WP6 sub-stage's own prompt has
-its separate contract and is not appended here. No product name, geometry measurements, fitted camera values or
-fixture-specific remedy is embedded in the generic instructions.
+The current main and owner-edit instruction cap is **16,000 characters** (`MAX_INSTRUCTION_CHARS`); the specialist
+cap is **19,000**, raised in M6 6d on 2026-10-16. These replace the original 8,000/9,500 focus budgets and are not
+provider limits. Do not compress away guidance merely to preserve the retired caps. The specialist prompt is not
+appended to the parent. Product names, fitted numbers and fixture-specific remedies belong in job evidence.
 
 The superseded proposal's old-text n-gram corpus, scoring panels and check-id matrix are historical investigations.
 They are not additional implementation gates in ASSEMBLY M2. The owner table is intentionally reused verbatim;
@@ -116,16 +122,16 @@ historical prompt sentences are not.
 
 ## 4. Image evidence across long runs
 
-The runtime owns image retention. Every image Astra receives is labelled with its call id, checkpoint/revision and
-view. The label identifies the particular occurrence, not just identical image bytes. Photos remain present. The
-latest comparisons per view, current pick evidence and the selected best checkpoint's images remain available.
-Repeated compaction replaces superseded images with short notes that retain their identity and path. A later image
-can supersede an earlier image only when it is actually present in the request Astra will receive.
+History is append-only within each conversation. The original M2 plan to replace old images with notes was retired
+by M5-fix-1 after measured cache losses. Native comparison tiles and close-ups are composed without shrinking pixels,
+with overflow pages; bounded text keeps lossless `read_report` access. Images carry call/checkpoint/view identity.
 
-`ContextGuard` and `SceneHooks` implement this policy; `JobScene` supplies the evidence metadata. Repeated requests
-must be checked before sending, with recurring compaction rather than a one-time flag. Compaction does not change
-tool success/failure, rewrite photo content, drop the best checkpoint or treat an unseen tool result as observed.
-The relevant tests belong with the loop and JobScene, and use scripted transport with no paid API calls.
+M11 task 4 implements M9's only reset: before a candidate exceeds 80% of the image/byte limit or long-context
+price step, obtain a charged state summary if possible, then start a fresh conversation with the same brief, tools,
+instructions, every owner photo and verified current evidence. A factual fallback handles unavailable summaries;
+old conversation bytes remain archived unchanged. Money and approval remain the same run's, and mandatory evidence
+must still fit the hard limits. Main, owner-edit and temple loops share this policy. `agent/renewal.py`, the loop,
+JobScene/Lab evidence methods and scripted renewal tests are the implementation authority.
 
 This addresses the measured WP6 run-8 growth recorded in PROGRESS: 9 to 136 images and about 26k to 219k input tokens.
 The estimate must also be calibrated from the saved glasses3d ledgers, retaining its evidence and fit residuals;
@@ -145,8 +151,9 @@ the host's ledger, reservation and settled-spend checks still govern every real 
 
 The coordinator additionally runs the M2 image-policy and estimate proofs, the full ASSEMBLY §1 suite, and records
 actual results in PROGRESS before committing. These are $0 tests. A successful instruction contract is not evidence
-that Astra has modeled or the owner has accepted a product; paid validation remains M5. Before M5, ask only the
-remaining total-budget and smoke-turn-cap questions, with an estimate, as ASSEMBLY requires.
+that Astra has modeled or the owner has accepted a product. M5 has started and the separately approved $1 smoke
+completed on 2026-10-13. Current paid terms are ASSEMBLY D5's amendment; every new paid run still needs its own
+estimate and authorization, with no blanket campaign budget approved.
 
 ## 6. Evidence retained for reviewers
 

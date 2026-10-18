@@ -15,6 +15,7 @@ from glasses3d.agent import approvals as A, cli, delivery, job_run, procs, repla
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire
 from glasses3d.agent.session_inputs import NOTE_PREFIX
 from glasses3d.tests.proofs.assembly_m1 import run as assembly, TRUTH
+from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
 
 
 def run():
@@ -45,8 +46,7 @@ def run():
             spec, _ = job_run.prepare_run(root, f"offline-review-resume-{index}", settings=settings,
                                            write_request=True, resume=True)
             assert len(spec.owner_notes) == 1 and spec.owner_notes[0].endswith(notes)
-            A.write_approval(root / "runs" / spec.run_id, max_usd="23",
-                             owner_words="Synthetic offline proof only; no paid call authorized.", recorded_by="offline proof")
+            approve_offline_request(root / "runs" / spec.run_id, transport.handle, cap="23")
             outcome = asyncio.run(job_run.execute_run(root, spec.run_id, resume=True, offline_handler=transport.handle))
             assert outcome["result"]["status"] == "completed" and outcome["delivery"]["status"] == "delivered", outcome
             assert len(transport.creates) == len(transport.counts) == 3

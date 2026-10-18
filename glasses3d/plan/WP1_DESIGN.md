@@ -1,4 +1,8 @@
-# WP1 design: arview decisions (binding for every WP1 stage)
+# WP1 design: arview decisions (2026-10-05 design record)
+
+> **Historical design, updated routing 2026-10-18.** Current behavior and CLI are in
+> [arview/README](../arview/README.md); active repairs are ASSEMBLY M11 and REVIEW_20261018. Later implementation
+> and owner decisions supersede old loading, asset-path and capture details below. This is not a new WP1 task list.
 
 Written 2026-10-05 from the verified WP1 analysis (`port_review/arview.json`, PORT_REVIEW §7). Line-level evidence for
 every point is in that JSON (`analysis.throws`, `analysis.throwCheck`, `analysis.lensid`, `analysis.capture`).

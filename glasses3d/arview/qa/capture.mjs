@@ -5,7 +5,7 @@
  *    node qa/capture.mjs <model.glb> --poses default|junction|all --out <dir> [options]   (bin: arview capture ...)
  *
  *  Orchestration (Node): parse the arguments (capture/cli.ts), start the Python validator in parallel (spec.py --full,
- *  the single source of truth for the §2 rows), start Vite on arview (root arview, publicDir ../../ar/public read-only,
+ *  the single source of truth for the §2 rows), start Vite on arview (root arview, independent pinned publicDir public/,
  *  cacheDir arview/node_modules/.vite-capture, no watcher, dependencies pre-bundled so a cold cache cannot reload the
  *  page mid-run) and headless Chromium on the GPU (ANGLE D3D11; launched as a BrowserServer so its process tree can be
  *  killed, capture/chromium.mjs), then drive qa/capture.html ONE STEP PER page.evaluate, each with its own deadline
@@ -16,11 +16,11 @@
  *  path 404, so a missing external resource is missing to arview (never index.html). PNGs stream to disk through the `arviewEmit` binding the
  *  moment the page makes them (sha256 each). A software renderer (SwiftShader, WARP, ...) is refused before any model
  *  is loaded, and again for each renderer that draws (posed, portrait, and their reloads), from its own GPU string.
- *  The worn front portrait renders face-a.jpg, read read-only from ../../ar/qa/fixtures and pinned by sha256;
+ *  The worn front portrait renders face-a.jpg from the viewer-owned qa/fixtures cache, pinned by sha256;
  *  no other face image is ever used. --live-probe loads the GLB once on main's unmodified ar/ (capture/live-probe.mjs).
  *  `--cameras <cameras.json> --no-face` (dev capture, capture/cameras.ts) replaces the pose sets with explicit pinhole
  *  cameras and no face: the model at its authored size, `<id>__beauty.png` on each camera's flat background and
- *  `<id>__part-id.png`, drawn by the same renderer (TryOnRenderer.poseCamera); no settle, no junction, no portrait.
+ *  `<id>__part-id.png` and `<id>__silhouette.png`, drawn by the same renderer; no settle, no junction, no portrait.
  *  report.json is assembled by capture/report.ts; every fallback and every capture problem is a warning in it.
  *  Exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or is unverified; 4 refused or unchecked by
  *  arview; 1 infrastructure failure (stall, crash, software GPU, integrity); 2 usage error. */
@@ -41,6 +41,7 @@ import {readGlbInput} from './capture/glb-input.ts';
 import {resolveExternalResources} from './capture/external-resources.ts';
 import {runSpecValidator} from './capture/spec-validator.mjs';
 import {modelRoutes, routesMiddleware, runLiveProbe} from './capture/live-probe.mjs';
+import {verifyPublicAssets} from '../scripts/prepare-assets.mjs';
 
 export const ARVIEW_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const LENSES_ROOT = path.resolve(ARVIEW_ROOT, '..', '..');
@@ -181,22 +182,24 @@ export async function main(argv) {
   // External resources referenced by the GLB (capture/external-resources.ts, shared with arview serve): each read where
   // spec.py reads it (the GLB's folder joined with Python's unquote(uri): '100%.png' and '../shared/a.bin' are found while
   // the file exists, with a warning when it lies outside the folder) and served at the raw pathname arview's loader
-  // requests. An absolute URL or a file that cannot be read is answered 404 (routesMiddleware: nothing under /__arview/
-  // falls through to Vite), so arview sees it missing and must refuse the model at the Format row (WP1_DESIGN §1), as
+  // requests. Absolute URLs are refused before fetching; unreadable relative files are answered 404 (routesMiddleware:
+  // nothing under /__arview/ falls through to Vite), so arview refuses the model at the Format row (WP1_DESIGN §1), as
   // spec.py fails it; a render anyway is an error below. A resource whose URL would shadow one of the capture's own files
   // (face-a, a Vite path, a file of arview or of the public directory) is an error, never served over it.
   const external = await resolveExternalResources(glbPath, glb.externalUris, {modelPath, tool: 'the capture',
     reserved: (_route, decoded) => decoded !== null && (decoded === '/__arview/face-a.jpg' || decoded.startsWith('/@')
-      || [ARVIEW_ROOT, path.join(AR_ROOT, 'public')].some(root => fs.existsSync(path.join(root, decoded))))});
+      || [ARVIEW_ROOT, path.join(ARVIEW_ROOT, 'public')].some(root => fs.existsSync(path.join(root, decoded))))});
   const resources = external.resources, unreadable = external.unreadable;
   warnings.push(...external.warnings);
   errors.push(...external.errors);
+  const assets = await verifyPublicAssets(ARVIEW_ROOT);
+  errors.push(...assets.problems.filter(problem => problem.startsWith('public/')).map(problem => `public asset check: ${problem}`));
   if (glb.externalUris.length) warnings.push(`the GLB is not self-contained (${glb.externalUris.length} external resource(s)); PLAN §2 prefers one file`);
   // The unreadable resources go along as explicit 404 routes (modelRoutes), wherever they resolve: also for the live probe.
   const model = {bytes: glbBytes, sha256: inputSha, servedName, resources, missing: external.missingRoutes.map(entry => entry.uri)};
   const routes = modelRoutes(modelPath, model);
 
-  // face-a: read read-only from ar/qa/fixtures and pinned; any other bytes skip the portrait (never another image).
+  // face-a: the pinned viewer-owned fixture; any other bytes skip the portrait (never another image).
   let faceA = null;
   if (options.portrait) {
     const facePath = path.resolve(ARVIEW_ROOT, FACE_A_RELATIVE_PATH);
@@ -209,7 +212,7 @@ export async function main(argv) {
 
   const specAbort = new AbortController();
   const specPromise = runSpecValidator(glbPath, undefined, {signal: specAbort.signal}).then(value => {state.spec = value; return value;});
-  const publicFiles = ['models/canonical-face.json', 'models/face_landmarker.task', 'models/hair/hair-only.tflite'].map(file => path.join(AR_ROOT, 'public', file));
+  const publicFiles = ['models/canonical-face.json', 'models/face_landmarker.task', 'models/hair/hair-only.tflite'].map(file => path.join(ARVIEW_ROOT, 'public', file));
   const before = await implementationSnapshot(publicFiles);
   const git = await gitState();
   if (git.git_problem) warnings.push(`the arview commit could not be recorded (${git.git_problem})`);

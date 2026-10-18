@@ -103,7 +103,7 @@ export const USAGE = [
   '                                   Chromium and is reported within 2 minutes',
   '  --cameras <cameras.json>         dev capture: explicit pinhole cameras (schema arview.cameras/1, qa/capture/cameras.ts) instead',
   '                                   of --poses; the model at its authored size, <id>__beauty.png on each camera\'s background and',
-  '                                   <id>__part-id.png; the try-on\'s renderer, materials, lighting and tone mapping',
+  '                                   <id>__part-id.png plus <id>__silhouette.png; the try-on\'s renderer, materials, lighting and tone mapping',
   '  --no-face                        draw without a face: no occluders, hair, face shadows, arm spread or temple clip (with --cameras)',
   'exit codes: 0 captured and spec.py passes; 3 captured but the spec fails or could not be verified;',
   '            4 refused or unchecked by arview (nothing rendered); 1 infrastructure failure; 2 usage error',

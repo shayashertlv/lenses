@@ -6,11 +6,19 @@ owner's model spec (PLAN.md §2). It is a fork of `ar/` at 75ae133 plus the chos
 blocks a render; everything else renders with a warning and every fallback is reported. It is never deployed and never
 publishes anything; the live try-on stays `ar/`, served by the root application.
 
-arview never modifies `ar/`. It reads, read-only, the public binaries in `../../ar/public` (MediaPipe WASM, the face and
-hair models, the canonical face; Vite `publicDir`) and the synthetic portrait face `../../ar/qa/fixtures/face-a.jpg`
-(capture only, pinned by sha256). Vite's dependency caches stay inside `arview/node_modules`. Outputs, builds, captures,
-state and logs go under `glasses3d/data/` (git-ignored). Camera images, face tracking, hair segmentation and rendering
-stay in the browser.
+arview never modifies `ar/`. Its independent, ignored `public/` cache holds the MediaPipe WASM, face/hair models and
+canonical face. The synthetic portrait and frozen model test fixtures live in ignored `qa/fixtures/` paths, outside
+the published public directory. `src/asset-pins.ts` holds runtime SHA-256 pins; test model pins live only in
+`tests/fixture-pins.ts`. `npm run assets` provisions missing
+files from immutable Git objects at the recorded revision and verifies every cached file; it never reads the live
+`ar/` checkout. A routine live-site asset update cannot change these bytes. For a shallow clone missing that revision,
+`npm run assets -- --download` permits downloading the same immutable GitHub snapshot, with the same hash checks.
+Changed cached files fail verification and are never silently replaced. No binaries or photos are added to Git.
+
+Vite caches stay inside `arview/node_modules`; `npm run build` writes `arview/dist/` (ignored). Serve's frozen builds,
+state and logs live under `glasses3d/data/arview/`; capture writes to its explicit output directory, which should be
+under `glasses3d/data/`. Camera images, face tracking, hair segmentation and rendering stay in the browser. Only the
+optional `--live-probe` deliberately reads the live `ar/` runtime to compare its behaviour.
 
 Two tools:
 
@@ -36,11 +44,11 @@ Run these inside `glasses3d/arview/` with Node.js 22.18 or later (this machine: 
 
 ```bash
 npm ci
-npx tsc --noEmit            # 0 errors
-node --test tests/*.test.ts # unit and renderer tests
-node --test qa/*.test.mjs   # capture and serve tests (headless Chromium on the GPU, spec.py from glasses3d/.venv)
-npx vite build              # the frozen page into dist/ (git-ignored)
-npm run assets              # checks the pinned public binaries in ../../ar read-only (writes nothing)
+npm run assets             # bootstrap/verify the independent cache, offline from immutable Git objects
+npm run check              # TypeScript
+npm test                   # unit and renderer tests; verifies assets first
+npm run test:qa            # capture/serve GPU tests; verifies assets first; spec.py uses glasses3d/.venv
+npm run build              # verified frozen page plus public binaries into dist/; no catalog GLBs
 ```
 
 Ports (`ar/` keeps 8240/8241):
@@ -50,7 +58,7 @@ Ports (`ar/` keeps 8240/8241):
 | 8250 | development server, hot reload; for development only (a reload mid-session kills it) | `npm run dev` |
 | 8251 | the frozen webcam page for one model | `node qa/serve.mjs <model.glb>` (or `npm run build && npm run preview`, without the model report) |
 
-`vite.config.ts`: `publicDir` `../../ar/public` (read-only), `cacheDir` `node_modules/.vite`, the Draco and Basis (KTX2)
+`vite.config.ts`: `publicDir` `public` (the independent cache), `cacheDir` `node_modules/.vite`, the Draco and Basis (KTX2)
 decoders served from three's own `examples/jsm/libs` at `/decoders/` and copied into the build, `worker.format` `es`.
 Playwright's Chromium is installed once with `npx playwright install chromium`.
 
@@ -68,6 +76,11 @@ name), `--clip <m>` (temple clip handed to the page, -0.2 to -0.045; default der
 `--lensenv N` (lens reflection multiplier, 0.3-4). Exit codes: 0 serving / stopped, 1 failure (build, port, detached
 start), 2 usage error.
 
+Operational flags: `--state-dir DIR` chooses the state directory (also supported by `--stop` and `--status`);
+`--ttl-s N` stops a foreground or detached server after 10-86400 seconds. The detached child accepts `--log FILE`
+and `--launch-id ID` (8-64 letters/digits/dashes), which `--detach` supplies itself; do not combine those with
+`--detach`. `--help` or `-h` prints usage. Port 0 requests a free port when starting; control commands need its actual port.
+
 It prints the address to open in Chrome or Edge on this computer:
 
 ```
@@ -81,9 +94,8 @@ What it does (`qa/serve.mjs`):
    and stamped with every file's sha256; a build whose files match its stamp is reused (no rebuild), one that does not
    is set aside as `*.corrupt-<time>` and rebuilt. Builds take about 2 s; a build past 100 s is reported as a stall and
    the command exits 1. Old builds are not removed automatically (about 3 MB each); delete them by hand when no server
-   uses them. The public binaries are not copied into the build: the server serves them from `../../ar/public`, each
-   pinned by sha256 at start (the catalog GLBs there are not served), and checks the pinned face/hair models and that
-   the MediaPipe runtime equals arview's `node_modules` copy (`scripts/prepare-assets.mjs`).
+   uses them. Public binaries are not copied into each serve build: the server reads arview's own `public/`, checked
+   against `src/asset-pins.ts` at startup (`scripts/prepare-assets.mjs`). Test model fixtures are outside that directory.
 2. **Checks the model** on the very bytes it serves, in parallel, each with a 60 s deadline: `python -m
    glasses3d.g3d_host.spec --full` (the single source of truth for the §2 rows) and arview's own load front-end and
    normalisation pass in Node (`src/model/check.ts`, the renderer's load minus drawing; textures are not decoded there:
@@ -101,8 +113,8 @@ What it does (`qa/serve.mjs`):
    points) and served at the raw path arview's loader requests (the server looks resources up before decoding the
    path). A file outside the GLB's folder (`../`, a root-relative path, a link) is served with a warning
    (`model.outside_resources`); only an absolute URI (a scheme, a drive letter `C:/...` or `//host`: glTF resolves it as
-   a URL, never next to the file, so spec.py fails it too, even when such a path exists) or a file that cannot be read
-   is a 404, so arview refuses the model (§1 Format) exactly where spec.py fails the Format row, and `serve_warnings` say
+   a URL, never next to the file, so spec.py fails it too, even when such a path exists) is refused without any fetch.
+   A file that cannot be read is a 404; arview refuses both cases (§1 Format) where spec.py fails Format, and `serve_warnings` say
    why. The URL of a file that cannot be read is an explicit 404 wherever it resolves, looked up before the frozen page
    and the public files: a URI that climbs out of the model's folder (`../../../index.html`) never gets one of the
    server's own files (an error says when such a URL is one of them). A resource whose URL would be
@@ -234,7 +246,11 @@ fallback; animations and declared skins fail the Geometry row from the original 
 accessor, buffer view and buffer references on that path are refused when broken; a broken material reference draws
 with the glTF default material and a texture that cannot be loaded (its index or its image source broken) is left out
 of its material, each a reported fallback with the Format row failed (spec.py fails it for the material and the texture
-index; it does not check image sources: the one listed difference). A missing external resource is refused (used or
+index; the agreement table separately records its texture-source, image-without-source and asset.version gaps).
+Malformed attribute references, overlong reached buffer views, a JSON BOM, explicit null scenes, float-spelled
+material indices, null texture coordinates and all nonempty morph-target declarations are rejected on both paths;
+pre-parse refusals leave arview's later rows unchecked, as listed in `tests/spec-agreement.test.ts`.
+A missing external resource is refused (used or
 not, WP1_DESIGN.md §1); a primitive without POSITION fails the Format row and is not drawn. A §2 violation of the §1 table is refused (`ModelRefusal`, carrying the whole report); everything
 else renders, each subsystem in its own try block, every fallback in `report().fallbacks` and `report().warnings`. The
 report also has the seven §2 rows, measurements, `rendered_sha256` (the exact bytes parsed; a `&sha256=` handover is
@@ -286,6 +302,17 @@ captured and spec.py passes; 3 captured but the spec fails or the validator is u
 refused or unchecked by arview (nothing rendered); 1 infrastructure failure (stall, crash, software GPU, or any capture report error); 2
 usage error. Write outputs under `glasses3d/data/` (git-ignored); the output directory must be empty.
 
+`--worn-sides` adds the two close worn views with visible head depth geometry and hair disabled. `--lens-evidence`
+adds skin/dark pairs and a front checker. The automation uses exactly:
+
+```bash
+node bin/arview.mjs capture <model.glb> --out <fresh dir> --poses default --backgrounds skin --fixed-scale --worn-sides --lens-evidence --lensenv 1
+```
+
+With the pinned portrait available this produces 35 images. `qa/capture-production.test.mjs` runs those exact flags
+through the real GPU renderer and asserts the image count, both worn crops, checker, portrait eyes, clean errors and
+terminated Chromium. `--help` or `-h` prints usage.
+
 - **Poses** (`qa/capture/poses.ts`, Euler YXZ; yaw > 0 turns the nose toward image +x, so the asset's -X side is near
   the camera; pitch > 0 views from above): `default` = front, yaw ±30, yaw ±45, pitch ±20 on skin, beauty + part-id
   (14 images); `junction` = yaw ±30 × pitch ±20 on skin and dark, beauty + part-id, each full frame plus a crop around
@@ -296,22 +323,29 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
 - **Explicit cameras, no face** (dev capture, `qa/capture/cameras.ts`):
   `node qa/capture.mjs <model.glb> --cameras <cameras.json> --no-face --out <fresh dir> [--lensenv N] [--step-timeout-s N]`.
   For comparing a model with product photos taken from known cameras (the photos have no face). `cameras.json` (schema
-  `arview.cameras/1`) lists pinhole cameras: `id`, `width` x `height` (width <= 1280), a flat `background` (`#rrggbb`, what
+  `arview.cameras/1`) lists pinhole cameras: `id`, `width` x `height` (each 64-4096 pixels), a flat `background` (`#rrggbb`, what
   the lenses transmit), `view` (row-major 4x4, asset-local metres to camera metres, a rotation with det +1: a mirrored
   camera is refused), `fx`, `fy`, `cx`, `cy` (render pixels, y down, integer = pixel centre), `near`, `far` (metres) and an
-  optional `meta` copied into the report. Each camera yields `<id>__beauty.png` and `<id>__part-id.png`. The drawing is
+  optional `meta` copied into the report. Each camera yields `<id>__beauty.png`, `<id>__part-id.png` and
+  `<id>__silhouette.png`. Optional `temple_pose` records signed asset-local hinge axes in millimetres and outward-positive
+  angle deltas: `{"+1":{"theta_deg":6,"axis_xz_mm":[68,-2]},"-1":{"theta_deg":2,"axis_xz_mm":[-68,-2]}}`.
+  +1 is the wearer's left; -1 is the wearer's right. The report records requested/applied deltas and meshes actually
+  moved per side, warning when a requested side moved nothing or frame-tagged arm candidates remain authored.
+  Optional `lighting` is `{"preset":"side_studio","intensity":0.8}`; presets are `room`, `broad_studio`,
+  `side_studio`, with intensity >0 and <=4. Omission restores normal review lighting. The drawing is
   the try-on's own (`TryOnRenderer.poseCamera`): materials, the room environment and the camera-relative key light (the
   camera stays at the origin), ACES tone mapping, lens transmission and the crystal look-through, at the authored size
   (implied); left out is what only a face makes: no face or head occluder, hair, face shadows, protection or near-arm
-  overlays, and the arms keep their authored geometry (no fixed spread, terminal return or temple clip). `--poses`,
+  overlays. Arms retain authored geometry except for the explicitly requested hinge deltas (no fixed spread, terminal
+  return or temple clip). `--poses`,
   `--backgrounds`, `--size`, `--depth-cm`, `--clip` and `--crop-upscale` are usage errors with `--cameras`; no settle, no
-  junction, no portrait. The report says so: each image's `timing.templeEndState` is `authored (explicit camera: ...)` and
+  junction, no portrait. Each image's `timing.templeEndState` describes authored or actually applied photo opening, and
   each camera's `camera.verticalFovDegrees` is the explicit projection's (2 atan(1 / P[1][1])), not the virtual camera's
   63°. A bad cameras file is a usage error (exit 2) before anything is written. The pose sets and their
   images are unchanged (byte-identical; `glasses3d/data/wp5/all_angles/all_angles.json` `byte_identity`).
   `tests/capture-cameras.test.ts` (projection through three's matrices, the options, the renderer on a recording backend)
   and `qa/capture-cameras.test.mjs` (end to end on the GPU) cover it.
-- **Synthetic face** (`qa/capture/synthetic-face.ts`): the canonical face (`../../ar/public/models/canonical-face.json`)
+- **Synthetic face** (`qa/capture/synthetic-face.ts`): the canonical face (`public/models/canonical-face.json`)
   posed at the requested angles and 23 cm, projected through the 63° MediaPipe camera; `FaceSurface.reconstruct`
   recovers it exactly (tested). A frontal settle (51 frames over 5 s) lets the live fit measure first; each pose then
   settles 30 frames. If the fit does not settle, the capture falls back to the authored size, with a warning.
@@ -341,11 +375,11 @@ usage error. Write outputs under `glasses3d/data/` (git-ignored); the output dir
   ±30, its return folding back onto the shield, while the arm is seen to the return start at -75 mm), so such a depth is
   no evidence the arm is seen there; `behind_return_drawn_stations` counts those stations.
 - **Portrait** (`qa/capture/portrait.ts`, the port of qa/portrait-preview): face-a.jpg only, read read-only from
-  `../../ar/qa/fixtures` and pinned by sha256 (`qa/capture/portrait-contract.ts`); CPU face detection and hair
+  `qa/fixtures` and pinned by sha256 (`src/asset-pins.ts`); CPU face detection and hair
   segmentation, the SAME detection posed 51 times, condition a (runtime lighting) and b (`setLighting` side_studio
   0.8) with the hair mask. Model problems (continuity, fit, guard fallback) are warnings; the rendered-bytes identity
   check is a hard integrity failure. Images are unmirrored (the live page mirrors).
-- **Runtime**: Vite on arview (publicDir `../../ar/public` read-only, cacheDir `node_modules/.vite-capture`, no watcher,
+- **Runtime**: Vite on arview (publicDir `public`, pins verified at capture startup, cacheDir `node_modules/.vite-capture`, no watcher,
   dependencies pre-bundled, appType `mpa`) and headless Chromium with `--use-angle=d3d11 --enable-gpu --ignore-gpu-blocklist`.
   The model is served under `/__arview/models/` with the external resources it names, resolved as `arview serve`
   resolves them (`qa/capture/external-resources.ts`: read where spec.py reads them, `100%.png` and `../` included, a
@@ -581,7 +615,7 @@ normal page). [qa/README.md](qa/README.md) indexes the QA tools and tests.
 ## Repository rules
 
 arview is source only: it is never deployed and never publishes (`ar/` keeps its own `npm run publish` and `site/`).
-It never writes into `../../ar/` (`npm run assets` only verifies the pinned public binaries there). Keep its package
+It never writes into `../../ar/` (`npm run assets` maintains only arview's independent cache). Keep its package
 manifests, assets and tests inside `glasses3d/arview/`; write every output (captures, serve builds, state, logs) under
 `glasses3d/data/` (git-ignored). Never commit GLBs, renders, photos, recordings or `.env` files; `node_modules/` and
 `dist/` are ignored.

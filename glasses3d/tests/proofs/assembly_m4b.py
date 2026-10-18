@@ -25,6 +25,7 @@ from glasses3d.agent.temple_lab import state as S
 from glasses3d.agent.temple_lab.lab import Lab
 from glasses3d.g3d_host import compare as C, glb
 from glasses3d.g3d_host.fit_views import rigid_fit_marker
+from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
 
 REPO = Path(__file__).resolve().parents[3]
 G3D = REPO / "glasses3d"
@@ -102,9 +103,8 @@ def run():
                               reason="SHA-pinned historical rigid WP3 fit; authored pose, no measured opening")
         settings = replace(job_run.settings_default(), max_turns=9)
         spec, _ = job_run.prepare_run(root, "offline-nested", settings=settings, write_request=True, scene=scene)
-        A.write_approval(root / "runs" / spec.run_id, max_usd="23",
-                         owner_words="Synthetic offline proof only; no paid call authorized.", recorded_by="offline proof")
         transport = R.ScriptedOpenAI([])
+        approve_offline_request(root / "runs" / spec.run_id, transport.handle, cap="23")
         stage_dir = root / "work/temple_stage" / hashlib.sha256(b"parent-stage").hexdigest()[:16]
 
         def lab_now():

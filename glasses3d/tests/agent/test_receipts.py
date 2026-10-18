@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import httpx2
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents.tool_context import ToolContext  # noqa: E402
 from agents.usage import Usage  # noqa: E402
 from openai import DefaultAsyncHttpxClient  # noqa: E402

@@ -845,6 +845,7 @@ def validate_spec(path: str | Path) -> dict:
     rep = Report(path)
     try:
         glb = load(path)
+        glb.validate_loaded_references()
     except Exception as exc:                                        # noqa: BLE001 - unreadable file: every row fails
         rep.fail("format", f"unreadable GLB: {type(exc).__name__}: {exc}")
         for r in ROWS[1:]:

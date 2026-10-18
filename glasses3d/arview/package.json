@@ -11,10 +11,13 @@
     "arview": "bin/arview.mjs"
   },
   "scripts": {
+    "predev": "npm run assets",
     "dev": "vite --host 127.0.0.1 --port 8250 --strictPort",
     "check": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
+    "pretest": "npm run assets",
     "test:qa": "node --test qa/*.test.mjs",
+    "pretest:qa": "npm run assets",
     "assets": "node scripts/prepare-assets.mjs",
     "build": "npm run assets && npm run check && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 8251 --strictPort",

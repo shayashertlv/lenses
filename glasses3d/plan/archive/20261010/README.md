@@ -8,7 +8,8 @@ follow their resume steps, gates or session prompts: the STOP-I/C/R/S/T/P rules,
 limit, `relief_rules.py`'s frozen thresholds and the delegated "KEEP STOP-I/R1/R3" decision were all retired on
 2026-10-10 by owner decision.
 
-Current work: [PROGRESS](../../PROGRESS.md) and [WP6 v2 design](../../WP6_FACETS.md).
+Current work: [ASSEMBLY](../../ASSEMBLY.md), [REVIEW_20261018](../../REVIEW_20261018.md), the dispatched brief and
+[PROGRESS](../../PROGRESS.md) (routing updated 2026-10-18). WP6 v3 is closed by owner acceptance.
 
 | File | What it was |
 |---|---|

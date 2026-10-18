@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createServer} from 'vite';
 import {runBounded} from './chromium.mjs';
-import {resourceRoute} from './external-resources.ts';
+import {isAbsoluteUri, resourceRoute} from './external-resources.ts';
 
 const normal = value => path.resolve(value).replaceAll('\\', '/').toLowerCase();
 
@@ -27,6 +27,7 @@ export function modelRoutes(modelPath, model) {
     routes.set(resourceRoute(resource.uri, modelPath), {bytes: resource.bytes, type: resource.type});
   }
   for (const uri of model.missing ?? []) {
+    if (isAbsoluteUri(uri)) continue;
     let route;
     try {route = resourceRoute(uri, modelPath);} catch {continue;}
     if (!routes.has(route)) routes.set(route, {missing: true, uri});

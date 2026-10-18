@@ -25,7 +25,7 @@ test('only the known successful MediaPipe CPU notice is informational', () => {
   assert.equal(consoleLevel('warning', 'x'), 'warning');
 });
 
-test('face-a is read from ar/qa/fixtures and matches its pin (the only face image arview uses)', () => {
+test('face-a is read from the viewer-owned fixture cache and matches its pin (the only face image arview uses)', () => {
   const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', FACE_A_RELATIVE_PATH);
   const bytes = fs.readFileSync(file);
   assert.equal(bytes.length, 552034);

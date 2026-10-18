@@ -2,6 +2,8 @@
 without a line); results stay in job order."""
 import time
 
+import pytest
+
 from glasses3d.g3d_host.photoprint import procs
 
 
@@ -10,6 +12,7 @@ def _slow(x):
     return x * 2
 
 
+@pytest.mark.timing
 def test_serial_pool_prints_while_a_long_job_runs(monkeypatch):
     monkeypatch.setattr(procs, "PROGRESS_EVERY_S", 0.1)
     lines = []
@@ -19,6 +22,7 @@ def test_serial_pool_prints_while_a_long_job_runs(monkeypatch):
     assert any("running job 2" in ln for ln in lines), lines
 
 
+@pytest.mark.timing
 def test_heartbeat_prints_during_silent_work_and_stops():
     lines = []
     p = procs.Progress("t", log=lines.append, every_s=0.1)

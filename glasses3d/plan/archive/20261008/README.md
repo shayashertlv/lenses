@@ -4,7 +4,8 @@ These snapshots preserve the state before the owner requested a WP6 session hand
 They are evidence only. Do not execute their resume steps, revive stopped workflows, ask resolved questions,
 or apply their old scope restrictions to the current task.
 
-Current work: [PROGRESS](../../PROGRESS.md) and [WP6 v2 design](../../WP6_FACETS.md); the WP6 v1 handoff and
+Current work: [ASSEMBLY](../../ASSEMBLY.md), [REVIEW_20261018](../../REVIEW_20261018.md), the dispatched brief and
+[PROGRESS](../../PROGRESS.md) (routing updated 2026-10-18); the WP6 v1 handoff and
 session prompt moved to [archive/20261010](../20261010/README.md) and were deleted there on 2026-10-13 (git tag
 `review-20261013-pre-cleanup`). Historical local paths remain under the same repository.
 Relative Markdown links inside snapshots refer to their original `plan/` location. `snapshots.json` records

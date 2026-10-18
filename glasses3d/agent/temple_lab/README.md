@@ -1,137 +1,113 @@
 # Facet lab (WP6 v3)
 
-The facet lab gives `gpt-6-astra` seven tools to turn a model's plain temples into faceted temples that look like the
-product photos ([design](../../plan/WP6_V3.md) §6; the plumbing v3 keeps is [WP6_FACETS](../../plan/WP6_FACETS.md) §4;
-[the instructions](instructions.txt)). It works on an isolated copy of a product scene: nothing here touches a
-production job, and no production registry imports it. Prada PR 17WS is the test case. Why v3 exists:
-[FINDINGS](../../data/wp6v2/review_20261012/FINDINGS.md) (git-ignored data): the real top face is not one plane, an
-exact-planar builder put that misfit wherever the newest rule said, and several tools printed numbers that were read as
-shape.
+The facet lab gives `gpt-6-astra` ten tools to build faceted temples against authoritative product photos.
+WP6 was closed by the owner's acceptance of paid run 8 on 2026-10-13. The lab is now integrated through
+the main job's `temple_stage`: it works privately from the captured current head and applies an accepted result
+through a trusted worker path. The job registry imports this stage. The standalone CLI below remains available
+for explicit development work; its historical forecast is not the main job estimator.
+
+Current design: [WP6_V3](../../plan/WP6_V3.md), [ASSEMBLY](../../plan/ASSEMBLY.md), and the later M11 task reports.
+[Instructions](instructions.txt) and `tools.py` are the live prompt/schema. Prada is historical proof data, never
+a runtime default. Sides name the wearer: +X left, -X right. All photos remain authoritative.
 
 ## Tools
 
-| Tool | Does (host side: `lab.py`) |
+| Tool | Purpose |
 |---|---|
-| `facet_inspect` | the head: design and fitted value per node, the readings, the object note, the fit report, the creases, the chart |
-| `photo_image` | a photo or a native crop, `enhance` (contrast stretch), `scale` up to 3 for a small crop |
-| `photo_read` | named readings (`readings.py`): up to 8 points a call, each a `corner` (a pixel per photo) or a `crossing` (two traced edges per photo, intersected by the host), in 2-4 photos from at least two directions; each stored by name with its error (pick and camera parts), warnings and a pick sheet |
-| `photo_compare` | the head rendered at the photos' cameras with its own creases drawn by identity, angle and sign (rows photo, render, overlay for every colour; images titled with the lab's photo ids); up to 3 zooms at native scale (photo, render, edges, a light-free geometry panel); side views print their outline offsets, and a view from above the top face's far edge minus its median instead of the top outline |
-| `facet_edit` | an edit list on a revision's design, then the host's joint fit (`g3d/temple/fit.py`), the build and, with `apply`, a compare; `object` = the object note (required on the first edit and whenever the layout changes); judgements name up to 3 differences per photo |
-| `facet_variants` | 2-4 edit lists fitted, built and rendered beside the head without changing the scene, one sheet per photo |
-| `facet_finish` | ends the run when its preconditions hold (`state.finish_missing`) |
+| `facet_inspect` | Current design/fitted nodes, readings, object note, fit, creases and chart. |
+| `photo_image` | A photo or native crop, optional enhancement and small-crop enlargement. |
+| `photo_read` | Named multi-view corner/crossing readings with pick/camera/opening uncertainty and evidence sheets. |
+| `photo_compare` | Current temple at frozen photo cameras/openings, with identity overlays, native zooms and diagnostics. |
+| `facet_edit` | Edit a revision, jointly fit its readings/declarations, build and optionally apply/compare it. |
+| `facet_variants` | Fit/build/render alternatives beside the current head without changing it. |
+| `facet_finish` | Finish only with the current required compared evidence and a valid export. |
+| `read_report` | Lossless access to paged tool reports. |
+| `facet_crease_compare` | Show eligible crease-angle alternatives in the actual AR photo views with their metrics. |
+| `facet_visible_angle` | Select an exactly shown angle when measurements are unresolved; certain contradictory evidence still refuses. |
 
-The flow of one edit: `geometry.apply_edits` (a node's t is a stored reading, a typed mm, the base, or solved by the
-fit; a facet is flat or `warp`, optionally `soft` against the arm) -> the design (`revisions/rNNNN.json`) ->
-`fit.fit_spec` (weighted least squares over every reading, shape declarations as constraints, misfits in mm and sd;
-`revisions/rNNNN.fit.json`) -> `build_temple` of the fitted spec -> the worker builds it on both temples. Receipts
-print the fit's lines, then the creases, then the builder's warnings, all as facts with every way out or none.
+The edit path is `geometry.apply_edits` → stored design → `fit.fit_spec` → `build_temple` → native worker write.
+Reports distinguish measured uncertainty, built geometry and the selected visible angle. Declarations bind connected
+layout/readings, supporting chains, effective fit dependencies and immutable comparison assets; unrelated changes
+retain a choice, bound changes refuse it. Closed solids, thickness, declared shape and strict spec checks remain.
 
-Files: `cli.py` (package, brief, estimate, request, run), `tools.py` (the strict-JSON registry), `lab.py` (the tools'
-host side, revisions, compares, variants, finish), `geometry.py` (edits, head distinctness), `readings.py`,
-`state.py` (judgements, object notes, finish preconditions), `sheets.py` (variant pages), `instructions.txt`.
+Files: `cli.py` (standalone package/brief/forecast/request/run), `tools.py`, `lab.py`, `geometry.py`, `readings.py`,
+`state.py`, `sheets.py`, `package.py` (capture parent inputs), `stage.py` (shared-money parent integration),
+`owner_stage.py` (confirmed edit specialist), `pose_basis.py`, `rigid_pose.py`, `arm_evidence.py`, and
+`crease_angles.py` / `crease_ar.py` (visible choices and their evidence).
 
-## Removed in v3, and why (FINDINGS §3)
+## Assembled stage
 
-| Removed | Why |
-|---|---|
-| fades | built on a misreading ("fading diagonals"); they gave run 2's "very soft" and run 6's "smoothened" |
-| crease + rise planes, the "solve" option that moves least | a corner solved from another face's extrapolated plane made a key defect in 5 of 7 runs |
-| refusal recipes ("do not redeclare", one offered remedy) | Astra took a refusal's listed remedy in 12 of 14 refusals |
-| photo_compare `depths` (one-photo readings) | an assumed (d, y) became a t error; run 6's hinge corner |
-| top / rear outer-edge offsets, the outline line, the "start" column | photo 03's front-block outline conflicts with the other photos under the camera model (up to about 2.2 mm); printed as shape it drove runs 3-5 |
-| crease margins, the section strip, lean, inherited warnings | replaced by the fit's sd and certain / open, or noise |
-| `facet_restore` | a restore is a `facet_edit` of that revision with no edits |
+`package.prepare(scene, destination, call_id)` captures the parent's checkpoint/export and original/transport photo
+hashes. It sends the parent's upright transport copies and binds originals separately. `pose_basis.build` carries
+the frozen cameras, mattes, ROI and per-photo openings; no opening metadata means authored pose with no claimed
+calibration. Readings disclose 0.3-degree observed and 10-degree unmeasured opening assumptions, including shared
+source-fit uncertainty for transported photos. These are assumptions, not measured confidence intervals.
 
-## Commands
+Owner text stays verbatim in `brief.txt`; neutral contract prose is separate. Camera conflicts, photo IDs,
+colourway selections and precision notes are explicit job data. Historical Prada photo numbers and conflicts are
+not general product facts. Private failures preserve their cause/progress; incomplete work is not applied to the
+parent. Main and specialist share the same owner money and stop; the specialist cannot choose a budget.
 
-Run from the repository root with `glasses3d/.venv/Scripts/python.exe`:
+## Standalone commands
+
+From the repository root, prefix these commands with `glasses3d/.venv/Scripts/python.exe`:
 
 ```text
--m glasses3d.agent.temple_lab.cli prepare --job <new-dir> --source-config <sources.json> [--rig studio_dome_v1|photo_env|catalog_band_v1]
--m glasses3d.tests.proofs.astra_temple_lab rehearse --out <new-dir> [--rig <rig>]
--m glasses3d.agent.temple_lab.cli estimate --rehearsal <rehearsal-dir>/rehearsal.json [--out <estimate.json>]
--m glasses3d.agent.temple_lab.cli request --job <dir> --run-id <id> --effort high|max --turns <n> --cap <usd> [--k 4]
--m glasses3d.agent.temple_lab.cli run --job <dir> --run-id <id> <the request's other arguments> [--env-file <dotenv>]
+-m glasses3d.agent.temple_lab.cli prepare --job NEW_DIR --source-config sources.json --rig studio_dome_v1
+-m glasses3d.agent.temple_lab.cli estimate --rehearsal rehearsal/rehearsal.json --out estimate.json
+-m glasses3d.agent.temple_lab.cli request --job PACKAGE --run-id RUN --effort high --turns 60 --cap 20 --estimate estimate.json --k 4
+-m glasses3d.agent.temple_lab.cli run --job PACKAGE --run-id RUN --effort high --turns 60 --cap 20 --estimate estimate.json --k 4
 ```
 
-- **Assembled stage:** `package.prepare(scene, destination, call_id)` captures the current parent checkpoint and
-  export, copies the job's original photos, and closes the private Lab after preparing revision zero from that
-  captured export. `photo_catalog(job)` supplies the same explicit IDs to preflight and execution; default IDs are
-  complete filename stems. `pose_basis.build` copies the active frozen cameras, masks, frame, ROI and recorded
-  opening metadata. Missing opening metadata means the authored pose, with no claimed opening calibration.
-  `contract-brief.txt` contains neutral host prose for instruction checks; owner text remains verbatim in `brief.txt`.
-- **Standalone prepare** ($0, about 1 min with the default rig) requires explicit `source_scene`, `scene_sha256`,
-  `reference` and `basis_json` in `--source-config`. Optional `photo_ids`, `colourway_photos`, `reference_photos`,
-  `camera_conflicts` and `reading_precision` are job data; none has a product default. It writes `inputs/` (the
-  scene's byte copy, the target and additional photos, `brief.txt`, `instructions.txt`, `lab.json`, every file sha-bound and every image
-  sent in the first message), `basis/cameras.json` (outside `inputs/`, bound separately), then revision 0 (the
-  starting model's +X temple measured into a spec: no faces, no edges) fitted, applied and compared. `job.json` binds
-  the implementation (every `.py` of g3d, g3d_host and agent, and `instructions.txt`). The historical Prada T5
-  rehearsal explicitly supplies `tests/fixtures/temple_lab_prada.py`; its old calibration proof remains historical
-  evidence and is not the assembled stage's builder.
-- **The brief** (`cli.brief_text`) carries the job's facts; `instructions.txt` names no photo and no product. Per
-  photo: view, camera direction, the angle to the outer face, what its compares print (side views: the bottom outline
-  offsets and, looking down 14 deg, the top face's far edge minus its median in place of the top outline) and its
-  camera (B1's check is labelled as the all-views
-  validation's, the check the target photos print, not the starting-model check B2 and B3 print). Then the direction
-  groups; the cameras' lineage (01-06 fitted on their own; B1, B2, B3 moved from 05, 02, 04 with theta copied, as the
-  basis records it); reading precision (crisp corners 0.2-0.5 mm; tips and edges along the line of sight about
-  0.7-1.5 mm; a point far back also carries the cameras' theta; `READING_PRECISION`); the theta lever (a rigid turn of
-  the temple, about 1.4 mm per degree at d 80, the same only for readings made from the same photos); the job's
-  camera-model conflicts (`CAMERA_CONFLICTS`, worded as a limit of the camera model, never as doubt about a photo:
-  photo 03's outer outline at d 10-40, up to about 2.2 mm further out than the other photos allow; photos 03 and 06
-  near d 75, up to about 2.7 mm inside the side and angled readings, unresolved by any hinge opening of the angled
-  photos, w2/crown-geometry.md §2); the render light and what it does not reproduce (tone marks where an edge is,
-  not its size or sign); revision 0 and the scope (the whole temple to its tip, outline chains editable).
-- **estimate** prices 40, 60 and 90-reply runs at effort high and max from the rehearsal's recorded tool outputs
-  (`--out`, default `data/temple_lab/estimate_v3.json`, `cli.ESTIMATE`). The typical mix (`cli.MIXES`) is the method
-  the instructions teach. Each image-heavy call is priced at the most one call returns, at the largest image the tool
-  makes: facet_variants at the job's sheets (one a photo) of 1280 x 900 px and 4 arms of text; photo_read at 8 pick
-  sheets of 972 x 1412 px (4 photos a reading), its text and arguments scaled alike, a drop-only call left out of its
-  mean; photo_compare at 3 zoom grids of 1538 x 1066 px and their text beside its compare images (a call's own grids,
-  recorded as kind "zoom", are replaced; a rehearsal recorded before that is priced up to 3 grids high);
-  facet_inspect at its largest recorded call. The range's top is the costliest of every reply an edit, the
-  typical mix and a read-heavy mix (photo_read 3 in 10), each at the high output (`range_top`), and the approval text
-  says the v3 mix is assumed (no v3 run exists). A projected run whose context would pass the model's input limit
-  ends at that request, and its row says so. Output tokens per request are the v2 paid runs' means
-  (`cli.OUTPUT_TOKENS`). `request` refuses a table made for another tool mix, range or image pricing.
-- **request** writes `runs/<id>/approval-request.json` and `instructions-sent.txt` for a clean package, binding the
-  inputs, the instructions (with K), the tool schemas and the run settings. Its tool contract
-  (`cli.tool_contract`) refuses a package whose instructions, brief or tool descriptions name a retired phrase
-  (`cli.RETIRED_PHRASES`: the removed tools and rules, the depths parameter by its forms such as "photo_compare's
-  depths", never the plain word; `loop.REMOVED_PHRASES`). Nothing is approved here.
-- **run** is the paid run, refused before any request unless the owner approved exactly that request.
+`prepare` is local: source config must name `source_scene`, `scene_sha256`, `reference` and `basis_json`.
+Optional photo IDs, colourways, camera conflicts and precision notes have no product default. The prepared package
+binds code, instructions, source scene, photos and basis. `request` writes the exact single-use approval request;
+it is not approval. `run` refuses missing, changed, consumed or insufficient approval, and needs a clean package.
+An implementation change requires fresh preparation and request. Do not run from a rehearsal directory.
 
-Run settings (`tools.run_settings`): every reply calls a tool; the run ends only on an accepted `facet_finish` (K
-distinct compared heads, `--k`); the context guard at 240k counted input tokens replaces superseded compare and
-variant images (zoom grids included) and the pick sheets of readings read again or dropped by text stubs once.
+The standalone CLI has no approval command. After explicit owner authorization and an estimate, the coordinator
+records it with the existing `glasses3d.agent.approvals.write_approval` API, passing the request's run directory,
+`max_usd`, verbatim `owner_words` and truthful `recorded_by`. Do not fabricate authorization or use offline-only
+test approvals for production. The assembled job CLI provides the normal owner approval workflow.
 
-Finish preconditions (`state.finish_missing`; only what reached Astra counts): (1) K distinct applied heads compared
-(two heads differ when the built temple surface or outline moves at least 0.2 mm somewhere); (2) one facet_variants
-call with 3 variants pairwise at least 0.3 mm apart; (3) best_checkpoint's revision compared at every photo with a
-camera; (4) an object note; (5) for stuck: a variants result after the latest applied head and the last 3 judgements
-on 3 distinct heads, none "better".
+| Standalone option | Meaning |
+|---|---|
+| `--job`, `--source-config`, `--rig` | Package destination/config and matched rig for prepare. |
+| `--rehearsal`, `--out` | Rehearsal input and forecast output for estimate. |
+| `--estimate` | Forecast table read by request/run; default `data/temple_lab/estimate_v3.json`. |
+| `--run-id`, `--effort` | Bound request identity and `high`, `xhigh` or `max` effort. |
+| `--turns`, `--no-turn-cap` | Mutually exclusive explicit reply cap or no cap; one is required for request/run. |
+| `--cap`, `--k` | Required standalone reserve cap and required distinct compared heads (K defaults to 4). |
+| `--fit-output-to-budget` | Explicit legacy option to reduce response ceiling to remaining reserve. |
+| `--env-file` | Optional credential-loader path; its contents must never be printed. |
+| `--ignore-load` | Explicitly permit competing Blender/pytest load, still reported. Avoid it for timing proofs. |
+| `--help` | Parser reference, with no package or paid work. |
 
-A paid run starts only from a clean package: any code change after prepare makes it stale; prepare a fresh one, then
-request again. Never run from a rehearsal directory.
+The standalone parser has no settled-only switch or resume mode. Its reserve/output-fit controls are legacy
+behavior, not the owner's current standing $20 settled-only/high terms. Use the assembled stage for those terms;
+any different standalone paid policy needs explicit owner authorization. This README is not such authorization.
 
-## Tests
+## Evidence, forecast and tests
 
-`tests/agent/test_temple_lab_cli.py` pins only what WP6_V3 §6 asks of the prompt (the v3 tool names, `{K}`, no photo
-id or product word, no retired or removed phrase, at most 9,500 characters, the finish text against
-`state.finish_missing`; the prompt and the state both say "shown", pinned in `test_temple_lab_v3.py`), every brief line (on the real pose basis when the git-ignored data is present; the conflict and precision
-numbers against the investigation's own tables when present) and the estimate (the largest images against a real pick
-sheet and compare's grid; the image kinds against a real Lab's zoom registration and `context_stubs`). v2 pinned 96
-phrases of the prompt; those pins are retired with v2.
+Runtime conversations are append-only. The common loop now renews into a fresh conversation at request pressure
+with every owner photo, summary/factual fallback and verified current evidence; it never rewrites old history.
+Legacy context-guard fields remain in standalone request/forecast compatibility records, but do not describe a
+live image-replacement operation. The standalone forecast still models the historical mix/guard approximation;
+it has not been recalibrated from v3 runs or the renewal policy. Run 8 and assembled v3 stages do exist.
+High/xhigh forecasts use max-effort output assumptions without a claimed discount. No forecast is a guarantee.
 
-## Limits
+Finish evidence comes from `state.finish_missing`: K distinct applied compared heads, the required sufficiently
+distinct variants, comparisons of the selected best revision at every camera photo, an object note, and the
+additional stuck-case judgement/variant evidence. Only delivered evidence counts; read the live tool for exact
+argument and refusal details. The prompt contract caps the specialist at 19,000 characters.
 
-- No render light reproduces the photos' facet tones: renders and the geometry zoom are compared for where edges and
-  outlines are, never for tone.
-- One spec drives both temples (mirrored). The front, lenses, hinges and materials never change; the edits have no op
-  for the hinge, chamfers or build options.
-- The estimate is a forecast; effort high is priced as max (no high-effort ledger exists); the v3 tool mix is assumed
-  (no v3 run exists) and image-heavy calls are priced at their maximum, so a run that reads fewer points or zooms less
-  costs less; a photo_read's arguments are output tokens the v2 means do not include. The cap is enforced request by
-  request, independently.
-- This CLI does not resume an interrupted paid run: `request` and `run` need a clean package.
+The offline T5 proof is `glasses3d.tests.proofs.astra_temple_lab rehearse` with an explicit new output directory.
+It exercises the real loop, worker and seven scripted tools, including conversation renewal; the other three tools
+are covered by separate report and visible-angle proofs. Task 8's fresh T5 passed 49/49 checks. Tests in
+`tests/agent/test_temple_rehearsal_contract.py` check that partition against the current ten-tool registry.
+These are tool proofs, not new product acceptances. Use [test commands](../../tests/README.md) for suite policy.
+
+Limitations remain visible: the mirrored spec controls supported slab-like temples, not arbitrary branching or
+multi-material arms; photos/cameras can disagree; no render light reproduces every photograph's facet tone;
+unsupported nearby markings are reported rather than silently moved. Inspect actual full-size photo comparisons
+and diagnostics. The owner judges likeness.

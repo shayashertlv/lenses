@@ -1,5 +1,12 @@
 # WP4 lens seating: final design
 
+> **Historical design, current status 2026-10-18.** M4a integrated trusted seating tools; M11 task 7 repaired
+> crystal multi-lens ownership, cap recognition and material consistency. Seating is a report for every frame,
+> including crystal, and has not been a finish gate since the owner's 2026-10-14 decision (ASSEMBLY M5-fix-2).
+> Fresh proof grades remain P2 71/71, P3 34/40, P4 109/112 and P5 31/32, with ten historical quality failures.
+> Visual junction analysis and photo-derived hide ranges remain unbuilt. See ASSEMBLY and PROGRESS; the original
+> design's acceptance/procedure text below does not override those amendments.
+
 Written 2026-10-05 from three independent designs (robust **R**, minimal **M**, physical **P**), each prototyped at $0 on
 copies (scratch `C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp4-design/`: `wp4proto/` = R, `wp4_mc/` = M, `pmf/` +
 `bl_out/` = P). Base = **M** (simplest, strictest no-op). Grafts: R's traps, normals handling, re-wall builder, Boolean

@@ -51,6 +51,8 @@ def parser():
     edit.add_argument("--effort", choices=EFFORTS, default="high")
     edit.add_argument("--cap", required=True)
     edit.add_argument("--settled-stop", required=True)
+    edit.add_argument("--settled-only", action="store_true",
+                      help="stop on settled charges only; no estimated-reservation cutoff")
     apply = commands.add_parser("edit-apply", help="$0 host apply of one sealed, shown preview on a fresh copy; no API")
     apply.add_argument("id", help="source job with --edit-id, or its understand round path")
     apply.add_argument("--edit-id")
@@ -201,7 +203,8 @@ def dispatch(args):
             round_root = edits.create_understand(root, words, delivery_id=args.delivery_id, source_runtime=args.source_runtime)
         if args.coverage is not None:
             capabilities.install(round_root, edits.read(args.coverage))
-        settings = replace(job_run.settings_default(), effort=args.effort, settled_stop_usd=args.settled_stop)
+        settings = replace(job_run.settings_default(), effort=args.effort, settled_stop_usd=args.settled_stop,
+                           settled_only=args.settled_only)
         spec, _ = job_run.prepare_run(round_root, settings=settings, cap=args.cap, write_request=True)
         doc = edits.load(round_root)
         return {"status": "awaiting_separate_run_approval", "edit_id": doc["edit_id"],

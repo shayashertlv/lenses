@@ -107,6 +107,7 @@ from glasses3d.agent.temple_lab.tools import TOOL_NAMES, run_settings
 from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d_host.compare import RIDGE_RGB, VALLEY_RGB
 from glasses3d.tests.proofs import wp6v3_rehearsal_checks as CH
+from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
 
 RUN_ID = "offline-rehearsal"
 CAP = "100"
@@ -264,9 +265,6 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
     # a synthetic approval ONLY for this MockTransport proof, never in a package meant for a paid run
     spec.offline_api_key = "sk-offline-temple-lab-proof"
     os.environ["G3D_OFFLINE"] = "1"
-    A.write_approval(root / "runs" / RUN_ID, max_usd=CAP,
-                     owner_words="SYNTHETIC OFFLINE CONTROL ONLY; no authorization for a paid call",
-                     recorded_by="offline proof over MockTransport")
     r0 = lab.spec(0)
     ctrl = {n: CH.chart_point(r0, *v) for n, v in CTRL.items()}
     tools = {t.name: t for t in spec.tools}
@@ -497,6 +495,7 @@ def rehearse(root, rig: str = DEFAULT_RIG) -> dict:
             st["request_digests"].append(request_digest(json.loads(request.content)))
         return transport.handle(request)
     spec.offline_handler = handler
+    approve_offline_request(root / "runs" / RUN_ID, handler, cap=CAP)
     t1 = time.perf_counter()
     with LoopbackOnly() as network, ProductionTransportTripwire() as tripwire:
         result = asyncio.run(run_astra(spec, scene=lab))

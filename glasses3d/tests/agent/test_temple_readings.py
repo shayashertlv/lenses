@@ -329,7 +329,7 @@ def test_matches_lab_corner_reading(tb, bs):
     lab.corner_reading, which starts from the model): the same point from 2 and 3 photos, read with noisy pixels.
     Pins the constants that must equal the lab's or v2's: COND_MAX, fixed, the temple choice and the node-name rule,
     and the engineering bounds the ghost bound uses."""
-    pytest.importorskip("agents")
+    import agents  # Required pinned SDK, never optional.
     from glasses3d.agent.temple_lab import lab as LB
     assert RD.COND_MAX == REF_COND_MAX == 20.0 and not hasattr(LB, "corner_reading")
     assert (G.D_LIMIT_MM, G.Y_LIMIT_MM, G.T_LIMIT_MM) == (400.0, 200.0, 40.0)

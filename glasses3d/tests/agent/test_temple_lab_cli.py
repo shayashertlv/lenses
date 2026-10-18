@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from glasses3d.agent import approvals as A  # noqa: E402
 from glasses3d.agent import loop as L  # noqa: E402
 from glasses3d.agent import seeing  # noqa: E402
@@ -1055,7 +1055,7 @@ def test_the_mixes_are_the_v3_tools():
     assert not any("facet_restore" in mix for mix in cli.MIXES.values())
     assert cli.READ_POINTS_MAX == 8 and cli.ZOOM_MAX == seeing.ZOOM_MAX == 3
     assert cli.high_text("read_heavy") == "a read-heavy mix (photo_read 3 in 10) at the high output"
-    assert "photo_read 3 in 10" in cli.MIX_ASSUMED and "no v3 run has been measured" in cli.MIX_ASSUMED
+    assert "photo_read 3 in 10" in cli.MIX_ASSUMED and "has not been recalibrated from v3 runs" in cli.MIX_ASSUMED
 
 
 def test_the_largest_images_are_the_tools(tmp_path):

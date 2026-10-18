@@ -608,6 +608,7 @@ def strip(n: int = 15, seed: int = 0) -> dict:
     return FX.straight(nodes=nodes, facets=facets, creases=creases)
 
 
+@pytest.mark.timing
 def test_speed_30_nodes_under_50_ms():
     s = strip()
     res = FT.fit_spec(s)

@@ -192,7 +192,7 @@ def test_owner_notes_are_sent_verbatim_once_even_across_a_crash():
 
 def test_the_real_sdk_session_presaves_failed_input_and_a_resume_replays_it_once(tmp_path):
     """The Studio's quota witness on the real runner and session, with an offline model (no transport at all)."""
-    agents = pytest.importorskip("agents")
+    import agents
     import httpx2
     from agents.items import ModelResponse
     from agents.models.interface import Model

@@ -50,7 +50,7 @@ test('the look-through loses what the surface reflects, the way Three\'s own ref
   assert.ok(!fragment.includes('totalDiffuse = mix( totalDiffuse, twinCameraRGB'), 'v1 added the full look-through under the reflection');
   const through = fragment.indexOf('twinThrough = twinTransmission'), outgoing = fragment.indexOf('vec3 outgoingLight = totalDiffuse + totalSpecular');
   assert.ok(through > 0 && outgoing > through, 'outgoingLight is the surface\'s own light only: the look-through is kept apart');
-  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v3');
+  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v4');
   assert.ok(twin.customProgramCacheKey().endsWith(`|${CAMERA_TRANSMISSION_TWIN_KEY}`), 'an older twin program is never reused');
 });
 

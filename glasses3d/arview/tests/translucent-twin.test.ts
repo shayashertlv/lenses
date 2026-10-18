@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {
-  BoxGeometry, CanvasTexture, Group, Material, Matrix3, Mesh, MeshPhysicalMaterial, PerspectiveCamera, PlaneGeometry, Scene, ShaderLib,
+  BoxGeometry, CanvasTexture, DataTexture, Group, Material, Matrix3, Mesh, MeshPhysicalMaterial, PerspectiveCamera, PlaneGeometry, Scene, ShaderLib,
   SRGBColorSpace, UniformsUtils, Vector2,
 } from 'three';
 import type {WebGLRenderer} from 'three';
@@ -119,7 +119,7 @@ test('the twin is an opaque clone that shows the paired camera through the mater
   assert.ok(shader.fragmentShader.includes('gl_FragColor.rgb = mix(gl_FragColor.rgb, hairCameraRGB, hairWeight);'));
   assert.ok(!shader.fragmentShader.includes('gl_FragDepth'), 'the original arm keeps ordinary depth');
   assert.ok(twin.customProgramCacheKey().endsWith(`|${CAMERA_TRANSMISSION_TWIN_KEY}`));
-  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v3');
+  assert.equal(CAMERA_TRANSMISSION_TWIN_KEY, 'camera-transmission-twin-v4');
   assert.ok(twin.customProgramCacheKey().startsWith(f.crystal.customProgramCacheKey()), 'the key follows the original\'s wrappers');
   assert.equal(isOpticalMaterial(twin), false, 'the twin is frame too');
   assert.equal(isTranslucentFrameMaterial(twin), false, 'but with transmission 0 it never enters the twin swap itself');
@@ -196,4 +196,31 @@ test('the twin follows wrapper changes of its original through refresh, and the 
   assert.deepEqual(f.uniforms.twinCameraViewport.value.toArray(), new Vector2(1, 1).toArray());
   assert.throws(() => setCameraTransmissionSource(f.uniforms, texture, 0, 360), /viewport/);
   assert.throws(() => createCameraTransmissionTwin(f.lens, f.uniforms), /translucent frame material/);
+});
+
+test('crystal twins preserve alpha and sample authored transmission red and thickness green with their own UV transform', t => {
+  const f = crystalArmFixture(t);
+  const transmission = new DataTexture(new Uint8Array([0, 255, 255, 255, 255, 0, 0, 255]), 2, 1);
+  const thickness = new DataTexture(new Uint8Array([255, 0, 255, 255, 0, 255, 0, 255]), 2, 1);
+  transmission.channel = 1; thickness.channel = 1;
+  transmission.offset.set(.2, .3); thickness.repeat.set(.4, .5);
+  f.crystal.transmissionMap = transmission; f.crystal.thicknessMap = thickness;
+  f.crystal.transparent = true; f.crystal.opacity = .4;
+  const twin = createCameraTransmissionTwin(f.crystal, f.uniforms);
+  t.after(() => {twin.dispose(); transmission.dispose(); thickness.dispose();});
+  assert.equal(twin.transparent, true); assert.equal(twin.opacity, .4);
+  assert.equal(twin.transmissionMap, transmission); assert.equal(twin.thicknessMap, thickness);
+  const shader = compile(twin);
+  assert.equal(shader.uniforms.twinTransmissionMap!.value, transmission);
+  assert.equal(shader.uniforms.twinThicknessMap!.value, thickness);
+  assert.equal(shader.uniforms.twinTransmissionMapTransform!.value, transmission.matrix);
+  assert.equal(shader.uniforms.twinThicknessMapTransform!.value, thickness.matrix);
+  assert.match(shader.fragmentShader, /twinTransmission \* texture2D\(twinTransmissionMap, twinTransmissionMapUv\)\.r/);
+  assert.match(shader.fragmentShader, /twinThicknessWeight = texture2D\(twinThicknessMap, twinThicknessMapUv\)\.g/);
+  assert.match(shader.fragmentShader, /pow\(twinAttenuation, vec3\(twinThicknessWeight\)\)/);
+  assert.match(shader.fragmentShader, /twinThicknessWeight > 0\.0.*: vec3\(1\.0\)/);
+  assert.match(shader.fragmentShader, /totalDiffuse \*= 1\.0 - twinTransmissionWeight/);
+  assert.match(shader.vertexShader, /twinTransmissionMapTransform \* vec3\(uv1, 1\.0\)/);
+  assert.equal(shader.vertexShader.match(/attribute vec2 uv1;/g)?.length, 1, 'shared map UV channel is declared once');
+  assert.notDeepEqual(transmission.matrix.elements, thickness.matrix.elements);
 });

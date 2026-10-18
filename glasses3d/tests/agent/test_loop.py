@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents import function_tool  # noqa: E402
 from agents.tool import ToolOutputImage, ToolOutputText  # noqa: E402
 
@@ -466,6 +466,7 @@ def test_an_ordinary_tool_error_reaches_astra_as_text_and_the_run_goes_on(tmp_pa
 # =========================================================================== stop and heartbeat
 
 
+@pytest.mark.timing
 def test_a_stop_written_mid_tool_ends_the_run_stopped_at_the_next_model_boundary(tmp_path, capsys):
     scene, _ = make_tools()
     job_stop = tmp_path / "jobs" / "test-frame-0000abcd" / L.STOP_FILE
@@ -555,6 +556,7 @@ def test_an_unconsumed_stop_file_stops_a_new_run(tmp_path):
     assert result["requests"] == 0 and not transport.count_answers
 
 
+@pytest.mark.timing
 def test_heartbeat_writes_on_its_cadence_and_prints_long_states(tmp_path):
     lines = []
     beat = L.Heartbeat(tmp_path / "heartbeat.json", run_id="r1", interval_s=0.02, report_after_s=0.1,
@@ -578,6 +580,7 @@ def test_heartbeat_writes_on_its_cadence_and_prints_long_states(tmp_path):
     assert beat.states == ["tool:render_views", "idle", "finished"]
 
 
+@pytest.mark.timing
 def test_a_failing_heartbeat_write_never_stops_the_run(tmp_path, monkeypatch):
     beat = L.Heartbeat(tmp_path / "heartbeat.json", run_id="r1", interval_s=0.01)
     monkeypatch.setattr(L, "write_json", lambda path, value: (_ for _ in ()).throw(PermissionError(13, "denied")))

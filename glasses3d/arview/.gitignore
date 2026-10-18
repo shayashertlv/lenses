@@ -1,3 +1,6 @@
 node_modules/
 dist/
 qa/output/
+public/
+qa/fixtures/face-a.jpg
+qa/fixtures/models/

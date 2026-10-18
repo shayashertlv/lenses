@@ -77,6 +77,7 @@ export function readGlbContainer(bytes: ArrayBuffer): GlbContainer {
     if (offset + 8 + chunkLength > data.length) throw new GlbFormatError('truncated GLB chunk');
     const body = data.subarray(offset + 8, offset + 8 + chunkLength);
     if (type === CHUNK_JSON && text === null) {
+      if (body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf) throw new GlbFormatError('the GLB JSON chunk has a forbidden UTF-8 BOM');
       try {text = new TextDecoder('utf-8', {fatal: true}).decode(body);}
       catch {throw new GlbFormatError('the GLB JSON chunk is not UTF-8');}
     } else if (type === CHUNK_BIN && bin === null) bin = body;
@@ -84,9 +85,20 @@ export function readGlbContainer(bytes: ArrayBuffer): GlbContainer {
   }
   if (text === null) throw new GlbFormatError('GLB has no JSON chunk');
   let json: unknown;
-  try {json = JSON.parse(text);}
+  const materialSpellings = new WeakMap<object, string>();
+  // Python retains the distinction between JSON integer and float index spellings. JS normally erases it:
+  // preserve a malformed material index as its literal text so it fails the same Format check (never rounds to 0).
+  try {json = JSON.parse(text, function(this: object, key: string, value: unknown, context?: {source?: string}) {
+    if (key === 'material' && typeof value === 'number' && /[.eE]/.test(context?.source ?? '')) materialSpellings.set(this, context!.source!);
+    return value;
+  });}
   catch (error) {throw new GlbFormatError(`the GLB JSON chunk is not valid JSON (${describeError(error)})`);}
   if (!isRecord(json)) throw new GlbFormatError('GLB JSON chunk is not an object');
+  for (const mesh of list(json.meshes)) {
+    for (const primitive of isRecord(mesh) ? list(mesh.primitives) : []) {
+      if (isRecord(primitive) && materialSpellings.has(primitive)) primitive.material = materialSpellings.get(primitive);
+    }
+  }
   return {json, bin, byteLength: data.length};
 }
 
@@ -94,7 +106,7 @@ export function readGlbContainer(bytes: ArrayBuffer): GlbContainer {
 export function sceneIssue(json: Json): string | null {
   const scenes = json.scenes;
   if (!Array.isArray(scenes) || scenes.length === 0) return 'the document has no scenes (glTF viewers show nothing)';
-  const index = json.scene ?? 0;
+  const index = 'scene' in json ? json.scene : 0;
   if (!isIndex(index, scenes.length)) return `default scene ${JSON.stringify(index)} does not exist (${scenes.length} scene(s))`;
   const scene = scenes[index];
   if (!isRecord(scene) || !Array.isArray(scene.nodes) || scene.nodes.length === 0) return `the default scene (${index}) has no nodes`;
@@ -102,6 +114,10 @@ export function sceneIssue(json: Json): string | null {
 }
 
 export interface ExternalResource {readonly kind: 'buffer' | 'image'; readonly index: number; readonly uri: string;}
+/** Schemes (including drive letters) and network-path URIs never name a resource next to the model. */
+export function isAbsoluteUri(uri: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(uri) || uri.startsWith('//') || uri.startsWith('\\\\');
+}
 /** Buffers and images stored outside the file (a uri that is not a data: URI). */
 export function externalResources(json: Json): ExternalResource[] {
   const found: ExternalResource[] = [];
@@ -165,7 +181,7 @@ export interface LoadedReferences {
  *  danglingTextures), and defaultSceneDocument leaves it out of what three parses. Unused entries are never
  *  dereferenced and never refused (spec.py passes them too). A primitive without POSITION is valid glTF (clients skip
  *  it): it is not refused here; the normalisation pass fails the Format row for it and does not draw it. */
-export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences {
+export function loadedReferences(json: Json, hasBin: boolean, readBuffer?: (index: number) => Uint8Array | null): LoadedReferences {
   const nodes = list(json.nodes), meshes = list(json.meshes), materials = list(json.materials), accessors = list(json.accessors);
   const views = list(json.bufferViews), buffers = list(json.buffers), textures = list(json.textures), images = list(json.images);
   const reachedBuffers = new Set<number>(), reachedImages = new Set<number>(), usedMaterials = new Set<number>();
@@ -191,7 +207,15 @@ export function loadedReferences(json: Json, hasBin: boolean): LoadedReferences 
       if (!isIndex(view.buffer, buffers.length)) return `bufferView ${index} refers to buffer ${JSON.stringify(view.buffer)}, which does not exist`;
       return checkBuffer((extensions[meshopt] as Json).buffer, `bufferView ${index} ${meshopt}`);
     }
-    return checkBuffer(view.buffer, `bufferView ${index}`);
+    const problem = checkBuffer(view.buffer, `bufferView ${index}`);
+    if (problem) return problem;
+    if (readBuffer) {
+      const data = readBuffer(view.buffer as number), start = view.byteOffset ?? 0, length = view.byteLength;
+      if (typeof start !== 'number' || !Number.isInteger(start) || start < 0
+          || typeof length !== 'number' || !Number.isInteger(length) || length < 0) return `bufferView ${index} has invalid byte bounds`;
+      if (data && start + length > data.length) return `bufferView ${index} runs past the end of its buffer`;
+    }
+    return null;
   };
   const checkAccessor = (index: unknown, where: string): string | null => {
     if (!isIndex(index, accessors.length)) return `${where}: accessor ${JSON.stringify(index)} does not exist`;

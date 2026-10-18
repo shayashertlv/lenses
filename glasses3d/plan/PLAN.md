@@ -7,6 +7,12 @@ PROGRESS.md for current status, decisions and the next action, and [WP6_V3.md](W
 [WP6_FACETS.md](WP6_FACETS.md)) for WP6.
 Latest owner instructions take precedence. Historical handoffs are evidence only.
 
+**Routing update, 2026-10-18:** §0 remains the owner-rule foundation, with the later standing money, effort and
+working-method amendments in [AGENTS](../AGENTS.md) and [ASSEMBLY](ASSEMBLY.md) §4. The implementation outline and
+"where things stand" below are dated design history. The assembled pipeline exists; follow ASSEMBLY M11,
+[REVIEW_20261018](REVIEW_20261018.md), the dispatched brief and PROGRESS's current-state block. Do not repeat
+completed paid runs, deleted prototypes or answered owner questions from this original outline.
+
 ---
 
 ## 0. Read first: the owner's rules for this work
@@ -69,7 +75,7 @@ Latest owner instructions take precedence. Historical handoffs are evidence only
     do not start new work. Instead:
     1. finish or cleanly pause the current step, leaving no half-written files. Preserve healthy long runs; record
        their PIDs, logs and continuation details if active. Record actual test outcomes and known quality failures;
-    2. update `glasses3d/plan/PROGRESS.md` and the active handoff (§4 format), stating exactly which WPs are completely
+    2. prepend a dated entry to `glasses3d/plan/PROGRESS.md` and prepare the resume message in §0.10.4, stating exactly which WPs are completely
        done and tested, where the current step stopped and the next action;
     3. review and commit on branch `glasses3d` with explicit paths, then report the hash and working-tree state;
     4. end the turn with this message to the owner, filled in:
@@ -138,6 +144,10 @@ Latest owner instructions take precedence. Historical handoffs are evidence only
     (front-facing) / 0.26 (all brow pixels) vs 0.22/0.18. **But at the print's own scale (1–4 px band-pass) it was
     0.017 vs 0.066**: the fine pattern did NOT register on the held-out view. Registration is the main risk of WP5.
   - The prototype constants `OLD`/`HERE` point at temp folders: repoint them to the reference folder.
+
+  **Historical only:** `plan/prototypes/` was deleted on 2026-10-13 and is recoverable at
+  `review-20261013-pre-cleanup`. The preceding repoint/rerun advice is superseded; current tools and proofs live
+  in `g3d_host/`, `agent/` and `tests/proofs/`.
 - **Old-code bugs the new pipeline must not inherit** (they are avoided by design, not ported):
   - the Studio never sends the owner's job description to Astra (`git show 'stash@{0}:automation/blender_agent/studio_jobs.py'`,
     lines 224 and 405-426);
@@ -175,13 +185,18 @@ Latest owner instructions take precedence. Historical handoffs are evidence only
 - **Faceted temples:** a deterministic tool Astra calls, plus top/rear views and a relief measurement so Astra can
   see relief.
 
-**Not confirmed yet (ask the owner before relying on them):**
+**Original unresolved list (2026-10-05; superseded, do not ask these again as a group):**
 - default reasoning effort for paid runs (recommended "high", not "max": the 09-30 max run cost $16.83 and got
   "changes requested");
 - the per-run budget cap;
 - the known-good regression product (candidates: Oakley OO9208 optical v2, job 3dff8674…, or INVU IA22403B v2,
   c8e81c72…);
 - the WP8 budget. Estimate: past Studio runs cost $8–16.5 each, so roughly 6 products × 1–2 runs ≈ $60–200.
+
+ASSEMBLY D5 decided the original cap/effort/product on 2026-10-13; its 2026-10-16/17 amendment now sets high effort
+and a $20 settled-only cutoff. Oakley OO9208 v2 is the regression product. The $1 smoke was separately approved
+and completed on 2026-10-13. A total campaign budget remains unapproved; every future paid run needs its own OK
+and estimate. These facts supersede the original unresolved list, not the preserved historical estimates.
 
 ## 3. Research conclusions used (owner-supplied ChatGPT research, 2026-10-05)
 
@@ -233,7 +248,7 @@ Engineering defaults, all configurable. They are not standards: no ISO standard 
 
 ## 4. Work packages, in order
 
-**Progress log (mandatory):** after each WP (and before any context gets tight), append to `glasses3d/plan/PROGRESS.md`:
+**Progress log (mandatory):** after each completed task/WP, prepend a dated entry to `glasses3d/plan/PROGRESS.md`:
 the date, the WP, what was done, the commit hash, the $0-proof numbers, open issues and the next step. A new session
 reads PROGRESS.md right after §0 and resumes from the next unfinished step, without redoing finished ones.
 
@@ -271,6 +286,8 @@ loop. They run Blender headless on COPIES: `blender.exe -b <copy>.blend --python
    - `config-seated.json`: the case paths.
 
    Re-run `make_uv_test.py` to confirm it reproduces the coverage numbers in §1.
+   **Superseded:** this was WP0's 2026-10-05 setup step. The prototype directory was deleted in the
+   2026-10-13 cleanup; do not recreate or execute it for current work.
 5. **PORT_REVIEW.md:** inventory the Blender Studio (source-before/blender_agent: README/STUDIO docs, agent.py,
    studio_jobs.py, studio_server.py, budget.py, native_export.py, preview.py, portrait.py, instructions.py, the MCP
    package in `automation/data/blender_agent/venv` plus `mcp-for-blender`, and memory blender-mcp-official-server.md).
@@ -463,6 +480,10 @@ such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md), rebuilt
 - **$0 proof:** a test asserts the removed phrases are absent and that every rule names an existing tool and check.
 
 ### WP8: Validation (paid; owner OK per run)
+**Historical sequence, updated 2026-10-18:** the smoke and multiple Oakley/Prada runs have happened. Oakley run 4
+is accepted; Prada has no accepted assembled product. FT1119 and unseen-product validation remain. Follow
+ASSEMBLY/PROGRESS for the actual next action. The original pre-WP8 restriction and request-to-reconfirm below
+are superseded; current authorization requirements and settled-only/high terms are in AGENTS and ASSEMBLY D5.
 No paid call of any kind happens before this point, except the one owner-OK'd WP6 Astra run planned in
 WP6_FACETS.md §5–§6. WP0–WP7 must be complete with their required $0 validation.
 WP5's explicit owner closeout and retained limitations apply as recorded in WP5_HANDOFF.md; do not reopen WP5

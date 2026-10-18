@@ -646,6 +646,7 @@ class _FakeJob:
         return self.mesh.part_ids(names)
 
 
+@pytest.mark.timing
 def test_chroma_probes_are_captured_at_the_same_time():
     """Fix round 3: the three independent probe captures overlap; the results keep the probes' order."""
     import threading

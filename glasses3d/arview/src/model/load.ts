@@ -31,7 +31,7 @@ import {assetPath} from '../assets.ts';
 import {gltfSourceOf} from '../eyewear/optical-material.ts';
 import type {GltfSource} from '../eyewear/optical-material.ts';
 import {DECODER_DIRECTORIES} from './decoders.ts';
-import {defaultSceneDocument, describeError, externalResources, GlbFormatError, imageBytes, imageSize, isRecord, jsonPrimitives, KNOWN_EXTENSIONS,
+import {bufferBytes, defaultSceneDocument, describeError, externalResources, GlbFormatError, imageBytes, imageSize, isAbsoluteUri, isRecord, jsonPrimitives, KNOWN_EXTENSIONS,
   LIVE_FORBIDDEN_EXTENSIONS, loadedReferences, packGlb, readGlbContainer, sceneIssue, textureInfos} from './glb.ts';
 import type {GlbContainer, Json} from './glb.ts';
 import {nodeName} from './normalize.ts';
@@ -158,7 +158,7 @@ export function resourceBase(url: string): string {
 }
 
 async function defaultFetch(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null> {
-  const response = await fetch(url, signal ? {signal} : {});
+  const response = await fetch(url, {signal, redirect: 'error'});
   return response.ok ? await response.arrayBuffer() : null;
 }
 
@@ -290,7 +290,7 @@ function inspectTextures(report: ModelReportBuilder, container: GlbContainer, ex
         report.fail('format', `material '${name}' ${path}: texture ${JSON.stringify(texture)} does not exist`);
       }
       const transform = isRecord(info.extensions) && isRecord(info.extensions.KHR_texture_transform) ? info.extensions.KHR_texture_transform : {};
-      const texCoord = transform.texCoord ?? info.texCoord ?? 0;
+      const texCoord = 'texCoord' in transform ? transform.texCoord : 'texCoord' in info ? info.texCoord : 0;
       if (!(typeof texCoord === 'number' && Number.isInteger(texCoord) && texCoord >= 0)) {
         report.fail('format', `material '${name}' ${path}: texCoord ${JSON.stringify(texCoord)} is not valid glTF (an integer >= 0)`);
         continue;
@@ -358,9 +358,13 @@ export async function loadModel(bytes: ArrayBuffer, report: ModelReportBuilder, 
   const fetched = new Map<string, Uint8Array>(), resolved = new Map<string, Uint8Array>(), missing: string[] = [];
   const fetchResource = options.fetchResource ?? defaultFetch;
   for (const resource of resources) {
+    if (isAbsoluteUri(resource.uri)) {
+      missing.push(`${resource.kind} ${resource.index}: ${resource.uri} (an absolute URI is never fetched)`);
+      continue;
+    }
     const url = LoaderUtils.resolveURL(resource.uri, base);
     let data: ArrayBuffer | null = null, why = '';
-    try {data = await fetchResource(url, signal);}
+    try {data = await bounded(fetchResource(url, signal), signal, options.parseTimeoutMs ?? PARSE_TIMEOUT_MS, `external resource ${resource.uri}`);}
     catch (error) {
       if (signal?.aborted) throw abortError();
       why = ` (${describeError(error)})`;
@@ -385,6 +389,8 @@ export async function loadModel(bytes: ArrayBuffer, report: ModelReportBuilder, 
       return {kind: resource.kind, index: resource.index, uri: resource.uri, bytes: data?.byteLength ?? null, sha256: data ? await sha256Hex(data) : null};
     })));
   }
+  const byteReferences = loadedReferences(json, container.bin !== null, index => bufferBytes(json, container.bin, index, fetched));
+  if (byteReferences.problem) refuseFormat(report, `unreadable GLB: ${byteReferences.problem}`);
   inspectTextures(report, container, fetched);
 
   // Only the default scene is handed to three (glb.ts defaultSceneDocument): a broken reference anywhere else cannot

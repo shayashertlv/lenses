@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents.tool_context import ToolContext
 from glasses3d.agent.job_scene import JobScene
 from glasses3d.agent.journal import CheckpointMismatch, WorkerFailed

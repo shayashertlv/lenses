@@ -55,6 +55,9 @@ test('routesMiddleware: routed files are served, every other path under the pref
   assert.equal((await call(missingMiddleware, '/qa/capture.html')).next, true, 'other paths outside the prefix still reach Vite');
   // The same URIs against the live probe's model path give that server's routes.
   assert.ok(modelRoutes('/__arview_live/models/abc/model.glb', {bytes: Buffer.from('glTF'), missing: [climbing]}).get('/package.json')?.missing);
+  const absolute = modelRoutes(modelPath, {bytes: Buffer.from('glTF'), missing: ['https://cdn.example/models/canonical-face.json', '//cdn.example/qa/capture.html']});
+  assert.equal(absolute.has('/models/canonical-face.json'), false, 'an absolute URI cannot shadow the canonical face route');
+  assert.equal(absolute.has('/qa/capture.html'), false);
 });
 
 test('a missing resource whose URI climbs to one of the tool\'s own files is REFUSED (exit 4), never handed that file', {timeout: 120_000}, async () => {

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents import RunHooks, Runner, SQLiteSession, function_tool  # noqa: E402
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError  # noqa: E402
 from agents.tool import FunctionTool  # noqa: E402
@@ -263,6 +263,7 @@ def test_a_dangling_call_in_session_history_is_dropped_from_the_request(tmp_path
 # --------------------------------------------------------------------------- tools
 
 
+@pytest.mark.timing
 def test_tool_timeout_default_is_error_as_result_so_astra_receives_an_error_result(tmp_path):
     """tool.py:517 (timeout_behavior default "error_as_result"), :1984-1986 (the message), :2238-2269 (wait_for, then
     the message returned as the tool's output): the run continues."""

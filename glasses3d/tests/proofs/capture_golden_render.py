@@ -41,12 +41,13 @@ LIGHT = {"center": [0, -5, -70], "radius": 90.0}
 MAX_PX = 640
 
 RENDER_BPY = r'''
-import json, sys, traceback
+import json, sys, traceback, bpy
 argv = sys.argv[sys.argv.index("--") + 1:]
 src, params_path, root, out_json = argv
 sys.path.insert(0, src)
 from glasses3d.g3d import render as R
-res = {"module": R.__file__}
+res = {"module": R.__file__, "blender": {"version": bpy.app.version_string,
+       "build_hash": bpy.app.build_hash.decode(), "build_branch": bpy.app.build_branch.decode()}}
 try:
     res["render"] = R.render(json.load(open(params_path, encoding="utf-8")), root)
     res["status"] = "ok"
@@ -113,7 +114,8 @@ def main(tag: str, commit: str) -> dict:
         for ps, f in v["files"].items():
             files[f"{v['name']}/{ps}"] = {"path": f["path"], "shape": list(np.asarray(Image.open(f["path"])).shape)}
     golden = {"render": {k: v for k, v in r.items() if k != "views"}, "files": files, "views": views,
-              "commit": commit, "module": res["module"]}
+              "commit": commit, "module": res["module"], "blender": res["blender"],
+              "scene_sha256": SCENE_SHA, "cameras_sha256": hashlib.sha256(CAMS.read_bytes()).hexdigest()}
     (OUT / f"golden_{tag}.json").write_text(json.dumps(golden, indent=1), encoding="utf-8")
     return {"unchanged": r["unchanged"], "engine": r["engine_final"], "files": len(files), "commit": commit}
 

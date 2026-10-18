@@ -99,7 +99,7 @@ def test_checkpoint_restore_is_fingerprint_stable(name, synthetic, tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ one session
-@pytest.fixture(scope="module")
+@pytest.fixture
 def session(synthetic, tmp_path_factory):
     root = tmp_path_factory.mktemp("wp2session")
     seed = root / "seed.blend"
@@ -211,6 +211,8 @@ def test_defect_1_viewer_images_and_the_file_path_are_outside_the_fingerprint(se
 
 
 def test_drift_is_checkpointed_and_logged(session):
+    result = session.execute("ob = bpy.data.objects.new('Box', None)\nbpy.context.scene.collection.objects.link(ob)")
+    assert result["status"] == "ok", result
     head, before = session.head, n_checkpoints(session)
     session.worker.call("exec", {"code": "bpy.data.objects['Box'].location.z = 7.5"}, deadline_s=60)   # behind the journal
     r = session.execute("result = bpy.data.objects['Box'].location.z")
@@ -221,6 +223,8 @@ def test_drift_is_checkpointed_and_logged(session):
 
 
 def test_save_label_restore_and_list(session):
+    result = session.execute("ob = bpy.data.objects.new('Box', None)\nbpy.context.scene.collection.objects.link(ob)")
+    assert result["status"] == "ok", result
     head = session.head
     r = session.save_checkpoint("candidate A")
     assert r["status"] == "ok" and r["checkpoint"] == head["id"] and r["saved"] is False
@@ -239,8 +243,16 @@ def test_save_label_restore_and_list(session):
 
 
 def test_index_and_files_are_consistent(session):
+    result = session.execute("ob = bpy.data.objects.new('Box', None)\nbpy.context.scene.collection.objects.link(ob)")
+    assert result["status"] == "ok", result
+    original = session.head
+    result = session.execute("bpy.data.objects['Box'].location.x = 3.0")
+    assert result["status"] == "ok", result
+    result = session.restore_checkpoint(original["id"])
+    assert result["status"] == "ok" and result["changed"], result
     rows = index_rows(session.root)
     cps = [r for r in rows if r["kind"] in J.HEAD_KINDS]
+    assert len(cps) == 4 and cps[-1]["kind"] == "restore"
     assert [r["id"] for r in cps] == [f"c{i:04d}" for i in range(len(cps))]
     for r in cps:
         f = session.ck_dir / r["file"]
@@ -252,6 +264,7 @@ def test_index_and_files_are_consistent(session):
 
 
 # ------------------------------------------------------------------------------------------------ kill / restart
+@pytest.mark.timing
 def test_a_numpy_c_call_past_the_hard_timeout_restarts_at_the_verified_head(session):
     head, old_pid, before = session.head, session.worker.pid, n_checkpoints(session)
     t0 = time.perf_counter()

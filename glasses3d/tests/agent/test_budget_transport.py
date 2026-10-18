@@ -7,7 +7,7 @@ import json
 import httpx2
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents import Agent, ModelSettings, RunConfig, RunHooks, Runner, SQLiteSession, function_tool  # noqa: E402
 from agents.models.openai_provider import OpenAIProvider  # noqa: E402
 from agents.retry import ModelRetrySettings  # noqa: E402

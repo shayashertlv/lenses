@@ -61,6 +61,10 @@ const NOT_CHECKED_AFTER_REFUSAL = (python: Partial<Record<SpecRowName, Verdict>>
 const REFUSED_BEFORE_PARSING = 'arview refuses at the Format row before three parses the file (WP1_DESIGN.md §1), so it cannot check the other rows: each '
   + 'fails as "not checked"; spec.py fails Format and still checks the rest.';
 const INTENDED: Readonly<Record<string, Intended>> = {
+  'review-absolute-http': {arviewStatus: 'refused', why: `Absolute URLs are refused without any request. ${REFUSED_BEFORE_PARSING}`,
+    rows: NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})},
+  'review-scene-null': {arviewStatus: 'refused', why: `An explicit null scene is invalid, never the default 0. ${REFUSED_BEFORE_PARSING}`,
+    rows: {transforms: {arview: 'fail', python: 'pass'}}},
   'format-missing-image': {arviewStatus: 'refused', why: `An external image is missing next to the file. ${REFUSED_BEFORE_PARSING}`,
     rows: NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})},
   'format-absolute-uri-existing-file': {arviewStatus: 'refused', why: 'An unused image is named by an absolute URI to a file that exists: '
@@ -181,6 +185,10 @@ const SAME_REASON: Readonly<Record<string, readonly [SpecRowName, string]>> = {
  *  rows arview refuses at. Every case not listed here or in INTENDED must RENDER. */
 const TRANSFORMS: readonly SpecRowName[] = ['transforms'], GEOMETRY: readonly SpecRowName[] = ['geometry'];
 const ARVIEW_REFUSES: Readonly<Record<string, readonly SpecRowName[]>> = {
+  'review-morph-texcoord': GEOMETRY, 'review-morph-empty': GEOMETRY,
+  'review-color-accessor': ['format'], 'review-view-overrun': ['format'], 'review-json-bom': ['format'],
+  'review-color-view-negative-index': ['format'], 'review-color-view-bool-index': ['format'],
+  'review-color-view-missing-buffer': ['format'], 'review-color-view-negative-offset': ['format'], 'review-color-view-negative-length': ['format'],
   'transforms-parent-roll+25': TRANSFORMS, 'transforms-parent-pitch+25': TRANSFORMS, 'transforms-parent-upside-down': TRANSFORMS,
   'transforms-parent-mirrored-y': TRANSFORMS, 'transforms-trs-roll+25': TRANSFORMS, 'transforms-trs-pitch-25': TRANSFORMS,
   'transforms-trs-mirrored-y': TRANSFORMS, 'transforms-node-lens-r-rolled': TRANSFORMS, 'transforms-parent-1e-5-translation': TRANSFORMS,

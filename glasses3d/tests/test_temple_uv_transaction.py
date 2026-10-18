@@ -17,7 +17,8 @@ from glasses3d.g3d.temple.build import build_temple
 from glasses3d.g3d_host import blender
 
 
-pytestmark = pytest.mark.skipif(blender.blender_exe() is None, reason="Blender 5.2 not installed")
+pytestmark = [pytest.mark.skipif(blender.blender_exe() is None, reason="Blender 5.2 not installed"),
+              pytest.mark.timing]  # real UV writes share the fixed 120-second Blender deadline
 
 
 def _seed_code():

@@ -2,9 +2,10 @@
  *  face-a pin, and the console triage. The old manifest validator is gone: it hard-threw on a `width_mm` the renderer
  *  never read (PORT_REVIEW §7), and the capture pins face-a itself. */
 
-/** The only face image arview ever uses: ar/qa/fixtures/face-a.jpg (StyleGAN2 synthetic, 1024x1024, 552034 bytes). */
-export const FACE_A_SHA256 = 'b6491464eb87c023a8e07e2004cb4d30e2a57025857a0de43810d0191dd7208e';
-export const FACE_A_RELATIVE_PATH = '../../ar/qa/fixtures/face-a.jpg';
+/** The only face image arview uses: its pinned qa/fixtures/face-a.jpg (StyleGAN2 synthetic, 1024x1024, 552034 bytes). */
+import {ASSET_PINS} from '../../src/asset-pins.ts';
+export const FACE_A_SHA256 = ASSET_PINS['qa/fixtures/face-a.jpg'];
+export const FACE_A_RELATIVE_PATH = 'qa/fixtures/face-a.jpg';
 
 interface Point {readonly x: number; readonly y: number;}
 export interface EyeCrop {readonly x: number; readonly y: number; readonly width: number; readonly height: number;}

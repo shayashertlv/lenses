@@ -6,7 +6,7 @@
  *  stamp is set aside (renamed *.corrupt-<time>, never served) and rebuilt. Vite builds into a fresh temporary directory
  *  that is renamed into place only when complete, so a crashed or stalled build never leaves a half build that looks
  *  whole. The public binaries are NOT copied into the build (copyPublicDir false): the server serves them from
- *  ../../ar/public (read-only), each pinned by sha256 when the server starts (publicInventory), so 38 MB are not
+ *  arview/public (independent cache), each pinned by sha256 when the server starts (publicInventory), so 38 MB are not
  *  duplicated per source state. */
 import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
@@ -59,7 +59,7 @@ export async function inventory(root, keep = () => true) {
 }
 
 /** The public binaries the page reads (MediaPipe wasm, face and hair models, canonical face, licences), from
- *  ../../ar/public, read-only. The shipped catalog GLBs there are not served: the page renders only the handed-over model. */
+ *  arview/public, read-only. Test GLBs stay outside it: the page renders only the handed-over model. */
 export function publicInventory(publicDir) {
   return inventory(publicDir, name => !name.toLowerCase().endsWith('.glb'));
 }

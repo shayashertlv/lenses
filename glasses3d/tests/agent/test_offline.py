@@ -112,7 +112,7 @@ def test_offline_clients_need_the_offline_switch_and_an_offline_key(monkeypatch)
 
 
 def test_the_sdks_own_set_tracing_disabled_builds_a_network_client_and_ours_does_not(monkeypatch):
-    pytest.importorskip("agents")
+    import agents  # Required pinned SDK, never optional.
     from agents import set_tracing_disabled
     from agents.tracing import processors, setup
     from agents.tracing.provider import DefaultTraceProvider

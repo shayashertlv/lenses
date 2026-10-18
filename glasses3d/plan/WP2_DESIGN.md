@@ -5,11 +5,11 @@ changed except this one. Inputs: PLAN §0/§2/§4 (WP2, WP7, WP8); PORT_REVIEW �
 WP2 inventory; three panel designs ("worker", "loop", "jobs") with prototypes under
 `C:/Users/Shay/AppData/Local/Temp/claude/g3d-wp2-design/` (`worker_angle/`, `loop/` + `worker/`, `worker_proto/` + `sdk_proto/`).
 
-> **Review 2026-10-13 ([REVIEW_20261013.md](REVIEW_20261013.md)) — read before building stages D-F.** Stages A-C match
-> the code. The §10 catalogue's G2 rows (`check_relief`, `trace_temple`, `fit_temple`, `compare_temple_views`) name
-> retired WP6 v1 tools: WP6 closed on the v3 facet lab (`agent/temple_lab`, 7 tools, its own prompt), whose joining
-> into a job is undesigned (review §4, §8). The worker op `g3d_call` (§3) was never built. The paid-run lock is per
-> parent folder, not machine-wide (`agent/budget.py:1334`).
+> **Historical design; status updated 2026-10-18.** Assembly M0–M4 implemented stages D–F, trusted `g3d_call`,
+> delivery and the private temple stage. The shared paid-run lock is `agent/budget.py:PAID_RUN_LOCK_ROOT`.
+> M11 tasks 1–8 repair recovery, evidence, renewal and specialist behavior. Use ASSEMBLY, REVIEW_20261018 and
+> PROGRESS for current work. §10 is a capability map, not the live callable signature/schema; those live in
+> `agent/tools/` and `agent/temple_lab/tools.py`. §11's proposed CLI is superseded by `agent/README.md`.
 
 ## 0. Verdict
 
@@ -324,7 +324,7 @@ implementation-receipt sha and arview recipe.
 | `scene_summary(objects="all")` | worker | no | units/axes/marker; objects {partRole, verts, tris, materials, bbox_mm, closed, loose_parts}; materials; warnings (missing partRole, material shared by lens and non-lens) |
 | `save_checkpoint(label)`, `list_checkpoints()`, `restore_checkpoint(id)` | worker | restore | ids, deltas, references; a label saves only if the scene drifted |
 | `seat_lens`, `hide_eyewire`, `unseat_lens`, `unhide_eyewire` / `check_lens_seating` | worker `g3d_call` | yes / no | WP4 receipts unchanged (`seat_bpy.py:833/1488/1709/1740/339`) |
-| `configure_lens_coating(material, factor, ior, thickness_min_nm, thickness_max_nm)` | worker | yes | dict receipt (rewrite of optical_materials.py:19-42); untextured-film export caveat stated |
+| `g3d.lens_coating(...)` via `execute_blender_code` | worker | yes | Blender helper, not a standalone tool; authored optical export evidence |
 | `load_font(family)` | worker | yes | font name |
 | `render_views(...)`, `pick_surface_point(...)` | worker (+ host rays) | no | §6 |
 | `fit_cameras(reason, refs=None)` | host pool 14 | writes basis-K | per ref {view_kind, status, iou, contour mm, flags} + overlay sheet |
@@ -334,11 +334,12 @@ implementation-receipt sha and arview recipe.
 | `read_image(path, region=None)` | host | no | EXIF transpose on full frames and crops (fixes observations.py:55-56); job-relative paths; ≤2048 px |
 | `read_report(path, pointer="", key_offset=0)` | host | no | evidence_json.py:129-190 core (4 MiB, 20,000 chars); `runs/`, `transport/`, `budget/`, approvals, `notes/`, `session/` and the ledger unreachable |
 | `budget_status()` | host | no | `{cap, settled, reserved, unknown_holds, remaining, next_hold, requests}` |
-| `deliver(checkpoint="head", lensenv=None, clip_m=None, note="")` | host + one-shot export | no | §11 |
-| G1 `apply_photo_print`, `remove_photo_print`, `check_print` | host `production.bake_print` + worker `print_uv`/`attach_print` | yes | **Library dependency F2 verified 2026-10-07** (PORT_REVIEW §12): explicit thresholds, job-specific calibration and driver in `g3d_host/photoprint/production.py`; `inputs.job_from_dir`; no FT1119 defaults. WP5 closed by explicit owner acceptance on 2026-10-08; approved default committed at `4304c1d`. Retained numerical limitations are in WP5_HANDOFF.md. Stage-D agent wrappers remain unimplemented/unverified and gated. |
-| G2 `faceted_temple(spec: dict, side)`, `check_relief`, `trace_temple`, `fit_temple` | worker + host | yes / no | **gated** on WP6 leaving re-diagnosis + F1 (`g3d_temple` in the exporter allowlist, temple ops in `g3d/__init__`) + F3 (Prada coupling removed) |
+| `finish` | host + worker + AR | no geometry mutation | two-call evidence review, strict spec/print/integrity checks; seating diagnostic; accepted finish triggers host delivery. There is no Astra `deliver` tool. |
+| `photo_print` | host `production.bake_print` + trusted worker `print_uv`/`attach_print` | yes | integrated M4c; open to Astra under the 2026-10-13 owner decision. WP5 remains owner-closed with its historical quality limitations; task 7 pins the accepted output and repairs generality. |
+| `temple_stage` | private specialist + trusted parent application | yes | integrated M4b on the captured job head, with its own ten-tool v3 registry, photos/cameras and shared owner money. Retired v1 relief/trace/fit tools are not registered. |
 
-Gates live in a committed `agent/tools/gates.json` naming each tool's proof record; the contract test reads it.
+The proposed `agent/tools/gates.json` never became the runtime contract. Current instruction/tool contracts inspect
+the real registries; specialist tools retain their actual physical and evidence refusals.
 
 ## 11. Jobs, CLI, brief, delivery (`glasses3d/__main__.py`, `agent/{jobs,brief,deliver}.py`)
 

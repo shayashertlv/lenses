@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents.tool_context import ToolContext  # noqa: E402
 
 from glasses3d.agent import loop as L  # noqa: E402

@@ -12,6 +12,7 @@ import {
 } from '../src/render/temple-clip.ts';
 import type {TempleBlendConfiguration, TempleClipConfiguration} from '../src/render/temple-clip.ts';
 import {publicFile, SHIPPED_MODELS} from './shipped-models.ts';
+import {FIXTURE_PINS} from './fixture-pins.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 type CompileInput = Parameters<Material['onBeforeCompile']>[0];
@@ -35,13 +36,10 @@ function pairedCamera(width = 960, height = 720): CanvasTexture {
   return texture;
 }
 
-const manifest = JSON.parse(await readFile(publicFile('models/manifest.json'), 'utf8')) as
-  Record<string, {sha256: string}>;
-
 for (const definition of SHIPPED_MODELS) {
   test(`${definition.displayName}: the fixed clip excludes rear stems while preserving the real front and lenses`, async t => {
     const bytes = await readFile(publicFile(definition.url));
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), manifest['public' + definition.url]!.sha256);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), FIXTURE_PINS[`qa/fixtures${definition.url}` as keyof typeof FIXTURE_PINS]);
     // Geometry and real material classes are parsed unchanged. Only embedded
     // raster decoding is replaced because Node has no browser image decoder.
     const gltf = await new GLTFLoader().register(() => ({

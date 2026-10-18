@@ -7,6 +7,8 @@ import pytest
 from glasses3d.g3d_host import blender
 from glasses3d.g3d_host.spec import validate_spec
 
+pytestmark = pytest.mark.timing  # fixed Blender deadlines fail under concurrent render/fit load
+
 
 @pytest.mark.skipif(blender.blender_exe() is None, reason='Blender is not installed')
 def test_original_uv_charts_survive_faceting_revisions_and_variants(tmp_path):

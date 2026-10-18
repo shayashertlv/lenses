@@ -2,9 +2,28 @@
 
 Written by Claude (the planner) for the coding agent that executes it (Codex). The owner decided on 2026-10-13: Claude
 thinks, Codex executes. Read in this order before starting: `glasses3d/AGENTS.md`, `plan/PLAN.md` §0, this file,
-`plan/REVIEW_20261013.md` (the code-level status and every defect cited here), then the design section a milestone
+`plan/REVIEW_20261013.md` (the historical pre-assembly baseline), `plan/REVIEW_20261018.md`, current PROGRESS and
+the dispatched brief, then the design section a milestone
 names. Where this file and an older design disagree, this file wins; where the owner's latest words disagree with this
 file, the owner wins.
+
+**Current status, 2026-10-18:** this file retains dated plans and their original evidence. Line numbers below refer
+to the code at each milestone's date, not today's source; use symbols for new references. Completed plans and
+superseded terms are not instructions to repeat old work. `PROGRESS.md` records checks and the next action.
+
+| Milestone | Current state |
+|---|---|
+| M0–M4, M5-prep | Assembled job/tool/stage/delivery path built; offline proofs run. |
+| M5 / WP8 | Started: smoke complete; Oakley run 4 accepted 2026-10-15. Prada has six main runs but no accepted assembled product. FT1119 assembled validation and three unseen products remain. |
+| M6 | Owner understand/confirm/edit flow built; M11 task 5 repairs preview, scope, recovery and immutable exact-apply delivery. |
+| M7–M8 | Surface and owner-edit tools built/proven on copies (`M7_M8_RESULTS.md`); task 8 fixes later-discovered float32 temple defects. No new product acceptance implied. |
+| M9 | Native composition, fresh-conversation renewal and desktop money simulation built (tasks 3/4). Item 4's owner comparison of desktop c0016 versus run-4 c0015 is not recorded as complete. |
+| M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
+| M11 | Tasks 1–8 landed and Claude accepted; task 9 tests, remaining arview repairs and documents completed with passing required checks, awaiting Claude review. No paid run authorized by this milestone. |
+
+Standing money terms are the amendment to D5 below. The owner parked the review-page authored-size choice until
+the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
+"we were testing the new tools and their optional effects, our goal wasnt to fix the model".
 
 ## 0. Decision: assemble now; fix only what blocks or corrupts assembly
 
@@ -22,15 +41,17 @@ estimate (AGENTS.md).
 
 ## 1. Working rules for this plan (in addition to AGENTS.md)
 - One milestone at a time, in order. Commit after each milestone (explicit paths, branch `glasses3d`, never push), and
-  append to `plan/PROGRESS.md`: date, milestone, commits, test numbers, open issues.
+  prepend a dated entry to `plan/PROGRESS.md`: date, milestone, commits, test numbers, open issues.
 - Each milestone ends with its $0 proof. If the proof fails, diagnose and fix the general method; do not weaken the
   proof. Stop and report to the owner if a milestone needs a decision listed in §4 or more than its stated scope.
 - Never hard-code a product, a photo set or a photo name in runtime code. Product facts live in job data.
 - Before deleting or rewriting a module, grep its callers; the review's dead-code tables are in
   `data/review_20261013/reports/`.
-- Run the full suite at the end of each milestone: `-n 8 --dist loadfile` for everything except `tests/photoprint`,
-  then `tests/photoprint` with `-n 2` (the WP5 bakes start their own pools). Three wall-clock tests and the seeing
-  module fail only under load: rerun them alone before calling anything a failure.
+- Verification follows the dispatched brief. The owner's 2026-10-17 lean-verification instruction replaces the
+  blanket full-suite requirement for narrow work: focused affected tests and `assembly_m1` once when relevant.
+  M11 is broad and explicitly requires the full suite. Use `tests/README.md`: repo-root invocation, explicit
+  `-c glasses3d/pytest.ini glasses3d/tests`, `--dist loadfile`, a memory-bounded functional pool, photoprint
+  `-n 4`, and a separate serial timing pass. Budgets/timeouts remain unchanged.
 
 ## 2. Milestones
 
@@ -96,7 +117,7 @@ Designs to reuse: `plan/WP2_DESIGN.md` §10-§12 (read its 2026-10-13 note first
    for word, photos authoritative and colour from photos (not the product name), room reflections on lenses are not
    defects, small branding stays small, the stage order of §3, how to use each tool's report. Tool mechanics live in
    tool descriptions, not in the prompt. New text; never copy the retired phrases (PLAN §4 WP7).
-2. **Image policy for long loops** (PROGRESS "Open at closing": run 8 grew from 9 to 136 images, 26k to 219k tokens):
+2. **Historical image policy, superseded by M5-fix-1 and M9/task 4** (PROGRESS "Open at closing": run 8 grew from 9 to 136 images, 26k to 219k tokens):
    label every image Astra receives (call id, checkpoint/revision, view), and every few requests replace superseded
    images with short text notes, keeping the photos, the latest compare per view, current pick sheets and the best
    checkpoint's images. Generalise `ContextGuard` + `SceneHooks.context_stubs` (`agent/loop.py:583-640`); the current
@@ -549,7 +570,7 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
 (modeling_auto); this one is a full tool session with a confirm step.
 **A. Finish never stranded (M5-fix-9)**
 1. `budget_status`, the footer and the first `finish` result state the reserve the second finish call will need at
-   the current context, using the guard's own formula (`agent/budget.py:615-626`), and warn when the remaining
+   the current context, using `agent/pricing.py:Tariff.reserve_micro`, and warn when the remaining
    reserve room approaches it; one instruction line says to start the finish review while that room remains. No
    change to the guard, the $20 stop, the $23 maximum, the tariff or caching. Prove on run 3's saved requests that
    the warning would have fired before request 88.
@@ -624,7 +645,7 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    tool"), so the owner first sees "how much" after a paid edit round. Add a read-only preview: apply the proposed
    operations (2-3 amounts) to a private copy and return photo/before/option pairs and close-ups, leaving the source
    unchanged; the owner picks an option in his confirmation. Prove on the walkthrough copy.
-7. **Next paid run (owner):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
+7. **Historical next paid run (completed; money later superseded by D5's amendment):** fresh Prada run 4 on the unchanged job at effort `high`, $20 settled stop, $23 maximum
    reserve, only with the owner's approval and an estimate; then the owner's edit rounds, each approved separately.
 
 ### M7. Surface quality: flat facets, clean front corners, smooth lenses ($0 first; added 2026-10-16 by Claude)
@@ -747,6 +768,14 @@ should go managing this project, and you should use codex for the actual labor")
 4. Then review section 7 steps 2-7 (M9 safety valve, owner edit mode, arm openings, FT1119 readiness, builder,
    tests and documents), one task each.
 
+**Task ledger (2026-10-18):** tasks 1 (`9ef5cea`), 2 (`62638eb`), 3 (`25dcd54`), 4 (`ded8b77`, `74426bf`),
+5 (`46a7054`), 6 (`91487b7`), 7 (`df9fe23`) and 8 (`4c5bf5c`) landed and were accepted by Claude. Task 4 implements
+M9 renewal and desktop parity; task 5 fixes owner edits; task 6 cameras/openings; task 7 print/seating; task 8 the
+builder/fit/stage and T5 proof. Task 9 closes the assigned tests/arview/document findings. The detailed task reports
+under `data/review_20261018/codex/` retain each scope limit and failed or deferred check; this is not a claim that
+every P3 in the review was fixed. CC-12 is partial, CC-13/17 remain, WP4's historical quality failures and WP5's
+A4/A5/B3 limitations remain, and no unseen-product validation has happened.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
@@ -777,7 +806,7 @@ Astra compares renders at the photos' cameras with the photos and revises.
   accepted. The five open WP4 proof items (metal junction 0.425 < 0.44, INVU 0.4489 < 0.45, FOLD cascades, the
   narrow-eyewire knife edge, `CORRECTION_AIM_MM`) stay technical: prepare the evidence and a recommendation; ask the
   owner only if a gate would be loosened (AGENTS.md "Gates").
-- **D5 money and the test product (M5):**
+- **D5 original money and test-product decision (2026-10-13; money/effort superseded below):**
   - per paid run: **$20 settled is a hard stop (no new request starts at or above it), $23 is the most the budget
     guard may ever reserve** (owner: "20$ hard stop 23$ max reserve"). Build the settled-spend stop into the loop
     (`RunSettings`), not as a separate watcher script like `stop_at_18_008.py`;
@@ -785,3 +814,13 @@ Astra compares renders at the photos' cameras with the photos and revises.
   - known-good regression product: **Oakley OO9208 v2** (job 3dff8674; the M5 step 1 product);
   - total WP8 budget and the smoke-turn cap: **not decided now** (owner: "this will be a thought when we'll have a full
     operational automation"). Ask before M5. Every paid run still needs the owner's OK and an estimate.
+
+**D5 amendment, standing terms from 2026-10-16/17:** effort **high**, **$20 settled-only cutoff**, shared by parent
+and specialist. Owner, 2026-10-16: "effort=high, cutoff 20$ reserve doesnt matter". Owner, 2026-10-17:
+"after youre done fixing, rerun. no bs money reserve this time, i dont care about astras possible responses, only as
+we pass 20$ cutoff the run not a cent before!" No estimated reserve refusal or output shrinking applies in this
+mode. The last in-flight response can cross $20; no next request starts at or above it, and unknown outcomes still
+stop spending. Explicitly prepare `--settled-only --effort high`; legacy defaults and old approvals retain their
+old policy. Each paid run still needs its own authorization and estimate. The smoke was approved on 2026-10-13
+("Yes, cap $1") and completed that day. No blanket total WP8 budget is approved. Oakley OO9208 v2 remains the
+regression product, now its accepted assembled run-4 asset (`98131458…`).

@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents.tool_context import ToolContext  # noqa: E402
 
 from glasses3d.agent import loop as L  # noqa: E402
@@ -821,6 +821,7 @@ def test_the_roll_band_does_not_magnify_an_outline_move():
     assert 0.2 <= roll["surface_mm"] < 0.3 and G.distinct_heads(roll)
 
 
+@pytest.mark.timing
 def test_the_head_comparison_is_fast():
     """The comparison runs on every finish; < 0.5 s per pair (about 0.05 s on the Prada fixture, 0.15 s on the
     preferred layout with a 0.4 mm roll)."""
@@ -2724,6 +2725,7 @@ def test_the_state_lock_serialises_mark_unseen_and_save(lab, monkeypatch):
     assert json.loads(lab.state_path.read_text(encoding="utf-8"))["compares"][-1]["unseen"] is True
 
 
+@pytest.mark.timing
 def test_busy_lock_returns_at_once(lab):
     tl = tools_of(lab)
     gate, entered = threading.Event(), threading.Event()
@@ -2995,6 +2997,7 @@ def real_job(root: Path, rig: str = "studio_dome_v1") -> Path:
 
 
 @pytest.mark.slow
+@pytest.mark.timing
 def test_real_lab_prepare_edit_variants_finish(tmp_path):
     """On real Blender (a copy of Prada, studio_dome_v1): prepare fits revision 0 (the original's template) and
     compares the original and revision 0 at all six photos; facet_edit fits and applies a facet (the worker builds
@@ -3034,7 +3037,7 @@ def test_real_lab_prepare_edit_variants_finish(tmp_path):
         body, _f, images, _t = parsed(call(tl["facet_variants"], {"parent_revision": body["revision"],
                                                                   "variants": variants, "photos": ["05"],
                                                                   "judgement": judgement(lab)}, "c2"))
-        assert body["status"] == "ok" and len(images) >= 1 and lab.s.head["fingerprint"] == fp
+        assert body["status"] == "ok" and len(images) >= 1 and lab.s.head["fingerprint"] == fp, body
         assert lab.s.fingerprint() == fp                         # the worker's scene, not just the index
         body, *_ = parsed(call(tl["facet_finish"], {"status": "matched", "best_checkpoint": r0_checkpoint,
                                                     "summary": "test", "judgement": None}, "c4"))

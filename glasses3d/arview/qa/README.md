@@ -1,8 +1,9 @@
 # arview/qa index
 
 Run every tool from `glasses3d/arview/`. None of them opens a real camera (the webcam page waits for the owner's Open
-camera), calls a provider, publishes anything or writes into `../../ar/` (it is read-only: `public/` assets and
-`qa/fixtures/face-a.jpg`). Write outputs under
+camera), calls a provider, publishes anything or writes into `../../ar/`. Routine captures, builds and tests use
+arview's own checksum-verified `public/` and `qa/fixtures/` asset caches (`npm run assets`); only the optional
+`--live-probe` inspects the live site's source. Write outputs under
 `glasses3d/data/` (git-ignored). `npm run test:qa` (`node --test qa/*.test.mjs`) runs the tests below.
 
 | Tool | What it does |
@@ -14,6 +15,9 @@ camera), calls a provider, publishes anything or writes into `../../ar/` (it is 
 
 | Test | Covers |
 |---|---|
+| `asset-cache.test.mjs` | immutable Git bootstrap into an isolated arview cache with different mutable live assets, all checksums, product GLBs kept outside public output, and refusal of corrupt cached assets |
+| `twin-maps.test.mjs` | real GPU samples of the crystal twin's red-channel transmission map, green-channel thickness map and authored alpha blending, using generated geometry |
+| `capture-production.test.mjs` | the real production flags (`--poses default --backgrounds skin --fixed-scale --worn-sides --lens-evidence --lensenv 1`): 35 planned and captured images, portrait, checker, both wearer-named worn sides, zero errors and Chromium cleanup |
 | `capture-cli.test.mjs` | every option, the defaults, every usage error, the stall budget (every stall path in `stallReportPathsMs`, inner kills included, < 120 s at every step deadline) |
 | `capture-poses.test.mjs` | the three pose sets, counts, file names, backgrounds |
 | `capture-cameras.test.mjs` | `--cameras --no-face` end to end on the GPU: two explicit cameras of a box GLB, exit 0, no face or portrait, each part-id silhouette exactly at the cameras file's projected box (1.5 px), the beauty corner is the camera's background, from the +x side the x > 0 temple hides the x < 0 one; a bad cameras file is exit 2 with nothing written (`capture/cameras.ts`; unit tests in `tests/capture-cameras.test.ts`) |

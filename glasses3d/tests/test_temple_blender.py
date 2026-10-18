@@ -530,6 +530,7 @@ def test_revert_is_byte_identical(main_run):
     assert st[19]["digests"] == st[1]["digests"] and st[19]["data_names"] == st[1]["data_names"]
 
 
+@pytest.mark.timing
 def test_budget(main_run):
     st, _, _, _ = main_run
     tm = st[20]                                                        # the v1 budgets, kept

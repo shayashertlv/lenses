@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-pytest.importorskip("agents")
+import agents  # Required pinned SDK: import failures must fail this suite.
 from agents import function_tool  # noqa: E402
 from agents.tool import ToolOutputImage, ToolOutputText  # noqa: E402
 

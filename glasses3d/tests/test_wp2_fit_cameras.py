@@ -80,7 +80,7 @@ def test_fit_cameras_freezes_basis_01_close_to_the_truth(job):
     fit = job["fit"]
     assert fit["status"] == "ok", fit
     assert fit["basis"] == "basis-01" and list(fit["refs"]) == ["reference-01", "reference-02", "reference-03"]
-    bs = C.load_basis(job["root"])
+    bs = C.load_basis(job["root"], "basis-01")
     assert bs.id == "basis-01" and bs.meta["source"] == "fit_cameras" and bs.meta["call_id"] == fit["call_id"]
     assert bs.meta["reason"] == "first basis for the synthetic glasses"
     assert bs.meta["model"]["glb_sha256"] == fit["glb_sha256"] == bs.meta["model"]["sha256"]
@@ -109,9 +109,9 @@ def test_fit_cameras_freezes_basis_01_close_to_the_truth(job):
 
 @pytest.mark.slow
 def test_compare_on_the_unchanged_head_reproduces_the_fit_exactly(job):
-    r = job["seeing"].compare_to_photos(passes=("native",))
+    r = job["seeing"].compare_to_photos(passes=("native",), basis="basis-01")
     assert r["status"] == "ok", r
-    bs = C.load_basis(job["root"])
+    bs = C.load_basis(job["root"], "basis-01")
     for rid, m in r["refs"].items():
         assert m["iou"] == round(bs.refs[rid]["fit"]["iou"], 4), rid
         assert m["contour_mean_mm"] == round(bs.refs[rid]["fit"]["contour_mean_mm"], 3), rid
@@ -124,6 +124,8 @@ def test_compare_on_the_unchanged_head_reproduces_the_fit_exactly(job):
 @pytest.mark.slow
 def test_a_refit_is_a_new_basis_and_the_old_one_stays_selectable(job):
     see = job["seeing"]
+    baseline = see.compare_to_photos(passes=(), basis="basis-01")
+    assert baseline["status"] == "ok", baseline
     fit2 = see.fit_cameras("refit the front only", job["images"], job["views"], refs=["reference-01"],
                            front_parts=("Front",), workers=3)
     assert fit2["status"] == "ok" and fit2["basis"] == "basis-02" and len(fit2["refs"]) == 3

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+import struct
 import sys
 import traceback
 from pathlib import Path
@@ -318,6 +319,59 @@ UPSIDE_DOWN_M = trans(0, 0.004, 0) @ np.diag([-1, -1, 1, 1])
 MIRROR_Y_M = trans(0, 0.004, 0) @ np.diag([1, -1, 1, 1])
 
 # (id, glbfab.build keyword arguments). The ids are what the test's explicit-difference table names.
+def p_review_case(kind):
+    def patch(doc, add):
+        bridge = next(m for m in doc["meshes"] if m["name"] == "Bridge")["primitives"][0]
+        brow = next(m for m in doc["meshes"] if m["name"] == "Brow_L")["primitives"][0]
+        if kind == "morph-texcoord":
+            brow["targets"] = [{"TEXCOORD_0": add(np.zeros((8, 2)), 5126, "VEC2")}]
+        elif kind == "morph-empty":
+            brow["targets"] = [{}]
+        elif kind == "color-accessor":
+            bridge["attributes"]["COLOR_0"] = 999
+        elif kind.startswith("color-view-"):
+            index = add(np.ones((8, 3)), 5126, "VEC3")
+            bridge["attributes"]["COLOR_0"] = index
+            accessor = doc["accessors"][index]
+            view = doc["bufferViews"][accessor["bufferView"]]
+            defect = kind.removeprefix("color-view-")
+            if defect == "negative-index":
+                accessor["bufferView"] = -1
+            elif defect == "bool-index":
+                accessor["bufferView"] = True
+            elif defect == "missing-buffer":
+                view["buffer"] = 999
+            elif defect == "negative-offset":
+                view["byteOffset"] = -1
+            elif defect == "negative-length":
+                view["byteLength"] = -1
+            else:
+                raise ValueError(kind)
+        elif kind == "material-float":
+            bridge["material"] = 0.0
+        elif kind == "scene-null":
+            doc["scene"] = None
+        elif kind == "absolute-http":
+            doc["images"] = [{"uri": "https://example.com/models/canonical-face.json"}]
+        elif kind == "texcoord-null":
+            p_texcoord_minus_one(doc, add)
+            doc["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"] = None
+        elif kind == "view-overrun":
+            acc = doc["accessors"][bridge["attributes"]["POSITION"]]
+            doc["bufferViews"][acc["bufferView"]]["byteLength"] += 4096
+        elif kind != "json-bom":
+            raise ValueError(kind)
+    return patch
+
+
+def with_json_bom(data):
+    jlen = struct.unpack("<I", data[12:16])[0]
+    text = b"\xef\xbb\xbf" + data[20:20 + jlen].rstrip(b" ")
+    text += b" " * (-len(text) % 4)
+    body = struct.pack("<II", len(text), 0x4E4F534A) + text + data[20 + jlen:]
+    return b"glTF" + struct.pack("<II", 2, 12 + len(body)) + body
+
+
 CASES: list[tuple[str, dict]] = [
     # ---- meets the spec
     ("valid-default", {}),
@@ -435,6 +489,8 @@ CASES: list[tuple[str, dict]] = [
     ("geometry-lines", dict(mode=1, target="Brow_L")),
     ("geometry-lines-lens", dict(mode=1, target="Lens_L")),
     ("geometry-morph", dict(morph=True, target="Brow_L")),
+    ("review-morph-texcoord", dict(patch=p_review_case("morph-texcoord"))),
+    ("review-morph-empty", dict(patch=p_review_case("morph-empty"))),
     ("geometry-animation", dict(animation=True)),
     ("geometry-skins", dict(patch=p_skins)),
     ("geometry-skinned-bridge", dict(patch=p_skinned_bridge)),
@@ -482,6 +538,9 @@ CASES: list[tuple[str, dict]] = [
     ("format-texture-index-missing", dict(patch=p_texture_index_missing)),
     ("format-image-without-source", dict(patch=p_image_without_source)),
     ("format-lens-material-7", dict(patch=p_lens_material(7))),
+    *((f"review-{kind}", dict(patch=p_review_case(kind))) for kind in
+      ("color-accessor", "material-float", "scene-null", "absolute-http", "texcoord-null", "view-overrun", "json-bom",
+       "color-view-negative-index", "color-view-bool-index", "color-view-missing-buffer", "color-view-negative-offset", "color-view-negative-length")),
     # ---- compressed (the fabricator flags KHR_draco_mesh_compression but keeps the plain accessors: the Python
     # validator bounds the flagged primitives by their POSITION min/max; a __decoded twin is written for each)
     ("compressed-bridge", dict(compressed=True)),
@@ -534,7 +593,8 @@ def main(argv: list[str]) -> int:
     for cid, kw in CASES:
         try:
             path = out / f"{cid}.glb"
-            path.write_bytes(glbfab.build(**kw))
+            data = glbfab.build(**kw)
+            path.write_bytes(with_json_bom(data) if cid == "review-json-bom" else data)
             entry = {"id": cid, "file": str(path), "python": summary(validate_spec(path))}
             if kw.get("compressed"):
                 twin = out / f"{cid}__decoded.glb"

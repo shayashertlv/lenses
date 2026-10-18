@@ -1,7 +1,8 @@
 # PORT_REVIEW: what glasses3d copies, rewrites or drops
 
-**Current routing (2026-10-10):** this is dated review and implementation history. Use PROGRESS.md and
-[WP6_FACETS.md](WP6_FACETS.md) for current work. Old pending actions below are not a new task list.
+**Current routing (2026-10-18):** this is dated review and implementation history. Use [ASSEMBLY](ASSEMBLY.md),
+[REVIEW_20261018](REVIEW_20261018.md), the dispatched brief and [PROGRESS](PROGRESS.md) for current work.
+WP6 is closed by owner acceptance. Old pending actions below are not a new task list.
 
 Written 2026-10-05 (WP0.5; WP1 adds §7). PLAN.md §2 rule: code enters glasses3d only after review, by copying it in
 with tests; nothing is imported at runtime from `automation/`, `ar_v4/`, `ar/modeling/` or the stash. Every copied file

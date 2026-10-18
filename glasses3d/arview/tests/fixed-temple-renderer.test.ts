@@ -134,6 +134,16 @@ test('face shadows share one GPU underlay across hair audits and bypass clean-ca
   target.dispose();
 });
 
+test('a shadow early return never claims an applied shadow, including the cached frame', () => {
+  const {renderer} = harness();
+  let draws = 0;
+  Object.assign(renderer, {shadows: {setTempleClip() {}, render(_camera: unknown, source: unknown) {draws++; return source;}}});
+  renderer.pose(frame, detection(), 100);
+  assert.equal(renderer.render(mask).shadowsApplied, false);
+  assert.equal(renderer.render(mask, {hair: false}).shadowsApplied, false);
+  assert.equal(draws, 1);
+});
+
 test('observed cheek changes visibility without reshaping the frame or changing its hair endpoint', () => {
   const {renderer, positions, visibility, clip} = harness();
   const input = detection(-40);

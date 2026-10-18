@@ -1,8 +1,9 @@
 """g3d/render.py WP6 v2 additions (WP6_FACETS §3.2) in a real worker on a copy of the Prada scene.
 
-* photo_v1 stays the default and its pixels are unchanged: the native / clay / normal passes at the six reference
-  cameras match the renders captured with the pre-change code (data/wp6v2/golden_photo_v1, HEAD 62b25e4) on decoded
-  pixels, within EEVEE's own run-to-run noise (two captures differed in <= 14 px, max 27 levels);
+* photo_v1 stays the default: native / clay / normal passes at the six reference cameras match the 2026-10-18
+  environment recapture (reviewed commit 308f4bf) within the unchanged pixel allowance. The historical 62b25e4
+  captures remain preserved: recapturing that same renderer reproduced the environment drift; task8 separately
+  disabled normal-pass dither (4c5bf5c). See tests/README.md for the recorded old/new differences;
 * studio_dome_v1 renders native_linear and gloss_black as 16-bit Raw PNGs, records its frozen spec, aims its key at
   key_elevation_deg on each camera's azimuth, picks the acetate bodies by role and geometry and darkens only them in
   gloss_black (the lens keeps its material);
@@ -48,7 +49,7 @@ pytestmark = pytest.mark.skipif(blender.blender_exe() is None, reason="Blender 5
 
 G3D = Path(__file__).resolve().parents[1]
 PRADA_SCENE = G3D.parent / "automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/scene.blend"
-GOLDEN = G3D / "data" / "wp6v2" / "golden_photo_v1" / "golden_a.json"
+GOLDEN = G3D / "data" / "wp6v2" / "golden_photo_v1" / "golden_20261018_task8.json"
 BASIS = G3D / "data" / "wp6v2" / "basis" / "cameras.json"
 REQUIRE_DATA = os.environ.get("G3D_REQUIRE_DATA") == "1"
 LIGHT = {"center": [0, -5, -70], "radius": 90.0}

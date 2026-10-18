@@ -196,7 +196,8 @@ class NoTests(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, NoTests())
 from glasses3d.g3d_host.photoprint import production, ar_levels, ar_calibrate
 '''
-    r = subprocess.run([sys.executable, '-B', '-c', code], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, '-B', '-c', code], cwd=Path(__file__).resolve().parents[3],
+                       capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 
 

@@ -7,6 +7,7 @@ files; it never starts a job or sends a request.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -15,10 +16,42 @@ from glasses3d.agent import approvals as A, job_run
 from glasses3d.agent.budget import cap_to_micro, create_json_exclusive, now_iso
 from glasses3d.agent.loop import approval_settings, tool_registry_sha256
 from glasses3d.agent.pricing import usd_text
+from glasses3d.agent.procs import write_json_atomic
 
-OFFLINE_NOTE = ('OFFLINE PROOF ONLY. $0 API usage; no estimate was requested. '
+OFFLINE_NOTE = ('OFFLINE PROOF ONLY. $0 API usage. '
                 'Synthetic approval exercises the unchanged guard over MockTransport; '
                 'it is not owner authorization for any paid run.')
+
+
+def approve_offline_request(run_dir, offline_handler, *, cap):
+    """Mark an existing lab/job proof request before writing unspendable authority.
+
+    Used by historical proofs that intentionally exercise request preparation or
+    missing-approval refusal first. Never rewrites an approval or consumed run.
+    """
+    if os.environ.get('G3D_OFFLINE') != '1' or not callable(offline_handler):
+        raise ValueError('synthetic approval requires G3D_OFFLINE=1 and a callable offline handler')
+    run = Path(run_dir).resolve(strict=True)
+    if (run / 'approval.json').exists() or A.is_consumed(run):
+        raise ValueError('offline fixture cannot replace an approval or consumed run')
+    path = run / 'approval-request.json'
+    request = json.loads(path.read_text(encoding='utf-8'))
+    if (request.get('schema') != A.APPROVAL_REQUEST_SCHEMA or request.get('run_id') != run.name
+            or request.get('request_sha256') != A.request_sha256(request['request'])):
+        raise ValueError('offline fixture requires an intact bound request')
+    cap_micro = cap_to_micro(cap)
+    if cap_micro <= 0:
+        raise ValueError('offline fixture cap must be positive')
+    request['offline_only'] = True
+    request['estimate'] = {'kind': 'offline_mock_fixture', 'api_cost_usd': 0, 'note': OFFLINE_NOTE}
+    write_json_atomic(path, request)
+    document = {'schema': A.APPROVAL_SCHEMA, 'job_id': request['job_id'],
+        'run_id': run.name, 'approved': now_iso(), 'request_sha256': request['request_sha256'],
+        'approval_request_sha256': A.file_sha256(path), 'max_usd': usd_text(cap_micro),
+        'max_micro_usd': cap_micro, 'owner_words': OFFLINE_NOTE,
+        'authorized_by': 'offline_fixture', 'recorded_by': 'synthetic offline fixture; not the owner'}
+    create_json_exclusive(run / 'approval.json', document)
+    return document
 
 
 def prepare_offline_request(root, run_id, offline_handler, *, settings=None, cap=None):

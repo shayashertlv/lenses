@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from glasses3d.g3d_host import blender
 
+pytestmark = pytest.mark.timing  # fixed Blender deadline; exercise in the serial pass
+
 
 @pytest.mark.skipif(blender.blender_exe() is None, reason='Blender is not installed')
 def test_current_uv_edits_become_a_frozen_generation_and_unfacet_restores_original(tmp_path):
