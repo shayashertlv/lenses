@@ -667,6 +667,8 @@ def write_json_atomic(path, value) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
         replace_with_retry(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)

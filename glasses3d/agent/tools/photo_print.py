@@ -157,6 +157,8 @@ def photo_print_tool(scene, call, fatal):
         Handles colour patterns on the named acetate surfaces, not geometry or lens optical coatings. Refuses
         invalid/stale exports, missing or changed frozen inputs, no eligible texture parts, failed coverage or
         registration, and attachment/export mismatches. Inspect the full refusal and retained bake evidence.
+        The basis must include every owner photo; missing photos are named in the refusal.
+        Unusable fits remain explicit excluded_images diagnostics.
 
         Args:
             parts: Unique exact scene object names for patterned acetate, including genuine .001 suffixes.

@@ -469,8 +469,10 @@ def test_contract_scans_parameter_descriptions():
 
 def test_timeout_table_names_every_facet_tool():
     from glasses3d.agent.temple_lab.tools import TOOL_NAMES
+    from glasses3d.agent import tool_timeouts as T
     for name in TOOL_NAMES:
-        assert L.hard_timeout_s(name) == L.HARD_TIMEOUT_S[name] and L.sdk_timeout_s(name) == L.HARD_TIMEOUT_S[name] + 10
+        assert L.hard_timeout_s(name) == L.HARD_TIMEOUT_S[name]
+        assert L.sdk_timeout_s(name) == T.inner_steps_s(name) + T.HOST_WORK_MARGIN_S + L.SDK_TIMEOUT_MARGIN_S
     small = L.hard_timeout_s("facet_variants", variants=2, photos=1)
     assert small == L.FACET_VARIANTS_BASE_S + 3 * L.FACET_VARIANTS_PER_RENDER_S < L.HARD_TIMEOUT_S["facet_variants"]
     assert all(L.HARD_TIMEOUT_S[name] >= 30 for name in TOOL_NAMES)

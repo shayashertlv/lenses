@@ -91,6 +91,7 @@ import math
 import numbers
 import re
 import time
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 
@@ -109,12 +110,24 @@ from ..g3d_host.camera import Camera, NormFrame, project_mm
 from . import procs, print_freshness
 from .journal import CheckpointMismatch, WorkerFailed
 from .worker_client import WorkerDied
+from .tool_timeouts import (BOUNDS_DEADLINE_S, EXPORT_DEADLINE_S, PICK_DEADLINE_S,
+                            RENDER_DEADLINE_S, ENV_DEADLINE_S, ENV_ITERATIONS)
+
+
+def exporter_identity() -> str:
+    """Bind cached bytes to exporter, fingerprint and worker implementations (including local edits)."""
+    directory = Path(__file__).resolve().parents[1] / "g3d"
+    digest = hashlib.sha256()
+    for name in ("export_glb.py", "checkpoint.py", "worker.py", "glb_patch.py", "coating.py"):
+        digest.update(name.encode("utf-8"))
+        digest.update((directory / name).read_bytes())
+    return digest.hexdigest()
+
+
+def export_cache_key(fingerprint: str, exporter: str) -> str:
+    return hashlib.sha256(f"{fingerprint}:{exporter}".encode("utf-8")).hexdigest()
 
 MANIFEST_SCHEMA = "g3d.render_manifest/1"
-RENDER_DEADLINE_S = 300.0
-EXPORT_DEADLINE_S = 120.0
-PICK_DEADLINE_S = 30.0
-BOUNDS_DEADLINE_S = 30.0
 FIT_WORKERS = 14
 DEFAULT_PASSES = ("native", "clay")
 WORKER_PASSES = ("native", "clay", "normal")
@@ -174,9 +187,7 @@ EDGE_LABEL_TEXT = ("deg from the build; - = valley; a-b° (a to b° when a is ne
 ENV_FIT_MAX_PX = 640          # calibration crops are rendered at <= this long side (the fit cells are ~1 mm)
 ENV_ERODE_PX = 12.0            # front region erosion at native scale (at least; 2 x the front's registration error)
 ENV_SIGMA_MM, ENV_STEP_MM = 1.0, 1.0
-ENV_ITERATIONS = 3             # re-linearised fits, each rendered directly; the best direct residual is kept
 ENV_DELTA = 0.5                # differential basis step, x the mean weight at the linearisation point
-ENV_DEADLINE_S = 900.0
 GAIN_VIEW_MAX_PX = 1600
 TEMPLE_ROI_MIN_PX = 40_000
 TEMPLE_REGION_PX = 20           # a compare's temple region: the posed temple pixels dilated by this many px
@@ -300,15 +311,32 @@ class Seeing:
         call_id = call_id or self.s.new_call_id("export_head")
         head = self.head
         fp = head["fingerprint"]
+        exporter = exporter_identity()
+        hello = getattr(getattr(self.s, "worker", None), "hello", None) or {}
+        runtime = {name: hello[name] for name in ("blender", "python") if name in hello}
+        if runtime:
+            exporter = hashlib.sha256((exporter + json.dumps(runtime, sort_keys=True)).encode("utf-8")).hexdigest()
+        key = export_cache_key(fp, exporter)
         d = self.work / "exports"
         index_path = d / "index.json"
         index = procs.read_json(index_path) or {}
-        rec = index.get(fp)
-        if rec and Path(rec["path"]).is_file() and C.sha256_file(rec["path"]) == rec["sha256"]:
-            # A restore records a new checkpoint id with the same geometry fingerprint. Cached bytes and their
-            # validation remain usable, but tools/finish must bind their receipt to the current journal head.
-            return {**rec, **self._validate_export(rec), "checkpoint": head["id"], "cached": True}
-        path = d / f"head-{fp[:16]}.glb"
+        rec = index.get(key)
+        if (rec and rec.get("fingerprint") == fp and rec.get("exporter_identity") == exporter
+                and Path(rec["path"]).is_file() and C.sha256_file(rec["path"]) == rec["sha256"]):
+            # A matching index proves the saved bytes, not the current worker. Check live identity before
+            # reusing it, or a drifted scene could render differently while finish receives a valid head receipt.
+            observed = self.s.call_read("export_head_identity", "fingerprint", {},
+                                        deadline_s=BOUNDS_DEADLINE_S, call_id=call_id)
+            if observed["status"] != "ok":
+                return {"status": observed["status"], "code": "E_WORKER",
+                        "message": observed.get("message") or observed["status"]}
+            if observed["result"].get("fingerprint") == fp:
+                # Restores create new checkpoint ids for the same geometry: rebind the verified receipt.
+                return {**{k: v for k, v in rec.items() if k not in {"drift", "requested_checkpoint"}},
+                        **self._validate_export(rec), "checkpoint": head["id"], "cached": True}
+        # The actual scene identity is known only after export. Unique paths prevent a drifted export from
+        # overwriting bytes already associated with the requested checkpoint.
+        path = d / f"head-{key[:16]}-{uuid.uuid4().hex[:8]}.glb"
         r = self.s.call_read("export_glb", "export_glb", {"path": str(path)}, deadline_s=EXPORT_DEADLINE_S,
                              call_id=call_id)
         if r["status"] != "ok":
@@ -319,13 +347,16 @@ class Seeing:
         receipt = res["receipt"]
         rec = {"status": "exported", "path": res["path"], "sha256": res["sha256"], "bytes": res["bytes"],
                "fingerprint": res["fingerprint_before"], "checkpoint": head["id"],
+               "exporter_identity": exporter,
+               "exporter_runtime": runtime,
                "objects": receipt.get("object_count"), "triangles": receipt.get("triangle_count"),
                "notes": receipt.get("notes", []), "receipt": str(path.with_suffix(".json"))}
         if res["fingerprint_before"] != fp:
             rec["drift"] = f"the worker's scene {res['fingerprint_before'][:12]} is not head {head['id']}"
+            rec["requested_checkpoint"], rec["checkpoint"] = head["id"], None
         C.write_json(path.with_suffix(".json"), receipt)
         rec.update(self._validate_export(rec))
-        index[fp] = rec
+        index[export_cache_key(rec["fingerprint"], exporter)] = rec
         procs.write_json_atomic(index_path, index)
         return {**rec, "cached": False}
 
@@ -2340,6 +2371,7 @@ class Seeing:
                 self.s.record_call("fit_cameras", call_id, args, out)
                 return out
             names = [by_id[C.ref_id(r)] for r in want]
+        requested_names = list(names)
         try:
             resolved_mattes,matte_sources = resolve_photo_mattes(names,matte_modes,mattes)
         except ValueError as exc:
@@ -2347,20 +2379,33 @@ class Seeing:
             self.s.record_call('fit_cameras',call_id,args,out)
             return out
         exp = self.export_head(call_id)
-        if exp.get("status") != "exported":
+        if exp.get("status") != "exported" or exp.get("drift"):
             out = _err(call_id, exp.get("code") or "E_EXPORT", f"the scene does not export: {exp.get('message')}")
+            if exp.get("drift"):
+                out = _err(call_id, "E_EXPORT_DRIFT", f"cannot fit cameras on a drifted scene: {exp['drift']}")
             self.s.record_call("fit_cameras", call_id, args, out)
             return out
         bid = C.next_basis_id(self.root)
         bdir = C.basis_root(self.root) / bid
         bdir.mkdir(parents=True)
-        imgs = {n: Path(images[n]) for n in names}
         try:
             initial_openings = {}
             try:
                 previous = C.load_basis(self.root)
-            except C.NoBasis:
+            except (C.NoBasis, C.MissingOwnerPhotos):
                 previous = None
+            compatible = (previous is not None and previous.meta.get("model", {}).get("sha256") == exp["sha256"]
+                          and tuple(previous.skip) == tuple(skip)
+                          and previous.front_parts == (tuple(front_parts) if front_parts else None))
+            # A subset is a request to refit those photos, not permission to drop the rest. Missing or
+            # incompatible prior fits are fitted too; compatible frozen cameras remain unchanged.
+            for name, photo in images.items():
+                old = previous.refs.get(C.ref_id(name)) if previous else None
+                if name not in names and not (compatible and old and old["image"] == name
+                                              and old["photo_sha256"] == C.sha256_file(photo)):
+                    names.append(name)
+            resolved_mattes, matte_sources = resolve_photo_mattes(names, matte_modes, mattes)
+            imgs = {n: Path(images[n]) for n in names}
             # A delta only transfers automatically when authored geometry and
             # photo bytes are identical. Geometry revisions start in their own
             # authored pose; a missing prior is never a measured zero.
@@ -2378,39 +2423,47 @@ class Seeing:
                                           initial_openings=initial_openings or None,
                                           matte_modes=resolved_mattes,
                                           log=log or (lambda *_: None))
-            bs = C.freeze_basis(self.root, bdir, imgs, reason=str(reason), call_id=call_id, source="fit_cameras",
+            retained = C.complete_refit(bdir, images, previous if compatible else None)
+            bs = C.freeze_basis(self.root, bdir, images, reason=str(reason), call_id=call_id, source="fit_cameras",
                                 model={"glb_path": exp["path"], "glb_sha256": exp["sha256"],
                                        "fingerprint": exp["fingerprint"], "checkpoint": exp["checkpoint"]})
         except Exception as exc:  # noqa: BLE001 - reported to Astra; the unfrozen folder is never a basis
             out = _err(call_id, "E_FIT", f"{type(exc).__name__}: {exc}")
             self.s.record_call("fit_cameras", call_id, args, out)
             return out
-        tiles = []
-        for rid, rec in bs.refs.items():
-            f = rec.get("fit") or {}
-            usable = bs.is_usable(rid)
-            label = f"{rid} {rec.get('view_kind')} -> {rec.get('view')}: {f.get('status') or 'ok'}"
-            if usable and f.get("iou") is not None and f.get("contour_mean_mm") is not None:
-                label += f"; IoU {f['iou']:.3f}, contour {f['contour_mean_mm']:.2f} mm"
-            if not usable:
-                label += "; " + str(bs.unusable_refs()[rid])
-            if rec.get("overlay"):
-                panel = Image.open(bdir / rec["overlay"]).convert("RGBA")
-            else:
-                try:
-                    panel = Image.fromarray(bs.photo(rid)).convert("RGBA")
-                except (ValueError, OSError):
-                    panel = Image.new("RGBA", (640, 240), "white")
-                    label += "; source photo could not be decoded (no photo or render shown)"
-            tiles.append(C.labelled(C.fit_into(panel, 1024, 1024), label))
-        sheet = None
-        if tiles:
-            sheet = str(bdir / "overlays_sheet.png")
-            C.grid(tiles, min(3, len(tiles))).convert("RGB").save(sheet)
+        sheet, sheet_error = None, None
+        try:
+            tiles = []
+            for rid, rec in bs.refs.items():
+                f = rec.get("fit") or {}
+                usable = bs.is_usable(rid)
+                label = f"{rid} {rec.get('view_kind')} -> {rec.get('view')}: {f.get('status') or 'ok'}"
+                if usable and f.get("iou") is not None and f.get("contour_mean_mm") is not None:
+                    label += f"; IoU {f['iou']:.3f}, contour {f['contour_mean_mm']:.2f} mm"
+                if not usable:
+                    label += "; " + str(bs.unusable_refs()[rid])
+                if rec.get("overlay"):
+                    panel = Image.open(bdir / rec["overlay"]).convert("RGBA")
+                else:
+                    try:
+                        panel = Image.fromarray(bs.photo(rid)).convert("RGBA")
+                    except (ValueError, OSError):
+                        panel = Image.new("RGBA", (640, 240), "white")
+                        label += "; source photo could not be decoded (no photo or render shown)"
+                tiles.append(C.labelled(C.fit_into(panel, 1024, 1024), label))
+            if tiles:
+                sheet = str(bdir / "overlays_sheet.png")
+                C.grid(tiles, min(3, len(tiles))).convert("RGB").save(sheet)
+        except (ValueError, OSError) as exc:
+            # Freezing already succeeded: report that exact installed basis even if its optional sheet failed.
+            sheet, sheet_error = None, f"{type(exc).__name__}: {exc}"
         out = {"status": "ok" if bs.usable_refs() else "refused", "call_id": call_id,
                "basis": bs.id, "checkpoint": exp["checkpoint"],
                "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
+               "sheet_error": sheet_error,
                "fit_seconds": round(res.get("seconds", 0.0), 1), "off_axis": off_axis,
+               "refit": {"requested_refs": [C.ref_id(n) for n in requested_names],
+                         "fitted_refs": [C.ref_id(n) for n in names], "retained_refs": retained},
                "matte_requests": {C.ref_id(n):{"mode":resolved_mattes[n],"source":matte_sources[n]} for n in names},
                "ecoqos": {"host_opted_out": bool(self_qos), "workers_opted_out": qos.opted_out},
                "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid)) for rid, rec in bs.refs.items()},
@@ -2437,6 +2490,7 @@ class Seeing:
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
                 "theta_deg": rec.get("theta_deg"), "theta_observed": rec.get("theta_observed"),
                 "pose_provenance": rec.get("pose_provenance"), "opening_fit": rec.get("opening_fit"),
+                "retained_fit": rec.get("retained_fit"),
                 **({"camera": camera, "off_axis": f["off_axis"], "sign": f.get("sign")}
                    if f.get("off_axis") is not None else {}),
                 **{key: value for key, value in f.items()

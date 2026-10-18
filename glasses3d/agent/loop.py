@@ -142,74 +142,12 @@ class RunRefused(Exception):
 # --------------------------------------------------------------------------- run description
 
 
-# Section 7's table of hard timeouts (s). The SDK function_tool timeout is hard + 10 s with the default
-# timeout_behavior "error_as_result", so Astra receives an error result (tool.py:517, :2238-2269; pinned in
-# test_loop_sdk_pins); a tool still running at hard + 30 s is killed through the Job Object (stage E's watchdog).
-# The SDK accepts a timeout only on async function tools (tool.py:2925-2928). execute_blender_code's hard timeout is
-# its soft timeout + 30 s per call, so its SDK timeout covers the largest soft timeout (600 s).
-HARD_TIMEOUT_S = {
-    "labelled_model_map": 600, "preview_owner_edit": 2400, "understand_finish": 180, "edit_report": 1680, "facet_owner_edit": 660,
-    "seat_lens": 150, "hide_eyewire": 150, "unseat_lens": 150, "unhide_eyewire": 150, "check_lens_seating": 120,
-    "render_views": 300, "compare_to_photos": 300, "export_glb": 120, "save_checkpoint": 60, "list_checkpoints": 60,
-    "restore_checkpoint": 60, "arview_capture": 300, "fit_cameras": 1800, "project_photo_texture": 1800,
-    "deliver": 600, "pick_surface_point": 30, "read_image": 30, "read_report": 30, "scene_summary": 30,
-    "compare_look_to_photos": 750,  # export 120 + photo-camera 280 + worn capture 280 + host margin
-    # Composite finish: existing 780 + optional front-photo AR comparison (reuses the worn capture).
-    "finish": 1080, "budget_status": 30,
-    # the facet tools (WP6_FACETS §4.3): 3 x the slowest call measured on the Prada lab (agent/temple_lab, a warm
-    # worker, studio_dome_v1 and photo_env, 2026-10-11), rounded up, never below 30 s: inspect 0.3 s, photo_image
-    # 0.1 s, photo_compare 12.3 s (6 photos uncached, full crop), facet_edit 18.2 s (apply + 5 photos uncached);
-    # facet_variants 0.82 s per render + 2.9 s (21 renders 20.0 s) -> its table value 90 s = FACET_VARIANTS_BASE_S +
-    # FACET_VARIANTS_PER_RENDER_S x 3 x 7 renders (82.5 s) rounded up. Its worker deadline (hard_timeout_s with
-    # photos and variants) scales with the renders, photos x (variants + 1), up to 4 x 5 = 20 (lab.VARIANT_PHOTOS_MAX
-    # and VARIANTS_MAX 4 since v3-final; 4 x 7 = 28 with the earlier 6), capped at the table value minus
-    # FACET_VARIANTS_HOST_MARGIN_S (75 s: 3.75 x the measured 21 renders, about 3.9 x the 19.3 s estimated for 20),
-    # so the host's builds before it and crease lines and sheets after it keep
-    # 15 s inside the hard timeout, plus the SDK's 10 s (the measured whole call took 12.8 s).
-    # facet_finish (measured 0.2 s) is set above its worst declared inner deadlines plus FACET_DEADLINE_MARGIN_S, so
-    # the SDK never answers E_TIMEOUT while an export may still succeed: finish = one checkpoint restore
-    # (journal.CHECKPOINT_DEADLINE_S 60 s) and the export (seeing.EXPORT_DEADLINE_S 120 s) -> 210 (test_loop_facet
-    # pins it against the imported deadlines).
-    # photo_read (WP6 v3, host only: readings.read_point + one pick sheet a reading, no worker): 0.1-0.2 s a reading
-    # measured on the Prada lab (v3p2-lab-e2), so 8 readings stay far under the 30 s floor.
-    "facet_inspect": 30, "photo_image": 30, "photo_read": 30, "photo_compare": 40, "facet_edit": 60,
-    "facet_variants": 90, "facet_finish": 210,
-    # New composite tools: compare360 + mandatory restore90 + error recovery90 + host60. Selection covers the
-    # normal apply/checkpoint/compare path plus its drift retry, 390s with30s host headroom. Existing limits stay.
-    "facet_crease_compare": 600, "facet_visible_angle": 420,
-}
-FACET_DEADLINE_MARGIN_S = 30.0      # host work after the worker calls and a warm-spare restart (Blender 3.1-4.5 s)
-FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S = 30.0, 2.5
-FACET_VARIANTS_HOST_MARGIN_S = 15.0  # facet_variants' host work around its render, inside the hard timeout
-SNIPPET_SOFT_DEFAULT_S, SNIPPET_SOFT_MIN_S, SNIPPET_SOFT_MAX_S = 120.0, 0.5, 600.0
-SNIPPET_HARD_MARGIN_S = 30.0
-SDK_TIMEOUT_MARGIN_S = 10.0
-SEATING_REPORT_TIMEOUT_S = 660.0  # two 300 s renders plus bounds/camera reads; worker mutation limits unchanged
-
-
-def hard_timeout_s(tool_name: str, *, soft_timeout_s: float | None = None, variants: int | None = None,
-                   photos: int | None = None) -> float:
-    """A call's hard timeout (section 7); KeyError for a tool the table does not name (stage D decides it).
-    With photos and variants, facet_variants' worker render deadline: it scales with its renders (photos x
-    (variants + 1), the head included), capped at the table value minus FACET_VARIANTS_HOST_MARGIN_S (the table's
-    comment)."""
-    if tool_name == "execute_blender_code":
-        soft = SNIPPET_SOFT_DEFAULT_S if soft_timeout_s is None else float(soft_timeout_s)
-        return min(max(soft, SNIPPET_SOFT_MIN_S), SNIPPET_SOFT_MAX_S) + SNIPPET_HARD_MARGIN_S
-    if tool_name == "facet_variants" and variants is not None and photos is not None:
-        scaled = FACET_VARIANTS_BASE_S + FACET_VARIANTS_PER_RENDER_S * int(photos) * (int(variants) + 1)
-        return float(min(scaled, HARD_TIMEOUT_S[tool_name] - FACET_VARIANTS_HOST_MARGIN_S))
-    return float(HARD_TIMEOUT_S[tool_name])
-
-
-def sdk_timeout_s(tool_name: str) -> float:
-    """Largest worker timeout + composed diagnostic work + SDK margin; mutation deadlines stay unchanged."""
-    report = SEATING_REPORT_TIMEOUT_S if tool_name in {
-        "execute_blender_code", "seat_lens", "hide_eyewire", "unseat_lens", "unhide_eyewire"} else 0.0
-    if tool_name == "execute_blender_code":
-        return SNIPPET_SOFT_MAX_S + SNIPPET_HARD_MARGIN_S + SDK_TIMEOUT_MARGIN_S + report
-    return hard_timeout_s(tool_name) + SDK_TIMEOUT_MARGIN_S + report
-
+# Worker deadlines and whole-tool SDK waiting budgets share their inner constants.
+from .tool_timeouts import (
+    HARD_TIMEOUT_S, FACET_DEADLINE_MARGIN_S, FACET_VARIANTS_BASE_S, FACET_VARIANTS_PER_RENDER_S,
+    FACET_VARIANTS_HOST_MARGIN_S, SNIPPET_SOFT_DEFAULT_S, SNIPPET_SOFT_MIN_S, SNIPPET_SOFT_MAX_S,
+    SNIPPET_HARD_MARGIN_S, SDK_TIMEOUT_MARGIN_S, SEATING_REPORT_TIMEOUT_S, hard_timeout_s, sdk_timeout_s,
+)
 
 REMOVED_PHRASES = ("supplementary", "unverified", "hypothes")     # section 14 criterion 5; WP7 extends the list
 MIN_FREE_BYTES = 1 << 30            # checkpoints are ~2.4 MB each, up to ~1 GB per run with packed 4K prints
@@ -354,6 +292,7 @@ class RunSpec:
     settings: RunSettings = field(default_factory=RunSettings)
     requested_cap_usd: Any = None
     resume: bool = False
+    session_binding: dict | None = None  # job approvals bind resume mode, history and the reviewed checkpoint
     scene_note: str = "The scene is empty."
     env_file: Path | None = None
     offline_handler: Callable | None = None
@@ -415,9 +354,11 @@ class StageContract:
                 "maximum_micro_usd": self.maximum_micro_usd}
 
 
-def approval_settings(settings: RunSettings, stage_contracts=()) -> dict:
+def approval_settings(settings: RunSettings, stage_contracts=(), *, session_binding=None) -> dict:
     """Parent request settings, including every exact specialist contract before any approval is consumed."""
     out = settings.approval_settings()
+    if session_binding is not None:
+        out["session"] = session_binding
     if stage_contracts:
         names = [stage.name for stage in stage_contracts]
         if len(set(names)) != len(names):
@@ -1355,6 +1296,10 @@ def plan_rollback(items: Sequence[Any], entries: Sequence[dict]) -> dict | None:
 
 
 def rollback_sentence(rollback: dict) -> str:
+    if rollback.get("superseded_by_review"):
+        return (f"Your previous run ended during `{rollback['tool']}` (call `{rollback['call_id']}`); its effect "
+                f"was rolled back, then the owner's reviewed delivery was restored. The scene is now checkpoint "
+                f"{rollback['scene_checkpoint']}.")
     return (f"Your previous run ended during `{rollback['tool']}` (call `{rollback['call_id']}`); its effect was "
             f"rolled back; the scene is checkpoint {rollback['scene_checkpoint']}.")
 
@@ -1532,6 +1477,13 @@ def _was_incomplete(log: ReviewLog, guard: BudgetGuard) -> bool:
     return bool(rows) and rows[-1]["outcome"] == "settled" and rows[-1]["response_id"] == last.get("response_id")
 
 
+def checked_terminal_status(status: str) -> str:
+    """One vocabulary check for every public run result; private stage outcomes have their own vocabulary."""
+    if status not in STATUSES:
+        raise ValueError(f"unknown terminal run status: {status!r}")
+    return status
+
+
 def classify_failure(error: BaseException, *, log: ReviewLog | None, guard: BudgetGuard | None) -> str:
     if (log is not None and log.stop_observed) or any(isinstance(item, StopRequested) for item in _chain(error)) \
             or isinstance(error, (KeyboardInterrupt, asyncio.CancelledError)):
@@ -1655,9 +1607,16 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
         raise ApprovalRefused("invalid", "offline-only synthetic approval cannot authorize a production run")
     if request_sha256(request) != spec.current_request_sha256:
         raise ApprovalRefused("stale", "the run's request sha differs from the approved request")
+    session_binding = None
+    if spec.session_binding is not None:
+        from .resume import binding
+        session_binding = binding(spec.job_dir, spec.resume)
+        if session_binding != spec.session_binding:
+            raise ApprovalRefused("stale", "saved resume history or reviewed checkpoint changed; estimate and approve again")
     current = build_request(spec.job_dir, instructions_sha256=instructions_sha256(spec.instructions),
                             tool_registry_sha256=tool_registry_sha256(spec.tools, spec.settings),
-                            settings=approval_settings(spec.settings, spec.stage_contracts), unsent_owner_notes=spec.owner_notes,
+                            settings=approval_settings(spec.settings, spec.stage_contracts,
+                                                       session_binding=session_binding), unsent_owner_notes=spec.owner_notes,
                             run_inputs=run_input_binding(spec.job_dir, spec.brief, spec.photos))
     if request_sha256(current) != request_sha256(request):
         raise ApprovalRefused("stale", "job inputs, brief, photos, owner notes, instructions, tool registry or settings "
@@ -1761,9 +1720,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             raise RunRefused(LOAD_REFUSAL.format(load=load_text(preflight_load)))
         clients = clients if clients is not None else model_clients(spec)
         cleaner = Cleaner(blobs, clients.secrets)
-        stale_stop = stop_file.exists()
-        if stale_stop:
-            unlink_with_retry(stop_file)        # a stop for an earlier run; a stop written from here on is honoured
+        # An unconsumed stop can have arrived while the detached runner was importing or in preflight.
+        # Only teardown of the run that actually observed it may clear it.
+        stale_stop = False
         try:
             scene_start = scene.start()
         except BaseException:
@@ -1807,6 +1766,15 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 restored = scene.restore(rollback["checkpoint_before"],
                                          reason=f"rollback of {rollback['tool']} call {rollback['call_id']}")
                 rollback["scene_checkpoint"] = (restored or {}).get("checkpoint") or rollback["checkpoint_before"]
+            reviewed = (spec.session_binding or {}).get("reviewed_checkpoint")
+            if reviewed is not None:
+                restored = scene.restore(reviewed["id"], reason=f"owner review of delivery {reviewed['delivery_id']}")
+                if getattr(getattr(scene, "s", None), "head", {}).get("fingerprint") != reviewed["fingerprint"]:
+                    raise RunRefused("resumed scene does not match the owner's reviewed checkpoint")
+                if rollback is not None:
+                    rollback["recovery_checkpoint"] = rollback["scene_checkpoint"]
+                    rollback["scene_checkpoint"] = restored["checkpoint"]
+                    rollback["superseded_by_review"] = reviewed["delivery_id"]
             if spec.resume:
                 repaired = await repair_dangling_calls(session, items)
                 if repaired:
@@ -1945,11 +1913,12 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             if log is not None and log.stop_observed:
                 attempt("stop_file.remove", lambda: unlink_with_retry(stop_file))
             summary = guard.summary() if guard is not None else None
+            status = checked_terminal_status(status)
             result = {
                 "schema": RESULT_SCHEMA, "job_id": job_dir.name, "run_id": spec.run_id, "status": status,
                 "error": error, "started": started, "finished": _now(),
                 "seconds": round(time.perf_counter() - started_clock, 3), "model": MODEL,
-                "settings": {**approval_settings(spec.settings, spec.stage_contracts),
+                "settings": {**approval_settings(spec.settings, spec.stage_contracts, session_binding=spec.session_binding),
                              "max_continuations": spec.settings.max_continuations},
                 "turns_used": state["turns_used"], "continuations": state["continuations"],
                 "final_output": final_output if isinstance(final_output, (str, type(None))) else str(final_output),

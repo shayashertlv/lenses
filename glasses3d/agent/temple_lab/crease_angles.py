@@ -9,6 +9,9 @@ from scipy.spatial import cKDTree
 
 from glasses3d.agent.procs import write_json_atomic
 from glasses3d.agent.tools import arview, look
+from glasses3d.agent.tool_timeouts import (CREASE_ALTERNATIVES_MAX as MAX_ALTERNATIVES,
+                                          CREASE_COMPARE_WORK_S as COMPARE_WORK_DEADLINE_S,
+                                          CREASE_MIN_REMAINING_S)
 from glasses3d.g3d.temple import build as B, fit as FIT
 from glasses3d.g3d.temple.spec import VISIBLE_ANGLE_TOL_DEG
 from glasses3d.g3d_host import compare as C
@@ -16,9 +19,8 @@ from . import geometry as G, state as S, crease_ar as AR
 from .recovery import restore_head
 
 SCHEMA = "g3d.crease_angle_comparison/1"
-MIN_ALTERNATIVES, MAX_ALTERNATIVES = 3, 5
+MIN_ALTERNATIVES = 3
 ANGLE_TOLERANCE_DEG = VISIBLE_ANGLE_TOL_DEG
-COMPARE_WORK_DEADLINE_S = 360
 
 
 def digest(value):
@@ -172,7 +174,7 @@ def compare(lab, call_id, parent_revision, facets, moving_facet, shape, angles_d
             raise ValueError("could not restore the private lab baseline for export")
         exported = lab.s.call_read("facet_crease_compare", "temple_variants_export", {
             "variants": specs, "out_dir": str(lab.root / "work/exports" / comparison_id)},
-            deadline_s=max(1, deadline-time.monotonic()), call_id=call_id+"-exports")
+            deadline_s=max(CREASE_MIN_REMAINING_S, deadline-time.monotonic()), call_id=call_id+"-exports")
     except BaseException as original:
         restore_head(lab.s, before, call_id+"-head-restore", original=original)
         raise

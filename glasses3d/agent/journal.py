@@ -23,14 +23,13 @@ Trusted read-only methods (bounds, render, pick, export_glb: agent/seeing.py) go
 is restarted on the head like any call, and a read-only method that reports a changed fingerprint restores the head.
 
 Index rows (`g3d.checkpoint_index/1`): {id, kind: start|save|drift|restore|fallback|label, parent, call_id, label,
-fingerprint, sha256, bytes, file, packed_images, packed_external, fake_user_added, created, restored_from}. A label row
-names an existing checkpoint and does not move the head. A restore row references the restored checkpoint's file.
+fingerprint, sha256, bytes, file, packed_images, packed_external, fake_user_added, created, restored_from, recovery_of}.
+A label row names an existing checkpoint and does not move the head. A restore row references the restored file;
+an internal rollback names the original call in recovery_of so crash recovery never replays the refused edit.
 """
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -38,18 +37,15 @@ from pathlib import Path
 
 from ..g3d import safe_mode
 from . import procs
+from .jsonl import append_jsonl, read_jsonl
+from .tool_timeouts import (CHECKPOINT_DEADLINE_S, HARD_MARGIN_S, READ_DEADLINE_S, RESTARTS_PER_CALL, J_SPARE_JOIN_S,
+                            SOFT_DEFAULT_S, SOFT_MAX_S, SOFT_MIN_S)
 from .worker_client import WorkerClient, WorkerDied, WorkerError
 
 INDEX_SCHEMA = "g3d.checkpoint_index/1"
 HEAD_KINDS = ("start", "save", "drift", "restore", "fallback")
-SOFT_DEFAULT_S, SOFT_MIN_S, SOFT_MAX_S = 120.0, 0.5, 600.0
-HARD_MARGIN_S = 30.0
-CHECKPOINT_DEADLINE_S = 60.0
-READ_DEADLINE_S = 30.0
-RESTARTS_PER_CALL = 2
 RESTART_LIMIT, RESTART_WINDOW_S = 3, 600.0
 SPARE_GRACE_S = 1.0                  # a warm spare starts when a call is still running soft + this
-J_SPARE_JOIN_S = 90.0
 
 
 class CheckpointMismatch(RuntimeError):
@@ -72,18 +68,14 @@ class CheckpointIndex:
     def __init__(self, directory: Path) -> None:
         self.dir = Path(directory)
         self.path = self.dir / "index.jsonl"
-        self.rows: list[dict] = []
-        if self.path.is_file():
-            for line in self.path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    self.rows.append(json.loads(line))
+        result = read_jsonl(self.path)
+        self.rows: list[dict] = result.rows
+        self.recoveries: list[dict] = [result.recovery] if result.recovery else []
 
     def append(self, row: dict) -> dict:
-        self.dir.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, sort_keys=True) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        recovery = append_jsonl(self.path, row)
+        if recovery:
+            self.recoveries.append(recovery)
         self.rows.append(row)
         return row
 
@@ -123,7 +115,7 @@ class BlenderSession:
         self.worker: WorkerClient | None = None
         self._spare: dict | None = None          # {"thread", "worker", "error", "head"}: a warm replacement
         self.restarts: list[float] = []
-        self.defects: list[dict] = []
+        self.defects: list[dict] = [dict(record) for record in self.index.recoveries]
         self.call_seq = 0
 
     # ---------------------------------------------------------------------------------------------- lifecycle
@@ -147,7 +139,8 @@ class BlenderSession:
         else:
             self.worker = self._spawn(self._file(head))
             self._verify_open(head)
-        return {"head": self.head, "worker": self.worker.record(), "ready_s": self.worker.ready_s}
+        return {"head": self.head, "worker": self.worker.record(), "ready_s": self.worker.ready_s,
+                **({"checkpoint_index_recoveries": self.index.recoveries} if self.index.recoveries else {})}
 
     def _verify_open(self, head: dict) -> None:
         """The opened head must match its recorded bytes and fingerprint, else try the verified parent."""
@@ -270,8 +263,11 @@ class BlenderSession:
         row = self._save(kind="drift", label=label, call_id=call_id)
         return {"status": "ok", "checkpoint": row["id"], "saved": True, "labels": [label]}
 
-    def restore_checkpoint(self, cid: str, call_id: str | None = None) -> dict:
-        """Make checkpoint `cid` the scene (a mutating call): open it, verify, and record a restore row as head."""
+    def restore_checkpoint(self, cid: str, call_id: str | None = None, *, recovery_of: str | None = None) -> dict:
+        """Open and verify `cid`, then record a restore row as head.
+
+        Internal rollbacks durably name their originating call in ``recovery_of``.
+        """
         target = self.index.get(cid)
         if target is None:
             return {"status": "error", "message": f"no checkpoint {cid!r}; list_checkpoints() names them"}
@@ -283,13 +279,16 @@ class BlenderSession:
             return self._after_death(exc, "restore_checkpoint", call_id, t0)
         if target["fingerprint"] == head["fingerprint"]:
             return {"status": "ok", "checkpoint": head["id"], "restored_from": cid, "changed": False,
+                    **({"recovery_of": recovery_of} if recovery_of is not None else {}),
                     "seconds": round(time.perf_counter() - t0, 3)}
         row = self.index.append({**{k: target[k] for k in ("fingerprint", "sha256", "bytes", "file")},
                                  "schema": INDEX_SCHEMA, "id": self.index.next_id(), "kind": "restore",
                                  "parent": head["id"], "call_id": call_id, "label": f"restore of {cid}",
+                                 **({"recovery_of": recovery_of} if recovery_of is not None else {}),
                                  "restored_from": cid, "packed_images": [], "packed_external": [],
                                  "fake_user_added": [], "created": _now()})
         return {"status": "ok", "checkpoint": row["id"], "restored_from": cid, "changed": True,
+                **({"recovery_of": recovery_of} if recovery_of is not None else {}),
                 "seconds": round(time.perf_counter() - t0, 3)}
 
     # ---------------------------------------------------------------------------------------------- calls
@@ -351,7 +350,11 @@ class BlenderSession:
                 break
             self._defect("drift", f"scene fingerprint {res.get('fingerprint_before')} != head {head['id']} "
                                   f"before {call_id}")
-            head = self._save(kind="drift", label=f"drift before {call_id}", call_id=call_id)
+            try:
+                head = self._save(kind="drift", label=f"drift before {call_id}", call_id=call_id)
+            except Exception as exc:
+                self._fatal_protocol_error(exc, tool, call_id, arguments, head, t0, res,
+                                           phase="drift_checkpoint_save", restore=True)
         status = res.get("status")
         out = {"status": status, "call_id": call_id}
         for key in ("result", "stdout", "stdout_truncated", "stderr", "stderr_truncated", "traceback", "message",
@@ -366,7 +369,11 @@ class BlenderSession:
         out["restored_to"] = None
         if status == "ok":
             if res.get("changed"):
-                row = self._save(kind="save", label=label or None, call_id=call_id, protected=res.get("protected"))
+                try:
+                    row = self._save(kind="save", label=label or None, call_id=call_id, protected=res.get("protected"))
+                except Exception as exc:
+                    self._fatal_protocol_error(exc, tool, call_id, arguments, head, t0, res,
+                                               phase="checkpoint_save", restore=True)
                 if row["fingerprint"] != res.get("fingerprint_after"):
                     self._defect("save_fingerprint", f"{row['id']} saved {row['fingerprint']} but the call ended at "
                                                      f"{res.get('fingerprint_after')}")
@@ -381,10 +388,17 @@ class BlenderSession:
             try:
                 self._restore(head)
             except WorkerDied as exc:
-                out2 = self._after_death(exc, tool, call_id, t0)
+                try:
+                    out2 = self._after_death(exc, tool, call_id, t0)
+                except Exception as recovery_error:
+                    self._fatal_protocol_error(recovery_error, tool, call_id, arguments, head, t0, res,
+                                               phase="checkpoint_restore_restart")
                 out2["failed_status"] = status
                 self._journal(tool, call_id, arguments, out2, head, res)
                 return out2
+            except Exception as exc:
+                self._fatal_protocol_error(exc, tool, call_id, arguments, head, t0, res,
+                                           phase="checkpoint_restore")
             out["checkpoint"] = head["id"]
             out["restored_to"] = head["id"]
         out["seconds"] = round(time.perf_counter() - t0, 4)
@@ -416,7 +430,14 @@ class BlenderSession:
                     self._restore(self.head)
                     out["restored_to"] = self.head["id"]
             except WorkerDied as died:
-                return self._after_death(died, tool, call_id, t0)
+                try:
+                    return self._after_death(died, tool, call_id, t0)
+                except Exception as recovery_error:
+                    self._fatal_protocol_error(recovery_error, tool, call_id, params, self.head, t0, out,
+                                               phase="read_only_recovery_restart")
+            except Exception as recovery_error:
+                self._fatal_protocol_error(recovery_error, tool, call_id, params, self.head, t0, out,
+                                           phase="read_only_recovery")
             out["seconds"] = round(time.perf_counter() - t0, 4)
             return out
         out = {"status": "ok", "call_id": call_id, "result": res, "restored_to": None}
@@ -426,10 +447,56 @@ class BlenderSession:
             try:
                 self._restore(self.head)
             except WorkerDied as exc:
-                return self._after_death(exc, tool, call_id, t0)
+                try:
+                    return self._after_death(exc, tool, call_id, t0)
+                except Exception as recovery_error:
+                    self._fatal_protocol_error(recovery_error, tool, call_id, params, self.head, t0, res,
+                                               phase="read_only_restore_restart")
+            except Exception as exc:
+                self._fatal_protocol_error(exc, tool, call_id, params, self.head, t0, res,
+                                           phase="read_only_restore")
             out["restored_to"] = self.head["id"]
         out["seconds"] = round(time.perf_counter() - t0, 4)
         return out
+
+    def _fatal_protocol_error(self, exc, tool, call_id, arguments, head, t0, worker_result,
+                              *, phase, restore=False):
+        """A failed save or recovery cannot leave a live run relying on an unverified head.
+
+        Keep the original worker result alongside the infrastructure error. A failed
+        save tries to restore the prior head; an already failed restore is not retried.
+        Even a successful cleanup does not downgrade this to a paid tool retry.
+        """
+        self._discard_spare()
+        error = {"type": type(exc).__name__, "message": str(exc)}
+        if isinstance(exc, WorkerError):
+            error = {"type": exc.etype, "message": exc.message, "traceback": exc.traceback}
+        out = {"status": "failed_worker", "call_id": call_id, "checkpoint": (self.head or {}).get("id"),
+               "restored_to": None, "restore_verified": False, "failure_phase": phase,
+               "recovery_error": error, "worker_result": worker_result,
+               "failed_status": (worker_result or {}).get("status")}
+        if restore:
+            try:
+                try:
+                    self._restore(head)
+                except WorkerDied as died:
+                    out["recovery"] = self._after_death(died, tool, call_id, t0)
+                out.update(restored_to=self.head["id"], restore_verified=True)
+            except Exception as restore_error:
+                out["restore_error"] = f"{type(restore_error).__name__}: {restore_error}"
+        else:
+            out["restore_error"] = f"{type(exc).__name__}: {exc}"
+        out["checkpoint"] = (self.head or {}).get("id")
+        out["seconds"] = round(time.perf_counter() - t0, 4)
+        message = f"{tool}: {phase} failed: {exc}; " + (
+            f"restored verified checkpoint {out['restored_to']}" if out["restore_verified"] else
+            f"checkpoint restoration failed: {out['restore_error']}")
+        out["message"] = message
+        try:
+            self._journal(tool, call_id, arguments, out, head, worker_result)
+        except Exception as journal_error:
+            message += f"; could not journal worker failure: {journal_error}"
+        raise WorkerFailed(message, self.head) from exc
 
     def _fatal_frame_error(self, exc, tool, call_id, arguments, head, t0):
         """Recover scene state, retain the RPC evidence, and stop instead of inviting another paid retry."""

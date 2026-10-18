@@ -10,7 +10,7 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from . import approvals as A, brief, estimate as E, jobs
-from . import delivery as D, verdicts, procs, edits, edit_capabilities
+from . import delivery as D, verdicts, procs, edits, edit_capabilities, resume as resume_plan
 from .budget import cap_to_micro
 from .job_scene import JobScene
 from .instructions import build_instructions, instruction_contract
@@ -73,16 +73,19 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     text = brief.build_brief(job) + (edits.brief_suffix(owner_edit) if owner_edit else "")
     photos = jobs.references(root)
     notes = verdicts.pending_notes(root)
+    history = resume_plan.saved_items(root) if resume else []
+    session_binding = resume_plan.binding(root, resume, items=history)
     request = A.build_request(root, instructions_sha256=hashlib.sha256(instructions.encode()).hexdigest(),
                               tool_registry_sha256=tool_registry_sha256(tools, settings),
-                              settings=approval_settings(settings, stages), unsent_owner_notes=notes,
+                              settings=approval_settings(settings, stages, session_binding=session_binding), unsent_owner_notes=notes,
                               run_inputs=A.run_input_binding(root, text, photos))
     run_id = run_id or new_run_id()
     spec = RunSpec(job_dir=root, run_id=run_id, instructions=instructions, tools=tools, brief=text, photos=photos,
                    owner_notes=notes, current_request_sha256=A.request_sha256(request), settings=settings,
                    requested_cap_usd=cap, stage_contracts=stages,
-                   resume=resume, scene_note=("Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
-                       if owner_edit else "Resume the saved head." if resume else "Start with the empty job template."),
+                   resume=resume, session_binding=session_binding,
+                   scene_note=("Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
+                       if owner_edit else resume_plan.scene_note(session_binding) if resume else "Start with the empty job template."),
                    contract=instruction_contract(tools, owner_edit=owner_edit), contract_brief=brief.host_text(job),
                    offline_handler=offline_handler,
                    env_file=env_file,
@@ -91,6 +94,13 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
         schemas = json.dumps([{"name": t.name, "description": t.description,
                                "parameters": t.params_json_schema} for t in tools])
         tokens = E.initial_context_tokens(len(instructions) + len(text) + len(schemas) + sum(map(len, notes)), len(photos))
+        if resume:
+            from .loop import invocation_text
+            invocation = invocation_text(run_id=run_id, scene_note=spec.scene_note, cap_micro=cap_to_micro(cap),
+                                         rollback=None, settled_stop_micro=cap_to_micro(settings.settled_stop_usd),
+                                         settled_only=settings.settled_only)
+            tokens = resume_plan.context_estimate(history, instructions=instructions, tools=tools, brief=text,
+                                                  photos=photos, notes=notes, invocation=invocation)
         if settings.smoke:
             cost = E.smoke_estimate(len(instructions) + len(text) + len(schemas) + sum(map(len, notes)),
                                      images=len(photos), cap_usd=cap, one_request=True)
@@ -98,6 +108,11 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
         else:
             cost = E.estimate_g3d(tokens, settings.max_turns or 60, settings.max_output_tokens)
             cost["planning_note"] = "Forecast assumes 60 replies when the run has no reply cap; the money limits govern."
+        cost["session"] = session_binding
+        if resume:
+            cost["planning_note"] += (" Resume replays all saved history plus new input. Local token forecast uses "
+                                      "ceil(text characters / 4) + 1,500 per image occurrence, excluding base64; "
+                                      "the guard still counts the actual request before admission.")
         A.write_approval_request(root / "runs" / run_id, job_id=root.name, request=request, estimate=cost,
                                  suggested_cap_usd=cap, requested_cap_usd=cap)
     return spec, scene
@@ -109,6 +124,7 @@ def prepared_settings(root, run_id) -> tuple[RunSettings, str]:
         raise A.ApprovalRefused("missing", "job estimate must create a run request first")
     doc = json.loads(path.read_text(encoding="utf-8"))
     values = dict(doc["request"]["settings"])
+    values.pop("session", None)  # re-read and bind the current saved history in prepare_run
     if values.get("smoke") is True:
         values["max_continuations"] = 0
     values.pop("stages", None)  # recomputed from current job/schema bytes; the loop checks the exact binding

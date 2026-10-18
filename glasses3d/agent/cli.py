@@ -76,6 +76,7 @@ def parser():
             cmd.add_argument("--run-id")
         if name == "estimate":
             cmd.add_argument("--smoke", action="store_true")
+            cmd.add_argument("--resume", action="store_true", help="price and bind the saved conversation and reviewed checkpoint")
             cmd.add_argument("--effort", choices=EFFORTS)
             cmd.add_argument("--turns", type=int)
             cmd.add_argument("--max-output-tokens", type=int)
@@ -224,7 +225,7 @@ def dispatch(args):
                                               else settings.max_output_tokens),
                            settled_stop_usd=args.settled_stop if args.settled_stop is not None else settings.settled_stop_usd,
                            settled_only=args.settled_only)
-        spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True)
+        spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True, resume=args.resume)
         return procs.read_json(root / "runs" / spec.run_id / "approval-request.json")
     if args.command == "stop":
         (root / "stop.requested").write_text("Owner requested stop.\n", encoding="utf-8")

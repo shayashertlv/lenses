@@ -846,7 +846,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
         res["policy"]["off_axis"] = {"mode": "legacy_search_then_off_axis_continuation",
                                    "eye_domain": "each coordinate +/- normalized model sphere radius",
                                    "existing_bounds_changed": False, "legacy_candidate_retained": True}
-    (out_dir / CAMERAS_JSON).write_text(json.dumps(res, indent=1, default=_json), encoding="utf-8")
+    from .compare import write_json
+    write_json(out_dir / CAMERAS_JSON, res)
     for n in names:
         log(_row(n, res["images"][n]))
     return res

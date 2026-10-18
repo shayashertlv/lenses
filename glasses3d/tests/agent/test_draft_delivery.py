@@ -29,7 +29,8 @@ def draft_fixture(root, monkeypatch, *, best=True, status="budget_limit"):
         index.append({"id": path.stem, "kind": "save", "file": path.name, "sha256": digest(path),
                       "fingerprint": str(n) * 64, "parent": None if n == 0 else "c0000"})
     scene = SimpleNamespace(s=SimpleNamespace(head=index.head, worker=None, selftest=True, blender=None),
-                            best_checkpoint="c0000" if best else None, finish=None, last_ar=None)
+                            best_checkpoint="c0000" if best else None, best_checkpoint_run_id=result["run_id"],
+                            finish=None, last_ar=None)
     result.update(status=status, exit_checkpoint={"id": index.head["id"], "sha256": index.head["sha256"],
                                                    "verified": True}, final_output=None)
     state = root / "work/job_scene/state.json"

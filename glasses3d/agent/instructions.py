@@ -114,7 +114,8 @@ CORE_GUIDANCE = {
         "no vertices and equal intended normals stay continuous. Inspect normal_fan_encoding. "
         "For every manual seating/support/eyewire repair set seating_repair=True so the host shows frozen-front before/after.",
     "save_checkpoint": "Use `save_checkpoint` with best=True when a compared state is your best so far. Retain "
-        "its checkpoint id and why it is best; it also retains that state's images in long runs.",
+        "its checkpoint id and why it is best. If this run stops before accepted finish, its best checkpoint is "
+        "the draft source; without a best mark in this run, the latest head is used. History remains append-only.",
     "list_checkpoints": "Use `list_checkpoints` to find saved checkpoint ids, labels, parents and fingerprints.",
     "restore_checkpoint": "Use `restore_checkpoint` to return to a saved state when needed. Verify status and "
         "checkpoint, then compare the restored result before relying on it.",

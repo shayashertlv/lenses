@@ -13,6 +13,7 @@ from ...g3d_host import compare as C
 from ...g3d_host.ar_camera import explicit_camera
 from ...g3d_host import pose
 from .. import procs
+from ..tool_timeouts import LOOK_CAPTURE_DEADLINE_S, MODEL_MAP_SNAPSHOT_DEADLINE_S
 from . import arview, look, look_panels
 from . import model_map_geometry as G
 from . import model_map_labels as L
@@ -375,7 +376,7 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
 
 
 def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=None,
-            support_scopes=None, page=0, timeout_s=280, label_descriptions=None):
+            support_scopes=None, page=0, timeout_s=LOOK_CAPTURE_DEADLINE_S, label_descriptions=None):
     root = Path(scene.root).resolve()
     if type(page) is not int or page < 0:
         raise ValueError("page must be a nonnegative integer")
@@ -388,7 +389,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
         directory = root / "work/model_maps" / map_id
         directory.mkdir(parents=True, exist_ok=False)
         result = scene.s.call_read("labelled_model_map", "model_map_snapshot", {"path": str(directory/"snapshot.json")},
-                                   deadline_s=120, call_id=call_id)
+                                   deadline_s=MODEL_MAP_SNAPSHOT_DEADLINE_S, call_id=call_id)
         if result.get("status") != "ok" or result.get("result",{}).get("status") != "ok":
             raise ValueError(f"Actual mesh snapshot failed: {result.get('status')}")
         snap = result["result"]

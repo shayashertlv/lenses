@@ -15,7 +15,7 @@ with the pydantic models dumped to plain dicts (``model_dump``). v2's facet_rest
 gone (WP6_V3 §6: one-photo depths put run 6's hinge corner 1.2 mm off, and a restore is a facet_edit of that revision
 with no edits); depth comes from photo_read.
 
-Every tool is async with the SDK timeout of loop.HARD_TIMEOUT_S + 10 s; the work runs in a worker thread that takes
+Every tool is async with a composed SDK budget for its rig and inner steps; the work runs in a worker thread that takes
 the lab's scene lock (Lab.lock) with timeout 0 (a call that finds it held, e.g. behind a timed-out call still running,
 returns {status: busy, code: E_BUSY, running} at once). A call the SDK times out answers {status: timeout, code:
 E_TIMEOUT} with the footer (timeout_text) and is Lab.mark_unseen, so a compare its thread still makes demands no
@@ -82,6 +82,7 @@ from glasses3d.agent.money import owner_money
 from glasses3d.agent.loop import FATAL_TOOL_ERRORS, RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
 from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
+from glasses3d.agent.tool_timeouts import RunningTool, busy_result, clear_running
 from glasses3d.g3d.temple import fit as FIT
 from glasses3d.g3d.temple.spec import DEFAULT_OPTIONS, SOFT_BAND_MM, SOFT_SHARP_DEG, WARP_MIN_CORNERS, TempleError
 from glasses3d.g3d_host import compare as C
@@ -594,11 +595,11 @@ def args_failure(name: str, model):
     return failure
 
 
-def timeout_text(name: str):
+def timeout_text(name: str, *, rig=None):
     """The function_tool ``timeout_error_function``: the SDK's timeout as a facet result (status timeout, E_TIMEOUT)
     with the money / context footer every result ends with."""
     def text(ctx, error) -> str:
-        secs = getattr(error, "timeout_seconds", None) or sdk_timeout_s(name)
+        secs = getattr(error, "timeout_seconds", None) or sdk_timeout_s(name, matched_rig=rig)
         return result_text({"status": "timeout", "code": "E_TIMEOUT", "tool": name,
                             "message": f"{name} timed out after {secs:g} s and may still be running: until it ends "
                                        "every facet tool answers E_BUSY. A compare it makes needs no judgement; "
@@ -618,9 +619,9 @@ def registry(lab, settings=None) -> list:
     def tool(name: str):
         def wrap(fn):
             model = function_schema(fn, name_override=name).params_pydantic_model     # the SDK's own, for args_failure
-            return function_tool(fn, name_override=name, timeout=sdk_timeout_s(name),
+            return function_tool(fn, name_override=name, timeout=sdk_timeout_s(name, matched_rig=getattr(lab, "rig", None)),
                                  failure_error_function=args_failure(name, model),
-                                 timeout_error_function=timeout_text(name))
+                                 timeout_error_function=timeout_text(name, rig=getattr(lab, "rig", None)))
         return wrap
 
     async def call(ctx: ToolContext, name: str, fn):
@@ -629,11 +630,12 @@ def registry(lab, settings=None) -> list:
         def locked():
             if not lock.acquire(timeout=0):
                 run = lab.running or {}
-                return {"status": "busy", "code": "E_BUSY",
+                return {**busy_result(lab),
                         "running": {"tool": run.get("tool"), "call_id": run.get("call_id"),
-                                    "seconds": round(time.perf_counter() - run.get("t0", time.perf_counter()), 1)},
-                        "message": "another facet tool call is still running; nothing was done"}
+                                    "seconds": round(time.perf_counter() - run.get("t0", time.perf_counter()), 1)}}
             lab.running = {"tool": name, "call_id": call_id, "t0": time.perf_counter()}
+            lab._running_tool = RunningTool(name, call_id, time.monotonic(),
+                                           sdk_timeout_s(name, matched_rig=getattr(lab, "rig", None)))
             try:
                 return fn(call_id)
             except (LabRefusal, TempleError, G.EditError) as exc:
@@ -644,6 +646,7 @@ def registry(lab, settings=None) -> list:
                 return {"status": "refused", "code": "E_LAB_ARGS", "message": f"{type(exc).__name__}: {exc}"[:600]}
             finally:
                 lab.running = None
+                clear_running(lab, call_id)
                 lock.release()
         try:
             result = await asyncio.to_thread(locked)

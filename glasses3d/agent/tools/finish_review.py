@@ -24,6 +24,10 @@ def evidence(root, head, export):
     refs = sorted(basis.usable_refs(), key=lambda rid: basis.refs[rid].get("view_kind") != "front")
     return {**result, "basis": basis.id, "basis_sha256": arview.sha256(basis.dir / "basis.json"),
             "cameras_sha256": basis.meta["cameras_json_sha256"],
+            "unusable_refs": basis.unusable_refs(),
+            "unavailable": ("No usable camera for owner photos: " + ", ".join(
+                f"{rid} ({row['image']}): {row.get('refusal') or row.get('message') or row.get('status')}"
+                for rid, row in basis.unusable_refs().items())) if basis.unusable_refs() else None,
             "photos": [{"ref": rid, "sha256": basis.refs[rid]["photo_sha256"]} for rid in refs]}
 
 

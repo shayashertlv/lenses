@@ -24,6 +24,8 @@ result's status, key numbers and image links).
 """
 from __future__ import annotations
 
+from .jsonl import append_jsonl
+
 import base64
 import binascii
 from dataclasses import asdict, is_dataclass
@@ -276,9 +278,9 @@ class ReviewLog(RunHooks):
 
     # -- files
     def _append(self, path: Path, value) -> None:
-        line = json.dumps(self.clean(value), ensure_ascii=False, allow_nan=False, default=str)
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(line + "\n")
+        recovery = append_jsonl(path, self.clean(value), default=str)
+        if recovery:
+            write_json(path.with_name(path.name + ".recovery.json"), recovery)
 
     def _transcript(self, text: str) -> None:
         cleaned = self.clean(text)

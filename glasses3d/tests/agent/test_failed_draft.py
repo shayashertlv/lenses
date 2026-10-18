@@ -1,4 +1,4 @@
-"""Failed runs retain an honest draft of the latest integrity-verified checkpoint, at $0."""
+"""Failed runs reverify this run's best, otherwise the latest checkpoint, at $0."""
 import asyncio
 import copy
 import json
@@ -15,7 +15,7 @@ from glasses3d.tests.agent.test_delivery import digest
 @pytest.mark.parametrize("best", [True, False])
 @pytest.mark.parametrize("exit_verified", [True, False, None])
 @pytest.mark.parametrize("status", ["failed", "failed_worker"])
-def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path, monkeypatch, best, exit_verified, status):
+def test_failed_reverifies_run_best_else_latest_and_preserves_failure(tmp_path, monkeypatch, best, exit_verified, status):
     scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status=status, best=best)
     if exit_verified is None:
         result["exit_checkpoint"] = None  # teardown could not obtain a live-scene fingerprint
@@ -26,10 +26,12 @@ def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path
     out = D.deliver_draft(tmp_path, scene, result)
     report = D.load_delivery(tmp_path, out["id"])["report_data"]
     assert out["finished"] is False and out["run_status"] == status
-    assert report["checkpoint"] == "c0001" and report["checkpoint_selection"] == "last_verified"
+    chosen = "c0000" if best else "c0001"
+    assert report["checkpoint"] == chosen and report["checkpoint_selection"] == "last_verified"
     assert report["source_checkpoint"]["verified"] is True
     assert report["source_checkpoint"]["verification_attempts"] == [
-        {"checkpoint": "c0001", "status": "verified", "sha256": scene.s.head["sha256"], "fingerprint": "1" * 64}]
+        {"checkpoint": chosen, "status": "verified", "sha256": digest(tmp_path / "checkpoints" / (chosen + ".blend")),
+         "fingerprint": ("0" if best else "1") * 64}]
     assert report["exit_checkpoint"] == (original_result["exit_checkpoint"] or {})
     assert report["accepted_finish"] is False and scene.finish is None
     assert len(captures) == len(workers) == 1 and workers[0].closed
@@ -39,7 +41,7 @@ def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path
 @pytest.mark.parametrize("fault", ["file_hash", "missing_file", "fingerprint", "startup"])
 @pytest.mark.parametrize("status", ["failed", "failed_worker"])
 def test_failed_falls_back_only_after_original_integrity_verification_fails(tmp_path, monkeypatch, fault, status):
-    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status=status)
+    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status=status, best=False)
     head_path = tmp_path / "checkpoints/c0001.blend"
     if fault == "file_hash":
         head_path.write_bytes(b"corrupt head")
@@ -71,7 +73,7 @@ def test_failed_falls_back_only_after_original_integrity_verification_fails(tmp_
 
 @pytest.mark.parametrize("fault", ["file_hash", "fingerprint"])
 def test_no_verifiable_checkpoint_records_all_attempts_and_never_restamps(tmp_path, monkeypatch, fault):
-    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status="failed")
+    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status="failed", best=False)
     if fault == "file_hash":
         for path in (tmp_path / "checkpoints").glob("*.blend"):
             path.write_bytes(b"corrupt")
@@ -95,7 +97,7 @@ def test_no_verifiable_checkpoint_records_all_attempts_and_never_restamps(tmp_pa
 
 @pytest.mark.parametrize("fault", ["refused", "empty", "drift", "wrong_path", "changed_source"])
 def test_latest_verified_export_failure_cannot_select_an_older_model(tmp_path, monkeypatch, fault):
-    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status="failed")
+    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status="failed", best=False)
     original = worker_client.WorkerClient.call
 
     def call(self, *args, **kwargs):
@@ -122,7 +124,7 @@ def test_latest_verified_export_failure_cannot_select_an_older_model(tmp_path, m
 
 
 def test_latest_verified_quality_failure_is_delivered_honestly_without_fallback(tmp_path, monkeypatch):
-    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status="failed")
+    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status="failed", best=False)
     monkeypatch.setattr(spec, "validate_spec", lambda path: {"ok": False, "sha256": digest(path), "errors": ["wrong scale"]})
     monkeypatch.setattr(seat_check, "check_glb", lambda path: {"ok": False, "violations": ["gap"]})
     before = preserved(tmp_path)

@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING
 
 from .pricing import MICRO, MODEL, PricingError, Tariff, usd_text, usd_to_micro, validate_usage
 from .money import reservation_refusal
+from .jsonl import read_jsonl
 
 try:  # the machine-wide paid-run lock re-checks its holder with psutil; without it no paid run can start
     import psutil
@@ -1813,7 +1814,8 @@ class JobLedger:
                 raise ValueError
             raw = read_bytes_with_retry(path)
             response = json.loads(raw)
-            events = [json.loads(line) for line in (run / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+            event_log = read_jsonl(run / "events.jsonl")
+            events = event_log.rows
             matches = [e for e in events if e.get("event") == "api_response" and e.get("request_seq") == sequence]
             if len(matches) != 1:
                 raise ValueError
@@ -1825,6 +1827,9 @@ class JobLedger:
             raise ReconcileError("the request's archived response and matching receipt are missing or changed") from None
         amount = ledger.reconcile_from_transport(sequence, owner_words, response,
                                                  http_status=event.get("http_status"), request_id=event.get("request_id"))
+        if event_log.recovery:
+            from .procs import write_json_atomic
+            write_json_atomic(run / "events-tail-recovery.json", event_log.recovery)
         self.scan()
         return amount
 

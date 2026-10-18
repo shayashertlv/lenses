@@ -10,6 +10,7 @@ from scipy.ndimage import binary_erosion
 from ...g3d_host import compare as C
 from ...g3d_host.ar_camera import explicit_camera
 from .. import procs
+from ..tool_timeouts import LOOK_CAPTURE_DEADLINE_S, LOOK_CAMERA_BATCH_SIZE
 from . import arview, look_panels, look_composition
 
 SCHEMA = "g3d.look_comparison/1"
@@ -99,7 +100,7 @@ def verified_report(root, record, digest):
     return path, report
 
 
-def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, worn=None, timeout_s=280,
+def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, worn=None, timeout_s=LOOK_CAPTURE_DEADLINE_S,
             combine=False):
     """Return an informational refusal on missing evidence; never alter the frozen basis or the export."""
     root = Path(root).resolve()
@@ -140,8 +141,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
         if not node:
             raise OSError("Node.js is unavailable")
         captures = []
-        for start in range(0, len(cameras), 64):
-            batch = cameras[start:start + 64]
+        for start in range(0, len(cameras), LOOK_CAMERA_BATCH_SIZE):
+            batch = cameras[start:start + LOOK_CAMERA_BATCH_SIZE]
             camera_path = directory / f"cameras-{start:03d}.json"
             procs.write_json_atomic(camera_path, {"schema": "arview.cameras/1", "cameras": batch})
             out = directory / f"capture-{start:03d}"
@@ -154,7 +155,7 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             _, report = verified_report(root, {"report": str(path), "report_sha256": arview.sha256(path),
                                                "export_sha256": export["sha256"]}, export["sha256"])
             captures.append(str(path))
-            for row in rows[start:start + 64]:
+            for row in rows[start:start + LOOK_CAMERA_BATCH_SIZE]:
                 name = row["camera"]["id"]
                 row.update(drawing_path=str(out / f"{name}__beauty.png"), part_id_path=str(out / f"{name}__part-id.png"))
                 photo = np.asarray(Image.open(row["photo_path"]).convert("RGB"))
@@ -189,8 +190,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
         surface_images = []
         surface["views"] = []
         try:
-            for start in range(0, len(cameras), 64):
-                batch = [{**cam, "lighting": {"preset": "side_studio", "intensity": .8}} for cam in cameras[start:start+64]]
+            for start in range(0, len(cameras), LOOK_CAMERA_BATCH_SIZE):
+                batch = [{**cam, "lighting": {"preset": "side_studio", "intensity": .8}} for cam in cameras[start:start+LOOK_CAMERA_BATCH_SIZE]]
                 camera_path = directory / f"surface-cameras-{start:03d}.json"
                 procs.write_json_atomic(camera_path, {"schema": "arview.cameras/1", "cameras": batch})
                 out = directory / f"surface-{start:03d}"
@@ -203,7 +204,7 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                 _, diagnostic = verified_report(root, {"report": str(report_path), "report_sha256": arview.sha256(report_path),
                     "export_sha256": export["sha256"]}, export["sha256"])
                 captures.append(str(report_path))
-                for row in rows[start:start+64]:
+                for row in rows[start:start+LOOK_CAMERA_BATCH_SIZE]:
                     name = row["camera"]["id"]
                     side = {**row, "drawing_path": str(out / f"{name}__beauty.png"),
                             "part_id_path": str(out / f"{name}__part-id.png")}

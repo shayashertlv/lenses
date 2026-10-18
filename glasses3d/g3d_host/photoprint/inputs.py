@@ -373,6 +373,13 @@ def _photo_roles(root: Path, frozen) -> dict[str, dict]:
         raise InputError('job photo roles require an explicit images list')
     from ..compare import ref_id
     roles = {}
+    missing = [row['original_name'] for row in rows if isinstance(row, dict)
+               and isinstance(row.get('original_name'), str)
+               and isinstance(row.get('basis_ref', ref_id(row['original_name'])), str)
+               and row.get('basis_ref', ref_id(row['original_name'])) not in frozen.refs]
+    if missing:
+        raise InputError(f"camera basis {frozen.id} is missing owner photos: {', '.join(missing)}; "
+                         "run fit_cameras for every photo before photo_print")
     for row in rows:
         name = row.get('original_name') if isinstance(row, dict) else None
         if not isinstance(name, str) or not name or Path(name).name != name:

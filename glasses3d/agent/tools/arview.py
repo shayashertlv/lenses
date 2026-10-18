@@ -12,6 +12,7 @@ import subprocess
 from PIL import Image, ImageOps, ImageDraw
 
 from .. import procs
+from ..tool_timeouts import AR_CAPTURE_DEFAULT_S, CAPTURE_KILL_WAIT_S
 from .lens_response import background_response, response_summary
 
 ARVIEW = Path(__file__).resolve().parents[2] / "arview"
@@ -58,7 +59,12 @@ def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | 
                 else:  # the POSIX process group contains Chromium as well as Node
                     import signal
                     os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait(timeout=10)
+                try:
+                    proc.wait(timeout=CAPTURE_KILL_WAIT_S)
+                except subprocess.TimeoutExpired:
+                    # Closing the kill-on-close job below still owns its descendants.
+                    # A slow OS reap must not turn a known capture timeout into E_ARGS.
+                    pass
                 return None, True
         finally:
             if job is not None:
@@ -136,7 +142,7 @@ def contact_sheet(out: Path, records: list[dict]) -> Path | None:
     return path
 
 
-def capture(root: Path, export: dict, call_id: str, *, timeout_s=300.0) -> dict:
+def capture(root: Path, export: dict, call_id: str, *, timeout_s=AR_CAPTURE_DEFAULT_S) -> dict:
     """Existing poses/worn sides plus pinned portrait, front checker and informative background response."""
     if export.get("status") != "exported":
         return {"status": "refused", "code": "E_EXPORT", "export": export}

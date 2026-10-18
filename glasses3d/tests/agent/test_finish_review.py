@@ -247,7 +247,7 @@ def test_durable_review_invalidates_on_scene_events_and_run_boundary(tmp_path, c
     elif change == "unseen":
         scene.mark_unseen("first")
     else:
-        scene.bind_review_log(SimpleNamespace())
+        scene.bind_review_log(SimpleNamespace(run_id="next-run"))
     assert scene.finish_review is None and JobScene(tmp_path, job={}).finish_review is None
 
 

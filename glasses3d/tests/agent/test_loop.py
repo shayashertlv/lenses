@@ -542,13 +542,14 @@ def test_teardown_failures_are_recorded_and_result_json_is_still_written(tmp_pat
     assert not (B.PAID_RUN_LOCK_ROOT / ".paid-run.lock").exists()
 
 
-def test_a_stale_stop_file_does_not_stop_a_new_run(tmp_path):
+def test_an_unconsumed_stop_file_stops_a_new_run(tmp_path):
     scene, tools = make_tools()
     job, sha = make_job(tmp_path, tools=tools, settings=SETTINGS)
     (job / L.STOP_FILE).write_text("old", encoding="utf-8")
     transport = R.ScriptedOpenAI([R.message("done")])
     result = run(L.run_astra(spec_for(job, RUN, sha, tools, transport), scene=scene))
-    assert result["status"] == "completed" and result["stale_stop_file_removed"] is True
+    assert result["status"] == "stopped" and result["stale_stop_file_removed"] is False
+    assert result["requests"] == 0 and not transport.count_answers
 
 
 def test_heartbeat_writes_on_its_cadence_and_prints_long_states(tmp_path):
@@ -867,13 +868,14 @@ def test_the_section_7_timeout_table_and_the_sdk_timeout_rule():
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=2) == 32.0
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=0.1) == 30.5    # soft clamped to 0.5..600
     assert L.hard_timeout_s("execute_blender_code", soft_timeout_s=10_000) == 630.0
-    assert L.sdk_timeout_s("execute_blender_code") == 1300.0  # 640 + composed front-report reads
-    assert [L.sdk_timeout_s(name) for name in ("seat_lens", "check_lens_seating", "render_views", "export_glb",
-                                               "restore_checkpoint", "fit_cameras", "deliver", "read_report")] == [
-        820.0, 130.0, 310.0, 130.0, 70.0, 1810.0, 610.0, 40.0]
-    assert L.sdk_timeout_s("budget_status") == 40.0
-    assert L.sdk_timeout_s("compare_look_to_photos") == 760.0  # export + photo cameras + same-export worn capture
-    assert L.sdk_timeout_s("finish") == 1090.0  # prior stages + optional front-photo capture, then SDK margin
+    from glasses3d.agent import tool_timeouts as T
+    for name in ("execute_blender_code", "seat_lens", "check_lens_seating", "render_views", "export_glb",
+                 "restore_checkpoint", "fit_cameras", "deliver", "read_report", "budget_status",
+                 "compare_look_to_photos", "finish"):
+        assert L.sdk_timeout_s(name) == T.inner_steps_s(name) + T.HOST_WORK_MARGIN_S + L.SDK_TIMEOUT_MARGIN_S
+    # Old 760 s look budget omitted side-light; finish also needs its diagnostic fallback.
+    assert L.sdk_timeout_s("compare_look_to_photos") > T.EXPORT_DEADLINE_S + 3 * T.LOOK_CAPTURE_DEADLINE_S
+    assert L.sdk_timeout_s("finish") > T.EXPORT_DEADLINE_S + T.AR_CAPTURE_DEADLINE_S + 2 * T.LOOK_CAPTURE_DEADLINE_S
     with pytest.raises(KeyError):
         L.hard_timeout_s("unknown_tool")
 
@@ -885,7 +887,7 @@ def test_the_section_7_timeout_table_and_the_sdk_timeout_rule():
         """
         return view
     tool = function_tool(timeout=L.sdk_timeout_s("render_views"))(render_views)
-    assert (tool.timeout_seconds, tool.timeout_behavior) == (310.0, "error_as_result")
+    assert (tool.timeout_seconds, tool.timeout_behavior) == (L.sdk_timeout_s("render_views"), "error_as_result")
 
 
 def test_the_tool_contract_is_checked_both_ways():

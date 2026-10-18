@@ -32,7 +32,8 @@ def prepare_offline_request(root, run_id, offline_handler, *, settings=None):
     instructions_sha = hashlib.sha256(spec.instructions.encode()).hexdigest()
     request = A.build_request(root, instructions_sha256=instructions_sha,
         tool_registry_sha256=tool_registry_sha256(spec.tools, spec.settings),
-        settings=approval_settings(spec.settings, spec.stage_contracts), unsent_owner_notes=spec.owner_notes,
+        settings=approval_settings(spec.settings, spec.stage_contracts, session_binding=spec.session_binding),
+        unsent_owner_notes=spec.owner_notes,
         run_inputs=A.run_input_binding(root, spec.brief, spec.photos))
     if A.request_sha256(request) != spec.current_request_sha256:
         raise ValueError('offline approval fixture differs from actual job request')

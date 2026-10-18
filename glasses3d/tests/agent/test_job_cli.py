@@ -202,7 +202,10 @@ def test_missing_approval_is_refused_before_foreground_or_detached_execution(job
 
 
 def test_approved_foreground_dispatch_preserves_run_and_resume(job, monkeypatch):
-    request = approved(job)
+    from glasses3d.tests.agent.test_task2_resume import save_history
+    save_history(job, [{"role": "user", "content": "previous conversation"}])
+    request = command("estimate", job, "--resume", "--turns", "2", "--cap", "1", "--settled-stop", "0.8")
+    command("approve", job, "--run-id", request["run_id"], "--max-usd", "1", "--owner-words", "Offline test only.")
     execute = AsyncMock(return_value={"result": {"status": "completed"}, "delivery": {"status": "delivered"}})
     monkeypatch.setattr(job_run, "execute_run", execute)
     out = command("run", job, "--run-id", request["run_id"], "--foreground", "--resume")
@@ -287,7 +290,7 @@ def test_changed_owner_notes_invalidate_approval_before_launch(job, monkeypatch,
     notes.append("Owner changes for delivery two:\nA newly recorded note.")
     execute = AsyncMock(side_effect=AssertionError("must not run"))
     monkeypatch.setattr(job_run, "execute_run", execute)
-    assert cli.main(["job", "run", str(job), "--foreground", "--resume"]) == 3
+    assert cli.main(["job", "run", str(job), "--foreground"]) == 3
     assert "changed" in json.loads(capsys.readouterr().err)["message"]
     assert not execute.called
 

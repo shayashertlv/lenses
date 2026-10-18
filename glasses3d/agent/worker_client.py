@@ -29,11 +29,31 @@ from pathlib import Path
 
 from ..g3d import rpc
 from . import procs
+from .tool_timeouts import (HELLO_TIMEOUT_S, READY_TIMEOUT_S, READ_DEADLINE_S, RECEIPT_ATTEMPTS,
+                            WORKER_CLOSE_WAIT_S, WORKER_KILL_WAIT_S, WORKER_POLL_S, WORKER_SHUTDOWN_S)
 
 G3D = Path(__file__).resolve().parents[1]
 WORKER_PY = G3D / "g3d" / "worker.py"
-READY_TIMEOUT_S = 60.0
-HELLO_TIMEOUT_S = 30.0
+
+
+class _DeadlineSocket:
+    """Keep an RPC deadline absolute even when a frame arrives in many chunks."""
+    def __init__(self, sock, deadline):
+        self.sock, self.deadline = sock, deadline
+
+    def _remaining(self):
+        left = self.deadline - time.monotonic()
+        if left <= 0:
+            raise socket.timeout("RPC deadline elapsed")
+        self.sock.settimeout(left)
+
+    def sendall(self, data):
+        self._remaining()
+        return self.sock.sendall(data)
+
+    def recv(self, count):
+        self._remaining()
+        return self.sock.recv(count)
 
 
 class WorkerError(RuntimeError):
@@ -120,14 +140,14 @@ class WorkerClient:
                                            f"{self.dir / 'worker.log'}")
             if time.perf_counter() - t0 > self.ready_timeout_s:
                 self._dead("ready_timeout", f"no receipt within {self.ready_timeout_s:g} s")
-            time.sleep(0.02)
+            time.sleep(WORKER_POLL_S)
         info = None
-        for _ in range(50):                       # the receipt is replaced atomically; a reader may still race it
+        for _ in range(RECEIPT_ATTEMPTS):          # the receipt is replaced atomically; a reader may still race it
             try:
                 info = json.loads(receipt_path.read_text(encoding="utf-8"))
                 break
             except (OSError, ValueError):
-                time.sleep(0.02)
+                time.sleep(WORKER_POLL_S)
         if not isinstance(info, dict):
             self._dead("identity", "unreadable receipt")
         self.receipt = info
@@ -139,11 +159,13 @@ class WorkerClient:
         if info.get("token_sha256") != hashlib.sha256(token.encode()).hexdigest():
             self._dead("identity", "receipt token hash does not match")
         try:
+            hello_deadline = time.monotonic() + HELLO_TIMEOUT_S
             self.sock = socket.create_connection(("127.0.0.1", int(info["port"])), timeout=HELLO_TIMEOUT_S)
             self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._next_id = 1
-            rpc.send_frame(self.sock, {"id": 1, "method": "hello", "token": token})
-            reply = rpc.recv_frame(self.sock)
+            exchange = _DeadlineSocket(self.sock, hello_deadline)
+            rpc.send_frame(exchange, {"id": 1, "method": "hello", "token": token})
+            reply = rpc.recv_frame(exchange)
         except (OSError, rpc.FrameError) as exc:
             self._dead("start_failed", f"hello failed: {exc}")
         if not reply.get("ok"):
@@ -175,7 +197,7 @@ class WorkerClient:
             return None
 
     # ---------------------------------------------------------------------------------------------- calls
-    def call(self, method: str, params: dict | None = None, *, deadline_s: float = 30.0, slow=None):
+    def call(self, method: str, params: dict | None = None, *, deadline_s: float = READ_DEADLINE_S, slow=None):
         """One request; returns the result. WorkerError on an error response; WorkerDied (worker killed) on a missed
         deadline, EOF, a frame error or a dead process. `slow=(after_s, callback)`: when no reply has started after
         `after_s`, `callback()` runs once (the session starts a warm spare worker then) and the wait goes on to
@@ -186,17 +208,17 @@ class WorkerClient:
         rid = self._next_id
         try:
             t0 = time.monotonic()
-            self.sock.settimeout(float(deadline_s))
-            rpc.send_frame(self.sock, rpc.request(rid, method, params or {}, deadline_s))
+            exchange = _DeadlineSocket(self.sock, t0 + float(deadline_s))
+            rpc.send_frame(exchange, rpc.request(rid, method, params or {}, deadline_s))
             if slow is not None and slow[0] < deadline_s:
-                readable, _, _ = select.select([self.sock], [], [], float(slow[0]))
+                until_slow = max(0.0, float(slow[0]) - (time.monotonic() - t0))
+                readable, _, _ = select.select([self.sock], [], [], until_slow)
                 if not readable:
                     slow[1]()
                 left = float(deadline_s) - (time.monotonic() - t0)
                 if left <= 0 or not select.select([self.sock], [], [], left)[0]:
                     raise socket.timeout()
-                self.sock.settimeout(max(float(deadline_s) - (time.monotonic() - t0), 1.0))
-            reply = rpc.recv_frame(self.sock)
+            reply = rpc.recv_frame(exchange)
         except (socket.timeout, TimeoutError):
             self._dead("hard_timeout", f"{method}: no reply within {deadline_s:g} s; the worker was killed")
         except rpc.PeerClosed as exc:
@@ -240,18 +262,18 @@ class WorkerClient:
         # termination set and records it while the process object is not yet signalled (measured: WAIT_TIMEOUT on a
         # fresh handle right after wait() returned). Wait for every member to be gone.
         t0 = time.monotonic()
-        while time.monotonic() - t0 < 15.0 and any(procs.pid_alive(m) for m in members):
-            time.sleep(0.02)
+        while time.monotonic() - t0 < WORKER_KILL_WAIT_S and any(procs.pid_alive(m) for m in members):
+            time.sleep(WORKER_POLL_S)
         if self.job is not None:
             self.job.close()
             self.job = None
         self._close_log()
 
-    def close(self, timeout_s: float = 20.0) -> None:
+    def close(self, timeout_s: float = WORKER_CLOSE_WAIT_S) -> None:
         """Ask for a clean shutdown; kill when it does not end in time."""
         if self.alive and self.sock is not None:
             try:
-                self.call("shutdown", deadline_s=10.0)
+                self.call("shutdown", deadline_s=WORKER_SHUTDOWN_S)
             except (WorkerDied, WorkerError):
                 pass
             try:

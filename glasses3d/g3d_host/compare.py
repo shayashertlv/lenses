@@ -151,11 +151,21 @@ def _abs(text: str, root: Path) -> Path:
 
 
 def write_json(path: Path, doc) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(doc, indent=1, default=_json_default), encoding="utf-8")
-    tmp.replace(path)
+    from ..agent import procs
+    procs.write_json_atomic(path, _json_value(doc))
+
+
+def _json_value(value):
+    """Unavailable numeric diagnostics are null, never non-standard Infinity/NaN JSON."""
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_value(item) for item in value]
+    if isinstance(value, (np.generic, np.ndarray, Path)):
+        return _json_value(_json_default(value))
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def _json_default(o):
@@ -371,6 +381,22 @@ class Basis:
                 "refs": list(self.refs), "usable_refs": self.usable_refs(), "unusable_refs": self.unusable_refs()}
 
 
+class MissingOwnerPhotos(ValueError):
+    """A legacy subset basis cannot silently narrow an owner's review."""
+
+
+def require_owner_photos(basis: Basis) -> Basis:
+    path = basis.job_root / "job.json"
+    if path.is_file():
+        rows = json.loads(path.read_text(encoding="utf-8")).get("images", [])
+        names = {row["original_name"] for row in rows if isinstance(row, dict) and row.get("original_name")}
+        missing = sorted(names - {ref["image"] for ref in basis.refs.values()})
+        if missing:
+            raise MissingOwnerPhotos(f"camera basis {basis.id} is missing owner photos: {', '.join(missing)}; "
+                                     "run fit_cameras for every photo before compare, look, finish or print")
+    return basis
+
+
 def load_basis(job_root, basis_id: str | None = None) -> Basis:
     """The named diagnostic basis or newest usable one. Damaged evidence always refuses."""
     ids = list_bases(job_root)
@@ -380,22 +406,62 @@ def load_basis(job_root, basis_id: str | None = None) -> Basis:
         for candidate in reversed(ids):
             basis = Basis(basis_root(job_root) / candidate, job_root)
             if basis.usable_refs():
-                return basis
+                return require_owner_photos(basis)
         raise NoBasis(f"no successful camera in bases {ids}: inspect their fit diagnostics and run fit_cameras "
                       "again (E_NO_BASIS)")
     if basis_id not in ids:
         raise NoBasis(f"no camera basis {basis_id!r} (bases: {ids or 'none'}; fit_cameras makes one)")
-    return Basis(basis_root(job_root) / basis_id, job_root)
+    return require_owner_photos(Basis(basis_root(job_root) / basis_id, job_root))
 
 
 OPTIONAL_IMAGE_FIELDS = ("theta_deg", "theta_observed", "hinge_axis_xz_mm", "colourway", "fit_status", "lens_loss",
-                         "pose_provenance", "opening_fit")
+                         "pose_provenance", "opening_fit", "retained_fit")
 FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags", "iou", "contour_mean_px",
                        "contour_mean_mm", "contour_p90_px", "contour_p90_mm", "px_per_mm_at_front_pivot",
                        "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",
                        "iou_lens_optional", "lens_pixels_optional", "contour_mean_px_lens_optional",
                        "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability", "off_axis",
                        "matte_selection")
+
+
+def complete_refit(basis_dir, photos: dict, previous: Basis | None) -> dict:
+    """Carry compatible frozen fits into a complete new catalogue, preserving failed-refit diagnostics."""
+    directory = Path(basis_dir)
+    path = directory / CAMERAS_JSON
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    old = json.loads((previous.dir / CAMERAS_JSON).read_text(encoding="utf-8")) if previous else {}
+    compatible = bool(previous and all(doc["model"].get(key) == old["model"].get(key)
+                      for key in ("sha256", "frame", "front_pivot_mm", "skip", "front_parts")))
+    retained, merged = {}, {}
+    for name, photo in photos.items():
+        current = doc["images"].get(name)
+        rid = ref_id(name)
+        prior = previous.refs.get(rid) if previous else None
+        can_keep = (compatible and prior and prior["image"] == name
+                    and prior["photo_sha256"] == sha256_file(photo))
+        if can_keep and (current is None or not _fit_usable(current) and previous.is_usable(rid)):
+            row = dict(old["images"][name])
+            reason = "not_requested" if current is None else "refit_failed"
+            row["retained_fit"] = {"basis": previous.id, "reason": reason,
+                                   "attempt": current}
+            # Preserve the exact frozen matte rather than recomputing it after a code change.
+            if prior.get("matte"):
+                matte_path = directory / f"retained_matte_{rid}.png"
+                shutil.copyfile(previous.dir / prior["matte"], matte_path)
+                row.update(matte_mode="supplied", matte_file=matte_path.name,
+                           matte_file_sha256=sha256_file(matte_path))
+            if prior.get("overlay"):
+                overlay = directory / f"overlay_{rid}.png"
+                shutil.copyfile(previous.dir / prior["overlay"], overlay)
+                row["overlay"] = overlay.name
+            merged[name], retained[rid] = row, row["retained_fit"]
+        elif current is not None:
+            merged[name] = current
+        else:
+            raise ValueError(f"no compatible camera for owner photo {name}; refit it before freezing a basis")
+    doc["images"] = merged
+    write_json(path, doc)
+    return retained
 
 
 def freeze_basis(job_root, basis_dir, photos: dict, *, reason: str, call_id: str | None, source: str,

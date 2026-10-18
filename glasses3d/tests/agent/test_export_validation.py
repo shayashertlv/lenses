@@ -22,6 +22,8 @@ class ExportSession:
         return "export-1"
 
     def call_read(self, name, method, args, **kwargs):
+        if method == "fingerprint":
+            return {"status": "ok", "result": {"fingerprint": self.head["fingerprint"]}}
         self.calls += 1
         path = Path(args["path"])
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,12 +91,12 @@ def test_old_index_is_validated_and_tampered_bytes_are_reexported(tmp_path):
     old = {k: v for k, v in first.items() if k not in ("validate_spec", "seat_check", "validation_sha256")}
     index.write_text(json.dumps({session.head["fingerprint"]: old}))
     out = seeing.Seeing(session).export_head()
-    assert out["cached"] and out["validate_spec"]["ok"]
+    assert not out["cached"] and out["validate_spec"]["ok"]  # legacy keys do not bind the exporter implementation
     assert isinstance(out["seat_check"], dict) and not out["seat_check"]["ok"]
     Path(out["path"]).write_bytes(b"changed")
     fresh = seeing.Seeing(session).export_head()
     assert not fresh["cached"] and fresh["validate_spec"]["ok"]
-    assert session.calls == 2
+    assert session.calls == 3
 
 
 @pytest.mark.parametrize("seat", [{"frame_type": "acetate_full"}, "malformed"])

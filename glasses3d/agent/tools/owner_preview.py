@@ -20,6 +20,7 @@ from ...g3d import owner_mesh as M, owner_markings
 from ...g3d import owner_surface
 from .. import edits, jobs, owner_edits, procs
 from ..job_scene import JobScene
+from ..tool_timeouts import OWNER_APPLY_DEADLINE_S, PREVIEW_OPTIONS_MAX
 from . import look, model_map
 from .images import LOOK_IMAGE_SIDE
 
@@ -83,7 +84,7 @@ def _options(options):
     if not isinstance(options, (list, tuple)):
         raise ValueError('preview options must be a list')
     rows = [o.model_dump() if isinstance(o, PreviewOption) else copy.deepcopy(o) for o in options]
-    if len(rows) not in (2, 3):
+    if not 2 <= len(rows) <= PREVIEW_OPTIONS_MAX:
         raise ValueError('preview needs two or three amount options')
     for row in rows:
         if not isinstance(row, dict) or set(row) != {'id', 'label', 'scale'}:
@@ -226,7 +227,7 @@ def _run_option(scene, folder, checkpoint, head, source, operations, refs, basis
             raise ValueError('private preview snapshot differs from the shown source')
         result = child.s.call_mutating('preview_owner_edit', 'owner_edit_apply', {
             'snapshot_path': str(path), 'snapshot_sha256': M.digest(before), 'operations': operations},
-            deadline_s=180, call_id='preview-apply', label='Read-only owner amount option')
+            deadline_s=OWNER_APPLY_DEADLINE_S, call_id='preview-apply', label='Read-only owner amount option')
         if result.get('status') != 'ok':
             raise ValueError('preview operation refused: '+str(result))
         after, after_path = owner_edits.snapshot(child, 'preview-after')

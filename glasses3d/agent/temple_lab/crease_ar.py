@@ -47,9 +47,10 @@ def capture(lab, export, rows, directory, deadline):
     if arview.sha256(model) != export["sha256"]:
         raise ValueError("candidate GLB bytes changed")
     out = directory / "capture"
+    from glasses3d.agent.tool_timeouts import CREASE_MIN_REMAINING_S
     code, timeout = arview.run_capture([node, str(arview.ARVIEW / "bin/arview.mjs"), "capture", str(model),
         "--cameras", str(camera_file), "--no-face", "--fixed-scale", "--lensenv", str(arview.LENS_ENV_INTENSITY),
-        "--out", str(out)], directory, timeout_s=max(1, deadline-time.monotonic()))
+        "--out", str(out)], directory, timeout_s=max(CREASE_MIN_REMAINING_S, deadline-time.monotonic()))
     if timeout or code not in (0, 3):
         raise ValueError(f"AR capture failed: exit {code}, timeout {timeout}")
     report_path = out / "report.json"

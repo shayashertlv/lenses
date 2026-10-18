@@ -12,7 +12,8 @@ import threading
 from pathlib import Path
 
 from glasses3d.g3d_host import blender
-from .journal import BlenderSession, WorkerFailed
+from .journal import BlenderSession, WorkerFailed, CheckpointMismatch
+from .worker_client import WorkerDied
 from .loop import SceneHooks, image_key
 from .procs import write_json_atomic
 from .seeing import Seeing
@@ -66,10 +67,12 @@ class _Session(BlenderSession):
             from .owner_edits import ScopeGuard
             try:
                 check = ScopeGuard(self.owner.owner_edit_authority).verify(self.owner)
+            except (WorkerFailed, CheckpointMismatch, WorkerDied):
+                raise
             except Exception as error:
                 check = {"ok": False, "message": f"Scope verification failed: {type(error).__name__}: {error}"}
             if not check.get("ok"):
-                restored = super().restore_checkpoint(before["id"], call_id=call_id + "-scope-rollback")
+                self.owner.rollback_internal(before["id"], call_id=call_id, reason="owner edit scope refusal")
                 out = {"status": "refused", "code": "E_OWNER_EDIT_SCOPE", "message": "Edit rolled back: " + str(check),
                        "checkpoint": self.head["id"], "restored_to": before["id"], "scope_check": check}
                 self._journal(tool, call_id, arguments, out, before, None)
@@ -99,6 +102,8 @@ class JobScene(SceneHooks):
         self.finish_review = state.get("finish_review")
         self.last_ar = state.get("last_ar")
         self.best_checkpoint = state.get("best_checkpoint")
+        self.best_checkpoint_run_id = state.get("best_checkpoint_run_id")
+        self.active_run_id = state.get("active_run_id")
         self._unseen = set(state.get("unseen", []))
         self._review_log = None
         self.seed_path = Path(captured_seed).resolve() if captured_seed else self.root / "inputs" / "seed.blend"
@@ -114,6 +119,8 @@ class JobScene(SceneHooks):
                                                "images": self.images, "finish": self.finish,
                                                "finish_review": self.finish_review,
                                                "last_ar": self.last_ar, "best_checkpoint": self.best_checkpoint,
+                                               "best_checkpoint_run_id": self.best_checkpoint_run_id,
+                                               "active_run_id": self.active_run_id,
                                                "unseen": sorted(self._unseen)})
 
     def start(self):
@@ -170,6 +177,11 @@ class JobScene(SceneHooks):
 
     def bind_review_log(self, log):
         self._review_log = log
+        run_id = log.run_id
+        if self.active_run_id != run_id:
+            self.best_checkpoint = None
+            self.best_checkpoint_run_id = None
+        self.active_run_id = run_id
         # A reused scene object may serve a fresh run with no previous conversation.
         self._emitted_images = {}
         self.finish_review = None
@@ -189,12 +201,41 @@ class JobScene(SceneHooks):
         """
         checkpoints = self.s.index.checkpoints()
         order = {row["id"]: n for n, row in enumerate(checkpoints)}
+        # Host rollbacks are recovery barriers, never model actions to undo. The index metadata
+        # survives a kill before state.json was written. Recognize old derived ids only when
+        # their original model call is independently present in the index or journal.
+        known = {r.get("call_id") for r in checkpoints} | {e.get("call_id") for e in self.events}
+        recovered, removed = [], False
+        for row in checkpoints:
+            if row.get("kind") != "restore":
+                continue
+            call_id = row.get("call_id") or ""
+            origin = row.get("recovery_of")
+            if not origin:
+                for suffix in ("-scope-rollback", "-rollback"):
+                    if call_id.endswith(suffix) and call_id[:-len(suffix)] in known:
+                        origin = call_id[:-len(suffix)]
+                        break
+            if origin:
+                count_before = len(self.events)
+                self.events = [e for e in self.events if not
+                               (e.get("kind", "call") == "call" and e.get("call_id") == call_id
+                                and call_id != origin)]
+                removed |= len(self.events) != count_before
+                if not any(e.get("kind") == "rollback" and e.get("head") == row["id"] for e in self.events):
+                    recovered.append({"kind": "rollback", "checkpoint": row.get("restored_from"),
+                                      "checkpoint_before": row.get("parent"), "head": row["id"],
+                                      "origin_call_id": origin, "reason": "recovered host rollback"})
+        for event in recovered:
+            position = next((n for n, e in enumerate(self.events)
+                             if order.get(e.get("checkpoint_before"), -1) >= order[event["head"]]), len(self.events))
+            self.events.insert(position, event)
         barrier = max((order.get(e.get("head"), -1) for e in self.events if e.get("kind") == "rollback"), default=-1)
         calls = {}
         for n, row in enumerate(checkpoints):
-            if n > barrier and row.get("kind") in ("save", "restore", "drift") and row.get("call_id"):
+            if n > barrier and row.get("kind") in ("save", "restore") and row.get("call_id"):
                 calls.setdefault(row["call_id"], []).append(row)
-        changed = False
+        changed = bool(recovered) or removed
         for call_id, rows in calls.items():
             previous = next((e for e in self.events if e.get("kind", "call") == "call"
                              and e.get("call_id") == call_id), None)
@@ -224,20 +265,35 @@ class JobScene(SceneHooks):
             self.finish_review = None
             self.save()
 
-    def restore(self, checkpoint_id, *, reason):
+    def rollback_internal(self, checkpoint_id, *, call_id, reason):
         with self.lock:
             before = (self.s.head or {}).get("id")
-            out = self.s.restore_checkpoint(checkpoint_id, call_id=self.s.new_call_id("loop-rollback"))
-            if out.get("status") != "ok":
+            target = self.s.index.get(checkpoint_id)
+            try:
+                out = BlenderSession.restore_checkpoint(self.s, checkpoint_id, call_id=call_id, recovery_of=call_id)
+            except (WorkerFailed, CheckpointMismatch):
+                raise
+            except Exception as error:
+                raise WorkerFailed(f"rollback to {checkpoint_id} failed: {error}", self.s.head) from error
+            if (out.get("status") != "ok" or not target
+                    or self.s.head["fingerprint"] != target["fingerprint"]):
                 raise WorkerFailed(f"rollback to {checkpoint_id} failed: {out.get('message', out.get('status'))}",
                                    self.s.head)
             with self._state_lock:
                 self.events.append({"kind": "rollback", "checkpoint": checkpoint_id,
-                                    "checkpoint_before": before, "head": self.s.head["id"], "reason": reason})
+                                    "checkpoint_before": before, "head": self.s.head["id"], "reason": reason,
+                                    "origin_call_id": call_id})
                 self.finish = None
                 self.finish_review = None
-                self.save()
+                try:
+                    self.save()
+                except Exception as error:
+                    raise WorkerFailed(f"rollback to {checkpoint_id} could not save its recovery state: {error}",
+                                       self.s.head) from error
             return {"checkpoint": out["checkpoint"], "restored_from": checkpoint_id}
+
+    def restore(self, checkpoint_id, *, reason):
+        return self.rollback_internal(checkpoint_id, call_id=self.s.new_call_id("loop-rollback"), reason=reason)
 
     def exit_checkpoint(self):
         if not self.lock.acquire(timeout=LOCK_WAIT_S):

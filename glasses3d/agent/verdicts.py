@@ -135,7 +135,7 @@ def _read(path):
     if not raw or not raw.endswith(b"\n"):
         raise VerdictError("empty or incomplete verdict ledger")
     rows, ids, previous = [], set(), None
-    for sequence, line in enumerate(raw.splitlines(), 1):
+    for sequence, line in enumerate(raw[:-1].split(b"\n"), 1):
         row = _decode(line)
         _validate(row, sequence, previous)
         if row["id"] in ids:
@@ -189,6 +189,18 @@ def _validate_deliveries(root, rows):
         delivery = checked[row["delivery_id"]]
         if delivery["glb_sha256"] != row["glb_sha256"] or delivery["manifest_sha256"] != row["manifest_sha256"]:
             raise VerdictError("verdict delivery binding changed")
+        if row.get("checkpoint") is not None and row["checkpoint"] != _checkpoint(delivery):
+            raise VerdictError("verdict checkpoint binding changed")
+
+
+def _checkpoint(delivery):
+    report = delivery.get("report_data") or {}
+    source = report.get("source_checkpoint") or {}
+    ident = report.get("checkpoint")
+    fingerprint = report.get("fingerprint") or source.get("fingerprint")
+    if not ident or not _digest_ok(fingerprint):
+        return None  # old imported delivery metadata can lack a recoverable scene
+    return {"id": ident, "fingerprint": fingerprint}
 
 
 def read_verdicts(root, *, ledger_path=None):
@@ -223,6 +235,7 @@ def append_verdict(root, verdict, notes, delivery_id=None, expected_sha256=None,
                                     "origin": "live", "recorded_at": datetime.now(timezone.utc).isoformat(),
                                     "job_id": Path(root).resolve().name, "delivery_id": delivery["id"],
                                     "glb_sha256": delivery["glb_sha256"], "manifest_sha256": delivery["manifest_sha256"],
+                                    "checkpoint": _checkpoint(delivery),
                                     "verdict": verdict, "notes": notes}])[0]
 
 
@@ -232,8 +245,48 @@ def pending_notes(root):
     Do not mark these sent from a run receipt: a prepared or failed run need not have delivered its input. The
     unique verdict id keeps repeated owner requests distinct; the immutable GLB identity explains their scope.
     """
-    return [f"Owner changes (verdict {row['id']}; delivery {row['delivery_id']}; GLB sha256 {row['glb_sha256']}):\n"
-            + row["notes"] for row in read_verdicts(root) if row["verdict"] == "changes"]
+    return [_note(row) for row in read_verdicts(root) if row["verdict"] == "changes"]
+
+
+def _note(row):
+    checkpoint = row.get("checkpoint")
+    state = (f"; checkpoint {checkpoint['id']}; fingerprint {checkpoint['fingerprint']}" if checkpoint else "")
+    return (f"Owner changes (verdict {row['id']}; delivery {row['delivery_id']}; GLB sha256 "
+            f"{row['glb_sha256']}{state}):\n" + row["notes"])
+
+
+def resume_checkpoint(root, items):
+    """The newest not-yet-sent changes verdict selects the exact state the owner reviewed.
+
+    Previously sent reviews remain append-only context, and do not reset later work on every resume.
+    Older verdicts derive their checkpoint from their verified immutable delivery.
+    """
+    from .session_inputs import NOTE_PREFIX
+    from .journal import CheckpointIndex
+    texts = []
+    for item in items:
+        if (not isinstance(item, dict) or item.get("role") != "user"
+                or item.get("type", "message") != "message"):
+            continue
+        content = item.get("content")
+        texts.extend([content] if isinstance(content, str) else
+                     [part.get("text", "") for part in content or []
+                      if isinstance(part, dict) and part.get("type") == "input_text"])
+    pending = [row for row in read_verdicts(root) if row["verdict"] == "changes"
+               and NOTE_PREFIX + _note(row) not in texts]
+    if not pending:
+        return None
+    row = pending[-1]
+    target = _checkpoint(_delivery(root, row["delivery_id"]))
+    if target is None:
+        raise VerdictError("reviewed delivery has no recoverable checkpoint identity")
+    saved = CheckpointIndex(Path(root) / "checkpoints").get(target["id"])
+    if saved is None or saved.get("fingerprint") != target["fingerprint"]:
+        raise VerdictError("reviewed delivery checkpoint is missing or changed")
+    path = Path(root) / "checkpoints" / saved["file"]
+    if not path.resolve().is_relative_to((Path(root) / "checkpoints").resolve()) or _sha(path.read_bytes()) != saved["sha256"]:
+        raise VerdictError("reviewed delivery checkpoint bytes changed")
+    return {**target, "sha256": saved["sha256"], "delivery_id": row["delivery_id"], "verdict_id": row["id"]}
 
 
 def migrate_legacy(source, ledger_path):

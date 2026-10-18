@@ -19,6 +19,7 @@ from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
 
 from ..loop import FATAL_TOOL_ERRORS, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
+from ..tool_timeouts import AR_CAPTURE_DEADLINE_S, mark_running, clear_running, busy_result, scene_timeout_s
 from ..seeing import VIEWS_PER_SHEET
 from ..money import owner_money
 from ..finish_runway import observation as runway_observation
@@ -248,7 +249,7 @@ def build_tools(scene, settings=None) -> list:
     """Build without starting Blender; the exact registry is available for estimation and approval."""
     def timeout_text(name):
         def result(ctx, error):
-            seconds = getattr(error, "timeout_seconds", None) or sdk_timeout_s(name)
+            seconds = getattr(error, "timeout_seconds", None) or scene_timeout_s(scene, name)
             text = default_tool_timeout_error_message(tool_name=name, timeout_seconds=seconds)
             runtime = getattr(ctx, "context", None)
             return text + "\n" + (runtime.footer() if hasattr(runtime, "footer") else footer_text())
@@ -256,7 +257,7 @@ def build_tools(scene, settings=None) -> list:
 
     def tool(name):
         def wrap(fn):
-            timeout = sdk_timeout_s(name) + (450 if getattr(scene, "owner_edit", None) else 0)
+            timeout = scene_timeout_s(scene, name)
             return function_tool(fn, name_override=name, timeout=timeout,
                                  failure_error_function=fatal_tool_errors(*FATAL),
                                  timeout_error_function=timeout_text(name))
@@ -271,9 +272,9 @@ def build_tools(scene, settings=None) -> list:
                 runtime.configure_finish(scene)
             if not scene.lock.acquire(timeout=0):
                 footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
-                return [ToolOutputText(text=json.dumps({"status": "busy", "code": "E_BUSY",
-                                                        "message": "a previous scene tool is still running"})),
+                return [ToolOutputText(text=json.dumps(busy_result(scene))),
                         ToolOutputText(text=footer)]
+            mark_running(scene, name, cid)
             before = (scene.s.head or {}).get("id")
             result = None
             try:
@@ -366,6 +367,7 @@ def build_tools(scene, settings=None) -> list:
                     raise
                 return output
             finally:
+                clear_running(scene, cid)
                 scene.lock.release()
         try:
             output = await asyncio.to_thread(locked)
@@ -461,13 +463,15 @@ def build_tools(scene, settings=None) -> list:
 
         Args:
             label: Short name for this checkpoint.
-            best: Select this checkpoint as the best so far and retain its images in long runs.
+            best: Select this run's draft source if it stops before accepted finish; otherwise its latest head is used.
         """
         def save(cid):
             result = scene.s.save_checkpoint(label, call_id=cid)
             if best and result.get("status") == "ok":
                 scene.best_checkpoint = scene.s.head["id"]
+                scene.best_checkpoint_run_id = getattr(scene, "active_run_id", None)
                 result["best_checkpoint"] = scene.best_checkpoint
+                result["best_checkpoint_run_id"] = scene.best_checkpoint_run_id
             return result
         return await call(ctx, "save_checkpoint", save)
 
@@ -495,6 +499,8 @@ def build_tools(scene, settings=None) -> list:
         Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
         retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
         stages that need a complete camera set.
+        Subset refits retain compatible prior fits for the other owner photos; photos without compatible fits
+        are fitted too. A failed refit keeps its compatible prior usable fit with the failed attempt reported.
         Large fit tables are summarized; read_report pages or filters the saved full result without refitting.
         The default uses seven camera parameters. Optional off-axis fitting adds two lateral-eye coordinates;
         improved silhouette overlap alone does not establish camera angles or metric measurement accuracy.
@@ -593,7 +599,7 @@ def build_tools(scene, settings=None) -> list:
         2=usage, 3=spec failed, 4=refused. Auto-fit is always disabled."""
         def capture(cid):
             exp = scene.seeing.export_head(call_id=cid)
-            result = arview.capture(scene.root, exp, cid, timeout_s=hard_timeout_s("arview_capture") - 10)
+            result = arview.capture(scene.root, exp, cid, timeout_s=AR_CAPTURE_DEADLINE_S)
             scene.last_ar = result
             return result
         return await call(ctx, "arview_capture", capture)
@@ -652,7 +658,7 @@ def build_tools(scene, settings=None) -> list:
             exp = scene.seeing.export_head(call_id=cid)
             bound, failures = _finish_export_failures(scene, exp)
             try:
-                ar = (arview.capture(scene.root, exp, cid, timeout_s=hard_timeout_s("arview_capture") - 10) if bound else
+                ar = (arview.capture(scene.root, exp, cid, timeout_s=AR_CAPTURE_DEADLINE_S) if bound else
                       {"status": "refused", "code": "E_EXPORT", "message": "no current verified export to capture"})
             except FATAL:
                 raise

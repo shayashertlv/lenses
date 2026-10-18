@@ -125,10 +125,12 @@ def test_a_refit_is_a_new_basis_and_the_old_one_stays_selectable(job):
     see = job["seeing"]
     fit2 = see.fit_cameras("refit the front only", job["images"], job["views"], refs=["reference-01"],
                            front_parts=("Front",), workers=3)
-    assert fit2["status"] == "ok" and fit2["basis"] == "basis-02" and list(fit2["refs"]) == ["reference-01"]
+    assert fit2["status"] == "ok" and fit2["basis"] == "basis-02" and len(fit2["refs"]) == 3
+    assert fit2["refit"]["requested_refs"] == ["reference-01"]
+    assert len(fit2["refit"]["retained_refs"]) == 2
     assert C.list_bases(job["root"]) == ["basis-01", "basis-02"]
     r = see.compare_to_photos(passes=())
-    assert r["basis"] == "basis-02" and list(r["refs"]) == ["reference-01"] and r["previous"] is None
+    assert r["basis"] == "basis-02" and len(r["refs"]) == 3 and r["previous"] is None
     r1 = see.compare_to_photos(passes=(), basis="basis-01")
     assert r1["basis"] == "basis-01" and len(r1["refs"]) == 3 and r1["model_bytes_identical"] is True
     bad = see.fit_cameras("", job["images"], job["views"])

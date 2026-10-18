@@ -63,7 +63,7 @@ def test_index_recovery_preserves_later_read_and_prior_rollback_boundaries(tmp_p
     assert plan_rollback([], scene.journal_entries()) is None
 
 
-def test_worker_cpu_and_fatal_errors_are_not_hidden(tmp_path):
+def test_worker_cpu_and_fatal_errors_are_not_hidden(tmp_path, monkeypatch):
     scene = JobScene(tmp_path, job={})
     scene.s.worker = SimpleNamespace(pid=37, cpu_seconds=lambda: 12.5)
     assert scene.worker_info() == {"worker_pid": 37, "worker_cpu_s": 12.5}
@@ -71,15 +71,17 @@ def test_worker_cpu_and_fatal_errors_are_not_hidden(tmp_path):
     def fail(*args, **kwargs):
         raise WorkerFailed("worker gone", None)
 
-    scene.s.restore_checkpoint = fail
+    from glasses3d.agent.journal import BlenderSession
+    monkeypatch.setattr(BlenderSession, "restore_checkpoint", fail)
     with pytest.raises(WorkerFailed, match="worker gone"):
         scene.restore("c0000", reason="lost turn")
     assert scene.journal_entries() == []
 
 
-def test_refused_restore_does_not_mark_a_rollback(tmp_path):
+def test_refused_restore_does_not_mark_a_rollback(tmp_path, monkeypatch):
     scene = JobScene(tmp_path, job={})
-    scene.s.restore_checkpoint = lambda *args, **kwargs: {"status": "error", "message": "missing"}
+    from glasses3d.agent.journal import BlenderSession
+    monkeypatch.setattr(BlenderSession, "restore_checkpoint", lambda *args, **kwargs: {"status": "error", "message": "missing"})
     with pytest.raises(WorkerFailed, match="rollback.*missing"):
         scene.restore("c9999", reason="lost turn")
     assert not scene.journal_entries()

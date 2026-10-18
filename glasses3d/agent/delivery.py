@@ -599,7 +599,7 @@ def _last_summary(root: Path, result: dict) -> str | None:
 def _draft_export(root: Path, scene, result: dict) -> tuple[dict, dict, str]:
     """Reopen copies without a session/journal, so head, best and history cannot move.
 
-    Failed runs use the newest checkpoint whose original bytes and reopened fingerprint verify. A failed export
+    Failed runs reverify this run's best first, then newest saved checkpoints if integrity fails. A failed export
     or quality check never causes selection of an older checkpoint: that would hide the last model's defects.
     """
     from .journal import CheckpointIndex
@@ -616,10 +616,17 @@ def _draft_export(root: Path, scene, result: dict) -> tuple[dict, dict, str]:
         raise DeliveryError("no checkpoint, or the job head changed after this run ended")
     failed = result.get("status") in _REVERIFY_STATUSES
     best = getattr(scene, "best_checkpoint", None)
-    selected = index.get(best) if best and not failed else head
+    if not result.get("run_id") or getattr(scene, "best_checkpoint_run_id", None) != result["run_id"]:
+        best = None
+    selected = index.get(best) if best else head
+    if selected is None and failed:
+        selected = head
     if selected is None:
         raise DeliveryError("the checkpoint marked best is missing")
-    candidates = list(reversed(index.checkpoints())) if failed else [selected]
+    # Fatal failures still reopen and verify every candidate. Honour this run's
+    # explicit best first; only failed integrity verification permits fallback.
+    candidates = ([selected] + [row for row in reversed(index.checkpoints()) if row["id"] != selected["id"]]
+                  if failed else [selected])
     attempts = []
     for selected in candidates:
         worker = None

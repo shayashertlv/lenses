@@ -16,6 +16,7 @@ from glasses3d.g3d import owner_mesh as M
 from glasses3d.g3d import owner_markings as markings
 from glasses3d.g3d import owner_surface as surface
 from .procs import write_json_atomic
+from .tool_timeouts import OWNER_SNAPSHOT_DEADLINE_S, OWNER_APPLY_DEADLINE_S
 
 
 class Parameters(BaseModel):
@@ -34,7 +35,7 @@ class Correction(BaseModel):
 def snapshot(scene, label="owner-check"):
     path = scene.root / "work/model_maps" / (label + "-" + uuid4().hex) / "snapshot.json"
     result = scene.s.call_read("model_map", "model_map_snapshot", {"path": str(path)},
-                               deadline_s=150, call_id=label + "-" + uuid4().hex)
+                               deadline_s=OWNER_SNAPSHOT_DEADLINE_S, call_id=label + "-" + uuid4().hex)
     body = result.get("result", result)
     if result.get("status") != "ok" or body.get("unchanged") is not True or not path.is_file():
         raise M.OwnerMeshError("E_OWNER_SNAPSHOT", "current mesh snapshot failed or changed the scene")
@@ -344,14 +345,14 @@ def apply(scene, operation_ids, call_id, *, corrections=None):
         try:
             result = scene.s.call_mutating("facet_owner_edit", "owner_edit_apply", {
                 "snapshot_path": str(path), "snapshot_sha256": M.digest(current), "operations": operations},
-                deadline_s=180, call_id=call_id, label="Confirmed owner feature edits")
+                deadline_s=OWNER_APPLY_DEADLINE_S, call_id=call_id, label="Confirmed owner feature edits")
         finally:
             del scene._owner_expected_positions
         if result.get("status") != "ok":
             return result
         checked = result.get("owner_scope_check") or ScopeGuard(authority).verify(scene)
         if not checked["ok"]:
-            scene.s.restore_checkpoint(before["id"], call_id=call_id+"-rollback")
+            scene.rollback_internal(before["id"], call_id=call_id, reason="owner edit verification refusal")
             return checked
         receipt = {"schema": "g3d.owner_edit_receipt/1", "status": "ok", "call_id": call_id,
                    "round_id": sealed["round_id"], "authority_sha256": sealed["authority_sha256"],
