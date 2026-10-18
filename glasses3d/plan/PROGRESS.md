@@ -1,5 +1,14 @@
 # glasses3d progress
 
+## 2026-10-18 — Claude accepted M11 tasks 2-5; coordination moves to a fresh session ($0)
+
+Codex tasks 2 (`62638eb`), 3 (`25dcd54`), 4 (`ded8b77`, `74426bf`) and 5 (`46a7054`) reviewed by Claude: reports in
+`data/review_20261018/codex/`, diffs read (task 4's removed assertions only covered the retired history-pruning
+policy; replacements assert byte-identical history and every image kept), new and touched tests rerun: 328, 655 (+3
+arview qa), 264 and 263 passed. Task 5 was interrupted twice by OpenAI "model at capacity" and resumed in the same
+Codex conversation (`data/review_20261018/codex/resume_retry.sh`). Remaining: tasks 6-9 (briefs in
+`data/review_20261018/briefs/`), coordinated from a fresh Claude session to keep context small.
+
 ## 2026-10-18 — ASSEMBLY M11 task 5: owner edit safety, previews and delivery ($0)
 
 Completed `data/review_20261018/briefs/task5_owner_edit.md`. Generic translate/rotate/taper now preserve the
