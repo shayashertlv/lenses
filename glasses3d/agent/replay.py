@@ -202,6 +202,7 @@ class ScriptedOpenAI:
         self.violations: list[str] = []
         self.unexpected: list[str] = []
         self.answered: list[str] = []               # label of every create answered
+        self._last_create_count = 0                # pressure probes may count a request without sending it
 
     @property
     def transport(self) -> httpx2.MockTransport:
@@ -230,7 +231,7 @@ class ScriptedOpenAI:
 
     def _count(self, body: dict) -> httpx2.Response:
         self.counts.append(body)
-        reply = self._reply_for(len(self.counts) - 1)
+        reply = self._reply_for(len(self.creates))
         tokens = reply.counted if reply is not None and reply.counted is not None else self.count_tokens(body)
         self.count_answers.append(tokens)
         return httpx2.Response(200, json={"object": "response.input_tokens", "input_tokens": tokens})
@@ -240,11 +241,12 @@ class ScriptedOpenAI:
         self.create_headers.append(dict(request.headers))
         n = len(self.creates)
         ids = _ids(self.id_start + n - 1)
-        if len(self.counts) != n:
+        if len(self.counts) <= self._last_create_count:
             self.violations.append(f"create {n}: {len(self.counts)} count calls before it (every request is counted "
                                    "before it is sent)")
         elif {key: value for key, value in body.items() if key in COUNT_FIELDS} != self.counts[-1]:
             self.violations.append(f"create {n}: the payload differs from the one counted before it")
+        self._last_create_count = len(self.counts)
         problems = function_call_problems(body.get("input"))
         if problems:
             self.violations.extend(f"create {n}: {problem}" for problem in problems)
@@ -264,7 +266,7 @@ class ScriptedOpenAI:
             if reply.content is not None:
                 return httpx2.Response(reply.status, content=reply.content, headers=headers)
             return httpx2.Response(reply.status, json=reply.json_body, headers=headers)
-        counted = self.count_answers[n - 1] if n - 1 < len(self.count_answers) else 0
+        counted = self.count_answers[-1] if self.count_answers else 0
         return httpx2.Response(200, headers=headers, json=self._response_body(self.id_start + n - 1, ids, reply,
                                                                               counted, body))
 

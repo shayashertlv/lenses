@@ -184,6 +184,7 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -1304,6 +1305,67 @@ class Lab(SceneHooks):
                                f"{rec.get('reading')}; {since}]")
         return out
 
+    def renewal_state(self):
+        """Host facts; reading state must never clear a pending judgement or finish."""
+        with self.state_lock:
+            pending = S.pending_compare(self.state)
+            head = self.head_record()
+            return {"head_checkpoint": (self.s.head or {}).get("id"),
+                    "best_checkpoint": self.state.get("best_checkpoint"),
+                    "revision": (head or {}).get("revision"),
+                    "finish_review": {"status": "not_applicable"},
+                    "pending_compare": ({k: deepcopy(pending.get(k)) for k in
+                        ("compare_id", "checkpoint", "revision", "photos")} if pending else None),
+                    "tool_calls_so_far": sum(e.get("kind", "call") == "call"
+                                              for e in self.state["events"])}
+
+    def renewal_started(self):
+        # The specialist has no two-call finish review. Its latest comparison is
+        # still due for judgement, and renewal_evidence includes all its images.
+        return {"finish_review_restarted": False, "previous_review_call_id": None}
+
+    def renewal_evidence(self):
+        """Keep full photo-compare groups, pending judgement images and current reading sheets."""
+        with self.state_lock:
+            compares = [dict(c) for c in self.state["compares"]
+                        if not c.get("unseen") and c.get("call_id") not in self._unseen]
+            by_id = {c["compare_id"]: c for c in compares}
+            latest = {}
+            for rec in compares:
+                for photo in S.shown_in_full(rec):
+                    latest[photo] = rec["compare_id"]
+            pending = S.pending_compare(self.state)
+            pending_id = pending["compare_id"] if pending else None
+            readings = {name: dict(rec) for name, rec in self.readings().items()}
+            images = [(digest, dict(rec)) for digest, rec in self.state["images"].items()]
+            heads = list(self.state["heads"])
+        result = []
+        for digest, rec in images:
+            compare = by_id.get(rec.get("ref"))
+            if rec["kind"] == "compare" and compare is not None:
+                if rec["ref"] != latest.get(rec.get("photo")) and rec["ref"] != pending_id:
+                    continue
+                call_id, checkpoint = compare.get("call_id"), compare.get("checkpoint")
+                view = rec.get("photo", "sheet")
+            elif rec["kind"] == "reading":
+                reading = readings.get(rec.get("reading"))
+                if (reading is None or reading.get("id") != f"{rec['ref']}-{rec.get('reading')}"
+                        or reading.get("call_id") in self._unseen):
+                    continue
+                call_id = reading.get("call_id")
+                checkpoint = rec.get("checkpoint") or next((h["checkpoint"] for h in heads
+                                    if h["revision"] == rec.get("revision")), None)
+                view = ", ".join(reading.get("photos") or []) or rec.get("reading", "sheet")
+            else:
+                continue
+            path = (self.root / rec["file"]).resolve()
+            if not path.is_relative_to(self.root) or not path.is_file() or sha(path) != digest:
+                raise ValueError("renewal evidence image is missing, changed or outside the lab")
+            result.append({"path": str(path), "sha256": digest, "call_id": call_id,
+                           "checkpoint": checkpoint, "view": view, "kind": rec["kind"],
+                           "revision": rec.get("revision")})
+        return result
+
     def is_clean(self) -> bool:
         """True while no facet tool has run since prepare (a paid run starts only from a clean package)."""
         st = self.state
@@ -1476,7 +1538,7 @@ class Lab(SceneHooks):
             texts[pid] = self._photo_text(report["photos"].get(r, {}), res["photos"][r].get("points"), spec,
                                           colour=self._colour(pid), said=said)
             images.append(self._image(res["photos"][r]["image"], "compare", ref=cid, photo=pid,
-                                      revision=rec["revision"]))
+                                      revision=rec["revision"], call_id=call_id, checkpoint=rec["checkpoint"]))
         ztexts = []
         for z in zrecs:
             pid = self.pid(z["rid"])
@@ -1485,7 +1547,8 @@ class Lab(SceneHooks):
             if colour and lines:            # seeing names another colourway "variant": the lab says its colour
                 lines[0] = lines[0].replace(f", {self.basis.colourway(z['rid'])})", f", {colour})", 1)
             ztexts.append("\n".join(ln for ln in lines if not COMPARE_ID_LINE_RE.match(ln.strip())))
-            images.append(self._image(z["image"], "compare", ref=cid, photo=pid, revision=rec["revision"], zoom=True))
+            images.append(self._image(z["image"], "compare", ref=cid, photo=pid, revision=rec["revision"], zoom=True,
+                                      call_id=call_id, checkpoint=rec["checkpoint"]))
         self.save()
         out = {"status": "ok", "compare_id": cid, "photos": texts}
         if photos is None and by == "astra":
@@ -1930,7 +1993,8 @@ class Lab(SceneHooks):
         texts, images = {}, []
         for i, rec in enumerate(recs):      # the index keeps "Q" and "q" apart on a case-insensitive file system
             path = RD.pick_sheet(bs, rec, self.work / "readings" / f"{tag}-{i}-{rec['name']}.png")
-            images.append(self._image(path, "reading", ref=tag, reading=rec["name"], revision=head["revision"]))
+            images.append(self._image(path, "reading", ref=tag, reading=rec["name"], revision=head["revision"],
+                                      call_id=call_id, checkpoint=self.s.head["id"]))
             texts[rec["name"]] = RD.reading_text(rec)
         replaced = {}
         with self.state_lock:

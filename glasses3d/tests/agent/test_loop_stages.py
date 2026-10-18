@@ -104,7 +104,7 @@ def test_nested_stage_uses_one_ledger_shared_receipts_and_isolated_session_and_c
     assert len(list((job / "runs" / RUN / "transport").glob("*.json"))) == 8
     journals = list((job / "runs" / RUN / "tools").glob("*/journal.json"))
     assert len(journals) == 1 and json.loads(journals[0].read_text())["stage"] == "call_0001"
-    assert receipt["context_epochs"][0]["epoch"] == 1
+    assert receipt["context_epochs"] == [] and receipt["renewals"] == []
     async def histories():
         blobs = L.BlobStore(job / "blobs")
         parent_session = L.BlobSession(L.SESSION_ID, job / "session/session.sqlite", blobs=blobs)
@@ -147,19 +147,24 @@ def test_parent_and_child_reusing_call_id_preserve_distinct_receipts(tmp_path):
     assert parent.journal_entries() == [] and child.journal_entries()[0]["call_id"] == "same"
 
 
-def test_child_image_epochs_are_local_and_filter_before_exact_count_and_send(tmp_path):
+def test_child_history_is_append_only_with_legacy_filter_settings_and_counts_exact_sent_input(tmp_path):
     class Child(FakeScene):
         def context_stubs(self, shas):
-            return {sha: "Superseded private revision; kept in stage session." for sha in shas}
+            pytest.fail("runtime must not filter earlier conversation images")
     _, _, _, transport, stages, result = run_case(tmp_path, [
         R.tool_call("temple_stage"), R.tool_call("look"), R.tool_call("look"), R.tool_call("look"),
         R.tool_call("facet_finish"), R.message("parent done")], child_scene=Child())
     assert result["status"] == "completed", result
-    assert [len(R.input_images(body)) for body in transport.creates] == [2, 2, 3, 4, 2, 2]
+    assert [len(R.input_images(body)) for body in transport.creates] == [2, 2, 3, 4, 5, 2]
     assert transport.violations == [] and transport.unexpected == []
+    child_requests = transport.creates[1:5]
+    for previous, current in zip(child_requests, child_requests[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
+    assert transport.creates[-1]["input"][:len(transport.creates[0]["input"])] == transport.creates[0]["input"]
+    for counted, sent in zip(transport.counts, transport.creates):
+        assert counted["input"] == sent["input"]
     receipt = json.loads(Path(stages[0]["receipt"]).read_text())
-    assert [epoch["at_request"] for epoch in receipt["context_epochs"]] == [1, 4]
-    assert receipt["context_epochs"][-1]["stubbed"] == 3
+    assert receipt["context_epochs"] == [] and receipt["renewals"] == []
 
 
 def test_stage_cannot_exceed_approved_allowance_before_its_first_request(tmp_path):

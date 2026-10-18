@@ -1,7 +1,7 @@
 """The facet-run settings of the loop (plan/WP6_FACETS.md §4.3) on the real SDK over MockTransport: required tool
 choice kept after the first call, the finish gate (a refused finish keeps the run going, an accepted one ends it), the
-text-reply fallback (ended_without_finish), the context guard (one token epoch, byte rungs, each epoch's choice scoped
-to the tool outputs present at its firing), the payload_limit status, the machine-load preflight and watch, the
+text-reply fallback (ended_without_finish), append-only runtime history even with legacy filter settings, the
+historical context-filter unit contract, the payload_limit status, the machine-load preflight and watch, the
 approval / registry binding, the parameter-description contract scan and the timeout table. The default settings leave
 every request unchanged (test_loop.py and the other loop tests run on the defaults).
 """
@@ -210,22 +210,21 @@ class GuardScene(FakeScene):
         return {image_sha256s[0]: "[image removed: superseded]"}
 
 
-def test_context_guard_stubs_once_and_holds(tmp_path):
+def test_legacy_context_settings_leave_every_runtime_image_and_prefix_unchanged(tmp_path):
     _calls, tools = finish_tools(["accepted"])
     settings = L.RunSettings(**{**FACET.__dict__, "context_guard_tokens": 50_000})
     scene = GuardScene()
     replies = [R.tool_call("look", {"photo": "01"}, counted=1000), R.tool_call("look", {"photo": "02"}, counted=60_000),
                R.tool_call("look", {"photo": "03"}), R.tool_call("facet_finish", {"summary": "s"})]
     _job, transport, result = run(tmp_path, replies, tools, settings=settings, scene=scene)
-    assert result["status"] == "completed" and len(scene.asked) == 1 and len(scene.asked[0]) == 2
-    first = hashlib.sha256(png_bytes(4, 4, seed=41)).hexdigest()
-    assert scene.asked[0][0] == first
-    images = [len(R.input_images(body)) for body in transport.creates]
-    assert images[:2] == [2, 3]                                  # the two brief photos, then one tool image
-    assert images[2] == 3 and images[3] == 4                     # first tool image stubbed, the rest kept
-    stub = [p for o in outputs(transport.creates[2]) for p in o["output"] if p.get("type") == "input_text"]
-    assert any(p["text"] == "[image removed: superseded]" for p in stub)
-    assert result["context_guard"]["epoch"]["stubbed"] == 1
+    assert result["status"] == "completed" and scene.asked == []
+    assert [len(R.input_images(body)) for body in transport.creates] == [2, 3, 4, 5]
+    for previous, current in zip(transport.creates, transport.creates[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
+    for counted, sent in zip(transport.counts, transport.creates):
+        assert counted["input"] == sent["input"]
+    assert result["context_guard"]["epochs"] == [] and result["context_guard"]["epoch"] is None
+    assert result["renewals"] == []
 
 
 def test_context_guard_unit_keeps_brief_images():
@@ -271,12 +270,8 @@ def parts_of(body, call_id) -> list:
     return [p.get("type") for o in outputs(body) if o["call_id"] == call_id for p in o["output"]]
 
 
-def test_context_guard_never_stubs_an_output_that_arrives_after_its_epoch(tmp_path):
-    """Review 2026-10-12, P1 (v3p3-verify-14): the guard's choice is scoped to the tool outputs present at its epoch
-    (their call_ids), never to image bytes alone. A later output that repeats a stubbed image's bytes (a revision
-    re-applied after the epoch: the compare cache returns the same panel file) reaches the model as an image; the old
-    output keeps its stub (a stable prefix). With /1 the new output arrived as the old compare's 'superseded' stub,
-    which E_JUDGEMENT still asked Astra to judge."""
+def test_repeated_comparison_bytes_keep_all_old_and_new_runtime_occurrences(tmp_path):
+    """Cached comparison bytes remain images in every output, even past a legacy filter threshold."""
     tools = photo_tools()
     settings = L.RunSettings(**{**FACET.__dict__, "context_guard_tokens": 50_000})
     scene = GuardScene()
@@ -284,24 +279,24 @@ def test_context_guard_never_stubs_an_output_that_arrives_after_its_epoch(tmp_pa
                R.tool_call("look", {"photo": "1"}), R.tool_call("look", {"photo": "3"}),
                R.tool_call("facet_finish", {"summary": "s"})]
     _job, transport, result = run(tmp_path, replies, tools, settings=settings, scene=scene)
-    assert result["status"] == "completed" and len(scene.asked) == 1
+    assert result["status"] == "completed" and scene.asked == []
     first = hashlib.sha256(png_bytes(4, 4, seed=61)).hexdigest()
-    assert scene.asked[0][0] == first                               # look 1's image is the one stubbed
     calls = [o["call_id"] for o in outputs(transport.creates[-1])]
     assert len(calls) == 4
-    epoch = transport.creates[2]                                    # the guard's request
-    assert parts_of(epoch, calls[0]) == ["input_text", "input_text"] and parts_of(epoch, calls[1])[-1] == "input_image"
-    later = transport.creates[3]                                    # look 1 again, after the epoch
+    prior = transport.creates[2]
+    assert parts_of(prior, calls[0]) == ["input_text", "input_image"]
+    assert parts_of(prior, calls[1]) == ["input_text", "input_image"]
+    later = transport.creates[3]
     assert parts_of(later, calls[2]) == ["input_text", "input_image"]
     again = [p for o in outputs(later) if o["call_id"] == calls[2] for p in o["output"] if p["type"] == "input_image"]
-    assert L._image_sha256(again[0]["image_url"]) == first          # the stubbed bytes, now delivered
-    for body in transport.creates[3:]:                              # the epoch's outputs keep their choice
-        assert parts_of(body, calls[0])[1] == "input_text" and parts_of(body, calls[2])[1] == "input_image"
-    assert [len(R.input_images(b)) for b in transport.creates] == [2, 3, 3, 4, 5]
-    assert result["context_guard"]["epochs"] == [result["context_guard"]["epoch"]]
-    assert result["context_guard"]["epoch"]["tool_outputs"] == 2 and result["context_guard"]["epoch"]["trigger"] == \
-        "input_tokens"
-    assert result["context_guard"]["request_bytes"] == L.CONTEXT_GUARD_BYTES
+    assert L._image_sha256(again[0]["image_url"]) == first
+    for body in transport.creates[3:]:
+        assert parts_of(body, calls[0])[1] == parts_of(body, calls[2])[1] == "input_image"
+    for previous, current in zip(transport.creates, transport.creates[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
+    assert [len(R.input_images(b)) for b in transport.creates] == [2, 3, 4, 5, 6]
+    assert result["context_guard"]["epochs"] == [] and result["context_guard"]["epoch"] is None
+    assert result["renewals"] == []
 
 
 def test_context_guard_token_epoch_once_then_byte_rungs():
@@ -369,20 +364,20 @@ def test_context_guard_token_epoch_once_then_byte_rungs():
     assert no_bytes(CallModelData(model_data=data, agent=None, context=None)) is data
 
 
-def test_a_body_over_the_providers_limit_ends_the_run_payload_limit(tmp_path, monkeypatch):
-    """A request over the provider's documented per-request limit is refused before counting (budget
-    PayloadTooLarge): the run ends payload_limit, $0 for it, nothing after it (review 2026-10-12, P2)."""
+def test_owner_photos_over_the_hard_provider_limit_still_end_payload_limit_after_renewal(tmp_path, monkeypatch):
+    """Renewal retains every owner photo; an irreducible over-limit seed still refuses without inference."""
     calls, tools = finish_tools(["accepted"])
-    monkeypatch.setattr(B, "PAYLOAD_LIMIT_IMAGES", 3)               # 2 brief photos, then one image a look
+    monkeypatch.setattr(B, "PAYLOAD_LIMIT_IMAGES", 1)  # two owner photos cannot fit even in a fresh conversation
     replies = [R.tool_call("look", {"photo": "01"}), R.tool_call("look", {"photo": "02"}),
                R.tool_call("facet_finish", {"summary": "s"})]
     job, transport, result = run(tmp_path, replies, tools)
-    assert result["status"] == "payload_limit" and calls["look"] == 2
-    assert len(transport.creates) == 2 and len(transport.counts) == 2 and result["requests"] == 2
-    assert [r["outcome"] for r in json.loads((job / "runs" / RUN / "budget.json").read_text(encoding="utf-8"))[
-        "rows"]] == ["settled", "settled"]
+    assert result["status"] == "payload_limit" and calls["look"] == 0
+    assert len(transport.creates) == len(transport.counts) == result["requests"] == 0
+    assert json.loads((job / "runs" / RUN / "budget.json").read_text(encoding="utf-8"))["rows"] == []
     assert result["budget"]["blocked_kind"] == "PayloadTooLarge" and "payload_limit" in L.STATUSES
-    assert result["budget"]["planning"]["last_request_images"] == 3
+    assert len(result["renewals"]) == 1
+    assert result["renewals"][0]["rebuilt_request"]["images"] == 2
+    assert result["renewals"][0]["summary_skipped"].startswith("PayloadTooLarge:")
 
 
 # --------------------------------------------------------------------------------------------- machine load

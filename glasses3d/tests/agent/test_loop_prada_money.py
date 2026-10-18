@@ -32,6 +32,12 @@ def budget_status() -> str:
 
 def test_the_59_recorded_prada_usages_settle_exactly_through_the_loop(tmp_path, monkeypatch):
     monkeypatch.setattr(L, "ProductionClients", None)          # never constructed: calling None would fail
+    # Replay the frozen original conversation's usages verbatim: inserting a
+    # summary/new prefix would make later recorded counts and charges inapplicable.
+    # Disable only renewal in this historical settlement test; current renewal
+    # plus money is tested in test_conversation_renewal and the desktop real-loop
+    # estimator tests (reserve and settled-only). All guard/ledger checks stay live.
+    monkeypatch.setattr(L.ConversationRenewal, "check", lambda self, *args: None)
     rows = replay_rows()
     replies = [R.tool_call("budget_status", {}, counted=row["counted"], usage=row["usage"]) for row in rows[:-1]]
     replies.append(R.message("Delivered.", counted=rows[-1]["counted"], usage=rows[-1]["usage"]))
@@ -42,6 +48,7 @@ def test_the_59_recorded_prada_usages_settle_exactly_through_the_loop(tmp_path, 
     result = asyncio.run(L.run_astra(spec_for(job, RUN, sha, [budget_status], transport, settings=settings),
                                      scene=FakeScene()))
     assert result["status"] == "completed" and result["final_output"] == "Delivered."
+    assert result["renewals"] == []
     ledger = ledger_rows(job, RUN)
     assert len(ledger) == len(transport.counts) == len(transport.creates) == 59 == result["turns_used"]
     assert all((row["outcome"], row["settled_from"], row["http_status"]) == ("settled", "transport", 200)

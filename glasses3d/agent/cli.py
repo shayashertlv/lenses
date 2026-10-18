@@ -212,8 +212,21 @@ def dispatch(args):
     elif getattr(args, "round", None):
         raise ValueError("--round requires --edit-id")
     if args.command == "show":
+        from .renewal import durable_receipts
+        renewals = []
+        seen = set()
+        for path in sorted((root / "runs").glob("**/renewals.json")):
+            record = procs.read_json(path) or {}
+            renewals.append({"receipt": str(path.relative_to(root)), "renewals": record.get("renewals", [])})
+            seen.update(row["new_conversation_id"] for row in record.get("renewals", []))
+        for path in [root / "session/session.sqlite", *sorted((root / "runs").glob("**/session.sqlite"))]:
+            rows = [row for row in durable_receipts(path) if row["new_conversation_id"] not in seen]
+            if rows:
+                renewals.append({"receipt": str(path.relative_to(root)), "renewals": rows})
+                seen.update(row["new_conversation_id"] for row in rows)
         return {"job": jobs.load_job(root), "heartbeat": procs.read_json(root / "heartbeat.json"),
-                "pending_run": A.latest_pending_run(root), **delivery_status(root)}
+                "pending_run": A.latest_pending_run(root), "conversation_renewals": renewals,
+                **delivery_status(root)}
     if args.command == "estimate":
         from dataclasses import replace
         cap = args.cap if args.cap is not None else (

@@ -65,7 +65,10 @@ def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
     ("44.2788", 540_000, 2, 27_000_000, 2),  # owner-approved headroom admits the last request at $13.50
 ])
 def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
-        tmp_path, cap, counted, expected_requests, expected_spend, expected_counts):
+        tmp_path, monkeypatch, cap, counted, expected_requests, expected_spend, expected_counts):
+    # Isolate admission at deliberately huge fixed counts. Actual renewal and
+    # unchanged money terms together are covered by test_conversation_renewal.
+    monkeypatch.setattr(L.ConversationRenewal, "check", lambda *args: None)
     settings = L.RunSettings(effort="high", max_output_tokens=16384, max_turns=10, settled_stop_usd="20")
     usage = R.default_usage(counted, output_tokens=0, reasoning_tokens=0)
     replies = [R.tool_call("scene_summary", {}, counted=counted, usage=usage) for _ in range(3)]

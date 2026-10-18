@@ -12,7 +12,10 @@ from glasses3d.tests.agent.support import fake_counter, request
 
 
 @pytest.mark.parametrize('settled_only', [False, True])
-def test_scripted_finish_warning_uses_stop_even_with_large_or_absent_reserve(tmp_path, scene, settled_only):
+def test_scripted_finish_warning_uses_stop_even_with_large_or_absent_reserve(tmp_path, monkeypatch, scene, settled_only):
+    # Inject the expensive context solely to exercise the footer/stop projection;
+    # renewal's own transport proofs cover its interception of that context.
+    monkeypatch.setattr(L.ConversationRenewal, 'check', lambda *args: None)
     settings = L.RunSettings(effort='high', max_output_tokens=4096, max_turns=4,
                              settled_stop_usd='20', settled_only=settled_only)
     cap = '20' if settled_only else '44.28'

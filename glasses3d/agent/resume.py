@@ -11,7 +11,7 @@ from . import verdicts
 from .receipts import BlobStore
 
 
-def saved_items(root):
+def saved_items(root, *, recovery=False):
     """Use the same SDK/blob reader as execution, also when called from an async job runner."""
     from .loop import BlobSession, SESSION_ID
     root = Path(root)
@@ -22,7 +22,7 @@ def saved_items(root):
     async def read():
         session = BlobSession(SESSION_ID, path, blobs=BlobStore(root / "blobs"))
         try:
-            return await session.get_items()
+            return await session.recovery_items() if recovery else await session.get_items()
         finally:
             session.close()
 
@@ -35,7 +35,10 @@ def binding(root, resume, *, items=None):
         return {"resume": False}
     items = saved_items(root) if items is None else items
     raw = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    recovery = saved_items(root, recovery=True)
+    recovery_raw = json.dumps(recovery, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return {"resume": True, "history_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            "recovery_history_sha256": hashlib.sha256(recovery_raw.encode("utf-8")).hexdigest(),
             "history_items": len(items), "reviewed_checkpoint": verdicts.resume_checkpoint(root, items)}
 
 

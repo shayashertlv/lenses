@@ -372,6 +372,11 @@ class ReviewLog(RunHooks):
         try:
             await self.guard.before_request(request)
         except Exception as error:
+            from .renewal import RenewalNeeded
+            if isinstance(error, RenewalNeeded):
+                # Intentional pre-admission handoff, with no hold or HTTP send.
+                self.event("conversation_pressure", measurements=error.measurements, reasons=error.reasons)
+                raise
             try:
                 await self.guard.not_sent(error, request)
             except Exception:

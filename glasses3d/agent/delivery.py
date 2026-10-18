@@ -297,6 +297,10 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
               "seating": copy.deepcopy(exp["seat_check"]), "print_check": copy.deepcopy(exp["print_check"]),
               "arview": ar_record, "cost": owner_money(result.get("budget")),
               "summary": summary, "finished": not draft, "accepted_finish": not draft,
+              "conversation_renewals": copy.deepcopy(result.get("renewals", [])),
+              "stage_conversation_renewals": [{"stage": s.get("stage"), "call_id": s.get("call_id"),
+                                               "renewals": copy.deepcopy(s.get("renewals", []))}
+                                              for s in result.get("stages", []) if s.get("renewals")],
               "run_status": result.get("status")}
     if look is not None:
         report["look_comparison"] = _look_files(root, look, exp["sha256"], files)

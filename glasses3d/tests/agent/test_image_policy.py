@@ -116,42 +116,52 @@ def test_job_policy_keeps_every_previous_item_at_all_request_boundaries(tmp_path
                 if part["type"] == "input_image"] == [photo.image_url for photo in photos(2)]
 
 
-def test_repeated_epochs_before_count_keep_originals_and_new_cached_occurrences(tmp_path):
+def test_legacy_epoch_settings_preserve_every_original_and_repeated_image_occurrence(tmp_path):
     scene = PolicyScene(tmp_path / "policy")
-    # call4 repeats call1's exact bytes after call1 was stubbed at request4.
+    # call4 repeats call1's exact bytes; both occurrences remain in every later request.
     replies = [look("front", "c1", 1), look("side", "c2", 2), look("front", "c3", 3),
                look("front", "c4", 1), look("side", "c5", 5), look("front", "c6", 6),
                look("side", "c7", 7), look("front", "c8", 8), look("side", "c9", 9), R.tool_call("finish")]
     job, transport, result = run(tmp_path, replies, scene)
-    assert [epoch["at_request"] for epoch in result["context_guard"]["epochs"]] == [1, 4, 7, 10]
-    assert all(epoch["trigger"] == "request_cadence" for epoch in result["context_guard"]["epochs"])
-    assert [len(R.input_images(body)) for body in transport.creates] == [2, 3, 4, 4, 5, 6, 4, 5, 6, 4]
-    assert "call_0001" not in image_calls(transport.creates[4]) and "call_0004" in image_calls(transport.creates[4])
-    assert image_calls(transport.creates[-1]) == {"call_0008", "call_0009"}
+    assert not scene.asked and result["context_guard"]["epochs"] == []
+    assert result["context_guard"]["epoch"] is None and result["renewals"] == []
+    assert [len(R.input_images(body)) for body in transport.creates] == list(range(2, 12))
+    repeated = {row["call_id"]: row for row in L.tool_output_image_occurrences(transport.creates[4]["input"])}
+    assert repeated["call_0001"]["sha256"] == repeated["call_0004"]["sha256"]
+    assert image_calls(transport.creates[-1]) == {f"call_{i:04d}" for i in range(1, 10)}
+    for previous, current in zip(transport.creates, transport.creates[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
     for counted, sent in zip(transport.counts, transport.creates):
-        assert counted["input"] == sent["input"]  # policy acts before the free count, which prices the sent input
+        assert counted["input"] == sent["input"]
         user_images = [part["image_url"] for item in sent["input"] if item.get("role") == "user"
                        and isinstance(item.get("content"), list) for part in item["content"] if part["type"] == "input_image"]
         assert user_images == [photo.image_url for photo in photos(2)]
     persisted = history(job)
     assert len(L.tool_output_image_occurrences(persisted)) == 9
-    assert "superseded" not in json.dumps(persisted)  # only outgoing payloads are pruned, never durable history
+    assert "superseded" not in json.dumps(persisted)
 
 
-def test_resume_prunes_immediately_and_restores_newly_selected_best_images(tmp_path):
+def test_resume_keeps_exact_history_and_every_image_after_selecting_a_different_best_checkpoint(tmp_path):
     scene = PolicyScene(tmp_path / "policy")
     job, first, _ = run(tmp_path, [look("front", "c1", 1), look("front", "c2", 2),
                                   look("front", "c3", 3), R.tool_call("finish")], scene)
-    assert image_calls(first.creates[-1]) == {"call_0003"}
+    assert not scene.asked
+    assert image_calls(first.creates[-1]) == {"call_0001", "call_0002", "call_0003"}
+    assert [len(R.input_images(body)) for body in first.creates] == [2, 3, 4, 5]
+    for previous, current in zip(first.creates, first.creates[1:]):
+        assert current["input"][:len(previous["input"])] == previous["input"]
     before = history(job)
     scene.policy.best_checkpoint = "c1"
     scene.policy.save()
     resumed = PolicyScene(tmp_path / "policy")
     assert resumed.policy.best_checkpoint == "c1"
     _job, second, result = run(tmp_path, [R.tool_call("finish")], resumed, run_id="images-2", resume=True, id_start=101)
-    assert result["context_guard"]["epochs"][0]["at_request"] == 1
-    assert image_calls(second.creates[0]) == {"call_0001", "call_0003"}
-    assert len(R.input_images(second.creates[0])) == 4
+    assert not resumed.asked and result["context_guard"]["epochs"] == []
+    assert result["context_guard"]["epoch"] is None and result["renewals"] == []
+    assert image_calls(second.creates[0]) == {"call_0001", "call_0002", "call_0003"}
+    assert len(R.input_images(second.creates[0])) == 5
+    assert second.creates[0]["input"][:len(before)] == before
+    assert all(photo.image_url in R.input_images(second.creates[0]) for photo in photos(2))
     assert second.counts[0]["input"] == second.creates[0]["input"]
     after = history(job)
     assert after[:len(before)] == before

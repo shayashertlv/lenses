@@ -122,7 +122,10 @@ def test_status_footer_and_invocation_show_settled_stop_and_informational_runway
     assert "reserve cap" not in invocation
 
 
-def test_real_sdk_parent_and_specialist_share_settled_stop_without_reserve_refusal(job):
+def test_real_sdk_parent_and_specialist_share_settled_stop_without_reserve_refusal(job, monkeypatch):
+    # Isolate the approved final-request admission at a synthetic maximal count.
+    # Renewal + shared settlement has separate real-SDK transport coverage.
+    monkeypatch.setattr(L.ConversationRenewal, "check", lambda *args: None)
     """At $19.99 settled a full child request is sent, then its settlement stops the parent before counting."""
     child_scene, stages = FakeScene(), []
     before = inputs(job)

@@ -47,7 +47,7 @@ import tempfile
 import time
 from typing import TYPE_CHECKING
 
-from .pricing import MICRO, MODEL, PricingError, Tariff, usd_text, usd_to_micro, validate_usage
+from .pricing import MICRO, MODEL, MODEL_MAX_INPUT_TOKENS, PricingError, Tariff, usd_text, usd_to_micro, validate_usage
 from .money import reservation_refusal
 from .jsonl import read_jsonl
 
@@ -951,6 +951,10 @@ class BudgetGuard:
         self.fit_output_to_budget = False
         self.settled_stop_micro: int | None = None
         self._stage_budget: StageBudget | None = None
+        # The loop may request a fresh conversation before admission. This callback
+        # never reserves, settles or changes the owner's money terms.
+        self.request_pressure = None
+        self.renewal_summary = False
 
     @contextmanager
     def stage_budget(self, maximum_usd, *, fit_output_to_budget=None):
@@ -1097,6 +1101,8 @@ class BudgetGuard:
             raise BudgetGuardError("An explicit, valid max_output_tokens is required") from None
         body_bytes, images = len(body), payload_images(payload.get("input"))
         if body_bytes > PAYLOAD_LIMIT_BYTES or images > PAYLOAD_LIMIT_IMAGES:
+            if self.request_pressure is not None:
+                self.request_pressure(payload, body_bytes, images, None)
             raise PayloadTooLarge(f"The next request is {body_bytes / 1e6:.1f} MB with {images} images; the "
                                   f"provider's documented limit is {PAYLOAD_LIMIT_BYTES / 1e6:.0f} MB and "
                                   f"{PAYLOAD_LIMIT_IMAGES:,} images per request; inference was not sent")
@@ -1130,6 +1136,11 @@ class BudgetGuard:
                     await asyncio.sleep(COUNT_RETRY_DELAYS[attempt])
             count_ms = round((time.perf_counter() - started) * 1000)
             input_tokens = getattr(count, "input_tokens", None)
+            if self.request_pressure is not None and type(input_tokens) is int and input_tokens >= 0:
+                self.request_pressure(payload, body_bytes, images, input_tokens)
+            if type(input_tokens) is int and input_tokens > MODEL_MAX_INPUT_TOKENS:
+                raise PayloadTooLarge(f"The next request has {input_tokens} counted input tokens; "
+                                      f"the model input limit is {MODEL_MAX_INPUT_TOKENS}; inference was not sent")
             try:
                 self.tariff.reserve_micro(input_tokens, output_limit)
             except PricingError:
@@ -1284,6 +1295,9 @@ class BudgetGuard:
     async def not_sent(self, error: BaseException, request) -> None:
         """A host request hook failed: durably record $0 when possible and forbid retry in this run."""
         async with self._lock:
+            if (self.renewal_summary and isinstance(error, (BudgetExceeded, PayloadTooLarge))
+                    and self.ledger.open_row() is None and self._open_request is None):
+                return  # summary denied before admission; a smaller fresh conversation may still fit
             if (isinstance(error, StageBudgetExceeded) and error.request is request
                     and self.ledger.open_row() is None and self._open_request is None):
                 return  # only this known pre-reservation refusal leaves the parent usable

@@ -25,9 +25,10 @@ Order of one run (``run_astra``):
    facet runs of WP6_FACETS §4.3) the run is final only when that tool's result has status "accepted"
    (``FinishOnAccepted``); a text reply without it continues with one factual host note, up to ``max_continuations``
    notes, then ends ``ended_without_finish``. ``tool_choice`` / ``reset_tool_choice`` set the model's tool choice;
-   ``context_guard_tokens`` adds the image filter (``ContextGuard``: one epoch on counted tokens, more at rungs of
-   request bytes, each scoped to the tool outputs present at its firing). All of them default off, are bound into the
-   approval settings and the tool-registry sha, and leave a default run's requests unchanged. ``RunSpec.load_check``
+   Before admission, exact request bytes/images and counted input tokens trigger summary + fresh-conversation
+   renewal past 80% of provider limits/the tariff's long-context step. Earlier items remain unchanged. Legacy
+   ``context_guard_*`` settings remain readable for approval compatibility but no longer rewrite live history.
+   ``RunSpec.load_check``
    (the facet CLI sets it) refuses a run at preflight while other Blender or pytest work runs, and reports load that
    starts later (``LoadWatch``).
 6. **Always**: an open request becomes unknown (``guard.transport_failed`` in the except clause for a connection
@@ -61,6 +62,7 @@ import re
 import shutil
 import threading
 import time
+import uuid
 from types import SimpleNamespace
 import zlib
 from typing import Any, Callable, Iterable, Sequence
@@ -90,6 +92,7 @@ from .pricing import MODEL, usd_text
 from .receipts import BlobStore, Cleaner, ReviewLog, StopRequested, write_json
 from .session_inputs import ReferenceInput, plan_session_input
 from .snapshot import capture as capture_implementation
+from .renewal import ConversationRenewal, RenewalNeeded, find_error
 
 AGENT_NAME = "Astra"
 SESSION_ID = "astra"
@@ -518,6 +521,17 @@ class SceneHooks:
 
     def close(self) -> None:
         return None
+
+    def renewal_state(self) -> dict:
+        head = getattr(self, "head", None)
+        return {"head_checkpoint": head, "best_checkpoint": getattr(self, "best_checkpoint", None),
+                "finish_review": {"status": "not_pending"}}
+
+    def renewal_evidence(self) -> list[dict]:
+        return []
+
+    def renewal_started(self) -> dict:
+        return {"finish_review_restarted": False}
 
 
 # --------------------------------------------------------------------------- the SDK construction (section 7)
@@ -1000,7 +1014,7 @@ class StageRuntime:
         task = asyncio.current_task()
         self.tasks.add(task)
         directory = self.run_dir / "stages" / f"{spec.name}-{call_id}"
-        session = scope = context_guard = None
+        session = scope = context_guard = renewal = None
         status, output, error, exit_head = "failed", None, None, None
         state = {"continuations": 0, "finish_notes": 0}
         started = self.log.interactions
@@ -1014,19 +1028,16 @@ class StageRuntime:
             self.log.note(f"Stage {spec.name} started ({call_id}).", stage=spec.name, stage_call_id=call_id,
                           contract=approved.binding())
             settings = spec.settings
-            if settings.context_guard_tokens is not None:
-                context_guard = ContextGuard(settings.context_guard_tokens, byte_threshold=settings.guard_bytes(),
-                    counted=lambda: self.guard.planning()["last_counted_input_tokens"],
-                    sent_bytes=lambda: self.guard.planning()["last_request_bytes"], choose=scene.context_stubs,
-                    every_requests=settings.context_guard_every_requests, choose_images=scene.context_image_stubs,
-                    notify=lambda epoch: self.log.note(epoch_text(epoch), stage=spec.name, context_guard=epoch))
+            renewal = ConversationRenewal(spec=spec, scene=scene, session=session, log=self.log,
+                                          guard=self.guard, client=self.client, directory=directory,
+                                          owner_notes=notes)
             with self.guard.stage_budget(cap_usd, fit_output_to_budget=settings.fit_output_to_budget) as scope:
                 try:
                     status, output = await _drive(build_agent(spec.instructions, spec.tools, settings), plan.content,
                         session=session, log=self.log, guard=self.guard,
-                        run_config=build_run_config(self.client, input_filter=context_guard), settings=settings,
+                        run_config=build_run_config(self.client), settings=settings,
                         state=state, context=RunStatus(self.guard, finish_tool=settings.finish_tool),
-                        hooks=_SharedHooks(self.log, self.maximum, scene, call_id))
+                        hooks=_SharedHooks(self.log, self.maximum, scene, call_id), renewal=renewal)
                 except BaseException as exc:
                     if any(isinstance(item, StageBudgetExceeded) for item in _chain(exc)):
                         status, error = "stage_budget_limit", {"type": "StageBudgetExceeded", "message": scope.denied}
@@ -1059,11 +1070,12 @@ class StageRuntime:
                            "budget": scope.summary() if scope is not None else None,
                            "session": "session.sqlite", "exit_checkpoint": exit_head,
                            "journal": scene.journal_entries(),
+                           "renewals": list(renewal.records) if renewal else [],
                            "context_epochs": list(context_guard.epochs) if context_guard is not None else []}
                 if directory.is_dir():
                     write_json(directory / "result.json", self.log.clean(receipt))
                 outcome = {key: receipt[key] for key in
-                           ("stage", "call_id", "status", "error", "turns_used", "budget", "exit_checkpoint")}
+                           ("stage", "call_id", "status", "error", "turns_used", "budget", "exit_checkpoint", "renewals")}
                 outcome.update(final_output=output, receipt=str(directory / "result.json"))
                 self.outcomes.append(outcome)
                 self.log.note(f"Stage {spec.name} ended: {status}.", stage=spec.name, stage_call_id=call_id)
@@ -1200,6 +1212,42 @@ class BlobSession(SQLiteSession):
     def __init__(self, session_id: str, db_path, *, blobs: BlobStore):
         super().__init__(session_id, db_path)
         self.blobs = blobs
+        self.root_session_id = session_id
+        with self._write_connection() as conn:
+            conn.execute("CREATE TABLE IF NOT EXISTS g3d_active_conversations "
+                         "(root_id TEXT PRIMARY KEY, active_id TEXT NOT NULL)")
+            row = conn.execute("SELECT active_id FROM g3d_active_conversations WHERE root_id=?",
+                               (session_id,)).fetchone()
+            if row:
+                self.session_id = row[0]
+            conn.commit()
+
+    async def renew(self, items, *, receipt=None) -> str:
+        """New conversation and durable active pointer in one transaction; old rows stay untouched."""
+        new_id = self.root_session_id + "-" + uuid.uuid4().hex
+        if receipt is not None:
+            receipt["new_conversation_id"] = new_id
+        stored = [self._dehydrate(copy.deepcopy(item)) for item in items]
+        def rotate():
+            old_id = self.session_id
+            try:
+                with self._write_connection() as conn:
+                    self.session_id = new_id
+                    self._insert_items(conn, stored)
+                    conn.execute("INSERT INTO g3d_active_conversations(root_id, active_id) VALUES (?, ?) "
+                                 "ON CONFLICT(root_id) DO UPDATE SET active_id=excluded.active_id",
+                                 (self.root_session_id, new_id))
+                    if receipt is not None:
+                        conn.execute("CREATE TABLE IF NOT EXISTS g3d_conversation_renewals "
+                                     "(conversation_id TEXT PRIMARY KEY, receipt TEXT NOT NULL)")
+                        conn.execute("INSERT INTO g3d_conversation_renewals VALUES (?, ?)",
+                                     (new_id, json.dumps(receipt, ensure_ascii=False, allow_nan=False)))
+                    conn.commit()
+            except BaseException:
+                self.session_id = old_id
+                raise
+        await asyncio.to_thread(rotate)
+        return new_id
 
     def _dehydrate(self, value):
         if isinstance(value, str):
@@ -1245,6 +1293,15 @@ class BlobSession(SQLiteSession):
 
     async def get_items(self, limit: int | None = None):
         return [self._rehydrate(item) for item in await super().get_items(limit)]
+
+    async def recovery_items(self):
+        """Completed outputs across archived conversations, solely for scene recovery."""
+        def read():
+            with self._locked_connection() as conn:
+                return [json.loads(row[0]) for row in conn.execute(
+                    "SELECT message_data FROM agent_messages ORDER BY id")]
+        # Recovery only needs call IDs; do not inflate archived image blobs.
+        return await asyncio.to_thread(read)
 
     async def pop_item(self):
         item = await super().pop_item()
@@ -1626,7 +1683,20 @@ def _check_bound_request(run_dir: Path, spec: RunSpec) -> dict:
 
 async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewLog, guard: BudgetGuard,
                  run_config: RunConfig, settings: RunSettings, state: dict, context: Any = None,
-                 hooks=None) -> tuple[str, Any]:
+                 hooks=None, renewal=None) -> tuple[str, Any]:
+    previous = guard.request_pressure
+    guard.request_pressure = renewal.check if renewal is not None else previous
+    try:
+        return await _drive_loop(agent, first_input, session=session, log=log, guard=guard,
+                                 run_config=run_config, settings=settings, state=state, context=context,
+                                 hooks=hooks, renewal=renewal)
+    finally:
+        guard.request_pressure = previous
+
+
+async def _drive_loop(agent: Agent, first_input: list[dict], *, session, log: ReviewLog, guard: BudgetGuard,
+                      run_config: RunConfig, settings: RunSettings, state: dict, context=None,
+                      hooks=None, renewal=None) -> tuple[str, Any]:
     """Runner.run, then up to ``max_continuations`` continuation runs after an incomplete response; with a finish
     tool, up to ``max_continuations`` host notes after a reply that ended without the accepted finish."""
     turns_left = settings.max_turns
@@ -1637,10 +1707,26 @@ async def _drive(agent: Agent, first_input: list[dict], *, session, log: ReviewL
         try:
             result = await Runner.run(agent, run_input, max_turns=turns_left, session=session, hooks=hooks or log,
                                       run_config=run_config, context=context)
-        except ModelBehaviorError:
+        except Exception as error:
+            trigger = find_error(error, RenewalNeeded)
+            if trigger is not None:
+                # This attempt was counted but never admitted or sent. It consumes
+                # neither a model turn nor an extra summary allowance.
+                log.interactions -= 1
             used = log.interactions - started
             if turns_left is not None:
                 turns_left -= used
+            if trigger is not None and renewal is not None:
+                summary_start = log.interactions
+                await renewal.renew(trigger, agent=agent, context=context, hooks=hooks or log)
+                if turns_left is not None:
+                    turns_left -= log.interactions - summary_start
+                    if turns_left <= 0:
+                        return "turn_limit", None
+                run_input = []  # the fresh conversation was seeded atomically
+                continue
+            if not isinstance(error, ModelBehaviorError):
+                raise
             if not _was_incomplete(log, guard) or log.stop_observed:
                 raise
             sequence = log.last_response.get("sequence")
@@ -1740,7 +1826,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 items = await session.get_items()
                 # plan the rollback on the history as found: a dangling call has no output, so a journaled mutating
                 # one counts as lost; only then answer it (after the repair it would look recorded)
-                rollback = plan_rollback(items, scene.journal_entries())
+                rollback = plan_rollback(await session.recovery_items(), scene.journal_entries())
             # (3) consume the approval: exclusive budget.json + the machine-wide paid-run lock
             ledger = jobs.open_paid_run(spec.run_id, current_request_sha256=spec.current_request_sha256,
                                         requested_cap_usd=spec.requested_cap_usd)
@@ -1756,7 +1842,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                initial=preflight_load) if spec.load_check is not None else None
         state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
-        counter = client = guard = log = context_guard = runtime = agent = None
+        counter = client = guard = log = context_guard = runtime = agent = renewal = None
         exit_checkpoint = exit_error = scan = None
         plan = None
         teardown_errors: list[dict] = []
@@ -1840,19 +1926,13 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             if load_watch is not None:
                 load_watch.start()
             agent = build_agent(spec.instructions, spec.tools, spec.settings)
-            if spec.settings.context_guard_tokens is not None:
-                run_guard = guard
-                context_guard = ContextGuard(
-                    spec.settings.context_guard_tokens, byte_threshold=spec.settings.guard_bytes(),
-                    counted=lambda: run_guard.planning()["last_counted_input_tokens"],
-                    sent_bytes=lambda: run_guard.planning()["last_request_bytes"], choose=scene.context_stubs,
-                    every_requests=spec.settings.context_guard_every_requests, choose_images=scene.context_image_stubs,
-                    notify=lambda epoch: log.note(epoch_text(epoch), context_guard=epoch))
+            renewal = ConversationRenewal(spec=spec, scene=scene, session=session, log=log,
+                                          guard=guard, client=client, directory=run_dir)
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
-                                                run_config=build_run_config(client, input_filter=context_guard),
+                                                run_config=build_run_config(client),
                                                 settings=spec.settings, state=state, context=RunStatus(guard, runtime),
-                                                hooks=_SharedHooks(log, spec.settings.max_turns))
+                                                hooks=_SharedHooks(log, spec.settings.max_turns), renewal=renewal)
         except BaseException as raised:     # noqa: BLE001 - every outcome becomes a status and a result.json
             if guard is not None and is_transport_failure(raised) and guard.open_sequence is not None:
                 try:
@@ -1924,6 +2004,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "final_output": final_output if isinstance(final_output, (str, type(None))) else str(final_output),
                 "requests": summary["requests"] if summary else 0, "budget": summary,
                 "stages": list(runtime.outcomes) if runtime is not None else [],
+                "renewals": list(renewal.records) if renewal else [],
                 "job_ledger": scan.get("totals") if isinstance(scan, dict) else None,
                 "input": ({key: plan.receipt.get(key) for key in ("images_sent", "images_reused_from_history",
                                                                  "notes_sent")} | {

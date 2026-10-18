@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from copy import deepcopy
 from pathlib import Path
 
 from glasses3d.g3d_host import blender
@@ -332,6 +333,82 @@ class JobScene(SceneHooks):
                            for i in self.images):
                     self.images.append(rec)
             self.save()
+        return result
+
+    def renewal_state(self):
+        """Read-only facts for a fresh conversation, independent of Astra's summary."""
+        with self._state_lock:
+            review = deepcopy(self.finish_review)
+            return {"head_checkpoint": (self.s.head or {}).get("id"),
+                    "best_checkpoint": self.best_checkpoint,
+                    "finish_review": {"status": "pending" if review else "not_pending", **(review or {})},
+                    "tool_calls_so_far": sum(e.get("kind", "call") == "call" for e in self.events),
+                    "owner_edit_phase": (self.owner_edit or {}).get("phase")}
+
+    def renewal_started(self):
+        """Restart the two-call finish review; its next first call must emit every image again."""
+        with self._state_lock:
+            previous = (self.finish_review or {}).get("call_id")
+            self.finish_review = None
+            self._emitted_images = {}
+            self.save()
+            return {"finish_review_restarted": previous is not None, "previous_review_call_id": previous}
+
+    def renewal_evidence(self):
+        """Latest full comparison per photo and current picks, using their exact delivered bytes.
+
+        A comparison is a call/photo group, not one image: keep every native tile,
+        close-up and side-light page belonging to the selected group. Metadata survives
+        renewal, so a second renewal can select evidence carried by the first one.
+        """
+        with self._state_lock:
+            records = deepcopy(self.images)
+            events = {e.get("call_id"): e.get("tool") for e in self.events}
+            unseen = set(self._unseen)
+        comparison_tools = {"compare_look_to_photos", "compare_to_photos"}
+        full_kinds = {"look_full_pair", "look_composed", "compare_to_photos", "compare_look_to_photos"}
+        look_kinds = full_kinds | {"look_detail", "surface_detail"}
+        groups, picks = {}, {}
+        for index, record in enumerate(records):
+            if record.get("call_id") in unseen or record.get("current") is False:
+                continue
+            kind = record.get("kind")
+            tool = events.get(record.get("call_id"), kind)
+            if kind in {"photo_read", "pick_surface_point"} or record.get("context_role") == "pick":
+                # photo_read's view is the persistent reading name; a compact sheet
+                # contains all names in views and remains whole when any is current.
+                for view in record.get("views") or [record.get("view", "sheet")]:
+                    picks[(kind, view)] = index
+            if tool not in comparison_tools and kind not in look_kinds:
+                continue
+            panels = record.get("panels") or [record]
+            for panel in panels:
+                view = panel.get("ref") or panel.get("view", "sheet")
+                # Legacy compare_to_photos crops use a labelled view but lack ref.
+                # A crop does not supersede that photo's preceding full comparison.
+                crop = " crop " in view and not panel.get("ref")
+                photo = view.split(" crop ", 1)[0] if crop else view
+                key = (record["call_id"], photo)
+                group = groups.setdefault(key, {"indices": [], "full": False})
+                group["indices"].append(index)
+                group["full"] |= not crop and panel.get("kind", kind) in full_kinds
+        latest = {}
+        for key, group in groups.items():
+            if group["full"]:
+                latest[key[1]] = key
+        chosen = set(picks.values())
+        for key in latest.values():
+            chosen.update(groups[key]["indices"])
+        result = []
+        for index in sorted(chosen):
+            record = records[index]
+            path = (self.root / record["path"]).resolve()
+            if not path.is_relative_to(self.root) or not path.is_file() or _sha(path) != record["sha256"]:
+                raise ValueError("renewal evidence image is missing, changed or outside the job")
+            result.append({"path": str(path), "sha256": record["sha256"], "call_id": record["call_id"],
+                           "checkpoint": record.get("checkpoint"), "view": record.get("view", "sheet"),
+                           "kind": record.get("kind", "image"),
+                           **({"revision": record["revision"]} if "revision" in record else {})})
         return result
 
     def context_stubs(self, image_sha256s):

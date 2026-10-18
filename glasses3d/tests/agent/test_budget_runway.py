@@ -42,6 +42,11 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
         pytest.fail("a production client must never be constructed in a scripted runway test")
 
     monkeypatch.setattr(L, "ProductionClients", forbidden)
+    # These fixed counts drive the historical $10/$12.50/$15 footer contract, not
+    # request growth. Keep that arithmetic sequence intact; shared renewal with
+    # money and actual mailbox estimates is covered by test_conversation_renewal
+    # and test_desktop_automation's real-loop tests in both money modes.
+    monkeypatch.setattr(L.ConversationRenewal, "check", lambda self, *args: None)
     settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=5, settled_stop_usd="20")
     tools = T.build_tools(scene, settings)
     job, approval_sha = make_job(tmp_path, tools=tools, run_id=RUN, cap="23", settings=settings)
@@ -53,6 +58,7 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
     result = asyncio.run(L.run_astra(spec_for(job, RUN, approval_sha, tools, transport, settings=settings),
                                     scene=FakeScene()))
     assert result["status"] == "completed", result
+    assert result["renewals"] == []
     assert len(transport.counts) == len(transport.creates) == 4
     assert transport.violations == transport.unexpected == []
     assert ("This run's working limit: $20.000000 settled stop (reserve cap $23.000000)."
