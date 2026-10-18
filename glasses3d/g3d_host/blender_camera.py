@@ -41,7 +41,7 @@ from .camera import Camera, NormFrame
 
 SCHEMA = "g3d.blender_camera/1"
 SENSOR_MM = 36.0
-PERSPECTIVE_EPS = 1e-9
+PERSPECTIVE_EPS = 1e-4  # float32 object matrices lose precision beyond 10000 frame extents
 ORTHO_DISTANCE_EXTENTS = 4.0          # orthographic cameras sit 4 E in front of the frame centre (WP2_DESIGN §6)
 SHIFT_LIMIT = 10.0                    # Blender's hard range for Camera.shift_x / shift_y
 LENS_MIN_MM = 1.0                     # Blender's hard minimum for Camera.lens
@@ -74,7 +74,8 @@ def axes(cam) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarra
 
 
 def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
-    """The Blender camera that renders exactly what ``camera.project_mm(points, cam, frame)`` predicts, for a scene
+    """The Blender camera matching ``camera.project_mm(points, cam, frame)`` (with a reported distant-pinhole
+    approximation for 0 < perspective < 1e-4), for a scene
     whose GLB origin sits at ``origin_mm``, at native size ``shape_hw = (H, W)``. Raises ValueError when Blender cannot
     hold it (shift beyond +-10, lens below 1 mm)."""
     cam, frame = as_camera(cam), as_frame(frame)
@@ -95,7 +96,9 @@ def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
     rot = np.column_stack([e_u, e_v, toward])
     spec = {"schema": SCHEMA, "sensor_fit": "AUTO", "sensor_mm": SENSOR_MM, "shift_x": float(shift_x),
             "shift_y": float(shift_y), "resolution": [W, H]}
-    if k > PERSPECTIVE_EPS:
+    source_k = k
+    if k > 0:
+        k = max(k, PERSPECTIVE_EPS)
         dist = E / k
         loc = center + toward * dist
         lens = (s / k) * SENSOR_MM / big
@@ -107,6 +110,13 @@ def to_blender(cam, frame, origin_mm=(0.0, 0.0, 0.0), shape_hw=(0, 0)) -> dict:
         loc = center + toward * (ORTHO_DISTANCE_EXTENTS * E)
         spec.update(type="ORTHO", lens_mm=None, ortho_scale=float(big * E / s),
                     clip_start=float(E * 0.01), clip_end=float(E * (ORTHO_DISTANCE_EXTENTS + 10.0)))
+    if 0 < source_k < PERSPECTIVE_EPS:
+        radius = np.sqrt(3) / 2
+        spec['projection_approximation'] = {
+            'source_perspective': source_k, 'effective_perspective': k,
+            'unit_frame_box_error_bound_px': float(s * (radius + np.hypot(cam.eye_x, cam.eye_y)) *
+                                                  (k-source_k) * radius / ((1-k*radius)*(1-source_k*radius))),
+            'note': 'Perspective below 1e-4 approximated by a distant pinhole, 10000 frame extents away.'}
     if cam.eye_x or cam.eye_y:
         loc = loc + E * (cam.eye_x * right + cam.eye_y * up)
     m = np.eye(4)

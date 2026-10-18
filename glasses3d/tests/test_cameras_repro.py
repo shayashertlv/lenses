@@ -4,7 +4,7 @@ make_uv_test.py's two starts per view (``n_refine=2``), and compare with the pro
 and left use ``prior_seeds(view)`` as is; top and topb use its first 18 seeds, which are exactly make_uv_test.py's
 explicit grid (asserted): the production top prior appends a +45..62 band after it (cameras.TOP_LOW_PITCHES, measured
 in PORT_REVIEW §9), which ends in the same basin on reference-04 (0.06-0.21 deg) but is not bit-identical. The photos come
-from the sha256-checked ``data/reference/ft1119/`` (``fit_views.reference_files``); the frame from fits.json.
+from the sha256-checked ``data/reference/ft1119/`` (``camera_products.reference_files``); the frame from fits.json.
 
 Library dependence (measured 2026-10-05, see PORT_REVIEW §9): the prototype cameras were fitted under scipy 1.16.0.
 scipy 1.18.1's ``least_squares`` returns a different step (about 1e-8 deg) on the very first contour-ICP call with
@@ -22,6 +22,8 @@ The portable gates run everywhere: the chosen views are the prototype's (back, r
 0.1 worse on the common level, and every camera lies within a cross-version tolerance of the prototype's.
 """
 from __future__ import annotations
+
+from glasses3d.tests.fixtures import camera_products
 
 import json
 import os
@@ -99,15 +101,15 @@ def _skip_unless(fps: tuple[dict, ...], what: str) -> None:
                     "The portable gates (chosen views, cross-version tolerance) still ran.")
 
 
-needs_data = pytest.mark.skipif(not fit_views.manifest_path("ft1119").exists() or not (REF / "q001.glb").exists(),
+needs_data = pytest.mark.skipif(not camera_products.manifest_path("ft1119").exists() or not (REF / "q001.glb").exists(),
                                 reason="reference data never imported (data/reference/ft1119/manifest.json, "
                                        "data/reference/projection/q001.glb)")
 
 
 def _setup():
     frame = C.NormFrame.from_dict(json.loads((REF / "fits.json").read_text())["frame"])
-    mesh = fitmesh.load_fit_mesh(REF / "q001.glb", skip=fitmesh.PROTOTYPE_SKIP, frame=frame)
-    return mesh, mesh.scene(), mesh.front_pivot([name + '.001' for name in fitmesh.PROTOTYPE_FRONT_PARTS])
+    mesh = fitmesh.load_fit_mesh(REF / "q001.glb", skip=camera_products.PROTOTYPE_SKIP, frame=frame)
+    return mesh, mesh.scene(), mesh.front_pivot([name + '.001' for name in camera_products.PROTOTYPE_FRONT_PARTS])
 
 
 def _seeds(view):
@@ -121,7 +123,7 @@ BAND = "reference-04.png with the full production top prior"
 def _refit(job):
     """One reference through cameras.fit_best (runs in a worker process; returns plain data only). ``job`` is a
     CASES name (prototype seeds) or ``BAND`` (reference-04, 'top' only, the full production prior incl. the band)."""
-    files = fit_views.reference_files("ft1119")      # raises (fails the test) if the manifest's files are broken
+    files = camera_products.reference_files("ft1119")      # raises (fails the test) if the manifest's files are broken
     mesh, scene, pivot = _setup()
     name = "reference-04.png" if job == BAND else job
     cands = [("top", None)] if job == BAND else [(v, _seeds(v)) for v in CASES[name]]
@@ -136,7 +138,7 @@ def _refit(job):
 
 @pytest.fixture(scope="module")
 def all_refits():
-    fit_views.reference_files("ft1119")
+    camera_products.reference_files("ft1119")
     t = time.perf_counter()
     jobs = list(CASES) + [BAND]
     workers = int(os.environ.get("G3D_REPRO_WORKERS", len(jobs)))

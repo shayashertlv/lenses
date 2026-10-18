@@ -256,17 +256,21 @@ class RasterScene:
                 i0, i1 = np.searchsorted(vs, lo[1], "left"), np.searchsorted(vs, hi[1], "right")
                 if j1 <= j0 or i1 <= i0:
                     return out
-        uu, vv = np.meshgrid(us[j0:j1], vs[i0:i1])
-        res = self.cast(camera, uu.ravel(), vv.ravel(), want_bary=want_bary, want_normal=want_normal,
-                        want_points=want_points)
-        sub = (slice(i0, i1), slice(j0, j1))
-        h, w = i1 - i0, j1 - j0
-        out["mask"][sub] = res["hit"].reshape(h, w)
-        out["depth"][sub] = res["depth"].reshape(h, w)
-        out["face_id"][sub] = res["face_id"].reshape(h, w)
-        for key, k in (("bary", 2), ("normal", 3), ("points", 3)):
-            if key in res:
-                out[key][sub] = res[key].reshape(h, w, k)
+        # Bound temporary ray/point arrays even for a 40 MP intake photo.
+        rows = max(1, 262144 // max(1, j1-j0))
+        for first in range(i0, i1, rows):
+            last = min(first+rows, i1)
+            uu, vv = np.meshgrid(us[j0:j1], vs[first:last])
+            res = self.cast(camera, uu.ravel(), vv.ravel(), want_bary=want_bary, want_normal=want_normal,
+                            want_points=want_points)
+            sub = (slice(first, last), slice(j0, j1))
+            h, w = last-first, j1-j0
+            out["mask"][sub] = res["hit"].reshape(h, w)
+            out["depth"][sub] = res["depth"].reshape(h, w)
+            out["face_id"][sub] = res["face_id"].reshape(h, w)
+            for key, k in (("bary", 2), ("normal", 3), ("points", 3)):
+                if key in res:
+                    out[key][sub] = res[key].reshape(h, w, k)
         return out
 
 

@@ -54,6 +54,31 @@ def test_automatic_retains_both_identical_fit_settings_and_selected_overlay(fit_
     json.dumps(row)  # alternatives are full records, without a self-cycle
 
 
+@pytest.mark.parametrize('failed', [None, 'default', 'both'])
+def test_one_photo_distributes_alternatives_in_one_bounded_pool(fit_case, monkeypatch, tmp_path, failed):
+    model,photo,context,rows,calls = fit_case
+    if failed:
+        rows['default'] = FV._EmptyMatteError('no foreground')
+    if failed == 'both':
+        rows['glossy_floor'] = RuntimeError('optimizer failed')
+    batches=[]
+    def mapped(jobs, workers):
+        batches.append((len(jobs), workers))
+        return [FV._run(job) for job in jobs]
+    monkeypatch.setattr(FV, '_map', mapped)
+    row, = FV._map_photos([((model,photo,'front'), {'_model_context':context,
+        'overlay_path':tmp_path/'parallel.png', 'matte_mode':None})], 3)
+    assert batches == [(2,3)] and len(calls)==2
+    assert set(row['matte_alternatives'])=={'default','glossy_floor'}
+    if failed == 'both':
+        assert row['status']=='failed'
+        assert all(value['camera'] is None for value in row['matte_alternatives'].values())
+        assert not (tmp_path/'parallel.png').exists()
+    else:
+        assert row['matte_mode']=='glossy_floor'
+        assert (tmp_path/'parallel.png').read_bytes()==b'glossy_floor'
+
+
 @pytest.mark.parametrize('default,glossy,chosen',[
     (('ok',.7),('unusable',.99),'default'),
     (('refused',.99),('ok',.7),'glossy_floor'),
@@ -134,13 +159,24 @@ def test_explicit_mode_is_authoritative_and_single_fit(fit_case,mode):
     assert row['matte_selection']['mode']=='explicit' and 'matte_alternatives' not in row
 
 
-def test_optional_lens_construction_preserves_open_frame(fit_case):
+def test_optional_lens_construction_compares_both_floor_candidates(fit_case):
     model,photo,context,rows,calls = fit_case
     context.update(optional_parts=[1],lens_loss={'mode':'optional'})
     rows['open_frame']={**rows['default'],'matte_mode':'open_frame'}
+    rows['glossy_open_frame']={**rows['glossy_floor'],'matte_mode':'glossy_open_frame','iou_lens_optional':.95}
     row=FV.fit_image(model,photo,'front')
-    assert len(calls)==1 and row['matte_mode']=='open_frame'
-    assert row['matte_selection']['mode']=='construction'
+    assert len(calls)==2 and row['matte_mode']=='glossy_open_frame'
+    assert row['matte_selection']['mode']=='automatic_fit_comparison'
+    assert set(row['matte_alternatives']) == {'open_frame','glossy_open_frame'}
+
+
+def test_clear_lens_floor_candidate_ranks_optional_overlap_not_filled_raw_overlap(fit_case):
+    model,photo,_,rows,_=fit_case
+    rows['default']['iou']=.88
+    rows['glossy_floor'].update(iou=.08,iou_lens_optional=.99)
+    result=FV.fit_image(model,photo,'front')
+    assert result['matte_mode']=='glossy_floor'
+    assert result['matte_alternatives']['glossy_floor']['iou']==.08
 
 
 @pytest.mark.parametrize('which',['photo','model'])

@@ -1,6 +1,7 @@
 """The ported quadratic-background matte (WP3b; make_uv_test.py ``matte()``)."""
 from __future__ import annotations
 
+from glasses3d.tests.fixtures import camera_products
 from pathlib import Path
 
 import numpy as np
@@ -59,11 +60,11 @@ def test_matte_parameters_and_grayscale_input():
     assert (g & want).sum() / (g | want).sum() > 0.99
 
 
-@pytest.mark.skipif(not fit_views.manifest_path("ft1119").exists() or not (RERUN / "matte_reference-02.png").exists(),
+@pytest.mark.skipif(not camera_products.manifest_path("ft1119").exists() or not (RERUN / "matte_reference-02.png").exists(),
                     reason="FT1119 reference data never imported, or the prototype's rerun mattes missing")
 @pytest.mark.parametrize("name", ["reference-02.png", "reference-03.png", "reference-04.png"])
 def test_matte_equals_the_prototype_matte_on_ft1119(name):
-    files = fit_views.reference_files("ft1119")       # a missing/changed photo FAILS here (manifest exists)
+    files = camera_products.reference_files("ft1119")       # a missing/changed photo FAILS here (manifest exists)
     fg = M.matte(M.load_photo(files[name]))
     proto = np.asarray(Image.open(RERUN / f"matte_{name}")) > 127
     assert np.array_equal(fg, proto)

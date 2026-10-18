@@ -443,8 +443,9 @@ def theta_text() -> str:
     photos carry their own fits' theta (review 2026-10-12, P3: about 0.4 mm at d 80 for 0.3 deg)."""
     per = [f"{d * math.pi / 180.0:.1f}" for d in THETA_AT_D_MM]
     at = ", ".join(f"{v} at d {d}" for v, d in zip(per[1:], THETA_AT_D_MM[1:]))
-    return (f"For these photos, the camera fit includes the temples' hinge opening (theta); a reading's camera part is its fits' theta "
-            f"taken as uncertain by {THETA_SD_DEG:g} deg. A theta error turns the temple about its hinge as one rigid "
+    return (f"Each reading uses its photo's opening provenance: observed openings use a {THETA_SD_DEG:g} deg uncertainty "
+            "assumption; unobserved or uncalibrated openings use 10 deg. These are assumptions, not measured confidence intervals. "
+            "A theta error turns the temple about its hinge as one rigid "
             f"piece: X moves about {per[0]} mm per degree at d {THETA_AT_D_MM[0]}, {at}, the same for every reading "
             "made from the same photos, so such readings keep a flat face flat; readings from different photos carry "
             "their own theta.")
@@ -539,20 +540,22 @@ def brief_text(product: str, photos: list, cameras: dict | None = None, *, rig: 
         lines.append(f"No finish is given for {', '.join(unstated)}.")
     if cams:
         posed = [pid for pid, rec in recs.items() if rec and _has_pose(rec)
+                 and any((rec.get('theta_observed') or {}).values())
                  and (rec.get("pose_provenance") or {}).get("opening_calibrated") is not False]
         lines += [""] + [x for x in (lineage_text(recs, ids), precision_text(precision)) if x]
         if posed:
             lines.append("Calibrated hinge-opening metadata: " + _listed(posed) + ". " + theta_text())
         unposed = [pid for pid in cams if pid not in posed]
         if unposed:
-            lines.append("As-authored temple pose; hinge opening is not calibrated for: " + _listed(unposed) + ".")
+            lines.append("Hinge opening is unmeasured or lacks calibration provenance for: " + _listed(unposed) +
+                         ". Supplied transforms are retained; readings assume 10 degrees of opening uncertainty.")
         rigid = [pid for pid, rec in recs.items() if rec and _has_pose(rec)
                  and (rec.get("pose_provenance") or {}).get("mode") == "as_authored"]
         if rigid:
             lines.append("For " + _listed(rigid) + ", the verified rigid camera fit used the authored mesh with zero "
                          "additional hinge rotation. The explicit zero transform preserves that assumption; it is "
                          "not a measured photo opening. Its hinge axes come from the captured current model. "
-                         "Any reported hinge-opening uncertainty uses the tool's fixed assumption, not a measured "
+                         "Any reported hinge-opening uncertainty uses the tool's 10-degree assumption, not a measured "
                          "opening confidence for these photos.")
     lines += [conflict_text(c) for c in conflicts or ()]
     edge = (f"The real temples' edge rounding is about {float(roll_mm):g} mm (roll_mm)." if roll_mm is not None

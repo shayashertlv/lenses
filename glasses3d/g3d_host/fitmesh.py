@@ -6,13 +6,13 @@ prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
   positions x 1000 (metres -> mm) and its indices offset into one vertex array. ``names[i]`` and ``node_names[i]``
   preserve the exact object name; ``Temple`` and ``Temple.001`` are distinct objects.
 - ``skip``: parts whose node name contains any of these substrings are left out (the prototype skipped
-  ``PROTOTYPE_SKIP``: the FT1119 brand print, lettering and medallion, thin decals on the surface).
+  caller-supplied substrings, such as thin surface decals).
 - ``frame``: given (e.g. from a fits.json) or ``NormFrame.from_bbox`` of the kept vertices.
 - ``front_pivot``: the camera parametrisation's pivot (``cameras.ViewFit``): the bounding-box centre of the named
   front parts (the prototype's rule; every name must exist) or, without names, of the faces within ``FRONT_DEPTH_MM``
   of the front-most vertex (new code; on q001 it lands within 1 mm of the named pivot, tests/test_fitmesh.py).
 
-With the prototype's skip list and front-part names, V, F, part and the pivot are bit-identical to make_uv_test.py's.
+Reproduction-specific skip lists and exact part names live in test fixtures.
 """
 from __future__ import annotations
 
@@ -25,9 +25,6 @@ from . import glb as glbmod
 from . import raster, lens_id
 from .camera import NormFrame
 
-PROTOTYPE_SKIP = ("inner_brand_print", "TOM_FORD", "medallion")
-PROTOTYPE_FRONT_PARTS = ("Brow_Left", "Brow_Right", "Eyewire_Left", "Eyewire_Right", "Lens_Left", "Lens_Right",
-                         "Saddle_bridge")
 FRONT_DEPTH_MM = 12.0        # geometric front piece (no names given): faces whose centroid is this close to the front
 M_TO_MM = 1000.0
 
@@ -49,6 +46,7 @@ class FitMesh:
     skipped: list[str] = field(default_factory=list)   # node names left out by ``skip``
     node_indices: list[int] = field(default_factory=list)  # exact GLB object identity per primitive
     lens_parts: list[bool] = field(default_factory=list)   # shared lens classifier, before any skipped geometry
+    part_roles: list[str | None] = field(default_factory=list)
 
     def scene(self) -> raster.RasterScene:
         return raster.get_scene(self.V, self.F, self.frame)
@@ -90,7 +88,7 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
         refs.append(lens_id.PrimitiveRef(str(i), p.node_name, g.nodes[p.node_index].get('extras'),
                     g.meshes[p.mesh_index].get('extras'), material.get('name'), material.get('extras'), material))
     decisions, _ = lens_id.classify(refs)
-    node_indices, lens_parts = [], []
+    node_indices, lens_parts, roles = [], [], []
     off = 0
     for primitive_index, p in enumerate(g.primitives):
         if any(s in p.node_name for s in skip):
@@ -111,6 +109,7 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
         mats.append(p.material_index)
         node_indices.append(p.node_index)
         lens_parts.append(decisions[str(primitive_index)].is_lens)
+        roles.append((g.nodes[p.node_index].get('extras') or {}).get('partRole'))
     if not Vs:
         raise ValueError(f"{path}: no triangle geometry left after skipping {list(skip)}")
     V = np.vstack(Vs)
@@ -118,4 +117,4 @@ def load_fit_mesh(path: str | Path, *, skip=(), frame: NormFrame | None = None,
     part = np.concatenate(parts)
     fr = frame if frame is not None else NormFrame.from_bbox(V)
     return FitMesh(V=V, F=F, part=part, names=names, node_names=node_names, materials=mats, frame=fr,
-                   skipped=skipped, node_indices=node_indices, lens_parts=lens_parts)
+                   skipped=skipped, node_indices=node_indices, lens_parts=lens_parts, part_roles=roles)

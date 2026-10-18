@@ -1,5 +1,44 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 task 6: arm openings, cameras and comparisons ($0)
+
+Completed the task-6 implementation from `data/review_20261018/briefs/task6_arms_cameras.md`. Opening fits now use
+a rearward geometric domain, reject front/lens crossings along sampled hinge travel, favour the input on ties,
+and separate native model visibility from photo support. A photo-bounded hidden opening can survive without an
+observed claim. Thin-arm front/back/top controls cover the old impossible poses. Comparisons, crop bounds and
+Blender views use each frozen opening; AR reports requested/applied deltas, actual moved meshes and frame-tagged
+arm candidates. Shared worn-view clipping warns when it can hide authored arm-length asymmetry.
+
+Lab and main readings use per-photo/per-side opening provenance: disclosed 0.3-degree observed and 10-degree
+unmeasured assumptions, with shared source-fit uncertainty for transported photos. Automatic floor alternatives
+now include rimless construction and actual clear-lens interiors; comparisons retain raw and lens-optional IoU.
+Transparent photos composite onto white. Near-orthographic camera conversion uses a reported distant-pinhole
+approximation. Historical product constants/helpers moved to test fixtures. Chunked float64 matte evaluation
+preserves historical pixels; the 40 MP default-matte check used **520,271,396 traced peak bytes, 5.641 s**. One
+memory-bounded pool shares photo/matte work, at most 14 workers with one BLAS thread per spawned worker.
+
+Fresh fits on unchanged owner input copies: **Prada 987.969 s; accepted Oakley run 4 286.360 s**, all 12 photos
+usable; all 16 owner job/model/photo file hashes remain unchanged. Prada stays below the unchanged 1800-second
+tool deadline. Its front openings are now unobserved; ten other side/photo values are observed. Run-8 disagreements
+remain in the report, including the angled +X delta **10.42 vs 6.68 degrees** on different authored meshes.
+Oakley has no recognized temple axes; its six openings remain unavailable and its raw IoUs are unchanged. The
+independent reference angles were read after final fits; no product refit or fitting-code change followed.
+
+Final non-print suite: **4,608 passed, 2 skipped, 11 failed in 859.06 s**, 14 workers, `--dist loadfile`. All ten
+timing/process failures pass in isolation; the known photo_v1 golden failure remains (**199 pixels vs 114.24
+allowed** alone; 195 in the full run). The two skips need Windows symlink privileges. Photoprint: **314 passed in
+170.03 s**, four workers. Arview: **509 passed**; QA: **111 passed**; TypeScript check passed. M1 passed **167.031 s**,
+13 requests/tools, 26 transport receipts, 12 image blobs and 35 AR images; `data/assembly/m1-proof-042c64c5/proof.json`.
+Earlier full-run precision/native-count and AR reset defects were fixed and verified; no golden, numerical,
+condition, print or timing threshold changed. Old-code failing controls, full refit table, retries, exact changed
+Astra text, source locations, limitations and the commit hash are in `data/review_20261018/codex/task6_report.md`.
+
+CC-12 scene rebuilding remains partly open; CC-13/17 were outside changed lines and CC-14 was already fixed.
+Geometric travel sampling does not recover mechanical hinge stops or arm-arm collision constraints. The shared
+clip is retained because shader, geometry and hair endpoints use it together. Checks were detached with logs,
+PID/arguments/UTC/exit receipts and EcoQoS opt-out; heavy pools did not overlap. No paid call, push, owner-input edit,
+root-app/`ar/` change or data/binary commit. No visual acceptance claimed; actual spend **$0**.
+
 ## 2026-10-18 — Claude accepted M11 tasks 2-5; coordination moves to a fresh session ($0)
 
 Codex tasks 2 (`62638eb`), 3 (`25dcd54`), 4 (`ded8b77`, `74426bf`) and 5 (`46a7054`) reviewed by Claude: reports in

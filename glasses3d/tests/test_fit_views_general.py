@@ -75,7 +75,7 @@ def test_all_failed_photos_keep_model_and_unreadable_photo_hash(inputs, no_optio
     assert result['images']['blank.png']['matte']['foreground_px'] == 0
 
 
-@pytest.mark.parametrize('mode', [None, 'default', 'glossy_floor', 'open_frame'])
+@pytest.mark.parametrize('mode', [None, 'default', 'glossy_floor', 'open_frame', 'glossy_open_frame'])
 def test_direct_fitter_uses_requested_matte_and_preserves_raw_optional_metrics(inputs, monkeypatch, mode):
     model, photos = inputs
     monkeypatch.setattr(seat_check, 'check_glb', lambda _: {'lenses': [
@@ -94,8 +94,15 @@ def test_direct_fitter_uses_requested_matte_and_preserves_raw_optional_metrics(i
     resolved = mode or 'open_frame'
     np.testing.assert_array_equal(calls[0][0], matte.matte(matte.load_photo(photos['front.png']), mode=resolved))
     mesh = fitmesh.load_fit_mesh(model)
-    np.testing.assert_array_equal(calls[0][1], np.isin(mesh.part, mesh.part_ids(['Lens_L'])))
-    assert result['matte_mode'] == resolved and result['lens_loss']['optional_nodes'] == ['Lens_L']
+    expected_parts = mesh.part_ids(['Lens_L', 'Lens_R'] if mode in ('glossy_floor','glossy_open_frame') else ['Lens_L'])
+    np.testing.assert_array_equal(calls[0][1], np.isin(mesh.part, expected_parts))
+    if mode is None:
+        assert len(calls)==2 and set(result['matte_alternatives'])=={'open_frame','glossy_open_frame'}
+        assert result['iou_lens_optional']==max(row['iou_lens_optional'] for row in result['matte_alternatives'].values())
+    else:
+        assert result['matte_mode'] == resolved and len(calls)==1
+    assert result['lens_loss']['optional_nodes'] == (['Lens_L','Lens_R'] if result['matte_mode'] in
+        ('glossy_floor','glossy_open_frame') else ['Lens_L'])
     # This stub returns a fixed camera, not a fitted one: keep its low-overlap metrics and label it honestly.
     assert result['iou_lens_optional'] < FV.MIN_USABLE_IOU
     assert result['status'] == 'unusable' and 'rigid_fit' not in result
@@ -160,7 +167,7 @@ def test_grouped_failed_rows_record_resolved_mode_and_keep_explicit_override(inp
     monkeypatch.setattr(FV, '_fit_image_mode', fail)
     result = FV.fit_views(model, photos, {name: 'front' for name in photos}, tmp_path / 'fit', workers=1,
                           matte_modes={'angle.png': 'default', 'blank.png': 'glossy_floor'}, log=lambda _: None)
-    assert attempted == {'front.png': ['open_frame'] if expected == 'open_frame' else ['default','glossy_floor'],
+    assert attempted == {'front.png': ['open_frame','glossy_open_frame'] if expected == 'open_frame' else ['default','glossy_floor'],
                          'blank.png': ['glossy_floor'], 'angle.png': ['default']}
     for name, row in result['images'].items():
         assert row['status'] == 'failed' and row['matte_mode'] == attempted[name][0]

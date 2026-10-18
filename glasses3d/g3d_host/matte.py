@@ -29,7 +29,11 @@ MIN_COMPONENT_PX = 300   # components of this size or smaller are dropped (only 
 def load_photo(path: str | Path) -> np.ndarray:
     """8-bit RGB (H, W, 3) in the same EXIF-oriented photo coordinates used by intake and image tools."""
     with Image.open(path) as image:
-        return np.asarray(ImageOps.exif_transpose(image).convert("RGB"))
+        upright = ImageOps.exif_transpose(image)
+        if 'A' in upright.getbands() or 'transparency' in upright.info:
+            rgba = upright.convert('RGBA')
+            upright = Image.alpha_composite(Image.new('RGBA', rgba.size, 'white'), rgba)
+        return np.asarray(upright.convert("RGB"))
 
 
 def border_mask(shape: tuple[int, int], border: int = BORDER_PX) -> np.ndarray:
@@ -39,27 +43,41 @@ def border_mask(shape: tuple[int, int], border: int = BORDER_PX) -> np.ndarray:
     return b
 
 
-def background_model(img: np.ndarray, border: int = BORDER_PX) -> np.ndarray:
-    """Per-channel quadratic background (H, W, C) float64 fitted to the ``border`` frame."""
-    f = img.astype(float)
-    if f.ndim == 2:
-        f = f[..., None]
+def _background_coefficients(f, border):
     H, W = f.shape[:2]
     b = border_mask((H, W), border)
-    yy, xx = np.mgrid[0:H, 0:W]
+    yy, xx = np.nonzero(b)
     x, y = xx / W, yy / H
-    X = np.stack([np.ones_like(x), x, y, x * x, y * y, x * y], -1).reshape(-1, 6)
-    bg = np.zeros_like(f)
-    for c in range(f.shape[2]):
-        coef, *_ = np.linalg.lstsq(X[b.ravel()], f[..., c][b], rcond=None)
-        bg[..., c] = (X @ coef).reshape(H, W)
+    X = np.column_stack([np.ones_like(x), x, y, x*x, y*y, x*y])
+    return [np.linalg.lstsq(X, f[..., c][b], rcond=None)[0] for c in range(f.shape[2])]
+
+
+def _background_rows(shape, first, last, coefficients):
+    H, W = shape[:2]
+    yy, xx = np.mgrid[first:last, 0:W]
+    x, y = xx / W, yy / H
+    X = np.stack([np.ones_like(x), x, y, x*x, y*y, x*y], -1).reshape(-1, 6)
+    # Keep the original float64 per-channel dot product, including threshold-boundary rounding.
+    return np.stack([X @ coef for coef in coefficients], -1).reshape(last-first, W, -1)
+
+
+def background_model(img: np.ndarray, border: int = BORDER_PX) -> np.ndarray:
+    """Float64 quadratic background without a full-image six-column design matrix."""
+    f = np.asarray(img)
+    if f.ndim == 2:
+        f = f[..., None]
+    coefficients = _background_coefficients(f, border)
+    bg = np.empty(f.shape, np.float64)
+    for first in range(0, f.shape[0], 128):
+        last = min(first+128, f.shape[0])
+        bg[first:last] = _background_rows(f.shape, first, last, coefficients)
     return bg
 
 
-MODES = ("default", "glossy_floor", "open_frame")
+MODES = ("default", "glossy_floor", "open_frame", "glossy_open_frame")
 # WP6 (plan/archive/20261010/WP6_DESIGN.md §6): the glossy-floor mode, ported from the WP6 scratch matte2.matte3. On a glossy floor the
 # reflections and soft shadows sit 12-32 levels off the backdrop while the product is 40+, and the default threshold
-# plus unconditional hole filling closes the gap between the temples (Prada side 01). Every step below is monotone and
+# plus unconditional hole filling can close the gap between the temples. Every step below is monotone and
 # starts from a subset of the default's mask, so the result can only REMOVE pixels from the default matte.
 GLOSSY_THRESHOLD = 36             # 8-bit levels
 GLOSSY_HOLE_BG = 18               # a hole whose median difference is at or below this is background-like ...
@@ -80,16 +98,25 @@ def matte(img: np.ndarray, *, border: int = BORDER_PX, threshold: float = THRESH
     threshold 36 levels (the `threshold` argument is ignored), the same opening and closings, a hole is filled only
     if its inside is not background-like (median difference > 18) or it is smaller than 0.2 % of the image,
     components <= min_component px dropped, then an opening with an 11 px vertical line (and small components
-    dropped again). It only removes pixels relative to the default."""
+    dropped again). It only removes pixels relative to the default.
+    mode="glossy_open_frame": the same floor removal, without any hole filling; the automatic floor
+    alternative for rimless/semi-rimless construction. No model silhouette is painted into either matte."""
     if mode not in MODES:
         raise ValueError(f"unknown matte mode {mode!r}; known: {MODES}")
-    f = img.astype(float)
+    f = np.asarray(img)
     if f.ndim == 2:
         f = f[..., None]
-    bg = background_model(f, border)
-    D = np.abs(f - bg).max(2)
-    if mode == "glossy_floor":
-        return _glossy_floor(D, open_iters, close_iters, min_component)
+    coefficients = _background_coefficients(f, border)
+    D = np.empty(f.shape[:2], np.float64)
+    for first in range(0, f.shape[0], 128):
+        last = min(first+128, f.shape[0])
+        section = slice(first, last)
+        diff = f[section] - _background_rows(f.shape, first, last, coefficients)
+        np.abs(diff, out=diff)
+        D[section] = diff.max(2)
+    del diff
+    if mode in ("glossy_floor", "glossy_open_frame"):
+        return _glossy_floor(D, open_iters, close_iters, min_component, fill_holes=mode == 'glossy_floor')
     fg = D > threshold
     fg = ndimage.binary_opening(fg, iterations=open_iters)
     fg = ndimage.binary_closing(fg, iterations=close_iters)
@@ -110,13 +137,13 @@ def _drop_small(fg: np.ndarray, min_component: int) -> np.ndarray:
     return fg
 
 
-def _glossy_floor(D: np.ndarray, open_iters: int, close_iters: int, min_component: int) -> np.ndarray:
+def _glossy_floor(D: np.ndarray, open_iters: int, close_iters: int, min_component: int, *, fill_holes=True) -> np.ndarray:
     fg = D > GLOSSY_THRESHOLD
     fg = ndimage.binary_opening(fg, iterations=open_iters)
     fg = ndimage.binary_closing(fg, iterations=close_iters)
     holes = ndimage.binary_fill_holes(fg) & ~fg
     lab, n = ndimage.label(holes)
-    if n:
+    if n and fill_holes:
         idx = np.arange(1, n + 1)
         area = ndimage.sum(holes, lab, idx)
         med = ndimage.median(D, lab, idx)

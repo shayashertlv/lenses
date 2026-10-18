@@ -9,8 +9,24 @@ import {createPhotoTemplePose, parsePhotoTemplePose} from '../src/render/photo-t
 import {parseCameraSet} from '../qa/capture/cameras.ts';
 import {createRearDrop} from '../src/render/rear-drop.ts';
 
-async function fixture() {
-  const file = buildGlb().glb, report = new ModelReportBuilder('test', 'test', []);
+test('photo opening reports zero moved meshes and frame-tagged arm geometry', async () => {
+  const parts = defaultParts();
+  for (const name of ['Temple_L', 'Temple_R']) parts[name] = {...parts[name]!, role: 'frame'};
+  const {root} = await fixture(parts);
+  const controller = createPhotoTemplePose(root);
+  const requested = parsePhotoTemplePose({'+1': {theta_deg: 6, axis_xz_mm: [70, -5]}});
+  const report = controller.apply(requested);
+  assert.equal(controller.active, false);
+  assert.deepEqual(report.requested, requested);
+  assert.deepEqual(report.applied, {});
+  assert.deepEqual(report.moved_meshes, {'+1': 0, '-1': 0});
+  assert.deepEqual(report.frame_tagged_arm_candidates, ['Temple_L', 'Temple_R']);
+  assert.match(report.warnings.join(), /no temple-role mesh moved/);
+  assert.match(report.warnings.join(), /stays authored/);
+});
+
+async function fixture(parts = defaultParts()) {
+  const file = buildGlb({parts}).glb, report = new ModelReportBuilder('test', 'test', []);
   const loaded = await loadModel(file, report, {url: 'http://127.0.0.1/test.glb', renderer: null,
     plugins: [() => ({name: 'stub', loadTexture: async () => new Texture()})]});
   normalizeModel(loaded.gltf.scene, report, loaded.source);
@@ -18,6 +34,16 @@ async function fixture() {
   loaded.gltf.scene.traverse(o => {if (o instanceof Mesh) meshes.push(o);});
   return {root: loaded.gltf.scene, meshes};
 }
+
+test('photo pose report names applied deltas only for meshes actually moved', async () => {
+  const {root} = await fixture(), controller = createPhotoTemplePose(root);
+  const pose = parsePhotoTemplePose({'+1': {theta_deg: 6, axis_xz_mm: [68, -2]},
+    '-1': {theta_deg: 0, axis_xz_mm: [-68, -2]}});
+  const report = controller.apply(pose);
+  assert.deepEqual(report.applied, {'+1': pose['+1']});
+  assert.deepEqual(report.moved_meshes, {'+1': 1, '-1': 0});
+  controller.reset(); assert.deepEqual(controller.report.applied, {});
+});
 
 test('temple-private storage protects a frame sharing geometry and preserves tangent handedness', async () => {
   const {root, meshes} = await fixture();

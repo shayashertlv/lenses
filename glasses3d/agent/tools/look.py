@@ -157,6 +157,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             captures.append(str(path))
             for row in rows[start:start + LOOK_CAMERA_BATCH_SIZE]:
                 name = row["camera"]["id"]
+                applied = next((p.get('temple_pose') for p in report.get('poses', []) if p.get('id') == name), None)
+                row['applied_temple_pose'] = applied or {'status': 'unavailable', 'requested': row['frozen_temple_pose']}
                 row.update(drawing_path=str(out / f"{name}__beauty.png"), part_id_path=str(out / f"{name}__part-id.png"))
                 photo = np.asarray(Image.open(row["photo_path"]).convert("RGB"))
                 drawing = np.asarray(Image.open(row["drawing_path"]).convert("RGB"))
@@ -255,7 +257,7 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                              "Fixed-room highlights are not lens colour. " + delivery_note,
                   "method": "Median sRGB and CIE L* in AR lens/frame part-id masks eroded 3 pixels, applied identically "
                             "to photo and drawing. Registration can mix photo regions; no tone/colour normalization. "
-                            "Frozen per-photo temple deltas are applied to tagged temple parts and their markings. "
+                            "Each view reports requested temple deltas and the temple-role meshes actually moved; frame-tagged arm geometry stays authored and is reported. "
                             "The worn view resets to the authored model before the normal face fit.",
                   "overview_path": str(overview), "image_delivery": "separate", "surface_quality": surface,
                   "images": images + [

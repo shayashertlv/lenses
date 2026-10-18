@@ -130,7 +130,7 @@ def test_prepare_captures_current_head_complete_basis_and_closes_worker(tmp_path
         assert copied.refs[rid]["pose_provenance"]["opening_calibrated"] is posed
     brief = (root / "inputs" / "brief.txt").read_text(encoding="utf-8")
     assert "Exact owner description" in brief and "Prada" not in brief
-    assert ("As-authored temple pose" in brief) is not posed
+    assert ("Hinge opening is unmeasured or lacks calibration provenance" in brief) is not posed
     assert scene.s.head == head and {p: sha(p) for p in files} == files
     assert any("/mattes/" in p for p in out["basis"]["files"])
     # A compare history is mutable evidence, not a frozen calibration input.

@@ -351,6 +351,7 @@ function poseCamera(request: {camera: ExplicitCameraSpec}): Record<string, unkno
   instance.poseCamera(state.source, {assetToCamera, projection, nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE,
     ...(camera.temple_pose !== undefined ? {temple_pose: camera.temple_pose} : {})});
   return {id: camera.id, explicit: instance.explicitCameraPosed, background: camera.background, render_size: instance.renderSize,
+    temple_pose: instance.photoTemplePoseReport,
     lighting: camera.lighting ?? 'unmodified runtime default',
     intrinsics_px: {fx: camera.fx, fy: camera.fy, cx: camera.cx, cy: camera.cy}, near_m: camera.near, far_m: camera.far,
     camera: instance.cameraState(), asset_to_world: instance.assetMatrixWorld(), fitting: instance.fitting,

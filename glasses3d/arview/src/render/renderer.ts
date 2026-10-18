@@ -1187,6 +1187,7 @@ export class TryOnRenderer {
   }
   /** Whether the current frame is posed at an explicit camera without a face (poseCamera). */
   get explicitCameraPosed(): boolean {return this.explicitCamera;}
+  get photoTemplePoseReport() {return this.photoTemplePose?.report ?? null;}
 
   /** Upload a category mask as a 0/255 red texture (hair = 255). Returns the upload time in ms. */
   private uploadMask(mask: CategoryMask): number {

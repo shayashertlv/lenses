@@ -59,7 +59,10 @@ class SynthBasis:
              "reference-04": _pose(0.05, -0.03), "black-front": _pose(0.05, -0.03)}
 
     def __init__(self):
-        self.refs = {r: {"fit_status": "fitted (all_views_validation: iou 0.9, contour 6.0 px)"} for r in self.CAMS}
+        self.refs = {r: {"fit_status": "fitted (all_views_validation: iou 0.9, contour 6.0 px)",
+                         "theta_observed": {"+1": True, "-1": True},
+                         "pose_provenance": {"opening_calibrated": True}}
+                     for r in self.CAMS}
         self.refs["black-side"]["fit_status"] = "camera transported from 05"
         self.refs["black-angled"]["fit_status"] = ("camera transported from 02 by image similarity (contour 0.82 px, "
                                                    "IoU 0.992); theta copied from 02")
@@ -512,7 +515,7 @@ def test_twin_camera_error_is_mapped_and_shared(tb, bs):
     emp = np.std(np.asarray(got), axis=0, ddof=1)
     assert emp == pytest.approx([shared["sd_d_pick"], shared["sd_y_pick"], shared["sd_X_pick"]], rel=0.15)
     assert np.mean(chi) == pytest.approx(shared["dof"], rel=0.2) and fired <= 4
-    bs.refs["black-side"] = {"fit_status": "fitted"}
+    bs.refs["black-side"] = {"fit_status": "fitted", "theta_observed": {"+1": True, "-1": True}}
     alone = RD.read_point(tb, bs, "P", picks, kind="corner", refs=refs)
     assert alone["fits"] == ["05", "B1", "02"] and alone["warnings"] == []
     assert shared["sd_d_pick"] > 1.1 * alone["sd_d_pick"] and shared["sd_y_pick"] > alone["sd_y_pick"]
@@ -922,8 +925,12 @@ def test_real_cameras_read_the_crown_corner_K(tb, real_basis):
     assert [(i["photo"], i["edges"]) for i in items] == [(p, [1]) for p in photos]
     assert all(1.2 < i["gain"] < 1.6 for i in items)
     assert float(re.search(r"up to d ([\d.]+)", cross["warnings"][0]["message"]).group(1)) < 0.3
-    assert 0.1 < cross["sd_X"] < 0.5 and 0.15 < cross["sd_X_camera"] < 0.3      # ~1.3 mm per degree at d 75-85
-    assert abs(cross["camera_shift"]["02"][2]) > 10 * abs(cross["camera_shift"]["05"][2])
+    # The historical side camera is explicitly unobserved: its 10-degree term now contributes.
+    assert cross['opening_uncertainty']['05']['sd_deg'] == 10.
+    assert cross['opening_uncertainty']['02']['sd_deg'] == .3
+    assert cross['sd_X'] == pytest.approx(.435, abs=.002)
+    assert cross['sd_X_camera'] == pytest.approx(.376, abs=.002)
+    assert abs(cross['camera_shift']['02'][2])/.3 > 10 * abs(cross['camera_shift']['05'][2])/10.
     for pair in (["B1", "05"], ["B2", "02"]):                                  # one direction twice: refused
         with pytest.raises(ValueError, match="along nearly one line"):
             RD.read_point(tb, real_basis, "K", [{"photo": p, "uv": REAL_CORNERS["K"][p]} for p in pair],
@@ -954,7 +961,8 @@ def test_real_cameras_put_the_crown_tip_E_where_the_photos_end_it(tb, real_basis
                            kind="corner", refs=REAL_REFS)
     assert (corner["d"], corner["y"], corner["X"]) == (pytest.approx(75.59, abs=0.03), pytest.approx(9.43, abs=0.03),
                                                        pytest.approx(68.41, abs=0.03))
-    assert corner["sd_d"] < 0.3 < rec["sd_d"] and corner["warnings"] == []
+    assert corner['sd_d'] == pytest.approx(.322, abs=.002)  # widened unobserved source opening
+    assert corner['sd_d'] < rec['sd_d'] and corner['warnings'] == []
     assert corner["slide"]["mm_per_px"][0][0] == pytest.approx(0.12, abs=0.02)
     assert "; slide line (" in RD.reading_text(corner)
     slid = RD.read_point(tb, real_basis, "E", [{"photo": p, "uv": (np.asarray(REAL_CORNERS["E"][p]) + 16.0 * np.asarray(

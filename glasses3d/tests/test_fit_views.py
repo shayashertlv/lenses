@@ -1,6 +1,7 @@
 """The WP3b driver's tables, reference-data checks and refusal rule (fast; the 12-view run itself is the CLI)."""
 from __future__ import annotations
 
+from glasses3d.tests.fixtures import camera_products
 import hashlib
 import json
 from pathlib import Path
@@ -17,12 +18,12 @@ PLAN_S5 = {"ft1119": ["angled", "rear", "side", "top", "front", "elevated side"]
 
 def test_view_tables_follow_plan_section_5():
     for key, labels in PLAN_S5.items():
-        prod = fit_views.PRODUCTS[key]
+        prod = camera_products.PRODUCTS[key]
         assert list(prod.views.values()) == labels, key
         assert [n.split(".")[0] for n in prod.views] == [f"reference-0{i}" for i in range(1, 7)], key
         assert set(prod.n_refine) <= set(prod.views)
-    assert fit_views.PRODUCTS["ft1119"].job == "d4b716a6afc445f89cbed8beddad4c37"
-    assert fit_views.PRODUCTS["prada"].job == "8c82d986e6c14d26b4b38f3807712ea0"
+    assert camera_products.PRODUCTS["ft1119"].job == "d4b716a6afc445f89cbed8beddad4c37"
+    assert camera_products.PRODUCTS["prada"].job == "8c82d986e6c14d26b4b38f3807712ea0"
 
 
 def test_every_label_maps_to_known_views():
@@ -56,7 +57,7 @@ def _sha(b: bytes) -> str:
 
 
 def _fake_job(tmp_path: Path, product: str) -> tuple[Path, Path]:
-    prod = fit_views.PRODUCTS[product]
+    prod = camera_products.PRODUCTS[product]
     job = tmp_path / "job"
     (job / "images").mkdir(parents=True)
     images = []
@@ -72,29 +73,29 @@ def _fake_job(tmp_path: Path, product: str) -> tuple[Path, Path]:
 
 def test_import_then_verify_and_fail_on_missing_or_changed_files(tmp_path):
     root = tmp_path / "reference"
-    with pytest.raises(fit_views.ReferenceDataMissing):
-        fit_views.reference_files("prada", root)
+    with pytest.raises(camera_products.ReferenceDataMissing):
+        camera_products.reference_files("prada", root)
     job, model = _fake_job(tmp_path, "prada")
-    man = fit_views.import_references("prada", job, model, root)
+    man = camera_products.import_references("prada", job, model, root)
     assert man["files"]["reference-06.png"]["label"] == "rear"          # PLAN §5, not job.json's "unknown"
-    files = fit_views.reference_files("prada", root)
-    assert set(files) == set(fit_views.PRODUCTS["prada"].views) | {"model.glb"}
-    fit_views.import_references("prada", job, model, root)              # idempotent on identical content
+    files = camera_products.reference_files("prada", root)
+    assert set(files) == set(camera_products.PRODUCTS["prada"].views) | {"model.glb"}
+    camera_products.import_references("prada", job, model, root)              # idempotent on identical content
     (root / "prada" / "reference-03.png").write_bytes(b"edited")
-    with pytest.raises(fit_views.ReferenceDataError, match="reference-03.png: differs"):
-        fit_views.reference_files("prada", root)
+    with pytest.raises(camera_products.ReferenceDataError, match="reference-03.png: differs"):
+        camera_products.reference_files("prada", root)
     with pytest.raises(ValueError, match="refusing to overwrite"):
-        fit_views.import_references("prada", job, model, root)
+        camera_products.import_references("prada", job, model, root)
     (root / "prada" / "reference-03.png").unlink()
-    with pytest.raises(fit_views.ReferenceDataError, match="reference-03.png: missing"):
-        fit_views.reference_files("prada", root)
+    with pytest.raises(camera_products.ReferenceDataError, match="reference-03.png: missing"):
+        camera_products.reference_files("prada", root)
 
 
 def test_import_checks_the_jobs_own_sha256(tmp_path):
     job, model = _fake_job(tmp_path, "ft1119")
     (job / "images" / "reference-02.png").write_bytes(b"not the photo the job recorded")
     with pytest.raises(ValueError, match="reference-02.png: sha256"):
-        fit_views.import_references("ft1119", job, model, tmp_path / "reference")
+        camera_products.import_references("ft1119", job, model, tmp_path / "reference")
 
 
 def test_parse_candidates():
@@ -105,10 +106,10 @@ def test_parse_candidates():
         fit_views._parse_candidates(["reference-06.png=diagonal"])
 
 
-@pytest.mark.skipif(not fit_views.manifest_path("prada").exists(), reason="Prada reference data never imported")
+@pytest.mark.skipif(not camera_products.manifest_path("prada").exists(), reason="Prada reference data never imported")
 def test_prada_front_parts_exist_in_the_delivery():
-    files = fit_views.reference_files("prada")
-    mesh, pivot = fit_views.load_mesh("prada", files)
-    assert len(mesh.skipped) == 7 and all(any(s in n for s in fit_views.PRODUCTS["prada"].skip) for n in mesh.skipped)
+    files = camera_products.reference_files("prada")
+    mesh, pivot = camera_products.load_mesh("prada", files)
+    assert len(mesh.skipped) == 7 and all(any(s in n for s in camera_products.PRODUCTS["prada"].skip) for n in mesh.skipped)
     piv_mm = mesh.frame.to_mm(pivot[None])[0]
     assert abs(piv_mm[0]) < 1e-6 and -6.0 < piv_mm[2] < 0.0                 # centred, at the front piece

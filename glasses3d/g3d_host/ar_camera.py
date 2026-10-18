@@ -1,7 +1,7 @@
 """Frozen WP3b cameras to arview.cameras/1. No fit, material or model changes."""
 import numpy as np
 
-from .blender_camera import as_camera, as_frame, axes
+from .blender_camera import as_camera, as_frame, axes, PERSPECTIVE_EPS
 
 
 def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280, temple_pose=None):
@@ -20,7 +20,7 @@ def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280, tem
     if min(width, height) < 64:
         raise ValueError("photo aspect ratio produces a render side below the AR minimum of 64 pixels")
     right, up, toward, eu, ev = axes(cam)
-    k = cam.perspective if cam.perspective > 1e-9 else 1e-4
+    k = max(cam.perspective, PERSPECTIVE_EPS)
     eye = (np.asarray(frame.center) + frame.extent *
            (toward / k + cam.eye_x * right + cam.eye_y * up)) / 1000
     rotation = np.asarray([eu, ev, toward])
@@ -32,15 +32,16 @@ def explicit_camera(cam, frame, shape_hw, *, name, background, size_px=1280, tem
             "cx": (cam.center_x + .5) * scale - .5, "cy": (cam.center_y + .5) * scale - .5,
             "near": max(distance * .001, distance - 10 * extent, 1e-6), "far": distance + 10 * extent,
             "meta": {"source_camera": cam.to_dict(), "frame": frame.to_dict(), "native_shape": [h, w],
-                     "pixel_scale": scale, "orthographic_approximation": cam.perspective <= 1e-9}}
+                     "pixel_scale": scale, "orthographic_approximation": cam.perspective < PERSPECTIVE_EPS}}
     if temple_pose is not None:
         from .pose import parse_pose
         parsed = parse_pose(temple_pose)
         spec["temple_pose"] = {f"{side:+d}": {"theta_deg": theta, "axis_xz_mm": [side * axis[0], axis[1]]}
                                for side, (theta, axis) in parsed.items()}
-    if cam.perspective <= 1e-9:
+    if cam.perspective < PERSPECTIVE_EPS:
         radius = np.sqrt(3) / 2
-        bound = cam.scale * scale * (radius + np.hypot(cam.eye_x, cam.eye_y)) * k * radius / (1 - k * radius)
-        spec["meta"].update(note="Perspective at or below 1e-9 approximated by a distant pinhole, 10000 frame extents away.",
+        bound = (cam.scale * scale * (radius + np.hypot(cam.eye_x, cam.eye_y)) *
+                 (k-cam.perspective) * radius / ((1-k*radius)*(1-cam.perspective*radius)))
+        spec["meta"].update(note="Perspective below 1e-4 approximated by a distant pinhole, 10000 frame extents away.",
                             effective_perspective=k, unit_frame_box_error_bound_px=float(bound))
     return spec

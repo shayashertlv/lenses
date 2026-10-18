@@ -52,7 +52,7 @@ class CustomView(BaseModel):
 class PhotoMatte(BaseModel):
     model_config = ConfigDict(extra="forbid")
     photo: str
-    mode: Literal['default', 'glossy_floor', 'open_frame']
+    mode: Literal['default', 'glossy_floor', 'open_frame', 'glossy_open_frame']
 
 
 def free_commit_bytes() -> int:
@@ -72,7 +72,7 @@ def free_commit_bytes() -> int:
 
 def fit_workers(requested: int | None = None) -> int:
     """Leave 2 GiB and two CPUs for Blender/host; fits use about 1.3 GiB per process (AGENTS.md)."""
-    maximum = max(1, min(16, max(1, (os.cpu_count() or 1) - 2),
+    maximum = max(1, min(14, max(1, (os.cpu_count() or 1) - 2),
                          math.floor((free_commit_bytes() / 2**30 - 2) / 1.3)))
     if requested is not None and (type(requested) is not int or requested < 1):
         raise ValueError("workers must be a positive integer or null")
@@ -514,11 +514,11 @@ def build_tools(scene, settings=None) -> list:
                           off_axis: bool = False,
                           mattes: list[PhotoMatte] | None = None):
         """Fit photo cameras and each arm's opening from current geometry and the declared view/matte.
-        Openings are per-photo deltas from the authored GLB. Hidden arms stay fixed; inspect opening_fit
-        visibility and camera/angle ambiguity, not only overlap. The frozen pose reaches photo comparisons,
+        Openings are per-photo deltas from the authored GLB. A photo may bound a hidden opening without measuring
+        one angle; inspect opening_fit visibility and camera/angle ambiguity. The frozen pose reaches photo comparisons,
         AR look comparisons, photo_read with temple_side, and temple_stage. With no explicit owner matte,
-        floor handling compares default/glossy_floor fits and reports both, its choice and why; existing
-        open-frame construction stays unchanged. Use mattes after inspecting photos to override automation.
+        floor handling compares base/floor fits (including open-frame construction) and reports both, its choice
+        and why. Use mattes after inspecting photos to override automation.
         Owner-declared mattes are retained; jobs contain only the owner's inputs.
         Every attempted photo returns its result or failure; successful cameras remain usable. All-failed attempts
         retain diagnostic evidence and leave the previous usable basis as the default. Inspect failed photos before
@@ -532,9 +532,9 @@ def build_tools(scene, settings=None) -> list:
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
             refs: Photo ids or original filenames; null fits every photo.
-            workers: Optional pool ceiling; null uses free commit memory and CPU count, up to 16 workers.
+            workers: Optional pool ceiling; null uses free commit memory and CPU count, up to 14 workers.
             off_axis: Add lateral-eye fitting to the default search; inspect its diagnostics and independent measurements.
-            mattes: Optional list of {photo, mode}; photo is an id/original filename, mode is default, glossy_floor or open_frame. Cannot contradict an owner matte.
+            mattes: Optional list of {photo, mode}; mode is default, glossy_floor, open_frame or glossy_open_frame. Photo is an id/original filename; cannot contradict an owner matte.
         """
         def fit(cid):
             from .. import jobs

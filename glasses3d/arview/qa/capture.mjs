@@ -223,7 +223,7 @@ export async function main(argv) {
     plan: {poses: plan.poses.map(entry => entry.pose.id), renders: plan.renderCount, junction_crops: plan.plannedCropCount, worn_crops: plan.plannedWornCropCount}};
   if (cameraSet) {
     // The explicit-camera mode replaces the pose-set fields that do not apply (recorded as such, never as defaults).
-    Object.assign(request, {poses: null, backgrounds: null, size: null, depth_cm: null, clip: 'none (no face: the arms are drawn as authored)',
+    Object.assign(request, {poses: null, backgrounds: null, size: null, depth_cm: null, clip: 'none (no face; per-camera temple_pose reports requested deltas and meshes actually moved)',
       fixed_scale: true, no_face: true, cameras: {path: path.resolve(options.cameras), sha256: sha256(camerasBytes), schema: cameraSet.schema,
         ids: cameraSet.cameras.map(camera => camera.id)},
       plan: {cameras: cameraSet.cameras.map(camera => camera.id), renders: plan.renderCount, junction_crops: 0}});
@@ -422,6 +422,7 @@ export async function main(argv) {
       for (const camera of cameraSet.cameras) {
         const posed = await step(`camera ${camera.id}`, value => window.arview.poseCamera(value), {camera});
         poses.push({...posed, kind: 'explicit_camera', view_row_major_m: camera.view});
+        for (const warning of posed.temple_pose?.warnings ?? []) warnings.push(`${camera.id}: ${warning}`);
         if (!posed.explicit) warnings.push(`camera ${camera.id}: the renderer did not take the explicit camera`);
         for (const variant of CAMERA_VARIANTS) {
           const file = cameraFile(camera.id, variant);

@@ -24,7 +24,9 @@ from .temple_lab import readings as R
 NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,47}$")
 UNCERTAINTY = (
     "Errors are conditional on the frozen calibration: pick/crossing error plus the shared 1 px camera floor, "
-    "and a separate 0.3 degree angular sensitivity. They do not certify camera accuracy or photo correspondence. "
+    "and a separate angular term: 0.3 degrees for fixed points or observed openings, 10 degrees when a temple opening "
+    "is unmeasured. These are stated assumptions from each photo's provenance, not fitted confidence intervals. "
+    "They do not certify camera accuracy or photo correspondence. "
     "A two-photo residual cannot detect a slide along the epipolar line."
 )
 
@@ -109,12 +111,16 @@ def _solve(basis, parsed, temple_side):
     jacobian = np.vstack([R._jac_px(h, point) for h in matrices])
     weighted = inverse @ jacobian
     cov_pick = np.linalg.inv(weighted.T @ weighted)
+    angle_evidence = {r['rid']: (R.opening_uncertainty(basis, r['rid'], temple_side) if temple_side is not None else
+                     {'sd_deg': R.THETA_SD_DEG, 'status': 'fixed_point_camera_yaw_assumption'}) for r in parsed}
+    source_sd = {source: max(angle_evidence[r['rid']]['sd_deg'] for i,r in enumerate(parsed) if sources[i] == source)
+                 for source in dict.fromkeys(sources)}
     shifts, pixel_shifts = {}, []
     for source in dict.fromkeys(sources):
         moved, shifted_pixels = [], []
         for sign in (1, -1):
             hm = [world_matrix(basis, r["rid"], temple_side,
-                               sign * R.THETA_SD_DEG if sources[i] == source else 0)
+                               sign * source_sd[source] if sources[i] == source else 0)
                   for i, r in enumerate(parsed)]
             moved.append(R._solve(hm, pixels, inverse, point)[0])
             shifted_pixels.append(np.concatenate([R._project(h, point)[0] for h in hm]))
@@ -132,7 +138,7 @@ def _solve(basis, parsed, temple_side):
     return {"xyz_mm": point.tolist(), "sd_xyz_mm": np.sqrt(np.diag(cov_pick + cov_angle)).tolist(),
             "cov_xyz_mm2": (cov_pick + cov_angle).tolist(), "cov_pick_camera_floor_mm2": cov_pick.tolist(),
             "cov_angular_mm2": cov_angle.tolist(), "angular_shift_mm": {k: v.tolist() for k, v in shifts.items()},
-            "angular_sd_deg": R.THETA_SD_DEG, "camera_sources": sources,
+            "angular_sd_deg": source_sd, "opening_uncertainty": angle_evidence, "camera_sources": sources,
             "condition": condition, "condition_limit": R.COND_MAX,
             "uv_fit": [q.tolist() for q in fitted], "residual_px": [float(np.linalg.norm(v)) for v in residual_vectors],
             "residual_sd": [math.sqrt(max(float(v @ np.linalg.solve(residual_covariance[2*i:2*i+2, 2*i:2*i+2], v)), 0))

@@ -1,54 +1,13 @@
-"""WP3b driver: fit one camera to EVERY reference photo of a model and report the silhouette registration (PLAN.md §4
-WP3b $0 proof: per-view IoU and contour error in px and in mm, for all 6 FT1119 and all 6 Prada references).
+"""Fit every supplied product photo with camera, per-photo openings and automatic matte evidence.
 
-Entry points
-------------
-- ``fit_views(glb_path, images, views, out_dir, ...)``: the generic driver. ``images`` = {name: photo path},
-  ``views`` = {name: view kind}. Writes ``out_dir/cameras.json`` (one record per photo, ``CAMERAS_JSON``) and one
-  ``overlay_<name stem>.png`` per photo (the photo with the fitted render's silhouette edge in magenta and the photo
-  matte's edge in green). Every photo is fitted and recorded; none is dropped (PLAN §0.3).
-- ``fit_product(product, ...)``: the same on a product of ``PRODUCTS`` whose reference data was imported into
-  ``glasses3d/data/reference/<product>/`` (sha256-checked ``manifest.json``; ``import`` copies it in once from a job
-  folder named on the command line). Nothing here reads ``automation/`` otherwise.
+Generic CLI: python -m glasses3d.g3d_host.fit_views views --glb MODEL --out-dir DIR
+    --image front=PHOTO --image side=PHOTO [--workers N]
+Historical product reproduction helpers live in tests/fixtures/camera_products.py.
 
-View kinds (``VIEW_KINDS``, ``view_candidates``): the PLAN §5 labels, where an ambiguous label expands to every view
-it can mean and ``cameras.fit_best`` keeps the candidate with the lowest loss on ONE common final level ('side' ->
-right, left; 'top' -> top, topb; 'bottom' -> bottom, bottomb;
-'elevated side' / 'top-oblique' -> top_oblique_left, top_oblique_right; 'rear' ->
-back), or any exact ``cameras.VIEWS`` name (left, right, back, topb, top_oblique_left, ...) for a single candidate.
-'top' and 'bottom' always mean labels (both front/back candidates); pass ``candidates`` to force one view.
-
-Schedule (bsa ``fit_all``'s order, re-cut for per-photo kinds):
-
-1. every photo that is not an 'angled' photo, in parallel worker processes: one ``cameras.fit_best`` over the kind's
-   candidates (each fitted from its prior, ``n_refine`` = ``cameras.N_COARSE_POWELL`` unless overridden);
-2. the 'angled' photos, which also receive ``cameras.cross_seeds`` from step 1's winners (``cameras.NOT_CROSS_SOURCES``
-   (angled, top/bottom variants, top_oblique_*, rear_threequarter_*) are never sources).
-
-Without an explicit matte or optional-lens construction, each photo runs that same fit for both default and
-glossy_floor; both are reported and the fixed AUTO_MATTE_RULE chooses the photo's result.
-
-Every fit reports its sign margin (``ViewFit.pitch_twin``). A sign-fixed kind (every candidate puts the camera ABOVE
-the glasses: 'top', 'elevated side') whose winner has pitch <= 0 is recorded with ``status: refused`` (its camera is
-still reported): projecting such a camera would paint photo colours onto undersides.
-Bottom views require negative pitch. Fits below ``MIN_USABLE_IOU`` are ``unusable`` camera evidence, retained with
-their overlays and metrics; this is not a model-likeness or finish gate. Transparent lenses use the same optional
-IoU as the optimizer; raw IoU is always reported separately.
-mm = px / (px per mm at the front pivot, ``cameras.px_per_mm_at``), bsa's ``contour_mean_mm`` convention. Contour
-statistics are symmetric (``cameras.contour_stats``): mean = mean of the two directed means, pNN = the larger of the
-two directed NNth percentiles; both directed means are reported too (render -> photo large: the model shows something
-the photo does not, e.g. a far temple; photo -> render large: the matte holds something the model lacks).
-
-Usage (from the repository root):
-    glasses3d/.venv/Scripts/python -m glasses3d.g3d_host.fit_views views --glb model.glb --out-dir DIR
-        --image angled=photos/reference-01.png --image "elevated side=photos/reference-06.png" ...
-        [--skip inner_brand_print TOM_FORD] [--front-parts Brow_Left ...] [--n-refine 3 reference-02.png=2]
-        [--candidates reference-06.png=top_oblique_left,left] [--workers N]
-    glasses3d/.venv/Scripts/python -m glasses3d.g3d_host.fit_views import ft1119 --job-dir <job> --model <glb>
-    glasses3d/.venv/Scripts/python -m glasses3d.g3d_host.fit_views fit ft1119 [--only reference-06.png]
-        [--candidates reference-06.png=top_oblique_left,top_oblique_right,left] [--out file.json] [--out-dir DIR]
-``views`` names each photo by its file name; ``fit`` writes ``cameras.json`` and the overlays into ``--out-dir``
-(default ``data/out/wp3b/<product>/``) and, with ``--out``, a copy of the JSON at that path.
+Fit non-receiving views first, then angled views using the first batch's eligible
+camera winners as cross seeds. One memory-bounded pool shares independent photo
+and matte-alternative work. Every attempted photo and both automatic alternatives
+retain their diagnostics; existing camera usability and view-sign checks apply.
 """
 from __future__ import annotations
 
@@ -59,7 +18,6 @@ import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -70,12 +28,8 @@ from scipy import ndimage
 from . import cameras, fitmesh, hinge_axes, hinge_fit, pose
 from . import matte as M
 from .camera import CAMERA_FIELDS, Camera
+from .resources import fit_workers, single_threaded_children
 
-G3D = Path(__file__).resolve().parents[1]
-REFERENCE = G3D / "data" / "reference"
-OUT = G3D / "data" / "out" / "wp3b"
-MANIFEST = "manifest.json"
-MODEL = "model.glb"
 CAMERAS_JSON = "cameras.json"
 CONTOUR_PERCENTILES = (90, 95)
 MIN_USABLE_IOU = 0.5  # at least half the effective foreground union overlaps; a camera-status label, not a finish gate
@@ -126,62 +80,6 @@ def kind_pitch_sign(kind: str) -> int | None:
     return -1 if all(v in cameras.BOTTOM_VIEWS for v in candidates) else None
 
 
-@dataclass(frozen=True)
-class Product:
-    key: str
-    name: str
-    job: str                                          # studio job id the photos come from (PLAN §5)
-    model_source: str                                 # where model.glb came from (provenance only)
-    views: dict[str, str]                             # photo -> PLAN §5 label (job.json labels are ignored, §0.3)
-    skip: tuple[str, ...] = ()                        # fitmesh skip substrings (thin surface decals)
-    front_parts: tuple[str, ...] | None = None        # pivot parts (None: the geometric front piece)
-    n_refine: dict[str, int] = field(default_factory=dict)   # per-photo override of cameras.N_COARSE_POWELL
-
-
-PRADA_SKIP = ("hallmark", "etch", "ribbon")           # gold temple hallmarks/ribbon and the lens etch: surface decals
-PRADA_FRONT_PARTS = ("Front | continuous milled acetate.001", "Lens left | closed 49 x 36 mm.001",
-                     "Lens right | closed 49 x 36 mm.001")
-# make_uv_test.py fitted FT1119 02/03/04 with 2 starts; keeping 2 keeps the reproduced prototype cameras for 02/03
-# (tests/test_cameras_repro.py) as the cameras WP5 projects with; 04 also gets the top prior's low band, which lands in
-# the prototype's basin (within 0.06-0.21 deg, tested) but not bit-identically
-FT1119_N_REFINE = {"reference-02.png": 2, "reference-03.png": 2, "reference-04.png": 2}
-
-PRODUCTS: dict[str, Product] = {
-    "ft1119": Product(
-        key="ft1119", name="Tom Ford FT1119-D 52A", job="d4b716a6afc445f89cbed8beddad4c37",
-        model_source="studio job 3b8a1c7ae8114868b49b298b681f1b29 original/model.glb (quality-001, = prototype q001.glb)",
-        views={"reference-01.png": "angled", "reference-02.png": "rear", "reference-03.png": "side",
-               "reference-04.png": "top", "reference-05.png": "front", "reference-06.png": "elevated side"},
-        skip=fitmesh.PROTOTYPE_SKIP,
-        front_parts=("Brow_Left.001", "Brow_Right.001", "Eyewire_Left.001", "Eyewire_Right.001",
-                     "Lens_Left.001", "Lens_Right.001", "Saddle_bridge.001"),
-        n_refine=FT1119_N_REFINE),
-    "prada": Product(
-        key="prada", name="Prada PRS 17WS 21D5J2 49M", job="8c82d986e6c14d26b4b38f3807712ea0",
-        model_source="studio job 8c82d986e6c14d26b4b38f3807712ea0 agent/ar/prada-pr17ws-delivery-3e3ac97b/model.glb",
-        views={"reference-01.webp": "side", "reference-02.webp": "angled", "reference-03.png": "top",
-               "reference-04.png": "front", "reference-05.png": "side", "reference-06.png": "rear"},
-        skip=PRADA_SKIP, front_parts=PRADA_FRONT_PARTS),
-}
-
-
-# ----------------------------------------------------------------------------- reference data
-class ReferenceDataMissing(FileNotFoundError):
-    """The product's reference data was never imported (no manifest)."""
-
-
-class ReferenceDataError(RuntimeError):
-    """The manifest exists but a file is missing or differs from it."""
-
-
-def reference_dir(product: str, root: Path | None = None) -> Path:
-    return (REFERENCE if root is None else Path(root)) / product
-
-
-def manifest_path(product: str, root: Path | None = None) -> Path:
-    return reference_dir(product, root) / MANIFEST
-
-
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -190,78 +88,8 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def reference_files(product: str, root: Path | None = None) -> dict[str, Path]:
-    """Every manifest file of the product (photos and ``model.glb``), each checked against its sha256 and size.
-    Raises ``ReferenceDataMissing`` without a manifest and ``ReferenceDataError`` for a missing or changed file."""
-    mp = manifest_path(product, root)
-    if not mp.exists():
-        raise ReferenceDataMissing(f"{mp} not found: run `python -m glasses3d.g3d_host.fit_views import {product} ...`")
-    man = json.loads(mp.read_text(encoding="utf-8"))
-    out, bad = {}, []
-    for name, rec in man["files"].items():
-        p = mp.parent / name
-        if not p.exists():
-            bad.append(f"{name}: missing")
-        elif p.stat().st_size != rec["bytes"] or sha256_file(p) != rec["sha256"]:
-            bad.append(f"{name}: differs from the manifest (sha256 {rec['sha256'][:12]}...)")
-        out[name] = p
-    if bad:
-        raise ReferenceDataError(f"{mp.parent}: " + "; ".join(bad))
-    if product in PRODUCTS:
-        want = set(PRODUCTS[product].views) | {MODEL}
-        if set(out) != want:
-            raise ReferenceDataError(f"{mp}: files {sorted(out)} != the product table's {sorted(want)}")
-    return out
-
-
-def import_references(product: str, job_dir: Path, model: Path, root: Path | None = None) -> dict:
-    """Copy the product's photos (from ``job_dir/images``, each checked against the job's own sha256) and the model
-    into ``data/reference/<product>/`` and write the manifest. Never overwrites a file with different content."""
-    prod = PRODUCTS[product]
-    job_dir, model = Path(job_dir), Path(model)
-    job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))
-    if job.get("id") not in (None, prod.job):
-        raise ValueError(f"{job_dir}: job id {job.get('id')} is not {prod.job}")
-    job_sha = {im["name"]: im.get("sha256") for im in job.get("images", [])}
-    dst = reference_dir(product, root)
-    dst.mkdir(parents=True, exist_ok=True)
-    files = {}
-    for name, label in prod.views.items():
-        src = job_dir / "images" / name
-        sha = sha256_file(src)
-        if job_sha.get(name) != sha:
-            raise ValueError(f"{src}: sha256 {sha} != job.json's {job_sha.get(name)}")
-        files[name] = _copy_checked(src, dst / name, sha) | {"label": label, "source": f"job {prod.job} images/{name}"}
-    msha = sha256_file(model)
-    files[MODEL] = _copy_checked(model, dst / MODEL, msha) | {"source": prod.model_source}
-    man = {"product": product, "name": prod.name, "job": prod.job,
-           "imported_utc": _utc(),
-           "note": "labels are PLAN.md §5 (job.json view labels ignored, PLAN §0.3); every photo is authoritative",
-           "files": files}
-    (dst / MANIFEST).write_text(json.dumps(man, indent=1), encoding="utf-8")
-    return man
-
-
-def _copy_checked(src: Path, dst: Path, sha: str) -> dict:
-    if dst.exists():
-        if sha256_file(dst) != sha:
-            raise ValueError(f"{dst} exists with different content; refusing to overwrite")
-    else:
-        shutil.copyfile(src, dst)
-        if sha256_file(dst) != sha:
-            raise ValueError(f"{dst}: copy differs from {src}")
-    return {"sha256": sha, "bytes": dst.stat().st_size}
-
-
 def _utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def load_mesh(product: str, files: dict[str, Path]) -> tuple[fitmesh.FitMesh, np.ndarray]:
-    """The product's fit mesh (table skip list) and its normalized front pivot (table front parts)."""
-    prod = PRODUCTS[product]
-    mesh = fitmesh.load_fit_mesh(files[MODEL], skip=prod.skip)
-    return mesh, mesh.front_pivot(prod.front_parts)
 
 
 # ----------------------------------------------------------------------------- measurement helpers
@@ -342,7 +170,7 @@ def articulated_fit_marker(model_sha256, photo_sha256, camera, theta, axes, obse
                                          allow_nan=False).encode("utf-8")).hexdigest()
     return {"mode": "articulated_fit", "schema": "g3d.articulated_camera_fit/1",
             "opening_calibrated": any(observed.values()),
-            "meaning": "per-photo opening delta from the captured authored GLB; unobserved sides retain input",
+            "meaning": "per-photo opening delta from the captured authored GLB; unobserved sides may be bounded by the photo without identifying an exact angle",
             "source_model_sha256": model_sha256, "photo_sha256": photo_sha256,
             "camera_sha256": digest(camera), "axes_sha256": digest(axes), "theta_sha256": digest(theta),
             "axis_source": axis_source, "input_theta_deg": initial_theta}
@@ -413,6 +241,8 @@ def _fit_context(glb_path, skip, front_parts, mesh=None, pivot=None):
 def _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axis, initial_theta):
     """Keep rigid and articulated candidates on ONE final grid, preserving existing camera gates."""
     axes, roles = context['opening']['hinge_axis_xz_mm'], context['part_roles']
+    domain = hinge_fit.OpeningDomain(mesh, roles, axes)
+    input_is_physical = domain.valid({k: initial_theta.get(k, 0.) for k in axes})
     alternatives = []
     initial_mesh = pose.posed(mesh, {k: {"theta_deg": initial_theta.get(k, 0.), "axis_xz_mm": v}
                                    for k, v in axes.items()}, roles)
@@ -422,17 +252,21 @@ def _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axi
         alternatives.append((result, proposal))
     points = []
     for result, proposal in alternatives:
-        for candidate_mesh, cam in ((initial_mesh, result['camera']), (proposal['mesh'], proposal['camera'])):
+        candidates = [(proposal['mesh'], proposal['camera'])]
+        if input_is_physical:
+            candidates.append((initial_mesh, result['camera']))
+        for candidate_mesh, cam in candidates:
             points.append(cameras.project(candidate_mesh.scene().hull, cam))
     points = np.vstack(points)
     level = cameras.Level(fg, cameras.FINAL_W, 'opening_common', margin=cameras.FINAL_ROI_MARGIN,
                           include_xyxy=(*points.min(0), *points.max(0)))
     level.ignore_faces = ignore_faces
     for result, proposal in alternatives:
-        rigid_loss = level.loss(initial_mesh.scene(), result['camera'])
+        rigid_loss = level.loss(initial_mesh.scene(), result['camera']) if input_is_physical else float('inf')
         articulated_loss = level.loss(proposal['mesh'].scene(), proposal['camera'])
         kept = articulated_loss < rigid_loss
-        proposal['opening_fit'].update(common_losses={'input_pose': float(rigid_loss),
+        proposal['opening_fit'].update(input_pose_physical=input_is_physical,
+                                      common_losses={'input_pose': float(rigid_loss) if input_is_physical else None,
                                                       'articulated': float(articulated_loss)},
                                       selected='articulated' if kept else 'input_pose')
         if kept:
@@ -440,7 +274,7 @@ def _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axi
             vf = cameras.ViewFit(result['view'], fg, proposal['mesh'].scene(), pivot)
             vf.set_ignore(ignore_faces)
             if off_axis:
-                vf.eye_limit = float(np.linalg.norm(mesh.frame.to_norm(mesh.V), axis=1).max())
+                vf.eye_limit = float(np.linalg.norm(mesh.frame.to_norm(proposal['mesh'].V), axis=1).max())
             result['sign'] = vf.pitch_twin(result['camera'])
             result['fit'].evals += vf.evals
         else:
@@ -454,10 +288,15 @@ def _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axi
                     ('camera_coupling','independent_px_per_degree','one_pixel_sensitivity_deg','sensitivity_note')
                     if name in row}
                 row.update(proposed_deg=row['theta_deg'], theta_deg=proposal['theta_deg'][key],
+                           selected_deg=proposal['theta_deg'][key], visibility_pixel_stride=1,
                            proposed_visible_pixels_final=row.get('visible_pixels_final'),
                            visible_pixels_final=int(np.count_nonzero((visible>=0) & (tags[np.maximum(visible,0)]==int(key)))),
+                           photo_supported_pixels=int(np.count_nonzero((visible>=0) & fg &
+                                                        (tags[np.maximum(visible,0)]==int(key)))),
                            proposal_sensitivity=sensitivity, identifiability='unobserved',
                            observed=False, status='input_pose_selected_on_common_loss')
+                if 'local_photo_loss_increases' in row:
+                    row['proposal_local_photo_loss_increases'] = row.pop('local_photo_loss_increases')
         result['opening'] = proposal
         result['common_loss'] = result['loss'] = float(min(rigid_loss, articulated_loss))
         metrics = cameras.native_metrics(result['posed_mesh'].scene(), result['camera'], fg,
@@ -523,6 +362,17 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
     photo_sha = sha256_file(Path(image_path))
     img = M.load_photo(image_path)
     fg = M.matte(img, mode=matte_mode)
+    policy = context['lens_loss']
+    if matte_mode in ('glossy_floor', 'glossy_open_frame'):
+        # The floor matte deliberately leaves background-like lens interiors open.
+        # Lens pixels present in the photo still count; only absent interiors are optional.
+        optional_parts = [i for i, lens in enumerate(mesh.lens_parts) if lens]
+        if optional_parts:
+            ignore_faces = np.isin(mesh.part, optional_parts)
+            policy = {**policy, 'mode': 'optional',
+                      'optional_nodes': sorted({mesh.names[i] for i in optional_parts}),
+                      'optional_faces': int(ignore_faces.sum()),
+                      'reason': 'Floor matte leaves backdrop-like lens interiors open; observed lens pixels remain required.'}
     if not fg.any():
         raise _EmptyMatteError(f"{image_path}: the matte is empty (no foreground against the border background model)")
     cross, n_cross, sources = None, 0, []
@@ -572,7 +422,7 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
         "all_candidates": [_candidate_record(r, ppm[id(r)]) for r in results],
         "cross_seeds": n_cross, "cross_sources": sources,
         "matte": {"foreground_px": int(fg.sum()), "shape": list(fg.shape)},
-        "matte_mode": matte_mode, "lens_loss": context['lens_loss'],
+        "matte_mode": matte_mode, "lens_loss": policy,
         **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'},
         "overlay": None if overlay_path is None else str(overlay_path),
         "model": model,
@@ -580,7 +430,7 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
     if off_axis:
         rec["off_axis"] = dict(best["refine"]["off_axis"])
         if axes:
-            limit = float(np.linalg.norm(mesh.frame.to_norm(mesh.V), axis=1).max())
+            limit = scene.max_radius
             rec['off_axis'].update(camera_after_opening_fit=rec['camera'],
                 opening_fit_eye_domain=[-limit,limit],
                 opening_fit_at_eye_bound=any(abs(v) >= limit*(1-1e-5) for v in (cam.eye_x,cam.eye_y)))
@@ -610,8 +460,8 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
     return rec
 
 
-AUTO_MATTE_RULE = ("Fit default and glossy_floor identically; prefer unchanged camera-gate passes, "
-                   "then higher native silhouette IoU; exact ties choose default.")
+AUTO_MATTE_RULE = ("Fit the base and floor mattes identically; prefer unchanged camera-gate passes, "
+                   "then higher native silhouette IoU (lens-optional when applicable); exact ties choose the base matte.")
 
 
 def _matte_fit_summary(row):
@@ -635,23 +485,24 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
     candidates = _validated_candidates(view_kind, candidates)
     context = _model_context or _fit_context(glb_path, tuple(skip), front_parts)
     resolved = _matte_mode(matte_mode, context)
-    automatic = matte_mode is None and resolved != 'open_frame'
+    automatic = matte_mode is None
     kwargs = dict(skip=skip, front_parts=front_parts, candidates=candidates, n_refine=n_refine,
                   cross_winners=cross_winners, _model_context=context, off_axis=off_axis,
                   initial_theta=initial_theta, fit_openings=fit_openings)
     if not automatic:
         row = _fit_image_mode(glb_path,image_path,view_kind,matte_mode=resolved,overlay_path=overlay_path,**kwargs)
         row['matte_selection'] = {
-            'schema':'g3d.matte_selection/1','mode':'explicit' if matte_mode is not None else 'construction',
+            'schema':'g3d.matte_selection/1','mode':'explicit',
             'chosen':resolved,'rule':AUTO_MATTE_RULE,
-            'reason':'Explicit photo matte retained.' if matte_mode is not None else
-                     'Existing optional-lens construction requires open_frame; automatic floor comparison is not applied.',
+            'reason':'Explicit photo matte retained.',
             'alternatives':{resolved:_matte_fit_summary(row)},'seconds':time.perf_counter()-started}
         return row
     photo_sha = sha256_file(Path(image_path))
     alternatives = {}
     empty_inputs = []
-    for mode in ('default','glossy_floor'):
+    base_mode = resolved
+    floor_mode = 'glossy_open_frame' if resolved == 'open_frame' else 'glossy_floor'
+    for mode in (base_mode, floor_mode):
         path = (Path(overlay_path).with_name(f'{Path(overlay_path).stem}_matte_{mode}{Path(overlay_path).suffix}')
                 if overlay_path is not None else None)
         tick = time.perf_counter()
@@ -664,6 +515,17 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
             row['seconds'] = time.perf_counter()-tick
             row['model'] = context['model']
         alternatives[mode] = row
+    row = _assemble_mattes(glb_path, image_path, context, photo_sha, alternatives,
+                           base_mode, floor_mode, overlay_path, started)
+    if len(empty_inputs) == len(alternatives):
+        empty_inputs[0].fit_report = row
+        raise empty_inputs[0]
+    return row
+
+
+def _assemble_mattes(glb_path, image_path, context, photo_sha, alternatives,
+                     base_mode, floor_mode, overlay_path, started):
+    """One selection rule for sequential and process-pool alternative fits."""
     if (sha256_file(Path(image_path)) != photo_sha or
             sha256_file(Path(glb_path)) != context['model']['sha256'] or
             any(value.get('image_sha256') not in (None, photo_sha) or
@@ -673,9 +535,9 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
 
     def rank(mode):
         row = alternatives[mode]
-        value = row.get('iou')
+        value = row.get('iou_lens_optional', row.get('iou'))
         score = float(value) if isinstance(value,(int,float)) and np.isfinite(value) else -np.inf
-        return row.get('status') == 'ok', score, mode == 'default'
+        return row.get('status') == 'ok', score, mode == base_mode
 
     selected = max(alternatives, key=rank)
     row = dict(alternatives[selected])
@@ -683,33 +545,36 @@ def fit_image(glb_path: str | Path, image_path: str | Path, view_kind: str, *, s
         shutil.copyfile(row['overlay'],overlay_path)
         row['overlay'] = str(overlay_path)
     ranks = {mode:rank(mode) for mode in alternatives}
-    if ranks['default'][0] != ranks['glossy_floor'][0]:
+    if ranks[base_mode][0] != ranks[floor_mode][0]:
         reason = f'{selected} alone passes the unchanged camera checks.'
-    elif ranks['default'][1] == ranks['glossy_floor'][1]:
-        reason = 'Equal native silhouette IoU (or neither has a finite score); default wins the fixed tie rule.'
+    elif ranks[base_mode][1] == ranks[floor_mode][1]:
+        reason = f'Equal native silhouette IoU (lens-optional where applicable, or neither finite); {base_mode} wins the fixed tie rule.'
     else:
-        reason = f'{selected} has higher native silhouette IoU among alternatives with equal camera-check status.'
+        reason = f'{selected} has higher native silhouette IoU (lens-optional where applicable) among alternatives with equal camera-check status.'
     row['matte_selection'] = {'schema':'g3d.matte_selection/1','mode':'automatic_fit_comparison',
         'chosen':selected,'rule':AUTO_MATTE_RULE,'reason':reason,
         'alternatives':{mode:_matte_fit_summary(value) for mode,value in alternatives.items()},
         'seconds':time.perf_counter()-started}
     row['matte_alternatives'] = alternatives
     row['seconds'] = time.perf_counter()-started
-    if len(empty_inputs) == len(alternatives):
-        empty_inputs[0].fit_report = row
-        raise empty_inputs[0]
     return row
 
 
 # ----------------------------------------------------------------------------- every photo of a model
 def _run(job):
     args, kwargs = job
+    kwargs = dict(kwargs)
+    alternative = kwargs.pop('_matte_alternative', False)
+    started = time.perf_counter()
     try:
-        return fit_image(*args, **kwargs)
+        return (_fit_image_mode if alternative else fit_image)(*args, **kwargs)
     except _EmptyMatteError as exc:
-        return exc.fit_report if exc.fit_report is not None else _failed_photo(args[1], args[2], kwargs, exc)
+        row = exc.fit_report if exc.fit_report is not None else _failed_photo(args[1], args[2], kwargs, exc)
     except Exception as exc:
-        return _failed_photo(args[1], args[2], kwargs, exc)
+        row = _failed_photo(args[1], args[2], kwargs, exc)
+    if alternative:
+        row.update(seconds=time.perf_counter()-started, model=kwargs['_model_context']['model'])
+    return row
 
 
 def _failed_photo(image_path, kind, kwargs, exc):
@@ -737,10 +602,50 @@ def _failed_photo(image_path, kind, kwargs, exc):
 def _map(jobs, workers):
     if not jobs:
         return []
+    workers = min(fit_workers(workers), len(jobs))
     if workers <= 1 or len(jobs) == 1:
         return [_run(j) for j in jobs]
-    with ProcessPoolExecutor(max_workers=workers) as ex:
+    with single_threaded_children(), ProcessPoolExecutor(max_workers=workers) as ex:
         return list(ex.map(_run, jobs))
+
+
+def _map_photos(jobs, workers):
+    """Share one bounded pool across independent photo/matte alternatives, including one-photo batches."""
+    if workers <= 1:
+        return _map(jobs, workers)
+    started, attempts, groups = time.perf_counter(), [], []
+    for args, kwargs in jobs:
+        context = kwargs['_model_context']
+        base = _matte_mode(kwargs.get('matte_mode'), context)
+        floor = 'glossy_open_frame' if base == 'open_frame' else 'glossy_floor'
+        try:
+            digest = sha256_file(Path(args[1]))
+        except OSError:
+            digest = None  # Ordinary failure reporting retains the unreadable photo.
+        automatic = kwargs.get('matte_mode') is None and digest is not None
+        first = len(attempts)
+        if automatic:
+            overlay = kwargs.get('overlay_path')
+            for mode in (base, floor):
+                path = (Path(overlay).with_name(f'{Path(overlay).stem}_matte_{mode}{Path(overlay).suffix}')
+                        if overlay is not None else None)
+                attempts.append((args, {**kwargs, 'matte_mode': mode, 'overlay_path': path,
+                                        '_matte_alternative': True}))
+        else:
+            attempts.append((args, kwargs))
+        groups.append((first, automatic, digest, base, floor))
+    fitted = _map(attempts, workers)
+    out = []
+    for (args, kwargs), (first, automatic, digest, base, floor) in zip(jobs, groups):
+        if not automatic:
+            out.append(fitted[first])
+            continue
+        try:
+            out.append(_assemble_mattes(args[0], args[1], kwargs['_model_context'], digest,
+                dict(zip((base, floor), fitted[first:first+2])), base, floor, kwargs.get('overlay_path'), started))
+        except Exception as exc:
+            out.append(_failed_photo(args[1], args[2], kwargs, exc))
+    return out
 
 
 def _per_name(value, names, what: str) -> dict:
@@ -766,8 +671,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
 
     ``skip`` / ``front_parts`` go to ``fitmesh.load_fit_mesh`` / ``FitMesh.front_pivot`` (None: the geometric front
     piece); ``candidates`` ({name: views}) overrides a photo's kind; ``n_refine`` is an int or {name: int}.
-    ``matte_modes`` may provide one mode or per-photo modes; absent entries preserve optional-lens open_frame
-    construction, otherwise compare default/glossy_floor. Every result records the choice and its evidence.
+    ``matte_modes`` may provide one mode or per-photo modes; absent entries compare both base/floor alternatives,
+    including optional-lens open-frame construction. Every result records the choice and its evidence.
     An explicit default retains the historical hole-filled matte.
     ``off_axis=True`` explicitly adds a lateral-eye continuation to the validated seven-parameter default."""
     t0 = time.perf_counter()
@@ -813,14 +718,14 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
 
     first = [n for n in names if not receives(n)]
     second = [n for n in names if receives(n)]
-    nw = workers or min(8, max(1, len(first)))
-    recs = dict(zip(first, _map([job(n, None) for n in first], nw)))
+    nw = fit_workers(workers)
+    recs = dict(zip(first, _map_photos([job(n, None) for n in first], nw)))
     winners: dict[str, dict] = {}
     for n in first:                                    # cross sources: ok fits whose chosen view may seed others
         r = recs[n]
         if r["status"] == "ok" and r["view"] not in cameras.NOT_CROSS_SOURCES:
             winners.setdefault(r["view"], r["camera"])  # first photo wins a duplicate view
-    recs.update(zip(second, _map([job(n, winners or None) for n in second], min(nw, max(1, len(second))))))
+    recs.update(zip(second, _map_photos([job(n, winners or None) for n in second], nw)))
     models = [recs[n].pop("model") for n in names if 'model' in recs[n]]
     if any(mo != context['model'] for mo in models) or sha256_file(glb_path) != context['model']['sha256']:
         raise RuntimeError("the worker processes loaded different meshes from one GLB")
@@ -877,24 +782,6 @@ def _json(o):
     if isinstance(o, Path):
         return str(o)
     raise TypeError(type(o).__name__)
-
-
-# ----------------------------------------------------------------------------- one product of the table
-def fit_product(product: str, only: list[str] | None = None, candidates: dict[str, tuple[str, ...]] | None = None,
-                workers: int | None = None, out_dir: Path | None = None, root: Path | None = None,
-                log=print) -> dict:
-    """``fit_views`` on a product's sha256-checked reference data with the product table's mesh settings."""
-    prod = PRODUCTS[product]
-    files = reference_files(product, root)            # fail fast on missing/changed data
-    unknown = sorted(set(only or ()) - set(prod.views)) + sorted(set(candidates or {}) - set(prod.views))
-    if unknown:
-        raise ValueError(f"{product}: unknown references {unknown}; known: {list(prod.views)}")
-    names = [n for n in prod.views if not only or n in only]
-    res = fit_views(files[MODEL], {n: files[n] for n in names}, {n: prod.views[n] for n in names},
-                    OUT / product if out_dir is None else out_dir, skip=prod.skip, front_parts=prod.front_parts,
-                    candidates={n: c for n, c in (candidates or {}).items() if n in names},
-                    n_refine={n: k for n, k in prod.n_refine.items() if n in names}, workers=workers, log=log)
-    return {"product": product, "name": prod.name, **res}
 
 
 # ----------------------------------------------------------------------------- CLI
@@ -964,23 +851,7 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--candidates", nargs="*", help="NAME=view1,view2 (overrides that photo's kind)")
     v.add_argument("--n-refine", nargs="*", help="N (every photo) and/or NAME=N")
     v.add_argument("--workers", type=int)
-    a = sub.add_parser("import", help="copy a product's photos and model into data/reference/<product>/")
-    a.add_argument("product", choices=sorted(PRODUCTS))
-    a.add_argument("--job-dir", required=True, type=Path)
-    a.add_argument("--model", required=True, type=Path)
-    f = sub.add_parser("fit", help="fit every reference photo of an imported product")
-    f.add_argument("product", choices=sorted(PRODUCTS))
-    f.add_argument("--only", nargs="*")
-    f.add_argument("--candidates", nargs="*", help="reference=view1,view2 (overrides the label's candidates)")
-    f.add_argument("--workers", type=int)
-    f.add_argument("--out", type=Path, help="also write the cameras JSON here")
-    f.add_argument("--out-dir", type=Path)
     args = ap.parse_args(argv)
-    if args.cmd == "import":
-        man = import_references(args.product, args.job_dir, args.model)
-        print(json.dumps({k: {"sha256": v["sha256"], "label": v.get("label")} for k, v in man["files"].items()},
-                         indent=1))
-        return 0
     if args.cmd == "views":
         images, views = _parse_images(args.image)
         nr = _parse_n_refine(args.n_refine, list(images))
@@ -990,16 +861,6 @@ def main(argv: list[str] | None = None) -> int:
         print("wrote", args.out_dir / CAMERAS_JSON)
         print(f"{len(res['images'])} images in {res['seconds']:.0f} s")
         return 0
-    out_dir = args.out_dir or OUT / args.product
-    res = fit_product(args.product, only=args.only, candidates=_parse_candidates(args.candidates),
-                      workers=args.workers, out_dir=out_dir)
-    print("wrote", out_dir / CAMERAS_JSON)
-    if args.out:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(res, indent=1, default=_json), encoding="utf-8")
-        print("wrote", args.out)
-    print(f"{len(res['images'])} references in {res['seconds']:.0f} s")
-    return 0
 
 
 if __name__ == "__main__":

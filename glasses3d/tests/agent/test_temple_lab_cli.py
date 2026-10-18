@@ -265,9 +265,11 @@ def test_prepare_writes_an_isolated_bound_package(tmp_path):
     assert ("Cameras: 01, 02, 03, 04, 05 and 06 each have a camera fitted on its own. The cameras of B1, B2 and B3 "
             "were not fitted: each is another photo's camera (B1's from 05, B2's from 02 and B3's from 04)") in brief
     # the job's data, as prepare passes it (CAMERA_CONFLICTS, READING_PRECISION), and the theta lever
-    for line in (cli.precision_text(PRADA.READING_PRECISION), cli.theta_text(),
+    for line in (cli.precision_text(PRADA.READING_PRECISION),
                  *(cli.conflict_text(c) for c in PRADA.CAMERA_CONFLICTS)):
         assert line + "\n" in brief, line
+    assert 'Hinge opening is unmeasured or lacks calibration provenance' in brief
+    assert 'readings assume 10 degrees of opening uncertainty.' in brief
     assert "What you may change is the whole temple from the hinge to its tip" in brief
     assert "The real temples' edge rounding (roll_mm) is not known" in brief
     low = brief.lower()
@@ -712,11 +714,11 @@ def test_brief_mixed_pose_records_name_only_the_calibrated_photos():
     photos = [{"id": name, "path": f"images/{name}.png", "view": "side", "role": "target"}
               for name in ("posed", "authored")]
     camera = {"camera": {"yaw": 90}}
-    cameras = {"posed.png": {**camera, "theta_deg": {"+1": 0}, "hinge_axis_xz_mm": {"+1": [60, 0]}},
+    cameras = {"posed.png": {**camera, "theta_deg": {"+1": 0}, "theta_observed": {"+1": True}, "hinge_axis_xz_mm": {"+1": [60, 0]}},
                "authored.png": {**camera, "transport": {"source": "posed.png"}}}
     brief = cli.brief_text("A different frame", photos, cameras)
-    assert "Calibrated hinge-opening metadata: posed. For these photos, the camera fit includes" in brief
-    assert "As-authored temple pose; hinge opening is not calibrated for: authored." in brief
+    assert "Calibrated hinge-opening metadata: posed. Each reading uses its photo's opening provenance" in brief
+    assert "Hinge opening is unmeasured or lacks calibration provenance for: authored." in brief
     assert "Each camera fit" not in brief and "hinge opening as in" not in brief and "theta) copied" not in brief
 
 
@@ -728,7 +730,7 @@ def test_verified_rigid_identity_is_disclosed_without_a_calibration_claim():
         "pose_provenance": {"mode": "as_authored", "opening_calibrated": False}}}
     brief = cli.brief_text("An authored frame", photos, cameras)
     assert "Calibrated hinge-opening metadata" not in brief and "For these photos, the camera fit includes" not in brief
-    assert "As-authored temple pose; hinge opening is not calibrated for: authored." in brief
+    assert "Hinge opening is unmeasured or lacks calibration provenance for: authored." in brief
     assert "verified rigid camera fit used the authored mesh with zero additional hinge rotation" in brief
     assert "not a measured photo opening" in brief and "axes come from the captured current model" in brief
     assert "not a measured opening confidence" in brief
@@ -784,7 +786,8 @@ def test_brief_lineage_precision_theta_and_conflict_texts():
     assert p.endswith("These are the picks' errors: a point far back from the hinge also carries the cameras' hinge "
                       "opening in its absolute X (below).")
     th = cli.theta_text()
-    assert f"taken as uncertain by {RD.THETA_SD_DEG:g} deg" in th
+    assert 'observed openings use a 0.3 deg uncertainty assumption' in th
+    assert 'unobserved or uncalibrated openings use 10 deg' in th
     assert "X moves about 0.4 mm per degree at d 25, 0.9 at d 50, 1.4 at d 80" in th      # d x pi / 180
     assert "turns the temple about its hinge as one rigid piece" in th
     # one rigid turn only for readings of the same photos: readings.py moves each camera fit's theta separately and
@@ -835,7 +838,7 @@ def test_camera_conflicts_and_reading_precision_are_job_data():
     photos = [{"id": "01", "path": "images/reference-01.png", "view": "side", "role": "target"}]
     plain = cli.brief_text("Frame X", photos, {"reference-01.png": {"camera": {"yaw": 90.0, "pitch": 5.0}}})
     assert "Supplied prior comparison" not in plain and "Readings (photo_read)" not in plain
-    assert "As-authored temple pose; hinge opening is not calibrated for: 01." in plain
+    assert "Hinge opening is unmeasured or lacks calibration provenance for: 01." in plain
     assert "Each camera fit includes the temples' hinge opening (theta)" not in plain
     mid = cli.G3D / PRADA.CAMERA_CONFLICTS[0]["evidence"]
     if mid.is_file():

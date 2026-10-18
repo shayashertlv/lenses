@@ -153,7 +153,8 @@ test('the clip is derived per side from the shorter arm, floored at -0.14 m and 
   assert.deepEqual([short.source, short.shorterSide], ['derived', 'right']);
   assert.ok(Math.abs(short.clipZM - (-.12 + TEMPLE_TIP_GUARD_M)) < 1e-12, 'just inside the shorter arm, never a single global minimum');
   const long = deriveTempleClip({sides: [side('left', -.17), side('right', -.16)]});
-  assert.deepEqual([long.clipZM, long.shorterSide, long.warnings], [TEMPLE_CLIP_FLOOR_LOCAL_Z_M, null, []]);
+  assert.deepEqual([long.clipZM, long.shorterSide], [TEMPLE_CLIP_FLOOR_LOCAL_Z_M, null]);
+  assert.match(long.warnings.join(), /authored temple tips differ by 10.0 mm/);
   const stub = deriveTempleClip({sides: [side('left', -.16), side('right', -.07)]});
   assert.ok(Math.abs(stub.clipZM - (-.07 + TEMPLE_TIP_GUARD_M)) < 1e-12 && stub.clipZM <= -.045);
   // A tip nearer than the drawable range (only possible for a side forced present) is clamped, with a warning.
@@ -162,9 +163,9 @@ test('the clip is derived per side from the shorter arm, floored at -0.14 m and 
   // A usable handover is used as given, and cross-checked against the tips.
   const handed = deriveTempleClip({sides: [side('left', -.16), side('right', -.12)]}, -.13);
   assert.deepEqual([handed.source, handed.clipZM, handed.handoverZM], ['handover', -.13, -.13]);
-  assert.equal(handed.warnings.length, 1);
-  assert.match(handed.warnings[0]!, /handed-over temple clip -0\.1300 m is at or behind the right temple's tip \(z -120\.0 mm\): that arm has no cross-section/);
-  assert.deepEqual(deriveTempleClip({sides: [side('left', -.16), side('right', -.15)]}, -.14).warnings, [], 'a clip inside both arms is fine');
+  assert.equal(handed.warnings.length, 2);
+  assert.match(handed.warnings.join(), /handed-over temple clip -0\.1300 m is at or behind the right temple's tip \(z -120\.0 mm\): that arm has no cross-section/);
+  assert.match(deriveTempleClip({sides: [side('left', -.16), side('right', -.15)]}, -.14).warnings.join(), /authored temple tips differ/);
   // A handover outside [-0.2, -0.045] m is ignored with a warning; the derived clip is used.
   for (const bad of [-.03, -.25, Number.NaN]) {
     const ignored = deriveTempleClip({sides: [side('left', -.16), side('right', -.12)]}, bad);

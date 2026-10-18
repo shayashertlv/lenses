@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from glasses3d.tests.fixtures import camera_products
+
 import numpy as np
 import pytest
 
@@ -134,8 +136,8 @@ def test_refuses_compressed_and_skips_non_triangles(tmp_path):
 def test_q001_geometric_front_pivot_is_near_the_named_one():
     """The geometric fallback (faces within 12 mm of the front) on a real model: x and y agree exactly, z lands
     0.42 mm behind the named pivot (it also takes the nose pads, pad mounts and front hinges)."""
-    m = fitmesh.load_fit_mesh(REF / "q001.glb", skip=fitmesh.PROTOTYPE_SKIP)
-    named = m.frame.to_mm(m.front_pivot([name + '.001' for name in fitmesh.PROTOTYPE_FRONT_PARTS])[None])[0]
+    m = fitmesh.load_fit_mesh(REF / "q001.glb", skip=camera_products.PROTOTYPE_SKIP)
+    named = m.frame.to_mm(m.front_pivot([name + '.001' for name in camera_products.PROTOTYPE_FRONT_PARTS])[None])[0]
     geo = m.frame.to_mm(m.front_pivot()[None])[0]
     np.testing.assert_allclose(geo[:2], named[:2], atol=1e-9)
     assert -0.5 < geo[2] - named[2] < -0.3, (geo, named)

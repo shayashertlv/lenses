@@ -1,5 +1,7 @@
 """A1 (WP5_DESIGN §6.1, §8): the numpy print-UV core ``g3d/printuv`` on q001 and on synthetic parts with known answers:
 0 overlaps, 0 flips, anisotropy p95 <= 2, density p1 >= 0.6 x target, mirror partners index-identical; numpy only."""
+from glasses3d.tests.fixtures import camera_products
+
 import ast
 import math
 import subprocess
@@ -23,7 +25,7 @@ PARTS = ("Brow_Left", "Brow_Right", "Temple_Left", "Temple_Right")
 @pytest.fixture(scope="module")
 def q001(ft1119_fixture):
     from glasses3d.g3d_host import fitmesh
-    return fitmesh.load_fit_mesh(ft1119_fixture['model'], skip=fitmesh.PROTOTYPE_SKIP)
+    return fitmesh.load_fit_mesh(ft1119_fixture['model'], skip=camera_products.PROTOTYPE_SKIP)
 
 
 @pytest.mark.parametrize("tx", [10.0, 16.0])

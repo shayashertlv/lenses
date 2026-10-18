@@ -645,7 +645,7 @@ def test_extended_camera_diagnostics_remain_available_through_report_pages(scene
 def test_worker_capacity_is_bounded_by_free_commit_and_cpu(monkeypatch):
     monkeypatch.setattr(T.os, "cpu_count", lambda: 32)
     monkeypatch.setattr(T, "free_commit_bytes", lambda: 40 * 2**30)
-    assert T.fit_workers() == 16 and T.fit_workers(3) == 3
+    assert T.fit_workers() == 14 and T.fit_workers(3) == 3
     monkeypatch.setattr(T, "free_commit_bytes", lambda: 6 * 2**30)
     assert T.fit_workers(16) == 3
     monkeypatch.setattr(T, "free_commit_bytes", lambda: 1 * 2**30)

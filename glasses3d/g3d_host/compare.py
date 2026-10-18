@@ -609,9 +609,12 @@ def _box(mask: np.ndarray, margin: float, shape) -> tuple[int, int, int, int] | 
             int(min(H, ys.max() + 1 + my)))
 
 
-def reference_metrics(mesh: fitmesh.FitMesh, basis: Basis, rid: str, *, front: bool = True) -> tuple[dict, dict]:
+def reference_metrics(mesh: fitmesh.FitMesh, basis: Basis, rid: str, *, front: bool = True,
+                      already_posed: bool = False) -> tuple[dict, dict]:
     """(metrics record, {"mask": full-image model mask, "face_id": first-hit faces}) of one reference."""
     cam, shape, fg = basis.camera(rid), basis.shape(rid), basis.matte(rid)
+    if not already_posed:
+        mesh = pose.posed(mesh, basis.pose(rid), dict(zip(mesh.node_names, mesh.part_roles)))
     scene = mesh.scene()
     r = scene.render(cam, shape, 1)
     mask = r["mask"]
@@ -619,11 +622,22 @@ def reference_metrics(mesh: fitmesh.FitMesh, basis: Basis, rid: str, *, front: b
     ppm = cameras.px_per_mm_at(cam, basis.frame, basis.pivot_mm)
     m, ref = mask[y0:y1, x0:x1], fg[y0:y1, x0:x1]
     rec_all = _mask_metrics(m, ref, ppm)
+    policy = (basis.refs[rid].get('fit') or {}).get('lens_loss') or basis.refs[rid].get('lens_loss') or {}
+    optional_nodes = set(policy.get('optional_nodes') or [])
+    optional_parts = [i for i, (name, lens) in enumerate(zip(mesh.names, mesh.lens_parts))
+                      if lens and name in optional_nodes]
+    if optional_parts:
+        optional = np.isin(mesh.part, optional_parts)
+        measured = cameras.native_metrics(scene, cam, fg, basis.roi(rid), optional)
+        rec_all.update({k: v for k, v in measured.items()
+                        if k.endswith('_lens_optional') or k == 'lens_pixels_optional'})
+        rec_all['model_only_px_lens_optional'] = measured['render_only_px_lens_optional']
+        rec_all['photo_only_px_lens_optional'] = int(np.count_nonzero(ref & ~m))
     rec_all["iou_full_image"] = int(np.count_nonzero(mask & fg)) / max(int(np.count_nonzero(mask | fg)), 1)
     rec_all["model_outside_roi_px"] = int(np.count_nonzero(mask)) - int(np.count_nonzero(m))
     out = {"ref": rid, "image": basis.refs[rid]["image"], "view_kind": basis.refs[rid].get("view_kind"),
            "view": basis.refs[rid].get("view"), "shape": list(shape), "roi": [x0, y0, x1, y1], "px_per_mm": ppm,
-           "all": rec_all, "basis_fit": basis.refs[rid].get("fit")}
+           "all": rec_all, "basis_fit": basis.refs[rid].get("fit"), 'temple_pose': basis.pose(rid)}
     if front:
         sel = front_faces(mesh, basis.front_parts)
         if sel.any():
@@ -633,6 +647,12 @@ def reference_metrics(mesh: fitmesh.FitMesh, basis: Basis, rid: str, *, front: b
             if box is not None:
                 a0, b0, a1, b1 = box
                 rec_f = _mask_metrics(fm[b0:b1, a0:a1], fg[b0:b1, a0:a1], ppm)
+                if optional_parts:
+                    measured = cameras.native_metrics(fs, cam, fg, box, np.isin(mesh.part[sel], optional_parts))
+                    rec_f.update({k:v for k,v in measured.items()
+                                  if k.endswith('_lens_optional') or k == 'lens_pixels_optional'})
+                    rec_f['model_only_px_lens_optional'] = measured['render_only_px_lens_optional']
+                    rec_f['photo_only_px_lens_optional'] = int(np.count_nonzero(fg[b0:b1,a0:a1] & ~fm[b0:b1,a0:a1]))
                 rec_f["region"] = [a0, b0, a1, b1]
                 rec_f["faces"] = int(sel.sum())
                 out["front"] = rec_f

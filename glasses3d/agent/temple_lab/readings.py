@@ -46,8 +46,9 @@ Error (record sd_* in mm):
             by the transport (M = J_twin J_source^+, the image similarity: B1 is 05 scaled 1.124) plus its own
             ``transport_px`` (the contour residual its record names, 0.82 / 1.09 px, else TRANSPORT_PX_DEFAULT 1.0),
             so photos of one fit share M_i M_j^T CAMERA_PX_SD^2.
-    camera  each camera fit's temple theta (both sides) moved by +-THETA_SD_DEG 0.3 deg, the point re-solved, half the
-            change taken (``camera_shift`` {fit: [dd, dy, dX] for +0.3 deg}); the fits added in quadrature (a twin's
+    camera  each camera fit's temple theta moved by its per-photo provenance assumption: observed 0.3 deg,
+            unmeasured 10 deg. The point is re-solved and half the change taken (``camera_shift`` per fit);
+            the fits are added in quadrature (a twin's
             theta is copied from its source, so they move together): sd_X_camera, sd_d_camera, sd_y_camera. It is one
             rotation of the whole temple about the hinge axis (chart d = hinge z - axis z = -0.5 on Prada), the same
             for every reading of that fit and nearly linear in d, so a plane stays a plane: a fit testing shape uses
@@ -142,7 +143,24 @@ SD_PX_DEFAULT = 1.0             # a pick's sd when sd_px is null (px, both ways)
 SD_PX_MIN, SD_PX_MAX = 0.1, 20.0
 CAMERA_PX_SD = 1.0              # a fitted camera's error in px at a point (both ways), added to the pick's
 TRANSPORT_PX_DEFAULT = 1.0      # a transported camera's own error when its record names no contour residual (px)
-THETA_SD_DEG = 0.3              # each camera fit's temple theta error (deg): the camera term
+THETA_SD_DEG = 0.3              # stated assumption for photo-observed openings, not a fitted confidence interval
+UNMEASURED_THETA_SD_DEG = 10.0   # disclosed uncertainty assumption when a photo did not determine the opening
+
+
+def opening_uncertainty(basis, rid, side):
+    """A stated uncertainty model, never a confidence interval from a silhouette fit."""
+    rec = basis.refs[rid]
+    source = camera_source(basis, rid)
+    if source != rid:
+        rec = basis.refs[source]
+    key = f'{int(side):+d}'
+    provenance = rec.get('pose_provenance') or {}
+    observed = bool((rec.get('theta_observed') or {}).get(key, False))
+    calibrated = observed and provenance.get('opening_calibrated') is not False and provenance.get('mode') != 'as_authored'
+    return {'sd_deg': THETA_SD_DEG if calibrated else UNMEASURED_THETA_SD_DEG,
+            'status': 'observed_assumption' if calibrated else 'opening_unmeasured',
+            'side': key, 'source': source,
+            'note': 'Angular uncertainty assumption from photo provenance; not a fitted confidence interval.'}
 COND_MAX = 20.0                 # = v2's lab.CORNER_COND_MAX (test_temple_readings pins it)
 COND_PRINT_MAX = 1e4            # a larger condition number prints as "above 10000" (one direction twice: ~1e16)
 CROSS_MIN_DEG = 1.0             # two edges closer to parallel do not cross at one pixel: refused
@@ -584,14 +602,17 @@ def read_point(tb, basis, name: str, picks: list, *, kind: str, refs: dict | Non
     Jw = Linv @ np.vstack(J)
     cov = np.linalg.inv(Jw.T @ Jw)
     sd_pick = np.sqrt(np.maximum(np.diag(cov), 0.0))
-    # the camera term: each camera fit's theta moved by +-THETA_SD_DEG, the point re-solved (same temples)
+    # Camera term: provenance chooses a disclosed angular assumption for each source fit.
     short = {r["rid"]: r["photo"] for r in P}
     fits = [short.get(src, short_id(src)) for src in sources]
+    angle_evidence = {row['photo']: opening_uncertainty(basis, row['rid'], combo[i]) for i,row in enumerate(P)}
+    source_sd = {src: max(angle_evidence[P[i]['photo']]['sd_deg'] for i,s in enumerate(sources) if s == src)
+                 for src in dict.fromkeys(sources)}
     shift, gth = {}, []
     for src in dict.fromkeys(sources):
         moved, pix = [], []
         for sgn in (1.0, -1.0):
-            pl = [_theta_moved(ps, sgn * THETA_SD_DEG, axis_xz) if sources[i] == src else ps
+            pl = [_theta_moved(ps, sgn * source_sd[src], axis_xz) if sources[i] == src else ps
                   for i, ps in enumerate(poses)]
             Hm = mats(combo, pl)
             moved.append(_solve(Hm, uvs, Linv, p)[0])
@@ -703,6 +724,7 @@ def read_point(tb, basis, name: str, picks: list, *, kind: str, refs: dict | Non
     xin, mt = _inner_x(tb, d), model_t(tb, d, y)
     return {"name": name, "kind": kind, "d": _r(d), "y": _r(y), "X": _r(X), "t": _r(X - xin),
             "sd_X": _r(sd[2]), "sd_X_pick": _r(sd_pick[2]), "sd_X_camera": _r(sd_cam[2]),
+            "opening_uncertainty": angle_evidence,
             "sd_d": _r(sd[0]), "sd_d_pick": _r(sd_pick[0]), "sd_d_camera": _r(sd_cam[0]),
             "sd_y": _r(sd[1]), "sd_y_pick": _r(sd_pick[1]), "sd_y_camera": _r(sd_cam[1]),
             "cov_pick": _r(cov.tolist(), 6), "camera_shift": {f: _r(v) for f, v in shift.items()},
@@ -750,10 +772,13 @@ def reading_text(rec: dict) -> str:
     shift = rec.get("camera_shift") or {}
     big = max(shift, key=lambda f: abs(shift[f][2]), default=None)  # every fit that moves X by >= 0.01, the largest
     cam = ", ".join(f"{f} {fixed(abs(v[2]), 2)}" for f, v in shift.items() if f == big or fixed(abs(v[2]), 2) != "0.00")
+    angles = ', '.join(f"{k} +-{v['sd_deg']:g}° ({v['status']})"
+                       for k,v in rec.get('opening_uncertainty', {}).items())
+    angular_text = f"theta assumptions {angles}; fit shifts {cam}" if angles else f"theta +-0.3° of fit {cam}"
     text = (f"{rec['name']} ({rec['kind']}; {', '.join(rec['photos'])}): d {fixed(rec['d'], 2)} +-"
             f"{fixed(rec['sd_d'], 2)}, y {fixed(rec['y'], 2)} +-{fixed(rec['sd_y'], 2)}, X {fixed(rec['X'], 2)} +-"
             f"{fixed(rec['sd_X'], 2)} mm (pick {fixed(rec['sd_X_pick'], 2)}; camera {fixed(rec['sd_X_camera'], 2)}: "
-            f"theta +-{THETA_SD_DEG:g}° of fit {cam}); t {fixed(rec['t'], 2)} mm at that d ({m}); residual px (in sd "
+            f"{angular_text}); t {fixed(rec['t'], 2)} mm at that d ({m}); residual px (in sd "
             f"of the photo's stated pixel error) {res}{cross}; condition number {fixed(rec['cond'], 1)} (limit "
             f"{COND_MAX:g})")
     sl = rec.get("slide")

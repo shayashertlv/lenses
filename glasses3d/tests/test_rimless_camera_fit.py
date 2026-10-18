@@ -42,7 +42,8 @@ def test_rimless_photo_fit_preserves_raw_and_effective_metrics(tmp_path):
     result = fit_views.fit_image(glb, image, kind)
     (tmp_path / "fit-result.json").write_text(json.dumps(result, indent=1, default=fit_views._json))
     assert result["status"] == "ok", result
-    assert result["matte_mode"] == "open_frame"
+    assert result['matte_mode'] == max(result['matte_alternatives'],
+        key=lambda name:result['matte_alternatives'][name]['iou_lens_optional'])
     policy = result["lens_loss"]
     assert policy["mode"] == "optional" and policy["optional_nodes"] == ["Lens_L", "Lens_R"]
     assert policy["optional_faces"] == int(optional.sum())
@@ -72,4 +73,8 @@ def test_rimless_photo_fit_preserves_raw_and_effective_metrics(tmp_path):
                 "contour_mean_px_lens_optional", "contour_p95_px_lens_optional", "render_only_px_lens_optional"):
         assert basis.refs["front"]["fit"][key] == result[key]
     assert C.load_basis(tmp_path).camera("front") == C.Camera.from_dict(result["camera"])
+    comparison, _ = C.reference_metrics(model, basis, 'front')
+    assert comparison['all']['iou_lens_optional'] == result['iou_lens_optional']
+    assert comparison['all']['iou'] == result['iou']
+    assert set(result['matte_alternatives']) == {'open_frame', 'glossy_open_frame'}
     assert all(C.sha256_file(path) == digest for path, digest in digests.items())

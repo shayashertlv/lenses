@@ -511,7 +511,8 @@ class Seeing:
         safe_names = _safe_view_names(v["name"] for v in views)
         params = {"out_dir": str(out_dir), "engine": engine, "samples": int(samples),
                   "light_frame": self._light_frame(call_id),
-                  "views": [{"name": safe_names[v["name"]], "camera": v["blender"], "passes": v["worker_passes"]}
+                  "views": [{"name": safe_names[v["name"]], "camera": v["blender"], "passes": v["worker_passes"],
+                             **({'pose': v['pose']} if v.get('pose') else {})}
                             for v in views if v["worker_passes"]]}
         if simulate_eevee_failure:
             params["simulate_eevee_failure"] = True
@@ -768,7 +769,7 @@ class Seeing:
             shape = (max(1, round(H * k)), max(1, round(W * k)))
             rviews.append({"name": rid, "camera": cam, "shape": shape, "blender": BC.to_blender(cam, bs.frame, origin,
                                                                                                shape),
-                           "worker_passes": passes})
+                           "worker_passes": passes, "pose": bs.pose(rid)})
         try:
             for n, cr in enumerate(crops, 1):
                 crop_recs.append(self._crop_view(bs, mesh, cr, n, origin, passes))
@@ -877,6 +878,7 @@ class Seeing:
             raise SeeingError("E_ARGS", "each crop is {'ref': 'reference-NN', 'part': name} or {'ref', 'box_px'}")
         rid = self._ref_ids(bs, [cr["ref"]])[0]
         cam, shape = bs.camera(rid), bs.shape(rid)
+        mesh = PO.posed(mesh, bs.pose(rid), dict(zip(mesh.node_names, mesh.part_roles)))
         if cr.get("box_px") is not None:
             x0, y0, x1, y1 = (int(round(float(v))) for v in cr["box_px"])
             H, W = shape
@@ -893,6 +895,7 @@ class Seeing:
         ccam = BC.crop_camera(cam, box[0], box[1], kc)
         cshape = (max(1, round(ch * kc)), max(1, round(cw * kc)))
         view = {"name": f"crop-{n:02d}", "camera": ccam, "shape": cshape,
+                "pose": bs.pose(rid),
                 "blender": BC.to_blender(ccam, bs.frame, origin, cshape), "worker_passes": [p for p in passes
                                                                                          if p == "native"]}
         return {"ref": rid, "box_px": list(box), "parts": matched, "scale": kc, "view": view}
@@ -903,6 +906,7 @@ class Seeing:
         rid, kc = cr["ref"], cr["scale"]
         photo = bs.photo(rid)
         if mask is None:
+            mesh = PO.posed(mesh, bs.pose(rid), dict(zip(mesh.node_names, mesh.part_roles)))
             mask = mesh.scene().render(bs.camera(rid), bs.shape(rid), 1)["mask"]
         ov = C.overlay_image(photo[y0:y1, x0:x1], bs.matte(rid)[y0:y1, x0:x1], mask[y0:y1, x0:x1])
         size = (max(1, round((x1 - x0) * kc)), max(1, round((y1 - y0) * kc)))
@@ -1081,7 +1085,7 @@ class Seeing:
                 continue
             g = self._matched_geometry(bs, rid, mesh, roles)
             front = g["part"] == fid
-            m, _masks = C.reference_metrics(g["mesh"], bs, rid)
+            m, _masks = C.reference_metrics(g["mesh"], bs, rid, already_posed=True)
             reg_mm = float((m.get("front") or m["all"])["contour_mean_mm"])
             pts = g["mesh"].V[np.unique(g["mesh"].F[g["mesh"].part == fid])]
             ppm = float(CAMS.px_per_mm_at(g["cam"], bs.frame, np.median(pts, axis=0)))

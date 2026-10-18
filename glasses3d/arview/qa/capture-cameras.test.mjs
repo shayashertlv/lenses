@@ -76,6 +76,11 @@ test('--cameras --no-face renders each explicit camera exactly, without a face',
     assert.equal(report.portrait, null, 'no face, no portrait');
     assert.deepEqual(report.poses.map(entry => [entry.id, entry.kind, entry.explicit]), [['front_above', 'explicit_camera', true], ['side_px', 'explicit_camera', true]]);
     assert.deepEqual(report.poses[0].meta, {note: 'test'});
+    for (const pose of report.poses) {
+      assert.deepEqual(pose.temple_pose.requested, {});
+      assert.deepEqual(pose.temple_pose.applied, {});
+      assert.deepEqual(pose.temple_pose.moved_meshes, {'+1': 0, '-1': 0});
+    }
     // every box corner of every part, projected by the file's own pinhole camera
     const corners = Object.values(defaultParts()).flatMap(({box: [x0, x1, y0, y1, z0, z1]}) =>
       [x0, x1].flatMap(x => [y0, y1].flatMap(y => [z0, z1].map(z => [x / 1000, y / 1000, z / 1000]))));

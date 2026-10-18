@@ -1,6 +1,6 @@
-"""Final visibility describes the returned pose after any hidden/unobserved-angle reset.
+"""Final native visibility describes the actual returned, photo-bounded pose.
 
-The optimizer's search decisions are controlled to reach the reset branch; the
+The optimizer's search decisions withdraw the proposal's observability; the
 geometry, projection, loss comparison and native first-hit visibility are real.
 No fit thresholds or camera/geometry values are searched to make these pass.
 """
@@ -50,12 +50,12 @@ def test_final_native_counts_and_hidden_input_invariant_after_reset(monkeypatch,
     calls = {moving: 0, other: 0}
     search_starts = []
 
-    def search(actual_mesh, _roles, _axes, theta, cam, level, searched_side, _labels, bounds):
+    def search(actual_mesh, _roles, _axes, theta, cam, level, searched_side, _labels, bounds, domain):
         key = f'{searched_side:+d}'
         calls[key] += 1
         native = _counts(truth_pose(actual_mesh, axes, theta), cam, level.shape)[key]
-        # The second pass withdraws the moving arm's observability, requiring an
-        # input-angle reset. The other arm follows genuine native visibility.
+        # The second pass withdraws the moving arm's observability. The better
+        # photo-bounded pose must survive and final angle evidence is recomputed.
         observed = native > 0 and not (key == moving and calls[key] == 2)
         angle = proposed[key] if observed else theta[key]
         search_starts.append((key, calls[key], dict(theta), native))
@@ -78,13 +78,13 @@ def test_final_native_counts_and_hidden_input_invariant_after_reset(monkeypatch,
                               sides=(int(moving), int(other)), max_rounds=0)
     assert calls == {moving: 2, other: 2}
     assert next(t for key, n, t, _ in search_starts if key == moving and n == 2)[moving] == proposed[moving]
-    assert result['theta_deg'][moving] == initial[moving]
+    assert result['theta_deg'][moving] == proposed[moving]
     expected = truth_pose(mesh, axes, result['theta_deg'])
     np.testing.assert_allclose(result['mesh'].V, expected.V, atol=1e-12, rtol=0)
     np.testing.assert_array_equal(mesh.V, original)
     assert initial == {moving: 90. if reset_reveals else 0., other: 0.}
     final = _counts(result['mesh'], result['camera'], shape)
-    assert (final[other] > 100) == reset_reveals
+    assert (final[other] == 0) == reset_reveals
     for key, count in final.items():
         row = result['opening_fit']['per_side'][key]
         assert row['visible_pixels_final'] == count
@@ -92,4 +92,4 @@ def test_final_native_counts_and_hidden_input_invariant_after_reset(monkeypatch,
         if not count:
             assert result['theta_deg'][key] == initial[key]
             assert not row['observed'] and not result['theta_observed'][key]
-            assert row['status'] == 'no_visible_pixels'
+            assert row['status'] in ('held_input_without_angle_evidence','photo_bounds_opening')

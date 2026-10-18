@@ -2,7 +2,8 @@
 
 Angles are deltas from the authored GLB. All sides and view labels use the same
 algorithm. Visibility, conditional angle evidence and camera-coupled sensitivity
-are separate reports; none is a new quality gate. Hidden arms retain their input.
+are separate reports; none is a new quality gate. Equal photo losses prefer the input;
+empty photo regions can bound an opening without identifying its exact angle.
 """
 from __future__ import annotations
 
@@ -14,9 +15,9 @@ import numpy as np
 from scipy import ndimage, optimize
 
 from . import cameras as C, pose as P, raster
+from .hinge_domain import OpeningDomain
 
 MAX_ROUNDS = 16
-ANGLE_RANGE = (-180.0, 180.0)  # one complete periodic domain, relative to the input
 OBSERVED_RANGE = .002          # historical whole-scene arm-ROI criterion
 
 
@@ -49,77 +50,86 @@ def _visible(rendered, face_sides, side):
     return (fid >= 0) & (face_sides[np.maximum(fid, 0)] == side)
 
 
-def _angle_search(mesh, roles, axes, theta, cam, lv, side, face_sides, bounds):
-    """The other arm is fixed at theta throughout this search, never removed."""
+def _angle_search(mesh, roles, axes, theta, cam, lv, side, face_sides, bounds, domain=None):
+    """Photo foreground and empty regions both constrain the whole-scene arm footprint."""
     key, start = f"{side:+d}", theta[f"{side:+d}"]
-    _, base_scene, base = _rendered(mesh, roles, axes, theta, cam, lv)
-    # Visibility describes the whole photograph. The foreground-derived fitting
-    # ROI need not contain an initially displaced arm, even at native stride.
-    native = base_scene.render(cam, lv.shape)
-    visible = int(_visible(native, face_sides, side).sum())
+    domain = domain or OpeningDomain(mesh, roles, axes)
+    _, _, base = _rendered(mesh, roles, axes, theta, cam, lv)
+    native = P.posed(mesh, _pose(theta, axes), roles).scene().render(cam, lv.shape)
     info = {"input_deg": start, "theta_deg": start, "observed": False,
-            "visible_pixels_initial": visible, "pixel_stride": lv.stride, "visibility_pixel_stride": 1,
-            "visibility_domain": "full_photo",
+            "visible_pixels_initial": int(_visible(native, face_sides, side).sum()),
+            "pixel_stride": lv.stride, "visibility_pixel_stride": 1,
+            "visibility_domain": "full_photo", "photo_evidence_domain": "foreground_in_swept_arm_footprint",
             "fixed_other_theta_deg": {k: v for k, v in theta.items() if k != key},
-            "bounds_deg": list(bounds), "grid": [], "grid_range": 0.0, "evaluations": 0}
-    if not visible:
-        return start, {**info, "status": "no_visible_pixels"}
+            "bounds_deg": list(bounds), "grid": [], "grid_range": 0., "evaluations": 0,
+            "invalid_physical_trials": 0, "invalid_near_plane_trials": 0}
     lo, hi = bounds
-    # Broad coverage is a search budget, not a product/side constraint. Include
-    # the exact input and refine several local minima to avoid grid aliasing.
-    grid = np.unique(np.r_[np.arange(lo, hi + 1e-8, min(15., (hi-lo)/16)), start, hi])
-    rendered = []
-    for angle in grid:
+    grid = np.unique(np.r_[np.arange(lo, hi, domain.sides[key]['step']), start, hi])
+    # Retain three scalar sufficient statistics per trial, not a full-image mask/id
+    # per angle. Outside the swept footprint all poses have the same first hits.
+    statistics, roi = [], np.zeros(lv.ref.shape, bool)
+    def render(angle):
+        info['evaluations'] += 1
+        if not domain.valid_side(key, angle):
+            info['invalid_physical_trials'] += 1
+            return None
         trial = _trial_rendered(mesh, roles, axes, {**theta, key: float(angle)}, cam, lv)
-        rendered.append(None if trial is None else trial[2])
-    roi = ndimage.binary_dilation(np.logical_or.reduce([_visible(r, face_sides, side) for r in rendered if r is not None]),
-                                  iterations=2)
-
-    def score(r):
-        # Full photo against full scene in the arm's observable footprint. Fixed
-        # front/other arm explain their pixels; isolated-arm matching is forbidden.
-        if r is None:
-            return 3.0
-        mask, ref = r["mask"] & roi, lv.ref * roi
+        if trial is None:
+            info['invalid_near_plane_trials'] += 1
+            return None
+        return {k: trial[2][k] for k in ('mask', 'face_id')}
+    def counts(r, region=None):
+        mask = r['mask'] if region is None else r['mask'] & region
+        ref = lv.ref if region is None else lv.ref * region
         optional = lv.ignored(r)
         hard = mask if optional is None else mask & ~optional
-        union = float(hard.sum()) + float(ref[~hard].sum())
-        return 1.0 - float(ref[mask].sum()) / max(union, 1.)
-
-    losses = np.array([score(r) for r in rendered])
-    valid = np.array([r is not None for r in rendered])
-    info["grid"] = [[float(t), float(v) if ok else None] for t, v, ok in zip(grid, losses, valid)]
-    info['invalid_near_plane_trials'] = int((~valid).sum())
-    info["grid_range"] = float(np.ptp(losses[valid]))
-    info["evaluations"] = len(grid)
+        return np.array([float(ref[mask].sum()), float(hard.sum()), float(ref[~hard].sum())])
+    for angle in grid:
+        r = render(angle)
+        statistics.append(None if r is None else counts(r))
+        if r is not None:
+            roi |= _visible(r, face_sides, side)
+    roi = ndimage.binary_dilation(roi, iterations=2)
+    info['photo_foreground_pixels_in_sweep'] = float((lv.ref*roi).sum())
+    def score(r):
+        if r is None:
+            return 3.
+        inter, hard, missing = counts(r, roi)
+        return 1.-inter/max(hard+missing, 1.)
+    constant = counts(base, ~roi)
+    losses = np.array([3. if row is None else 1.-(row-constant)[0]/max((row-constant)[1:].sum(), 1.)
+                       for row in statistics])
+    valid = np.array([row is not None for row in statistics])
+    info['grid'] = [[float(t), float(v) if ok else None] for t,v,ok in zip(grid,losses,valid)]
+    info['grid_range'] = float(np.ptp(losses[valid])) if valid.any() else 0.
     if info['grid_range'] < OBSERVED_RANGE:
-        return start, {**info, "status": "flat_whole_scene_objective"}
+        return start, {**info, 'status': 'flat_whole_scene_objective'}
     best = [score(base), start]
-
+    def prefer(value, angle):
+        if value < best[0]-1e-12 or (abs(value-best[0]) <= 1e-12 and abs(angle-start) < abs(best[1]-start)):
+            best[:] = float(value), float(angle)
     def objective(angle):
-        trial = _trial_rendered(mesh, roles, axes, {**theta, key: float(angle)}, cam, lv)
-        value = score(None if trial is None else trial[2])
-        info['invalid_near_plane_trials'] += int(trial is None)
-        info["evaluations"] += 1
-        if value < best[0]:
-            best[:] = value, float(angle)
+        value = score(render(angle))
+        prefer(value, angle)
         return value
-
-    for index in np.argsort(losses)[:3]:
-        if losses[index] < best[0]:
-            best[:] = float(losses[index]), float(grid[index])
-        left, right = grid[max(0, index-1)], grid[min(len(grid)-1, index+1)]
+    order = sorted(np.flatnonzero(valid), key=lambda i:(losses[i], abs(grid[i]-start)))
+    for index in order[:3]:
+        prefer(losses[index], grid[index])
+        left, right = grid[max(0,index-1)], grid[min(len(grid)-1,index+1)]
         if right > left:
-            # Raster losses have plateaus; a two-degree fine grid brackets a
-            # local bounded search without presuming a unimodal 30-degree arc.
-            fine = np.unique(np.r_[np.arange(left, right, 2.), right, grid[index]])
-            fl = [objective(t) for t in fine]
-            i = int(np.argmin(fl))
-            a, b = fine[max(0, i-1)], fine[min(len(fine)-1, i+1)]
-            if b > a:
-                optimize.minimize_scalar(objective, bounds=(a, b), method="bounded",
-                                         options={"xatol": .025, "maxiter": 24})
-    info.update(theta_deg=best[1], observed=True, status="visible_angle_evidence", loss=best[0])
+            optimize.minimize_scalar(objective, bounds=(left,right), method='bounded',
+                                     options={'xatol':.01, 'maxiter':30})
+    # Refine the edge of a raster plateau toward the input, rather than its arbitrary far edge.
+    if best[1] != start and best[0] < score(base)-1e-12:
+        a, b = best[1], start
+        for _ in range(12):
+            middle = (a+b)/2
+            value = objective(middle)
+            if value <= best[0]+1e-12:
+                a = middle
+            else:
+                b = middle
+    info.update(theta_deg=best[1], observed=True, status='photo_constrained_proposal', loss=best[0])
     return best[1], info
 
 
@@ -172,8 +182,7 @@ def refine(mesh, roles, axes, fg, camera, view, pivot, initial_theta=None, ignor
            off_axis=False, *, fit_camera=True, sides=(1, -1), angle_bounds=None, max_rounds=MAX_ROUNDS):
     """Return camera, posed mesh, theta_deg/observed and explicit fit diagnostics.
 
-    Optional per-side angle_bounds are absolute delta degrees; default is a full
-    periodic domain around each input. fit_camera=False isolates the opening
+    Optional per-side angle_bounds are absolute delta degrees; default is the rearward geometric domain with front/lens crossing refusal. fit_camera=False isolates the opening
     instrument for independent controls. Inputs and authored vertices are immutable.
     """
     started = time.perf_counter()
@@ -185,29 +194,40 @@ def refine(mesh, roles, axes, fg, camera, view, pivot, initial_theta=None, ignor
     theta, cam = dict(theta0), camera
     level = C.Level(fg, C.FINAL_W, "opening_final", margin=C.FINAL_ROI_MARGIN)
     level.ignore_faces = ignore_faces
-    search = C.Level(fg, C.FIT_W if fit_camera else 1e9, "opening_search", margin=C.FINAL_ROI_MARGIN)
+    # Search proposals on the existing camera-fit grid; every acceptance and the
+    # returned evidence still use the final grid. Fixed-camera controls stay native.
+    search = C.Level(fg, C.FIT_W if fit_camera else max(fg.shape), "opening_search", margin=C.FINAL_ROI_MARGIN)
     search.ignore_faces = ignore_faces
     unit = level.width_native
-    eye_limit = float(np.linalg.norm(mesh.frame.to_norm(mesh.V), axis=1).max()) if off_axis else None
+    eye_limit = (P.posed(mesh, _pose(theta0, axes), roles).scene().max_radius if off_axis else None)
     box = C._bounds(camera, unit, C.yaw_window(view, camera.yaw), pivot=pivot,
                     pitch_win=C.pitch_window(view), roll_win=C.roll_window(view, camera.roll), eye_limit=eye_limit)
     lo, hi = np.array(box).T
-    bounds = {s: tuple((angle_bounds or {}).get(f"{s:+d}", (angle_bounds or {}).get(s,
-                    (theta0[f"{s:+d}"]+ANGLE_RANGE[0], theta0[f"{s:+d}"]+ANGLE_RANGE[1])))) for s in active}
-    for s, (a, b) in bounds.items():
-        if not np.isfinite([a, b]).all() or not a < b or not a <= theta0[f"{s:+d}"] <= b:
-            raise ValueError("angle bounds must be finite, ordered and contain the input angle")
+    domain = OpeningDomain(mesh, roles, axes)
+    bounds = {}
+    for side in active:
+        key = f'{side:+d}'
+        physical = domain.bounds(key)
+        requested = (angle_bounds or {}).get(key, (angle_bounds or {}).get(side, physical))
+        a, b = max(physical[0], requested[0]), min(physical[1], requested[1])
+        if not np.isfinite([a,b]).all() or not a < b:
+            raise ValueError('angle bounds have no finite physical opening domain')
+        bounds[side] = (a,b)
+        if not a <= theta0[key] <= b or not domain.valid_side(key, theta0[key]):
+            if not a <= 0. <= b or not domain.valid_side(key, 0.):
+                raise ValueError(f'{key}: input and authored arm poses cross the front/lenses or lie outside the rearward domain')
+            theta[key] = 0.
     posed, scene, initial_render = _rendered(mesh, roles, axes, theta, cam, search)
-    initial_render = scene.render(cam, search.shape)
+    initial_render = scene.render(cam, fg.shape)
     initial_visible = {s:int(_visible(initial_render, tags, s).sum()) for s in active}
     initial_loss = level.loss(scene, cam)
     loss = initial_loss
     info, history, projection_evals, image_evals = {}, [], 0, 1
     # A camera refinement can reveal an initially hidden arm; reevaluate its
-    # visibility at each pass. A hidden side never moves to manufacture evidence.
+    # visibility at each pass. Empty photo regions may bound an initially visible arm.
     for outer in range(2 if fit_camera else 1):
         for side in active:
-            angle, row = _angle_search(mesh, roles, axes, theta, cam, search, side, tags, bounds[side])
+            angle, row = _angle_search(mesh, roles, axes, theta, cam, search, side, tags, bounds[side], domain)
             row['search_input_deg'] = row['input_deg']
             row['visible_pixels_search_start'] = row['visible_pixels_initial']
             row['input_deg'] = theta0[f'{side:+d}']
@@ -220,6 +240,8 @@ def refine(mesh, roles, axes, fg, camera, view, pivot, initial_theta=None, ignor
             if trial is not None and value < loss:
                 pm, sc, _ = trial
                 theta, posed, scene, loss = proposal, pm, sc, value
+            elif abs(angle-theta[f'{side:+d}']) > 1e-9:
+                row.update(observed=False, status='proposal_rejected')
             row["selected_deg"] = theta[f"{side:+d}"]
         if fit_camera:
             candidate, value, count = C.powell(scene, level, cam, box, 100, unit, xtol=.02, pivot=pivot)
@@ -281,11 +303,12 @@ def refine(mesh, roles, axes, fg, camera, view, pivot, initial_theta=None, ignor
             for fraction in (1., .5, .25):
                 z = x+fraction*(result.x-x)
                 cm, th = decode(z)
-                trial = _trial_rendered(mesh, roles, axes, th, cm, level)
+                physical = all(domain.valid_side(f'{side:+d}', th[f'{side:+d}']) for side in active)
+                trial = _trial_rendered(mesh, roles, axes, th, cm, level) if physical else None
                 value = 3.0 if trial is None else level.loss(trial[1], cm)
                 image_evals += 1
                 trials.append({"fraction": fraction, "loss": float(value),
-                               'invalid_near_plane':trial is None})
+                               'invalid_physical':not physical, 'invalid_near_plane':physical and trial is None})
                 if trial is not None and value < best[0]:
                     pm, sc, _ = trial
                     best = value, z, pm, sc
@@ -299,35 +322,35 @@ def refine(mesh, roles, axes, fg, camera, view, pivot, initial_theta=None, ignor
                 termination = "image_loss_converged"
                 break
         cam, theta = decode(x)
-    # A hold can reveal its own side or occlude the other side. Restore only
-    # toward the invocation inputs, then evaluate the actual returned geometry.
-    # This is monotonic: each side can change to its input at most once.
-    reset = False
-    for _ in range(len(active) + 1):
-        posed = P.posed(mesh, _pose(theta, axes), roles)
-        scene = posed.scene()
-        render = scene.render(cam, level.shape)
-        changed = False
-        for side in active:
-            key = f"{side:+d}"
-            row = info[key]
-            visible = int(_visible(render, tags, side).sum())
-            row.update(visible_pixels_final=visible, theta_deg=theta[key])
-            if not visible or not row["observed"]:
-                row["observed"] = False
-                if not visible:
-                    row["status"] = "no_visible_pixels"
-                elif row["status"] == "no_visible_pixels":
-                    row["status"] = "held_input_without_angle_evidence"
-                if theta[key] != theta0[key]:
-                    theta[key] = theta0[key]
-                    changed = reset = True
-        if not changed:
-            break
-    else:
-        raise AssertionError("hidden-arm holds did not reach their monotonic input pose")
-    if reset:
-        loss = level.loss(scene, cam)
+    # Re-evaluate the actual returned pose against the photo. Hidden/empty regions
+    # can bound an opening but do not determine one angle: retain the best physical
+    # pose and label it as bounded, never restore a visibly wrong input.
+    posed, scene, render = _rendered(mesh, roles, axes, theta, cam, level)
+    loss = level.loss(scene, cam)
+    native = scene.render(cam, fg.shape)
+    for side in active:
+        key, row = f'{side:+d}', info[f'{side:+d}']
+        visible = _visible(native, tags, side)
+        supported = visible & fg
+        row.update(visible_pixels_final=int(visible.sum()), photo_supported_pixels=int(supported.sum()),
+                   theta_deg=theta[key], selected_deg=theta[key])
+        # A fixed-input optimum is observed only if neighbouring physical angles
+        # change the photo objective. A rejected search is explicitly unobserved.
+        neighbours = []
+        for delta in (-1., 1.):
+            angle = theta[key]+delta
+            if bounds[side][0] <= angle <= bounds[side][1] and domain.valid_side(key, angle):
+                trial = _trial_rendered(mesh, roles, axes, {**theta,key:angle}, cam, level)
+                if trial is not None:
+                    neighbours.append(level.loss(trial[1], cam)-loss)
+        row['local_photo_loss_increases'] = neighbours
+        constrained = (bool(supported.any()) and len(neighbours) == 2 and min(neighbours) > 1e-6
+                       and row['status'] != 'proposal_rejected')
+        row['observed'] = constrained
+        row['status'] = ('photo_constrained_angle' if constrained else
+                         'photo_bounds_opening' if theta[key] != theta0[key] else
+                         'proposal_rejected' if row['status'] == 'proposal_rejected' else
+                         'held_input_without_angle_evidence')
 
     # Local projected sensitivity after camera/other-arm nuisance directions
     # are removed. This is a one-pixel sensitivity, NOT a statistical interval.

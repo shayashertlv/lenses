@@ -218,6 +218,10 @@ const range = `[${TEMPLE_CLIP_FARTHEST_LOCAL_Z_M.toFixed(3)}, ${TEMPLE_CLIP_NEAR
 export function deriveTempleClip(inventory: Pick<TempleInventory, 'sides'>, handoverZM: number | null = null): TempleClipDecision {
   const warnings: string[] = [];
   const present = inventory.sides.filter(side => side.present && side.tipZM !== null);
+  if (present.length === 2 && Math.abs(present[0]!.tipZM! - present[1]!.tipZM!) > .0001) {
+    warnings.push(`authored temple tips differ by ${mm(Math.abs(present[0]!.tipZM! - present[1]!.tipZM!))} mm `
+      + `(${present.map(side => `${side.side} z ${mm(side.tipZM!)} mm`).join(', ')}); a shared worn-view cap can hide this asymmetry. Judge authored lengths in photo-camera views`);
+  }
   let derivedZM: number | null = null, shorterSide: TempleSideName | null = null;
   if (present.length) {
     let raw = TEMPLE_CLIP_FLOOR_LOCAL_Z_M;
