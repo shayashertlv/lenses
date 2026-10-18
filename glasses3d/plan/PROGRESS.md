@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-18 — Claude accepted M11 task 6 ($0)
+
+Task 6 (`91487b7`) reviewed by Claude: report `data/review_20261018/codex/task6_report.md`; changed assertions in
+existing tests read, all follow the new behaviour (14-worker ceiling, both floor candidates, provenance-based opening
+uncertainty, a photo-bounded pose kept instead of the contradicted input), none weakened. Reran new and touched tests:
+318 Python passed, arview 509 passed, `npm run check` clean. Open: CC-12/13/17 (report "Limits and skips"); the ARR-1
+asymmetry warning fires above 0.1 mm.
+
 ## 2026-10-18 — ASSEMBLY M11 task 6: arm openings, cameras and comparisons ($0)
 
 Completed the task-6 implementation from `data/review_20261018/briefs/task6_arms_cameras.md`. Opening fits now use
