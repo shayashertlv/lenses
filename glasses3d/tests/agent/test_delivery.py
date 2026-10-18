@@ -340,16 +340,22 @@ def test_manifest_and_pointer_integrity_are_checked(tmp_path, defect):
             D.load_delivery(tmp_path, out["id"])
 
 
-def test_current_pointer_is_unchanged_after_failure_to_publish_compatibility(tmp_path, monkeypatch):
+def test_current_pointer_publishes_even_when_viewer_locks_compatibility_copy(tmp_path, monkeypatch):
     first_scene, first_result = make_finished(tmp_path, run_id="first")
     first = D.deliver_finished(tmp_path, first_scene, first_result)
     scene, result = make_finished(tmp_path, run_id="second", variation=1)
     def fail(*_):
-        raise OSError("simulated compatibility write failure")
+        # The immutable identity is already visible before a best-effort legacy copy starts.
+        assert D.load_delivery(tmp_path)["report_data"]["run_id"] == "second"
+        raise PermissionError("simulated compatibility sharing violation")
     monkeypatch.setattr(D, "_compatibility", fail)
-    with pytest.raises(OSError):
-        D.deliver_finished(tmp_path, scene, result)
-    assert D.load_delivery(tmp_path)["id"] == first["id"]
+    published = D.deliver_finished(tmp_path, scene, result)
+    assert D.load_delivery(tmp_path)["id"] == published["id"] != first["id"]
+    assert published["compatibility"]["status"] == "unavailable"
+    assert "sharing violation" in published["compatibility"]["reason"]
+    assert published["model"] == published["snapshot_model"]
+    assert published["report"] == published["snapshot_report"]
+    assert digest(published["model"]) == published["glb_sha256"]
 
 
 @pytest.mark.parametrize("delivery_id", ["../outside", "C:\\elsewhere", "missing", "", None])
@@ -398,7 +404,8 @@ def test_mutable_copy_cannot_follow_a_link_into_an_immutable_snapshot(tmp_path):
                                str(Path(first["snapshot_model"]).parent)], capture_output=True)
         assert made.returncode == 0, (exc, made.stdout, made.stderr)
     scene, result = make_finished(tmp_path, run_id="second", variation=1)
-    with pytest.raises(D.DeliveryError, match="filesystem link"):
-        D.deliver_finished(tmp_path, scene, result)
+    published = D.deliver_finished(tmp_path, scene, result)
+    assert "filesystem link" in published["compatibility"]["reason"]
+    assert published["model"] == published["snapshot_model"]
     assert Path(first["snapshot_model"]).read_bytes() == saved
-    assert D.load_delivery(tmp_path)["id"] == first["id"]
+    assert D.load_delivery(tmp_path)["id"] == published["id"] != first["id"]

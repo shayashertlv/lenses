@@ -821,6 +821,12 @@ def circular_interp(s_query: np.ndarray, s_src: np.ndarray, values: np.ndarray, 
 def lift_field(s_query: np.ndarray, s_src: np.ndarray, lam: np.ndarray, L: float,
                ramp: float = LIFT_RAMP_MM) -> np.ndarray:
     """§6 step 4: L(s) = max_j lam_j (1 - smoothstep(|s - s_j| / ramp)), circular arc distance."""
+    from ..calls import hide_argument_error
+    error = hide_argument_error(0., ramp, 1.)
+    if error:
+        raise ValueError(error)
+    if not np.isfinite(L) or L <= 0:
+        raise ValueError("lens loop length must be finite and positive")
     out = np.zeros(len(s_query))
     ok = np.isfinite(lam) & (lam > 0)
     if not ok.any():

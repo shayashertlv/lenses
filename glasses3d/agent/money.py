@@ -1,7 +1,15 @@
 """Owner-facing money: settlement and outstanding holds are separate; ledger arithmetic stays internal."""
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
+
+
+def dollars(value, *, places=2):
+    """Display money without rounding a below-limit amount up to the limit."""
+    if value is None:
+        return "n/a"
+    amount = Decimal(str(value)).quantize(Decimal(1).scaleb(-places), rounding=ROUND_DOWN)
+    return f"${amount:.{places}f}"
 
 
 def _money_summary(value):
@@ -27,7 +35,7 @@ def money_text(values, *, places=6):
         value = values.get(name + "_usd")
         if value is None and values.get(name + "_micro_usd") is not None:
             value = Decimal(values[name + "_micro_usd"]) / 1_000_000
-        return "n/a" if value is None else f"${Decimal(str(value)):.{places}f}"
+        return dollars(value, places=places)
     text = (f"spent {amount('settled')} (settled); "
             f"held for the request in flight {amount('held')} (released after it settles)")
     unknown = values.get("unknown_micro_usd", values.get("unknown_usd"))

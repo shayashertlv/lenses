@@ -79,8 +79,11 @@ from openai.types.shared import Reasoning
 from .approvals import ApprovalRefused, build_request, canonical_json, request_sha256, run_input_binding
 from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTES, BudgetGuard, JobLedger,
                      BudgetGuardError, cap_to_micro, unlink_with_retry)
-from .budget import StageBudgetExceeded
-from .money import money_text, owner_money
+from .budget import BudgetExceeded, StageBudgetExceeded
+from .journal import CheckpointMismatch, WorkerFailed
+from .worker_client import WorkerDied
+from .money import dollars, money_text, owner_money
+from .run_statuses import STATUSES
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
 from .pricing import MODEL, usd_text
@@ -93,8 +96,6 @@ SESSION_ID = "astra"
 RESULT_SCHEMA = "g3d.run_result/1"
 RUN_CONFIG_SCHEMA = "g3d.run_config/1"
 HEARTBEAT_SCHEMA = "g3d.heartbeat/1"
-STATUSES = ("completed", "turn_limit", "budget_limit", "stopped", "provider_rejected", "provider_unknown",
-            "output_limit", "failed_worker", "failed", "ended_without_finish", "payload_limit")
 EFFORTS = ("high", "xhigh", "max")
 TOOL_CHOICES = ("auto", "required")
 FINISH_BEHAVIOR = "g3d.finish_on_accepted/1"       # FinishOnAccepted (name and version bound into the approval)
@@ -897,9 +898,10 @@ def epoch_text(epoch: dict) -> str:
 class RunStatus:
     """SDK context: shared settled spend, working stop, reserve cap and last counted input for tool footers."""
 
-    def __init__(self, guard: BudgetGuard | None = None, runtime=None):
+    def __init__(self, guard: BudgetGuard | None = None, runtime=None, *, finish_tool="finish"):
         self.guard = guard
         self.runtime = runtime
+        self.finish_tool = finish_tool
         self.finish_configured = False
         self.finish_reference_count = None
         self.finish_evidence = None
@@ -914,8 +916,6 @@ class RunStatus:
         from .finish_runway import project
         if self.guard is None or not self.finish_configured:
             return None
-        if self.guard.summary().get("settled_only"):
-            return None  # No reservation projections in a run governed only by settled charges.
         return project(self.guard.summary(), self.guard.tariff, reference_count=self.finish_reference_count,
                        evidence=evidence or self.finish_evidence, review_ready=review_ready)
 
@@ -942,14 +942,15 @@ class RunStatus:
                 "context_tokens": summary["planning"]["last_counted_input_tokens"]}
 
     def footer(self, *, finish_runway=None) -> str:
-        return footer_text(**self.numbers(), finish_runway=finish_runway or self.finish_runway())
+        return footer_text(**self.numbers(), finish_runway=finish_runway or self.finish_runway(),
+                           finish_tool=self.finish_tool)
 
 
 def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
                 remaining_to_stop_usd=None, held_usd=None, unknown_usd=None, finish_runway=None,
-                settled_only=False) -> str:
+                settled_only=False, finish_tool="finish") -> str:
     def usd(value):
-        return "n/a" if value is None else f"${value:.2f}"
+        return dollars(value)
     money = money_text({"settled_usd": settled_usd, "held_usd": held_usd, "unknown_usd": unknown_usd}, places=2)
     money += (f"; settled-only stop {usd(settled_stop_usd)}; no reservation cutoff" if settled_only else
               (f"; reserve cap {usd(cap_usd)}" if settled_stop_usd is None else
@@ -957,9 +958,15 @@ def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_
     text = f"{money} · context {'n/a' if context_tokens is None else context_tokens} tokens"
     if (settled_stop_usd is not None and settled_usd is not None
             and cap_to_micro(settled_usd) * 4 >= cap_to_micro(settled_stop_usd) * 3):
-        text += (f"\nAbout {usd(remaining_to_stop_usd)} left; finish your best checkpoint soon. "
-                 "Finish needs a first evidence call and a second review call.")
-    if finish_runway and not settled_only:
+        text += f"\nAbout {usd(remaining_to_stop_usd)} left; "
+        if finish_tool == "finish":
+            text += ("finish your best checkpoint soon. "
+                     "Finish needs a first evidence call and a second review call.")
+        elif finish_tool:
+            text += f"complete {finish_tool} on your best state soon."
+        else:
+            text += "complete the current work soon."
+    if finish_runway:
         from .finish_runway import text as runway_text
         text += "\n" + runway_text(finish_runway)
     return text
@@ -974,6 +981,7 @@ class GlobalTurnsExceeded(MaxTurnsExceeded):
 
 
 STAGE_FATAL = (StageRunFailed, BudgetGuardError, StopRequested, MaxTurnsExceeded, RunRefused)
+FATAL_TOOL_ERRORS = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
 
 
 class _SharedHooks(RunHooks):
@@ -1021,6 +1029,7 @@ class StageRuntime:
         self.client, self.guard, self.log, self.blobs = client, guard, log, blobs
         self.run_dir, self.maximum = Path(run_dir), spec.settings.max_turns
         self.tasks = set()
+        self.outcomes = []
         self.closing = False
 
     async def close(self):
@@ -1075,7 +1084,7 @@ class StageRuntime:
                     status, output = await _drive(build_agent(spec.instructions, spec.tools, settings), plan.content,
                         session=session, log=self.log, guard=self.guard,
                         run_config=build_run_config(self.client, input_filter=context_guard), settings=settings,
-                        state=state, context=RunStatus(self.guard),
+                        state=state, context=RunStatus(self.guard, finish_tool=settings.finish_tool),
                         hooks=_SharedHooks(self.log, self.maximum, scene, call_id))
                 except BaseException as exc:
                     if any(isinstance(item, StageBudgetExceeded) for item in _chain(exc)):
@@ -1112,11 +1121,14 @@ class StageRuntime:
                            "context_epochs": list(context_guard.epochs) if context_guard is not None else []}
                 if directory.is_dir():
                     write_json(directory / "result.json", self.log.clean(receipt))
+                outcome = {key: receipt[key] for key in
+                           ("stage", "call_id", "status", "error", "turns_used", "budget", "exit_checkpoint")}
+                outcome.update(final_output=output, receipt=str(directory / "result.json"))
+                self.outcomes.append(outcome)
                 self.log.note(f"Stage {spec.name} ended: {status}.", stage=spec.name, stage_call_id=call_id)
             finally:
                 self.tasks.discard(task)
-        return {"status": status, "final_output": output, "receipt": str(directory / "result.json"),
-                "budget": receipt["budget"], "exit_checkpoint": exit_head}
+        return outcome
 
 
 def instructions_sha256(instructions: str) -> str:
@@ -1524,7 +1536,8 @@ def classify_failure(error: BaseException, *, log: ReviewLog | None, guard: Budg
     if (log is not None and log.stop_observed) or any(isinstance(item, StopRequested) for item in _chain(error)) \
             or isinstance(error, (KeyboardInterrupt, asyncio.CancelledError)):
         return "stopped"
-    if guard is not None and guard.blocked_kind == "BudgetExceeded":
+    if (guard is not None and guard.blocked_kind == "BudgetExceeded") or any(
+            isinstance(item, BudgetExceeded) for item in _chain(error)):
         return "budget_limit"
     if guard is not None and guard.blocked_kind == "PayloadTooLarge":
         return "payload_limit"
@@ -1880,6 +1893,11 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                     pass
             status = classify_failure(raised, log=log, guard=guard)
             error = {"type": type(raised).__name__, "message": str(raised)[:2000]}
+            progress = [item.stage_progress for item in _chain(raised) if hasattr(item, "stage_progress")]
+            if progress:
+                error["stage_progress"] = progress
+                if runtime is not None and runtime.outcomes:
+                    runtime.outcomes[-1]["progress"] = progress[-1]
             if not isinstance(raised, Exception):
                 pending = raised             # KeyboardInterrupt, CancelledError, SystemExit: re-raised below
         finally:
@@ -1936,6 +1954,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "turns_used": state["turns_used"], "continuations": state["continuations"],
                 "final_output": final_output if isinstance(final_output, (str, type(None))) else str(final_output),
                 "requests": summary["requests"] if summary else 0, "budget": summary,
+                "stages": list(runtime.outcomes) if runtime is not None else [],
                 "job_ledger": scan.get("totals") if isinstance(scan, dict) else None,
                 "input": ({key: plan.receipt.get(key) for key in ("images_sent", "images_reused_from_history",
                                                                  "notes_sent")} | {

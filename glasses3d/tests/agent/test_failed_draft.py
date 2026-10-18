@@ -14,8 +14,9 @@ from glasses3d.tests.agent.test_delivery import digest
 
 @pytest.mark.parametrize("best", [True, False])
 @pytest.mark.parametrize("exit_verified", [True, False, None])
-def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path, monkeypatch, best, exit_verified):
-    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status="failed", best=best)
+@pytest.mark.parametrize("status", ["failed", "failed_worker"])
+def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path, monkeypatch, best, exit_verified, status):
+    scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status=status, best=best)
     if exit_verified is None:
         result["exit_checkpoint"] = None  # teardown could not obtain a live-scene fingerprint
     else:
@@ -24,7 +25,7 @@ def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path
     original_result, before = copy.deepcopy(result), preserved(tmp_path)
     out = D.deliver_draft(tmp_path, scene, result)
     report = D.load_delivery(tmp_path, out["id"])["report_data"]
-    assert out["finished"] is False and out["run_status"] == "failed"
+    assert out["finished"] is False and out["run_status"] == status
     assert report["checkpoint"] == "c0001" and report["checkpoint_selection"] == "last_verified"
     assert report["source_checkpoint"]["verified"] is True
     assert report["source_checkpoint"]["verification_attempts"] == [
@@ -36,8 +37,9 @@ def test_failed_uses_latest_reverified_checkpoint_and_preserves_failure(tmp_path
 
 
 @pytest.mark.parametrize("fault", ["file_hash", "missing_file", "fingerprint", "startup"])
-def test_failed_falls_back_only_after_original_integrity_verification_fails(tmp_path, monkeypatch, fault):
-    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status="failed")
+@pytest.mark.parametrize("status", ["failed", "failed_worker"])
+def test_failed_falls_back_only_after_original_integrity_verification_fails(tmp_path, monkeypatch, fault, status):
+    scene, result, workers, _ = draft_fixture(tmp_path, monkeypatch, status=status)
     head_path = tmp_path / "checkpoints/c0001.blend"
     if fault == "file_hash":
         head_path.write_bytes(b"corrupt head")

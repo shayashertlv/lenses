@@ -51,10 +51,34 @@ def test_warning_approaches_hold_with_disclosed_one_request_margin():
     evidence={'image_tokens':0,'ar_sheet_allowance_tokens':0,'text_allowance_tokens':0}
     first=F.project(summary(tokens=1000,settled=0),tariff,evidence=evidence)
     boundary=23_000_000-first['second_finish_hold_micro_usd']-first['warning_margin_micro_usd']
-    assert not F.project(summary(tokens=1000,settled=boundary-1),tariff,evidence=evidence)['warning']
-    at=F.project(summary(tokens=1000,settled=boundary),tariff,evidence=evidence)
+    def reserve_only(settled):
+        return {**summary(tokens=1000,settled=settled), 'settled_stop_usd': None}
+    assert not F.project(reserve_only(boundary-1),tariff,evidence=evidence)['warning']
+    at=F.project(reserve_only(boundary),tariff,evidence=evidence)
     assert at['warning'] and at['fits_current_reserve_room']
     assert at['warning_margin_micro_usd']==tariff.reserve_micro(1000,16384)
+
+
+@pytest.mark.parametrize('settled_only', [False, True])
+@pytest.mark.parametrize('review_ready', [False, True])
+def test_finish_room_is_stop_minus_settled_held_unknown_in_every_mode(settled_only, review_ready):
+    state = {**summary(tokens=250_000, settled=19_500_000, held=100_000, unknown=200_000),
+             'settled_only': settled_only, 'maximum_micro_usd': 44_280_000}
+    before = copy.deepcopy(state)
+    tariff = Tariff.frozen()
+    result = F.project(state, tariff, reference_count=6, review_ready=review_ready)
+    assert result['remaining_to_stop_micro_usd'] == 200_000
+    assert result['settled_stop_warning'] and result['warning']
+    assert not result['fits_remaining_to_stop']
+    assert result['finish_calls_remaining'] == (1 if review_ready else 2)
+    assert result['finish_allowance_micro_usd'] == result['second_finish_hold_micro_usd'] + (
+        0 if review_ready else tariff.reserve_micro(250_000, 16384))
+    if settled_only:
+        assert result['reserve_room_micro_usd'] is None
+        assert 'estimates never refuse or shrink' in F.text(result)
+    else:
+        assert result['fits_current_reserve_room'] and not result['reserve_warning']
+    assert state == before
 
 
 def test_unknown_context_and_projected_limit_are_honestly_unavailable():

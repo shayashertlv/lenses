@@ -77,6 +77,43 @@ def comparison(lab):
     return lab.crease_compare("compare", 0, ["lower", "upper"], "lower", "ridge", [6., 12., 16.], ["05"])
 
 
+def test_compare_preserves_original_fatal_error_when_head_restore_fails(prepared, monkeypatch):
+    from glasses3d.agent.journal import WorkerFailed
+    lab = prepared
+    original = WorkerFailed('candidate export lost Blender', lab.s.head)
+    restore = lab.s.restore_checkpoint
+
+    def failed_restore(cid, call_id=None):
+        if call_id.endswith('-head-restore'):
+            raise AttributeError('worker is unavailable')
+        return restore(cid, call_id=call_id)
+
+    def failed_export(*args, **kwargs):
+        raise original
+
+    monkeypatch.setattr(lab.s, 'restore_checkpoint', failed_restore)
+    monkeypatch.setattr(lab.s, 'call_read', failed_export)
+    with pytest.raises(WorkerFailed) as caught:
+        comparison(lab)
+    assert caught.value is original
+    assert 'AttributeError' in original.__notes__[0]
+
+
+def test_compare_failed_restore_without_prior_error_is_fatal(prepared, monkeypatch):
+    from glasses3d.agent.journal import WorkerFailed
+    lab = prepared
+    restore = lab.s.restore_checkpoint
+
+    def refused_restore(cid, call_id=None):
+        if call_id.endswith('-head-restore'):
+            return {'status': 'refused', 'message': 'could not restore head'}
+        return restore(cid, call_id=call_id)
+
+    monkeypatch.setattr(lab.s, 'restore_checkpoint', refused_restore)
+    with pytest.raises(WorkerFailed, match='recovery refused'):
+        comparison(lab)
+
+
 def test_real_builder_alternatives_restore_head_and_require_delivered_output(prepared):
     lab = prepared
     fp = lab.s.head["fingerprint"]

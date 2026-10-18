@@ -78,9 +78,8 @@ from agents.tool import ToolOutputImage, ToolOutputText
 from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from glasses3d.agent.journal import WorkerFailed
 from glasses3d.agent.money import owner_money
-from glasses3d.agent.loop import RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
+from glasses3d.agent.loop import FATAL_TOOL_ERRORS, RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
 from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
 from glasses3d.g3d.temple import fit as FIT
@@ -580,9 +579,9 @@ def schema_errors(model, raw) -> list[str] | None:
 def args_failure(name: str, model):
     """The function_tool ``failure_error_function``: the SDK's refusal of arguments its parameters model rejects
     (ModelBehaviorError "Invalid JSON input for tool ...") answered as a facet result (status refused, E_ARGS, the
-    problems by path: schema_errors) with the footer; everything else as loop.fatal_tool_errors (WorkerFailed
+    problems by path: schema_errors) with the footer; everything else as loop.fatal_tool_errors (fatal run errors
     re-raised, the SDK's default text otherwise)."""
-    other = fatal_tool_errors(WorkerFailed)
+    other = fatal_tool_errors(*FATAL_TOOL_ERRORS)
 
     def failure(ctx, error) -> str:
         if isinstance(error, ModelBehaviorError) and str(error).startswith("Invalid JSON input for tool"):
@@ -639,7 +638,7 @@ def registry(lab, settings=None) -> list:
                 return fn(call_id)
             except (LabRefusal, TempleError, G.EditError) as exc:
                 return exc.to_dict()
-            except WorkerFailed:
+            except FATAL_TOOL_ERRORS:
                 raise
             except (ValueError, KeyError, TypeError) as exc:
                 return {"status": "refused", "code": "E_LAB_ARGS", "message": f"{type(exc).__name__}: {exc}"[:600]}

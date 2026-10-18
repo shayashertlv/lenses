@@ -42,7 +42,8 @@ def temple_tool(scene, call, parent_settings, fatal):
         Only the owner sets money limits. The same settled stop and maximum reserve govern every child request.
         """
         runtime = getattr(ctx, "context", None)
-        if not hasattr(runtime, "run_stage") or getattr(runtime, "guard", None) is None:
+        attached = getattr(runtime, "runtime", None)
+        if not callable(getattr(attached, "run_stage", None)) or getattr(runtime, "guard", None) is None:
             return await call(ctx, "temple_stage", lambda cid: {
                 "status": "refused", "code": "E_STAGE_CONTEXT", "message": "temple_stage needs the active job run"})
         summary = runtime.guard.summary()
@@ -66,7 +67,8 @@ def temple_tool(scene, call, parent_settings, fatal):
     if owner_edit:
         temple_stage.description = (
             "Work on the exact current mesh in a private owner-edit specialist session. It retains all general "
-            "tools and facet_owner_edit; it does not rebuild a template or replace current geometry with stale "
+            "tools and facet_owner_edit, except another temple_stage; it does not rebuild a template or replace "
+            "current geometry with stale "
             "construction coordinates. In understand mode it only inspects and prepares labelled targets. In "
             "confirmed edit mode the owner's named feature targets outrank photos and earlier choices, within "
             "the host-sealed support. Other geometry, materials, UVs and settings stay unchanged; every physical "

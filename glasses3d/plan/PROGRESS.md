@@ -1,5 +1,34 @@
 # glasses3d progress
 
+## 2026-10-18 — ASSEMBLY M11 item 1: run endings, money and crash safety ($0)
+
+Completed the six items in `data/review_20261018/briefs/task1_run_endings.md`.
+Draft eligibility follows the loop's status vocabulary; failed final delivery falls back to a draft,
+and immutable publication survives a locked compatibility copy. Nested temple calls refuse cleanly;
+the parent keeps its specialist. Trusted numeric reports refuse NaN/inf with scene-integrity metadata
+preserved, hide distances are bounded, and zero ramps refuse before writes. Finish planning uses
+stop minus settled/held/unknown in both modes; spend displays round down. Temple rollback preserves
+fatal causes, child cutoff remains `budget_limit`, and drafts retain private stage progress with the
+parent's best geometry. Verified AR reports read UTF-8. Money limits, admission and hard gates unchanged.
+
+Focused batches passed (overlapping): root 125, delivery follow-up 29, worker 133 plus 39 existing,
+temple 131, facet/instruction 151 (1 deselected), scripted child endings 4. Full non-photoprint:
+4,285 passed, 13 skipped, 6 failed in 773.95 s (14 workers, exit 1). Serial rerun and final instruction
+checks: 190 passed, 1 failed in 252.56 s; all five load-sensitive timing/timeouts cleared. Photoprint:
+314 passed in 168.35 s (4 workers, exit 0). Fresh `assembly_m1`: passed in 171.42 s, exit 0, 13 scripted
+requests/tools, 12 image blobs and 35 AR images verified; receipts clean, actual spend $0.
+Proof: `data/assembly/m1-proof-55373ce4/proof.json`. About 40 GiB free commit, pools capped at 14,
+BLAS 1, detached EcoQoS opt-out; arguments, PIDs, timestamps and exit codes saved with long-run logs.
+
+Open verification limits: known photo_v1 golden drift remains (199 changed pixels, unchanged allowance
+114.24); 11 of the 13 skips are saved WP4 proof checks whose source hashes this task invalidates.
+That historical proof was not regenerated. No arview changes, so npm checks do not apply. The brief's
+path-less pytest invocation collected outside glasses3d; stopped before tests, then ran from the repo
+root with explicit `glasses3d/tests`. Complete diff and independent reviews done. Report and evidence:
+`data/review_20261018/codex/task1_report.md`. Implementation/tests are in this entry's commit,
+`fix(glasses3d): preserve drafts and crash safety at run endings`; exact hash recorded in the report.
+No paid API call, push, root-app/ar change or task 2 work.
+
 ## 2026-10-17 — Selected 3 mm temples + 60% corners combined ($0)
 
 Owner authorized both selections together on a fresh copy of run 6 c0016. Applied the

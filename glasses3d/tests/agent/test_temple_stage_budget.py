@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import nullcontext
 from dataclasses import replace
+from types import SimpleNamespace
 
 from agents.tool_context import ToolContext
 import pytest
@@ -31,7 +32,7 @@ def guard_at(tmp_path, *, stop='20', cap='23', outcome=None):
     return guard, count
 
 
-def invoke(guard, monkeypatch):
+def invoke(guard, monkeypatch, *, attached=True):
     started = []
     monkeypatch.setattr(T.stage, 'run', lambda *args: started.append(args) or {'status': 'ok'})
 
@@ -42,13 +43,38 @@ def invoke(guard, monkeypatch):
     tool = T.temple_tool(object(), call, L.RunSettings(), ())
     assert 'budget_usd' not in tool.params_json_schema.get('properties', {})
     raw = '{}'
-    context = ToolContext(context=L.RunStatus(guard), tool_name='temple_stage',
+    runtime = SimpleNamespace(run_stage=lambda *args: None) if attached else None
+    context = ToolContext(context=L.RunStatus(guard, runtime=runtime), tool_name='temple_stage',
                           tool_call_id='stage-call', tool_arguments=raw)
     before, counts = guard.ledger_path.read_bytes(), guard.client_for_count.responses.input_tokens.count.call_count
     result = asyncio.run(tool.on_invoke_tool(context, raw))
     assert guard.ledger_path.read_bytes() == before
     assert guard.client_for_count.responses.input_tokens.count.call_count == counts
     return result, started
+
+
+def test_nested_stage_is_a_clean_refusal_and_leaves_budget_usable(tmp_path, monkeypatch):
+    guard, count = guard_at(tmp_path)
+    result, started = invoke(guard, monkeypatch, attached=False)
+    assert result['status'] == 'refused' and result['code'] == 'E_STAGE_CONTEXT' and not started
+    # The refusal does not block the shared guard; the enclosing round can make another request.
+    count.return_value.input_tokens = 100
+    asyncio.run(guard.before_request(request(max_output_tokens=100)))
+    assert guard.summary()['requests'] == 2
+
+
+@pytest.mark.parametrize('settled_only', [False, True])
+def test_specialist_money_note_distinguishes_spend_stop_and_reserve(tmp_path, settled_only):
+    guard, _ = guard_at(tmp_path)
+    text = stage.money_note(SimpleNamespace(guard=guard), replace(L.RunSettings(), settled_only=settled_only), '8')
+    assert 'spent $15.00 (settled)' in text
+    assert 'held for the request in flight $0.00' in text
+    assert '$5.00 remains before the shared $20.00 settled stop' in text
+    if settled_only:
+        assert 'no reservation cutoff' in text
+    else:
+        assert '$8.00 of remaining reserve' in text and '$23.00 reserve cap' in text
+    assert 'allowance' not in text
 
 
 def test_stage_uses_owner_reserve_without_astra_money_choice(tmp_path, monkeypatch):

@@ -13,6 +13,8 @@ PRINT_OPS = frozenset({"print_uv", "attach_print", "detach_print"})
 OPS = SEAT_OPS | PRINT_OPS
 READ_OPS = frozenset({"check_lens_seating"})
 FRAME_TYPES = frozenset({"acetate", "metal", "browline", "semi_rimless", "rimless"})
+# Computational ceiling, in authoring millimetres; deliberately far beyond eyewear dimensions.
+HIDE_DISTANCE_MAX_MM = 1_000_000.0
 SUCCESS = {
     "seat_lens": frozenset({"seated", "already_seated", "partial"}),
     "hide_eyewire": frozenset({"lifted", "already_hidden"}),
@@ -35,6 +37,68 @@ def _number(value):
         return type(value) in (int, float) and math.isfinite(value)
     except OverflowError:
         return False
+
+
+def hide_argument_error(margin_mm, ramp_mm, lift_max_mm):
+    """Shared preflight for the RPC, Blender adapter and array-only tool."""
+    for name, value, inclusive in (("margin_mm", margin_mm, True), ("ramp_mm", ramp_mm, False),
+                                    ("lift_max_mm", lift_max_mm, False)):
+        if not _number(value) or not (0 <= value <= HIDE_DISTANCE_MAX_MM if inclusive else
+                                     0 < value <= HIDE_DISTANCE_MAX_MM):
+            return f"{name} must be finite and {'0 <=' if inclusive else '0 <'} {name} <= {HIDE_DISTANCE_MAX_MM:g} mm"
+    return None
+
+
+class _NonFiniteResult(ValueError):
+    pass
+
+
+def _finite_json(value, path="result", object_name=None):
+    """Lossless conversion of trusted numeric values; unsupported types remain protocol errors."""
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            who = f" for object {object_name!r}" if object_name else ""
+            raise _NonFiniteResult(f"non-finite value at {path}{who}")
+        return float(value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, dict):
+        name = next((value[k] for k in ("object", "eyewire", "lens", "name")
+                     if isinstance(value.get(k), str)), object_name)
+        return {k: _finite_json(v, f"{path}[{k!r}]", name) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_json(v, f"{path}[{i}]", object_name) for i, v in enumerate(value)]
+    # numpy scalar/array, mathutils and Blender ID-property arrays. No truncation or repr conversion:
+    # a genuinely non-JSON report must still reach rpc.encode's fatal contract check.
+    for attr in ("tolist", "to_list"):
+        convert = getattr(value, attr, None)
+        if callable(convert):
+            return _finite_json(convert(), path, object_name)
+    return value
+
+
+def trusted_result(result, operation: str, kwargs: dict | None = None):
+    """Refuse invalid numerical evidence instead of hiding it as null or breaking the worker protocol."""
+    kwargs = kwargs or {}
+    names = [kwargs[k] for k in ("lens", "eyewire", "lenses", "parts", "frame_parts", "under")
+             if k in kwargs and kwargs[k] is not None]
+    try:
+        return _finite_json(result)
+    except _NonFiniteResult as exc:
+        who = f"; requested objects {names!r}" if names else ""
+        # The journal still needs truthful scene-integrity metadata to restore a read that changed the scene,
+        # or a refused mutation. Do not discard unchanged=False while refusing the numerical evidence.
+        protocol = {}
+        if isinstance(result, dict):
+            for key in ("fingerprint_before", "fingerprint_after"):
+                if isinstance(result.get(key), str):
+                    protocol[key] = result[key]
+            for key in ("unchanged", "changed"):
+                if type(result.get(key)) is bool:
+                    protocol[key] = result[key]
+        return {"status": "refused", "code": "E_NONFINITE", "op": operation,
+                "message": f"{operation}: {exc}{who}. Repair the geometry or numerical inputs before retrying.",
+                **protocol}
 
 
 def _ranges(value):
@@ -104,6 +168,11 @@ def validate(params: dict) -> tuple[str, dict]:
     for key, value in kwargs.items():
         if not allowed[key](value):
             raise ValueError(f"invalid type or value for {op}.{key}")
+    if op == "hide_eyewire":
+        error = hide_argument_error(kwargs.get("margin_mm", .1), kwargs.get("ramp_mm", 3.),
+                                    kwargs.get("lift_max_mm", 2.5))
+        if error:
+            raise ValueError(f"hide_eyewire: {error}")
     return op, dict(kwargs)
 
 

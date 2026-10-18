@@ -974,6 +974,11 @@ def lift_arrays(ew_Vr, ew_Tr, ew_edges_raw, under: list, others: list, lens_Vr, 
     ramp = LIFT_RAMP_MM if ramp is None else ramp
     lift_max = LIFT_MAX_MM if lift_max is None else lift_max
     res = LiftResult("refused")
+    from ..calls import hide_argument_error
+    error = hide_argument_error(margin, ramp, lift_max)
+    if error:
+        res.code, res.message = "E_ARGS", f"{eyewire_name}: {error}"
+        return res
     ew_Vr = np.asarray(ew_Vr, np.float64)
     ewc = stations.split_components(ew_Vr, ew_Tr, eyewire_name)
     if len(ewc) != 1 or not ewc[0].closed:

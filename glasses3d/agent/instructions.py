@@ -88,10 +88,11 @@ for every product. Material parameters alone do not establish the visible result
 4. Review the best state and finish while there is enough money for the review.
 Only the owner sets money limits. The active run supplies its settled stop and reserve cap; specialist requests
 share them. A reserve hold is a temporary allowance for a request, not settled spend. Do not choose a child budget
-or change the run's limits. Use the finish-reserve warning early enough to inspect evidence and correct remaining
+or change the run's limits. Use the finish-runway warning early enough to inspect evidence and correct remaining
 visible differences. Tools can refuse invalid work or the run can stop before completion; report those facts.
 If the active run specifies settled-only mode, parent and specialist share that settled cutoff without a reserve
-cap or finish-reserve requirement. Estimated future response costs do not reduce the available settled budget.
+cap. Its finish-runway cost estimate is information only: start review while there is room for both finish calls
+before the settled stop. Estimates never refuse or shrink requests; the last response can cross the stop.
 """
 
 CORE_GUIDANCE = {
@@ -152,15 +153,16 @@ CORE_GUIDANCE = {
         "arms behind its test head, so measure product temple length and shape in the photo comparisons. Inspect "
         "see-through on the test-face portrait and checker; background response is diagnostic, not physical VLT or a gate.",
     "budget_status": "Use `budget_status` for the active settled_stop_usd, remaining_to_stop_usd, settled_usd, "
-        "remaining_usd and planning, with held money reported separately. finish_runway forecasts the reserve "
-        "needed for the request that sees the first finish evidence and completes the second call. Start review "
-        "while this reserve room remains; later evidence and replies can change the forecast.",
+        "remaining_usd and planning, with held money reported separately. finish_runway estimates both finish "
+        "calls against the stop minus settled, held and unknown money (only the second call after review arrives). "
+        "Reserve mode also checks reserve room; settled-only estimates never block requests. Start review when "
+        "the warning appears; later evidence and replies can change the forecast.",
     "finish": "Call `finish` in two steps on your best current checkpoint, before the settled stop. The first "
         "call exports, checks specification and print freshness, captures AR, and returns full pairs and native "
         "close-ups for every usable photo plus the worn front and side-light surface checks. Inspect facet flatness, "
         "unintended seams and lens highlight ripple; report unavailable evidence and revisit every difference you noted. "
         "Remaining money is for fixing visible differences. Do not finish while a visible difference you can "
-        "still fix remains and the finish reserve allows another fix within the owner's limits. If a difference "
+        "still fix remains and the finish runway allows another fix within the owner's limits. If a difference "
         "cannot be fixed within those constraints, report what prevents it. The second call supplies that "
         "delivered review_call_id and exactly one per_photo "
         "differences entry for each required ref (write 'none' only when you see none). If there are no usable "
@@ -309,7 +311,8 @@ EDIT_OVERRIDES = {
         "scoped mesh patch. Child UNDERSTAND previews are advisory: before sealing its understanding, the parent "
         "must show its own map and obtain its own delivered preview receipt. Child receipts do not bind the "
         "parent's understanding. Read its result and "
-        "inspect the requested features in context. Child requests share the parent's settled stop and reserve cap.",
+        "inspect the requested features in context. Child requests share the parent's money mode and settled stop. "
+        "The child cannot open another specialist; this tool is available in the parent session only.",
     "seat_lens": "`seat_lens` remains available but a reconstruction that changes topology or exceeds the "
         "confirmed support is refused in this mode. Do not perform an unrequested seating repair.",
     "hide_eyewire": "`hide_eyewire` remains available within the phase and confirmed support only; do not "
@@ -320,15 +323,17 @@ EDIT_OVERRIDES = {
         "on the held lens do not expand the owner's confirmation.",
     "photo_print": "`photo_print` remains available, but owner-edit scope checks preserve authored materials "
         "and UVs. A requested print replacement that those checks cannot allow must be listed as unsupported.",
-    "budget_status": "Use `budget_status` to inspect the active settled stop, reserve room and temporary "
-        "holds. Finish-runway estimates concern the product finish in EDIT; UNDERSTAND ends with its own "
+    "budget_status": "Use `budget_status` to inspect the active settled stop and separate settled/held/unknown "
+        "money. Finish runway uses the money left after all three; reserve mode also checks reserve room. "
+        "Settled-only estimates never block requests. Finish-runway estimates concern the product finish in EDIT; "
+        "UNDERSTAND ends with its own "
         "understanding result. No status or tool result grants approval for a later paid round.",
     "finish": "`finish` is refused in UNDERSTAND. In EDIT, first obtain and inspect edit_report on the current "
         "head, then finish in two calls before the settled stop. The first exports, checks specification and "
         "print freshness, captures AR and returns photo pairs, details, side-light checks and the worn front. "
         "Inspect them against the confirmed target. Remaining money is for fixing visible differences within "
         "the confirmed scope. Do not finish while a visible difference from the confirmed target can still be "
-        "fixed by an authorized operation and the finish reserve allows that fix within the owner's limits. "
+        "fixed by an authorized operation and the finish runway allows that fix within the owner's limits. "
         "This never permits changing sealed targets, directions, amounts or support; report differences requiring "
         "new authority instead. The second call supplies the delivered review_call_id and exactly "
         "one per_photo differences entry per required ref ('none' only if none is visible). No usable cameras "

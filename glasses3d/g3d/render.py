@@ -238,7 +238,14 @@ def bounds(params: dict | None = None) -> dict:
         finally:
             ev.to_mesh_clear()
         m = np.array(ev.matrix_world, float)
+        if not np.isfinite(co).all() or not np.isfinite(m).all():
+            cause = "evaluated vertex coordinates" if not np.isfinite(co).all() else "world transform"
+            return {"status": "refused", "code": "E_NONFINITE", "object": obj.name,
+                    "message": f"bounds: object {obj.name!r} has non-finite {cause}; repair it before retrying."}
         w = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+        if not np.isfinite(w).all():
+            return {"status": "refused", "code": "E_NONFINITE", "object": obj.name,
+                    "message": f"bounds: object {obj.name!r} has non-finite world vertex coordinates (transform overflow)."}
         a, b = w.min(0), w.max(0)
         role = obj.get("partRole") if isinstance(obj.get("partRole"), str) else None
         if role is None and obj.data is not None and isinstance(obj.data.get("partRole"), str):

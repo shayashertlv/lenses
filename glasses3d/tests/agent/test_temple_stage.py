@@ -2,6 +2,7 @@
 import asyncio
 import concurrent.futures
 import hashlib
+import json
 import threading
 from types import SimpleNamespace
 
@@ -120,7 +121,7 @@ def test_stage_bridge_cancelled_before_submission_never_runs_inference():
 def orchestrated(tmp_path, monkeypatch, *, outcome_status="completed", stale=False, exit_change=None,
                  damage_export=False, cancel_after_prepare=False, finish_change=None,
                  brief_bytes=b"Owner wording retained", contract_bytes=b"Host contract wording",
-                 check_input_binding=False):
+                 check_input_binding=False, child_error=None):
     """Exercise the actual stage orchestrator with a private fake worker, never a second loop."""
     from glasses3d.agent.temple_lab import stage, cli, package
     root = tmp_path / "job"
@@ -180,6 +181,8 @@ def orchestrated(tmp_path, monkeypatch, *, outcome_status="completed", stale=Fal
             assert cap == "2" and call_id == "stage-control"
             assert spec.brief == brief_bytes.decode("utf-8")
             assert spec.contract_brief == contract_bytes.decode("utf-8")
+            if child_error is not None:
+                raise child_error
             if check_input_binding:
                 from glasses3d.agent import approvals as A
                 binding = A.run_input_binding(lab.root, spec.brief, [])
@@ -208,6 +211,21 @@ def test_stage_orchestrator_applies_fitted_spec_once_to_captured_parent_and_clos
     assert args[:2] == ("temple_stage", "temple_stage_apply")
     assert args[2] == {"spec": {"schema": "fitted-test-spec"}, "source_fingerprint": "f" * 64}
     assert kwargs["call_id"] == "stage-control"
+
+
+def test_failed_child_preserves_parent_and_records_progress_for_draft(tmp_path, monkeypatch):
+    from glasses3d.agent.loop import StageRunFailed
+    original = StageRunFailed('stage temple_stage ended: budget_limit')
+    run, applied, closed, private = orchestrated(tmp_path, monkeypatch, child_error=original)
+    with pytest.raises(StageRunFailed) as caught:
+        run()
+    assert caught.value is original and not applied and closed == private
+    progress = original.stage_progress
+    assert progress['parent_geometry_unchanged'] is True
+    assert progress['checkpoint'] == 'child-finished' and progress['revision'] == 7
+    assert progress['finish'] == 'matched' and progress['summary'] == 'controlled finish'
+    saved = json.loads((tmp_path / 'job' / progress['package'] / 'stage-progress.json').read_text('utf-8'))
+    assert saved == progress
 
 
 @pytest.mark.parametrize("brief_bytes,contract_bytes", [

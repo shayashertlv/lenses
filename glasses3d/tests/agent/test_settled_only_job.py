@@ -96,24 +96,24 @@ def test_job_rejects_mixed_reserve_output_fitting_or_smoke(job, cap, changes):
 
 
 @pytest.mark.parametrize("settled", [0, 19_990_000])
-def test_status_footer_and_invocation_show_only_actual_settled_stop(monkeypatch, settled):
+def test_status_footer_and_invocation_show_settled_stop_and_informational_runway(settled):
+    from glasses3d.agent.pricing import Tariff
     summary = {"settled_only": True, "settled_micro_usd": settled, "maximum_micro_usd": 20_000_000,
                "held_micro_usd": 0, "unknown_micro_usd": 0, "settled_stop_usd": "20.000000",
                "remaining_to_stop_usd": f"{(20_000_000 - settled) / 1e6:.6f}",
-               "planning": {"last_counted_input_tokens": 922_000}}
-    ctx = L.RunStatus(SimpleNamespace(summary=lambda: summary))
+               "planning": {"last_counted_input_tokens": 250_000, "max_output_tokens": 16_384}}
+    ctx = L.RunStatus(SimpleNamespace(summary=lambda: summary, tariff=Tariff.frozen()))
     ctx.configure_finish(SimpleNamespace(job={"images": [{}] * 6}))
-    monkeypatch.setattr(finish_runway, "project", lambda *a, **k: pytest.fail("reserve projection in settled-only run"))
-    evidence = {"source": "fixture", "image_tokens": 1000}
+    evidence = {"source": "fixture", "image_tokens": 1000, "ar_sheet_allowance_tokens": 0, "text_allowance_tokens": 0}
     ctx.note_finish_evidence(evidence)
-    assert ctx.finish_runway(evidence=evidence, review_ready=True) is None
+    projection = ctx.finish_runway(evidence=evidence, review_ready=True)
+    assert projection['settled_only'] and projection['reserve_room_usd'] is None
     assert ctx.numbers()["settled_only"] is True
-    stale_projection = {"status": "unavailable", "message": "Finish-review reserve warning: stale projection"}
-    for text in (ctx.footer(), ctx.footer(finish_runway=stale_projection),
-                 L.footer_text(**ctx.numbers(), finish_runway=stale_projection)):
+    for text in (ctx.footer(), ctx.footer(finish_runway=projection),
+                 L.footer_text(**ctx.numbers(), finish_runway=projection)):
         assert "$20.00" in text and "no reservation cutoff" in text
-        assert "reserve cap" not in text and "Finish-review reserve" not in text
-        assert "stale projection" not in text
+        assert "reserve cap" not in text and "Reserve room" not in text
+        assert "estimated cost" in text and "estimates never refuse or shrink" in text
     invocation = L.invocation_text(run_id="offline", scene_note="Synthetic scene.", cap_micro=20_000_000,
                                     rollback=None, settled_stop_micro=20_000_000, settled_only=True)
     assert "$20.000000" in invocation and "shared settled charges" in invocation

@@ -130,12 +130,12 @@ def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(too
     assert "After each shape, colour or material edit, use `compare_look_to_photos`" in main
     assert "full-size photo/render pairs and close-ups for edges, rounding, rims, facets" in main
     assert "Do not finish while a visible difference you can still fix remains" in main
-    assert "finish reserve allows another fix within the owner's limits" in main
+    assert "finish runway allows another fix within the owner's limits" in main
     owner = {"phase": "edit"}
     text = I.build_instructions(build_tools(SimpleNamespace(root=None, owner_edit=owner)), owner_edit=owner)
     assert "After each authorized edit in EDIT, use `compare_look_to_photos`" in text
     assert "photo pairs, details, side-light checks and the worn front" in text
-    assert "fixed by an authorized operation" in text and "finish reserve allows that fix" in text
+    assert "fixed by an authorized operation" in text and "finish runway allows that fix" in text
     assert "never permits changing sealed targets, directions, amounts or support" in text
     assert "`finish` is refused in UNDERSTAND" in text
     assert "STOP for the owner's confirmation" in text
@@ -204,7 +204,7 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
     assert "revisit every difference" in I.CORE_GUIDANCE["finish"]
     assert "Remaining money is for fixing visible differences" in I.CORE_GUIDANCE["finish"]
     assert "Do not finish while a visible difference you can still fix remains" in I.CORE_GUIDANCE["finish"]
-    assert "finish reserve allows another fix within the owner's limits" in I.CORE_GUIDANCE["finish"]
+    assert "finish runway allows another fix within the owner's limits" in I.CORE_GUIDANCE["finish"]
     assert "per_photo differences" in I.CORE_GUIDANCE["finish"]
 
     # Check the implementation's actual dictionary keys, rather than accepting a new field invented in the text.

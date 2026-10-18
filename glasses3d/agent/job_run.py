@@ -218,8 +218,19 @@ def _publish_result(root, run_id, scene, result, *, smoke=False):
                 "finished": False, "accepted_finish": False, "geometry_changed": False,
                 "understanding": str(artifact) if accepted else None, "review_page": str(page) if page else None,
                 "usage": usage}
-    delivery = (D.deliver_draft(root, scene, result) if result.get("status") in D.DRAFT_STATUSES
-                else deliver_finished(root, scene, result))
+    final_failure = None
+    if result.get("status") == "completed":
+        try:
+            delivery = deliver_finished(root, scene, result)
+            if delivery.get("status") != "delivered":
+                final_failure = {"reason": "Run completed without a publishable accepted finish.",
+                                 "attempt": delivery}
+        except Exception as exc:
+            final_failure = {"reason": f"{type(exc).__name__}: {exc}"}
+    if final_failure is not None:
+        delivery = D.deliver_draft(root, scene, result, final_delivery_failure=final_failure)
+    elif result.get("status") != "completed":
+        delivery = D.deliver_draft(root, scene, result)
     # Also retain an explicit no-usable-checkpoint attempt when there is nothing the owner can review.
     procs.write_json_atomic(D._output_path(Path(root).resolve(), Path("runs") / D._relative(run_id) / "delivery.json"),
                            delivery)

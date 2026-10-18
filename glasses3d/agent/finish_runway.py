@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 
+from .budget import cap_to_micro
 from .pricing import PricingError, usd_text
 
 TEXT_ALLOWANCE_TOKENS = 6000  # planning assumption: the 12,000-character tool limit / 2
@@ -71,24 +72,40 @@ margin is one current-context maximum request hold; it neither reserves nor bloc
     reply_allowance = output * (1 if review_ready else 2)
     projected_input = current + reply_allowance + overhead
     committed = sum(summary.get(key, 0) for key in ("settled_micro_usd", "held_micro_usd", "unknown_micro_usd"))
-    room = max(0, summary["maximum_micro_usd"] - committed)
+    settled_only = summary.get("settled_only", False)
+    room = None if settled_only else max(0, summary["maximum_micro_usd"] - committed)
+    stop = summary.get("settled_stop_usd")
+    stop_room = None if stop is None else max(0, cap_to_micro(stop) - committed)
+    balances = {"settled_only": settled_only,
+                "reserve_room_micro_usd": room, "reserve_room_usd": None if room is None else usd_text(room),
+                "remaining_to_stop_micro_usd": stop_room,
+                "remaining_to_stop_usd": None if stop_room is None else usd_text(stop_room)}
     current_hold = tariff.reserve_micro(current, output)
     try:
         hold = tariff.reserve_micro(projected_input, output)
     except PricingError as error:
         return {"status": "unavailable", "informational_only": True, "warning": True,
                 "current_input_tokens": current, "projected_input_tokens": projected_input,
-                "reserve_room_usd": usd_text(room), "evidence": evidence,
+                **balances, "evidence": evidence,
                 "message": f"Finish-review projection exceeds supported request limits: {error}. Start review now; no completion guarantee."}
-    warning = room <= hold + current_hold
+    # After the first evidence call has settled only its review response remains.
+    # Before it, allow both calls. These are conservative costs, never admission limits.
+    finish_allowance = hold + (0 if review_ready else current_hold)
+    reserve_warning = room is not None and room <= hold + current_hold
+    stop_warning = stop_room is not None and stop_room <= finish_allowance
+    warning = reserve_warning or stop_warning
     crossed = current <= tariff.long_context_input_tokens < projected_input
     return {"status": "projected", "informational_only": True, "warning": warning,
             "review_ready": review_ready, "current_input_tokens": current, "projected_input_tokens": projected_input,
             "reply_allowance_tokens": reply_allowance, "evidence_allowance_tokens": overhead,
             "max_output_tokens": output, "second_finish_hold_micro_usd": hold, "second_finish_hold_usd": usd_text(hold),
-            "reserve_room_micro_usd": room, "reserve_room_usd": usd_text(room),
+            **balances, "reserve_warning": reserve_warning, "settled_stop_warning": stop_warning,
+            "finish_calls_remaining": 1 if review_ready else 2,
+            "finish_allowance_micro_usd": finish_allowance, "finish_allowance_usd": usd_text(finish_allowance),
+            "fits_remaining_to_stop": None if stop_room is None else finish_allowance <= stop_room,
             "warning_margin_micro_usd": current_hold, "warning_margin_usd": usd_text(current_hold),
-            "fits_current_reserve_room": hold <= room, "crosses_long_context_price_step": crossed,
+            "fits_current_reserve_room": None if room is None else hold <= room,
+            "crosses_long_context_price_step": crossed,
             "projected_long_context": tariff.multipliers(projected_input)["long_context"],
             "long_context_threshold_tokens": tariff.long_context_input_tokens, "evidence": evidence,
             "assumptions": "Guard formula; all input at cache-write rate and maximum output. Future replies/evidence are allowances, not exact counts; no cache credit or completion guarantee."}
@@ -99,9 +116,16 @@ def text(report):
         return ""
     if report.get("status") != "projected":
         return report.get("message", "Finish-review hold unavailable; no completion guarantee.")
-    prefix = "Finish-review reserve warning: " if report["warning"] else "Finish-review projection: "
-    value = (f"second finish may need ${report['second_finish_hold_usd']} hold at ~{report['projected_input_tokens']} input tokens; "
-             f"reserve room ${report['reserve_room_usd']} (warning margin ${report['warning_margin_usd']}).")
+    prefix = "Finish-review warning: " if report["warning"] else "Finish-review projection: "
+    kind = "estimated cost" if report["settled_only"] else "hold"
+    value = f"second finish may need ${report['second_finish_hold_usd']} {kind} at ~{report['projected_input_tokens']} input tokens."
+    if report['remaining_to_stop_usd'] is not None:
+        value += (f" {report['finish_calls_remaining']} finish call(s) allow ${report['finish_allowance_usd']}; "
+                  f"${report['remaining_to_stop_usd']} left before the settled stop after held/unknown money.")
+    if not report["settled_only"]:
+        value += f" Reserve room ${report['reserve_room_usd']} (warning margin ${report['warning_margin_usd']})."
+    else:
+        value += " Informational only; estimates never refuse or shrink requests in settled-only mode."
     if report["projected_long_context"]:
         value += f" Includes the >{report['long_context_threshold_tokens']} long-context price step."
     if report["warning"]:

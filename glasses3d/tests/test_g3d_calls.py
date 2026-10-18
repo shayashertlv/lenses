@@ -8,8 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 from glasses3d.g3d import calls as C
+from glasses3d.g3d import rpc
 
 
 @pytest.mark.parametrize("op,kwargs", [
@@ -167,3 +169,71 @@ def test_drift_and_bad_arguments_never_invoke_operation(monkeypatch):
     call = _worker_methods(Scene())
     assert call({"op": "seat_lens", "kwargs": {"lens": "Lens"}, "expect_fingerprint": "stale"})["status"] == "drift"
     assert call({"op": "unseat_lens", "kwargs": {"lens": 1}})["code"] == "E_ARGS"
+
+
+OP_KWARGS = {
+    "seat_lens": {"lens": "Lens"}, "unseat_lens": {"lens": "Lens"},
+    "hide_eyewire": {"eyewire": "Wire", "under": "Brow", "hidden_x_range_mm": [[1, 2]]},
+    "unhide_eyewire": {"eyewire": "Wire"}, "check_lens_seating": {"lenses": "Lens"},
+    "print_uv": {"parts": "Frame"}, "attach_print": {"report": "bake", "parts": "Frame"},
+    "detach_print": {"parts": "Frame"},
+}
+
+
+@pytest.mark.parametrize("op", sorted(C.OPS))
+@pytest.mark.parametrize("bad", [float("nan"), np.float32("inf"), -float("inf")])
+def test_every_trusted_op_refuses_nonfinite_report_before_checkpointing(monkeypatch, op, bad):
+    """SEAT-4: previously every one of these reports failed strict rpc.encode (fatal FrameError)."""
+    scene = Scene()
+    domain = {"status": next(iter(sorted(C.SUCCESS.get(op, {"ok"})))),
+              "lenses": [{"name": "Broken lens", "measurement_mm": bad}]}
+    monkeypatch.setattr(C, "invoke", lambda *_: domain)
+    result = _worker_methods(scene)({"op": op, "kwargs": OP_KWARGS[op]})
+    decoded = rpc.decode(rpc.encode(result)[4:])
+    assert decoded["status"] == "refused" and decoded["code"] == "E_NONFINITE"
+    assert "Broken lens" in decoded["message"] and "measurement_mm" in decoded["message"]
+    assert "result" not in decoded and scene.protected is False
+
+
+@pytest.mark.parametrize("op", sorted(C.OPS))
+def test_every_trusted_op_preserves_finite_numpy_measurements_in_strict_json(monkeypatch, op):
+    domain = {"status": next(iter(sorted(C.SUCCESS.get(op, {"ok"})))),
+              "measurements": [np.int64(4), np.bool_(False), np.array([1.5, 2.5])]}
+    monkeypatch.setattr(C, "invoke", lambda *_: domain)
+    result = _worker_methods(Scene())({"op": op, "kwargs": OP_KWARGS[op]})
+    assert rpc.decode(rpc.encode(result)[4:])["result"]["measurements"] == [4, False, [1.5, 2.5]]
+
+
+@pytest.mark.parametrize("key,bad", [(key, value) for key in ("margin_mm", "ramp_mm", "lift_max_mm")
+                                  for value in (-1., float("nan"), float("inf"), C.HIDE_DISTANCE_MAX_MM + 1)] +
+                         [("ramp_mm", 0.), ("lift_max_mm", 0.)])
+def test_bad_hide_distances_refuse_before_invocation(monkeypatch, key, bad):
+    monkeypatch.setattr(C, "invoke", lambda *_: pytest.fail("invalid arguments reached geometry"))
+    kwargs = {**OP_KWARGS["hide_eyewire"], key: bad}
+    result = _worker_methods(Scene())({"op": "hide_eyewire", "kwargs": kwargs})
+    assert rpc.decode(rpc.encode(result)[4:])["code"] == "E_ARGS"
+    assert key in result["message"]
+
+
+def test_trusted_result_does_not_weaken_broken_contract_or_truncate_evidence():
+    with pytest.raises(rpc.FrameError):
+        rpc.encode(C.trusted_result({"unexpected": object()}, "bounds"))
+    rows = list(range(20_010))
+    assert C.trusted_result({"rows": rows}, "check_lens_seating") == {"rows": rows}
+    nested = float("nan")
+    for _ in range(12):
+        nested = [nested]
+    assert C.trusted_result({"nested": nested}, "bounds")["code"] == "E_NONFINITE"
+
+
+@pytest.mark.parametrize("method", ["bounds", "scene_summary", "pick"])
+def test_trusted_read_dispatch_refuses_nonfinite_values(method):
+    path = Path(__file__).resolve().parents[1] / "g3d" / "worker.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_dispatch"]
+    namespace = {"time": time, "rpc": rpc, "SoftTimeout": TimeoutError,
+                 "METHODS": {method: lambda _: {"objects": {"Bad mesh": {"lo": [float("nan")]}}}}}
+    exec(compile(tree, str(path), "exec"), namespace)
+    reply = namespace["_dispatch"]({"id": 1, "method": method})
+    result = rpc.decode(rpc.encode(reply)[4:])["result"]
+    assert reply["ok"] and result["code"] == "E_NONFINITE" and "Bad mesh" in result["message"]

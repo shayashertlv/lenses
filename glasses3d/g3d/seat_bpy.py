@@ -1519,6 +1519,10 @@ def hide_eyewire(eyewire, under, hidden_x_range_mm, *, lens=None, margin_mm: flo
     rb_e = rb_l = None
     eob = lob = None
     try:
+        from .calls import hide_argument_error
+        error = hide_argument_error(margin_mm, ramp_mm, lift_max_mm)
+        if error:
+            return _refuse(rep, "E_ARGS", f"{rep['eyewire']}: {error}")
         eob = _obj(eyewire)
         rep["eyewire"] = eob.name
         bad = _lens_refusal(eob)

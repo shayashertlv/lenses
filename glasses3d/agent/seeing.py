@@ -286,6 +286,8 @@ class Seeing:
         r = self.s.call_read("bounds", "bounds", {}, deadline_s=BOUNDS_DEADLINE_S, call_id=call_id)
         if r["status"] != "ok":
             raise SeeingError("E_WORKER", r.get("message") or r["status"])
+        if r["result"].get("status") == "refused":
+            raise SeeingError(r["result"].get("code", "E_WORKER"), r["result"]["message"])
         self._bounds = (fp, r["result"])
         return r["result"]
 

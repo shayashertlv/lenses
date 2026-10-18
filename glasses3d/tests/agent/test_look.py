@@ -15,6 +15,24 @@ from glasses3d.tests.agent.test_delivery import make_finished, digest
 from glasses3d.agent import delivery
 
 
+def test_verified_report_preserves_utf8_object_names_on_a_legacy_locale(tmp_path, monkeypatch):
+    report = {"input": {"sha256": "a" * 64}, "images": [],
+              "lens_identification": {"objects": ["Lens \u201dclear\u201d", "\u05e2\u05d3\u05e9\u05d4", "\u03c6\u03b1\u03ba\u03cc\u03c2"]}}
+    path = tmp_path / "work/report.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    record = {"report": str(path), "report_sha256": digest(path), "export_sha256": "a" * 64}
+    read_text = Path.read_text
+
+    def legacy_read(self, encoding=None, errors=None):
+        # Exercise Windows' cp1252 default even when the test runner enables Python's UTF-8 mode.
+        return read_text(self, encoding=encoding or "cp1252", errors=errors)
+
+    monkeypatch.setattr(Path, "read_text", legacy_read)
+    found_path, found = look.verified_report(tmp_path, record, "a" * 64)
+    assert found_path == path and found == report
+
+
 @pytest.mark.parametrize("angles", [(0, 0, 0), (-87, 12, 33), (17, 90, -120)])
 @pytest.mark.parametrize("eyes", [(0, 0), (.3, -.25)])
 @pytest.mark.parametrize("perspective", [0, .02, .6])

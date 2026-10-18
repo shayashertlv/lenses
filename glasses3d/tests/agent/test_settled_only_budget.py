@@ -35,7 +35,8 @@ def test_full_request_below_stop_ignores_global_and_child_estimated_reserve(tmp_
             assert next_request.content == original
             assert guard.ledger.rows[-1]["reserved_micro_usd"] == 24_278_800
             assert guard.summary()["remaining_micro_usd"] == 10_000
-            assert guard.summary()["remaining_to_stop_usd"] == "0.010000"
+            # Planning includes the hold; settled-only admission still sent the full request.
+            assert guard.summary()["remaining_to_stop_usd"] == "0.000000"
             # A pending hold above $20 remains a valid audit record, not an incurred charge.
             assert B.RunLedger.load(guard.ledger_path).totals()["settled_micro_usd"] == 19_990_000
             await guard.after_response(response(body=provider_body(response_id="resp_child_or_parent",

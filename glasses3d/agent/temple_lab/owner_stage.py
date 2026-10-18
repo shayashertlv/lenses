@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from .. import brief, edits, jobs, owner_edits
 from ..instructions import build_instructions, instruction_contract
-from ..loop import StageContract, StageSpec
+from ..loop import StageContract, StageRunFailed, StageSpec
 from ..procs import write_json_atomic
 from glasses3d.g3d import owner_mesh as M
 
@@ -24,7 +24,7 @@ def settings(parent, owner_edit):
 
 def registry(scene, child_settings):
     from ..tools import build_tools
-    return build_tools(scene, child_settings)
+    return [tool for tool in build_tools(scene, child_settings) if tool.name != "temple_stage"]
 
 
 def contract(job, parent_settings, maximum_usd, owner_edit):
@@ -78,6 +78,7 @@ def prepare(scene, folder):
 
 def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
     from ..job_scene import JobScene
+    from .stage import money_note, progress, record_failure
     bridge.check()
     folder = scene.root / "work/temple_stage" / hashlib.sha256(call_id.encode()).hexdigest()[:16]
     source = prepare(scene, folder)
@@ -87,18 +88,15 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         child.start()
         bridge.check()
         tools = registry(child, child_settings)
-        money_note = (f"Shared settled-only stop ${child_settings.settled_stop_usd}; no reservation cutoff. "
-                      if child_settings.settled_only else
-                      f"Working settled stop ${child_settings.settled_stop_usd}; this stage's remaining reserve "
-                      f"${cap_usd} is inside the same owner approval. ")
         spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=child.owner_edit), tools,
             brief.build_brief(child.job) + edits.brief_suffix(child.owner_edit), child_settings,
             photos=jobs.references(folder),
             scene_note=(f"Private owner-edit specialist: exact current parent head {source['head']['id']}. "
                         "No template or earlier specification has replaced this mesh. "
-                        + money_note + "The shared footer reports job totals."),
+                        + money_note(runtime, child_settings, cap_usd)),
             contract=instruction_contract(tools, owner_edit=child.owner_edit), contract_brief=brief.host_text(child.job))
         outcome = bridge.run(runtime, spec, child, cap_usd, call_id)
+        outcome["progress"] = progress(child, folder, scene.root)
         write_json_atomic(folder / "stage-outcome.json", outcome)
         bridge.check()
         exit_head = outcome.get("exit_checkpoint") or {}
@@ -145,6 +143,7 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
                 call_id=call_id)
         finally:
             del scene._owner_expected_positions
+        outcome["progress"]["parent_geometry_unchanged"] = applied.get("status") != "ok"
         bridge.check()
         if applied.get("status") == "ok":
             # Copy receipt facts only after the validated actual child mesh reached the parent.
@@ -163,5 +162,8 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
                   "source": source["head"], "summary": finished.get("summary"), "finish": finished["status"]}
         write_json_atomic(folder / "application.json", result)
         return result
+    except StageRunFailed as exc:
+        record_failure(exc, child, folder, scene.root)
+        raise
     finally:
         child.close()

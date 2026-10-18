@@ -13,11 +13,13 @@ from uuid import uuid4
 
 from . import procs
 from .money import owner_money
+from .run_statuses import STATUSES
 
 SCHEMA = "g3d.delivery/1"
 POINTER_SCHEMA = "g3d.delivery_current/1"
 REPORT_SCHEMA = "g3d.deliverable/1"
-DRAFT_STATUSES = frozenset({"budget_limit", "turn_limit", "stopped", "ended_without_finish", "output_limit", "failed"})
+DRAFT_STATUSES = frozenset(STATUSES) - {"completed"}
+_REVERIFY_STATUSES = frozenset({"failed", "failed_worker"})
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,23}-[0-9a-f]{64}")
 
@@ -238,7 +240,8 @@ def _look_files(root, look, glb_sha, files, *, prefix="look"):
 
 
 def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar, model,
-             capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=(), owner_edit_report=None):
+             capture, raw, shown, contact, *, source=None, selection=None, look=None, finish_images=(), owner_edit_report=None,
+             final_delivery_failure=None):
     """Package evidence without changing a check's result. Drafts never enter the finish validator."""
     draft = source is not None
     files = {"model.glb": model}
@@ -306,7 +309,10 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
             report["finish_images"].append({"path": name, "sha256": _sha(data)})
     if draft:
         report.update(source_checkpoint=copy.deepcopy(source), checkpoint_selection=selection,
-                      failed_checks=_failed_checks(report))
+                      failed_checks=_failed_checks(report), stages=copy.deepcopy(result.get("stages", [])),
+                      stage_progress=copy.deepcopy((result.get("error") or {}).get("stage_progress", [])))
+        if final_delivery_failure is not None:
+            report["final_delivery_failure"] = copy.deepcopy(final_delivery_failure)
     if "path" in report["validate_spec"]:
         report["validate_spec"]["path"] = "model.glb"
     if "glb" in report["seating"]:
@@ -443,9 +449,10 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
         raise DeliveryError("delivery report does not bind the validated finished model")
     if draft:
         source = report.get("source_checkpoint")
-        if (report.get("accepted_finish") is not False or report.get("run_status") not in DRAFT_STATUSES
+        if (report.get("accepted_finish") is not False
+                or not _draft_eligible(report.get("run_status"), report.get("final_delivery_failure"))
                 or report.get("checkpoint_selection") not in (
-                    ("last_verified",) if report.get("run_status") == "failed" else ("best", "head"))
+                    ("last_verified",) if report.get("run_status") in _REVERIFY_STATUSES else ("best", "head"))
                 or not isinstance(source, dict) or source.get("verified") is not True
                 or source.get("id") != report["checkpoint"] or source.get("fingerprint") != report["fingerprint"]
                 or not isinstance(report["fingerprint"], str) or not _DIGEST.fullmatch(report["fingerprint"])
@@ -456,7 +463,7 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
                 or report.get("failed_checks") != _failed_checks(report)
                 or contents.get("arview/attempt.json") != _json_bytes(report.get("arview"))):
             raise DeliveryError("draft report does not bind its source and reported checks")
-        if report["run_status"] == "failed":
+        if report["run_status"] in _REVERIFY_STATUSES:
             attempts = source.get("verification_attempts")
             if (not isinstance(attempts, list) or not attempts
                     or not all(isinstance(attempt, dict) for attempt in attempts)
@@ -548,10 +555,16 @@ def _publish(root, manifest, files):
     loaded = load_delivery(root, manifest["id"])
     if loaded["manifest_sha256"] != _sha(_json_bytes(manifest)):
         raise DeliveryError("existing immutable delivery differs from this finished run")
-    _compatibility(root, loaded)
     procs.write_json_atomic(_output_path(root, "deliveries/current.json"),
                            {"schema": POINTER_SCHEMA, "id": loaded["id"], "glb_sha256": loaded["glb_sha256"],
                             "manifest_sha256": loaded["manifest_sha256"]})
+    try:
+        _compatibility(root, loaded)
+    except (OSError, DeliveryError) as exc:
+        # Review/verdict resolve the immutable pointer. A viewer locking the optional convenience copy must not
+        # strand that delivery, and returning its stale convenience path would misidentify the published model.
+        return {**loaded, "snapshot_model": loaded["model"], "snapshot_report": loaded["report"],
+                "compatibility": {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"}}
     return {**loaded, "snapshot_model": loaded["model"], "snapshot_report": loaded["report"],
             "model": str(root / "deliverable/model.glb"), "report": str(root / "deliverable/report.json")}
 
@@ -601,7 +614,7 @@ def _draft_export(root: Path, scene, result: dict) -> tuple[dict, dict, str]:
     if (not head or not expected.get("id") or head["id"] != expected["id"]
             or (expected.get("sha256") is not None and head.get("sha256") != expected["sha256"])):
         raise DeliveryError("no checkpoint, or the job head changed after this run ended")
-    failed = result.get("status") == "failed"
+    failed = result.get("status") in _REVERIFY_STATUSES
     best = getattr(scene, "best_checkpoint", None)
     selected = index.get(best) if best and not failed else head
     if selected is None:
@@ -701,15 +714,25 @@ def _draft_capture(root, export, token):
                  "message": f"{type(exc).__name__}: {exc}"}, ({}, [], [], []))
 
 
-def deliver_draft(root, scene, result) -> dict:
+def _draft_eligible(status, final_delivery_failure=None):
+    return (status in DRAFT_STATUSES or
+            (status == "completed" and isinstance(final_delivery_failure, dict)
+             and isinstance(final_delivery_failure.get("reason"), str) and bool(final_delivery_failure["reason"])))
+
+
+def deliver_draft(root, scene, result, *, final_delivery_failure=None) -> dict:
     """Host-only salvage of an unfinished run; no model call, accepted finish or checkpoint mutation."""
     from .budget import JobLedger, JobLedgerError
 
-    if result.get("status") not in DRAFT_STATUSES:
+    if not _draft_eligible(result.get("status"), final_delivery_failure):
         return {"status": "not_finished", "run_status": result.get("status")}
     root = Path(root).resolve()
     refusal = {"status": "no_usable_checkpoint", "finished": False, "accepted_finish": False,
-               "run_status": result["status"], "run_id": result.get("run_id")}
+               "run_status": result["status"], "run_id": result.get("run_id"),
+               "stages": copy.deepcopy(result.get("stages", [])),
+               "stage_progress": copy.deepcopy((result.get("error") or {}).get("stage_progress", []))}
+    if final_delivery_failure is not None:
+        refusal["final_delivery_failure"] = copy.deepcopy(final_delivery_failure)
     try:
         # run_astra has released this lock. Reacquire before selection and hold through publication, preventing
         # resume from changing the source/evidence while a draft is exported, checked and captured.
@@ -724,7 +747,12 @@ def deliver_draft(root, scene, result) -> dict:
             _, model = _read(root, export["path"], export["sha256"])
             manifest, files = _package(root, result, export, source["id"], source["fingerprint"],
                                        result.get("exit_checkpoint") or {}, _last_summary(root, result),
-                                       ar, model, capture, raw, shown, contact, source=source, selection=selection)
+                                       ar, model, capture, raw, shown, contact, source=source, selection=selection,
+                                       final_delivery_failure=final_delivery_failure)
             return _publish(root, manifest, files)
     except JobLedgerError as exc:
         return {**refusal, "reason": str(exc)}
+    except Exception as exc:
+        # The source may be usable even when packaging/publication fails. Preserve an explicit failed attempt,
+        # never label unavailable evidence a successful delivery or a certified check.
+        return {**refusal, "status": "draft_failed", "reason": f"{type(exc).__name__}: {exc}"}

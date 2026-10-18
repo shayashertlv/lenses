@@ -13,6 +13,7 @@ from glasses3d.g3d.temple import build as B, fit as FIT
 from glasses3d.g3d.temple.spec import VISIBLE_ANGLE_TOL_DEG
 from glasses3d.g3d_host import compare as C
 from . import geometry as G, state as S, crease_ar as AR
+from .recovery import restore_head
 
 SCHEMA = "g3d.crease_angle_comparison/1"
 MIN_ALTERNATIVES, MAX_ALTERNATIVES = 3, 5
@@ -172,10 +173,11 @@ def compare(lab, call_id, parent_revision, facets, moving_facet, shape, angles_d
         exported = lab.s.call_read("facet_crease_compare", "temple_variants_export", {
             "variants": specs, "out_dir": str(lab.root / "work/exports" / comparison_id)},
             deadline_s=max(1, deadline-time.monotonic()), call_id=call_id+"-exports")
-    finally:
-        reset = lab.s.restore_checkpoint(before["id"], call_id=call_id+"-head-restore")
-        if reset.get("status") != "ok" or lab.s.fingerprint() != before["fingerprint"]:
-            raise RuntimeError("crease comparison could not restore and verify the original head")
+    except BaseException as original:
+        restore_head(lab.s, before, call_id+"-head-restore", original=original)
+        raise
+    else:
+        restore_head(lab.s, before, call_id+"-head-restore")
     result = exported.get("result") or {}
     if exported.get("status") != "ok" or result.get("status") != "ok" or not result.get("unchanged"):
         raise ValueError("read-only candidate export did not complete unchanged")

@@ -18,10 +18,8 @@ from agents.tool_context import ToolContext
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict
 
-from ..journal import CheckpointMismatch, WorkerFailed
-from ..loop import STAGE_FATAL, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
+from ..loop import FATAL_TOOL_ERRORS, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
 from ..seeing import VIEWS_PER_SHEET
-from ..worker_client import WorkerDied
 from ..money import owner_money
 from ..finish_runway import observation as runway_observation
 from ..tool_reports import bounded_tool, limit_output, report_tool
@@ -36,7 +34,7 @@ from .photo_read import photo_read_tool
 TOOL_NAMES = ("execute_blender_code", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
               "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map")
-FATAL = (WorkerFailed, CheckpointMismatch, WorkerDied, *STAGE_FATAL)
+FATAL = FATAL_TOOL_ERRORS
 
 
 class CustomView(BaseModel):
@@ -617,9 +615,11 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
-        """Return settled spend, settled_stop_usd and remaining_to_stop_usd after open/unknown holds, plus the
-        separate reserve cap, next request hold and finish_runway's projected second-finish hold. Future evidence
-        and replies are estimates; its reserve warning is not a completion guarantee. Plan against the settled stop."""
+        """Return settled spend and held/unknown money separately. remaining_to_stop_usd deducts all three
+        from the settled stop. finish_runway estimates the remaining finish calls against that room. In reserve
+        mode it also reports reserve room and the projected second-finish hold. In settled-only mode there is no
+        reserve cap: remaining_usd is the unspent settled allowance, and estimated costs never refuse or shrink
+        requests. The final in-flight response can cross the stop. Projections are information, not a guarantee."""
         def status(cid):
             runtime = getattr(ctx, "context", None)
             guard = getattr(runtime, "guard", None)

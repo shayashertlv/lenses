@@ -212,6 +212,7 @@ from . import readings as RD
 from . import sheets as SH
 from . import state as S
 from .state import LabRefusal
+from .recovery import restore_head
 
 LAB_SCHEMA = "g3d.temple_lab/2"
 FIT_RECORD_SCHEMA = "g3d.temple_lab_fit/1"
@@ -1366,7 +1367,8 @@ class Lab(SceneHooks):
         Only the stage's guarded final application touches the parent. Failed private builds restore this call's head.
         """
         self.verify_inputs()
-        before = self.s.head["id"]
+        before_head = dict(self.s.head)
+        before = before_head["id"]
         spec = self.spec(rid)
         if self.s.head["fingerprint"] != self.state["start_fingerprint"]:
             reset = self.s.restore_checkpoint(self.state["start_checkpoint"], call_id=call_id + "-base")
@@ -1375,12 +1377,11 @@ class Lab(SceneHooks):
         try:
             out = self.s.call_mutating(tool, "temple_lab_build", {"spec": spec}, deadline_s=BUILD_DEADLINE_S,
                                        call_id=call_id, label=f"revision {rid}")
-        except Exception:
-            # a fatal worker exception must not strand the scene on the original; a failed recovery is fatal too
-            self.s.restore_checkpoint(before, call_id=call_id + "-exception-rollback")
+        except Exception as original:
+            restore_head(self.s, before_head, call_id + "-exception-rollback", original=original)
             raise
         if out["status"] != "ok":
-            out["rollback"] = self.s.restore_checkpoint(before, call_id=call_id + "-rollback")
+            out["rollback"] = restore_head(self.s, before_head, call_id + "-rollback")
         inherited = self._inherited_of(rid, out.get("result") or {}) if out["status"] == "ok" and tool == "prepare" \
             else None
         with self.state_lock:

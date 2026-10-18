@@ -12,7 +12,9 @@ import threading
 from agents.tool import ToolOutputImage, ToolOutputText
 from PIL import Image
 
-from ..loop import image_key
+from ..loop import StageRunFailed, image_key
+from ..budget import cap_to_micro, usd_text
+from ..money import dollars, money_text
 from .lab import Lab, data_url, sha
 from . import state as S
 from . import tools as T
@@ -25,6 +27,53 @@ def settings(parent=None):
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
                        settled_only=getattr(parent, "settled_only", False),
                        reset_tool_choice=False, finish_tool="facet_finish", finish_k=4)
+
+
+def money_note(runtime, child_settings, cap_usd):
+    """Describe the shared working money without changing the owner's reservation policy."""
+    guard = getattr(runtime, "guard", None)
+    if guard is None:
+        return "The specialist shares the parent's approved money limits; the footer reports job totals."
+    summary = guard.summary()
+    text = money_text(summary, places=2) + ". "
+    stop = summary.get("settled_stop_usd")
+    if stop is not None:
+        left = max(0, cap_to_micro(stop) - sum(summary[name + "_micro_usd"]
+                                              for name in ("settled", "held", "unknown")))
+        text += (f"{dollars(usd_text(left))} remains before the shared {dollars(stop)} "
+                 "settled stop after outstanding holds. ")
+    if child_settings.settled_only:
+        return text + "There is no reservation cutoff; only settled charges trigger the shared stop."
+    return text + (f"The stage shares {dollars(cap_usd)} of remaining reserve within the owner's "
+                   f"{dollars(summary['maximum_usd'])} reserve cap. Reserve is not additional spendable money.")
+
+
+def progress(scene, folder, parent_root):
+    """Facts from the isolated scene for the parent's draft, never a certified finish."""
+    state = getattr(scene, "state", {})
+    finished = state.get("finish")
+    if not isinstance(finished, dict):
+        finished = getattr(scene, "finish", None)
+    if not isinstance(finished, dict):
+        finished = {}
+    head = getattr(scene.s, "head", None) or {}
+    applied = [row for row in state.get("heads", []) if row.get("checkpoint") == head.get("id")]
+    return {"package": folder.relative_to(parent_root).as_posix(),
+            "checkpoint": head.get("id"), "best_checkpoint": state.get("best_checkpoint"),
+            "revision": applied[-1].get("revision") if applied else finished.get("revision"),
+            "revisions_built": len(state.get("revisions", [])),
+            "finish": finished.get("status"), "summary": finished.get("summary"),
+            "parent_geometry_unchanged": True}
+
+
+def record_failure(error, scene, folder, parent_root):
+    """Keep the original run failure even when writing its supplementary receipt fails."""
+    from ..procs import write_json_atomic
+    try:
+        error.stage_progress = progress(scene, folder, parent_root)
+        write_json_atomic(folder / "stage-progress.json", error.stage_progress)
+    except Exception as receipt_error:
+        error.add_note(f"Stage progress receipt failed: {type(receipt_error).__name__}: {receipt_error}")
 
 
 def registry(lab, child_settings):
@@ -280,18 +329,15 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         lab.start()
         # Briefs are bound data: preserve CRLF, lone CR and UTF-8 bytes exactly. The instruction
         # contract retains its existing canonical text path through instructions_text above.
-        money_note = ("Parent and specialist share the same settled-only stop; there is no reservation cutoff. "
-                      "The tool footer reports the shared job's settled charges." if child_settings.settled_only else
-                      f"This temple stage has a ${cap_usd} allowance inside the job's approval. "
-                      "The tool footer reports the shared job's totals; both limits apply.")
         spec = StageSpec("temple_stage", instructions_text(folder, child_settings.finish_k),
                          registry(lab, child_settings), (folder / "inputs/brief.txt").read_bytes().decode("utf-8"),
                          child_settings, photos=references(lab),
                          scene_note=(f"Current job head captured in revision 0 at {lab.s.head['id']}. "
-                                     + money_note),
+                                     + money_note(runtime, child_settings, cap_usd)),
                          contract=tool_contract(),
                          contract_brief=(folder / "inputs/contract-brief.txt").read_bytes().decode("utf-8"))
         outcome = bridge.run(runtime, spec, lab, cap_usd, call_id)
+        outcome["progress"] = progress(lab, folder, scene.root)
         write_json_atomic(folder / "stage-outcome.json", outcome)
         bridge.check()
         finished = lab.state.get("finish")
@@ -315,6 +361,7 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
                                         {"spec": fitted, "source_fingerprint": source["fingerprint"]},
                                         deadline_s=150, label=f"temple stage revision {finished['revision']}",
                                         call_id=call_id)
+        outcome["progress"]["parent_geometry_unchanged"] = applied.get("status") != "ok"
         # If cancellation races the final worker mutation, the parent journal records it and the existing
         # interrupted-call recovery restores checkpoint_before. No cancelled call can become a finished delivery.
         bridge.check()
@@ -323,5 +370,8 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
                   "finish": finished["status"]}
         write_json_atomic(folder / "application.json", result)
         return result
+    except StageRunFailed as exc:
+        record_failure(exc, lab, folder, scene.root)
+        raise
     finally:
         lab.close()

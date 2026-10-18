@@ -366,7 +366,8 @@ def _mutating(params: dict, body) -> dict:
     if expect and fp0 != expect:
         return {"status": "drift", "fingerprint_before": fp0, "expected": expect,
                 "seconds": round(time.perf_counter() - t0, 4)}
-    res = body()
+    from glasses3d.g3d.calls import trusted_result
+    res = trusted_result(body(), params.get("op", "trusted mutation"), params.get("kwargs", params))
     res["fingerprint_before"] = fp0
     if res.get("status") == "ok":
         res["protected"] = checkpoint.protect()
@@ -415,7 +416,7 @@ def m_g3d_call(params):
         return {"status": "refused", "code": "E_ARGS", "message": str(exc)}
 
     def body():
-        return calls.envelope(op, calls.invoke(op, kwargs))
+        return calls.trusted_result(calls.envelope(op, calls.invoke(op, kwargs)), op, kwargs)
 
     if op not in calls.READ_OPS:
         return _mutating(params, body)
@@ -712,7 +713,7 @@ def m_scene_summary(params):
     axes = next((scene.get(k) for k in ("blender_agent_axes", "authoring_axes", "g3d_axes") if scene.get(k)), None)
     origin = scene.get("mdl_bridge_underside")
     return {"units": {"system": us.system, "scale_length": us.scale_length, "length_unit": us.length_unit},
-            "axes": axes, "origin_marker": rpc.to_jsonable(origin), "objects": objects,
+            "axes": axes, "origin_marker": origin, "objects": objects,
             "materials": sorted(m.name for m in bpy.data.materials), "warnings": warnings,
             "fingerprint": checkpoint.fingerprint(state)}
 
@@ -874,7 +875,10 @@ def _dispatch(msg: dict) -> dict:
     if fn is None:
         return rpc.error(msg["id"], "UnknownMethod", f"no method {method!r}", None, time.perf_counter() - t0)
     try:
-        return rpc.ok(msg["id"], fn(msg.get("params") or {}), time.perf_counter() - t0)
+        from glasses3d.g3d.calls import trusted_result
+        params = msg.get("params") or {}
+        result = trusted_result(fn(params), method, params)
+        return rpc.ok(msg["id"], result, time.perf_counter() - t0)
     except SoftTimeout as exc:                # a late interrupt outside any snippet
         return rpc.error(msg["id"], "SoftTimeout", str(exc), None, time.perf_counter() - t0)
     except BaseException as exc:  # noqa: BLE001

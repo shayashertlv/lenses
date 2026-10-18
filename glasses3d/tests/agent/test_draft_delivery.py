@@ -12,6 +12,7 @@ import pytest
 from glasses3d.agent import delivery as D, job_run, worker_client
 from glasses3d.agent.budget import JobLedger, JobLedgerError
 from glasses3d.agent.journal import CheckpointIndex
+from glasses3d.agent.loop import STATUSES
 from glasses3d.agent.tools import arview
 from glasses3d.tests.agent.test_delivery import make_finished, digest
 
@@ -83,7 +84,7 @@ def preserved(root):
             for p in (root / folder).rglob("*") if p.is_file()}
 
 
-@pytest.mark.parametrize("status", sorted(D.DRAFT_STATUSES - {"failed"}))
+@pytest.mark.parametrize("status", sorted(set(STATUSES) - {"completed", "failed", "failed_worker"}))
 @pytest.mark.parametrize("best", [True, False])
 def test_each_unfinished_status_exports_best_else_head_without_changing_resume(tmp_path, monkeypatch, status, best):
     scene, result, workers, captures = draft_fixture(tmp_path, monkeypatch, status=status, best=best)
@@ -104,7 +105,7 @@ def test_each_unfinished_status_exports_best_else_head_without_changing_resume(t
     assert digest(out["snapshot_model"]) == out["glb_sha256"]
 
 
-@pytest.mark.parametrize("status", sorted(D.DRAFT_STATUSES))
+@pytest.mark.parametrize("status", sorted(set(STATUSES) - {"completed"}))
 def test_each_status_records_no_usable_checkpoint_when_empty(tmp_path, status):
     scene = SimpleNamespace(s=SimpleNamespace(head=None), best_checkpoint=None)
     result = {"status": status, "run_id": "empty", "exit_checkpoint": None}
@@ -112,6 +113,67 @@ def test_each_status_records_no_usable_checkpoint_when_empty(tmp_path, status):
     assert out["status"] == "no_usable_checkpoint" and out["finished"] is False
     assert "no checkpoint" in out["reason"] and out["run_status"] == status
     assert not (tmp_path / "deliveries").exists()
+
+
+@pytest.mark.parametrize("status", sorted(set(STATUSES) - {"completed"}))
+def test_job_publication_attempts_a_draft_for_every_loop_end(tmp_path, monkeypatch, status):
+    scene, result, _, _ = draft_fixture(tmp_path, monkeypatch, status=status)
+    before = copy.deepcopy(result)
+    out = job_run._publish_result(tmp_path, result["run_id"], scene, result)
+    assert out["status"] == "delivered" and out["finished"] is False and out["run_status"] == status
+    assert D.load_delivery(tmp_path)["report_data"]["accepted_finish"] is False
+    assert json.loads((tmp_path / "runs/offline/delivery.json").read_text(encoding="utf-8")) == out
+    assert result == before
+
+
+@pytest.mark.parametrize("failure", ["missing_finish", "invalid_finish", "publication"])
+@pytest.mark.parametrize("usable", [True, False])
+def test_final_delivery_failure_falls_back_and_records_original_result(tmp_path, monkeypatch, failure, usable):
+    scene, result, _, _ = draft_fixture(tmp_path, monkeypatch, status="completed")
+    if not usable:
+        scene.best_checkpoint = "missing"
+    if failure == "invalid_finish":
+        scene.finish = {"status": "accepted", "checkpoint": "c0001", "export": {"status": "refused"}}
+    elif failure == "publication":
+        def denied(*args):
+            raise PermissionError("final publication sharing violation")
+        monkeypatch.setattr(job_run, "deliver_finished", denied)
+    before = copy.deepcopy(result)
+    out = job_run._publish_result(tmp_path, result["run_id"], scene, result)
+    assert out["status"] == ("delivered" if usable else "no_usable_checkpoint")
+    assert out["finished"] is False and out["run_status"] == "completed"
+    evidence = D.load_delivery(tmp_path)["report_data"] if usable else out
+    assert evidence["accepted_finish"] is False and evidence["final_delivery_failure"]["reason"]
+    assert json.loads((tmp_path / "runs/offline/delivery.json").read_text(encoding="utf-8")) == out
+    assert result == before
+
+
+def test_draft_publication_failure_records_attempt_instead_of_an_older_delivery(tmp_path, monkeypatch):
+    scene, result, _, _ = draft_fixture(tmp_path, monkeypatch)
+
+    def denied(*args):
+        raise PermissionError("draft publication sharing violation")
+
+    monkeypatch.setattr(D, "_publish", denied)
+    out = job_run._publish_result(tmp_path, result["run_id"], scene, result)
+    assert out["status"] == "draft_failed" and out["finished"] is out["accepted_finish"] is False
+    assert "draft publication sharing violation" in out["reason"]
+    assert json.loads((tmp_path / "runs/offline/delivery.json").read_text(encoding="utf-8")) == out
+
+
+@pytest.mark.parametrize("usable", [True, False])
+def test_budget_draft_reports_stage_progress_and_uses_parent_best(tmp_path, monkeypatch, usable):
+    scene, result, _, _ = draft_fixture(tmp_path, monkeypatch, status="budget_limit")
+    result["stages"] = [{"stage": "temples", "status": "budget_limit", "summary": "One revision built; not applied."}]
+    result["error"] = {"stage_progress": [{"stage": "temples", "applied_to_parent": False, "child_status": "budget_limit"}]}
+    if not usable:
+        scene.best_checkpoint = "missing"
+    out = job_run._publish_result(tmp_path, result["run_id"], scene, result)
+    report = D.load_delivery(tmp_path)["report_data"] if usable else out
+    assert out["finished"] is False and report["stages"] == result["stages"]
+    assert report["stage_progress"] == result["error"]["stage_progress"]
+    if usable:
+        assert report["checkpoint_selection"] == "best" and report["checkpoint"] == "c0000"
 
 
 @pytest.mark.parametrize("failure", ["missing_best", "corrupt_best", "advanced_head", "changed_head_sha",

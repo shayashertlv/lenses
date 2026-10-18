@@ -534,8 +534,12 @@ def test_specialist_keeps_money_for_fixable_differences_and_the_remaining_review
     assert "Only the owner sets the active settled stop and reserve cap" in text
     assert "Remaining money is for fixing visible differences" in text
     assert "Do not finish while a visible difference you can still fix remains" in text
-    assert "finish reserve allows another fix within the owner's limits" in text
+    assert "money left before the settled stop allows that fix and the remaining review" in text
+    assert "Leave time and money before the settled stop" in text
     assert "stage finish and, when nested, the parent's whole-product review" in text
+    assert "Planning estimates are information only: they never refuse or shrink requests" in text
+    assert "no later request starts once settled charges reach it" in text
+    assert "finish reserve" not in text and "finish-reserve" not in text
 
 
 def test_instructions_carry_no_retired_phrase():

@@ -992,7 +992,9 @@ class BudgetGuard:
         balance = totals["settled_micro_usd" if self.ledger.settled_only else "committed_micro_usd"]
         remaining = max(0, cap - balance)
         stop = self.settled_stop_micro
-        remaining_to_stop = None if stop is None else max(0, stop - balance)
+        # Planning room includes outstanding liability in either money mode; request
+        # admission in settled-only mode still uses actual settled charges only.
+        remaining_to_stop = None if stop is None else max(0, stop - totals["committed_micro_usd"])
         outcomes = totals["outcomes"]
         return {
             "maximum_micro_usd": cap, "settled_micro_usd": totals["settled_micro_usd"],

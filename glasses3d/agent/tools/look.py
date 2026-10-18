@@ -89,7 +89,7 @@ def verified_report(root, record, digest):
     path = arview.confined(root, record["report"])
     if arview.sha256(path) != record["report_sha256"]:
         raise ValueError("capture report bytes changed")
-    report = json.loads(path.read_text())
+    report = json.loads(path.read_text(encoding="utf-8"))
     if report["input"]["sha256"] != digest or record.get("export_sha256") != digest:
         raise ValueError("capture is not of this export")
     for image in report["images"]:
