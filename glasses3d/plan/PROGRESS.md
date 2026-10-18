@@ -25,8 +25,8 @@ Open verification limits: known photo_v1 golden drift remains (199 changed pixel
 That historical proof was not regenerated. No arview changes, so npm checks do not apply. The brief's
 path-less pytest invocation collected outside glasses3d; stopped before tests, then ran from the repo
 root with explicit `glasses3d/tests`. Complete diff and independent reviews done. Report and evidence:
-`data/review_20261018/codex/task1_report.md`. Implementation/tests are in this entry's commit,
-`fix(glasses3d): preserve drafts and crash safety at run endings`; exact hash recorded in the report.
+`data/review_20261018/codex/task1_report.md`. Implementation/test commit: `9ef5cea2e123d9db46e8b7a849cc23e71380232f`
+(`fix(glasses3d): preserve drafts and crash safety at run endings`); this progress-only follow-up records its hash.
 No paid API call, push, root-app/ar change or task 2 work.
 
 ## 2026-10-17 — Selected 3 mm temples + 60% corners combined ($0)
