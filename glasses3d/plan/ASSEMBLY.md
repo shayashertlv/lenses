@@ -727,6 +727,23 @@ Causes: no amount was ever shown to the owner before spending; the amount was ch
 5. **Proof ($0)** on a copy of run 6's c0016 with the owner's two items: diagnosis, previews (photo first), apply of
    one picked option. Lean verification (owner, 2026-10-17): focused tests + `assembly_m1` once, no full suite.
 
+### M11. Fixes from the 2026-10-18 review ($0; added 2026-10-18 by Claude)
+Source: `plan/REVIEW_20261018.md` (section 7 is the order; finding IDs point to the detailed reports in
+`data/review_20261018/reports/`). From 2026-10-18 Claude dispatches Codex directly (owner: "every token used by you
+should go managing this project, and you should use codex for the actual labor"); each task's brief is saved in
+`data/review_20261018/briefs/`. One Codex task at a time; each ends with its new tests, the full suite (section 1),
+`tests.proofs.assembly_m1`, a PROGRESS entry and a commit with explicit paths. No paid run.
+1. **Task 1, run endings, money and crash safety:** drafts for every unfinished end; nested `temple_stage` never fatal;
+   trusted worker results never end a run on NaN; finish runway against the settled stop; temple-stage failure and
+   money handling; `encoding="utf-8"` for the AR report.
+2. **Task 2, resume, sessions and timeouts:** best checkpoint per run, resume from the draft's checkpoint, resume
+   estimates; rollback, drift and export-cache recovery defects; tool timeouts from their real inner steps.
+3. **Task 3, what Astra sees and reads:** EXIF-upright photos, one wearer's-side convention in every report, sandbox
+   hints and fonts, `read_image` on camera overlays, the over-length summariser, stage photo transport copies,
+   capture exit codes, `agent/README.md`.
+4. Then review section 7 steps 2-7 (M9 safety valve, owner edit mode, arm openings, FT1119 readiness, builder,
+   tests and documents), one task each.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
