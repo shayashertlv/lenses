@@ -208,6 +208,92 @@ def browser(out, port, scenarios=None, resume=False):
                     review._stop_owned(state)
 
 
+def audit_applies(out, report, receipts):
+    """Authenticate current outcomes while retaining superseded native failures."""
+    from glasses3d.agent import delivery, edits
+    from glasses3d.tests.proofs.m12_offline_ui import SAME_PART_REFUSAL, confined
+    state = report["state"].get("edit", {})
+    refusal_state, single = state.get("same_part_refusal"), state.get("single")
+    if not refusal_state or not single:
+        return [], receipts, {"complete": False, "reason": "Required refusal or single apply is missing"}
+    by_key = {row["task_key"]: row for row in receipts}
+    refusal_key, single_key = refusal_state["task"]["task_key"], single["task"]["task_key"]
+    assert refusal_key != single_key
+    refusal, applied = by_key[refusal_key], by_key[single_key]
+    task_root = out / "ui/registry/tasks"
+    refused_task, applied_task = read(task_root / (refusal_key + ".json")), read(task_root / (single_key + ".json"))
+    assert refusal["status"] == refused_task["phase"] == refusal_state["task"]["phase"] == "failed"
+    assert refusal["error"] == refused_task["error"] == refusal_state["task"]["error"] == SAME_PART_REFUSAL
+    assert refusal_state["expected_error"] == SAME_PART_REFUSAL and refusal["result"] is None
+    expected = refusal["expected_refusal"]
+    assert expected["status"] == "expected_same_part_shading_refusal" and expected["message"] == SAME_PART_REFUSAL
+    evidence_path = confined(out, expected["evidence_path"])
+    assert evidence_path == out / "ui/tasks" / refusal_key / "same-part-refusal.json"
+    assert sha(evidence_path) == expected["evidence_sha256"]
+    observation = read(evidence_path)
+    assert observation["message"] == SAME_PART_REFUSAL
+    assert observation["choices"] == refused_task["body"]["choices"] == [
+        {"item_id": "I1", "option_id": "B"}, {"item_id": "I2", "option_id": "B"}]
+    assert observation["skipped"] == refused_task["body"]["skipped"]
+    assert all(observation[name] == 0 for name in
+               ("directory_creations", "private_copies", "native_worker_starts", "publications",
+                "actual_provider_requests", "actual_spend_usd"))
+    assert observation["destination_absent"] and observation["source_round_unchanged"]
+    destination = confined(out, observation["destination"])
+    assert destination == out / "ui/applied" / refusal_key and not destination.exists()
+    root = confined(out, observation["source_root"])
+    assert root == Path(refused_task["round_root"]) == Path(applied_task["round_root"])
+    assert edits.tree_hashes(root) == observation["source_round_before"] == observation["source_round_after"]
+    understanding_path = root / "work/owner_edit/understanding.json"
+    assert sha(understanding_path) == observation["understanding_sha256"] == state["understanding"]["understanding_sha256"]
+    assert all(row["body"]["understanding_sha256"] == sha(understanding_path)
+               for row in (refused_task, applied_task))
+
+    assert applied["status"] == applied_task["phase"] == single["task"]["phase"] == "done"
+    assert applied["result"] == applied_task["result"] == single["task"]["result"]
+    delivery_key = applied["result"]["delivery_key"]
+    assert single["delivery"]["delivery_key"] == delivery_key
+    registered = read(out / "ui/registry/deliveries" / (delivery_key + ".json"))
+    applied_root = confined(out, registered["root"])
+    assert applied_root == out / "ui/applied" / single_key and not (applied_root / "runs").exists()
+    loaded = delivery.load_delivery(applied_root, registered["delivery_id"])
+    application_path = Path(loaded["report"]).parent / loaded["report_data"]["owner_applied"]["path"]
+    assert application_path == confined(out, applied["application_path"])
+    assert sha(application_path) == applied["application_sha256"]
+    application = read(application_path)
+    assert application["api_requests"] == 0 and application["settled_usd"] == "0.000000"
+    assert application["origin"] == single["delivery"]["origin"] == "applied_picks"
+    assert application["notes"] == application["skipped"] == applied_task["body"]["skipped"] == single["delivery"]["notes"]
+    assert {row["item_id"] for row in application["skipped"]} == {"I2", "I3"}
+    assert any(row["item_id"] == "I2" and row["note"].strip() for row in application["skipped"])
+    assert [{k: row[k] for k in ("item_id", "option_id")} for row in application["applied"]] == [
+        {"item_id": "I1", "option_id": "B"}] == applied_task["body"]["choices"]
+    exactness = application["exactness"]
+    assert exactness == applied["exactness"] == single["delivery"]["exactness"]
+    assert exactness["ok"] and exactness["mode"] == "single_glb_bytes" and exactness["single_pick_glb_equal"]
+    assert exactness["overlaps"] == [] and application["warnings"] == []
+    assert len(exactness["items"]) == 1 and exactness["items"][0]["exact_preview_geometry"]
+    understanding = read(understanding_path)
+    item = next(row for row in understanding["items"] if row["item_id"] == "I1")
+    preview_path = edits.confined(root, item["amount_preview"]["preview_receipt"])
+    assert sha(preview_path) == item["amount_preview"]["preview_sha256"]
+    option = next(row for row in read(preview_path)["options"] if row["id"] == "B")
+    preview_glb = confined(root, option["export"]["path"])
+    assert sha(preview_glb) == option["export"]["sha256"] == loaded["glb_sha256"]
+    assert loaded["glb_sha256"] == applied["glb_sha256"] == single["delivery"]["glb_sha256"]
+    historical = [row for row in receipts if row["task_key"] not in {refusal_key, single_key}]
+    # The earlier native failure remains a failure, never a successful apply.
+    old_task = report["state"].get("apply_tasks", {}).get("two-picks")
+    assert {row["task_key"] for row in historical} == ({old_task["task_key"]} if old_task else set())
+    assert all(row["status"] == "failed" and not row.get("expected_refusal")
+               and row["error"] == "normal intent or encoded normals differ from the confirmed plan"
+               for row in historical)
+    return [refusal, applied], historical, {"complete": True,
+        "refusal_task_key": refusal_key, "single_apply_task_key": single_key,
+        "single_delivery_reauthenticated": True, "single_glb_sha256": loaded["glb_sha256"],
+        "source_round_unchanged": True, "no_native_work_or_publication_for_refusal": True}
+
+
 def audit(out):
     before = read(out / "source-before.json")
     after = {}
@@ -220,9 +306,17 @@ def audit(out):
     write(out / "source-after.json", after)
     report = read(out / "browser/browser-report.json")
     required = {"1-new-run-and-double-click", "2-cutoff-draft", "3-browser-survival-stop-and-concurrency",
-                "4-captures-understand-and-two-exact-applies", "5-fallback-and-fresh-understanding"}
+                "4-captures-understand-refusal-and-single-exact-apply", "5-fallback-and-fresh-understanding"}
     passed = {row["id"] for row in report["scenarios"] if row["status"] == "passed"}
     assert not report["page_errors"] and not report["network_violations"]
+    assert report["state"]["stale_simulation"]["status"] == 409
+    assert report["state"]["stale_simulation"]["body"]["error"]["code"] == "stale_understanding"
+    survival = next(row for row in report["scenarios"] if row["id"] == "3-browser-survival-stop-and-concurrency")
+    assert survival["result"]["concurrent_refusal"]["status"] == 409
+    assert survival["result"]["concurrent_refusal"]["body"]["error"]["code"] == "paid_run_busy"
+    new_run = next(row for row in report["scenarios"] if row["id"] == "1-new-run-and-double-click")
+    starts = report["requests"][new_run["request_start"]:new_run["request_end"]]
+    assert sum(row["method"] == "POST" and row["path"] == "/api/jobs/start" for row in starts) == 1
     run_receipts = []
     for path in out.rglob("proof-script.json"):
         script = read(path)
@@ -237,6 +331,11 @@ def audit(out):
         run_receipts.append({"path": str(folder), **receipt})
     assert {row["scenario"] for row in run_receipts} == {"success", "cutoff", "slow", "understand", "fallback", "followup"}
     assert len(run_receipts) == 6, "Each scripted paid-button scenario creates exactly one run"
+    previous_audit = out / "followup1/previous/run-audit.json"
+    if previous_audit.is_file():
+        prior_runs = read(previous_audit)["runs"]
+        assert {row["path"]: row for row in prior_runs} == {row["path"]: row for row in run_receipts}, \
+            "Follow-up 1 reuses all six completed scripted runs without changing their receipts"
     assert len(list(out.rglob("approval-request.json"))) == len(run_receipts), "No extra approval was prepared"
     for scenario, count in {"success": 13, "cutoff": 2, "understand": 6, "fallback": 4, "followup": 2}.items():
         assert any(row["scenario"] == scenario and row["requests"] == count for row in run_receipts)
@@ -247,7 +346,8 @@ def audit(out):
     task_folders = [path for path in (out / "ui/tasks").iterdir() if path.is_dir()]
     task_receipts = [{**read(folder / "proof-receipt.json"), "task_key": folder.name,
                       "path": str(folder / "proof-receipt.json")} for folder in task_folders]
-    assert all(row["understand_requests_unchanged"] and row["actual_provider_requests"] == 0 for row in task_receipts)
+    assert all(row["understand_requests_unchanged"] and row["actual_provider_requests"] == row["actual_spend_usd"] == 0
+               for row in task_receipts)
     isolation_paths = [out / "server/offline-isolation.json"]
     isolation_paths.extend(Path(row["path"]) / "offline-isolation.json" for row in run_receipts)
     isolation_paths.extend(path.parent / "offline-isolation.json"
@@ -277,17 +377,18 @@ def audit(out):
                        "photos_and_view_side_labels_only": True})
     for path in (out / "ui/uploads").glob("*/views.json"):
         assert all(set(view) == {"kind", "side"} for view in read(path).values())
-    write(out / "run-audit.json", {"runs": run_receipts, "tasks": task_receipts, "inputs": inputs})
+    accepted_tasks, historical_tasks, apply_audit = audit_applies(out, report, task_receipts)
+    write(out / "run-audit.json", {"runs": run_receipts, "tasks": task_receipts, "inputs": inputs,
+          "accepted_apply_outcomes": accepted_tasks, "historical_task_receipts": historical_tasks,
+          "apply_audit": apply_audit})
     # Preserve independently checked evidence even when a required native task
     # refused. This never turns a partial run into a passed proof.
-    complete = (report["status"] == "passed" and required <= passed
-                and len(task_receipts) == 2 and all(row["status"] == "done" for row in task_receipts)
-                and any(row.get("exactness", {}).get("single_pick_glb_equal") for row in task_receipts)
-                and any(len(row.get("exactness", {}).get("items", [])) == 2
-                        and not row["exactness"]["overlaps"] for row in task_receipts))
+    complete = report["status"] == "passed" and required <= passed and apply_audit["complete"]
     write(out / "audit-evidence.json", {"status": "complete" if complete else "incomplete",
           "missing_required_scenarios": sorted(required - passed),
           "failed_tasks": [row for row in task_receipts if row["status"] != "done"],
+          "accepted_apply_outcomes": accepted_tasks, "historical_task_receipts": historical_tasks,
+          "apply_audit": apply_audit,
           "sources_unchanged": True, "private_source_unchanged": True,
           "isolation_receipts_checked": [str(path) for path in isolation_paths],
           "actual_spend_usd": 0, "runs": run_receipts, "tasks": task_receipts, "inputs": inputs})
@@ -296,7 +397,8 @@ def audit(out):
           "actual_spend_usd": 0,
           "browser": report, "sources_unchanged": True,
           "scripted_requests": sum(row["requests"] for row in run_receipts),
-          "run_receipts": run_receipts, "apply_receipts": task_receipts,
+          "run_receipts": run_receipts, "apply_receipts": accepted_tasks,
+          "historical_task_receipts": historical_tasks, "apply_audit": apply_audit,
           "source_file_counts": {key: len(value["files"]) for key, value in before.items()}})
 
 

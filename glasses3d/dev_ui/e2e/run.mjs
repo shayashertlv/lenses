@@ -21,6 +21,7 @@ const output = path.resolve(config.output_root ?? path.join(proofRoot, 'browser'
 assert(output.startsWith(proofRoot + path.sep), 'Browser evidence must remain in the private proof');
 await fs.mkdir(output, {recursive: true});
 const TIMEOUT = config.timeout_ms ?? 3_600_000;
+const SAME_PART_REFUSAL = 'Items I1 and I2 both change the shading of the same part, which cannot be combined exactly yet. Pick an option for one of them now (choose None of these for the other) and send the other again as a new edit.';
 let report = {schema: 'g3d.m12_browser_proof/1', started_at: new Date().toISOString(),
   offline_test_mode: true, actual_spend_usd: 0, scenarios: [], requests: [], responses: [],
   screenshots: [], captures: [], assertions: [], page_errors: [], network_violations: [],
@@ -494,6 +495,29 @@ async function picks(understanding, single = false) {
   }
   await page.locator('#note-I3').fill('I3 is not applied; its genuine preview refusal remains visible.');
 }
+async function applyAndInspectRefusal(understanding) {
+  // This is a new deliberate selection after the coordinator's C2 decision.
+  // Never relabel or retry the historical native normal-composition failure.
+  const name = 'same-part-shading-refusal';
+  let task = config.resume && report.state.apply_tasks?.[name];
+  if (task) await navigate(`/task/${task.task_key}`);
+  else {
+    await picks(understanding); await shot(`${name}-picked`);
+    task = await clickJSON('#apply-picks', '/apply');
+    report.state.apply_tasks ??= {}; report.state.apply_tasks[name] = task; await checkpoint();
+  }
+  await page.waitForURL(url => url.pathname === `/task/${task.task_key}`, {timeout: TIMEOUT});
+  await banner(); await shot(`${name}-task`);
+  await page.locator('#task-state').filter({hasText: /^failed$/}).waitFor({timeout: TIMEOUT});
+  const actual = await dto(`/api/tasks/${task.task_key}`);
+  check(actual.phase === 'failed' && actual.error === SAME_PART_REFUSAL,
+    'Same-part shading picks receive the exact decided core refusal');
+  check(actual.result == null, 'Refused same-part selection returns no delivery');
+  check((await page.locator('#page-error').innerText()) === SAME_PART_REFUSAL,
+    'The task page shows the exact plain refusal and next-step guidance');
+  await shot(`${name}-refused`);
+  return {task: actual, expected_error: SAME_PART_REFUSAL};
+}
 async function applyAndInspect(understanding, name, single = false) {
   let task = config.resume && report.state.apply_tasks?.[name];
   if (task) await navigate(`/task/${task.task_key}`);
@@ -601,7 +625,7 @@ try {
     check(!result.delivery.finished, 'Cooperatively stopped run publishes an unfinished draft');
     report.state.survival = result; return {...result, before, after, concurrent_refusal: {status: refused.status(), body: rejection}};
   });
-  if (wanted.has('edit')) await scenario('4-captures-understand-and-two-exact-applies', async () => {
+  if (wanted.has('edit')) await scenario('4-captures-understand-refusal-and-single-exact-apply', async () => {
     let source, draft, understood;
     if (config.resume && report.state.edit?.understanding) {
       ({source, draft, ...understood} = report.state.edit);
@@ -669,20 +693,20 @@ try {
       report.state.stale_simulation = {method: 'Only outgoing understanding_sha256 replaced by 64 zeroes; genuine backend response and visible UI error', status: stale.status(), body: staleBody};
       await checkpoint();
     }
-    let multi = report.state.edit.multi;
-    if (!multi) {
+    if (await page.locator('#page-error').isVisible()) {
       await page.goto(understood.url); await banner();
-      multi = await applyAndInspect(understanding, 'two-picks');
-      report.state.edit.multi = multi; await checkpoint();
     }
-    let single = report.state.edit.single;
-    if (!single) {
+    const refusal = await applyAndInspectRefusal(understanding);
+    report.state.edit.same_part_refusal = refusal; await checkpoint();
+    const reusedSingle = !!(config.resume && report.state.apply_tasks?.['one-pick-none']);
+    if (!reusedSingle) {
       await page.goto(understood.url); await banner();
-      single = await applyAndInspect(understanding, 'one-pick-none', true);
-      report.state.edit.single = single; await checkpoint();
     }
-    check(multi.delivery.delivery_key !== single.delivery.delivery_key, 'Distinct selections publish distinct immutable deliveries');
-    report.state.edit = {source, draft, ...understood, multi, single};
+    // Reopen and check the actual immutable model/DTO even when reusing 4b's
+    // already-proved native single apply. No new apply POST is needed then.
+    const single = await applyAndInspect(understanding, 'one-pick-none', true);
+    report.state.edit = {source, draft, ...understood, same_part_refusal: refusal,
+      single, single_reused: reusedSingle};
     return report.state.edit;
   });
   if (wanted.has('single_apply')) await scenario('4b-single-pick-after-multi-refusal', async () => {

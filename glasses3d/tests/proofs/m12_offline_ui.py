@@ -38,6 +38,9 @@ REPO = Path(__file__).resolve().parents[3]
 PROOFS = (REPO / "glasses3d/data/m12/proofs").resolve()
 MODULE = "glasses3d.tests.proofs.m12_offline_ui"
 LABEL = "scripted by Codex, not Astra"
+SAME_PART_REFUSAL = (
+    "Items I1 and I2 both change the shading of the same part, which cannot be combined exactly yet. "
+    "Pick an option for one of them now (choose None of these for the other) and send the other again as a new edit.")
 
 
 def read(path):
@@ -71,6 +74,13 @@ def settings(proof, port=None):
     config = Config(port=chosen, jobs_root=proof / "jobs", state_root=proof / "ui")
     plan = confined(proof, doc.get("source_plan", doc.get("plan_path", proof / "source-plan.json")))
     return config, plan, doc
+
+
+def require_unpaid_checkout():
+    # Inspect the actual checkout path even while the scripted ledger uses its
+    # private lock root. Never acquire, rewrite or remove the owner's lock.
+    if (REPO / "glasses3d/data/.paid-run.lock").exists():
+        raise RuntimeError("Checkout paid-run lock is present; wait before starting this offline proof step.")
 
 
 def offline_environment():
@@ -174,6 +184,7 @@ class OfflineLauncher(Launcher):
 class PrivateCore(CoreAdapter):
     def __init__(self, proof):
         self.proof = private_root(proof)
+        self.apply_observation = None
 
     def create_capture_understand(self, source_root, delivery_id, items, destination=None):
         confined(self.proof, source_root)
@@ -188,9 +199,53 @@ class PrivateCore(CoreAdapter):
         return super().create_full_edit_item(round_root, item_id, destination)
 
     def apply_choices(self, round_root, understanding_sha256, choices, skipped, confirmation_text, destination=None):
-        confined(self.proof, round_root)
-        confined(self.proof, destination)
-        return super().apply_choices(round_root, understanding_sha256, choices, skipped, confirmation_text, destination)
+        from glasses3d.agent import owner_choices
+        from glasses3d.g3d import owner_surface
+        root = confined(self.proof, round_root)
+        destination = confined(self.proof, destination)
+        self.apply_observation = None
+        # Inspect declared options only to choose the proof observation. The real
+        # facade below still authenticates every seal and makes the refusal.
+        artifact = root / "work/owner_edit/understanding.json"
+        understanding = read(artifact)
+        requested = {row["item_id"]: row["option_id"] for row in choices}
+        selected = [item for item in understanding["items"] if item["item_id"] in requested]
+        normal_objects = []
+        for item in selected:
+            option = next(row for row in item.get("amount_preview", {}).get("options", [])
+                          if row["id"] == requested[item["item_id"]])
+            normal_objects.append({op["scope"]["object_id"] for op in option["operations"]
+                                   if op["kind"] in owner_surface.OPERATION_KINDS - {"material_adjust"}})
+        same_part = len(selected) == 2 and bool(normal_objects[0] & normal_objects[1])
+        if not same_part:
+            return super().apply_choices(root, understanding_sha256, choices, skipped, confirmation_text, destination)
+        before = edits.tree_hashes(root)
+        message = None
+        # Delegating spies observe ordinary effects. The native-start tripwire
+        # only fails closed if the decided early refusal regresses; it cannot
+        # supply the expected ValueError or start Blender during this proof.
+        with (patch.object(Path, "mkdir", autospec=True, side_effect=Path.mkdir) as directories,
+              patch.object(owner_choices, "_prepare_apply", wraps=owner_choices._prepare_apply) as copies,
+              patch.object(owner_choices.JobScene, "start",
+                           side_effect=AssertionError("Early refusal attempted to start Blender")) as native,
+              patch.object(delivery, "deliver_owner_applied", wraps=delivery.deliver_owner_applied) as publication):
+            try:
+                return super().apply_choices(root, understanding_sha256, choices, skipped, confirmation_text, destination)
+            except ValueError as error:
+                message = str(error)
+                raise
+            finally:
+                after = edits.tree_hashes(root)
+                self.apply_observation = {
+                    "message": message, "choices": choices, "skipped": skipped,
+                    "understanding_sha256": understanding_sha256,
+                    "source_root": str(root), "destination": str(destination),
+                    "directory_creations": directories.call_count, "private_copies": copies.call_count,
+                    "native_worker_starts": native.call_count, "publications": publication.call_count,
+                    "destination_absent": not destination.exists(),
+                    "source_round_unchanged": before == after,
+                    "source_round_before": before, "source_round_after": after,
+                    "actual_provider_requests": 0, "actual_spend_usd": 0}
 
     def review(self, root, delivery_id):
         confined(self.proof, root)
@@ -318,6 +373,7 @@ def audit_run(root, run_id, script, record, seconds):
 
 
 async def run_worker(proof, root, run_id):
+    require_unpaid_checkout()
     from glasses3d.agent.tools import free_commit_bytes, owner_preview
     from glasses3d.tests.proofs.m12_ui_script import make_script
     root = confined(proof, root)
@@ -342,6 +398,7 @@ async def run_worker(proof, root, run_id):
 
 
 def task_worker(proof, key):
+    require_unpaid_checkout()
     from glasses3d.dev_ui.api import Service
     from glasses3d.dev_ui.tasks import execute_task
     config, _, _ = settings(proof)
@@ -357,6 +414,18 @@ def task_worker(proof, key):
     receipt = {"status": result["phase"], "seconds": time.monotonic()-start,
         "actual_provider_requests": 0, "actual_spend_usd": 0, "understand_requests_unchanged": True,
         "result": result.get("result"), "error": result.get("error")}
+    observation = service.core.apply_observation
+    if observation is not None:
+        evidence = config.state_root / "tasks" / key / "same-part-refusal.json"
+        write(evidence, observation)
+        assert result["phase"] == "failed" and result.get("result") is None
+        assert observation["message"] == result["error"] == SAME_PART_REFUSAL
+        assert observation["source_round_unchanged"] and observation["destination_absent"]
+        assert all(observation[name] == 0 for name in
+                   ("directory_creations", "private_copies", "native_worker_starts", "publications"))
+        receipt["expected_refusal"] = {"status": "expected_same_part_shading_refusal",
+            "message": observation["message"], "evidence_path": str(evidence),
+            "evidence_sha256": edits.sha(evidence)}
     if result["phase"] == "done":
         registered = service.get("deliveries", result["result"]["delivery_key"])
         saved = delivery.load_delivery(Path(registered["root"]), registered["delivery_id"])
@@ -381,7 +450,7 @@ def task_worker(proof, key):
         receipt.update(application_path=str(application_path), application_sha256=edits.sha(application_path),
             exactness=application["exactness"], glb_sha256=saved["glb_sha256"], delivery_report=str(saved["report"]))
     write(config.state_root / "tasks" / key / "proof-receipt.json", receipt)
-    return 0 if result["phase"] == "done" else 1
+    return 0 if result["phase"] == "done" or receipt.get("expected_refusal") else 1
 
 
 def serve(proof, port):
