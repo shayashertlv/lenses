@@ -2,9 +2,10 @@
 
 This is the local UI for starting a glasses3d run, viewing its model and asking Astra for edits.
 It binds to `127.0.0.1` only. It uses the existing glasses3d pipeline; the live Lenses app and `/ar/`
-deployment are separate. D1's six-scenario browser/SDK/Blender proof passed at $0 on 2026-10-19, including the
-same-part shading refusal and byte-exact single apply. See [the test guide](../tests/README.md#m12-dev-ui-and-edit-proofs)
-for proof commands and [current progress](../plan/PROGRESS.md) for final-suite results and the next action.
+deployment are separate. D1's historical six-scenario browser/SDK/Blender proof passed at $0 on 2026-10-19,
+including the then-required same-part shading refusal and byte-exact single apply. N1 adds separate shading
+picks on one part when their normal influence is disjoint. See [the test guide](../tests/README.md#m12-dev-ui-and-edit-proofs)
+for proof commands/results and [current progress](../plan/PROGRESS.md) for the next action.
 
 ## Start and stop
 
@@ -76,11 +77,12 @@ the existing checks, export and AR capture. A single pick must reproduce its pre
 picks, geometry touched by only one pick must reproduce that preview exactly; overlapping changes are composed
 in item order and their interaction is reported. A failed check refuses delivery. The source delivery stays intact.
 
-Two picked items that change shading or normals on the same part are refused before a copy or model worker starts,
-even when their marks are separate. Put both marks in one item when preparing the request, or choose one item's
-option now, choose **None of these** for the other, and send the other again as a new edit of the resulting model.
-Exact local normal writes and ordered composition of those separate items remain future work; the attempted
-normal-writer change failed the real Prada preview and was reverted. Existing exactness checks remain in force.
+Two shading-repair picks on one part can be applied together when their affected normal regions are disjoint.
+Separate marks can still affect shared normals; those overlaps, other kinds of normal edits on the same part
+and older previews that fail exact validation remain refused. Each supported pick must retain its preview
+exactly in the combined result, including exported normals. Existing exactness checks remain in force.
+For a refused combination, put both marks in one item when preparing the request, or choose one item's option
+now, choose **None of these** for the other, and send the other again as a new edit of the resulting model.
 
 An item without a preview can show **Send this item to a full paid edit**. Enter that item's own max budget;
 pressing the button authorizes a separate `full_edit_item` round from the same source delivery. Astra has the
@@ -143,9 +145,13 @@ and the dispatched brief. The contract defines pages, endpoints, DTOs, decimal-s
 identity and the C1/C2/C3 adapters. Browser payloads select saved item/option IDs; they never supply edit operations.
 The server verifies same-origin mutations, confines served files and verifies registered artifact hashes.
 Delivery responses expose verified `exactness` and `side_effects`; Results shows those measurements and the
-complete side-effect report. Same-part shading refusal is the current supported boundary, not an exact two-item
-normal-composition proof. UNDERSTAND evidence sealing remains slow on Prada: C2's two-item proof took 1,147.484 s
-(about 19 minutes). The pre-M12 M11-task-8 historical temple-alias regression remains open, queued as M11 task 12.
+complete side-effect report. N1 supports separate same-part `repair_shading` picks with disjoint normal influence;
+overlap and other same-part normal kinds still refuse. Older previews must pass the current exact checks.
+See the test guide's N1 proof record for measured coverage. UNDERSTAND evidence sealing remains slow on Prada:
+C2's two-item proof took 1,147.484 s
+(about 19 minutes). Task 12 (`1238a21`, accepted by Claude) repaired authenticated historical temple aliases:
+40/54 temple objects verify, 14 already-reshaped objects correctly refuse, and the M10 regression export remains
+byte-identical (`7d2d5b27…`). See PROGRESS for the retained proof.
 
 | Module | Responsibility |
 |---|---|

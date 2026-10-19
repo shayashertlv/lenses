@@ -209,89 +209,92 @@ def browser(out, port, scenarios=None, resume=False):
 
 
 def audit_applies(out, report, receipts):
-    """Authenticate current outcomes while retaining superseded native failures."""
+    """Authenticate fresh two-pick and single-pick immutable applications."""
     from glasses3d.agent import delivery, edits
-    from glasses3d.tests.proofs.m12_offline_ui import SAME_PART_REFUSAL, confined
+    from glasses3d.tests.proofs.m12_offline_ui import confined
     state = report["state"].get("edit", {})
-    refusal_state, single = state.get("same_part_refusal"), state.get("single")
-    if not refusal_state or not single:
-        return [], receipts, {"complete": False, "reason": "Required refusal or single apply is missing"}
+    both, single = state.get("both"), state.get("single")
+    if not both or not single:
+        return [], receipts, {"complete": False, "reason": "Required exact two-pick or single apply is missing"}
     by_key = {row["task_key"]: row for row in receipts}
-    refusal_key, single_key = refusal_state["task"]["task_key"], single["task"]["task_key"]
-    assert refusal_key != single_key
-    refusal, applied = by_key[refusal_key], by_key[single_key]
-    task_root = out / "ui/registry/tasks"
-    refused_task, applied_task = read(task_root / (refusal_key + ".json")), read(task_root / (single_key + ".json"))
-    assert refusal["status"] == refused_task["phase"] == refusal_state["task"]["phase"] == "failed"
-    assert refusal["error"] == refused_task["error"] == refusal_state["task"]["error"] == SAME_PART_REFUSAL
-    assert refusal_state["expected_error"] == SAME_PART_REFUSAL and refusal["result"] is None
-    expected = refusal["expected_refusal"]
-    assert expected["status"] == "expected_same_part_shading_refusal" and expected["message"] == SAME_PART_REFUSAL
-    evidence_path = confined(out, expected["evidence_path"])
-    assert evidence_path == out / "ui/tasks" / refusal_key / "same-part-refusal.json"
-    assert sha(evidence_path) == expected["evidence_sha256"]
-    observation = read(evidence_path)
-    assert observation["message"] == SAME_PART_REFUSAL
-    assert observation["choices"] == refused_task["body"]["choices"] == [
-        {"item_id": "I1", "option_id": "B"}, {"item_id": "I2", "option_id": "B"}]
-    assert observation["skipped"] == refused_task["body"]["skipped"]
-    assert all(observation[name] == 0 for name in
-               ("directory_creations", "private_copies", "native_worker_starts", "publications",
-                "actual_provider_requests", "actual_spend_usd"))
-    assert observation["destination_absent"] and observation["source_round_unchanged"]
-    destination = confined(out, observation["destination"])
-    assert destination == out / "ui/applied" / refusal_key and not destination.exists()
-    root = confined(out, observation["source_root"])
-    assert root == Path(refused_task["round_root"]) == Path(applied_task["round_root"])
-    assert edits.tree_hashes(root) == observation["source_round_before"] == observation["source_round_after"]
-    understanding_path = root / "work/owner_edit/understanding.json"
-    assert sha(understanding_path) == observation["understanding_sha256"] == state["understanding"]["understanding_sha256"]
-    assert all(row["body"]["understanding_sha256"] == sha(understanding_path)
-               for row in (refused_task, applied_task))
-
-    assert applied["status"] == applied_task["phase"] == single["task"]["phase"] == "done"
-    assert applied["result"] == applied_task["result"] == single["task"]["result"]
-    delivery_key = applied["result"]["delivery_key"]
-    assert single["delivery"]["delivery_key"] == delivery_key
-    registered = read(out / "ui/registry/deliveries" / (delivery_key + ".json"))
-    applied_root = confined(out, registered["root"])
-    assert applied_root == out / "ui/applied" / single_key and not (applied_root / "runs").exists()
-    loaded = delivery.load_delivery(applied_root, registered["delivery_id"])
-    application_path = Path(loaded["report"]).parent / loaded["report_data"]["owner_applied"]["path"]
-    assert application_path == confined(out, applied["application_path"])
-    assert sha(application_path) == applied["application_sha256"]
-    application = read(application_path)
-    assert application["api_requests"] == 0 and application["settled_usd"] == "0.000000"
-    assert application["origin"] == single["delivery"]["origin"] == "applied_picks"
-    assert application["notes"] == application["skipped"] == applied_task["body"]["skipped"] == single["delivery"]["notes"]
-    assert {row["item_id"] for row in application["skipped"]} == {"I2", "I3"}
-    assert any(row["item_id"] == "I2" and row["note"].strip() for row in application["skipped"])
-    assert [{k: row[k] for k in ("item_id", "option_id")} for row in application["applied"]] == [
-        {"item_id": "I1", "option_id": "B"}] == applied_task["body"]["choices"]
-    exactness = application["exactness"]
-    assert exactness == applied["exactness"] == single["delivery"]["exactness"]
-    assert exactness["ok"] and exactness["mode"] == "single_glb_bytes" and exactness["single_pick_glb_equal"]
-    assert exactness["overlaps"] == [] and application["warnings"] == []
-    assert len(exactness["items"]) == 1 and exactness["items"][0]["exact_preview_geometry"]
-    understanding = read(understanding_path)
-    item = next(row for row in understanding["items"] if row["item_id"] == "I1")
-    preview_path = edits.confined(root, item["amount_preview"]["preview_receipt"])
-    assert sha(preview_path) == item["amount_preview"]["preview_sha256"]
-    option = next(row for row in read(preview_path)["options"] if row["id"] == "B")
-    preview_glb = confined(root, option["export"]["path"])
-    assert sha(preview_glb) == option["export"]["sha256"] == loaded["glb_sha256"]
-    assert loaded["glb_sha256"] == applied["glb_sha256"] == single["delivery"]["glb_sha256"]
-    historical = [row for row in receipts if row["task_key"] not in {refusal_key, single_key}]
-    # The earlier native failure remains a failure, never a successful apply.
-    old_task = report["state"].get("apply_tasks", {}).get("two-picks")
-    assert {row["task_key"] for row in historical} == ({old_task["task_key"]} if old_task else set())
-    assert all(row["status"] == "failed" and not row.get("expected_refusal")
-               and row["error"] == "normal intent or encoded normals differ from the confirmed plan"
-               for row in historical)
-    return [refusal, applied], historical, {"complete": True,
-        "refusal_task_key": refusal_key, "single_apply_task_key": single_key,
-        "single_delivery_reauthenticated": True, "single_glb_sha256": loaded["glb_sha256"],
-        "source_round_unchanged": True, "no_native_work_or_publication_for_refusal": True}
+    task_keys = [value["task"]["task_key"] for value in (both, single)]
+    assert len(set(task_keys)) == 2
+    accepted, audits, roots = [], [], []
+    for result, task_key, is_single in ((both, task_keys[0], False), (single, task_keys[1], True)):
+        applied = by_key[task_key]
+        task = read(out / "ui/registry/tasks" / (task_key + ".json"))
+        assert applied["status"] == task["phase"] == result["task"]["phase"] == "done"
+        assert applied["result"] == task["result"] == result["task"]["result"]
+        assert not applied.get("error") and not applied.get("expected_refusal")
+        source_audit = applied["source_round_audit"]
+        evidence_path = confined(out, source_audit["evidence_path"])
+        assert evidence_path == out / "ui/tasks" / task_key / "source-round-audit.json"
+        assert sha(evidence_path) == source_audit["evidence_sha256"]
+        observation = read(evidence_path)
+        assert source_audit["source_round_unchanged"] and observation["source_round_unchanged"]
+        assert observation["message"] is None
+        assert observation["actual_provider_requests"] == observation["actual_spend_usd"] == 0
+        root = confined(out, observation["source_root"])
+        assert root == Path(task["round_root"])
+        assert edits.tree_hashes(root) == observation["source_round_before"] == observation["source_round_after"]
+        roots.append(root)
+        understanding_path = root / "work/owner_edit/understanding.json"
+        assert sha(understanding_path) == observation["understanding_sha256"] == state["understanding"]["understanding_sha256"]
+        assert task["body"]["understanding_sha256"] == sha(understanding_path)
+        picks = [{"item_id": "I1", "option_id": "B"}]
+        if not is_single:
+            picks.append({"item_id": "I2", "option_id": "B"})
+        assert observation["choices"] == task["body"]["choices"] == picks
+        assert observation["skipped"] == task["body"]["skipped"]
+        destination = confined(out, observation["destination"])
+        assert destination == out / "ui/applied" / task_key and destination.is_dir()
+        delivery_key = applied["result"]["delivery_key"]
+        assert result["delivery"]["delivery_key"] == delivery_key
+        registered = read(out / "ui/registry/deliveries" / (delivery_key + ".json"))
+        applied_root = confined(out, registered["root"])
+        assert applied_root == destination and not (applied_root / "runs").exists()
+        loaded = delivery.load_delivery(applied_root, registered["delivery_id"])
+        assert Path(loaded["report"]).resolve().is_relative_to(applied_root / "deliveries")
+        application_path = Path(loaded["report"]).parent / loaded["report_data"]["owner_applied"]["path"]
+        assert application_path == confined(out, applied["application_path"])
+        assert sha(application_path) == applied["application_sha256"]
+        application = read(application_path)
+        assert application["api_requests"] == 0 and application["settled_usd"] == "0.000000"
+        assert application["origin"] == result["delivery"]["origin"] == "applied_picks"
+        assert application["notes"] == application["skipped"] == task["body"]["skipped"] == result["delivery"]["notes"]
+        assert {row["item_id"] for row in application["skipped"]} == ({"I2", "I3"} if is_single else {"I3"})
+        assert [{k: row[k] for k in ("item_id", "option_id")} for row in application["applied"]] == picks
+        exactness = application["exactness"]
+        assert exactness == applied["exactness"] == result["delivery"]["exactness"]
+        assert exactness["ok"] and exactness["overlaps"] == [] and application["warnings"] == []
+        assert len(exactness["items"]) == len(picks) and all(row["exact_preview_geometry"] for row in exactness["items"])
+        exported = exactness["exported_geometry"]
+        assert exported["ok"] and exported["overlaps"] == []
+        assert all(row.get("overlapping_rows", 0) == 0 for row in exported["comparisons"])
+        if is_single:
+            assert exactness["mode"] == "single_glb_bytes" and exactness["single_pick_glb_equal"]
+            assert any(row["item_id"] == "I2" and row["note"].strip() for row in application["skipped"])
+            understanding = read(understanding_path)
+            item = next(row for row in understanding["items"] if row["item_id"] == "I1")
+            preview_path = edits.confined(root, item["amount_preview"]["preview_receipt"])
+            assert sha(preview_path) == item["amount_preview"]["preview_sha256"]
+            option = next(row for row in read(preview_path)["options"] if row["id"] == "B")
+            preview_glb = confined(root, option["export"]["path"])
+            assert sha(preview_glb) == option["export"]["sha256"] == loaded["glb_sha256"]
+        else:
+            assert exactness["mode"] == "per_item_geometry" and exactness["single_pick_glb_equal"] is None
+        assert loaded["glb_sha256"] == applied["glb_sha256"] == result["delivery"]["glb_sha256"]
+        accepted.append(applied)
+        audits.append({"task_key": task_key, "mode": exactness["mode"],
+                       "glb_sha256": loaded["glb_sha256"], "delivery_reauthenticated": True})
+    assert roots[0] == roots[1]
+    historical = [row for row in receipts if row["task_key"] not in set(task_keys)]
+    # New proof roots cannot silently accept a failed/retried apply. Retained D1
+    # history lives in its unchanged historical root, never relabelled here.
+    assert not historical, "Use a fresh N1 UI proof root; retain earlier attempts separately"
+    return accepted, historical, {"complete": True, "applies": audits,
+        "two_pick_delivery_reauthenticated": True, "single_delivery_reauthenticated": True,
+        "zero_exported_overlapping_rows": True, "source_round_unchanged": True}
 
 
 def audit(out):
@@ -306,7 +309,7 @@ def audit(out):
     write(out / "source-after.json", after)
     report = read(out / "browser/browser-report.json")
     required = {"1-new-run-and-double-click", "2-cutoff-draft", "3-browser-survival-stop-and-concurrency",
-                "4-captures-understand-refusal-and-single-exact-apply", "5-fallback-and-fresh-understanding"}
+                "4-captures-understand-two-picks-and-single-exact-apply", "5-fallback-and-fresh-understanding"}
     passed = {row["id"] for row in report["scenarios"] if row["status"] == "passed"}
     assert not report["page_errors"] and not report["network_violations"]
     assert report["state"]["stale_simulation"]["status"] == 409

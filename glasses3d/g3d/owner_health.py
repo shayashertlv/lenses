@@ -80,7 +80,7 @@ def _attributes(obj):
     from . import owner_surface as S
     if obj.get('attributes') is None:S.error('mesh health needs a fresh snapshot with complete attributes')
     supported={'position','.edge_verts','.corner_vert','.corner_edge','material_index','sharp_face','sharp_edge',
-               'custom_normal','g3d_owner_normal_intent','.select_vert','.select_edge','.select_poly',*[u['name'] for u in obj.get('uv_layers',[])]}
+               'custom_normal','g3d_owner_normal_intent','g3d_owner_normal_managed','g3d_owner_normal_automatic','.select_vert','.select_edge','.select_poly',*[u['name'] for u in obj.get('uv_layers',[])]}
     if any(a['name'] not in supported for a in obj['attributes']):S.error('mesh health cannot preserve an unsupported mesh attribute')
 
 

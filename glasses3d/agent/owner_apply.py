@@ -130,6 +130,7 @@ def verify_choice_exactness(source_snapshot, selected, current_snapshot, exporte
     Overlap is reported, never called preview equality: the caller must separately
     verify each ordered operation and the final scope/physical/export checks.
     """
+    import math
     from ..g3d import owner_mesh
 
     if not isinstance(selected, list) or not selected:
@@ -152,12 +153,142 @@ def verify_choice_exactness(source_snapshot, selected, current_snapshot, exporte
     ignored = {"positions_sha256", "topology_sha256", "evaluated", "normal_intent",
                "material_sha256", "other_attributes_sha256"}
     whole = ("whole_object",)
+    intent_name, mask_name = "g3d_owner_normal_intent", "g3d_owner_normal_managed"
+    auto_name = "g3d_owner_normal_automatic"
 
-    def atoms(obj):
+    def named_layers(obj):
+        layers = {}
+        for key in ("attributes", "normal_attributes"):
+            values = obj.get(key, [])
+            if not isinstance(values, list):
+                raise ValueError("Snapshot attributes must be named layer lists.")
+            layers[key] = {}
+            for layer in values:
+                name = layer.get("name") if isinstance(layer, dict) else None
+                if not isinstance(name, str) or not name or name in layers[key]:
+                    raise ValueError("Snapshot attributes need distinct layer names.")
+                layers[key][name] = layer
+        if set(layers["attributes"]) & set(layers["normal_attributes"]):
+            raise ValueError("Snapshot attributes need distinct layer names.")
+        return layers
+
+    source_layers = {oid: named_layers(obj) for oid, obj in source.items()}
+    implicit_normal_types = {}
+    for oid, original in source.items():
+        # Only a sealed owner preview can introduce an implicit storage format.
+        # The applied output must not select its own comparison baseline.
+        implicit_normal_types[oid] = None
+        if "custom_normal" in source_layers[oid]["normal_attributes"]:
+            continue
+        for objects in previews:
+            obj = objects[oid]
+            layers = named_layers(obj)
+            raw = layers["normal_attributes"].get("custom_normal")
+            witness = obj.get("normal_intent")
+            if (raw is not None and intent_name in layers["attributes"]
+                    and isinstance(witness, dict)
+                    and all(witness.get(flag) is True for flag in
+                            ("encoded_matches", "normal_space_matches", "decoded_within_quantization"))):
+                implicit_normal_types[oid] = raw.get("data_type")
+                break
+
+    def attribute_layers(obj, oid):
+        """Named values with exact defaults only for new owner normal layers.
+
+        A layer present on the source is never synthesized after removal. Its
+        deletion or a real metadata/type change therefore remains whole-object.
+        Legacy intent without a managed mask retains its encoding-witness check,
+        but absence of a mask always means false here, never new edit authority.
+        No source or preview dictionary is mutated by this normalization.
+        """
+        layers = named_layers(obj)
+        attrs, normals = layers["attributes"], layers["normal_attributes"]
+        original = source[oid]
+        original_layers = source_layers[oid]
+        count = len(obj.get("corner_normals", []))
+        source_count = len(original.get("corner_normals", []))
+        had_intent, had_mask = intent_name in attrs, mask_name in attrs
+        had_auto = auto_name in attrs
+        had_encoded = "custom_normal" in normals
+        if "has_custom_normals" in obj:
+            if type(obj["has_custom_normals"]) is not bool or obj["has_custom_normals"] != had_encoded:
+                raise ValueError("Custom-normal storage flag differs from its encoded attribute.")
+
+        def known(key, name, domain, data_type, rows, *, field=None, allow_default=True):
+            collection = layers[key]
+            metadata = {"name": name, "domain": domain, "data_type": data_type}
+            if field is not None:
+                metadata["field"] = field
+            if name not in collection:
+                if not allow_default or name in original_layers[key]:
+                    return None
+                collection[name] = {**metadata, "values": rows}
+            layer = collection[name]
+            if ({key: value for key, value in layer.items() if key != "values"} != metadata
+                    or not isinstance(layer.get("values"), list) or len(layer["values"]) != len(rows)):
+                raise ValueError("Normal-storage attributes have invalid metadata or row counts.")
+            return layer["values"]
+
+        # Missing intent/free storage uses the authenticated source vectors, not
+        # the applied output's decoded vectors. Unchanged layout is required for
+        # this implicit correspondence; changed topology stays whole-object.
+        intent = known("attributes", intent_name, "CORNER", "FLOAT_VECTOR",
+                       obj.get("corner_normals", []) if had_intent else original.get("corner_normals", []),
+                       allow_default=count == source_count)
+        mask = known("attributes", mask_name, "CORNER", "BOOLEAN", [[False] for _ in range(count)])
+        automatic = known("attributes", auto_name, "CORNER", "BOOLEAN", [[False] for _ in range(count)])
+        sharp = known("attributes", "sharp_edge", "EDGE", "BOOLEAN", [[False] for _ in obj.get("edges", [])])
+        encoded_type = normals["custom_normal"].get("data_type") if had_encoded else implicit_normal_types[oid]
+        encoded = None
+        if had_encoded or encoded_type is not None:
+            if encoded_type == "INT16_2D":
+                default_encoded, field = [[0, 0] for _ in range(count)], "value"
+            elif encoded_type == "FLOAT_VECTOR":
+                default_encoded, field = (obj.get("corner_normals", []) if had_encoded
+                                          else original.get("corner_normals", [])), "vector"
+            else:
+                raise ValueError("Custom-normal storage has an unsupported encoded format.")
+            encoded = known("normal_attributes", "custom_normal", "CORNER", encoded_type,
+                            default_encoded, field=field,
+                            allow_default=encoded_type != "FLOAT_VECTOR" or count == source_count)
+
+        def finite_vector(row):
+            return (isinstance(row, list) and len(row) == 3
+                    and all(type(value) in (int, float) and math.isfinite(value) for value in row))
+
+        if ((intent is not None and any(not finite_vector(row) for row in intent))
+                or any(not isinstance(row, list) or len(row) != 1 or type(row[0]) is not bool
+                       for rows in (mask, sharp, automatic) if rows is not None for row in rows)
+                or (encoded_type == "FLOAT_VECTOR" and encoded is not None
+                    and any(not finite_vector(row) for row in encoded))
+                or (encoded_type == "INT16_2D" and encoded is not None
+                    and any(not isinstance(row, list) or len(row) != 2
+                            or any(type(value) is not int or not -32768 <= value <= 32767 for value in row)
+                            for row in encoded))):
+            raise ValueError("Normal-storage attributes have malformed encoded or ownership rows.")
+        witness = obj.get("normal_intent")
+        if had_intent:
+            if (not isinstance(witness, dict)
+                    or any(witness.get(flag) is not True for flag in
+                           ("encoded_matches", "normal_space_matches", "decoded_within_quantization"))
+                    or witness.get("intent_normals") != intent):
+                raise ValueError("Normal intent attributes differ from their authenticated encoding witness.")
+        if had_mask:
+            managed = [index for index, row in enumerate(mask) if row[0]]
+            if (not had_intent or witness.get("unmanaged_matches") is not True
+                    or witness.get("managed_loop_ids") != managed):
+                raise ValueError("Managed normal attributes differ from their authenticated encoding witness.")
+        if had_auto:
+            if not had_intent or not had_mask or encoded_type != 'FLOAT_VECTOR' or automatic != mask:
+                raise ValueError("Automatic normal attributes differ from their authenticated encoding witness.")
+        return layers
+
+    def atoms(obj, oid):
         """Each key identifies a stored value and its independently comparable region."""
         result = {}
-        for key, value in obj.items():
-            if key in ignored:
+        layers = attribute_layers(obj, oid)
+        for key, value in {**obj, **layers}.items():
+            if key in ignored or key == "has_custom_normals":
                 continue
             if key in ("vertices_local", "vertices_world_mm", "corner_normals", "polygon_smooth", "polygon_material"):
                 kind = ("vertex" if key.startswith("vertices_") else
@@ -175,24 +306,23 @@ def verify_choice_exactness(source_snapshot, selected, current_snapshot, exporte
                     result.update({(key, layer_index, index): (("uv", layer_index, index), row)
                                    for index, row in enumerate(rows)})
                 continue
-            if key in ("normal_attributes", "attributes") and isinstance(value, list):
-                result[(key, "layers")] = (whole, [{k: v for k, v in layer.items() if k != "values"}
-                                                    for layer in value])
-                for layer_index, layer in enumerate(value):
+            if key in ("normal_attributes", "attributes"):
+                for name, layer in value.items():
+                    result[(key, name, "metadata")] = (whole, {k: v for k, v in layer.items() if k != "values"})
                     rows = layer.get("values")
                     if not isinstance(rows, list):
-                        result[(key, layer_index)] = (whole, rows)
+                        result[(key, name)] = (whole, rows)
                         continue
                     domain = {"CORNER": "normal", "POINT": "vertex", "FACE": "polygon", "EDGE": "edge"}.get(layer.get("domain"))
-                    result[(key, layer_index, "length")] = (whole, len(rows))
-                    result.update({(key, layer_index, index): ((domain, index) if domain else whole, row)
+                    result[(key, name, "length")] = (whole, len(rows))
+                    result.update({(key, name, index): ((domain, index) if domain else whole, row)
                                    for index, row in enumerate(rows)})
                 continue
             result[(key,)] = (whole, value)
         return result
 
-    base_atoms = {oid: atoms(obj) for oid, obj in source.items()}
-    preview_atoms = [{oid: atoms(obj) for oid, obj in objects.items()} for objects in previews]
+    base_atoms = {oid: atoms(obj, oid) for oid, obj in source.items()}
+    preview_atoms = [{oid: atoms(obj, oid) for oid, obj in objects.items()} for objects in previews]
     footprints = []
     missing = object()
     for pick, expected in zip(selected, preview_atoms):
@@ -239,7 +369,7 @@ def verify_choice_exactness(source_snapshot, selected, current_snapshot, exporte
 
     checked = [0 for _ in selected]
     for oid, obj in current.items():
-        actual = atoms(obj)
+        actual = atoms(obj, oid)
         expected_rows = [objects[oid] for objects in preview_atoms]
         for key in set(base_atoms[oid]) | set(actual) | set().union(*(set(rows) for rows in expected_rows)):
             record = actual.get(key) or base_atoms[oid].get(key) or next(rows[key] for rows in expected_rows if key in rows)

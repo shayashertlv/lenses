@@ -3,8 +3,10 @@
 This folder is the assembled photo-to-3D glasses pipeline. Job intake, Astra tools, specialist stages, delivery,
 review and owner edits are implemented. WP5 and WP6 are closed by owner acceptance; assembled Oakley run 4 is
 accepted. **`plan/ASSEMBLY.md` M11** (the 2026-10-18 review repairs, tasks 1–9) is complete and accepted by Claude;
-M12's dev UI is built, and D1's six-scenario browser integration proof passed at $0 under the same-part shading
-refusal. Use PROGRESS's current-state block for final-suite results and the next action. M5 paid validation remains
+M12's dev UI is built. D1's six-scenario browser integration proof passed at $0 under the historical same-part
+shading refusal. N1 permits separate `repair_shading` picks on one part only when their normal influence is
+disjoint; overlapping influence, other same-part normal operation kinds and previews that fail exact validation
+still refuse. Use PROGRESS's current-state block for proof results and the next action. M5 paid validation remains
 the owner's call. Claude coordinates; Codex
 executes the saved task brief. Latest owner instructions
 take precedence over repository documents. Dated history is evidence, not a command to restart completed work.

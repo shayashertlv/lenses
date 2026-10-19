@@ -387,7 +387,7 @@ def plan_object(obj, operation):
     vertices = np.asarray(obj['vertices_world_mm'], float).copy()
     polygons = copy.deepcopy(obj['polygons'])
     matrix = np.asarray(obj.get('matrix_world', np.eye(4)), float)
-    old_normals = np.asarray(obj['corner_normals'], float) @ np.linalg.inv(matrix[:3, :3])
+    old_normals = authored_normals(obj) @ np.linalg.inv(matrix[:3, :3])
     old_normals /= np.maximum(np.linalg.norm(old_normals, axis=1)[:, None], 1e-30)
     normals = old_normals.copy()
     loop_start = np.cumsum([0]+[len(p) for p in polygons])
@@ -426,6 +426,8 @@ def plan_object(obj, operation):
         targets = np.repeat(basis[-1][None, :], len(target_loops), axis=0)
         normals[target_loops] = _normal_blend(normals[target_loops], targets, strength)
     elif kind == 'repair_shading':
+        from .owner_normal_plan import free_storage
+        free_normals = free_storage(obj)
         mode = params['mode']
         if mode not in ('flat', 'smooth'):
             error('repair_shading mode is flat or smooth')
@@ -440,7 +442,8 @@ def plan_object(obj, operation):
             targets = (np.repeat(vectors[i][None, :], end-start, axis=0) if mode == 'flat'
                        else averaged[polygons[i]])
             normals[start:end] = _normal_blend(old_normals[start:end], targets, strength)
-            smooth[i] = True  # explicit split loop normals retain flat facet borders
+            if not free_normals:
+                smooth[i] = True  # explicit split loop normals retain flat facet borders
         reports['geometry_unchanged'] = True
     else:
         if obj.get('aliases', {}).get('status') == 'verified_topology':
@@ -449,7 +452,7 @@ def plan_object(obj, operation):
             error('refinement needs a fresh snapshot with complete mesh attributes')
         # Attributes whose meanings cannot be interpolated require dedicated operations.
         supported = {'position', '.edge_verts', '.corner_vert', '.corner_edge', 'material_index',
-                     'sharp_face', 'sharp_edge', 'custom_normal', 'g3d_owner_normal_intent', '.select_vert', '.select_edge', '.select_poly',
+                     'sharp_face', 'sharp_edge', 'custom_normal', 'g3d_owner_normal_intent', 'g3d_owner_normal_managed','g3d_owner_normal_automatic', '.select_vert', '.select_edge', '.select_poly',
                      *[u['name'] for u in obj.get('uv_layers', [])]}
         unknown = [a['name'] for a in obj['attributes'] if a['name'] not in supported]
         if unknown:
@@ -590,7 +593,7 @@ def plan_object(obj, operation):
         normals[neighbour]=transported[neighbour]
     elif kind=='repair_shading':
         untouched=np.ones(len(normals),dtype=bool);untouched[target_loops]=False
-        normals[untouched]=np.asarray(obj['corner_normals'])[untouched]
+        normals[untouched]=authored_normals(obj)[untouched]
     else:
         cursor=0
         for parent,poly in zip(result['_surface_polygon_parents'],polygons):
@@ -598,7 +601,7 @@ def plan_object(obj, operation):
                 normals[cursor:cursor+len(poly)]=obj['corner_normals'][loop_start[parent]:loop_start[parent+1]]
             cursor+=len(poly)
     result.update(vertices_local=local.tolist(), vertices_world_mm=vertices.tolist(), polygons=polygons,
-                  corner_normals=normals.tolist(), polygon_smooth=smooth,
+                  corner_normals=normals.astype(np.float32).astype(float).tolist(), polygon_smooth=smooth,
                   triangles=[[p[0], p[k], p[k+1]] for p in polygons for k in range(1, len(p)-1)],
                   triangle_polygons=[i for i,p in enumerate(polygons) for _ in range(len(p)-2)])
     physical = M.physical(result, reference=obj)
@@ -788,6 +791,9 @@ def verify(source, current, operations):
         # Compare the exact intended float32 vectors and Blender's exact encoded
         # shorts, not a tolerance on the lossy decoded angular representation.
         witness=now.get('normal_intent')
+        if witness is None and any(row['name'] in ('g3d_owner_normal_managed', 'g3d_owner_normal_automatic')
+                                   for row in now.get('attributes', [])):
+            error('normal encoding mask has no authenticated intent', 'E_OWNER_SCOPE')
         normals_changed=want['corner_normals']!=prior['corner_normals'] or want['polygons']!=prior['polygons']
         if witness is not None and (not material_edit or normals_changed):
             intent=np.asarray(witness['intent_normals'],np.float32)
@@ -806,6 +812,60 @@ def verify(source, current, operations):
             error('planned shading needs an exact Blender encoding witness','E_OWNER_AMOUNT')
         elif a.shape!=b.shape or not np.array_equal(a,b):
             error('shading differs from the exact planned normals','E_OWNER_AMOUNT')
+        if witness is not None:
+            from . import owner_normal_plan as normal_plan
+            influence = normal_plan.shading_influence(prior, operations, target=want)
+            managed = normal_plan.managed_loops(now)
+            wrote_normals = any(want.get(key) != prior.get(key) for key in
+                                ('vertices_local', 'polygons', 'corner_normals', 'polygon_smooth', 'uv_layers'))
+            required_managed = (normal_plan.managed_loops(prior) if not wrote_normals else
+                                set(range(len(a))) if influence is None else
+                                normal_plan.managed_loops(prior) |
+                                normal_plan.encoding_loops(prior, operations, target=want))
+            if (managed != required_managed or witness.get('managed_loop_ids') != sorted(managed)
+                    or witness.get('unmanaged_matches') is not True):
+                error('normal encoding mask differs from the confirmed influence', 'E_OWNER_SCOPE')
+            if influence is not None:
+                # A partial encoder cannot expand its authority through its own
+                # witness. Every untouched stored code AND decoded vector must
+                # remain the exact source value, independently of quantization.
+                outside = np.array([i not in influence for i in range(len(a))])
+                if not np.array_equal(a[outside], np.asarray(prior['corner_normals'])[outside]):
+                    error('decoded normals outside the confirmed influence changed', 'E_OWNER_SCOPE')
+                encoding = next((r['data_type'] for r in now.get('normal_attributes', [])
+                                 if r['name'] == 'custom_normal'), None)
+                if encoding not in ('INT16_2D', 'FLOAT_VECTOR'):
+                    error('invalid encoded normal storage', 'E_OWNER_NORMALS')
+                width = 2 if encoding == 'INT16_2D' else 3
+                def codes(obj):
+                    rows = [r for r in obj.get('normal_attributes', []) if r['name'] == 'custom_normal']
+                    if not rows:
+                        return (np.zeros((len(obj['corner_normals']), 2), dtype=np.int32) if width == 2 else
+                                np.asarray(obj['corner_normals'], dtype=np.float32))
+                    row = rows[0]
+                    values = np.asarray(row.get('values'))
+                    if (len(rows) != 1 or row.get('domain') != 'CORNER' or row.get('data_type') != encoding
+                            or values.shape != (len(obj['corner_normals']), width)):
+                        error('invalid encoded normal storage', 'E_OWNER_NORMALS')
+                    return values
+                if not np.array_equal(codes(prior)[outside], codes(now)[outside]):
+                    error('encoded normals outside the confirmed influence changed', 'E_OWNER_SCOPE')
+                rewritten = normal_plan.encoding_loops(prior, operations, target=want)
+                preserved = np.array([i not in rewritten for i in range(len(a))])
+                if not np.array_equal(codes(prior)[preserved], codes(now)[preserved]):
+                    error('encoded normals in an unchanged fan changed', 'E_OWNER_SCOPE')
+            auto_name = normal_plan.AUTO_ATTRIBUTE
+            prior_auto = next((r for r in prior.get('attributes', []) if r['name'] == auto_name), None)
+            now_auto = next((r for r in now.get('attributes', []) if r['name'] == auto_name), None)
+            source_storage = next((r for r in prior.get('normal_attributes', []) if r['name'] == 'custom_normal'), None)
+            expected_auto = prior_auto is not None or (wrote_normals and influence is not None and source_storage is None)
+            if expected_auto:
+                expected = {'name': auto_name, 'domain': 'CORNER', 'data_type': 'BOOLEAN',
+                            'values': [[i in required_managed] for i in range(len(a))]}
+                if now_auto != expected:
+                    error('automatic normal marker differs from the confirmed source', 'E_OWNER_SCOPE')
+            elif now_auto is not None:
+                error('automatic normal marker was not authorized by the source', 'E_OWNER_SCOPE')
         ev = now.get('evaluated', {})
         if not ev.get('topology_matches_source') or not ev.get('positions_match_source'):
             error('edited evaluated mesh no longer corresponds to source')
@@ -831,7 +891,7 @@ def verify(source, current, operations):
         # refinement the planner refuses unknown attributes before any mutation.
         if prior['polygons'] == now['polygons'] and len(prior['vertices_local'])==len(now['vertices_local']):
             def attrs(obj):
-                excluded={'position', 'custom_normal', 'sharp_face','g3d_owner_normal_intent'}
+                excluded={'position', 'custom_normal', 'sharp_face','g3d_owner_normal_intent','g3d_owner_normal_managed','g3d_owner_normal_automatic'}
                 if '_surface_sharp_edges' in want:excluded.add('sharp_edge')
                 return {a['name']: a for a in obj.get('attributes', []) if a['name'] not in excluded}
             if attrs(prior) != attrs(now): error('unrequested mesh attribute changed', 'E_OWNER_SCOPE')
@@ -843,7 +903,7 @@ def verify(source, current, operations):
                     error('sharp flags differ from the exact planned normal fans','E_OWNER_SCOPE')
         else:
             known = {'position', '.edge_verts', '.corner_vert', '.corner_edge', 'material_index',
-                     'sharp_face', 'sharp_edge', 'custom_normal', 'g3d_owner_normal_intent', '.select_vert', '.select_edge', '.select_poly',
+                     'sharp_face', 'sharp_edge', 'custom_normal', 'g3d_owner_normal_intent', 'g3d_owner_normal_managed','g3d_owner_normal_automatic', '.select_vert', '.select_edge', '.select_poly',
                      *[u['name'] for u in prior.get('uv_layers', [])]}
             if any(a['name'] not in known for a in now.get('attributes', [])):
                 error('topology edit introduced an unrelated attribute', 'E_OWNER_SCOPE')

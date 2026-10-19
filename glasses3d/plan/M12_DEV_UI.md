@@ -1,10 +1,18 @@
 # M12: a simple dev UI for paid runs, results, AR and annotated owner edits (design, 2026-10-19)
 
-**Build status, 2026-10-19:** complete with documented limits (ASSEMBLY M12 ledger). D1's six real-browser scenarios passed
-at $0 (`b81f923`, `0da06ba`), including C2 follow-up 3's same-part shading refusal and immutable byte-exact single
-apply. Separate same-part normal composition remains future work; the historical temple-alias regression and
-slow Prada sealing remain open. Final suite: 6,014 distinct Python passes / 2 skips / 11 xfails / 1 non-strict XPASS; 20 UI browser / 509 arview unit / 113 QA passes; type check, build and M1 passed. The four parallel camera setup errors cleared in isolation. Next: the owner tries the UI and decides on any
-paid run. See PROGRESS for results and current money terms; the dated design/contracts below remain preserved.
+**Build status, 2026-10-19:** M12 is built with documented limits (ASSEMBLY M12 ledger). N1 permits separate
+`repair_shading` picks on one part when their normal influence is disjoint, with exact native and exported normal
+checks. Overlapping influence, other same-part normal operation kinds and older previews that fail exact
+validation still refuse. See the tests README's N1 proof record and PROGRESS for current results and next action.
+Task 12 (`1238a21`, accepted by Claude) repaired authenticated historical temple aliases: 40/54 objects verify,
+14 already-reshaped objects correctly refuse, and the M10 regression export remains byte-identical (`7d2d5b27…`).
+Slow Prada evidence sealing remains open.
+
+**Historical D1/D3 evidence:** D1's six real-browser scenarios passed at $0 (`b81f923`, `0da06ba`) under C2 follow-up
+3's same-part shading refusal, with immutable byte-exact single apply. D3 recorded 6,014 distinct Python passes /
+2 skips / 11 xfails / 1 non-strict XPASS; 20 UI browser / 509 arview unit / 113 QA passes; type check, build and M1
+passed. Its four parallel camera setup errors cleared in isolation. These are the dated pre-N1 results, not N1
+verification. Current money terms remain in PROGRESS; the dated design/contracts below remain preserved.
 
 Written by Claude (planner) from the owner's request of 2026-10-19. The coordinator session refines this into tasks after a
 read-only mapping of the current code (section 5), reviews its own plan, and has Codex build it. The owner said not to

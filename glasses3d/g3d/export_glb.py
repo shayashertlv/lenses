@@ -461,6 +461,72 @@ def _is_similarity(m3) -> bool:
 
 
 def bake_transform(mesh, to_asset: Matrix) -> bool:
+    """Keep unmarked exports unchanged; reconstruct owner-unmanaged automatic normals."""
+    from .owner_normal_plan import AUTO_ATTRIBUTE, MANAGED_ATTRIBUTE
+    marker = mesh.attributes.get(AUTO_ATTRIBUTE)
+    if marker is None:
+        return _bake_transform_standard(mesh, to_asset)
+    managed_layer = mesh.attributes.get(MANAGED_ATTRIBUTE)
+    storage = mesh.attributes.get('custom_normal')
+    if (marker.domain != 'CORNER' or marker.data_type != 'BOOLEAN'
+            or managed_layer is None or managed_layer.domain != 'CORNER'
+            or managed_layer.data_type != 'BOOLEAN' or storage is None
+            or storage.domain != 'CORNER' or storage.data_type != 'FLOAT_VECTOR'):
+        raise ExportError('owner automatic normals have invalid storage or ownership')
+    managed = np.empty(len(mesh.loops), dtype=bool)
+    automatic = np.empty(len(mesh.loops), dtype=bool)
+    managed_layer.data.foreach_get('value', managed)
+    marker.data.foreach_get('value', automatic)
+    if not np.array_equal(managed, automatic):
+        raise ExportError('owner automatic normals differ from their managed mask')
+    from .owner_normals_bpy import capture
+    witness = capture(mesh)
+    if witness is None or any(witness.get(key) is not True for key in
+            ('encoded_matches', 'normal_space_matches', 'decoded_within_quantization', 'unmanaged_matches')):
+        raise ExportError('owner automatic normals lack their exact encoding witness')
+    if managed.all():
+        return _bake_transform_standard(mesh, to_asset)
+    keys = _corner_keys(mesh)
+    order = np.argsort(keys, kind='stable')
+    baseline = mesh.copy()
+    try:
+        baseline.attributes.remove(baseline.attributes['custom_normal'])
+        baseline.update()
+        # Execute the exact pre-existing exporter path on the automatic source,
+        # including mirrored/nonuniform transforms and their native re-encoding.
+        _bake_transform_standard(baseline, to_asset)
+        changed = _bake_transform_standard(mesh, to_asset)
+        transformed_keys = _corner_keys(mesh)
+        if not np.array_equal(transformed_keys, _corner_keys(baseline)):
+            raise ExportError('owner automatic export lost corner correspondence')
+        mapped = np.searchsorted(keys[order], transformed_keys)
+        if (np.any(mapped >= len(keys)) or
+                not np.array_equal(keys[order][mapped], transformed_keys)):
+            raise ExportError('owner automatic export lost source corner identity')
+        outside = ~managed[order][mapped]
+        values = np.empty(len(mesh.loops)*3, dtype=np.float32)
+        expected = np.empty_like(values)
+        mesh.corner_normals.foreach_get('vector', values)
+        baseline.corner_normals.foreach_get('vector', expected)
+        values.reshape(-1, 3)[outside] = expected.reshape(-1, 3)[outside]
+        storage = mesh.attributes.get('custom_normal')
+        if storage is not None and storage.data_type != 'FLOAT_VECTOR':
+            mesh.attributes.remove(storage)
+            storage = None
+        if storage is None:
+            storage = mesh.attributes.new('custom_normal', 'FLOAT_VECTOR', 'CORNER')
+        storage.data.foreach_set('vector', values)
+        mesh.update()
+        actual = np.empty_like(values)
+        mesh.corner_normals.foreach_get('vector', actual)
+        if not np.array_equal(actual, values):
+            raise ExportError('owner automatic export changed exact float normals')
+        return changed
+    finally:
+        bpy.data.meshes.remove(baseline)
+
+
+def _bake_transform_standard(mesh, to_asset: Matrix) -> bool:
     """Apply `to_asset` to the mesh. For a mirrored or non-uniform matrix the corner normals are captured first,
     mapped by the inverse-transpose and set back as custom normals after the bake (flip_normals reverses each face's
     corners, so they are matched by (polygon, vertex)). Returns True when normals were re-set."""

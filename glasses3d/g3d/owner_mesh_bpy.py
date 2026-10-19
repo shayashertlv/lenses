@@ -12,6 +12,7 @@ from . import export_glb
 from . import owner_surface
 from . import owner_materials_bpy
 from . import owner_normals_bpy
+from . import owner_normal_plan
 
 
 def _surface_apply(snapshot, operations):
@@ -80,7 +81,9 @@ def _surface_apply(snapshot, operations):
             attribute = me.attributes.get('sharp_edge')
             if attribute is not None and not any(v.value for v in attribute.data): me.attributes.remove(attribute)
         me.update()
-        try:owner_normals_bpy.write(me,row['corner_normals'])
+        try:owner_normals_bpy.write(me,row['corner_normals'], source=source,
+                                   influence_loop_ids=owner_normal_plan.shading_influence(source, operations, target=row),
+                                   encoding_loop_ids=owner_normal_plan.encoding_loops(source, operations, target=row))
         except ValueError as exc:raise M.OwnerMeshError('E_OWNER_NORMALS',str(exc)) from exc
         if row.get('edge_radius_recipe')!=source.get('edge_radius_recipe'):
             from .owner_edge_radius import PROPERTY

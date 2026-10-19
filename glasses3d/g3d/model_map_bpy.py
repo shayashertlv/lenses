@@ -43,7 +43,8 @@ def _normal_attributes(me):
 
 def _normal_storage(attr):
     # Blender's encoded split-normal storage, not arbitrary user attributes with similar names.
-    return (attr.name, attr.domain, attr.data_type) == ("custom_normal", "CORNER", "INT16_2D")
+    return (attr.name == 'custom_normal' and attr.domain == 'CORNER'
+            and attr.data_type in ('INT16_2D', 'FLOAT_VECTOR'))
 
 
 def _other_attributes(me):

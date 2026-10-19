@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-20 — N1: exact local normals ($0)
+
+Verified, disjoint `repair_shading` picks on one part now compose exactly. Stored/decoded native normals and
+exported NORMAL rows outside each influence stay bit-identical; other kinds, overlap and unproved previews still
+refuse. Fresh Prada dual/single immutable deliveries pass; Oakley run 4 and M10 re-exports retain their exact bytes.
+
+Checks: **770** focused; **63** normal cases in five runs; **6,239** full-suite passes / **2** Windows symlink skips;
+**20** browser tests; **125** real UI assertions; M1; **509** AR unit / **113** QA, type check and build. Earlier
+heartbeat-read and launcher failures remain in the report; unchanged serial timing passed after recorder removal,
+and M1 passed with a guarded Windows launcher. No test or gate weakened; actual provider requests **0**, spend **$0**.
+Report: `data/m12/codex/n1_report.md`. Sources unchanged; no push, root-app or `ar/` change.
+
 ## 2026-10-19 — Paid Oakley rerun at max effort: delivered, awaiting the owner's eye
 
 Owner OK: "Yes, start the Oakley rerun at max effort: estimate $15.69, $20 settled cutoff." Fresh job

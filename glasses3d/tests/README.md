@@ -73,9 +73,40 @@ These are saved initial component timings, not new D2 runs or time budgets. C2's
 single-pick GLB equality and all checks, then refused publication; that historical result remains unchanged.
 C2 follow-up 3 (`1a79b26`) subsequently verified immutable single-pick publication and the expected early refusal
 for two same-part shading picks: 1,520.090 s overall, including 1,147.484 s (about 19 minutes) for UNDERSTAND.
-Its focused batch passed 534 cases with 11 strict xfails in 120.73 s. Exact local normal writes remain future work;
-the attempted writer repair failed the real Prada preview and was reverted. A successful separate same-part
-dual apply is not claimed. B follow-up 2 (`fb7f5d5`) passed 20 Chromium tests in 30.287 s for facts-only money display.
+Its focused batch passed 534 cases with 11 strict xfails in 120.73 s. In that historical C2 evidence, the attempted
+writer repair failed the real Prada preview and was reverted; no successful separate same-part dual apply was
+claimed. B follow-up 2 (`fb7f5d5`) passed 20 Chromium tests in 30.287 s for facts-only money display.
+
+### N1 exact local normals — 2026-10-19
+
+N1 permits separate same-part `repair_shading` picks only when their normal influence is disjoint. Native raw
+codes and decoded vectors outside each influence, shared untouched corners and exported NORMAL values must
+remain exact for authored and automatic sources. Separate and combined application must agree. A single pick
+still requires byte-identical preview GLB output, and multi-pick apply still requires a new immutable delivery.
+Overlapping normal influence, other same-part normal operation kinds and older previews that fail current exact
+validation remain refused. Existing assertions, quantization bounds, physical/scope gates and money rules remain.
+
+N1 completed on 2026-10-20; commands, immutable delivery paths, hashes and retained failure history are in
+`data/m12/codex/n1_report.md`:
+
+- Focused checks: **770 passed**, 70.35 s. Native authored/automatic composition: **63 ordinary passes** in each
+  of five fresh runs (34.07 / 34.07 / 34.17 / 34.13 / 34.32 s); all original assertion bodies retained, no xfails.
+- Fresh Prada `data/m12/proofs/n1-c2`: dual delivery is exact `per_item_geometry`, no overlapping native/export
+  rows; single delivery is `single_glb_bytes` equal. Outside stored/decoded/exported normal changes are zero.
+  Original and adapted sources stayed unchanged. Actual provider requests and spend: **0 / $0**.
+- Saved-checkpoint exports at `data/m12/proofs/n1-e2`: accepted Oakley run 4 (`98131458…`) and M10 (`7d2d5b27…`)
+  are byte-identical to their retained GLBs; original/copied checkpoints stayed unchanged.
+- Full suite: **5,843 passed / 2 skipped** functional (1,269.89 s), **367 passed** photoprint (481.13 s), and
+  **29 passed** serial timing (285.89 s): **6,239 passes / 2 existing Windows symlink skips**, no xfails/xpasses.
+  The first timing pass hit a Windows heartbeat-file PermissionError; the unchanged 29-case pass succeeded after
+  duplicate active recorders were removed. Both attempts remain recorded; no causal claim or deadline change.
+- Browser: **20 passed** (26.194 s); fresh real scenario 4 at `data/m12/proofs/n1-u2`: **125 assertions passed**
+  (1,812.703 s), including exact dual publication, visible confirmation and single-pick byte equality.
+- M1 passed in **170.735 s**, `data/assembly/m1-proof-00eec74f/proof.json`, actual **$0**. AR viewer: **509 unit /
+  113 QA passed**, production capture 35/35 images, type check and build exit 0. The report retains the corrected
+  ignored M1 launcher's failed Windows-spawn attempt separately from the successful proof.
+
+The earlier C2/D1/D3 evidence above and below remains historical; its failure counts and timings are not N1 results.
 
 The M12 native entry points are `tests/proofs/assembly_m12_*.py`. Inspect their actual arguments before running:
 
@@ -95,8 +126,9 @@ Its six scenarios passed (`b81f923`, `0da06ba`); evidence is `data/m12/proofs/d1
 `data/m12/codex/m12_D1_report.md` Follow-up 1. The fresh refusal/single-result browser scenario took 162.284 s;
 the native single apply was reused and reauthenticated, not rerun. Six unchanged scripted run receipts retain
 31 inference requests plus 31 token counts, simulated $0.325, actual provider requests 0 and actual $0.
-The audit covers new-run/AR, cutoff draft, browser survival/Stop, captures/choices/refusal/exact single apply,
-fallback/new edit and duplicate/concurrent/stale refusals. The prior failed dual apply stays historical evidence.
+That historical D1 audit covered new-run/AR, cutoff draft, browser survival/Stop, captures/choices/refusal/exact
+single apply, fallback/new edit and duplicate/concurrent/stale refusals. Its then-required same-part refusal and
+the prior failed dual apply remain dated evidence; the N1 record above covers the changed composition behavior.
 
 For a fresh proof, choose an unused short output directory and an available port from 8290–8299:
 
@@ -107,8 +139,10 @@ For a fresh proof, choose an unused short output directory and an available port
 The command accepts `--plan`, `--phase prepare|browser|audit|all`, `--resume` and `--scenarios`; inspect `--help`
 and the D1 report before resuming retained evidence. Check the real checkout paid-run lock before each scripted
 run or Blender-heavy step; if held, wait without altering it. All native/logging/isolation rules above apply.
-D3 reused D1's proof because its edits did not touch proof code. The separate pre-M12 historical temple-alias
-regression introduced by M11 task 8 remains open, queued as M11 task 12; it was not repaired by this proof.
+D3 reused D1's proof because its edits did not touch proof code. At that time the separate pre-M12 historical
+temple-alias regression introduced by M11 task 8 remained open, queued as M11 task 12. Task 12 (`1238a21`) has
+since been accepted: 40/54 temple objects verify, 14 already-reshaped objects correctly refuse, and M10's
+regression export remains byte-identical (`7d2d5b27…`); see PROGRESS for its separate proof.
 
 ### D3 final verification record — 2026-10-19
 
@@ -127,12 +161,12 @@ Baseline `2340e95`; complete with documented limits. Exact commands, absolute pa
 | Final README/instruction contracts | 87 passed, 7.09 s, exit 0; supplementary checks overlap the functional pass. |
 
 Final Python accounting: 6,014 distinct passes / 2 skips / 11 xfails / 1 non-strict XPASS across 6,028 collected cases; four duplicate camera-retry passes are not added. The first local launcher attempt exited 3 before running any test:
-its temporary-directory parent was missing; only the ignored launcher was fixed. The normal-composition module
-retains eleven strict expected failures for future exact local normal writes. The authored disjoint-overlap case
-is `xfail(strict=False)` because task 11 observed four changed corners (880/894/939/955), max drift 4.3153763e-5,
+its temporary-directory parent was missing; only the ignored launcher was fixed. At D3, the normal-composition
+module retained eleven strict expected failures for exact local normal writes. The authored disjoint-overlap case
+was `xfail(strict=False)` because task 11 observed four changed corners (880/894/939/955), max drift 4.3153763e-5,
 where C2 observed a pass; source: `data/review_20261018/codex/task11_remaining_failure_diagnosis.md`. Its D3 XPASS
-does not establish deterministic exactness. No assertion, tolerance, writer or hard gate changed. After D3's
-required checks, the owner tries the UI and decides on paid validation.
+does not establish deterministic exactness. D3 changed no assertion, tolerance, writer or hard gate. Its recorded
+next action was for the owner to try the UI and decide on paid validation; current N1 evidence is recorded above.
 
 ## Golden photo_v1 baseline (2026-10-18)
 

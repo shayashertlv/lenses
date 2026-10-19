@@ -20,7 +20,7 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M9 | Native composition, fresh-conversation renewal and desktop money simulation built (tasks 3/4). Item 4's owner comparison of desktop c0016 versus run-4 c0015 is not recorded as complete. |
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
 | M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
-| M12 | complete with documented limits. D1's six browser scenarios passed at $0 under the same-part shading refusal; immutable byte-exact single apply and fallback/new capture are verified. Final suite: 6,014 distinct Python passes / 2 skips / 11 xfails / 1 non-strict XPASS; 20 UI browser / 509 arview unit / 113 QA passes; type check, build and M1 passed. The four parallel camera setup errors cleared in isolation. Next: owner tries the UI and decides on any paid run. Exact local normals remain open. |
+| M12 | Built with documented limits. N1 permits same-part `repair_shading` picks with disjoint normal influence; exact native/exported normals, preview equality and immutable delivery remain required. Overlapping influence, other same-part normal operation kinds and older previews failing exact validation still refuse. D1/D3 results below are historical; see the tests README's N1 proof record and PROGRESS for current results and next action. |
 
 Standing money terms are the dated M12 amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
@@ -812,13 +812,15 @@ No paid call is made by the build; the owner presses the real "Start a paid run"
 | D2 documents | `036a156` | README/instruction contracts: 87 passed, 8.19 s; historical D2 report retained. |
 | D3 final verification/documents | Baseline `2340e95`; no D3 commit | complete with documented limits. Functional: 5,618 distinct passes after unchanged camera retry, 2 skips / 11 xfails / 1 non-strict xpass. Remaining passes: 367 photoprint (381.35 s), 29 timing (260.41 s), 20 UI browser (23.923 s), 509 arview unit (20.559 s), 113 QA (39.104 s), check/build exit 0, M1 152.266 s. |
 
-The focused batches overlap and are not added to the D3 suite total. Reports are
-`data/m12/codex/m12_{A,B,C1,C2,C3,D1,D2,D3}_report.md`. D1's follow-up supersedes its incomplete initial proof:
-publication, byte-exact single apply, expected same-part refusal and fallback-to-new-capture integration are verified.
-The original native dual-apply failure remains evidence. Exact local normals remain future work; the attempted
-writer repair regressed the real Prada preview and was reverted. The pre-M12 M11-task-8 historical temple-alias
-regression is queued as M11 task 12. UNDERSTAND evidence sealing remains slow on Prada (1,147.484 s for C2's
-two-item proof). No gate was relaxed, and no owner appearance verdict or paid validation is claimed.
+**Historical C2/D1/D3 evidence:** the focused batches overlap and are not added to the D3 suite total. Reports are
+`data/m12/codex/m12_{A,B,C1,C2,C3,D1,D2,D3}_report.md`. D1's follow-up superseded its incomplete initial proof:
+publication, byte-exact single apply, the then-required same-part refusal and fallback-to-new-capture integration
+were verified. The original native dual-apply failure remains evidence. The earlier normal-writer repair
+regressed the real Prada preview and was reverted; that historical result is not replaced by N1's new evidence.
+At D3, the pre-M12 M11-task-8 historical temple-alias regression was queued as M11 task 12. Task 12 (`1238a21`)
+has since been accepted: 40/54 temple objects verify, 14 already-reshaped objects correctly refuse, and the M10
+regression export stays byte-identical (`7d2d5b27…`). UNDERSTAND evidence sealing remains slow on Prada
+(1,147.484 s for C2's two-item proof). No owner appearance verdict or paid validation is claimed.
 
 **Built edit contract (M12):** capture UNDERSTAND starts unresolved, with no fabricated coverage file; the CLI
 text-edit `--coverage` path remains. Clean and annotated captures are native model evidence, never product photos.
@@ -834,11 +836,14 @@ source. One pick must equal its preview GLB bytes. Disjoint picked geometry must
 overlaps are composed in item order and reported, without claiming isolated-preview equality there. Failed checks
 refuse delivery. Applied-picks provenance records zero API requests/spend, picks, notes, overlap warnings and
 exactness; it is not a new Astra finish or visual acceptance. D1 verified immutable publication and the exact
-single-pick result. Two selected items writing shading/normals on the same source object refuse before copying,
-worker startup or publication, even for disjoint marks. Put both marks in one item, or apply one and send the other
-as a new edit from the resulting delivery. Eleven strict expected-failure tests retain the future exact-normal
-goals; D3 adds a non-strict expected failure for the intermittently passing authored zero-overlap case, with
-task 11's failure evidence. The normal writer, assertions and tolerances are unchanged.
+single-pick result. N1 permits separate `repair_shading` picks on the same source object only when their normal
+influence is disjoint. Native raw codes, decoded vectors and exported NORMAL values outside each influence
+remain exact, and separate and combined application must agree. Overlapping normal influence, other same-part
+normal operation kinds and older previews that fail the exact checks still refuse before publication. For those
+cases, put both marks in one item, or apply one and send the other as a new edit from the resulting delivery.
+Existing exact assertions, quantization bounds, scope and physical gates remain in force. N1 proof results are
+recorded in the tests README and PROGRESS; D3's eleven strict xfails and one non-strict authored overlap xfail
+remain historical evidence, including task 11's four-corner drift report.
 
 An unpreviewable item can instead use **full_edit_item**, a separately approved paid round with its own cutoff,
 seeded from the same immutable source, the main toolset, product photos and only the selected item's capture and

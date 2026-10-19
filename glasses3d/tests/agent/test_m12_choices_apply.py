@@ -176,6 +176,9 @@ def test_disjoint_normal_intent_witnesses_and_hashes_do_not_hide_exact_corner_ch
     source = scene_snapshot()
     source["objects"][0]["attributes"] = [{"name": "g3d_owner_normal_intent", "domain": "CORNER",
         "data_type": "FLOAT_VECTOR", "values": copy.deepcopy(source["objects"][0]["corner_normals"])}]
+    source["objects"][0]["normal_intent"] = {
+        "intent_normals": copy.deepcopy(source["objects"][0]["corner_normals"]),
+        "encoded_matches": True, "normal_space_matches": True, "decoded_within_quantization": True}
     first = pick(source, "I1", vertex=1, normal=1)
     second = pick(source, "I2", vertex=6, normal=12)
     current = combine_disjoint(source, first, second)
@@ -417,7 +420,7 @@ SURFACE_NORMAL_KINDS = ('flatten_face', 'repair_shading', 'refine_curved_surface
 
 @pytest.mark.parametrize('kind', SURFACE_NORMAL_KINDS)
 @pytest.mark.parametrize('authored', [False, True])
-def test_same_part_surface_normal_items_refuse_before_copy_worker_requests_or_publication(sealed_choices, monkeypatch, tmp_path, kind, authored):
+def test_unproved_same_part_surface_normal_items_refuse_before_side_effects(sealed_choices, monkeypatch, tmp_path, kind, authored):
     from glasses3d.g3d import owner_surface
     assert set(SURFACE_NORMAL_KINDS) == owner_surface.OPERATION_KINDS - {'material_adjust'}
     h = sealed_choices
@@ -982,3 +985,430 @@ def test_apply_requires_one_intact_sealed_source_export_for_all_choices(sealed_c
     monkeypatch.setattr(owner_choices, "_run_apply", unexpected)
     with pytest.raises(ValueError):
         owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, "Apply", tmp_path / "apply")
+
+
+_N1_INTENT = "g3d_owner_normal_intent"
+_N1_MANAGED = "g3d_owner_normal_managed"
+_N1_AUTO = "g3d_owner_normal_automatic"
+
+
+def _n1_layer(obj, name, key="attributes"):
+    return next(row for row in obj[key] if row["name"] == name)
+
+
+def _n1_witness(obj, managed=None):
+    result = {"intent_normals": copy.deepcopy(_n1_layer(obj, _N1_INTENT)["values"]),
+              "encoded_matches": True, "normal_space_matches": True,
+              "decoded_within_quantization": True}
+    if managed is not None:
+        result.update(managed_loop_ids=list(managed), unmanaged_matches=True)
+    return result
+
+
+def _n1_normal_choices(mode="authored_short"):
+    """Named snapshots with disjoint exact changes and genuine storage metadata.
+
+    Native encoding is proven separately. These host controls prove comparison
+    semantics, exact defaults, and rejection of malformed or unrequested rows.
+    Legacy sources and previews deliberately retain no managed-mask layer.
+    """
+    automatic = mode == "automatic_float"
+    legacy = mode.startswith("legacy_")
+    data_type = "INT16_2D" if mode.endswith("short") else "FLOAT_VECTOR"
+    source = scene_snapshot()
+    obj = source["objects"][0]
+    obj["edges"] = [list(edge) for edge in sorted({tuple(sorted((face[i], face[(i + 1) % len(face)])))
+        for face in obj["polygons"] for i in range(len(face))})]
+    count = len(obj["corner_normals"])
+    obj["attributes"] = [{"name": "print_weight", "domain": "CORNER", "data_type": "FLOAT",
+                          "values": [[0.5] for _ in range(count)]}]
+    sharp = {"name": "sharp_edge", "domain": "EDGE", "data_type": "BOOLEAN",
+             "values": [[False] for _ in obj["edges"]]}
+    raw = {"name": "custom_normal", "domain": "CORNER", "data_type": data_type,
+           "field": "value" if data_type == "INT16_2D" else "vector",
+           "values": ([[13, 17] for _ in range(count)] if data_type == "INT16_2D"
+                      else copy.deepcopy(obj["corner_normals"]))}
+    obj["normal_attributes"] = [] if automatic else [copy.deepcopy(raw)]
+    obj["has_custom_normals"] = not automatic
+    if not automatic:
+        obj["attributes"].append(copy.deepcopy(sharp))
+    if legacy:
+        obj["attributes"].append({"name": _N1_INTENT, "domain": "CORNER", "data_type": "FLOAT_VECTOR",
+                                  "values": copy.deepcopy(obj["corner_normals"])})
+        obj["normal_intent"] = _n1_witness(obj)
+    first = pick(source, "I1", vertex=1, amount=0, normal=1)
+    second = pick(source, "I2", vertex=6, amount=0, normal=12)
+    current = combine_disjoint(source, first, second)
+    for target_scene, loops, changes in ((first["snapshot"], list(range(4)), [1]),
+                                        (second["snapshot"], list(range(12, 16)), [12]),
+                                        (current, list(range(4)) + list(range(12, 16)), [1, 12])):
+        target = target_scene["objects"][0]
+        target["attributes"] = [
+            {"name": _N1_INTENT, "domain": "CORNER", "data_type": "FLOAT_VECTOR",
+             "values": copy.deepcopy(target["corner_normals"])},
+            copy.deepcopy(sharp), copy.deepcopy(obj["attributes"][0])]
+        if not legacy:
+            target["attributes"].append({"name": _N1_MANAGED, "domain": "CORNER", "data_type": "BOOLEAN",
+                                         "values": [[index in loops] for index in range(count)]})
+        if automatic:
+            target["attributes"].append({"name": _N1_AUTO, "domain": "CORNER", "data_type": "BOOLEAN",
+                                         "values": [[index in loops] for index in range(count)]})
+        target["normal_attributes"] = [copy.deepcopy(raw)]
+        for index in changes:
+            target["normal_attributes"][0]["values"][index] = (
+                [100 + index, 200 + index] if data_type == "INT16_2D"
+                else copy.deepcopy(target["corner_normals"][index]))
+        target["has_custom_normals"] = True
+        target["normal_intent"] = _n1_witness(target, None if legacy else loops)
+    second["snapshot"]["objects"][0]["attributes"].reverse()
+    current["objects"][0]["attributes"] = current["objects"][0]["attributes"][2:] + current["objects"][0]["attributes"][:2]
+    for row, face in ((first, 0), (second, 3)):
+        row["operations"][0].update(kind="repair_shading", params={"strength": 0.6, "mode": "smooth"})
+        row["operations"][0]["scope"].update(vertex_weights=[], normal_affected_polygon_ids=[face])
+    return source, first, second, current
+
+
+@pytest.mark.parametrize("mode", ["authored_short", "authored_float", "automatic_float", "legacy_short", "legacy_float"])
+def test_named_normal_layers_compose_without_allocation_or_order_overlap(mode):
+    source, first, second, current = _n1_normal_choices(mode)
+    before = copy.deepcopy((source, first, second, current))
+    result = owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+    assert result["ok"] and result["mode"] == "per_item_geometry"
+    assert result["overlaps"] == []
+    assert all(row["exact_preview_geometry"] and row["exclusive_values_checked"] > 0 for row in result["items"])
+    assert (source, first, second, current) == before
+    if mode.startswith("legacy_"):
+        assert all(not any(layer["name"] == _N1_MANAGED for layer in data["objects"][0]["attributes"])
+                   for data in (source, first["snapshot"], second["snapshot"], current))
+
+
+@pytest.mark.parametrize("damage", ["intent_domain", "intent_nonfinite", "intent_shape", "intent_bool", "intent_outside",
+    "mask_type", "mask_row_type", "mask_outside", "mask_length", "sharp_row_type", "sharp_outside",
+    "witness_ids", "witness_flag", "storage_flag", "raw_outside", "raw_range", "raw_bool", "raw_field",
+    "raw_domain", "raw_length", "decoded_outside", "arbitrary_row", "arbitrary_metadata",
+    "duplicate_name", "cross_collection_duplicate"])
+def test_named_normal_layers_keep_exact_rows_metadata_and_witnesses_strict(damage):
+    source, first, second, current = _n1_normal_choices()
+    obj = current["objects"][0]
+    attrs = {row["name"]: row for row in obj["attributes"]}
+    raw = obj["normal_attributes"][0]
+    if damage == "intent_domain":
+        attrs[_N1_INTENT]["domain"] = "POINT"
+    elif damage in {"intent_nonfinite", "intent_shape", "intent_bool"}:
+        value = ([float("nan"), 0.0, 1.0] if damage == "intent_nonfinite" else
+                 [0.0, 1.0] if damage == "intent_shape" else [True, 0.0, 0.0])
+        attrs[_N1_INTENT]["values"][20] = value
+        obj["normal_intent"]["intent_normals"][20] = copy.deepcopy(value)
+    elif damage == "intent_outside":
+        attrs[_N1_INTENT]["values"][20][0] += 1e-10
+        obj["normal_intent"]["intent_normals"][20][0] += 1e-10
+    elif damage == "mask_type":
+        attrs[_N1_MANAGED]["data_type"] = "INT"
+    elif damage == "mask_row_type":
+        attrs[_N1_MANAGED]["values"][0] = [1]
+    elif damage == "mask_outside":
+        attrs[_N1_MANAGED]["values"][20] = [True]
+        obj["normal_intent"]["managed_loop_ids"].append(20)
+    elif damage == "mask_length":
+        attrs[_N1_MANAGED]["values"].pop()
+    elif damage == "sharp_row_type":
+        attrs["sharp_edge"]["values"][-1] = [0]
+    elif damage == "sharp_outside":
+        attrs["sharp_edge"]["values"][-1] = [True]
+    elif damage == "witness_ids":
+        obj["normal_intent"]["managed_loop_ids"].pop()
+    elif damage == "witness_flag":
+        obj["normal_intent"]["unmanaged_matches"] = False
+    elif damage == "storage_flag":
+        obj["has_custom_normals"] = False
+    elif damage == "raw_outside":
+        raw["values"][20][0] += 1
+    elif damage == "raw_range":
+        raw["values"][20][0] = 32768
+    elif damage == "raw_bool":
+        raw["values"][20][0] = True
+    elif damage == "raw_field":
+        raw["field"] = "vector"
+    elif damage == "raw_domain":
+        raw["domain"] = "POINT"
+    elif damage == "raw_length":
+        raw["values"].pop()
+    elif damage == "decoded_outside":
+        obj["corner_normals"][20][0] += 1e-10
+    elif damage == "arbitrary_row":
+        attrs["print_weight"]["values"][20][0] += 1e-10
+    elif damage == "arbitrary_metadata":
+        attrs["print_weight"]["domain"] = "POINT"
+    elif damage == "duplicate_name":
+        obj["attributes"].append(copy.deepcopy(attrs["print_weight"]))
+    else:
+        obj["normal_attributes"].append(copy.deepcopy(attrs["print_weight"]))
+    with pytest.raises(ValueError):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+@pytest.mark.parametrize("damage", ["nonfinite", "shape", "bool", "field", "type", "outside_value",
+                                    "auto_domain", "auto_type", "auto_bool", "auto_mask_mismatch", "missing_auto"])
+def test_new_float_storage_and_automatic_marker_keep_exact_source_defaults(damage):
+    source, first, second, current = _n1_normal_choices("automatic_float")
+    obj = current["objects"][0]
+    raw, automatic = obj["normal_attributes"][0], _n1_layer(obj, _N1_AUTO)
+    if damage == "nonfinite":
+        raw["values"][20][0] = float("inf")
+    elif damage == "shape":
+        raw["values"][20] = [1.0, 0.0]
+    elif damage == "bool":
+        raw["values"][20][0] = True
+    elif damage == "field":
+        raw["field"] = "value"
+    elif damage == "type":
+        raw.update(data_type="INT16_2D", field="value", values=[[0, 0] for _ in raw["values"]])
+    elif damage == "outside_value":
+        raw["values"][20][0] += 1e-10
+    elif damage == "auto_domain":
+        automatic["domain"] = "POINT"
+    elif damage == "auto_type":
+        automatic["data_type"] = "INT"
+    elif damage == "auto_bool":
+        automatic["values"][20] = [0]
+    elif damage == "auto_mask_mismatch":
+        automatic["values"][20] = [True]
+    else:
+        obj["attributes"].remove(automatic)
+    with pytest.raises(ValueError):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+@pytest.mark.parametrize("missing", ["intent", "mask", "float_storage"])
+def test_all_false_automatic_marker_still_requires_its_storage_and_witness(missing):
+    source, first, second, current = _n1_normal_choices("automatic_float")
+    obj = current["objects"][0]
+    for name in (_N1_MANAGED, _N1_AUTO):
+        _n1_layer(obj, name)["values"] = [[False] for _ in obj["corner_normals"]]
+    obj["normal_intent"]["managed_loop_ids"] = []
+    if missing == "float_storage":
+        obj["normal_attributes"][0].update(data_type="INT16_2D", field="value",
+                                         values=[[0, 0] for _ in obj["corner_normals"]])
+    else:
+        remove = _N1_INTENT if missing == "intent" else _N1_MANAGED
+        obj["attributes"] = [row for row in obj["attributes"] if row["name"] != remove]
+    with pytest.raises(ValueError, match="(Managed|Automatic) normal attributes"):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+@pytest.mark.parametrize("damage", ["missing", "flag", "intent"])
+def test_legacy_unmasked_intent_requires_its_exact_encoding_witness(damage):
+    source, first, second, current = _n1_normal_choices("legacy_short")
+    obj = current["objects"][0]
+    if damage == "missing":
+        obj.pop("normal_intent")
+    elif damage == "flag":
+        obj["normal_intent"]["encoded_matches"] = False
+    else:
+        obj["normal_intent"]["intent_normals"][0][0] += 1e-10
+    with pytest.raises(ValueError, match="authenticated encoding witness"):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+@pytest.mark.parametrize("name", ["sharp_edge", "print_weight", _N1_INTENT, "custom_normal"])
+def test_removing_source_present_layers_is_never_hidden_by_implicit_defaults(name):
+    source, first, second, current = _n1_normal_choices("legacy_short")
+    key = "normal_attributes" if name == "custom_normal" else "attributes"
+    for data in (first["snapshot"], current):
+        obj = data["objects"][0]
+        obj[key] = [row for row in obj[key] if row["name"] != name]
+        if name == "custom_normal":
+            obj["has_custom_normals"] = False
+        elif name == _N1_INTENT:
+            obj.pop("normal_intent")
+    result = owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+    assert result["overlaps"] == [{"item_ids": ["I1", "I2"],
+        "objects": [{"object_id": "O0001", "object": "Closed test part"}]}]
+    assert all(row["overlap_reported"] and not row["exact_preview_geometry"] for row in result["items"])
+
+
+@pytest.mark.parametrize("change", ["add", "remove", "retype"])
+def test_arbitrary_layer_allocation_removal_and_retyping_claim_whole_object(change):
+    source, first, second, current = _n1_normal_choices()
+    for data in (first["snapshot"], current):
+        obj = data["objects"][0]
+        if change == "add":
+            obj["attributes"].append({"name": "new_unrelated_attribute", "domain": "CORNER", "data_type": "FLOAT",
+                                      "values": [[0.0] for _ in obj["corner_normals"]]})
+        elif change == "remove":
+            obj["attributes"] = [row for row in obj["attributes"] if row["name"] != "print_weight"]
+        else:
+            _n1_layer(obj, "print_weight").update(data_type="FLOAT_VECTOR",
+                values=[[0.5, 0.0, 0.0] for _ in obj["corner_normals"]])
+    result = owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+    assert result["overlaps"][0]["item_ids"] == ["I1", "I2"]
+    assert all(row["overlap_reported"] and not row["exact_preview_geometry"] for row in result["items"])
+    # Whole-object overlap on the selected part never excuses another part.
+    current["objects"][1]["corner_normals"][20][0] += 1e-10
+    with pytest.raises(ValueError, match="unrequested source"):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+def test_actual_normal_storage_type_change_still_claims_the_whole_object():
+    source, first, second, current = _n1_normal_choices()
+    for data in (first["snapshot"], current):
+        obj = data["objects"][0]
+        obj["normal_attributes"][0].update(data_type="FLOAT_VECTOR", field="vector",
+            values=copy.deepcopy(obj["corner_normals"]))
+    result = owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+    assert result["overlaps"] == [{"item_ids": ["I1", "I2"],
+        "objects": [{"object_id": "O0001", "object": "Closed test part"}]}]
+    assert all(row["overlap_reported"] and not row["exact_preview_geometry"] for row in result["items"])
+
+
+def test_named_storage_retains_true_normal_influence_overlap():
+    source, first, second, current = _n1_normal_choices("automatic_float")
+    second["operations"][0]["scope"]["normal_affected_polygon_ids"] = [0, 3]
+    result = owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+    assert result["overlaps"][0]["item_ids"] == ["I1", "I2"]
+    assert all(row["overlap_reported"] and not row["exact_preview_geometry"] for row in result["items"])
+
+
+def test_applied_output_cannot_choose_its_own_implicit_normal_storage_format():
+    source = scene_snapshot()
+    first, second = pick(source, "I1", amount=0), pick(source, "I2", vertex=6, amount=0)
+    current = combine_disjoint(source, first, second)
+    obj = current["objects"][0]
+    obj["attributes"] = [{"name": _N1_INTENT, "domain": "CORNER", "data_type": "FLOAT_VECTOR",
+                          "values": copy.deepcopy(obj["corner_normals"])}]
+    for name in (_N1_MANAGED, _N1_AUTO):
+        obj["attributes"].append({"name": name, "domain": "CORNER", "data_type": "BOOLEAN",
+                                  "values": [[False] for _ in obj["corner_normals"]]})
+    obj["normal_attributes"] = [{"name": "custom_normal", "domain": "CORNER", "data_type": "FLOAT_VECTOR",
+                                 "field": "vector", "values": copy.deepcopy(obj["corner_normals"])}]
+    obj["has_custom_normals"] = True
+    obj["normal_intent"] = _n1_witness(obj, [])
+    # Neither sealed preview allocated storage. Matching source vector values
+    # cannot make this unrequested allocation a preview-authorized default.
+    with pytest.raises(ValueError, match="unrequested source"):
+        owner_apply.verify_choice_exactness(source, [first, second], current, "f" * 64)
+
+
+@pytest.mark.parametrize("mode", ["authored_short", "automatic_float", "legacy_short"])
+def test_named_storage_preserves_the_single_pick_glb_byte_gate(mode):
+    source, first, _, _ = _n1_normal_choices(mode)
+    result = owner_apply.verify_choice_exactness(source, [first], first["snapshot"], first["export"]["sha256"])
+    assert result["single_pick_glb_equal"] is True and result["overlaps"] == []
+    with pytest.raises(ValueError, match="bytes or scene fingerprint"):
+        owner_apply.verify_choice_exactness(source, [first], first["snapshot"], "0" * 64)
+
+
+def test_apply_copy_carries_the_same_authenticated_temple_evidence_as_previews(tmp_path, monkeypatch):
+    """An inherited producer archive must survive the preview-to-apply boundary."""
+    from types import SimpleNamespace
+    from glasses3d.agent import jobs, print_freshness, temple_lineage
+    from glasses3d.agent.tools import owner_preview
+    from glasses3d.g3d import temple_archive
+    from glasses3d.tests.test_temple_archive import make_run, write_json
+
+    original, source, preview, target = (
+        tmp_path / name for name in ('original', 'understand', 'preview', 'apply'))
+    make_run(original, 'selected', marker='authenticated historical producer')
+    bindings = temple_lineage.carry_evidence(original, source, run_id='selected')
+    assert len(bindings) == 4  # Index and the three authenticated archive payloads.
+    write_json(source / 'inputs/owner-edit.json', {'immutable_files': bindings})
+    write_json(source / 'job.json', {'placeholder': True})
+    write_json(source / 'conversation.json', {'must_not_be_copied': True})
+    checkpoint = source / 'checkpoint.blend'
+    checkpoint.write_bytes(b'private checkpoint instrument')
+    head = {'sha256': edits.sha(checkpoint)}
+    before = edits.tree_hashes(source)
+    assert not (source / 'runs').exists()  # Apply must preserve inherited evidence.
+
+    # Only unrelated job/print inputs are stubbed. Archive copying, receipt/hash
+    # validation, and historical source loading all use their actual functions.
+    monkeypatch.setattr(jobs, 'load_job', lambda root: {})
+    monkeypatch.setattr(print_freshness, 'carry_evidence', lambda *args: None)
+    preview_seed = owner_preview._prepare(SimpleNamespace(root=source), preview, checkpoint, head)
+    target.mkdir()
+    seed = owner_choices._prepare_apply(target, source, checkpoint, head)
+
+    expected = list(temple_archive.verified_archives(source))
+    assert len(expected) == 1
+    for copied, copied_seed in ((preview, preview_seed), (target, seed)):
+        errors = []
+        actual = list(temple_archive.verified_archives(copied, errors=errors))
+        assert not errors
+        assert len(actual) == 1
+        assert actual[0]['payloads'] == expected[0]['payloads']
+        assert actual[0]['sources'] == expected[0]['sources']
+        assert {name: edits.sha(copied / name) for name in bindings} == bindings
+        assert {build({}).value for build, _ in temple_archive.archived_builders(copied)} == {
+            'authenticated historical producer'}
+        assert copied_seed.read_bytes() == checkpoint.read_bytes()
+        assert not (copied / 'inputs/owner-edit.json').exists()
+        assert not (copied / 'conversation.json').exists()
+        assert not (copied / 'runs').exists()
+    assert edits.tree_hashes(source) == before
+
+
+def test_verified_disjoint_shading_reaches_apply_in_original_order(sealed_choices, monkeypatch, tmp_path):
+    from glasses3d.g3d import owner_mesh as M, owner_surface as S
+    from glasses3d.tests.test_owner_edge_review import separate_components
+    h = sealed_choices
+    source, template = separate_components()
+    source['fingerprint'] = h.doc['source']['fingerprint']
+    obj = source['objects'][0]
+    obj['id'] = 'O0001'
+    obj['edges'] = [list(edge) for edge in sorted({tuple(sorted((a, b)))
+        for poly in obj['polygons'] for a, b in zip(poly, poly[1:] + poly[:1])})]
+    obj['loops'] = [vertex for poly in obj['polygons'] for vertex in poly]
+    h.source.clear()
+    h.source.update(source)
+    operations, expected = [], []
+    # Two disconnected components of one real pure mesh provide disjoint rings.
+    # No encoded witness is invented for this host-only state.
+    for index, faces in enumerate((list(range(6)), list(range(6, 12)))):
+        vertices = sorted({vertex for face in faces for vertex in obj['polygons'][face]})
+        operation = {'id': f'I{index + 1}-shade', 'kind': 'repair_shading',
+            'target_ids': [obj['id']], 'scope': {'object_id': obj['id'],
+                'vertex_weights': [{'vertex_id': vertex, 'weight': 1.} for vertex in vertices],
+                'fixed_vertex_ids': [], 'affected_polygon_ids': faces,
+                'normal_affected_polygon_ids': sorted(M.normal_faces(obj, faces))},
+            'params': {'strength': .6, 'mode': 'smooth'}, 'marking_attachments': []}
+        after, _ = S.state(h.source, [operation])
+        after['fingerprint'] = ('b' if index == 0 else 'c') * 64
+        assert after['objects'][0]['corner_normals'] != obj['corner_normals']
+        assert S.verify(h.source, after, [operation])['ok']
+        operations.append(operation)
+        expected.append(after)
+        for option in h.loaded[index][1]['options']:
+            option['operations'][:] = [copy.deepcopy(operation)]
+            option['export']['fingerprint'] = after['fingerprint']
+            path = Path(option['after_snapshot']['path'])
+            write_json(path, after)
+            option['after_snapshot']['sha256'] = edits.sha(path)
+            h.understanding['evidence_files'][path.relative_to(h.root).as_posix()] = edits.sha(path)
+    _reseal_choice_test(h)
+    assert not (set(operations[0]['scope']['normal_affected_polygon_ids']) &
+                set(operations[1]['scope']['normal_affected_polygon_ids']))
+    received, checked = [], []
+    actual_helper = owner_choices._exact_disjoint_shading_picks
+
+    def observe_exact_proof(snapshot, oid, selected, verified=None):
+        accepted = actual_helper(snapshot, oid, selected, verified)
+        checked.append((oid, [pick['item_id'] for pick in selected], accepted))
+        return accepted
+
+    def apply(root, source_root, doc, understanding, selected, *args):
+        assert root.is_dir() and not any(root.iterdir())
+        received.append(copy.deepcopy(selected))
+        return root
+
+    monkeypatch.setattr(owner_choices, '_exact_disjoint_shading_picks', observe_exact_proof)
+    monkeypatch.setattr(owner_choices, '_run_apply', apply)
+    before = edits.tree_hashes(h.root)
+    output = tmp_path / 'verified-disjoint-shading'
+    assert owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped,
+                                      'Apply my picks.', output) == output
+    assert checked == [('O0001', ['I1', 'I2'], True)]
+    assert len(received) == 1
+    assert [pick['item_id'] for pick in received[0]] == ['I1', 'I2']
+    assert [pick['operations'] for pick in received[0]] == [[op] for op in operations]
+    assert [pick['snapshot'] for pick in received[0]] == expected
+    assert edits.tree_hashes(h.root) == before

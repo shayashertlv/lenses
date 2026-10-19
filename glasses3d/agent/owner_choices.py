@@ -325,7 +325,7 @@ legacy owner-applied schema. This validates the additional C2 record only.
 
 def _prepare_apply(root, source_root, checkpoint, head):
     """Populate the exclusively claimed destination with the same preview inputs."""
-    from . import jobs, print_freshness
+    from . import jobs, print_freshness, temple_lineage
     jobs.load_job(source_root)
     shutil.copyfile(source_root / 'job.json', root / 'job.json')
     for name in ('images', 'reference_images', 'cameras'):
@@ -335,6 +335,7 @@ def _prepare_apply(root, source_root, checkpoint, head):
             if edits.tree_hashes(root / name) != expected:
                 raise ValueError('The private apply inputs differ from the source.')
     print_freshness.carry_evidence(source_root, root)
+    temple_lineage.carry_evidence(source_root, root)
     seed = root / 'work/preview-source.blend'
     seed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(checkpoint, seed)
@@ -442,8 +443,55 @@ def _remove_private_tree(root):
     shutil.rmtree(root, onexc=writable_retry)
 
 
+
+
+def _exact_disjoint_shading_picks(snapshot, object_id, picks, verified=None):
+    """A read-only sufficient proof for separate same-part shading transactions."""
+    from glasses3d.g3d import owner_surface as S
+    source = M.objects(snapshot)
+    verified = {} if verified is None else verified
+    influence_sets = []
+    try:
+        before = source[object_id]
+        for pick in picks:
+            own = [operation for operation in pick['operations']
+                   if operation['scope']['object_id'] == object_id]
+            if not own or any(operation['kind'] != 'repair_shading' for operation in own):
+                return False
+            # An attached marking is another normal writer, even when a direct
+            # shading operation also happens to name that object.
+            if any(attachment['object_id'] == object_id for operation in pick['operations']
+                   for attachment in operation.get('marking_attachments', [])):
+                return False
+            after = M.objects(pick['snapshot'])[object_id]
+            geometry = ('vertices_local', 'vertices_world_mm', 'polygons', 'triangles',
+                        'triangle_polygons', 'edges', 'loops')
+            if any(before.get(key) != after.get(key) for key in geometry):
+                return False
+            influence = set()
+            for operation in own:
+                scope = operation['scope']
+                actual = M.normal_faces(before, scope['affected_polygon_ids'])
+                declared = scope.get('normal_affected_polygon_ids')
+                if declared is not None and set(declared) != actual:
+                    return False
+                influence.update(actual)
+            if not influence or any(influence.intersection(other) for other in influence_sets):
+                return False
+            influence_sets.append(influence)
+            item_id = pick['item_id']
+            if item_id not in verified:
+                # Derive authority from source + operations, never marker presence.
+                verified[item_id] = S.verify(snapshot, pick['snapshot'], pick['operations']).get('ok') is True
+            if not verified[item_id]:
+                return False
+    except (M.OwnerMeshError, ValueError, TypeError, KeyError, IndexError):
+        return False
+    return True
+
+
 def _require_composable_picks(source_root, doc, understanding, selected):
-    """Keep same-part normal writers out of separate native item transactions."""
+    """Allow independently verified disjoint shading; keep other normal pairs out."""
     if len(selected) < 2:
         return
     from glasses3d.g3d import owner_surface
@@ -489,8 +537,13 @@ def _require_composable_picks(source_root, doc, understanding, selected):
                     touched.add(mid)
         for oid in sorted(touched):
             owners.setdefault(oid, []).append(pick['item_id'])
-    for item_ids in owners.values():
+    picks_by_id = {pick['item_id']: pick for pick in selected}
+    verified = {}
+    for oid, item_ids in owners.items():
         if len(item_ids) > 1:
+            if _exact_disjoint_shading_picks(snapshot, oid,
+                    [picks_by_id[item_id] for item_id in item_ids], verified):
+                continue
             raise ValueError(
                 f'Items {item_ids[0]} and {item_ids[1]} both change the shading of the same part, '
                 'which cannot be combined exactly yet. Pick an option for one of them now '

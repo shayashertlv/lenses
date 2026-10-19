@@ -415,38 +415,7 @@ def apply(root, plan, out):
         started = time.monotonic()
         require_unpaid_checkout()
         destination = out/('applied-'+label)
-        if label == 'both' and plan.get('same_part_shading_refusal_proof'):
-            expected_message = (
-                f"Items {choices[0]['item_id']} and {choices[1]['item_id']} both change the shading of the same part, "
-                "which cannot be combined exactly yet. Pick an option for one of them now "
-                "(choose None of these for the other) and send the other again as a new edit.")
-            before = edits.tree_hashes(root)
-            with patch.object(Path, 'mkdir', side_effect=AssertionError('Refusal created a directory')) as directories, \
-                    patch.object(owner_choices, '_prepare_apply',
-                                 side_effect=AssertionError('Refusal copied a private job')) as copies, \
-                    patch.object(owner_choices.JobScene, 'start',
-                                 side_effect=AssertionError('Refusal started a native worker')) as native, \
-                    patch.object(delivery, 'deliver_owner_applied',
-                                 side_effect=AssertionError('Refusal published a delivery')) as publication:
-                try:
-                    owner_choices.apply_choices(root, dto['understanding_sha256'], choices, skipped,
-                        LABEL+': exercise the early same-part shading refusal.', destination=destination)
-                except ValueError as exc:
-                    message = str(exc)
-                else:
-                    raise AssertionError('Same-part shading picks were not refused')
-            assert message == expected_message, message
-            counts = {'directory_creations': directories.call_count, 'private_copies': copies.call_count,
-                      'native_worker_starts': native.call_count, 'publications': publication.call_count}
-            assert all(count == 0 for count in counts.values()), counts
-            assert not destination.exists() and edits.tree_hashes(root) == before
-            row = {'case': label, 'status': 'expected_same_part_shading_refusal', 'message': message,
-                   'seconds': time.monotonic()-started, 'choices': choices, 'skipped': skipped,
-                   **counts, 'destination_absent': True, 'source_round_unchanged': True,
-                   'actual_provider_requests': 0, 'actual_spend_usd': 0}
-            write(out/('apply-'+label+'.json'), row)
-            results.append(row)
-            continue
+        source_round_before = edits.tree_hashes(root)
         archived = out/'prepublication'/(label+'-'+str(time.time_ns()))
         publish = delivery.deliver_owner_applied
         expected_applied = [{**pick, 'amount_text': next(option['amount_text']
@@ -461,6 +430,9 @@ def apply(root, plan, out):
             exactness = application['exactness']
             assert exactness['ok'] and exactness['overlaps'] == [] and application['warnings'] == []
             assert all(row['exact_preview_geometry'] for row in exactness['items'])
+            exported_geometry = exactness['exported_geometry']
+            assert exported_geometry['ok'] and exported_geometry['overlaps'] == []
+            assert all(row.get('overlapping_rows', 0) == 0 for row in exported_geometry['comparisons'])
             if len(choices) == 1:
                 assert exactness['mode'] == 'single_glb_bytes' and exactness['single_pick_glb_equal']
                 preview = result(root, 'c2-preview-'+choices[0]['item_id'])
@@ -501,6 +473,7 @@ def apply(root, plan, out):
             # A real proof failure is terminal. Retain the evidence and do not
             # attempt another selection after failed immutable publication.
             raise
+        assert edits.tree_hashes(root) == source_round_before, 'Local apply changed its sealed source round'
         saved = delivery.load_delivery(applied)
         report = saved['report_data']
         assert Path(saved['report']).resolve().is_relative_to(Path(applied).resolve()/'deliveries')
@@ -515,7 +488,7 @@ def apply(root, plan, out):
         exactness = application['exactness']
         assert not (Path(applied)/'runs').exists(), 'A local apply must not create a model run'
         row = {'case': label, 'status': 'delivered', 'root': str(applied), 'seconds': time.monotonic()-started,
-            'choices': choices, 'skipped': skipped, 'delivery': saved,
+            'choices': choices, 'skipped': skipped, 'delivery': saved, 'source_round_unchanged': True,
             'exactness': exactness, 'applied': application['applied'], 'notes': application['notes'],
             'application_path': str(application_path), 'application_sha256': edits.sha(application_path),
             'actual_provider_requests': 0, 'actual_spend_usd': 0}
@@ -575,7 +548,7 @@ def main():
     complete = {**machine, 'completed_utc': procs.utcnow(), 'seconds': time.monotonic()-started,
         'status': 'passed', 'actual_provider_requests': 0, 'actual_spend_usd': 0}
     if (out/'apply-results.json').exists() and any(
-            row['status'] not in {'delivered', 'expected_same_part_shading_refusal'}
+            row['status'] != 'delivered'
             for row in edits.read(out/'apply-results.json')):
         complete['status'] = 'blocked_by_delivery_contract'
     write(out/(args.phase+'-completed.json'), complete)

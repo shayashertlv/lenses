@@ -131,21 +131,22 @@ Ambiguous shared topology changes refuse. "None of these" applies nothing for th
 Applied deliveries record zero requests and cost, `accepted_finish:false` and no visual acceptance; the owner can
 review the result and record a verdict.
 
-Two distinct picked items that write shading/normals on the same source object refuse before destination handling,
-copying, worker startup or publication, even if their marked regions are disjoint. Classification authenticates
-the source and selected preview snapshots; material-only operations do not count, and coordinate edits count when
-the sealed preview changes intended normals, smoothing or topology. One item containing both marks, one selected
-item, and shading changes on different source objects retain the existing checked apply path. The owner can put
-both marks in one item when preparing the request, or apply one now, choose **None of these** for the other, and
-send the other as a new edit from the resulting delivery. Exact local normal writes and ordered composition remain
-future work: the attempted writer repair regressed the real Prada preview and was reverted. Expected-failure
-tests preserve the exact future normal-write requirements; no tolerance or exactness gate was loosened.
+Separate `repair_shading` picks on one source object can compose when their actual normal influence regions are
+disjoint and both sealed previews pass exact validation. Overlapping influence, other same-part normal operation
+kinds and unproved older previews still refuse before destination handling, copying, worker startup or
+publication. Classification authenticates the source and selected preview snapshots; material-only operations
+do not count, and coordinate edits count when the sealed preview changes intended normals, smoothing or topology.
+One item containing both marks, one selected item, and shading changes on different source objects retain the
+existing checked apply path. For a refused combination, put both marks in one item when preparing the request,
+or apply one now, choose **None of these** for the other, and send it as a new edit from the resulting delivery.
+Native stored and decoded normals and exported NORMAL rows outside each shading influence remain exact.
+The normal-composition tests now run without expected-failure marks; existing assertions and bounds remain.
 
-D1's six browser scenarios passed at $0 under this refusal, including immutable single-pick preview-byte equality;
-this is not a successful same-part two-item composition claim. UNDERSTAND evidence sealing remains slow on Prada
-(C2's two-item proof: 1,147.484 s, about 19 minutes). The pre-M12 historical temple-alias regression introduced by
-M11 task 8 remains open, queued as M11 task 12. See [current progress](../plan/PROGRESS.md) for suite results and
-remaining scope.
+D1's historical six browser scenarios passed at $0 under the earlier refusal, including immutable single-pick
+preview-byte equality. N1's fresh evidence is recorded in [the test guide](../tests/README.md#n1-exact-local-normals--2026-10-19).
+UNDERSTAND evidence sealing remains slow on Prada (C2's two-item proof: 1,147.484 s, about 19 minutes).
+Task 12 (`1238a21`, accepted by Claude) repaired authenticated historical temple aliases; already-reshaped
+objects correctly refuse. See [current progress](../plan/PROGRESS.md) for suite results and remaining scope.
 
 An unpreviewable item can go to a separately approved **full paid edit** (`full_edit_item`) with its own typed
 cutoff. This starts from the same immutable source delivery with the main toolset, product photos, only the selected
