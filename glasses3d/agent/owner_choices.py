@@ -6,6 +6,7 @@ delivered, hash-bound understanding and authenticated preview receipts.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -441,6 +442,61 @@ def _remove_private_tree(root):
     shutil.rmtree(root, onexc=writable_retry)
 
 
+def _require_composable_picks(source_root, doc, understanding, selected):
+    """Keep same-part normal writers out of separate native item transactions."""
+    if len(selected) < 2:
+        return
+    from glasses3d.g3d import owner_surface
+
+    # Surface operations plan custom normals; material-only edits short-circuit
+    # that writer. Finite coordinate edits keep their existing exactness path
+    # when their sealed intended normals, smoothing and topology stay unchanged.
+    normal_kinds = owner_surface.OPERATION_KINDS - {'material_adjust'}
+    finite_kinds = M.OPERATION_KINDS - owner_surface.OPERATION_KINDS
+    path = edits.confined(source_root, understanding['snapshot_path'])
+    payload = path.read_bytes()
+    if understanding['evidence_files'].get(path.relative_to(source_root).as_posix()) != hashlib.sha256(payload).hexdigest():
+        raise ValueError('The source snapshot for these previews is missing or changed.')
+    snapshot = json.loads(payload)
+    if snapshot.get('fingerprint') != doc['source']['fingerprint']:
+        raise ValueError('The source snapshot differs from the authenticated model map.')
+    source = M.objects(snapshot)
+
+    def normal_state(obj):
+        witness = obj.get('normal_intent')
+        intended = (witness['intent_normals'] if isinstance(witness, dict)
+                    and isinstance(witness.get('intent_normals'), list)
+                    and all(witness.get(key) is True for key in
+                            ('encoded_matches', 'normal_space_matches', 'decoded_within_quantization'))
+                    else obj['corner_normals'])
+        return (intended, obj.get('polygon_smooth'), obj.get('polygons'), obj.get('edges'),
+                obj.get('loops'), len(obj['vertices_local']))
+
+    owners = {}
+    for pick in selected:
+        preview = M.objects(pick['snapshot'])
+        touched = set()
+        for operation in pick['operations']:
+            oid = operation['scope']['object_id']
+            if operation['kind'] in normal_kinds or (operation['kind'] in finite_kinds
+                    and normal_state(source[oid]) != normal_state(preview[oid])):
+                touched.add(oid)
+            # A support surface is not changed by transform_marking. Actual
+            # transported marking normals are separately bound in attachments.
+            for attachment in operation.get('marking_attachments', []):
+                mid = attachment['object_id']
+                if normal_state(source[mid]) != normal_state(preview[mid]):
+                    touched.add(mid)
+        for oid in sorted(touched):
+            owners.setdefault(oid, []).append(pick['item_id'])
+    for item_ids in owners.values():
+        if len(item_ids) > 1:
+            raise ValueError(
+                f'Items {item_ids[0]} and {item_ids[1]} both change the shading of the same part, '
+                'which cannot be combined exactly yet. Pick an option for one of them now '
+                '(choose None of these for the other) and send the other again as a new edit.')
+
+
 def apply_choices(round_root, understanding_sha256, choices, skipped, confirmation_text, destination=None) -> Path:
     """Apply sealed IDs in original item order to a fresh job; failure removes the private copy."""
     source_root = Path(round_root).resolve()
@@ -456,10 +512,16 @@ def apply_choices(round_root, understanding_sha256, choices, skipped, confirmati
     previews = {item['item_id']: preview for item, preview in loaded}
     for pick in selected:
         option = next(row for row in previews[pick['item_id']]['options'] if row['id'] == pick['option_id'])
+        snapshot_path = edits.confined(source_root, option['after_snapshot']['path'])
+        snapshot_bytes = snapshot_path.read_bytes()
+        snapshot_sha = option['after_snapshot']['sha256']
+        if (hashlib.sha256(snapshot_bytes).hexdigest() != snapshot_sha
+                or understanding['evidence_files'].get(snapshot_path.relative_to(source_root).as_posix()) != snapshot_sha):
+            raise ValueError('The selected preview snapshot is missing or changed.')
         pick.update(operations=copy.deepcopy(option['operations']), export=copy.deepcopy(option['export']),
                     source_export=copy.deepcopy(previews[pick['item_id']]['before_export']),
                     amount_text=option['amount_text'],
-                    snapshot=edits.read(edits.confined(source_root, option['after_snapshot']['path'])))
+                    snapshot=json.loads(snapshot_bytes))
         before = pick['source_export']
         before_path = edits.confined(source_root, before['path'])
         if (understanding['evidence_files'].get(before_path.relative_to(source_root).as_posix()) != before['sha256']
@@ -467,6 +529,7 @@ def apply_choices(round_root, understanding_sha256, choices, skipped, confirmati
             raise ValueError('The source export for this preview is missing or changed.')
     if len({pick['source_export']['sha256'] for pick in selected}) != 1:
         raise ValueError('All selected previews must share the exact same source export.')
+    _require_composable_picks(source_root, doc, understanding, selected)
     root = Path(destination).resolve() if destination is not None else edits.RUNTIME_ROOT / ('p-' + uuid4().hex[:10])
     if root.exists() or root.is_relative_to(source_root) or source_root.is_relative_to(root):
         raise ValueError('The apply destination must be a new folder outside the source round.')

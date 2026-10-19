@@ -210,6 +210,9 @@ def sealed_choices(tmp_path, monkeypatch):
     source_export.parent.mkdir(parents=True)
     source_export.write_bytes(b"sealed source export bytes")
     evidence[source_export.relative_to(root).as_posix()] = edits.sha(source_export)
+    source_snapshot = root / "work/maps/source.json"
+    write_json(source_snapshot, source)
+    evidence[source_snapshot.relative_to(root).as_posix()] = edits.sha(source_snapshot)
     for number, selected in enumerate(selections, 1):
         item_id = selected["item_id"]
         option_rows = []
@@ -250,6 +253,7 @@ def sealed_choices(tmp_path, monkeypatch):
     write_json(map_receipt, {"views": [{"ref": "source-map", "full_pair": str(map_image)}]})
     evidence[map_receipt.relative_to(root).as_posix()] = edits.sha(map_receipt)
     understanding = {"schema": edits.UNDERSTANDING_SCHEMA, "items": items, "evidence_files": evidence,
+                     "snapshot_path": source_snapshot.relative_to(root).as_posix(),
                      "capture_receipts": [map_receipt.relative_to(root).as_posix()],
                      "limitations": ["The background mark remains unresolved."]}
     artifact = root / "work/owner_edit/understanding.json"
@@ -267,6 +271,7 @@ def sealed_choices(tmp_path, monkeypatch):
     monkeypatch.setattr(job_run, "prepare_run", paid)
     monkeypatch.setattr(job_run, "execute_run", paid)
     return SimpleNamespace(root=root, artifact=artifact, sha=edits.sha(artifact), doc=doc,
+                           source=source, source_snapshot=source_snapshot,
                            understanding=understanding, loaded=loaded, captures=captures,
                            choices=[{"item_id": "I2", "option_id": "A"}, {"item_id": "I1", "option_id": "A"}],
                            skipped=[{"item_id": "I3", "note": "  Need a better view.\r\n"}])
@@ -377,6 +382,197 @@ def test_apply_passes_only_sealed_operations_in_item_order_and_keeps_source_byte
         edits.read(preview["options"][0]["after_snapshot"]["path"]) for _, preview in h.loaded[:2]]
     assert received["skipped"] == h.skipped
     assert edits.tree_hashes(h.root) == before
+
+
+def _reseal_choice_test(h):
+    write_json(h.source_snapshot, h.source)
+    h.understanding['evidence_files'][h.understanding['snapshot_path']] = edits.sha(h.source_snapshot)
+    write_json(h.artifact, h.understanding)
+    h.sha = edits.sha(h.artifact)
+
+
+def _sealed_operation(h, index, kind, *, oid='O0001', change_normal=False, mutate=None):
+    """Replace upstream-validated plans in this boundary-only fixture."""
+    item_id = f'I{index + 1}'
+    selected = pick(h.source, item_id, oid=oid, vertex=1 if index == 0 else 6,
+                    normal=(1 if index == 0 else 12) if change_normal else None)
+    operation = selected['operations'][0]
+    operation['kind'] = kind
+    if mutate is not None:
+        mutate(selected)
+    for option in h.loaded[index][1]['options']:
+        option['operations'][:] = copy.deepcopy(selected['operations'])
+        path = Path(option['after_snapshot']['path'])
+        write_json(path, selected['snapshot'])
+        option['after_snapshot']['sha256'] = edits.sha(path)
+        h.understanding['evidence_files'][path.relative_to(h.root).as_posix()] = edits.sha(path)
+    _reseal_choice_test(h)
+
+
+SHADING_CONFLICT = ('Items I1 and I2 both change the shading of the same part, which cannot be combined exactly yet. '
+    'Pick an option for one of them now (choose None of these for the other) and send the other again as a new edit.')
+SURFACE_NORMAL_KINDS = ('flatten_face', 'repair_shading', 'refine_curved_surface', 'edge_shape', 'thickness',
+    'scale_region', 'bend_region', 'transform_marking', 'mesh_cleanup', 'consistent_normals', 'symmetrize', 'controlled_decimate')
+
+
+@pytest.mark.parametrize('kind', SURFACE_NORMAL_KINDS)
+@pytest.mark.parametrize('authored', [False, True])
+def test_same_part_surface_normal_items_refuse_before_copy_worker_requests_or_publication(sealed_choices, monkeypatch, tmp_path, kind, authored):
+    from glasses3d.g3d import owner_surface
+    assert set(SURFACE_NORMAL_KINDS) == owner_surface.OPERATION_KINDS - {'material_adjust'}
+    h = sealed_choices
+    obj = h.source['objects'][0]
+    obj['has_custom_normals'] = authored
+    obj['normal_attributes'] = ([{'name': 'custom_normal', 'domain': 'CORNER', 'data_type': 'INT16_2D',
+        'field': 'value', 'values': [[0, 0] for _ in obj['corner_normals']]}] if authored else [])
+    _sealed_operation(h, 0, kind)
+    _sealed_operation(h, 1, 'repair_shading')
+    calls = []
+    def forbidden(*args, **kwargs):
+        calls.append('native, publication or request')
+        raise AssertionError('Conflicting shading reached a side effect')
+    monkeypatch.setattr(owner_choices, '_run_apply', forbidden)
+    monkeypatch.setattr(owner_choices.delivery, 'deliver_owner_applied', forbidden)
+    from glasses3d.agent import job_run
+    monkeypatch.setattr(job_run, 'prepare_run', forbidden)
+    monkeypatch.setattr(job_run, 'execute_run', forbidden)
+    before = edits.tree_hashes(h.root)
+    output = tmp_path / 'conflicting-shading'
+    with pytest.raises(ValueError) as error:
+        owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output)
+    assert str(error.value) == SHADING_CONFLICT
+    assert calls == [] and not output.exists() and edits.tree_hashes(h.root) == before
+
+
+@pytest.mark.parametrize('kind', ['translate_region', 'rotate_region', 'taper_region'])
+@pytest.mark.parametrize('change', ['intended_normals', 'polygon_smooth', 'topology'])
+def test_finite_edits_with_changed_sealed_normal_state_also_refuse(sealed_choices, monkeypatch, tmp_path, kind, change):
+    h = sealed_choices
+    def mutate(row):
+        obj = row['snapshot']['objects'][0]
+        if change == 'polygon_smooth':
+            obj['polygon_smooth'] = [True for _ in obj['polygons']]
+        elif change == 'topology':
+            obj['polygons'][0].reverse()
+    _sealed_operation(h, 0, kind, change_normal=change == 'intended_normals', mutate=mutate)
+    _sealed_operation(h, 1, 'repair_shading')
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Conflicting finite normal change reached the worker')
+    monkeypatch.setattr(owner_choices, '_run_apply', forbidden)
+    output = tmp_path / 'finite-shading'
+    with pytest.raises(ValueError) as error:
+        owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output)
+    assert str(error.value) == SHADING_CONFLICT and not output.exists()
+
+
+@pytest.mark.parametrize('case', ['single', 'two_operations_one_item', 'different_parts',
+    'translate_region', 'rotate_region', 'taper_region', 'material_adjust'])
+def test_nonconflicting_choices_keep_existing_apply_path(sealed_choices, monkeypatch, tmp_path, case):
+    h = sealed_choices
+    _sealed_operation(h, 0, 'repair_shading' if case in {'single', 'two_operations_one_item', 'different_parts'} else case)
+    _sealed_operation(h, 1, 'repair_shading' if case == 'different_parts' else 'translate_region',
+                      oid='O0002' if case == 'different_parts' else 'O0001')
+    if case == 'two_operations_one_item':
+        updated = set()
+        for option in h.loaded[0][1]['options']:
+            if id(option['operations']) in updated:
+                continue
+            updated.add(id(option['operations']))
+            second = copy.deepcopy(option['operations'][0])
+            second['id'] += '-second-mark'
+            option['operations'].append(second)
+        _reseal_choice_test(h)
+    choices, skipped = h.choices, h.skipped
+    if case == 'single':
+        choices = [{'item_id': 'I1', 'option_id': 'A'}]
+        skipped = [{'item_id': 'I2', 'note': 'Send this as a new edit.'}, *h.skipped]
+    reached = []
+    def apply(root, source_root, doc, understanding, selected, *args):
+        reached.append(selected)
+        return root
+    monkeypatch.setattr(owner_choices, '_run_apply', apply)
+    before = edits.tree_hashes(h.root)
+    output = tmp_path / case
+    assert owner_choices.apply_choices(h.root, h.sha, choices, skipped, 'Apply my picks.', output) == output
+    assert len(reached) == 1 and edits.tree_hashes(h.root) == before
+    assert [row['item_id'] for row in reached[0]] == (['I1'] if case == 'single' else ['I1', 'I2'])
+    if case == 'two_operations_one_item':
+        assert len(reached[0][0]['operations']) == 2
+
+
+def test_finite_classification_uses_verified_intent_instead_of_quantized_decoding(sealed_choices, monkeypatch, tmp_path):
+    h = sealed_choices
+    def encoded(row):
+        obj = row['snapshot']['objects'][0]
+        obj['normal_intent'] = {'intent_normals': copy.deepcopy(h.source['objects'][0]['corner_normals']),
+            'encoded_matches': True, 'normal_space_matches': True, 'decoded_within_quantization': True}
+    _sealed_operation(h, 0, 'translate_region', change_normal=True, mutate=encoded)
+    _sealed_operation(h, 1, 'repair_shading')
+    reached = []
+    monkeypatch.setattr(owner_choices, '_run_apply', lambda root, *args: reached.append(root) or root)
+    output = tmp_path / 'unchanged-intent'
+    assert owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output) == output
+    assert reached == [output]
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_only_actually_changed_attached_marking_normals_count(sealed_choices, monkeypatch, tmp_path, changed):
+    h = sealed_choices
+    def attached(row):
+        row['operations'][0]['marking_attachments'] = [{'object_id': 'O0002', 'surface_object_id': 'O0001'}]
+        if changed:
+            row['snapshot']['objects'][1]['corner_normals'][1] = [0.0, 1.0, 0.0]
+    _sealed_operation(h, 0, 'refine_curved_surface', mutate=attached)
+    _sealed_operation(h, 1, 'transform_marking', oid='O0002')
+    for option in h.loaded[1][1]['options']:
+        option['operations'][0]['params']['surface_object_id'] = 'O0001'
+    _reseal_choice_test(h)
+    reached = []
+    monkeypatch.setattr(owner_choices, '_run_apply', lambda root, *args: reached.append(root) or root)
+    output = tmp_path / 'marking'
+    if changed:
+        with pytest.raises(ValueError) as error:
+            owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output)
+        assert str(error.value) == SHADING_CONFLICT and reached == [] and not output.exists()
+    else:
+        assert owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output) == output
+        assert reached == [output]
+
+
+@pytest.mark.parametrize('damage', ['bytes', 'fingerprint'])
+def test_normal_classification_requires_authenticated_source_snapshot(sealed_choices, monkeypatch, tmp_path, damage):
+    h = sealed_choices
+    h.source['fingerprint'] = '0' * 64
+    write_json(h.source_snapshot, h.source)
+    if damage == 'fingerprint':
+        h.understanding['evidence_files'][h.understanding['snapshot_path']] = edits.sha(h.source_snapshot)
+    reached = []
+    monkeypatch.setattr(owner_choices, '_run_apply', lambda *args: reached.append('worker'))
+    output = tmp_path / 'source-tampered'
+    with pytest.raises(ValueError, match='source snapshot'):
+        owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output)
+    assert reached == [] and not output.exists()
+
+
+@pytest.mark.parametrize('damage', ['bytes', 'evidence_binding'])
+def test_normal_classification_rechecks_the_exact_selected_preview_bytes(sealed_choices, monkeypatch, tmp_path, damage):
+    h = sealed_choices
+    _sealed_operation(h, 0, 'translate_region', change_normal=True)
+    _sealed_operation(h, 1, 'repair_shading')
+    binding = h.loaded[0][1]['options'][0]['after_snapshot']
+    path = Path(binding['path'])
+    if damage == 'bytes':
+        changed = edits.read(path)
+        changed['objects'][0]['corner_normals'] = copy.deepcopy(h.source['objects'][0]['corner_normals'])
+        write_json(path, changed)
+    else:
+        h.understanding['evidence_files'][path.relative_to(h.root).as_posix()] = '0' * 64
+    reached = []
+    monkeypatch.setattr(owner_choices, '_run_apply', lambda *args: reached.append('worker'))
+    output = tmp_path / 'preview-tampered'
+    with pytest.raises(ValueError, match='selected preview snapshot'):
+        owner_choices.apply_choices(h.root, h.sha, h.choices, h.skipped, 'Apply my picks.', output)
+    assert reached == [] and not output.exists()
 
 
 @pytest.mark.parametrize("failure", ["stale_sha", "empty_confirmation", "invalid_choice", "existing_destination",

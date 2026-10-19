@@ -18,6 +18,7 @@ from pathlib import Path
 import shutil
 import time
 from unittest.mock import patch
+from concurrent.futures import Future
 
 for _key in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
     os.environ[_key] = '1'
@@ -26,7 +27,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy.spatial.transform import Rotation
 
-from glasses3d.agent import delivery, edits, job_run, owner_captures, procs
+from glasses3d.agent import budget, delivery, edits, job_run, owner_captures, procs
 from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
 from glasses3d.agent.replay import COUNT_PATH, ScriptedOpenAI, tool_call
 from glasses3d.agent.tools import free_commit_bytes, model_map, model_map_geometry, owner_preview
@@ -35,6 +36,42 @@ from glasses3d.tests.proofs.assembly_m6_owner_edit import event, protected, resu
 from glasses3d.tests.proofs.offline_job_approval import prepare_offline_request
 
 LABEL = 'scripted by Codex, not Astra'
+
+
+def require_unpaid_checkout():
+    lock = Path(__file__).resolve().parents[2]/'data/.paid-run.lock'
+    if lock.exists():
+        raise RuntimeError('Checkout paid-run lock is present; do not start this offline native proof.')
+
+
+class SerialPreviewPool:
+    """Proof scheduler: release the verified read-only parent around each child.
+
+    The native option implementation and all its checks are unchanged. Reopening
+    the parent verifies its checkpoint bytes/fingerprint through JobScene.start.
+    """
+    def __init__(self, scene, max_workers):
+        assert max_workers == 1
+        self.scene = scene
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def submit(self, function, *args):
+        require_unpaid_checkout()
+        future = Future()
+        self.scene.s.close()
+        try:
+            future.set_result(function(*args))
+        except BaseException as error:
+            future.set_exception(error)
+        finally:
+            require_unpaid_checkout()
+            self.scene.start()
+        return future
 
 
 def write(path, value):
@@ -230,7 +267,9 @@ class Script:
             self.manifest = manifest
             assert manifest['source']['fingerprint'] == self.plan['source_fingerprint']
             resolutions = discovered['owner_mark_resolutions']
-            assert len(resolutions) == 4 and all(r['status'] == 'resolved' for r in resolutions)
+            captures = owner_captures.load_round_captures(self.root)
+            expected_marks = sum(len(row['payload']['marks']) for row in captures)
+            assert len(resolutions) == expected_marks and all(r['status'] == 'resolved' for r in resolutions)
             assert all(r['resolved_polygons'] and not r['edit_authority'] for r in resolutions)
             write(self.out/'mark-resolutions.json', resolutions)
             remap = {}
@@ -301,6 +340,7 @@ def prepare(plan, out):
     original = Path(plan.get('original_source', source)).resolve()
     before = protected(original)
     write(out/'source-before.json', before)
+    write(out/'adapted-source-before.json', protected(source))
     saved = delivery.load_delivery(source, plan['delivery_id'])
     assert saved['glb_sha256'] == plan['source_glb_sha256']
     source_glb = Path(saved['model'])
@@ -327,6 +367,7 @@ def prepare(plan, out):
 
 
 async def understand(root, plan, out):
+    require_unpaid_checkout()
     script = Script(root, plan, out)
     settings = replace(job_run.settings_default(), effort='high', settled_only=True,
         settled_stop_usd='20', max_turns=12, max_output_tokens=4096)
@@ -334,9 +375,11 @@ async def understand(root, plan, out):
     request = edits.read(root/'runs/c2-proof/approval-request.json')
     assert request['offline_only'], 'Proof approval must be unusable for paid transport'
     started = time.monotonic()
-    # One option child plus the persistent read-only parent obeys the shared
-    # machine limit of two concurrent Blender processes. No gate is changed.
-    with patch.object(owner_preview, 'preview_workers', lambda _: 1):
+    # The proof runs exactly one native Blender process at a time. The parent's
+    # source checkpoint is reopened and reverified after each private option.
+    with patch.object(budget, 'PAID_RUN_LOCK_ROOT', out/'locks'), patch.object(
+            owner_preview, 'preview_workers', lambda _: 1), patch.object(
+            owner_preview, 'ProcessPoolExecutor', lambda max_workers: SerialPreviewPool(scene, max_workers)):
         outcome = await job_run.execute_run(root, 'c2-proof', offline_handler=script.handle, scene=scene)
     report = {'root': str(root), 'seconds': time.monotonic()-started, 'outcome': outcome,
         'mock_inference_requests': len(script.transport.creates), 'mock_count_requests': len(script.transport.counts),
@@ -349,11 +392,12 @@ async def understand(root, plan, out):
     assert not script.transport.violations and not script.transport.unexpected
     assert outcome['result']['status'] == 'completed', outcome['result'].get('error')
     assert outcome['delivery']['status'] == 'awaiting_owner_confirmation'
-    assert len(script.transport.creates) == 5
+    assert len(script.transport.creates) == len(plan['items'])+3
     return report
 
 
 def apply(root, plan, out):
+    require_unpaid_checkout()
     from glasses3d.agent import owner_choices
     dto = owner_choices.read_understanding(root)
     write(out/'understanding-dto.json', dto)
@@ -369,7 +413,40 @@ def apply(root, plan, out):
             ('both', picks, []),
             ('one-none', picks[:1], [{'item_id': plan['items'][1]['item_id'], 'note': plan['none_note']}] )):
         started = time.monotonic()
+        require_unpaid_checkout()
         destination = out/('applied-'+label)
+        if label == 'both' and plan.get('same_part_shading_refusal_proof'):
+            expected_message = (
+                f"Items {choices[0]['item_id']} and {choices[1]['item_id']} both change the shading of the same part, "
+                "which cannot be combined exactly yet. Pick an option for one of them now "
+                "(choose None of these for the other) and send the other again as a new edit.")
+            before = edits.tree_hashes(root)
+            with patch.object(Path, 'mkdir', side_effect=AssertionError('Refusal created a directory')) as directories, \
+                    patch.object(owner_choices, '_prepare_apply',
+                                 side_effect=AssertionError('Refusal copied a private job')) as copies, \
+                    patch.object(owner_choices.JobScene, 'start',
+                                 side_effect=AssertionError('Refusal started a native worker')) as native, \
+                    patch.object(delivery, 'deliver_owner_applied',
+                                 side_effect=AssertionError('Refusal published a delivery')) as publication:
+                try:
+                    owner_choices.apply_choices(root, dto['understanding_sha256'], choices, skipped,
+                        LABEL+': exercise the early same-part shading refusal.', destination=destination)
+                except ValueError as exc:
+                    message = str(exc)
+                else:
+                    raise AssertionError('Same-part shading picks were not refused')
+            assert message == expected_message, message
+            counts = {'directory_creations': directories.call_count, 'private_copies': copies.call_count,
+                      'native_worker_starts': native.call_count, 'publications': publication.call_count}
+            assert all(count == 0 for count in counts.values()), counts
+            assert not destination.exists() and edits.tree_hashes(root) == before
+            row = {'case': label, 'status': 'expected_same_part_shading_refusal', 'message': message,
+                   'seconds': time.monotonic()-started, 'choices': choices, 'skipped': skipped,
+                   **counts, 'destination_absent': True, 'source_round_unchanged': True,
+                   'actual_provider_requests': 0, 'actual_spend_usd': 0}
+            write(out/('apply-'+label+'.json'), row)
+            results.append(row)
+            continue
         archived = out/'prepublication'/(label+'-'+str(time.time_ns()))
         publish = delivery.deliver_owner_applied
         expected_applied = [{**pick, 'amount_text': next(option['amount_text']
@@ -421,13 +498,20 @@ def apply(root, plan, out):
                 'actual_provider_requests': 0, 'actual_spend_usd': 0}
             write(out/('apply-'+label+'.json'), row)
             results.append(row)
-            continue
+            # A real proof failure is terminal. Retain the evidence and do not
+            # attempt another selection after failed immutable publication.
+            raise
         saved = delivery.load_delivery(applied)
+        report = saved['report_data']
+        assert Path(saved['report']).resolve().is_relative_to(Path(applied).resolve()/'deliveries')
+        assert report['delivery_kind'] == 'owner_applied'
+        assert report['finished'] is True and report['accepted_finish'] is False and report['run_status'] == 'owner_applied'
         binding = saved['report_data']['owner_applied']
         application_path = Path(saved['report']).parent/binding['path']
         assert edits.sha(application_path) == binding['sha256']
         application = edits.read(application_path)
         check_application(application, saved['glb_sha256'])
+        assert all(report[key] == application[key] for key in ('origin', 'applied', 'notes', 'warnings', 'exactness'))
         exactness = application['exactness']
         assert not (Path(applied)/'runs').exists(), 'A local apply must not create a model run'
         row = {'case': label, 'status': 'delivered', 'root': str(applied), 'seconds': time.monotonic()-started,
@@ -447,6 +531,7 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--phase', choices=('prepare', 'understand', 'apply', 'all'), default='all')
     args = parser.parse_args()
+    require_unpaid_checkout()
     os.environ['G3D_OFFLINE'] = '1'
     for key in ('OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_ORG_ID', 'OPENAI_PROJECT_ID', 'OPENAI_ADMIN_KEY',
                 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
@@ -476,15 +561,22 @@ def main():
                 write(out/'source-after.json', {'unchanged': before == after, 'files': len(after),
                     'changed': [name for name in before if after.get(name) != before[name]],
                     'added': sorted(set(after)-set(before))})
+            if (out/'adapted-source-before.json').exists():
+                before, after = edits.read(out/'adapted-source-before.json'), protected(Path(plan['source']))
+                write(out/'adapted-source-after.json', {'unchanged': before == after, 'files': len(after),
+                    'changed': [name for name in before if after.get(name) != before[name]],
+                    'added': sorted(set(after)-set(before))})
             write(out/'offline-isolation.json', {'non_loopback_attempts': network.attempts,
                 'production_transport_constructions': clients.constructions, 'actual_spend_usd': 0,
                 'credentials_scrubbed': True, 'sdk_tracing_disabled': True, 'label': LABEL})
     assert not network.attempts and not clients.constructions
     assert edits.read(out/'source-after.json')['unchanged'], 'Original source changed'
+    assert edits.read(out/'adapted-source-after.json')['unchanged'], 'Adapted source changed'
     complete = {**machine, 'completed_utc': procs.utcnow(), 'seconds': time.monotonic()-started,
         'status': 'passed', 'actual_provider_requests': 0, 'actual_spend_usd': 0}
     if (out/'apply-results.json').exists() and any(
-            row['status'] != 'delivered' for row in edits.read(out/'apply-results.json')):
+            row['status'] not in {'delivered', 'expected_same_part_shading_refusal'}
+            for row in edits.read(out/'apply-results.json')):
         complete['status'] = 'blocked_by_delivery_contract'
     write(out/(args.phase+'-completed.json'), complete)
     if (out/'apply-results.json').exists():
