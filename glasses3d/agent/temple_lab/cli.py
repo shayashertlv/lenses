@@ -27,6 +27,7 @@ from glasses3d.agent.loop import (CONTEXT_GUARD, CONTEXT_GUARD_BYTES, EFFORTS, R
 from glasses3d.agent.pricing import LONG_CONTEXT_INPUT_TOKENS, MODEL_MAX_INPUT_TOKENS, Tariff, usd_text
 from glasses3d.agent.seeing import CATALOG_RIG, ENV_RIG, MATCHED_RIG, MATCHED_RIGS, SIDE_VIEWS, ZOOM_MAX
 from glasses3d.agent.session_inputs import ReferenceInput
+from glasses3d.agent.text_io import configure_utf8_stdio
 from glasses3d.g3d_host import compare as C
 from . import lab as LAB
 from . import readings as RD
@@ -1309,6 +1310,7 @@ def request_estimate(table: dict, settings, chars: int, sizes, *, variant_sheets
 
 # --------------------------------------------------------------------------------------------- main
 def main(argv=None):
+    configure_utf8_stdio()
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("action", choices=["prepare", "estimate", "request", "run"])
     p.add_argument("--job", type=Path)

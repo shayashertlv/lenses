@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-19 — Task 10: UTF-8 runner output and truthful exit status ($0)
+
+Replayed the saved completed Oakley run: CLI output to cp1252 failed on U+2212 at character 17901
+after delivery, then the broad exception handler falsely reported refusal/exit 2. CLI streams and detached
+children now use UTF-8; reporting/flush failures retain the real run status, including through interpreter
+shutdown. The SDK's separate error line was a handled renewal before request 41; all 48 requests settled.
+Final focused checks: **131 passed in 60.62 s**; M1 **passed in 163.688 s**, 13 scripted requests,
+35 AR images, clean receipts, actual **$0**. Saved-input replay now exits 0 with exact Unicode text;
+old-code failures and harness/concurrent-edit retries are recorded in `data/review_20261018/codex/task10_report.md`,
+which also records the commit. Existing text writers were already UTF-8. No paid call, push, gate change or
+unrelated-session edit. Next: Claude reviews task 10; no next coordinator task started.
+
 ## Current state — 2026-10-19
 
 The assembled job, specialist, seeing, delivery and owner-edit paths work; M6–M10 implementations are present.

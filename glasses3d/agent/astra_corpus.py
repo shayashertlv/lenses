@@ -20,6 +20,8 @@ import sys
 import time
 from pathlib import Path
 
+from glasses3d.agent.text_io import configure_utf8_stdio
+
 G3D = Path(__file__).resolve().parents[1]
 CORPUS_DIR = G3D / "data" / "reference" / "astra_corpus"
 STUDIO_JOBS = G3D.parent / "automation" / "data" / "blender_agent" / "studio" / "jobs"
@@ -289,6 +291,7 @@ def replay_chain(product: str, work: Path, rows: list[dict] | None = None, log=p
 
 
 def main(argv=None) -> int:
+    configure_utf8_stdio()
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["build"]:
         m = build()

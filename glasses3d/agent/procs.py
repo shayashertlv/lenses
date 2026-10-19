@@ -26,6 +26,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .text_io import configure_utf8_stdio, utf8_env
+
 REPO = Path(__file__).resolve().parents[2]          # lenses/: where `python -m glasses3d.agent.procs` imports from
 MODULE = "glasses3d.agent.procs"
 SPEC_VERSION = 1
@@ -54,6 +56,7 @@ SWEEP_INTERVAL_S = 0.2
 
 WMI_SCRIPT = (
     "$ErrorActionPreference = 'Stop'; "
+    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
     "$si = New-CimInstance -ClassName Win32_ProcessStartup -Namespace root/cimv2 -ClientOnly -Property @{ShowWindow = [uint16]0}; "
     "$r = Invoke-CimMethod -ClassName Win32_Process -Namespace root/cimv2 -MethodName Create -Arguments "
     "@{CommandLine = $env:G3D_DETACH_COMMAND_LINE; CurrentDirectory = $env:G3D_DETACH_CWD; ProcessStartupInformation = $si}; "
@@ -767,7 +770,7 @@ def wmi_create(argv: list[str], cwd: Path) -> int:
                G3D_DETACH_CWD=str(cwd))
     try:
         r = subprocess.run([_powershell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
-                            WMI_SCRIPT], env=env, capture_output=True, text=True, timeout=WMI_TIMEOUT_S,
+                            WMI_SCRIPT], env=env, capture_output=True, text=True, encoding="utf-8", timeout=WMI_TIMEOUT_S,
                            stdin=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise DetachError(f"WMI process creation failed: {type(e).__name__}: {e}") from None
@@ -792,24 +795,26 @@ def spawn_detached(argv: list, *, cwd, log_path, status_path, env: dict | None =
     status_path = Path(status_path)
     spec_path = spec_path_for(status_path)
     spec = {"version": SPEC_VERSION, "argv": [str(a) for a in argv], "cwd": str(cwd), "log": str(log_path),
-            "status": str(status_path), "env": {str(k): str(v) for k, v in (env or {}).items()},
+            "status": str(status_path), "env": utf8_env({str(k): str(v) for k, v in (env or {}).items()}),
             "keep_awake": bool(keep_awake), "created_utc": utcnow()}
     write_json_atomic(spec_path, spec)
     status_path.unlink(missing_ok=True)
     py = str(python or keeper_python())
-    keeper = [py, "-m", MODULE, "keep", str(spec_path)]
+    # WMI does not inherit the caller's environment; -X covers its default text files,
+    # and main() configures the keeper's streams before any output.
+    keeper = [py, "-X", "utf8", "-m", MODULE, "keep", str(spec_path)]
     starter_py = str(python or sys.executable)    # measured: breakaway from the caller's jobs works through the venv
     #                                               launcher's job (silent breakaway), not from the base interpreter
     if os.name != "nt":
         p = subprocess.Popen(keeper, cwd=str(REPO), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+                             stderr=subprocess.DEVNULL, env=utf8_env(), close_fds=True, start_new_session=True)
         return Detached(p.pid, process_create_time(p.pid), "posix", status_path, proc=p)
     refused = "breakaway not attempted"
     if breakaway:
         try:
             r = subprocess.run([starter_py, "-m", MODULE, "start", str(spec_path)], cwd=str(REPO),
                                stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True, timeout=STARTER_TIMEOUT_S,
+                               capture_output=True, text=True, encoding="utf-8", env=utf8_env(), timeout=STARTER_TIMEOUT_S,
                                creationflags=DETACHED_FLAGS, close_fds=True)
         except OSError as e:
             refused = f"the caller's job object refused breakaway ({e})"
@@ -833,9 +838,9 @@ def spawn_detached(argv: list, *, cwd, log_path, status_path, env: dict | None =
 
 def _start(spec_path: str) -> int:
     try:
-        p = subprocess.Popen([keeper_python(), "-m", MODULE, "keep", spec_path], cwd=str(REPO),
+        p = subprocess.Popen([keeper_python(), "-X", "utf8", "-m", MODULE, "keep", spec_path], cwd=str(REPO),
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             close_fds=True, creationflags=DETACHED_FLAGS)
+                             env=utf8_env(), close_fds=True, creationflags=DETACHED_FLAGS)
     except OSError as e:
         print(f"cannot create the keeper: {e}", file=sys.stderr)
         return EXIT_KEEPER_REFUSED
@@ -854,7 +859,7 @@ def _keep(spec_path: str) -> int:
               "child_create_time": None, "exit_code": None, "finished_utc": None}
     try:
         with open_append(spec["log"]) as logf:
-            env = dict(os.environ, **(spec.get("env") or {}))
+            env = utf8_env(dict(os.environ, **(spec.get("env") or {})))
             if spec.get("keep_awake") and os.name == "nt":
                 try:
                     _k32().SetThreadExecutionState(0x80000000 | 0x00000001)
@@ -864,7 +869,7 @@ def _keep(spec_path: str) -> int:
                 child = subprocess.Popen(spec["argv"], cwd=spec["cwd"], stdin=subprocess.DEVNULL, stdout=logf,
                                          stderr=subprocess.STDOUT, env=env, close_fds=True)
             except OSError as e:
-                logf.write(f"=== {utcnow()} could not start the command: {type(e).__name__}: {e}\n".encode())
+                logf.write(f"=== {utcnow()} could not start the command: {type(e).__name__}: {e}\n".encode("utf-8"))
                 status.update(exit_code=EXIT_COMMAND_NOT_STARTED, finished_utc=utcnow(), error=f"{type(e).__name__}: {e}")
                 write_json_atomic(status_path, status)
                 return 0
@@ -872,7 +877,7 @@ def _keep(spec_path: str) -> int:
             status.update(child_pid=child.pid, child_create_time=process_create_time(child.pid))
             write_json_atomic(status_path, status)
             code = child.wait()
-            logf.write(f"=== {utcnow()} exit code {code}\n".encode())
+            logf.write(f"=== {utcnow()} exit code {code}\n".encode("utf-8"))
         status.update(exit_code=code, finished_utc=utcnow())
         write_json_atomic(status_path, status)
         return 0
@@ -888,6 +893,7 @@ def _keep(spec_path: str) -> int:
 
 
 def main(argv=None) -> int:
+    configure_utf8_stdio()
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 2 or args[0] not in ("start", "keep"):
         print(f"usage: python -m {MODULE} start|keep SPEC.json (started by spawn_detached, not by hand)",

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -12,6 +13,7 @@ from . import delivery, job_run, review, verdicts
 from .budget import JobLedger, BudgetGuardError
 from .loop import EFFORTS, RunRefused
 from .money import owner_money
+from .text_io import configure_utf8_stdio
 
 
 def owner_text_file(path):
@@ -313,15 +315,51 @@ def dispatch(args):
     return {"status": "started", "job_id": root.name, "run_id": rid, **child.record()}
 
 
+def _silence_failed_stream(name):
+    """Prevent interpreter shutdown from retrying a failed flush and exiting 120."""
+    failed = getattr(sys, name)
+    try:
+        sink = open(os.devnull, "w", encoding="utf-8")
+    except OSError:
+        sink = None  # No output descriptor remains available.
+    setattr(sys, name, sink)
+    if getattr(sys, "__" + name + "__") is failed:
+        setattr(sys, "__" + name + "__", sink)
+
+
 def main(argv=None):
+    configure_utf8_stdio()
     try:
         result = dispatch(parser().parse_args(argv))
-        print(json.dumps(owner_money(result), indent=2, ensure_ascii=False, default=str))
-        if isinstance(result, dict) and "result" in result:
-            return 0 if result["result"].get("status") == "completed" else 1
-        if isinstance(result, dict) and result.get("schema") == "g3d.edit_capabilities/1":
-            return 0 if result["status"] == "ready" else 2
-        return 0
     except (A.ApprovalRefused, RunRefused, BudgetGuardError, procs.DetachError, ValueError, OSError) as exc:
-        print(json.dumps({"status": "refused", "message": str(exc)}), file=sys.stderr)
+        print(json.dumps({"status": "refused", "message": str(exc)}), file=sys.stderr, flush=True)
         return getattr(exc, "exit_code", 2)
+
+    # Execution and delivery are finished. Console formatting/writes cannot change
+    # their outcome or turn a completed run into an approval/execution refusal.
+    run_result = result.get("result") if isinstance(result, dict) else None
+    if isinstance(run_result, dict):
+        exit_code = 0 if run_result.get("status") == "completed" else 1
+    elif isinstance(result, dict) and result.get("schema") == "g3d.edit_capabilities/1":
+        exit_code = 0 if result["status"] == "ready" else 2
+    else:
+        exit_code = 0
+    writing = False
+    try:
+        text = json.dumps(owner_money(result), indent=2, ensure_ascii=False, default=str)
+        writing = True
+        print(text, flush=True)
+    except Exception as exc:
+        if writing:
+            _silence_failed_stream("stdout")
+        warning = {"status": "reporting_failed", "message": f"{type(exc).__name__}: {exc}"}
+        if isinstance(run_result, dict):
+            warning["run_status"] = run_result.get("status")
+            warning["delivery_status"] = (result.get("delivery") or {}).get("status")
+        try:
+            print(json.dumps(warning, default=str), file=sys.stderr, flush=True)
+        except (OSError, ValueError):
+            _silence_failed_stream("stderr")
+        if not isinstance(run_result, dict):
+            return 2
+    return exit_code

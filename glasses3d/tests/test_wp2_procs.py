@@ -167,6 +167,54 @@ def test_detached_command_runs_and_records_its_exit(tmp_path, breakaway):
 
 
 @windows
+@pytest.mark.parametrize("breakaway", [True, False], ids=["breakaway", "wmi"])
+@pytest.mark.parametrize("env_keys", [("PYTHONIOENCODING", "PYTHONUTF8"), ("PythonIOEncoding", "PythonUTF8")],
+                         ids=["canonical_env", "mixed_case_env"])
+def test_detached_unicode_output_and_default_text_files_are_utf8(tmp_path, monkeypatch, breakaway, env_keys):
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    monkeypatch.setenv("G3D_TEST_INHERITED_SECRET", "must-not-be-saved")
+    overrides = {env_keys[0]: "cp1252", env_keys[1]: "0", "G3D_TEST_OVERRIDE": "retained"}
+    original_overrides = dict(overrides)
+    text = "completed \u2212 frame \u05e9\u05dc\u05d5\u05dd"
+    out = tmp_path / "report.txt"
+    code = ("import os, sys\n"
+            f"text = {ascii(text)}\n"
+            "print('stdout: ' + text, flush=True)\n"
+            "print('stderr: ' + text, file=sys.stderr, flush=True)\n"
+            f"with open({str(out)!r}, 'w') as stream:\n    stream.write(text)\n"
+            "assert sys.flags.utf8_mode == 1\n"
+            "assert os.environ['PYTHONIOENCODING'] == 'utf-8'\n"
+            "assert os.environ['PYTHONUTF8'] == '1'\n"
+            "assert os.environ['G3D_TEST_OVERRIDE'] == 'retained'\n")
+    log_path, status_path = tmp_path / "cmd.log", tmp_path / "status.json"
+    d = procs.spawn_detached([sys.executable, "-c", code], cwd=tmp_path, log_path=log_path,
+                             status_path=status_path, env=overrides, breakaway=breakaway)
+    assert d.method == ("breakaway" if breakaway else "wmi")
+    assert d.wait(timeout=90) == 0, log_path.read_text(encoding="utf-8", errors="replace")
+    assert out.read_bytes() == text.encode("utf-8")
+    log = log_path.read_text(encoding="utf-8")
+    assert f"stdout: {text}" in log and f"stderr: {text}" in log
+    assert "exit code 0" in log
+    spec = procs.read_json(procs.spec_path_for(status_path))
+    assert spec["env"] == {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "G3D_TEST_OVERRIDE": "retained"}
+    assert "must-not-be-saved" not in procs.spec_path_for(status_path).read_text(encoding="utf-8")
+    assert overrides == original_overrides
+
+
+def test_starter_failure_diagnostic_is_utf8_under_legacy_stdio():
+    code = (f"{PY_PATH}\nfrom glasses3d.agent import procs\n"
+            "def fail(*args, **kwargs):\n    raise OSError('cannot launch \\u2212')\n"
+            "procs.subprocess.Popen = fail\n"
+            "raise SystemExit(procs.main(['start', 'unused.json']))\n")
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=30,
+                            env={**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"})
+    assert result.returncode == procs.EXIT_KEEPER_REFUSED
+    assert result.stderr.decode("utf-8").strip() == "cannot create the keeper: cannot launch \u2212"
+    assert result.stdout == b""
+
+
+@windows
 def test_a_stopped_detached_command_reads_gone(tmp_path):
     d = procs.spawn_detached([sys.executable, "-c", "import time; time.sleep(120)"], cwd=tmp_path,
                              log_path=tmp_path / "cmd.log", status_path=tmp_path / "status.json")
