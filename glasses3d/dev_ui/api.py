@@ -211,7 +211,7 @@ class Service:
     def delivery(self, key):
         with self.registry.lock:
             record = self.get("deliveries", key)
-            if "dto" not in record:
+            if "dto" not in record or record.get("dto_revision") != 2:
                 loaded = self.core.load_delivery(Path(record["root"]), record["delivery_id"])
                 report = loaded["report_data"]
                 self.artifacts.register(loaded["model"], loaded["glb_sha256"])
@@ -232,9 +232,12 @@ class Service:
                        "run_status": report.get("run_status", loaded.get("run_status")),
                        "label": "finished" if finished else "not finished",
                        "run_settled_usd": _money([report.get("cost")], "settled"),
-                       "created_utc": created, "checks": checks, "origin": record["origin"],
-                       "applied": record["applied"], "notes": record["notes"], "warnings": report.get("warnings", [])}
-                record.update(dto=dto, model=str(loaded["model"]))
+                       "created_utc": created, "checks": checks,
+                       "origin": report.get("origin", record["origin"]),
+                       "applied": report.get("applied", record["applied"]),
+                       "notes": report.get("notes", record["notes"]), "warnings": report.get("warnings", []),
+                       "exactness": report.get("exactness"), "side_effects": report.get("side_effects")}
+                record.update(dto=dto, dto_revision=2, model=str(loaded["model"]))
                 self.registry.put("deliveries", record, key)
             # The artifact cache verifies the model once, then invalidates on file identity/stat changes.
             self.artifacts.read(record["dto"]["glb_sha256"])

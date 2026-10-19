@@ -43,6 +43,7 @@ label { display: block; font-weight: 600; margin-bottom: .35rem; }
 .stat-label { display: block; color: #596675; }
 .stat-value { display: block; font-size: 1.5rem; font-weight: 650; }
 .verbatim { white-space: pre-wrap; overflow-wrap: anywhere; }
+.delivery-outcome pre { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .status-tag { display: inline-block; padding: .15rem .5rem; background: #e8edf2; border-radius: 4px; }
 .not-finished { background: #fff0cc; color: #765000; }
 .viewer { width: 100%; height: min(60vh, 580px); min-height: 330px; position: relative; background: #e8e8e8; border: 1px solid #c9cfd6; border-radius: 6px; overflow: hidden; }

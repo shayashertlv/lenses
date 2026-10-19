@@ -82,6 +82,31 @@ function drawOutcome(delivery) {
     outcome.append(node('h2', {}, 'Not applied'), node('ul', {}, delivery.notes.map(item => node('li', { class: 'verbatim' }, `${item.item_id}${item.note ? `: ${item.note}` : ''}`))));
   }
   if (delivery.warnings?.length) outcome.append(warningBlock(delivery.warnings));
+  if (delivery.exactness) {
+    const proof = delivery.exactness;
+    const text = proof.ok !== true ? 'Exactness check needs attention.'
+      : proof.single_pick_glb_equal ? 'The selected result matches its preview file exactly.'
+      : proof.overlaps?.length ? 'Overlapping picks were composed in item order; interactions are recorded below.'
+      : 'Selected disjoint changes match their previews exactly.';
+    outcome.append(node('details', { class: 'exactness' }, node('summary', {}, text),
+      node('pre', {}, JSON.stringify(proof, null, 2))));
+  }
+  if (delivery.side_effects) {
+    const effects = delivery.side_effects, summary = effects.summary || {};
+    const outside = summary.geometry_outside_item_region === true
+      ? (summary.outside_region_objects || []).join(', ') || 'detected'
+      : summary.geometry_outside_item_region === false ? 'none detected' : 'unresolved';
+    const section = node('section', { class: 'side-effects' },
+      node('h2', {}, `Full edit ${effects.item_id || ''}: side effects`),
+      node('p', {}, `Measurement: ${effects.status || 'unavailable'}. These measurements are for your review.`),
+      node('p', {}, `Changed objects: ${(summary.changed_objects || []).join(', ') || 'none reported'}`),
+      node('p', {}, `Changes outside the marked region: ${outside}`));
+    if (summary.unresolved_objects?.length) section.append(node('p', {}, `Unresolved correspondence: ${summary.unresolved_objects.join(', ')}`));
+    if (effects.reason) section.append(node('p', {}, effects.reason));
+    section.append(node('details', {}, node('summary', {}, 'Full side-effect report'),
+      node('pre', {}, JSON.stringify(effects, null, 2))));
+    outcome.append(section);
+  }
   return outcome;
 }
 
@@ -341,7 +366,7 @@ async function editPage() {
       itemList.append(card);
     }
     if (draft.frozen) return;
-    if (!draft.items.length && delivery.origin !== 'applied_picks') return;
+    if (!draft.items.length && !['applied_picks', 'full_edit_item'].includes(delivery.origin)) return;
     const yes = button('Yes, capture another', { onclick: capture });
     const no = button(draft.items.length ? 'No, send to Astra' : 'No, back to results');
     next.append(node('h2', {}, 'Any more edits?'), node('div', { class: 'actions' }, yes, no));
