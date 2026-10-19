@@ -1,5 +1,19 @@
 # glasses3d progress
 
+## 2026-10-19 — Paid Oakley regression run: delivered, owner wants changes; task 10 accepted
+
+Owner OK: "Yes, start the Oakley run: estimate $15.71, $20 settled cutoff, effort high." Fresh job
+`oakley-oo9208-v2-878ee407` (Claude created it from the 2026-10-13 job's photos, verbatim description, specs and
+view/side labels, without that job's agent-era per-photo `matte_mode`), run `20261019T111142-19467a`: spent
+**$12.28 settled**, $0 held, 48 requests, finish accepted by Astra, delivered (GLB `f34113e4…`), one conversation
+renewal at 266,616 input tokens. Owner verdict (ledger): "not only the lens looks too dark the temples look much worse
+than they were in accepted 4. what has changed?" Claude's first facts: both side cameras fitted on the other side of
+the profile (reference-03 yaw -107.7 → -62.3, reference-05 65.9 → 105.2), top IoU 0.589 → 0.487, automatic mattes
+instead of the declared open_frame, lens grey and 0.56-0.62 metallic (run 4 violet, 0), a new money-projection line
+after every tool (39 vs 0). Diagnosis is Codex task 11 (`data/review_20261018/briefs/task11_oakley_regression.md`).
+Task 10 (`93f9735`) accepted by Claude: report read, no assertion removed, focused tests rerun 73 passed + 1 load flake
+that passes alone.
+
 ## 2026-10-19 — Task 10: UTF-8 runner output and truthful exit status ($0)
 
 Replayed the saved completed Oakley run: CLI output to cp1252 failed on U+2212 at character 17901
