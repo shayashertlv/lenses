@@ -125,3 +125,42 @@ def test_helper_registration_does_not_open_private_module_or_file_access(worker)
         reply = worker.call("exec", {"code": code}, deadline_s=30)
         assert reply["status"] == "refused", reply
     assert worker.call("fingerprint")["fingerprint"] == before
+
+
+def test_archived_temple_minimum_survives_armed_mesh_health_calls(worker):
+    """Named historical topology must not lose its above-default physical floor."""
+    from pathlib import Path
+    from glasses3d.g3d import temple_archive
+    from glasses3d.g3d.temple.build import build_temple
+    from glasses3d.g3d.temple.fixtures import straight
+    from glasses3d.tests.test_temple_archive import make_run
+
+    location = Path(temple_archive.__file__).parent / "temple"
+    sources = {temple_archive.SOURCE_PREFIX + name + ".py":
+               b"# Authenticated synthetic historical source fixture.\n" + (location / (name + ".py")).read_bytes()
+               for name in temple_archive.MODULES}
+    make_run(worker.root, "historical-health-fixture", source=sources)
+    tb = build_temple(straight(options={"t_min_mm": 3.0}))
+    vertices, polygons, _ = tb.world(1)
+    # Preserve connectivity while reproducing an existing manually thinned mesh.
+    # Its 2mm wall exceeds the default floor but violates the declared 3mm floor.
+    vertices[:, 0] = 60.0 + (vertices[:, 0] - 60.0) * .5
+    metadata = {"canonical_spec": tb.spec.canonical, "spec_sha256": tb.spec.sha256, "side": "+x"}
+    assert "lineage" not in metadata
+    code = f"""
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj,do_unlink=True)
+mesh = bpy.data.meshes.new('Historical temple health fixture')
+mesh.from_pydata({vertices.tolist()!r}, [], {polygons!r})
+mesh.update()
+obj = bpy.data.objects.new('Historical temple health fixture',mesh)
+bpy.context.scene.collection.objects.link(obj)
+obj['partRole'] = 'temple'
+obj['g3d_temple'] = {json.dumps(metadata)!r}
+"""
+    execute(worker, code)
+    before = worker.call("fingerprint")["fingerprint"]
+    for helper in ("consistent_normals", "controlled_decimate"):
+        refused = execute(worker, f"result = g3d.{helper}('Historical temple health fixture',dry_run=True)")
+        assert refused["status"] == "refused" and refused["code"] == "E_TOO_THIN", refused
+        assert worker.call("fingerprint")["fingerprint"] == before

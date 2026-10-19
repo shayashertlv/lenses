@@ -66,9 +66,13 @@ def _rebuild(obj,records,vertices,remap=None):
         uv_layers=[{**layer,'uv':[uv for r in records for uv in r['uv'][j]]} for j,layer in enumerate(obj.get('uv_layers',[]))],
         _surface_polygon_parents=[r['parent'] for r in records])
     if remap is not None:
+        from . import owner_mesh as M
+        constraints=M.temple_constraints(obj)
         result['_surface_vertex_parents']=used
         result['_surface_vertex_remap']=[index.get(remap.get(i,i)) for i in range(len(original))]
         result['aliases']={'status':'unavailable','reason':'explicit selected mesh-health topology edit; prior builder correspondence is stale'}
+        if constraints is not None:
+            result['aliases']['declared_constraints']=constraints
     return result
 
 
@@ -291,9 +295,12 @@ def plan_object(obj,operation):
                 'minimum_thickness_preservation':S.preserve_minimum_thickness(obj,result,sorted(selected))}
         return result,{**report,'strength':strength,'selected_polygon_ids':sorted(selected),'physical':M.physical(result,reference=obj)}
     result=_rebuild(obj,rows,v,remap)
-    if remap is not None and obj.get('role')=='temple' and obj.get('aliases',{}).get('status')=='verified_topology':
+    constraints=M.temple_constraints(obj)
+    if remap is not None and constraints is not None:
         # Geometry-preserving topology changes still re-run the declared graph
         # minimum; dropping stale aliases must never silently drop this check.
-        minimum=obj['aliases'].get('options',{}).get('t_min_mm',1.)
-        report['declared_thickness']=M.graph_thickness(np.asarray(result['vertices_world_mm']),result['triangles'],obj['side'],minimum)
+        minimum=constraints['options']['t_min_mm']
+        triangles=np.asarray(result['triangles'],int)
+        if S.orientation_sign(result)<0:triangles=triangles[:,::-1]
+        report['declared_thickness']=M.graph_thickness(np.asarray(result['vertices_world_mm']),triangles,obj['side'],minimum)
     return result,{**report,'strength':strength,'selected_polygon_ids':sorted(selected),'physical':M.physical(result,reference=obj)}

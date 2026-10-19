@@ -1,5 +1,41 @@
 # glasses3d progress
 
+## 2026-10-19 — Task 12: authenticated historical temple aliases ($0)
+
+Historical names now come from frozen producer lineage or authenticated saved run source, never today's
+builder. New temple writes bind the exact spec, side, vertex count, ordered raw polygons, facets and corners,
+including UV splits and checked-triangle repairs. Legacy readers verify run-config/implementation/archive/source
+SHA-256 bindings and require exact connectivity; ambiguous, corrupt or unmatched evidence still refuses names.
+Coordinates always come from the current mesh. Copied edits, separate checkpoint runtimes and private previews
+carry the source evidence. Guarded health helpers authenticate it before arming; losing names does not drop a
+valid hashed spec's declared thickness minimum. No producer geometry or hard gate changed.
+
+Census: all **50 jobs, 287 blends (194 distinct hashes), 50 deliveries and 64 source archives** inspected;
+all **242 byte-backed checkpoint-index rows** accounted for. **27 blends / 54 temple objects / seven specs**,
+all Prada: current construction matches **2/54** exactly; authenticated lineage verifies **40/54** (38 recovered,
+two retained). Fourteen run-4 objects remain refused because their topology was already changed beyond the
+archived constructor. Six historical delivery checkpoint hashes (Prada and Oakley runs 1/2/3) have no retained
+raw bytes; their saved GLBs cannot establish raw facet lineage. All **501 original census files unchanged**.
+Task 8's 77-row manifest did include all 12 assembled Prada stage specs; it omitted historical raw-mesh alias
+compatibility, not the specs. The complete path/count and delivery tables are in the report.
+
+Exact M11 M10 frame-side **B = 3 mm** rebound, previewed and applied on copies. Prepare **46.953 s**, three-option
+preview **300.266 s**, apply **156.328 s**, all exit 0. Both preview and final immutable delivery are byte-identical
+to M11: **`7d2d5b2791a38dfd975a6460481ceef8fe7405e4c1b61ddbacbeb3b909c76207`**; all 34 primitives, geometry,
+normals, UVs and materials match. All **205 runtime files** stayed fixed, and **1,003 original/copied source files**
+plus retained M11 artifacts stayed unchanged. The first attempt's preview refusal is preserved: a separate
+baseline-function probe proved private preview copies dropped all six source chains; carrying them fixes it
+without changing the physical checks. Evidence: `data/t12m10b/proof-summary.json` and
+`data/review_20261018/codex/task12_m10/report.md`.
+
+Focused checks: **144** lineage/map/preview/lifecycle, **41** archive/guarded-worker, **15** declared-constraint,
+**54** existing owner-geometry and **6** native UV/tessellation tests passed. Actual baseline alias/preview
+controls fail; baseline owner modules fail all 15 constraint regressions. M1 passed in **162.703 s**:
+13 scripted requests, 26 transport files, 12 verified image blobs, 35 AR images, clean receipts, actual **$0**;
+`data/assembly/m1-proof-1c898cfc/proof.json`. Heavy checks ran separately, BLAS 1, detached logs and EcoQoS opt-out.
+Report: `data/review_20261018/codex/task12_report.md`. No paid call, push, original job/run/checkpoint/delivery/verdict
+edit, root-app or `ar/` change. No new product verdict. Stop for coordinator review.
+
 ## 2026-10-19 — Claude accepted task 11 ($0)
 
 Task 11 (`2340e95`, follow-ups `8f9d848`, `3193ca3`) reviewed by Claude: report

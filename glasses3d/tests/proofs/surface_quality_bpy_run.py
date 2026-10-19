@@ -47,12 +47,14 @@ rep={'before_degenerate':before_bad,'after_degenerate':bad(new),'repaired_polygo
      'boundary_unchanged':boundary(me)==boundary(new),'uv_max_error':uv_error,'normal_max_error':normal_error,
      'normal_max_angle_deg':normal_angle,'second_repaired':second}
 from glasses3d.g3d.model_map_bpy import _aliases
+from glasses3d.g3d.temple_lineage import freeze
 from glasses3d.g3d.temple import build_temple, fixtures
 tb=build_temple(fixtures.prada_default())
 world,polys,tris=tb.world()
 pi=next(i for i,p in enumerate(polys) if len(p)>3)
 polys=polys[:pi]+tris[tb.tri_poly==pi].tolist()+polys[pi+1:]
-metadata={'g3d_temple':json.dumps({'canonical_spec':tb.spec.canonical,'side':'+x'})}
+metadata={'g3d_temple':json.dumps({'canonical_spec':tb.spec.canonical,'side':'+x',
+    'spec_sha256':tb.spec.sha256,'lineage':freeze(tb,1,len(world),polys)})}
 raw={'vertices_local':world.tolist(),'polygons':polys}
 rep['aliases_after_core_triangulation']=_aliases(metadata,raw)['status']
 raw['polygons']=[*polys,polys[0]]

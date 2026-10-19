@@ -13,6 +13,7 @@ import bpy
 import numpy as np
 
 from . import checkpoint, export_glb, rpc, owner_materials_bpy, owner_normals_bpy
+from .temple_lineage import aliases, alias_context, declared_constraints
 
 
 def _hash(value):
@@ -92,55 +93,16 @@ def _mesh(me, matrix, origin):
             "triangle_polygons": [int(t.polygon_index) for t in me.loop_triangles]}
 
 
-def _aliases(obj, raw):
-    """A prior builder's connectivity may survive manual vertex edits. Its positions never do."""
+def _aliases(obj, raw, root=None):
+    """Read the producer's names; current coordinates always come from the raw mesh."""
     out = {"status": "unavailable", "reason": "No verified specialist topology", "facets": {}, "points": {}}
     try:
         metadata = json.loads(obj.get("g3d_temple", "null"))
         if not isinstance(metadata, dict):
             return out
-        from .temple.build import build_temple
-        canonical = metadata["canonical_spec"]
-        tb = build_temple(json.loads(canonical) if isinstance(canonical,str) else canonical)
-        side = 1 if metadata.get("side") == "+x" else -1
-        _, polygons, triangles = tb.world(side)
-        sources, cursor, matched_polygons = [], 0, 0
-        actual = raw["polygons"]
-        for pi, polygon in enumerate(polygons):
-            if cursor < len(actual) and actual[cursor] == polygon:
-                sources.append(pi)
-                cursor += 1
-                matched_polygons += 1
-                continue
-            # The producer may replace a degenerate Blender n-gon tessellation
-            # with precisely its checked core triangles, in their checked order.
-            # No arbitrary triangulation or position-based guessing is accepted.
-            expected = triangles[tb.tri_poly == pi].tolist()
-            if expected and actual[cursor:cursor+len(expected)] == expected:
-                sources.extend([pi]*len(expected))
-                cursor += len(expected)
-                matched_polygons += 1
-                continue
-            break
-        if (len(raw["vertices_local"]) != len(tb.V) or matched_polygons != len(polygons)
-                or cursor != len(actual) or len(sources) != len(actual)):
-            return {**out, "reason": "Stored specialist topology differs from the current raw mesh; no guessed aliases"}
-        facets = {}
-        for i, source in enumerate(sources):
-            kind, region = tb.poly_kind[source], tb.poly_region[source]
-            if kind in ("outer", "roll"):
-                facets.setdefault(region.split("/")[0], []).append(i)
-        points = {}
-        for name, node in tb.spec.nodes.items():
-            # Only a physical outer vertex gets a corner name; virtual/extrapolated corners do not.
-            ids = np.flatnonzero(np.linalg.norm(tb.V[:tb.n2, :2] - np.asarray(node[:2]), axis=1) <= 1e-6)
-            if len(ids) == 1:
-                points[name] = int(ids[0])
-        return {"status": "verified_topology", "basis": "Exact stored-builder vertex count and polygon connectivity (or its checked core triangles); current positions",
-                "stored_spec_sha256": metadata.get("spec_sha256"), "facets": facets, "points": points,
-                "historical_coordinates_used": False, "hinge": dict(tb.spec.hinge),
-                "options": dict(tb.spec.options), "manual_refinement": str(obj.get("manual_refinement", ""))}
-    except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
+        out["declared_constraints"] = declared_constraints(metadata)
+        return {**aliases(metadata, raw, root), "manual_refinement": str(obj.get("manual_refinement", ""))}
+    except (ValueError, TypeError, KeyError, AttributeError, RuntimeError, IndexError, OSError) as error:
         return {**out, "reason": f"Specialist aliases unavailable: {type(error).__name__}: {error}"}
 
 
@@ -215,7 +177,7 @@ def snapshot(params, root):
                   "material_sha256": _hash(material_records),
                   "shared_mesh_users": sorted(o.name for o in bpy.data.objects if o.data == me),
                   "modifiers": [{"name": m.name, "type": m.type, "show_render": bool(m.show_render)} for m in obj.modifiers],
-                  "evaluated": ev, "aliases": _aliases(obj, raw)}
+                  "evaluated": ev, "aliases": _aliases(obj, raw, root)}
         # Omit an empty diagnostic so earlier valid saved preview targets retain
         # their exact protected metadata. Nonempty refusals remain explicit.
         if unsupported_normal_edit_state:

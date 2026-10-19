@@ -284,6 +284,8 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
         raise ValueError("edit destination already exists")
     root = edit_root / ("round-001-understand" if destination is not None else "u1")
     _copy_inputs(source, root)
+    from .temple_lineage import carry_evidence as carry_temple_evidence
+    temple_evidence = carry_temple_evidence(source, root, run_id=report.get("run_id"), source_runtime=runtime)
     for name in ("full-edit-item.json", "fallback-understanding.json",
                  "fallback-understanding-delivery.json", "fallback-source-snapshot.json"):
         stale = confined(root, Path("inputs") / name)
@@ -296,6 +298,7 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
            "checkpoint": row["id"], "fingerprint": row["fingerprint"], "checkpoint_sha256": row["sha256"],
            "export_sha256": saved["glb_sha256"], "basis": frozen.id},
            "immutable_files": {"job.json": sha(root / "job.json"), "inputs/seed.blend": row["sha256"],
+             **temple_evidence,
              **{"cameras/" + frozen.id + "/" + p: digest for p, digest in tree_hashes(frozen.dir).items()},
              **{"work/print/" + p: digest for p, digest in tree_hashes(root / "work/print").items()}}}
     _refresh_brief(root, doc)

@@ -273,6 +273,26 @@ def paired_thickness(obj, vertices, minimum_mm, reference):
             "projected_chart_unchanged": True}
 
 
+def temple_constraints(obj):
+    """Retain authenticated spec constraints without granting mesh-name authority."""
+    if obj.get("role") != "temple":
+        return None
+    aliases = obj.get("aliases", {})
+    if aliases.get("status") == "verified_topology":
+        constraints = {"spec_sha256": aliases.get("stored_spec_sha256"),
+                       "options": {"t_min_mm": aliases.get("options", {}).get("t_min_mm", DEFAULT_OPTIONS["t_min_mm"])},
+                       "hinge": aliases.get("hinge", {})}
+    else:
+        constraints = aliases.get("declared_constraints")
+        if constraints is None:
+            return None
+    options = constraints.get("options") if isinstance(constraints, dict) else None
+    minimum = options.get("t_min_mm") if isinstance(options, dict) else None
+    if type(minimum) not in (int, float) or not math.isfinite(minimum) or minimum <= 0:
+        raise OwnerMeshError("E_TOO_THIN", "declared temple minimum must be finite and positive")
+    return copy.deepcopy(constraints)
+
+
 def physical(obj, vertices=None, *, reference=None):
     vertices = np.asarray(obj["vertices_world_mm"] if vertices is None else vertices, dtype=float)
     if vertices.ndim != 2 or vertices.shape[1] != 3 or not np.isfinite(vertices).all():
@@ -310,11 +330,13 @@ def physical(obj, vertices=None, *, reference=None):
         raise OwnerMeshError("E_NOT_CLOSED", "a physical mesh component is reversed or has zero volume",
                              component_volumes_mm3=list(component_volumes.values()))
     aliases = obj.get("aliases", {})
-    if obj.get("role") == "temple" and aliases.get("status") == "verified_topology":
-        if euler != 2:
+    constraints = temple_constraints(obj)
+    if constraints is not None:
+        verified = aliases.get("status") == "verified_topology"
+        if verified and euler != 2:
             raise OwnerMeshError("E_NOT_CLOSED", "the captured temple construction requires Euler characteristic 2")
-        tmin = aliases.get("options", {}).get("t_min_mm", DEFAULT_OPTIONS["t_min_mm"])
-        thickness = paired_thickness(obj, vertices, float(tmin), reference or obj)
+        tmin = constraints["options"]["t_min_mm"]
+        thickness = paired_thickness(obj, vertices, float(tmin), reference or obj) if verified else None
         if thickness is None:
             thickness = graph_thickness(vertices, tris if orientation>0 else tris[:,::-1], obj.get("side"), float(tmin))
     else:

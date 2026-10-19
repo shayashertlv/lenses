@@ -82,7 +82,31 @@ def uv_record(me):
             'values': [np.array([loop.uv[:] for loop in layer.data]) for layer in me.uv_layers]}
 
 
+def check_lineage(ob):
+    """The actual writer retains names through mirrored frames, seams and ear repairs."""
+    from glasses3d.g3d import model_map_bpy as MAP
+    metadata = json.loads(ob['g3d_temple'])
+    assert metadata['lineage']['schema'] == 'g3d.temple_lineage/1'
+    raw = MAP._mesh(ob.data, ob.matrix_world, T.asset_origin())
+    before = T.scene_digest()
+    build = TB.build_temple
+
+    def newer_builder(*args, **kwargs):
+        raise RuntimeError('test: the current builder no longer supports this historical spec')
+
+    TB.build_temple = newer_builder
+    try:
+        result = MAP._aliases(ob, raw)
+    finally:
+        TB.build_temple = build
+    assert result['status'] == 'verified_topology', result
+    assert result['facets'] == metadata['lineage']['facets']
+    assert result['historical_coordinates_used'] is False
+    assert T.scene_digest() == before
+
+
 def check_values(ob, spec):
+    check_lineage(ob)
     tb = TB.build_temple(spec)
     source = uv_record(ob.data)
     assert source['names'] == ['SurfaceUV', 'DetailUV'] and source['active'] == 1
@@ -125,6 +149,7 @@ def reference_mesh(ob, tb, side):
 
 def verify_tessellation(ob, reference, tb, side, island=lambda d, y: d > 60):
     """Independent geometric, normal and analytic-texture checks against the pre-UV core mesh."""
+    check_lineage(ob)
     closed(ob.data)
     reference.calc_loop_triangles()
     ref_v = np.array([v.co[:] for v in reference.vertices])

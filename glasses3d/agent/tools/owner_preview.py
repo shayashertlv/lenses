@@ -272,6 +272,8 @@ def _prepare(scene, folder, checkpoint, head):
             if edits.tree_hashes(folder/name) != expected:
                 raise ValueError('private preview inputs differ from the source')
     print_freshness.carry_evidence(scene.root, folder)
+    from ..temple_lineage import carry_evidence
+    carry_evidence(scene.root, folder)
     seed = folder/'work/preview-source.blend'
     seed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(checkpoint, seed)

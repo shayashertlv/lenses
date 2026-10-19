@@ -260,6 +260,10 @@ def preserve_minimum_thickness(source, target, faces, *, preserve_original=True,
         return {'method': 'existing verified temple chart and declared minimum retained','declared_thickness':check}
     try:floor=owner_thickness.minimum_floor(minimum_mm,preserve_original=preserve_original)
     except ValueError as exc:error(str(exc),'E_TOO_THIN')
+    constraints=M.temple_constraints(source)
+    if constraints is not None:
+        floor=max(floor,owner_thickness.minimum_floor(constraints['options']['t_min_mm'],preserve_original=True))
+        minimum_mm=float(floor)
     from . import owner_intersections
     crossing=owner_intersections.no_new_crossings(source,target)
     center, basis, _ = _chart(np.asarray(source['vertices_world_mm']), source['polygons'], faces)
@@ -693,7 +697,7 @@ def state(source, operations):
                         reference=prior
                         rigid=(op['kind'] in ('translate_region','rotate_region') and
                                uniform and
-                               not (prior.get('role')=='temple' and prior.get('aliases',{}).get('status')=='verified_topology'))
+                               M.temple_constraints(prior) is None)
                         if rigid:
                             # Compare in the requested rigid pose. A source-fixed
                             # axis would mistake rotated side walls for a thin rim.

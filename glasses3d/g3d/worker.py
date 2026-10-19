@@ -254,6 +254,11 @@ def _result_json(value) -> object:
 def _run_snippet(code: str, soft_s: float, prebound: dict) -> dict:
     """Run validated (or selftest) code under every runtime layer. Never raises."""
     g3d = facade() if "g3d" in code else None
+    if g3d is not None:
+        from glasses3d.g3d.model_map_bpy import alias_context
+        temple_aliases = alias_context(ROOT)
+    else:
+        temple_aliases = contextlib.nullcontext()
     guard = safe_mode.RuntimeGuard(g3d_facade=g3d)
     ns = {"__builtins__": guard.builtins(), "__name__": "__g3d_snippet__", "result": None}
     for local, module in prebound.items():
@@ -286,13 +291,17 @@ def _run_snippet(code: str, soft_s: float, prebound: dict) -> dict:
     try:
         try:
             with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-                AUDIT.arm()
-                ARMED.set()
-                try:
-                    exec(code_obj, ns)
-                finally:
-                    ARMED.clear()
-                    audit_refusals = AUDIT.disarm()
+                # Authenticate historical source outside the armed file-access
+                # guard. Health helpers can then retain declared constraints
+                # using only an in-memory, exact-topology-bound alias context.
+                with temple_aliases:
+                    AUDIT.arm()
+                    ARMED.set()
+                    try:
+                        exec(code_obj, ns)
+                    finally:
+                        ARMED.clear()
+                        audit_refusals = AUDIT.disarm()
         except SoftTimeout:
             status, tb = "timeout", f"soft timeout after {soft_s:g} s: the snippet was interrupted"
         except BaseException as exc:  # noqa: BLE001 - scene code errors are results, not worker failures

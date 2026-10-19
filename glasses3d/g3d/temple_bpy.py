@@ -79,6 +79,7 @@ from .temple import report as RP
 from .temple import sections as SEC
 from .temple import spec as TS
 from .temple.spec import TempleError
+from .temple_lineage import freeze
 
 BACKUP_SUFFIX = " | g3d pre-temple"
 VARIANT_SUFFIX = " | g3d variant"
@@ -566,7 +567,7 @@ def _set_uv(me, uv):
 
 
 def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, triangle_polygons=None, *,
-                                    world_vertices=None, delivery_matrix=None):
+                                    world_vertices=None, delivery_matrix=None, lineage_sources=None):
     """Replace only n-gons whose Blender tessellation fails the delivery's float32 area rule.
 
     The core retains collinear boundary vertices to keep adjacent cells closed.
@@ -645,6 +646,8 @@ def _repair_degenerate_tessellation(mesh, stable_vertices, triangles=None, trian
         dest.use_smooth = mesh.polygons[source].use_smooth
         dest.material_index = mesh.polygons[source].material_index
     replacement.update()
+    if lineage_sources is not None:
+        lineage_sources[:] = [lineage_sources[pi] for pi in source_polys]
     return replacement, len(bad)
 
 
@@ -1170,17 +1173,21 @@ def _plan_side(tb, surf, side, ob, origin, scene, decals, targets, planned: list
                                     "split_faces": geometry["split_faces"]}
     elif uv is not None:
         _set_uv(me, uv)
+    lineage_sources = list(range(len(pl))) if geometry is None else list(geometry['sources'])
     safe, repaired = _repair_degenerate_tessellation(
         me, tb.V if geometry is None else geometry['V'],
         tb.tris if geometry is None else None, tb.tri_poly if geometry is None else None,
         world_vertices=np.asarray([v.co[:] for v in me.vertices], float) @ M3.T + _matrix(ob)[1] - origin,
-        delivery_matrix=Matrix.Scale(.001, 4) @ Matrix.Translation(-Vector(origin)) @ ob.matrix_world)
+        delivery_matrix=Matrix.Scale(.001, 4) @ Matrix.Translation(-Vector(origin)) @ ob.matrix_world,
+        lineage_sources=lineage_sources)
     if safe is not me:
         planned.append(safe)
         bpy.data.meshes.remove(me)
         me = safe
     plan['retriangulated_polygons'] = repaired
     plan["mesh"] = me
+    plan['lineage'] = freeze(tb, side, len(me.vertices), [list(p.vertices) for p in me.polygons],
+                             sources=lineage_sources)
     plan["sharp_edges"] = nsharp
     plan["custom_corners"] = int(np.count_nonzero(np.any(corners != 0.0, axis=1)))
     h = tb.spec.hinge
@@ -1335,7 +1342,8 @@ def _write(plans, tb) -> None:
                                                    "spec_sha256": tb.spec.sha256, "side": _side_key(s),
                                                    "canonical_spec": tb.spec.canonical,
                                                    "hinge_axis_xz_mm": tb.spec.hinge["axis_xz_mm"],
-                                                   "facets": tb.tables["facets"]}), sort_keys=True)
+                                                   "facets": tb.tables["facets"],
+                                                   "lineage": plan['lineage']}), sort_keys=True)
             UVS.record_written(ob, bk, plan["origin"])
             ob[PROP_BACKUP] = json.dumps(bk, sort_keys=True)
         for token in uv_tokens:
