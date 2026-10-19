@@ -1,9 +1,14 @@
 """Full-item intake is immutable, single-item, and never implicitly approved."""
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+from PIL import Image
 import pytest
 
 from glasses3d.agent import edits, owner_captures, owner_fallback as F, procs
+from glasses3d.agent.tools import model_map as M, model_map_geometry as G
 from .test_owner_edit_lifecycle_review import selected_source
 from .test_owner_captures import capture_fixture
 from .test_m12_mark_targets import source_fixture
@@ -226,3 +231,106 @@ def test_malformed_source_snapshot_refuses_plainly(fallback_source):
     rewrite_understanding(f, lambda d: d["evidence_files"].update({d["snapshot_path"]: edits.sha(path)}))
     with pytest.raises(ValueError, match="unsupported format"):
         create(f)
+
+
+@pytest.mark.parametrize("number,label,excluded", [(1, "A", "B"), (2, "B", "A")])
+def test_fallback_map_discovers_and_focuses_only_selected_item_without_authority(
+        fallback_source, monkeypatch, number, label, excluded):
+    """Use real intake, discovery, correspondence and map/tool code; fake only rendering/worker IO."""
+    f = fallback_source
+    root = F.create_full_edit_item(f.root, f"I{number}", f.destination)
+    original_hashes = edits.tree_hashes(f.original.source)
+    understand_hashes = edits.tree_hashes(f.root)
+    input_hashes = edits.tree_hashes(root / "inputs")
+    doc = F.load(root)
+    catalogue = G.catalogue(f.snapshot)
+    marks, assets = M.resolve_owner_marks(root, f.snapshot, catalogue["targets"])
+    assert marks == doc["owner_mark_resolutions"]
+    assert [(row["item_id"], row["label"], row["status"]) for row in marks] == [
+        (f"I{number}", label, "resolved")]
+    assert marks[0]["anchors"][0]["polygon_id"] == 1  # Reordered GLB triangle zero.
+    assert marks[0]["edit_authority"] is False
+    assert {asset["path"] for asset in assets} == {
+        owner_captures.SOURCE_PATH, *(f"inputs/owner_captures/C{number}/{name}"
+                                    for name in ("capture.json", "viewer.png", "annotated.png"))}
+
+    # Keep all synthetic rendering inputs outside the sealed fallback inputs.
+    render_dir = root / "work/map-render-fixture"
+    render_dir.mkdir(parents=True)
+    for name in ("basis.json", "cameras.json"):
+        procs.write_json_atomic(render_dir / name, {})
+    photo_path = render_dir / "photo.png"
+    Image.new("RGB", (240, 160), "white").save(photo_path)
+    basis = SimpleNamespace(id="frozen", dir=render_dir, frame=None,
+        refs={"reference-001": {"photo_sha256": edits.sha(photo_path), "view_kind": "front"}},
+        photo_path=lambda _: photo_path, usable_refs=lambda: ["reference-001"],
+        photo=lambda _: np.full((160, 240, 3), 255, np.uint8), camera=lambda _: {},
+        shape=lambda _: (160, 240), pose=lambda _: None)
+    monkeypatch.setattr(M.C, "load_basis", lambda _: basis)
+    monkeypatch.setattr(M, "explicit_camera", lambda *args, **kwargs: {
+        "width": 240, "height": 160, "meta": {"pixel_scale": 1}, "id": kwargs["name"]})
+
+    def snapshot_call(name, method, params, **kwargs):
+        assert (name, method) == ("labelled_model_map", "model_map_snapshot")
+        path = Path(params["path"])
+        procs.write_json_atomic(path, f.snapshot)
+        return {"status": "ok", "result": {"status": "ok", "path": str(path), "sha256": edits.sha(path)}}
+
+    source = root / owner_captures.SOURCE_PATH
+    export = {"status": "exported", "path": str(source), "sha256": edits.sha(source),
+              "fingerprint": f.snapshot["fingerprint"], "checkpoint": "c1"}
+    scene = SimpleNamespace(root=root, seeing=SimpleNamespace(export_head=lambda **kwargs: export),
+                            s=SimpleNamespace(call_read=snapshot_call))
+
+    def render(root, exported, rows, directory, timeout_s):
+        for row in rows:
+            row.update(drawing=str(photo_path), part_id=str(photo_path))
+        report = directory / "report.json"
+        procs.write_json_atomic(report, {})
+        return report
+
+    monkeypatch.setattr(M, "_photo_render", render)
+    monkeypatch.setattr(G, "first_hits", lambda *args: np.zeros((160, 240), int))
+
+    async def call(ctx, name, action):
+        assert name == "labelled_model_map"
+        return action("fallback-map")
+
+    tool = M.tool_for(scene, lambda name: lambda fn: fn, call)
+    result = asyncio.run(tool(SimpleNamespace(), owner_labels=[label]))
+    assert result["owner_mark_resolutions"] == marks
+    assert result["annotated_target_ids"] == marks[0]["candidate_target_ids"]["faces"]
+    assert result["target_paging"]["candidate_target_ids"] == result["annotated_target_ids"]
+    assert result["views"][0]["owner_mark_overlays"][0]["visible_pixels"] == 240 * 160
+    assert result["support_scopes"] == result["scope_refs"] == []
+    M.mark_delivered(root, result)
+    ids = result["annotated_target_ids"]
+    operation = {"target_ids": ids, "scope": G.support(f.snapshot, catalogue["targets"], ids)}
+    with pytest.raises(ValueError, match="exact influence/support was not drawn"):
+        M.validate_understanding(root, result["map_id"], result["map_sha256"],
+                                 [result["capture_receipt"]], [operation])
+    with pytest.raises(ValueError, match="Unknown owner mark label"):
+        asyncio.run(tool(SimpleNamespace(), map_id=result["map_id"], owner_labels=[excluded]))
+    assert F.load(root) == doc
+    assert edits.load(root) is None
+    assert edits.tree_hashes(root / "inputs") == input_hashes
+    assert edits.tree_hashes(f.original.source) == original_hashes
+    assert edits.tree_hashes(f.root) == understand_hashes
+    assert not (root / "runs").exists() and not (root / "budget").exists()
+
+
+@pytest.mark.parametrize("damage,match", [("descriptor", "Unsupported full item"),
+    ("capture", "input changed"), ("source_understanding", "understanding or selected item changed")])
+def test_fallback_map_discovery_reverifies_fallback_provenance(fallback_source, damage, match):
+    f = fallback_source
+    root = create(f)
+    if damage == "descriptor":
+        path = root / F.RELATIVE_PATH
+        procs.write_json_atomic(path, {**edits.read(path), "schema": "invalid"})
+    elif damage == "capture":
+        path = root / "inputs/owner_captures/C1/annotated.png"
+        path.write_bytes(path.read_bytes() + b"changed")
+    else:
+        rewrite_understanding(f, lambda d: d["items"][0].update(interpretation="another reading"))
+    with pytest.raises(ValueError, match=match):
+        M.resolve_owner_marks(root, f.snapshot, G.catalogue(f.snapshot)["targets"])

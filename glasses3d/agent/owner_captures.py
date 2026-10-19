@@ -341,9 +341,15 @@ def validate_capture(payload, viewer_png, annotated_png, source_glb) -> dict:
 def load_round_captures(root, owner_edit=None) -> list[dict]:
     """Read hash-verified capture bundles; returned Paths are confined to this round."""
     root = Path(root).resolve()
-    if owner_edit is None and not (root / "inputs/owner-edit.json").is_file():
-        return []
-    doc = owner_edit if owner_edit is not None else edits.read(root / "inputs/owner-edit.json")
+    if owner_edit is None:
+        if (root / "inputs/owner-edit.json").is_file():
+            owner_edit = edits.read(root / "inputs/owner-edit.json")
+        elif (root / "inputs/full-edit-item.json").is_file():
+            from . import owner_fallback
+            owner_edit = owner_fallback.capture_context(owner_fallback.load(root))
+        else:
+            return []
+    doc = owner_edit
     rows = doc.get("owner_capture_items")
     if rows is None:
         return []
