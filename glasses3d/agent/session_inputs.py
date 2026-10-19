@@ -20,6 +20,9 @@ import binascii
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
+import io
+import json
+from pathlib import Path
 import re
 from typing import Any
 
@@ -43,6 +46,9 @@ class ReferenceInput:
     detail: str = "high"
     view: str | None = None          # the job's view name for this image
     size_px: tuple[int, int] | None = None
+    evidence_kind: str = "product_photo"
+    evidence_metadata: dict | None = None
+    evidence_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -90,7 +96,71 @@ def _reference_text(photo: ReferenceInput, sha256: str, note: str) -> str:
         details.append(f"{int(photo.size_px[0])}x{int(photo.size_px[1])} px")
     details.append(f"sha256 {sha256[:12]}")
     parts.append(", ".join(details) + ".")
-    return " ".join(parts) + "\n" + note
+    return " ".join(parts) + ("\n" + photo.evidence_text if photo.evidence_text else "") + "\n" + note
+
+
+def owner_capture_references(root, owner_edit=None) -> list[ReferenceInput]:
+    """Verified owner marks as separate native-pixel evidence; tiles are deterministic in-memory crops.
+
+    The source PNG and metadata remain the immutable inputs. Approval binds both their hashes and each exact
+    transported crop. No derived file is written during preparation or renewal.
+    """
+    from PIL import Image
+    from .owner_captures import load_round_captures
+    from .tools.native_panels import HIGH_MAX_SIDE, HIGH_PATCH_BUDGET, patches
+
+    root = Path(root).resolve()
+    references = []
+    # 1600 square = 2500 patches. Smaller final tiles preserve every original pixel too.
+    tile_side = min(HIGH_MAX_SIDE, int(HIGH_PATCH_BUDGET ** .5) * 32)
+    for record in load_round_captures(root, owner_edit):
+        payload = record["payload"]
+        marks = [{"label": mark["label"], "kind": mark["kind"],
+                  "vertices": mark["vertices"], "footprint": mark["footprint"],
+                  "resolution": "unresolved until labelled_model_map authenticates source polygons"}
+                 for mark in payload["marks"]]
+        text = ("Owner words for item " + record["item_id"] + " (verbatim):\n" + record["request_text"]
+                + "\nCapture camera and marks (positions in bridge-relative mm):\n"
+                + json.dumps({"camera": payload["camera"], "marks": marks}, ensure_ascii=False,
+                             sort_keys=True, separators=(",", ":"), allow_nan=False))
+        for role in ("annotated", "viewer"):
+            path = Path(record[role + "_path"])
+            original = path.read_bytes()
+            original_sha = hashlib.sha256(original).hexdigest()
+            if original_sha != record[role + "_sha256"]:
+                raise ValueError("The owner capture image changed; prepare the edit again.")
+            with Image.open(io.BytesIO(original)) as opened:
+                opened.load()
+                width, height = opened.size
+                for y in range(0, height, tile_side):
+                    for x in range(0, width, tile_side):
+                        box = [x, y, min(x + tile_side, width), min(y + tile_side, height)]
+                        if box == [0, 0, width, height] and not opened.info.get("exif"):
+                            data = original
+                        else:
+                            stream = io.BytesIO()
+                            tile = opened.crop(box)
+                            # Capture coordinates refer to the raw PNG grid, never EXIF-oriented pixels.
+                            tile.info.pop("exif", None)
+                            tile.save(stream, format="PNG")
+                            data = stream.getvalue()
+                        size = (box[2] - x, box[3] - y)
+                        if len(data) > _MAX_IMAGE_BYTES or patches(size) > HIGH_PATCH_BUDGET:
+                            raise ValueError("The owner capture cannot be sent at native pixels; use a smaller capture.")
+                        metadata = {"capture_id": record["capture_id"], "item_id": record["item_id"],
+                                    "labels": record["labels"], "metadata_sha256": record["metadata_sha256"],
+                                    "glb_sha256": payload["source"]["glb_sha256"], "image_role": role,
+                                    "source_image_sha256": original_sha, "source_size_px": [width, height],
+                                    "crop_box": box, "native_pixels": True}
+                        label = ("Owner's marks on a picture of the current model (capture "
+                                 + record["capture_id"] + ", model " + payload["source"]["glb_sha256"][:12]
+                                 + "); not a product photo; labels " + ", ".join(record["labels"])
+                                 + "; " + ("annotated" if role == "annotated" else "clean viewer")
+                                 + "; native crop " + str(box))
+                        references.append(ReferenceInput(label, path.relative_to(root).as_posix(),
+                            "data:image/png;base64," + base64.b64encode(data).decode("ascii"), size_px=size,
+                            evidence_kind="owner_capture", evidence_metadata=metadata, evidence_text=text))
+    return references
 
 
 def plan_session_input(persisted_items: Sequence[Any], *, prompt: str, photos: Sequence[ReferenceInput],
@@ -106,6 +176,7 @@ def plan_session_input(persisted_items: Sequence[Any], *, prompt: str, photos: S
         raise ValueError("Expected a string prompt and a nonempty invocation_text")
     latest_brief = None
     images: dict[tuple, dict] = {}
+    labelled_images: dict[tuple, dict] = {}
     texts: dict[str, dict] = {}
     identity_cache: dict[str, tuple | None] = {}
     ignored_images = 0
@@ -136,6 +207,12 @@ def plan_session_input(persisted_items: Sequence[Any], *, prompt: str, photos: S
                 continue
             images.setdefault((*identity, detail), {"history_item_index": item_index,
                                                     "history_content_index": content_index})
+            if (content_index and isinstance(parts[content_index - 1], Mapping)
+                    and parts[content_index - 1].get("type") == "input_text"
+                    and isinstance(parts[content_index - 1].get("text"), str)):
+                caption = parts[content_index - 1].get("text", "")
+                labelled_images.setdefault((*identity, detail, caption.rsplit("\n", 1)[0]),
+                    {"history_item_index": item_index, "history_content_index": content_index})
 
     same_brief = latest_brief is not None and latest_brief["text"] == prompt
     content: list[dict[str, Any]] = []
@@ -156,6 +233,10 @@ def plan_session_input(persisted_items: Sequence[Any], *, prompt: str, photos: S
     for index, photo in enumerate(photos):
         if photo.detail not in DETAILS:
             raise ValueError("Unknown reference image detail")
+        if photo.evidence_kind not in {"product_photo", "owner_capture"}:
+            raise ValueError("Unknown image evidence kind")
+        if photo.evidence_kind == "owner_capture" and (not photo.evidence_metadata or not photo.evidence_text):
+            raise ValueError("Owner capture evidence needs its metadata and role text")
         if not isinstance(photo.label, str) or not photo.label or not str(photo.path):
             raise ValueError("Reference label and current path are required")
         identity = image_identity(photo.image_url)
@@ -163,12 +244,19 @@ def plan_session_input(persisted_items: Sequence[Any], *, prompt: str, photos: S
             raise ValueError("Reference must be a nonempty valid PNG/JPEG/WebP/GIF data URL up to 20 MiB")
         sha256, mime, size = identity
         key = (*identity, photo.detail)
-        evidence = images.get(key)
+        if photo.evidence_kind == "owner_capture":
+            key = (*key, _reference_text(photo, sha256, "").rsplit("\n", 1)[0])
+            evidence = labelled_images.get(key)
+        else:
+            evidence = images.get(key)
         prior_reference = planned_images.get(key)
         action = "reuse_history" if evidence is not None else "reuse_current" if prior_reference is not None else "send"
         reference = {"reference_index": index, "label": photo.label, "path": str(photo.path), "view": photo.view,
                      "size_px": list(photo.size_px) if photo.size_px else None, "sha256": sha256,
                      "mime_type": mime, "bytes": size, "detail": photo.detail, "action": action}
+        if photo.evidence_kind == "owner_capture":
+            reference.update(evidence_kind=photo.evidence_kind, evidence_metadata=photo.evidence_metadata,
+                             evidence_text_sha256=text_sha256(photo.evidence_text))
         if evidence is not None:
             reference.update(evidence)
             note = "Image bytes are already in session history; use this current path for crops."

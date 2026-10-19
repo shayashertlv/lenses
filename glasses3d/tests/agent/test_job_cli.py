@@ -243,7 +243,8 @@ def test_stop_writes_request_in_correct_job(job):
 
 
 @pytest.mark.parametrize("option,value", [("--cap", "nan"), ("--cap", "inf"), ("--cap", "-1"), ("--cap", "0"),
-                                          ("--settled-stop", "21"),
+                                          ("--settled-stop", "nan"), ("--settled-stop", "inf"),
+                                          ("--settled-stop", "-1"), ("--settled-stop", "0"),
                                           ("--cap", "nonsense"), ("--settled-stop", "nonsense")])
 def test_invalid_money_settings_are_reported_without_traceback(job, capsys, option, value):
     assert cli.main(["job", "estimate", str(job), option, value]) == 2

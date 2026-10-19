@@ -13,6 +13,7 @@ from .. import brief, edits, jobs, owner_edits
 from ..instructions import build_instructions, instruction_contract
 from ..loop import StageContract, StageRunFailed, StageSpec
 from ..procs import write_json_atomic
+from ..session_inputs import owner_capture_references
 from glasses3d.g3d import owner_mesh as M
 
 
@@ -90,7 +91,7 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         tools = registry(child, child_settings)
         spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=child.owner_edit), tools,
             brief.build_brief(child.job) + edits.brief_suffix(child.owner_edit), child_settings,
-            photos=jobs.references(folder),
+            photos=jobs.references(folder) + owner_capture_references(folder, child.owner_edit),
             scene_note=(f"Private owner-edit specialist: exact current parent head {source['head']['id']}. "
                         "No template or earlier specification has replaced this mesh. "
                         + money_note(runtime, child_settings, cap_usd)),

@@ -18,6 +18,7 @@ from ...g3d import owner_surface
 
 class Interpretation(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    item_id: str | None = None
     number: int
     label: str
     interpretation: str
@@ -35,9 +36,12 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
         raise ValueError("understand_finish is only for an understand round")
     if scene.s.fingerprint() != doc["source"]["fingerprint"]:
         raise ValueError("understand cannot change the delivered model")
-    records = [Interpretation.model_validate(item).model_dump() for item in items]
+    records = [Interpretation.model_validate(item).model_dump(exclude_none=True) for item in items]
     if not records or [r["number"] for r in records] != list(range(1, len(records) + 1)):
         raise ValueError("interpret each item separately with consecutive numbers starting at 1")
+    if doc.get("owner_capture_items") and [row.get("item_id") for row in records] != [
+            row["item_id"] for row in doc["owner_capture_items"]]:
+        raise ValueError("interpret every owner capture item once, with its original item_id and order")
     operations = []
     diagnostic_targets = set()
     for item in records:

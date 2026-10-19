@@ -55,8 +55,8 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     # Legacy runs retain their approved reserve cap. Explicit settled-only approvals instead bind this
     # amount to the actual settled stop, with no reservation-based admission limit.
     cap_to_micro(cap)
-    if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) > 20_000_000:
-        raise ValueError("job settled-spend stop must be at most the owner's $20 limit")
+    if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) <= 0:
+        raise ValueError("job settled-spend stop must be a positive finite amount")
     if settings.settled_only and (cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd)
                                  or settings.fit_output_to_budget or settings.smoke):
         raise ValueError("settled-only approval amount must equal the settled stop; no output fitting or smoke")
@@ -71,7 +71,8 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     stages = () if settings.smoke else (temple_stage.contract(job, settings, cap, **({"owner_edit": owner_edit} if owner_edit else {})),)
     instructions = build_instructions(tools, owner_edit=owner_edit) if owner_edit else instructions_text(tools)
     text = brief.build_brief(job) + (edits.brief_suffix(owner_edit) if owner_edit else "")
-    photos = jobs.references(root)
+    from .session_inputs import owner_capture_references
+    photos = jobs.references(root) + owner_capture_references(root, owner_edit)
     notes = verdicts.pending_notes(root)
     history = resume_plan.saved_items(root) if resume else []
     session_binding = resume_plan.binding(root, resume, items=history)
@@ -93,7 +94,10 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     if write_request:
         schemas = json.dumps([{"name": t.name, "description": t.description,
                                "parameters": t.params_json_schema} for t in tools])
-        tokens = E.initial_context_tokens(len(instructions) + len(text) + len(schemas) + sum(map(len, notes)), len(photos))
+        evidence_chars = sum(len(photo.label) + len(photo.evidence_text or "") for photo in photos
+                             if photo.evidence_kind == "owner_capture")
+        tokens = E.initial_context_tokens(len(instructions) + len(text) + len(schemas) + sum(map(len, notes))
+                                          + evidence_chars, len(photos))
         if resume:
             from .loop import invocation_text
             invocation = invocation_text(run_id=run_id, scene_note=spec.scene_note, cap_micro=cap_to_micro(cap),

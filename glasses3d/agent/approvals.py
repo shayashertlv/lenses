@@ -93,7 +93,7 @@ def input_digests(job_dir) -> dict:
 
 def run_input_binding(job_dir, brief: str, photos) -> dict:
     """Bind the exact first-message brief and ordered reference descriptors to their on-disk source bytes."""
-    from .session_inputs import image_identity
+    from .session_inputs import image_identity, owner_capture_references
     job_dir = Path(job_dir).resolve()
     _, doc = _read_json(job_dir / "job.json", "job.json")
     job_images = doc.get("schema") == "g3d.job/1" and isinstance(doc.get("images"), list)
@@ -131,19 +131,42 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
                         raise ApprovalRefused("stale", "lab original or transport photo changed")
                     # Both copies remain bound by input_digests; only the recorded transport is sent.
                     expected.remove(original)
-    rows, seen = [], set()
+    # Product references remain exactly job.json.images. Captures have a separately verified, ordered contract.
+    # Their payload may be a lossless crop, so bind both source bytes and the exact transported tile bytes.
+    try:
+        expected_captures = owner_capture_references(job_dir) if job_images else []
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ApprovalRefused("stale", str(exc)) from exc
+    rows, seen, capture_index = [], set(), 0
     for photo in photos:
         path = (root / photo.path).resolve()
-        if not path.is_relative_to(root) or not path.is_file() or path in seen:
+        kind = getattr(photo, "evidence_kind", "product_photo")
+        if kind not in {"product_photo", "owner_capture"}:
+            raise ApprovalRefused("invalid", "unknown image evidence kind")
+        if kind == "product_photo" and (photo.evidence_metadata is not None or photo.evidence_text is not None):
+            raise ApprovalRefused("invalid", "product photos cannot carry owner capture metadata")
+        if not path.is_relative_to(root) or not path.is_file() or (kind == "product_photo" and path in seen):
             raise ApprovalRefused("invalid", "references must name distinct files inside job inputs")
         identity = image_identity(photo.image_url)
-        if identity is None or identity[0] != file_sha256(path):
+        if kind == "owner_capture":
+            if capture_index >= len(expected_captures) or photo != expected_captures[capture_index]:
+                raise ApprovalRefused("stale", "owner capture labels, metadata or image bytes changed")
+            capture_index += 1
+        elif identity is None or identity[0] != file_sha256(path):
             raise ApprovalRefused("stale", "reference payload differs from its job input bytes")
-        seen.add(path)
+        else:
+            seen.add(path)
+        if identity is None:
+            raise ApprovalRefused("invalid", "capture image cannot be sent at native pixels")
         rows.append({"path": photo.path, "sha256": identity[0], "mime": identity[1], "bytes": identity[2],
                      "label": photo.label, "view": photo.view, "detail": photo.detail, "size_px": photo.size_px})
+        if kind == "owner_capture":
+            rows[-1].update(evidence_kind=kind, evidence_metadata=photo.evidence_metadata,
+                           evidence_text_sha256=sha256_bytes(photo.evidence_text.encode("utf-8")))
     if seen != expected:
         raise ApprovalRefused("stale", "the run does not carry every job reference image")
+    if capture_index != len(expected_captures):
+        raise ApprovalRefused("stale", "the run does not carry every owner capture image")
     brief_path = job_dir / "inputs" / "brief.txt"
     if brief_path.exists() and brief_path.read_bytes().decode("utf-8") != brief:
         raise ApprovalRefused("stale", "the run brief differs from inputs/brief.txt")

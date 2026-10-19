@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections import defaultdict
 import hashlib
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -193,14 +195,21 @@ def support(snapshot, targets, target_ids, *, vertex_weights=None, fixed_vertex_
 
 def export_correspondence(snapshot, geometry):
     """Map actual exported triangles to raw polygon indices by unique coordinates and connectivity."""
-    by_name = {o["name"]: o for o in snapshot["objects"]}
+    by_name = defaultdict(list)
+    export_nodes = defaultdict(set)
+    for obj in snapshot["objects"]:
+        by_name[obj["name"]].append(obj)
+    for part in geometry.parts:
+        export_nodes[part["name"]].add(part.get("node_index", part["name"]))
     source_poly = np.full(len(geometry.faces), -1, np.int64)
     source_object = np.full(len(geometry.faces), "", dtype=object)
     reports = {}
     for pi, part in enumerate(geometry.parts):
-        obj = by_name.get(part["name"])
-        if obj is None:
+        candidates = by_name.get(part["name"], [])
+        if len(candidates) != 1 or len(export_nodes[part["name"]]) != 1:
+            reports[str(pi)] = {"matched": 0, "reason": "Export node name has no unique source object"}
             continue
+        obj = candidates[0]
         triangle_ids = np.flatnonzero(geometry.face_parts == pi)
         source_object[triangle_ids] = obj["id"]
         raw = np.asarray(obj["vertices_world_mm"], float)
@@ -232,6 +241,139 @@ def export_correspondence(snapshot, geometry):
                             "max_vertex_error_mm": float(distances[:, 0].max()),
                             "ambiguous_or_unmatched_vertices": int((~valid).sum())}
     return source_object, source_poly, reports
+
+
+def capture_correspondence(snapshot, source_glb):
+    """Index the original GLB identities, never a re-export's triangle ordering.
+
+    This uses the same unique vertex/connectivity proof as the ordinary model map,
+    without a raycasting scene. Browser primitive-local triangles are converted to
+    global rows only here, from the original GLB parser's order.
+    """
+    from ...g3d_host import glb
+    model = glb.load(source_glb) if isinstance(source_glb, (str, Path)) else source_glb
+    vertices, faces, owners, parts, primitives = [], [], [], [], {}
+    offset = 0
+    for primitive in model.primitives:
+        identity = (primitive.node_index, primitive.mesh_index, primitive.primitive_index)
+        if identity in primitives:
+            raise ValueError("The captured model has an ambiguous primitive identity")
+        record = {"primitive": primitive, "part": None}
+        primitives[identity] = record
+        if primitive.compressed or primitive.error or not len(primitive.triangles):
+            continue
+        record["part"] = len(parts)
+        parts.append({"name": primitive.node_name, "node_index": primitive.node_index,
+                      "mesh_index": primitive.mesh_index, "primitive_index": primitive.primitive_index})
+        vertices.append(primitive.positions)
+        faces.append(primitive.triangles + offset)
+        owners.append(np.full(len(primitive.triangles), len(parts)-1, int))
+        offset += len(primitive.positions)
+    geometry = SimpleNamespace(vertices=np.vstack(vertices) if vertices else np.empty((0, 3)),
+        faces=np.vstack(faces) if faces else np.empty((0, 3), int),
+        face_parts=np.concatenate(owners) if owners else np.empty(0, int), parts=parts)
+    objects, polygons, reports = export_correspondence(snapshot, geometry)
+    for record in primitives.values():
+        rows = np.flatnonzero(geometry.face_parts == record["part"]) if record["part"] is not None else []
+        record["source_objects"] = objects[rows]
+        record["source_polygons"] = polygons[rows]
+    return {"primitives": primitives, "reports": reports}
+
+
+def resolve_capture_marks(snapshot, source_glb, capture, targets=None, *, correspondence=None):
+    """Resolve owner evidence to source polygons; return candidates, never edit support.
+
+    A mark is resolved only when every vertex and footprint triangle has a unique
+    source polygon. Background and partial/ambiguous matches remain unresolved.
+    A candidate may extend beyond the footprint; the ordinary map/support delivery
+    checks remain the only way to select and authenticate an edit's influence.
+    """
+    correspondence = correspondence or capture_correspondence(snapshot, source_glb)
+    targets = catalogue(snapshot)["targets"] if targets is None else targets
+    objects = {obj["id"]: obj for obj in snapshot["objects"]}
+
+    def triangle(reference, index):
+        identity = {key: reference[key] for key in ("node_index", "mesh_index", "primitive_index")}
+        identity["triangle_index"] = index
+        result = {"identity": identity, "status": "unresolved"}
+        row = correspondence["primitives"].get(tuple(identity[key] for key in ("node_index", "mesh_index", "primitive_index")))
+        if row is None:
+            return {**result, "reason": "The captured GLB primitive is unavailable"}
+        primitive = row["primitive"]
+        if "node_name" in reference and reference["node_name"] != primitive.node_name:
+            return {**result, "reason": "The captured node name differs from its exact GLB identity"}
+        if type(index) is not int or index < 0 or index >= len(row["source_polygons"]):
+            return {**result, "reason": "The captured triangle is unavailable or cannot be decoded"}
+        oid, polygon = row["source_objects"][index], int(row["source_polygons"][index])
+        if not oid or polygon < 0:
+            return {**result, "reason": "No unique export-to-source polygon correspondence"}
+        obj = objects[oid]
+        return {**result, "status": "resolved", "object_id": oid, "object_name": obj["name"],
+                "polygon_id": polygon, "source_editable": bool(obj["evaluated"]["positions_match_source"]
+                    and not obj.get("unsupported_edit_state"))}
+
+    def anchor(value):
+        if value["kind"] == "background":
+            return {"status": "unresolved", "reason": "Background has no model surface"}
+        result = triangle(value, value["triangle_index"])
+        result.update(position_mm=value["position_mm"], barycentric=value["barycentric"], is_lens=value["is_lens"])
+        if value.get("behind") is not None:
+            result["behind"] = anchor(value["behind"])
+        return result
+
+    def polygon_groups(rows):
+        groups = defaultdict(set)
+        for row in rows:
+            if row["status"] == "resolved":
+                groups[row["object_id"]].add(row["polygon_id"])
+        return [{"object_id": oid, "object_name": objects[oid]["name"], "polygon_ids": sorted(polygons)}
+                for oid, polygons in sorted(groups.items())]
+
+    def candidates(groups):
+        result = {"parts": [], "faces": [], "edges": [], "points": []}
+        kinds = {"object": "parts", "face_region": "faces", "edge_chain": "edges", "point": "points"}
+        for group in groups:
+            polygons = set(group["polygon_ids"])
+            for target in targets.values():
+                if target["object_id"] == group["object_id"] and polygons.intersection(target["polygon_ids"]):
+                    result[kinds[target["kind"]]].append(target["id"])
+        return result
+
+    result = []
+    for mark in capture["marks"]:
+        anchors = [{"vertex_index": index, "xy_px": vertex["xy_px"], **anchor(vertex["anchor"])}
+                   for index, vertex in enumerate(mark["vertices"])]
+        footprint, unresolved, total, resolved = {}, [], 0, 0
+        for face in mark["footprint"]["faces"]:
+            for first, last in face["triangles"]:
+                for index in range(first, last+1):
+                    row = triangle(face, index)
+                    total += 1
+                    if row["status"] == "resolved":
+                        footprint[(row["object_id"], row["polygon_id"])] = row
+                        resolved += 1
+                    else:
+                        base = {**row["identity"]}
+                        del base["triangle_index"]
+                        if (unresolved and unresolved[-1]["identity"] == base and
+                                unresolved[-1]["reason"] == row["reason"] and unresolved[-1]["triangles"][1]+1 == index):
+                            unresolved[-1]["triangles"][1] = index
+                        else:
+                            unresolved.append({"identity": base, "triangles": [index, index], "reason": row["reason"]})
+        primary = polygon_groups([*anchors, *footprint.values()])
+        behind = polygon_groups([row["behind"] for row in anchors if "behind" in row])
+        all_resolved = bool(primary) and total > 0 and not unresolved and all(row["status"] == "resolved" and
+            row.get("behind", {"status": "resolved"})["status"] == "resolved" for row in anchors)
+        result.append({"capture_id": capture["capture_id"], "label": mark["label"], "kind": mark["kind"],
+            "status": "resolved" if all_resolved else "unresolved", "anchors": anchors,
+            "footprint": {"status": "resolved" if total and not unresolved else "unresolved",
+                "triangle_count": total, "resolved_triangle_count": resolved,
+                "polygons": polygon_groups(footprint.values()), "unresolved": unresolved},
+            "resolved_polygons": primary, "behind_polygons": behind,
+            "candidate_target_ids": candidates(primary), "behind_candidate_target_ids": candidates(behind),
+            "edit_authority": False,
+            "note": "Candidates can extend beyond the mark. Show the chosen targets and exact support with labelled_model_map before editing."})
+    return result
 
 
 def project(points_mm, camera):

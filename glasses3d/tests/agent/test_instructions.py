@@ -22,7 +22,7 @@ def test_current_registry_is_complete_and_named_independently(tools):
     assert I.named_tools(text) == frozenset(TOOL_NAMES) == I.instruction_contract(tools).named
     assert contract_problems(I.instruction_contract(tools), instructions=text, brief="Job facts.", tools=tools) == []
     assert text == I.build_instructions(list(reversed(tools)))
-    assert len(text) <= I.MAX_INSTRUCTION_CHARS == 16_000
+    assert len(text) <= I.MAX_INSTRUCTION_CHARS == 24_000
 
 
 def test_sandbox_font_and_export_hints_name_real_tools(tools):
@@ -90,6 +90,30 @@ def test_owner_phase_contract_matches_its_actual_registry_and_brief(phase):
     assert len(text) <= I.MAX_INSTRUCTION_CHARS
 
 
+@pytest.mark.parametrize("phase", ["understand", "edit"])
+def test_capture_guidance_keeps_roles_coordinates_and_authenticated_scope(phase):
+    owner = {"phase": phase}
+    tools = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+    text = " ".join(I.build_instructions(tools, owner_edit=owner).split())
+    for phrase in ("not a product photo", "annotated and clean native-pixel images", "source GLB hash",
+                   "Labels identify points, lines or closed shapes", "unique across the edit session",
+                   "owner's words verbatim per item", "keep its item ID", "bridge-relative millimetres",
+                   "bridge underside", "GLB triangles are not Blender polygon IDs",
+                   "background click has no surface anchor", "unresolved correspondence remains unresolved",
+                   "Product photos still decide the look", "Capture UNDERSTAND items arrive unresolved",
+                   "owner_mark_resolutions", "owner_labels", "candidate_target_ids", "supports_json",
+                   "delivered scope_refs", "before any change", "anchor alone never authorizes a mutation"):
+        assert phrase in text
+    assert "All supplied images remain authoritative photos" not in text
+    assert "The owner's product photos remain authoritative photos" in text
+    for phrase in I.RETIRED_PHRASES:
+        assert phrase not in text.lower()
+    for pattern, _ in I.REMOVED_PATTERNS:
+        assert not re.search(pattern, text, re.I)
+    tool = next(tool for tool in tools if tool.name == "labelled_model_map")
+    assert "owner_labels" in tool.params_json_schema["properties"]
+
+
 @pytest.mark.parametrize("bad_registry", ["missing", "unknown", "duplicate"])
 def test_registry_changes_cannot_silently_lose_guidance(tools, bad_registry):
     if bad_registry == "missing":
@@ -129,7 +153,7 @@ def test_runtime_contract_refuses_each_retired_literal(tools, phrase):
 
 def test_guidance_teaches_recorded_decisions_and_stage_order(tools):
     text = " ".join(I.build_instructions(tools).split())
-    for phrase in ("closed solid", "Every supplied reference image is an authoritative photo",
+    for phrase in ("closed solid", "Every supplied product photo from the owner is authoritative",
                    "Photos decide appearance", "Report every conflict", "A colourway name does not determine",
                    "Small branding stays", "Room reflections on lenses are not defects", "one fixed reflection",
                    "crystal and translucent", "complex pattern such as tortoiseshell", "photo-derived print",

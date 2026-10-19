@@ -5,7 +5,7 @@ import re
 
 from .brief import MODEL_REQUIREMENTS
 
-MAX_INSTRUCTION_CHARS = 16_000
+MAX_INSTRUCTION_CHARS = 24_000
 
 # Runtime substring checks cover the retired PLAN language and obsolete tools. Pattern checks below also catch
 # spacing and wording variants. Neither list applies to the owner's verbatim words in the job brief.
@@ -43,7 +43,7 @@ appearance acceptance; a successful tool check does not certify likeness. Work i
 current tool descriptions for argument details and the returned evidence for decisions.
 
 1. Understand the product and its evidence.
-Every supplied reference image is an authoritative photo. Inspect every supplied direction together. Photos decide
+Every supplied product photo from the owner is authoritative. Inspect every supplied direction in those photos together. Photos decide
 appearance: shape, colour, transparency, finish and feature placement. The owner's description and specifications
 supply facts a photo cannot show, such as exact dimensions, material identity and model number. Report every
 conflict. A colourway name does not determine visible colour. Lens width, bridge width and temple length measure
@@ -212,7 +212,12 @@ SPECIALIST_GUIDANCE = {
         "points beside same-view photos. Keep map_id to reuse a round's labels. Read the plain-words legend and "
         "supply label_descriptions_json before a target's first display when its automatic description would not "
         "identify the feature and arm clearly. Displayed descriptions are fixed; create a new map to rename them. "
-        "Exact target IDs remain separate; do not make the owner interpret raw mesh IDs.",
+        "Exact target IDs remain separate; do not make the owner interpret raw mesh IDs. "
+        "For owner captures, inspect owner_mark_resolutions and pass owner_labels to show the marked regions "
+        "and their candidate_target_ids. Read resolved or unresolved for each mark; background or ambiguous "
+        "correspondence is not a resolved model target. Match the named objects and polygons to the owner's "
+        "labels, then use supports_json and delivered scope_refs to authenticate the actual targets before any "
+        "change. A capture anchor alone never authorizes a mutation.",
 }
 
 EDIT_GUIDANCE = {
@@ -261,7 +266,21 @@ do not refit. Every tool remains subject to phase and confirmed scope.
 
 The owner's target outranks photo readings and earlier choices only for the named feature; report contrary observations.
 Every physical hard check remains: closed solids, applicable minimum thickness, orientation and strict specification.
-Preserve unrequested geometry, materials, UVs and topology, and the dry-run's numbered item order and coverage.
+Preserve unrequested geometry, materials, UVs and topology. Keep the numbered item order and any supplied verified
+dry-run coverage.
+Capture UNDERSTAND items arrive unresolved, without a ready coverage mapping; read and diagnose each item here.
+
+An owner capture is the owner's marks on a picture of the current model, not a product photo. Read both the
+annotated and clean native-pixel images with their capture ID, source GLB hash and recorded camera. Labels identify
+points, lines or closed shapes and are unique across the edit session; an item's words may name labels from another
+capture. Read the owner's words verbatim per item and keep its item ID when explaining your interpretation.
+Surface anchors and footprints locate the marked model region. Positions are bridge-relative millimetres: origin
+at the bridge underside, +X wearer's left, -X wearer's right, +Y up and +Z forward. GLB triangles are not Blender
+polygon IDs. A background click has no surface anchor, and unresolved correspondence remains unresolved; never
+invent a target from it. Use the marks to understand where and what the owner means. Resolve them through the
+model-map tool to authenticated targets and show the complete support before any change. Product photos still
+decide the look beyond the owner's explicitly requested change; captures do not replace the product photos.
+Captures and anchors supply evidence only, with the same phase and confirmed-scope checks in UNDERSTAND and EDIT.
 
 UNDERSTAND: diagnose only the requested items, show choices, then stop.
 Do not mutate the selected source geometry. Preview isolated copies only. Inspect the mesh and relevant photos;
@@ -290,7 +309,7 @@ operation kind, axis or larger support requires new understanding. Keep attached
 Inspect before and after lettering, full-size photo pairs, close-ups and worn views. Report measured changes,
 side effects and undone items. Checks cannot replace visual review. Then complete the two-call product finish.
 
-Use millimetres, +Y up, +Z forward, temples along -Z; export converts to metres. All supplied images remain
+Use millimetres, +Y up, +Z forward, temples along -Z; export converts to metres. The owner's product photos remain
 authoritative photos. Side names identify the wearer: +X left, -X right, regardless of image position.
 Seating is diagnostic. Only the owner sets money limits, shared by parent and child.
 The owner's delivery requirements are:

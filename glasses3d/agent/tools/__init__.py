@@ -97,8 +97,11 @@ def single_threaded_blas():
 
 
 def _read_image_path(root, path):
-    source = arview.confined(root, path, areas=("images", "reference_images", "work", "cameras"))
+    source = arview.confined(root, path, areas=("images", "reference_images", "work", "cameras", "inputs"))
     parts = source.relative_to(Path(root).resolve()).parts
+    if parts[0] == "inputs" and not (len(parts) == 4 and parts[1] == "owner_captures"
+            and parts[2].startswith("C") and source.name in {"viewer.png", "annotated.png"}):
+        raise ValueError("only owner capture PNGs may be read from inputs")
     if parts[0] == "cameras" and not (len(parts) == 3 and parts[1].startswith("basis-")
             and source.suffix.lower() == ".png"
             and (source.name.startswith("overlay_") or source.name == "overlays_sheet.png")):
@@ -109,10 +112,15 @@ def _read_image_path(root, path):
 def _image(root, path, *, region=None, trusted_output=False, max_side=MAX_IMAGE_SIDE) -> tuple[dict, str]:
     if type(max_side) is not int or not 1 <= max_side <= LOOK_IMAGE_SIDE:
         raise ValueError("invalid local image size bound")
-    source = (arview.confined(root, path, areas=("images", "reference_images", "work", "cameras"))
+    source = (arview.confined(root, path, areas=("images", "reference_images", "work", "cameras", "inputs"))
               if trusted_output else _read_image_path(root, path))
+    if source.relative_to(Path(root).resolve()).parts[0] == "inputs":
+        source = _read_image_path(root, path)
+    capture = source.relative_to(Path(root).resolve()).parts[:2] == ("inputs", "owner_captures")
     with Image.open(source) as opened:
-        image = ImageOps.exif_transpose(opened).convert("RGB")
+        image = opened.copy() if capture else ImageOps.exif_transpose(opened).convert("RGB")
+        if capture:
+            image.info.pop("exif", None)  # Keep the raw capture grid and its colour/alpha channels.
         original_size = image.size
         if region is not None:
             if (len(region) != 4 or any(type(x) is not int for x in region)
@@ -120,7 +128,11 @@ def _image(root, path, *, region=None, trusted_output=False, max_side=MAX_IMAGE_
                     or not 0 <= region[1] < region[3] <= image.height):
                 raise ValueError("region is [left, top, right, bottom] inside the oriented image")
             image = image.crop(region)
-        image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+        if capture:
+            if max(image.size) > max_side:
+                raise ValueError("The owner capture needs native-pixel tiles; it cannot be shrunk.")
+        else:
+            image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         image.save(buf, format="PNG")
     data = buf.getvalue()
@@ -154,7 +166,7 @@ def _sheets(result: dict, name: str) -> list[dict]:
             records.append({"path": rec["sheet"], "view": f"{rec.get('ref', '')} crop {i + 1}"})
     unique = {}
     for rec in records:
-        unique.setdefault(str(rec["path"]), rec)
+        unique.setdefault((str(rec["path"]), tuple(rec.get("region") or ())), rec)
     return list(unique.values())
 
 
@@ -171,6 +183,9 @@ def _output(scene, call_id, name, result):
         if name == "read_image":
             if Path(meta["source_path"]).parts[0] in {"images", "reference_images"}:
                 record.update(context_role="reference", checkpoint="source", revision=f"source:{meta['source_sha256'][:12]}")
+            elif Path(meta["source_path"]).parts[:2] == ("inputs", "owner_captures"):
+                record.update(context_role="owner_capture", kind="owner_capture", checkpoint="source",
+                              revision=f"source:{meta['source_sha256'][:12]}")
             else:
                 prior_images = [panel for item in scene.images for panel in [item, *item.get("panels", [])]]
                 previous = next((item for item in reversed(prior_images)
@@ -205,8 +220,13 @@ def _output(scene, call_id, name, result):
         emitted = {}
     emitted = dict(emitted)
     for record in records:
-        meta, url = _image(scene.root, record["path"], trusted_output=True,
-                           max_side=record.get("max_side_px", MAX_IMAGE_SIDE))
+        if record.get("context_role") == "owner_capture":
+            # These are already validated native crops. Reopening as ordinary tool images would drop alpha.
+            data = arview.confined(scene.root, record["path"]).read_bytes()
+            url = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+        else:
+            meta, url = _image(scene.root, record["path"], trusted_output=True,
+                               max_side=record.get("max_side_px", MAX_IMAGE_SIDE))
         label = (f"Image: call {call_id}; checkpoint {record['checkpoint']}; "
                  f"revision {record.get('revision') or record['checkpoint']}; view {record['view']}; "
                  f"sha256 {record['sha256'][:12]}.")
@@ -633,7 +653,9 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("read_image")
     async def read_image(ctx: ToolContext, path: str, region: list[int] | None = None):
-        """Read an oriented image or crop, at most 1024 pixels on either side. Look comparisons and finish return
+        """Read an image or crop. Ordinary images use at most 1024 pixels on either side.
+        Owner capture PNGs are tiled at native pixels without shrinking and labelled as model evidence.
+        Look comparisons and finish return
         full pairs and automatic details combined per photo without shrinking; other renders use compact sheets
         with native panels at reported paths.
         Crop a native panel to inspect small details. Identical images
@@ -641,11 +663,26 @@ def build_tools(scene, settings=None) -> list:
 
         Args:
             path: Job-relative image path inside images, reference_images or work, or cameras/basis-*/overlay_*.png
-                and cameras/basis-*/overlays_sheet.png camera-fit diagnostics.
-            region: Optional [left, top, right, bottom] crop in oriented-image pixels.
+                and cameras/basis-*/overlays_sheet.png camera-fit diagnostics; also
+                inputs/owner_captures/C<n>/viewer.png or annotated.png (owner marks, not product photos).
+            region: Optional [left, top, right, bottom] crop. Owner captures use raw PNG pixels;
+                other images use EXIF-oriented pixels.
         """
-        return await call(ctx, "read_image", lambda cid: {"status": "ok", "images": [
-            {"path": str(_read_image_path(scene.root, path)), "region": region, "view": path}]})
+        def read_current(cid):
+            source = _read_image_path(scene.root, path)
+            if source.relative_to(Path(scene.root).resolve()).parts[:2] == ("inputs", "owner_captures"):
+                with Image.open(source) as image:
+                    width, height = image.size
+                box = region if region is not None else [0, 0, width, height]
+                if (len(box) != 4 or any(type(n) is not int for n in box)
+                        or not 0 <= box[0] < box[2] <= width or not 0 <= box[1] < box[3] <= height):
+                    raise ValueError("region is [left, top, right, bottom] inside the capture")
+                images = [{"path": str(source), "region": [x, y, min(x + 1600, box[2]), min(y + 1600, box[3])],
+                           "view": "Owner capture, not a product photo: " + path, "native_pixels": True}
+                          for y in range(box[1], box[3], 1600) for x in range(box[0], box[2], 1600)]
+                return {"status": "ok", "image_delivery": "separate", "images": images}
+            return {"status": "ok", "images": [{"path": str(source), "region": region, "view": path}]}
+        return await call(ctx, "read_image", read_current)
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):

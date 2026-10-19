@@ -84,6 +84,9 @@ def load(root):
     for name, digest in doc["immutable_files"].items():
         if sha(confined(root, name)) != digest:
             raise ValueError(f"owner edit input changed: {name}")
+    if "owner_capture_items" in doc:
+        from .owner_captures import load_round_captures
+        load_round_captures(root, doc)
     coverage_path = confined(root, "inputs/edit-capabilities.json")
     if coverage_path.is_file():
         coverage = read(coverage_path)
@@ -141,6 +144,14 @@ def brief_suffix(doc):
     text += "\n\nEdit phase: " + doc["phase"]
     text += ("\nThe owner's explicit requested feature target outranks photo readings and earlier choices. "
              "All physical hard checks remain. Keep unrequested geometry unchanged and report adjacent effects.")
+    if doc.get("owner_capture_items"):
+        text += ("\n\nOwner capture items, in the owner's order (words preserved verbatim):\n"
+                 + json.dumps(doc["owner_capture_items"], ensure_ascii=False)
+                 + "\nThese are the owner's marks on pictures of the current model, not product photos. "
+                 "Read every item during UNDERSTAND; no operation or capability was guessed at intake. "
+                 "Keep each item_id in its interpretation and preserve this order. Marks locate the request; "
+                 "authenticate model-map targets before proposing any change. Background or unresolved marks "
+                 "grant no edit authority. The owner's product photos still decide the look.")
     if doc.get("capability_mapping"):
         text += ("\n\nHost's $0 declared capability mapping (not owner wording or semantic certification):\n"
                  + json.dumps(doc["capability_mapping"], ensure_ascii=False)

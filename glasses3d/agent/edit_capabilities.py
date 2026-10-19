@@ -73,7 +73,7 @@ def catalog():
     kinds = sorted(owner_mesh.OPERATION_KINDS)
     paths = [*package.glob("g3d/owner_*.py"), package / "agent/owner_edits.py", package / "agent/edits.py",
              package / "agent/tools/owner_edit.py", package / "agent/tools/owner_preview.py", package / "agent/owner_apply.py",
-             Path(__file__).resolve()]
+             package / "agent/owner_captures.py", Path(__file__).resolve()]
     implementation = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in sorted(set(paths))}
     body = {"operation_kinds": kinds, "implementation_sha256": implementation}
@@ -191,6 +191,41 @@ def require_round(root, owner_edit=None):
     doc = owner_edit if owner_edit is not None else edits.load(root)
     if doc is None:
         return None
+    if doc.get("owner_capture_items"):
+        from .owner_captures import load_round_captures
+        captures = load_round_captures(root, doc)
+        if doc["phase"] == "understand":
+            return {"schema": "g3d.owner_capture_admission/1", "status": "unresolved",
+                    "item_ids": [row["item_id"] for row in captures], "mutation_authority": False}
+        # Capture intake has no fabricated operation mapping. Confirmed EDIT is
+        # still checked against the complete, sealed executable understanding.
+        understanding = doc["understanding"]
+        edits.require_executable(understanding)
+        if edits.blocked_items(understanding):
+            raise ValueError("every requested item must be executable before a paid edit; understanding still has blocked items")
+        understood = understanding.get("items", [])
+        if ([item.get("item_id") for item in understood] != [row["item_id"] for row in captures]
+                or [item.get("number") for item in understood] != list(range(1, len(captures) + 1))):
+            raise ValueError("confirmed understanding must retain every capture item in its original order")
+        operations = doc.get("selected_operations", understanding.get("operations", []))
+        selected_by_id = {op.get("id"): op for op in operations}
+        if not operations or None in selected_by_id or len(selected_by_id) != len(operations):
+            raise ValueError("confirmed operations need distinct identities")
+        accounted = set()
+        for item in understood:
+            proposed = json.loads(item["operation_json"])
+            group = proposed if isinstance(proposed, list) else [proposed]
+            ids = [op.get("id") for op in group]
+            if (not ids or len(set(ids)) != len(ids) or accounted.intersection(ids)
+                    or any(identity not in selected_by_id for identity in ids)):
+                raise ValueError("each capture item needs its own distinct confirmed operations")
+            if any(selected_by_id[op["id"]].get("kind") != op.get("kind") for op in group):
+                raise ValueError("selected operation kinds differ from the confirmed capture item")
+            accounted.update(ids)
+        if accounted != set(selected_by_id) or {op.get("kind") for op in operations} - set(catalog()["operation_kinds"]):
+            raise ValueError("confirmed capture operations are unavailable or include an unrequested item")
+        return {"schema": "g3d.owner_capture_admission/1", "status": "confirmed",
+                "item_ids": [row["item_id"] for row in captures], "mutation_authority": True}
     path = edits.confined(root, RELATIVE_PATH)
     if not path.is_file():
         raise ValueError("edit capability dry run is missing; run job edit-check before estimate, approval or paid UNDERSTAND/EDIT")

@@ -63,6 +63,50 @@ def _snapshot(root, manifest):
     return _read(_bound(root, manifest["snapshot"]["path"], manifest["snapshot"]["sha256"]))
 
 
+def resolve_owner_marks(root, snapshot, targets):
+    """Resolve the round's immutable capture bundles against this actual mesh snapshot."""
+    from ..owner_captures import load_round_captures
+    captures = load_round_captures(root)
+    resolutions, assets, correspondence = [], {}, {}
+    for record in captures:
+        source = Path(record["source_glb"])
+        source_sha = record["payload"]["source"]["glb_sha256"]
+        if source_sha not in correspondence:
+            correspondence[source_sha] = G.capture_correspondence(snapshot, source)
+        for mark in G.resolve_capture_marks(snapshot, source, record["payload"], targets,
+                                            correspondence=correspondence[source_sha]):
+            resolutions.append({**mark, "item_id": record["item_id"], "source_glb_sha256": source_sha,
+                                "metadata_sha256": record["metadata_sha256"]})
+        for path in (source, Path(record["capture_dir"])/"capture.json", record["viewer_path"], record["annotated_path"]):
+            relative = _relative(root, path)
+            assets[relative] = {"path": relative, "sha256": arview.sha256(path)}
+    return resolutions, list(assets.values())
+
+
+def _owner_selection(manifest, owner_labels, focus, kind):
+    marks = manifest.get("owner_mark_resolutions", [])
+    if owner_labels is None:
+        return marks, focus
+    if (not isinstance(owner_labels, list) or not owner_labels or
+            any(not isinstance(label, str) for label in owner_labels) or len(set(owner_labels)) != len(owner_labels)):
+        raise ValueError("owner_labels must contain distinct owner mark labels")
+    known = {mark["label"] for mark in marks}
+    if set(owner_labels) - known:
+        raise ValueError("Unknown owner mark label: " + ", ".join(sorted(set(owner_labels)-known)))
+    marks = [mark for mark in marks if mark["label"] in owner_labels]
+    candidates = {key for mark in marks for group in ("candidate_target_ids", "behind_candidate_target_ids")
+                  for key in mark[group].get(kind, [])}
+    if focus:
+        # Match the ordinary focus semantics without cutting off later pages.
+        bases = [target(manifest, key) for key in focus]
+        candidates = {key for key in candidates if any(key == base["id"] or
+            (manifest["targets"][key]["kind"] != base["kind"] and
+             manifest["targets"][key]["object_id"] == base["object_id"] and
+             (base["kind"] == "object" or set(base["vertex_ids"]).intersection(manifest["targets"][key]["vertex_ids"])))
+            for base in bases)}
+    return marks, sorted(candidates)
+
+
 def _scope(root, manifest, value):
     snapshot=_snapshot(root,manifest)
     fixed=set(value.get("fixed_vertex_ids",[]))
@@ -237,7 +281,7 @@ def _edge_samples(obj, value, points, projected, sample_page):
 
 
 def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes, directory, page,
-              display_labels=None, descriptions=None, *, sample_page=0):
+              display_labels=None, descriptions=None, *, sample_page=0, owner_marks=None):
     display_labels = {} if display_labels is None else display_labels
     descriptions = {} if descriptions is None else descriptions
     camera = row["camera"]
@@ -302,7 +346,8 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     label_cell_w, label_cell_h = 110, 38
     columns = max(1, camera["width"] // label_cell_w)
     rows_count = max(1, (camera["height"] - 8) // label_cell_h)
-    page_size = min(24, columns * rows_count)
+    owner_label_slots = min(len(owner_marks or []), max(0, columns * rows_count-1))
+    page_size = min(24, columns * rows_count-owner_label_slots)
     shown = available[page * page_size:(page + 1) * page_size]
     def visible_mask(value, pixels):
         if pixels is None:
@@ -319,6 +364,38 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     draw = ImageDraw.Draw(overlay)
     labels, shown_ids, drawn_scopes, normal_masks, target_legend, occupied = [], [], [], [], [], set()
     label_draws = []
+    owner_overlays, owner_masks, owner_legend, owner_boxes = [], [], [], []
+    for index, mark in enumerate(owner_marks or []):
+        mask = np.zeros(hits.shape, bool)
+        for region in mark["resolved_polygons"] + mark["behind_polygons"]:
+            mask |= (hit_obj == region["object_id"]) & np.isin(hit_poly, region["polygon_ids"])
+        pixels = int(mask.sum())
+        map_label = f"M{index+1}"
+        owner_overlays.append({"label": mark["label"], "map_label": map_label, "capture_id": mark["capture_id"],
+                               "status": mark["status"], "visible_pixels": pixels})
+        owner_legend.append({"label": map_label + " (owner mark " + mark["label"] + ")",
+            "description": f"{mark['capture_id']}: {mark['status']}; {pixels} visible pixels on corresponding source polygons. Evidence only, not edit support."})
+        if not pixels:
+            continue
+        owner_masks.append(mask)
+        color = [(128, 35, 160), (190, 40, 60), (0, 110, 110)][index % 3]
+        tint = np.zeros((*mask.shape, 4), np.uint8)
+        tint[mask] = (*color, 55)
+        tint[binary_dilation(mask, iterations=2) & ~mask] = (*color, 255)
+        overlay.alpha_composite(Image.fromarray(tint))
+        yy, xx = np.where(mask)
+        j = np.argmin((xx-np.mean(xx))**2 + (yy-np.mean(yy))**2)
+        x, y = int(xx[j]), int(yy[j])
+        label = map_label
+        width = draw.textbbox((0, 0), label, font=_font(28))[2]
+        slots = [(col, r) for col in range(columns) for r in range(rows_count) if (col, r) not in occupied]
+        if slots and len(occupied) < owner_label_slots:
+            col, r = min(slots, key=lambda s: (4+s[0]*label_cell_w-x)**2+(4+s[1]*label_cell_h-y)**2)
+            occupied.add((col, r))
+            lx, ly = 4+col*label_cell_w, 4+r*label_cell_h
+            box = draw.textbbox((lx, ly), label, font=_font(28))
+            label_draws.append((x, y, lx, ly, width, box, label, color))
+            owner_boxes.append([max(0, box[0]-3), max(0, box[1]-2), min(camera["width"], box[2]+3), min(camera["height"], box[3]+2)])
     for index, (_, value, mask) in enumerate(shown):
         color = [(0, 114, 178), (213, 94, 0), (0, 158, 115), (204, 121, 167), (230, 159, 0)][index % 5]
         obj = objects[value["object_id"]]
@@ -382,17 +459,17 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
               else "numbered actual-mesh targets")
     ImageDraw.Draw(full).text((12,10), f"{row['ref']} | PHOTO | MODEL — {legend}", font=_font(), fill="black")
     full = L.append_legend(full, target_legend, _font(22))
+    full = L.append_legend(full, owner_legend, _font(22))
     pair = directory / (row["ref"] + "-full.png")
     full.save(pair)
     # Native crop tiles, not resized substitutes. Full native pairs remain separately available.
     images = []
-    if shown:
-        union = np.logical_or.reduce([entry[2] for entry in shown] + normal_masks)
+    if shown or owner_masks:
+        union = np.logical_or.reduce([entry[2] for entry in shown] + normal_masks + owner_masks)
         yy, xx = np.where(union)
         box = [max(0,int(xx.min())-35), max(0,int(yy.min())-35), min(photo.width,int(xx.max())+36), min(photo.height,int(yy.max())+36)]
         tiles=list(look_panels._tiles(box, side=500))
-        for label in labels:
-            a,b,c,d=label["label_box"]
+        for a,b,c,d in [label["label_box"] for label in labels] + owner_boxes:
             if not any(t[0]<=a and t[1]<=b and t[2]>=c and t[3]>=d for t in tiles):
                 x0=max(0,min(photo.width-500,(a+c)//2-250))
                 y0=max(0,min(photo.height-500,(b+d)//2-250))
@@ -405,10 +482,12 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
                 f"{row['ref']} | native tile {i+1}", ["PHOTO", "MODEL map"], font=_font(15))
             for item in native:
                 item.update(ref=row["ref"], kind="model_map_detail",
-                            view=f"{row['ref']} map native tile {i+1}: {','.join(r['label'] for r in target_legend)}")
+                            view=f"{row['ref']} map native tile {i+1}: {','.join(r['label'] for r in target_legend + owner_legend)}")
             images.extend(native)
-        for i in range(0,len(target_legend),4):
-            entries = target_legend[i:i+4]
+    if shown or owner_marks:
+        combined_legend = target_legend + owner_legend
+        for i in range(0,len(combined_legend),4):
+            entries = combined_legend[i:i+4]
             legend_image = L.append_legend(Image.new("RGB",(1000,1),"white"),entries,_font(24))
             path = directory / f"{row['ref']}-legend-{i:03d}.png"
             legend_image.save(path)
@@ -419,6 +498,7 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
     return {"ref": row["ref"], "full_pair": str(pair), "full_pair_sha256": arview.sha256(pair),
             "labels": labels, "annotated_target_ids": shown_ids, "support_scopes": drawn_scopes,
             "legend": legend,"target_legend":target_legend,
+            "owner_mark_overlays": owner_overlays,
             "visible_target_count": len(available), "page": page,"page_size":page_size,
             "pages": (len(available)+page_size-1)//page_size,
             "sample_page": sample_page, "edge_samples_per_page": EDGE_SAMPLES_PER_PAGE,
@@ -429,7 +509,7 @@ def _annotate(row, snapshot, selected, geometry, source_obj, source_poly, scopes
 
 def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=None,
             support_scopes=None, page=0, timeout_s=LOOK_CAPTURE_DEADLINE_S, label_descriptions=None,
-            target_page=0, sample_page=0):
+            target_page=0, sample_page=0, owner_labels=None):
     root = Path(scene.root).resolve()
     if type(page) is not int or page < 0:
         raise ValueError("page must be a nonnegative integer")
@@ -454,14 +534,17 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
         if snapshot["fingerprint"] != export["fingerprint"]:
             raise ValueError("The current export and actual mesh snapshot differ")
         cat = G.catalogue(snapshot)
+        owner_marks, owner_assets = resolve_owner_marks(root, snapshot, cat["targets"])
         assets = [{"path": _relative(root,snap["path"]), "sha256": snap["sha256"]},
                   {"path": _relative(root,export["path"]), "sha256": export["sha256"]},
                   {"path": _relative(root,bs.dir/"basis.json"), "sha256": arview.sha256(bs.dir/"basis.json")},
                   {"path": _relative(root,bs.dir/"cameras.json"), "sha256": arview.sha256(bs.dir/"cameras.json")}]
         assets += [{"path": _relative(root,bs.photo_path(rid)), "sha256": bs.refs[rid]["photo_sha256"]} for rid in bs.refs]
+        assets += owner_assets
         manifest = {"schema": SCHEMA, "map_id": map_id,
                     "source": {"fingerprint": export["fingerprint"], "export_sha256": export["sha256"], "checkpoint": export["checkpoint"]},
-                    "basis": bs.id, "snapshot": assets[0], "assets": assets, **cat}
+                    "basis": bs.id, "snapshot": assets[0], "assets": assets,
+                    "owner_mark_resolutions": owner_marks, **cat}
         (directory/"map.json").write_text(json.dumps(manifest,separators=(",",":"),allow_nan=False),encoding="utf-8")
     else:
         manifest = load_map(root,map_id)
@@ -476,7 +559,12 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     descriptions = L.validate_descriptions(label_descriptions, manifest["targets"], display_labels)
     if focus:
         focus = [L.resolve(key, manifest["targets"], display_labels) for key in focus]
+    owner_marks, focus = _owner_selection(manifest, owner_labels, focus, kind)
     selected, target_paging = _select(manifest,focus,kind,target_page=target_page,with_paging=True)
+    if owner_labels is not None and not focus:
+        # An unresolved/background-only mark must never fall back to every target.
+        selected = []
+        target_paging.update(target_count=0, target_pages=0, candidate_target_ids=[])
     scopes = None
     if support_scopes:
         scopes = [_scope(root,manifest,s) for s in support_scopes]
@@ -488,7 +576,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     if len(selected) > TARGETS_PER_PAGE:
         raise ValueError('map support exceeds 256 candidates; focus its exact targets or split support captures')
     target_paging['candidate_target_ids'] = [value['id'] for value in selected]
-    capture_id = "v-" + G.digest([call_id,kind,focus,page,target_page,sample_page,support_scopes])[:20]
+    capture_id = "v-" + G.digest([call_id,kind,focus,page,target_page,sample_page,support_scopes,owner_labels])[:20]
     output = directory/"captures"/capture_id
     output.mkdir(parents=True,exist_ok=False)
     wanted = bs.usable_refs() if photos is None else [C.ref_id(name) for name in photos]
@@ -508,7 +596,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
     geometry = look_panels.load_geometry(export["path"])
     source_obj,source_poly,mapping = G.export_correspondence(snapshot,geometry)
     views = [_annotate(row,snapshot,selected,geometry,source_obj,source_poly,scopes,output,page,
-                      display_labels,descriptions,sample_page=sample_page) for row in rows]
+                      display_labels,descriptions,sample_page=sample_page,owner_marks=owner_marks) for row in rows]
     procs.write_json_atomic(labels_path, display_labels)
     shown = sorted({key for row in views for key in row["annotated_target_ids"]})
     drawn = {G.digest(s):s for row in views for s in row["support_scopes"]}
@@ -524,6 +612,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
                "source":manifest["source"],"annotated_target_ids":shown,"support_scopes":list(drawn.values()),
                "views":views,"images":images,"assets":assets,"export_correspondence":mapping,"target_legend":target_legend,
                "target_paging":target_paging,
+               "owner_mark_resolutions": owner_marks,
                "ar_report":_relative(root,report),"read_only":True}
     receipt_path = output/"capture.json"
     procs.write_json_atomic(receipt_path,receipt)
@@ -533,6 +622,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
             "summary":[f"{r['label']} = {r['description']}" for r in target_legend],"target_legend":target_legend,
             "target_details":details,"suggested_unit_scopes":suggested,
             "target_paging":target_paging,
+            "owner_mark_resolutions": owner_marks,
             "scope_refs":[{"sha256":key,"target_ids":scope["target_ids"],"weighted_vertices":len(scope["vertex_weights"]),
                            "affected_polygons":len(scope["affected_polygon_ids"]),
                            "normal_affected_polygons":len(scope["normal_affected_polygon_ids"])} for key,scope in drawn.items()],
@@ -543,6 +633,7 @@ def capture(scene, call_id, *, photos=None, focus=None, kind="faces", map_id=Non
                      "At most 256 candidates are tested per target_page; page selects visible labels within that batch. The full catalogue and exact focus remain available.",
                      "Each edge target tests at most 4096 ray samples per sample_page; edge_sample_pages gives the continuation count without dropping any chain samples.",
                      "Amber shows the separate normal-influence ring; its vertex positions remain fixed unless a movement weight also applies.",
+                     "Owner mark labels identify corresponding source polygons, including any first non-lens hit behind a lens. Background, hidden and unmatched portions remain explicit; marks are evidence, never edit authority. Candidate targets can extend beyond a mark.",
                      "Support dots show all influenced vertices, including occluded vertices; black dots are fixed. Face/edge labels use first-hit visibility."]}
 
 
@@ -553,7 +644,7 @@ def tool_for(scene, tool, call):
     async def labelled_model_map(ctx: ToolContext, photos: list[str] | None = None, focus: list[str] | None = None,
                                  kind: str = "faces", map_id: str | None = None, supports_json: str | None = None,
                                  page: int = 0, label_descriptions_json: str | None = None,
-                                 target_page: int = 0, sample_page: int = 0):
+                                 target_page: int = 0, sample_page: int = 0, owner_labels: list[str] | None = None):
         """Show numbered actual model parts/faces/edges/points beside the same full-size photo.
         Short labels O1/T1/E1/P1 identify parts/surfaces/borders/corners; a plain legend names each one.
         Start automatically, then focus displayed short labels or exact target IDs. Reuse map_id to keep labels.
@@ -582,10 +673,14 @@ def tool_for(scene, tool, call):
             label_descriptions_json: Optional JSON object mapping target IDs or known short labels to plain words
                 describing the feature and side. Supply before first showing that target; descriptions then stay
                 fixed for this map. Automatic descriptions use verified names and the part's role and side.
+            owner_labels: Owner capture labels to resolve, overlay and focus, e.g. ["A", "B"]. Null overlays
+                all owner marks without filtering targets. owner_mark_resolutions reports each anchor and footprint,
+                exact source polygons, unresolved/background portions and candidate targets by kind. Candidates may
+                extend beyond marks and do not authorize edits: draw exact supports_json and use delivered scope_refs.
         """
         supports = json.loads(supports_json) if supports_json else None
         return await call(ctx,"labelled_model_map",lambda cid:capture(scene,cid,photos=photos,focus=focus,
             kind=kind,map_id=map_id,support_scopes=supports,page=page,
             label_descriptions=json.loads(label_descriptions_json) if label_descriptions_json else None,
-            target_page=target_page,sample_page=sample_page))
+            target_page=target_page,sample_page=sample_page,owner_labels=owner_labels))
     return labelled_model_map
