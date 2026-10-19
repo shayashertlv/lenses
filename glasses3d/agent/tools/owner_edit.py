@@ -22,58 +22,17 @@ class Interpretation(BaseModel):
     number: int
     label: str
     interpretation: str
-    disposition: Literal["executable", "unsupported", "needs_clarification"]
+    disposition: Literal["executable", "previewed", "cannot_preview", "unsupported", "needs_clarification"]
     reason: str
     direction: str
     amount: str
     target_ids: list[str]
     operation_json: str
+    preview_receipt: str | None = None
 
 
-def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limitations, preview_receipt=None):
-    doc = edits.load(scene.root)
-    if not doc or doc["phase"] != "understand":
-        raise ValueError("understand_finish is only for an understand round")
-    if scene.s.fingerprint() != doc["source"]["fingerprint"]:
-        raise ValueError("understand cannot change the delivered model")
-    records = [Interpretation.model_validate(item).model_dump(exclude_none=True) for item in items]
-    if not records or [r["number"] for r in records] != list(range(1, len(records) + 1)):
-        raise ValueError("interpret each item separately with consecutive numbers starting at 1")
-    if doc.get("owner_capture_items") and [row.get("item_id") for row in records] != [
-            row["item_id"] for row in doc["owner_capture_items"]]:
-        raise ValueError("interpret every owner capture item once, with its original item_id and order")
-    operations = []
-    diagnostic_targets = set()
-    for item in records:
-        if any(not item[key].strip() for key in ("label", "interpretation")):
-            raise ValueError("each item needs its label and interpretation")
-        value = json.loads(item["operation_json"])
-        if item["disposition"] != "executable":
-            if value != [] or not item["reason"].strip():
-                raise ValueError("blocked items need operation_json=[] and an explanatory reason")
-            diagnostic_targets.update(item["target_ids"])
-            continue
-        if any(not item[key].strip() for key in ("direction", "amount")):
-            raise ValueError("executable items need direction and proposed amount")
-        group = value if isinstance(value, list) else [value]
-        if (not group or any(not isinstance(op, dict) for op in group) or not item["target_ids"] or
-                set(key for op in group for key in op["target_ids"]) != set(item["target_ids"])):
-            raise ValueError("interpretation and operation must name the same shown targets")
-        operations.extend(group)
-    if len({op["id"] for op in operations}) != len(operations):
-        raise ValueError("operation IDs must be unique")
-    if not capture_receipts:
-        raise ValueError("understanding requires at least one successfully delivered map capture")
-    evidence = model_map.validate_understanding(scene.root, map_id, map_sha256, capture_receipts, operations)
-    if not diagnostic_targets.issubset(evidence["annotated_target_ids"]):
-        raise ValueError("a diagnostic target was not shown in the delivered map")
-    operations = evidence.get("operations", operations)
-    if evidence["source"]["fingerprint"] != doc["source"]["fingerprint"]:
-        raise ValueError("the shown map is not of the selected delivered checkpoint")
-    snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
-    operations = owner_markings.seal(snapshot, operations) if operations else []
-    if operations and preview_receipt is None:
-        raise ValueError('every executable operation group requires a delivered two-or-three-amount preview before confirmation')
+def _nonzero_operations(snapshot, operations):
+    """Check each independent item against its source, or the legacy whole group."""
     if any(op['kind'] in owner_surface.OPERATION_KINDS for op in operations):
         original = before = owner_surface.signature(snapshot)
         for count in range(1, len(operations)+1):
@@ -94,11 +53,104 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
             before = after
         if all(np.array_equal(original[key].astype(np.float32), after[key].astype(np.float32)) for key in requested_objects):
             raise ValueError("executable operation group leaves the source unchanged; do not invent no-op placeholders")
+
+
+def _preview_binding(preview, *, per_item=False):
+    keys = ('preview_receipt', 'preview_sha256', 'call_id')
+    option_keys = ('id', 'label', 'scale', 'operations')
+    if per_item:
+        keys += ('item_id', 'preview_delivery', 'preview_delivery_sha256')
+        option_keys += ('item_id', 'amount_text')
+    return {**{key: preview[key] for key in keys},
+            'options': [{key: option[key] for key in option_keys} for option in preview['options']]}
+
+
+def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limitations, preview_receipt=None):
+    doc = edits.load(scene.root)
+    if not doc or doc["phase"] != "understand":
+        raise ValueError("understand_finish is only for an understand round")
+    if scene.s.fingerprint() != doc["source"]["fingerprint"]:
+        raise ValueError("understand cannot change the delivered model")
+    records = [Interpretation.model_validate(item).model_dump(exclude_none=True) for item in items]
+    if not records or [r["number"] for r in records] != list(range(1, len(records) + 1)):
+        raise ValueError("interpret each item separately with consecutive numbers starting at 1")
+    per_item = bool(doc.get("owner_capture_items"))
+    if per_item and [row.get("item_id") for row in records] != [
+            row["item_id"] for row in doc["owner_capture_items"]]:
+        raise ValueError("interpret every owner capture item once, with its original item_id and order")
+    if per_item and preview_receipt is not None:
+        raise ValueError('capture understanding needs a separate preview_receipt on each previewed item')
+    operations = []
+    operation_counts = []
+    diagnostic_targets = set()
+    for item in records:
+        if any(not item[key].strip() for key in ("label", "interpretation")):
+            raise ValueError("each item needs its label and interpretation")
+        value = json.loads(item["operation_json"])
+        if per_item and item['disposition'] == 'executable':
+            raise ValueError('capture items use previewed with their own receipt, or a blocked disposition with a reason')
+        if not per_item and (item['disposition'] == 'previewed' or item.get('preview_receipt') is not None):
+            raise ValueError('CLI text edits use executable and the whole-group preview_receipt')
+        if item["disposition"] not in {"executable", "previewed"}:
+            if value != [] or not item["reason"].strip():
+                raise ValueError("blocked items need operation_json=[] and an explanatory reason")
+            if item.get('preview_receipt') is not None:
+                raise ValueError('blocked items cannot bind selectable previews')
+            diagnostic_targets.update(item["target_ids"])
+            operation_counts.append(0)
+            continue
+        if any(not item[key].strip() for key in ("direction", "amount")):
+            raise ValueError("executable items need direction and proposed amount")
+        group = value if isinstance(value, list) else [value]
+        if (not group or any(not isinstance(op, dict) for op in group) or not item["target_ids"] or
+                set(key for op in group for key in op["target_ids"]) != set(item["target_ids"])):
+            raise ValueError("interpretation and operation must name the same shown targets")
+        operations.extend(group)
+        operation_counts.append(len(group))
+    if len({op["id"] for op in operations}) != len(operations):
+        raise ValueError("operation IDs must be unique")
+    if not capture_receipts:
+        raise ValueError("understanding requires at least one successfully delivered map capture")
+    evidence = model_map.validate_understanding(scene.root, map_id, map_sha256, capture_receipts, operations)
+    if not diagnostic_targets.issubset(evidence["annotated_target_ids"]):
+        raise ValueError("a diagnostic target was not shown in the delivered map")
+    operations = evidence.get("operations", operations)
+    if evidence["source"]["fingerprint"] != doc["source"]["fingerprint"]:
+        raise ValueError("the shown map is not of the selected delivered checkpoint")
+    snapshot = json.loads(Path(evidence['snapshot_path']).read_text(encoding='utf-8'))
+    groups = []
+    offset = 0
+    for count in operation_counts:
+        group = operations[offset:offset + count]
+        groups.append(owner_markings.seal(snapshot, group) if per_item and group else group)
+        offset += count
+    operations = ([op for group in groups for op in group] if per_item else
+                  owner_markings.seal(snapshot, operations) if operations else [])
+    if operations and not per_item and preview_receipt is None:
+        raise ValueError('every executable operation group requires a delivered two-or-three-amount preview before confirmation')
+    for group in groups if per_item else [operations]:
+        _nonzero_operations(snapshot, group)
     following_markings = owner_markings.summary(operations)
     files = {row["path"]: row["sha256"] for row in evidence["evidence_files"]}
     files[evidence["map_path"]] = evidence["map_sha256"]
     preview = None
     images = list(evidence["images"])
+    if per_item:
+        for item, group in zip(records, groups):
+            if not group:
+                continue
+            if not item.get('preview_receipt'):
+                raise ValueError('each previewed item requires its own delivered two-or-three-amount preview')
+            item_preview = owner_preview.load_verified(scene, item['preview_receipt'])
+            if (item_preview.get('item_id') != item['item_id'] or item_preview['map_id'] != map_id or
+                    item_preview['map_sha256'] != map_sha256 or
+                    item_preview['capture_receipts'] != capture_receipts or item_preview['base_operations'] != group):
+                raise ValueError('item preview must show that exact item and its operations on this delivered map')
+            files.update(item_preview['evidence_files'])
+            files[item_preview['preview_receipt']] = item_preview['preview_sha256']
+            files[item_preview['preview_delivery']] = item_preview['preview_delivery_sha256']
+            item['amount_preview'] = _preview_binding(item_preview, per_item=True)
+            images += item_preview['images']
     if preview_receipt is not None:
         if not operations:
             raise ValueError("diagnostic-only understanding cannot bind an amount preview")
@@ -120,16 +172,18 @@ def understand(scene, call_id, map_id, map_sha256, capture_receipts, items, limi
                 "capture_receipts": capture_receipts, "geometry_changed": False}
     artifact["scripted"] = bool(getattr(scene, "scripted", False))
     if preview is not None:
-        artifact["amount_preview"] = {key: preview[key] for key in
-            ("preview_receipt", "preview_sha256", "call_id")}
-        artifact["amount_preview"]["options"] = [{key: option[key] for key in
-            ("id", "label", "scale", "operations")} for option in preview["options"]]
+        artifact["amount_preview"] = _preview_binding(preview)
     procs.write_json_atomic(path, artifact)
     if getattr(scene, "_review_log", None) is None:
         procs.write_json_atomic(path.with_name("understanding-usage.json"), {
             "schema": "g3d.owner_understanding_usage/1", "requests": 0, "settled_usd": "0.000000",
             "settled_micro_usd": 0, "mode": "local_tool_calls"})
-    if any(item['disposition'] != 'executable' for item in records):
+    if per_item:
+        next_step = ("STOP: the owner can choose one shown option per previewed item or skip it with a note. "
+                     "Apply my picks composes those sealed operations locally at $0 in item order, with all hard checks. "
+                     "Blocked items remain valid diagnostic results with no edit authority; each can use its separately "
+                     "approved full-edit fallback. Never choose an amount or spend for the owner.")
+    elif any(item['disposition'] != 'executable' for item in records):
         next_step = ("STOP: preserve this diagnostic evidence; resolve every blocked item in a new understanding "
                      "before a paid EDIT round. No blocked item grants edit authority.")
     else:
@@ -253,13 +307,21 @@ def tools_for(scene, tool, call):
         including translate, rotate and taper, requires two or three delivered amount previews. After preview_owner_edit,
         pass its preview_receipt unchanged: the host attaches its shown options, images and exact amounts;
         the owner selects an option at confirmation. Do not choose for the owner.
-        Each item needs disposition executable, unsupported or needs_clarification, plus reason (empty is allowed
-        only for executable items). Blocked items require operation_json="[]"; direction and amount may be empty.
+        In a capture round, keep every original item_id in original order. Each item has disposition previewed,
+        cannot_preview, needs_clarification or unsupported. Preview that item's operations separately with its
+        item_id and readable amount_text on every option. A previewed item supplies its own preview_receipt;
+        the top-level preview_receipt must be null. The host seals two or three delivered options for that item.
+        Mixed previewed and blocked items remain valid; the owner can pick or skip each item independently and
+        Apply my picks composes chosen operations at $0 in item order, reporting overlaps and retaining all checks.
+        A blocked item may use a separately approved full paid edit; it grants no operation authority here.
+        CLI text edits keep disposition executable and the single top-level whole-group preview_receipt.
+        Each item also needs reason (empty is allowed only for executable or previewed items).
+        Blocked items require operation_json="[]"; direction and amount may be empty, with preview_receipt null.
         Their optional target_ids are diagnostic labels from the delivered map, never permission to edit.
-        Executable items require direction, amount, nonempty target_ids and actual nonzero operations on drawn
+        Executable and previewed items require direction, amount, nonempty target_ids and actual nonzero operations on drawn
         support; never invent a no-op for a blocked request. All-blocked items finish as diagnostic_only: no edit
-        or amount-preview authority. Mixed results retain diagnostic evidence, but every blocked item must be
-        resolved in a new understanding before a paid EDIT round. This accepts understanding
+        or amount-preview authority. CLI mixed results retain diagnostic evidence, but every blocked item must be
+        resolved in a new understanding before a legacy paid EDIT round. This accepts understanding
         only, not a product finish or paid edit.
 
         Each operation_json is one object or a list for mirrored changes: id, kind, target_ids,

@@ -210,7 +210,7 @@ def test_amount_choice_teaching_uses_delivered_preview_and_explicit_owner_select
     # The live schema must support the values the prompt asks Astra to pass, rather than advertising a future tool.
     names = {tool.name: tool for tool in registered}
     assert set(names["preview_owner_edit"].params_json_schema["properties"]) == {
-        "map_id", "map_sha256", "capture_receipts", "operations_json", "options", "refs"}
+        "map_id", "map_sha256", "capture_receipts", "operations_json", "options", "refs", "item_id"}
     assert "preview_receipt" in names["understand_finish"].params_json_schema["properties"]
 
 
@@ -226,7 +226,8 @@ def test_owner_diagnostic_contract_requires_disposition_and_teaches_no_authority
     tool = next(tool for tool in registered if tool.name == "understand_finish")
     schema = tool.params_json_schema["$defs"]["Interpretation"]
     assert {"disposition", "reason"}.issubset(schema["required"])
-    assert schema["properties"]["disposition"]["enum"] == ["executable", "unsupported", "needs_clarification"]
+    assert schema["properties"]["disposition"]["enum"] == [
+        "executable", "previewed", "cannot_preview", "unsupported", "needs_clarification"]
     assert "diagnostic_only" in tool.description and "never invent a no-op" in tool.description
 
 

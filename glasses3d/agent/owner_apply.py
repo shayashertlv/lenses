@@ -118,3 +118,309 @@ def apply_preview(edit_root, confirmation_text, option_id, *, destination=None, 
         return {**report, "report": str(path), "review_page": str(page), "delivery": published}
     finally:
         scene.close()
+
+
+def verify_choice_exactness(source_snapshot, selected, current_snapshot, exported_sha256):
+    """Compare composed picks with their sealed native snapshots, without tolerances.
+
+    Positions are the worker's stored float32 local coordinates (and their world
+    representation); normals, UV rows and material data are compared exactly.
+    Derived position/topology hashes and evaluated summaries are not geometry.
+    A topology or scalar/material change conservatively touches its whole object.
+    Overlap is reported, never called preview equality: the caller must separately
+    verify each ordered operation and the final scope/physical/export checks.
+    """
+    from ..g3d import owner_mesh
+
+    if not isinstance(selected, list) or not selected:
+        raise ValueError("Choose at least one sealed option to compare with its preview.")
+    source = owner_mesh.objects(source_snapshot)
+    current = owner_mesh.objects(current_snapshot)
+    if set(source) != set(current) or source_snapshot.get("origin_mm") != current_snapshot.get("origin_mm"):
+        raise ValueError("Applied picks changed the source objects or bridge origin.")
+    previews = [owner_mesh.objects(row["snapshot"]) for row in selected]
+    if any(set(objects) != set(source) for objects in previews):
+        raise ValueError("A selected preview has different source object identities.")
+    if len(selected) == 1:
+        pick = selected[0]
+        preview_fp = pick["export"].get("fingerprint")
+        if (not preview_fp or pick["snapshot"].get("fingerprint") != preview_fp
+                or current_snapshot.get("fingerprint") != preview_fp or
+                exported_sha256 != pick["export"].get("sha256")):
+            raise ValueError("Applied export bytes or scene fingerprint differ from the selected preview.")
+
+    ignored = {"positions_sha256", "topology_sha256", "evaluated", "normal_intent",
+               "material_sha256", "other_attributes_sha256"}
+    whole = ("whole_object",)
+
+    def atoms(obj):
+        """Each key identifies a stored value and its independently comparable region."""
+        result = {}
+        for key, value in obj.items():
+            if key in ignored:
+                continue
+            if key in ("vertices_local", "vertices_world_mm", "corner_normals", "polygon_smooth", "polygon_material"):
+                kind = ("vertex" if key.startswith("vertices_") else
+                        "normal" if key == "corner_normals" else "polygon")
+                if isinstance(value, list):
+                    result[(key, "length")] = (whole, len(value))
+                    result.update({(key, index): ((kind, index), row) for index, row in enumerate(value)})
+                    continue
+            if key == "uv_layers" and isinstance(value, list):
+                result[(key, "layers")] = (whole, [{k: v for k, v in layer.items() if k != "uv"}
+                                                    for layer in value])
+                for layer_index, layer in enumerate(value):
+                    rows = layer.get("uv", [])
+                    result[(key, layer_index, "length")] = (whole, len(rows))
+                    result.update({(key, layer_index, index): (("uv", layer_index, index), row)
+                                   for index, row in enumerate(rows)})
+                continue
+            if key in ("normal_attributes", "attributes") and isinstance(value, list):
+                result[(key, "layers")] = (whole, [{k: v for k, v in layer.items() if k != "values"}
+                                                    for layer in value])
+                for layer_index, layer in enumerate(value):
+                    rows = layer.get("values")
+                    if not isinstance(rows, list):
+                        result[(key, layer_index)] = (whole, rows)
+                        continue
+                    domain = {"CORNER": "normal", "POINT": "vertex", "FACE": "polygon", "EDGE": "edge"}.get(layer.get("domain"))
+                    result[(key, layer_index, "length")] = (whole, len(rows))
+                    result.update({(key, layer_index, index): ((domain, index) if domain else whole, row)
+                                   for index, row in enumerate(rows)})
+                continue
+            result[(key,)] = (whole, value)
+        return result
+
+    base_atoms = {oid: atoms(obj) for oid, obj in source.items()}
+    preview_atoms = [{oid: atoms(obj) for oid, obj in objects.items()} for objects in previews]
+    footprints = []
+    missing = object()
+    for pick, expected in zip(selected, preview_atoms):
+        touched = {}
+        for oid in source:
+            a, b = base_atoms[oid], expected[oid]
+            for key in set(a) | set(b):
+                left, right = a.get(key), b.get(key)
+                if left != right:
+                    touched.setdefault(oid, set()).add((right or left)[0])
+        for operation in pick.get("operations", []):
+            scope = operation.get("scope", {})
+            oid = scope.get("object_id")
+            if oid not in source:
+                raise ValueError("A selected operation does not identify its source object.")
+            resources = touched.setdefault(oid, set())
+            resources.update(("vertex", row["vertex_id"]) for row in scope.get("vertex_weights", []) if row["weight"])
+            faces = set(scope.get("affected_polygon_ids", []))
+            resources.update(("polygon", index) for index in faces)
+            normal_faces = set(scope.get("normal_affected_polygon_ids", owner_mesh.normal_faces(source[oid], faces)))
+            cursor = 0
+            for index, polygon in enumerate(source[oid].get("polygons", [])):
+                if index in normal_faces:
+                    resources.update(("normal", loop) for loop in range(cursor, cursor + len(polygon)))
+                cursor += len(polygon)
+            for marking in operation.get("marking_attachments", []):
+                marking_id = marking.get("object_id")
+                if marking_id not in source:
+                    raise ValueError("A selected marking does not identify its source object.")
+                touched.setdefault(marking_id, set()).add(whole)
+        footprints.append(touched)
+
+    overlaps = []
+    for first in range(len(selected)):
+        for second in range(first + 1, len(selected)):
+            objects = []
+            for oid in set(footprints[first]) & set(footprints[second]):
+                left, right = footprints[first][oid], footprints[second][oid]
+                if whole in left or whole in right or left & right:
+                    objects.append({"object_id": oid, "object": source[oid].get("name", oid)})
+            if objects:
+                overlaps.append({"item_ids": [selected[first]["item_id"], selected[second]["item_id"]],
+                                 "objects": sorted(objects, key=lambda row: row["object_id"])})
+
+    checked = [0 for _ in selected]
+    for oid, obj in current.items():
+        actual = atoms(obj)
+        expected_rows = [objects[oid] for objects in preview_atoms]
+        for key in set(base_atoms[oid]) | set(actual) | set().union(*(set(rows) for rows in expected_rows)):
+            record = actual.get(key) or base_atoms[oid].get(key) or next(rows[key] for rows in expected_rows if key in rows)
+            resource = record[0]
+            owners = [index for index, touched in enumerate(footprints)
+                      if whole in touched.get(oid, ()) or resource in touched.get(oid, ())]
+            if len(owners) > 1:
+                continue
+            wanted = expected_rows[owners[0]].get(key, missing) if owners else base_atoms[oid].get(key, missing)
+            if actual.get(key, missing) != wanted:
+                label = selected[owners[0]]["item_id"] if owners else "unrequested source"
+                raise ValueError(f"Applied picks differ from {label}'s previewed result on {obj.get('name', oid)} ({key[0]}).")
+            if owners:
+                checked[owners[0]] += 1
+
+    affected = {item for overlap in overlaps for item in overlap["item_ids"]}
+    return {"ok": True, "mode": "single_glb_bytes" if len(selected) == 1 else "per_item_geometry",
+            "single_pick_glb_equal": True if len(selected) == 1 else None,
+            "comparison": "Exact stored per-vertex local/world positions, per-loop normals and UVs, polygon and material data; no tolerance. Topology and scalar changes use whole objects. Overlaps require separately verified item-order composition.",
+            "items": [{"item_id": row["item_id"], "option_id": row["option_id"],
+                       "exact_preview_geometry": row["item_id"] not in affected,
+                       "exclusive_values_checked": checked[index],
+                       "overlap_reported": row["item_id"] in affected}
+                      for index, row in enumerate(selected)], "overlaps": overlaps}
+
+
+def verify_choice_exports(source_export_path, selected, applied_export_path):
+    """Independently compare the rendered GLB data, with exact accessor equality.
+
+    Vertex sharing and accessor numbering may change during export; expanding
+    triangle corners removes those storage differences. Node names and primitive
+    order must remain unique and comparable. Shared changed layouts are refused.
+    Material indices are resolved to content, including texture and sampler data.
+    """
+    import hashlib
+    import numpy as np
+    from ..g3d_host import glb
+
+    if not isinstance(selected, list) or not selected:
+        raise ValueError("Choose at least one sealed exported option.")
+
+    def contents(path):
+        asset = glb.load(path)
+        if asset.scene_issue or asset.missing_uris or not asset.primitives:
+            raise ValueError("The export cannot be compared as a complete scene.")
+        names = {}
+        for primitive in asset.primitives:
+            name = asset.nodes[primitive.node_index].get("name")
+            if (not isinstance(name, str) or not name or
+                    (name in names and names[name] != primitive.node_index)):
+                raise ValueError("Exported objects need unique exact node names for preview comparison.")
+            names[name] = primitive.node_index
+
+        def image_record(index):
+            payload = asset.image_bytes(index)
+            if payload is None:
+                raise ValueError("A preview material texture is unavailable.")
+            row = asset.doc.get("images", [])[index]
+            return {"sha256": hashlib.sha256(payload).hexdigest(),
+                    **{key: value for key, value in row.items() if key not in {"uri", "bufferView"}}}
+
+        def texture_record(index):
+            row = asset.doc.get("textures", [])[index]
+            result = {}
+            for key, value in row.items():
+                if key == "source":
+                    result[key] = image_record(value)
+                elif key == "sampler":
+                    result[key] = asset.doc.get("samplers", [])[value]
+                elif key == "extensions":
+                    result[key] = {extension: {field: image_record(item) if field == "source" else item
+                                               for field, item in data.items()}
+                                   for extension, data in value.items()}
+                else:
+                    result[key] = value
+            return result
+
+        def material_record(value, field=""):
+            if isinstance(value, list):
+                return [material_record(row, field) for row in value]
+            if not isinstance(value, dict):
+                return value
+            return {key: (texture_record(item) if key == "index" and field.lower().endswith("texture")
+                          else material_record(item, key)) for key, item in value.items()}
+
+        records = {}
+        for primitive in asset.primitives:
+            if (primitive.error or primitive.index_issue or primitive.compressed or primitive.has_morph_targets
+                    or primitive.mode != 4):
+                raise ValueError("A preview contains geometry that cannot be compared exactly.")
+            key = (primitive.node_name, primitive.primitive_index)
+            if key in records:
+                raise ValueError("A preview repeats an ambiguous primitive identity.")
+            raw = asset.meshes[primitive.mesh_index]["primitives"][primitive.primitive_index]
+            indices = primitive.triangles.reshape(-1)
+            attributes = {}
+            for semantic, accessor in raw["attributes"].items():
+                values = asset.accessor(accessor)
+                if (values.ndim != 2 or len(values) != len(primitive.positions) or not np.isfinite(values).all()):
+                    raise ValueError("A preview attribute cannot be compared to its triangle corners.")
+                attributes[semantic] = values[indices]
+            records[key] = {"attributes": attributes, "world": primitive.world,
+                            "material": material_record(asset.material(primitive.material_index)),
+                            "primitive_state": {name: value for name, value in raw.items()
+                                                if name not in {"attributes", "indices", "material", "mode"}}}
+        return records
+
+    def same(left, right):
+        return (set(left["attributes"]) == set(right["attributes"])
+                and all(np.array_equal(left["attributes"][name], right["attributes"][name])
+                        for name in left["attributes"])
+                and np.array_equal(left["world"], right["world"])
+                and left["material"] == right["material"] and left["primitive_state"] == right["primitive_state"])
+
+    source = contents(source_export_path)
+    previews = [contents(row["export"]["path"]) for row in selected]
+    applied = contents(applied_export_path)
+    if set(applied) != set(source) or any(set(preview) != set(source) for preview in previews):
+        raise ValueError("Applied and preview exports do not have the same object/primitive identities.")
+    if len(selected) == 1 and edits.sha(applied_export_path) != edits.sha(selected[0]["export"]["path"]):
+        raise ValueError("The single applied GLB bytes differ from the selected preview.")
+
+    comparisons, overlap_rows = [], {}
+
+    def overlaps(owners, key, field, count):
+        for first_index, first in enumerate(owners):
+            for second in owners[first_index + 1:]:
+                pair = (first, second)
+                row = overlap_rows.setdefault(pair, {"item_ids": [selected[first]["item_id"], selected[second]["item_id"]],
+                                                     "objects": [], "attributes": {}})
+                obj = {"object": key[0], "primitive_index": key[1]}
+                if obj not in row["objects"]:
+                    row["objects"].append(obj)
+                row["attributes"][field] = row["attributes"].get(field, 0) + count
+
+    for key, original in source.items():
+        expected = [preview[key] for preview in previews]
+        current = applied[key]
+        changed = [index for index, row in enumerate(expected) if not same(original, row)]
+        changed_layout = [index for index, row in enumerate(expected)
+                          if set(row["attributes"]) != set(original["attributes"]) or any(
+                              row["attributes"][name].shape != original["attributes"][name].shape
+                              for name in set(row["attributes"]) & set(original["attributes"]))]
+        if changed_layout:
+            if len(changed) != 1 or not same(current, expected[changed[0]]):
+                raise ValueError("Changed exported topology overlaps another pick or cannot reproduce its preview.")
+            comparisons.append({"object": key[0], "primitive_index": key[1], "mode": "whole_primitive",
+                                "item_id": selected[changed[0]]["item_id"]})
+            continue
+        if set(current["attributes"]) != set(original["attributes"]):
+            raise ValueError("Applied export attributes differ from the previewed layout.")
+        for field, baseline in original["attributes"].items():
+            actual = current["attributes"][field]
+            if actual.shape != baseline.shape:
+                raise ValueError("Applied export triangle corners differ from the previewed layout.")
+            masks = [np.any(row["attributes"][field] != baseline, axis=1) for row in expected]
+            counts = np.sum(masks, axis=0)
+            untouched = counts == 0
+            if not np.array_equal(actual[untouched], baseline[untouched]):
+                raise ValueError(f"Applied export changed unrequested {field} rows on {key[0]}.")
+            for index, mask in enumerate(masks):
+                exclusive = mask & (counts == 1)
+                if not np.array_equal(actual[exclusive], expected[index]["attributes"][field][exclusive]):
+                    raise ValueError(f"Applied export differs from {selected[index]['item_id']}'s previewed {field} on {key[0]}.")
+            for first in range(len(selected)):
+                for second in range(first + 1, len(selected)):
+                    count = int(np.count_nonzero(masks[first] & masks[second]))
+                    if count:
+                        overlaps([first, second], key, field, count)
+            comparisons.append({"object": key[0], "primitive_index": key[1], "attribute": field,
+                                "triangle_corner_rows": len(baseline), "exclusive_rows": int(np.count_nonzero(counts == 1)),
+                                "unchanged_rows": int(np.count_nonzero(untouched)), "overlapping_rows": int(np.count_nonzero(counts > 1))})
+        for field in ("world", "material", "primitive_state"):
+            equal = (lambda a, b: np.array_equal(a, b)) if field == "world" else (lambda a, b: a == b)
+            owners = [index for index, row in enumerate(expected) if not equal(row[field], original[field])]
+            if len(owners) > 1:
+                overlaps(owners, key, field, 1)
+            else:
+                wanted = expected[owners[0]][field] if owners else original[field]
+                if not equal(current[field], wanted):
+                    raise ValueError(f"Applied export {field} differs from the shown result on {key[0]}.")
+    return {"ok": True, "comparison": "Exact triangle-corner-expanded accessors for all attributes, node transforms and canonical material/texture content; no tolerance.",
+            "primitives_checked": len(source), "comparisons": comparisons, "overlaps": list(overlap_rows.values()),
+            "single_pick_glb_equal": True if len(selected) == 1 else None}

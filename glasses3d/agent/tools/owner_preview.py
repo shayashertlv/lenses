@@ -122,17 +122,25 @@ class PreviewOption(BaseModel):
     id: str
     label: str
     scale: float = Field(strict=True, gt=0)
+    amount_text: str | None = None
 
 
-def _options(options):
+def _options(options, *, require_amount=False):
     if not isinstance(options, (list, tuple)):
         raise ValueError('preview options must be a list')
-    rows = [o.model_dump() if isinstance(o, PreviewOption) else copy.deepcopy(o) for o in options]
+    rows = [o.model_dump(exclude_none=True) if isinstance(o, PreviewOption) else copy.deepcopy(o) for o in options]
     if not 2 <= len(rows) <= PREVIEW_OPTIONS_MAX:
         raise ValueError('preview needs two or three amount options')
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {'id', 'label', 'scale'}:
-            raise ValueError('each option takes only id, label and scale')
+        if isinstance(row, dict) and row.get('amount_text') is None:
+            row.pop('amount_text', None)
+        if (not isinstance(row, dict) or not {'id', 'label', 'scale'}.issubset(row) or
+                set(row) - {'id', 'label', 'scale', 'amount_text'}):
+            raise ValueError('each option takes only id, label, scale and optional amount_text')
+        amount = row.get('amount_text')
+        if (require_amount or amount is not None) and (
+                not isinstance(amount, str) or not amount.strip() or len(amount) > 500):
+            raise ValueError('each item option needs readable amount_text of at most 500 characters')
         if not isinstance(row['id'], str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,31}', row['id']):
             raise ValueError('option IDs must be safe stable letters, numbers, underscores or hyphens')
         if not isinstance(row['label'], str) or not row['label'].strip() or len(row['label']) > 160:
@@ -143,6 +151,18 @@ def _options(options):
     if len({r['id'].casefold() for r in rows}) != len(rows) or len({r['scale'] for r in rows}) != len(rows):
         raise ValueError('option IDs and scales must be distinct')
     return rows
+
+
+def _item_binding(doc, item_id):
+    """Capture previews belong to one original owner item; CLI choices stay whole-group."""
+    items = doc.get('owner_capture_items', [])
+    if items:
+        if not isinstance(item_id, str) or item_id not in {row['item_id'] for row in items}:
+            raise ValueError('capture previews require one original owner item_id')
+        return item_id
+    if item_id is not None:
+        raise ValueError('item_id is only for an owner capture preview')
+    return None
 
 
 def scaled_operations(operations, scale):
@@ -349,7 +369,8 @@ def _triple(paths, destination, title, option_label, *, option_id=None, box=None
                                              gap=0, font=model_map._font(18))
     for item in [record, *tiles]:
         item.update(view=title+'; native photo / before / '+option_label,
-                    kind='owner_amount_detail' if box else 'owner_amount_full', box=box)
+                    kind='owner_amount_detail' if box else 'owner_amount_full', box=box,
+                    option_id=option_id, panels=['photo', 'before', 'option'], native_pixels=True)
     return record, tiles
 
 
@@ -381,7 +402,7 @@ def _pictures(root, directory, before, options, boxes):
                 files[_relative(root, item['path'])] = item['sha256']
             pages = look_composition.compose(sources, directory/f"{option['id']}-{rid}-combined", rid)
             for item in pages:
-                item.update(option_id=option['id'], native_pixels=True)
+                item.update(option_id=option['id'], native_pixels=True, panels=['photo', 'before', 'option'])
             images.extend(pages)
             for item in [*pairs[-1:], *details]:
                 files[_relative(root, item['path'])] = item['sha256']
@@ -390,10 +411,13 @@ def _pictures(root, directory, before, options, boxes):
     return images, files
 
 
-def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_json, options, refs=None):
+def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_json, options, refs=None, item_id=None):
     doc, head, checkpoint = _source(scene)
     try:
-        choices = _options(options)
+        item_id = _item_binding(doc, item_id)
+        choices = _options(options, require_amount=item_id is not None)
+        if item_id is not None:
+            choices = [{**choice, 'item_id': item_id} for choice in choices]
         operations = jobs._json(operations_json, 'preview operations')
         if not isinstance(operations, list) or not operations:
             raise ValueError('operations_json must contain a nonempty list of proposed operations')
@@ -496,6 +520,10 @@ def preview(scene, call_id, map_id, map_sha256, capture_receipts, operations_jso
                    'archive_note': 'Verified archive copies are canonical confirmation evidence. Original temporary paths and unchanged raw report paths are historical rendering provenance; the temporary jobs are removed after all workers close.',
                    'evidence_files': files, 'preview_receipt': relative, 'source_unchanged': True,
                    'interpretation': 'Each option starts from the same source; scales multiply amounts only. No source edit or owner selection has occurred.'}
+        if item_id is not None:
+            receipt['item_id'] = item_id
+            for image in receipt['images']:
+                image['item_id'] = item_id
         _unchanged(scene, head, checkpoint)
         procs.write_json_atomic(directory/'preview.json', receipt)
         return {**receipt, 'preview_sha256': edits.sha(directory/'preview.json')}
@@ -510,6 +538,32 @@ def mark_delivered(scene, result, delivered=True):
     procs.write_json_atomic(path.with_name('preview-delivery.json'), {
         'schema': 'g3d.owner_amount_preview_delivery/1', 'preview_sha256': edits.sha(path),
         'call_id': result['call_id'], 'delivered': bool(delivered)})
+
+
+def _item_evidence(root, receipt):
+    """Every item option retains native delivered pictures and the exact result to reproduce."""
+    files = receipt['evidence_files']
+    for option in receipt['options']:
+        for key in ('before_snapshot', 'after_snapshot', 'export'):
+            artifact = option.get(key, {})
+            path, digest = artifact.get('path'), artifact.get('sha256')
+            if not isinstance(path, str) or not isinstance(digest, str):
+                raise ValueError('each item preview must retain its exact snapshots and exported model')
+            relative = _relative(root, path) if Path(path).is_absolute() else path
+            if files.get(relative) != digest:
+                raise ValueError('item preview result is absent from its sealed evidence files')
+            _bound(root, relative, digest)
+        pictures = [image for image in receipt.get('images', []) if image.get('option_id') == option['id']]
+        if not pictures:
+            raise ValueError('each item option needs delivered native photo / before / option pictures')
+        for image in pictures:
+            if (image.get('item_id') != receipt['item_id'] or image.get('native_pixels') is not True or
+                    image.get('panels') != ['photo', 'before', 'option']):
+                raise ValueError('item preview pictures must retain their item and native photo-first panel order')
+            relative = _relative(root, image['path']) if Path(image['path']).is_absolute() else image['path']
+            if files.get(relative) != image.get('sha256'):
+                raise ValueError('item preview picture is absent from its sealed evidence files')
+            _bound(root, relative, image['sha256'])
 
 
 def load_verified(scene, relative_receipt):
@@ -528,6 +582,7 @@ def load_verified(scene, relative_receipt):
             receipt.get('call_id') in unseen):
         raise ValueError('amount choices require successfully delivered unchanged preview evidence')
     doc, head, checkpoint = _source(scene)
+    item_id = _item_binding(doc, receipt.get('item_id'))
     if (receipt['source_fingerprint'] != head['fingerprint'] or receipt['source_checkpoint_sha256'] != head['sha256'] or
             receipt['source_head'] != head):
         raise ValueError('preview source does not match this understanding')
@@ -538,11 +593,16 @@ def load_verified(scene, relative_receipt):
     base = owner_markings.seal(edits.read(evidence['snapshot_path']), evidence['operations'])
     if base != receipt['base_operations']:
         raise ValueError('preview operations differ from the shown source map')
-    _options([{key: option[key] for key in ('id', 'label', 'scale')} for option in receipt['options']])
+    _options([{key: option[key] for key in ('id', 'label', 'scale', 'amount_text') if key in option}
+              for option in receipt['options']], require_amount=item_id is not None)
+    if item_id is not None and any(option.get('item_id') != item_id for option in receipt['options']):
+        raise ValueError('preview options must remain bound to their original owner item_id')
     if any(row['operations'] != scaled_operations(base, row['scale']) for row in receipt['options']):
         raise ValueError('preview options changed more than the proposed amounts')
     for reference, digest in receipt['evidence_files'].items():
         _bound(scene.root, reference, digest)
+    if item_id is not None:
+        _item_evidence(scene.root, receipt)
     _unchanged(scene, head, checkpoint)
     return {**receipt, 'preview_sha256': edits.sha(path), 'preview_delivery': _relative(scene.root, path.with_name('preview-delivery.json')),
             'preview_delivery_sha256': edits.sha(path.with_name('preview-delivery.json'))}
@@ -551,7 +611,8 @@ def load_verified(scene, relative_receipt):
 def tool_for(scene, tool, call):
     @tool('preview_owner_edit')
     async def preview_owner_edit(ctx: ToolContext, map_id: str, map_sha256: str, capture_receipts: list[str],
-                                 operations_json: str, options: list[PreviewOption], refs: list[str] | None = None):
+                                 operations_json: str, options: list[PreviewOption], refs: list[str] | None = None,
+                                 item_id: str | None = None):
         """Show two or three proposed amount choices during understand without changing the source model.
         Supply a nonempty list of executable operations_json supported by delivered labelled_model_map receipts.
         Unsupported and needs_clarification items grant no preview authority; never use no-op placeholders.
@@ -567,6 +628,11 @@ def tool_for(scene, tool, call):
         shrinking pixels. Also returns following_markings and a hash-bound preview_receipt.
         No run, approval, estimate or source edit is started. A refused amount produces no selectable preview.
         Reuse the option id and preview receipt when asking the owner to choose in the understand reply.
+        For owner capture rounds, supply that original item_id, only its operations, and readable amount_text
+        for every option (amount, units and effect). Each item has its own two or three options and receipt.
+        In understand_finish, put that receipt in the matching previewed item's preview_receipt. Keep the
+        top-level preview_receipt null. CLI text edits retain the whole-group receipt with item_id null;
+        amount_text is optional there. An item_id or amount cannot be replaced after the preview is delivered.
         refs null uses every usable frozen camera; a list selects photo ids or original filenames.
         Movement previews also add fitted cameras where supported translation, taper or rotation projects
         transversely, regardless of raw photo labels; requested views remain included. Projection effects report
@@ -574,5 +640,5 @@ def tool_for(scene, tool, call):
         capped at 14, with one BLAS thread.
         """
         return await call(ctx, 'preview_owner_edit', lambda cid: preview(scene, cid, map_id, map_sha256,
-                           capture_receipts, operations_json, options, refs=refs))
+                           capture_receipts, operations_json, options, refs=refs, item_id=item_id))
     return preview_owner_edit

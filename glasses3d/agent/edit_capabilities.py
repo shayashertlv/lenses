@@ -73,7 +73,7 @@ def catalog():
     kinds = sorted(owner_mesh.OPERATION_KINDS)
     paths = [*package.glob("g3d/owner_*.py"), package / "agent/owner_edits.py", package / "agent/edits.py",
              package / "agent/tools/owner_edit.py", package / "agent/tools/owner_preview.py", package / "agent/owner_apply.py",
-             package / "agent/owner_captures.py", Path(__file__).resolve()]
+             package / "agent/owner_captures.py", package / "agent/owner_choices.py", Path(__file__).resolve()]
     implementation = {p.relative_to(package).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                       for p in sorted(set(paths))}
     body = {"operation_kinds": kinds, "implementation_sha256": implementation}

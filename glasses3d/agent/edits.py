@@ -22,7 +22,7 @@ RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "data/oe"
 def blocked_items(understanding):
     """Older sealed executable understandings predate explicit item dispositions."""
     return [item for item in understanding.get("items", [])
-            if item.get("disposition", "executable") != "executable"]
+            if item.get("disposition", "executable") not in {"executable", "previewed"}]
 
 
 def require_executable(understanding):
@@ -460,6 +460,11 @@ def understanding_page(root):
                   "Confirm or correct executable items only. Blocked items remain undone. "
                   "Select a shown option to apply its exact operations locally at $0 with job edit-apply. "
                   "A new or unclear request needs another understanding.")
+    if (load(root) or {}).get('owner_capture_items'):
+        invitation = ("Read each item's interpretation and reason. Choose one shown option per previewed item, "
+                      "or skip it with a note, then use Apply my picks for a local $0 application. "
+                      "Overlapping changes are reported. An item without a preview can use its separately "
+                      "approved full paid edit with its own cutoff.")
     body = [f"<h1>{esc(title)}</h1><p>The model is unchanged. {invitation}</p>",
             f"<h2>Owner's edit request (verbatim)</h2><pre>{esc(doc['request_text'])}</pre>"]
     usage_path = root / "work/owner_edit/understanding-usage.json"
@@ -475,6 +480,18 @@ def understanding_page(root):
                  f"{esc(item.get('reason', ''))}</p>",
                  f"<p>{esc(item['interpretation'])}</p><p>{esc(item['direction'])}; {esc(item['amount'])}</p>",
                  f"<p>Targets: {esc(', '.join(labels.get(key, key) for key in item['target_ids']))}</p>"]
+        if item.get('amount_preview'):
+            preview = read(confined(root, item['amount_preview']['preview_receipt']))
+            body.append('<p>Choose one shown option for this item, or skip it with a note. '
+                        'Apply my picks runs locally at $0 and reports overlapping changes.</p>')
+            for option in preview['options']:
+                body.append(f"<h3>{esc(option['id'])}: {esc(option['label'])}</h3>"
+                            f"<p>{esc(option['amount_text'])}</p>")
+                for image in [*option.get('full_pairs', []), *option.get('target_details', [])]:
+                    target = confined(root, image['path'])
+                    rel = Path('../..') / target.relative_to(root)
+                    body.append(f"<figure><figcaption>{esc(image.get('view', 'Photo / before / option'))}</figcaption>"
+                                f"<a href='{esc(rel.as_posix())}'><img src='{esc(rel.as_posix())}'></a></figure>")
     if doc.get('following_markings'):
         body.append('<h2>Markings that follow the edited surface</h2><ul>' + ''.join(
             f"<li>{esc(row['object_name'])} follows {esc(row['surface_object_name'])}, keeping its distance from the surface.</li>"

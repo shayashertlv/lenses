@@ -229,14 +229,21 @@ EDIT_GUIDANCE = {
         "the native photo/before/option comparisons, target close-ups, exact operations and following_markings. "
         "Use refs null for all usable frozen photo cameras; report unavailable views or refused choices. "
         "The selected source stays unchanged. Keep the successfully delivered preview_receipt for understanding; "
-        "a refused preview supplies no selectable options.",
+        "a refused preview supplies no selectable options. For captures, pass one original item_id and only "
+        "that item's operations per preview, with readable amount_text (amount, units and effect) on every option. "
+        "CLI text edits keep item_id null and a single whole-group preview.",
     "understand_finish": "End UNDERSTAND with `understand_finish`. Number items consecutively "
-        "from 1, with label, interpretation, disposition and reason. Executable items need: "
+        "from 1, with label, interpretation, disposition and reason. For capture items, retain each original item_id "
+        "and order; use previewed with its own preview_receipt and two or three sealed options, or cannot_preview, "
+        "needs_clarification or unsupported with a plain reason. Keep the top-level preview_receipt null. "
+        "Capture results may mix previewed and blocked items: the owner picks or skips each independently. "
+        "CLI text edits retain executable and the whole-group preview_receipt. Executable or previewed items need: "
         "direction, amount, exact target_ids and operation_json, using the drawn support's scope_ref_sha256. "
         "Use unsupported or needs_clarification for blocked items, with an explanatory reason and operation_json=[]; "
         "direction and amount may be empty. Diagnostic target_ids must be shown; they grant no authority. "
         "Never invent no-op placeholders. All-blocked requests end as diagnostic_only, without edit/preview "
-        "authority. Mixed plans are diagnostic only until every blocker is resolved in a new understanding. "
+        "authority. Mixed plans are diagnostic only for admission to legacy paid EDIT until every blocker is "
+        "resolved in a new understanding; capture picks may still apply previewed items at $0. "
         "Supply delivered capture receipts. The tool description defines supported kinds; "
         "coordinates are asset millimetres, so outward has opposite X signs on the two arms. The tool seals nearby "
         "supported surface markings in following_markings. Check its names and supporting surfaces against visible "
@@ -245,8 +252,13 @@ EDIT_GUIDANCE = {
         "Explain each option by id and amount; the owner must explicitly select an option. "
         "Do not choose an option or silently use the base amount for them. "
         "Acceptance ends understanding only: STOP for the owner's confirmation and exact option selection. The host applies a shown "
-        "option locally at $0 through job edit-apply; no paid round is needed. A new or unclear request needs "
-        "another understanding. Any blocked item prevents paid EDIT until clarified or repaired.",
+        "option locally at $0 through job edit-apply for CLI text edits. For captures, Apply my picks composes "
+        "chosen sealed items in original item order at $0, retaining skipped notes and reporting overlapping "
+        "objects. A single pick must reproduce its preview bytes; disjoint picked geometry must reproduce each "
+        "preview exactly. Every physical, scope, export and retained-print check still applies. A failed check "
+        "refuses delivery. A blocked item can use a separately approved full paid edit; never spend for the owner. "
+        "A new or unclear request needs another understanding. Any blocked item prevents paid EDIT through "
+        "the legacy whole-group path until clarified or repaired.",
     "facet_owner_edit": "In EDIT, use `facet_owner_edit` with the confirmed operation_ids in their recorded "
         "order. With a selected preview, apply its complete ordered operation group and keep corrections null. "
         "Its exact amounts cannot be replaced; another amount or direction needs another shown preview. "
@@ -297,10 +309,16 @@ never silently leave a marking hidden by the moved surface.
 Show two or three feasible amounts per item and inspect photo-first comparisons and close-ups. State each option's
 amount, units and effect. Toward the head requires top and rear as well as side. Scales vary only amounts of the
 same ordered operations. Clarify unclear targets on the unchanged map first; report unavailable previews and reasons.
+Capture items each retain their original item_id, a previewed disposition and a separate delivered preview_receipt;
+each option has readable amount_text. Blocked items use cannot_preview, needs_clarification or unsupported with
+a plain reason and no operations. Mixed results remain usable: the owner can pick a shown option or skip each item
+with a note. Keep the top-level preview_receipt null for captures; CLI text edits keep one whole-group preview.
 Return only the labelled map, per-item diagnosis and interpretation, and previews, then stop. The host reports request
 count and settled cost. Understanding grants no edit or spending authority. Once the owner selects a shown option,
-job edit-apply applies its exact operations at $0. Paid interpretation is only for a new or unclear request with
-separate authorization.
+job edit-apply applies its exact operations at $0 for CLI text edits. Capture picks are composed locally at $0 in
+original item order, with overlapping objects reported and all hard checks retained. Single picks retain preview
+GLB-byte equality; disjoint picked geometry reproduces its previewed result exactly. A failed check refuses delivery.
+Unpreviewable items can use a separate full paid edit with their own authorization and cutoff.
 
 EDIT: make only the confirmed changes, then show their result.
 Read the verbatim confirmation and shown understanding. Apply confirmed IDs and sealed support; a selected preview
