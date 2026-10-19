@@ -3,8 +3,9 @@
 This folder is the assembled photo-to-3D glasses pipeline. Job intake, Astra tools, specialist stages, delivery,
 review and owner edits are implemented. WP5 and WP6 are closed by owner acceptance; assembled Oakley run 4 is
 accepted. **`plan/ASSEMBLY.md` M11** (the 2026-10-18 review repairs, tasks 1–9) is complete and accepted by Claude;
-M12's dev UI is built through A/B/C1/C2/C3; D1 integration proof and the final suite remain. Use PROGRESS's
-current-state block for the next action. M5 paid validation remains the owner's call. Claude coordinates; Codex
+M12's dev UI is built, and D1's six-scenario browser integration proof passed at $0 under the same-part shading
+refusal. Use PROGRESS's current-state block for final-suite results and the next action. M5 paid validation remains
+the owner's call. Claude coordinates; Codex
 executes the saved task brief. Latest owner instructions
 take precedence over repository documents. Dated history is evidence, not a command to restart completed work.
 
@@ -62,7 +63,14 @@ take precedence over superseded text. `review-20261013-pre-cleanup` preserves th
   and amount. Coding agents never press those buttons or start a paid call under a build task: anything they
   would run still needs his explicit OK and a cost estimate before that run. Prepare CLI requests with
   `--settled-only --effort high` and the approved amount for both `--cap` and `--settled-stop`.
-  Legacy CLI defaults ($20 stop / $23 reserve / effort max) are defaults only, not standing authorization.
+  The dated origin of the settled-only/high terms is the owner's 2026-10-16 instruction, verbatim:
+  "effort=high, cutoff 20$ reserve doesnt matter", and 2026-10-17: "after youre done fixing, rerun. no bs money reserve this time, i dont care about astras possible responses, only as we pass 20$ cutoff the run not a cent before!"
+  The $20 was the amount he named then; the UI now takes his typed amount. M11 task 11 (`2340e95`) makes
+  settled-only the default and only mode for new runs and edit rounds and removes finish-cost projections from
+  Astra's input. The UI and Astra's money status show only settled spend, the cutoff and money left: no estimates,
+  held amounts, projected costs or "finish soon" figures. Job-run CLI defaults are a $20 settled cutoff and max effort;
+  they are not standing authorization. Historical reservation-mode approvals and ledgers remain readable and
+  reconcilable, but cannot authorize new reservation-mode requests.
   The $1 smoke was approved ("Yes, cap $1", 2026-10-13) and completed; it is not pending authorization. No total
   WP8 campaign budget is approved. Photos win on the look; one fixed lens-reflection default remains.
 - **Web research is allowed** (owner, 2026-10-15: "codex can research the web, change the rule"). Prefer official

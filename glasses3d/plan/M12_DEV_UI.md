@@ -1,8 +1,10 @@
 # M12: a simple dev UI for paid runs, results, AR and annotated owner edits (design, 2026-10-19)
 
-**Build status, 2026-10-19:** A, B, C1, C2 and C3 are committed (ASSEMBLY M12 ledger). D2 documents are prepared;
-D1's real-browser integration proof and the coordinator's final suite remain. C2's native two-item Prada proof is
-incomplete; its exact single-pick result is prepublication evidence. See PROGRESS for checks and remaining work.
+**Build status, 2026-10-19:** complete with documented limits (ASSEMBLY M12 ledger). D1's six real-browser scenarios passed
+at $0 (`b81f923`, `0da06ba`), including C2 follow-up 3's same-part shading refusal and immutable byte-exact single
+apply. Separate same-part normal composition remains future work; the historical temple-alias regression and
+slow Prada sealing remain open. Final suite: 6,014 distinct Python passes / 2 skips / 11 xfails / 1 non-strict XPASS; 20 UI browser / 509 arview unit / 113 QA passes; type check, build and M1 passed. The four parallel camera setup errors cleared in isolation. Next: the owner tries the UI and decides on any
+paid run. See PROGRESS for results and current money terms; the dated design/contracts below remain preserved.
 
 Written by Claude (planner) from the owner's request of 2026-10-19. The coordinator session refines this into tasks after a
 read-only mapping of the current code (section 5), reviews its own plan, and has Codex build it. The owner said not to

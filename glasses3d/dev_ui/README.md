@@ -2,8 +2,9 @@
 
 This is the local UI for starting a glasses3d run, viewing its model and asking Astra for edits.
 It binds to `127.0.0.1` only. It uses the existing glasses3d pipeline; the live Lenses app and `/ar/`
-deployment are separate. M12's component checks are recorded in [the test guide](../tests/README.md#m12-dev-ui-and-edit-proofs);
-D1's browser/SDK/Blender integration proof and final suites are still pending as of 2026-10-19.
+deployment are separate. D1's six-scenario browser/SDK/Blender proof passed at $0 on 2026-10-19, including the
+same-part shading refusal and byte-exact single apply. See [the test guide](../tests/README.md#m12-dev-ui-and-edit-proofs)
+for proof commands and [current progress](../plan/PROGRESS.md) for final-suite results and the next action.
 
 ## Start and stop
 
@@ -36,8 +37,8 @@ You may add a short name and specifications as a JSON object. **Remove photo** r
 form. The description and specifications stay as typed; the UI adds no product details or guessed view labels.
 Enter **Max budget (USD)**, then press **Start a paid run** to authorize and start that one run.
 
-**Running** shows settled spend, elapsed time, the estimate and current state. **Stop** asks to stop after the
-current step; an in-flight request finishes. The page waits through finalization, then opens Results or
+**Running** shows settled spend against your max budget, money left, elapsed time and current state. **Stop** asks
+to stop after the current step; an in-flight request finishes. The page waits through finalization, then opens Results or
 Understanding. If a model is available from an unfinished run, Results labels it **not finished**; a failure
 without a usable model stays an explicit error. One paid run at a time is allowed in this checkout.
 
@@ -75,12 +76,19 @@ the existing checks, export and AR capture. A single pick must reproduce its pre
 picks, geometry touched by only one pick must reproduce that preview exactly; overlapping changes are composed
 in item order and their interaction is reported. A failed check refuses delivery. The source delivery stays intact.
 
+Two picked items that change shading or normals on the same part are refused before a copy or model worker starts,
+even when their marks are separate. Put both marks in one item when preparing the request, or choose one item's
+option now, choose **None of these** for the other, and send the other again as a new edit of the resulting model.
+Exact local normal writes and ordered composition of those separate items remain future work; the attempted
+normal-writer change failed the real Prada preview and was reverted. Existing exactness checks remain in force.
+
 An item without a preview can show **Send this item to a full paid edit**. Enter that item's own max budget;
 pressing the button authorizes a separate `full_edit_item` round from the same source delivery. Astra has the
 normal modeling tools and the selected item's words and capture, with instructions to edit only that item.
-The result is a delivery or an unfinished draft. Its saved report measures geometry, material, UV and transform
+The result is a delivery or an unfinished draft. Its page and saved report show geometry, material, UV and transform
 changes, including changes outside the marked region; unresolved measurements stay explicit. The measurements
-inform your judgment and do not promise confinement to every painted pixel.
+inform your judgment and do not promise confinement to every painted pixel. A fresh Edit draft then offers
+**Any more edits?** from that result.
 
 **Applying picks** shows local progress and elapsed time, then opens the edited model in a fresh Edit draft.
 **Open edited model** retries opening that result if the automatic navigation fails. You can capture more edits,
@@ -89,14 +97,20 @@ or use **No, back to results** after a successful apply with no new items.
 ## What max budget means
 
 Your typed positive amount is this run's settled-spend cutoff, shared by the main Astra session and specialists.
-Effort is **high**; cap equals stop. There is no estimated-reservation cutoff and no shrinking the output to fit
+Every run and edit send is **settled-only**, at **high** effort; cap equals stop. There is no estimated-reservation cutoff and no shrinking the output to fit
 a reserve. No new request starts at or above the cutoff. The request already in flight can finish past it,
 so this is not a guaranteed final invoice maximum. Unknown charges stop further spending.
 
+The UI shows only settled spend, your max budget and money left; it shows no estimate, held amount, projected cost
+or "finish soon" figure. Astra's money status also contains only settled spend, the cutoff and money left.
+M11 task 11 (`2340e95`) made settled-only the default and only mode for new runs and edits and removed the
+finish-cost projection from Astra's input; this is committed M11 behavior, not a new M12 change.
+
 The typed amount and the paid button press are your single-use approval for that one run or edit send; the
 record keeps the button's words and amount. Each later paid send needs its own amount and press. The UI does
-not impose a universal $20 ceiling. Legacy CLI defaults ($20 stop / $23 reserve / effort max) remain defaults
-only. Coding agents still need your explicit OK and an estimate before any paid call they would run.
+not impose a universal $20 ceiling. Job-run CLI defaults are a $20 settled cutoff and max effort, with settled-only as
+the sole mode for new runs and edits. Old reservation-mode records stay readable, but cannot authorize new
+reservation-mode requests. Coding agents still need your explicit OK and an estimate before any paid call they would run.
 
 Starting the UI, browsing jobs/results, using the viewer or AR, saving annotations and **Apply my picks** cost
 $0 in API calls. **Start a paid run**, **Send to Astra (paid)** and **Send this item to a full paid edit** spend
@@ -128,6 +142,10 @@ Read [AGENTS](../AGENTS.md), [M12's design and section 7 contracts](../plan/M12_
 and the dispatched brief. The contract defines pages, endpoints, DTOs, decimal-string money, opaque IDs, capture
 identity and the C1/C2/C3 adapters. Browser payloads select saved item/option IDs; they never supply edit operations.
 The server verifies same-origin mutations, confines served files and verifies registered artifact hashes.
+Delivery responses expose verified `exactness` and `side_effects`; Results shows those measurements and the
+complete side-effect report. Same-part shading refusal is the current supported boundary, not an exact two-item
+normal-composition proof. UNDERSTAND evidence sealing remains slow on Prada: C2's two-item proof took 1,147.484 s
+(about 19 minutes). The pre-M12 M11-task-8 historical temple-alias regression remains open, queued as M11 task 12.
 
 | Module | Responsibility |
 |---|---|
@@ -147,5 +165,5 @@ node --test glasses3d/dev_ui/browser_tests/
 ```
 
 Use [the test guide](../tests/README.md#m12-dev-ui-and-edit-proofs) for core edit tests, native proof commands,
-measured durations and pending D1 work. Run pool-heavy proofs sequentially with the project's detached logging
+measured durations and D1's completed proof. Run pool-heavy proofs sequentially with the project's detached logging
 and memory rules; simulated ledger spend in a proof is separate from its actual $0 API cost.

@@ -1,5 +1,43 @@
 # glasses3d progress
 
+## 2026-10-19 — M12-D3 final verification and closing documents ($0)
+
+M12 implementation and required $0 verification are complete with the retained limits below. Baseline `2340e95`; no D3 commit. D1 (`b81f923`, `0da06ba`) completed all six real-browser
+scenarios at $0: `data/m12/proofs/d1b/proof.json`. The follow-up verified the early same-part shading refusal
+and reauthenticated the immutable byte-exact single-pick delivery; it did not turn the original native dual-pick
+failure into a successful composition. Six scripted runs retained 31 inference requests plus 31 token counts,
+simulated $0.325, actual provider requests 0 and actual $0. Follow-up added no SDK run or native apply.
+
+C2 follow-up 3 (`1a79b26`) restored the normal writer after the real Prada preview regression and refuses separate
+same-part shading picks before copy/worker/publication. The owner can put both marks in one item or apply one now
+and send the other as a new edit. Exact local normal writes remain future work. D3 marked the intermittently
+passing authored zero-overlap case `xfail(strict=False)` as the brief required, citing task 11's four changed
+corners and 4.3153763e-5 drift; the eleven other future goals remain strict xfails. No assertion, tolerance or
+normal writer changed. D3's authored case XPASS is not proof of deterministic exactness.
+
+| D3 check | Result |
+|---|---|
+| Functional, including dev UI, parallel | 5,614 passed / 2 skipped / 11 xfailed / 1 non-strict xpassed / 4 errors; 823.83 s, exit 1. |
+| Unchanged camera module, alone | 8 passed, 108.47 s, exit 0; clears all four documented WinError 6 fixture errors. Four rerun passes duplicate the first pass: 5,618 distinct functional passes. |
+| Photoprint | 367 passed, 381.35 s, exit 0. Four pytest workers; at most two inner bake workers per fixture. |
+| Serial timing, idle machine | 29 passed, 260.41 s, exit 0; original budgets/deadlines unchanged. |
+| Dev UI Chromium | 20 passed, 23.923 s, exit 0. |
+| arview unit / QA / type check / build | 509 unit (20.559 s) / 113 QA (39.104 s) passed; check/build exit 0 (receipt intervals 1 s / 3 s); production capture 35/35 images. |
+| Assembly M1 | Passed, 152.266 s, exit 0; 13 scripted requests, 26 transport receipts, 12 image blobs, 35 AR images, clean receipts, actual $0. `data/assembly/m1-proof-79a0b97e/proof.json`. |
+| Final README/instruction contracts | 87 passed, 7.09 s, exit 0; supplementary checks overlap the functional pass. |
+
+Final Python accounting: 6,014 distinct passes / 2 skips / 11 xfails / 1 non-strict XPASS across 6,028 collected cases; four duplicate camera-retry passes are not added. The first local launcher attempt ran no tests and exited 3 because its
+temporary-directory parent was absent; only the ignored launcher script was repaired. All commands, times,
+PIDs, exit codes, logs and retained failures are in `data/m12/codex/m12_D3_report.md`. Checks ran detached with
+BLAS 1, EcoQoS opt-out and memory-bounded pools; pool-heavy work was serialized. D1 proofs were not rerun.
+
+B follow-up 2 (`fb7f5d5`) shows only settled spend, the owner's cutoff and money left. M11 task 11 (`2340e95`),
+not M12, makes settled-only the default and sole new-run/edit mode and removes Astra's finish-cost projections.
+Docs retain the owner's dated money words, typed dev UI authorization, final proof scope and remaining limits.
+Still open: exact local normals; the pre-M12 task-8 historical temple-alias regression, queued as M11 task 12;
+Prada UNDERSTAND sealing latency (1,147.484 s, about 19 minutes, in C2's two-item proof).
+No paid call, real approval, push, original-asset change or owner product acceptance. The owner tries the UI himself and decides on any paid run.
+
 ## 2026-10-19 — Task 11: Oakley regression diagnosis, camera alternatives and settled-only money ($0)
 
 The matched model/matte/source controls reproduce the side flips with the new model under both matte
@@ -71,19 +109,22 @@ WP0/1/3/3b are built and tested, WP2 A–F and specialist stages are assembled, 
 instructions and contracts are implemented. M11 tasks 1–9 have landed and Claude accepted them (task 9:
 `81ef7b2`); M11 is complete. Its final baseline is **5,236 Python passes / 2 Windows symlink skips**, arview
 **512 unit / 113 QA passes**, type check/build and M1 passing. Cleanup verification is recorded separately.
-M12's local dev UI, capture intake, per-item choices and full-item fallback are built through committed tasks
-A/B/C1/C2/C3. Their focused checks below are not a completed M12 integration proof or a new full-suite baseline.
+M12's local dev UI, capture intake, per-item choices and full-item fallback are built. D1's six real-browser
+scenarios passed (`b81f923`, `0da06ba`) under the same-part shading refusal, with immutable single-pick exactness
+and the fallback-to-new-edit loop verified. M12 status: complete with documented limits. Final D3 suite: 6,014 distinct Python passes / 2 skips / 11 xfails / 1 non-strict XPASS; 20 UI browser / 509 arview unit / 113 QA passes; type check, build and M1 passed. The four parallel camera setup errors cleared in isolation.
 
-**Next action:** D1's real-browser/scripted-Astra/Blender proof and the coordinator's final suite (including arview
-and M1), then the owner tries the UI himself. D2 is documentation only; M5 paid validation remains his call.
+**Next action:** The owner tries the UI himself and decides on any paid run; M5 paid validation remains his call.
+No build or proof authorizes spending.
 Standing dev UI terms are **high effort, the owner's typed settled-only cutoff, cap = stop**, shared by parent and
 specialist; no reservation cutoff or output shrinking. No next request starts at or above that amount; the
 in-flight response may cross it, and unknown charges stop spending. His typed amount and paid-send button press
 authorize that one run or edit send, recorded as a single-use approval with the button's words. Coding agents
 never start paid calls under build tasks and still need his explicit OK and an estimate for anything they would
-run. New CLI runs default to a $20 settled cutoff and max effort; settled-only is the sole new-run/edit
+run. New job-run CLI requests default to a $20 settled cutoff and max effort; settled-only is the sole new-run/edit
 money mode. Historical reservation-mode approvals and ledgers remain readable, not new-run authority.
-No total WP8 budget is approved.
+M11 task 11 (`2340e95`) committed that sole money mode and removed Astra's finish-cost projections. The UI and
+Astra's money status show only settled spend, cutoff and money left; no estimates, held amounts, projected costs
+or finish-soon figures. Local CLI planning estimates remain available. No total WP8 budget is approved.
 
 ### Accepted assets and preserved scope
 
@@ -110,10 +151,13 @@ No total WP8 budget is approved.
 
 ### Open work and retained limits
 
-- **M12:** D1 end-to-end integration and the final suite remain. C2's native mixed UNDERSTAND and exact single
-  pick passed through export/print/AR, but its two-previewed-item Prada apply remains unproved after an existing
-  fold refusal. Immutable applied-picks publication and fallback-to-new-capture integration are C3 follow-up
-  work for D1 to verify. Focused synthetic multi-pick tests do not replace the missing native demonstration.
+- **M12 retained limits:** exact local normal writes and ordered same-part shading composition remain future
+  work. C2 follow-up 3 refuses two such picked items early; one item containing both marks or a later edit from
+  the single-pick delivery remains available. Eleven strict expected failures preserve the future normal goals;
+  the authored zero-overlap case is non-strict because task 11 observed failure where C2 observed a pass.
+  D1 proves that refusal and byte-exact single apply, not successful separate same-part dual composition.
+  UNDERSTAND sealing is slow on Prada (1,147.484 s for C2's two-item proof). The pre-M12 historical temple-alias
+  regression introduced by M11 task 8 remains open, queued as M11 task 12; D1 did not repair it.
 - M5/WP8's smoke and accepted Oakley are complete; assembled Prada, assembled FT1119 and three unseen products
   remain. **M9.4** (desktop c0016 beside run-4 c0015 and photos for the owner's judgment) is not recorded complete.
   The review-page authored-size choice is parked until the hard technical work is finished.

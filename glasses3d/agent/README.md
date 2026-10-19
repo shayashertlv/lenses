@@ -46,9 +46,13 @@ The typed amount and the owner's paid-send button press authorize that one run o
 approval recording the button's words and displayed amount. Coding agents do not start paid calls for this build;
 any paid run they would execute still needs the owner's explicit OK and an estimate. The $20 CLI examples here are
 example amounts, not a ceiling; replace both `--cap` and `--settled-stop` with the authorized amount.
-All new runs and edit rounds use settled-only spending. CLI defaults are max effort and a $20 settled cutoff;
+All new runs and edit rounds use settled-only spending. Job-run CLI defaults are max effort and a $20 settled cutoff;
 `--cap` must equal `--settled-stop`. The `--settled-only` flag remains optional for compatibility. Old approvals
 and ledgers remain readable and reconcilable, but reservation-mode approvals cannot start new requests.
+This default and sole new-run money mode is committed M11 task 11 (`2340e95`), which also removed finish-cost
+projections from Astra's input. The UI and Astra's money status show only settled spend, the owner's cutoff and
+money left: no estimates, held amounts, projected costs or "finish soon" figures. The local CLI estimate remains
+available for planning and the coding-agent authorization workflow described above.
 An estimate's 60-reply forecast is an assumption, not a reply limit or a spending guarantee. `job stop JOB_ID`
 requests a stop before the next request. `--foreground` runs in the invoking terminal; detached execution is the
 normal path. Logs and status are under `runs/RUN_ID/`; the heartbeat is at the job root.
@@ -126,6 +130,22 @@ affected items and objects reported on the page and in the receipt; no isolated-
 Ambiguous shared topology changes refuse. "None of these" applies nothing for that item and retains its note.
 Applied deliveries record zero requests and cost, `accepted_finish:false` and no visual acceptance; the owner can
 review the result and record a verdict.
+
+Two distinct picked items that write shading/normals on the same source object refuse before destination handling,
+copying, worker startup or publication, even if their marked regions are disjoint. Classification authenticates
+the source and selected preview snapshots; material-only operations do not count, and coordinate edits count when
+the sealed preview changes intended normals, smoothing or topology. One item containing both marks, one selected
+item, and shading changes on different source objects retain the existing checked apply path. The owner can put
+both marks in one item when preparing the request, or apply one now, choose **None of these** for the other, and
+send the other as a new edit from the resulting delivery. Exact local normal writes and ordered composition remain
+future work: the attempted writer repair regressed the real Prada preview and was reverted. Expected-failure
+tests preserve the exact future normal-write requirements; no tolerance or exactness gate was loosened.
+
+D1's six browser scenarios passed at $0 under this refusal, including immutable single-pick preview-byte equality;
+this is not a successful same-part two-item composition claim. UNDERSTAND evidence sealing remains slow on Prada
+(C2's two-item proof: 1,147.484 s, about 19 minutes). The pre-M12 historical temple-alias regression introduced by
+M11 task 8 remains open, queued as M11 task 12. See [current progress](../plan/PROGRESS.md) for suite results and
+remaining scope.
 
 An unpreviewable item can go to a separately approved **full paid edit** (`full_edit_item`) with its own typed
 cutoff. This starts from the same immutable source delivery with the main toolset, product photos, only the selected
