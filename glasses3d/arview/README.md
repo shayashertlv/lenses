@@ -2,7 +2,7 @@
 
 arview shows Astra and the owner what a GLB looks like worn in the browser try-on, and says plainly what violates the
 owner's model spec (PLAN.md §2). It is a fork of `ar/` at 75ae133 plus the chosen stash@{0} edits (WP1 stage A,
-`plan/PORT_REVIEW.md` §7), with much broader acceptance than the live site: only a §2 refusal (WP1_DESIGN.md §1) ever
+`glasses3d/plan/archive/20261019/PORT_REVIEW.md` §7), with much broader acceptance than the live site: only a §2 refusal (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1) ever
 blocks a render; everything else renders with a warning and every fallback is reported. It is never deployed and never
 publishes anything; the live try-on stays `ar/`, served by the root application.
 
@@ -62,7 +62,7 @@ Ports (`ar/` keeps 8240/8241):
 decoders served from three's own `examples/jsm/libs` at `/decoders/` and copied into the build, `worker.format` `es`.
 Playwright's Chromium is installed once with `npx playwright install chromium`.
 
-## Webcam page (`arview serve`, WP1_DESIGN.md §6)
+## Webcam page (`arview serve`, glasses3d/plan/archive/20261019/WP1_DESIGN.md §6)
 
 ```bash
 node qa/serve.mjs <model.glb>                 # or: npx arview serve <model.glb>; Ctrl+C stops it
@@ -201,7 +201,7 @@ then every failed §2 row (`report().errors`, worded as spec.py's `errors`; most
 own), then the warnings and the fallbacks (`renderedReportLines` in `src/model/served-report.ts`, built on `reportLines`
 in `src/model/report.ts`); a fallback taken while rendering joins the list when it happens.
 
-Loading (WP1_DESIGN.md §1, §5): the WebGLRenderer exists before the GLB is parsed; `src/model/load.ts` reads the
+Loading (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): the WebGLRenderer exists before the GLB is parsed; `src/model/load.ts` reads the
 container and JSON, resolves external resources against the model URL's directory (fetched once, parsed from those
 bytes), and parses with Draco, meshopt and KTX2 (decoders from three's `examples/jsm/libs`, served at `/decoders/` by
 `vite.config.ts`). `src/model/normalize.ts` is the one normalisation pass before any subsystem: transforms (one 1e-6
@@ -251,7 +251,7 @@ Malformed attribute references, overlong reached buffer views, a JSON BOM, expli
 material indices, null texture coordinates and all nonempty morph-target declarations are rejected on both paths;
 pre-parse refusals leave arview's later rows unchecked, as listed in `tests/spec-agreement.test.ts`.
 A missing external resource is refused (used or
-not, WP1_DESIGN.md §1); a primitive without POSITION fails the Format row and is not drawn. A §2 violation of the §1 table is refused (`ModelRefusal`, carrying the whole report); everything
+not, glasses3d/plan/archive/20261019/WP1_DESIGN.md §1); a primitive without POSITION fails the Format row and is not drawn. A §2 violation of the §1 table is refused (`ModelRefusal`, carrying the whole report); everything
 else renders, each subsystem in its own try block, every fallback in `report().fallbacks` and `report().warnings`. The
 report also has the seven §2 rows, measurements, `rendered_sha256` (the exact bytes parsed; a `&sha256=` handover is
 only compared with it) and `live_site_would_fail`. Capture accessors: `cameraState()`, `assetMatrixWorld()`,
@@ -259,7 +259,7 @@ only compared with it) and `live_site_would_fail`. Capture accessors: `cameraSta
 `lens-hidden`, `lens-only` or `normals`. `src/model/check.ts` runs the same load and pass without drawing (without a
 renderer, KTX2 textures are a reported `textures` fallback); `arview serve` uses it.
 
-Temples, clip and fit scale (WP1_DESIGN.md §3, §4; `src/render/temple-geometry.ts`): temples are found per side by
+Temples, clip and fit scale (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3, §4; `src/render/temple-geometry.ts`): temples are found per side by
 position, whatever their opacity (crystal and alpha-blended arms are temples like opaque ones; lens-class geometry never
 is): the non-lens geometry at |x| > 45 mm behind the lens rear, or the `temple_left`/`temple_right` region of a valid
 `LENSES_part_visibility` profile (the positional arm parts leave out front parts, see "Compact authored front-frame
@@ -289,7 +289,7 @@ uses that fit. Size adjustment provides a small personal correction within the f
 Refit starts a new calibration; closing and reopening the camera starts fresh. The page always includes fitting,
 shadows and occlusion.
 
-## Capture CLI (`arview capture`, WP1_DESIGN.md §6)
+## Capture CLI (`arview capture`, glasses3d/plan/archive/20261019/WP1_DESIGN.md §6)
 
 ```bash
 node qa/capture.mjs <model.glb> --poses default|junction|all --out <fresh dir> [options]   # or: npx arview capture ...
@@ -513,7 +513,7 @@ frame materials reflect an unblurred see-through room: three's `RoomEnvironment`
 the selfie camera and clipped to a flat white rectangle. Native lenses keep the scene room (with `?lensenv`, they own that
 room at 0.8 × lensenv). A total mirror remains a lens in geometry, fitting, visibility and hair consumers.
 
-Lens identification (WP1_DESIGN.md §2, `src/eyewear/lens-identification.ts`, the same order and shared test vectors
+Lens identification (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2, `src/eyewear/lens-identification.ts`, the same order and shared test vectors
 as `glasses3d/g3d_host/lens_id.py`) decides every material's class once at load, from the glTF JSON (never three's
 merged userData), per use (node x primitive):
 1. extras on the material, then mesh, then node: `partRole` equal to `lens`, or legacy `part_role` starting with
@@ -609,7 +609,7 @@ Useful diagnostic options are defined in `src/config.ts`:
 The page's Measure panel (`window.__ar.measure()`) runs fresh camera sessions and reports their rates. The ar/ QA
 gates tied to the live site's shipped catalog frames (`qa/measure.mjs`, `pipeline-smoke`, `shadow-smoke`,
 `shadow-stability`, `fit-smoke`) and the retired canonical-lens and optical-group harnesses were not ported
-(`plan/PORT_REVIEW.md` §7); the webcam-page proof is `qa/serve.test.mjs` (face-a streamed as the camera through the
+(`glasses3d/plan/archive/20261019/PORT_REVIEW.md` §7); the webcam-page proof is `qa/serve.test.mjs` (face-a streamed as the camera through the
 normal page). [qa/README.md](qa/README.md) indexes the QA tools and tests.
 
 ## Repository rules

@@ -1,4 +1,4 @@
-"""The $0 isolation guards themselves (plan/WP2_DESIGN.md section 14, criterion 1): LoopbackOnly refuses and counts
+"""The $0 isolation guards themselves (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14, criterion 1): LoopbackOnly refuses and counts
 every non-loopback connect or DNS lookup, ProductionTransportTripwire refuses and counts every real network transport
 (a production client), offline clients need G3D_OFFLINE=1 and an sk-offline- key, and disable_sdk_tracing never
 builds the Agents SDK's tracing exporter client (which the SDK's own set_tracing_disabled does)."""

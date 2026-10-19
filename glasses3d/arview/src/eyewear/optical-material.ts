@@ -1,4 +1,4 @@
-/** The decided lens/frame class of a loaded asset's materials (WP1_DESIGN.md §2).
+/** The decided lens/frame class of a loaded asset's materials (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2).
  *
  *  classifyAssetMaterials runs once at load. It reads the extras from the glTF JSON (`gltf.parser.json`, mapped to the
  *  three objects through `gltf.parser.associations`), never three's merged userData, and applies the rule order of
@@ -112,7 +112,7 @@ export function isAuthoredFrontFrame(object: Object3D, root: Object3D): boolean 
   return true;
 }
 
-/** The central band no temple reaches: temples lie at |x| > 45 mm (WP1_DESIGN.md §3, temple-geometry.ts). */
+/** The central band no temple reaches: temples lie at |x| > 45 mm (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3, temple-geometry.ts). */
 export const POSITIONAL_FRONT_CENTRAL_HALF_WIDTH_M = 0.045;
 
 /** On the positional path (no usable LENSES_part_visibility), a frame mesh that is front, never arm geometry, by its

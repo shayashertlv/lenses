@@ -1,4 +1,4 @@
-/** arview against the Python validator on the SAME bytes (WP1_DESIGN.md §1: `glasses3d/g3d_host/spec.py` is the single
+/** arview against the Python validator on the SAME bytes (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: `glasses3d/g3d_host/spec.py` is the single
  *  source of truth for the PLAN §2 rows, and arview's runtime checks must agree with it on shared fixtures).
  *
  *  The fixtures are built by the PYTHON fabricator (`glasses3d/tests/glbfab.py`, through tests/spec_agreement_cases.py,
@@ -58,7 +58,7 @@ interface PythonCase {
 interface Intended {readonly rows: Partial<Record<SpecRowName, {arview: Verdict; python: Verdict}>>; readonly arviewStatus: 'rendered' | 'refused'; readonly why: string}
 const NOT_CHECKED_AFTER_REFUSAL = (python: Partial<Record<SpecRowName, Verdict>>): Intended['rows'] =>
   Object.fromEntries(Object.entries(python).map(([row, verdict]) => [row, {arview: 'fail', python: verdict}]));
-const REFUSED_BEFORE_PARSING = 'arview refuses at the Format row before three parses the file (WP1_DESIGN.md §1), so it cannot check the other rows: each '
+const REFUSED_BEFORE_PARSING = 'arview refuses at the Format row before three parses the file (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1), so it cannot check the other rows: each '
   + 'fails as "not checked"; spec.py fails Format and still checks the rest.';
 const INTENDED: Readonly<Record<string, Intended>> = {
   'review-absolute-http': {arviewStatus: 'refused', why: `Absolute URLs are refused without any request. ${REFUSED_BEFORE_PARSING}`,
@@ -88,7 +88,7 @@ const INTENDED: Readonly<Record<string, Intended>> = {
     + 'asset.version, so it passes Format too.', rows: {format: {arview: 'fail', python: 'pass'},
     ...NOT_CHECKED_AFTER_REFUSAL({units: 'pass', origin: 'pass', orientation: 'pass', transforms: 'pass', geometry: 'pass', components: 'pass'})}},
 };
-/** The intended Units difference (WP1_DESIGN.md §1, the Units row): on a millimetre or centimetre file both sides fail
+/** The intended Units difference (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Units row): on a millimetre or centimetre file both sides fail
  *  Units (and Origin and Orientation: spec.py "not checked", arview "not checked as authored" plus its measurement after the
  *  rescale), but arview RESCALES AND RENDERS, loudly, while spec.py's verdict is simply not ok. Exactly these files are
  *  rescaled (the 70-unit file is outside spec.py's 95-200 mm window but inside arview's 60-250 rescale range: both still
@@ -181,7 +181,7 @@ const SAME_REASON: Readonly<Record<string, readonly [SpecRowName, string]>> = {
   'format-lens-material-7': ['components', "lens primitive 'Lens_L' has no material, so it is not distinguished by material"],
   'format-texture-index-missing': ['format', "material 'Frame acetate' pbrMetallicRoughness.baseColorTexture: texture 9 does not exist"],
 };
-/** The §1-table refusals (WP1_DESIGN.md §1: Transforms, Geometry, Components; Format ones are INTENDED): the case and the
+/** The §1-table refusals (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: Transforms, Geometry, Components; Format ones are INTENDED): the case and the
  *  rows arview refuses at. Every case not listed here or in INTENDED must RENDER. */
 const TRANSFORMS: readonly SpecRowName[] = ['transforms'], GEOMETRY: readonly SpecRowName[] = ['geometry'];
 const ARVIEW_REFUSES: Readonly<Record<string, readonly SpecRowName[]>> = {

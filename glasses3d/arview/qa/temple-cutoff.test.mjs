@@ -78,7 +78,7 @@ test('adjusting tip metadata never bypasses strict missing interior sections: on
   assert.match(model.missing[0].reason, /the right arm has no cross-section at z -(7|8|9)\d\.\d mm/);
 });
 
-// Missing or malformed profiles are optional metadata (WP1_DESIGN.md §1): the asset's profiles are ignored and position
+// Missing or malformed profiles are optional metadata (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): the asset's profiles are ignored and position
 // decides, with the warning in the receipt. A missing arm or arms too short to be temples are reported per side.
 test('partial, missing, malformed, transformed, one-sided and too-short arms are reported, never thrown', t => {
   const positional = (root, pattern) => {
@@ -97,7 +97,7 @@ test('partial, missing, malformed, transformed, one-sided and too-short arms are
   const bySide = positional(swapped.root, /"left" region 'temple_right' lies at x -60\.0 mm, but legacy region temple_left must lie at x < 0/);
   assert.deepEqual(bySide.side_bounds.map(side => side.present), [true, true]);
   // A transformed arm is refused once, by the load-time §2 Transforms check (src/model/normalize.ts), before any QA or
-  // runtime consumer reads the scene; part-visibility no longer duplicates it (WP1_DESIGN.md §1).
+  // runtime consumer reads the scene; part-visibility no longer duplicates it (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1).
   const moved = fixture(t); moved.left.position.z = .001;
   assert.throws(() => normalizeModel(moved.root, new ModelReportBuilder('moved', 'moved')),
     error => error instanceof ModelRefusal && /§2 Transforms: 1 mesh node\(s\) with a non-identity world transform/.test(error.message));

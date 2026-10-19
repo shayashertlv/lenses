@@ -66,7 +66,7 @@ diff_vs_head exactly where the parent is not the head, no network, the worker's 
 The renewal checks use the real temple lab's evidence selection: all current reading sheets and complete latest
 photo-compare groups. The old conversation's persisted message bytes and every prior request stay unchanged;
 the renewed request contains the original owner-photo bytes and every selected evidence digest, with no image
-stubs. Legacy ContextGuard behavior is independently covered by tests/agent/test_loop_facet.py and test_image_policy.py.
+stubs. Legacy settings and append-only history are covered by tests/agent/test_loop_facet.py and test_image_policy.py.
 
 Writes <out>/rehearsal.json (and <out>-run.json, the process receipt); the cost estimate (cli estimate) prices its
 tool_outputs ([W, H, cli.record_kind], each facet_variants call with its "arms") and its first request's serialized

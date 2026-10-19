@@ -74,7 +74,8 @@ that failure as the owner's -x temple complaint. Rule: a group whose share of th
 (``photo_group_shares``) is below ``MIN_PHOTO_GROUP_SHARE`` is reported (its ``by_group`` block is computed as before, with ``graded`` False
 and the reason) but left out of both weighted forms (its AR and photo pixels alike), so of every pass / fail verdict
 (``pass``, ``appearance``, ``pass_brow``) and of the chroma fit, which reads the ``print`` form
-(``ar_calibrate.chroma_stats`` / ``chroma_units``); ``group_residuals`` / ``group_chroma_units`` give None for it.
+(``g3d_host.photoprint.ar_calibrate.Calibrator.chroma_stats`` / ``chroma_units``);
+``group_residuals`` / ``group_chroma_units`` give None for it.
 The ``frame`` form (unweighted) is unchanged. The number, from the data (``group_share_table``; stored in
 ``data/wp5/step6_fixes/photo_group_shares.json``): the twelve photo-side shares are constants of the job (photo masks
 and the photos' own highlights, independent of any print or capture): side views' brows 0.090 (photo 03) and 0.117
@@ -257,30 +258,6 @@ def part_points(job, cache: dict | None = None) -> dict:
             out[part] = tuple(round(float(x), 3) for x in (cen[m] * w[:, None]).sum(0) / max(float(w.sum()), 1e-12))
         return out
     return _cached(cache, "part_points", make)
-
-
-_SIDES: dict = {}
-
-
-def part_sides(job) -> dict:
-    """Fix round 3 of step 6: {'-x': (brow, temple, -1), '+x': (brow, temple, 1)}: each print part's side by the x sign
-    of its area-weighted centroid (``part_points``), never by its name (the house rule; q001 names its parts by the
-    viewer's side, which happens to agree); raises unless each side has exactly one brow and one temple. Which parts
-    are brows or temples is the part class (``GROUPS``)."""
-    hit = _SIDES.get(id(job))
-    if hit is not None and hit[0] is job:
-        return hit[1]
-    pts = part_points(job)
-    out = {}
-    for sg, name in ((-1, "-x"), (1, "+x")):
-        b = [p for p in GROUPS["brow"] if np.sign(pts[p][0]) == sg]
-        t = [p for p in GROUPS["temple"] if np.sign(pts[p][0]) == sg]
-        if len(b) != 1 or len(t) != 1:
-            raise ValueError(f"side {name}: brows {b} and temples {t} by the x sign of their centroids {pts}; "
-                             f"expected exactly one of each")
-        out[name] = (b[0], t[0], sg)
-    _SIDES[id(job)] = (job, out)
-    return out
 
 
 def _masks(cap: Path, pose: str):

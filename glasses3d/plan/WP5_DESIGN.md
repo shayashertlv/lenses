@@ -9,7 +9,7 @@ This does not change thresholds or assert that historical failed proofs passed. 
 are dated design history: do not restart at STOP 0, repeat D1–D6, redo A–E/B promotion, or rebuild the G1 library.
 G1 was verified at `f020b57`; it proves reuse, not quality acceptance or unseen-product accuracy.
 
-**Cleanup 2026-10-13** ([REVIEW_20261013.md](REVIEW_20261013.md) §7; tag `review-20261013-pre-cleanup`): the step-0
+**Cleanup 2026-10-13** ([archive/20261019/REVIEW_20261013.md](archive/20261019/REVIEW_20261013.md) §7; tag `review-20261013-pre-cleanup`): the step-0
 registration producers (`step0.py`, `register.py`, `gate.py`, `check_print.py`) and their proofs/tests (A0, synthetic
 job, fold-leak, gate, STOP A, brow-left warmth), the one-off owner-sheet and step-4/6 proof scripts, and the retired
 seam harmonise/reflect code were deleted. Production still reads a recorded step-0 report (`bake_print(...,
@@ -31,15 +31,15 @@ prerequisite or blend unregistered views. The original mode decision did not wai
 closeout above changes WP5 status without changing these measurements. WP6 v1 gates (incl. STOP-I) were retired on 2026-10-10
 by owner decision; WP6 is rebuilt per WP6_FACETS.md.
 
-The independent protocol evolved in the dated PORT_REVIEW §10 corrections. These are the **existing protocols**,
+The independent protocol evolved in the dated glasses3d/plan/archive/20261019/PORT_REVIEW.md §10 corrections. These are the **existing protocols**,
 not new threshold changes in this handoff. Preserve their constants, eligibility, held-out separation and diagnostic
 fields. The original §8 table remains below for history:
 
 | Check | Current measurement to preserve | Source of the recorded correction |
 |---|---|---|
-| A4 | Per-part median absolute log energy <= 0.15 in both bands; median seam ratio <= 1.2; median mean-colour ΔE00 <= max(2.0, median donor-ring baseline). Literal <= 2.0 remains separately reported. Real-vs-real floor is diagnostic, never an excuse for failure. Compare fillers at their own selected radii on the same holes/seeds, retaining the five-seed comparison. | `tests/instruments/print_metrics.py:a4_criteria` documents the calibrated colour limit; PORT_REVIEW §10 build-step-4 fix round 1 documents fair filler comparison and the diagnostic-only floor |
-| A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Frozen offsets 7 and 8 remain after reflection is removed (historical band: 6 texels). A wider future band requires readings beyond it. Same-point equality remains diagnostic; Poisson does not impose it. | `print_metrics.seam_steps`, `printproof.seams`; PORT_REVIEW §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
-| B3 | All six held-out bakes; every eligible region/view row, including failures. Protocol `10bf932`: atlas before AR level, no re-lighting. `relit_h` uses held-out shading and is diagnostic only. Preserve `print_metrics.evaluate_b3`/`b3` and their support/coverage rules. | `printproof.heldout_b3`; PORT_REVIEW §10 correction-round fix round 1, item 7 |
+| A4 | Per-part median absolute log energy <= 0.15 in both bands; median seam ratio <= 1.2; median mean-colour ΔE00 <= max(2.0, median donor-ring baseline). Literal <= 2.0 remains separately reported. Real-vs-real floor is diagnostic, never an excuse for failure. Compare fillers at their own selected radii on the same holes/seeds, retaining the five-seed comparison. | `tests/instruments/print_metrics.py:a4_criteria` documents the calibrated colour limit; glasses3d/plan/archive/20261019/PORT_REVIEW.md §10 build-step-4 fix round 1 documents fair filler comparison and the diagnostic-only floor |
+| A5 | Independent seam samples on the PNG read back; across-seam p95 <= max(3, within-chart p95 at the same separation). Frozen offsets 7 and 8 remain after reflection is removed (historical band: 6 texels). A wider future band requires readings beyond it. Same-point equality remains diagnostic; Poisson does not impose it. | `print_metrics.seam_steps`, `printproof.seams`; glasses3d/plan/archive/20261019/PORT_REVIEW.md §10 build-step-3 fix round 1 and build-step-4 fix round 1 |
+| B3 | All six held-out bakes; every eligible region/view row, including failures. Protocol `10bf932`: atlas before AR level, no re-lighting. `relit_h` uses held-out shading and is diagnostic only. Preserve `print_metrics.evaluate_b3`/`b3` and their support/coverage rules. | `printproof.heldout_b3`; glasses3d/plan/archive/20261019/PORT_REVIEW.md §10 correction-round fix round 1, item 7 |
 
 Any future independent quality proof must use production density (currently 15.94969 texels/mm), not just the 8 texels/mm regression
 fixture. A green test asserting an expected failure does not pass a quality gate. A proven instrument bug may be
@@ -364,7 +364,7 @@ strip-space sheet adds class overlays.
 | `glasses3d/tests/photoprint/` | `test_signals`, `test_gate` (injected shifts; decoys never reach the peak), `test_register_synthetic` (A0), `test_printuv`, `test_compose`, `test_fill`, `test_check_print`, `test_determinism`, `test_no_import` |
 | `glasses3d/tests/blender/print_roundtrip.py`, `glasses3d/tests/proofs/wp5_ft1119.py` | A6; the proof run, written to `data/wp5/ft1119/` |
 
-**Ports** (reviewed, copied in with tests, listed in PORT_REVIEW):
+**Ports** (reviewed, copied in with tests, listed in glasses3d/plan/archive/20261019/PORT_REVIEW.md):
 - `wp5lib` metrics → `print_metrics` and `signals`;
 - `refine` sampling, `design_reg/p2_parallax` (`AnchorRayWarp`, `stripe_masks`) and the `p2g_joint` guards →
   `register` and `regions`;

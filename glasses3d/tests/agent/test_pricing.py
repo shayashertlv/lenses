@@ -1,5 +1,5 @@
 """agent/pricing.py is a byte copy of automation/modeler/agentic/pricing.py at main 7e25722 (161 lines, astra only),
-and the frozen tariff prices exactly as plan/WP2_DESIGN.md section 8 says: per million tokens input $10, cached $1,
+and the frozen tariff prices exactly as glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8 says: per million tokens input $10, cached $1,
 cache write $12.5, output $50; above 272,000 input tokens x2 input/cache and x1.5 output; integer micro-USD with every
 division rounding up; reserve_micro = all input at the cache-write rate + the full output cap."""
 import hashlib
@@ -86,7 +86,7 @@ def test_every_division_rounds_up():
 
 def test_reserve_is_all_input_at_cache_write_plus_full_output_cap():
     assert T.reserve_micro(1000, 100) == 1000 * 12.5 + 100 * 50 == 17_500
-    assert T.reserve_micro(24_787, 8_192) == 719_438                           # Prada row 1 (WP2_DESIGN section 14)
+    assert T.reserve_micro(24_787, 8_192) == 719_438                           # Prada row 1 (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14)
     assert T.reserve_micro(272_001, 25_000) == 8_675_025                       # long context: x2 write, x1.5 output
     for counts in [dict(tokens=24_787, written=24_784, output=8_192), dict(tokens=225_128, cached=220_158,
                    written=4_967, output=8_192), dict(tokens=300_000, output=8_192)]:

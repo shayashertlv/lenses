@@ -93,7 +93,7 @@ class Calibrator:
         return idx.pop()
 
     def part_image_indices(self, doc: dict, parts=None) -> list[int]:
-        """Every image a base-colour texture of ``parts``' materials uses (node names; a '.001' suffix is ignored)."""
+        """Every image a base-colour texture of ``parts``' materials uses, matched by exact node name."""
         parts = self.PRINT_PART_NAMES if parts is None else parts
         idx = set()
         for node in doc.get('nodes', []):
@@ -214,24 +214,6 @@ class Calibrator:
         if p.returncode not in (0, 3) or not (Path(out) / 'report.json').is_file():
             raise RuntimeError(f'arview capture failed ({p.returncode}): {se[-2000:]}')
         return Path(out)
-
-    def capture_with_probe(self, glb: Path, out: Path, log=print, portrait: bool=False, job=None, photos=None, coat_off_probe: bool=False) -> dict:
-        """``glb`` captured at every pose (out/capture) with its black probe (out/probe), graded by ``ar_levels``
-        (out/ar_levels.json); ``coat_off_probe``: also the black probe without the clearcoat (out/probe_nocoat)."""
-        out = Path(out)
-        out.mkdir(parents=True, exist_ok=True)
-        cap = self.capture(glb, out / 'capture', log, portrait)
-        pg = out / f'probe_{Path(glb).stem}.glb'
-        self.black_probe(glb, pg)
-        probe = self.capture(pg, out / 'probe', log)
-        if coat_off_probe:
-            pn = out / f'probe_nocoat_{Path(glb).stem}.glb'
-            self.black_probe(glb, pn, clearcoat=False)
-            self.capture(pn, out / 'probe_nocoat', log)
-        res = self.measurements.measure([cap], job=job, probes={str(cap): str(probe)}, photos=photos)
-        res['glb'] = str(glb)
-        (out / 'ar_levels.json').write_text(json.dumps(res, indent=1), encoding='utf-8')
-        return res
 
     def appearance_residuals(self, l_res: list, std_ratios: list) -> list:
         """Step 6: the ``appearance`` target's residuals: the L* residuals, then per pair 2 x ln(std ratio) / ln(1.18)
@@ -377,8 +359,8 @@ class Calibrator:
 
     def with_chroma(self, gain: float, gamma: float, sat: float=1.0, power: float=1.0, family: dict | None=None) -> dict:
         """The level dict: sat and chroma_power written only when they differ from the step-5 map's (1, 1), and with them
-        the chroma family's options (``family``, default ``CHROMA_FAMILY``: held at >= 1, the havana hue band; ``{}`` =
-        fix round 1's plain power)."""
+        the chroma family's options (``family``, defaulting to this calibrator's explicit ``CHROMA_FAMILY``;
+        ``{}`` applies no family controls)."""
         lv = {'gain': float(gain), 'gamma': float(gamma)}
         if sat != 1.0 or power != 1.0:
             lv['sat'] = float(sat)

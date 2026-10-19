@@ -11,7 +11,7 @@
         [--tags TAG,...] [--workers N]
         (fix round 3 of step 6: the run's stored captures graded again by the current instrument; no capture, no fit)
 
-Method (written down here and in PORT_REVIEW section 10):
+Method (written down here and in glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):
 1. The bake's print.png is photo radiance after the gains (``project_photo_texture(level=None)``; flatten as the bake
    decided). A candidate level (gain, gamma) maps every textured texel through ``shading.level_map``
    (rgb_lin x gain x Y^(gamma - 1); the same per-texel map the bake applies last, so the calibrated bake's print.png
@@ -144,7 +144,6 @@ CHROMA_STOP = 0.5                  # the stage stops when the captured worst chr
 CHROMA_MAX_ITER = 4                # ... or after this many captures past the probes
 CHROMA_FAMILY = {"chroma_hold": True, "chroma_hue": list(legacy_ft1119.HAVANA_HUE_DEG)}  # historical fixture calibration
 ALL_GRADED = ("calibration", "trade-off", "held-out")   # every graded role: the all-pairs chroma minimax
-L_TOL = 2.0                        # the level verdict's window (print_metrics.LEVEL_TOL)
 CONTRAST_UNIT = math.log(1.18) / 2.0     # step 6: ln(std ratio) per "L* unit" of the appearance target
 LABELS = {"photo_angles": "level calibrated at the photos' own angles (pitch +20 vs 05, yaw -30 pitch +20 vs 01; "
                           "L*, contrast and chroma)",
@@ -339,63 +338,6 @@ def appearance_residuals(l_res: list, std_ratios: list) -> list:
     return list(l_res) + [round(math.log(x) / CONTRAST_UNIT, 3) if x else 99.0 for x in std_ratios]
 
 
-def chroma_stats(row: dict, pairs, form: str = AL.TARGET) -> list:
-    """Per pair [[AR C*ab p50, p90, mean], [photo p50, p90, mean]] (the chroma stage's model reads these)."""
-    out = []
-    for p, s in pairs:
-        ap = row[AL.key(p, s)][form]["appearance"]
-        out.append([[ap["ar_chroma"][k] for k in ("p50", "p90", "mean")],
-                    [ap["photo_chroma"][k] for k in ("p50", "p90", "mean")]])
-    return out
-
-
-def hue_terms(row: dict, pair, form: str = AL.TARGET) -> dict:
-    """A pair's hue median, actual graded foreign-hue window, reference model and verdict."""
-    ap = row[AL.key(*pair)][form]["appearance"]
-    h = ap.get("hue") or {}
-    if not h:
-        return {}
-    return {"p50": [h["ar"]["p50"], h["photo"]["p50"]], "foreign_hue_window": h["foreign_window"],
-            "reference": h["reference"],
-            "pass": bool(ap["criteria"].get("hue_p50") and ap["criteria"].get("hue_magenta"))}
-
-
-def grade(cap: Path, job, probe: Path, photos: dict) -> dict:
-    """``ar_levels`` rows of one capture, with its residuals per role (``print`` form, and every form)."""
-    m = AL.measure([cap], job=job, probes={str(cap): str(probe)}, photos=photos)
-    row = m["captures"][str(cap)]
-    roles = {"calibration": m["pairs"], "trade-off": m["tradeoff"], "held-out": m["heldout"]}
-    contrast = {r: AL.contrast_ratios(row, AL.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()}
-    res = {r: AL.residuals(row, AL.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()}
-    # step 6: the appearance target = the calibration pairs' L* residuals + their contrast terms (method step 7)
-    res["appearance"] = appearance_residuals(res["calibration"], contrast["calibration"])
-    return {"capture": str(cap), "pairs": roles, "rows": row,
-            "chroma": {r: AL.chroma_residuals(row, AL.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()},
-            "chroma_units": {r: AL.chroma_units(row, AL.TARGET, [tuple(p) for p in ps]) for r, ps in roles.items()},
-            "chroma_stats": {r: chroma_stats(row, [tuple(p) for p in ps]) for r, ps in roles.items()},
-            "contrast": contrast,
-            "brow_residuals": {r: AL.group_residuals(row, "brow", [tuple(p) for p in ps]) for r, ps in roles.items()},
-            "temple_residuals": {r: AL.group_residuals(row, "temple", [tuple(p) for p in ps]) for r, ps in roles.items()},
-            "brow_chroma_units": {r: AL.group_chroma_units(row, "brow", [tuple(p) for p in ps])
-                                  for r, ps in roles.items()},
-            "hue": {r: [hue_terms(row, tuple(p)) for p in ps] for r, ps in roles.items()},
-            "brow_pass_by_role": row.get("pass_brow"),
-            "residuals": res,
-            "residuals_by_form": {r: {f: AL.residuals(row, f, [tuple(p) for p in ps]) for f in AL.FORMS}
-                                  for r, ps in roles.items()},
-            "pass": bool(row["pass"]["calibration"][AL.TARGET]), "pass_by_role": row["pass"],
-            "view_dependence": row["view_dependence"]}
-
-
-def evaluate(bake: Path, glb: Path, work: Path, level: dict, tag: str, job, probe: Path, photos: dict, log) -> dict:
-    work.mkdir(parents=True, exist_ok=True)
-    g = work / f"cand_{tag}_TOOLTEST.glb"
-    info = swap_image(glb, g, levelled_png(bake, level))
-    cap = capture(g, work / f"cap_{tag}", log)
-    return {"tag": tag, "level": level, "glb": str(g), "png_sha256": info["png_sha256"]} | grade(cap, job, probe,
-                                                                                                   photos)
-
-
 def worst(e: dict, role: str = "calibration", idx=None) -> float:
     r = e["residuals"][role]
     return max(abs(r[i]) for i in (range(len(r)) if idx is None else idx))
@@ -403,11 +345,6 @@ def worst(e: dict, role: str = "calibration", idx=None) -> float:
 
 def best(its: list, role: str = "calibration", idx=None) -> dict:
     return its[int(np.argmin([worst(e, role, idx) for e in its]))]
-
-
-def pair_index(pairs: list, keep) -> list[int]:
-    """Residual indices (2 per pair: p10, p50) of the pairs in ``keep``."""
-    return [2 * i + q for i, p in enumerate(pairs) if tuple(p) in set(map(tuple, keep)) for q in (0, 1)]
 
 
 # ----------------------------------------------------------------------------- the search (pure: tested offline)
@@ -583,9 +520,8 @@ def _has_roles(e: dict, roles) -> bool:
 
 def capture_probes(g, probes=CHROMA_PROBES) -> list:
     """Fix round 3 of step 6: the chroma probes are independent captures, so they run at the same time (one thread
-    each: every capture is its own arview node process, opted out of EcoQoS, and ``grade`` shares the job's cached
-    masks); the results come back in ``probes`` order whatever order they finish in. Step 6 to fix round 2 captured
-    them one after another."""
+    each). The supplied evaluator owns capture and grading; the results come back in ``probes`` order whatever
+    order they finish in. Step 6 to fix round 2 captured them one after another."""
     from concurrent.futures import ThreadPoolExecutor
     args = [(sv, pv, f"chroma{k + 1}") for k, (sv, pv) in enumerate(probes)]
     if len(args) <= 1:
@@ -720,37 +656,6 @@ def finish(base_its: list, f, roles: dict, log=print, max_iter: int = CHROMA_MAX
     stage["all_graded"] = allp
     return {"chosen": chosen, "near": near, "all_pairs": all_e, "chroma_stage": stage,
             "candidates": assemble_candidates(chosen, near, roles, all_e)}
-
-
-def brows_alone(base_its: list, chosen: dict) -> dict:
-    """Fix round 2 of step 6: the brows alone (print form, ``ar_levels.by_group``) at the calibration pairs: the
-    delivered level's residuals and worst, and the CAPTURED (sat 1, power 1) level whose brow worst is smallest, with
-    its pooled and temple residuals (reported, never chosen: the pooled print form stays the target)."""
-    def bw(e):
-        r = [abs(x) for x in (e.get("brow_residuals") or {}).get("calibration") or [] if x is not None]
-        return max(r) if r else float("inf")
-
-    b = min(base_its, key=bw)
-    return {"delivered": {"brow_residuals": chosen.get("brow_residuals", {}).get("calibration"),
-                          "worst": round(bw(chosen), 2), "pass": bool(bw(chosen) <= L_TOL)},
-            "best_captured": {"tag": b["tag"], "level": b["level"], "worst": round(bw(b), 2),
-                              "pass": bool(bw(b) <= L_TOL), "brow_residuals": b.get("brow_residuals", {}).get("calibration"),
-                              "pooled_residuals": b["residuals"]["calibration"],
-                              "temple_residuals": (b.get("temple_residuals") or {}).get("calibration")}}
-
-
-def candidate_portraits(cands: dict, work: Path, job, probe: Path, photos: dict, log) -> None:
-    """Each candidate's GLB captured again WITH the worn portrait (``sheet_capture``) for the owner sheet; its graded
-    numbers must equal the calibration capture's (``sheet_capture_same_numbers``)."""
-    done = {}
-    for name, c in cands.items():
-        if c["tag"] not in done:
-            cap = capture(Path(c["glb"]), work / f"sheet_{c['tag']}", log, portrait=True)
-            g = grade(cap, job, probe, photos)
-            done[c["tag"]] = (str(cap), g["residuals"] == c["residuals"])
-        c["sheet_capture"], c["sheet_capture_same_numbers"] = done[c["tag"]]
-        if not c["sheet_capture_same_numbers"]:
-            log(f"WARNING: {name}'s portrait capture grades differently from its calibration capture")
 
 
 def calibrate(bake: Path, glb: Path, work: Path, grid=GRID, max_iter: int = 6, log=print,

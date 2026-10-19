@@ -1,6 +1,6 @@
 """Shelf packing of charts into one atlas (texel units), 8-texel gutters, atlas side <= ``atlas_max``. numpy only.
 
-Ported from the scratch ``g3d-wp5/cov/charts.pack`` (PORT_REVIEW section 10). Changes: deterministic order (height,
+Ported from the scratch ``g3d-wp5/cov/charts.pack`` (glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10). Changes: deterministic order (height,
 then width, then the caller's order), the atlas width is chosen among candidates (the one giving the smallest
 max(width, height), then the smallest area), and when even that exceeds ``atlas_max`` the density is lowered by the
 square root of the overflow and the layout repacked (``fit_density``).

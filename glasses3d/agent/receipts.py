@@ -1,4 +1,4 @@
-"""Run receipts (WP2_DESIGN section 9): ``ReviewLog``, the port of the Blender Studio's agent.py:181-339.
+"""Run receipts (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 9): ``ReviewLog``, the port of the Blender Studio's agent.py:181-339.
 
 One ``ReviewLog`` per run is both the httpx2 event hooks of the inference client and the Agents SDK ``RunHooks``:
 
@@ -202,7 +202,7 @@ def summary_record(response: dict, *, interaction: int, request_id: str | None) 
     """Only the API's public reasoning summaries, never internal reasoning (Studio reasoning_evidence.py, kept).
 
     Only function_call items are listed as actions: BudgetGuard refuses every non-function tool, so no hosted call
-    type can occur (PORT_REVIEW defect note)."""
+    type can occur (glasses3d/plan/archive/20261019/PORT_REVIEW.md defect note)."""
     summaries, actions = [], []
     for item in response.get("output") or []:
         if not isinstance(item, dict):

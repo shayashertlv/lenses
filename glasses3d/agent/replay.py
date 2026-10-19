@@ -1,4 +1,4 @@
-"""A scripted api.openai.com for the $0 proofs (WP2_DESIGN section 14): an ``httpx2.MockTransport`` handler.
+"""A scripted api.openai.com for the $0 proofs (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14): an ``httpx2.MockTransport`` handler.
 
 ``ScriptedOpenAI`` answers exactly two endpoints, the way the Responses API does:
 
@@ -164,7 +164,7 @@ def _strip_images(value) -> tuple[Any, int]:
 
 
 def estimate_tokens(count_body: dict) -> int:
-    """Deterministic count: ceil(text characters / 4) + 1,500 per image (WP2_DESIGN section 8's C0 model)."""
+    """Deterministic count: ceil(text characters / 4) + 1,500 per image (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8's C0 model)."""
     stripped, images = _strip_images(count_body)
     text = json.dumps(stripped, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return max(1, math.ceil(len(text) / 4)) + TOKENS_PER_IMAGE * images

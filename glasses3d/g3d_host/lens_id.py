@@ -1,4 +1,4 @@
-"""Lens identification (PLAN.md WP1.3, WP1_DESIGN.md §2). The same ordered rules run in arview (TypeScript); both are
+"""Lens identification (PLAN.md WP1.3, glasses3d/plan/archive/20261019/WP1_DESIGN.md §2). The same ordered rules run in arview (TypeScript); both are
 tested against `tests/fixtures/lens_id_cases.json` so they cannot drift apart.
 
 Order, per primitive:

@@ -1,7 +1,7 @@
 /** The positional path draws a front as front (WP1 review E/F, major finding on temple-geometry.ts).
  *
  *  With no LENSES_part_visibility, the temples are the non-lens geometry at |x| > 45 mm behind the lens rear
- *  (WP1_DESIGN.md §3). The Prada PR17WS stripped of its metadata has ONE front mesh (z -9.9..3.9 mm) whose outer back lies
+ *  (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). The Prada PR17WS stripped of its metadata has ONE front mesh (z -9.9..3.9 mm) whose outer back lies
  *  behind the -4.6 mm lens rear at both endpieces, and its material is shared with both temples. The front got the arm
  *  treatment through that shared material: the lens-input exclusion removed its cream inner bevel from the image seen
  *  through the lenses (4,562 px, up to 146 levels in the portrait), while the part-id images stayed byte-identical.

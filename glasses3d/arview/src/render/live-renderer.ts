@@ -54,7 +54,7 @@ export class LiveRenderer {
   report(): ModelReport {return this.renderer.report();}
   /** The lens identification of the loaded model (TryOnRenderer.lensIdentification). */
   lensIdentification() {return this.renderer.lensIdentification();}
-  /** The capture accessors (WP1_DESIGN.md §5), forwarded. */
+  /** The capture accessors (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5), forwarded. */
   cameraState(): CameraState | null {return this.renderer.cameraState();}
   assetMatrixWorld(): number[] | null {return this.renderer.assetMatrixWorld();}
   parts(): RenderedPart[] {return this.renderer.parts();}

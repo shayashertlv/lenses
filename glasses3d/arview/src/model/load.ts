@@ -1,4 +1,4 @@
-/** The GLB load front-end (WP1_DESIGN.md §1, §5): from the fetched bytes to a parsed glTF, with the Format row decided.
+/** The GLB load front-end (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): from the fetched bytes to a parsed glTF, with the Format row decided.
  *
  *  1. The SHA-256 of the exact bytes (the report's `rendered_sha256`).
  *  2. The container and JSON are read here first (glb.ts): an unreadable file, a file with no scene, or a broken
@@ -7,7 +7,7 @@
  *     left out of what three parses (the default material; the material without that texture), the Format row fails as
  *     spec.py fails it, and it is a reported fallback.
  *  3. External resources resolve against the model URL's directory. Each is fetched once, before parsing: a missing
- *     one is refused (WP1_DESIGN.md §1, the Format row; the message says which ones the default scene does not use);
+ *     one is refused (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Format row; the message says which ones the default scene does not use);
  *     present ones load (with a "not self-contained" warning) from the very bytes that were fetched.
  *  4. Texture sizes, extensions and the live-site notes that need only the JSON.
  *  5. GLTFLoader parses the default scene alone (glb.ts defaultSceneDocument: other scenes, animations, cameras,
@@ -377,7 +377,7 @@ export async function loadModel(bytes: ArrayBuffer, report: ModelReportBuilder, 
   }
   if (signal?.aborted) throw abortError();
   if (resources.length) report.warn(`not self-contained: external resources ${JSON.stringify(resources.map(resource => resource.uri))}`);
-  // WP1_DESIGN.md §1, the Format row: a missing external resource is refused, whether or not the default scene uses it
+  // glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Format row: a missing external resource is refused, whether or not the default scene uses it
   // (the binding wording; spec.py fails the Format row for every one). The message names the unused ones.
   // The GLB itself was read (the Format row records its version and size), so the other rows are not checked because of
   // this refusal, never because 'the file could not be read' (that reason is kept for unreadable GLB bytes).
@@ -401,7 +401,7 @@ export async function loadModel(bytes: ArrayBuffer, report: ModelReportBuilder, 
     report.fallback('lights', `${document.lights} default-scene node(s) carry a KHR_lights_punctual light; it is not added to the scene: `
       + 'arview lights every model with its own lights.');
   }
-  // Broken material and texture references on the drawn path (WP1_DESIGN.md §1: rendered, never refused, each reported).
+  // Broken material and texture references on the drawn path (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: rendered, never refused, each reported).
   const materialCount = Array.isArray(json.materials) ? json.materials.length : 0;
   for (const entry of references.danglingMaterials) {
     // spec.py `_format` fails the row for every primitive whose material does not exist (a null material is "none").

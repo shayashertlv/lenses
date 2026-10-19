@@ -1,4 +1,4 @@
-"""The glasses3d Blender worker (WP2_DESIGN §3). Runs inside headless Blender 5.2, started by agent/worker_client.py:
+"""The glasses3d Blender worker (glasses3d/plan/archive/20261019/WP2_DESIGN.md §3). Runs inside headless Blender 5.2, started by agent/worker_client.py:
 
     blender.exe -b --factory-startup --disable-autoexec <head>.blend --python glasses3d/g3d/worker.py --
         --receipt <receipt.json> --root <job dir> [--selftest] [--probe]
@@ -356,7 +356,7 @@ def _soft(params: dict) -> float:
 
 
 def _mutating(params: dict, body) -> dict:
-    """The worker half of the per-call protocol (WP2_DESIGN §5): fingerprint before (refusing on drift from the
+    """The worker half of the per-call protocol (glasses3d/plan/archive/20261019/WP2_DESIGN.md §5): fingerprint before (refusing on drift from the
     host's head), run, and when ok protect and fingerprint after with the scene delta. A non-ok result leaves the
     restore to the host (it knows checkpoint_before)."""
     t0 = time.perf_counter()

@@ -1,4 +1,4 @@
-"""Single-use owner approvals for a paid run (plan/WP2_DESIGN.md section 8, Approvals).
+"""Single-use owner approvals for a paid run (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8, Approvals).
 
     job estimate <id>   writes runs/<new>/approval-request.json (g3d.approval_request/1): the estimate (expected,
                         range, tail), the suggested and the requested cap, effort, max_output_tokens, max_turns and

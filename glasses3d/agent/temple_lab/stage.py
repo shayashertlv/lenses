@@ -12,11 +12,10 @@ import threading
 from agents.tool import ToolOutputImage, ToolOutputText
 from PIL import Image
 
-from ..loop import StageRunFailed, image_key
+from ..loop import StageRunFailed
 from ..budget import cap_to_micro, usd_text
 from ..money import dollars, money_text
 from .lab import Lab, data_url, sha
-from . import state as S
 from . import tools as T
 
 
@@ -137,7 +136,7 @@ class StageLab(Lab):
     """An isolated current-head package with append-only, compact tool images.
 
     New outputs contain one preview and the native panels' provenance. Earlier outputs and source photos remain
-    untouched. Standalone rehearsals retain their existing image policy.
+    untouched. Both nested and standalone runs use fresh-conversation renewal at admission limits.
     """
 
     def tool_output(self, result, footer, call_id, tool_name):
@@ -229,36 +228,6 @@ class StageLab(Lab):
         with self.state_lock:
             self.state.setdefault("stage_images", []).append(record)
         self.save()
-        return out
-
-    def context_image_stubs(self, images):
-        with self.state_lock:
-            records = [dict(row) for row in self.state.get("stage_images", [])]
-            best = S.head_of_checkpoint(self.state, self.state.get("best_checkpoint"), self.fingerprint_of)
-            stored = {name: row.get("id") for name, row in self.readings().items()}
-        by_key = {(r["call_id"], r["output_index"], r["sha256"]): n for n, r in enumerate(records)}
-        matched = {}
-        for image in images:
-            key = (image["call_id"], image["part_index"], image["sha256"])
-            if key in by_key:
-                matched[image_key(image)] = by_key[key]
-        latest = {}
-        for n in sorted(set(matched.values())):
-            rec = records[n]
-            latest[rec["context_role"], rec["view"]] = rec["call_id"]
-        out = {}
-        for key, n in matched.items():
-            rec = records[n]
-            role = rec["context_role"]
-            if role == "source" or best is not None and rec.get("revision") == best["revision"]:
-                continue
-            if role == "pick":
-                if stored.get(rec.get("reading")) == f"{rec.get('ref')}-{rec.get('reading')}":
-                    continue
-            elif latest[role, rec["view"]] == rec["call_id"]:
-                continue
-            out[key] = (f"[superseded {role} image: call {rec['call_id']}, checkpoint {rec['checkpoint']}, "
-                        f"revision {rec.get('revision')}, view {rec['view']}; path {rec['path']}]")
         return out
 
 

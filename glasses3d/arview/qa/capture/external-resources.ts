@@ -1,5 +1,5 @@
 /** The external resources a GLB names, read and routed ONE way for `arview serve` and `arview capture`, so the two tools
- *  and spec.py agree on which files a model has (WP1_DESIGN.md §1, the Format row: only a MISSING resource is refused;
+ *  and spec.py agree on which files a model has (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Format row: only a MISSING resource is refused;
  *  relative URIs resolve against the model URL).
  *
  *  - The file: exactly what spec.py reads (g3d_host/glb.py `resolve`: the GLB's folder joined with

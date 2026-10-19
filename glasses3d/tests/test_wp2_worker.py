@@ -1,4 +1,4 @@
-"""WP2 stage A: the headless Blender worker (g3d/worker.py + agent/worker_client.py), WP2_DESIGN §3/§4.
+"""WP2 stage A: the headless Blender worker (g3d/worker.py + agent/worker_client.py), glasses3d/plan/archive/20261019/WP2_DESIGN.md §3/§4.
 
 Lifecycle (receipt, identity, token, single client, exit on disconnect, secret-free environment, Job Object, EcoQoS),
 exec (ok / error with snippet lines / static refusal / soft timeout on the same pid), the runtime layers through the

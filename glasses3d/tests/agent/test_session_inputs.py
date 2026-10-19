@@ -1,5 +1,5 @@
 """The resume planner (agent/session_inputs.py): the Studio's test_blender_agent_session_inputs.py ported (minus the
-legacy-suffix cases, PORT_REVIEW section 3), plus the view field and owner notes. Proof comes from SDK replay items,
+legacy-suffix cases, glasses3d/plan/archive/20261019/PORT_REVIEW.md section 3), plus the view field and owner notes. Proof comes from SDK replay items,
 never from a receipt."""
 import asyncio
 import base64

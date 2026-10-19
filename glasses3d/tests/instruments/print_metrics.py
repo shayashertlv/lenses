@@ -1264,26 +1264,3 @@ def directional_energy(img, support, E, tx: float, band_mm=STREAK_BAND_MM) -> di
     ey, ex = float((gy[E] ** 2).mean()), float((gx[E] ** 2).mean())
     return {"texels": int(E.sum()), "across_over_along": round(ey / max(ex, 1e-12), 3),
             "band_std": round(float(B[E].std()), 3)}
-
-
-def axis_streakiness(img, mask, band_px=(1.0, 4.0)) -> dict | None:
-    """Streakiness of an elongated part in an IMAGE (an AR capture or a photo): the luminance's masked DoG (``band_px``
-    sigmas) is differentiated across and along the principal axis of ``mask`` (the part's pixels, e.g. a temple);
-    returns the ratio of gradient energy across the axis to along it (lines along the part give a large ratio) and the
-    band's std, on ``mask`` eroded 1 px. None below 200 px."""
-    m = np.asarray(mask, bool)
-    E = ndimage.binary_erosion(m, iterations=1)
-    if E.sum() < 200:
-        return None
-    ys, xs = np.nonzero(m)
-    c = np.cov(np.stack([xs, ys]).astype(float))
-    w, V = np.linalg.eigh(c)
-    a = V[:, -1]                                   # (x, y) along the part
-    n = np.array([-a[1], a[0]])
-    B = bandpass(lum(img), m, band_px[0], band_px[1])
-    gy, gx = np.gradient(B)
-    ga = gx * a[0] + gy * a[1]
-    gn = gx * n[0] + gy * n[1]
-    return {"pixels": int(E.sum()), "across_over_along": round(float((gn[E] ** 2).mean() / max((ga[E] ** 2).mean(),
-                                                                                                1e-12)), 3),
-            "band_std": round(float(B[E].std()), 3), "axis_deg": round(float(np.degrees(np.arctan2(a[1], a[0]))), 1)}

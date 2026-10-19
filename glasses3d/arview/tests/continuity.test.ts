@@ -12,7 +12,7 @@ import {publicFile} from './shipped-models.ts';
 import {classifyAssetMaterials} from '../src/eyewear/optical-material.ts';
 
 // The pin registry and the second, un-normalised continuity parse (loadTempleContinuityModel) are gone
-// (WP1_DESIGN.md §3). Their two tests ('geometry verification always hashes bytes and distinguishes missing pins from
+// (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). Their two tests ('geometry verification always hashes bytes and distinguishes missing pins from
 // mismatches', 'continuity parses the supplied pinned bytes without fetching a second asset') went with them; the
 // renderer's continuity comes from the scene the load front-end parsed and normalised, as below.
 const stubTextures = () => ({name: 'ContinuityTestTextures', loadTexture: async () => new Texture()});
@@ -47,7 +47,7 @@ test('a millimetre file gives the same continuity paths as the metre file once t
   }
 });
 
-// WP1 stage D2 (WP1_DESIGN.md §3): each side stands alone. An arm that ends before the clip used to make the whole model
+// WP1 stage D2 (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): each side stands alone. An arm that ends before the clip used to make the whole model
 // throw ('An original posterior arm cross-section is missing.', no side named), turning the endpoint off for both arms.
 test('continuity without pins is per side: an arm ending before the clip loses only its own path, named with its z', async () => {
   const parts = replaceBox('Temple_R', [66, 70, 2, 8, -100, -2]);

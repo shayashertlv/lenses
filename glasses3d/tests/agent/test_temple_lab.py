@@ -939,7 +939,6 @@ def test_photo_read_stores_replaces_and_drops_by_name_with_a_history(tmp_path):
     for p, digest in zip(out["images"], first):
         rec = lab.state["images"][digest]
         assert rec["kind"] == "reading" and rec["ref"] == out["read_id"] and Path(p).is_relative_to(lab.work)
-    assert lab.context_stubs(first) == {}                                # both readings are the stored ones
     q0 = dict(lab.readings()["Q"])
     out = lab.read("call_r2", [picks_at(lab, "Q", 40.0, 2.0, 6.5)], ["R"])
     assert list(out["replaced"]) == ["Q"] and out["dropped"] == ["R"] and out["stored"] == ["Q"]
@@ -951,15 +950,14 @@ def test_photo_read_stores_replaces_and_drops_by_name_with_a_history(tmp_path):
         and out["replaced"]["Q"].endswith(" sd of the difference), d +0.00, y +0.00")
     assert "head_nodes" not in out                                      # no node of the head holds Q or R
     second = hashlib.sha256(Path(out["images"][0]).read_bytes()).hexdigest()
-    stubs = lab.context_stubs(first + [second])                         # the context guard: superseded sheets go
-    assert set(stubs) == set(first) and "read again since" in stubs[first[0]] and "dropped since" in stubs[first[1]]
+    assert all(digest in lab.state["images"] for digest in first + [second])
     log = lab.state["reading_log"]
     assert [(e["action"], e["name"], e["call_id"]) for e in log] == [
         ("read", "Q", "call_r1"), ("read", "R", "call_r1"), ("dropped", "R", "call_r2"), ("replaced", "Q", "call_r2")]
     assert log[3]["was"]["t"] == pytest.approx(6.0, abs=1e-3) and log[2]["was"]["name"] == "R"
     out = lab.read("call_r3", [], ["Q"])
     assert out["stored"] == [] and "images" in out and out["images"] == [] and not lab.is_clean()
-    assert second in lab.context_stubs([second])
+    assert second in lab.state["images"]
 
 
 def test_photo_read_refusals_store_nothing(tmp_path):
@@ -1109,7 +1107,7 @@ def test_pick_sheets_of_names_that_differ_only_in_case_are_two_files(tmp_path):
     assert len({p.name.lower() for p in paths}) == 2 and all(p.is_file() for p in paths)
     digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths]
     assert len(set(digests)) == 2 and [lab.state["images"][d]["reading"] for d in digests] == ["Q", "q"]
-    assert lab.context_stubs(digests) == {} and out["stored"] == ["Q", "q"]
+    assert out["stored"] == ["Q", "q"]
 
 
 # --------------------------------------------------------------------------------------------- facet_edit
@@ -2927,25 +2925,6 @@ def test_footer_from_the_run_context(lab):
                                                                   "scale": 1}, context=Status()))
     assert footer == L.footer_text(1.234, 20, 123456)
 
-
-def test_context_stubs_keep_latest_two_and_best(lab):
-    tl = tools_of(lab)
-    spec = FX.prada_default()
-    shas = []
-    for k, dt in enumerate((0.5, 1.0, 1.5, 2.0)):
-        out = call(tl["facet_edit"], edit_args(0, [set_t("C", spec, dt)], obj=OBJECT if not k else None,
-                                               photos=["05"], judge=judgement(
-                                                   lab, best=lab.state["heads"][1]["checkpoint"] if k > 1 else None)
-                                               if k else None))
-        shas.append([hashlib.sha256(__import__("base64").b64decode(i.image_url.split(",", 1)[1])).hexdigest()
-                     for i in out[1:]])
-    stubs = lab.context_stubs([s for row in shas for s in row])
-    compares = [row[-1] for row in shas]                                  # each edit's compare image (photo 05)
-    charts = [s for row in shas for s in row[:-1]]
-    assert compares[1] in stubs and compares[0] not in stubs           # compares[0] = best_checkpoint's revision
-    assert compares[2] not in stubs and compares[3] not in stubs      # the latest two
-    assert not set(charts) & set(stubs)                                 # charts are never stubbed
-    assert "superseded" in stubs[compares[1]]
 
 
 def test_resume_rollback_ignores_prepare_and_finds_the_lost_apply(lab):

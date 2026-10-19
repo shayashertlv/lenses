@@ -1,4 +1,4 @@
-/** Temples by position per side, the clip derived from them, and per-side continuity (WP1 stage D2, WP1_DESIGN.md §3):
+/** Temples by position per side, the clip derived from them, and per-side continuity (WP1 stage D2, glasses3d/plan/archive/20261019/WP1_DESIGN.md §3):
  *  crystal and alpha-blended temples are temples like opaque ones, a side without a temple keeps a fixed cap (reported),
  *  hinge hardware alone is never a temple, and the clip lies just inside the shorter arm. Hand-built scenes, classified
  *  from their userData roles; tests/renderer-api.test.ts covers the same rules through the renderer on GLB bytes. */

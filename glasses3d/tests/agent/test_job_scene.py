@@ -87,7 +87,7 @@ def test_refused_restore_does_not_mark_a_rollback(tmp_path, monkeypatch):
     assert not scene.journal_entries()
 
 
-def test_images_persist_with_view_and_checkpoint_and_only_superseded_are_stubbed(tmp_path):
+def test_images_persist_with_view_and_checkpoint(tmp_path):
     scene = JobScene(tmp_path, job={})
     for n, (kind, view) in enumerate((("read_image", "front"), ("compare_to_photos", "front"),
                                      ("compare_to_photos", "side"), ("compare_to_photos", "front"))):
@@ -98,11 +98,7 @@ def test_images_persist_with_view_and_checkpoint_and_only_superseded_are_stubbed
     reopened = JobScene(tmp_path, job={})
     assert len(reopened.images) == 4
     assert all(i["call_id"] and i["view"] and i["checkpoint"] for i in reopened.images)
-    digests = [i["sha256"] for i in reopened.images]
-    stubs = reopened.context_stubs(digests)
-    assert set(stubs) == {digests[1]} and "call1" in stubs[digests[1]]
-    reopened.best_checkpoint = "c1"
-    assert reopened.context_stubs(digests) == {}
+    assert reopened.images == scene.images
 
 
 def test_finish_timed_out_before_or_after_assignment_is_not_saved(tmp_path):

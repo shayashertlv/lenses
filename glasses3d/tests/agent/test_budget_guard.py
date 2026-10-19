@@ -1,5 +1,5 @@
 """BudgetGuard: the Studio's 22 budget tests (source-before/tests/test_blender_agent_budget.py) ported to the glasses3d
-guard, then tests for each of the seven WP2 edits (plan/WP2_DESIGN.md section 8). Offline: counting is a mock or an
+guard, then tests for each of the seven WP2 edits (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8). Offline: counting is a mock or an
 httpx2.MockTransport; no socket is opened (conftest)."""
 import asyncio
 from datetime import datetime
@@ -941,7 +941,7 @@ def test_edit6_reconcile_unknown_with_dashboard_usage_or_no_charge(env):
 def test_edit6_reconcile_from_transport_releases_the_oakley_run1_hold(env):
     # Oakley run 1 (job 3dff8674, request 7): the settlement write failed after a valid 200 and its $0.707375 hold
     # stayed forever. The archived usage (token counts from that run's transport/0007-response.json) settles
-    # $0.036967, releasing $0.670408 (plan/WP2_DESIGN.md section 8, edit 6).
+    # $0.036967, releasing $0.670408 (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8, edit 6).
     env.count.return_value = SimpleNamespace(input_tokens=23_822)
     guard = BudgetGuard(env.client, env.path, "18")
     archived = provider_body(response_id="resp_oakley_run1_7",

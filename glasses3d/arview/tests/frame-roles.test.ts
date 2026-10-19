@@ -1,4 +1,4 @@
-/** Authored part roles classify native assets independently of their shader (WP1_DESIGN.md §2, lens-identification.ts):
+/** Authored part roles classify native assets independently of their shader (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2, lens-identification.ts):
  * explicit roles first (`partRole`, legacy `part_role`), then lens names, and transmission only as a warned last resort
  * when nothing names a lens. These are hand-built scenes, so the roles come from userData (the renderer reads the glTF
  * JSON; tests/lens-identification.test.ts covers that path). */

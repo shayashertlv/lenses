@@ -87,7 +87,6 @@ from .spec import (ARM_NORMAL_SPREAD_DEG, BORDER_RAMP_WARN_DEG, CREASE_STANDS_DE
                    _facet_crossings, chamfer_breaks, chamfer_width, parse, roll_height_limit, roll_profile,
                    triangle_degenerate_float32)
 
-WALL_KINDS = ("top", "bottom", "cap_hinge", "cap_tip")
 OUTER_KINDS = ("outer", "roll")
 INSIDE_KINDS = ("station", "roll", "chamfer")    # segments inside the outline by construction (never clipped)
 WARP_CHORD_MM = 0.005             # warp refinement target per cell: twice the largest residual of its samples from

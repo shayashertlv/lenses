@@ -6,8 +6,8 @@ GLB -> nodes -> Open3DBackend -> the same numpy core as the Blender tool and the
 the check itself in g3d/seat/check.py), so the tool and the two checks cannot disagree. Input: positions in metres x 1000 (world mm, asset frame: +Y up, +Z front, x = 0 at the
 bridge underside); exact weld per node; lenses from lens_id.classify, then body recognition (closed, >= 0.3 mm
 effective thickness); frame parts = closed components of `partRole` frame nodes (all non-lens nodes when the file
-carries no roles) whose box lies within 6 mm of the lens rim, minus markings; frame type from the lens node's extras
-`g3d_seat`, else the argument, else inferred and warned. Hidden x-ranges (browline) from the argument, else
+carries no roles) whose box lies within 6 mm of the lens rim, minus markings; frame type from an explicit inspection
+argument, else the lens node's `g3d_seat` extras, else inferred and warned. Hidden x-ranges (browline) from the argument, else
 `g3d_hidden_x_ranges_mm` on the lens node.
 
 Components (§3 'Lens body', §8):
@@ -24,7 +24,7 @@ Components (§3 'Lens body', §8):
   E_EMPTY when its node has no other lens geometry); an undecoded frame surface within 6 mm of a rim, or of unknown
   position, fails it too (E_UNREADABLE_PART). The lens such a frame problem names is not graded.
 
-Frame type: declared (`g3d_seat`, else the argument) or inferred: > 20% EXPOSED -> semi_rimless; ENCLOSED majority ->
+Frame type: declared (inspection argument, else `g3d_seat`) or inferred: > 20% EXPOSED -> semi_rimless; ENCLOSED majority ->
 acetate; else metal; NO ENCLOSED/LIPPED station -> unknown (not graded, FAIL). An inferred type grades the lens
 provisionally (`graded_pass`) but never passes it: `pass` and the file's `ok` need a declared type (until the
 exporter carries `g3d_seat`, pass frame_type=..., or blender.export_and_validate(..., seating={...})).

@@ -38,9 +38,7 @@ def posed_points(points, basis, rid, temple_side=None, angle_delta=0.0):
         return points
     poses = PO.parse_pose(basis.pose(rid))
     if not poses:
-        if angle_delta:
-            return points  # no known hinge axis: use camera yaw sensitivity instead
-        return points
+        return points  # no known hinge axis: use camera yaw sensitivity instead
     if temple_side not in poses:
         raise ValueError(f"{rid}: frozen pose has no temple side {temple_side:+d}")
     theta, axis = poses[temple_side]

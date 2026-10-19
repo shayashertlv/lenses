@@ -1,4 +1,4 @@
-"""Safe mode for Astra's `execute_blender_code` (WP2_DESIGN §4). Stdlib only: the host validates a snippet before a byte
+"""Safe mode for Astra's `execute_blender_code` (glasses3d/plan/archive/20261019/WP2_DESIGN.md §4). Stdlib only: the host validates a snippet before a byte
 crosses the socket, and the Blender worker validates it again and then runs it under the runtime layers below.
 
 Validator mechanics
@@ -18,7 +18,7 @@ Adapted from the community MCP's safe mode (automation/data/blender_agent/mcp-fo
     COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
     OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Changed here (WP2_DESIGN §4): every violation is collected (Astra fixes them all at once) with its line and the tool to
+Changed here (glasses3d/plan/archive/20261019/WP2_DESIGN.md §4): every violation is collected (Astra fixes them all at once) with its line and the tool to
 use instead; `import numpy as np` style aliases are canonicalised (bpy aliases stay denied; a name may alias one module
 only); `np`, `bpy`, `bmesh`, `mathutils` and the `g3d` facade are prebound; a lambda is allowed as a value and never as a
 call target; every `_`-prefixed attribute is denied; from-import names are checked against the denied names too (closes
@@ -28,7 +28,7 @@ with a COMPUTED name pass the static walk and are checked at run time; any modul
 `enum.bltns`, `json.codecs`, `bpy_extras.object_utils.bpy`, measured in Blender 5.2) are denied; limits 200 KB, 40,000
 AST nodes, depth 32.
 
-Policy (glasses3d, PORT_REVIEW §1): numpy allowed; file I/O, pickle, ctypes, subprocess, os/sys escapes, bpy file
+Policy (glasses3d, glasses3d/plan/archive/20261019/PORT_REVIEW.md §1): numpy allowed; file I/O, pickle, ctypes, subprocess, os/sys escapes, bpy file
 operators and `.filepath` assignment denied. Trusted host calls (checkpoint, export, render) never pass through here.
 
 Runtime layers (the static walk is not a security boundary): restricted builtins; a guarded `__import__` and wrapped
@@ -827,11 +827,6 @@ def validate(code) -> list[Violation]:
     """Every violation of the safe-mode policy in `code`, in source order; [] when the snippet may run."""
     return analyse(code).violations
 
-
-def is_safe(code) -> tuple[bool, str]:
-    """(ok, every violation as text) — the non-raising form of `validate`."""
-    found = validate(code)
-    return (not found), "\n".join(str(x) for x in found)
 
 
 # ------------------------------------------------------------------------------------------------ runtime layer 1-2

@@ -1,4 +1,4 @@
-"""The seeing tools over the live session (WP2_DESIGN §6): render_views, compare_to_photos, pick_surface_point and
+"""The seeing tools over the live session (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6): render_views, compare_to_photos, pick_surface_point and
 fit_cameras, plus the head export they share (cached by fingerprint). Stage D wraps these as Astra's function tools.
 
 Every camera is a WP3b camera in a NormFrame (g3d_host/blender_camera): the worker renders its Blender twin in a

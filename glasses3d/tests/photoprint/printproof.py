@@ -626,7 +626,7 @@ def heldout_b3(job, parts, h: str, *, radii_mm: dict, tx: float, seed: int = 0, 
     pc = tex.image(photo_cls.astype(float), 0.0, float)
     rpc = render_bake(job, lay, np.repeat(pc[..., None], 3, -1), h, v.camera, scene=sc)
     groups = RG.rigid_groups(job)
-    regions = RG.build_regions(job, parts, groups, n_samples=64)
+    regions = RG.build_regions(job, parts, groups)
     lut = np.full(len(job.mesh.F) + 1, -1, np.int64)
     for reg in regions:
         lut[reg.faces] = reg.rid

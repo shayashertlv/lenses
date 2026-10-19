@@ -136,7 +136,7 @@ export function createTempleVisibility(root: Object3D, context: VisibilityContex
     const geometry: BufferGeometry = object.geometry;
     const position = geometry.getAttribute('position'), index = geometry.getIndex();
     if (!position) return;
-    // Every non-lens material is frame, whatever its opacity (WP1_DESIGN.md §3): crystal and alpha-blended parts are
+    // Every non-lens material is frame, whatever its opacity (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): crystal and alpha-blended parts are
     // originals like opaque ones. (An alpha-blended arm's overlay stays hidden, see wrap(): drawing it opaque in front of
     // the head would be wrong, and a blended overlay is not built.)
     if (materials.some(material => !isOpticalMaterial(material))) originals.push(object);

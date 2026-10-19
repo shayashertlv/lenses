@@ -1,4 +1,4 @@
-"""Host side of the g3d Blender worker (WP2_DESIGN §3): start it, prove its identity, call it with deadlines, kill it.
+"""Host side of the g3d Blender worker (glasses3d/plan/archive/20261019/WP2_DESIGN.md §3): start it, prove its identity, call it with deadlines, kill it.
 
     w = WorkerClient(job_root, start_blend=head_blend).start()
     w.call("exec", {"code": ..., "soft_timeout_s": 2.0}, deadline_s=32.0)

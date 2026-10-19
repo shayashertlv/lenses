@@ -1,5 +1,5 @@
 """Foreground matte of a product photo on a plain studio background (make_uv_test.py ``matte()``, WP3b;
-plan/PORT_REVIEW.md section 9; ported from the pre-WP0 prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
+glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9; ported from the pre-WP0 prototype, deleted 2026-10-13; tag review-20261013-pre-cleanup).
 
 The background is modelled per channel as a quadratic surface in the normalized image coordinates
 (1, x, y, x^2, y^2, xy), least-squares fitted to a ``border``-pixel frame round the image, so a grey gradient or a soft

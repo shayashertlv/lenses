@@ -129,7 +129,7 @@ completed paid runs, deleted prototypes or answered owner questions from this or
      - Scripts: `plan/prototypes/ar_capture/` (seat_copy.py with glbmesh.py, rim_split.py, junction_geom.py,
        band_metrics.py, wire_metric.py, run.mjs, page.js, configs). Superseded by WP1/WP3b/WP4 and deleted on
        2026-10-13 with `plan/prototypes/projection/` (tag `review-20261013-pre-cleanup`).
-- **Rules audit:** `plan/RULES_AUDIT.md`: 41 rules constraining Astra. Apply §A, §B and §D. §C is the live site's
+- **Rules audit:** `glasses3d/plan/archive/20261019/RULES_AUDIT.md`: 41 rules constraining Astra. Apply §A, §B and §D. §C is the live site's
   current acceptance. For arview it is superseded by the owner's spec (§2) and appears only as "would fail live"
   warnings, never as instructions to Astra.
 - **Photo-projection prototype** (`plan/prototypes/projection/make_uv_test.py` + `glbload.py`, `probe_fit.py`,
@@ -161,7 +161,7 @@ completed paid runs, deleted prototypes or answered owner questions from this or
 - **A new, clean pipeline in `glasses3d/`** (folder exists; `plan/` holds this plan). Nothing stale:
   - port code only after review, by copying it in with tests;
   - never import from `automation/`, `ar_v4/`, `ar/modeling/` or the stash at runtime;
-  - everything copied (including the `ar/` fork) is listed in `plan/PORT_REVIEW.md` as keep / rewrite / drop, and the
+  - everything copied (including the `ar/` fork) is listed in `glasses3d/plan/archive/20261019/PORT_REVIEW.md` as keep / rewrite / drop, and the
     drops are deleted before the first commit.
 - **The image-model texture idea is dropped.** Texture comes from photo projection plus classical fill and blending
   (WP5).
@@ -288,7 +288,7 @@ loop. They run Blender headless on COPIES: `blender.exe -b <copy>.blend --python
    Re-run `make_uv_test.py` to confirm it reproduces the coverage numbers in §1.
    **Superseded:** this was WP0's 2026-10-05 setup step. The prototype directory was deleted in the
    2026-10-13 cleanup; do not recreate or execute it for current work.
-5. **PORT_REVIEW.md:** inventory the Blender Studio (source-before/blender_agent: README/STUDIO docs, agent.py,
+5. **glasses3d/plan/archive/20261019/PORT_REVIEW.md:** inventory the Blender Studio (source-before/blender_agent: README/STUDIO docs, agent.py,
    studio_jobs.py, studio_server.py, budget.py, native_export.py, preview.py, portrait.py, instructions.py, the MCP
    package in `automation/data/blender_agent/venv` plus `mcp-for-blender`, and memory blender-mcp-official-server.md).
    Mark each file keep / rewrite / drop with a reason. Drop the bookkeeping gates the audit flagged (construction labels,
@@ -300,12 +300,12 @@ loop. They run Blender headless on COPIES: `blender.exe -b <copy>.blend --python
      `translucent-twin.ts` and `qa/portrait-preview.mjs`;
    - stash@{0} changes about 20 more (rear-drop, continuity, temple visibility, hair occlusion).
 
-   Record `git diff --stat main 75ae133 -- ar/` and `git diff --stat 75ae133 'stash@{0}' -- ar/` in PORT_REVIEW.md
+   Record `git diff --stat main 75ae133 -- ar/` and `git diff --stat 75ae133 'stash@{0}' -- ar/` in glasses3d/plan/archive/20261019/PORT_REVIEW.md
    and decide per file. Copy tracked files only:
    `git archive 75ae133 ar | tar -x -C <tmp>`, apply the chosen stash edits, then move the kept files into
    `glasses3d/arview/` (no `site/`, no `modeling/`). Set Vite `publicDir` to read models and wasm from `../../ar/public`
    (read-only), so the 38 MB of public binaries are not duplicated into git. Install with `npm ci`. List every copied
-   file in PORT_REVIEW and delete the drops: retired optical-group and provider harnesses, catalog code, and tests for
+   file in glasses3d/plan/archive/20261019/PORT_REVIEW.md and delete the drops: retired optical-group and provider harnesses, catalog code, and tests for
    dropped modules.
 2. **Acceptance = the §2 table only.** Enumerate every `throw new Error` in `src/render/{rear-drop,continuity,temple-*}.ts`,
    the renderer load path and `src/eyewear/external.ts`, and classify each as either an owner-table refusal or a
@@ -448,7 +448,7 @@ such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md), rebuilt
 - The v1 design, gates and code are archived (`plan/archive/20261010/`, tag `wp6-v1-final`).
 
 ### WP2: Live Blender session + Astra loop (port, cleaned)
-- Port the session driver, budget/receipts and agent loop per PORT_REVIEW.
+- Port the session driver, budget/receipts and agent loop per [PORT_REVIEW](archive/20261019/PORT_REVIEW.md).
 - **Tools for Astra:**
   - `execute_blender_code` (safe mode allowing numpy without file I/O);
   - the `g3d` Blender helpers (WP4, WP6);
@@ -462,7 +462,7 @@ such, thats it."). The binding design is [WP6_FACETS.md](WP6_FACETS.md), rebuilt
   - `python -m glasses3d job create --images <dir> --views <json> --name ... --description ... [--specs ...]`;
   - `python -m glasses3d job run <id>`;
   - output in `glasses3d/data/jobs/<id>/deliverable/model.glb` + `report.json`;
-  - whether to port the Studio web UI is decided in PORT_REVIEW.
+  - whether to port the Studio web UI is decided in [PORT_REVIEW](archive/20261019/PORT_REVIEW.md).
 - **Owner review loop:** accept / changes with notes, recorded in a ledger bound to the GLB sha256. Format reference:
   `C:/Users/Shay/PycharmProjects/lenses-recovery/automation-cleanup-20261003T071535Z/moved/data/modeler/calibration/owner_verdicts.jsonl`
   (50 rows; drop the 34 with `product_id == 'demo-synthetic'`).
@@ -489,7 +489,7 @@ WP6_FACETS.md §5–§6. WP0–WP7 must be complete with their required $0 valid
 WP5's explicit owner closeout and retained limitations apply as recorded in WP5_HANDOFF.md; do not reopen WP5
 automatically. WP6 is judged by the owner's eye per WP6_FACETS.md (v1 gates retired 2026-10-10).
 Ask the owner again about the per-run budget, reasoning effort, smoke-turn cap, known-good regression product,
-and WP7_DESIGN §4.2 questions 1–2 (specifications/photos and arview lensenv); earlier discussion is not approval.
+and glasses3d/plan/archive/20261019/WP7_DESIGN.md §4.2 questions 1–2 (specifications/photos and arview lensenv); earlier discussion is not approval.
 0. Smoke turn: ONE capped Astra turn (a few cents) to confirm the real API, tool calls and receipts work end to end.
    Fix anything it reveals before step 1.
 1. Prada PRS 17WS, Tom Ford FT1119-D 52A, and the known-good product (owner picks; see §2).

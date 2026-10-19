@@ -95,17 +95,10 @@ RANGE_MIXES = ("edit_heavy", "typical", "read_heavy")
 # zoom grids from its compare panels and prices the call at its compare panels plus ZOOM_MAX grids (v3p3-t5: with both
 # recorded "compare", a call's own grids stayed and ZOOM_MAX more were added, 5 grids for a 2-zoom call).
 ZOOM_GRID_KIND = "zoom"
-# The record kinds the context guard replaces in an old result (lab.context_stubs: compare panels, zoom grids and
-# variant sheets of a result older than the latest 2 and not best_checkpoint's; the v3 T5 rehearsal states and checks
-# that decision, tests/proofs/wp6v3_rehearsal_checks.py): lab's own STUB_KINDS (review 2026-10-12, P3: one constant
-# for the guard and the estimate), else the kinds context_stubs names today, plus ZOOM_GRID_KIND while the lab
-# registers zoom grids as compare images (they go with their compare). A test pins it against a real Lab's
-# context_stubs and a real zoom grid. A pick sheet is replaced only once its reading was read again or dropped (the
-# stored reading's sheet is evidence and stays); the projection counts none as stubbable, which prices a run that
-# re-reads a little high, never low.
-LAB_STUB_KINDS = tuple(getattr(LAB, "STUB_KINDS", ("compare", "variants")))
-STUBBED_KINDS = LAB_STUB_KINDS + ((ZOOM_GRID_KIND,) if "compare" in LAB_STUB_KINDS
-                                  and ZOOM_GRID_KIND not in LAB_STUB_KINDS else ())
+# Frozen image categories for the legacy cost projection, retained for old estimates/approvals. The live lab
+# no longer rewrites images; its append-only conversation uses renewal. Pick sheets were never discounted here.
+LAB_STUB_KINDS = ("compare", "variants")
+STUBBED_KINDS = LAB_STUB_KINDS + (ZOOM_GRID_KIND,)
 STUB_CHARS = 120                                 # one stub text
 # The v3 image-heavy outputs, each priced at the most one call returns (as facet_variants at variant_sheets), at the
 # largest image the tool makes, not the rehearsal's (review 2026-10-12, P2: a rehearsal of 2-photo readings or small
@@ -1024,8 +1017,8 @@ def project(c0: int, step: dict, requests: int, *, output: int, max_output_token
     """One modelled run, request by request with the frozen tariff (the 272k step included): request i's input is
     the previous input (cached) plus the mean growth (written).
 
-    The context guard (loop.ContextGuard, CONTEXT_GUARD /2; off with guard_tokens None, as a run without
-    context_guard_tokens): once a request reaches guard_tokens input tokens (once) or the next byte rung, k x
+    This retains the historical CONTEXT_GUARD /2 cost model for saved estimates; live runs use renewal.
+    In that model (off with guard_tokens None), once a request reaches guard_tokens input tokens or a byte rung, k x
     guard_bytes request bytes, the next request replaces the images of all compare / variant results but
     GUARD_KEEP_RESULTS (those not replaced at an earlier epoch) by stubs and is written afresh after the brief; the next
     byte rung is the first above that request ("context_guard_requests" lists the epochs, "context_guard_request" the
@@ -1247,10 +1240,9 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
                       f"A zoom grid (the lab's kind 'compare' with zoom) is recorded as kind {ZOOM_GRID_KIND!r} "
                       f"(record_kind): a call's own grids are replaced by the {ZOOM_MAX} priced; a call recorded "
                       f"with its grids as 'compare' images is priced up to {ZOOM_MAX} grids high.",
-                      f"The context guard replaces images of kinds {', '.join(STUBBED_KINDS)} in old results "
-                      "(lab.context_stubs: compare panels, zoom grids and variant sheets of a superseded model) and a "
-                      "pick sheet once its reading was read again or dropped; the projection counts no pick sheet "
-                      "as stubbable (a run that re-reads is priced a little high, never low).",
+                      f"The legacy cost projection discounts images of kinds {', '.join(STUBBED_KINDS)} in old "
+                      "results and counts no pick sheet as stubbable. Live runs preserve earlier images and use "
+                      "fresh-conversation renewal; these historical projections do not model renewal.",
                       MIX_ASSUMED,
                       "A projected run whose next request would pass the model's input limit, or the provider's "
                       f"per-request limit ({PAYLOAD_LIMIT_BYTES / 1e6:.0f} MB, {PAYLOAD_LIMIT_IMAGES:,} images), ends "
@@ -1259,7 +1251,7 @@ def facet_estimate(rehearsal: dict, *, requests=RUN_LENGTHS, max_output_tokens: 
                       "Request bytes are modelled (peak_request_mb, peak_images, peak_count_s): each image at its "
                       "kind's largest measured bytes per token (bytes_per_image_token, 121 real v3 tool images), "
                       f"text at {TEXT_BYTES_PER_CHAR} bytes a character and {REQUEST_OVERHEAD_BYTES:,} bytes a request "
-                      f"(the paid runs' whole non-image growth); the context guard (filter {CONTEXT_GUARD}) fires once "
+                      f"(the paid runs' whole non-image growth); the historical filter model ({CONTEXT_GUARD}) fires once "
                       f"at {CONTEXT_GUARD_TOKENS:,} counted tokens and at k x {CONTEXT_GUARD_BYTES / 1e6:.0f} MB; the "
                       f"count's time is the paid runs' fit ({COUNT_S_BASE} s + {COUNT_S_PER_MB} s per MB, one network, "
                       "fitted up to 30.8 MB) beside its timeout (budget.count_timeout_s).",

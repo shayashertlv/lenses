@@ -1,6 +1,6 @@
 /** What the capture needs to know about the input file before the browser loads it (pure): whether the GLB container
  *  is readable at all, and which external resources it references (served next to the model so arview resolves them
- *  against the model URL, WP1_DESIGN.md §1). Acceptance is NOT decided here: arview's load and spec.py decide it. */
+ *  against the model URL, glasses3d/plan/archive/20261019/WP1_DESIGN.md §1). Acceptance is NOT decided here: arview's load and spec.py decide it. */
 
 export interface GlbInput {
   /** The JSON chunk, or null when the container could not be read (arview will refuse it; the report says why). */

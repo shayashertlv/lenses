@@ -1,4 +1,4 @@
-/** arview capture: a GLB that §1 says must be refused is refused by the capture (WP1_DESIGN.md §1, the Format row: a
+/** arview capture: a GLB that §1 says must be refused is refused by the capture (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Format row: a
  *  missing external resource). Round-2 review: the capture's Vite middleware handed unrouted paths to Vite's SPA
  *  fallback, which answered a missing model-relative resource with index.html and HTTP 200, so arview got bytes, did not
  *  refuse, and the report contradicted spec.py. Now every unrouted path under the model prefix is a 404 (both servers

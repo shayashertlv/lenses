@@ -1,7 +1,7 @@
 /** Original temple cross-sections (33 stations per arm) from the renderer's own normalised scene, projected to match
  *  the drawn shaft geometry. These paths supply the first-hair endpoint tracker.
  *
- *  WP1_DESIGN.md §3: there is no pin registry and no second parse. The renderer builds the model with
+ *  glasses3d/plan/archive/20261019/WP1_DESIGN.md §3: there is no pin registry and no second parse. The renderer builds the model with
  *  buildTempleContinuityModel from the scene the load front-end parsed and the normalisation pass normalised (units
  *  rescaled, transforms baked to identity), and records the SHA-256 of the bytes it rendered.
  *
@@ -85,7 +85,7 @@ export function buildTempleContinuityModel(root: Object3D, cutoffZM: number, opt
             check([x, y, z].every(Number.isFinite), 'The continuity triangle contains a nonfinite vertex.');
             coordinates.push(x, y, z); if (lens) lensRearZM = Math.min(lensRearZM, z);
           }
-          // Every non-lens material is frame, whatever its opacity (WP1_DESIGN.md §3).
+          // Every non-lens material is frame, whatever its opacity (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3).
           if (!lens && (!profiled || side !== null)) {
             triangles.push({coordinates, side});
             if (side !== null) armFront[side] = Math.max(armFront[side]!, coordinates[2]!, coordinates[5]!, coordinates[8]!);

@@ -1,4 +1,4 @@
-"""Pins of every openai-agents 0.22.3 / openai 3.22.1 behaviour the loop design relies on (WP2_DESIGN sections 7, 16.3).
+"""Pins of every openai-agents 0.22.3 / openai 3.22.1 behaviour the loop design relies on (glasses3d/plan/archive/20261019/WP2_DESIGN.md sections 7, 16.3).
 
 Each test names the installed source it pins (glasses3d/.venv/Lib/site-packages, file:line). All of them run the
 real Runner with the loop's own construction (loop.build_agent / build_model_settings / build_run_config) over

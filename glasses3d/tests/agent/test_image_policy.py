@@ -6,7 +6,6 @@ import hashlib
 import json
 
 from agents import function_tool
-from agents.run_config import CallModelData, ModelInputData
 from agents.tool import ToolOutputImage, ToolOutputText
 from agents.tool_context import ToolContext
 import pytest
@@ -16,6 +15,7 @@ from glasses3d.agent.job_scene import JobScene
 from glasses3d.agent.receipts import BlobStore
 from glasses3d.tests.agent.loop_support import BRIEF, FakeScene, data_url, photos, png_bytes, tool_instructions
 from glasses3d.tests.agent.support import OFFLINE_KEY
+from glasses3d.tests.agent.image_history import tool_output_image_occurrences
 
 
 SETTINGS = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=12, finish_tool="finish",
@@ -30,16 +30,13 @@ class PolicyScene(FakeScene):
 
     def context_image_stubs(self, images):
         self.asked.append(copy.deepcopy(images))
-        return self.policy.context_image_stubs(images)
+        raise AssertionError("retired history rewriting must never be called")
 
 
 def record(cid, view, checkpoint, seed, kind="compare_to_photos", **extra):
     return {"call_id": cid, "view": view, "checkpoint": checkpoint, "kind": kind,
             "sha256": hashlib.sha256(png_bytes(seed=seed)).hexdigest(), "output_index": 2, **extra}
 
-
-def occurrence(rec):
-    return {"call_id": rec["call_id"], "part_index": rec["output_index"], "sha256": rec["sha256"]}
 
 
 def make_tools(scene):
@@ -97,7 +94,7 @@ def look(view, checkpoint, seed):
 
 
 def image_calls(body):
-    return {image["call_id"] for image in L.tool_output_image_occurrences(body["input"])}
+    return {image["call_id"] for image in tool_output_image_occurrences(body["input"])}
 
 
 def test_job_policy_keeps_every_previous_item_at_all_request_boundaries(tmp_path):
@@ -126,7 +123,7 @@ def test_legacy_epoch_settings_preserve_every_original_and_repeated_image_occurr
     assert not scene.asked and result["context_guard"]["epochs"] == []
     assert result["context_guard"]["epoch"] is None and result["renewals"] == []
     assert [len(R.input_images(body)) for body in transport.creates] == list(range(2, 12))
-    repeated = {row["call_id"]: row for row in L.tool_output_image_occurrences(transport.creates[4]["input"])}
+    repeated = {row["call_id"]: row for row in tool_output_image_occurrences(transport.creates[4]["input"])}
     assert repeated["call_0001"]["sha256"] == repeated["call_0004"]["sha256"]
     assert image_calls(transport.creates[-1]) == {f"call_{i:04d}" for i in range(1, 10)}
     for previous, current in zip(transport.creates, transport.creates[1:]):
@@ -137,7 +134,7 @@ def test_legacy_epoch_settings_preserve_every_original_and_repeated_image_occurr
                        and isinstance(item.get("content"), list) for part in item["content"] if part["type"] == "input_image"]
         assert user_images == [photo.image_url for photo in photos(2)]
     persisted = history(job)
-    assert len(L.tool_output_image_occurrences(persisted)) == 9
+    assert len(tool_output_image_occurrences(persisted)) == 9
     assert "superseded" not in json.dumps(persisted)
 
 
@@ -166,55 +163,6 @@ def test_resume_keeps_exact_history_and_every_image_after_selecting_a_different_
     after = history(job)
     assert after[:len(before)] == before
 
-
-def test_retention_semantics_and_unseen_output_cannot_supersede_a_seen_image(tmp_path):
-    scene = JobScene(tmp_path, job={})
-    rows = [record("photo", "front", "source", 0, "read_image", context_role="reference"),
-            record("old-front", "front", "c1", 1, path="work/tool_images/old-front.png"), record("side", "side", "c1", 2),
-            record("new-front", "front", "c2", 3),
-            record("old-render", "front", "c1", 4, "render_views"), record("new-render", "front", "c2", 5, "render_views"),
-            record("old-pick", "front", "c1", 6, "photo_read"), record("current-pick", "front", "c2", 7, "photo_read"),
-            record("old-detail", "front", "c1", 8, "read_image", context_role="detail"),
-            record("new-detail", "front", "c2", 9, "read_image", context_role="detail"),
-            record("unknown", "front", "c0", 10, "unknown")]
-    scene.images = rows + [record("not-delivered", "side", "c3", 20)]
-    present = [occurrence(row) for row in rows]
-    stubs = scene.context_image_stubs(present)
-    assert {key[0] for key in stubs} == {"old-front", "old-render", "old-pick", "old-detail"}
-    assert "checkpoint c1, view front" in stubs[L.image_key(present[1])]
-    assert "; path work/tool_images/old-front.png]" in stubs[L.image_key(present[1])]
-    scene.best_checkpoint = "c1"
-    assert scene.context_image_stubs(present) == {}
-    scene.best_checkpoint = "c2"
-    assert {key[0] for key in scene.context_image_stubs(present)} == {"old-front", "old-render", "old-pick", "old-detail"}
-
-
-def test_same_bytes_in_one_output_have_independent_view_occurrences(tmp_path):
-    scene = JobScene(tmp_path, job={})
-    scene.images = [record("same-call", "front", "c1", 1),
-                    record("same-call", "side", "c1", 1, output_index=4), record("new", "front", "c2", 2)]
-    stubs = scene.context_image_stubs([occurrence(row) for row in scene.images])
-    assert set(stubs) == {("same-call", 2, scene.images[0]["sha256"])}
-
-
-def test_guard_does_not_mutate_inputs_and_can_restore_selected_images_at_later_epoch():
-    url = data_url(png_bytes(seed=1))
-    items = [{"role": "user", "content": [{"type": "input_image", "image_url": url}]},
-             {"type": "function_call_output", "call_id": "old", "output": [{"type": "input_image", "image_url": url}]},
-             {"type": "function_call_output", "call_id": "new", "output": [{"type": "input_image", "image_url": url}]}]
-    original = copy.deepcopy(items)
-    old_key = L.image_key(L.tool_output_image_occurrences(items)[0])
-    choices = {old_key: "superseded"}
-    guard = L.ContextGuard(150_000, counted=lambda: None, choose=lambda _: {}, every_requests=3,
-                           choose_images=lambda _: choices)
-    data = CallModelData(model_data=ModelInputData(input=items, instructions="i"), agent=None, context=None)
-    for _ in range(3):
-        got = guard(data)
-        assert got.input[1]["output"] == [{"type": "input_text", "text": "superseded"}]
-        assert got.input[2] == items[2]
-    choices.clear()
-    assert guard(data).input == original and guard.replaced == 0
-    assert items == original
 
 
 def test_periodic_setting_is_bound_into_approval_and_registry():

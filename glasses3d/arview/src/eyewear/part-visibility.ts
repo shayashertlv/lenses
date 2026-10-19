@@ -1,12 +1,12 @@
 /** Optional authored ownership for runtime visibility (`LENSES_part_visibility` node extras: front, temple_left,
  *  temple_right, lens). Absent metadata keeps the positional asset path.
  *
- *  The regions are optional metadata (WP1_DESIGN.md §1): they are validated once at load (classifyAssetMaterials), and
+ *  The regions are optional metadata (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): they are validated once at load (classifyAssetMaterials), and
  *  malformed or inconsistent profiles are ignored for the whole asset, never a throw: one message per problem, which
  *  the model report records as a 'part visibility' fallback (classifyAssetMaterials, model/normalize.ts). A
  *  region must agree with the decided lens/frame class (part-class.ts), which the lens identification reads from the
  *  glTF JSON, not from a raw `partRole`, and a temple region must lie on its side of X (temple_left at x < 0,
- *  temple_right at x > 0: sides are judged by geometry, WP1_DESIGN.md §3). */
+ *  temple_right at x > 0: sides are judged by geometry, glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). */
 import {Box3, Mesh} from 'three';
 import type {BufferAttribute, Object3D} from 'three';
 import {meshClassOf} from './part-class.ts';
@@ -66,7 +66,7 @@ export function ignorePartVisibility(root: Object3D): void {
  *  runs this after registering the classes); an unclassified mesh is not class-checked.
  *
  *  Static geometry, baked transforms and finite XYZ positions are §2 Geometry/Transforms refusals of the one load-time
- *  check (model/normalize.ts, WP1_DESIGN.md §1), which runs before this; they are not re-checked here. */
+ *  check (model/normalize.ts, glasses3d/plan/archive/20261019/WP1_DESIGN.md §1), which runs before this; they are not re-checked here. */
 export function validatePartVisibility(root: Object3D, warn?: (message: string) => void): boolean {
   const meshes: Mesh[] = []; let declared = false;
   root.traverse(object => {

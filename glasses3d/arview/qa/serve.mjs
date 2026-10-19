@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** arview serve: the owner's webcam page for one GLB (WP1_DESIGN.md §6; WP1 stage F).
+/** arview serve: the owner's webcam page for one GLB (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6; WP1 stage F).
  *
  *    node qa/serve.mjs <model.glb> [--port 8251] [--detach] [--name <label>] [--clip <m>] [--lensenv N]   (bin: arview serve ...)
  *    node qa/serve.mjs --stop [--port 8251]          node qa/serve.mjs --status [--port 8251]

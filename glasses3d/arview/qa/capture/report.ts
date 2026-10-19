@@ -1,4 +1,4 @@
-/** report.json assembly for `arview capture` (pure; WP1_DESIGN.md §6, analysis.capture.proposed_layout).
+/** report.json assembly for `arview capture` (pure; glasses3d/plan/archive/20261019/WP1_DESIGN.md §6, analysis.capture.proposed_layout).
  *
  *  The report says, in this order of authority:
  *  - `status`: 'captured' | 'captured_with_warnings' | 'refused' | 'unchecked' | 'infrastructure_failed';
@@ -94,7 +94,7 @@ export interface SpecRowComparison {
   readonly uncompared: {row: string; reason: string}[];
 }
 
-/** Compare arview's own §2 rows with spec.py's, row by row (WP1_DESIGN §1: arview must agree with spec.py). */
+/** Compare arview's own §2 rows with spec.py's, row by row (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: arview must agree with spec.py). */
 export function compareSpecRows(python: Record<string, unknown> | null, model: ModelReportLike | null): SpecRowComparison {
   const result: SpecRowComparison = {disagreements: [], compared: [], uncompared: []};
   const rows = python?.rows, own = model?.spec;
@@ -158,7 +158,7 @@ const PROBE_FAILS = new Set(['refused', 'failed_first_frame', 'handover_refused'
 interface ProbeLike {verdict?: string; text?: string; steps?: {step?: string; ok?: boolean; tracked_poses?: number; guarded?: boolean}[]}
 
 /** The live-site verdict, with the static prediction and the runtime observation kept apart:
- *  - `static_would_fail` / `reasons`: the live site's acceptance rules (RULES_AUDIT §C) as spec.py and arview read them
+ *  - `static_would_fail` / `reasons`: the live site's acceptance rules (glasses3d/plan/archive/20261019/RULES_AUDIT.md §C) as spec.py and arview read them
  *    from the file;
  *  - `runtime_verdict` / `runtime_would_fail`: what main's UNMODIFIED ar/ did with the model (--live-probe): 'loaded',
  *    'refused', 'failed_first_frame', 'handover_refused', 'probe_failed' (no verdict: null), or 'not_probed' (null);

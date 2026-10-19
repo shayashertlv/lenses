@@ -59,7 +59,7 @@ function ignored(f: ReturnType<typeof fixture>): string[] {
   return [...profile];
 }
 
-// Rewritten (WP1_DESIGN.md §1): LENSES_part_visibility is optional metadata. Malformed or inconsistent profiles used to
+// Rewritten (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): LENSES_part_visibility is optional metadata. Malformed or inconsistent profiles used to
 // throw; they are now ignored for the whole asset with one warning per problem, and the asset still classifies and
 // renders by the positional path. Unbaked transforms stay a refusal (a §2 Transforms row, not metadata).
 test('malformed or inconsistent profiles are ignored for the whole asset with a warning, never thrown', t => {

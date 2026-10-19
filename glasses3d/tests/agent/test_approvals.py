@@ -1,4 +1,4 @@
-"""Single-use owner approvals (plan/WP2_DESIGN.md section 8, Approvals): approval-request.json binds request_sha256 =
+"""Single-use owner approvals (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8, Approvals): approval-request.json binds request_sha256 =
 sha of job.json, the input shas, the unsent owner notes, the instructions sha, the tool-registry sha and the settings;
 approval.json carries the owner's exact words; a run refuses with exit code 3 when the approval is missing, stale,
 consumed or below the requested cap. Nothing here sends a request (conftest: offline, loopback only)."""

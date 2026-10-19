@@ -1,4 +1,4 @@
-/** Lens identification (WP1_DESIGN.md §2, PLAN.md WP1.3): which glTF uses are lens and which are frame.
+/** Lens identification (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2, PLAN.md WP1.3): which glTF uses are lens and which are frame.
  *
  *  Pure and three-free. The rule order is the one in `glasses3d/g3d_host/lens_id.py`, and both sides run the shared
  *  vectors `glasses3d/tests/fixtures/lens_id_cases.json`, so they cannot drift apart. Per use (node x primitive):

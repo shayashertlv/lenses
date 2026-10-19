@@ -1,4 +1,4 @@
-/** The model report (WP1_DESIGN.md §1, §5): what arview did with one GLB, and what violates the owner's spec (PLAN §2).
+/** The model report (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): what arview did with one GLB, and what violates the owner's spec (PLAN §2).
  *
  *  - `spec` holds the seven §2 rows (format, units, origin, orientation, transforms, geometry, components), each
  *    {pass, detail[]}, worded and decided as `glasses3d/g3d_host/spec.py` decides them (the single source of truth;
@@ -13,7 +13,7 @@
  *  - Everything else renders. Every fallback is a `fallbacks[]` entry AND a `warnings[]` sentence, never silent.
  *  - `errors` lists every failed row's detail ('<row>: <detail>', spec.py's wording). Most row failures write no warning,
  *    so a display shows both (reportLines: refusal reasons, failed rows, then warnings), never the warnings alone.
- *  - `live_site_would_fail` lists what the stricter live site (RULES_AUDIT §C) would reject; it never blocks a render.
+ *  - `live_site_would_fail` lists what the stricter live site (glasses3d/plan/archive/20261019/RULES_AUDIT.md §C) would reject; it never blocks a render.
  *  - `rendered_sha256` is the SHA-256 of the exact GLB bytes parsed: the WP2 ledger binds to it, never to a handover
  *    value. */
 import type {LensIdentificationReport} from '../eyewear/lens-identification.ts';
@@ -52,7 +52,7 @@ export interface ModelReport {
   /** Every warning, in the order the load met them (the model definition's own first), each once. */
   readonly warnings: readonly string[];
   readonly fallbacks: readonly ModelFallback[];
-  /** The lens identification block (WP1_DESIGN.md §2), or null when the load ended before identification. */
+  /** The lens identification block (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2), or null when the load ended before identification. */
   readonly lens_identification: LensIdentificationReport | null;
   /** Measured numbers (millimetres unless the key says otherwise): bbox_mm, width_mm, triangles, textures,
    *  bridge_underside_mm, units_scale, file_bytes, ... */
@@ -138,7 +138,6 @@ export class ModelReportBuilder {
   get renderedSha256(): string | null {return this.sha256;}
   get refused(): boolean {return this.refusals.length > 0;}
   get unchecked(): boolean {return this.uncheckedReasons.length > 0;}
-  rowPassed(row: SpecRowName): boolean {return this.rows.get(row)!.pass;}
   get warnings(): readonly string[] {return unique(this.warningList);}
 
   snapshot(status: ModelStatus = this.refused ? 'refused' : this.unchecked ? 'unchecked' : 'rendered'): ModelReport {
@@ -169,7 +168,7 @@ export function failureDetail(report: Pick<ModelReport, 'spec' | 'row_notes'>, r
   return report.spec[row].detail.filter(detail => !notes.has(detail));
 }
 
-/** What the webcam page lists for a loaded or refused model (WP1_DESIGN.md §6: the report's errors and warnings):
+/** What the webcam page lists for a loaded or refused model (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6: the report's errors and warnings):
  *  the refusal reasons, then (status 'unchecked') the NOT CHECKED HERE warning, then every failed §2 row's detail ('Orientation: temple left missing ...'; most row failures
  *  write no warning of their own, and a fallback such as the rear drop's must never be the only trace of the geometry
  *  defect that caused it), then the warnings. A failed row's detail that only repeats a refusal reason is not listed

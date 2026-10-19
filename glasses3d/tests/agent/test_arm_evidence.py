@@ -121,5 +121,5 @@ def test_unreadable_parent_report_is_an_exclusion_not_missing_evidence(tmp_path,
 def test_occluded_tip_has_no_invented_coordinate():
     chains=[np.array([[2.,2.],[15,2],[15,15],[2,15]])]
     hidden=np.zeros((30,30),bool)
-    result=E._tip(chains,np.array([[10,10],[11,11]]),hidden,hidden,(30,30))
+    result=E._tip(chains,np.array([[10,10],[11,11]]),hidden,(30,30))
     assert result['status']=='occluded' and result['uv_px'] is None

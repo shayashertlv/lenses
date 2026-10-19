@@ -1,4 +1,4 @@
-"""WP2 stage A: safe mode for Astra's execute_blender_code (g3d/safe_mode.py, WP2_DESIGN §4). Host only.
+"""WP2 stage A: safe mode for Astra's execute_blender_code (g3d/safe_mode.py, glasses3d/plan/archive/20261019/WP2_DESIGN.md §4). Host only.
 
 * the community suite (automation/.../mcp-for-blender/tests/test_safe_mode.py, MIT) inverted for the glasses3d
   policy: its render/save/import/open/preferences "legitimate" scripts are refused here, its escapes stay refused;
@@ -197,7 +197,7 @@ LOOP = {             # g3d-wp2-design/adversarial.py DENY
     "prefs": "import bpy\nbpy.context.preferences.filepaths.temporary_directory = 'C:/'",
     "np private": "import numpy as np\nnp._core.records.fromfile('x')", "read factory": "import bpy\nbpy.ops.wm.read_factory_settings()",
 }
-EXTRA = {            # holes found while porting (each measured or reasoned in PORT_REVIEW §11)
+EXTRA = {            # holes found while porting (each measured or reasoned in glasses3d/plan/archive/20261019/PORT_REVIEW.md §11)
     "typing.sys": "import typing\ntyping.sys.modules['os'].system('calc')",
     "enum builtins": "import enum\nenum.bltns.open('x', 'w')", "json.codecs": "import json\njson.codecs.open('x', 'w')",
     "dataclasses.inspect": "import dataclasses\ndataclasses.inspect.currentframe()",

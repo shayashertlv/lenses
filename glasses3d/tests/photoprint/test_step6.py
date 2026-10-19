@@ -1,5 +1,5 @@
 """WP5 step 6 (2026-10-07, after the step-5 AR tool test): the brow honey patches, the -x temple's spots, the level's
-chroma. Synthetic inputs only (the FT1119 numbers are in PORT_REVIEW section 10):
+chroma. Synthetic inputs only (the FT1119 numbers are in glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):
 - ``labels.place_labels(..., seen_share=...)``: in crease mode a face its own anchor sees keeps the anchor; only its
   holes may go to an adjacent anchor that sees them;
 - ``fill.light_acetate``: see-through text counts only where the painting photo's acetate is light;

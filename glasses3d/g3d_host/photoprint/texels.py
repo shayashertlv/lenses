@@ -33,7 +33,7 @@
   tier 2 = the anchor alone (single-source mode: each region painted from its anchor photo only, never mixing
   unregistered views), tier 3 = unseen (filled).
 
-- **Correction round (2026-10-06; task items 2 and 4; diagnoses and numbers in PORT_REVIEW section 10):**
+- **Correction round (2026-10-06; task items 2 and 4; diagnoses and numbers in glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):**
   - *Bicubic footprint* (``FOOTPRINT_PX``, item 4): the light scratch marks on the endpiece blocks under the T were
     photo 05's silhouette: texels whose photo pixel lay < 1.5 px inside the matte were bright outliers in 47-51 % of
     cases (local contrast > 15 levels; 7-17 % at 1.5-2.5 px, 0 % beyond 2.5 px), because the interpolating cubic
@@ -59,7 +59,7 @@
   acetate colour test) in 6.6 % of 1,241 (base rate 0.7 %). ``footprint_holes``: a donor sample also stays
   ``FOOTPRINT_PX`` from those edge pixels (``footprint_rule='edges'``, the default; 'plain' reproduces the correction
   round's footprint). Keeping it ``glint_px`` = 1.5 px from glint lines as well was built and measured (bakes in
-  PORT_REVIEW section 10): it brings the bright-outlier share of the brow-front texels added since 10bf932 from
+  glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10): it brings the bright-outlier share of the brow-front texels added since 10bf932 from
   1.8 / 2.8 % (-x / +x) to 0.3 / 0.5 % but costs 3.4 / 5.6 points of the brow front's photo share (80.8 / 80.0 ->
   77.4 / 74.4 %), against an outlier the review could not see at capture scale: OFF by default
   (``FOOTPRINT_GLINT_PX`` = 0), an owner decision.

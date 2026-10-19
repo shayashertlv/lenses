@@ -27,7 +27,8 @@ Fix round 2:
 - **Foreign blobs** (``texels``): metal a photo shows on print that the model lacks is a hole for that view and is
   reported to Astra.
 
-Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in PORT_REVIEW §10 and the modules):
+Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in
+glasses3d/plan/archive/20261019/PORT_REVIEW.md §10 and the modules):
 - donor holes for metal and highlight colours, hardware margins, thin glint / outline lines and dark rivet blobs
   (``metal``, applied in ``texels.view_samples``; every reason is counted per photo in ``report['metal']``);
 - the hole filler is block quilting (``fill='quilt'``, radius 0.9 / 1.2 mm by the knockout), ``fill='patchmatch'``
@@ -38,9 +39,11 @@ Build step 4 (host fixes, 2026-10-06; diagnoses and measurements in PORT_REVIEW 
   equations and a robust pass, then the stage-3 levelling field (``gain_field.npz``; A3's read back applies it);
 - chart seams: unscreened Poisson stitching is the owner-selected default (2026-10-08), replacing reflection and
   hard harmonisation while keeping protected photo texels fixed. The owner subsequently selected the
-  observed-slope boundary join after regular quilting; see ``fill.fill_call`` and PORT_REVIEW section 14.
+  observed-slope boundary join after regular quilting; see ``fill.fill_call`` and
+  glasses3d/plan/archive/20261019/PORT_REVIEW.md section 14.
 
-Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and numbers in PORT_REVIEW section 10):
+Correction round (2026-10-06, after the AR tool test of 10bf932; diagnoses and numbers in
+glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):
 - ``flatten`` ('test' by default; ``shading``): every photo's own normal-space SH shading is fitted on its donor texels
   and divided out in linear light, kept only if the photos then agree better on the same surface (pooled gained dE00
   down >= 0.3 and median |dlog Y| down, also with any one view pair left out: fix round 1);
@@ -436,7 +439,7 @@ def project_photo_texture(job, parts, *, out_dir, print_reg_mm=None, edge_mean_m
         edges = ED.edge_table(job, pids, views=use_views, mean_mm=edge_mean_mm, p90_mm=edge_p90_mm)
         adm = ED.admitted(edges)
         groups = RG.rigid_groups(job)
-        regions = RG.build_regions(job, parts, groups, n_samples=64, seed=seed)
+        regions = RG.build_regions(job, parts, groups)
         by = {r.rid: r for r in regions}
         mirror_region = mirror_regions(job, pids, regions)
         timings["edges_regions_s"] = round(time.perf_counter() - t, 2)

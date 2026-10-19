@@ -1,5 +1,5 @@
 import {SIDE_NAMES} from '../model/sides.ts';
-/** Temples by position, per side, and the temple clip derived from them (WP1_DESIGN.md §3).
+/** Temples by position, per side, and the temple clip derived from them (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3).
  *
  *  A temple is found whatever its opacity: crystal (transmissive) and alpha-blended frame parts are temples exactly
  *  like opaque ones, and lens-class geometry (part-class.ts, decided once at load) never is.

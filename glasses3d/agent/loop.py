@@ -1,4 +1,4 @@
-"""The Astra loop (WP2_DESIGN section 7): one stock Agents SDK ``Runner`` session per run, money gated per section 8.
+"""The Astra loop (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 7): one stock Agents SDK ``Runner`` session per run, money gated per section 8.
 
 Order of one run (``run_astra``):
 
@@ -55,7 +55,6 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -73,7 +72,6 @@ from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from agents.models.openai_provider import OpenAIProvider
 from agents.retry import ModelRetrySettings
 from agents.run import ToolExecutionConfig
-from agents.run_config import ModelInputData
 from agents.tool import FunctionTool, default_tool_error_function
 from openai import APIConnectionError
 from openai.types.shared import Reasoning
@@ -106,23 +104,11 @@ SMOKE_TOOLS = ("scene_summary", "budget_status")
 SMOKE_POLICY = {"policy": "g3d.smoke/1", "tools": list(SMOKE_TOOLS), "max_calls": 1, "max_requests": 1,
                 "session": "run",
                 "notice": "Smoke check: call scene_summary or budget_status once, then stop. Do not modify the scene."}
-# ContextGuard. /2 (review 2026-10-12, v3p3-verify-14/-15): each epoch's choice applies only inside the tool outputs
-# present at its firing (by call_id), and besides its one token epoch the guard fires on request bytes, at k x
-# CONTEXT_GUARD_BYTES (k = 1, 2, ...); /1 had one token-triggered choice, applied to every later output too.
+# Retired image-filter identifiers remain part of existing approval hashes and legacy cost projections.
+# Live runs preserve earlier items and use ConversationRenewal at the provider limits.
 CONTEXT_GUARD = "g3d.context_guard/2"
 CONTEXT_GUARD_PERIODIC = "g3d.context_guard/3"  # request cadence and per-output image identities (assembly M2)
-# The guard's byte rung (serialized request bytes, budget.planning's last_request_bytes): a ceiling that keeps a run
-# alive, not a routine trigger, at half the provider's documented per-request limit (budget.PAYLOAD_LIMIT_BYTES 512
-# MB, where a run ends payload_limit). Every epoch rewrites the prompt cache and a late one costs more than it saves
-# (the estimate's projection on the v3 T5 steps, 2026-10-12): a second epoch at 2 x 240k tokens cost $8 more over a
-# 60-reply read-heavy run (fired at request 59) and saved $4 over a 90-reply edit-heavy one; a 128 MB byte rung fired
-# at request 84 of the 90-reply typical run for $4.17 more; a 64 MB one fired with the token epoch, one request earlier
-# on the edit-heavy mix, for $0.46. So the token epoch fires once (the long-context step, as /1), and the byte rung
-# sits above every projected run (peaks 108-168 MB at 90 replies with that one epoch, v3p3-verify-15 and the
-# estimate): it fires only for a body that grows toward the provider's limit (an image-dense run near the token input
-# limit, 922k tokens at up to 414 B a token is 382 MB). The count's timeout scales with the body
-# (budget.count_timeout_s), so a large body no longer risks the count. Part of the filter's definition (CONTEXT_GUARD
-# /2): RunSettings.context_guard_bytes overrides it and is then bound into the approval.
+# Keep the old default unchanged so deserializing an approval reproduces its exact binding.
 CONTEXT_GUARD_BYTES = PAYLOAD_LIMIT_BYTES // 2
 CONTINUATION_NOTE = ("Your previous response was cut off at the output limit and was not recorded. Continue.")
 FINISH_NOTE = "Your reply called no tool. The run ends only when `{tool}` returns status accepted."
@@ -205,15 +191,14 @@ def schema_descriptions(schema, path: str = "$") -> list[tuple[str, str]]:
 
 @dataclass(frozen=True)
 class RunSettings:
-    """Engineering settings recorded per run (WP2_DESIGN section 1: output cap 16,384, max_turns 60).
+    """Engineering settings recorded per run (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 1: output cap 16,384, max_turns 60).
 
     The facet runs (WP6_FACETS §4.3) add: ``tool_choice`` "required" (every reply calls a tool), ``reset_tool_choice``
     False (the SDK keeps that choice after the first tool call), ``finish_tool`` (the run is final only when this
     tool's result has status "accepted"), ``finish_k`` (the finish tool's K distinct compared heads),
-    ``context_guard_tokens`` (the image filter's token epoch; the guard is on only with it) and
-    ``context_guard_bytes`` (its byte rungs; None: CONTEXT_GUARD_BYTES, the filter's own). An optional
-    ``context_guard_every_requests`` also applies the scene's image policy before request 1 and every N requests
-    thereafter, including resumed history. None preserves the facet filter. Their defaults change nothing.
+    ``context_guard_tokens``, ``context_guard_bytes`` and ``context_guard_every_requests`` retain their old
+    validation and approval binding so existing approvals remain readable. They no longer activate a history
+    filter; live runs preserve earlier items and use ConversationRenewal when admission limits approach.
     ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
     approval's maximum reserve cap; an already-sent request may settle above the stop but within that cap.
     Explicit ``settled_only`` approval removes reservation-based admission limits: the shared settled stop
@@ -236,8 +221,7 @@ class RunSettings:
     smoke: bool = False
 
     def guard_bytes(self) -> int | None:
-        """The context guard's byte rung in force: None while the guard is off, else context_guard_bytes or the
-        filter's CONTEXT_GUARD_BYTES."""
+        """The legacy byte rung used by approval binding and historical cost projections."""
         if self.context_guard_tokens is None:
             return None
         return CONTEXT_GUARD_BYTES if self.context_guard_bytes is None else self.context_guard_bytes
@@ -502,23 +486,6 @@ class SceneHooks:
         """Connect scene call journals to this run's tool receipts once ReviewLog exists."""
         return None
 
-    def context_stubs(self, image_sha256s: list[str]) -> dict[str, str]:
-        """The context guard's choice at one epoch: {image sha256: text stub} for the tool-output images (sha256 of
-        the image bytes, in input order) that may be replaced in the tool outputs present now; {} keeps every
-        image."""
-        return {}
-
-    def context_image_stubs(self, images: list[dict]) -> dict[tuple, str]:
-        """Choices by (call_id, output part index, sha256), so identical bytes in a new call remain independent.
-
-        The fallback preserves older scene implementations. Each image record has call_id, part_index and sha256;
-        a scene with semantic image records can override this to retain selected occurrences of identical bytes.
-        """
-        if not images:
-            return {}
-        choices = self.context_stubs([image["sha256"] for image in images])
-        return {image_key(image): choices[image["sha256"]] for image in images if image["sha256"] in choices}
-
     def close(self) -> None:
         return None
 
@@ -669,185 +636,6 @@ class SmokeOnce:
         text = tool_result_text(results[0].output) if results else "Smoke returned no tool result."
         return ToolsToFinalOutputResult(is_final_output=True, final_output=text)
 
-
-_DATA_IMAGE_B64 = re.compile(r"^data:image/[A-Za-z0-9.+-]+;base64,(.*)$", re.DOTALL)
-
-
-def _image_sha256(url) -> str | None:
-    match = _DATA_IMAGE_B64.match(url) if isinstance(url, str) else None
-    if match is None:
-        return None
-    try:
-        return hashlib.sha256(base64.b64decode(match[1], validate=True)).hexdigest()
-    except ValueError:
-        return None
-
-
-def tool_output_images(items) -> list[str]:
-    """sha256 of every data-URL image inside a function_call_output of the model input, in order."""
-    out = []
-    for item in items or []:
-        if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(item.get("output"),
-                                                                                                 list):
-            for part in item["output"]:
-                if isinstance(part, dict) and part.get("type") == "input_image":
-                    sha = _image_sha256(part.get("image_url"))
-                    if sha is not None:
-                        out.append(sha)
-    return out
-
-
-def image_key(image: dict) -> tuple:
-    return image["call_id"], image["part_index"], image["sha256"]
-
-
-def tool_output_image_occurrences(items) -> list[dict]:
-    """Identify images by their output occurrence, never their bytes alone."""
-    images = []
-    for item in items or []:
-        if (not isinstance(item, dict) or item.get("type") != "function_call_output"
-                or not isinstance(item.get("call_id"), str) or not isinstance(item.get("output"), list)):
-            continue
-        for index, part in enumerate(item["output"]):
-            sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and part.get("type") == "input_image" else None
-            if sha is not None:
-                images.append({"call_id": item["call_id"], "part_index": index, "sha256": sha})
-    return images
-
-
-class ContextGuard:
-    """``RunConfig.call_model_input_filter`` (WP6_FACETS §4.3; CONTEXT_GUARD /2, review 2026-10-12).
-
-    An epoch fires when the last counted request (budget.planning's last_counted_input_tokens and last_request_bytes)
-    reached ``threshold`` counted input tokens for the first time (the token epoch fires once: a later one rewrites a
-    long-context prefix for little, CONTEXT_GUARD_BYTES' comment), or the next byte rung, k x ``byte_threshold``
-    serialized request bytes (k = 1, 2, ...; after any firing the next byte rung is the first above that request, so
-    one reading never fires twice). At a firing ``choose`` is asked which tool-output images to replace with text
-    stubs ({sha256: stub}, over every tool-output image present). That choice applies to this and every later
-    request, but ONLY inside the function_call_outputs present at the firing (their call_ids): an output that arrives
-    later reaches the model whole, even when it repeats a stubbed image's bytes. v3p3-verify-14: keyed by bytes alone,
-    /1 stubbed those too;
-    seeing's compare cache returns the same panel file for the same build, photo and crop, so a revision re-applied
-    after the firing (facet_edit with apply: v3 has no restore) reached Astra as "superseded" stubs of the old
-    compare, which E_JUDGEMENT still asked it to judge and finish precondition 3 counted as shown. Each epoch is one
-    prompt-cache rewrite, then a stable prefix (earlier outputs keep their stubs or get the new choice's; later
-    outputs are never rewritten). Brief images and images ``choose`` does not name are never touched; the session
-    keeps every image. ``epochs`` lists every firing, ``epoch`` the latest.
-
-    Assembly /3 optionally fires before request 1 and every N requests after it. It chooses by image occurrence
-    (call id, part index, digest), retaining a new cached image independently of its older copy. Choices are made
-    from the current input before serialization and free counting; previous token/byte readings are additional
-    pressure triggers only. A new policy epoch can restore an earlier image when that checkpoint becomes best.
-    """
-
-    name = CONTEXT_GUARD
-
-    def __init__(self, threshold: int, *, counted: Callable[[], int | None], choose: Callable[[list], dict],
-                 notify: Callable[[dict], None] | None = None, byte_threshold: int | None = None,
-                 sent_bytes: Callable[[], int | None] | None = None, every_requests: int | None = None,
-                 choose_images: Callable[[list], dict] | None = None):
-        self.threshold = int(threshold)
-        self.byte_threshold = int(byte_threshold) if byte_threshold is not None else None
-        self.counted, self.sent_bytes, self.choose, self.notify = counted, sent_bytes, choose, notify
-        if every_requests is not None and (type(every_requests) is not int or every_requests < 1):
-            raise ValueError("every_requests must be a positive integer or None")
-        self.every_requests, self.choose_images = every_requests, choose_images
-        self.name = CONTEXT_GUARD_PERIODIC if every_requests is not None else CONTEXT_GUARD
-        self.requests = 0
-        self.stubs: dict | None = None
-        self.scope: frozenset = frozenset()          # the call_ids of the outputs present at the latest firing
-        self.token_due = True                         # the token epoch has not fired yet
-        self.byte_rung = 1
-        self.epoch: dict | None = None
-        self.epochs: list[dict] = []
-        self.replaced = 0
-
-    def due(self) -> tuple[int | None, int | None, str | None]:
-        """(counted tokens, request bytes, the trigger that fires now or None) of the last counted request."""
-        tokens = self.counted()
-        size = self.sent_bytes() if self.sent_bytes is not None and self.byte_threshold else None
-        if self.every_requests is not None and (self.requests - 1) % self.every_requests == 0:
-            return tokens, size, "request_cadence"
-        if self.token_due and tokens is not None and tokens >= self.threshold:
-            return tokens, size, "input_tokens"
-        if size is not None and size >= self.byte_rung * self.byte_threshold:
-            return tokens, size, "request_bytes"
-        return tokens, size, None
-
-    def __call__(self, data) -> ModelInputData:
-        model_data = data.model_data
-        self.requests += 1
-        tokens, size, trigger = self.due()
-        fired = trigger is not None
-        if fired:
-            shas = tool_output_images(model_data.input)
-            if self.every_requests is None:
-                present = set(shas)
-                self.stubs = {sha: str(text) for sha, text in (self.choose(shas) or {}).items() if sha in present}
-            else:
-                images = tool_output_image_occurrences(model_data.input)
-                present = {image_key(image) for image in images}
-                if self.choose_images is not None:
-                    choices = self.choose_images(images) or {}
-                else:
-                    by_sha = (self.choose(shas) or {}) if shas else {}
-                    choices = {image_key(image): by_sha[image["sha256"]] for image in images
-                               if image["sha256"] in by_sha}
-                self.stubs = {key: str(text) for key, text in choices.items() if key in present}
-            self.scope = frozenset(item["call_id"] for item in model_data.input
-                                   if isinstance(item, dict) and item.get("type") == "function_call_output"
-                                   and isinstance(item.get("call_id"), str))
-            if tokens is not None and tokens >= self.threshold:
-                self.token_due = False
-            if size is not None:
-                self.byte_rung = max(self.byte_rung, math.floor(size / self.byte_threshold) + 1)
-            self.epoch = {"epoch": len(self.epochs) + 1, "trigger": trigger, "at_counted_input_tokens": tokens,
-                          "at_request_bytes": size, "tool_images": len(shas), "stubbed": 0,
-                          "tool_outputs": len(self.scope),
-                          **({"at_request": self.requests} if self.every_requests is not None else {})}
-        if not self.stubs:
-            self.replaced = 0
-            self._fired(fired, 0)
-            return model_data
-        items, replaced = [], 0
-        for item in model_data.input:
-            if isinstance(item, dict) and item.get("type") == "function_call_output" and isinstance(
-                    item.get("output"), list) and item.get("call_id") in self.scope:
-                parts = []
-                for index, part in enumerate(item["output"]):
-                    sha = _image_sha256(part.get("image_url")) if isinstance(part, dict) and \
-                        part.get("type") == "input_image" else None
-                    key = (item["call_id"], index, sha) if self.every_requests is not None else sha
-                    if key in self.stubs:
-                        parts.append({"type": "input_text", "text": self.stubs[key]})
-                        replaced += 1
-                    else:
-                        parts.append(part)
-                item = {**item, "output": parts}
-            items.append(item)
-        self.replaced = replaced
-        self._fired(fired, replaced)
-        return ModelInputData(input=items, instructions=model_data.instructions)
-
-    def _fired(self, fired: bool, replaced: int) -> None:
-        """Record and report a firing: "stubbed" is the images replaced in its request (every occurrence)."""
-        if not fired:
-            return
-        self.epoch["stubbed"] = replaced
-        self.epochs.append(dict(self.epoch))
-        if self.notify is not None:
-            self.notify(dict(self.epoch))
-
-
-def epoch_text(epoch: dict) -> str:
-    """The transcript note of one context guard epoch (ContextGuard.epoch): facts only."""
-    size = epoch.get("at_request_bytes")
-    return (f"Context guard epoch {epoch['epoch']}: {epoch['stubbed']} of {epoch['tool_images']} tool images replaced "
-            f"by text stubs in the {epoch['tool_outputs']} tool outputs present, at "
-            f"{epoch['at_counted_input_tokens']} counted input tokens and "
-            + ("an unrecorded request size" if size is None else f"{size / 1e6:.1f} MB")
-            + " (fired on " + {"input_tokens": "counted input tokens", "request_bytes": "request bytes",
-                               "request_cadence": f"request cadence, request {epoch.get('at_request')}"}[epoch["trigger"]] + ").")
 
 
 class RunStatus:
@@ -1014,7 +802,7 @@ class StageRuntime:
         task = asyncio.current_task()
         self.tasks.add(task)
         directory = self.run_dir / "stages" / f"{spec.name}-{call_id}"
-        session = scope = context_guard = renewal = None
+        session = scope = renewal = None
         status, output, error, exit_head = "failed", None, None, None
         state = {"continuations": 0, "finish_notes": 0}
         started = self.log.interactions
@@ -1071,7 +859,7 @@ class StageRuntime:
                            "session": "session.sqlite", "exit_checkpoint": exit_head,
                            "journal": scene.journal_entries(),
                            "renewals": list(renewal.records) if renewal else [],
-                           "context_epochs": list(context_guard.epochs) if context_guard is not None else []}
+                           "context_epochs": []}
                 if directory.is_dir():
                     write_json(directory / "result.json", self.log.clean(receipt))
                 outcome = {key: receipt[key] for key in
@@ -1206,7 +994,7 @@ class SessionBlobMissing(RuntimeError):
 class BlobSession(SQLiteSession):
     """``SQLiteSession("astra", job/session/session.sqlite)`` whose stored rows carry no image bytes: a canonical
     data-URL image is stored once in the job's ``blobs/`` and replaced by ``g3d-blob:v1:<mime>:<sha256>`` on write,
-    and restored byte for byte on read (WP2_DESIGN section 14 criterion 6: no ``data:image`` under the job dir).
+    and restored byte for byte on read (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14 criterion 6: no ``data:image`` under the job dir).
     The SDK reads and writes sessions only through get_items/add_items/pop_item (session_persistence.py:197-259)."""
 
     def __init__(self, session_id: str, db_path, *, blobs: BlobStore):
@@ -1842,7 +1630,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                initial=preflight_load) if spec.load_check is not None else None
         state = {"turns_used": 0, "continuations": 0, "finish_notes": 0}
         status, final_output, error, pending = "failed", None, None, None
-        counter = client = guard = log = context_guard = runtime = agent = renewal = None
+        counter = client = guard = log = runtime = agent = renewal = None
         exit_checkpoint = exit_error = scan = None
         plan = None
         teardown_errors: list[dict] = []
@@ -2032,9 +1820,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                                            **({"every_requests": spec.settings.context_guard_every_requests,
                                                "filter": CONTEXT_GUARD_PERIODIC}
                                               if spec.settings.context_guard_every_requests is not None else {}),
-                                           "epoch": context_guard.epoch if context_guard else None,
-                                           "epochs": list(context_guard.epochs) if context_guard else [],
-                                           "replaced_last_request": context_guard.replaced if context_guard else 0}
+                                           "epoch": None, "epochs": [], "replaced_last_request": 0}
             if spec.load_check is not None:
                 result["machine_load"] = {"preflight": preflight_load, "refuse_on_load": spec.refuse_on_load,
                                           "changes": list(load_watch.changes) if load_watch else [],

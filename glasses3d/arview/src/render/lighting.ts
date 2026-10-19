@@ -1,4 +1,4 @@
-/** Capture lighting (WP1_DESIGN.md §5 `setLighting`): the environment the eyewear reflects, as a public renderer setting
+/** Capture lighting (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5 `setLighting`): the environment the eyewear reflects, as a public renderer setting
  *  instead of the QA harness reaching into private fields. Only the environment maps and the illumination multiplier
  *  change; no material coefficient and no model byte does.
  *

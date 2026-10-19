@@ -1,8 +1,10 @@
 """Job-specific AR/photo level measurement; no product names or fixture loading defaults.
 
-Migrated from the WP5 AR-level instrument. See PORT_REVIEW for the independent parity proof. The uncalled diagnostic
-methods (``part_sides``, ``table``, ``_pairs_arg``, ``group_share_table``) were deleted on 2026-10-13; the legacy
-copy in tests/photoprint/ar_levels.py keeps its own.
+Migrated from the WP5 AR-level instrument. See glasses3d/plan/archive/20261019/PORT_REVIEW.md for the independent
+parity proof. The uncalled diagnostic methods (``part_sides``, ``table``, ``_pairs_arg``, ``group_share_table``) were
+deleted on 2026-10-13. The legacy
+copy in tests/photoprint/ar_levels.py retains its CLI diagnostics; its unused ``part_sides`` was removed in the
+2026-10-19 cleanup (tag ``pre-cleanup-20261019``).
 """
 from __future__ import annotations
 import json

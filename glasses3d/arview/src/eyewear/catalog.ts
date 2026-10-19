@@ -1,5 +1,5 @@
 /** The model a page or capture renders, and the constants the renderer places it with. arview has no catalog
- *  (WP1_DESIGN §5): one ModelDefinition comes from the ?model= handover (external.ts) or from the caller (the capture
+ *  (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5): one ModelDefinition comes from the ?model= handover (external.ts) or from the caller (the capture
  *  runner, tests). `resolveModelDefinition` turns it into the values the renderer uses and says, as warnings for the
  *  model report, every value it could not use. */
 
@@ -33,7 +33,7 @@ export interface ModelDefinition {
   /** Where the bridge origin sits on the canonical face, centimetres; absent means GLASSES_OFFSET_CM. */
   readonly offsetCm?: readonly [number, number, number];
   /** A digest handed over with the model (?sha256=). Only compared with the loaded bytes (a mismatch is a warning): the
-   *  report and every verdict bind to the bytes actually rendered, never to this value (WP1_DESIGN.md §3). */
+   *  report and every verdict bind to the bytes actually rendered, never to this value (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). */
   readonly handoverSha256?: string;
   /** Problems found while building this definition (an unusable handover value, ...), carried into the model report. */
   readonly warnings?: readonly string[];

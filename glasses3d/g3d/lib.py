@@ -1,4 +1,4 @@
-"""The `g3d` facade that Astra's snippets see (WP2_DESIGN §4): in-memory scene helpers, no file I/O inside.
+"""The `g3d` facade that Astra's snippets see (glasses3d/plan/archive/20261019/WP2_DESIGN.md §4): in-memory scene helpers, no file I/O inside.
 
     g3d.loft_sections, g3d.polygon_section, g3d.check_round_corners                              (WP6, temple_bpy)
     g3d.lens_coating                                                                         (coating)

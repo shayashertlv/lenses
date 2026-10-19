@@ -2,7 +2,7 @@
 
 Written by Claude (the planner) for the coding agent that executes it (Codex). The owner decided on 2026-10-13: Claude
 thinks, Codex executes. Read in this order before starting: `glasses3d/AGENTS.md`, `plan/PLAN.md` §0, this file,
-`plan/REVIEW_20261013.md` (the historical pre-assembly baseline), `plan/REVIEW_20261018.md`, current PROGRESS and
+`glasses3d/plan/archive/20261019/REVIEW_20261013.md` (the historical pre-assembly baseline), `plan/REVIEW_20261018.md`, current PROGRESS and
 the dispatched brief, then the design section a milestone
 names. Where this file and an older design disagree, this file wins; where the owner's latest words disagree with this
 file, the owner wins.
@@ -16,10 +16,10 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M0–M4, M5-prep | Assembled job/tool/stage/delivery path built; offline proofs run. |
 | M5 / WP8 | Started: smoke complete; Oakley run 4 accepted 2026-10-15. Prada has six main runs but no accepted assembled product. FT1119 assembled validation and three unseen products remain. |
 | M6 | Owner understand/confirm/edit flow built; M11 task 5 repairs preview, scope, recovery and immutable exact-apply delivery. |
-| M7–M8 | Surface and owner-edit tools built/proven on copies (`M7_M8_RESULTS.md`); task 8 fixes later-discovered float32 temple defects. No new product acceptance implied. |
+| M7–M8 | Surface and owner-edit tools built/proven on copies (`glasses3d/plan/archive/20261019/M7_M8_RESULTS.md`); task 8 fixes later-discovered float32 temple defects. No new product acceptance implied. |
 | M9 | Native composition, fresh-conversation renewal and desktop money simulation built (tasks 3/4). Item 4's owner comparison of desktop c0016 versus run-4 c0015 is not recorded as complete. |
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
-| M11 | Tasks 1–8 landed and Claude accepted; task 9 tests, remaining arview repairs and documents completed with passing required checks, awaiting Claude review. No paid run authorized by this milestone. |
+| M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
 
 Standing money terms are the amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
@@ -80,7 +80,7 @@ estimate (AGENTS.md).
 Proof: the affected tests plus new ones; full suite.
 
 ### M1. Job intake, generic scene hooks, tool registry v1, one offline end-to-end run ($0)
-Designs to reuse: `plan/WP2_DESIGN.md` §10-§12 (read its 2026-10-13 note first: its G2 temple rows are obsolete).
+Designs to reuse: `glasses3d/plan/archive/20261019/WP2_DESIGN.md` §10-§12 (read its 2026-10-13 note first: its G2 temple rows are obsolete).
 1. **Job data** (`agent/jobs.py`, schema `g3d.job/1`): `job create --images DIR --views views.json --name N
    --description TEXT [--specs specs.json]`. Copies images into `data/jobs/<id>/images/` with sha256; `views.json`
    maps every image to a view kind (front, side, angled, top, rear, top_oblique...) and side; refuse a missing or
@@ -111,7 +111,7 @@ Designs to reuse: `plan/WP2_DESIGN.md` §10-§12 (read its 2026-10-13 note first
    finish. Output: `data/jobs/<id>/deliverable/model.glb` + `report.json`; receipts and money ledger complete.
 
 ### M2. Instructions and the image policy ($0)
-1. **Rewrite WP7** (`plan/WP7_DESIGN.md`, read its 2026-10-13 note): follow the WP6 v3 lesson (`plan/WP6_V3.md` §1:
+1. **Rewrite WP7** (`glasses3d/plan/archive/20261019/WP7_DESIGN.md`, read its 2026-10-13 note): follow the WP6 v3 lesson (`plan/WP6_V3.md` §1:
    Astra executes the newest rule literally; teach the object, rank the evidence, give an order of work, keep rules
    few). Content: what glasses are made of (front, lenses, bridge, hinges, temples, pads), the owner's §2 table word
    for word, photos authoritative and colour from photos (not the product name), room reflections on lenses are not
@@ -530,7 +530,7 @@ chosen from renders and honoured over the readings, plus one prompt rule). The o
    fix to tools/instructions. Change no product model and no gate; start no paid run.
 
 ### M5-fix-8. Facet edges the photos show crisply: angle chosen by the look when measurement can't decide ($0; added 2026-10-15 by Claude)
-Codex's M5-fix-7 review (`2d6a485`, `plan/REVIEW_20261015_PRADA_FACET.md`): the hinge-side triangle is built at
+Codex's M5-fix-7 review (`2d6a485`, `glasses3d/plan/archive/20261019/REVIEW_20261015_PRADA_FACET.md`): the hinge-side triangle is built at
 1.73° (~0.32 mm). Stage 1's convex ridge was refused by the reading check and a 3.65° valley kept; stage 2 measured
 1.73° ± 2.31° (unresolved), the tool printed "flat", and Astra left it undeclared; declaring it passes the checks but
 gives only ~2.5°. Larger folds (+5/+10/+15°) read more clearly in AR room light, most in photo 02; lighting also
@@ -608,7 +608,7 @@ earlier "more edits" box (PROGRESS "WP6 v3"). A one-request "Edit my model" mode
    temple surface: markings attached to or lying on an edited surface must follow that surface by default, and the
    understand reply must list them; never leave a marking silently hidden. Prove both on the walkthrough copy.
 6d. **Instruction size limits (Claude, 2026-10-16):** `MAX_INSTRUCTION_CHARS = 8000` (`agent/instructions.py:8`,
-   from `plan/WP7_DESIGN.md:107`) and the specialist's 9,500 are self-imposed focus budgets, not provider limits;
+   from `glasses3d/plan/archive/20261019/WP7_DESIGN.md:107`) and the specialist's 9,500 are self-imposed focus budgets, not provider limits;
    they cost almost nothing (cached input) and recent fixes squeezed wording to fit (7,989/8,000). Raise them to
    16,000 and 19,000. Do not shorten guidance to make room; where M5-fix-5/8 and M6 compressed wording only to fit,
    restore the clearer wording, with no change of meaning. Keep the contract tests (named tools exist, retired
@@ -702,7 +702,7 @@ amounts, owner confirmation, scoped checks and following markings. In priority o
 Each with a $0 proof on a copy (before/after, photo first), the instruction lines, and the M7 dry-run mapping.
 
 ### M9. The image wall, and a desktop test that behaves like a paid run ($0; added 2026-10-17 by Claude)
-M7/M8 are done (`d39f954`..`790f85e`, `plan/M7_M8_RESULTS.md`): all four defects traced to run 4's own edits
+M7/M8 are done (`d39f954`..`790f85e`, `glasses3d/plan/archive/20261019/M7_M8_RESULTS.md`): all four defects traced to run 4's own edits
 (request 63's thickness deformation bent the facets; request 73's corner cut + sharp shading made the line; six-ring
 lenses), tool fixes and scoped edit operations built and proven on copies. The owner's free full test ("desktop gpt
 ... astra xhigh ... no other convos memory") ran 216 responses / 15 h 26 m on fresh job

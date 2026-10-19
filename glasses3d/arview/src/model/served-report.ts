@@ -1,4 +1,4 @@
-/** The webcam page's view of the model report (WP1_DESIGN.md §6): what `arview serve` checked before the page opened
+/** The webcam page's view of the model report (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6): what `arview serve` checked before the page opened
  *  (`?report=`, the server's `/__arview/report.json`, schema SERVED_REPORT_SCHEMA, assembled by qa/serve/report.ts), and,
  *  once the camera is open, the renderer's own report (ModelReport) with spec.py's verdict kept beside it.
  *

@@ -1,4 +1,4 @@
-/** The GLB container and the glTF JSON, read before three parses anything (WP1_DESIGN.md §1, the Format row).
+/** The GLB container and the glTF JSON, read before three parses anything (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, the Format row).
  *
  *  Pure and three-free. It mirrors `glasses3d/g3d_host/glb.py` where both read the same thing (the container rules,
  *  the default-scene issue, external URIs, image header sizes), so arview and the Python validator refuse or warn
@@ -13,7 +13,7 @@ export const CHUNK_JSON = 0x4e4f534a;
 export const CHUNK_BIN = 0x004e4942;
 export const INSTANCING_EXTENSION = 'EXT_mesh_gpu_instancing';
 export const COMPRESSION_EXTENSIONS = Object.freeze(['KHR_draco_mesh_compression', 'EXT_meshopt_compression', 'KHR_meshopt_compression'] as const);
-/** What the live site rejects outright (RULES_AUDIT §C: plain glTF only). */
+/** What the live site rejects outright (glasses3d/plan/archive/20261019/RULES_AUDIT.md §C: plain glTF only). */
 export const LIVE_FORBIDDEN_EXTENSIONS = Object.freeze([...COMPRESSION_EXTENSIONS, 'KHR_texture_basisu'] as const);
 /** What three's GLTFLoader understands (as `g3d_host/spec.py` KNOWN_EXTENSIONS). */
 export const KNOWN_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -167,7 +167,7 @@ export interface LoadedReferences {
   readonly buffers: ReadonlySet<number>;
   readonly images: ReadonlySet<number>;
   /** Broken material and texture references on the loaded path that arview leaves out instead of refusing the file
-   *  (WP1_DESIGN.md §1: only an unreadable GLB, a missing external resource or a file with no scene is a Format
+   *  (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: only an unreadable GLB, a missing external resource or a file with no scene is a Format
    *  refusal; a texture that cannot be loaded is a reported fallback). */
   readonly danglingMaterials: readonly DanglingMaterial[];
   readonly danglingTextures: readonly DanglingTexture[];
@@ -321,7 +321,7 @@ export interface DefaultSceneDocument {
   readonly lights: number;
 }
 
-/** The part of the document arview draws (WP1_DESIGN.md §1: nothing outside §2 blocks a render). three's GLTFLoader
+/** The part of the document arview draws (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: nothing outside §2 blocks a render). three's GLTFLoader
  *  `parse` loads every scene, animation, camera and light, and dereferences their indices without checking, so a broken
  *  reference anywhere (a second scene's node naming a mesh that does not exist, an animation channel naming a missing
  *  node, a camera, skin or light index on a node) would end the load with a TypeError although spec.py passes the file.

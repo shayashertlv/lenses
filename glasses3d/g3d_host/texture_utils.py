@@ -1,5 +1,5 @@
 """Texture helpers for photo projection (WP5), ported verbatim from automation/bsa/texture.py (WP3b;
-plan/PORT_REVIEW.md section 9): ``de00`` (:176), ``quantile_gain`` (:185), ``rasterize_triangles`` (:237),
+glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9): ``de00`` (:176), ``quantile_gain`` (:185), ``rasterize_triangles`` (:237),
 ``nearest_fill`` (:270), ``sample_bilinear`` (:383), ``visible_points`` (:1744), plus the colour conversions they need
 (``srgb_to_linear``, ``linear_to_srgb``, ``lab_of``) and ``apply_gain``, the inverse partner of ``quantile_gain``.
 

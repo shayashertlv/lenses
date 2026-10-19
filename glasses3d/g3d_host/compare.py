@@ -1,4 +1,4 @@
-"""Camera bases and the comparison of a model revision with the reference photos (WP2_DESIGN §6), host side.
+"""Camera bases and the comparison of a model revision with the reference photos (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6), host side.
 
 Basis (``cameras/basis-K/`` in a job): the WP3b ``cameras.json`` of one fit (``fit_views.fit_views``) or an imported
 one, frozen together with what every later comparison must reuse unchanged (the GEOMETRY_COMPARISON frozen-baseline

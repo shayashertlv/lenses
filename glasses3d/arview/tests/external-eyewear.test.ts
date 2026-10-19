@@ -63,7 +63,7 @@ test('resolving a definition keeps usable values, and every fallback is a warnin
   assert.ok(Object.isFrozen(full) && Object.isFrozen(full.warnings));
   const bare = resolveModelDefinition({url: `${PAGE}/models/frame.glb?v=2`, displayName: ''});
   assert.equal(bare.displayName, 'frame.glb');
-  // No clip is the normal case now (WP1_DESIGN.md §3): the renderer derives it from the model's temples, so it is no
+  // No clip is the normal case now (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): the renderer derives it from the model's temples, so it is no
   // fallback and no warning (the fixed -0.110 m default and its warning are gone).
   assert.equal(bare.templeClipZM, null);
   assert.equal(bare.lensEnvIntensity, undefined, 'absent lensenv is the renderer default, not a fallback');
@@ -100,12 +100,12 @@ test('a handover becomes the page model with its own clip, name and lensenv; an 
   const bare = resolveModelDefinition(modelFromExternal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}`, PAGE)!));
   assert.deepEqual([bare.displayName, bare.templeClipZM], [DEFAULT_EXTERNAL_NAME, null]);
   assert.doesNotMatch(bare.warnings.join(' '), /temple clip/, 'an absent clip is derived from the model, not a fallback');
-  // Continuity no longer depends on a digest (WP1_DESIGN.md §3): a model without one is described like any other.
+  // Continuity no longer depends on a digest (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): a model without one is described like any other.
   assert.doesNotMatch(describeExternalModel({...model, sha256: null}), /continuity|unavailable/);
 });
 
 // Replaces 'a handed-over digest pins the asset for continuity; a malformed pin registration is refused': nothing is
-// pinned any more (WP1_DESIGN.md §3). The digest is carried to the renderer, which only compares it with the loaded
+// pinned any more (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). The digest is carried to the renderer, which only compares it with the loaded
 // bytes (tests/model-load.test.ts covers the mismatch warning).
 test('a handed-over digest is carried along, normalised and never pinned; a malformed one is a warning', () => {
   const definition = modelFromExternal(parseExternalModel(`?model=${encodeURIComponent(ASSET)}&sha256=${DIGEST.toUpperCase()}`, PAGE)!);

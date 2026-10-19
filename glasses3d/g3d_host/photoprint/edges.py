@@ -1,6 +1,6 @@
 """Edge registration per (view, part): which views may donate colour to which part (WP5_DESIGN §3, decision D2).
 
-Ported from the scratch `design_reg/p6_region_edges.py`; PORT_REVIEW section 10. Changes: parts are labelled
+Ported from the scratch `design_reg/p6_region_edges.py`; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10. Changes: parts are labelled
 individually (the probe grouped each temple with its hinge pieces), the geometry may be S' with a view's hinges, and
 the result carries the admission decision.
 

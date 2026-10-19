@@ -1,4 +1,4 @@
-/** The renderer's model report (WP1_DESIGN §1, §5): every fallback the load takes is a warning, never silent. Covers the
+/** The renderer's model report (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): every fallback the load takes is a warning, never silent. Covers the
  *  definition's own fallbacks, the retired canonical lens descriptor (stripped, then drawn as its native material) and the
  *  temple continuity fallback. The renderer runs on a backend that draws nothing. */
 import {test} from 'node:test';
@@ -81,7 +81,7 @@ test('a retired canonical descriptor is stripped with a warning and the lens dra
   const asset = retiredRouteAsset();
   internal.configure(canonical, asset.root);
   // The hand-built asset sits off the origin (its front's underside is at y -20 mm): that is a loud ORIGIN warning of
-  // its own (WP1_DESIGN.md §1), asserted apart from the fallback under test.
+  // its own (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1), asserted apart from the fallback under test.
   const all = instance.report().warnings, warnings = all.filter(w => !w.startsWith('ORIGIN: '));
   assert.ok(all.includes('ORIGIN: bridge underside is at y -20.00 mm (must be 0 +/- 1.0 mm). The delivered file violates §2 Origin; '
     + 'arview never moves a model (it is drawn where it was authored).'), all.join(' | '));

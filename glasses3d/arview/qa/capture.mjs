@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** arview capture: posed AR images of one GLB for Astra and the owner (WP1_DESIGN.md §6; analysis.capture in
+/** arview capture: posed AR images of one GLB for Astra and the owner (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6; analysis.capture in
  *  plan/port_review/arview.json).
  *
  *    node qa/capture.mjs <model.glb> --poses default|junction|all --out <dir> [options]   (bin: arview capture ...)
@@ -183,7 +183,7 @@ export async function main(argv) {
   // spec.py reads it (the GLB's folder joined with Python's unquote(uri): '100%.png' and '../shared/a.bin' are found while
   // the file exists, with a warning when it lies outside the folder) and served at the raw pathname arview's loader
   // requests. Absolute URLs are refused before fetching; unreadable relative files are answered 404 (routesMiddleware:
-  // nothing under /__arview/ falls through to Vite), so arview refuses the model at the Format row (WP1_DESIGN §1), as
+  // nothing under /__arview/ falls through to Vite), so arview refuses the model at the Format row (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1), as
   // spec.py fails it; a render anyway is an error below. A resource whose URL would shadow one of the capture's own files
   // (face-a, a Vite path, a file of arview or of the public directory) is an error, never served over it.
   const external = await resolveExternalResources(glbPath, glb.externalUris, {modelPath, tool: 'the capture',

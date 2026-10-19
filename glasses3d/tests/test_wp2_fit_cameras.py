@@ -1,4 +1,4 @@
-"""WP2 stage B: fit_cameras wiring (WP2_DESIGN §6 "Basis", §14 criterion 12 on a small case).
+"""WP2 stage B: fit_cameras wiring (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6 "Basis", §14 criterion 12 on a small case).
 
 The synthetic glasses of tests/test_fit_views_synthetic.py built as a live Blender scene (bridge-underside origin at
 (0, 4, 2) mm), three photos rendered at known TRUTH cameras (front, a 'side' that is the glasses' left, angled) and

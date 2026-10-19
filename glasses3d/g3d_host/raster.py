@@ -1,6 +1,6 @@
 """Ray-cast renderer: open3d ray casting of a model-frame mesh through a photo Camera.
 
-Ported verbatim from automation/bsa/raster.py (WP3b; plan/PORT_REVIEW.md section 9): only the imports changed
+Ported verbatim from automation/bsa/raster.py (WP3b; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9): only the imports changed
 (``Camera``/``NormFrame`` come from ``glasses3d.g3d_host.camera``). Every render is exactly consistent with
 ``camera.project`` (via ``camera.project_mm``):
 

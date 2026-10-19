@@ -1,4 +1,4 @@
-"""The money gate of one Astra run, and the job ledger that spans a job's runs (plan/WP2_DESIGN.md section 8).
+"""The money gate of one Astra run, and the job ledger that spans a job's runs (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8).
 
 ``BudgetGuard`` is the Blender Studio guard (source-before/blender_agent/budget.py:80-331) with the seven WP2 edits. It
 is an httpx2 request hook (``before_request``) and response hook (``after_response``) on the inference client, plus an
@@ -20,8 +20,8 @@ is an httpx2 request hook (``before_request``) and response hook (``after_respon
   blocks further inference on any mismatch;
 * the owner reconciles an unknown hold (``reconcile_unknown``: dashboard usage or an explicit no-charge statement;
   ``reconcile_from_transport``: an archived 200 whose id and usage match the request);
-* ``planning()`` returns numbers only (the Studio's prose steered Astra, RULES_AUDIT): the last counted request's
-  tokens, serialized bytes, images and count time among them (the loop's context guard fires on tokens or bytes);
+* ``planning()`` returns numbers only (the Studio's prose steered Astra, glasses3d/plan/archive/20261019/RULES_AUDIT.md): the last counted request's
+  tokens, serialized bytes, images and count time among them (used for admission and fresh-conversation renewal);
 * every replace is retried on the Windows sharing errors 5/32/33 after .01, .025, .05, .1, .2, .4, .8 and 1.6 s.
 
 ``RunLedger`` is ``runs/<run>/budget.json`` (``g3d.run_budget/1``): created exclusively, re-priced and tamper-checked
@@ -1272,7 +1272,7 @@ class BudgetGuard:
     def _unknown_locked(self, sequence: int, reason: str, **fields) -> dict:
         row = self._persist_or_block(self.ledger.mark_unknown, sequence, reason=reason, **fields)
         self._open_request = None
-        # An uncertain outcome ends this run's spending: no automatic paid retry (WP2_DESIGN section 7).
+        # An uncertain outcome ends this run's spending: no automatic paid retry (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 7).
         self._fatal(BudgetGuardError(f"Request {sequence} has an unknown outcome ({reason}); the run sends no "
                                      "further requests until the owner reconciles it"))
         return row
@@ -1338,7 +1338,7 @@ class BudgetGuard:
                 self._note(error)
                 raise error
 
-    # -- owner reconcile (live; the CLI reconciles closed runs through JobLedger)
+    # -- owner reconciliation APIs (closed-run recovery is available through JobLedger)
     async def reconcile_unknown(self, sequence: int, owner_words: str, usage: dict | None = None, *,
                                 no_charge: bool = False) -> int:
         async with self._lock:
@@ -1601,7 +1601,7 @@ class JobLedger:
                 return entry
             entry["status"] = "ledgerless_with_transport"
             entry["blocking"] = (f"run {run_id} has {len(transport)} transport file(s) but no budget.json; the owner "
-                                 f"must reconcile it (job reconcile --run {run_id} --usage|--no-charge)")
+                                 "must reconcile the recorded transport evidence through JobLedger's recovery APIs")
             return entry
         try:
             ledger = RunLedger.load(budget)

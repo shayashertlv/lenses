@@ -1,4 +1,4 @@
-/** Diagnostic render overrides (WP1_DESIGN.md §5: `render(mask, {override})`), applied by the renderer to every eyewear
+/** Diagnostic render overrides (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5: `render(mask, {override})`), applied by the renderer to every eyewear
  *  mesh at once: the originals, the near-arm overlays and the translucent twins (which are materials of the same
  *  meshes), and restored in `finally`.
  *

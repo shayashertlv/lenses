@@ -1,4 +1,4 @@
-"""Isolation for every glasses3d/tests/agent test (plan/WP2_DESIGN.md section 14, criterion 1).
+"""Isolation for every glasses3d/tests/agent test (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14, criterion 1).
 
 Each test runs with G3D_OFFLINE=1 and no OpenAI key or endpoint in the environment, under LoopbackOnly (any connect or
 DNS lookup that is not 127.0.0.1 / ::1 / localhost is refused) and ProductionTransportTripwire (constructing a real

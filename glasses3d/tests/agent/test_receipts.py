@@ -1,4 +1,4 @@
-"""Run receipts (agent/receipts.py, WP2_DESIGN section 9): the Studio's ReviewLog transport, reasoning-evidence and
+"""Run receipts (agent/receipts.py, glasses3d/plan/archive/20261019/WP2_DESIGN.md section 9): the Studio's ReviewLog transport, reasoning-evidence and
 stop tests (source-before/tests/test_blender_agent_transport.py, test_blender_agent_reasoning_evidence.py,
 test_blender_studio_stop.py) ported to the glasses3d guard, plus the per-call tool receipts, blobs and transcript."""
 import asyncio

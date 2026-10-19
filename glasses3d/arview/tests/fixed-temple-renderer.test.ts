@@ -438,7 +438,7 @@ test('automatic frame fitting locks one size through distance, nods, audits and 
   renderer.render(mask); assert.equal(draws.at(-1)?.eyewear, true);
   assert.deepEqual(renderer.fitting, fitted);
   assert.deepEqual(asset.position, bridge, 'uniform sizing leaves the bridge anchor unchanged');
-  // WP1_DESIGN.md §4: the report carries the applied scale, and a scale more than 3 % from 1 is a warning (once).
+  // glasses3d/plan/archive/20261019/WP1_DESIGN.md §4: the report carries the applied scale, and a scale more than 3 % from 1 is a warning (once).
   assert.equal(fitted.mode, 'auto');
   const report = renderer.report(), measured = report.measurements.fit_scale as {mode: string; applied: number; limited: boolean; state: string};
   assert.deepEqual([measured.mode, measured.applied, measured.limited, measured.state], ['auto', Math.round(fitted.scale * 1e4) / 1e4, false, 'fitted']);

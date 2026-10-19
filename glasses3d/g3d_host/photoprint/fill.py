@@ -6,7 +6,7 @@ comparison. The measurements below describe earlier raw-quilt implementations;
 they are historical evidence, not independent quality scores for the new default.
 
 Ported from the scratch `g3d-wp5/cov/p4_fill.py` (holes knocked into single-view observed strips, PatchMatch with a
-``global_mask`` of non-donors, nearest / mirror / Astra candidates, texture statistics) and the AP6 pitfall; PORT_REVIEW
+``global_mask`` of non-donors, nearest / mirror / Astra candidates, texture statistics) and the AP6 pitfall; glasses3d/plan/archive/20261019/PORT_REVIEW.md
 section 10.
 
 - **Text mask** (D6): texels within 1.5 mm of the GLB's text decals (the fit mesh's skipped primitives with metallic

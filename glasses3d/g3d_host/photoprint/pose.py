@@ -1,6 +1,6 @@
 """Body points on the model's surface (WP5_DESIGN §5.2): ``points`` (texels) and ``bary3`` (compose).
 
-Ported from the scratch `geomlib.points`; PORT_REVIEW section 10. The registration state of step 0 and the surface S'
+Ported from the scratch `geomlib.points`; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10. The registration state of step 0 and the surface S'
 it implied (cameras, hinges and per-region parallax: ``Pose``, ``Deformer``, ``pack`` / ``unpack``, ``cam_delta``,
 ``hinge_matrix``) were deleted on 2026-10-13 with the step-0 experiment; see git tag review-20261013-pre-cleanup.
 """

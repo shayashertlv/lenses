@@ -1,4 +1,4 @@
-/** The decided lens/frame class of every loaded material and primitive mesh (WP1_DESIGN.md §2).
+/** The decided lens/frame class of every loaded material and primitive mesh (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2).
  *
  *  Filled once at load by classifyAssetMaterials (optical-material.ts) from the glTF JSON, and read by every consumer
  *  (renderer lens meshes, rear drop, continuity, temple visibility and clip, hair occlusion, terminal fit, shadows,

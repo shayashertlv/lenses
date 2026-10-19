@@ -1,4 +1,4 @@
-"""JobLedger (a rewrite of the Studio's trial_budget.py, plan/WP2_DESIGN.md section 8): per-job non-blocking OS lock,
+"""JobLedger (a rewrite of the Studio's trial_budget.py, glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8): per-job non-blocking OS lock,
 the machine-wide data/.paid-run.lock {pid, create_time, exe} re-checked with psutil, totals rebuilt from every
 runs/*/budget.json (re-priced and tamper-checked), unknown holds counted until reconciled, aborted_before_paid, and the
 order preflight -> consume the approval + exclusive-create budget.json in one transaction -> first POST.

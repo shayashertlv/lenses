@@ -1,4 +1,4 @@
-"""The Astra snippet corpus: every `execute_blender_code` Astra wrote in the Blender Studio (WP2_DESIGN §0, §13).
+"""The Astra snippet corpus: every `execute_blender_code` Astra wrote in the Blender Studio (glasses3d/plan/archive/20261019/WP2_DESIGN.md §0, §13).
 
 `build()` copies the journaled `issued-code.py` files of the Studio jobs (data only; nothing is imported from
 automation/ or the recovery archive) into the ignored `glasses3d/data/reference/astra_corpus/`, with a manifest that
@@ -27,7 +27,7 @@ RECOVERY_MOVED = (G3D.parents[1] / "lenses-recovery" / "automation-cleanup-20261
                   / "blender_agent")
 SOURCES = (STUDIO_JOBS, RECOVERY_MOVED)
 ASTRA = "execute_blender_code"
-#: `parent_tool` is the journal's tool-call context, else its tool name (WP2_DESIGN's 214 count: 186 Astra tool calls
+#: `parent_tool` is the journal's tool-call context, else its tool name (glasses3d/plan/archive/20261019/WP2_DESIGN.md's 214 count: 186 Astra tool calls
 #: plus 28 host stop-checkpoint saves journaled under the same tool name); `context_parent` is the context alone
 #: the three owner-accepted Studio runs and the step count of their chained replay (Astra snippets + host coating)
 ACCEPTED_RUNS = {
@@ -37,7 +37,7 @@ ACCEPTED_RUNS = {
 }
 REPLAY_TOOLS = (ASTRA, "configure_lens_coating")
 
-#: what counts as a file-I/O line (the replacement tools of WP2_DESIGN §4 cover these)
+#: what counts as a file-I/O line (the replacement tools of glasses3d/plan/archive/20261019/WP2_DESIGN.md §4 cover these)
 IO_CLASSES = (
     ("checkpoint", re.compile(r"save_as_mainfile|save_mainfile|open_mainfile|bpy\.ops\.wm\.")),
     ("self_render", re.compile(r"bpy\.ops\.render|render\.render\(|\.filepath\b|filepath_raw|file_format|"
@@ -160,7 +160,7 @@ def gate(rows: list[dict], validate) -> dict:
 
 
 def strip_io(code: str) -> str:
-    """The snippet with only its file-I/O statements removed (WP2_DESIGN §0: "with only those lines removed")."""
+    """The snippet with only its file-I/O statements removed (glasses3d/plan/archive/20261019/WP2_DESIGN.md §0: "with only those lines removed")."""
     out = []
     for line in code.splitlines():
         m = re.match(r"(\s*)(try|else|finally)\s*:\s*(.*)$", line)

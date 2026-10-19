@@ -1,6 +1,6 @@
 /** The portrait's pure contract (port of 75ae133:ar/qa/portrait-preview-contract.mjs): the eye-detail framing, the
  *  face-a pin, and the console triage. The old manifest validator is gone: it hard-threw on a `width_mm` the renderer
- *  never read (PORT_REVIEW §7), and the capture pins face-a itself. */
+ *  never read (glasses3d/plan/archive/20261019/PORT_REVIEW.md §7), and the capture pins face-a itself. */
 
 /** The only face image arview uses: its pinned qa/fixtures/face-a.jpg (StyleGAN2 synthetic, 1024x1024, 552034 bytes). */
 import {ASSET_PINS} from '../../src/asset-pins.ts';

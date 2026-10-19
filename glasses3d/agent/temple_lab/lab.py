@@ -72,7 +72,7 @@ Tool methods (each returns a dict for tools.py; "images" lists image files, neve
     variants(call_id, parent_revision, variants, photos, judgement)
                                                 arms built and fitted as edit's, rendered beside the head
     finish(call_id, status, best_checkpoint, summary, judgement, k)
-SceneHooks for agent/loop.py: start, close, journal_entries, restore, exit_checkpoint, worker_info, context_stubs.
+SceneHooks for agent/loop.py: start, close, journal_entries, restore, exit_checkpoint, worker_info, renewal evidence.
 
 facet_edit (WP6_V3 §6): geometry.apply_edits(parent design, edits, readings=the stored readings) -> a design (E_EDIT
 with the edit's index); the object note: a call without one is refused E_OBJECT when no note exists yet or when the
@@ -247,10 +247,6 @@ BRIEF_FACT_CODES = ("W_FIT_OFF_READING", "W_FACE_NOT_FLAT")   # fit_brief keeps 
 BRIEF_FACT_MAX = 220             # ... in at most this many characters (W_FACE_NOT_FLAT's chi2 and the four corners'
 #                                  deviations from the others' plane: about 210 on session2's crown)
 BUILD_CACHE = 24
-CONTEXT_KEEP_LATEST = 2          # the context guard keeps the images of the latest 2 compare / variants results
-STUB_KINDS = ("compare", "variants")     # the image kinds context_stubs replaces in an old result (cli.STUBBED_KINDS;
-#                                          a pick sheet, kind "reading", only once its reading was read again or
-#                                          dropped)
 BACKDROP_SHOWN = 0.10            # a compare's photo text names the render's backdrop share from this (seeing's: 52 % of
 #                                  the model's pixels at 03 clipped to the backdrop colour, review2-lab-e2-2 P3-2)
 LOCK_WAIT_S = 600.0              # exit_checkpoint / close wait this long for a tool call still holding the scene
@@ -1279,34 +1275,6 @@ class Lab(SceneHooks):
                                          "head": self.s.head["id"], "reason": reason})
         self.save()
         return {"checkpoint": out.get("checkpoint"), "restored_from": checkpoint_id}
-
-    def context_stubs(self, image_sha256s):
-        """The context guard's one choice (loop.ContextGuard): compare and variant images of results older than the
-        latest CONTEXT_KEEP_LATEST, except those of best_checkpoint's revision, become text stubs; so does the pick
-        sheet of a reading that was read again or dropped since (the stored reading's own sheet stays)."""
-        with self.state_lock:
-            results = [("compare", c["compare_id"], c["seq"]) for c in S.seen_compares(self.state)] + \
-                      [("variants", v["id"], v["seq"]) for v in S.seen_variants(self.state)]
-            best = S.head_of_checkpoint(self.state, self.state.get("best_checkpoint"), self.fingerprint_of)
-            best_compares = {c["compare_id"] for c in self.state["compares"]
-                             if best is not None and c["revision"] == best["revision"]}
-            images = {digest: dict(self.state["images"][digest]) for digest in image_sha256s
-                      if digest in self.state["images"]}
-            stored = {n: r.get("id") for n, r in self.readings().items()}
-        keep = {ref for _k, ref, _s in sorted(results, key=lambda r: r[2])[-CONTEXT_KEEP_LATEST:]} | best_compares
-        out = {}
-        for digest in image_sha256s:
-            rec = images.get(digest)
-            if rec and rec["kind"] in STUB_KINDS and rec["ref"] not in keep:
-                what = f"photo {rec.get('photo')}" if rec.get("photo") else "sheet"
-                out[digest] = (f"[image removed by the host to save context: {rec['kind']} {rec['ref']} {what}, "
-                               f"revision {rec.get('revision')}; superseded]")
-            elif rec and rec["kind"] == "reading" and stored.get(rec.get("reading")) != \
-                    f"{rec['ref']}-{rec.get('reading')}":
-                since = "read again since" if rec.get("reading") in stored else "dropped since"
-                out[digest] = (f"[image removed by the host to save context: pick sheet {rec['ref']} of reading "
-                               f"{rec.get('reading')}; {since}]")
-        return out
 
     def renewal_state(self):
         """Host facts; reading state must never clear a pending judgement or finish."""

@@ -1,4 +1,4 @@
-"""Offline OpenAI clients and the $0 isolation guards (plan/WP2_DESIGN.md sections 7 and 14).
+"""Offline OpenAI clients and the $0 isolation guards (glasses3d/plan/archive/20261019/WP2_DESIGN.md sections 7 and 14).
 
 The offline clients are the production classes (``AsyncOpenAI`` over openai's ``DefaultAsyncHttpxClient``, an httpx2
 client) with only the transport replaced by ``httpx2.MockTransport``: BudgetGuard, the event hooks and the SDK run as

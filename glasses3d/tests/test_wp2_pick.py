@@ -1,4 +1,4 @@
-"""WP2 stage B: picking and canonical views on a scene whose origin is NOT the world origin (WP2_DESIGN §6, §13).
+"""WP2 stage B: picking and canonical views on a scene whose origin is NOT the world origin (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6, §13).
 
 The export fixture's ``offset_origin`` scene (tests/blender/build_export_fixture.py: geometry and
 ``mdl_bridge_underside`` moved by (0, 5, 3) mm), in a live session:

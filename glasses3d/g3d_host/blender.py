@@ -68,7 +68,7 @@ def export_and_validate(blend: str | Path, out_glb: str | Path, timeout_s: float
     check passes only a DECLARED frame type: the exporter copies each object's `g3d_seat` and
     `g3d_hidden_x_ranges_mm` (written by g3d.seat_lens / g3d.hide_eyewire) into its node extras, so a seated scene
     declares itself; a lens never seated is graded on the inferred type provisionally (ok false) unless the caller
-    passes the frame type here. The extras win over these arguments for frame_type (seat_check's order). Unknown
+    passes the frame type here. An explicit frame_type inspects that type; otherwise the recorded extras apply. Unknown
     keys in `seating` are not passed on: the seating report then says ok false with the error (review fix round 2:
     a misspelt key raised TypeError out of this function)."""
     from .seat_check import check_glb

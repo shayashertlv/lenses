@@ -1,8 +1,8 @@
-"""Processes of a glasses3d run (WP2_DESIGN §1, §2, §3, §11): the worker's allowlisted environment, a runner-owned
+"""Processes of a glasses3d run (glasses3d/plan/archive/20261019/WP2_DESIGN.md §1, §2, §3, §11): the worker's allowlisted environment, a runner-owned
 kill-on-close Job Object, the Windows power-throttling (EcoQoS) opt-out, process identity checks, and detached starts
 (breakaway, WMI fallback) for long runs.
 
-Ports (PORT_REVIEW §11): the EcoQoS functions come from source-before/modeler/winqos.py (opt_out, opt_out_self, state,
+Ports (glasses3d/plan/archive/20261019/PORT_REVIEW.md §11): the EcoQoS functions come from source-before/modeler/winqos.py (opt_out, opt_out_self, state,
 descendants, DescendantsOptOut; measured there: a detached job ran its fits 2.2x slower until it opted out, and the
 opt-out is not inherited) and the identity/detach functions from source-before/modeler/detach.py (process_state with
 the kernel process list for processes OpenProcess refuses, same_process, stop_tree with the root killed first,
@@ -40,7 +40,7 @@ SAME_PROCESS_TOLERANCE_S = 1.0
 WMI_TIMEOUT_S = 90
 STARTER_TIMEOUT_S = 60
 
-#: the worker's environment: exactly these variables (WP2_DESIGN §1), TEMP/TMP pointed at the run's temp folder
+#: the worker's environment: exactly these variables (glasses3d/plan/archive/20261019/WP2_DESIGN.md §1), TEMP/TMP pointed at the run's temp folder
 WORKER_ENV_KEYS = ("SYSTEMROOT", "WINDIR", "PATH", "PATHEXT", "COMSPEC", "NUMBER_OF_PROCESSORS", "USERPROFILE",
                    "LOCALAPPDATA", "APPDATA")
 
@@ -49,8 +49,6 @@ PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1
 PROCESS_POWER_THROTTLING_INFORMATION_CLASS = 4
 PROCESS_SET_INFORMATION = 0x0200
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-PROCESS_TERMINATE = 0x0001
-PROCESS_SET_QUOTA = 0x0100
 TH32CS_SNAPPROCESS = 0x00000002
 SWEEP_INTERVAL_S = 0.2
 

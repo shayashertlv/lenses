@@ -1,6 +1,6 @@
 """Photo pixel masks of the WP5 bake (WP5_DESIGN §2 "Signal"): which photo pixels may carry print.
 
-Ported from the scratch `wp5lib.py` (acetate_mask, source_valid); PORT_REVIEW section 10. Colours are sRGB 0..255.
+Ported from the scratch `wp5lib.py` (acetate_mask, source_valid); glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10. Colours are sRGB 0..255.
 
 - ``acetate_mask``: dark, or saturated and not bright (the probe's rule); ``valid_mask`` = that inside the matte eroded
   1 px: the photo pixels that may carry print (glare, metal and background excluded).

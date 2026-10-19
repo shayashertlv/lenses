@@ -10,7 +10,6 @@ from agents.tool import ToolOutputImage, ToolOutputText
 from PIL import Image
 import pytest
 
-from glasses3d.agent.loop import image_key
 from glasses3d.agent.temple_lab.stage import StageBridge, StageLab
 
 
@@ -50,36 +49,13 @@ def returned(lab, call, *, kind="compare", view="front", revision=1, ref="cmp001
     return {"call_id": call, "part_index": 2, "sha256": digest}
 
 
-def test_stage_image_policy_uses_occurrences_visible_latest_views_and_best(tmp_path):
-    lab = evidence_lab(tmp_path)
-    old = returned(lab, "old", revision=1)
-    newest = returned(lab, "new", revision=2)  # the same cached bytes are a new occurrence
-    side = returned(lab, "side", view="side", revision=2)
-    source = returned(lab, "source", kind="photo", revision=0)
-    returned(lab, "not_seen", revision=3, pixel="blue")
-    images = [old, newest, side, source]
-    stubs = lab.context_image_stubs(images)
-    assert set(stubs) == {image_key(old)}
-    assert "path old.png" in stubs[image_key(old)]
-    lab.state.update(best_checkpoint="c0001", heads=[{"checkpoint": "c0001", "revision": 1}])
-    assert lab.context_image_stubs(images) == {}  # unpruned history can restore a newly selected best
-
-
-def test_stage_current_reading_sheets_stay_and_replaced_readings_leave(tmp_path):
-    lab = evidence_lab(tmp_path)
-    old = returned(lab, "old-pick", kind="reading", reading="A", ref="read001")
-    current = returned(lab, "current-pick", kind="reading", reading="A", ref="read002")
-    lab.state["readings"] = {"A": {"id": "read002-A"}}
-    assert set(lab.context_image_stubs([old, current])) == {image_key(old)}
-    lab.state["readings"] = {}
-    assert set(lab.context_image_stubs([old, current])) == {image_key(old), image_key(current)}
-
 
 def test_stage_charts_share_one_stable_view_despite_unique_inspection_tags(tmp_path):
     lab = evidence_lab(tmp_path)
     old = returned(lab, "old-chart", kind="chart", view="", ref="inspect001")
     current = returned(lab, "new-chart", kind="chart", view="", ref="inspect002", revision=2, pixel="blue")
-    assert set(lab.context_image_stubs([old, current])) == {image_key(old)}
+    assert [row["view"] for row in lab.state["stage_images"]] == ["temple chart", "temple chart"]
+    assert [row["call_id"] for row in lab.state["stage_images"]] == [old["call_id"], current["call_id"]]
 
 
 def test_stage_bridge_runs_on_parent_loop_and_waits_for_cancellation_cleanup():

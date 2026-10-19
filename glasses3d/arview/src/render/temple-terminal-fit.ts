@@ -86,7 +86,7 @@ export function createTempleTerminalFitEvaluator(root: Object3D, input: FitInput
     if (!p) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     for (const [materialIndex, material] of materials.entries()) {
-      // Every non-lens material is frame, whatever its opacity (WP1_DESIGN.md §3): alpha-blended arms are sampled too.
+      // Every non-lens material is frame, whatever its opacity (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): alpha-blended arms are sampled too.
       if (isOpticalMaterial(material)) continue;
       const groups = Array.isArray(object.material) ? geometry.groups.filter(group => group.materialIndex === materialIndex)
         : [{start: 0, count: index?.count ?? p.count}];

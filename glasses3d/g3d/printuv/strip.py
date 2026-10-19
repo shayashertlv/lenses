@@ -2,7 +2,7 @@
 subdivision). numpy only (it runs inside Blender 5.2 as well as on the host).
 
 Ported from the scratch ``g3d-wp5/cov/stripuv.py`` (``strip_param``, ``_rmf``, ``distortion``, ``wquant``);
-PORT_REVIEW section 10. Changes: the scipy ``cKDTree`` nearest-centreline query is a chunked brute-force search (the
+glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10. Changes: the scipy ``cKDTree`` nearest-centreline query is a chunked brute-force search (the
 centreline has about 1-3 thousand samples), the cut is given as a 3D DIRECTION (``cut_dir``, the design's "brow back
 face" / "temple inner-bottom edge") instead of an angle, the per-vertex profile interpolation is vectorised, and the
 result carries the vertex ids it was computed on.

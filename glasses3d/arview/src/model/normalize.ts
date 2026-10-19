@@ -1,5 +1,5 @@
 import {WEARER_SIDES} from './sides.ts';
-/** The one normalisation pass (WP1_DESIGN.md §1): it runs on the loaded scene before any subsystem (lens-dependent
+/** The one normalisation pass (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): it runs on the loaded scene before any subsystem (lens-dependent
  *  rear drop, continuity, temple visibility and clip, hair occlusion, terminal fit, shadows, twins) reads it.
  *
  *  In order: transforms (one check at 1e-6 absolute, EXT_mesh_gpu_instancing; within tolerance the transform is baked
@@ -406,7 +406,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
   }
   report.measure('units_scale', unitsScale);
 
-  // Lens identification: every material's class, decided once (WP1_DESIGN.md §2).
+  // Lens identification: every material's class, decided once (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2).
   let classification: AssetMaterialClassification;
   try {classification = classifyAssetMaterials(root, source);}
   catch (error) {
@@ -417,7 +417,7 @@ export function normalizeModel(root: Object3D, report: ModelReportBuilder, sourc
   report.setLensIdentification(classification.lensIdentification);
   for (const warning of classification.warnings) report.warn(`Lens identification: ${warning}`);
   // Malformed or inconsistent LENSES_part_visibility changes what arview draws (the whole asset takes the positional
-  // path), so it is a fallback, not only a warning (WP1_DESIGN.md §1).
+  // path), so it is a fallback, not only a warning (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1).
   if (classification.partVisibilityIgnored.length) {
     report.fallback('part visibility', `${classification.partVisibilityIgnored.join(' ')} Every part is classified and drawn by the positional `
       + 'path instead (temples found by position).');

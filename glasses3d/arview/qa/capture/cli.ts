@@ -1,4 +1,4 @@
-/** `arview capture` argument parsing (pure; WP1_DESIGN.md §6, port_review/arview.json analysis.capture.proposed_layout).
+/** `arview capture` argument parsing (pure; glasses3d/plan/archive/20261019/WP1_DESIGN.md §6, port_review/arview.json analysis.capture.proposed_layout).
  *
  *    arview capture <glb> --poses default|junction|all --out <dir>
  *      [--backgrounds skin,dark,checker] [--size 1280x854] [--depth-cm 23] [--fixed-scale] [--clip auto|<m>]

@@ -1,5 +1,5 @@
 """Photo camera model and the model-to-normalized frame (ported from automation/reconstruction/camera.py and
-automation/bsa/core.py, WP3b; see plan/PORT_REVIEW.md section 9).
+automation/bsa/core.py, WP3b; see glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9).
 
 A ``Camera`` maps NORMALIZED model points (``NormFrame.to_norm`` of millimetres) to NATIVE photo pixels:
 

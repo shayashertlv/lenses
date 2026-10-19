@@ -1,4 +1,4 @@
-"""Checkpoints and the per-call protocol around the live Blender worker (WP2_DESIGN §3.1, §3.2, §5).
+"""Checkpoints and the per-call protocol around the live Blender worker (glasses3d/plan/archive/20261019/WP2_DESIGN.md §3.1, §3.2, §5).
 
 `BlenderSession` owns one worker and the job's checkpoint chain (`checkpoints/cNNNN.blend` + `index.jsonl`):
 
@@ -299,7 +299,7 @@ class BlenderSession:
     def execute(self, code: str, *, soft_timeout_s: float = SOFT_DEFAULT_S, label: str = "",
                 call_id: str | None = None, unvalidated: bool = False, hard_timeout_s: float | None = None) -> dict:
         """Run one Astra snippet through the full protocol; returns the §3.1 result. The hard timeout (the socket
-        deadline that kills the worker) defaults to soft + 30 s (WP2_DESIGN §7)."""
+        deadline that kills the worker) defaults to soft + 30 s (glasses3d/plan/archive/20261019/WP2_DESIGN.md §7)."""
         try:
             soft = min(max(float(soft_timeout_s), SOFT_MIN_S), SOFT_MAX_S)
         except (TypeError, ValueError):
@@ -410,7 +410,7 @@ class BlenderSession:
         return self._call_id(call_id, tool)
 
     def call_read(self, tool: str, method: str, params: dict, *, deadline_s: float, call_id: str) -> dict:
-        """A trusted read-only worker method (bounds, render, pick, export_glb; WP2_DESIGN §6). Returns
+        """A trusted read-only worker method (bounds, render, pick, export_glb; glasses3d/plan/archive/20261019/WP2_DESIGN.md §6). Returns
         {status: ok, result} | {status: error, message} | the worker_restarted record of a dead worker (restarted on
         the verified head, the call not replayed). A result reporting `unchanged: false` (the scene moved during a
         read-only method) restores the head checkpoint and logs a defect; the result then says `restored_to`."""

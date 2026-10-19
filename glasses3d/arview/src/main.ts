@@ -3,7 +3,7 @@
  *  of them. The live panel shows the pipeline's own rate, the camera's delivered rate (the ceiling), and the stage
  *  medians; Hold & audit checks one frame against the CPU reference; Measure runs fresh sessions for the fps report.
  *  The page renders the one model handed over with ?model= (eyewear/external.ts); there is no frame catalog. It shows
- *  that model's report (WP1_DESIGN.md §6): before the camera opens, the report `arview serve` made (?report=, spec.py and
+ *  that model's report (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6): before the camera opens, the report `arview serve` made (?report=, spec.py and
  *  arview's Node-side load; model/served-report.ts); once the renderer has loaded the model, the renderer's own report with
  *  spec.py's verdict beside it. Both list the failed §2 rows, the warnings and every fallback, and the sha256 line names
  *  the bytes the verdicts bind to (the rendered sha256). */
@@ -151,7 +151,7 @@ let servedReportUrl: string | null = null;
 /** The server's report (?report=, arview serve), once fetched and checked; a fetch or shape problem is listed as an
  *  error line (servedProblem), never shown as a clean report. */
 let served: ServedReport | null = null, servedProblem: string | null = null, servedPending = false;
-/** The model report on the page (WP1_DESIGN.md §6): before a session, the definition's warnings and the server's report;
+/** The model report on the page (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6): before a session, the definition's warnings and the server's report;
  *  once loaded or refused, the renderer's report (renderedReportLines: refusal reasons, every failed §2 row, spec.py's
  *  verdict beside it, the warnings, then each fallback with its subsystem). `source` says which it is. */
 function showModelReport(lines: readonly ReportLine[], source = '', digest: ReturnType<typeof digestLine> = null): void {

@@ -1,4 +1,4 @@
-/** Lens identification (WP1_DESIGN.md §2): the shared vectors with the Python side (g3d_host/lens_id.py), the glTF JSON
+/** Lens identification (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2): the shared vectors with the Python side (g3d_host/lens_id.py), the glTF JSON
  *  reader (never three's merged userData), the per-material report block, and the real files. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

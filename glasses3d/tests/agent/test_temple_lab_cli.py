@@ -1118,7 +1118,7 @@ def test_v3_images_are_priced_at_the_most_one_call_returns():
     assert zo["text_chars"] == old["text_chars"] + 3 * cli.ZOOM_TEXT_CHARS
     assert cli.priced_sample(cmp_plain, 4)["images"] == cmp_plain["images"] + [grid] * 3
     assert cli.priced_sample(edit, 4) is edit                                # facet_edit's compare has no zoom
-    # the guard replaces a compare's panels and its zoom grids (lab.context_stubs); no pick sheet is counted stubbable
+    # The legacy projection discounts compare panels/zoom grids; no pick sheet is counted stubbable.
     assert cli.call_tokens(z)["stub_images"] == 6 and cli.call_tokens(zo)["stub_images"] == 7
     assert cli.call_tokens(p)["stub_images"] == 0
     # a drop does not dilute a read: photo_read's mean is the full call's, with or without the drop in the rehearsal
@@ -1257,14 +1257,7 @@ def test_request_estimate_block(tmp_path):
 
 
 def test_the_estimates_image_kinds_are_the_labs(tmp_path):
-    """The estimate's image kinds are a real Lab's (review 2026-10-12, P3): a real photo_compare's zoom grid is
-    recorded as ZOOM_GRID_KIND and its panels as "compare" (cli.record_kind of the lab's index entries), and once
-    that compare is an old result (two later results, not best_checkpoint's) context_stubs replaces each exactly when
-    its recorded kind is in STUBBED_KINDS; among the kinds the lab registers, it replaces exactly LAB_STUB_KINDS
-    (compare images and variant sheets; never charts or photos), and STUBBED_KINDS adds nothing but the zoom grids:
-    the projection stubs what the guard stubs. A pick sheet is replaced only once its reading was read again or
-    dropped (the stored reading's own sheet stays): the projection counts no pick sheet as stubbable, which prices a
-    run that re-reads a little high, never low."""
+    """Recorded zoom/panel kinds still match the frozen legacy estimate categories."""
     root, _ = package(tmp_path)
     lab = lab_on(root)
     before = set(lab.state["images"])
@@ -1275,31 +1268,8 @@ def test_the_estimates_image_kinds_are_the_labs(tmp_path):
     panels = {d: r for d, r in new.items() if not r.get("zoom")}
     assert zooms and {cli.record_kind(r) for r in zooms.values()} == {cli.ZOOM_GRID_KIND}
     assert panels and {cli.record_kind(r) for r in panels.values()} == {"compare"}
-    for cid, pid in (("cmp-later-1", "01"), ("cmp-later-2", "02")):           # the zoomed compare becomes old
-        assert lab.compare(cid, [pid], None, None)["status"] == "ok"
-    assert lab.state.get("best_checkpoint") is None
-    real = lab.context_stubs(list(zooms) + list(panels))
-    assert {d for d in zooms if d in real} == ({*zooms} if cli.ZOOM_GRID_KIND in cli.STUBBED_KINDS else set())
-    assert {d for d in panels if d in real} == ({*panels} if "compare" in cli.STUBBED_KINDS else set())
-    assert set(cli.STUBBED_KINDS) - set(cli.LAB_STUB_KINDS) <= {cli.ZOOM_GRID_KIND}
-    kinds = ("compare", "variants", "chart", "photo")
-    digests = {}
-
-    def image(name, kind, **meta):
-        p = root / "work" / f"kind-{name}.png"
-        p.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (8, 8), (len(digests) * 20, 7, 9)).save(p)
-        lab._image(p, kind, **meta)
-        digests[name] = sha(p)
-    for kind in kinds:
-        image(kind, kind, ref="an-old-result", photo="05", revision=0)
-    lab.state["readings"] = {"E": {"id": "read009-E"}}
-    image("sheet-stored", "reading", ref="read009", reading="E", revision=0)       # the stored reading's own sheet
-    image("sheet-superseded", "reading", ref="read003", reading="E", revision=0)   # E read again since
-    stubbed = lab.context_stubs(list(digests.values()))
-    assert {k for k in kinds if digests[k] in stubbed} == set(cli.LAB_STUB_KINDS) & set(kinds) == \
-        set(cli.STUBBED_KINDS) & set(kinds)
-    assert digests["sheet-stored"] not in stubbed and digests["sheet-superseded"] in stubbed
+    assert cli.LAB_STUB_KINDS == ("compare", "variants")
+    assert set(cli.STUBBED_KINDS) == {"compare", "variants", cli.ZOOM_GRID_KIND}
     assert cli.ZOOM_GRID_KIND in cli.STUBBED_KINDS and not set(cli.READING_KINDS) & set(cli.STUBBED_KINDS)
 
 
@@ -1429,7 +1399,7 @@ def test_request_bytes_model_and_the_guards_byte_rungs():
     """Review 2026-10-12, P2 (v3p3-verify-15): every projected run carries its request bytes and images (each image at
     its kind's largest measured bytes per token, text at 1.1 bytes a character, REQUEST_OVERHEAD_BYTES a request),
     its peak, the count's modelled time there beside its timeout (budget.count_timeout_s), the guard's epochs (the
-    token epoch once, then byte rungs at k x guard_bytes: loop.ContextGuard) and the request where the provider's
+    token epoch once, then byte rungs at k x guard_bytes) and the request where the provider's
     per-request limit would end it (budget.PAYLOAD_LIMIT_BYTES / _IMAGES)."""
     assert cli.BYTES_PER_IMAGE_TOKEN == {"chart": 353, "compare": 412, "photo": 214, "reading": 230,
                                          "variants": 414, "zoom": 324} and cli.BYTES_PER_IMAGE_TOKEN_MAX == 414

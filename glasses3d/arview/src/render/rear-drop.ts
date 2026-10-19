@@ -3,7 +3,7 @@
  *  untouched. The lower-level shear parameter remains available to geometry callers; it is never driven by pose.
  *  Every shape update restores the original storage and composes all offsets in one pass.
  *
- *  The arms are the temples by position (temple-geometry.ts, WP1_DESIGN.md §3), whatever their opacity: every non-lens
+ *  The arms are the temples by position (temple-geometry.ts, glasses3d/plan/archive/20261019/WP1_DESIGN.md §3), whatever their opacity: every non-lens
  *  material is frame, so crystal and alpha-blended arms deform like opaque ones, and lens-class geometry never does.
  *  A side without a temple (nothing there reaches z <= -60 mm; hinge hardware alone is not a temple) has no arm: its
  *  geometry stays fixed and protected, and the caller reports it. A model with no temple at all still builds (no arm,
@@ -148,7 +148,7 @@ export function createRearDrop(root: Object3D, cutoffZM: number, spreadPivotM = 
       const materials: Material[] = Array.isArray(object.material) ? object.material : [object.material];
       const index = original.getIndex();
       for (const [materialIndex, material] of materials.entries()) {
-        // Every non-lens material is frame, whatever its opacity (crystal, alpha-blended): WP1_DESIGN.md §3.
+        // Every non-lens material is frame, whatever its opacity (crystal, alpha-blended): glasses3d/plan/archive/20261019/WP1_DESIGN.md §3.
         const lens = isOpticalMaterial(material), frame = !lens;
         const groups = Array.isArray(object.material) ? original.groups.filter(group => group.materialIndex === materialIndex)
           : [{start: 0, count: index?.count ?? position.count}];

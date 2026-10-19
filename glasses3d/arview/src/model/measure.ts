@@ -9,7 +9,7 @@ import {WEARER_SIDES} from './sides.ts';
 
 export const WIDTH_PASS_M = Object.freeze([0.095, 0.20] as const);
 export const WIDTH_TYPICAL_M = Object.freeze([0.115, 0.170] as const);
-/** The wider ranges arview rescales from (WP1_DESIGN.md §1): an X span of 60-250 units is millimetres, 6-25 centimetres. */
+/** The wider ranges arview rescales from (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): an X span of 60-250 units is millimetres, 6-25 centimetres. */
 export const MILLIMETRE_SPAN = Object.freeze([60, 250] as const);
 export const CENTIMETRE_SPAN = Object.freeze([6, 25] as const);
 export const ORIGIN_TOL_MM = 1.0;
@@ -135,7 +135,7 @@ export function measureBounds(all: Float64Array, sink: Pick<RowSink, 'measure'>,
   return width;
 }
 
-/** spec.py `_units` (same pass/fail and wording), plus the wider rescale ranges of WP1_DESIGN.md §1. */
+/** spec.py `_units` (same pass/fail and wording), plus the wider rescale ranges of glasses3d/plan/archive/20261019/WP1_DESIGN.md §1. */
 export function unitsRow(all: Float64Array, sink: RowSink): UnitsResult {
   const width = measureBounds(all, sink);
   const [low, high] = WIDTH_PASS_M;
@@ -278,7 +278,7 @@ export function orientationRow(g: MeasuredGeometry, sink: RowSink): void {
  *  opened temples and one-sided ornaments never move it. `excluded` counts primitives left out after geometry
  *  failures (for the message).
  *
- *  WP1_DESIGN.md §1: an origin off by more than 1 mm, or unverifiable, renders anyway with a LOUD warning and the
+ *  glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: an origin off by more than 1 mm, or unverifiable, renders anyway with a LOUD warning and the
  *  origin row failed; every failure here is therefore also a warning (the webcam page shows the warnings). */
 export function originRow(g: MeasuredGeometry, sink: RowSink, excluded = 0): void {
   const all = concat(g.lens.vertices, g.frame.vertices), {lo, hi} = bounds(all);

@@ -238,7 +238,7 @@ def test_contour_stats_and_downsample_mask():
 
 
 def test_opencv_failures_carry_the_array_description():
-    """The one unexplained cv2.error seen under load (PORT_REVIEW §9, open) left no evidence; _edge/_dist_to now
+    """The one unexplained cv2.error seen under load (glasses3d/plan/archive/20261019/PORT_REVIEW.md §9, open) left no evidence; _edge/_dist_to now
     re-raise with shape/dtype/contiguity so a recurrence is diagnosable. Forced here with arrays OpenCV refuses."""
     bad = np.zeros((4, 4, 600), bool)                       # more channels than cv2 accepts
     bad[0, 0, 0] = True

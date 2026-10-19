@@ -1,4 +1,4 @@
-/** The frozen webcam page for `arview serve` (WP1_DESIGN.md §6): built once per source state, then only verified.
+/** The frozen webcam page for `arview serve` (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6): built once per source state, then only verified.
  *
  *  The build is content-addressed: its directory under glasses3d/data/arview/serve/builds/ is named by the SHA-256 of
  *  everything Vite compiles (index.html, src/, vite.config.ts, package.json, package-lock.json). A directory whose stamp

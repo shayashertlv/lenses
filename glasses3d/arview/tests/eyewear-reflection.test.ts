@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {Mesh, MeshLambertMaterial} from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {
-  createSeeThroughRoom, CRYSTAL_REFLECTION_KNEE, findFrontPanel, FRONT_PANEL, LENS_REFLECTION_KNEE, limitReflection, REFLECTION_LIMIT_GLSL,
+  createSeeThroughRoom, CRYSTAL_REFLECTION_KNEE, findFrontPanel, FRONT_PANEL, limitReflection, REFLECTION_LIMIT_GLSL,
   REFLECTION_WHITE,
 } from '../src/render/eyewear-reflection.ts';
 import type {ReflectionKnee} from '../src/render/eyewear-reflection.ts';
@@ -79,7 +79,7 @@ test('a three upgrade that moves, dims or duplicates the panel fails loudly inst
   } finally {moved.dispose(); dimmed.dispose(); doubled.dispose();}
 });
 
-const KNEES: [string, ReflectionKnee][] = [['lens', LENS_REFLECTION_KNEE], ['crystal', CRYSTAL_REFLECTION_KNEE]];
+const KNEES: [string, ReflectionKnee][] = [['crystal', CRYSTAL_REFLECTION_KNEE]];
 
 test('the reflection limit leaves ordinary reflections exact and never lets a reflection reach the limit', () => {
   for (const [surface, knee] of KNEES) {
@@ -111,8 +111,8 @@ test('the reflection limit leaves ordinary reflections exact and never lets a re
 
 test('the shoulder is C1 at the knee and keeps the reflection\'s hue', () => {
   const through: Rgb = [.3, .25, .2], headroom = REFLECTION_WHITE - .3, h = 1e-6;
-  for (const [surface, knee] of [['lens', .8 - .3], ['crystal', .5 * headroom]] as [string, number][]) {
-    const at = (peak: number) => limitReflection([peak, peak, peak], through, surface === 'lens' ? LENS_REFLECTION_KNEE : CRYSTAL_REFLECTION_KNEE)[0];
+  for (const [surface, knee] of [['crystal', .5 * headroom]] as [string, number][]) {
+    const at = (peak: number) => limitReflection([peak, peak, peak], through, CRYSTAL_REFLECTION_KNEE)[0];
     const below = (at(knee) - at(knee - h)) / h, above = (at(knee + h) - at(knee)) / h;
     assert.ok(Math.abs(below - 1) < 1e-6 && Math.abs(above - 1) < 1e-3, `${surface}: ${below} ${above}`);
     assert.ok(at(knee + .01) < knee + .01, `${surface}: the shoulder starts at ${knee}`);

@@ -8,7 +8,7 @@ take precedence over repository documents. Dated history is evidence, not a comm
 
 ## Start here, in this order
 1. `glasses3d/plan/PLAN.md` §0 (the owner's rules), then the rest of PLAN.md for context.
-2. `glasses3d/plan/ASSEMBLY.md` fully, then `glasses3d/plan/REVIEW_20261013.md` as the superseded pre-assembly
+2. `glasses3d/plan/ASSEMBLY.md` fully, then `glasses3d/plan/archive/20261019/REVIEW_20261013.md` as the superseded pre-assembly
    baseline, then `glasses3d/plan/REVIEW_20261018.md` and your saved task brief. Read each assigned finding's detailed
    report/reproducer and the completed task reports in `data/review_20261018/codex/`; the review is a dated snapshot,
    not a claim that already repaired defects remain open.
@@ -17,7 +17,7 @@ take precedence over repository documents. Dated history is evidence, not a comm
    investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.
 
-`plan/archive/` (20261008, 20261010) holds superseded progress logs, handoffs and designs. They are evidence only:
+`plan/archive/` (20261008, 20261010, 20261019) holds superseded progress logs, handoffs, reviews and designs. They are evidence only:
 never follow their resume steps, gates or prompts. WP6 v1 code is under the local tag `wp6-v1-final`.
 
 ASSEMBLY retains dated milestone instructions and historical line numbers. Its current-status table and amendments
@@ -91,7 +91,8 @@ take precedence over superseded text. `review-20261013-pre-cleanup` preserves th
   2026-10-13 (owner: "astra can use it anytime it see fits"; Astra decides from the instructions when a product needs a
   print; `plan/ASSEMBLY.md` §4 D3).
 - **WP6 is closed** by the owner's 2026-10-13 acceptance of paid run 8 ("you know what. im satisfied with wp6, lets wrap this"). Its open
-  items are recorded in PROGRESS.md "WP6 v3". Do not reopen WP6 without a new owner request.
+  items and their later disposition are recorded in PROGRESS.md's current-state block; the verbatim "WP6 v3"
+  record is in `plan/archive/20261019/PROGRESS_2026-10-05_to_2026-10-17.md`. Do not reopen WP6 without a new owner request.
 - **Known-good visual references:** the owner re-accepted FT1123 crystal, Oakley OO9208 v2 and INVU IA22403B v2
   on 2026-10-06; their asset-bound verdicts are in `data/ledger/owner_verdicts.jsonl`. The assembled regression is
   Oakley run 4, GLB `98131458…`, accepted 2026-10-15: "as far as i can see the model is perfect".

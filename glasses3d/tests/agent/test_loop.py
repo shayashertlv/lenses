@@ -1,4 +1,4 @@
-"""The Astra loop on the real SDK over MockTransport (plan/WP2_DESIGN.md sections 7, 9, 14; stage C).
+"""The Astra loop on the real SDK over MockTransport (glasses3d/plan/archive/20261019/WP2_DESIGN.md sections 7, 9, 14; stage C).
 
 Real openai 3.22.1 + openai-agents 0.22.3 Runner, real BudgetGuard/JobLedger/approvals, real ReviewLog; only the
 transport is faked (agent.replay.ScriptedOpenAI). conftest: G3D_OFFLINE=1, no OPENAI_* env, LoopbackOnly and the

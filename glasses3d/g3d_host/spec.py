@@ -1,9 +1,9 @@
 """validate_spec(glb): the owner's GLB requirements (PLAN.md §2), and nothing else, as hard errors.
 
 Rows: format, units, origin, orientation, transforms, geometry, components. Anything outside the table is a warning.
-The live site's stricter acceptance (RULES_AUDIT.md §C) is reported separately as `live_site_would_fail`; it is
+The live site's stricter acceptance (glasses3d/plan/archive/20261019/RULES_AUDIT.md §C) is reported separately as `live_site_would_fail`; it is
 never an error and never an instruction to Astra. This module is the single source of truth for the §2 rows; arview's
-runtime checks follow the same rules (WP1_DESIGN.md §1) and must agree with it on shared fixtures.
+runtime checks follow the same rules (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1) and must agree with it on shared fixtures.
 
 The validator never raises on file content: every section runs in its own guard, and an unexpected structural error
 fails the row it belongs to. Primitives that fail a geometry check (unreadable data, non-triangle mode, bad index

@@ -1,5 +1,5 @@
 /** What the see-through eyewear reflects, and how a reflection is added to the camera seen through it. It applies to the
- *  canonical lenses and to translucent (crystal) frame materials only: opaque acetate, metal and everything else keep the
+ *  lenses and translucent (crystal) frame materials only: opaque acetate, metal and everything else keep the
  *  scene's room (renderer.ts: three's RoomEnvironment through PMREM blur 0.04 at SCENE_ENVIRONMENT_INTENSITY), untouched.
  *
  *  Why (Tom Ford FT1123-D review, 2026-09-30). RoomEnvironment has one emitter on the +Z side, `light4` (emissive 43, a
@@ -62,7 +62,7 @@ export function createSeeThroughRoom(): RoomEnvironment {
 /** The reflection limit: the linear level a reflection added to the look-through approaches and never exceeds. 0.9 is
  *  sRGB 243, below the observation's clipped threshold (min channel 250); a pixel the reflection brings to the limit keeps
  *  its gradient instead of becoming a flat 255 slab. So a reflection the limit compresses lands between the surface's
- *  knee and 0.9 (a lens: 0.8-0.9 linear, sRGB 231-243), which a count of pixels at 250 cannot see (review AR-R3). */
+ *  knee and 0.9, which a count of pixels at 250 cannot see (review AR-R3). The current crystal twin uses this limit. */
 export const REFLECTION_WHITE = .9;
 
 /** Where a surface's shoulder starts. The reflection is added unchanged while its peak channel is below `share` of the
@@ -70,30 +70,15 @@ export const REFLECTION_WHITE = .9;
  *  further, and never past the headroom: knee = min(max(share x headroom, level - through), headroom). */
 export interface ReflectionKnee {readonly share: number; readonly level: number}
 
-/** Canonical lenses: exact up to a total of 0.8 linear (sRGB 231), then a 0.1 shoulder into the limit. Absolute, not a
- *  share of the headroom (review AR-R2, 2026-09-30): a lens's reflection is scaled by the owner's lensenv before the limit
- *  (renderer.ts: envMapIntensity 0.8 x lensenv), and the pipeline recommends lensenv as a linear ratio (lens_colour.py:
- *  env = LUMA(photo - T bg) / LUMA(A)), so the shoulder must leave ordinary mirror reflections linear. At half the headroom
- *  (the first limit) it did not: invu-astra2's mirror reflects p50 0.29 / p90 0.57 / p99 0.80 linear at lensenv 1, over a
- *  0.42 knee. Harness renders (the see-through room drawn with the reflection added linearly as the reference; front view,
- *  dim-skin fixture): at its delivered lensenv 1.49, accepted "perfect" live on the old runtime, the first knee drew 35.7 %
- *  of its visible lens more than 2 sRGB levels darker (p90 24) and its mean lens luma 0.311 against 0.349; this knee 12.6 %
- *  (p90 8) and 0.328, of which 9.6 points are pixels the linear draw clips at 250+ in a channel (the old runtime drew them
- *  at 250-255; here they stay under the limit, hue kept) and 1.9 points 243-249: what is left is the limit itself. At
- *  lensenv 1: 13.2 % -> 2.0 %. oakley-astra2 at its delivered 1.23: 6.5 % -> 0.0 % (the linear draw to the level). The
- *  panel that clipped (1.38 linear) still ends below the limit, now between 0.89 and 0.9. */
-export const LENS_REFLECTION_KNEE_LEVEL = .8;
-export const LENS_REFLECTION_KNEE: ReflectionKnee = Object.freeze({share: 0, level: LENS_REFLECTION_KNEE_LEVEL});
 /** The crystal's knee, a share of the headroom (the twin, translucent-twin.ts): exact below half of it, where the room's
  *  walls and side emitters on the bevels sit, and a wide shoulder above it, so a hot bevel highlight keeps a long
  *  gradient. The crystal has no lensenv, and the see-through measurements were taken with it (r0009's crystal clipped
- *  share 0.116 -> 0, frame_see_through 0.553 -> 0.701): unchanged by the lens knee. automation's appearance.py mirrors
- *  it for crystal bands (tests/test_appearance_reflection_limit.py reads this line); a LENS port (lens_colour's lensenv
- *  recommendation) must use LENS_REFLECTION_KNEE_LEVEL instead. */
+ *  share 0.116 -> 0, frame_see_through 0.553 -> 0.701): automation's appearance.py mirrors it for crystal bands
+ *  (tests/test_appearance_reflection_limit.py reads this line). */
 export const REFLECTION_KNEE = .5;
 export const CRYSTAL_REFLECTION_KNEE: ReflectionKnee = Object.freeze({share: REFLECTION_KNEE, level: 0});
 
-/** GLSL of `limitReflection`, for the lens and crystal fragment shaders (declared before `main`); call it through
+/** GLSL of `limitReflection`, for the crystal fragment shader (declared before `main`); call it through
  *  `reflectionLimitCall` so the surface's knee is the one declared here. */
 export const REFLECTION_LIMIT_GLSL = /* glsl */`
 vec3 eyewearReflectionLimit( const in vec3 reflected, const in vec3 through, const in float kneeShare, const in float kneeLevel ) {

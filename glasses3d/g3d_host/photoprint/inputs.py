@@ -1,8 +1,8 @@
 """Inputs of WP5 step 0: the model, the photos, their mattes and WP3b cameras, and Astra's own texture.
 
 Ported from the scratch `wp5lib.py` module globals (GLB, CAMS_JSON, JOB, MESH, SCENE, PIVOT, FACE_N, CAMS0, IMGS,
-MATTES, VALID, ppm_local, ppm_pivot, astra_colours); PORT_REVIEW section 10. Everything the scratch kept in module
-globals lives on a ``Job``; nothing is read at import time.
+MATTES, VALID, ppm_local, ppm_pivot, astra_colours); glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10.
+Everything the scratch kept in module globals lives on a ``Job``; nothing is read at import time.
 
 ``load_job`` reads a WP3b ``cameras.json`` (``g3d_host.fit_views``): the GLB path and sha256, the skip list (thin
 decals the cameras were fitted without), the NormFrame, the front pivot, and per image its path, sha256, view kind and
@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 
@@ -190,23 +190,6 @@ class Job:
 
     def scene(self, V: np.ndarray | None = None) -> raster.RasterScene:
         return raster.get_scene(self.mesh.V if V is None else V, self.mesh.F, self.frame)
-
-    def with_images(self, images: dict[str, np.ndarray], mattes: dict[str, np.ndarray] | None = None) -> "Job":
-        """A copy with some photos replaced (tests: swapped or substituted photos); mattes recomputed unless given."""
-        views = {}
-        for n, v in self.views.items():
-            if n in images:
-                img = np.asarray(images[n], np.uint8)
-                m = (mattes or {}).get(n)
-                views[n] = replace(v, image=img, matte=matte_mod.matte(img) if m is None else np.asarray(m, bool),
-                                   sha256=None)
-            else:
-                views[n] = v
-        return replace(self, views=views)
-
-    def with_cameras(self, cams: dict[str, Camera]) -> "Job":
-        """A copy whose start (WP3b) cameras are replaced for some views."""
-        return replace(self, views={n: (replace(v, camera=cams[n]) if n in cams else v) for n, v in self.views.items()})
 
     def part_ids(self, names) -> list[int]:
         return self.mesh.part_ids(names)

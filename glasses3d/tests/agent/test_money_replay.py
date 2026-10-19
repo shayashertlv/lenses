@@ -1,4 +1,4 @@
-"""The stage-C stop rule (plan/WP2_DESIGN.md sections 14 and 15; Proof A criterion 3, money part).
+"""The stage-C stop rule (glasses3d/plan/archive/20261019/WP2_DESIGN.md sections 14 and 15; Proof A criterion 3, money part).
 
 The 59 recorded usages of the Blender Studio Prada session (job 8c82d986, its run budget.json, an $18 cap) go through
 the real AsyncOpenAI client, the real httpx2 event hooks and BudgetGuard exactly as the transport would deliver them:
@@ -33,7 +33,7 @@ from glasses3d.tests.agent.support import OFFLINE_KEY, REPO_ROOT, require_data  
 PRADA_LEDGER = ("automation/data/blender_agent/studio/jobs/8c82d986e6c14d26b4b38f3807712ea0/agent/runs/"
                 "20261001T144107-ad29ba/budget.json")
 FIXTURE = Path(__file__).resolve().parent / "data" / "prada-8c82-tokens.json"
-ROW1_RESERVED = 719_438                 # WP2_DESIGN section 14, criterion 3
+ROW1_RESERVED = 719_438                 # glasses3d/plan/archive/20261019/WP2_DESIGN.md section 14, criterion 3
 SETTLED_TOTAL = 14_261_424              # the recorded Prada total ($14.261424)
 PEAK_COMMITTED = 17_164_748             # settled so far + the open hold, at its highest (request 59)
 CAP_USD = "18"

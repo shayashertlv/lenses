@@ -1,4 +1,4 @@
-"""Renders, bounds and picking inside the worker's Blender (WP2_DESIGN §6, WP6_FACETS §3.2). Trusted and read-only:
+"""Renders, bounds and picking inside the worker's Blender (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6, WP6_FACETS §3.2). Trusted and read-only:
 the host sends camera specs (g3d_host/blender_camera.to_blender) and never code.
 
 ``render(params, root)`` builds a temporary ``g3d_render`` scene that links a COPY (``obj.copy()``: shared data,
@@ -67,7 +67,6 @@ Output paths are confined to ``<job root>/work`` (junctions resolved first: chec
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import io
 import math
 import os
@@ -1071,8 +1070,3 @@ def pick(params: dict) -> dict:
             start = loc + d * 1e-4
         out.append(rec)
     return {"hits": out, "origin_mm": origin}
-
-
-def file_digest(path) -> dict:
-    p = Path(path)
-    return {"path": str(p), "sha256": hashlib.sha256(p.read_bytes()).hexdigest(), "bytes": p.stat().st_size}

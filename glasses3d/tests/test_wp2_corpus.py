@@ -1,4 +1,4 @@
-"""WP2 stage A: safe mode against Astra's real code (WP2_DESIGN §0, §13, §15 row A).
+"""WP2 stage A: safe mode against Astra's real code (glasses3d/plan/archive/20261019/WP2_DESIGN.md §0, §13, §15 row A).
 
 * corpus gate: 0 false positives on non-I/O lines across the 214 Studio snippets (186 Astra tool calls plus 28 host
   stop-checkpoint saves journaled under the same tool name, counted as the design counted them);

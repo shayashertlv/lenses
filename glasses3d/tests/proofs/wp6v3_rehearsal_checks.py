@@ -1,7 +1,7 @@
 """Helpers of the v3 T5 rehearsal (tests/proofs/astra_temple_lab.py): the TOOL TEST controls (pixel picks made by
 projecting chart points through the lab's own cameras, so a reading has an exact answer), the request-body readers
 (every tool call's output as the next request carried it; the first request), the crease-flip reading of two builds,
-and the context guard's decision as the rehearsal states it (expected_stubs). Host only: no Blender, no network.
+and a historical context-filter oracle (expected_stubs). Host only: no Blender, no network.
 
 Controls (SCRIPTED OFFLINE TOOL TEST, never Astra or product output): a control point is (d, y, dt): the chart point
 (d, y, X = revision 0's base surface X + dt) of the charted (+X) temple. Its pick in a photo is that point placed as
@@ -12,7 +12,7 @@ other control points (a straight chart line is a straight image line under the p
 cross exactly at the point's pixel, at whatever angle the photo shows them (shallow in the side views when both
 segments run near the temple's length: W_SHALLOW_CROSSING, and W_ALONG_LINE beside their slide line).
 
-The context guard's decision (WP6_V3 §6, decided for the v3 rehearsal, review task v3p3-t5): at its one epoch the
+Historical context-filter decision (retired; WP6_V3 §6, review task v3p3-t5): at its one epoch the
 guard may replace an old tool image by a text stub only where the image shows a SUPERSEDED MODEL or backs NO STORED
 READING:
 - compare panels, zoom grids and variant sheets (images of a model: a render, the model's outline and its own crease
@@ -26,8 +26,8 @@ READING:
   The replaced reading's numbers stay in its photo_read text;
 - never: photo_image views (photo evidence), charts (each revision's layout and labels, about 600 tokens), the first
   request's photos (the loop never touches them).
-This is lab.context_stubs' rule; expected_stubs states it from the state independently, and the rehearsal checks
-the guard's real choice and the stubs the next request carries against it.
+expected_stubs retains that old oracle for saved evidence. The current rehearsal tests append-only history
+and fresh-conversation renewal; no live lab or loop rewrites these images.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from glasses3d.g3d.temple.spec import parse
 from glasses3d.g3d_host import pose as PO
 from glasses3d.g3d_host.camera import project_mm
 
-KEEP_LATEST = 2                   # = lab.CONTEXT_KEEP_LATEST (the rehearsal checks the two agree)
+KEEP_LATEST = 2                   # frozen historical oracle; no live lab setting
 MODEL_KINDS = ("compare", "variants")     # Lab._image kinds of images that show a model (zoom grids: compare + zoom)
 STUB_RE = re.compile(r"^\[image removed by the host to save context: ")
 

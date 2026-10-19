@@ -3,7 +3,7 @@ import {wearerSide} from '../../src/model/sides.ts';
  *
  *  Every step returns plain data; every image is handed to Node through the `arviewEmit` binding the moment it exists
  *  (written to disk and hashed there), so nothing accumulates in page memory and a stall loses nothing already made.
- *  The renderer is used through its public API only (WP1_DESIGN.md §5: create, pose, render with an override,
+ *  The renderer is used through its public API only (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5: create, pose, render with an override,
  *  readback, report, parts, cameraState, assetMatrixWorld, projectAssetPoints, setLighting). Steps:
  *  gpu -> init -> geometry -> settle -> (pose -> render...)... -> finishPosed -> portrait* -> done; with `--cameras
  *  --no-face` (capture/cameras.ts): gpu -> init -> (poseCamera -> renderCamera...)... -> finishPosed. */

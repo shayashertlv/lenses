@@ -1,6 +1,6 @@
 """Camera fitting: one camera per reference photo, fitted to a fixed mesh on the photo's matte (silhouette IoU).
 
-Ported from automation/bsa/cameras.py (WP3b; plan/PORT_REVIEW.md section 9). Every camera is a
+Ported from automation/bsa/cameras.py (WP3b; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9). Every camera is a
 ``glasses3d.g3d_host.camera.Camera`` in the model's NormFrame that maps MODEL millimetres to NATIVE photo pixels
 (``camera.project_mm``).
 
@@ -43,7 +43,7 @@ step kept only when it lowers that same loss. The optimizer moves the image posi
 Dropped from bsa (product/generator-specific): ``fit_all`` (its schedule is ``fit_views``), ``front_piece_*``,
 ``lens_faces``, ``lens_coverage``, ``run``, ``_consistency``, ``load_cameras``, the sheets and two per-view diagnostics
 (``sign_test``: left/right yaw sign; ``yaw_profile``). ``pitch_twin`` is re-ported as ``ViewFit.pitch_twin``. See
-PORT_REVIEW section 9.
+glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9.
 """
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def _edge(mask: np.ndarray) -> np.ndarray:
     m = mask.astype(np.uint8)
     try:
         er = cv2.erode(m, np.ones((3, 3), np.uint8), borderType=cv2.BORDER_CONSTANT, borderValue=0)
-    except cv2.error as e:      # an unexplained cv2.error was seen once under load (PORT_REVIEW §9, open): keep evidence
+    except cv2.error as e:      # an unexplained cv2.error was seen once under load (glasses3d/plan/archive/20261019/PORT_REVIEW.md §9, open): keep evidence
         raise RuntimeError(f"cv2.erode failed in cameras._edge on {_describe(m)}: {e}") from e
     return mask & (er == 0)
 

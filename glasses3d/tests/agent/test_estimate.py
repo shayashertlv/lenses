@@ -1,4 +1,4 @@
-"""The pre-run cost estimate (plan/WP2_DESIGN.md section 8, Estimate; section 13: leave-one-out median absolute
+"""The pre-run cost estimate (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8, Estimate; section 13: leave-one-out median absolute
 error <= 10%).
 
 The section-8 example (C0 25,000, N 60) rounds up to $10.12, range $8.91-12.69, tail $2.47 at 8,192 and $2.88 at 16,384

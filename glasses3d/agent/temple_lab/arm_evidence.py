@@ -148,7 +148,7 @@ def parent_readings(parent_root, basis):
             "note":"Verified parent picks remain observations; no stage node or geometry is changed."}
 
 
-def _tip(chains, projection, visible, all_mask, shape):
+def _tip(chains, projection, visible, shape):
     """Locate a conditional tip-window observation, without a cross-photo match."""
     q=np.asarray(projection,float)
     expected=q.mean(0)
@@ -221,7 +221,7 @@ def photo_evidence(mesh, roles, basis, rid):
             original=mesh.V[vertices]
             tip_ids=vertices[original[:,2]<=original[:,2].min()+2.]
             tip_uv=project_mm(posed.V[tip_ids],cam,basis.frame)
-            row['tip_crossing']=_tip(chains,tip_uv,visible,mask,basis.shape(rid))
+            row['tip_crossing']=_tip(chains,tip_uv,visible,basis.shape(rid))
             row['model_projection']={"tip_vertices_uv_px":tip_uv.tolist(),
                                      "visible_contours_px":[c.tolist() for c in contours(visible)]}
         arms[key]=row

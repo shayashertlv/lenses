@@ -1,11 +1,10 @@
-"""Rigid groups, regions and stripes on q001 (WP5_DESIGN §5.1): sides by x sign, folds disjoint. The S' tests
+"""Rigid groups and regions on q001 (WP5_DESIGN §5.1): sides by x sign. The S' tests
 (parallax, hinges) were deleted on 2026-10-13 with step 0's Pose / Deformer; see git tag review-20261013-pre-cleanup."""
 
 from glasses3d.tests.fixtures.legacy_ft1119 import PRINT_PARTS as FT1119_PARTS
 import numpy as np
 import pytest
 
-from glasses3d.g3d_host.photoprint import inputs as IN
 from glasses3d.tests.fixtures import legacy_ft1119
 from glasses3d.g3d_host.photoprint import regions as RG
 
@@ -22,7 +21,7 @@ def groups(job):
 
 @pytest.fixture(scope="module")
 def regions(job, groups):
-    return RG.build_regions(job, FT1119_PARTS, groups, n_samples=4000)
+    return RG.build_regions(job, FT1119_PARTS, groups)
 
 
 def test_sides_come_from_the_x_sign_not_the_names(job, regions):
@@ -60,26 +59,3 @@ def test_regions_cover_parts_and_mark_end_caps_minor(job, regions):
     minor = {r.name for r in regions if r.minor}
     assert "Temple_Left[-x]/back" in minor and "Brow_Right[+x]/outer" in minor
     assert "Brow_Right[+x]/front" not in minor and "Temple_Right[+x]/outer" not in minor
-
-
-def test_stripe_folds_are_disjoint_with_guard_bands():
-    c = np.linspace(0, 40, 40001)
-    f = RG.stripe_fold(c)
-    k = np.floor(c / RG.STRIPE_MM)
-    frac = c / RG.STRIPE_MM - k
-    assert np.all(f[(frac < 0.12) | (frac > 0.88)] == RG.FOLD_GUARD)
-    inner = (frac > 0.13) & (frac < 0.87)
-    assert np.all((f[inner] == RG.FOLD_A) == (k[inner] % 2 == 0))
-    assert np.all((f[inner] == RG.FOLD_B) == (k[inner] % 2 == 1))
-    assert np.array_equal(RG.stripe_fold(-c), f)            # |x|: mirror brows share stripes
-
-
-def test_samples_are_deterministic_and_area_uniform(job, groups):
-    a = RG.build_regions(job, ["Brow_Right"], groups, n_samples=20000, seed=3)
-    b = RG.build_regions(job, ["Brow_Right"], groups, n_samples=20000, seed=3)
-    for ra, rb in zip(a, b):
-        assert np.array_equal(ra.samples.face, rb.samples.face) and np.array_equal(ra.samples.bary, rb.samples.bary)
-    r = next(x for x in a if x.facing == "front")
-    share = np.bincount(np.isin(r.samples.face, r.faces[: len(r.faces) // 2]).astype(int), minlength=2)[1] / 20000
-    area = job.face_area[r.faces[: len(r.faces) // 2]].sum() / job.face_area[r.faces].sum()
-    assert abs(share - area) < 0.015

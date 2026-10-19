@@ -1,4 +1,4 @@
-"""g3d.loft_sections (plan/archive/20261010/WP6_DESIGN.md §4; RULES_AUDIT §A row 3): per-station lofts for metal,
+"""g3d.loft_sections (plan/archive/20261010/WP6_DESIGN.md §4; glasses3d/plan/archive/20261019/RULES_AUDIT.md §A row 3): per-station lofts for metal,
 wire and tapering temples. numpy only.
 
 loft_sections(stations, path=None, caps=True):

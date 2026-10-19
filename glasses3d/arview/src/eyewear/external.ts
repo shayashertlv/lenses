@@ -4,7 +4,7 @@
  *  The asset is real-size metres with the bridge underside at the origin and its front toward +Z (PLAN §2). It becomes
  *  this page's one ModelDefinition (there is no catalog). The digest is only compared with the bytes actually loaded (a
  *  mismatch is a report warning); nothing is pinned, and the temple continuity model reads the rendered scene itself
- *  (WP1_DESIGN.md §3). The address must be a plain http(s) URL on this page's origin or on loopback. A value that cannot
+ *  (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). The address must be a plain http(s) URL on this page's origin or on loopback. A value that cannot
  *  be used is never dropped silently: it becomes a warning in the definition, which the renderer copies into its model
  *  report (range checks for clip and lensenv are resolveModelDefinition's, catalog.ts). `report` is the address of the model
  *  report `arview serve` made before the page opened (qa/serve.mjs, /__arview/report.json; src/model/served-report.ts):

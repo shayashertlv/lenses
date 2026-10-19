@@ -15,7 +15,7 @@ from pathlib import Path
 from glasses3d.g3d_host import blender
 from .journal import BlenderSession, WorkerFailed, CheckpointMismatch
 from .worker_client import WorkerDied
-from .loop import SceneHooks, image_key
+from .loop import SceneHooks
 from .procs import write_json_atomic
 from .seeing import Seeing
 
@@ -410,70 +410,6 @@ class JobScene(SceneHooks):
                            "kind": record.get("kind", "image"),
                            **({"revision": record["revision"]} if "revision" in record else {})})
         return result
-
-    def context_stubs(self, image_sha256s):
-        with self._state_lock:
-            records = [dict(i) for i in self.images]
-            best = self.best_checkpoint
-        # Only superseded generated comparisons/renders are eligible. Photos and
-        # current pick sheets remain intact; M2 can expand this policy by metadata.
-        eligible = {"compare_to_photos", "render_views", "arview_capture"}
-        latest = {(r["kind"], r["view"]): r["call_id"] for r in records if r["kind"] in eligible}
-        keep = {r["sha256"] for r in records if r["kind"] not in eligible
-                or r["checkpoint"] == best or latest.get((r["kind"], r["view"])) == r["call_id"]}
-        by_sha = {r["sha256"]: r for r in records}
-        return {digest: (f"[superseded image: call {by_sha[digest]['call_id']}, "
-                         f"checkpoint {by_sha[digest]['checkpoint']}, view {by_sha[digest]['view']}]")
-                for digest in image_sha256s if digest in by_sha and digest not in keep}
-
-    def context_image_stubs(self, images):
-        """Keep source photos, latest generated evidence per view, current picks and the chosen best checkpoint.
-
-        Match only images actually present in this request. A completed but unseen tool result cannot supersede
-        evidence the model has received. Unknown or ambiguous older metadata is retained conservatively.
-        """
-        with self._state_lock:
-            records = [dict(item) for item in self.images]
-            best = self.best_checkpoint
-        roles = {"compare_to_photos": "comparison", "render_views": "render", "arview_capture": "ar",
-                 "fit_cameras": "fit", "pick_surface_point": "pick", "photo_read": "pick"}
-        generated = {"comparison", "render", "ar", "fit", "pick", "detail"}
-
-        def role(rec):
-            return rec.get("context_role", roles.get(rec.get("kind")))
-
-        def views(rec):
-            return rec.get("views") or [rec.get("view", "sheet")]
-
-        by_pair = {}
-        for index, rec in enumerate(records):
-            by_pair.setdefault((rec["call_id"], rec["sha256"]), []).append(index)
-        matched = {}
-        for image in images:
-            candidates = by_pair.get((image["call_id"], image["sha256"]), [])
-            exact = [index for index in candidates if records[index].get("output_index") == image["part_index"]]
-            if len(exact) == 1:
-                matched[image_key(image)] = exact[0]
-            elif len(candidates) == 1 and records[candidates[0]].get("output_index") is None:
-                matched[image_key(image)] = candidates[0]
-        latest = {}
-        for index in sorted(set(matched.values())):
-            rec = records[index]
-            if role(rec) in generated and rec.get("current") is not False:
-                for view in views(rec):
-                    latest[role(rec), view] = index
-        stubs = {}
-        for key, index in matched.items():
-            rec = records[index]
-            kind = role(rec)
-            if kind not in generated or (best is not None and rec.get("checkpoint") == best):
-                continue
-            if rec.get("current") is not False and any(latest.get((kind, view)) == index for view in views(rec)):
-                continue
-            path = f"; path {rec['path']}" if rec.get("path") else ""
-            stubs[key] = (f"[superseded {kind} image: call {rec['call_id']}, "
-                          f"checkpoint {rec.get('checkpoint')}, view {', '.join(map(str, views(rec)))}{path}]")
-        return stubs
 
     def mark_unseen(self, call_id):
         with self._state_lock:

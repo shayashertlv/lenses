@@ -1,4 +1,4 @@
-"""Pre-run cost forecasts (plan/WP2_DESIGN.md section 8; ASSEMBLY M2).
+"""Pre-run cost forecasts (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 8; ASSEMBLY M2).
 
 ``estimate`` preserves the historical Studio model and its exact evidence below. Assembled jobs use
 ``estimate_g3d``: a fresh first request is uncached; later requests reuse the preceding prefix. Its growth matches

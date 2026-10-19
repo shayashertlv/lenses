@@ -1,5 +1,5 @@
 {
- "about": "Shared lens-identification vectors (PLAN.md WP1.3, WP1_DESIGN.md §2). Used by glasses3d/tests/test_lens_id.py and by arview's vitest suite. expect: key -> [is_lens, rule].",
+ "about": "Shared lens-identification vectors (PLAN.md WP1.3, glasses3d/plan/archive/20261019/WP1_DESIGN.md §2). Used by glasses3d/tests/test_lens_id.py and by arview's vitest suite. expect: key -> [is_lens, rule].",
  "cases": [
   {"name": "studio partRole on mesh", "prims": [
     {"key": "a", "node_name": "Lens_Left.001", "mesh_extras": {"partRole": "lens"}, "material_name": "Champagne lens.001"},

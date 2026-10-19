@@ -58,7 +58,7 @@ def test_one_piece_front_has_separate_sides_and_outward_end_regions():
     area = np.linalg.norm(cross, axis=1) / 2
     job = SimpleNamespace(mesh=SimpleNamespace(V=vertices, F=faces, part=np.zeros(len(faces), int), names=["Front"]),
                           face_area=area, face_normals=cross / (2 * area[:, None]), part_ids=lambda _parts: [0])
-    regions = RG.build_regions(job, ["Front"], groups=[], n_samples=10)
+    regions = RG.build_regions(job, ["Front"], groups=[])
     outer = [r for r in regions if r.facing == "outer"]
     assert {r.side for r in outer} == {-1, 1}
     assert {r.name for r in outer} == {"Front[-x]/outer", "Front[+x]/outer"}

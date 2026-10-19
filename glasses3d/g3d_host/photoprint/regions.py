@@ -1,7 +1,7 @@
-"""Rigid groups, regions, stripes and samples (WP5_DESIGN §5.1), built for step 0 and used by the bake.
+"""Rigid groups and facing regions (WP5_DESIGN §5.1), used by the print bake.
 
 Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_reg/p2_parallax.stripe_masks` and
-`p5_temple_hinge.group/hinge`; PORT_REVIEW section 10.
+`p5_temple_hinge.group/hinge`; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10.
 
 **Sides come from the x sign, never from part names.** q001 names its temples by the VIEWER's side (Temple_Left is at
 -x, the wearer's right), so every region carries ``side`` from its geometry and a name tag
@@ -17,15 +17,9 @@ Ported from the scratch `refine.sample_surface`, `geomlib.sample_bary`, `design_
   -z back, +y top, -y bottom, +/-x named ``outer`` (away from x = 0 on the face's side) or ``inner``. Parts spanning
   both sides are also split by face-centroid x sign, so opposite ends can choose separate source photos. Regions smaller
   than ``MIN_REGION_MM2`` are kept but marked ``minor`` (never registered).
-- **Stripes** along the part's longest bounding-box axis (|x| for brows, |z| for temples): 4 mm wide, 0.5 mm guard band
-  at each boundary; even stripes = fold A, odd = fold B (print correlation length 1.04 mm [R P3]).
-- **Samples**: area-uniform (face, barycentric) pairs per region with a fixed seed. A sample is a BODY point: its
-  position on any deformed surface S' (same triangles) is the barycentric combination of S' vertices.
 
-The bake (``project``) uses the groups and regions. Step 0's registration, which read the stripes, folds and samples,
-was deleted on 2026-10-13 with its helpers here (``Samples.select``, ``pixel_fold``, the ``to_json`` methods) and the
-unused ``Region.s_of`` / ``region_face_lookup``; see git tag review-20261013-pre-cleanup. ``build_regions`` is
-unchanged and still draws the samples.
+Step 0's registration was deleted on 2026-10-13 (tag ``review-20261013-pre-cleanup``). Its unused stripe, fold and
+sample computation was removed in the 2026-10-19 cleanup (tag ``pre-cleanup-20261019``).
 """
 from __future__ import annotations
 
@@ -35,10 +29,7 @@ import numpy as np
 
 TEMPLE_X_MM = 45.0
 HINGE_SLAB_MM = 2.0
-STRIPE_MM = 4.0
-GUARD_MM = 0.5
 MIN_REGION_MM2 = 100.0              # end caps (q001: 17-80 mm^2) are not registered
-FOLD_A, FOLD_B, FOLD_GUARD = 0, 1, -1
 AXES = (("front", np.array([0.0, 0.0, 1.0])), ("back", np.array([0.0, 0.0, -1.0])),
         ("top", np.array([0.0, 1.0, 0.0])), ("bottom", np.array([0.0, -1.0, 0.0])),
         ("+x", np.array([1.0, 0.0, 0.0])), ("-x", np.array([-1.0, 0.0, 0.0])))
@@ -70,24 +61,7 @@ class Region:
     group: str
     faces: np.ndarray               # face ids
     area_mm2: float
-    axis: int                       # 0/1/2: stripe and parallax axis (the part's longest bbox side)
-    vidx: np.ndarray                # vertex ids of the region's faces
-    s_vert: np.ndarray              # parallax coordinate of those vertices in [-1, 1]
-    s_mid: float = 0.0
-    s_half: float = 1.0
     minor: bool = False
-    samples: "Samples | None" = None
-
-
-@dataclass(eq=False)
-class Samples:
-    face: np.ndarray                # (N,) int
-    bary: np.ndarray                # (N, 3) float64
-    fold: np.ndarray                # (N,) int8: FOLD_A / FOLD_B / FOLD_GUARD
-    coord: np.ndarray               # (N,) stripe coordinate (mm, |axis|)
-
-    def __len__(self) -> int:
-        return len(self.face)
 
 
 def part_centroids(V: np.ndarray, F: np.ndarray, part: np.ndarray, area: np.ndarray, n_parts: int) -> np.ndarray:
@@ -152,22 +126,9 @@ def facing_class(normals: np.ndarray, side: int | np.ndarray) -> np.ndarray:
     return names
 
 
-def stripe_fold(coord: np.ndarray, stripe_mm: float = STRIPE_MM, guard_mm: float = GUARD_MM) -> np.ndarray:
-    """FOLD_A for even 4 mm stripes, FOLD_B for odd, FOLD_GUARD within ``guard_mm`` of a stripe boundary."""
-    c = np.abs(np.asarray(coord, float)) / stripe_mm
-    k = np.floor(c).astype(np.int64)
-    frac = c - k
-    g = guard_mm / stripe_mm
-    inner = (frac > g) & (frac < 1.0 - g)
-    out = np.full(c.shape, FOLD_GUARD, np.int8)
-    out[inner & (k % 2 == 0)] = FOLD_A
-    out[inner & (k % 2 == 1)] = FOLD_B
-    return out
-
-
-def build_regions(job, parts, groups: list[Group] | None = None, *, n_samples: int = 30000, seed: int = 0,
+def build_regions(job, parts, groups: list[Group] | None = None, *,
                   min_area_mm2: float = MIN_REGION_MM2) -> list[Region]:
-    """Regions of the selected parts (names), each with ``n_samples`` area-uniform samples (fixed seed)."""
+    """Regions of the selected parts (names), split by facing class and side."""
     names = job.mesh.names
     groups = groups if groups is not None else rigid_groups(job)
     ids = job.part_ids(parts)
@@ -181,8 +142,6 @@ def build_regions(job, parts, groups: list[Group] | None = None, *, n_samples: i
     for p in ids:
         side = int(np.sign(cen[p, 0])) or 1
         faces_p = np.nonzero(part == p)[0]
-        vp = V[np.unique(F[faces_p])]
-        axis = int(np.argmax(vp.max(0) - vp.min(0)))
         face_side = np.sign(V[F[faces_p], 0].mean(1)).astype(int)
         split_sides = np.any(face_side < 0) and np.any(face_side > 0)
         sides = sorted(set(face_side.tolist())) if split_sides else [side]
@@ -193,26 +152,9 @@ def build_regions(job, parts, groups: list[Group] | None = None, *, n_samples: i
             fc = faces_p[(cls == facing) & (face_side == side)]
             if len(fc) == 0:
                 continue
-            vidx = np.unique(F[fc])
-            x = V[vidx, axis]
-            mid, half = (x.min() + x.max()) / 2, max((x.max() - x.min()) / 2, 1e-6)
             a = float(area[fc].sum())
             r = Region(rid=len(regions), name=f"{names[p]}[{side_tag(side)}]/{facing}", part=p, part_name=names[p],
-                       side=side, facing=facing, group=group_of_part(groups, p), faces=fc, area_mm2=a, axis=axis,
-                       vidx=vidx, s_vert=(x - mid) / half, s_mid=float(mid), s_half=float(half),
+                       side=side, facing=facing, group=group_of_part(groups, p), faces=fc, area_mm2=a,
                        minor=a < min_area_mm2)
-            r.samples = sample_region(job, r, n_samples, seed)
             regions.append(r)
     return regions
-
-
-def sample_region(job, r: Region, n: int, seed: int) -> Samples:
-    rng = np.random.default_rng([int(seed), int(r.rid), 5])
-    a = job.face_area[r.faces]
-    f = rng.choice(r.faces, size=n, p=a / a.sum())
-    r1, r2 = rng.random(n), rng.random(n)
-    s = np.sqrt(r1)
-    w = np.stack([1 - s, s * (1 - r2), s * r2], 1)
-    P = np.einsum("kj,kjd->kd", w, job.mesh.V[job.mesh.F[f]])
-    coord = np.abs(P[:, r.axis])
-    return Samples(face=f, bary=w, fold=stripe_fold(coord), coord=coord)

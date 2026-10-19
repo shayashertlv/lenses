@@ -3,10 +3,10 @@
 make_uv_test.py's two starts per view (``n_refine=2``), and compare with the prototype's pickled cameras. back, right
 and left use ``prior_seeds(view)`` as is; top and topb use its first 18 seeds, which are exactly make_uv_test.py's
 explicit grid (asserted): the production top prior appends a +45..62 band after it (cameras.TOP_LOW_PITCHES, measured
-in PORT_REVIEW §9), which ends in the same basin on reference-04 (0.06-0.21 deg) but is not bit-identical. The photos come
+in glasses3d/plan/archive/20261019/PORT_REVIEW.md §9), which ends in the same basin on reference-04 (0.06-0.21 deg) but is not bit-identical. The photos come
 from the sha256-checked ``data/reference/ft1119/`` (``camera_products.reference_files``); the frame from fits.json.
 
-Library dependence (measured 2026-10-05, see PORT_REVIEW §9): the prototype cameras were fitted under scipy 1.16.0.
+Library dependence (measured 2026-10-05, see glasses3d/plan/archive/20261019/PORT_REVIEW.md §9): the prototype cameras were fitted under scipy 1.16.0.
 scipy 1.18.1's ``least_squares`` returns a different step (about 1e-8 deg) on the very first contour-ICP call with
 bit-identical inputs, and the fit's discrete accept/reject decisions amplify that to 0.19 deg on 03/04. Results that
 sensitive also depend on the BLAS kernels the CPU selects, so the EXACT test runs only on a recorded fingerprint
@@ -68,7 +68,7 @@ _VENV_NUMPY = {"numpy": "2.5.3", "numpy_blas": "scipy-openblas 0.3.34.106.0"}
 _SCIPY_1_16 = {"scipy": "1.16.0", "scipy_blas": "scipy-openblas 0.3.28", "scipy_lapack": "scipy-openblas 0.3.28"}
 PROTOTYPE_FINGERPRINTS = (
     {**_CPU, "numpy": "2.3.1", "numpy_blas": "scipy-openblas 0.3.29", **_SCIPY_1_16},   # host Python (the prototype's)
-    {**_CPU, **_VENV_NUMPY, **_SCIPY_1_16},                    # venv + scipy 1.16.0 overlaid (PORT_REVIEW §9 table)
+    {**_CPU, **_VENV_NUMPY, **_SCIPY_1_16},                    # venv + scipy 1.16.0 overlaid (glasses3d/plan/archive/20261019/PORT_REVIEW.md §9 table)
 )
 
 

@@ -1,4 +1,4 @@
-"""WP2 stage B on the real Prada scene (WP2_DESIGN §6, §13, §14 criteria 10-11, §15 row B).
+"""WP2 stage B on the real Prada scene (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6, §13, §14 criteria 10-11, §15 row B).
 
 One live session on a copy of the accepted Prada Studio scene (8c82.../agent/scene.blend) with the frozen WP3b
 cameras imported as basis-01 (data/wp3b/prada/cameras.json + data/reference/prada photos):

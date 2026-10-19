@@ -1,4 +1,4 @@
-"""WP2 stage B, host only: the WP3b camera <-> Blender camera converter (g3d_host/blender_camera.py, WP2_DESIGN §6).
+"""WP2 stage B, host only: the WP3b camera <-> Blender camera converter (g3d_host/blender_camera.py, glasses3d/plan/archive/20261019/WP2_DESIGN.md §6).
 
 * analytic parity of the numpy model of Blender's view plane (sensor fit AUTO) against camera.project_mm on the 12
   frozen WP3b cameras (Prada + FT1119 cameras.json) and 4 synthetic ones (portrait perspective, landscape and portrait

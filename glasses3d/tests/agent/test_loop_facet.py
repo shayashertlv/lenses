@@ -1,7 +1,7 @@
 """The facet-run settings of the loop (plan/WP6_FACETS.md §4.3) on the real SDK over MockTransport: required tool
 choice kept after the first call, the finish gate (a refused finish keeps the run going, an accepted one ends it), the
 text-reply fallback (ended_without_finish), append-only runtime history even with legacy filter settings, the
-historical context-filter unit contract, the payload_limit status, the machine-load preflight and watch, the
+payload_limit status, the machine-load preflight and watch, the
 approval / registry binding, the parameter-description contract scan and the timeout table. The default settings leave
 every request unchanged (test_loop.py and the other loop tests run on the defaults).
 """
@@ -22,6 +22,7 @@ from glasses3d.agent import replay as R  # noqa: E402
 from glasses3d.tests.agent.loop_support import (BRIEF, FakeScene, data_url, photos, png_bytes,  # noqa: E402
                                                 result_of, tool_instructions)
 from glasses3d.tests.agent.support import OFFLINE_KEY  # noqa: E402
+from glasses3d.tests.agent.image_history import image_sha256
 
 RUN = "20261011T120000-facet01"
 FACET = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=10, tool_choice="required",
@@ -227,19 +228,6 @@ def test_legacy_context_settings_leave_every_runtime_image_and_prefix_unchanged(
     assert result["renewals"] == []
 
 
-def test_context_guard_unit_keeps_brief_images():
-    from agents.run_config import CallModelData, ModelInputData
-    url = data_url(png_bytes(seed=7))
-    items = [{"role": "user", "content": [{"type": "input_image", "image_url": url}]},
-             {"type": "function_call_output", "call_id": "c1", "output": [{"type": "input_image", "image_url": url}]}]
-    guard = L.ContextGuard(10, counted=lambda: 11, choose=lambda shas: {shas[0]: "stub"})
-    out = guard(CallModelData(model_data=ModelInputData(input=items, instructions="i"), agent=None, context=None))
-    assert out.input[0] == items[0] and out.input[1]["output"] == [{"type": "input_text", "text": "stub"}]
-    assert guard.epoch["tool_images"] == 1 and items[1]["output"][0]["type"] == "input_image"      # copy, not edit
-    below = L.ContextGuard(10, counted=lambda: 9, choose=lambda shas: {shas[0]: "stub"})
-    data = ModelInputData(input=items, instructions="i")
-    assert below(CallModelData(model_data=data, agent=None, context=None)) is data
-
 
 def photo_tools():
     """facet_finish (accepted) and a look whose image depends only on the photo, as seeing's compare cache returns the
@@ -289,7 +277,7 @@ def test_repeated_comparison_bytes_keep_all_old_and_new_runtime_occurrences(tmp_
     later = transport.creates[3]
     assert parts_of(later, calls[2]) == ["input_text", "input_image"]
     again = [p for o in outputs(later) if o["call_id"] == calls[2] for p in o["output"] if p["type"] == "input_image"]
-    assert L._image_sha256(again[0]["image_url"]) == first
+    assert image_sha256(again[0]["image_url"]) == first
     for body in transport.creates[3:]:
         assert parts_of(body, calls[0])[1] == parts_of(body, calls[2])[1] == "input_image"
     for previous, current in zip(transport.creates, transport.creates[1:]):
@@ -298,70 +286,6 @@ def test_repeated_comparison_bytes_keep_all_old_and_new_runtime_occurrences(tmp_
     assert result["context_guard"]["epochs"] == [] and result["context_guard"]["epoch"] is None
     assert result["renewals"] == []
 
-
-def test_context_guard_token_epoch_once_then_byte_rungs():
-    """The token epoch fires once (a later one rewrites a long-context prefix for little: CONTEXT_GUARD_BYTES'
-    comment); the byte rungs fire at k x byte_threshold, the next rung the first above the request that fired (one
-    reading never fires twice); each firing asks choose over every tool-output image present and scopes its choice to
-    the outputs present then; an output added after the latest firing is never touched."""
-    from agents.run_config import CallModelData, ModelInputData
-    reading = {"tokens": None, "bytes": None}
-    to_stub, asked = set(), []
-
-    def choose(shas):
-        asked.append(list(shas))
-        return {sha: f"stub {sha[:8]}" for sha in shas if sha in to_stub}
-    guard = L.ContextGuard(100, byte_threshold=1000, counted=lambda: reading["tokens"],
-                           sent_bytes=lambda: reading["bytes"], choose=choose)
-
-    def out(call_id, seed):
-        return {"type": "function_call_output", "call_id": call_id,
-                "output": [{"type": "input_image", "image_url": data_url(png_bytes(seed=seed))}]}
-
-    def sha_of(seed):
-        return hashlib.sha256(png_bytes(seed=seed)).hexdigest()
-
-    def send(items):
-        data = ModelInputData(input=items, instructions="i")
-        got = guard(CallModelData(model_data=data, agent=None, context=None))
-        return data, got
-
-    def kinds(got):
-        return {i["call_id"]: i["output"][0]["type"] for i in got.input}
-    items = [out("c1", 1), out("c2", 2)]
-    reading.update(tokens=99, bytes=999)
-    data, got = send(items)
-    assert got is data and not asked                                             # below both
-    to_stub.add(sha_of(1))
-    reading.update(tokens=100, bytes=10)
-    _data, got = send(items)
-    assert kinds(got) == {"c1": "input_text", "c2": "input_image"} and len(asked) == 1
-    items.append(out("c3", 1))                                                   # c1's bytes, after the epoch
-    reading.update(tokens=10_000, bytes=999)                                     # tokens fired once already
-    _data, got = send(items)
-    assert len(asked) == 1 and kinds(got) == {"c1": "input_text", "c2": "input_image", "c3": "input_image"}
-    to_stub.add(sha_of(2))
-    reading.update(bytes=2_500)                                                  # byte rung 1 (and 2): fires once
-    _data, got = send(items)
-    assert len(asked) == 2 and asked[1] == [sha_of(1), sha_of(2), sha_of(1)]
-    assert kinds(got) == {"c1": "input_text", "c2": "input_text", "c3": "input_text"}   # the new choice, c1-c3
-    items.append(out("c4", 2))
-    _data, got = send(items)                                                     # the same reading: no firing
-    reading.update(bytes=2_999)
-    _data, got = send(items)                                                     # under rung 3
-    assert len(asked) == 2 and kinds(got)["c4"] == "input_image"
-    reading.update(bytes=3_000)
-    _data, got = send(items)
-    assert len(asked) == 3 and kinds(got)["c4"] == "input_text"
-    assert [(e["epoch"], e["trigger"], e["at_request_bytes"], e["tool_outputs"]) for e in guard.epochs] == [
-        (1, "input_tokens", 10, 2), (2, "request_bytes", 2_500, 3), (3, "request_bytes", 3_000, 4)]
-    assert guard.epoch == guard.epochs[-1] and guard.byte_rung == 4 and guard.token_due is False
-    assert L.epoch_text(guard.epoch) == ("Context guard epoch 3: 4 of 4 tool images replaced by text stubs in the 4 "
-                                         "tool outputs present, at 10000 counted input tokens and 0.0 MB (fired on "
-                                         "request bytes).")
-    no_bytes = L.ContextGuard(100, counted=lambda: 50, sent_bytes=lambda: 10**12, choose=choose)  # no byte rung
-    data = ModelInputData(input=items, instructions="i")
-    assert no_bytes(CallModelData(model_data=data, agent=None, context=None)) is data
 
 
 def test_owner_photos_over_the_hard_provider_limit_still_end_payload_limit_after_renewal(tmp_path, monkeypatch):

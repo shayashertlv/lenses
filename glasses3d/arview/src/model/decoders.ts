@@ -1,4 +1,4 @@
-/** Where the GLB decoders live (WP1_DESIGN.md §1, Format row: Draco, meshopt and KTX2 are decoded). The Draco decoder
+/** Where the GLB decoders live (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, Format row: Draco, meshopt and KTX2 are decoded). The Draco decoder
  *  and the Basis (KTX2) transcoder are wasm modules from three's own `examples/jsm/libs`; vite.config.ts serves them
  *  from node_modules in development and copies them into the build, at these published paths (under Vite's base). The
  *  meshopt decoder is a JS module with its wasm inlined, imported directly. Nothing is fetched from outside the page. */

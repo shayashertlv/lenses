@@ -2,7 +2,7 @@
  *  visibility and hair occlusion applied inside the eyewear fragment shaders, drawn straight
  *  into the visible canvas. Camera image pixels stay on the GPU during live use.
  *
- *  It renders one ModelDefinition (eyewear/catalog.ts; there is no catalog). Loading (WP1_DESIGN.md §1, §5): the
+ *  It renders one ModelDefinition (eyewear/catalog.ts; there is no catalog). Loading (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): the
  *  WebGLRenderer exists before the GLB is parsed (KTX2 needs it); model/load.ts reads the container, resolves external
  *  resources against the model URL and parses with Draco, meshopt and KTX2; model/normalize.ts then runs the one
  *  normalisation pass (transforms, geometry, units, lens identification, the measured §2 rows) before any subsystem.
@@ -16,10 +16,10 @@
  *  editable region with the hair blend. No shader can write a hair-blended fragment into a
  *  protected pixel. When the protection cannot be established the frame is drawn without hair.
  *
- *  Temples (WP1_DESIGN.md §3, temple-geometry.ts) are found per side by position, whatever their opacity; a side
+ *  Temples (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3, temple-geometry.ts) are found per side by position, whatever their opacity; a side
  *  without one keeps a fixed cap and is reported per side (the §2 Orientation row fails on its own). The clip is derived
  *  from the arms' tips (just inside the shorter arm, floored at -0.14 m) unless a usable clip was handed over. The fit
- *  (WP1_DESIGN.md §4) is the live auto-fit, whose applied scale is reported (warned beyond 3 %), or the authored size
+ *  (glasses3d/plan/archive/20261019/WP1_DESIGN.md §4) is the live auto-fit, whose applied scale is reported (warned beyond 3 %), or the authored size
  *  with RendererOptions.fixedScale.
  *
  *  The arm centrelines, read from the normalised scene (the same bytes and normalisation that are drawn; no pin, no
@@ -108,7 +108,7 @@ const HIDDEN_TAIL_M = .025, END_FADE_M = .005, ARM_SPREAD_M = .018;
 /** Frame-front to upper-face ratio for the automatic fit (eyewear-fit.ts). The catalog's per-frame ratios are gone;
  *  every handed-over model always used 1. */
 const FIT_FRONT_RATIO = 1;
-/** WP1_DESIGN.md §4: an applied auto-fit scale further than this from 1 is a warning (the images do not show the
+/** glasses3d/plan/archive/20261019/WP1_DESIGN.md §4: an applied auto-fit scale further than this from 1 is a warning (the images do not show the
  *  authored size). */
 export const FIT_SCALE_WARN_FRACTION = 0.03;
 
@@ -117,19 +117,19 @@ export {ModelRefusal, ModelUnchecked} from '../model/report.ts';
 export type {LightingConfig} from './lighting.ts';
 export type {PaletteEntry, PartSide, RenderOverride} from './override.ts';
 
-/** One eyewear mesh as the capture sees it (WP1_DESIGN.md §5 `parts()`). */
+/** One eyewear mesh as the capture sees it (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5 `parts()`). */
 export interface RenderedPart {
   readonly mesh: Mesh;
   /** The glTF node name (as the report names it), else the mesh's own name. */
   readonly name: string;
-  /** The decided lens/frame class (WP1_DESIGN.md §2); 'mixed' only for a hand-built multi-material mesh. */
+  /** The decided lens/frame class (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2); 'mixed' only for a hand-built multi-material mesh. */
   readonly class: 'lens' | 'frame' | 'mixed';
   /** By geometry, never by name: wearer's 'right' x < 0, 'left' x > 0, 'centre' when the part crosses x = 0. */
   readonly side: PartSide;
   /** A near-arm visibility overlay (a clone the renderer draws over an arm), not an authored part. */
   readonly overlay: boolean;
 }
-/** The virtual camera of the posed frame (WP1_DESIGN.md §5 `cameraState()`): column-major matrices, render pixels. */
+/** The virtual camera of the posed frame (glasses3d/plan/archive/20261019/WP1_DESIGN.md §5 `cameraState()`): column-major matrices, render pixels. */
 export interface CameraState {
   readonly view: number[]; readonly projection: number[];
   readonly width: number; readonly height: number;
@@ -166,7 +166,7 @@ export interface RendererOptions {
   steady?: SteadyOptions | null;
   /** Share only while explicitly switching models for the same wearer. New camera sessions start fresh. */
   fitSession?: EyewearFitSession;
-  /** Render at the authored size (fit scale exactly 1, WP1_DESIGN.md §4): no automatic fit to the face, no size
+  /** Render at the authored size (fit scale exactly 1, glasses3d/plan/archive/20261019/WP1_DESIGN.md §4): no automatic fit to the face, no size
    *  adjustment, shown from the first pose. Default off: the live auto-fit (×0.85-1.15 times the 1.08 preference), whose
    *  applied scale the report records. */
   fixedScale?: boolean;
@@ -336,7 +336,7 @@ export class TryOnRenderer {
   private photoTemplePose: ReturnType<typeof createPhotoTemplePose> | null = null;
   private hairOcclusion: ReturnType<typeof createHairOcclusion> | null = null;
   private lensMeshes: Mesh[] = [];
-  /** The lens_identification block of the load (WP1_DESIGN.md §2): one entry per glTF material. */
+  /** The lens_identification block of the load (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2): one entry per glTF material. */
   private lensIdentificationReport: LensIdentificationReport | null = null;
   /** Crystal / translucent frame materials (authored roles, isTranslucentFrameMaterial). These are the meshes drawing
    *  such materials, including the near-arm visibility overlays whose clones are translucent frame too, and, per
@@ -611,7 +611,7 @@ export class TryOnRenderer {
   }
 
   /** Record the settled auto-fit scale in the report (`fit_scale`), and warn once per distinct scale that is more than
-   *  FIT_SCALE_WARN_FRACTION from 1 (WP1_DESIGN.md §4: what is drawn is then not the authored size). The wording serves
+   *  FIT_SCALE_WARN_FRACTION from 1 (glasses3d/plan/archive/20261019/WP1_DESIGN.md §4: what is drawn is then not the authored size). The wording serves
    *  the webcam page and the captures alike. */
   private noteFitScale(): void {
     const scale = this.fitScale, key = scale.toFixed(3), session = this.fitSession.report, limited = this.fitLimited || session.limited;
@@ -725,7 +725,7 @@ export class TryOnRenderer {
     const asset = new Group(); asset.name = `${this.model.displayName} bridge attachment`;
     this.eyewearAsset = asset;
     asset.scale.setScalar(GLASSES_METERS_TO_CENTIMETERS); asset.position.set(...this.model.offsetCm);
-    // The one normalisation pass (WP1_DESIGN.md §1): the retired lens descriptor stripped, transforms, geometry, units,
+    // The one normalisation pass (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): the retired lens descriptor stripped, transforms, geometry, units,
     // lens identification (every material's class decided once, read by every consumer below) and the measured §2 rows.
     // A §2 refusal throws here.
     const normalized = normalizeModel(eyewearScene, this.modelReport, source);
@@ -761,7 +761,7 @@ export class TryOnRenderer {
     this.shadowReceiverGeometry.setIndex(face.indices);
     this.shadowReceiverAttribute = new BufferAttribute(new Float32Array(face.positions.length), 3).setUsage(DynamicDrawUsage);
     this.shadowReceiverGeometry.setAttribute('shadowPosition', this.shadowReceiverAttribute);
-    // The temples by position, per side, and the clip derived from them (WP1_DESIGN.md §3), before anything that cuts or
+    // The temples by position, per side, and the clip derived from them (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3), before anything that cuts or
     // shapes an arm reads the clip.
     const sides = this.installTemples(eyewearScene);
     try {this.rearDrop = createRearDrop(eyewearScene, this.clipZM, 0, {sides});}
@@ -869,7 +869,7 @@ export class TryOnRenderer {
     } catch (error) {this.noteContinuityFailure(error);}
   }
 
-  /** The temples by position, per side, and the clip derived from them (temple-geometry.ts, WP1_DESIGN.md §3), all
+  /** The temples by position, per side, and the clip derived from them (temple-geometry.ts, glasses3d/plan/archive/20261019/WP1_DESIGN.md §3), all
    *  written into the report: `temples` and `temple_clip` measurements; a 'temple <side>' fallback for a side without a
    *  temple (that side keeps a fixed cap: no arm shape, continuity, terminal return or hair endpoint; the §2 Orientation
    *  row fails on its own and is never hidden by this); and every measurement or clip warning. Returns which sides carry

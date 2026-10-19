@@ -1,6 +1,6 @@
 """Export the live Blender scene to a GLB that meets the owner's spec (PLAN.md §2). Runs inside Blender 5.2.
 
-Reference: the Studio's native_export.py (PORT_REVIEW §3, rewrite). Kept: Blender's own glTF exporter on temporary
+Reference: the Studio's native_export.py (glasses3d/plan/archive/20261019/PORT_REVIEW.md §3, rewrite). Kept: Blender's own glTF exporter on temporary
 evaluated copies in a temporary scene, transforms baked, unrealized instances refused, cleanup in `finally`, and a
 check that the live scene is unchanged afterwards. Changed:
 - the scene convention is checked, not assumed: numeric millimetres (METRIC, scale_length 0.001), authored +Y up /
@@ -434,24 +434,6 @@ def images_without_data(material) -> list[str]:
     """Names of images the material samples that have no data (not packed, not generated, file not found)."""
     return [f"{im.name} ({im.filepath or 'no file'})" for im in sampled_images(material) if not _image_has_data(im)]
 
-
-def volume_authored(material) -> bool:
-    """True when the material authors a glTF volume: a glTF Material Output/Settings group with Thickness, or a
-    Volume Absorption node feeding the Material Output's Volume."""
-    tree = material.node_tree
-    if tree is None:
-        return False
-    for n in tree.nodes:
-        if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None and "Thickness" in n.inputs \
-                and n.node_tree.name.startswith(("glTF Material Output", "glTF Settings")):
-            t = n.inputs["Thickness"]
-            if t.is_linked or float(t.default_value) > 0.0:
-                return True
-        if n.bl_idname == "ShaderNodeOutputMaterial" and n.inputs["Volume"].is_linked:
-            src = n.inputs["Volume"].links[0].from_node
-            if src.bl_idname == "ShaderNodeVolumeAbsorption":
-                return True
-    return False
 
 
 # ------------------------------------------------------------------------------------------------ normals

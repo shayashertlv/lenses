@@ -1,4 +1,4 @@
-/** The report `arview serve` hands the webcam page at /__arview/report.json (pure; WP1_DESIGN.md §6). Schema
+/** The report `arview serve` hands the webcam page at /__arview/report.json (pure; glasses3d/plan/archive/20261019/WP1_DESIGN.md §6). Schema
  *  SERVED_REPORT_SCHEMA; the page reads it through src/model/served-report.ts.
  *
  *  It says, in this order of authority:
@@ -167,6 +167,6 @@ export function assembleServeReport(input: ServeReportInput): Record<string, unk
         + 'parses, and verdicts bind to the rendered sha256.',
       'The server re-hashes the file on disk whenever the page, the model or this report is fetched: a file re-exported to the same path is an '
         + 'error here (restart arview serve to judge it).',
-      'Nothing here blocks a render except a §2 refusal (WP1_DESIGN.md §1).'],
+      'Nothing here blocks a render except a §2 refusal (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1).'],
   };
 }

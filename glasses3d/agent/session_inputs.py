@@ -1,6 +1,6 @@
-"""Plan only the new user content of a run from the exact history the SDK will replay (WP2_DESIGN sections 7, 11).
+"""Plan only the new user content of a run from the exact history the SDK will replay (glasses3d/plan/archive/20261019/WP2_DESIGN.md sections 7, 11).
 
-Port of the Blender Studio planner (source-before/blender_agent/session_inputs.py, PORT_REVIEW section 3: keep). It
+Port of the Blender Studio planner (source-before/blender_agent/session_inputs.py, glasses3d/plan/archive/20261019/PORT_REVIEW.md section 3: keep). It
 never reads or writes SQLite, reference files or ledgers: call it with ``await session.get_items()`` (the same session
 the runner will use) and send only ``plan.content`` as the new user message. The SDK owns history replay and
 persistence; a database or an earlier receipt is never evidence that input was persisted (a failed request may have

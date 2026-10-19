@@ -1,4 +1,4 @@
-/** The renderer on a loaded GLB (WP1_DESIGN.md §1, §5): the normalisation pass runs inside configure before any
+/** The renderer on a loaded GLB (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1, §5): the normalisation pass runs inside configure before any
  *  subsystem, every subsystem that cannot be built falls back on its own (reported), and the public capture accessors
  *  (report, cameraState, assetMatrixWorld, parts, projectAssetPoints, setLighting, render overrides) replace private
  *  field access. The renderer runs on a recording backend that draws nothing. */
@@ -85,7 +85,7 @@ function renderer(model: ModelDefinition, report?: ModelReportBuilder) {
 }
 
 /** Load `built` through the front-end and configure a renderer with it, as TryOnRenderer.create does. No clip is handed
- *  over by default: the renderer derives it from the model's temples (WP1_DESIGN.md §3). */
+ *  over by default: the renderer derives it from the model's temples (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3). */
 async function configured(built: Built, model: Partial<ModelDefinition> = {}) {
   const definition: ModelDefinition = {url: 'http://127.0.0.1:8250/models/model.glb', displayName: 'Test', ...model};
   const resolved = resolveModelDefinition(definition);
@@ -138,7 +138,7 @@ test('a §2 refusal inside configure throws ModelRefusal with the whole report',
   } finally {instance.dispose();}
 });
 
-// Rewritten for WP1 stage D2 (WP1_DESIGN.md §3): a model without temples used to make the rear drop refuse ('no eligible
+// Rewritten for WP1 stage D2 (glasses3d/plan/archive/20261019/WP1_DESIGN.md §3): a model without temples used to make the rear drop refuse ('no eligible
 // posterior opaque shaft', a 'rear drop' fallback that also turned the protection and hair off). Temples are now found by
 // position per side: each missing side is its own 'temple <side>' fallback (fixed cap), the rear drop builds with no arm
 // to bend (everything protected), the continuity has no arm, and the §2 Orientation row still fails on its own.

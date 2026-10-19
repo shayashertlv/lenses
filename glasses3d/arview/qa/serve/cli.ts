@@ -1,4 +1,4 @@
-/** `arview serve` argument parsing (pure; WP1_DESIGN.md §6, the owner's webcam page).
+/** `arview serve` argument parsing (pure; glasses3d/plan/archive/20261019/WP1_DESIGN.md §6, the owner's webcam page).
  *
  *    arview serve <model.glb> [--port 8251] [--detach] [--name <label>] [--clip <m>] [--lensenv N]
  *    arview serve --stop [--port 8251]

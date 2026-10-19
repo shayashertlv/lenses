@@ -1,5 +1,5 @@
 /** The Python §2 validator (`python -m glasses3d.g3d_host.spec --full <glb>`, glasses3d/.venv), the single source of truth
- *  for the owner's spec rows (WP1_DESIGN.md §1), run as a child process with a deadline. Shared by `arview capture`
+ *  for the owner's spec rows (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1), run as a child process with a deadline. Shared by `arview capture`
  *  (qa/capture.mjs) and `arview serve` (qa/serve.mjs). Never rejects: an unavailable validator is a result that says why,
  *  and every caller turns it into a loud "VALIDATOR UNAVAILABLE" warning. */
 import {spawn} from 'node:child_process';

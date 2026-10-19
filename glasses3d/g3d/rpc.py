@@ -1,4 +1,4 @@
-"""Length-prefixed JSON frames between the host and the g3d Blender worker (WP2_DESIGN §3). Stdlib only: imported by
+"""Length-prefixed JSON frames between the host and the g3d Blender worker (glasses3d/plan/archive/20261019/WP2_DESIGN.md §3). Stdlib only: imported by
 the worker inside Blender and by agent/worker_client.py on the host.
 
 A frame is a 4-byte big-endian length followed by that many bytes of UTF-8 JSON (one object, at most 64 MiB, NaN and

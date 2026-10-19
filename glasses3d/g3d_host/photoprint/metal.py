@@ -40,7 +40,7 @@ bright pad-arm flecks at the brows' nose-side ends came in the same way. Two rul
 - Small acetate-test islands (<= 2 mm2) enclosed by the mask go with it (a hinge barrel's shaded interior).
 
 **Correction round (2026-10-06, task item 2: brow-front coverage; measured on photo 05's view of the brow fronts,
-per texel the first failing donor rule, numbers in PORT_REVIEW section 10):**
+per texel the first failing donor rule, numbers in glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):**
 - the LARGE-hardware margin (1.0 mm around the T-trim and the bridge) is off (``HARDWARE_MARGIN_LARGE_MM`` = 0): it
   cost 4.7 % of the +x brow front, where the photo shows acetate print right up to the T; the occluder margin
   (photometric since this round, ``texels``) and the bicubic footprint (2.5 px from bright non-acetate pixels) keep

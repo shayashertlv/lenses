@@ -1,4 +1,4 @@
-"""WP2 stage A: checkpoints and the per-call protocol (g3d/checkpoint.py + agent/journal.py), WP2_DESIGN §3.2, §5.
+"""WP2 stage A: checkpoints and the per-call protocol (g3d/checkpoint.py + agent/journal.py), glasses3d/plan/archive/20261019/WP2_DESIGN.md §3.2, §5.
 
 * restore stability on three scenes (synthetic export fixture, Prada, q001): c0000 reopened in a NEW worker and
   restored in place both give the recorded fingerprint (stage A stop rule: any mismatch);

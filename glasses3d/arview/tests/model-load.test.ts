@@ -1,4 +1,4 @@
-/** The GLB load front-end and the acceptance policy (WP1_DESIGN.md §1): every §1-table refusal, every row that renders
+/** The GLB load front-end and the acceptance policy (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1): every §1-table refusal, every row that renders
  *  with a failure or a warning, the millimetre and centimetre rescale, the r9-style legacy crystal, and agreement with
  *  the Python validator (`glasses3d/g3d_host/spec.py`, the single source of truth for the §2 rows) on the same bytes.
  *  The GLBs are built in the test (glb-fab.ts, a port of glasses3d/tests/glbfab.py). */
@@ -257,7 +257,7 @@ const CASES: readonly Case[] = [
   {name: 'primitive without POSITION', build: b({patch: pNoPosition}), rows: ['format'], text: 'Brow_L: geometry unreadable (no POSITION attribute)', refused: null},
   {name: 'unused image without uri or bufferView', build: b({patch: pOrphanImage}), rows: [], text: '', refused: null},
   {name: 'unused bufferView to a missing buffer', build: b({patch: pOrphanView}), rows: [], text: '', refused: null},
-  // WP1_DESIGN.md §1 (binding): every missing external resource is refused, used or not; the message says which.
+  // glasses3d/plan/archive/20261019/WP1_DESIGN.md §1 (binding): every missing external resource is refused, used or not; the message says which.
   {name: 'unused missing external image', build: b({patch: pUnusedMissingImage}), rows: [...SPEC_ROWS], text: 'missing_unused.png (not used by the default scene)',
     refused: 'format', compare: ['format']},
   // Only the default scene is parsed: broken references outside it, or on what arview never draws, refuse nothing.
@@ -331,7 +331,7 @@ test('format refusals: not a GLB, wrong version, truncated, broken references, n
 test('broken references are refused only on the loaded path: used views and buffers, meshopt read from its extension buffer; a broken texture or material reference renders without it', async () => {
   const {doc, bin} = splitGlb(buildGlb().glb);
   // An image the frame material uses, with neither uri nor bufferView: three would throw inside the material, so the
-  // reference is left out (WP1_DESIGN.md §1: a texture that cannot be loaded is a reported fallback): the material draws
+  // reference is left out (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: a texture that cannot be loaded is a reported fallback): the material draws
   // without it, the Format row fails, and the file renders.
   let report = await check(joinGlb({...doc, images: [{name: 'x'}], textures: [{source: 0}],
     materials: (doc.materials as Json[]).map((material, index) => index === 0 ? {...material, pbrMetallicRoughness: {baseColorTexture: {index: 0}}} : material)}, bin));
@@ -771,7 +771,7 @@ test('every row that renders anyway says why, and every fallback is a warning to
   assert.equal(failed(report).size, 0, errors(report).join(' | ')); assert.equal(report.measurements.origin_x_judged_on, 'lenses');
   assert.ok(report.warnings.includes('the front region is centred at x +7.00 mm and the whole model is centred at x +7.00 mm although the '
     + 'lenses are centred at x +0.00 mm (asymmetric temples or ornaments?)'), report.warnings.join(' | '));
-  // Origin off by more than 1 mm, or unverifiable: the row fails AND a loud warning says so (WP1_DESIGN.md §1).
+  // Origin off by more than 1 mm, or unverifiable: the row fails AND a loud warning says so (glasses3d/plan/archive/20261019/WP1_DESIGN.md §1).
   report = await check(buildGlb({offsetMm: [0, 5, 0]}));
   assert.ok(report.warnings.includes('ORIGIN: bridge underside is at y +5.00 mm (must be 0 +/- 1.0 mm). The delivered file violates §2 Origin; '
     + 'arview never moves a model (it is drawn where it was authored).'), report.warnings.join(' | '));
@@ -897,7 +897,7 @@ test('r9-style legacy crystal: lenses by legacy part_role, crystal is frame, ren
   assert.equal(report.status, 'rendered', report.refusal.join(' | '));
   assert.deepEqual(sorted(failed(report)), ['origin']);
   assert.match(report.spec.origin.detail.join(' '), /bridge underside is at y \+10\.23 mm \(must be 0 \+\/- 1\.0 mm\)/);
-  // WP1_DESIGN.md §1: render anyway, LOUD warning (the webcam page shows the warnings, not the rows).
+  // glasses3d/plan/archive/20261019/WP1_DESIGN.md §1: render anyway, LOUD warning (the webcam page shows the warnings, not the rows).
   assert.deepEqual(report.warnings.filter(w => w.startsWith('ORIGIN:')), ['ORIGIN: bridge underside is at y +10.23 mm (must be 0 +/- 1.0 mm). '
     + 'The delivered file violates §2 Origin; arview never moves a model (it is drawn where it was authored).']);
   assert.deepEqual(report.lens_identification!.materials.map(entry => [entry.name, entry.class, entry.signal, entry.value]), [

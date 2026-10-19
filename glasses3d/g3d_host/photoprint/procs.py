@@ -1,6 +1,6 @@
 """Process pool with the Windows EcoQoS opt-out, and progress lines (WP5 step 0).
 
-Ported from the scratch `g3d-wp5/noeco.py` (PORT_REVIEW section 10). A process started from a detached parent on this
+Ported from the scratch `g3d-wp5/noeco.py` (glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10). A process started from a detached parent on this
 machine runs under EcoQoS execution-speed throttling (measured about 2.2x slower host compute), and the opt-out is NOT
 inherited, so every pool worker opts itself out in the pool initializer. Elsewhere (non-Windows) the opt-out is a no-op.
 

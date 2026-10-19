@@ -37,7 +37,7 @@ core ``glasses3d.g3d.printuv`` on host arrays, then
 - ``manifest`` (step 4): print_manifest.json, what ``g3d.attach_print`` reads (print.png, atlas, density and the
   print geometry's identities from ``g3d.printuv.glbmesh``), written with every bake; ``check_glb`` is the host's
   "print stale; re-project" check of an exported GLB.
-Correction round (2026-10-06, after the AR tool test of 10bf932; PORT_REVIEW section 10):
+Correction round (2026-10-06, after the AR tool test of 10bf932; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10):
 - ``shading``: each photo's own normal-space SH shading divided out in linear light (``flatten='test'``: kept only if
   the photos then agree better on the same surface) and the AR level (``level``: gain and gamma calibrated TO THE
   PHOTOS on arview captures by ``production.calibrate_level``), applied to the composed atlas as the last step;
@@ -50,7 +50,7 @@ Correction round (2026-10-06, after the AR tool test of 10bf932; PORT_REVIEW sec
 Fix round 1 of the correction round: the flatten keep test also needs the drop to survive leaving any one view pair
 out (on FT1119 it rested on pair 04-05: not kept); the footprint also keeps a donor 2.5 px from the light anti-aliased
 edges of bright non-acetate pixels (``texels.footprint_holes``, rule 'edges'; a glint-line footprint is built, off).
-Step 6 (2026-10-07, after the step-5 AR tool test; PORT_REVIEW section 10): in crease mode the anchor keeps the faces it
+Step 6 (2026-10-07, after the step-5 AR tool test; glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10): in crease mode the anchor keeps the faces it
 sees (``labels.KEEP_SEEN_SHARE``: the photometric seam had handed photo 05's brow honey band to the top view 04);
 see-through text needs light acetate (``fill.light_acetate``: photo 03 shows no lettering, its 2 mm band was filled
 smooth); thin light achromatic lines are highlight holes (``highlights.thin_light_lines``: the studio's dim glint

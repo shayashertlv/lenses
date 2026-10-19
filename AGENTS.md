@@ -11,5 +11,5 @@
   local-only material (`ar/modeling/`, `ar_v4/` leftovers, private recordings, `.env`) to Git.
 - **The photo-to-3D glasses pipeline is `glasses3d/` (branch `glasses3d`).** For any work on it, read
   `glasses3d/AGENTS.md`, then `glasses3d/plan/PLAN.md` §0, then `glasses3d/plan/ASSEMBLY.md` (the active plan since
-  2026-10-13), then `glasses3d/plan/REVIEW_20261013.md`, then `glasses3d/plan/PROGRESS.md`; `glasses3d/plan/WP6_V3.md`
+  2026-10-13), then `glasses3d/plan/archive/20261019/REVIEW_20261013.md`, then `glasses3d/plan/PROGRESS.md`; `glasses3d/plan/WP6_V3.md`
   (then the WP6_FACETS.md sections it cites) only for WP6 code. Archived instructions (`glasses3d/plan/archive/`) are not active.

@@ -1,4 +1,4 @@
-"""WP3b photo camera <-> Blender camera (WP2_DESIGN §6), numpy only (host side; g3d/render.py applies the spec).
+"""WP3b photo camera <-> Blender camera (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6), numpy only (host side; g3d/render.py applies the spec).
 
 A WP3b ``Camera{yaw, pitch, roll, perspective k, scale s, center_x, center_y, eye_x=0, eye_y=0}`` maps NORMALIZED model points
 (``NormFrame{C, E}``: (x_mm - C) / E, GLB millimetres) to native pixels (``camera.project``; integer = pixel centre).
@@ -21,7 +21,7 @@ sin p, cos p cos y); roll: e_u = cos r right - sin r up, e_v = sin r right + cos
 
 ``project(spec, points)`` is an independent numpy model of Blender's view plane (BKE_camera_params_compute_viewplane +
 world_to_camera_view, sensor fit AUTO); the parity tests hold it, and Blender's own ``world_to_camera_view`` and
-renders, against ``camera.project_mm`` (WP2_DESIGN §13: analytic <= 0.01 px, rendered <= 0.1 px). ``rays`` inverts it
+renders, against ``camera.project_mm`` (glasses3d/plan/archive/20261019/WP2_DESIGN.md §13: analytic <= 0.01 px, rendered <= 0.1 px). ``rays`` inverts it
 (pixel centre -> scene-mm ray) for ``pick_surface_point``. ``from_blender`` is the inverse conversion: any sensor-fit
 AUTO Blender camera -> a WP3b camera (and NormFrame) that projects exactly as Blender does.
 
@@ -42,7 +42,7 @@ from .camera import Camera, NormFrame
 SCHEMA = "g3d.blender_camera/1"
 SENSOR_MM = 36.0
 PERSPECTIVE_EPS = 1e-4  # float32 object matrices lose precision beyond 10000 frame extents
-ORTHO_DISTANCE_EXTENTS = 4.0          # orthographic cameras sit 4 E in front of the frame centre (WP2_DESIGN §6)
+ORTHO_DISTANCE_EXTENTS = 4.0          # orthographic cameras sit 4 E in front of the frame centre (glasses3d/plan/archive/20261019/WP2_DESIGN.md §6)
 SHIFT_LIMIT = 10.0                    # Blender's hard range for Camera.shift_x / shift_y
 LENS_MIN_MM = 1.0                     # Blender's hard minimum for Camera.lens
 FRAME_MARGIN = 0.05                   # canonical views: the projected box + 5 % on every side

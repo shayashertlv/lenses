@@ -90,7 +90,7 @@ def main():
         if filename == 'requirements.txt':
             lines += [
                 '# scipy 1.16.0 preserves the prototype fits; test_cameras_repro.py has one',
-                '# bit-exact test gated by its recorded fingerprint (PORT_REVIEW section 9).',
+                '# bit-exact test gated by its recorded fingerprint (glasses3d/plan/archive/20261019/PORT_REVIEW.md section 9).',
                 '# Suite scheduling and serial timing pass: see tests/README.md.',
             ]
         lines.append('')

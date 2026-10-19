@@ -1,4 +1,4 @@
-"""Local implementation receipt and source archive (WP2_DESIGN section 9). No network or job input access."""
+"""Local implementation receipt and source archive (glasses3d/plan/archive/20261019/WP2_DESIGN.md section 9). No network or job input access."""
 from __future__ import annotations
 
 import hashlib

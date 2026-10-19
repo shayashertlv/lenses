@@ -1,4 +1,4 @@
-"""Scene fingerprint, protection and .blend checkpoints, inside Blender 5.2 (WP2_DESIGN §5).
+"""Scene fingerprint, protection and .blend checkpoints, inside Blender 5.2 (glasses3d/plan/archive/20261019/WP2_DESIGN.md §5).
 
 `scene_state()` is the component-digest form of `export_glb.snapshot` (which stays untouched for the exporter's own
 scene-unchanged check): scene props and units, view layers, collections, every object (matrix, visibility, parenting,

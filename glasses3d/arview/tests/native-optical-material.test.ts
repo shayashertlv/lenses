@@ -1,4 +1,4 @@
-/** The native (Studio) path through lens identification (WP1_DESIGN.md §2): explicit roles decide, materials keep every
+/** The native (Studio) path through lens identification (glasses3d/plan/archive/20261019/WP1_DESIGN.md §2): explicit roles decide, materials keep every
  *  PBR property, shared materials are split per class and per front/arm owner, and the class is decided once. These are
  *  hand-built scenes (roles from userData); tests/lens-identification.test.ts covers the glTF JSON path. */
 import assert from 'node:assert/strict';

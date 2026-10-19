@@ -562,7 +562,7 @@ def _sheets_only(a, prog) -> int:
     lay = PU.layout(job.mesh.V, job.mesh.F, job.mesh.part, job.mesh.names, list(FT1119_PARTS), tx,
                     atlas_max=PR.ATLAS_MAX, mirror=True)
     assert (lay.width, lay.height) == (rep["layout"]["width"], rep["layout"]["height"]), "layout differs from the bake"
-    regions = RG.build_regions(job, list(FT1119_PARTS), RG.rigid_groups(job), n_samples=64)
+    regions = RG.build_regions(job, list(FT1119_PARTS), RG.rigid_groups(job))
     occ = _occ(job)
     res_like = {"layout": lay, "atlas": np.asarray(Image.open(out / "print.png").convert("RGB")),
                 "classes_img": np.asarray(Image.open(out / "classes.png")),

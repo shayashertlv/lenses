@@ -1,4 +1,4 @@
-"""WP2 stage B, host only: camera bases and comparison metrics (g3d_host/compare.py, WP2_DESIGN §6).
+"""WP2 stage B, host only: camera bases and comparison metrics (g3d_host/compare.py, glasses3d/plan/archive/20261019/WP2_DESIGN.md §6).
 
 * importing the frozen WP3b Prada cameras.json freezes basis-01 (mattes once, ROI checked, photos sha-checked); a
   basis is never overwritten, a changed matte or photo is refused, the next import is basis-02;

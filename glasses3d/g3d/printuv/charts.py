@@ -2,7 +2,7 @@
 seen from OUTSIDE (non-flipped), in millimetres. numpy only.
 
 Ported from the scratch ``g3d-wp5/cov/charts.py`` (``face_adjacency``, ``planar_uv``, ``count_raster``,
-``part_charts``); PORT_REVIEW section 10. Changes: connected components by a numpy union-find (no scipy), the strip's
+``part_charts``); glasses3d/plan/archive/20261019/PORT_REVIEW.md section 10. Changes: connected components by a numpy union-find (no scipy), the strip's
 largest component and the cap components use the same edge adjacency, faces of the strip that overlap other strip
 faces at the target density are moved to the caps (iterated), a cap chart that overlaps itself is split by depth along
 its axis until it does not, and every cap chart is scaled by 1 / (its 10 % quantile of n . d) (clamped to [1, 1.5])

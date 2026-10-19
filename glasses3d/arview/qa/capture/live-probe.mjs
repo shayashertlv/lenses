@@ -1,5 +1,5 @@
 /** `arview capture --live-probe`: load the GLB once on main's UNMODIFIED ar/ and record the exact refusal or success
- *  text its page would show (WP1_DESIGN.md §6; PLAN WP1.6 "first re-run it on main's ar/ to record the actual refusal").
+ *  text its page would show (glasses3d/plan/archive/20261019/WP1_DESIGN.md §6; PLAN WP1.6 "first re-run it on main's ar/ to record the actual refusal").
  *
  *  ar/ is read-only: Vite serves root ar/ with no config file (ar/vite.config.ts is not bundled, so nothing is written to
  *  ar/node_modules/.vite-temp), its dependency cache redirected into arview/node_modules/.vite-live, no file watcher, and
