@@ -7,12 +7,17 @@ WP0/1/3/3b are built and tested, WP2 A–F and specialist stages are assembled, 
 instructions and contracts are implemented. M11 tasks 1–9 have landed and Claude accepted them (task 9:
 `81ef7b2`); M11 is complete. Its final baseline is **5,236 Python passes / 2 Windows symlink skips**, arview
 **512 unit / 113 QA passes**, type check/build and M1 passing. Cleanup verification is recorded separately.
+M12's local dev UI, capture intake, per-item choices and full-item fallback are built through committed tasks
+A/B/C1/C2/C3. Their focused checks below are not a completed M12 integration proof or a new full-suite baseline.
 
-**Next action:** Claude reviews the completed cleanup in `data/review_20261018/cleanup/applied.md`;
-then the owner decides on M5 paid validation. Codex has stopped after this dispatched task. Every paid run needs
-his explicit OK and an estimate; this cleanup authorizes none. Standing
-terms are **high effort, $20 settled-only cutoff**, shared by parent and specialist; no next request starts at or
-above $20, the in-flight response may cross it, and unknown charges stop spending. No total WP8 budget is approved.
+**Next action:** D1's real-browser/scripted-Astra/Blender proof and the coordinator's final suite (including arview
+and M1), then the owner tries the UI himself. D2 is documentation only; M5 paid validation remains his call.
+Standing dev UI terms are **high effort, the owner's typed settled-only cutoff, cap = stop**, shared by parent and
+specialist; no reservation cutoff or output shrinking. No next request starts at or above that amount; the
+in-flight response may cross it, and unknown charges stop spending. His typed amount and paid-send button press
+authorize that one run or edit send, recorded as a single-use approval with the button's words. Coding agents
+never start paid calls under build tasks and still need his explicit OK and an estimate for anything they would
+run. Legacy CLI $20 stop / $23 reserve / max effort are defaults only. No total WP8 budget is approved.
 
 ### Accepted assets and preserved scope
 
@@ -39,6 +44,10 @@ above $20, the in-flight response may cross it, and unknown charges stop spendin
 
 ### Open work and retained limits
 
+- **M12:** D1 end-to-end integration and the final suite remain. C2's native mixed UNDERSTAND and exact single
+  pick passed through export/print/AR, but its two-previewed-item Prada apply remains unproved after an existing
+  fold refusal. Immutable applied-picks publication and fallback-to-new-capture integration are C3 follow-up
+  work for D1 to verify. Focused synthetic multi-pick tests do not replace the missing native demonstration.
 - M5/WP8's smoke and accepted Oakley are complete; assembled Prada, assembled FT1119 and three unseen products
   remain. **M9.4** (desktop c0016 beside run-4 c0015 and photos for the owner's judgment) is not recorded complete.
   The review-page authored-size choice is parked until the hard technical work is finished.
@@ -63,6 +72,43 @@ M11 entries below preserve the repair/verification record. Older entries and the
 and spend history are [archived verbatim with a heading index](archive/20261019/PROGRESS_2026-10-05_to_2026-10-17.md).
 The [2026-10-19 archive index](archive/20261019/README.md) maps moved documents and removed proof scripts to their
 recovery sources. Historical resume steps and paid approvals are not standing instructions.
+
+## 2026-10-19 — M12 dev UI built through A/B/C; D2 documents prepared ($0)
+
+Implemented the owner's local UI: photo/description/spec intake with explicit view and wearer's side, typed
+cutoff and one-use paid-start approval, detached run status/spend/Stop, orbit results viewer and AR link, labelled
+point/line/closed-shape captures with 3D anchors, per-item interpretation/options, local Apply my picks and a
+separately approved single-item full-edit fallback. Captures stay model evidence, never product photos; UNDERSTAND
+admits them unresolved without invented coverage. Existing support, physical, export and print refusals remain.
+New owner instructions: [dev UI README](../dev_ui/README.md); contracts: [M12 §7](M12_DEV_UI.md#7-contracts-frozen-for-the-parallel-build-changes-go-through-the-coordinator).
+
+Committed tasks at D2 entry (`76639f4`): A `248d2a1`; B `3ea7218` + follow-up `a1acafd`; C1 `a4600de`;
+C2 `76639f4`; C3 `e0873f0` + capture-discovery follow-up `275b37c`. Reports:
+`data/m12/codex/m12_A_report.md`, `m12_B_report.md`, `m12_C1_report.md`, `m12_C2_report.md`, `m12_C3_report.md`.
+
+| Recorded task check | Result |
+|---|---|
+| A backend and detached server lifecycle | 249 passed, 11.18 s. |
+| B final viewer/money/dialog follow-up | 16 browser tests passed, 22.672 s, mock API. |
+| C1 focused intake/transport/map/money regressions | 541 passed, 70.56 s; later text/transport check 104 passed, 8.80 s. |
+| C2 options/apply regressions | 459 passed, 50.69 s; after later repairs, 141 sealing/apply passed, 16.89 s, and 120 apply regressions passed, 6.27 s. 144 new cases total. |
+| C3 initial focused fallback tests | 121 passed, 33.07 s; follow-up with C1 regressions 244 passed, 36.01 s. |
+| C3 scripted SDK/Blender fallback proof | Passed, 113.672 s; finished result, reported outside-region changes and cutoff draft; actual $0. |
+
+Batches overlap; do not add them into a full-suite total. C2's native mixed UNDERSTAND took 407.407 s and the
+single-pick apply retry 139.093 s (162.125 s phase): exact preview GLB bytes, scope/physical/export/print/AR passed,
+but publication refused the then-unsupported application schema and the private destination was cleaned up.
+The temple option hit the existing folded-chart refusal; neither a successful two-item native apply nor an
+immutable applied-picks delivery is claimed from that report. C3's concurrent follow-up owns the publication
+hook and a fresh capture round after fallback. D1 verifies those seams and the full browser path; no D1 pass is
+claimed here. No owner product verdict, paid call or new campaign approval is implied.
+
+D2 updates standing money terms to the owner's 2026-10-19 request, instruction caps to 24,000 (C2 main 16,430,
+UNDERSTAND/EDIT 19,455; C3 main plus fallback 17,770), CLI `job edit-item`, capture/options/fallback documentation,
+the owner UI guide and test routing. Dated history remains unchanged. D2's README CLI and instruction contracts
+passed **87 tests in 8.19 s**; checks and exact changed text are in `data/m12/codex/m12_D2_report.md`.
+No D2 commit. Next: D1 proof and final suite,
+then the owner tries the UI; M5 paid validation remains his decision.
 
 ## 2026-10-19 — Cleanup applied; returned for Claude review ($0)
 

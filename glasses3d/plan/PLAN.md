@@ -42,7 +42,9 @@ completed paid runs, deleted prototypes or answered owner questions from this or
    [WP6_FACETS.md](WP6_FACETS.md): the v1 gates (S1, R1–R4, G1–G5, P2, the P3 decal limit, the STOP rules) were
    retired on 2026-10-10 by owner decision, and WP6 is accepted by the owner's eye on photo-matched renders.
    WP6 is closed by owner acceptance on 2026-10-13 (v3, paid run 8; PROGRESS.md).
-7. **Paid calls** (Astra, any provider) need the owner's explicit OK, with a cost estimate, before each paid run.
+7. **Paid calls** (Astra, any provider) need the owner's explicit OK. Coding-agent runs need a cost estimate and
+   his OK before each run; a build task never authorizes paid calls. Under the 2026-10-19 M12 amendment below,
+   the owner's typed dev UI cutoff and paid-send button press authorize that one run or edit send.
 8. **Repo safety:**
    - The repo `shayashertlv/lenses` is PUBLIC, and pushing `main` deploys the live app to Railway. Work on the
      existing branch `glasses3d`. Never push for this task.
@@ -193,10 +195,15 @@ completed paid runs, deleted prototypes or answered owner questions from this or
   c8e81c72…);
 - the WP8 budget. Estimate: past Studio runs cost $8–16.5 each, so roughly 6 products × 1–2 runs ≈ $60–200.
 
-ASSEMBLY D5 decided the original cap/effort/product on 2026-10-13; its 2026-10-16/17 amendment now sets high effort
-and a $20 settled-only cutoff. Oakley OO9208 v2 is the regression product. The $1 smoke was separately approved
-and completed on 2026-10-13. A total campaign budget remains unapproved; every future paid run needs its own OK
-and estimate. These facts supersede the original unresolved list, not the preserved historical estimates.
+ASSEMBLY D5 decided the original cap/effort/product on 2026-10-13. Its **M12 amendment, 2026-10-19**, replaces a
+universal $20 cutoff for dev UI runs and edit rounds with the owner's typed positive finite max budget: high effort,
+settled-only, cap = stop, shared by parent and specialist, no reservation cutoff or output shrinking. No new
+request starts at or above it; the in-flight response can cross it; unknown charges still stop spending. His typed
+amount and paid-send button press are single-use approval for that one send, recorded with the button's words.
+Coding agents still never start paid calls under build tasks and need his explicit OK and an estimate for anything
+they would run. Legacy CLI defaults ($20 stop / $23 reserve / effort max) remain defaults only. Oakley OO9208 v2
+is the regression product; the separately approved $1 smoke completed on 2026-10-13. No total campaign budget is
+approved. These facts supersede the original unresolved list, not the preserved historical estimates.
 
 ## 3. Research conclusions used (owner-supplied ChatGPT research, 2026-10-05)
 

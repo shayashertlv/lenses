@@ -3,6 +3,7 @@
 Run from the repository root with `glasses3d/.venv/Scripts/python.exe -m glasses3d job`.
 The local job directory contains original images, explicit views, scene checkpoints, camera fits, receipts and money
 ledgers. Every supplied photo is authoritative. Runtime code contains no product presets.
+For the local upload, results, orbit-viewer and capture-edit pages, see the [dev UI README](../dev_ui/README.md).
 
 Create `views.json` with exactly one entry per photo, for example:
 
@@ -28,7 +29,7 @@ and the temple stage; the worn AR view starts from the authored model.
 ```powershell
 & glasses3d/.venv/Scripts/python.exe -m glasses3d job create --images C:/photos --views C:/photos/views.json --name "Product" --description "Exact owner description" --specs C:/photos/specs.json
 & glasses3d/.venv/Scripts/python.exe -m glasses3d job show JOB_ID
-& glasses3d/.venv/Scripts/python.exe -m glasses3d job estimate JOB_ID --settled-only --settled-stop 20 --effort high
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job estimate JOB_ID --cap 20 --settled-stop 20 --settled-only --effort high
 ```
 
 Creation, inspection and estimation are local and free. Estimation writes a new run request. `job approve JOB_ID
@@ -36,11 +37,17 @@ Creation, inspection and estimation are local and free. Estimation writes a new 
 only. Run it only after the owner has authorized the actual paid run and seen its estimate. `job run JOB_ID --run-id
 RUN_ID` refuses missing, changed, consumed or insufficient approvals and launches a detached logged runner.
 
-Standing owner terms (2026-10-16/17) are high effort and a $20 settled-only cutoff: use the explicit estimate flags
-above. Parent and specialist share settled spend; no request starts at or above $20. The in-flight response can
-cross it. Estimated holds do not refuse or shrink requests in this mode; unknown charges still stop spending.
+Standing dev UI terms (2026-10-19) use the owner's typed positive finite max budget, replacing the universal $20
+cutoff for each run or edit send. Owner: "max budget (meaning the actual cutoff with no reserving), then when the
+user hits a 'start a paid run' button the automation should start". Effort is high, spending is settled-only and
+cap equals stop. Parent and specialist share settled spend; no request starts at or above that cutoff. The in-flight
+response can cross it. There is no reservation cutoff or output shrinking; unknown charges still stop spending.
+The typed amount and the owner's paid-send button press authorize that one run or edit send through a single-use
+approval recording the button's words and displayed amount. Coding agents do not start paid calls for this build;
+any paid run they would execute still needs the owner's explicit OK and an estimate. The $20 CLI examples here are
+example amounts, not a ceiling; replace both `--cap` and `--settled-stop` with the authorized amount.
 Legacy defaults remain max effort, a $20 settled stop and a $23 reserve cap; old reserve-mode approvals retain
-that behavior. `--cap` in settled-only requests records the request/approval amount, not a reserve ceiling.
+that behavior. `--cap` must equal `--settled-stop` in settled-only requests.
 An estimate's 60-reply forecast is an assumption, not a reply limit or a spending guarantee. `job stop JOB_ID`
 requests a stop before the next request. `--foreground` runs in the invoking terminal; detached execution is the
 normal path. Logs and status are under `runs/RUN_ID/`; the heartbeat is at the job root.
@@ -54,6 +61,9 @@ checks each candidate before admission: above 80% of the image/byte limit or lon
 state summary and continues in a fresh conversation with every owner photo and verified current evidence. Old
 conversation bytes remain unchanged. Summary requests use the same approval/money; unavailable summaries use host
 facts. A mandatory seed exceeding hard limits still refuses. `job show` and delivery reports list renewal receipts.
+Main and edit instructions have 24,000-character caps. The M12 C1/C2/C3 reports measure main at 16,430 characters,
+UNDERSTAND and EDIT at 19,455 each after C2, and main plus `full_edit_item` guidance at 17,770 after C3. Guidance
+was not trimmed to fit; the specialist retains its own cap.
 
 Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.
 The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;
@@ -66,7 +76,7 @@ AR evidence, contact sheets, cost and checkpoint. `deliveries/current.json` iden
 ```powershell
 & glasses3d/.venv/Scripts/python.exe -m glasses3d job review JOB_ID
 & glasses3d/.venv/Scripts/python.exe -m glasses3d job verdict JOB_ID changes --notes "Exact owner feedback"
-& glasses3d/.venv/Scripts/python.exe -m glasses3d job estimate JOB_ID --resume --settled-only --settled-stop 20 --effort high
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job estimate JOB_ID --resume --cap 20 --settled-stop 20 --settled-only --effort high
 ```
 
 Review starts a detached AR server with the fixed lens-reflection default and records the delivery actually served.
@@ -87,7 +97,57 @@ remain scoped evidence. Repeating migration verifies the same outputs without du
 
 ## Owner edits
 
-First diagnose each requested item against its selected source and create an explicit `g3d.edit_item_map/1` mapping.
+### Dev UI captures and per-item picks
+
+One capture cycle is one item: clean and annotated model-view PNGs, camera, labelled marks and surface anchors,
+plus the owner's request verbatim. Labels are unique across the edit session; an item's text may cite any session
+label. Captures are evidence of the current model, never product photos. Product photos remain authoritative for
+the look. Capture bytes, labels, words, camera, anchors and source GLB identity are approval-bound, transported at
+native pixels and retained through append-only history and conversation renewal.
+
+Capture UNDERSTAND is admitted unresolved without a coverage file or guessed operation mapping. Its separately
+approved paid round interprets the items. `labelled_model_map(owner_labels=["A"])` focuses candidates associated
+with that owner label and overlays its resolved source polygons. Ambiguous, background or unmatched anchors stay
+unresolved. Marks alone grant no mutation authority: actual operations still need authenticated, drawn supports.
+
+Each item returns an interpretation and either two or three sealed, previewed options with readable `amount_text`,
+or `cannot_preview`, `needs_clarification` or `unsupported` with a reason. Comparisons show photo / before / option
+at native pixels in views that reveal the change. Mixed previewed and blocked items are valid.
+
+**Apply my picks** is $0 and sends no model request. It accepts only the sealed understanding hash and item/option
+IDs, plus skipped items and their notes; the browser cannot supply new operations or amounts. Every item must be
+picked or skipped, with at least one pick. The host composes the chosen operations on a fresh copy in original item
+order, runs the existing scope and physical checks, strict export, retained-print validation and AR capture, then
+publishes a new immutable delivery with `origin:applied_picks`. The source delivery stays unchanged. One pick must
+match its preview's scene fingerprint and GLB bytes exactly. With several picks, disjoint changes reproduce each
+item's preview exactly and untouched values match the source. Overlapping changes compose in item order, with the
+affected items and objects reported on the page and in the receipt; no isolated-preview equality is claimed there.
+Ambiguous shared topology changes refuse. "None of these" applies nothing for that item and retains its note.
+Applied deliveries record zero requests and cost, `accepted_finish:false` and no visual acceptance; the owner can
+review the result and record a verdict.
+
+An unpreviewable item can go to a separately approved **full paid edit** (`full_edit_item`) with its own typed
+cutoff. This starts from the same immutable source delivery with the main toolset, product photos, only the selected
+item's capture and words, and its sealed interpretation. It does not reuse the UNDERSTAND approval. Astra is told to
+edit only that item; existing physical refusals remain. The result is an ordinary finished delivery or a clearly
+labelled unfinished draft with `origin:full_edit_item` and the item ID. Its immutable side-effect report measures
+geometry, materials, UVs, transforms and changes outside the resolved marked source polygons. Polygon resolution
+does not prove pixel-level confinement; topology changes or ambiguous correspondence stay explicitly unresolved.
+Unavailable measurements are reported. These are information for the owner's judgment, not new quality gates.
+
+The CLI can prepare that fallback from a delivered capture UNDERSTAND round:
+
+```powershell
+& glasses3d/.venv/Scripts/python.exe -m glasses3d job edit-item UNDERSTAND_ROUND --item I1 --cap 35 --settled-stop 35 --settled-only --effort high
+```
+
+This prepares only a fresh request and estimate. Use `job approve` and `job run` with the returned `round_path` and
+run ID after the owner's separate authorization. `--output` optionally chooses a new fallback round directory.
+
+### CLI text edits
+
+For a text-only CLI request, first diagnose each item against its selected source and create an explicit
+`g3d.edit_item_map/1` mapping.
 The mapping records the exact request, labelled item spans and available operation kinds; matching words alone is
 not a diagnosis. The $0 preflight creates no worker, estimate, approval or API call.
 
@@ -120,8 +180,8 @@ For a separately approved paid EDIT round, `job edit JOB_ID --edit-id EDIT_ID --
 --cap 20 --settled-stop 20 --settled-only --effort high` prepares its own request. `--correct` and `--correct-file`
 record a correction on that EDIT round; they do not broaden sealed authority or start a new understanding.
 A changed target/support needs a fresh request, coverage, understanding and approval.
-Plain text `--request` and `--confirm` are alternatives to verbatim UTF-8 files. No production orbit-viewer command
-exists: the M10 orbit viewer is ignored local evidence; `job review` is the supported AR review path.
+Plain text `--request` and `--confirm` are alternatives to verbatim UTF-8 files. The dev UI provides the orbit viewer;
+`job review` remains the supported AR review command. The older M10 orbit viewer is ignored local evidence.
 
 ## CLI reference
 
@@ -142,6 +202,7 @@ Job IDs may also be absolute job-directory paths. Each row lists flags accepted 
 | `job edit` | `--delivery-id`, `--source-runtime`, `--edit-id`, `--option`, `--coverage`, one of `--request`, `--request-file`, `--confirm`, `--confirm-file`, `--correct`, `--correct-file`; `--effort`; required `--cap`, `--settled-stop`; `--settled-only` |
 | `job edit-check` | `--request`, `--request-file`, `--mapping`, `--output` |
 | `job edit-apply` | `--edit-id`, required `--option` and one of `--confirm`, `--confirm-file`; `--output`, `--tool-test` |
+| `job edit-item` | positional delivered capture UNDERSTAND round path; required `--item`, `--cap`, `--settled-stop`, `--settled-only`; `--effort` (`high` only), `--output` |
 
 `--turns` is an optional real reply cap; omitting it on ordinary estimates leaves no cap. `--max-output-tokens`
 sets the response ceiling. `--smoke` prepares/runs a distinct one-request read-only smoke and requires matching

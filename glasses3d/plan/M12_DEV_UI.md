@@ -1,5 +1,9 @@
 # M12: a simple dev UI for paid runs, results, AR and annotated owner edits (design, 2026-10-19)
 
+**Build status, 2026-10-19:** A, B, C1, C2 and C3 are committed (ASSEMBLY M12 ledger). D2 documents are prepared;
+D1's real-browser integration proof and the coordinator's final suite remain. C2's native two-item Prada proof is
+incomplete; its exact single-pick result is prepublication evidence. See PROGRESS for checks and remaining work.
+
 Written by Claude (planner) from the owner's request of 2026-10-19. The coordinator session refines this into tasks after a
 read-only mapping of the current code (section 5), reviews its own plan, and has Codex build it. The owner said not to
 pause for plan approval: "i dont need you to show me the plan, you can follow what you wrote before building, then review

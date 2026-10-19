@@ -3,7 +3,9 @@
 This folder is the assembled photo-to-3D glasses pipeline. Job intake, Astra tools, specialist stages, delivery,
 review and owner edits are implemented. WP5 and WP6 are closed by owner acceptance; assembled Oakley run 4 is
 accepted. **`plan/ASSEMBLY.md` M11** (the 2026-10-18 review repairs, tasks 1–9) is complete and accepted by Claude;
-next is M5 paid validation, only with the owner's OK. Use PROGRESS's current-state block for the next action. Claude coordinates; Codex executes the saved task brief. Latest owner instructions
+M12's dev UI is built through A/B/C1/C2/C3; D1 integration proof and the final suite remain. Use PROGRESS's
+current-state block for the next action. M5 paid validation remains the owner's call. Claude coordinates; Codex
+executes the saved task brief. Latest owner instructions
 take precedence over repository documents. Dated history is evidence, not a command to restart completed work.
 
 ## Start here, in this order
@@ -13,6 +15,7 @@ take precedence over repository documents. Dated history is evidence, not a comm
    report/reproducer and the completed task reports in `data/review_20261018/codex/`; the review is a dated snapshot,
    not a claim that already repaired defects remain open.
 3. `glasses3d/plan/PROGRESS.md`: status per WP, decisions in the owner's words, ledger; the next action.
+   For any dev UI work, also read `glasses3d/plan/M12_DEV_UI.md` fully: the owner's words, decisions and §7 contracts.
 4. `glasses3d/plan/WP6_V3.md` fully, then the `plan/WP6_FACETS.md` sections it cites, for any WP6 work; the
    investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.
@@ -49,13 +52,17 @@ take precedence over superseded text. `review-20261013-pre-cleanup` preserves th
 - **Never commit:** `glasses3d/data/` (git-ignored), photos, GLBs, `.blend` files, renders or `.env` files.
   Local evidence may be read, analysed and shown as labelled comparisons; summarize reports rather than dumping
   binary/base64 content. Never read or print any `.env` file or credentials.
-- **Paid API calls:** only with the owner's explicit OK and a cost estimate before each run. Current terms replace
-  the 2026-10-13 max-effort/$23-reserve terms: effort **high**, **$20 settled-only cutoff** shared by parent and
-  specialist, no estimated-reservation cutoff or output shrinking. Owner, 2026-10-16: "effort=high, cutoff 20$
-  reserve doesnt matter"; owner, 2026-10-17: "after youre done fixing, rerun. no bs money reserve this time, i dont
-  care about astras possible responses, only as we pass 20$ cutoff the run not a cent before!" The in-flight response
-  can cross $20; no next request starts at or above it. Unknown charges still stop spending. Specify
-  `--settled-only --effort high` when preparing a request: legacy CLI defaults are not the standing owner terms.
+- **Paid API calls (M12 amendment, 2026-10-19):** for dev UI runs and edit sends, the owner's typed positive finite
+  **max budget** replaces a universal $20 cutoff. Owner: "max budget (meaning the actual cutoff with no reserving),
+  then when the user hits a 'start a paid run' button the automation should start". Effort stays **high**,
+  **settled-only**, cap = stop, shared by parent and specialist; no reservation cutoff or output shrinking.
+  No new request starts at or above the typed cutoff; the in-flight response can cross it. Unknown charges still
+  stop spending. The owner's typed amount and press of "Start a paid run", "Send to Astra (paid)" or "Send this item
+  to a full paid edit" authorize that one run or edit send; the single-use approval records the button's words
+  and amount. Coding agents never press those buttons or start a paid call under a build task: anything they
+  would run still needs his explicit OK and a cost estimate before that run. Prepare CLI requests with
+  `--settled-only --effort high` and the approved amount for both `--cap` and `--settled-stop`.
+  Legacy CLI defaults ($20 stop / $23 reserve / effort max) are defaults only, not standing authorization.
   The $1 smoke was approved ("Yes, cap $1", 2026-10-13) and completed; it is not pending authorization. No total
   WP8 campaign budget is approved. Photos win on the look; one fixed lens-reflection default remains.
 - **Web research is allowed** (owner, 2026-10-15: "codex can research the web, change the rule"). Prefer official

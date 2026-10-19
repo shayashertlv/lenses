@@ -7,7 +7,7 @@ the dispatched brief, then the design section a milestone
 names. Where this file and an older design disagree, this file wins; where the owner's latest words disagree with this
 file, the owner wins.
 
-**Current status, 2026-10-18:** this file retains dated plans and their original evidence. Line numbers below refer
+**Current status, 2026-10-19:** this file retains dated plans and their original evidence. Line numbers below refer
 to the code at each milestone's date, not today's source; use symbols for new references. Completed plans and
 superseded terms are not instructions to repeat old work. `PROGRESS.md` records checks and the next action.
 
@@ -20,9 +20,9 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M9 | Native composition, fresh-conversation renewal and desktop money simulation built (tasks 3/4). Item 4's owner comparison of desktop c0016 versus run-4 c0015 is not recorded as complete. |
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
 | M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
-| M12 | Owner's dev UI (`plan/M12_DEV_UI.md`): mapping done 2026-10-19; build in progress (tasks below). |
+| M12 | Dev UI A/B/C1/C2/C3 committed; D2 documents prepared. D1 browser integration proof and the coordinator's final suite remain; then the owner tries the UI. Native two-item Prada apply is not yet proven. |
 
-Standing money terms are the amendment to D5 below. The owner parked the review-page authored-size choice until
+Standing money terms are the dated M12 amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
 "we were testing the new tools and their optional effects, our goal wasnt to fix the model".
 
@@ -797,6 +797,48 @@ No paid call is made by the build; the owner presses the real "Start a paid run"
 5. **A/B wiring** to the real façades, then **D, integration**: $0 end-to-end proofs in a real browser with the scripted
    Astra and real Blender, documents (AGENTS money wording, READMEs, PROGRESS), full suite, arview suites, `assembly_m1`.
 
+**Task ledger, 2026-10-19 (committed work):**
+
+| Task | Commits | Recorded check / remaining boundary |
+|---|---|---|
+| A backend | `248d2a1` | 249 focused tests, 11.18 s; detached server start/status/stop included. |
+| B pages/viewer/annotation | `3ea7218`, `a1acafd` | Final follow-up: 16 browser tests, 22.672 s; mock API. |
+| C1 captures/cutoff | `a4600de` | 541 focused tests, 70.56 s; final text/transport check 104, 8.80 s. |
+| C2 options/apply | `76639f4` | 459 focused regressions, then 141 sealing/apply and 120 apply regressions after repairs; 144 new cases. Native mixed UNDERSTAND and exact single pick, no completed two-item Prada apply. |
+| C3 fallback | `e0873f0`, `275b37c` | 121 initial focused tests; follow-up 244 including capture regressions; SDK/Blender fallback proof 113.672 s. |
+| D1 integration / D2 documents | Pending coordinator review/commit | D1 proof and final suite remain. D2 README/instruction contracts: 87 passed, 8.19 s; documents only, no commit. |
+
+These are overlapping focused batches, not a new full-suite total. Reports are
+`data/m12/codex/m12_{A,B,C1,C2,C3}_report.md`. C2's Prada temple option hits the existing fold refusal; no gate was
+relaxed. Its exact single pick reached export/print/AR checks but publication awaited the new-schema C3 hook.
+C3's concurrent follow-up owns immutable applied-picks publication and starting a new capture round after fallback;
+D1 must verify those integrations before M12 is complete. No owner appearance verdict or paid validation is claimed.
+
+**Built edit contract (M12):** capture UNDERSTAND starts unresolved, with no fabricated coverage file; the CLI
+text-edit `--coverage` path remains. Clean and annotated captures are native model evidence, never product photos.
+The owner's words, item order, labels, camera and source GLB are bound to the round and approval; product photos
+retain authority. `labelled_model_map(owner_labels=[...])` resolves and overlays marks; unresolved/background
+portions remain explicit. Marks alone grant no mutation authority: actual targets still need authenticated supports.
+
+Each previewable item has two or three sealed options with readable amounts and native photo/before/option images.
+Blocked items retain a reason and no options; mixed results are valid. **Apply my picks** is one $0 local action:
+compose the selected sealed operations on a fresh copy in original item order, retain skipped notes, run scope,
+physical, strict export, retained-print and AR checks, and publish a new immutable delivery without changing the
+source. One pick must equal its preview GLB bytes. Disjoint picked geometry must reproduce each preview exactly;
+overlaps are composed in item order and reported, without claiming isolated-preview equality there. Failed checks
+refuse delivery. Applied-picks provenance records zero API requests/spend, picks, notes, overlap warnings and
+exactness; it is not a new Astra finish or visual acceptance. Publication is a C3 follow-up integration pending D1.
+
+An unpreviewable item can instead use **full_edit_item**, a separately approved paid round with its own cutoff,
+seeded from the same immutable source, the main toolset, product photos and only the selected item's capture and
+words. Ordinary finish/draft publication reports geometry, materials, UVs, transforms and outside-region changes
+as side effects for the owner to judge. Ambiguous correspondence/remeshing stays unresolved; no pixel-level
+confinement or new quality gate is claimed. All existing hard refusals stay.
+
+Main and edit instruction caps are **24,000 characters**, superseding M6's historical 16,000. C1 measured
+main 16,430 / UNDERSTAND and EDIT 17,478; C2 measured main 16,430 / UNDERSTAND and EDIT 19,455; C3 measured
+main plus fallback 17,770. These are dated report counts; the ordinary temple specialist's cap remains 19,000.
+
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
 1. The known-good product, Oakley OO9208 v2 (owner, D5): frame + lenses + seating only. This
@@ -836,7 +878,7 @@ Astra compares renders at the photos' cameras with the photos and revises.
   - total WP8 budget and the smoke-turn cap: **not decided now** (owner: "this will be a thought when we'll have a full
     operational automation"). Ask before M5. Every paid run still needs the owner's OK and an estimate.
 
-**D5 amendment, standing terms from 2026-10-16/17:** effort **high**, **$20 settled-only cutoff**, shared by parent
+**D5 amendment, 2026-10-16/17 (cutoff superseded for the dev UI by M12 below):** effort **high**, **$20 settled-only cutoff**, shared by parent
 and specialist. Owner, 2026-10-16: "effort=high, cutoff 20$ reserve doesnt matter". Owner, 2026-10-17:
 "after youre done fixing, rerun. no bs money reserve this time, i dont care about astras possible responses, only as
 we pass 20$ cutoff the run not a cent before!" No estimated reserve refusal or output shrinking applies in this
@@ -845,3 +887,14 @@ stop spending. Explicitly prepare `--settled-only --effort high`; legacy default
 old policy. Each paid run still needs its own authorization and estimate. The smoke was approved on 2026-10-13
 ("Yes, cap $1") and completed that day. No blanket total WP8 budget is approved. Oakley OO9208 v2 remains the
 regression product, now its accepted assembled run-4 asset (`98131458…`).
+
+**D5 M12 amendment, standing dev UI terms, 2026-10-19:** owner, verbatim: "max budget (meaning the actual cutoff
+with no reserving), then when the user hits a 'start a paid run' button the automation should start". The owner's
+typed positive finite max budget replaces a universal $20 for dev UI runs and edit rounds. Effort is **high**,
+**settled-only**, cap = stop, shared by parent and specialist, with no reservation cutoff or output shrinking.
+No new request starts at or above the typed cutoff; the in-flight response can cross it. Unknown charges still stop.
+Each press of "Start a paid run", "Send to Astra (paid)" or "Send this item to a full paid edit", with its displayed
+typed amount, is his OK for exactly that run or edit send. The single-use approval records the button's words and
+amount. Coding agents never start paid calls under build tasks; anything they would run still needs his explicit
+OK and an estimate before that run. Legacy CLI defaults ($20 stop / $23 reserve / effort max) remain defaults only.
+No total WP8 budget is approved, and no build/proof authorizes a paid validation run.

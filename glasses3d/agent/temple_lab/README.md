@@ -47,6 +47,17 @@ Owner text stays verbatim in `brief.txt`; neutral contract prose is separate. Ca
 colourway selections and precision notes are explicit job data. Historical Prada photo numbers and conflicts are
 not general product facts. Private failures preserve their cause/progress; incomplete work is not applied to the
 parent. Main and specialist share the same owner money and stop; the specialist cannot choose a budget.
+For dev UI runs and edit sends, the owner's typed positive finite cutoff replaces the former standing $20 amount
+(2026-10-19): effort high, settled-only, cap equals stop, no reservation cutoff and no output shrinking. The response
+in flight can cross the cutoff; no next request starts at or above it. Unknown charges still stop spending. The
+owner's typed amount and paid-send button press authorize that one request-bound run through a single-use approval.
+Coding agents do not start paid calls for this build; any paid run they would execute still needs the owner's OK
+and an estimate. Legacy CLI defaults remain defaults, not standing dev UI terms.
+
+Owner-edit captures travel as native-pixel model evidence, separate from authoritative product photos. In a
+`full_edit_item` round, the specialist receives only the selected item's bound words, understanding and capture
+evidence, with the instruction to preserve unrequested geometry, materials, UVs and transforms. The parent publishes
+the ordinary result or draft and its informational side-effect report; existing specialist checks still apply.
 
 ## Standalone commands
 
@@ -84,8 +95,9 @@ test approvals for production. The assembled job CLI provides the normal owner a
 | `--help` | Parser reference, with no package or paid work. |
 
 The standalone parser has no settled-only switch or resume mode. Its reserve/output-fit controls are legacy
-behavior, not the owner's current standing $20 settled-only/high terms. Use the assembled stage for those terms;
-any different standalone paid policy needs explicit owner authorization. This README is not such authorization.
+behavior; the assembled stage supports the owner's typed settled-only cutoff and high effort. Use that stage for
+the dev UI terms above. Any different standalone paid policy needs explicit owner authorization. This README is
+not such authorization.
 
 ## Evidence, forecast and tests
 
