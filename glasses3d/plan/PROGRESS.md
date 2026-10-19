@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-20 — Claude accepted N1 ($0)
+
+N1 (`411e352`) reviewed by Claude: report `data/m12/codex/n1_report.md`. Diff read: shading-only writes keep
+every unchanged normal fan's stored codes; sharp splits only on selected-face edges whose endpoint fans lie inside
+the influence; planning uses verified intent; automatic sources use free float normals, and only meshes carrying
+the new owner marker take the new export branch. Unmarked exports are unchanged: Oakley run 4 and M10 re-export
+byte-identically. Prada `n1-c2` records checked directly. I1 B + I2 B: `per_item_geometry`, both items exact,
+zero native and export overlaps across 82 comparisons. I1 alone: `single_glb_bytes`, equal. Claude's rerun:
+**316 passed** (normal composition 63/63, no xfails; edge-radius/review; M12 choices), plus the timing-pass heartbeat
+test alone. The seven unrelated test edits made under the one-Blender rule were reverted before the commit. The owner
+UI on port 8260 still runs pre-N1 code until it is restarted.
+
 ## 2026-10-20 — N1: exact local normals ($0)
 
 Verified, disjoint `repair_shading` picks on one part now compose exactly. Stored/decoded native normals and
