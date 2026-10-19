@@ -170,6 +170,32 @@ def test_faint_facet_guidance_keeps_named_evidence_through_finish(tools):
     assert "named mismatches and crops from the stage summary into the finish review" in text
 
 
+def test_construction_guidance_compares_lens_materials_and_temple_sections(tools):
+    lens = (
+        "Choose body tint, transmission, surface reflection and any thin-film coating by their combined agreement "
+        "with the photographs in the browser comparison. A visible colour shift does not establish matching "
+        "brightness, saturation or colour distribution. Keep a comparison checkpoint before a material "
+        "experiment, and compare the candidate with it in the same views before retaining the change."
+    )
+    temple = (
+        "Judge temple section width, relief and transitions in top, rear and oblique evidence as well as the side "
+        "silhouette. A stronger longitudinal highlight does not by itself prove the section matches. When a "
+        "fitted camera is ambiguous, compare its alternatives and use the other photographs to identify "
+        "differences visible under either camera."
+    )
+    main = " ".join(I.build_instructions(tools).split())
+    assert main.count(lens) == main.count(temple) == 1
+    assert main.index("2. Build a measurable model") < main.index(temple) < main.index("3. Complete construction")
+    assert main.index("3. Complete construction") < main.index(lens) < main.index("4. Review the best state")
+    for phase in ("understand", "edit"):
+        owner = {"phase": phase}
+        registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+        text = " ".join(I.build_instructions(registered, owner_edit=owner).split())
+        assert lens not in text and temple not in text
+        assert "Preserve unrequested geometry, materials, UVs and topology" in text
+        assert "do not refit" in text
+
+
 def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(tools):
     main = I.build_instructions(tools)
     assert "After each shape, colour or material edit, use `compare_look_to_photos`" in main

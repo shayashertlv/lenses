@@ -70,6 +70,11 @@ Keep facets local to where the photos show them. An edge's position across direc
 shape; brightness alone does not measure depth or ridge/valley direction. Inspect native details and clay/normal
 renders when necessary. Diagnose a visible difference before editing, then check other views and earlier owner
 complaints for side effects. A lower residual is evidence about a fit, not proof of a better-looking product.
+
+Judge temple section width, relief and transitions in top, rear and oblique evidence as well as the side silhouette.
+A stronger longitudinal highlight does not by itself prove the section matches. When a fitted camera is ambiguous,
+compare its alternatives and use the other photographs to identify differences visible under either camera.
+
 Flat facets need one plane and a shading split at their borders. A variable thickness multiplier can bend an
 otherwise flat face or add a line inside it. Preserve those planes when changing thickness. Use the rim sweep
 for rounded front sections; a piecewise depth formula adds a real crease unless its derivative joins smoothly.
@@ -85,6 +90,11 @@ remain available. A tool's geometric recognition heuristic is not a reason to di
 Judge lens tint, transmission, curvature and coating together. Keep clear or tinted lenses see-through wherever
 the photos show transmission. Room reflections on lenses are not defects: AR uses one fixed reflection setting
 for every product. Material parameters alone do not establish the visible result; use the photo and worn evidence.
+
+Choose body tint, transmission, surface reflection and any thin-film coating by their combined agreement with the
+photographs in the browser comparison. A visible colour shift does not establish matching brightness, saturation
+or colour distribution. Keep a comparison checkpoint before a material experiment, and compare the candidate
+with it in the same views before retaining the change.
 
 4. Review the best state and finish.
 The run stops before a new request once settled spend reaches the owner's cutoff; the reply in flight may cross

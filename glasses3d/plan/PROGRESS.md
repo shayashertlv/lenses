@@ -1,5 +1,35 @@
 # glasses3d progress
 
+## 2026-10-19 — Task 11 follow-up: approved guidance and full verification ($0)
+
+Applied the report's exact lens and temple paragraphs to Astra's construction instructions; contracts verify
+wording, placement and exclusion from scoped owner edits. The all-specialist prompt is 15,940 characters,
+below the unchanged 24,000 cap. Existing capabilities and owner-edit/no-refit rules remain intact.
+
+The reported offline-isolation failure remains **unreproduced, not fixed**. At clean `9306a4f`, the exact
+renewal + settled-only two-file command passed **37/37 in 26.94 s** before edits; after guidance edits it
+passed **37/37 in 28.85 s**. Neither launcher supplied `G3D_OFFLINE`. A worker trace confirmed the fixture
+supplied `1` at every client-selection check in all 13 reported SDK cases. The 37-file mixed batch passed
+**848/848 in 134.26 s** after shortening the local harness's Windows paths; its three earlier delivery
+failures were 261-character paths, independently readable through the extended prefix. No runtime guard
+was weakened. The live-env guard and per-test fixture predate task 11, but the reported failure's cause
+and age cannot be established without the original failing evidence; no cached flag/client was found.
+
+Fresh functional: **5,619 passed / 2 skipped / 11 xfailed / 1 non-strict XPASS**, 965.98 s, exit 0.
+Photoprint: **367 passed**, 431.16 s. Serial timing: **29 passed**, 298.94 s. Total **6,015 distinct
+Python passes** across 6,029 cases. No failing case remains in these checks; M12's authored normal-composition
+case XPASSed under its existing mark, which does not establish deterministic exactness. Its mark, assertions
+and runtime were untouched. AR unit/QA/check/build and dev-UI browser commands all exited 0; their launch/exit
+receipts are retained, but the initial local Node wrapper lost child console output, so no case counts are claimed.
+
+M1 ran once after the suites and passed in **181.250 s** (process 185.938 s): 13 scripted requests, 26 transport
+files, 12 verified image blobs, 35 AR images, clean receipts, actual **$0**; `data/assembly/m1-proof-8ea16947/proof.json`.
+Process inventories confirmed no competing pool-heavy job; checks ran sequentially, BLAS 1, memory-bounded
+14/4 workers and idle serial timing, with original budgets. The final audit verifies **395 original files unchanged**.
+No paid call, push, original job/run/delivery/verdict change or accepted-asset change. Report, exact final guidance,
+commands, logs, receipts and the explicit-path commit are in `data/review_20261018/codex/task11_report.md` Follow-up.
+Stop for coordinator review; the isolation allegation retains the evidence limitation above.
+
 ## 2026-10-19 — M12-D3 final verification and closing documents ($0)
 
 M12 implementation and required $0 verification are complete with the retained limits below. Baseline `2340e95`; no D3 commit. D1 (`b81f923`, `0da06ba`) completed all six real-browser
