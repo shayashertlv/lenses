@@ -50,7 +50,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
@@ -774,6 +774,13 @@ class StageRuntime:
         self.tasks = set()
         self.outcomes = []
         self.closing = False
+        # The normal specialist package derives product photos from its current-head scene. Carry the
+        # separately approved item context alongside those photos without restricting its tools or changing
+        # the existing specialist instruction/finish contract. Renewal uses this same extended StageSpec.
+        from . import owner_fallback
+        fallback = owner_fallback.load(spec.job_dir)
+        self.fallback_brief = owner_fallback.specialist_suffix(fallback) if fallback else ""
+        self.fallback_photos = tuple(photo for photo in spec.photos if photo.evidence_kind == "owner_capture") if fallback else ()
 
     async def close(self):
         self.closing = True
@@ -787,6 +794,9 @@ class StageRuntime:
     async def run_stage(self, spec, scene, cap_usd, call_id):
         if self.closing or self.tasks:
             raise StageRunFailed("another stage is active or the parent run is closing")
+        if self.fallback_brief:
+            spec = replace(spec, brief=spec.brief + self.fallback_brief,
+                           photos=(*spec.photos, *(photo for photo in self.fallback_photos if photo not in spec.photos)))
         approved = self.contracts.get(spec.name)
         if (approved is None or StageContract.from_spec(spec, usd_text(approved.maximum_micro_usd)) != approved
                 or not 0 < cap_to_micro(cap_usd) <= approved.maximum_micro_usd):
@@ -1599,6 +1609,16 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
         stale_stop = False
         try:
             scene_start = scene.start()
+            if (request.get("run_inputs") or {}).get("full_edit_item"):
+                from . import owner_fallback
+                fallback = owner_fallback.load(job_dir)
+                head = getattr(getattr(scene, "s", None), "head", None)
+                if not isinstance(head, dict):
+                    head = (scene_start or {}).get("head")
+                if (fallback is None or not isinstance(head, dict)
+                        or head.get("fingerprint") != fallback["source"]["fingerprint"]):
+                    raise RunRefused("full edit item must start from the exact delivered source fingerprint")
+                scene.full_edit_item = fallback
         except BaseException:
             scene.close()
             raise
@@ -1805,6 +1825,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
                 "heartbeat": {"beats": heartbeat.beats, "write_failures": heartbeat.write_failures,
                               "max_gap_s": heartbeat.max_gap_s(), "states": list(heartbeat.states)},
                 "transcript": "transcript.md"}
+            fallback_binding = (request.get("run_inputs") or {}).get("full_edit_item")
+            if fallback_binding:
+                result.update(mode="full_edit_item", item_id=fallback_binding["item_id"])
             if spec.settings.finish_tool is not None:
                 result["finish_notes"] = state["finish_notes"]
             if spec.settings.smoke:

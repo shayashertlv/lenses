@@ -10,10 +10,10 @@ from uuid import uuid4
 from datetime import datetime, timezone
 
 from . import approvals as A, brief, estimate as E, jobs
-from . import delivery as D, verdicts, procs, edits, edit_capabilities, resume as resume_plan
+from . import delivery as D, verdicts, procs, edits, edit_capabilities, resume as resume_plan, owner_fallback
 from .budget import cap_to_micro
 from .job_scene import JobScene
-from .instructions import build_instructions, instruction_contract
+from .instructions import build_instructions, instruction_contract, MAX_INSTRUCTION_CHARS
 from .loop import RESULT_SCHEMA, RunSettings, RunSpec, approval_settings, run_astra, tool_registry_sha256
 from .temple_lab import stage as temple_stage
 from .tools import build_tools
@@ -30,6 +30,26 @@ def settings_smoke(cap="1") -> RunSettings:
                    max_continuations=0, settled_stop_usd=cap, finish_tool=None)
 
 
+def settings_full_edit_item(cutoff) -> RunSettings:
+    """A separately approved fallback uses the owner's typed settled cutoff and standing effort."""
+    return replace(settings_default(), effort="high", settled_stop_usd=cutoff, settled_only=True)
+
+
+class _FullEditItemScene(JobScene):
+    """Normal main-run scene with a verified delivered seed, without sealed-operation restrictions."""
+
+    def __init__(self, root, *, job, fallback):
+        super().__init__(root, job=job)
+        self.full_edit_item = fallback
+
+    def start(self):
+        result = super().start()
+        if self.s.head["fingerprint"] != self.full_edit_item["source"]["fingerprint"]:
+            self.s.close()
+            raise ValueError("full edit item seed does not match the delivered fingerprint")
+        return result
+
+
 def instructions_text(tools) -> str:
     return build_instructions(tools)
 
@@ -42,8 +62,17 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
                 scene=None, offline_handler=None, env_file=None):
     root = Path(root).resolve()
     job = jobs.load_job(root)
-    settings = settings or settings_default()
+    fallback = owner_fallback.load(root)
+    settings = settings or (settings_full_edit_item(cap) if fallback else settings_default())
     owner_edit = edits.load(root)
+    if fallback:
+        if owner_edit:
+            raise ValueError("full edit item cannot also be a restricted owner edit round")
+        if resume or settings.smoke:
+            raise ValueError("each full edit item is a fresh separately approved conversation")
+        if settings.settled_only is not True or settings.effort != "high":
+            raise ValueError("full edit item requires settled-only spending and effort high")
+        settings = replace(settings, finish_tool="finish")
     if owner_edit:
         edit_capabilities.require_round(root, owner_edit)
         if resume or settings.smoke:
@@ -65,14 +94,24 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
             raise ValueError("smoke requires a fresh isolated session and equal settled stop and reserve cap")
         if settings.max_turns != 1 or settings.max_output_tokens != 4096 or settings.max_continuations != 0:
             raise ValueError("smoke requires one request, 4096 output tokens and no continuations")
-    scene = scene or JobScene(root, job=job)
+    scene = scene or (_FullEditItemScene(root, job=job, fallback=fallback) if fallback else JobScene(root, job=job))
+    if fallback:
+        if getattr(scene, "owner_edit", None):
+            raise ValueError("full edit item requires the unrestricted main-run scene")
+        scene.full_edit_item = fallback
     scene.scripted = offline_handler is not None
     tools = build_tools(scene, settings)
     stages = () if settings.smoke else (temple_stage.contract(job, settings, cap, **({"owner_edit": owner_edit} if owner_edit else {})),)
     instructions = build_instructions(tools, owner_edit=owner_edit) if owner_edit else instructions_text(tools)
     text = brief.build_brief(job) + (edits.brief_suffix(owner_edit) if owner_edit else "")
+    if fallback:
+        instructions += owner_fallback.instructions_suffix(fallback)
+        if len(instructions) > MAX_INSTRUCTION_CHARS:
+            raise ValueError(f"instructions exceed {MAX_INSTRUCTION_CHARS} characters: {len(instructions)}")
+        text += owner_fallback.brief_suffix(fallback)
     from .session_inputs import owner_capture_references
-    photos = jobs.references(root) + owner_capture_references(root, owner_edit)
+    capture_context = owner_fallback.capture_context(fallback) if fallback else owner_edit
+    photos = jobs.references(root) + owner_capture_references(root, capture_context)
     notes = verdicts.pending_notes(root)
     history = resume_plan.saved_items(root) if resume else []
     session_binding = resume_plan.binding(root, resume, items=history)
@@ -85,7 +124,9 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
                    owner_notes=notes, current_request_sha256=A.request_sha256(request), settings=settings,
                    requested_cap_usd=cap, stage_contracts=stages,
                    resume=resume, session_binding=session_binding,
-                   scene_note=("Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
+                   scene_note=("Edit the exact delivered checkpoint for the single owner item " + fallback["item_id"]
+                       + "; mode full_edit_item." if fallback else
+                       "Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
                        if owner_edit else resume_plan.scene_note(session_binding) if resume else "Start with the empty job template."),
                    contract=instruction_contract(tools, owner_edit=owner_edit), contract_brief=brief.host_text(job),
                    offline_handler=offline_handler,
@@ -200,6 +241,9 @@ def _publish_result(root, run_id, scene, result, *, smoke=False):
     if smoke:
         # A connectivity proof has no product deliverable and cannot certify a finish.
         return {"status": "smoke_only", "finished": False, "accepted_finish": False}
+    fallback = getattr(scene, "full_edit_item", None)
+    if fallback:
+        result.update(mode="full_edit_item", item_id=fallback["item_id"])
     edit = getattr(scene, "owner_edit", None)
     if edit and edit["phase"] == "understand":
         artifact = Path(root) / "work/owner_edit/understanding.json"

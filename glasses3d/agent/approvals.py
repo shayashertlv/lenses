@@ -133,8 +133,12 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
                     expected.remove(original)
     # Product references remain exactly job.json.images. Captures have a separately verified, ordered contract.
     # Their payload may be a lossless crop, so bind both source bytes and the exact transported tile bytes.
+    fallback = None
     try:
-        expected_captures = owner_capture_references(job_dir) if job_images else []
+        from . import owner_fallback
+        fallback = owner_fallback.load(job_dir) if job_images else None
+        capture_context = owner_fallback.capture_context(fallback) if fallback else None
+        expected_captures = owner_capture_references(job_dir, capture_context) if job_images else []
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ApprovalRefused("stale", str(exc)) from exc
     rows, seen, capture_index = [], set(), 0
@@ -170,7 +174,28 @@ def run_input_binding(job_dir, brief: str, photos) -> dict:
     brief_path = job_dir / "inputs" / "brief.txt"
     if brief_path.exists() and brief_path.read_bytes().decode("utf-8") != brief:
         raise ApprovalRefused("stale", "the run brief differs from inputs/brief.txt")
-    return {"brief_sha256": sha256_bytes(brief.encode("utf-8")), "photos": rows}
+    binding = {"brief_sha256": sha256_bytes(brief.encode("utf-8")), "photos": rows}
+    if fallback:
+        binding["full_edit_item"] = {"mode": "full_edit_item", "item_id": fallback["item_id"],
+                                     "descriptor_sha256": file_sha256(job_dir / "inputs/full-edit-item.json")}
+    return binding
+
+
+def _fallback_round(job_dir, request=None):
+    """Recheck fallback provenance at both estimate and approval, before any spending authority exists."""
+    from . import owner_fallback
+    try:
+        fallback = owner_fallback.load(job_dir)
+        if ((request or {}).get("run_inputs") or {}).get("full_edit_item") and fallback is None:
+            raise ValueError("full edit item inputs are missing; prepare a new edit request")
+        if fallback is not None and request is not None:
+            settings = request.get("settings") or {}
+            if (settings.get("effort") != "high" or settings.get("settled_only") is not True
+                    or settings.get("fit_output_to_budget") or settings.get("smoke")):
+                raise ValueError("full edit item requires settled-only spending and effort high")
+        return fallback
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ApprovalRefused("stale", str(exc)) from exc
 
 
 def build_request(job_dir, *, instructions_sha256: str, tool_registry_sha256: str, settings: dict,
@@ -223,6 +248,7 @@ def write_approval_request(run_dir, *, job_id: str, request: dict, estimate: dic
         raise ApprovalRefused("consumed", f"run {run_dir.name} already consumed an approval; estimate a new run")
     if not isinstance(request, dict) or request.get("schema") != REQUEST_SCHEMA:
         raise ApprovalRefused("invalid", "the request must come from build_request")
+    _fallback_round(run_dir.parent.parent, request)
     settings = request["settings"]
     suggested = _cap(suggested_cap_usd, "the suggested cap")
     requested = _cap(suggested_cap_usd if requested_cap_usd is None else requested_cap_usd, "the requested cap")
@@ -270,7 +296,8 @@ def write_approval(run_dir, *, max_usd, owner_words: str, recorded_by: str = "cl
         coverage = edit_capabilities.require_round(run_dir.parent.parent)
     except ValueError as exc:
         raise ApprovalRefused("stale", str(exc)) from exc
-    if coverage is not None:
+    fallback = _fallback_round(run_dir.parent.parent, request.get("request"))
+    if coverage is not None or fallback is not None:
         current_inputs = input_digests(run_dir.parent.parent)
         if any(request.get("request", {}).get(key) != value for key, value in current_inputs.items()):
             raise ApprovalRefused("stale", "edit inputs or dry run changed after the estimate; estimate again before approval")
@@ -325,6 +352,9 @@ def check_approval(run_dir, *, current_request_sha256: str, requested_cap_usd=No
     inner = request.get("request")
     if not isinstance(inner, dict) or request_sha256(inner) != request.get("request_sha256"):
         raise ApprovalRefused("invalid", "approval-request.json does not hash to its own request_sha256")
+    if _fallback_round(run_dir.parent.parent, inner) is not None:
+        if any(inner.get(key) != value for key, value in input_digests(run_dir.parent.parent).items()):
+            raise ApprovalRefused("stale", "full edit item inputs changed after the estimate; estimate and approve again")
     settings = inner.get("settings") if isinstance(inner.get("settings"), dict) else {}
     settled_only = settings.get("settled_only", False)
     if type(settled_only) is not bool:

@@ -94,6 +94,258 @@ def _document(data: bytes, what: str) -> dict:
     return value
 
 
+def read_checkpoint_snapshot(root, checkpoint, fingerprint, *, blender=None, selftest=False):
+    """Measure an immutable checkpoint on a private copy, without moving the live journal/head."""
+    from .journal import CheckpointIndex
+    from .tool_timeouts import OWNER_SNAPSHOT_DEADLINE_S
+    from .worker_client import WorkerClient
+
+    root = Path(root).resolve()
+    saved = CheckpointIndex(root / "checkpoints").get(checkpoint)
+    if not saved or saved.get("fingerprint") != fingerprint:
+        raise DeliveryError("side-effect measurement checkpoint does not match the delivered fingerprint")
+    source, data = _read(root / "checkpoints", _relative(saved.get("file")), saved.get("sha256", ""))
+    work = _output_path(root, Path("work/model_maps") / ("fallback-effects-" + uuid4().hex))
+    copied, snapshot_path = work / "source.blend", work / "snapshot.json"
+    _write_file(copied, data)
+    worker = WorkerClient(root, start_blend=copied, worker_dir=work / "worker", blender=blender, selftest=selftest)
+    try:
+        worker.start()
+        if worker.hello.get("fingerprint") != fingerprint:
+            raise DeliveryError("side-effect measurement did not reopen the delivered checkpoint exactly")
+        measured = worker.call("model_map_snapshot", {"path": str(snapshot_path)},
+                               deadline_s=OWNER_SNAPSHOT_DEADLINE_S)
+        if (measured.get("status") != "ok" or measured.get("unchanged") is not True
+                or measured.get("fingerprint_before") != fingerprint
+                or measured.get("fingerprint_after") != fingerprint):
+            raise DeliveryError("side-effect measurement changed or could not read the delivered checkpoint")
+        _, payload = _read(root, snapshot_path, measured.get("sha256", ""))
+        snapshot = _document(payload, "side-effect mesh snapshot")
+        if snapshot.get("fingerprint") != fingerprint:
+            raise DeliveryError("side-effect snapshot belongs to another checkpoint")
+        _read(root, source, saved["sha256"])
+        return snapshot
+    finally:
+        worker.close()
+
+
+def measure_full_edit_effects(before, after, marks, *, item_id, source_glb_sha256, delivered_glb_sha256):
+    """Describe observable changes, never authorize an edit or turn a measurement into a quality gate.
+
+    Object IDs are snapshot-local ordinals: correspondence is by unique exact object name. Source polygons
+    come only from C1's authenticated capture correspondence. A boundary vertex also changes its unmarked
+    incident polygons. Remeshing, ambiguous names and incomplete marks retain explicit uncertainty.
+    """
+    import numpy as np
+    from collections import Counter, defaultdict
+
+    selected = [copy.deepcopy(mark) for mark in marks if mark.get("item_id", item_id) == item_id]
+    complete_marks = bool(selected) and all(mark.get("status") == "resolved" for mark in selected)
+    regions = defaultdict(set)
+    source_ids = {obj["id"]: obj["name"] for obj in before["objects"]}
+    for mark in selected:
+        for region in mark.get("resolved_polygons", []) + mark.get("behind_polygons", []):
+            name = source_ids.get(region.get("object_id"))
+            if name != region.get("object_name"):
+                complete_marks = False
+                continue
+            regions[name].update(region["polygon_ids"])
+
+    fields = {
+        "geometry": ("vertices_local", "vertices_world_mm", "edges", "loops", "polygons", "triangles",
+                     "triangle_polygons", "polygon_smooth", "corner_normals", "normal_attributes",
+                     "normal_intent", "has_custom_normals", "evaluated"),
+        "materials": ("material_names", "material_definitions", "material_sha256", "material_slot_links",
+                      "polygon_material"),
+        "uvs": ("uv_layers", "uv_active_index"),
+        "transforms": ("matrix_world", "parent_name"),
+    }
+
+    def digest_fields(obj, keys):
+        return _sha(_json_bytes({key: obj[key] for key in keys if key in obj})) if obj is not None else None
+
+    def objects(snapshot):
+        out = defaultdict(list)
+        for obj in snapshot["objects"]:
+            out[obj["name"]].append(obj)
+        return out
+
+    def polygon_signatures(obj):
+        vertices = obj["vertices_world_mm"]
+        # Exact unordered corners prove unchanged polygon geometry; no spatial-nearest guess after remeshing.
+        return [tuple(sorted(tuple(vertices[i]) for i in polygon)) for polygon in obj["polygons"]]
+
+    def changed_geometry(a, b, marked):
+        if a is None:
+            return {"status": "partially_resolved", "correspondence": "new_object",
+                    "added_polygon_count": len(b["polygons"]), "outside_resolved_region": None,
+                    "outside_item_region": None,
+                    "reason": "Added or renamed object has no proven correspondence to the marked source polygons."}
+        if b is None:
+            count = len(a["polygons"])
+            changed = list(range(count))
+            outside = [i for i in changed if i not in marked]
+            return {"status": "measured", "correspondence": "removed_object",
+                    "changed_polygon_ids": changed, "outside_resolved_polygon_ids": outside,
+                    "outside_resolved_region": bool(outside),
+                    "outside_item_region": bool(outside) if complete_marks else None}
+        va, vb = np.asarray(a["vertices_world_mm"], float), np.asarray(b["vertices_world_mm"], float)
+        same = a["polygons"] == b["polygons"] and va.shape == vb.shape
+        if not same:
+            remaining = Counter(polygon_signatures(b))
+            removed = []
+            for pid, signature in enumerate(polygon_signatures(a)):
+                if remaining[signature]:
+                    remaining[signature] -= 1
+                else:
+                    removed.append(pid)
+            outside = sorted(set(removed) - marked)
+            return {"status": "partially_resolved", "correspondence": "topology_changed",
+                    "changed_source_polygon_ids": removed, "added_or_changed_polygon_count": sum(remaining.values()),
+                    "outside_resolved_polygon_ids": outside, "outside_resolved_region": bool(outside) or None,
+                    "outside_item_region": True if outside and complete_marks else None,
+                    "reason": "Changed topology has no proven vertex correspondence. Exact surviving polygon geometry is compared; new geometry remains unlocalized."}
+        changed_vertices = set(np.flatnonzero(np.any(va != vb, axis=1)).tolist())
+        if a.get("vertices_local") != b.get("vertices_local"):
+            la, lb = np.asarray(a["vertices_local"]), np.asarray(b["vertices_local"])
+            changed_vertices.update(np.flatnonzero(np.any(la != lb, axis=1)).tolist())
+        unresolved = []
+        ea, eb = a.get("evaluated", {}), b.get("evaluated", {})
+        if ea != eb:
+            eva, evb = np.asarray(ea.get("vertices_world_mm", [])), np.asarray(eb.get("vertices_world_mm", []))
+            if (ea.get("topology_matches_source") and eb.get("topology_matches_source")
+                    and eva.shape == evb.shape == va.shape):
+                changed_vertices.update(np.flatnonzero(np.any(eva != evb, axis=1)).tolist())
+            else:
+                unresolved.append("Changed evaluated geometry has no proven correspondence to source polygons.")
+        changed_polygons = {pid for pid, polygon in enumerate(a["polygons"])
+                            if changed_vertices.intersection(polygon)}
+        for left, right, key in ((a, b, "corner_normals"), (a, b, "polygon_smooth"), (ea, eb, "corner_normals")):
+            if left.get(key) == right.get(key):
+                continue
+            x, y = left.get(key, []), right.get(key, [])
+            expected = len(a["polygons"]) if key == "polygon_smooth" else sum(map(len, a["polygons"]))
+            if len(x) != expected or len(y) != expected:
+                unresolved.append("Changed shading data has no proven source polygon correspondence.")
+                continue
+            cursor = 0
+            for pid, polygon in enumerate(a["polygons"]):
+                width = 1 if key == "polygon_smooth" else len(polygon)
+                if x[cursor:cursor+width] != y[cursor:cursor+width]:
+                    changed_polygons.add(pid)
+                cursor += width
+        if a.get("triangles") != b.get("triangles"):
+            unresolved.append("Changed triangulation is reported separately from source polygon positions.")
+        if a.get("edges") != b.get("edges") or a.get("loops") != b.get("loops"):
+            unresolved.append("Changed raw edge/loop data has no proven source polygon correspondence.")
+        outside = sorted(changed_polygons - marked)
+        allowed_vertices = {i for pid in marked if 0 <= pid < len(a["polygons"]) for i in a["polygons"][pid]}
+        displacement = np.linalg.norm(va - vb, axis=1)
+        return {"status": "partially_resolved" if unresolved else "measured",
+                "correspondence": "same_vertex_count_and_polygon_connectivity",
+                "changed_vertex_ids": sorted(changed_vertices), "changed_vertex_count": len(changed_vertices),
+                "max_vertex_displacement_mm": float(displacement.max()) if len(displacement) else 0.0,
+                "changed_polygon_ids": sorted(changed_polygons), "outside_resolved_polygon_ids": outside,
+                "outside_resolved_vertex_ids": sorted(changed_vertices - allowed_vertices),
+                "outside_resolved_region": bool(outside) if outside or not unresolved else None,
+                "outside_item_region": (bool(outside) if complete_marks and (outside or not unresolved) else None),
+                "unresolved": unresolved}
+
+    old, new = objects(before), objects(after)
+    rows = []
+    for name in sorted(old.keys() | new.keys()):
+        aa, bb = old.get(name, []), new.get(name, [])
+        if len(aa) > 1 or len(bb) > 1:
+            rows.append({"name": name, "status": "unresolved", "source_count": len(aa), "delivered_count": len(bb),
+                         "reason": "The exact object name is not unique; no object correspondence was invented."})
+            continue
+        a, b = (aa[0] if aa else None), (bb[0] if bb else None)
+        row = {"name": name, "source_object_id": a["id"] if a else None,
+               "delivered_object_id": b["id"] if b else None,
+               "status": "added" if a is None else "removed" if b is None else "compared"}
+        for category, keys in fields.items():
+            previous, current = digest_fields(a, keys), digest_fields(b, keys)
+            row[category] = {"changed": previous != current, "source_sha256": previous, "delivered_sha256": current,
+                             "changed_fields": [key for key in keys if (a or {}).get(key) != (b or {}).get(key)]}
+        row["changed"] = any(row[key]["changed"] for key in fields)
+        row["marked_source_polygon_ids"] = sorted(regions[name])
+        if row["geometry"]["changed"]:
+            row["geometry"].update(changed_geometry(a, b, regions[name]))
+        else:
+            row["geometry"].update(status="unchanged", outside_resolved_region=False, outside_item_region=False)
+        rows.append(row)
+    unsupported_changed = before.get("unsupported_rendered_geometry", []) != after.get("unsupported_rendered_geometry", [])
+    resources = {}
+    for kind in ("images", "node_groups"):
+        left, right = before.get("scene_state", {}).get(kind, {}), after.get("scene_state", {}).get(kind, {})
+        resources[kind] = [name for name in sorted(left.keys() | right.keys()) if left.get(name) != right.get(name)]
+    for row in rows:
+        if "materials" in row and any(resources.values()):
+            row["materials"].update(shared_resource_changes=copy.deepcopy(resources),
+                dependency_resolution="unresolved",
+                note="Shared image/node-group content changed. Snapshot material hashes alone cannot attribute those resource changes to this object.")
+    outside = [row["name"] for row in rows if row.get("geometry", {}).get("outside_item_region") is True]
+    unresolved = [row["name"] for row in rows if row.get("status") == "unresolved"
+                  or row.get("geometry", {}).get("status") == "partially_resolved"
+                  or row.get("geometry", {}).get("outside_item_region") is None]
+    return {"schema": "g3d.full_edit_side_effects/1", "informational_only": True, "item_id": item_id,
+            "status": "partially_resolved" if unresolved or not complete_marks or unsupported_changed or any(resources.values()) else "measured",
+            "source_glb_sha256": source_glb_sha256, "delivered_glb_sha256": delivered_glb_sha256,
+            "source_fingerprint": before["fingerprint"], "delivered_fingerprint": after["fingerprint"],
+            "object_correspondence": "unique exact object names; snapshot-local ordinal IDs are not persistent",
+            "region_resolution": "resolved" if complete_marks else "unresolved_or_partial",
+            "region_basis": "Union of C1-resolved footprint and anchor source polygons, including behind-lens anchors. Polygon granularity cannot prove confinement inside a smaller pixel mark.",
+            "owner_mark_resolutions": selected, "objects": rows,
+            "summary": {"changed_objects": [row["name"] for row in rows if row.get("changed")],
+                        "geometry_outside_item_region": True if outside else None if unresolved or not complete_marks or unsupported_changed else False,
+                        "outside_region_objects": outside, "unresolved_objects": unresolved},
+            "origin_changed": before.get("origin_mm") != after.get("origin_mm"),
+            "shared_material_resource_changes": resources,
+            "unsupported_rendered_geometry_changed": unsupported_changed,
+            "unsupported_rendered_geometry": {"source": before.get("unsupported_rendered_geometry", []),
+                                               "delivered": after.get("unsupported_rendered_geometry", [])}}
+
+
+def _full_edit_effects(root, result, exp, checkpoint, fingerprint, files):
+    """Seal diagnostics with ordinary delivery checks; measurement trouble never hides a usable model."""
+    if not (root / "inputs/full-edit-item.json").exists() and result.get("mode") != "full_edit_item":
+        return None
+    from . import owner_fallback
+
+    context = owner_fallback.load(root)
+    if context is None:
+        raise DeliveryError("the full item edit's immutable input binding is missing")
+    if result.get("item_id", context["item_id"]) != context["item_id"]:
+        raise DeliveryError("the full item edit's item identity changed after the run")
+    baseline_path = context["baseline_snapshot"]
+    _, baseline_bytes = _read(root, baseline_path, context["immutable_files"][baseline_path])
+    baseline = _document(baseline_bytes, "full item edit source snapshot")
+    if baseline.get("fingerprint") != context["source"]["fingerprint"]:
+        raise DeliveryError("the full item edit's source snapshot fingerprint changed")
+    files["side-effects/source-snapshot.json"] = baseline_bytes
+    files["side-effects/marks.json"] = _json_bytes(context["owner_mark_resolutions"])
+    try:
+        current = read_checkpoint_snapshot(root, checkpoint, fingerprint)
+        files["side-effects/delivered-snapshot.json"] = _json_bytes(current)
+        report = measure_full_edit_effects(baseline, current, context["owner_mark_resolutions"],
+            item_id=context["item_id"], source_glb_sha256=context["source"]["export_sha256"],
+            delivered_glb_sha256=exp["sha256"])
+    except Exception as exc:
+        report = {"schema": "g3d.full_edit_side_effects/1", "informational_only": True,
+                  "status": "unavailable", "item_id": context["item_id"],
+                  "source_glb_sha256": context["source"]["export_sha256"], "delivered_glb_sha256": exp["sha256"],
+                  "source_fingerprint": context["source"]["fingerprint"], "delivered_fingerprint": fingerprint,
+                  "objects": [], "summary": {"geometry_outside_item_region": None},
+                  "reason": f"Side-effect measurement unavailable: {type(exc).__name__}: {exc}"}
+    report["understanding_sha256"] = context["understanding_sha256"]
+    report["evidence"] = {name: {"sha256": _sha(payload), "bytes": len(payload)}
+                          for name, payload in files.items() if name.startswith("side-effects/")}
+    files["side-effects/report.json"] = _json_bytes(report)
+    return {"origin": "full_edit_item", "item_id": context["item_id"], "side_effects": report,
+            "side_effects_report": {"path": "side-effects/report.json",
+                                    "sha256": _sha(files["side-effects/report.json"])}}
+
+
 def _capture_files(root: Path, ar: dict, glb_sha: str, *, draft=False) -> tuple[dict, list, list, list]:
     """Recheck both the renderer's raw images and the tool images actually shown to Astra."""
     if (not isinstance(ar, dict) or ar.get("export_sha256") != glb_sha
@@ -350,11 +602,16 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
                       owner_applied={"path": "owner-applied/report.json",
                                      "sha256": _sha(files["owner-applied/report.json"]),
                                      "source_basis": application.get("source_basis")})
+    fallback = _full_edit_effects(root, result, exp, checkpoint, fingerprint, files)
+    if fallback is not None:
+        report.update(fallback)
     files["report.json"] = _json_bytes(report)
     manifest = {"schema": SCHEMA, "job_id": root.name, "run_id": result.get("run_id"),
                 "glb_sha256": exp["sha256"], "model": "model.glb", "report": "report.json",
                 "contact_sheets": list(sheet_paths.values()),
                 "files": {name: {"sha256": _sha(data), "bytes": len(data)} for name, data in sorted(files.items())}}
+    if fallback is not None:
+        manifest.update(origin="full_edit_item", item_id=fallback["item_id"])
     manifest["id"] = _snapshot_id(manifest)
     return manifest, files
 
@@ -369,6 +626,8 @@ def _failed_checks(report):
 
 def _resolved_report(directory: Path, report: dict) -> dict:
     report = copy.deepcopy(report)
+    if report.get("side_effects_report"):
+        report["side_effects_report"]["path"] = str(_inside(directory, report["side_effects_report"]["path"]))
     look = report.get("look_comparison")
     if look and look.get("status") == "ok":
         paths = {a["path"]: str(_inside(directory, a["path"])) for a in look["assets"]}
@@ -511,6 +770,20 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
                 raise DeliveryError("failed draft does not retain its checkpoint verification attempts")
     elif "arview/report.json" not in records:
         raise DeliveryError("delivery manifest is incomplete")
+    if report.get("origin") == "full_edit_item" or manifest.get("origin") == "full_edit_item":
+        effects, binding = report.get("side_effects"), report.get("side_effects_report") or {}
+        _, effects_bytes = _read(directory, binding.get("path"), binding.get("sha256", ""))
+        if (manifest.get("origin") != report.get("origin") or manifest.get("item_id") != report.get("item_id")
+                or not re.fullmatch(r"I[1-9][0-9]{0,8}", str(report.get("item_id", "")))
+                or not isinstance(effects, dict) or effects_bytes != _json_bytes(effects)
+                or effects.get("schema") != "g3d.full_edit_side_effects/1"
+                or effects.get("informational_only") is not True or effects.get("item_id") != report["item_id"]
+                or effects.get("delivered_glb_sha256") != sha
+                or effects.get("delivered_fingerprint") != report["fingerprint"]):
+            raise DeliveryError("full item edit side-effect report does not bind this delivered model and item")
+        for name, record in effects.get("evidence", {}).items():
+            if records.get(name) != record:
+                raise DeliveryError("full item edit side-effect evidence differs from the immutable delivery")
     _capture_files(directory, report.get("arview"), sha, draft=draft)
     look = report.get("look_comparison")
     if look and look.get("status") == "ok":
@@ -526,7 +799,11 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
             or any(path not in records for path in sheets)):
         raise DeliveryError("delivery contact sheets disagree with the report")
     resolved = _resolved_report(directory, report)
+    fallback_fields = ({key: copy.deepcopy(resolved[key]) for key in
+                        ("origin", "item_id", "side_effects", "side_effects_report")}
+                       if report.get("origin") == "full_edit_item" else {})
     return {"status": "delivered", "id": delivery_id, "delivery_id": delivery_id, "glb_sha256": sha,
+            **fallback_fields,
             "finished": not draft, "run_status": report.get("run_status", "completed"),
             "model": str(directory / "model.glb"), "report": str(directory / "report.json"),
             "contact_sheet": str(directory / sheets[0]) if sheets else None,

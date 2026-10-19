@@ -53,6 +53,15 @@ def parser():
     edit.add_argument("--settled-stop", required=True)
     edit.add_argument("--settled-only", action="store_true",
                       help="stop on settled charges only; no estimated-reservation cutoff")
+    fallback = commands.add_parser("edit-item", help="prepare one blocked capture item for its own full paid edit")
+    fallback.add_argument("id", help="delivered capture UNDERSTAND round path")
+    fallback.add_argument("--item", required=True, help="exact item id from the delivered understanding")
+    fallback.add_argument("--cap", required=True)
+    fallback.add_argument("--settled-stop", required=True)
+    fallback.add_argument("--settled-only", action="store_true", required=True,
+                          help="stop on settled charges only; no estimated-reservation cutoff")
+    fallback.add_argument("--effort", choices=("high",), default="high")
+    fallback.add_argument("--output", type=Path, help="new fallback round directory")
     apply = commands.add_parser("edit-apply", help="$0 host apply of one sealed, shown preview on a fresh copy; no API")
     apply.add_argument("id", help="source job with --edit-id, or its understand round path")
     apply.add_argument("--edit-id")
@@ -137,6 +146,8 @@ def delivery_status(root):
         current = {"status": "finished" if finished else "draft", "finished": finished,
                    "accepted_finish": report.get("accepted_finish", finished),
                    "delivery_kind": report.get("delivery_kind", "astra_run"),
+                   "origin": report.get("origin", "run"), "item_id": report.get("item_id"),
+                   "side_effects": report.get("side_effects"),
                    "tool_test": report.get("tool_test", False),
                    "run_status": report.get("run_status", "completed"), "delivery_id": saved["delivery_id"],
                    "glb_sha256": saved["glb_sha256"], "report": saved["report"],
@@ -154,6 +165,19 @@ def dispatch(args):
                                specs=args.specs, jobs_root=args.jobs_root)
         return {"status": "created", "job_id": root.name, "path": str(root)}
     root = resolve_job(args.id, args.jobs_root)
+    if args.command == "edit-item":
+        from dataclasses import replace
+        from . import owner_fallback
+        from .budget import cap_to_micro
+        if cap_to_micro(args.cap) <= 0 or cap_to_micro(args.cap) != cap_to_micro(args.settled_stop):
+            raise ValueError("full edit item cap must equal its positive finite settled stop")
+        round_root = owner_fallback.create_full_edit_item(root, args.item, destination=args.output)
+        settings = replace(job_run.settings_full_edit_item(args.settled_stop), effort=args.effort)
+        spec, _ = job_run.prepare_run(round_root, settings=settings, cap=args.cap, write_request=True)
+        return {"status": "awaiting_separate_run_approval", "phase": "full_edit_item", "item_id": args.item,
+                "round_path": str(round_root), "run_id": spec.run_id,
+                "request": procs.read_json(round_root / "runs" / spec.run_id / "approval-request.json"),
+                "next": "Use job approve and job run with this round_path."}
     if args.command == "edit-apply":
         from . import edits, owner_apply
         if args.edit_id:
