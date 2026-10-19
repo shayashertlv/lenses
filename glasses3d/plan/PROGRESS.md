@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-19 — Paid Oakley rerun at max effort: delivered, awaiting the owner's eye
+
+Owner OK: "Yes, start the Oakley rerun at max effort: estimate $15.69, $20 settled cutoff." Fresh job
+`oakley-oo9208-v2-911a2b0e` (owner inputs and view/side labels only), run `20261019T172111-465930` at HEAD `48ea9e6`
+(the exact-local-normals session paused its edits and started no heavy job for the run): spent **$19.670825 settled**,
+$0 held, 70 requests all settled, 92 min, two conversation renewals, finish accepted by Astra, delivered (GLB
+`ba6216a4…`), runner exit 0. Labelled comparison: `data/assembly/oakley-regression-20261019/run4_vs_afternoon_vs_rerun.jpg`.
+
 ## 2026-10-19 — Claude accepted task 12 ($0)
 
 Task 12 (`1238a21`) reviewed by Claude: report `data/review_20261018/codex/task12_report.md`. Historical temple names now
