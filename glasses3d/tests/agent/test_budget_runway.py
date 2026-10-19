@@ -10,7 +10,7 @@ import pytest
 
 from glasses3d.agent import budget as B, loop as L, replay as R, tools as T
 from glasses3d.agent.journal import WorkerFailed
-from glasses3d.agent.money import owner_money
+from glasses3d.agent.money import money_facts
 from glasses3d.tests.agent.loop_support import FakeScene, ledger_rows, make_job, spec_for
 from glasses3d.tests.agent.support import fake_counter, provider_body, request, response, usage
 from glasses3d.tests.agent.test_job_tools import invoke, record, scene  # noqa: F401 - shared pytest fixture
@@ -21,7 +21,7 @@ RUN = "20261013T180000-runway"
 
 def _settled_guard(tmp_path, *, stop="20", tokens=100_000):
     counter, _ = fake_counter(tokens)
-    guard = B.BudgetGuard(counter, tmp_path / "runway-budget.json", "23", settled_stop_usd=stop)
+    guard = B.BudgetGuard(counter, tmp_path / "runway-budget.json", stop or "23", settled_stop_usd=stop)
 
     async def settle():
         await guard.before_request(request(max_output_tokens=100))
@@ -37,7 +37,7 @@ def _footer(output):
     return output[-1].text
 
 
-def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_path, scene, monkeypatch):
+def test_real_sdk_sees_only_facts_when_settled_spend_crosses_75_percent(tmp_path, scene, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("a production client must never be constructed in a scripted runway test")
 
@@ -49,7 +49,7 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
     monkeypatch.setattr(L.ConversationRenewal, "check", lambda self, *args: None)
     settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=5, settled_stop_usd="20")
     tools = T.build_tools(scene, settings)
-    job, approval_sha = make_job(tmp_path, tools=tools, run_id=RUN, cap="23", settings=settings)
+    job, approval_sha = make_job(tmp_path, tools=tools, run_id=RUN, cap="20", settings=settings)
     transport = R.ScriptedOpenAI([
         R.tool_call(name, counted=counted, usage=R.default_usage(counted, output_tokens=0, reasoning_tokens=0))
         for name, counted in (("scene_summary", 400_000), ("scene_summary", 200_000), ("budget_status", 200_000))
@@ -61,7 +61,7 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
     assert result["renewals"] == []
     assert len(transport.counts) == len(transport.creates) == 4
     assert transport.violations == transport.unexpected == []
-    assert ("This run's working limit: $20.000000 settled stop (reserve cap $23.000000)."
+    assert ("This run's owner cutoff: $20.000000 settled spend."
             in json.dumps(transport.creates[0]["input"]))
     rows = ledger_rows(job, RUN)
     assert [row["settled_micro_usd"] for row in rows[:3]] == [10_000_000, 2_500_000, 2_500_000]
@@ -76,16 +76,16 @@ def test_real_sdk_sees_runway_notice_when_settled_spend_crosses_75_percent(tmp_p
         assert isinstance(content, list) and content[0]["type"] == content[-1]["type"] == "input_text"
         body = json.loads(content[0]["text"])  # first text stays independently parseable JSON
         footer = content[-1]["text"]
-        assert f"spent ${expected} (settled)" in footer
-        assert "settled stop $20.00 (reserve cap $23.00)" in footer
-        assert ("finish your best checkpoint soon" in footer) is (index == 3)
+        assert f"spent ${expected}0000 (settled)" in footer
+        assert "owner cutoff $20.000000" in footer
+        assert "finish your best checkpoint soon" not in footer
+        assert "reserve" not in footer and "allowance" not in footer
         if index == 3:
-            assert "\nAbout $5.00 left; finish your best checkpoint soon." in footer
-            assert "Finish needs a first evidence call and a second review call." in footer
-            assert body["budget"]["settled_micro_usd"] == settled
+            assert "left before cutoff $5.000000" in footer
+            assert body["budget"]["settled_usd"] == B.usd_text(settled)
             assert body["budget"]["settled_stop_usd"] == "20.000000"
             assert body["budget"]["remaining_to_stop_usd"] == "5.000000"
-            assert body["budget"]["maximum_usd"] == "23.000000"
+            assert set(body["budget"]) == {"settled_usd", "settled_stop_usd", "remaining_to_stop_usd"}
         else:
             assert body["result"]["objects"] == ["frame"]
     assert result["budget"]["remaining_to_stop_usd"] == B.usd_text(
@@ -112,32 +112,32 @@ def test_runway_deducts_unsettled_holds_and_clamps_zero_without_releasing_money(
     assert summary["settled_stop_usd"] == f"{int(stop)}.000000"
     assert summary["remaining_to_stop_usd"] == remaining
     output = invoke(scene, "budget_status", context=L.RunStatus(guard))
-    assert record(output)["budget"] == owner_money(summary)
-    # Warning starts from settled spend, not from an unbilled request's reservation.
+    assert record(output)["budget"] == money_facts(summary)
+    assert record(output)["budget"]["remaining_to_stop_usd"] == B.usd_text(B.cap_to_micro(stop) - 1_250_000)
     assert "finish your best checkpoint soon" not in _footer(output)
     assert guard.ledger_path.read_bytes() == before
 
 
-def test_legacy_guard_without_stop_keeps_cap_footer_and_null_runway(tmp_path, scene):
+def test_guard_without_separate_stop_uses_owner_cutoff(tmp_path, scene):
     guard = _settled_guard(tmp_path, stop=None)
     before = guard.ledger_path.read_bytes()
     summary = guard.summary()
-    assert summary["settled_stop_usd"] is None and summary["remaining_to_stop_usd"] is None
+    assert summary["settled_stop_usd"] == "23.000000" and summary["remaining_to_stop_usd"] == "21.750000"
     output = invoke(scene, "budget_status", context=L.RunStatus(guard))
-    assert record(output)["budget"] == owner_money(summary)
-    assert "spent $1.25 (settled)" in _footer(output) and "reserve cap $23.00" in _footer(output)
-    assert " stop " not in _footer(output) and "finish your best checkpoint soon" not in _footer(output)
+    assert record(output)["budget"] == money_facts(summary)
+    assert "spent $1.250000 (settled)" in _footer(output) and "owner cutoff $23.000000" in _footer(output)
+    assert "reserve" not in _footer(output) and "finish your best checkpoint soon" not in _footer(output)
     assert guard.ledger_path.read_bytes() == before
 
 
-@pytest.mark.parametrize("tokens,notice", [(5999, False), (6000, True), (6001, True)])
-def test_notice_includes_exact_75_percent_for_decimal_dollar_limits(tmp_path, tokens, notice):
+@pytest.mark.parametrize("tokens", [5999, 6000, 6001])
+def test_no_early_finish_notice_at_75_percent_for_decimal_dollar_limits(tmp_path, tokens):
     guard = _settled_guard(tmp_path, stop="0.10", tokens=tokens)
     summary = guard.summary()
     if tokens == 6000:
         assert summary["settled_micro_usd"] == 75_000
         assert summary["remaining_to_stop_usd"] == "0.025000"
-    assert ("finish your best checkpoint soon" in L.RunStatus(guard).footer()) is notice
+    assert "finish your best checkpoint soon" not in L.RunStatus(guard).footer()
 
 
 def test_footer_is_separate_from_json_and_preserves_image_positions(tmp_path, scene):
@@ -153,7 +153,7 @@ def test_footer_is_separate_from_json_and_preserves_image_positions(tmp_path, sc
     assert isinstance(output[1], ToolOutputText) and "view canonical:front" in output[1].text
     assert isinstance(output[2], ToolOutputImage) and output[2].image_url.startswith("data:image/png;base64,")
     assert _footer(output) == runtime.footer()
-    assert "About $5.00 left" in _footer(output)
+    assert "left before cutoff $5.000000" in _footer(output)
 
 
 @pytest.mark.parametrize("kind", ["busy", "refused"])
@@ -171,7 +171,7 @@ def test_early_tool_results_also_carry_the_runway_footer(tmp_path, scene, kind):
         output = invoke(scene, "read_image", {"path": "work/missing.png"}, context=runtime)
         assert record(output)["status"] == "refused"
     assert len(output) == 2 and _footer(output) == runtime.footer()
-    assert "About $5.00 left" in _footer(output)
+    assert "left before cutoff $5.000000" in _footer(output)
 
 
 def test_sdk_timeout_keeps_original_message_and_adds_current_runway(tmp_path, scene):
@@ -182,7 +182,7 @@ def test_sdk_timeout_keeps_original_message_and_adds_current_runway(tmp_path, sc
     original = default_tool_timeout_error_message(tool_name=tool.name, timeout_seconds=1.25)
     assert original == "Tool 'scene_summary' timed out after 1.25 seconds."
     assert tool.timeout_error_function(context, error) == original + "\n" + runtime.footer()
-    assert "About $5.00 left" in runtime.footer()
+    assert "left before cutoff $5.000000" in runtime.footer()
     assert scene.s.calls == []
 
 

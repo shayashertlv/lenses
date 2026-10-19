@@ -326,6 +326,12 @@ class ApprovedRun:
     owner_words: str
     settled_only: bool = False
 
+    def require_current_money_mode(self):
+        """Old approval records remain verifiable, but cannot authorize a new reservation-mode run."""
+        if not self.settled_only:
+            raise ApprovalRefused("stale", "legacy reservation-mode approval cannot start a new run; "
+                                  "estimate and approve a settled-only run")
+
     def binding(self) -> dict:
         return {"approval_sha256": self.approval_sha256, "approval_request_sha256": self.approval_request_sha256,
                 "request_sha256": self.request_sha256, "max_micro_usd": self.max_micro,

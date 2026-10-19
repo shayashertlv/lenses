@@ -294,19 +294,21 @@ def unpack(x: np.ndarray, unit_px: float, pivot: np.ndarray | None = None) -> Ca
 
 
 def align(scene: raster.RasterScene, lv: Level, yaw: float, pitch: float, roll: float,
-          perspective: float = SEED_PERSPECTIVE) -> Camera:
+          perspective: float = SEED_PERSPECTIVE, *, eye_x: float = 0., eye_y: float = 0.) -> Camera:
     """Align the full bbox, or required bbox when it better explains the photo at the same angles.
 
     Optional lenses may be visible or clear. Keep both physical support hypotheses, scored with the same loss;
     the full candidate wins ties. The angular priors and number of refined starts remain unchanged.
+    Lateral eye coordinates participate in bbox alignment, before scale and image centre are chosen.
     """
     def aligned(hull):
-        pts = project(hull, Camera(yaw, pitch, roll, perspective, 1.0, 0.0, 0.0))
+        pts = project(hull, Camera(yaw, pitch, roll, perspective, 1.0, 0.0, 0.0, eye_x, eye_y))
         lo, hi = pts.min(axis=0), pts.max(axis=0)
         x0, y0, x1, y1 = lv.bbox
         scale = (x1 - x0) / max(hi[0] - lo[0], 1e-9)
         c = np.array([(x0 + x1 - 1) / 2.0, (y0 + y1 - 1) / 2.0]) - (lo + hi) / 2.0 * scale
-        return Camera(float(yaw), float(pitch), float(roll), float(perspective), float(scale), float(c[0]), float(c[1]))
+        return Camera(float(yaw), float(pitch), float(roll), float(perspective), float(scale), float(c[0]), float(c[1]),
+                      float(eye_x), float(eye_y))
 
     full = aligned(scene.hull)
     if lv.required_hull is None:
@@ -556,15 +558,18 @@ class ViewFit:
         return c2, l2
 
     def staged(self, lv: Level, cam: Camera, stages, maxfev: int,
-               pitch_win: tuple[float, float] | None = None) -> tuple[Camera, float]:
+               pitch_win: tuple[float, float] | None = None,
+               yaw_win: tuple[float, float] | None = None) -> tuple[Camera, float]:
         """Successive Powell runs with shrinking bounds (fresh directions each time), each followed by a
         contour-ICP step that is kept only when it lowers the same level loss."""
         pw = pitch_window(self.view) if pitch_win is None else pitch_win
         loss = None
         for st in stages:
+            yw = yaw_window(self.view, cam.yaw) if yaw_win is None else yaw_win
             cam, loss = self.powell(lv, cam, maxfev, local=st, xtol=0.05 if lv.name == "coarse" else 0.02,
-                                    pitch_win=pw)
-            c2 = contour_icp(self.scene, lv, cam, self.unit, self.pivot, yaw_window(self.view, cam.yaw),
+                                    pitch_win=pw, **({"yaw_win": yw} if yaw_win is not None else {}))
+            c2 = contour_icp(self.scene, lv, cam, self.unit, self.pivot,
+                             yw if yaw_win is not None else yaw_window(self.view, cam.yaw),
                              pitch_win=pw, roll_win=roll_window(self.view, cam.roll), eye_limit=self.eye_limit)
             self.evals += ICP_ITERS
             if c2 is not None:

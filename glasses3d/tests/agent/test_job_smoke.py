@@ -9,8 +9,10 @@ from unittest.mock import AsyncMock, Mock
 from PIL import Image
 import pytest
 
-from glasses3d.agent import approvals as A, cli, estimate as E, job_run, jobs
-from glasses3d.agent.pricing import Tariff, usd_text
+from glasses3d.agent import approvals as A, cli, estimate as E, job_run, jobs, loop as L, replay as R
+from glasses3d.agent.pricing import Tariff
+from glasses3d.tests.agent.loop_support import FakeScene
+from glasses3d.tests.agent.test_job_tools import scene  # noqa: F401 - lightweight canonical-tool fixture
 
 
 @pytest.fixture
@@ -56,16 +58,22 @@ def test_one_request_estimate_counts_all_photos_without_cache_credit(images):
     assert result["smoke"]["images"] == images and result["smoke"]["max_turns"] == 1
 
 
-def test_smoke_estimate_enforces_full_output_hold_even_when_expected_spend_fits():
+@pytest.mark.parametrize("cap", ["0.01", "0.25"])
+def test_smoke_estimate_does_not_use_forecast_cost_as_admission(cap):
     tariff = Tariff.frozen()
     initial = E.initial_context_tokens(4000, 6)
     hold = tariff.reserve_micro(initial, 4096)
     expected = tariff.settle_micro(E.causal_request_usage(initial, 0, E.G3D_PARAMETERS))
-    assert expected < hold - 1
-    with pytest.raises(E.EstimateError, match="hold"):
-        E.smoke_estimate(4000, images=6, cap_usd=usd_text(hold - 1), one_request=True)
-    result = E.smoke_estimate(4000, images=6, cap_usd=usd_text(hold), one_request=True)
-    assert result["cap_micro_usd"] == result["largest_hold_micro_usd"] == hold
+    result = E.smoke_estimate(4000, images=6, cap_usd=cap, one_request=True)
+    assert result["cap_micro_usd"] < hold == result["largest_hold_micro_usd"]
+    assert result["expected_micro_usd"] == expected
+    assert result["suggested_cap_usd"] == result["smoke"]["cap_usd"] == f"{float(cap):.6f}"
+    assert "reply in flight can cross the cutoff" in result["text"]
+
+
+def test_smoke_estimate_requires_a_positive_settled_cutoff():
+    with pytest.raises(E.EstimateError, match="positive settled cutoff"):
+        E.smoke_estimate(4000, cap_usd="0", one_request=True)
 
 
 def test_historical_smoke_estimate_defaults_remain_two_requests_one_photo():
@@ -117,11 +125,16 @@ def test_smoke_settings_round_trip_preserves_mode_zero_continuations_and_approva
     assert rebuilt.current_request_sha256 == spec.current_request_sha256
 
 
-@pytest.mark.parametrize("change", [{"max_turns": 2}, {"max_output_tokens": 8192}, {"max_continuations": 1},
-                                    {"settled_stop_usd": "0.8"}])
+@pytest.mark.parametrize("change", [{"max_turns": 2}, {"max_output_tokens": 8192}, {"max_continuations": 1}])
 def test_smoke_refuses_settings_that_could_outlive_or_exceed_its_single_request(job, change):
     with pytest.raises(ValueError, match="smoke"):
         job_run.prepare_run(job, settings=replace(job_run.settings_smoke(), **change), cap="1", write_request=True)
+    assert not list(job.glob("runs/*/approval-request.json"))
+
+
+def test_smoke_refuses_a_cutoff_different_from_the_requested_approval(job):
+    with pytest.raises(ValueError, match="approval amount must equal the settled stop"):
+        job_run.prepare_run(job, settings=job_run.settings_smoke("0.8"), cap="1", write_request=True)
     assert not list(job.glob("runs/*/approval-request.json"))
 
 
@@ -131,7 +144,9 @@ def test_smoke_cannot_resume_existing_model_history(job):
     assert not list(job.glob("runs/*/approval-request.json"))
 
 
-@pytest.mark.parametrize("extra,cap", [([], "1.000000"), (["--cap", "0.8"], "0.800000")])
+@pytest.mark.parametrize("extra,cap", [([], "1.000000"), (["--cap", "0.8"], "0.800000"),
+                                     (["--settled-stop", "0.8"], "0.800000"),
+                                     (["--cap", "0.01"], "0.010000")])
 def test_cli_smoke_estimate_defaults_and_explicit_cap_bind_both_limits(job, extra, cap):
     record = command("estimate", "--smoke", job, *extra)
     settings = record["request"]["settings"]
@@ -142,20 +157,36 @@ def test_cli_smoke_estimate_defaults_and_explicit_cap_bind_both_limits(job, extr
 
 
 @pytest.mark.parametrize("extra", [["--turns", "2"], ["--max-output-tokens", "8192"],
-                                  ["--settled-stop", "0.8"], ["--cap", "0.01"]])
-def test_cli_invalid_or_unaffordable_smoke_refuses_before_creating_request(job, capsys, extra):
+                                  ["--settled-stop", "0.8", "--cap", "1"], ["--cap", "0"]])
+def test_cli_invalid_smoke_refuses_before_creating_request(job, capsys, extra):
     assert cli.main(["job", "estimate", "--smoke", str(job), *extra]) == 2
     assert json.loads(capsys.readouterr().err)["status"] == "refused"
     assert not list(job.glob("runs/*/approval-request.json"))
 
 
-def test_cli_ordinary_estimate_defaults_are_unchanged(job):
+def test_cli_ordinary_estimate_defaults_use_one_settled_cutoff(job):
     record = command("estimate", job)
     settings = record["request"]["settings"]
     assert settings.get("smoke", False) is False
     assert settings["max_turns"] is None and settings["max_output_tokens"] == 16384
-    assert settings["settled_stop_usd"] == "20.000000" and record["requested_cap_usd"] == "23.000000"
+    assert settings["settled_only"] is True
+    assert settings["settled_stop_usd"] == record["requested_cap_usd"] == "20.000000"
     assert record["estimate"]["requests"] == 60
+
+
+def test_smoke_below_cutoff_sends_one_full_request_even_when_reply_crosses_it(job, scene, monkeypatch):
+    monkeypatch.setattr(L, "ProductionClients", lambda *a, **k: pytest.fail("paid clients forbidden"))
+    transport = R.ScriptedOpenAI([R.tool_call("budget_status", counted=1000)])
+    spec, _ = job_run.prepare_run(job, "small-smoke", settings=job_run.settings_smoke("0.01"), cap="0.01",
+                                  write_request=True, scene=scene, offline_handler=transport.handle)
+    A.write_approval(job / "runs" / spec.run_id, max_usd="0.01", owner_words="Offline smoke proof only")
+    result = asyncio.run(L.run_astra(spec, scene=FakeScene()))
+    assert result["status"] == "completed" and result["smoke"]["ok"]
+    assert len(transport.counts) == len(transport.creates) == result["requests"] == 1
+    assert transport.creates[0]["max_output_tokens"] == 4096
+    assert result["budget"]["settled_micro_usd"] == 15_000 > 10_000
+    assert result["budget"]["unknown_micro_usd"] == result["budget"]["held_micro_usd"] == 0
+    assert not transport.violations and not transport.unexpected
 
 
 def test_cli_foreground_smoke_passes_the_explicit_mode(job, monkeypatch):

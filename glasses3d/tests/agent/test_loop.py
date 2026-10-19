@@ -33,19 +33,12 @@ SETTINGS = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=10)
 REAL_PRODUCTION = L.ProductionClients
 
 
-def test_sdk_opt_in_budget_fit_binds_setting_and_sends_reduced_ceiling(tmp_path):
+def test_sdk_rejects_legacy_output_fitting_before_any_request(tmp_path):
     settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=2, fit_output_to_budget=True)
     usage = R.default_usage(1000, output_tokens=20)
-    job, transport, result, _ = run_once(tmp_path, [R.message("done", usage=usage, counted=1000)],
-                                        cap="0.020", settings=settings)
-    assert result["status"] == "completed"
-    assert transport.creates[0]["max_output_tokens"] == 150
-    rows = assert_money_invariants(job, RUN, transport)
-    assert rows[0]["reserved_micro_usd"] == 20000
-    archived = json.loads((job / "runs" / RUN / "transport" / "0001-request.json").read_text())
-    assert archived["max_output_tokens"] == 150
-    request = json.loads((job / "runs" / RUN / "approval-request.json").read_text())
-    assert request["request"]["settings"]["fit_output_to_budget"] is True
+    with pytest.raises((ApprovalRefused, L.RunRefused), match="settled|output"):
+        run_once(tmp_path, [R.message("done", usage=usage, counted=1000)], cap="0.020", settings=settings)
+    assert not list(tmp_path.rglob("budget.json"))
 
 
 def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
@@ -60,16 +53,16 @@ def test_sdk_no_reply_cap_runs_past_default_and_accounts_continuation(tmp_path):
 
 
 @pytest.mark.parametrize("cap,counted,expected_requests,expected_spend,expected_counts", [
-    ("23", 400_000, 2, 20_000_000, 2),  # reaches the stop; third request is neither counted nor reserved
-    ("23", 540_000, 1, 13_500_000, 2),  # below the stop, but the next reservation would exceed $23
-    ("44.2788", 540_000, 2, 27_000_000, 2),  # owner-approved headroom admits the last request at $13.50
+    ("20", 400_000, 2, 20_000_000, 2),  # exact cutoff: no third count/send
+    ("20", 540_000, 2, 27_000_000, 2),  # next request starts at $13.50 and crosses the cutoff
+    ("23", 540_000, 2, 27_000_000, 2),  # a different owner cutoff is the only money boundary
 ])
-def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
+def test_settled_cutoff_alone_controls_scripted_transport(
         tmp_path, monkeypatch, cap, counted, expected_requests, expected_spend, expected_counts):
     # Isolate admission at deliberately huge fixed counts. Actual renewal and
     # unchanged money terms together are covered by test_conversation_renewal.
     monkeypatch.setattr(L.ConversationRenewal, "check", lambda *args: None)
-    settings = L.RunSettings(effort="high", max_output_tokens=16384, max_turns=10, settled_stop_usd="20")
+    settings = L.RunSettings(effort="high", max_output_tokens=16384, max_turns=10, settled_stop_usd=cap)
     usage = R.default_usage(counted, output_tokens=0, reasoning_tokens=0)
     replies = [R.tool_call("scene_summary", {}, counted=counted, usage=usage) for _ in range(3)]
     job, transport, result, _ = run_once(tmp_path, replies, cap=cap, settings=settings)
@@ -80,20 +73,19 @@ def test_settled_stop_and_reserve_cap_are_independent_on_scripted_transport(
     assert result["turns_used"] == expected_requests + 1
     settled = 0
     for row in assert_money_invariants(job, RUN, transport, refused_count=expected_counts - expected_requests):
-        assert settled < 20_000_000
-        assert settled + row["reserved_micro_usd"] <= B.cap_to_micro(cap)
+        assert settled < B.cap_to_micro(cap)
         settled += row["settled_micro_usd"]
     config = json.loads((job / "runs" / RUN / "run-config.json").read_text())
-    assert config["settled_stop_usd"] == result["settings"]["settled_stop_usd"] == "20.000000"
+    assert config["settled_stop_usd"] == result["settings"]["settled_stop_usd"] == B.usd_text(B.cap_to_micro(cap))
 
 
-def test_settled_stop_is_bound_to_approval_and_zero_stops_before_count(tmp_path):
+def test_settled_stop_is_bound_to_approval_and_zero_is_refused_before_count(tmp_path):
     settings = L.RunSettings(effort="max", settled_stop_usd="0")
-    _, transport, result, _ = run_once(tmp_path, [R.message("never sent")], settings=settings)
-    assert result["status"] == "budget_limit" and result["turns_used"] == 1
-    assert transport.creates == transport.counts == []
+    with pytest.raises((ApprovalRefused, L.RunRefused), match="cutoff|settled|positive"):
+        run_once(tmp_path, [R.message("never sent")], settings=settings)
+    assert not list(tmp_path.rglob("budget.json"))
     scene, tools = make_tools()
-    job, sha = make_job(tmp_path / "changed", tools=tools, settings=settings)
+    job, sha = make_job(tmp_path / "changed", tools=tools, settings=L.RunSettings(effort="max", settled_stop_usd="5"))
     altered = L.RunSettings(effort="max", settled_stop_usd="20")
     with pytest.raises(ApprovalRefused, match="settings"):
         run(L.run_astra(spec_for(job, RUN, sha, tools, R.ScriptedOpenAI([R.message("never sent")]),
@@ -408,17 +400,17 @@ def test_continuations_count_against_max_turns(tmp_path):
 
 
 def test_budget_limit_sends_no_request_after_the_refusal(tmp_path):
-    # each hold: 1,000 counted x $12.5/M + 4,096 x $50/M = 217,300 micro; the first settles at 15,000, so the second
-    # needs 15,000 + 217,300 = 232,300 > the $0.22 cap (the first fits: 217,300 <= 220,000)
+    # The full 4,096-token reply starts below the cutoff; settlement reaches $0.015 exactly.
     replies = [R.tool_call("scene_summary", {}, counted=1000), R.message("never sent", counted=1000)]
-    job, transport, result, _ = run_once(tmp_path, replies, cap="0.22")
+    job, transport, result, _ = run_once(tmp_path, replies, cap="0.015")
     assert result["status"] == "budget_limit" and result["error"]["type"] == "BudgetExceeded"
-    rows = assert_money_invariants(job, RUN, transport, refused_count=1)
+    rows = assert_money_invariants(job, RUN, transport)
     assert len(transport.creates) == 1 and [row["reserved_micro_usd"] for row in rows] == [217_300]
+    assert transport.creates[0]["max_output_tokens"] == 4096
     assert rows[0]["settled_micro_usd"] == 15_000 and result["budget"]["blocked_kind"] == "BudgetExceeded"
     assert transport_files(job, RUN) == ["0001-request.json", "0001-response.json"]
     transcript = (job / "runs" / RUN / "transcript.md").read_text(encoding="utf-8")
-    assert "the budget guard did not send the next request (Next request needs a hold of $0.217300" in transcript
+    assert "the budget guard did not send the next request" in transcript
     assert "The run ended: budget_limit (BudgetExceeded); 1 request(s), spent $0.015000 (settled); " in transcript
     assert "held for the request in flight $0.000000 (released after it settles)" in transcript
 
@@ -460,7 +452,8 @@ def test_an_ordinary_tool_error_reaches_astra_as_text_and_the_run_goes_on(tmp_pa
     output = [item for item in transport.creates[1]["input"] if item.get("type") == "function_call_output"][0]
     message, footer = output["output"].split("\n")
     assert message == "An error occurred while running the tool. Please try again. Error: no such object"
-    assert footer == L.footer_text(ledger_rows(job, RUN)[0]["settled_micro_usd"] / 1e6, 5, 3358, held_usd=0)
+    assert footer == L.footer_text(ledger_rows(job, RUN)[0]["settled_micro_usd"] / 1e6, 5,
+                                  transport.count_answers[0], settled_stop_usd=5)
 
 
 # =========================================================================== stop and heartbeat
@@ -935,7 +928,8 @@ def test_a_broken_contract_or_a_full_disk_refuses_before_anything_is_spent(tmp_p
 def test_model_clients_is_offline_only_under_the_offline_conditions(tmp_path, monkeypatch):
     scene, tools = make_tools()
     transport = R.ScriptedOpenAI([])
-    spec = spec_for(tmp_path, RUN, "a" * 64, tools, transport)
+    spec = spec_for(tmp_path, RUN, "a" * 64, tools, transport,
+                    settings=L.RunSettings(effort="max", settled_stop_usd="5"))
     clients = L.model_clients(spec)
     assert isinstance(clients, L.OfflineClients) and clients.secrets == [OFFLINE_KEY]
     spec.offline_api_key = "sk-proj-not-offline"

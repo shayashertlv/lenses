@@ -232,15 +232,15 @@ async def run_round(root, run_id, plan, phase, out):
             assert stage and stage["status"] == "ok", stage
         return original_handle(request)
     settings=replace(job_run.settings_default(),effort="high",max_turns=30,max_output_tokens=4096)
-    spec,scene=job_run.prepare_run(root,run_id,settings=settings,cap="23",write_request=True,offline_handler=handle)
+    spec,scene=job_run.prepare_run(root,run_id,settings=settings,cap="20",write_request=True,offline_handler=handle)
     refused=False
     try:
-        approvals.check_approval(root/"runs"/run_id,current_request_sha256=spec.current_request_sha256,requested_cap_usd="23")
+        approvals.check_approval(root/"runs"/run_id,current_request_sha256=spec.current_request_sha256,requested_cap_usd="20")
     except approvals.ApprovalRefused as exc:
         refused=True
     assert refused, "Every round must need a new approval"
     from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
-    approve_offline_request(root/"runs"/run_id,handle,cap="23")
+    approve_offline_request(root/"runs"/run_id,handle,cap="20")
     outcome=await job_run.execute_run(root,run_id,offline_handler=handle,scene=scene)
     assert not script.transport.unexpected and not script.transport.violations
     assert not any(row.get("type") in {"function_call","function_call_output"}

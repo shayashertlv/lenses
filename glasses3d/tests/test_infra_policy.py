@@ -70,7 +70,7 @@ def test_existing_proof_request_can_only_be_authorized_offline(tmp_path, monkeyp
         run = root / 'runs' / spec.run_id
         with pytest.raises(A.ApprovalRefused, match='approval'):
             A.check_approval(run, current_request_sha256=spec.current_request_sha256)
-        approve_offline_request(run, transport.handle, cap='23')
+        approve_offline_request(run, transport.handle, cap='20')
         assert json.loads((run / 'approval-request.json').read_text())['offline_only'] is True
         assert json.loads((run / 'approval.json').read_text())['authorized_by'] == 'offline_fixture'
         _check_bound_request(run, spec)
@@ -78,7 +78,7 @@ def test_existing_proof_request_can_only_be_authorized_offline(tmp_path, monkeyp
         with pytest.raises(A.ApprovalRefused, match='cannot authorize a production run'):
             _check_bound_request(run, replace(spec, offline_handler=None, offline_api_key=None))
         with pytest.raises(ValueError, match='cannot replace'):
-            approve_offline_request(run, transport.handle, cap='23')
+            approve_offline_request(run, transport.handle, cap='20')
         assert not A.is_consumed(run)
     assert not network.attempts and not clients.constructions
     assert not transport.counts and not transport.creates

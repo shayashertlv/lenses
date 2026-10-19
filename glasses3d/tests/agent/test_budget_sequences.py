@@ -1,6 +1,6 @@
 """Randomized but deterministic event sequences through BudgetGuard (fixed seeds): after every step the on-disk
-ledger re-validates (re-priced, tamper-checked) and equals memory, committed money never exceeds the cap unless a
-violation is recorded, at most one request is open and it is the last row, nothing is reserved after an unknown
+ledger re-validates (re-priced, tamper-checked) and equals memory, no new row starts at the settled cutoff,
+at most one request is open and it is the last row, nothing is reserved after an unknown
 outcome or a violation, and a refused request is never counted twice."""
 import asyncio
 import json
@@ -31,8 +31,10 @@ def check_invariants(guard, path):
     disk = RunLedger.load(path)                       # re-priced and tamper-checked every step
     assert disk.rows == guard.ledger.rows
     totals = disk.totals()
-    if disk.violation is None:
-        assert totals["committed_micro_usd"] <= disk.maximum_micro
+    assert disk.settled_only
+    for index in range(len(disk.rows)):
+        prior = sum(row["settled_micro_usd"] or 0 for row in disk.rows[:index])
+        assert prior < disk.maximum_micro
     held = [row for row in disk.rows if row["outcome"] == "held"]
     assert len(held) <= 1 and (not held or disk.rows[-1]["outcome"] == "held")
     for row in disk.rows:

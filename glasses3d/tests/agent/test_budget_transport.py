@@ -257,12 +257,11 @@ def test_runner_connection_error_or_timeout_leaves_one_request_for_the_loop_to_m
 
 
 def test_runner_budget_limit_sends_nothing_after_the_refusal(tmp_path):
-    # $0.84 covers the first 16,384-token hold ($0.831825) but not the second ($0.831950) beside the first
-    # settlement ($0.015125): 0.015125 + 0.831950 = 0.847075 > 0.84
+    # The full first request is sent, then its exact $0.015125 settlement reaches the cutoff.
     handler, state = scripted([tool_call, message])
-    guard, hooks, error = run(run_agent(tmp_path, handler, cap="0.84"))
+    guard, hooks, error = run(run_agent(tmp_path, handler, cap="0.015125"))
     assert error is not None and guard.blocked_kind == "BudgetExceeded" and guard.status_hint() == "budget_limit"
-    assert state["creates"] == 1 and state["counts"] == 2 and len(guard.ledger.rows) == 1
+    assert state["creates"] == 1 and state["counts"] == 1 and len(guard.ledger.rows) == 1
     assert guard.ledger.rows[0]["outcome"] == "settled"
 
 

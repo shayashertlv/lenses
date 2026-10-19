@@ -57,14 +57,14 @@ def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, m
                                    if marker in json.dumps(body) else 100))
     run_id = "owner-renewal"
     settings = replace(job_run.settings_default(), max_turns=3, max_output_tokens=100)
-    spec, prepared = job_run.prepare_run(h.root, run_id, settings=settings, cap="23", write_request=False,
+    spec, prepared = job_run.prepare_run(h.root, run_id, settings=settings, cap="20", write_request=False,
                                          scene=scene, offline_handler=transport.handle)
     assert prepared is scene and spec.settings.finish_tool == "understand_finish"
     with pytest.raises(A.ApprovalRefused, match="no approval-request.json"):
         A.check_approval(h.root / "runs" / run_id, current_request_sha256=spec.current_request_sha256,
-                         requested_cap_usd="23")
+                         requested_cap_usd="20")
     offline_spec, unused_scene = prepare_offline_request(h.root, run_id, transport.handle,
-                                                        settings=settings, cap="23")
+                                                        settings=settings, cap="20")
     assert offline_spec.current_request_sha256 == spec.current_request_sha256
     assert unused_scene.s.worker is None
     unused_scene.close()

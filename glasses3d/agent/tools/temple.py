@@ -28,8 +28,8 @@ def temple_tool(scene, call, parent_settings, fatal):
         refuses missing targets, multiple body materials, non-single-valued outlines and an unavailable hinge axis;
         construction refuses open solids, insufficient thickness and inconsistent declared creases.
         Needs existing temples and a frozen camera basis for the photos. A specialist uses its own photos, prompt
-        and facet tools within the owner's remaining run budget; its requests also count against the
-        run's money and interaction limits. The accepted fitted temples are applied only if the parent head still
+        and facet tools; its requests share the parent's cutoff and interaction limits.
+        The accepted fitted temples are applied only if the parent head still
         matches the captured one. Inspect its summary, compare the result to photos, and continue the job.
         When deriving a hinge axis from an unposed source, recognition needs a temple-role part centered on
         each side, with world X and Z bounding-box extents each strictly below 3.2 mm and center Z within
@@ -39,7 +39,6 @@ def temple_tool(scene, call, parent_settings, fatal):
         (extended 4 mm rearward), at most 20,000 vertices; knuckles are under 3.2 mm in X and Z, temple leaves
         under 15 mm in Z. Compare these mechanics to the photos before choosing this tool.
 
-        Only the owner sets money limits. The same settled stop and maximum reserve govern every child request.
         """
         runtime = getattr(ctx, "context", None)
         attached = getattr(runtime, "runtime", None)
@@ -53,7 +52,7 @@ def temple_tool(scene, call, parent_settings, fatal):
                 or (stop is not None and summary["settled_micro_usd"] >= cap_to_micro(stop))):
             return await call(ctx, "temple_stage", lambda cid: {
                 "status": "refused", "code": "E_STAGE_BUDGET",
-                "message": "the owner's budget has no available runway, or a request remains unsettled"})
+                "message": "the owner's cutoff has been reached, or a request remains unsettled"})
         # The shared guard applies the approved money policy to every child request. In settled-only mode
         # this remaining amount is informational; estimated holds cannot exhaust the stage early.
         bridge = stage.StageBridge(asyncio.get_running_loop())
@@ -74,11 +73,5 @@ def temple_tool(scene, call, parent_settings, fatal):
             "the host-sealed support. Other geometry, materials, UVs and settings stay unchanged; every physical "
             "and strict specification check remains. Only a completed accepted child can apply its actual mesh "
             "patch, and only if the parent still matches the captured head. Read its summary and compare the "
-            "result. The same owner settled stop and reserve govern all child requests; no new money is granted.")
-    if getattr(parent_settings, "settled_only", False):
-        temple_stage.description = temple_stage.description.replace(
-            "The same settled stop and maximum reserve govern every child request.",
-            "Parent and specialist share one settled-only stop; estimated reservations cannot stop requests early.").replace(
-            "The same owner settled stop and reserve govern all child requests; no new money is granted.",
-            "Parent and specialist share one settled-only stop; estimated reservations cannot stop requests early.")
+            "result. Child requests share the parent's cutoff.")
     return temple_stage

@@ -401,7 +401,8 @@ def test_make_spec_binds_the_facet_settings_and_writes_an_unapproved_request(tmp
     doc = json.loads((run / "approval-request.json").read_text(encoding="utf-8"))
     req = doc["request"]
     assert not (run / "approval.json").exists() and not A.is_consumed(run)
-    assert req["settings"] == settings.approval_settings() and req["settings"]["tool_choice"] == "required"
+    assert req["settings"] == spec.settings.approval_settings() and req["settings"]["tool_choice"] == "required"
+    assert req["settings"]["settled_only"] is True and req["settings"]["settled_stop_usd"] == "20.000000"
     assert req["settings"]["reset_tool_choice"] is False and req["settings"]["finish"]["k"] == 5
     assert req["settings"]["context_guard"]["input_tokens"] == T.CONTEXT_GUARD_TOKENS
     assert req["tool_registry_sha256"] == L.tool_registry_sha256(spec.tools, settings) != \
@@ -531,16 +532,12 @@ def test_visible_angle_policy_is_unresolved_only_and_carries_visual_evidence():
     assert "carry this evidence into its whole-product finish review" in text
 
 
-def test_specialist_keeps_money_for_fixable_differences_and_the_remaining_review():
+def test_specialist_keeps_fixable_differences_and_states_cutoff_without_early_finish_advice():
     text = " ".join(instructions_raw().split())
-    assert "Only the owner sets the active settled stop and reserve cap" in text
-    assert "Remaining money is for fixing visible differences" in text
     assert "Do not finish while a visible difference you can still fix remains" in text
-    assert "money left before the settled stop allows that fix and the remaining review" in text
-    assert "Leave time and money before the settled stop" in text
-    assert "stage finish and, when nested, the parent's whole-product review" in text
-    assert "Planning estimates are information only: they never refuse or shrink requests" in text
-    assert "no later request starts once settled charges reach it" in text
+    from glasses3d.agent.money import MONEY_INSTRUCTION
+    assert text.count(MONEY_INSTRUCTION) == 1
+    assert "reserve" not in text and "Planning estimates" not in text and "Leave time and money" not in text
     assert "finish reserve" not in text and "finish-reserve" not in text
 
 

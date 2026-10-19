@@ -137,9 +137,9 @@ console.log(JSON.stringify(Object.fromEntries(flags.map(flag => [flag,
     assert commands == {"capture", "serve"}
 
 
-@pytest.mark.parametrize("settled_only", [False, True])
-def test_edit_cli_binds_selected_money_policy_without_approval_or_execution(selected_source, tmp_path,
-                                                                          monkeypatch, settled_only):
+@pytest.mark.parametrize("explicit_flag", [False, True])
+def test_edit_cli_binds_settled_only_by_default_without_approval_or_execution(selected_source, tmp_path,
+                                                                            monkeypatch, explicit_flag):
     fixture = selected_source
     monkeypatch.setattr(edits, "RUNTIME_ROOT", tmp_path / "runtime")
     words = "Move the shown face."
@@ -148,19 +148,19 @@ def test_edit_cli_binds_selected_money_policy_without_approval_or_execution(sele
     edit_capabilities.write_report(report, coverage)
     argv = ["job", "edit", str(fixture.source), "--request", words, "--coverage", str(report),
             "--cap", "20", "--settled-stop", "20", "--effort", "high"]
-    if settled_only:
+    if explicit_flag:
         argv.append("--settled-only")
     result = cli.dispatch(cli.parser().parse_args(argv))
     assert result["status"] == "awaiting_separate_run_approval"
     round_root = Path(result["round_path"])
     settings, cap = job_run.prepared_settings(round_root, result["run_id"])
-    assert settings.settled_only is settled_only
+    assert settings.settled_only is True
     assert settings.effort == "high" and settings.settled_stop_usd == "20.000000"
     assert cap == "20.000000"
-    assert result["request"]["request"]["settings"].get("settled_only", False) is settled_only
+    assert result["request"]["request"]["settings"]["settled_only"] is True
     assert not list(round_root.glob("runs/*/approval.json"))
     assert not list(round_root.glob("runs/*/budget.json"))
     assert not (round_root / "work").exists()
-    # Legacy ordinary defaults remain available and unchanged.
+    # Ordinary jobs and edits share the same current money policy.
     defaults = job_run.settings_default()
-    assert defaults.effort == "max" and defaults.settled_only is False
+    assert defaults.effort == "max" and defaults.settled_only is True

@@ -141,7 +141,7 @@ def test_prototype_numbers_reproduced_and_the_difference_explained():
     assert E.estimate(25_000, 60, 8_192)["tail_micro_usd"] - 2_462_538 == 12
 
 
-def test_required_cap_admits_every_modelled_request_through_the_real_run_ledger(tmp_path):
+def test_modelled_cap_is_diagnostic_and_real_admission_uses_settled_cost(tmp_path):
     result = E.estimate(25_000, 60, 16_384)
     assert result["required_cap_micro_usd"] == 12_721_515
     assert result["required_cap_range_micro_usd"] == [11_173_817, 16_020_799]
@@ -158,6 +158,8 @@ def test_required_cap_admits_every_modelled_request_through_the_real_run_ledger(
             try:
                 row = ledger.reserve(usage["input_tokens"], 16_384)
             except BudgetExceeded:
+                assert ledger.totals()["settled_micro_usd"] == sum(projection.settled[:i]) >= cap_micro
+                assert len(ledger.rows) == i
                 return i
             assert row["reserved_micro_usd"] == projection.holds[i]
             ledger.settle(row["sequence"], usage, response_id=f"resp_{i:02d}", request_id=None)
@@ -165,7 +167,10 @@ def test_required_cap_admits_every_modelled_request_through_the_real_run_ledger(
         return 60
 
     assert drive(projection.required_cap_micro, "exact") == 60
-    assert drive(projection.required_cap_micro - 1, "short") == 59      # the last request no longer fits
+    assert drive(projection.required_cap_micro - 1, "below-estimated-cap") == 60
+    before_last = sum(projection.settled[:-1])
+    assert drive(before_last, "at-settled-cutoff") == 59
+    assert drive(before_last + 1, "below-settled-cutoff") == 60  # the in-flight reply may cross the cutoff
 
 
 # ---- the mechanics ----

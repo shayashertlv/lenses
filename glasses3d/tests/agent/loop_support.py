@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from dataclasses import replace
 from pathlib import Path
 import struct
 import zlib
@@ -147,6 +148,8 @@ def make_job(root: Path, *, tools, run_id: str = "20261007T120000-run001", cap: 
              name: str = "test-frame-0000abcd", notes=()) -> tuple[Path, str]:
     """A job directory whose run ``run_id`` has an estimate and (optionally) the owner's approval."""
     settings = settings or RunSettings(effort="max", max_output_tokens=4096, max_turns=10)
+    if settings.settled_stop_usd is None:
+        settings = replace(settings, settled_stop_usd=cap)
     job = root / "jobs" / name
     (job / "inputs" / "images").mkdir(parents=True, exist_ok=True)
     if not (job / "job.json").exists():
@@ -167,10 +170,14 @@ def make_job(root: Path, *, tools, run_id: str = "20261007T120000-run001", cap: 
 
 def spec_for(job: Path, run_id: str, request_sha: str, tools, transport: ScriptedOpenAI, *,
              settings: RunSettings | None = None, resume: bool = False, notes=(), **extra) -> RunSpec:
+    settings = settings or RunSettings(effort="max", max_output_tokens=4096, max_turns=10)
+    if settings.settled_stop_usd is None:
+        bound = json.loads((job / "runs" / run_id / "approval-request.json").read_text(encoding="utf-8"))
+        settings = replace(settings, settled_stop_usd=bound["requested_cap_usd"])
     return RunSpec(job_dir=job, run_id=run_id,
                    instructions=tool_instructions(tools, extra.pop("instructions", INSTRUCTIONS)), tools=tools,
                    brief=BRIEF, current_request_sha256=request_sha, photos=photos(2), owner_notes=list(notes),
-                   settings=settings or RunSettings(effort="max", max_output_tokens=4096, max_turns=10), resume=resume,
+                   settings=settings, resume=resume,
                    offline_handler=transport.handle, offline_api_key=OFFLINE_KEY,
                    heartbeat_interval_s=extra.pop("heartbeat_interval_s", 0.05),
                    contract=extra.pop("contract", ToolContract(frozenset(tool.name for tool in tools))), **extra)

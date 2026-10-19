@@ -39,35 +39,32 @@ def body_with_usage(block, **changes):
 
 # =========================================================================== the 22 Studio tests, ported
 
-@pytest.mark.parametrize("tokens,cap,expected", [(1000, "0.020", 150), (300000, "7.503", 40)])
-def test_opt_in_output_fits_remaining_cap_and_exact_wire_bytes(env, tokens, cap, expected):
+@pytest.mark.parametrize("tokens,cap", [(1000, "0.020"), (300000, "7.503")])
+def test_full_output_and_exact_wire_bytes_are_preserved_below_cutoff(env, tokens, cap):
     client, _ = fake_counter(tokens)
-    guard = BudgetGuard(client, env.path, cap, fit_output_to_budget=True)
+    guard = BudgetGuard(client, env.path, cap)
     req = request(max_output_tokens=4096, instructions="unaltered", tools=[])
     original = json.loads(req.content)
     run(guard.before_request(req))
-    assert json.loads(req.content) == {**original, "max_output_tokens": expected}
+    assert json.loads(req.content) == original
     assert b"".join(req.stream) == req.content
     assert int(req.headers["content-length"]) == len(req.content)
     assert req.headers["authorization"] == "Bearer private-key"
     row = ledger(env.path)["rows"][0]
-    assert row["max_output_tokens"] == expected
-    assert row["reserved_micro_usd"] == guard.ledger.maximum_micro
+    assert row["max_output_tokens"] == 4096
+    assert row["reserved_micro_usd"] > guard.ledger.maximum_micro
 
 
-def test_output_fit_refuses_when_input_cannot_fit_and_default_still_refuses(env):
-    for name, cap, adaptive in (("input", "0.010", True), ("default", "0.020", False)):
+def test_output_fitting_is_refused_before_ledger_creation(env):
+    for name, cap in (("input", "0.010"), ("default", "0.020")):
         path = env.tmp / (name + ".json")
-        guard = BudgetGuard(env.client, path, cap, fit_output_to_budget=adaptive)
-        req = request(max_output_tokens=4096)
-        before = req.content
-        with pytest.raises(BudgetExceeded):
-            run(guard.before_request(req))
-        assert req.content == before and ledger(path)["rows"] == []
+        with pytest.raises(BudgetGuardError, match="no output fitting"):
+            BudgetGuard(env.client, path, cap, fit_output_to_budget=True)
+        assert not path.exists() and env.count.call_count == 0
 
 
-def test_output_fit_uses_settled_balance_and_leaves_affordable_requests_unchanged(env):
-    guard = BudgetGuard(env.client, env.path, "0.025", fit_output_to_budget=True)
+def test_requests_use_settled_balance_and_never_shrink_output(env):
+    guard = BudgetGuard(env.client, env.path, "0.025")
     async def flow():
         first = request(max_output_tokens=100)
         before = first.content
@@ -75,9 +72,14 @@ def test_output_fit_uses_settled_balance_and_leaves_affordable_requests_unchange
         assert first.content == before
         await guard.after_response(response(body=provider_body(usage_block=usage(output=100))))
         # $0.015 settled, $0.010 left; the next input alone costs at most $0.0125.
-        with pytest.raises(BudgetExceeded):
-            await guard.before_request(request(max_output_tokens=4096))
-        assert len(guard.ledger.rows) == 1
+        second = request(max_output_tokens=4096)
+        before = second.content
+        await guard.before_request(second)
+        assert second.content == before
+        await guard.after_response(response(body=provider_body(response_id="resp_second", usage_block=usage(output=100))))
+        with pytest.raises(BudgetExceeded, match="Settled spend reached"):
+            await guard.before_request(request())
+        assert len(guard.ledger.rows) == env.count.call_count == 2
     run(flow())
 
 
@@ -126,24 +128,24 @@ def test_planning_reports_numbers_before_the_cliff_without_changing_cap_or_holds
                                                                usage_block=usage(cached=1000, output=40))))
         planning = guard.planning()
         assert planning["remaining_micro_usd"] == 16_000 < planning["next_hold_micro_usd"] == 17_500
-        with pytest.raises(BudgetExceeded):
-            await guard.before_request(request())
+        await guard.before_request(request())  # estimated liability no longer gates new requests
+        assert len(guard.ledger.rows) == 3
     run(flow())
 
 
-def test_planning_uses_latest_exact_count_after_refusal_and_long_context_tariff(env):
+def test_audit_keeps_latest_exact_count_and_long_context_tariff_above_cutoff(env):
     guard = BudgetGuard(env.client, env.path, "1")
     env.count.return_value.input_tokens = 272_001
-    with pytest.raises(BudgetExceeded):
-        run(guard.before_request(request(max_output_tokens=25_000)))
+    run(guard.before_request(request(max_output_tokens=25_000)))
     planning = guard.planning()
     assert planning["last_counted_input_tokens"] == 272_001 and planning["max_output_tokens"] == 25_000
-    assert planning["next_hold_micro_usd"] == 8_675_025 and planning["remaining_micro_usd"] == 1_000_000
-    assert guard.summary()["committed_usd"] == "0.000000" and guard.summary()["requests"] == 0
+    assert planning["next_hold_micro_usd"] == 8_675_025
+    assert guard.summary()["remaining_micro_usd"] == 1_000_000
+    assert guard.summary()["committed_usd"] == "8.675025" and guard.summary()["requests"] == 1
 
 
 def test_transport_sees_durable_reservation_and_never_sees_blocked_request(env):
-    guard = BudgetGuard(env.client, env.path, "0.017500")
+    guard = BudgetGuard(env.client, env.path, "0.001050")
     seen = []
 
     async def transport(sent):
@@ -159,7 +161,8 @@ def test_transport_sees_durable_reservation_and_never_sees_blocked_request(env):
                 await client.send(request())
     run(flow())
     assert seen == [(17_500, "held")]
-    assert guard.summary()["remaining_usd"] == "0.016450"
+    assert guard.summary()["remaining_usd"] == "0.000000"
+    assert env.count.call_count == 1
     assert guard.summary()["blocked_kind"] == "BudgetExceeded" and guard.status_hint() == "budget_limit"
 
 
@@ -228,8 +231,9 @@ def test_long_context_cache_write_reservation_and_cap_round_down(env):
     guard = BudgetGuard(env.client, env.path, str(amount / 1_000_000))
     run(guard.before_request(request()))
     assert ledger(env.path)["rows"][0]["reserved_micro_usd"] == amount == 272_001 * 25 + 100 * 75
-    another = BudgetGuard(env.client, env.tmp / "fractional.json", "0.0000009")
-    assert another.summary()["maximum_usd"] == "0.000000"
+    with pytest.raises(BudgetGuardError, match="positive settled stop"):
+        BudgetGuard(env.client, env.tmp / "fractional.json", "0.0000009")
+    assert not (env.tmp / "fractional.json").exists()
 
 
 def test_counter_failure_and_invalid_count_stop_request_without_logging_error_body(env, monkeypatch):
@@ -601,7 +605,7 @@ def test_actual_async_openai_transport_preserves_hook_and_refusal(env):
         async with AsyncOpenAI(api_key=OFFLINE_KEY, base_url="https://api.openai.com/v1", max_retries=0,
                                http_client=DefaultAsyncHttpxClient(
                                    transport=httpx2.MockTransport(count_transport))) as counter:
-            guard = BudgetGuard(counter, env.path, "0.017500")
+            guard = BudgetGuard(counter, env.path, "0.001050")
             async with AsyncOpenAI(api_key=OFFLINE_KEY, base_url="https://api.openai.com/v1", max_retries=0,
                                    http_client=DefaultAsyncHttpxClient(
                                        transport=httpx2.MockTransport(inference_transport),
@@ -617,10 +621,9 @@ def test_actual_async_openai_transport_preserves_hook_and_refusal(env):
                     assert isinstance(error.value.__cause__, BudgetExceeded)
         return guard
     guard = run(flow())
-    assert calls == ["count", "inference", "count"]
-    assert guard.blocked_kind == "BudgetExceeded" and "maximum reserve" in guard.blocked_reason
-    assert "spent $0.001050 (settled)" in guard.blocked_reason
-    assert "held for the request in flight $0.000000" in guard.blocked_reason
+    assert calls == ["count", "inference"]
+    assert guard.blocked_kind == "BudgetExceeded" and "Settled spend reached" in guard.blocked_reason
+    assert "$0.001050" in guard.blocked_reason and "no inference sent" in guard.blocked_reason
     row = ledger(env.path)["rows"][0]
     assert (row["response_id"], row["request_id"], row["settled_micro_usd"]) == ("resp_mock", "req_mock", 1050)
 

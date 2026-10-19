@@ -1,12 +1,13 @@
 """Synthetic, production-unspendable approval for an explicitly offline proof.
 
 No estimator or owner-approval writer is called. The ordinary request binding,
-reserve, ledger and execution guards remain active. This helper only prepares
+settled cutoff, ledger and execution guards remain active. This helper only prepares
 files; it never starts a job or sends a request.
 """
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -40,8 +41,12 @@ def approve_offline_request(run_dir, offline_handler, *, cap):
             or request.get('request_sha256') != A.request_sha256(request['request'])):
         raise ValueError('offline fixture requires an intact bound request')
     cap_micro = cap_to_micro(cap)
-    if cap_micro <= 0:
-        raise ValueError('offline fixture cap must be positive')
+    settings = request['request']['settings']
+    if (cap_micro <= 0 or settings.get('settled_only') is not True
+            or cap_to_micro(settings.get('settled_stop_usd')) != cap_micro
+            or settings.get('fit_output_to_budget', False)
+            or request.get('requested_cap_micro_usd') != cap_micro):
+        raise ValueError('offline fixture requires settled-only mode and the exact positive cutoff')
     request['offline_only'] = True
     request['estimate'] = {'kind': 'offline_mock_fixture', 'api_cost_usd': 0, 'note': OFFLINE_NOTE}
     write_json_atomic(path, request)
@@ -61,8 +66,12 @@ def prepare_offline_request(root, run_id, offline_handler, *, settings=None, cap
     if not isinstance(run_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', run_id):
         raise ValueError('run_id must be a simple directory name')
     root = Path(root).resolve(strict=True)
+    if settings is None:
+        settings = job_run.settings_default()
+        if cap is not None:
+            settings = replace(settings, settled_stop_usd=cap)
     if cap is None:
-        cap = settings.settled_stop_usd if settings is not None and settings.settled_only else '23'
+        cap = settings.settled_stop_usd
     cap_micro = cap_to_micro(cap)
     cap_text = usd_text(cap_micro)
     spec, scene = job_run.prepare_run(root, run_id, settings=settings, write_request=False,

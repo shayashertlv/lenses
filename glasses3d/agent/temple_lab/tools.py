@@ -78,7 +78,7 @@ from agents.tool import ToolOutputImage, ToolOutputText
 from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from glasses3d.agent.money import owner_money
+from glasses3d.agent.money import astra_money
 from glasses3d.agent.loop import FATAL_TOOL_ERRORS, RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
 from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
@@ -332,7 +332,7 @@ def _finite(x):
 
 def result_text(result: dict, footer: str) -> str:
     body = {k: v for k, v in result.items() if k != "images"}
-    return json.dumps(owner_money(_finite(body)), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n" + footer
+    return json.dumps(astra_money(_finite(body)), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n" + footer
 
 
 def output(result: dict, footer: str) -> list:

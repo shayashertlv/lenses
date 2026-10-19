@@ -41,14 +41,14 @@ def make_job(root: Path, name: str = "prada-8c82d986") -> Path:
     return job
 
 
-def current_sha(job: Path) -> str:
+def current_sha(job: Path, cap="15") -> str:
     return request_sha256(build_request(job, instructions_sha256=INSTRUCTIONS, tool_registry_sha256=REGISTRY,
-                                        settings=dict(SETTINGS)))
+                                        settings=dict(SETTINGS, settled_only=True, settled_stop_usd=cap)))
 
 
 def approve(job: Path, run_id: str, *, cap: str = "15", approved: str | None = None) -> Path:
     request = build_request(job, instructions_sha256=INSTRUCTIONS, tool_registry_sha256=REGISTRY,
-                            settings=dict(SETTINGS))
+                            settings=dict(SETTINGS, settled_only=True, settled_stop_usd=cap))
     run_dir = job / "runs" / run_id
     A.write_approval_request(run_dir, job_id=job.name, request=request, estimate={"expected_usd": "1"},
                              suggested_cap_usd=cap)
@@ -61,7 +61,7 @@ def paid_run(job: Path, run_id: str, steps, *, cap: str = "15", tokens: int = 10
     approve(job, run_id, cap=cap)
     client, count = fake_counter(tokens)
     with JobLedger(job) as jobs:
-        ledger = jobs.open_paid_run(run_id, current_request_sha256=current_sha(job))
+        ledger = jobs.open_paid_run(run_id, current_request_sha256=current_sha(job, cap))
         guard = BudgetGuard.attach(client, ledger)
 
         async def flow():
@@ -240,11 +240,11 @@ def test_cache_settlement_is_repriced_from_the_flat_persisted_usage(tmp_path):
 
 def test_a_budget_exceeded_run_still_settles_and_reports(tmp_path):
     job = make_job(tmp_path)
-    approve(job, "20261007T090000-aaaaaa", cap="0.018")     # 1,050 settled + 17,500 next hold > 18,000
+    approve(job, "20261007T090000-aaaaaa", cap="0.001050")  # exact first settlement reaches the cutoff
     client, _ = fake_counter()
     with JobLedger(job) as jobs:
         guard = BudgetGuard.attach(client, jobs.open_paid_run("20261007T090000-aaaaaa",
-                                                              current_request_sha256=current_sha(job)))
+                                                              current_request_sha256=current_sha(job, "0.001050")))
 
         async def flow():
             await guard.before_request(request())

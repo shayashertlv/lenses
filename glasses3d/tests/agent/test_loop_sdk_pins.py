@@ -138,13 +138,15 @@ def test_no_retry_of_any_kind_with_max_retries_zero(tmp_path):
 def test_hook_exceptions_reach_the_loop_unwrapped(tmp_path):
     """openai _base_client.py:1778-1808 + _httpx2.py:105-109: only httpx2.RequestError (and SSL/EndOfStream) become
     APIConnectionError; a BudgetGuardError raised in the request hook propagates as itself through the SDK."""
-    # each hold: 1,000 counted x $12.5/M + 1,024 output x $50/M = 63,700 micro; the first settles at 15,000 (1,000
-    # written + 50 output), so the second needs 15,000 + 63,700 = 78,700 > the 70,000 cap
+    # The first request is admitted below the cutoff regardless of its 63,700-micro estimate.
+    # It settles at exactly 15,000 (1,000 written + 50 output); the second is refused before counting.
     out = asyncio.run(sdk_run(tmp_path, [R.tool_call("scene_summary", {}, counted=1000),
-                                         R.message("done", counted=1000)], [scene_summary], cap="0.07"))
+                                         R.message("done", counted=1000)], [scene_summary], cap="0.015"))
     assert type(out.error) is BudgetExceeded and len(out.transport.creates) == 1
     assert out.guard.ledger.rows[0]["reserved_micro_usd"] == 63_700
-    assert out.guard.ledger.rows[0]["settled_micro_usd"] == 15_000 and len(out.transport.counts) == 2
+    assert out.guard.ledger.rows[0]["settled_micro_usd"] == 15_000 and len(out.transport.counts) == 1
+    assert len(out.guard.ledger.rows) == 1
+    assert out.guard.summary()["held_micro_usd"] == out.guard.summary()["unknown_micro_usd"] == 0
 
 
 # --------------------------------------------------------------------------- incomplete

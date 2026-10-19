@@ -46,7 +46,7 @@ def run():
             spec, _ = job_run.prepare_run(root, f"offline-review-resume-{index}", settings=settings,
                                            write_request=True, resume=True)
             assert len(spec.owner_notes) == 1 and spec.owner_notes[0].endswith(notes)
-            approve_offline_request(root / "runs" / spec.run_id, transport.handle, cap="23")
+            approve_offline_request(root / "runs" / spec.run_id, transport.handle, cap="20")
             outcome = asyncio.run(job_run.execute_run(root, spec.run_id, resume=True, offline_handler=transport.handle))
             assert outcome["result"]["status"] == "completed" and outcome["delivery"]["status"] == "delivered", outcome
             assert len(transport.creates) == len(transport.counts) == 3

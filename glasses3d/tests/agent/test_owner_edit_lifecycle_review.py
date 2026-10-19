@@ -303,7 +303,7 @@ def test_edit_run_approval_binds_the_actual_owner_specialist_contract(selected_s
     root = edits.create_understand(f.source, "Move the shown face.", destination=f.destination)
     _cover_round(root)
     spec, scene = job_run.prepare_run(root, "independent-estimate", write_request=True)
-    expected = owner_stage.contract(jobs.load_job(root), spec.settings, "23", edits.load(root))
+    expected = owner_stage.contract(jobs.load_job(root), spec.settings, "20", edits.load(root))
     assert spec.stage_contracts == (expected,)
     assert scene.s.worker is None
     requested = edits.read(root / "runs/independent-estimate/approval-request.json")

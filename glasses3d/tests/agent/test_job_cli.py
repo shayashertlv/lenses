@@ -29,7 +29,7 @@ def command(*args):
 
 
 def approved(job):
-    request = command("estimate", job, "--turns", "2", "--cap", "1", "--settled-stop", "0.8")
+    request = command("estimate", job, "--turns", "2", "--cap", "1", "--settled-stop", "1")
     command("approve", job, "--run-id", request["run_id"], "--max-usd", "1", "--owner-words", "Offline test only.")
     return request
 
@@ -51,12 +51,13 @@ def test_create_show_estimate_and_approve_are_offline_and_do_not_consume(job):
     request = command("estimate", job)
     run_dir = job / "runs" / request["run_id"]
     assert request["effort"] == "max" and request["max_turns"] is None
-    assert request["requested_cap_micro_usd"] == 23_000_000
+    assert request["requested_cap_micro_usd"] == 20_000_000
+    assert request["request"]["settings"]["settled_only"] is True
     assert request["request"]["settings"]["settled_stop_usd"] == "20.000000"
     assert request["estimate"]["requests"] == 60
     assert "context_guard" not in request["request"]["settings"]
     assert command("show", job)["pending_run"] == request["run_id"]
-    approval = command("approve", job, "--max-usd", "23", "--owner-words", "Offline test approval.")
+    approval = command("approve", job, "--max-usd", "20", "--owner-words", "Offline test approval.")
     assert approval["owner_words"] == "Offline test approval."
     assert approval["request_sha256"] == request["request_sha256"]
     assert not (run_dir / "budget.json").exists()
@@ -72,7 +73,7 @@ def test_xhigh_request_binds_parent_and_specialist_and_preserves_job_inputs(job)
     assert settings["stages"][0]["settings"]["effort"] == "xhigh"
     assert selected["request_sha256"] != default["request_sha256"]
     restored, cap = job_run.prepared_settings(job, selected["run_id"])
-    assert restored.effort == "xhigh" and cap == "23.000000"
+    assert restored.effort == "xhigh" and cap == "20.000000"
     assert settings["settled_stop_usd"] == "20.000000"
     assert (job / "job.json").read_bytes() == before
     assert not (job / "runs" / selected["run_id"] / "budget.json").exists()
@@ -119,7 +120,7 @@ def test_show_reports_a_no_usable_checkpoint_attempt_without_inventing_delivery(
 
 def test_prepared_settings_preserve_bound_nondefault_behaviour(job):
     settings = replace(job_run.settings_default(), max_turns=7, max_output_tokens=1024,
-                       settled_stop_usd="0.8", fit_output_to_budget=True, finish_k=2)
+                       settled_stop_usd="1", finish_k=2)
     spec, _ = job_run.prepare_run(job, "settings-roundtrip", settings=settings, cap="1", write_request=True)
     restored, cap = job_run.prepared_settings(job, spec.run_id)
     assert restored.approval_settings() == settings.approval_settings()
@@ -128,33 +129,39 @@ def test_prepared_settings_preserve_bound_nondefault_behaviour(job):
     assert rebuilt.current_request_sha256 == spec.current_request_sha256
 
 
-@pytest.mark.parametrize("approved_cap", ["23", "44.2788"])
-def test_explicit_larger_reserve_keeps_settled_stop_and_requires_covering_approval(job, approved_cap):
-    selected = command("estimate", job, "--effort", "high", "--cap", "44.2788", "--settled-stop", "20")
+def test_explicit_larger_reserve_is_rejected_before_request_creation(job):
+    with pytest.raises(ValueError, match="must equal the settled stop"):
+        command("estimate", job, "--effort", "high", "--cap", "44.2788", "--settled-stop", "20")
+    assert not (job / "runs").exists()
+
+
+@pytest.mark.parametrize("approved_cap", ["19", "20"])
+def test_cutoff_requires_covering_approval_and_changed_cutoff_requires_new_approval(job, approved_cap):
+    selected = command("estimate", job, "--effort", "high", "--cap", "20")
     settings = selected["request"]["settings"]
-    assert selected["requested_cap_micro_usd"] == 44_278_800
+    assert selected["requested_cap_micro_usd"] == 20_000_000
     assert settings["settled_stop_usd"] == "20.000000" and settings["effort"] == "high"
     assert settings["max_output_tokens"] == 16_384 and settings["max_turns"] is None
     child = settings["stages"][0]
-    assert child["maximum_micro_usd"] == 44_278_800
+    assert child["maximum_micro_usd"] == 20_000_000
     assert child["settings"]["settled_stop_usd"] == "20.000000"
     assert child["settings"]["effort"] == "high" and child["settings"]["max_output_tokens"] == 16_384
     restored, cap = job_run.prepared_settings(job, selected["run_id"])
-    assert cap == "44.278800" and restored.settled_stop_usd == "20.000000"
+    assert cap == "20.000000" and restored.settled_stop_usd == "20.000000"
     rebuilt, _ = job_run.prepare_run(job, selected["run_id"], settings=restored, cap=cap)
     assert rebuilt.current_request_sha256 == selected["request_sha256"]
     command("approve", job, "--run-id", selected["run_id"], "--max-usd", approved_cap,
             "--owner-words", "Offline test: allow the final in-flight request; stop new requests at $20 settled.")
     run = job / "runs" / selected["run_id"]
-    if approved_cap == "23":
+    if approved_cap == "19":
         with pytest.raises(A.ApprovalRefused, match="below the requested"):
             A.check_approval(run, current_request_sha256=rebuilt.current_request_sha256, requested_cap_usd=cap)
     else:
         approval = A.check_approval(run, current_request_sha256=rebuilt.current_request_sha256,
                                     requested_cap_usd=cap)
-        assert approval.requested_cap_micro == approval.max_micro == 44_278_800
+        assert approval.requested_cap_micro == approval.max_micro == 20_000_000
         changed, _ = job_run.prepare_run(job, selected["run_id"],
-                                         settings=replace(restored, settled_stop_usd="19"), cap=cap)
+                                         settings=replace(restored, settled_stop_usd="19"), cap="19")
         with pytest.raises(A.ApprovalRefused, match="changed since"):
             A.check_approval(run, current_request_sha256=changed.current_request_sha256, requested_cap_usd=cap)
     assert not (run / "budget.json").exists()
@@ -204,7 +211,7 @@ def test_missing_approval_is_refused_before_foreground_or_detached_execution(job
 def test_approved_foreground_dispatch_preserves_run_and_resume(job, monkeypatch):
     from glasses3d.tests.agent.test_task2_resume import save_history
     save_history(job, [{"role": "user", "content": "previous conversation"}])
-    request = command("estimate", job, "--resume", "--turns", "2", "--cap", "1", "--settled-stop", "0.8")
+    request = command("estimate", job, "--resume", "--turns", "2", "--cap", "1", "--settled-stop", "1")
     command("approve", job, "--run-id", request["run_id"], "--max-usd", "1", "--owner-words", "Offline test only.")
     execute = AsyncMock(return_value={"result": {"status": "completed"}, "delivery": {"status": "delivered"}})
     monkeypatch.setattr(job_run, "execute_run", execute)
@@ -316,7 +323,7 @@ def test_generic_resume_sends_verbatim_owner_notes_once_using_actual_sdk_history
     notes = []
     monkeypatch.setattr(job_run.verdicts, "pending_notes", lambda root: list(notes))
     settings = replace(job_run.settings_default(), max_turns=2, max_output_tokens=1024,
-                       settled_stop_usd="0.8", finish_tool=None, tool_choice="auto", reset_tool_choice=True)
+                       settled_stop_usd="1", finish_tool=None, tool_choice="auto", reset_tool_choice=True)
     scene = FakeScene()
     transports = []
     for index in range(3):

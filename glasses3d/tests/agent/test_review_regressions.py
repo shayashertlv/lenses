@@ -7,7 +7,7 @@ import tarfile
 
 import pytest
 
-from glasses3d.agent import budget as B, loop as L, snapshot as S
+from glasses3d.agent import approvals as A, budget as B, loop as L, snapshot as S
 from glasses3d.agent.receipts import BlobStore, Cleaner, ReviewLog
 from glasses3d.tests.agent.loop_support import make_job, make_tools, occurrences, spec_for
 from glasses3d.agent.replay import ScriptedOpenAI
@@ -69,8 +69,12 @@ def test_valid_reconcile_changes_only_its_audited_unknown_row(tmp_path):
 
 
 def test_cap_cannot_be_raised_above_consumed_approval(tmp_path):
-    ledger = B.RunLedger.create(tmp_path / "budget.json", "1", approval={
-        "requested_cap_micro_usd": 1_000_000, "max_micro_usd": 2_000_000})
+    _, tools = make_tools()
+    job, sha = make_job(tmp_path, tools=tools, cap="1", approve=False)
+    A.write_approval(job / "runs" / RUN, max_usd="2", owner_words="Offline fixture covering approval")
+    with B.JobLedger(job) as jobs:
+        ledger = jobs.open_paid_run(RUN, current_request_sha256=sha, requested_cap_usd="1")
+        assert B.RunLedger.load(ledger.path).maximum_micro == 1_000_000
     ledger.data["maximum_micro_usd"] = 2_000_000
     ledger._persist()
     with pytest.raises(B.LedgerInvalid, match="cap"):

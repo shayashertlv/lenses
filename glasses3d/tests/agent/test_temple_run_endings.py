@@ -12,25 +12,23 @@ from glasses3d.tests.agent.test_draft_delivery import draft_fixture
 
 
 @pytest.mark.parametrize('completed', [False, True])
-@pytest.mark.parametrize('settled_only', [False, True])
-def test_child_reaching_shared_stop_keeps_progress_and_parent_draft(tmp_path, monkeypatch, completed, settled_only):
+def test_child_reaching_shared_stop_keeps_progress_and_parent_draft(tmp_path, monkeypatch, completed):
     monkeypatch.setattr(L, 'ProductionClients', lambda *a, **k: pytest.fail('paid clients forbidden'))
     stop = '0.01'  # three fixture responses settle $0.01125; no fourth request may start
     monkeypatch.setattr(fixture, 'CHILD', replace(fixture.CHILD, settled_stop_usd=stop,
-        settled_only=settled_only, context_guard_tokens=None, context_guard_every_requests=None))
+        context_guard_tokens=None, context_guard_every_requests=None))
     job, spec, parent, child, transport, _ = fixture.setup(tmp_path / 'run', [
         R.tool_call('temple_stage'), R.tool_call('look'),
         R.tool_call('facet_finish' if completed else 'look')])
-    spec.settings = replace(spec.settings, settled_stop_usd=stop, settled_only=settled_only)
+    spec.settings = replace(spec.settings, settled_stop_usd=stop)
     request = A.build_request(job, instructions_sha256=L.instructions_sha256(spec.instructions),
         tool_registry_sha256=L.tool_registry_sha256(spec.tools, spec.settings),
         settings=L.approval_settings(spec.settings, spec.stage_contracts),
         run_inputs=A.run_input_binding(job, spec.brief, spec.photos))
     spec.run_id = 'shared-stop'
     directory = job / 'runs' / spec.run_id
-    maximum = stop if settled_only else '5'
-    A.write_approval_request(directory, job_id=job.name, request=request, estimate={}, suggested_cap_usd=maximum)
-    A.write_approval(directory, max_usd=maximum, owner_words='Offline fixture only')
+    A.write_approval_request(directory, job_id=job.name, request=request, estimate={}, suggested_cap_usd=stop)
+    A.write_approval(directory, max_usd=stop, owner_words='Offline fixture only')
     spec.current_request_sha256 = A.request_sha256(request)
     original = L.StageRuntime.run_stage
     private_folder = job / 'work' / 'temple_stage' / 'test'
@@ -77,3 +75,12 @@ def test_child_reaching_shared_stop_keeps_progress_and_parent_draft(tmp_path, mo
     assert out['status'] == 'delivered' and report['finished'] is report['accepted_finish'] is False
     assert report['checkpoint_selection'] == 'best' and report['checkpoint'] == 'c0000'
     assert report['stages'][0]['progress'] == child_outcome['progress']
+
+
+def test_legacy_child_money_mode_cannot_start_a_new_shared_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(L, 'ProductionClients', lambda *a, **k: pytest.fail('paid clients forbidden'))
+    monkeypatch.setattr(fixture, 'CHILD', replace(fixture.CHILD, settled_only=False))
+    with pytest.raises(L.RunRefused, match='new runs require settled_only=True'):
+        fixture.setup(tmp_path / 'run', [])
+    assert not list(tmp_path.rglob('approval.json'))
+    assert not list(tmp_path.rglob('budget.json'))

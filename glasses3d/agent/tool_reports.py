@@ -218,6 +218,15 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
     for key in ("review_call_id", "required_refs", "usable_refs", "unusable_refs"):
         if key in body:
             answer[key] = reference_field(body[key], _pointer(pointer, key))
+    if isinstance(body.get("camera_orientation"), dict):
+        orientation = body["camera_orientation"]
+        answer["camera_orientation"] = {
+            "note": orientation.get("note"),
+            "unresolved_refs": reference_field(orientation.get("unresolved_refs", []),
+                _pointer(_pointer(pointer, "camera_orientation"), "unresolved_refs"))}
+        if "unavailable_refs" in orientation:
+            answer["camera_orientation"]["unavailable_refs"] = reference_field(orientation["unavailable_refs"],
+                _pointer(_pointer(pointer, "camera_orientation"), "unavailable_refs"))
     if body.get("schema") == "g3d.crease_angle_comparison/1" and isinstance(body.get("summary"), dict):
         # This bounded five-choice summary is the direct decision record. Large
         # fit dependencies and export tables must not crowd its numbers out.

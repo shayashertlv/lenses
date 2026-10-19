@@ -69,6 +69,8 @@ WP6 v3 (WP6_V3 §5, P4: geometry is judged geometrically):
 """
 from __future__ import annotations
 
+from copy import deepcopy
+
 import hashlib
 import json
 import math
@@ -263,6 +265,12 @@ class Basis:
                 raise ValueError(f"{rid}: camera or fit status differs from the frozen source")
             if any(value != raw.get(key) for key, value in fit.items() if key in FIT_EVIDENCE_FIELDS):
                 raise ValueError(f"{rid}: fit diagnostic evidence differs from cameras.json")
+            if fit.get("camera_ambiguity") != raw.get("camera_ambiguity"):
+                raise ValueError(f"{rid}: orientation alternatives differ from cameras.json")
+            if fit.get("candidate_selection") != raw.get("candidate_selection"):
+                raise ValueError(f"{rid}: candidate selection differs from cameras.json")
+            if ref.get("retained_fit") != raw.get("retained_fit"):
+                raise ValueError(f"{rid}: retained fit evidence differs from cameras.json")
             if ref.get("lens_loss") != raw.get("lens_loss"):
                 raise ValueError(f"{rid}: lens loss evidence differs from cameras.json")
             for key in ("theta_deg", "hinge_axis_xz_mm", "theta_observed", "fit_status", "pose_provenance", "opening_fit"):
@@ -299,6 +307,22 @@ class Basis:
                     # Older bases have no overlay digest; every new basis records one.
                     if (key == "matte" or digest is not None) and sha256_file(path) != digest:
                         raise ValueError(f"{path}: {key} differs from basis.json (a frozen basis must not change)")
+            for candidate in (fit.get("camera_ambiguity") or {}).get("candidates", []):
+                if candidate.get("overlay"):
+                    path = (self.dir / candidate["overlay"]).resolve()
+                    if not path.is_relative_to(self.dir.resolve()):
+                        raise ValueError(f"{rid}: orientation overlay escapes its basis directory")
+                    if sha256_file(path) != candidate.get("overlay_sha256"):
+                        raise ValueError(f"{rid}: orientation overlay differs from frozen camera evidence")
+            attempt = (ref.get("retained_fit") or {}).get("attempt") or {}
+            for record in [attempt, *((attempt.get("camera_ambiguity") or {}).get("candidates", []))]:
+                # Historical attempts did not bind their overlay bytes. Newly retained attempts do.
+                if record.get("overlay") and record.get("overlay_sha256") is not None:
+                    path = (self.dir / record["overlay"]).resolve()
+                    if not path.is_relative_to(self.dir.resolve()):
+                        raise ValueError(f"{rid}: retained attempt overlay escapes its basis directory")
+                    if sha256_file(path) != record["overlay_sha256"]:
+                        raise ValueError(f"{rid}: retained attempt overlay differs from frozen camera evidence")
             if self.is_usable(rid):
                 _valid_camera(ref.get("camera"), rid)
                 if not ref.get("matte") or not ref.get("roi") or not ref.get("shape"):
@@ -421,7 +445,29 @@ FIT_EVIDENCE_FIELDS = ("status", "code", "message", "error", "refusal", "flags",
                        "candidates", "all_candidates", "loss", "loss_common_level", "sign", "matte", "seconds",
                        "iou_lens_optional", "lens_pixels_optional", "contour_mean_px_lens_optional",
                        "contour_p95_px_lens_optional", "render_only_px_lens_optional", "usability", "off_axis",
-                       "matte_selection")
+                       "matte_selection", "camera_ambiguity", "candidate_selection")
+
+
+def _preserve_attempt_overlay(directory: Path, record: dict, rid: str):
+    """Keep failed-fit pixels before a retained camera reuses their original filenames."""
+    if not record.get("overlay"):
+        return
+    source = (directory / record["overlay"]).resolve()
+    if not source.is_relative_to(directory.resolve()):
+        raise ValueError(f"{rid}: attempted overlay escapes its basis directory")
+    payload = source.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    if record.get("overlay_sha256") is not None and record["overlay_sha256"] != digest:
+        raise ValueError(f"{rid}: attempted overlay differs from its diagnostic hash")
+    target = (directory / f"overlay_attempt_{digest}.png").resolve()
+    if not target.is_relative_to(directory.resolve()):
+        raise ValueError(f"{rid}: preserved attempt overlay escapes its basis directory")
+    if target.exists():
+        if target.read_bytes() != payload:
+            raise ValueError(f"{rid}: preserved attempt overlay has different bytes")
+    else:
+        target.write_bytes(payload)
+    record.update(overlay=target.name, overlay_sha256=digest)
 
 
 def complete_refit(basis_dir, photos: dict, previous: Basis | None) -> dict:
@@ -442,8 +488,13 @@ def complete_refit(basis_dir, photos: dict, previous: Basis | None) -> dict:
         if can_keep and (current is None or not _fit_usable(current) and previous.is_usable(rid)):
             row = dict(old["images"][name])
             reason = "not_requested" if current is None else "refit_failed"
+            attempt = deepcopy(current)
+            if attempt is not None:
+                _preserve_attempt_overlay(directory, attempt, rid)
+                for candidate in (attempt.get("camera_ambiguity") or {}).get("candidates", []):
+                    _preserve_attempt_overlay(directory, candidate, rid)
             row["retained_fit"] = {"basis": previous.id, "reason": reason,
-                                   "attempt": current}
+                                   "attempt": attempt}
             # Preserve the exact frozen matte rather than recomputing it after a code change.
             if prior.get("matte"):
                 matte_path = directory / f"retained_matte_{rid}.png"
@@ -454,6 +505,15 @@ def complete_refit(basis_dir, photos: dict, previous: Basis | None) -> dict:
                 overlay = directory / f"overlay_{rid}.png"
                 shutil.copyfile(previous.dir / prior["overlay"], overlay)
                 row["overlay"] = overlay.name
+            for candidate in (row.get("camera_ambiguity") or {}).get("candidates", []):
+                if candidate.get("overlay"):
+                    source = (previous.dir / candidate["overlay"]).resolve()
+                    target = (directory / candidate["overlay"]).resolve()
+                    if (not source.is_relative_to(previous.dir.resolve())
+                            or not target.is_relative_to(directory.resolve())):
+                        raise ValueError(f"{rid}: retained orientation overlay escapes its basis directory")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
             merged[name], retained[rid] = row, row["retained_fit"]
         elif current is not None:
             merged[name] = current

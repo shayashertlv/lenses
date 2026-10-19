@@ -58,7 +58,8 @@ def setup(root, replies, *, stage_cap="2", allowance="2", parent_cap="5", max_tu
         return result
 
     tools = [temple_stage]
-    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=max_turns)
+    settings = L.RunSettings(effort="max", max_output_tokens=4096, max_turns=max_turns,
+                             settled_stop_usd=parent_cap)
     job = root / "job"
     (job / "inputs/images").mkdir(parents=True)
     (job / "job.json").write_text(json.dumps({"schema": "g3d.job/1", "name": "Offline stages"}))
@@ -122,13 +123,15 @@ def test_nested_stage_uses_one_ledger_shared_receipts_and_isolated_session_and_c
             assert b"data:image" not in path.read_bytes() and OFFLINE_KEY.encode() not in path.read_bytes(), path
 
 
-def test_stage_allowance_refusal_does_not_poison_parent_or_create_a_hold(tmp_path):
-    job, _, _, _, stages, result = run_case(tmp_path, [R.tool_call("temple_stage"), R.message("parent done")],
+def test_small_stage_allowance_does_not_reserve_money_or_shrink_reply(tmp_path):
+    job, _, _, transport, stages, result = run_case(tmp_path, [R.tool_call("temple_stage"),
+                                           R.tool_call("facet_finish"), R.message("parent done")],
                                            stage_cap="0.000001")
     assert result["status"] == "completed", result
-    assert result["requests"] == 2 and stages[0]["status"] == "stage_budget_limit"
-    assert stages[0]["budget"]["request_sequences"] == []
-    assert stages[0]["budget"]["committed_micro_usd"] == 0
+    assert result["requests"] == 3 and stages[0]["status"] == "completed"
+    assert stages[0]["budget"]["request_sequences"] == [2]
+    assert stages[0]["budget"]["settled_micro_usd"] > 1
+    assert transport.creates[1]["max_output_tokens"] == 4096
     ledger = json.loads((job / "runs" / RUN / "budget.json").read_text())
     assert not result["budget"]["blocked"] and not result["budget"]["held_micro_usd"]
 
@@ -260,7 +263,7 @@ def test_budget_scope_counts_committed_unknown_and_never_resets_global_failure(t
 
 def test_global_budget_refusal_inside_child_stops_whole_run(tmp_path):
     _, _, _, _, stages, result = run_case(tmp_path, [R.tool_call("temple_stage"), R.tool_call("facet_finish")],
-                                          parent_cap="0.208")
+                                          parent_cap="0.00375")
     assert result["status"] == "budget_limit" and result["requests"] == 1 and stages == []
 
 
@@ -272,17 +275,14 @@ def test_child_incomplete_response_continues_only_private_session(tmp_path):
     assert receipt["continuations"] == 1 and result["continuations"] == 0
 
 
-def test_output_fitting_respects_stage_allowance_without_mutating_parent_policy(tmp_path):
+def test_output_fitting_cannot_shrink_stage_request_or_mutate_parent_policy(tmp_path):
     async def exercise():
         counter, _ = fake_counter()
         guard = B.BudgetGuard(counter, tmp_path / "budget.json", "2", fit_output_to_budget=False)
-        with guard.stage_budget("0.015", fit_output_to_budget=True) as scope:
-            req = request()
-            await guard.before_request(req)
-            assert 16 <= json.loads(req.content)["max_output_tokens"] < 100
-            assert 0 < scope.summary()["held_micro_usd"] <= 15_000
-            await guard.after_response(response())
-        assert guard.fit_output_to_budget is False and scope.summary()["settled_micro_usd"] > 0
+        with pytest.raises(B.BudgetGuardError, match="shrink|fitting|settled"):
+            with guard.stage_budget("0.015", fit_output_to_budget=True):
+                await guard.before_request(request())
+        assert guard.fit_output_to_budget is False and guard.ledger.rows == []
     asyncio.run(exercise())
 
 

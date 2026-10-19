@@ -154,14 +154,10 @@ fit. If a tradeoff remains, explain which features each option loses.
 
 Use read_report for lossless saved diagnostics, pages and filters whenever compact output omits a needed fact.
 E_BUSY means another operation is running; retry after it clears. E_TIMEOUT does not prove work stopped: inspect
-the current state before repeating a mutation. Keep the best checkpoint named in judgements. Only the owner sets
-the active settled stop and reserve cap. When nested, this stage shares the parent's limits; it has no child budget
-to set. Remaining money is for fixing visible differences. Do not finish while a visible difference you can still
-fix remains and the money left before the settled stop allows that fix and the remaining review within the owner's
-limits. Leave time and money before the settled stop for stage finish and, when nested, the parent's whole-product
-review; report what prevents any remaining fix. In settled-only mode, parent and specialist share the settled cutoff
-without a reserve cap. Planning estimates are information only: they never refuse or shrink requests. The last
-response can cross the stop; no later request starts once settled charges reach it.
+the current state before repeating a mutation. Keep the best checkpoint named in judgements. Do not finish while
+a visible difference you can still fix remains; report what prevents any remaining fix.
+The run stops before a new request once settled spend reaches the owner's cutoff; the reply in flight may cross
+it, and a stopped run is delivered as a draft.
 
 facet_finish selects best_checkpoint, exports it and validates the export. Its procedural requirements are:
 1. At least {K} distinct applied heads were compared in full. To count separately, their built surface or outline

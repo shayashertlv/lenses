@@ -39,7 +39,7 @@ class EvidenceScene(FakeScene):
         return {"finish_review_restarted": True}
 
 
-def case(tmp_path, monkeypatch, kind, *, cap="23", notes=(), max_turns=20):
+def case(tmp_path, monkeypatch, kind, *, cap="20", notes=(), max_turns=20):
     scene = EvidenceScene(tmp_path)
     image = data_url(png_bytes(seed=31))
     n_images = B.PAYLOAD_LIMIT_IMAGES * 4 // 5 if kind == "images" else 2
@@ -60,7 +60,7 @@ def case(tmp_path, monkeypatch, kind, *, cap="23", notes=(), max_turns=20):
         return json.dumps({"status": "accepted"})
 
     tools = [grow, finish]
-    settings = L.RunSettings(effort="max", max_turns=max_turns, max_output_tokens=100, finish_tool="finish", settled_stop_usd="20")
+    settings = L.RunSettings(effort="max", max_turns=max_turns, max_output_tokens=100, finish_tool="finish", settled_stop_usd=cap)
     from glasses3d.tests.agent import loop_support
     with monkeypatch.context() as patch:
         patch.setattr(loop_support, "tool_registry_sha256", lambda tools: L.tool_registry_sha256(tools, settings))
@@ -84,7 +84,8 @@ def case(tmp_path, monkeypatch, kind, *, cap="23", notes=(), max_turns=20):
         assert before and after[:len(before)] == before  # exact stored bytes, before and after renewal
         scene.archive_before_renewal = before
     monkeypatch.setattr(N.ConversationRenewal, "renew", verify_archive)
-    result = asyncio.run(L.run_astra(spec_for(job, RUN, sha, tools, transport, settings=settings, notes=notes),
+    result = asyncio.run(L.run_astra(spec_for(job, RUN, sha, tools, transport, settings=settings, notes=notes,
+                                             requested_cap_usd=cap),
                                     scene=scene))
     return job, scene, transport, result
 
@@ -112,6 +113,11 @@ def test_renewal_counts_exact_candidate_preserves_prefix_photos_evidence_ledger_
     assert len(R.input_images(fresh)) == 4
     assert old["tools"] == fresh["tools"] == summary["tools"]
     assert N.FINISH_RESTART_NOTICE in json.dumps(fresh)
+    money = row["host_state"]["money"]
+    assert set(money) == {"settled_usd", "settled_stop_usd", "remaining_to_stop_usd"}
+    assert money["settled_stop_usd"] == "20.000000"
+    from glasses3d.tests.agent.test_task11_money import no_advice
+    no_advice(json.dumps(fresh))
     assert N.durable_receipts(job / "session/session.sqlite")[0]["new_conversation_id"] == row["new_conversation_id"]
     rows = ledger_rows(job, RUN)
     assert len(rows) == 3 and all(r["outcome"] == "settled" for r in rows)
@@ -147,17 +153,31 @@ def test_owner_edit_notes_survive_verbatim(tmp_path, monkeypatch):
     assert result["renewals"][0]["host_state"]["owner_requests_supplied_for_this_run"] == [note]
 
 
-def test_summary_unaffordable_renews_from_factual_state(tmp_path, monkeypatch):
-    # An old 217601-token summary cannot reserve within $1; fresh 100-token input can.
+def test_large_summary_estimate_does_not_refuse_before_cutoff(tmp_path, monkeypatch):
+    # The old context estimates above $1, but settled charges are still below the cutoff.
+    _, _, transport, result = case(tmp_path, monkeypatch, "input_tokens", cap="1", max_turns=3)
+    assert result["status"] == "budget_limit", result
+    assert result["requests"] == len(transport.creates) == 2
+    row = result["renewals"][0]
+    assert row["summary_skipped"] is None and row["summary_text"] == SUMMARY
+    assert B.cap_to_micro(result["budget"]["settled_usd"]) > 1_000_000
+    assert transport.violations == [] and result["budget"]["held_micro_usd"] == 0
+
+
+def test_summary_over_provider_limit_renews_from_factual_state(tmp_path, monkeypatch):
+    # A provider-limit refusal still falls back to factual state without sending the summary.
     original = R.ScriptedOpenAI
     def script(replies, **kwargs):
+        count = kwargs["count_tokens"]
+        kwargs["count_tokens"] = lambda body: (B.MODEL_MAX_INPUT_TOKENS + 1
+            if body["input"][-1].get("content") == N.SUMMARY_REQUEST else count(body))
         return original([replies[0], replies[-1]], **kwargs)
     monkeypatch.setattr(R, "ScriptedOpenAI", script)
     _, _, transport, result = case(tmp_path, monkeypatch, "input_tokens", cap="1", max_turns=2)
     assert result["status"] == "completed", result
     assert result["requests"] == 2
     row = result["renewals"][0]
-    assert row["summary_sha256"] is None and row["summary_skipped"].startswith("BudgetExceeded:")
+    assert row["summary_sha256"] is None and row["summary_skipped"].startswith("PayloadTooLarge:")
     assert N.NO_SUMMARY in json.dumps(transport.creates[-1])
     assert transport.violations == [] and result["budget"]["held_micro_usd"] == 0
 

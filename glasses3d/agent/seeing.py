@@ -2444,6 +2444,11 @@ class Seeing:
                 label = f"{rid} {rec.get('view_kind')} -> {rec.get('view')}: {f.get('status') or 'ok'}"
                 if usable and f.get("iou") is not None and f.get("contour_mean_mm") is not None:
                     label += f"; IoU {f['iou']:.3f}, contour {f['contour_mean_mm']:.2f} mm"
+                orientation = f.get("camera_ambiguity") or {}
+                if orientation.get("status") == "unresolved":
+                    label += "; ORIENTATION UNRESOLVED: inspect camera candidates"
+                elif orientation.get("status") == "unavailable":
+                    label += "; ORIENTATION DIAGNOSTIC UNAVAILABLE: inspect reported failure"
                 if not usable:
                     label += "; " + str(bs.unusable_refs()[rid])
                 if rec.get("overlay"):
@@ -2461,6 +2466,9 @@ class Seeing:
         except (ValueError, OSError) as exc:
             # Freezing already succeeded: report that exact installed basis even if its optional sheet failed.
             sheet, sheet_error = None, f"{type(exc).__name__}: {exc}"
+        orientation_refs = {status: [rid for rid, rec in bs.refs.items()
+            if ((rec.get("fit") or {}).get("camera_ambiguity") or {}).get("status") == status]
+            for status in ("unresolved", "unavailable")}
         out = {"status": "ok" if bs.usable_refs() else "refused", "call_id": call_id,
                "basis": bs.id, "checkpoint": exp["checkpoint"],
                "glb_sha256": exp["sha256"], "export": exp, "sheet": sheet,
@@ -2473,6 +2481,13 @@ class Seeing:
                "refs": {rid: self._fit_ref_summary(rec, usable=bs.is_usable(rid),
                            basis_path=bdir.relative_to(self.root).as_posix()) for rid, rec in bs.refs.items()},
                "usable_refs": bs.usable_refs(), "unusable_refs": bs.unusable_refs(),
+               **({"camera_orientation": {
+                   "unresolved_refs": orientation_refs["unresolved"],
+                   "unavailable_refs": orientation_refs["unavailable"],
+                   "note": "These photo orientations are not established. Candidate cameras/overlays or "
+                           "diagnostic failures are in refs/<ref>/camera_ambiguity. Inspect photo evidence "
+                           "before treating the installed camera as measured."}}
+                   if any(orientation_refs.values()) else {}),
                "seconds": round(time.perf_counter() - t0, 1)}
         if not bs.usable_refs():
             out.update(code="E_FIT_ALL", message="No photo camera fit succeeded; this basis retains the diagnostics. "
@@ -2484,6 +2499,23 @@ class Seeing:
     def _fit_ref_summary(rec, *, usable, basis_path=None):
         f, camera = rec.get("fit") or {}, rec.get("camera") or {}
 
+        def overlay_record(record):
+            path = record.get("overlay")
+            return {**record, "overlay": f"{basis_path}/{path}"
+                    if basis_path and path and not Path(path).is_absolute() else path}
+
+        def orientation_summary(orientation):
+            return None if orientation is None else {**orientation, "candidates": [
+                overlay_record(candidate) for candidate in orientation.get("candidates", [])]}
+
+        orientation = orientation_summary(f.get("camera_ambiguity"))
+        retained = rec.get("retained_fit")
+        if retained and retained.get("attempt"):
+            attempt = overlay_record(retained["attempt"])
+            if "camera_ambiguity" in attempt:
+                attempt["camera_ambiguity"] = orientation_summary(attempt["camera_ambiguity"])
+            retained = {**retained, "attempt": attempt}
+
         def number(value, digits):
             return round(value, digits) if isinstance(value, (int, float)) and math.isfinite(value) else None
 
@@ -2491,12 +2523,14 @@ class Seeing:
                 "overlay": (f"{basis_path}/{rec['overlay']}" if basis_path and rec.get("overlay") else rec.get("overlay")),
                 "usable": usable, "matte_mode": rec.get("matte_mode"),
                 "matte_selection": f.get("matte_selection"),
+                "camera_ambiguity": orientation,
+                "candidate_selection": f.get("candidate_selection"),
                 "iou": number(f.get("iou"), 4), "contour_mean_mm": number(f.get("contour_mean_mm"), 3),
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
                 "theta_deg": rec.get("theta_deg"), "theta_observed": rec.get("theta_observed"),
                 "pose_provenance": rec.get("pose_provenance"), "opening_fit": rec.get("opening_fit"),
-                "retained_fit": rec.get("retained_fit"),
+                "retained_fit": retained,
                 **({"camera": camera, "off_axis": f["off_axis"], "sign": f.get("sign")}
                    if f.get("off_axis") is not None else {}),
                 **{key: value for key, value in f.items()

@@ -12,9 +12,10 @@ from types import SimpleNamespace
 
 from . import budget
 from .receipts import write_json
+from .money import money_facts
 from .session_inputs import plan_session_input
 
-SUMMARY_REQUEST = """The host is renewing this conversation because the next request crosses 80% of a request-size limit or the long-context price step.
+SUMMARY_REQUEST = """The host is renewing this conversation to keep request context bounded.
 Write a state summary only; do not call tools. Use these headings, in this order:
 1. Current head and best checkpoint: identify the current head and the checkpoint you judge best, and why.
 2. Open differences per photo: list every difference you still see for each owner photo, or explicitly none.
@@ -183,7 +184,7 @@ class ConversationRenewal:
         evidence, evidence_rows = evidence_content(self.scene.renewal_evidence(), trigger.payload)
         restart = self.scene.renewal_started()
         scene_state = self.scene.renewal_state()
-        state = {**scene_state, "finish_review_renewal": restart, "money": self.guard.summary(),
+        state = {**scene_state, "finish_review_renewal": restart, "money": money_facts(self.guard.summary()),
                  "tool_calls_so_far": list(self.log.tool_calls),
                  "owner_requests_supplied_for_this_run": list(self.owner_notes)}
         notice = RENEWAL_NOTICE

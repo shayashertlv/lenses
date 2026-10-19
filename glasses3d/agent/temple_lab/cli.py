@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import base64
 import functools
+from dataclasses import replace
 import json
 import math
 from pathlib import Path
@@ -19,7 +20,7 @@ import sys
 from PIL import Image, ImageOps
 
 from glasses3d.agent import approvals as A
-from glasses3d.agent.budget import PAYLOAD_LIMIT_BYTES, PAYLOAD_LIMIT_IMAGES, count_timeout_s
+from glasses3d.agent.budget import PAYLOAD_LIMIT_BYTES, PAYLOAD_LIMIT_IMAGES, cap_to_micro, count_timeout_s
 from glasses3d.agent.estimate import cents_text, suggested_cap_micro
 from glasses3d.agent.loop import (CONTEXT_GUARD, CONTEXT_GUARD_BYTES, EFFORTS, REMOVED_PHRASES, RunRefused, RunSpec,
                                   ToolContract, contract_problems, instructions_sha256, machine_load, run_astra,
@@ -809,6 +810,12 @@ def tool_contract() -> ToolContract:
 def make_spec(root, run_id, settings, cap, *, write_request=False, lab=None, estimate_path=ESTIMATE, estimate=None):
     """The RunSpec of a paid run on a clean package (and, with write_request, its approval request with the facet
     estimate from estimate_path, or the given ``estimate`` block; nothing is approved here)."""
+    if settings.settled_only is not True or settings.fit_output_to_budget:
+        raise ValueError("new runs require settled-only mode without output fitting")
+    if settings.settled_stop_usd is None:
+        settings = replace(settings, settled_stop_usd=cap)
+    if cap_to_micro(cap) <= 0 or cap_to_micro(settings.settled_stop_usd) != cap_to_micro(cap):
+        raise ValueError("approval amount must equal the positive settled cutoff")
     root = Path(root).resolve()
     lab = lab or Lab(root)
     check_package(root, lab)
@@ -1327,7 +1334,7 @@ def main(argv=None):
     p.add_argument("--cap")
     p.add_argument("--k", type=int, default=4, help="facet_finish: distinct compared heads (owner per run)")
     p.add_argument("--fit-output-to-budget", action="store_true",
-                   help="Reduce the next response ceiling when needed to use the remaining cap without a fixed reserve")
+                   help="deprecated; new runs reject output fitting")
     p.add_argument("--env-file", type=Path, help="Explicit local credential file; its contents are never logged")
     p.add_argument("--ignore-load", action="store_true",
                    help="run: start even while other Blender or pytest work runs on this machine (reported, not "
@@ -1350,7 +1357,7 @@ def main(argv=None):
             if a.job is None or a.effort is None or (a.turns is None and not a.no_turn_cap) or a.cap is None:
                 p.error("request/run requires --job, --effort, --turns or --no-turn-cap, and --cap")
             settings = run_settings(effort=a.effort, max_turns=a.turns, fit_output_to_budget=a.fit_output_to_budget,
-                                    finish_k=a.k)
+                                    finish_k=a.k, settled_only=True, settled_stop_usd=a.cap)
             spec, lab = make_spec(a.job, a.run_id, settings, a.cap, write_request=a.action == "request",
                                   estimate_path=a.estimate)
             spec.env_file = a.env_file

@@ -109,7 +109,7 @@ def test_reload_rejects_a_later_request_after_unresolved_or_crossed_stop(tmp_pat
 
 
 @pytest.mark.parametrize("changes", [
-    {"settled_stop_usd": None}, {"settled_stop_usd": "19"},
+    {"settled_stop_usd": "0"}, {"settled_stop_usd": "19"},
     {"fit_output_to_budget": True}, {"settled_only": 1},
 ])
 def test_invalid_settled_only_configuration_refuses_before_ledger_creation(tmp_path, changes):
@@ -126,12 +126,49 @@ def test_settled_only_stage_cannot_enable_output_fitting(tmp_path):
     assert guard.ledger.rows == []
 
 
-def test_legacy_reservation_cap_still_blocks_and_omits_new_mode(tmp_path):
-    guard, count = guard_for(tmp_path, settled_only=False)
-    with pytest.raises(B.BudgetExceeded, match="maximum reserve"):
-        asyncio.run(guard.before_request(request(max_output_tokens=16_384)))
-    assert guard.ledger.rows == [] and count.call_count == 1
-    assert "settled_only" not in guard.ledger.data and "settled_only" not in guard.summary()
+def test_legacy_reservation_mode_cannot_create_or_admit_new_requests(tmp_path):
+    with pytest.raises(B.BudgetGuardError, match="require settled-only"):
+        guard_for(tmp_path, settled_only=False)
+    assert not (tmp_path / "budget.json").exists()
+    with pytest.raises(B.BudgetGuardError, match="require settled-only"):
+        B.RunLedger.create(tmp_path / "budget.json", "20", settled_only=False)
+    ledger = B.RunLedger.create(tmp_path / "budget.json", "20")
+    legacy = deepcopy(ledger.data)
+    legacy.pop("settled_only")
+    ledger.path.write_text(json.dumps(legacy), encoding="utf-8")
+    restored = B.RunLedger.load(ledger.path)
+    assert not restored.settled_only and restored.totals()["settled_micro_usd"] == 0
+    before = ledger.path.read_bytes()
+    with pytest.raises(B.BudgetGuardError, match="legacy reservation-mode"):
+        restored.reserve(1000, 100)
+    assert ledger.path.read_bytes() == before
+
+
+def test_guard_default_cutoff_comes_from_approved_amount(tmp_path):
+    counter, _ = fake_counter()
+    guard = B.BudgetGuard(counter, tmp_path / "budget.json", "20")
+    assert guard.ledger.settled_only and guard.settled_stop_micro == 20_000_000
+
+
+def test_historical_settlements_and_unknown_charge_remain_readable_and_reconcilable(tmp_path):
+    ledger = B.RunLedger.create(tmp_path / "budget.json", "20")
+    ledger.reserve(1000, 100)
+    ledger.settle(1, usage(cached=1000), response_id="resp_old", request_id="req_old")
+    ledger.reserve(1000, 100)
+    ledger.mark_unknown(2, reason="historical missing response")
+    historical = deepcopy(ledger.data)
+    historical.pop("settled_only")
+    ledger.path.write_text(json.dumps(historical), encoding="utf-8")
+    restored = B.RunLedger.load(ledger.path)
+    assert restored.totals()["settled_micro_usd"] == 1050
+    assert restored.totals()["unknown_micro_usd"] == 17_500
+    with pytest.raises(B.BudgetGuardError, match="legacy reservation-mode"):
+        restored.reserve(1000, 100)
+    restored.reconcile_unknown(2, "Offline fixture: owner confirms no charge", no_charge=True)
+    final = B.RunLedger.load(ledger.path)
+    assert not final.settled_only and "settled_only" not in final.data
+    assert final.totals()["settled_micro_usd"] == 1050
+    assert final.totals()["unknown_micro_usd"] == 0
 
 
 def test_settled_only_persistence_failure_keeps_open_liability(tmp_path, monkeypatch):
@@ -178,7 +215,19 @@ def test_legacy_approval_cannot_be_reinterpreted_by_changing_both_mode_markers(t
     run_dir, bound = estimated(job, cap="20", settings={**SETTINGS, "settled_stop_usd": "20"})
     A.write_approval(run_dir, max_usd="20", owner_words="Offline test: $20 reserve cap.")
     approved = A.check_approval(run_dir, current_request_sha256=A.request_sha256(bound), requested_cap_usd="20")
-    ledger = B.RunLedger.create(run_dir / "budget.json", "20", approval=approved.binding())
+    assert not approved.settled_only
+    with B.JobLedger(job) as jobs:
+        for action in (jobs.preflight, jobs.open_paid_run):
+            with pytest.raises(A.ApprovalRefused, match="legacy reservation-mode approval"):
+                action(run_dir.name, current_request_sha256=A.request_sha256(bound), requested_cap_usd="20")
+    assert not (run_dir / "budget.json").exists()
+    ledger = B.RunLedger.create(run_dir / "budget.json", "20")
+    legacy = deepcopy(ledger.data)
+    legacy.pop("settled_only")
+    legacy["approval"] = approved.binding()
+    ledger.path.write_text(json.dumps(legacy), encoding="utf-8")
+    ledger = B.RunLedger.load(ledger.path)
+    assert not ledger.settled_only
     tampered = deepcopy(ledger.data)
     tampered["settled_only"] = tampered["approval"]["settled_only"] = True
     ledger.path.write_text(json.dumps(tampered), encoding="utf-8")

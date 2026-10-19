@@ -14,7 +14,7 @@ from glasses3d.tests.proofs import astra_temple_lab as proof
     ("0", "100", 0, "0"), ("12.34", "100", 241_000, "3.12"), (None, None, None, None),
 ])
 def test_rehearsal_accepts_the_actual_runtime_footer(settled, cap, context, held):
-    text = footer_text(settled, cap, context, held_usd=held)
+    text = footer_text(settled, cap, context, settled_stop_usd=cap)
     assert proof.FOOTER.search("tool result\n" + text)
     assert not proof.FOOTER.search("tool result\n" + text + " extra bytes")
     assert not proof.FOOTER.search("tool result\n" + text.replace("context", "missing-context-field"))

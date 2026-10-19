@@ -4,6 +4,42 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 
+MONEY_INSTRUCTION = ("The run stops before a new request once settled spend reaches the owner's cutoff; "
+                     "the reply in flight may cross it, and a stopped run is delivered as a draft.")
+
+
+def money_facts(values):
+    """Only settled amounts go to Astra; request estimates remain internal accounting."""
+    def amount(name):
+        value = values.get(name + "_usd")
+        if value is None and values.get(name + "_micro_usd") is not None:
+            value = Decimal(values[name + "_micro_usd"]) / 1_000_000
+        return None if value is None else Decimal(str(value))
+
+    settled, cutoff = amount("settled"), amount("settled_stop")
+    remaining = max(Decimal(0), cutoff - settled) if cutoff is not None and settled is not None else None
+    return {name: None if value is None else f"{value:.6f}" for name, value in (
+        ("settled_usd", settled), ("settled_stop_usd", cutoff), ("remaining_to_stop_usd", remaining))}
+
+
+def factual_money_text(values):
+    facts = money_facts(values)
+    return (f"spent {dollars(facts['settled_usd'], places=6)} (settled); "
+            f"owner cutoff {dollars(facts['settled_stop_usd'], places=6)}; "
+            f"left before cutoff {dollars(facts['remaining_to_stop_usd'], places=6)}")
+
+
+def astra_money(value):
+    """Copy tool-facing reports without exposing estimated holds or cost planning."""
+    if isinstance(value, list):
+        return [astra_money(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    if _money_summary(value):
+        return money_facts(value)
+    return {key: astra_money(item) for key, item in value.items()}
+
+
 def dollars(value, *, places=2):
     """Display money without rounding a below-limit amount up to the limit."""
     if value is None:

@@ -72,7 +72,7 @@ def test_smoke_keeps_real_instructions_brief_all_photos_and_stops_after_one_read
     assert len([p for p in parts if p["type"] == "input_image"]) == 6
     texts = "\n".join(p["text"] for p in parts if p["type"] == "input_text")
     assert BRIEF in texts and L.SMOKE_POLICY["notice"] in texts
-    assert "working limit: $1.000000 settled stop (reserve cap $1.000000)" in texts
+    assert "owner cutoff: $1.000000 settled spend" in texts
     assert scene.s.head == before and scene.finish is None and hooks.restored == []
     assert not (job / "session/session.sqlite").exists()
     assert (job / "runs/smoke/smoke/session.sqlite").exists()

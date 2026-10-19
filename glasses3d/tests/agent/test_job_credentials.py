@@ -39,7 +39,7 @@ def request_for(job, smoke):
 @pytest.mark.parametrize("smoke", [False, True])
 def test_prepare_passes_path_without_reading_or_changing_approval_binding(job, unread_credentials, smoke):
     settings = job_run.settings_smoke() if smoke else job_run.settings_default()
-    cap = "1" if smoke else "23"
+    cap = "1" if smoke else "20"
     plain, _ = job_run.prepare_run(job, "credential-binding", settings=settings, cap=cap)
     supplied, _ = job_run.prepare_run(job, "credential-binding", settings=settings, cap=cap,
                                      env_file=unread_credentials, write_request=True)

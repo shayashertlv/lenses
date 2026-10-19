@@ -25,7 +25,7 @@ def settings_default() -> RunSettings:
 
 
 def settings_smoke(cap="1") -> RunSettings:
-    """One separately approved read-only request; its stop and reserve cap are identical."""
+    """One separately approved read-only request with the owner's settled cutoff."""
     return replace(settings_default(), smoke=True, max_turns=1, max_output_tokens=4096,
                    max_continuations=0, settled_stop_usd=cap, finish_tool=None)
 
@@ -58,12 +58,16 @@ def new_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:6]
 
 
-def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=False, resume=False,
+def prepare_run(root, run_id=None, *, settings=None, cap=None, write_request=False, resume=False,
                 scene=None, offline_handler=None, env_file=None):
     root = Path(root).resolve()
     job = jobs.load_job(root)
     fallback = owner_fallback.load(root)
-    settings = settings or (settings_full_edit_item(cap) if fallback else settings_default())
+    if settings is None:
+        settings = settings_full_edit_item(cap or "20") if fallback else settings_default()
+        if cap is not None:
+            settings = replace(settings, settled_stop_usd=cap)
+    cap = settings.settled_stop_usd if cap is None else cap
     owner_edit = edits.load(root)
     if fallback:
         if owner_edit:
@@ -81,17 +85,17 @@ def prepare_run(root, run_id=None, *, settings=None, cap="23", write_request=Fal
     if any(value is not None for value in (settings.context_guard_tokens, settings.context_guard_bytes,
                                            settings.context_guard_every_requests)):
         raise ValueError("job history is append-only; context guard epochs require a new unguarded run request")
-    # Legacy runs retain their approved reserve cap. Explicit settled-only approvals instead bind this
-    # amount to the actual settled stop, with no reservation-based admission limit.
+    # Historical requests stay readable, but every new conversation uses the owner's actual settled cutoff.
     cap_to_micro(cap)
     if settings.settled_stop_usd is None or cap_to_micro(settings.settled_stop_usd) <= 0:
         raise ValueError("job settled-spend stop must be a positive finite amount")
-    if settings.settled_only and (cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd)
-                                 or settings.fit_output_to_budget or settings.smoke):
-        raise ValueError("settled-only approval amount must equal the settled stop; no output fitting or smoke")
+    if settings.settled_only is not True:
+        raise ValueError("new runs require settled-only spending; estimate and approve a new request")
+    if cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd) or settings.fit_output_to_budget:
+        raise ValueError("settled-only approval amount must equal the settled stop; no output fitting")
     if settings.smoke:
         if resume or cap_to_micro(cap) != cap_to_micro(settings.settled_stop_usd):
-            raise ValueError("smoke requires a fresh isolated session and equal settled stop and reserve cap")
+            raise ValueError("smoke requires a fresh isolated session and equal settled cutoff and approval amount")
         if settings.max_turns != 1 or settings.max_output_tokens != 4096 or settings.max_continuations != 0:
             raise ValueError("smoke requires one request, 4096 output tokens and no continuations")
     scene = scene or (_FullEditItemScene(root, job=job, fallback=fallback) if fallback else JobScene(root, job=job))
@@ -169,6 +173,7 @@ def prepared_settings(root, run_id) -> tuple[RunSettings, str]:
         raise A.ApprovalRefused("missing", "job estimate must create a run request first")
     doc = json.loads(path.read_text(encoding="utf-8"))
     values = dict(doc["request"]["settings"])
+    values.setdefault("settled_only", False)  # preserve historical approval semantics; prepare_run refuses execution
     values.pop("session", None)  # re-read and bind the current saved history in prepare_run
     if values.get("smoke") is True:
         values["max_continuations"] = 0

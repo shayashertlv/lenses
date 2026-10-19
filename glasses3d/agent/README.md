@@ -46,8 +46,9 @@ The typed amount and the owner's paid-send button press authorize that one run o
 approval recording the button's words and displayed amount. Coding agents do not start paid calls for this build;
 any paid run they would execute still needs the owner's explicit OK and an estimate. The $20 CLI examples here are
 example amounts, not a ceiling; replace both `--cap` and `--settled-stop` with the authorized amount.
-Legacy defaults remain max effort, a $20 settled stop and a $23 reserve cap; old reserve-mode approvals retain
-that behavior. `--cap` must equal `--settled-stop` in settled-only requests.
+All new runs and edit rounds use settled-only spending. CLI defaults are max effort and a $20 settled cutoff;
+`--cap` must equal `--settled-stop`. The `--settled-only` flag remains optional for compatibility. Old approvals
+and ledgers remain readable and reconcilable, but reservation-mode approvals cannot start new requests.
 An estimate's 60-reply forecast is an assumption, not a reply limit or a spending guarantee. `job stop JOB_ID`
 requests a stop before the next request. `--foreground` runs in the invoking terminal; detached execution is the
 normal path. Logs and status are under `runs/RUN_ID/`; the heartbeat is at the job root.
@@ -67,7 +68,7 @@ was not trimmed to fit; the specialist retains its own cap.
 
 Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.
 The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;
-the live guard counts every request and enforces its approval-bound settled-only or legacy reserve policy.
+the live guard counts every request and stops new requests once settled spend reaches the approved cutoff.
 
 Finished runs publish immutable snapshots under `deliveries/`, including the model, validation and seating reports,
 AR evidence, contact sheets, cost and checkpoint. `deliveries/current.json` identifies the latest snapshot;
@@ -202,7 +203,7 @@ Job IDs may also be absolute job-directory paths. Each row lists flags accepted 
 | `job edit` | `--delivery-id`, `--source-runtime`, `--edit-id`, `--option`, `--coverage`, one of `--request`, `--request-file`, `--confirm`, `--confirm-file`, `--correct`, `--correct-file`; `--effort`; required `--cap`, `--settled-stop`; `--settled-only` |
 | `job edit-check` | `--request`, `--request-file`, `--mapping`, `--output` |
 | `job edit-apply` | `--edit-id`, required `--option` and one of `--confirm`, `--confirm-file`; `--output`, `--tool-test` |
-| `job edit-item` | positional delivered capture UNDERSTAND round path; required `--item`, `--cap`, `--settled-stop`, `--settled-only`; `--effort` (`high` only), `--output` |
+| `job edit-item` | positional delivered capture UNDERSTAND round path; required `--item`, `--cap`, `--settled-stop`; optional compatibility flag `--settled-only`; `--effort` (`high` only), `--output` |
 
 `--turns` is an optional real reply cap; omitting it on ordinary estimates leaves no cap. `--max-output-tokens`
 sets the response ceiling. `--smoke` prepares/runs a distinct one-request read-only smoke and requires matching

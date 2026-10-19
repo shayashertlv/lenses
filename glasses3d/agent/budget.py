@@ -10,7 +10,7 @@ is an httpx2 request hook (``before_request``) and response hook (``after_respon
   case (every input token at the cache-write rate plus the whole output cap), persist the row (fsync, then an atomic
   replace) and only then let the request go;
 * one open request at a time: a new request is refused while the previous row is ``held``;
-* explicit approval-bound ``settled_only`` mode still records each request's liability, but estimated holds
+* new runs use approval-bound ``settled_only`` spending and record each request's liability, but estimates
   never gate spending or shrink output. Admit while shared settled charges are below the approved stop;
   the final response can cross it. Unknown charges still end spending until reconciled;
 * after a response: every 200 that names gpt-6-astra with an id and status completed or incomplete is settled from its
@@ -48,7 +48,6 @@ import time
 from typing import TYPE_CHECKING
 
 from .pricing import MICRO, MODEL, MODEL_MAX_INPUT_TOKENS, PricingError, Tariff, usd_text, usd_to_micro, validate_usage
-from .money import reservation_refusal
 from .jsonl import read_jsonl
 
 try:  # the machine-wide paid-run lock re-checks its holder with psutil; without it no paid run can start
@@ -129,7 +128,7 @@ class BudgetGuardError(RuntimeError):
 
 
 class BudgetExceeded(BudgetGuardError):
-    """The next reservation would exceed this run's dollar cap."""
+    """Settled spend has reached this run's cutoff; no new request may start."""
 
 
 class StageBudgetExceeded(BudgetGuardError):
@@ -559,10 +558,10 @@ class RunLedger:
     # -- construction
     @classmethod
     def create(cls, path, maximum_usd, *, run_id: str | None = None, approval: dict | None = None,
-               settled_only: bool = False) -> "RunLedger":
+               settled_only: bool = True) -> "RunLedger":
         maximum_micro = cap_to_micro(maximum_usd)
-        if type(settled_only) is not bool or (settled_only and maximum_micro <= 0):
-            raise BudgetGuardError("settled-only mode requires a boolean and a positive settled stop")
+        if settled_only is not True or maximum_micro <= 0:
+            raise BudgetGuardError("new runs require settled-only mode and a positive settled stop")
         if approval is not None and approval.get("settled_only", False) is not settled_only:
             raise BudgetGuardError("settled-only mode differs from the consumed approval")
         tariff = Tariff.frozen(service_tier="default", region="global")
@@ -589,7 +588,7 @@ class RunLedger:
         tariff = Tariff.frozen()
         validate_ledger(data, tariff)
         if data.get("settled_only") and data.get("approval") is not None:
-            # This opt-in changes admission semantics. Verify the consumed owner's actual
+            # Verify this admission policy against the consumed owner's actual
             # request, not just two editable mode markers in the ledger and its receipt.
             from .approvals import request_sha256
             receipt = data["approval"]
@@ -667,7 +666,9 @@ class RunLedger:
 
     # -- transitions
     def reserve(self, input_tokens: int, max_output_tokens: int) -> dict:
-        """Persist one request's liability after checking the approved reserve or settled-only policy."""
+        """Record liability for one request admitted by settled spend; legacy ledgers are read-only here."""
+        if not self.settled_only:
+            raise BudgetGuardError("legacy reservation-mode ledgers cannot start new requests; create a settled-only run")
         try:
             reservation = self.tariff.reserve_micro(input_tokens, max_output_tokens)
         except PricingError:
@@ -680,8 +681,6 @@ class RunLedger:
                 raise BudgetGuardError("An unresolved request liability blocks further inference")
             if totals["settled_micro_usd"] >= self.maximum_micro:
                 raise BudgetExceeded(f"Settled spend reached the ${usd_text(self.maximum_micro)} stop; no inference sent")
-        elif totals["committed_micro_usd"] + reservation > self.maximum_micro:
-            raise BudgetExceeded(reservation_refusal(reservation, self.maximum_micro, totals))
         row = _new_row(len(self.rows) + 1, input_tokens, max_output_tokens, reservation)
 
         def mutate():
@@ -904,9 +903,9 @@ class BudgetGuard:
 
     def __init__(self, client_for_count, ledger_path, maximum_usd, *, run_id: str | None = None,
                  approval: dict | None = None, fit_output_to_budget: bool = False, settled_stop_usd=None,
-                 settled_only: bool = False):
+                 settled_only: bool = True):
         cap_to_micro(maximum_usd)       # refuse a bad cap before anything else (no ledger is created)
-        settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
+        settled_stop = cap_to_micro(maximum_usd if settled_stop_usd is None else settled_stop_usd)
         self._validate_settled_only(settled_only, cap_to_micro(maximum_usd), settled_stop, fit_output_to_budget)
         _check_counter(client_for_count)
         self._setup(client_for_count, RunLedger.create(ledger_path, maximum_usd, run_id=run_id,
@@ -921,7 +920,7 @@ class BudgetGuard:
         if not isinstance(ledger, RunLedger) or not ledger.fresh or ledger.live or ledger.rows:
             raise BudgetGuardError("A guard attaches only to a ledger created by this process with no rows")
         _check_counter(client_for_count)
-        settled_stop = None if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
+        settled_stop = ledger.maximum_micro if settled_stop_usd is None else cap_to_micro(settled_stop_usd)
         cls._validate_settled_only(ledger.settled_only, ledger.maximum_micro, settled_stop, fit_output_to_budget)
         guard = cls.__new__(cls)
         guard._setup(client_for_count, ledger)
@@ -931,9 +930,9 @@ class BudgetGuard:
 
     @staticmethod
     def _validate_settled_only(mode, maximum, stop, fit_output):
-        if type(mode) is not bool:
-            raise BudgetGuardError("settled_only must be a boolean")
-        if mode and (stop is None or stop != maximum or stop <= 0 or fit_output):
+        if mode is not True:
+            raise BudgetGuardError("new requests require settled-only mode; legacy ledgers remain readable")
+        if stop is None or stop != maximum or stop <= 0 or fit_output:
             raise BudgetGuardError("settled-only mode requires an equal positive settled stop and no output fitting")
 
     def _setup(self, client_for_count, ledger: RunLedger) -> None:
@@ -1145,48 +1144,8 @@ class BudgetGuard:
                 self.tariff.reserve_micro(input_tokens, output_limit)
             except PricingError:
                 raise BudgetGuardError("Token counter returned an invalid or unsupported input count") from None
-            if (self._stage_budget.fit_output_to_budget if self._stage_budget is not None
-                    else self.fit_output_to_budget):
-                remaining = self.ledger.maximum_micro - self.ledger.totals()["committed_micro_usd"]
-                if self._stage_budget is not None:
-                    remaining = min(remaining, self._stage_budget.summary()["remaining_micro_usd"])
-                if self.tariff.reserve_micro(input_tokens, output_limit) > remaining:
-                    # No fixed reserve tail: shrink only the response ceiling, keeping exact input and
-                    # worst-case per-request accounting. Never spend beyond the owner-approved cap.
-                    low, high = 16, output_limit
-                    if high < low or self.tariff.reserve_micro(input_tokens, low) > remaining:
-                        if (self._stage_budget is not None and self.tariff.reserve_micro(input_tokens, low)
-                                <= self.ledger.maximum_micro - self.ledger.totals()["committed_micro_usd"]):
-                            self._stage_budget.denied = "stage allowance cannot cover the input and 16 output tokens"
-                            raise StageBudgetExceeded(self._stage_budget.denied, request)
-                        raise BudgetExceeded("Remaining budget cannot cover this input and a 16-token response; "
-                                             "no inference sent")
-                    while low < high:
-                        mid = (low + high + 1) // 2
-                        if self.tariff.reserve_micro(input_tokens, mid) <= remaining:
-                            low = mid
-                        else:
-                            high = mid - 1
-                    output_limit = low
-                    payload["max_output_tokens"] = output_limit
-                    # Pinned httpx2 caches .content separately from the transport stream. Update both;
-                    # ReviewLog runs next and archives exactly the bytes the transport receives.
-                    replacement = type(request)(request.method, request.url, json=payload)
-                    request.stream = replacement.stream
-                    request._content = replacement.content
-                    request.headers["content-length"] = str(len(replacement.content))
-                    request.headers.pop("transfer-encoding", None)
-                    body_bytes = len(replacement.content)
             self._last_request_size = (input_tokens, output_limit)
             self._last_request_body = (body_bytes, images, count_ms)
-            hold = self.tariff.reserve_micro(input_tokens, output_limit)
-            committed = self.ledger.totals()["committed_micro_usd"]
-            if not self.ledger.settled_only and hold > self.ledger.maximum_micro - committed:
-                raise BudgetExceeded(reservation_refusal(hold, self.ledger.maximum_micro, self.ledger.totals()))
-            if (not self.ledger.settled_only and self._stage_budget is not None
-                    and hold > self._stage_budget.summary()["remaining_micro_usd"]):
-                self._stage_budget.denied = "the next reservation exceeds the stage allowance; no inference sent"
-                raise StageBudgetExceeded(self._stage_budget.denied, request)
             try:
                 self.ledger.reserve(input_tokens, output_limit)
             except LedgerPersistError as error:
@@ -1729,6 +1688,7 @@ class JobLedger:
         self._require_lock()
         approved = check_approval(self.run_dir(run_id), current_request_sha256=current_request_sha256,
                                   requested_cap_usd=requested_cap_usd)
+        approved.require_current_money_mode()
         scan = self.scan()
         if scan["blocking"]:
             raise JobLedgerError("This job's money state blocks a paid run: " + "; ".join(scan["blocking"]))
@@ -1748,6 +1708,7 @@ class JobLedger:
         run_dir = self.run_dir(run_id)
         approved = check_approval(run_dir, current_request_sha256=current_request_sha256,
                                   requested_cap_usd=requested_cap_usd)
+        approved.require_current_money_mode()
         scan = self.scan()
         if scan["blocking"]:
             raise JobLedgerError("This job's money state blocks a paid run: " + "; ".join(scan["blocking"]))

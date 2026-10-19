@@ -53,15 +53,15 @@ def parser():
     edit.add_argument("--effort", choices=EFFORTS, default="high")
     edit.add_argument("--cap", required=True)
     edit.add_argument("--settled-stop", required=True)
-    edit.add_argument("--settled-only", action="store_true",
-                      help="stop on settled charges only; no estimated-reservation cutoff")
+    edit.add_argument("--settled-only", action="store_true", default=True,
+                      help="compatibility flag; all new runs stop on settled charges only")
     fallback = commands.add_parser("edit-item", help="prepare one blocked capture item for its own full paid edit")
     fallback.add_argument("id", help="delivered capture UNDERSTAND round path")
     fallback.add_argument("--item", required=True, help="exact item id from the delivered understanding")
     fallback.add_argument("--cap", required=True)
     fallback.add_argument("--settled-stop", required=True)
-    fallback.add_argument("--settled-only", action="store_true", required=True,
-                          help="stop on settled charges only; no estimated-reservation cutoff")
+    fallback.add_argument("--settled-only", action="store_true", default=True,
+                          help="compatibility flag; all new runs stop on settled charges only")
     fallback.add_argument("--effort", choices=("high",), default="high")
     fallback.add_argument("--output", type=Path, help="new fallback round directory")
     apply = commands.add_parser("edit-apply", help="$0 host apply of one sealed, shown preview on a fresh copy; no API")
@@ -95,8 +95,8 @@ def parser():
             cmd.add_argument("--max-output-tokens", type=int)
             cmd.add_argument("--cap")
             cmd.add_argument("--settled-stop")
-            cmd.add_argument("--settled-only", action="store_true",
-                             help="stop on settled charges only; no estimated-reservation cutoff")
+            cmd.add_argument("--settled-only", action="store_true", default=True,
+                             help="compatibility flag; all new runs stop on settled charges only")
         elif name == "approve":
             cmd.add_argument("--max-usd", required=True)
             cmd.add_argument("--owner-words", required=True)
@@ -260,14 +260,13 @@ def dispatch(args):
                 **delivery_status(root)}
     if args.command == "estimate":
         from dataclasses import replace
-        cap = args.cap if args.cap is not None else (
-            (args.settled_stop or "20") if args.settled_only else ("1" if args.smoke else "23"))
+        cap = args.cap if args.cap is not None else (args.settled_stop or ("1" if args.smoke else "20"))
         settings = job_run.settings_smoke(cap) if args.smoke else job_run.settings_default()
         settings = replace(settings, effort=args.effort if args.effort is not None else settings.effort,
                            max_turns=(settings.max_turns if args.smoke and args.turns is None else args.turns),
                            max_output_tokens=(args.max_output_tokens if args.max_output_tokens is not None
                                               else settings.max_output_tokens),
-                           settled_stop_usd=args.settled_stop if args.settled_stop is not None else settings.settled_stop_usd,
+                           settled_stop_usd=args.settled_stop if args.settled_stop is not None else cap,
                            settled_only=args.settled_only)
         spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True, resume=args.resume)
         return procs.read_json(root / "runs" / spec.run_id / "approval-request.json")

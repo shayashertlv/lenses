@@ -137,7 +137,7 @@ def test_cost_step_and_holds_use_the_real_tariff_with_no_cache_credit_on_the_hol
     assert projected.settled[6] > projected.settled[5]
 
 
-def test_required_cap_admits_the_causal_sequence_through_the_real_guard(tmp_path):
+def test_causal_forecast_does_not_control_the_real_settled_cutoff(tmp_path):
     projected = E.project_g3d(26_000, 40, 16_384)
 
     def drive(cap, name):
@@ -147,6 +147,8 @@ def test_required_cap_admits_the_causal_sequence_through_the_real_guard(tmp_path
             try:
                 row = ledger.reserve(usage["input_tokens"], 16_384)
             except BudgetExceeded:
+                assert ledger.totals()["settled_micro_usd"] == sum(projected.settled[:i]) >= cap
+                assert len(ledger.rows) == i
                 return i
             assert row["reserved_micro_usd"] == projected.holds[i]
             ledger.settle(row["sequence"], usage, response_id=f"resp_causal_{i}", request_id=None)
@@ -155,7 +157,10 @@ def test_required_cap_admits_the_causal_sequence_through_the_real_guard(tmp_path
 
     assert projected.required_cap_micro == 11_763_296
     assert drive(projected.required_cap_micro, "exact") == 40
-    assert drive(projected.required_cap_micro - 1, "short") == 39
+    assert drive(projected.required_cap_micro - 1, "below-estimated-cap") == 40
+    before_last = sum(projected.settled[:-1])
+    assert drive(before_last, "at-settled-cutoff") == 39
+    assert drive(before_last + 1, "below-settled-cutoff") == 40
 
 
 def test_job_estimate_is_json_with_corpus_limits_range_tail_and_modeled_cap():

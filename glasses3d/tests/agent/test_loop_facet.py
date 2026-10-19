@@ -6,6 +6,7 @@ approval / registry binding, the parameter-description contract scan and the tim
 every request unchanged (test_loop.py and the other loop tests run on the defaults).
 """
 import asyncio
+from dataclasses import replace
 import hashlib
 import json
 
@@ -84,6 +85,8 @@ def job_for(root, tools, settings, *, cap="20"):
 
 
 def run(tmp_path, replies, tools, settings=FACET, scene=None, cap="20", **extra):
+    if settings.settled_stop_usd is None:
+        settings = replace(settings, settled_stop_usd=cap)
     job, sha = job_for(tmp_path, tools, settings, cap=cap)
     transport = R.ScriptedOpenAI(replies)
     spec = L.RunSpec(job_dir=job, run_id=RUN, instructions=tool_instructions(tools), tools=tools, brief=BRIEF,
@@ -99,11 +102,12 @@ def outputs(body):
 
 
 # --------------------------------------------------------------------------------------------- binding
-def test_default_settings_change_nothing():
+def test_default_sdk_behavior_is_unchanged_and_settled_only_is_bound():
     _calls, tools = finish_tools(["accepted"])
     default = L.RunSettings(effort="max")
     assert default.behavior() == {}
-    assert default.approval_settings() == {"effort": "max", "max_output_tokens": 16384, "max_turns": 60}
+    assert default.approval_settings() == {"effort": "max", "max_output_tokens": 16384, "max_turns": 60,
+                                           "settled_only": True}
     assert L.tool_registry_sha256(tools, default) == L.tool_registry_sha256(tools)
     assert L.build_model_settings(default).tool_choice is None
     agent = L.build_agent("x", tools, default)
@@ -115,7 +119,8 @@ def test_facet_settings_are_bound_into_the_approval_and_the_registry_sha():
     _calls, tools = finish_tools(["accepted"])
     guard = L.RunSettings(**{**FACET.__dict__, "context_guard_tokens": 240_000})
     assert FACET.approval_settings() == {
-        "effort": "max", "max_output_tokens": 4096, "max_turns": 10, "tool_choice": "required",
+        "effort": "max", "max_output_tokens": 4096, "max_turns": 10, "settled_only": True,
+        "tool_choice": "required",
         "reset_tool_choice": False, "finish": {"tool": "facet_finish", "behavior": L.FINISH_BEHAVIOR, "k": 4}}
     assert guard.approval_settings()["context_guard"] == {"input_tokens": 240_000, "filter": L.CONTEXT_GUARD}
     shas = {L.tool_registry_sha256(tools), L.tool_registry_sha256(tools, FACET), L.tool_registry_sha256(tools, guard),

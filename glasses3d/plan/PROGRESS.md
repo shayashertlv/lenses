@@ -1,5 +1,43 @@
 # glasses3d progress
 
+## 2026-10-19 — Task 11: Oakley regression diagnosis, camera alternatives and settled-only money ($0)
+
+The matched model/matte/source controls reproduce the side flips with the new model under both matte
+policies and both source versions; they do not establish the photographs' physical orientation. The
+fitter now reports unresolved side/top alternatives with native overlays and frozen hashes. Existing
+eligible camera candidates precede refused candidates; off-axis alignment includes eye offsets, and
+failed partial refits preserve separately hashed attempt images. Prada's six installed cameras and the
+new Oakley's three final-option cameras remain identical. The top automatic control clears the label
+refusal but has lower raw IoU; this is not an appearance or orientation acceptance.
+
+The archived-source and decision audit separates Astra's grey/metallic lens and temple choices from
+code effects. A misleading finish forecast plausibly encouraged the early finish; the owner's decision
+below replaces the proposed forecast repair. All Astra-facing forecasts/advice are removed. New runs
+and edit rounds use only settled spend against the owner's cutoff; old records remain readable and
+reconcilable. Provider limits, unknown-charge stops and approval binding remain. The saved-Oakley
+scripted proof reaches the cutoff, accepts second finish below it, and contains no projection text.
+Lens/temple judgement text is proposed in the report only, not applied.
+
+Validation: full functional **5,583 passed / 32 failed / 2 skipped / 11 xfailed** (913.82 s).
+Thirty failures were old money-policy fixtures; affected-file checks reached 215 passes with two fixture
+errors, then both corrected files passed 26/26. The unchanged CLI timeout case passed 4/4 serially.
+One M12 authored-normal overlap failure remains in protected files; its native runtime matches the
+pre-task baseline. No assertion or threshold was relaxed, and this is not a green full suite.
+Photoprint **367 passed** (396.50 s); serial timing **29 passed** (273.89 s); M1 **passed** (158.891 s),
+13 scripted requests and 35 verified AR images. The explicit-path commit and full evidence are recorded in
+`data/review_20261018/codex/task11_report.md`, with the controlled refit tables, two labelled overlays,
+source/input hashes, exact money text and all suite/M1 results. Suspended launcher 39648 was cleaned up
+after its Prada child exited successfully; detached controls completed. No paid call, push, original
+job/run/delivery/verdict change, accepted-asset change or WP5/WP6 method change. Task 11 ends for
+coordinator review; no next task or paid run is authorized here.
+
+### Decisions — 2026-10-19
+
+Owner, verbatim:
+
+> "we are keeping on encountering this issue. i dont understand what the problem is, why is our algo reserving
+> money??????? if i say 20$ cutoff than thats it why do you always layer on top of this??"
+
 ## 2026-10-19 — Paid Oakley regression run: delivered, owner wants changes; task 10 accepted
 
 Owner OK: "Yes, start the Oakley run: estimate $15.71, $20 settled cutoff, effort high." Fresh job
@@ -43,7 +81,9 @@ specialist; no reservation cutoff or output shrinking. No next request starts at
 in-flight response may cross it, and unknown charges stop spending. His typed amount and paid-send button press
 authorize that one run or edit send, recorded as a single-use approval with the button's words. Coding agents
 never start paid calls under build tasks and still need his explicit OK and an estimate for anything they would
-run. Legacy CLI $20 stop / $23 reserve / max effort are defaults only. No total WP8 budget is approved.
+run. New CLI runs default to a $20 settled cutoff and max effort; settled-only is the sole new-run/edit
+money mode. Historical reservation-mode approvals and ledgers remain readable, not new-run authority.
+No total WP8 budget is approved.
 
 ### Accepted assets and preserved scope
 

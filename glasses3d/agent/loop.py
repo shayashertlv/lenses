@@ -82,7 +82,7 @@ from .budget import (COUNT_TIMEOUT_PER_MB_S, COUNT_TIMEOUT_S, PAYLOAD_LIMIT_BYTE
 from .budget import BudgetExceeded, StageBudgetExceeded
 from .journal import CheckpointMismatch, WorkerFailed
 from .worker_client import WorkerDied
-from .money import dollars, money_text, owner_money
+from .money import factual_money_text, money_facts, money_text, owner_money
 from .run_statuses import STATUSES
 from .offline import (BASE_URL, OFFLINE_ENV, OFFLINE_KEY_PREFIX, disable_sdk_tracing, offline_counting_client,
                       offline_inference_client, require_offline)
@@ -199,10 +199,8 @@ class RunSettings:
     ``context_guard_tokens``, ``context_guard_bytes`` and ``context_guard_every_requests`` retain their old
     validation and approval binding so existing approvals remain readable. They no longer activate a history
     filter; live runs preserve earlier items and use ConversationRenewal when admission limits approach.
-    ``settled_stop_usd`` refuses the next request once settled spend reaches it, independently of the
-    approval's maximum reserve cap; an already-sent request may settle above the stop but within that cap.
-    Explicit ``settled_only`` approval removes reservation-based admission limits: the shared settled stop
-    alone controls spending, and the final in-flight request can settle above it."""
+    ``settled_stop_usd`` refuses the next request once settled spend reaches it; the final in-flight request
+    can settle above it. New runs use ``settled_only``; False is retained only for historical binding."""
 
     effort: str | None = None  # paid runs require the owner's explicit effort choice
     max_output_tokens: int = 16_384
@@ -210,7 +208,7 @@ class RunSettings:
     max_continuations: int = 2
     fit_output_to_budget: bool = False
     settled_stop_usd: str | float | None = None
-    settled_only: bool = False
+    settled_only: bool = True
     tool_choice: str = "auto"
     reset_tool_choice: bool = True
     finish_tool: str | None = None
@@ -639,32 +637,11 @@ class SmokeOnce:
 
 
 class RunStatus:
-    """SDK context: shared settled spend, working stop, reserve cap and last counted input for tool footers."""
+    """SDK context: shared settled spend, owner cutoff and last counted input for tool footers."""
 
     def __init__(self, guard: BudgetGuard | None = None, runtime=None, *, finish_tool="finish"):
         self.guard = guard
         self.runtime = runtime
-        self.finish_tool = finish_tool
-        self.finish_configured = False
-        self.finish_reference_count = None
-        self.finish_evidence = None
-
-    def configure_finish(self, scene):
-        self.finish_configured = True
-        images = getattr(scene, "job", {}).get("images")
-        if isinstance(images, list):
-            self.finish_reference_count = len(images)
-
-    def finish_runway(self, *, evidence=None, review_ready=False):
-        from .finish_runway import project
-        if self.guard is None or not self.finish_configured:
-            return None
-        return project(self.guard.summary(), self.guard.tariff, reference_count=self.finish_reference_count,
-                       evidence=evidence or self.finish_evidence, review_ready=review_ready)
-
-    def note_finish_evidence(self, evidence):
-        if evidence is not None:
-            self.finish_evidence = evidence
 
     async def run_stage(self, spec: StageSpec, scene: SceneHooks, cap_usd, call_id):
         if self.runtime is None:
@@ -673,46 +650,19 @@ class RunStatus:
 
     def numbers(self) -> dict:
         if self.guard is None:
-            return {"settled_usd": None, "cap_usd": None, "context_tokens": None}
+            return {"settled_usd": None, "settled_stop_usd": None, "context_tokens": None}
         summary = self.guard.summary()
-        return {"settled_usd": summary["settled_micro_usd"] / 1e6, "cap_usd": summary["maximum_micro_usd"] / 1e6,
-                "settled_only": summary.get("settled_only", False),
-                "held_usd": summary["held_micro_usd"] / 1e6, "unknown_usd": summary["unknown_micro_usd"] / 1e6,
-                "settled_stop_usd": (float(summary["settled_stop_usd"])
-                                     if summary.get("settled_stop_usd") is not None else None),
-                "remaining_to_stop_usd": (float(summary["remaining_to_stop_usd"])
-                                          if summary.get("remaining_to_stop_usd") is not None else None),
+        return {**money_facts(summary),
                 "context_tokens": summary["planning"]["last_counted_input_tokens"]}
 
-    def footer(self, *, finish_runway=None) -> str:
-        return footer_text(**self.numbers(), finish_runway=finish_runway or self.finish_runway(),
-                           finish_tool=self.finish_tool)
+    def footer(self) -> str:
+        return footer_text(**self.numbers())
 
 
 def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
-                remaining_to_stop_usd=None, held_usd=None, unknown_usd=None, finish_runway=None,
-                settled_only=False, finish_tool="finish") -> str:
-    def usd(value):
-        return dollars(value)
-    money = money_text({"settled_usd": settled_usd, "held_usd": held_usd, "unknown_usd": unknown_usd}, places=2)
-    money += (f"; settled-only stop {usd(settled_stop_usd)}; no reservation cutoff" if settled_only else
-              (f"; reserve cap {usd(cap_usd)}" if settled_stop_usd is None else
-               f"; settled stop {usd(settled_stop_usd)} (reserve cap {usd(cap_usd)})"))
-    text = f"{money} · context {'n/a' if context_tokens is None else context_tokens} tokens"
-    if (settled_stop_usd is not None and settled_usd is not None
-            and cap_to_micro(settled_usd) * 4 >= cap_to_micro(settled_stop_usd) * 3):
-        text += f"\nAbout {usd(remaining_to_stop_usd)} left; "
-        if finish_tool == "finish":
-            text += ("finish your best checkpoint soon. "
-                     "Finish needs a first evidence call and a second review call.")
-        elif finish_tool:
-            text += f"complete {finish_tool} on your best state soon."
-        else:
-            text += "complete the current work soon."
-    if finish_runway:
-        from .finish_runway import text as runway_text
-        text += "\n" + runway_text(finish_runway)
-    return text
+                remaining_to_stop_usd=None) -> str:
+    money = factual_money_text({"settled_usd": settled_usd, "settled_stop_usd": settled_stop_usd})
+    return f"{money} · context {'n/a' if context_tokens is None else context_tokens} tokens"
 
 
 class StageRunFailed(RuntimeError):
@@ -1160,15 +1110,10 @@ def rollback_sentence(rollback: dict) -> str:
 
 
 def invocation_text(*, run_id: str, scene_note: str, cap_micro: int, rollback: dict | None,
-                    settled_stop_micro: int | None = None, settled_only=False) -> str:
-    """Facts only: the run, scene, working settled stop, reserve cap and any rollback."""
-    money = (f"This run's budget cap: ${usd_text(cap_micro)}." if settled_stop_micro is None else
-             f"This run's working limit: ${usd_text(settled_stop_micro)} settled stop "
-             f"(reserve cap ${usd_text(cap_micro)}).")
-    if settled_only:
-        money = (f"This run stops new paid requests once shared settled charges reach ${usd_text(settled_stop_micro)}. "
-                 "Estimated response costs do not refuse requests or shrink responses below that stop. "
-                 "The final in-flight request may settle above it.")
+                    settled_stop_micro: int | None = None, settled_only=True) -> str:
+    """Facts only: the run, scene, owner cutoff and any rollback."""
+    cutoff = cap_micro if settled_stop_micro is None else settled_stop_micro
+    money = f"This run's owner cutoff: ${usd_text(cutoff)} settled spend."
     lines = [f"Run {run_id}.", scene_note.strip(), money]
     if rollback is not None:
         lines.append(rollback_sentence(rollback))
@@ -1391,8 +1336,10 @@ def _validate_spec(spec: RunSpec) -> None:
         raise RunRefused("fit_output_to_budget must be a boolean")
     if type(settings.settled_only) is not bool:
         raise RunRefused("settled_only must be a boolean")
-    if settings.settled_only and (settings.settled_stop_usd is None or settings.fit_output_to_budget or settings.smoke):
-        raise RunRefused("settled-only runs require an explicit settled stop, no output fitting and no smoke mode")
+    if not settings.settled_only:
+        raise RunRefused("new runs require settled_only=True")
+    if settings.fit_output_to_budget:
+        raise RunRefused("settled-only runs do not allow output fitting")
     if settings.settled_stop_usd is not None:
         try:
             cap_to_micro(settings.settled_stop_usd)

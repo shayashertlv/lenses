@@ -85,7 +85,7 @@ class SimulatedUsage:
         'cache': ('The entire previous request count is cached only for an exact append-only input prefix '
                   'with unchanged request settings (apart from tool_choice). Fresh or changed histories '
                   'write the whole cache once. This is a deterministic simulation, not measured cache usage.'),
-        'money': 'The ordinary guard uses its frozen tariff and the run-bound stop/reserve/admission policy.',
+        'money': 'The ordinary guard uses its frozen tariff and the owner-bound settled cutoff.',
     }
 
     def __init__(self):
@@ -327,12 +327,14 @@ if __name__ == '__main__':
     parser.add_argument('--mailbox', required=True)
     parser.add_argument('--run-id', default='desktop-offline')
     parser.add_argument('--response-timeout', type=float, default=3600)
-    parser.add_argument('--cap', help='Simulated approved reserve cap; default $23 ($20 for settled-only).')
-    parser.add_argument('--settled-only', action='store_true', help='Simulate the approval-bound $20 settled-only policy.')
+    parser.add_argument('--cap', help='Simulated owner settled cutoff; default $20.')
+    parser.add_argument('--settled-only', action='store_true', default=True,
+                        help='Compatibility flag; all new offline runs use settled spending.')
     parser.add_argument('--start-authorized-offline-run', action='store_true')
     args = parser.parse_args()
     if not args.start_authorized_offline_run:
         parser.error('the explicit --start-authorized-offline-run flag is required; no run started')
-    settings = replace(job_run.settings_default(), effort='xhigh', settled_only=args.settled_only)
+    settings = replace(job_run.settings_default(), effort='xhigh', settled_only=True,
+                       settled_stop_usd=args.cap if args.cap is not None else '20')
     run_fresh(args.job, args.mailbox, run_id=args.run_id, timeout_s=args.response_timeout,
               settings=settings, cap=args.cap)

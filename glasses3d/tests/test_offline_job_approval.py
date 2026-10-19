@@ -29,7 +29,9 @@ def test_actual_prepare_fixture_never_estimates_and_production_cannot_consume_it
         approval = json.loads((run/'approval.json').read_text())
         assert request['offline_only'] is True
         assert approval['authorized_by'] == 'offline_fixture'
-        assert request['requested_cap_micro_usd'] == approval['max_micro_usd'] == 23_000_000
+        assert request['requested_cap_micro_usd'] == approval['max_micro_usd'] == 20_000_000
+        assert request['request']['settings']['settled_only'] is True
+        assert request['request']['settings']['settled_stop_usd'] == '20.000000'
         assert approval['approval_request_sha256'] == A.file_sha256(run/'approval-request.json')
         _check_bound_request(run, spec)
         A.check_approval(run, current_request_sha256=spec.current_request_sha256)

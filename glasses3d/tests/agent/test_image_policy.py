@@ -57,6 +57,8 @@ def make_tools(scene):
 
 
 def run(root, replies, scene, *, run_id="images-1", resume=False, id_start=1, settings=SETTINGS):
+    cutoff = settings.settled_stop_usd or "20"
+    settings = replace(settings, settled_stop_usd=cutoff)
     job = root / "job"
     (job / "inputs/images").mkdir(parents=True, exist_ok=True)
     (job / "job.json").write_text('{"schema":"g3d.job/1","name":"Image policy proof"}')
@@ -68,11 +70,12 @@ def run(root, replies, scene, *, run_id="images-1", resume=False, id_start=1, se
                               tool_registry_sha256=L.tool_registry_sha256(tools, settings),
                               settings=settings.approval_settings(), run_inputs=A.run_input_binding(job, BRIEF, photos(2)))
     A.write_approval_request(job / "runs" / run_id, job_id=job.name, request=request,
-                             estimate={"expected_usd": "1"}, suggested_cap_usd="20")
-    A.write_approval(job / "runs" / run_id, max_usd="20", owner_words="Offline fixture only; no paid call.")
+                             estimate={"expected_usd": "1"}, suggested_cap_usd=cutoff)
+    A.write_approval(job / "runs" / run_id, max_usd=cutoff, owner_words="Offline fixture only; no paid call.")
     transport = R.ScriptedOpenAI(replies, id_start=id_start)
     spec = L.RunSpec(job_dir=job, run_id=run_id, instructions=instructions, tools=tools, brief=BRIEF,
-                     photos=photos(2), settings=settings, resume=resume, current_request_sha256=A.request_sha256(request),
+                     photos=photos(2), settings=settings, resume=resume, requested_cap_usd=cutoff,
+                     current_request_sha256=A.request_sha256(request),
                      offline_handler=transport.handle, offline_api_key=OFFLINE_KEY, heartbeat_interval_s=.05,
                      contract=L.ToolContract(frozenset(t.name for t in tools)))
     result = asyncio.run(L.run_astra(spec, scene=scene))

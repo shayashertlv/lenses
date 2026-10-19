@@ -121,7 +121,8 @@ def make_approved_job(root: Path, run_id: str) -> tuple[Path, str]:
     (job / "job.json").write_text(json.dumps({"schema": "g3d.job/1", "name": "Prada (money replay)"}),
                                   encoding="utf-8")
     (job / "inputs" / "images" / "reference-01.png").write_bytes(b"\x89PNG replay")
-    settings = {"model": "gpt-6-astra", "effort": "max", "max_output_tokens": 8192, "max_turns": 60}
+    settings = {"model": "gpt-6-astra", "effort": "max", "max_output_tokens": 8192, "max_turns": 60,
+                "settled_only": True, "settled_stop_usd": CAP_USD}
     request = build_request(job, instructions_sha256="a" * 64, tool_registry_sha256="b" * 64, settings=settings)
     A.write_approval_request(job / "runs" / run_id, job_id=job.name, request=request,
                              estimate={"expected_usd": "14.26"}, suggested_cap_usd=CAP_USD)
@@ -178,7 +179,8 @@ def test_prada_money_replay_settles_the_recorded_total_exactly(tmp_path):
     summary = guard.summary()
     assert (summary["settled_micro_usd"], summary["held_micro_usd"], summary["unknown_micro_usd"],
             summary["requests_settled"]) == (SETTLED_TOTAL, 0, 0, 59)
-    assert script.peak_committed == PEAK_COMMITTED <= 18_000_000          # peak committed within the $18 cap
+    assert script.peak_committed == PEAK_COMMITTED <= 18_000_000  # historical liability diagnostic, not admission
+    assert summary["settled_only"] is True
     assert scan["totals"]["settled_micro_usd"] == SETTLED_TOTAL and scan["totals"]["unknown_micro_usd"] == 0
     assert scan["blocking"] == [] and scan["warnings"] == []
     for headers, body in script.creates:

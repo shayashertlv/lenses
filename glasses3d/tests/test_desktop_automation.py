@@ -219,9 +219,8 @@ def test_replay_unsent_pressure_counts_preserve_latest_count_binding():
     assert 'count calls before it' in transport.violations[-2], 'a prior count may not be reused'
 
 
-@pytest.mark.parametrize('settled_only,cap,ends_at_stop', [(False, '23', True), (False, '3.5', False),
-                                                        (True, '20', True)])
-def test_simulated_usage_obeys_real_stop_reserve_and_settled_only_admission(tmp_path, settled_only, cap, ends_at_stop):
+@pytest.mark.parametrize('cap', ['23', '3.5', '20'])
+def test_simulated_usage_obeys_real_settled_cutoff(tmp_path, cap):
     from glasses3d.agent.budget import BudgetExceeded, BudgetGuard
     mailbox = D.Mailbox(tmp_path/'mailbox')
     async def answer(packet, body):
@@ -234,7 +233,7 @@ def test_simulated_usage_obeys_real_stop_reserve_and_settled_only_admission(tmp_
     counter = SimpleNamespace(base_url='https://api.openai.com/v1/',
                               responses=SimpleNamespace(input_tokens=SimpleNamespace(count=count)))
     counter.with_options = lambda **kwargs: counter
-    guard = BudgetGuard(counter, tmp_path/'budget.json', cap, settled_stop_usd='20', settled_only=settled_only)
+    guard = BudgetGuard(counter, tmp_path/'budget.json', cap)
     body = request()
     body.update(tool_choice='none', service_tier='default', max_output_tokens=16384, stream=False)
     body['input'][0]['content'][0]['text'] = 'a'*780_000
@@ -257,19 +256,17 @@ def test_simulated_usage_obeys_real_stop_reserve_and_settled_only_admission(tmp_
     settled = sum(row['settled_micro_usd'] for row in rows)
     assert len(rows) == len(mailbox.transport.creates) == len(mailbox.simulation.records)
     assert settled == sum(row['simulated_cost_micro_usd'] for row in mailbox.simulation.records)
-    assert (settled >= 20_000_000) is ends_at_stop
+    assert settled >= guard.ledger.maximum_micro
     spent = 0
     for row in rows:
         assert row['input_tokens'] > 190_000 and row['outcome'] == 'settled'
-        assert spent < 20_000_000
-        if not settled_only:
-            assert spent + row['reserved_micro_usd'] <= guard.ledger.maximum_micro
+        assert spent < guard.ledger.maximum_micro
         spent += row['settled_micro_usd']
     assert not mailbox.transport.violations and not network.attempts and not clients.constructions
 
 
-@pytest.mark.parametrize('settled_only,cap,expected', [(False, None, 23_000_000),
-                                                   (False, '44.2788', 44_278_800),
+@pytest.mark.parametrize('settled_only,cap,expected', [(False, None, None),
+                                                   (True, '44.2788', 44_278_800),
                                                    (True, None, 20_000_000)])
 def test_desktop_fixture_binds_current_money_terms_and_stays_unspendable(tmp_path, monkeypatch,
                                                                       settled_only, cap, expected):
@@ -280,8 +277,16 @@ def test_desktop_fixture_binds_current_money_terms_and_stays_unspendable(tmp_pat
     root = jobs.create_job(**args)
     monkeypatch.setenv('G3D_OFFLINE', '1')
     mailbox = D.Mailbox(tmp_path/'mailbox')
-    settings = replace(D.job_run.settings_default(), effort='xhigh', settled_only=settled_only)
+    settings = replace(D.job_run.settings_default(), effort='xhigh', settled_only=settled_only,
+                       settled_stop_usd=cap or '20')
     with LoopbackOnly() as network, ProductionTransportTripwire() as clients:
+        if not settled_only:
+            with pytest.raises(ValueError, match='new runs require settled-only'):
+                D.prepare_offline_request(root, 'desktop-proof', mailbox, settings=settings, cap=cap)
+            assert not (root/'runs'/'desktop-proof').exists()
+            assert not mailbox.packets and not mailbox.transport.counts
+            assert not network.attempts and not clients.constructions
+            return
         spec, _ = D.prepare_offline_request(root, 'desktop-proof', mailbox, settings=settings, cap=cap)
         run = root/'runs'/'desktop-proof'
         document = json.loads((run/'approval-request.json').read_text())
@@ -297,9 +302,8 @@ def test_desktop_fixture_binds_current_money_terms_and_stays_unspendable(tmp_pat
     assert not network.attempts and not clients.constructions
 
 
-@pytest.mark.parametrize('settled_only', [False, True])
 def test_async_desktop_mailbox_renews_real_loop_from_token_pressure_with_simulated_cache(
-        tmp_path, monkeypatch, settled_only):
+        tmp_path, monkeypatch):
     """Actual SDK, shared renewal/guard/session/receipts; scripted mailbox and tiny synthetic evidence."""
     import hashlib
     from agents import function_tool
@@ -346,10 +350,10 @@ def test_async_desktop_mailbox_renews_real_loop_from_token_pressure_with_simulat
 
     tools = [grow, inspect, finish]
     settings = L.RunSettings(effort='xhigh', max_output_tokens=1024, max_turns=20,
-                             finish_tool='finish', settled_stop_usd='20', settled_only=settled_only)
+                             finish_tool='finish', settled_stop_usd='20')
     with monkeypatch.context() as patch:
         patch.setattr(S, 'tool_registry_sha256', lambda tools: L.tool_registry_sha256(tools, settings))
-        job, digest = S.make_job(tmp_path, tools=tools, settings=settings, cap='20' if settled_only else '23')
+        job, digest = S.make_job(tmp_path, tools=tools, settings=settings, cap='20')
     run_id = '20261007T120000-run001'
     run = job/'runs'/run_id
     # The shared loop fixture writes a synthetic approval: explicitly make this one production-unspendable.

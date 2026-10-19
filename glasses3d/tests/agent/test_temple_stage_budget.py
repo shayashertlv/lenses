@@ -14,9 +14,9 @@ from glasses3d.agent.tools import temple as T
 from glasses3d.tests.agent.support import fake_counter, provider_body, request, response, usage
 
 
-def guard_at(tmp_path, *, stop='20', cap='23', outcome=None):
+def guard_at(tmp_path, *, stop='20', cap=None, outcome=None):
     counter, count = fake_counter(600_000)
-    guard = B.BudgetGuard(counter, tmp_path / 'budget.json', cap, settled_stop_usd=stop)
+    guard = B.BudgetGuard(counter, tmp_path / 'budget.json', cap or stop or '20', settled_stop_usd=stop)
 
     async def prepare():
         await guard.before_request(request(max_output_tokens=100))
@@ -63,24 +63,17 @@ def test_nested_stage_is_a_clean_refusal_and_leaves_budget_usable(tmp_path, monk
     assert guard.summary()['requests'] == 2
 
 
-@pytest.mark.parametrize('settled_only', [False, True])
-def test_specialist_money_note_distinguishes_spend_stop_and_reserve(tmp_path, settled_only):
+def test_specialist_money_note_contains_only_settled_facts(tmp_path):
     guard, _ = guard_at(tmp_path)
-    text = stage.money_note(SimpleNamespace(guard=guard), replace(L.RunSettings(), settled_only=settled_only), '8')
-    assert 'spent $15.00 (settled)' in text
-    assert 'held for the request in flight $0.00' in text
-    assert '$5.00 remains before the shared $20.00 settled stop' in text
-    if settled_only:
-        assert 'no reservation cutoff' in text
-    else:
-        assert '$8.00 of remaining reserve' in text and '$23.00 reserve cap' in text
-    assert 'allowance' not in text
+    text = stage.money_note(SimpleNamespace(guard=guard), L.RunSettings(), '5')
+    assert text == ('spent $15.000000 (settled); owner cutoff $20.000000; '
+                    'left before cutoff $5.000000.')
 
 
-def test_stage_uses_owner_reserve_without_astra_money_choice(tmp_path, monkeypatch):
+def test_stage_uses_shared_cutoff_without_astra_money_choice(tmp_path, monkeypatch):
     guard, _ = guard_at(tmp_path)
     result, started = invoke(guard, monkeypatch)
-    assert result['status'] == 'ok' and started[0][4] == '8.000000'
+    assert result['status'] == 'ok' and started[0][4] == '5.000000'
     assert guard.settled_stop_micro == 20_000_000
 
 
@@ -101,17 +94,16 @@ def test_stage_cannot_start_at_or_past_working_stop(tmp_path, monkeypatch, stop)
     assert result['status'] == 'refused' and result['code'] == 'E_STAGE_BUDGET' and not started
 
 
-def test_remaining_reserve_capacity_is_still_a_bound_when_lower_than_stop(tmp_path, monkeypatch):
-    guard, _ = guard_at(tmp_path, cap='16')
-    assert guard.summary()['remaining_to_stop_usd'] == '5.000000'
-    result, started = invoke(guard, monkeypatch)
-    assert result['status'] == 'ok' and started[0][4] == '1.000000'
+def test_new_guard_rejects_a_second_reserve_limit(tmp_path):
+    with pytest.raises(B.BudgetGuardError):
+        guard_at(tmp_path, cap='16')
+    assert not (tmp_path / 'budget.json').exists()
 
 
-def test_legacy_no_stop_still_uses_remaining_owner_reserve(tmp_path, monkeypatch):
+def test_missing_explicit_stop_uses_shared_owner_cutoff(tmp_path, monkeypatch):
     guard, _ = guard_at(tmp_path, stop=None)
     result, started = invoke(guard, monkeypatch)
-    assert result['status'] == 'ok' and started[0][4] == '8.000000'
+    assert result['status'] == 'ok' and started[0][4] == '5.000000'
 
 
 def default_run_settings(kind):
@@ -124,7 +116,7 @@ def default_run_settings(kind):
 
 
 @pytest.mark.parametrize('kind', ['main', 'temple_stage', 'understand', 'edit'])
-def test_explicit_reserve_covers_largest_main_and_child_request_at_19_99(tmp_path, kind):
+def test_largest_main_and_child_request_starts_at_19_99_without_reserve_admission(tmp_path, kind):
     settings = default_run_settings(kind)
     assert settings.effort == 'high' and settings.settled_stop_usd == '20'
     assert settings.max_output_tokens == 16_384 and settings.fit_output_to_budget is False
@@ -132,10 +124,8 @@ def test_explicit_reserve_covers_largest_main_and_child_request_at_19_99(tmp_pat
     tariff = pricing.Tariff.frozen()
     maximum_hold = tariff.reserve_micro(maximum_input, settings.max_output_tokens)
     assert maximum_input == 922_000 and maximum_hold == 24_278_800
-    # The bound also covers the last representable settled amount below $20, not just the example below.
-    assert 19_999_999 + maximum_hold < B.cap_to_micro('44.2788')
     counter, count = fake_counter(799_600)
-    guard = B.BudgetGuard(counter, tmp_path/'budget.json', '44.2788',
+    guard = B.BudgetGuard(counter, tmp_path/'budget.json', '20',
                           settled_stop_usd=settings.settled_stop_usd)
 
     async def flow():
@@ -143,7 +133,7 @@ def test_explicit_reserve_covers_largest_main_and_child_request_at_19_99(tmp_pat
         await guard.after_response(response(body=provider_body(
             usage_block=usage(tokens=799_600, written=799_600, output=0))))
         assert guard.summary()['settled_micro_usd'] == 19_990_000
-        # The production specialist gets the whole remaining reserve, sharing the same settled stop.
+        # Parent and child share the cutoff; a request starting below it may settle above it.
         scope = (nullcontext() if kind == 'main' else
                  guard.stage_budget(guard.summary()['remaining_usd'],
                                     fit_output_to_budget=settings.fit_output_to_budget))
@@ -163,24 +153,25 @@ def test_explicit_reserve_covers_largest_main_and_child_request_at_19_99(tmp_pat
             with pytest.raises(B.BudgetExceeded, match='Settled spend reached'):
                 await guard.before_request(request(max_output_tokens=settings.max_output_tokens))
         assert count.call_count == 2 and len(guard.ledger.rows) == 2
-        assert guard.ledger.totals()['committed_micro_usd'] <= guard.ledger.maximum_micro
+        assert guard.ledger.totals()['committed_micro_usd'] > guard.ledger.maximum_micro
     asyncio.run(flow())
 
 
 @pytest.mark.parametrize('kind', ['main', 'temple_stage', 'understand', 'edit'])
 @pytest.mark.parametrize('seed_tokens,settled', [(800_000, 20_000_000), (800_400, 20_010_000)])
-def test_larger_reserve_never_starts_another_main_or_child_request_at_or_above_stop(
+def test_no_main_or_child_request_starts_at_or_above_cutoff(
         tmp_path, kind, seed_tokens, settled):
     settings = default_run_settings(kind)
     counter, count = fake_counter(seed_tokens)
-    guard = B.BudgetGuard(counter, tmp_path/'budget.json', '44.2788', settled_stop_usd='20')
+    guard = B.BudgetGuard(counter, tmp_path/'budget.json', '20', settled_stop_usd='20')
 
     async def flow():
         await guard.before_request(request(max_output_tokens=settings.max_output_tokens))
         await guard.after_response(response(body=provider_body(
             usage_block=usage(tokens=seed_tokens, written=seed_tokens, output=0))))
         assert guard.summary()['settled_micro_usd'] == settled
-        scope = nullcontext() if kind == 'main' else guard.stage_budget(guard.summary()['remaining_usd'])
+        # Even a positive internal stage scope cannot reopen spending after the shared cutoff.
+        scope = nullcontext() if kind == 'main' else guard.stage_budget('1')
         with scope, pytest.raises(B.BudgetExceeded, match='Settled spend reached'):
             await guard.before_request(request(max_output_tokens=settings.max_output_tokens))
         assert count.call_count == 1 and len(guard.ledger.rows) == 1

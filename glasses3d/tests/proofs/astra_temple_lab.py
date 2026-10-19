@@ -128,10 +128,10 @@ TOOL_EXEMPTIONS = {
 
 def footer_pattern():
     """Keep the production footer's exact wording, allowing only its changing numeric fields."""
-    sample = footer_text("1234.56", "9876.54", 123456789, held_usd="2345.67")
+    sample = footer_text("1234.56", "9876.54", 123456789, settled_stop_usd="9876.54")
     pattern = re.escape(sample)
-    for value in ("$1234.56", "$9876.54", "$2345.67"):
-        pattern = pattern.replace(re.escape(value), r"(?:\$\d+\.\d{2}|n/a)")
+    for value in ("$1234.560000", "$9876.540000", "$8641.980000"):
+        pattern = pattern.replace(re.escape(value), r"(?:\$\d+\.\d{6}|n/a)")
     pattern = pattern.replace("123456789", r"(?:\d+|n/a)")
     return re.compile(r"\n" + pattern + r"$")
 

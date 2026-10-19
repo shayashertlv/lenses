@@ -12,7 +12,6 @@ from PIL import Image
 import pytest
 
 from glasses3d.agent import approvals as A, brief, cli, job_run, jobs, loop as L, replay as R
-from glasses3d.agent import finish_runway
 from glasses3d.tests.agent.loop_support import FakeScene, tool_instructions
 from glasses3d.tests.agent.support import OFFLINE_KEY, usage
 
@@ -79,23 +78,26 @@ def test_cli_estimate_approve_restore_binds_typed_cutoff_and_high_parent_child(j
     assert not (job / "inputs/seed.blend").exists()
 
 
-@pytest.mark.parametrize("initial_mode", [False, True])
-def test_money_mode_change_requires_fresh_approval(job, initial_mode):
-    settings = replace(job_run.settings_default(), effort="high", settled_only=initial_mode)
+def test_legacy_money_mode_is_readable_but_cannot_execute(job):
+    settings = replace(job_run.settings_default(), effort="high")
     spec, _ = job_run.prepare_run(job, "mode-change", settings=settings, cap="20", write_request=True)
     run = job / "runs" / spec.run_id
     A.write_approval(run, max_usd="20", owner_words="Offline fixture approval.")
-    changed, _ = job_run.prepare_run(job, spec.run_id, settings=replace(settings, settled_only=not initial_mode),
-                                     cap="20")
-    assert changed.current_request_sha256 != spec.current_request_sha256
-    with pytest.raises(A.ApprovalRefused, match="changed since"):
-        A.check_approval(run, current_request_sha256=changed.current_request_sha256, requested_cap_usd="20")
+    with pytest.raises(ValueError, match="new runs require settled-only"):
+        job_run.prepare_run(job, spec.run_id, settings=replace(settings, settled_only=False), cap="20")
+    # Reconstruct a historical request without the mode field; do not reinterpret it as a new-mode request.
+    document = json.loads((run / "approval-request.json").read_text())
+    document["request"]["settings"].pop("settled_only")
+    (run / "approval-request.json").write_text(json.dumps(document))
+    restored, cap = job_run.prepared_settings(job, spec.run_id)
+    assert restored.settled_only is False and cap == "20.000000"
+    with pytest.raises(ValueError, match="new runs require settled-only"):
+        job_run.prepare_run(job, spec.run_id, settings=restored, cap=cap)
     assert not (run / "budget.json").exists()
 
 
-@pytest.mark.parametrize("cap,changes", [("44.2788", {}), ("20", {"fit_output_to_budget": True}),
-                                         ("20", {"smoke": True})])
-def test_job_rejects_mixed_reserve_output_fitting_or_smoke(job, cap, changes):
+@pytest.mark.parametrize("cap,changes", [("44.2788", {}), ("20", {"fit_output_to_budget": True})])
+def test_job_rejects_mixed_reserve_or_output_fitting(job, cap, changes):
     settings = replace(job_run.settings_default(), effort="high", settled_only=True, **changes)
     with pytest.raises(ValueError, match="settled-only approval amount"):
         job_run.prepare_run(job, "invalid-mode", settings=settings, cap=cap, write_request=True)
@@ -113,30 +115,23 @@ def test_prepare_refuses_missing_nonfinite_nonpositive_or_unrepresentable_cutoff
 
 
 @pytest.mark.parametrize("settled", [0, 19_990_000])
-def test_status_footer_and_invocation_show_settled_stop_and_informational_runway(settled):
+def test_status_footer_and_invocation_show_only_settled_money_facts(settled):
     from glasses3d.agent.pricing import Tariff
     summary = {"settled_only": True, "settled_micro_usd": settled, "maximum_micro_usd": 20_000_000,
                "held_micro_usd": 0, "unknown_micro_usd": 0, "settled_stop_usd": "20.000000",
                "remaining_to_stop_usd": f"{(20_000_000 - settled) / 1e6:.6f}",
                "planning": {"last_counted_input_tokens": 250_000, "max_output_tokens": 16_384}}
     ctx = L.RunStatus(SimpleNamespace(summary=lambda: summary, tariff=Tariff.frozen()))
-    ctx.configure_finish(SimpleNamespace(job={"images": [{}] * 6}))
-    evidence = {"source": "fixture", "image_tokens": 1000, "ar_sheet_allowance_tokens": 0, "text_allowance_tokens": 0}
-    ctx.note_finish_evidence(evidence)
-    projection = ctx.finish_runway(evidence=evidence, review_ready=True)
-    assert projection['settled_only'] and projection['reserve_room_usd'] is None
-    assert ctx.numbers()["settled_only"] is True
-    for text in (ctx.footer(), ctx.footer(finish_runway=projection),
-                 L.footer_text(**ctx.numbers(), finish_runway=projection)):
-        assert "$20.00" in text and "no reservation cutoff" in text
-        assert "reserve cap" not in text and "Reserve room" not in text
-        assert "estimated cost" in text and "estimates never refuse or shrink" in text
+    assert ctx.numbers() == {"settled_usd": f"{settled / 1e6:.6f}", "settled_stop_usd": "20.000000",
+                             "remaining_to_stop_usd": f"{(20_000_000 - settled) / 1e6:.6f}", "context_tokens": 250_000}
+    for text in (ctx.footer(), L.footer_text(**ctx.numbers())):
+        assert "$20.000000" in text and "owner cutoff" in text
+        assert "left before cutoff" in text and "settled" in text
+        assert not any(word in text.lower() for word in ("reserve", "estimated", "allowance", "finish now"))
     invocation = L.invocation_text(run_id="offline", scene_note="Synthetic scene.", cap_micro=20_000_000,
                                     rollback=None, settled_stop_micro=20_000_000, settled_only=True)
-    assert "$20.000000" in invocation and "shared settled charges" in invocation
-    assert "do not refuse requests or shrink responses" in invocation
-    assert "final in-flight request may settle above" in invocation
-    assert "reserve cap" not in invocation
+    assert "$20.000000" in invocation and "owner cutoff" in invocation
+    assert not any(word in invocation.lower() for word in ("reserve", "estimated", "allowance", "finish now"))
 
 
 @pytest.mark.parametrize("cutoff,parent_tokens,prior_settled", [

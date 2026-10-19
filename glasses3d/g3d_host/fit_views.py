@@ -25,7 +25,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import cameras, fitmesh, hinge_axes, hinge_fit, pose
+from . import camera_ambiguity, cameras, fitmesh, hinge_axes, hinge_fit, pose
 from . import matte as M
 from .camera import CAMERA_FIELDS, Camera
 from .resources import fit_workers, single_threaded_children
@@ -120,6 +120,36 @@ def camera_usability(metrics: dict) -> dict:
             "reason": None if usable else
             f"{metric} {value:.4f} is below the usable camera overlap {MIN_USABLE_IOU:.2f} or is non-finite; "
             "camera, matte, overlay and candidate evidence are retained; this is not a finish gate"}
+
+
+def select_camera_candidate(view_kind, best, results, pivot=None):
+    """Prefer already fitted candidates that pass the unchanged label and overlap checks.
+
+    A low-loss camera below a photo labelled top cannot invalidate an available usable camera
+    above it. If every candidate fails, preserve the original winner and its ordinary refusal.
+    """
+    checks = [(result, sign_check(view_kind, result["camera"], pivot_norm=pivot),
+               camera_usability(result["metrics"])) for result in results]
+    eligible = [result for result, refusal, usable in checks if refusal is None and usable["usable"]]
+    selected = min(eligible, key=lambda result: result["common_loss"]) if eligible else best
+
+    def summary(result):
+        index = next(i for i, row in enumerate(results) if row is result)
+        _, refusal, usable = checks[index]
+        return {"id": f"view_{index + 1}", "view": result["view"], "camera": _cam(result["camera"]),
+                "loss_common_level": result["common_loss"], "label_refusal": refusal, "usability": usable}
+
+    changed = selected is not best
+    return selected, {
+        "schema": "g3d.camera_candidate_selection/1", "changed": changed,
+        "rule": "Prefer existing candidates that pass the unchanged photo-label and camera-usability checks, "
+                "then lowest common-level loss; if none pass, retain the original winner and its refusal.",
+        "reason": ("usable_label_consistent_candidate_over_invalid_loss_winner" if changed else
+                   "lowest_loss_among_usable_label_consistent_candidates" if eligible else
+                   "no_candidate_passes_unchanged_checks"),
+        "eligible_candidates": [f"view_{i + 1}" for i, (_, refusal, usable) in enumerate(checks)
+                                if refusal is None and usable["usable"]],
+        "original": summary(best), "selected": summary(selected)}
 
 
 def contour_summary(render: np.ndarray, photo: np.ndarray, percentiles=CONTOUR_PERCENTILES) -> dict:
@@ -386,6 +416,8 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
                                      ignore_faces=ignore_faces, **({"off_axis": True} if off_axis else {}))
     if axes:
         best, results = _opening_candidates(mesh, context, fg, pivot, results, ignore_faces, off_axis, initial_theta)
+    best, candidate_selection = select_camera_candidate(view_kind, best, results, pivot)
+    if axes:
         scene = best['posed_mesh'].scene()
     pivot_mm = mesh.frame.to_mm(pivot[None])[0]
     ppm = {id(r): cameras.px_per_mm_at(r["camera"], mesh.frame, pivot_mm) for r in results}
@@ -402,6 +434,26 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
         flags.append("insufficient_camera_overlap")
     if (best["refine"].get("off_axis") or {}).get("candidate_at_eye_bound"):
         flags.append("off_axis_candidate_at_domain_bound")
+    try:
+        orientation, orientation_overlays = camera_ambiguity.evidence(
+            best, results, fg, scene, pivot, ignore_faces, off_axis=off_axis)
+    except Exception as exc:
+        # Optional diagnostics cannot discard the completed fit or change any existing gate result.
+        orientation, orientation_overlays = {
+            "schema": "g3d.camera_orientation/1", "status": "unavailable", "selection_changed": False,
+            "note": "Orientation alternatives could not be evaluated; the installed camera is retained. "
+                    "Its physical orientation has not been independently established.",
+            "error": {"type": type(exc).__name__, "message": str(exc)}, "candidates": []}, []
+    if orientation is not None:
+        orientation.update(selection_changed=candidate_selection["changed"],
+                           candidate_selection_reason=candidate_selection["reason"],
+                           diagnostic_changes_selection=False)
+        orientation["note"] = orientation.get("note", "") + (
+            " The installed camera was chosen by the step reported in candidate_selection; "
+            "these orientation diagnostics do not override that choice.")
+    if orientation is not None and refusal is None:
+        flags.append("camera_orientation_unresolved" if orientation["status"] == "unresolved"
+                     else "camera_orientation_unavailable")
     rec = {
         "image": str(image_path), "image_sha256": photo_sha, "shape": list(fg.shape),
         "view_kind": view_kind, "candidates": list(cands), "n_refine": nr,
@@ -426,6 +478,8 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
         **{k: v for k, v in m.items() if k.endswith('_lens_optional') or k == 'lens_pixels_optional'},
         "overlay": None if overlay_path is None else str(overlay_path),
         "model": model,
+        "candidate_selection": candidate_selection,
+        **({"camera_ambiguity": orientation} if orientation is not None else {}),
     }
     if off_axis:
         rec["off_axis"] = dict(best["refine"]["off_axis"])
@@ -456,6 +510,14 @@ def _fit_image_mode(glb_path: str | Path, image_path: str | Path, view_kind: str
         op = Path(overlay_path)
         op.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(overlay_image(img, fg, scene.render(cam, fg.shape, 1)["mask"])).save(op)
+        for candidate, candidate_scene, candidate_camera in orientation_overlays:
+            path = op.with_name(f"{op.stem}_orientation_{candidate['id']}{op.suffix}")
+            try:
+                Image.fromarray(overlay_image(img, fg, candidate_scene.render(candidate_camera, fg.shape, 1)["mask"])).save(path)
+                candidate["overlay_sha256"] = sha256_file(path)
+                candidate["overlay"] = path.name
+            except Exception as exc:
+                candidate["overlay_error"] = {"type": type(exc).__name__, "message": str(exc)}
     rec["seconds"] = time.perf_counter() - t0
     return rec
 
@@ -741,7 +803,8 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                       "camera_usability": {"minimum_iou": MIN_USABLE_IOU,
                                            "metric": "iou_lens_optional when present, otherwise iou",
                                            "scope": "camera evidence status, not a finish gate"},
-                      "choice": "lowest loss on one common final level among the kind's candidates (fit_best)",
+                      "choice": "existing label-consistent usable candidates first, then lowest common final-level loss; "
+                                "if none pass, retain the original lowest-loss candidate and its refusal",
                       "automatic_matte": AUTO_MATTE_RULE,
                       "mm": "px / px_per_mm_at(camera, frame, front pivot)",
                       "contour": "symmetric: mean of the two directed means; pNN = max of the two directed pNN",

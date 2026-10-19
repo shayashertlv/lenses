@@ -21,8 +21,7 @@ from pydantic import BaseModel, ConfigDict
 from ..loop import FATAL_TOOL_ERRORS, fatal_tool_errors, footer_text, sdk_timeout_s, hard_timeout_s
 from ..tool_timeouts import AR_CAPTURE_DEADLINE_S, mark_running, clear_running, busy_result, scene_timeout_s
 from ..seeing import VIEWS_PER_SHEET
-from ..money import owner_money
-from ..finish_runway import observation as runway_observation
+from ..money import astra_money, money_facts
 from ..tool_reports import bounded_tool, limit_output, report_tool
 from . import arview, look, finish_review, model_map, owner_edit, owner_preview
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
@@ -244,7 +243,7 @@ def _output(scene, call_id, name, result):
         if name == "finish" and result.get("image_source") == "arview":
             result["arview"]["images"] = records
         scene.record_images(call_id, result)
-    output = [ToolOutputText(text=json.dumps(owner_money(result), ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
+    output = [ToolOutputText(text=json.dumps(astra_money(result), ensure_ascii=False, separators=(",", ":"), allow_nan=False)), *images]
     scene._emitted_images = emitted
     return output
 
@@ -298,8 +297,6 @@ def build_tools(scene, settings=None) -> list:
 
         def locked():
             runtime = getattr(ctx, "context", None)
-            if hasattr(runtime, "configure_finish"):
-                runtime.configure_finish(scene)
             if not scene.lock.acquire(timeout=0):
                 footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
                 return [ToolOutputText(text=json.dumps(busy_result(scene))),
@@ -346,15 +343,7 @@ def build_tools(scene, settings=None) -> list:
                     else:
                         result = {"status": "refused", "code": "E_ARGS", "call_id": cid, "message": str(error)[:1000]}
                     output = [ToolOutputText(text=json.dumps(result))]
-                observed = runway_observation(name, result)
-                runway = (runtime.finish_runway(evidence=observed, review_ready=result.get("status") == "review_required")
-                          if hasattr(runtime, "finish_runway") else None)
-                if name == "finish" and result.get("status") == "review_required" and runway:
-                    result["finish_runway"] = runway
-                    output[0] = ToolOutputText(text=json.dumps(owner_money(result), ensure_ascii=False,
-                                                             separators=(",", ":"), allow_nan=False))
-                footer = (runtime.footer(finish_runway=runway) if hasattr(runtime, "finish_runway") else
-                          runtime.footer() if hasattr(runtime, "footer") else footer_text())
+                footer = runtime.footer() if hasattr(runtime, "footer") else footer_text()
                 try:
                     output = limit_output(scene.root, cid, name, [*output, ToolOutputText(text=footer)])
                     if name == "finish":
@@ -371,8 +360,6 @@ def build_tools(scene, settings=None) -> list:
                         owner_preview.mark_delivered(scene, result, True)
                     if name == "edit_report":
                         owner_edit.mark_report_delivered(scene, result, True)
-                    if hasattr(runtime, "note_finish_evidence"):
-                        runtime.note_finish_evidence(observed)
                 except BaseException as delivery_error:
                     if name == "labelled_model_map":
                         model_map.mark_delivered(scene.root, result, False)
@@ -686,16 +673,11 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
-        """Return settled spend and held/unknown money separately. remaining_to_stop_usd deducts all three
-        from the settled stop. finish_runway estimates the remaining finish calls against that room. In reserve
-        mode it also reports reserve room and the projected second-finish hold. In settled-only mode there is no
-        reserve cap: remaining_usd is the unspent settled allowance, and estimated costs never refuse or shrink
-        requests. The final in-flight response can cross the stop. Projections are information, not a guarantee."""
+        """Return settled spend, the owner's cutoff and money left before that cutoff."""
         def status(cid):
             runtime = getattr(ctx, "context", None)
             guard = getattr(runtime, "guard", None)
-            return {"status": "ok", "budget": guard.summary() if guard is not None else None,
-                    "finish_runway": runtime.finish_runway() if hasattr(runtime, "finish_runway") else None}
+            return {"status": "ok", "budget": money_facts(guard.summary()) if guard is not None else None}
         return await call(ctx, "budget_status", status)
 
     @tool("finish")
@@ -713,7 +695,7 @@ def build_tools(scene, settings=None) -> list:
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
         Usable photo cameras require complete captured review evidence; EDIT also requires a delivered edit_report.
         Differences are information, not a likeness score or appearance gate. Do not claim a usable photo reviewed
-        when its images failed to capture. Keep budget to inspect and revisit visible differences before finalizing.
+        when its images failed to capture. Inspect and revisit visible differences before finalizing.
 
         Args:
             summary: What was built and any remaining differences from the photos.

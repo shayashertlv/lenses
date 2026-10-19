@@ -13,8 +13,7 @@ from agents.tool import ToolOutputImage, ToolOutputText
 from PIL import Image
 
 from ..loop import StageRunFailed
-from ..budget import cap_to_micro, usd_text
-from ..money import dollars, money_text
+from ..money import factual_money_text
 from .lab import Lab, data_url, sha
 from . import tools as T
 
@@ -24,27 +23,16 @@ def settings(parent=None):
     return RunSettings(effort=getattr(parent, "effort", "max"),
                        max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
-                       settled_only=getattr(parent, "settled_only", False),
+                       settled_only=getattr(parent, "settled_only", True),
                        reset_tool_choice=False, finish_tool="facet_finish", finish_k=4)
 
 
 def money_note(runtime, child_settings, cap_usd):
-    """Describe the shared working money without changing the owner's reservation policy."""
+    """Report settled totals under the parent's owner cutoff."""
     guard = getattr(runtime, "guard", None)
     if guard is None:
-        return "The specialist shares the parent's approved money limits; the footer reports job totals."
-    summary = guard.summary()
-    text = money_text(summary, places=2) + ". "
-    stop = summary.get("settled_stop_usd")
-    if stop is not None:
-        left = max(0, cap_to_micro(stop) - sum(summary[name + "_micro_usd"]
-                                              for name in ("settled", "held", "unknown")))
-        text += (f"{dollars(usd_text(left))} remains before the shared {dollars(stop)} "
-                 "settled stop after outstanding holds. ")
-    if child_settings.settled_only:
-        return text + "There is no reservation cutoff; only settled charges trigger the shared stop."
-    return text + (f"The stage shares {dollars(cap_usd)} of remaining reserve within the owner's "
-                   f"{dollars(summary['maximum_usd'])} reserve cap. Reserve is not additional spendable money.")
+        return factual_money_text({}) + "."
+    return factual_money_text(guard.summary()) + "."
 
 
 def progress(scene, folder, parent_root):
