@@ -1,21 +1,39 @@
 # glasses3d progress
 
-## 2026-10-19 — Task 11 follow-up: approved guidance and full verification ($0)
+## 2026-10-19 — Task 11 follow-up: approved guidance and repaired test isolation ($0)
 
 Applied the report's exact lens and temple paragraphs to Astra's construction instructions; contracts verify
 wording, placement and exclusion from scoped owner edits. The all-specialist prompt is 15,940 characters,
 below the unchanged 24,000 cap. Existing capabilities and owner-edit/no-refit rules remain intact.
 
-The reported offline-isolation failure remains **unreproduced, not fixed**. At clean `9306a4f`, the exact
-renewal + settled-only two-file command passed **37/37 in 26.94 s** before edits; after guidance edits it
-passed **37/37 in 28.85 s**. Neither launcher supplied `G3D_OFFLINE`. A worker trace confirmed the fixture
-supplied `1` at every client-selection check in all 13 reported SDK cases. The 37-file mixed batch passed
-**848/848 in 134.26 s** after shortening the local harness's Windows paths; its three earlier delivery
-failures were 261-character paths, independently readable through the extended prefix. No runtime guard
-was weakened. The live-env guard and per-test fixture predate task 11, but the reported failure's cause
-and age cannot be established without the original failing evidence; no cached flag/client was found.
+**Isolation failure reproduced and fixed after Claude supplied the exact nine-file order.** At clean `8f9d848`,
+his `-n 2 --dist loadfile` command failed **13 / passed 270 in 13.84 s**. Pytest 9.1.1 creates a second
+`tests/agent` Package when a root test file interposes between agent file arguments; conftest fixtures stay
+attached to the first object. Collection metadata proves **241 later agent cases lack `offline_isolation`**,
+including its credential scrub, temporary paid-run lock root and network guards. This happens before test
+execution, not through a later environment restore; `agent/loop.py:935` correctly refuses the missing flag.
+The defect predates task 11: its parent `fb7f5d5` has byte-identical conftests, package initializers, pytest
+configuration and dependency lock. Saved hashes and a minimal reproducer using that fixture establish this.
 
-Fresh functional: **5,619 passed / 2 skipped / 11 xfailed / 1 non-strict XPASS**, 965.98 s, exit 0.
+Pinned and installed **pytest 9.0.3** with its verified PyPI wheel SHA-256; the runtime guard and fixture are
+unchanged. `test_pytest_isolation.py` checks the real fixture across one/two root-file interpositions, every
+protection and restoration outside agent tests: **2 failed on 9.1.1 (1.92 s), 2 passed on 9.0.3 (1.44 s)**.
+Claude's identical nine-file command now passes **283/283 in 31.59 s**, with the same basetemp/order and no
+inherited `G3D_OFFLINE`. The affected nine modules plus offline/credential/approval/infrastructure/regression
+checks pass **323/323 serially in 47.79 s**; the original two-file command passes **37/37 in 28.47 s**.
+These runs overlap. Full collection finds **6,031 cases in 12.27 s**; `pip check` and installed-lock contracts pass.
+The earlier serial 37-pass and grouped-agent 848-pass runs did not exercise the failing interleaved order;
+their three initial 261-character Windows-path failures remain separate historical harness evidence.
+
+Primary sources read 2026-10-19: [pytest #14635](https://github.com/pytest-dev/pytest/issues/14635),
+[9.1.x backport #14968](https://github.com/pytest-dev/pytest/pull/14968),
+[unreleased](https://docs.pytest.org/en/latest/changelog.html) and
+[released changelogs](https://docs.pytest.org/en/stable/changelog.html),
+[9.0.3 wheel metadata](https://pypi.org/pypi/pytest/9.0.3/json).
+The upstream fix is merged but absent from released 9.1.1. Tests README records the pin and regression.
+
+Earlier verification for `8f9d848` with pytest 9.1.1 (not rerun for this dependency repair):
+functional **5,619 passed / 2 skipped / 11 xfailed / 1 non-strict XPASS**, 965.98 s, exit 0.
 Photoprint: **367 passed**, 431.16 s. Serial timing: **29 passed**, 298.94 s. Total **6,015 distinct
 Python passes** across 6,029 cases. No failing case remains in these checks; M12's authored normal-composition
 case XPASSed under its existing mark, which does not establish deterministic exactness. Its mark, assertions
@@ -28,7 +46,7 @@ Process inventories confirmed no competing pool-heavy job; checks ran sequential
 14/4 workers and idle serial timing, with original budgets. The final audit verifies **395 original files unchanged**.
 No paid call, push, original job/run/delivery/verdict change or accepted-asset change. Report, exact final guidance,
 commands, logs, receipts and the explicit-path commit are in `data/review_20261018/codex/task11_report.md` Follow-up.
-Stop for coordinator review; the isolation allegation retains the evidence limitation above.
+Stop for coordinator review; the reproduced isolation defect is resolved.
 
 ## 2026-10-19 — M12-D3 final verification and closing documents ($0)
 

@@ -1,6 +1,19 @@
 # Running the glasses3d tests
 
-From the repository root, use the project venv. Run these Python suites sequentially:
+From the repository root, use the project venv and install the pinned dependency lock:
+
+```powershell
+& .\glasses3d\.venv\Scripts\python.exe -m pip install --require-hashes -r glasses3d/requirements.txt
+```
+
+Pytest is pinned to **9.0.3** because 9.1.1 can silently omit directory conftest autouse fixtures
+when explicit file arguments interleave directories ([upstream #14635](https://github.com/pytest-dev/pytest/issues/14635)).
+For agent tests this omits the offline flag, credential scrubbing, private paid-run lock root and network guards.
+`test_pytest_isolation.py` reproduces agent/root/agent collection in a fresh subprocess using the real agent fixture,
+and checks that the guards apply to each agent file and are restored outside that directory.
+Keep that regression passing when updating pytest; setting `G3D_OFFLINE` in the launcher does not restore the other guards.
+
+Run these Python suites sequentially:
 
 ```powershell
 & .\glasses3d\.venv\Scripts\python.exe -B -m pytest -c glasses3d/pytest.ini glasses3d/tests --ignore=glasses3d/tests/photoprint -m "not timing" -n 8 --dist loadfile

@@ -1,5 +1,7 @@
 # Complete installed dependency closure: CPython 3.12 / Windows AMD64.
 # Recorded 2026-10-18 from the tested glasses3d/.venv; no version upgrades.
+# 2026-10-19: pytest 9.0.3 restores conftest autouse fixtures lost by 9.1.1
+# for interleaved directory arguments (https://github.com/pytest-dev/pytest/issues/14635).
 # Source: https://pypi.org/pypi/<name>/<version>/json (compatible wheel SHA-256).
 # Regenerate deliberately: python -m glasses3d.tests.proofs.lock_requirements
 # Install from repository root:
@@ -115,8 +117,8 @@ pydantic-core==2.46.5 --hash=sha256:5e81740c09e310f5aa5cbd3e434a01c154d4bef93241
 pygments==2.21.0 --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
 # pypatchmatch-2.0.1-py3-none-win_amd64.whl
 pypatchmatch==2.0.1 --hash=sha256:c893cb4df4fb116af214c89428d8a3f0a40202b2db7c43671f1aef3e05f57c67
-# pytest-9.1.1-py3-none-any.whl
-pytest==9.1.1 --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+# pytest-9.0.3-py3-none-any.whl
+pytest==9.0.3 --hash=sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9
 # pytest_xdist-3.8.0-py3-none-any.whl
 pytest-xdist==3.8.0 --hash=sha256:202ca578cfeb7370784a8c33d6d05bc6e13b4f25b5053c30a152269fd10f0b88
 # referencing-0.37.0-py3-none-any.whl
