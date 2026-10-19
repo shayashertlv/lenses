@@ -198,6 +198,8 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
     await t.test('run shows spend and ticking elapsed time; confirms stop and routes ended runs', async () => {
       await page.locator('#run-spend').waitFor();
       assert.match(await page.locator('#run-spend').innerText(), /1\.25.*25\.50/);
+      assert.equal(await page.locator('#run-money-left').innerText(), 'Money left $24.25');
+      assert.equal(await page.locator('#run-estimate').count(), 0);
       const elapsed = await page.locator('#run-elapsed').innerText();
       await page.waitForFunction(text => document.querySelector('#run-elapsed')?.textContent !== text, elapsed);
       await screenshot(page, 'run');
@@ -491,12 +493,18 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
       const cases = [['0', '$0.00'], ['20', '$20.00'], ['1.005', '$1.01'], ['2.675', '$2.68'], ['9.995', '$10.00'], ['9.9949', '$9.99'], ['0.004999999999999999', '$0.00'], ['0.005', '$0.01'], ['12345678901234567890.995', '$12345678901234567891.00']];
       const formatted = await page.evaluate(async values => {const {money} = await import('/static/money.js'); return values.map(money);}, cases.map(([input]) => input));
       assert.deepEqual(formatted, cases.map(([, expected]) => expected));
+      const missing = await page.evaluate(async () => {
+        const {money, cutoffBalance} = await import('/static/money.js');
+        return {amounts: [undefined, null, '', 'invalid', '-1', 'NaN'].map(money), balances: [cutoffBalance('bad', '1'), cutoffBalance('20', null), cutoffBalance('20', ''), cutoffBalance('Infinity', '1')]};
+      });
+      assert.deepEqual(missing.amounts, Array(6).fill('—')); assert.deepEqual(missing.balances, Array(4).fill(null));
       const savedRun = structuredClone(server.state.run), savedDelivery = structuredClone(server.state.delivery), savedUnderstanding = structuredClone(server.state.understanding);
       try {
         Object.assign(server.state.run, {settled_usd: '18.515', cutoff_usd: '20', estimate_usd: '1.005', phase: 'running', error: null});
         await page.goto(`${server.origin}/run/run_demo`); await page.locator('#run-spend').waitFor();
         assert.equal(await page.locator('#run-spend').innerText(), '$18.52 of $20.00');
-        assert.equal(await page.locator('#run-estimate').innerText(), 'Estimate: $1.01');
+        assert.equal(await page.locator('#run-estimate').count(), 0, 'estimates are not UI spending limits');
+        assert.equal(await page.locator('#run-money-left').innerText(), 'Money left $1.49', 'subtract exact amounts before rounding displayed cents');
         assert.doesNotMatch(await page.locator('#run-spend').getAttribute('title'), /18\.515/);
         server.state.delivery.run_settled_usd = '25.655';
         await page.goto(`${server.origin}/results/delivery_demo`); await page.locator('#viewer canvas').waitFor();
@@ -512,6 +520,72 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
         assert.equal(lastRequest(server, 'POST', '/api/edit-drafts/draft_demo/send').body.cutoff_usd, '7.2550');
         assert.equal(server.state.run.settled_usd, '18.515'); assert.equal(server.state.run.estimate_usd, '1.005');
       } finally {server.state.run = savedRun; server.state.delivery = savedDelivery; server.state.understanding = savedUnderstanding;}
+    });
+
+    await t.test('all seven pages omit extra money layers even when DTOs contain their values', async () => {
+      const savedRun = structuredClone(server.state.run), savedTask = structuredClone(server.state.task);
+      const amounts = ['87654.325', '76543.215', '65432.105', '54321.995', '43210.985', '32109.975'];
+      try {
+        server.state.run.phase = 'running'; server.state.run.error = null;
+        server.state.task.phase = 'running'; server.state.task.error = null;
+        server.state.moneyDiagnostics = {
+          estimate_usd: amounts[0], held_usd: amounts[1], unknown_usd: amounts[2], reserved_usd: amounts[3],
+          projected_usd: amounts[4], finish_soon_usd: amounts[5], finish_soon: 'Finish soon: projected spend is $32109.98.',
+        };
+        const inspected = [];
+        for (const route of ['/', '/new', '/run/run_demo', '/results/delivery_demo', '/edit/draft_demo', '/understand/edit_demo', '/task/task_demo']) {
+          await page.goto(`${server.origin}${route}`); await page.locator('#offline-banner').waitFor({state: 'visible'});
+          const ready = {'/': '[data-job-id="job_demo"]', '/new': '#new-run-form', '/run/run_demo': '#run-spend', '/results/delivery_demo': '#view-ar', '/edit/draft_demo': '#capture-annotate', '/understand/edit_demo': '#apply-picks', '/task/task_demo': '#task-state'};
+          await page.locator(ready[route]).waitFor();
+          const content = await page.evaluate(() => [document.body.innerText, ...[...document.querySelectorAll('[title],[aria-label]')].flatMap(element => [element.getAttribute('title') || '', element.getAttribute('aria-label') || ''])].join('\n'));
+          assert.doesNotMatch(content, /\b(?:estimate(?:d|s)?|held|reserve(?:d|s)?|unknown|project(?:ed|ion|ions)?|finish\s+soon)\b/i, `${route} has no generated extra-money labels or advice`);
+          for (const value of amounts) assert.ok(!content.includes(value.split('.')[0]), `${route} does not display diagnostic money ${value}`);
+          assert.equal(await page.locator('#run-estimate').count(), 0, `${route} has no estimate control`);
+          inspected.push({route, no_extra_money_text: true, no_extra_money_figures: true});
+        }
+        await fs.writeFile(path.join(DATA, 'followup2-seven-pages.json'), JSON.stringify(inspected, null, 2));
+      } finally {server.state.moneyDiagnostics = null; server.state.run = savedRun; server.state.task = savedTask;}
+    });
+
+    await t.test('money left follows exact settled subtraction, clamps at zero and updates when polling crosses the cutoff', async () => {
+      const savedRun = structuredClone(server.state.run), evidence = [];
+      try {
+        Object.assign(server.state.run, {phase: 'running', error: null, cutoff_usd: '20', settled_usd: '19.995'});
+        await page.goto(`${server.origin}/run/run_demo`);
+        const check = async (name, left, overrun) => {
+          await page.waitForFunction(({left, overrun}) => {
+            const balance = document.querySelector('#run-money-left'), notice = document.querySelector('#run-cutoff-overrun');
+            return balance?.textContent === left && notice && (overrun ? !notice.hidden && notice.textContent === overrun : notice.hidden && !notice.textContent);
+          }, {left, overrun});
+          assert.equal(page.url(), `${server.origin}/run/run_demo`);
+          assert.equal(await page.locator('#run-money-left').innerText(), left);
+          assert.equal(await page.locator('#run-estimate').count(), 0);
+          const text = await page.locator('body').innerText();
+          assert.doesNotMatch(text, /(?:Money left|left)\s*-\$|\$-\d/);
+          if (!overrun) assert.doesNotMatch(text, /The last request finished past the cutoff/);
+          else assert.equal(await page.locator('#run-cutoff-overrun').innerText(), overrun);
+          evidence.push({name, cutoff_usd: server.state.run.cutoff_usd, settled_usd: server.state.run.settled_usd, left, overrun: overrun || null});
+        };
+        await check('below', 'Money left $0.01', null); await screenshot(page, 'followup2-run-below');
+        const pollsBeforeCrossing = requests(server, 'GET', '/api/runs/run_demo').length;
+        server.state.run.settled_usd = '20.00000';
+        await check('equal', '$0.00 left', null); await screenshot(page, 'followup2-run-equal');
+        server.state.run.settled_usd = '20.005';
+        await check('above', '$0.00 left', 'The last request finished past the cutoff by $0.01.'); await screenshot(page, 'followup2-run-above');
+        assert.ok(requests(server, 'GET', '/api/runs/run_demo').length >= pollsBeforeCrossing + 2, 'the same running page observed both transitions by polling');
+        for (const sample of [
+          {name: 'subtract-before-rounding', cutoff: '20', settled: '18.515', left: 'Money left $1.49', overrun: null},
+          {name: 'large-exact-decimals', cutoff: '12345678901234567890.010', settled: '12345678901234567890.005', left: 'Money left $0.01', overrun: null},
+          {name: 'below-by-subcent', cutoff: '20', settled: '19.999999999999999999', left: 'Money left $0.00', overrun: null},
+          {name: 'above-by-subcent', cutoff: '20', settled: '20.000000000000000001', left: '$0.00 left', overrun: 'The last request finished past the cutoff by $0.00.'},
+          {name: 'overrun-carry-half-up', cutoff: '20', settled: '29.995', left: '$0.00 left', overrun: 'The last request finished past the cutoff by $10.00.'},
+        ]) {
+          server.state.run.cutoff_usd = sample.cutoff; server.state.run.settled_usd = sample.settled;
+          await page.reload(); await check(sample.name, sample.left, sample.overrun);
+          assert.equal(server.state.run.cutoff_usd, sample.cutoff); assert.equal(server.state.run.settled_usd, sample.settled);
+        }
+        await fs.writeFile(path.join(DATA, 'followup2-money-left.json'), JSON.stringify(evidence, null, 2));
+      } finally {server.state.run = savedRun;}
     });
 
     await t.test('copied real delivery captures and records footprint timing without changing source', async () => {

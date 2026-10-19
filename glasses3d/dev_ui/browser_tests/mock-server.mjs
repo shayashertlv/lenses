@@ -22,7 +22,7 @@ export async function startMockServer() {
   await fs.writeFile(path.join(DATA, 'photo.png'), png);
   const hash = sha256(fixture.bytes), created = '2026-10-19T10:00:00Z', previewUrl = `/api/artifacts/${sha256(png)}`;
   const source = {delivery_key: 'delivery_demo', glb_sha256: hash};
-  const state = {requests: [], startDelay: 0, nextError: null, fixture, alphaFixture, png, source, artifacts: new Map(),
+  const state = {requests: [], startDelay: 0, nextError: null, moneyDiagnostics: null, fixture, alphaFixture, png, source, artifacts: new Map(),
     config: {schema: 'g3d.dev_config/1', offline_test_mode: true, view_kinds: ['front', 'side', 'angled', 'top', 'rear', 'top_oblique'], sides: ['both', 'left', 'right', 'none'], effort: 'high'},
     run: {schema: 'g3d.dev_run/1', run_key: 'run_demo', kind: 'job', job_id: 'job_demo', run_id: 'run_demo', phase: 'running', loop_state: 'working', started_at: new Date(Date.now() - 65_000).toISOString(), updated_at: created, elapsed_seconds: 65, settled_usd: '1.25', held_usd: '0', unknown_usd: '0', cutoff_usd: '25.50', estimate_usd: '8.50', terminal_status: null, stop_requested: false, delivery_key: null, edit_key: null, error: null, offline_test_mode: true},
     delivery: {schema: 'g3d.dev_delivery/1', ...source, job_id: 'job_demo', delivery_id: 'delivery_demo', model_url: '/api/deliveries/delivery_demo/model.glb', finished: false, accepted_finish: false, run_status: 'budget_limit', label: 'not finished', run_settled_usd: '25.65', created_utc: created, checks: [{name: 'GLB', ok: true, detail: 'Synthetic fixture'}], origin: 'run', applied: [], notes: [], warnings: []},
@@ -37,7 +37,10 @@ export async function startMockServer() {
       {item_id: 'I4', number: 4, labels: ['D'], request_text: 'Move D.', annotated_url: previewUrl, interpretation: 'Direction is unclear.', disposition: 'needs_clarification', reason: 'Please describe the direction for D.', fallback_allowed: false, options: []},
       {item_id: 'I5', number: 5, labels: ['E'], request_text: 'Change E.', annotated_url: previewUrl, interpretation: 'No supported operation.', disposition: 'unsupported', reason: 'This change cannot be previewed.', fallback_allowed: false, options: []},
     ], map_images: [{url: previewUrl, label: 'Model map'}], limitations: ['Synthetic mock previews.']}, realBytes: null};
-  const json = (res, value, status = 200) => {res.writeHead(status, {'content-type': 'application/json; charset=utf-8'}); res.end(JSON.stringify(value));};
+  const json = (res, value, status = 200) => {
+    const payload = state.moneyDiagnostics && value && typeof value === 'object' && !Array.isArray(value) ? {...value, ...state.moneyDiagnostics} : value;
+    res.writeHead(status, {'content-type': 'application/json; charset=utf-8'}); res.end(JSON.stringify(payload));
+  };
   const file = async (res, filename, type) => {const bytes = await fs.readFile(filename); res.writeHead(200, {'content-type': type}); res.end(bytes);};
   const server = http.createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');

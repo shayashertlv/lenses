@@ -2,7 +2,7 @@ import { api, cutoffValue, idempotencyKey } from './api.js';
 import { createViewer } from './viewer.js';
 import { annotateCapture } from './annotation.js';
 import { labelWarnings } from './label-warnings.js';
-import { money } from './money.js';
+import { cutoffBalance, money } from './money.js';
 
 const MONEY_NOTE = 'Max budget is a settled-spend cutoff: no new request starts at or above it; the request already running can finish past it.';
 const app = document.querySelector('#app');
@@ -197,12 +197,13 @@ async function runPage() {
   const spend = node('span', { id: 'run-spend', class: 'stat-value' });
   const elapsed = node('span', { id: 'run-elapsed', class: 'stat-value' });
   const state = node('p', { id: 'run-state' });
-  const estimate = node('p', { id: 'run-estimate' });
+  const moneyLeft = node('p', { id: 'run-money-left' });
+  const overrun = node('p', { id: 'run-cutoff-overrun', hidden: true });
   const terminal = node('p', { id: 'run-terminal', hidden: true });
   const stop = button('Stop', { id: 'stop-run', class: 'danger', disabled: true });
   app.replaceChildren(node('div', { class: 'stats' },
     node('div', {}, node('span', { class: 'stat-label' }, 'Settled spend'), spend),
-    node('div', {}, node('span', { class: 'stat-label' }, 'Elapsed time'), elapsed)), state, estimate, terminal, stop);
+    node('div', {}, node('span', { class: 'stat-label' }, 'Elapsed time'), elapsed)), moneyLeft, overrun, state, terminal, stop);
   let run = null;
   let stopSending = false;
   let receivedAt = Date.now();
@@ -219,8 +220,10 @@ async function runPage() {
     spend.textContent = `${money(dto.settled_usd)} of ${money(dto.cutoff_usd)}`;
     spend.title = `Settled: ${money(dto.settled_usd)}; cutoff: ${money(dto.cutoff_usd)}`;
     state.textContent = `${dto.phase}${dto.loop_state ? ` · ${dto.loop_state}` : ''}${dto.stop_requested ? ' · stop requested' : ''}`;
-    estimate.hidden = dto.estimate_usd === null || dto.estimate_usd === undefined;
-    estimate.textContent = `Estimate: ${money(dto.estimate_usd)}`;
+    const balance = cutoffBalance(dto.cutoff_usd, dto.settled_usd);
+    moneyLeft.textContent = balance ? (balance.left === '0' ? '$0.00 left' : `Money left ${money(balance.left)}`) : '';
+    overrun.hidden = !balance?.exceeded;
+    overrun.textContent = balance?.exceeded ? `The last request finished past the cutoff by ${money(balance.overrun)}.` : '';
     terminal.hidden = !dto.terminal_status;
     terminal.textContent = dto.terminal_status ? `Run result: ${dto.terminal_status}` : '';
     stop.disabled = stopSending || dto.stop_requested || !['starting', 'running', 'finalizing'].includes(dto.phase);
