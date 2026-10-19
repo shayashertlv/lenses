@@ -20,6 +20,7 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M9 | Native composition, fresh-conversation renewal and desktop money simulation built (tasks 3/4). Item 4's owner comparison of desktop c0016 versus run-4 c0015 is not recorded as complete. |
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
 | M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
+| M12 | Owner's dev UI (`plan/M12_DEV_UI.md`): mapping done 2026-10-19; build in progress (tasks below). |
 
 Standing money terms are the amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
@@ -775,6 +776,26 @@ builder/fit/stage and T5 proof. Task 9 closes the assigned tests/arview/document
 under `data/review_20261018/codex/` retain each scope limit and failed or deferred check; this is not a claim that
 every P3 in the review was fixed. CC-12 is partial, CC-13/17 remain, WP4's historical quality failures and WP5's
 A4/A5/B3 limitations remain, and no unseen-product validation has happened.
+
+### M12. The owner's dev UI ($0 build; added 2026-10-19 by Claude)
+Source: `plan/M12_DEV_UI.md` (the owner's request verbatim, decisions in sections 2 and 6, frozen contracts in
+section 7). Briefs in `data/m12/briefs/` (each with `m12_common.md`), reports in `data/m12/codex/`. Owner: "i dont need
+you to show me the plan ... go and build it" and "for fastest time please max utilize this machine". Tasks with
+disjoint files run as parallel Codex processes that do not commit; Claude reviews and commits each with explicit paths.
+No paid call is made by the build; the owner presses the real "Start a paid run" himself.
+1. **A, backend** (parallel): new `dev_ui/` Starlette server on 127.0.0.1:8260, detached start/stop, API of section 7,
+   draft registry, idempotent prepare/approve/launch, cheap run status, stop, deliveries, AR link, $0 apply tasks,
+   offline test mode by construction only.
+2. **B, pages, viewer and annotation tool** (parallel): new `dev_ui/static/` and `dev_ui/browser_tests/`; orbit viewer,
+   capture, point/line/closed-shape marks with labels and anchors, item loop, run/results/understand pages; headless
+   Chromium tests against a mock API.
+3. **C1, core intake** (parallel): owner captures as labelled model evidence (never product photos) bound into approval
+   and renewal; unresolved UNDERSTAND admission; marks resolved to model targets for Astra; typed cutoff instead of the
+   $20 ceiling; instruction caps 24,000 and the capture text.
+4. **C2, per-item options and the $0 composed apply**, then **C3, the `full_edit_item` fallback** (after C1; in
+   parallel only if their files are disjoint).
+5. **A/B wiring** to the real façades, then **D, integration**: $0 end-to-end proofs in a real browser with the scripted
+   Astra and real Blender, documents (AGENTS money wording, READMEs, PROGRESS), full suite, arview suites, `assembly_m1`.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.
