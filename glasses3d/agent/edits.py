@@ -284,6 +284,11 @@ def create_understand(source, request_text, *, delivery_id=None, basis=None, des
         raise ValueError("edit destination already exists")
     root = edit_root / ("round-001-understand" if destination is not None else "u1")
     _copy_inputs(source, root)
+    for name in ("full-edit-item.json", "fallback-understanding.json",
+                 "fallback-understanding-delivery.json", "fallback-source-snapshot.json"):
+        stale = confined(root, Path("inputs") / name)
+        if stale.exists():
+            stale.unlink()
     shutil.copyfile(blend, root / "inputs/seed.blend")
     shutil.copytree(frozen.dir, root / "cameras" / frozen.id)
     doc = {"schema": SCHEMA, "phase": "understand", "edit_id": edit_id, "round": 1,

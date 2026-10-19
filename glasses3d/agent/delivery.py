@@ -602,6 +602,9 @@ def _package(root, result, exp, checkpoint, fingerprint, exit_head, summary, ar,
                       owner_applied={"path": "owner-applied/report.json",
                                      "sha256": _sha(files["owner-applied/report.json"]),
                                      "source_basis": application.get("source_basis")})
+        if application.get("schema") == "g3d.owner_applied_choices/1":
+            report.update({key: copy.deepcopy(application[key])
+                           for key in ("origin", "applied", "notes", "warnings", "exactness")})
     fallback = _full_edit_effects(root, result, exp, checkpoint, fingerprint, files)
     if fallback is not None:
         report.update(fallback)
@@ -728,19 +731,30 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
         binding = report.get("owner_applied") or {}
         _, application_bytes = _read(directory, binding.get("path"), binding.get("sha256", ""))
         application = _document(application_bytes, "owner applied preview")
-        if (draft or application.get("schema") != "g3d.owner_applied_preview/1"
-                or application.get("status") != "applied" or application.get("api_requests") != 0
-                or application.get("settled_usd") != "0.000000"
-                or application.get("tool_test") is not report.get("tool_test")
-                or type(report.get("tool_test")) is not bool
-                or application.get("exact_preview_fingerprint") is not True
-                or application.get("export_matches_preview_bytes") is not True
-                or application.get("export", {}).get("sha256") != sha
-                or application.get("preview_export_sha256") != sha
-                or application.get("export", {}).get("fingerprint") != report["fingerprint"]
-                or application.get("option", {}).get("fingerprint") != report["fingerprint"]
-                or application.get("source_basis") != binding.get("source_basis")):
-            raise DeliveryError("owner application does not bind its exact preview and delivered model")
+        if application.get("schema") == "g3d.owner_applied_choices/1":
+            from .owner_choices import validate_delivery_application
+            if draft:
+                raise DeliveryError("applied picks require a validated finished export")
+            if not isinstance(seating, dict) or not isinstance(printing, dict):
+                raise DeliveryError("applied picks require seating and retained-print reports")
+            try:
+                validate_delivery_application(application, report)
+            except ValueError as exc:
+                raise DeliveryError(str(exc)) from exc
+        else:
+            if (draft or application.get("schema") != "g3d.owner_applied_preview/1"
+                    or application.get("status") != "applied" or application.get("api_requests") != 0
+                    or application.get("settled_usd") != "0.000000"
+                    or application.get("tool_test") is not report.get("tool_test")
+                    or type(report.get("tool_test")) is not bool
+                    or application.get("exact_preview_fingerprint") is not True
+                    or application.get("export_matches_preview_bytes") is not True
+                    or application.get("export", {}).get("sha256") != sha
+                    or application.get("preview_export_sha256") != sha
+                    or application.get("export", {}).get("fingerprint") != report["fingerprint"]
+                    or application.get("option", {}).get("fingerprint") != report["fingerprint"]
+                    or application.get("source_basis") != binding.get("source_basis")):
+                raise DeliveryError("owner application does not bind its exact preview and delivered model")
         for image in application.get("images", []):
             _read(directory, image["path"], image["sha256"])
     if draft:
@@ -802,8 +816,11 @@ def load_delivery(root, delivery_id: str | None = None) -> dict:
     fallback_fields = ({key: copy.deepcopy(resolved[key]) for key in
                         ("origin", "item_id", "side_effects", "side_effects_report")}
                        if report.get("origin") == "full_edit_item" else {})
+    applied_fields = ({key: copy.deepcopy(resolved[key]) for key in
+                       ("origin", "applied", "notes", "warnings", "exactness")}
+                      if local_apply and application.get("schema") == "g3d.owner_applied_choices/1" else {})
     return {"status": "delivered", "id": delivery_id, "delivery_id": delivery_id, "glb_sha256": sha,
-            **fallback_fields,
+            **fallback_fields, **applied_fields,
             "finished": not draft, "run_status": report.get("run_status", "completed"),
             "model": str(directory / "model.glb"), "report": str(directory / "report.json"),
             "contact_sheet": str(directory / sheets[0]) if sheets else None,
@@ -855,9 +872,12 @@ def deliver_owner_applied(root, export, exit_head, ar, application):
     _prepare(root, scene, result)
     _, model = _read(root, export["path"], export["sha256"])
     capture, raw, shown, contact = _capture_files(root, ar, export["sha256"])
+    summary = ("Owner-selected items composed in item order at $0; interactions are recorded. "
+               "Visual acceptance remains the owner's decision."
+               if application.get("schema") == "g3d.owner_applied_choices/1" else
+               "Owner-selected preview applied exactly at $0; visual acceptance remains the owner's decision.")
     manifest, files = _package(root, result, export, export["checkpoint"], export["fingerprint"], exit_head,
-        "Owner-selected preview applied exactly at $0; visual acceptance remains the owner's decision.",
-        ar, model, capture, raw, shown, contact, owner_applied=application)
+        summary, ar, model, capture, raw, shown, contact, owner_applied=application)
     return _publish(root, manifest, files)
 
 
