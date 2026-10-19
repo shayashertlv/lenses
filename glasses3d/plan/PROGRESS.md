@@ -1,5 +1,15 @@
 # glasses3d progress
 
+## 2026-10-19 — Claude accepted task 11 ($0)
+
+Task 11 (`2340e95`, follow-ups `8f9d848`, `3193ca3`) reviewed by Claude: report
+`data/review_20261018/codex/task11_report.md`. Findings accepted: the Oakley lens and temples were Astra's own
+authoring choices; the removed finish forecast ($13.19 projected vs $8.02 left) plausibly ended the run early; the
+side-camera flip follows the model, not the matte change or code; run 4 used max effort, the new run high. Money tests
+read: the settled cutoff, unknown-charge stop and approval binding are still asserted; only reservation admission and
+output shrinking are gone, as the owner decided. Claude's reproducer of the offline-isolation failure (13 failed) now
+passes (285 passed) under pytest 9.0.3.
+
 ## 2026-10-19 — Task 11 follow-up: approved guidance and repaired test isolation ($0)
 
 Applied the report's exact lens and temple paragraphs to Astra's construction instructions; contracts verify
