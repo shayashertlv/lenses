@@ -2,6 +2,7 @@ import { api, cutoffValue, idempotencyKey } from './api.js';
 import { createViewer } from './viewer.js';
 import { annotateCapture } from './annotation.js';
 import { labelWarnings } from './label-warnings.js';
+import { money } from './money.js';
 
 const MONEY_NOTE = 'Max budget is a settled-spend cutoff: no new request starts at or above it; the request already running can finish past it.';
 const app = document.querySelector('#app');
@@ -44,13 +45,6 @@ function routeKey() {
   const key = location.pathname.split('/').filter(Boolean)[1];
   if (!key || !/^[A-Za-z0-9_-]{6,64}$/.test(key)) throw new Error('This page does not have a valid saved key. Open it from Jobs.');
   return encodeURIComponent(key);
-}
-function money(value) {
-  if (value === null || value === undefined || value === '') return 'not yet known';
-  const decimal = /^(\d+)(?:\.(\d*))?$/.exec(String(value));
-  if (decimal) return `$${decimal[1]}.${(decimal[2] || '').replace(/0+$/, '').padEnd(2, '0')}`;
-  const amount = Number(value);
-  return Number.isFinite(amount) ? `$${amount.toFixed(2)}` : String(value);
 }
 function dateText(value) {
   const date = new Date(value);
@@ -198,7 +192,7 @@ async function runPage() {
     run = dto; receivedAt = Date.now();
     if (dto.offline_test_mode) document.querySelector('#offline-banner').hidden = false;
     spend.textContent = `${money(dto.settled_usd)} of ${money(dto.cutoff_usd)}`;
-    spend.title = `Settled: ${dto.settled_usd}; cutoff: ${dto.cutoff_usd}`;
+    spend.title = `Settled: ${money(dto.settled_usd)}; cutoff: ${money(dto.cutoff_usd)}`;
     state.textContent = `${dto.phase}${dto.loop_state ? ` · ${dto.loop_state}` : ''}${dto.stop_requested ? ' · stop requested' : ''}`;
     estimate.hidden = dto.estimate_usd === null || dto.estimate_usd === undefined;
     estimate.textContent = `Estimate: ${money(dto.estimate_usd)}`;
@@ -398,7 +392,7 @@ async function understandPage() {
   const understanding = await api.get(`/api/edits/${key}/understanding`);
   const choices = new Map();
   const items = node('div', { id: 'understanding-items' });
-  const apply = button('Apply my picks ($0)', { id: 'apply-picks', class: 'primary', disabled: true });
+  const apply = button('Apply my picks ($0.00)', { id: 'apply-picks', class: 'primary', disabled: true });
   let busy = false;
   const refreshApply = () => { apply.disabled = busy || !understanding.items.length || understanding.items.some(item => item.disposition === 'previewed' && !choices.has(item.item_id)); };
   app.replaceChildren(node('p', {}, `Understanding settled spend: ${money(understanding.run_settled_usd)}`), items, node('div', { class: 'actions' }, apply));
@@ -481,7 +475,7 @@ async function taskPage() {
   const elapsed = node('p', { id: 'task-elapsed' });
   const progress = node('p', { id: 'task-progress', class: 'verbatim' });
   const retry = button('Open edited model', { id: 'open-task-result', hidden: true });
-  app.replaceChildren(node('p', {}, 'Applying your picks locally ($0).'), state, elapsed, progress, retry);
+  app.replaceChildren(node('p', {}, 'Applying your picks locally ($0.00).'), state, elapsed, progress, retry);
   let timer;
   let task;
   let opening = false;

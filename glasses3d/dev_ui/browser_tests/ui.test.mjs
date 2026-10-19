@@ -64,10 +64,91 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
       assert.deepEqual(result.empty.map(w => w.code), ['empty_text', 'unused_label']);
       assert.deepEqual(result.caseSensitive.map(w => [w.code, w.label]), [['unused_label', 'A'], ['unused_label', 'B']]);
     });
+
+    await t.test('initial camera projects all eight model bounds corners inside a tight fit at every aspect', async () => {
+      await page.goto(`${server.origin}/__test/viewer`);
+      const fits = await page.evaluate(async source => {
+        const THREE = await import('three'), {createViewer} = await import('/static/viewer.js');
+        const host = document.querySelector('#fixture-viewer'), results = [];
+        for (const [width, height] of [[1000, 400], [800, 500], [600, 600], [320, 640]]) {
+          host.style.width = `${width}px`; host.style.height = `${height}px`;
+          const viewer = await createViewer(host, {modelUrl: '/api/deliveries/delivery_demo/model.glb', source});
+          viewer.camera.updateMatrixWorld();
+          const bounds = new THREE.Box3().setFromObject(viewer.root), corners = [];
+          for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) corners.push(new THREE.Vector3(x, y, z).project(viewer.camera).toArray());
+          results.push({width, height, aspect: viewer.camera.aspect, corners, root: {position: viewer.root.position.toArray(), scale: viewer.root.scale.toArray(), quaternion: viewer.root.quaternion.toArray()}});
+          viewer.dispose();
+        }
+        host.style.width = '1000px'; host.style.height = '500px';
+        window.followupFitViewer = await createViewer(host, {modelUrl: '/api/deliveries/delivery_demo/model.glb', source});
+        return results;
+      }, server.state.source);
+      for (const fit of fits) {
+        assert.equal(fit.corners.length, 8); near(fit.aspect, fit.width / fit.height);
+        assert.deepEqual(fit.root, {position: [0, 0, 0], scale: [1, 1, 1], quaternion: [0, 0, 0, 1]});
+        assert.ok(fit.corners.every(corner => corner.every(value => Number.isFinite(value) && value >= -1 && value <= 1)), `all corners in ${fit.width}x${fit.height} view/frustum`);
+        const span = axis => (Math.max(...fit.corners.map(corner => corner[axis])) - Math.min(...fit.corners.map(corner => corner[axis]))) / 2;
+        const fill = Math.max(span(0), span(1));
+        assert.ok(fill >= 0.85 && fill <= 0.99, `model fills ${(fill * 100).toFixed(1)}% of limiting ${fit.width}x${fit.height} dimension, with a small margin`);
+      }
+      await fs.writeFile(path.join(DATA, 'followup1-camera-fits.json'), JSON.stringify(fits, null, 2));
+      await screenshot(page, 'followup1-fit-synthetic');
+      await page.evaluate(() => window.followupFitViewer.dispose());
+    });
+
+    await t.test('near-full-window annotation maximizes landscape and portrait images with exact resized pixel mapping', async () => {
+      for (const [width, height, label] of [[1600, 900, 'landscape'], [600, 1600, 'portrait']]) {
+        await page.setViewportSize({width: 1280, height: 800}); await page.goto(`${server.origin}/__test/viewer`);
+        await page.evaluate(async ({width, height, source}) => {
+          const {annotateCapture} = await import('/static/annotation.js');
+          const clean = document.createElement('canvas'); clean.width = width; clean.height = height;
+          const context = clean.getContext('2d'); context.fillStyle = '#eeeeec'; context.fillRect(0, 0, width, height);
+          const blob = await new Promise(resolve => clean.toBlob(resolve, 'image/png'));
+          await annotateCapture({capture: async () => ({blob, width, height, camera: {}, anchorAt: () => ({kind: 'background'}), footprint: () => ({pixels: 0, faces: []}), dispose() {}})}, {
+            source, labels: [], captureId: 'C-layout', onSave: async bundle => {window.layoutSaved = bundle.capture;},
+          });
+        }, {width, height, source: server.state.source});
+        const metrics = [];
+        for (const size of [{width: 1280, height: 800}, {width: 1366, height: 768}]) {
+          await page.setViewportSize(size);
+          await page.waitForFunction(() => {
+            const dialog = document.querySelector('[data-testid="annotation-dialog"]');
+            return dialog && Math.abs(dialog.getBoundingClientRect().width / innerWidth - 0.96) < 0.02;
+          });
+          const measured = await page.evaluate(() => {
+            const dialog = document.querySelector('[data-testid="annotation-dialog"]'), canvas = document.querySelector('[data-testid="annotation-canvas"]'), image = document.querySelector('.annotation-image'), list = document.querySelector('[data-testid="mark-list"]');
+            const rect = element => {const {x, y, width, height, right, bottom} = element.getBoundingClientRect(); return {x, y, width, height, right, bottom};};
+            return {viewport: [innerWidth, innerHeight], dialog: rect(dialog), canvas: rect(canvas), area: rect(image), list: rect(list), image: [canvas.width, canvas.height], scrollWidth: dialog.scrollWidth, clientWidth: dialog.clientWidth, scrollHeight: dialog.scrollHeight, clientHeight: dialog.clientHeight};
+          });
+          near(measured.dialog.width / size.width, 0.96, 0.02); near(measured.dialog.height / size.height, 0.94, 0.02);
+          assert.ok(measured.dialog.x >= 0 && measured.dialog.y >= 0 && measured.dialog.right <= size.width && measured.dialog.bottom <= size.height, `${label} dialog fits viewport`);
+          assert.ok(measured.scrollWidth <= measured.clientWidth + 1 && measured.scrollHeight <= measured.clientHeight + 1, `${label} workspace needs no dialog scrolling`);
+          near(measured.canvas.width / measured.canvas.height, width / height, 0.002);
+          assert.ok(measured.canvas.x >= measured.area.x - 1 && measured.canvas.y >= measured.area.y - 1 && measured.canvas.right <= measured.area.right + 1 && measured.canvas.bottom <= measured.area.bottom + 1, `${label} canvas contained in image area`);
+          assert.ok(measured.canvas.right <= measured.list.x + 1, `${label} labels remain beside image`);
+          const largestScale = Math.min(measured.area.width / width, measured.area.height / height);
+          const actualScale = measured.canvas.width / width;
+          assert.ok(actualScale >= largestScale * 0.97 && actualScale <= largestScale * 1.01, `${label} canvas uses maximum available image area`);
+          metrics.push(measured);
+        }
+        const canvas = page.getByTestId('annotation-canvas'), box = await canvas.boundingBox();
+        await page.mouse.click(box.x + box.width * 0.31, box.y + box.height * 0.63);
+        await screenshot(page, `followup1-dialog-${label}`);
+        await page.getByRole('button', {name: 'Done annotating', exact: true}).click();
+        await page.getByLabel('What should Astra change?', {exact: true}).fill('Change A.');
+        await screenshot(page, `followup1-dialog-${label}-words`);
+        await page.getByRole('button', {name: 'Done', exact: true}).click();
+        const capture = await page.evaluate(() => window.layoutSaved);
+        near(capture.marks[0].vertices[0].xy_px[0] / width, 0.31, 0.003); near(capture.marks[0].vertices[0].xy_px[1] / height, 0.63, 0.003);
+        await fs.writeFile(path.join(DATA, `followup1-dialog-${label}.json`), JSON.stringify(metrics, null, 2));
+      }
+      await page.setViewportSize({width: 1280, height: 900});
+    });
+
     await t.test('new run validates owner fields, keeps exact input and prevents double submission', async () => {
       await page.goto(`${server.origin}/new`);
       await page.locator('#offline-banner').waitFor({state: 'visible'});
-      assert.match(await page.locator('#offline-banner').innerText(), /OFFLINE TEST MODE: scripted Astra, \$0/);
+      assert.equal(await page.locator('#offline-banner').innerText(), 'OFFLINE TEST MODE: scripted Astra, $0.00');
       assert.equal(await page.locator('#cutoff').inputValue(), '');
       await page.locator('#photos').setInputFiles([
         {name: 'front owner.png', mimeType: 'image/png', buffer: server.state.png},
@@ -383,6 +464,54 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
       server.state.run = {...savedRun, phase: 'ended', kind: 'understand', edit_key: 'edit_demo'};
       await page.goto(`${server.origin}/run/run_demo`); await page.waitForURL('**/understand/edit_demo');
       server.state.run = savedRun; server.state.task = savedTask;
+    });
+
+    await t.test('all seven pages display exact two-decimal offline banners and zero-cost apply labels', async () => {
+      const savedRun = structuredClone(server.state.run), savedTask = structuredClone(server.state.task);
+      try {
+        server.state.run.phase = 'running'; server.state.run.error = null;
+        server.state.task.phase = 'running'; server.state.task.error = null;
+        for (const route of ['/', '/new', '/run/run_demo', '/results/delivery_demo', '/edit/draft_demo', '/understand/edit_demo', '/task/task_demo']) {
+          await page.goto(`${server.origin}${route}`);
+          const banner = page.locator('#offline-banner'); await banner.waitFor({state: 'visible'});
+          assert.equal(await banner.innerText(), 'OFFLINE TEST MODE: scripted Astra, $0.00', route);
+          if (route.startsWith('/understand/')) {
+            await page.locator('#apply-picks').waitFor();
+            assert.equal(await page.locator('#apply-picks').innerText(), 'Apply my picks ($0.00)');
+          }
+          if (route.startsWith('/task/')) {
+            await page.getByText('Applying your picks locally ($0.00).', {exact: true}).waitFor();
+          }
+        }
+      } finally {server.state.run = savedRun; server.state.task = savedTask;}
+    });
+
+    await t.test('dynamic money displays round half up to two decimals while paid requests retain exact cutoff strings', async () => {
+      await page.goto(`${server.origin}/__test/viewer`);
+      const cases = [['0', '$0.00'], ['20', '$20.00'], ['1.005', '$1.01'], ['2.675', '$2.68'], ['9.995', '$10.00'], ['9.9949', '$9.99'], ['0.004999999999999999', '$0.00'], ['0.005', '$0.01'], ['12345678901234567890.995', '$12345678901234567891.00']];
+      const formatted = await page.evaluate(async values => {const {money} = await import('/static/money.js'); return values.map(money);}, cases.map(([input]) => input));
+      assert.deepEqual(formatted, cases.map(([, expected]) => expected));
+      const savedRun = structuredClone(server.state.run), savedDelivery = structuredClone(server.state.delivery), savedUnderstanding = structuredClone(server.state.understanding);
+      try {
+        Object.assign(server.state.run, {settled_usd: '18.515', cutoff_usd: '20', estimate_usd: '1.005', phase: 'running', error: null});
+        await page.goto(`${server.origin}/run/run_demo`); await page.locator('#run-spend').waitFor();
+        assert.equal(await page.locator('#run-spend').innerText(), '$18.52 of $20.00');
+        assert.equal(await page.locator('#run-estimate').innerText(), 'Estimate: $1.01');
+        assert.doesNotMatch(await page.locator('#run-spend').getAttribute('title'), /18\.515/);
+        server.state.delivery.run_settled_usd = '25.655';
+        await page.goto(`${server.origin}/results/delivery_demo`); await page.locator('#viewer canvas').waitFor();
+        assert.match(await page.locator('body').innerText(), /Settled spend: \$25\.66/); assert.doesNotMatch(await page.locator('body').innerText(), /25\.655/);
+        server.state.understanding.run_settled_usd = '2.345';
+        await page.goto(`${server.origin}/understand/edit_demo`); await page.locator('#apply-picks').waitFor();
+        assert.match(await page.locator('body').innerText(), /Understanding settled spend: \$2\.35/);
+        await page.locator('#fallback-cutoff-I3').fill('12.7550');
+        await page.locator('[data-item-id="I3"]').getByRole('button', {name: 'Send this item to a full paid edit', exact: true}).click(); await page.waitForURL('**/run/run_demo');
+        assert.equal(lastRequest(server, 'POST', '/api/edits/edit_demo/items/I3/full-edit').body.cutoff_usd, '12.7550');
+        await page.goto(`${server.origin}/edit/draft_demo`); await page.getByRole('button', {name: 'No, send to Astra', exact: true}).click();
+        await page.locator('#edit-cutoff').fill('7.2550'); await page.getByRole('button', {name: 'Send to Astra (paid)', exact: true}).click(); await page.waitForURL('**/run/run_demo');
+        assert.equal(lastRequest(server, 'POST', '/api/edit-drafts/draft_demo/send').body.cutoff_usd, '7.2550');
+        assert.equal(server.state.run.settled_usd, '18.515'); assert.equal(server.state.run.estimate_usd, '1.005');
+      } finally {server.state.run = savedRun; server.state.delivery = savedDelivery; server.state.understanding = savedUnderstanding;}
     });
 
     await t.test('copied real delivery captures and records footprint timing without changing source', async () => {

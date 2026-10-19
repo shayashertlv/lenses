@@ -62,7 +62,12 @@ label { display: block; font-weight: 600; margin-bottom: .35rem; }
 .check-list { padding-left: 1.3rem; }
 dialog { border: 1px solid #9ba7b4; border-radius: 8px; padding: 1.25rem; max-width: min(1120px, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; }
 dialog::backdrop { background: #16202b99; }
-.annotation-dialog { width: min(1120px, calc(100vw - 2rem)); }
+.annotation-dialog { width: 96vw; height: 94vh; max-width: 96vw; max-height: 94vh; padding: .9rem 1rem; overflow: hidden; }
+.annotation-dialog[open] { display: flex; flex-direction: column; gap: .5rem; }
+.annotation-dialog > :not(.annotation-layout) { flex-shrink: 0; }
+.annotation-dialog h2, .annotation-help, .annotation-status, .annotation-tools, .annotation-footer { margin: 0; }
+.annotation-help { font-size: .9rem; }
+.annotation-dialog .error { margin: 0; padding: .6rem .8rem; max-height: 20vh; overflow: auto; }
 .annotation-dialog .error:empty { display: none; }
 .annotation-workspace { display: flex; gap: 1rem; align-items: start; }
 .annotation-stage { min-width: 0; flex: 1; }
@@ -71,13 +76,17 @@ dialog::backdrop { background: #16202b99; }
 .annotation-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .annotation-marks { list-style: none; padding: 0; }
 .annotation-mark { margin-bottom: .5rem; }
-.annotation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 1rem; align-items: start; }
-.annotation-image { min-width: 0; }
-.annotation-image canvas { display: block; width: 100%; height: auto; max-width: 100%; touch-action: none; }
-.annotation-tools { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
-.mark-list { min-width: 0; padding: 0; list-style: none; }
+.annotation-layout { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 1rem; align-items: stretch; }
+.annotation-image { min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.annotation-image canvas { display: block; flex: none; width: auto; height: auto; max-width: 100%; max-height: 100%; touch-action: none; }
+.annotation-tools { display: flex; gap: .5rem; flex-wrap: wrap; }
+.mark-list { min-width: 0; min-height: 0; overflow-y: auto; overflow-wrap: anywhere; padding: 0 .3rem 0 0; list-style: none; }
 .mark-row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .6rem; }
 .mark-row input { min-width: 0; }
+.annotation-words .annotation-layout { grid-template-columns: minmax(0, 1fr); }
+.annotation-request { margin: 0; }
+.annotation-warnings { margin: 0; max-height: 6rem; overflow-y: auto; }
+.annotation-warnings:empty { display: none; }
 :focus-visible { outline: 3px solid #e4a118; outline-offset: 3px; }
 @media (max-width: 640px) {
   header { gap: 1rem; padding: .8rem 1rem; }
@@ -89,5 +98,6 @@ dialog::backdrop { background: #16202b99; }
   .viewer { min-height: 290px; }
   .annotation-workspace { flex-direction: column; }
   .annotation-sidebar { width: 100%; }
-  .annotation-layout { grid-template-columns: 1fr; }
+  .annotation-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 6rem); }
+  .annotation-words .annotation-layout { grid-template-rows: minmax(0, 1fr); }
 }

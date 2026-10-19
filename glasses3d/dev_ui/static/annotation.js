@@ -84,6 +84,7 @@ export async function annotateCapture(viewer, {source, labels = [], captureId = 
   dialog.className = 'annotation-dialog'; dialog.dataset.testid = 'annotation-dialog';
   const heading = element('h2', 'Capture and annotate', dialog); heading.id = 'annotation-title'; dialog.setAttribute('aria-labelledby', heading.id);
   const help = element('p', 'Point: click once. Line: click each point, then Finish line, Enter, or double-click. Shape: click each corner, then click the first corner to close it.', dialog);
+  help.className = 'annotation-help';
   const tools = element('div', null, dialog); tools.className = 'actions annotation-tools';
   const error = element('p', null, dialog); error.setAttribute('role', 'alert'); error.className = 'error';
   const layout = element('div', null, dialog); layout.className = 'annotation-layout';
@@ -92,8 +93,8 @@ export async function annotateCapture(viewer, {source, labels = [], captureId = 
   canvas.dataset.testid = 'annotation-canvas'; canvas.setAttribute('aria-label', 'Captured model for annotation'); canvas.tabIndex = 0;
   const context = canvas.getContext('2d');
   const list = element('div', null, layout); list.dataset.testid = 'mark-list'; list.className = 'mark-list';
-  const status = element('p', null, dialog); status.setAttribute('role', 'status');
-  const footer = element('div', null, dialog); footer.className = 'actions';
+  const status = element('p', null, dialog); status.setAttribute('role', 'status'); status.className = 'annotation-status';
+  const footer = element('div', null, dialog); footer.className = 'actions annotation-footer';
   let stage = 'drawing', busy = false, annotationBlob, capture, textArea, warnings, done;
   const toolButtons = new Map();
   function setTool(kind) {
@@ -155,20 +156,21 @@ export async function annotateCapture(viewer, {source, labels = [], captureId = 
       capture = {schema: 'g3d.owner_capture/1', capture_id: captureId, source: {...source},
         image: {width_px: frozen.width, height_px: frozen.height}, camera: frozen.camera, marks, request_text: ''};
       stage = 'words'; tools.hidden = true; help.hidden = true; list.hidden = true; annotateDone.hidden = true;
+      dialog.classList.add('annotation-words');
       status.textContent = `Labels: ${marks.map(m => m.label).join(', ')}`;
-      const words = element('label', 'What should Astra change?', dialog); textArea = element('textarea', null, words); textArea.rows = 4; textArea.setAttribute('aria-label', 'What should Astra change?');
-      warnings = element('ul', null, dialog); warnings.dataset.testid = 'annotation-warning'; warnings.setAttribute('aria-live', 'polite');
+      const words = element('label', 'What should Astra change?', dialog); words.className = 'annotation-request'; textArea = element('textarea', null, words); textArea.rows = 4; textArea.setAttribute('aria-label', 'What should Astra change?');
+      warnings = element('ul', null, dialog); warnings.className = 'annotation-warnings'; warnings.dataset.testid = 'annotation-warning'; warnings.setAttribute('aria-live', 'polite');
       function showWarnings() {
         warnings.replaceChildren(); const allLabels = [...labels, ...marks.map(m => m.label)];
         for (const w of labelWarnings(textArea.value, allLabels, marks.map(m => m.label), sessionTexts)) { const li = element('li', w.message, warnings); li.dataset.code = w.code; }
       }
       textArea.addEventListener('input', showWarnings); showWarnings();
-      done = button('Done', dialog, async () => {
+      done = button('Done', footer, async () => {
         if (busy) return; busy = true; done.disabled = true; error.textContent = ''; status.textContent = 'Saving item…';
         try { capture.request_text = textArea.value; await onSave({capture, viewer: frozen.blob, annotated: annotationBlob}); dialog.close(); }
         catch (e) { error.textContent = e.message || 'The item could not be saved. Please try again.'; done.disabled = false; }
         finally { busy = false; }
-      }); textArea.focus();
+      }); dialog.append(footer); textArea.focus();
     } catch (e) { error.textContent = e.message; annotateDone.disabled = false; }
     finally { busy = false; }
   });

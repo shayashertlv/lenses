@@ -162,6 +162,28 @@ function footprint(buffer, width, height, mark) {
   return {pixels: covered, faces};
 }
 
+// Fit each box corner in camera space; a bounding sphere wastes most of the
+// width for a wide, shallow frame. Leave 4% of the canvas at each limiting edge.
+export function fitCameraToBounds(camera, bounds) {
+  const center = bounds.getCenter(new THREE.Vector3());
+  const inverseRotation = camera.quaternion.clone().invert();
+  const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / camera.zoom;
+  const tanX = tanY * camera.aspect, fill = .92;
+  let distance = 0;
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        const corner = new THREE.Vector3(x, y, z).sub(center).applyQuaternion(inverseRotation);
+        distance = Math.max(distance, corner.z + Math.abs(corner.x) / (tanX * fill),
+          corner.z + Math.abs(corner.y) / (tanY * fill), corner.z + camera.near * 2);
+      }
+    }
+  }
+  camera.position.copy(center).add(new THREE.Vector3(0, 0, distance).applyQuaternion(camera.quaternion));
+  camera.updateMatrixWorld(true);
+  return {center, distance};
+}
+
 export async function createViewer(container, {modelUrl, source} = {}) {
   const renderer = new THREE.WebGLRenderer({antialias: true, preserveDrawingBuffer: true});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -193,10 +215,9 @@ export async function createViewer(container, {modelUrl, source} = {}) {
     renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix();
   }
   resize();
-  const halfAngle = Math.min(THREE.MathUtils.degToRad(camera.fov / 2), Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect));
-  const distance = radius / Math.sin(halfAngle) * 1.15;
-  camera.near = Math.max(.00001, radius / 1000); camera.far = Math.max(10, distance + radius * 100);
-  camera.position.copy(center).add(new THREE.Vector3(0, 0, distance));
+  camera.near = Math.max(.00001, radius / 1000);
+  const {distance} = fitCameraToBounds(camera, bounds);
+  camera.far = Math.max(10, distance + radius * 100);
   controls.target.copy(center); controls.minDistance = radius * .05; controls.maxDistance = radius * 50;
   camera.updateProjectionMatrix(); controls.update();
   renderer.setAnimationLoop(() => { if (!capturing && !disposed) { controls.update(); renderer.render(scene, camera); } });
