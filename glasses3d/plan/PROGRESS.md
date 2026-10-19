@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-19 — Claude accepted task 12 ($0)
+
+Task 12 (`1238a21`) reviewed by Claude: report `data/review_20261018/codex/task12_report.md`. Historical temple names now
+come from the producing builder's frozen lineage or the run's authenticated `src.tar.gz`, never today's builder; the
+exact M11 M10 plan B rebinds, previews and applies byte-identical to the retained export (`7d2d5b27…`); census 40/54
+temple objects verified, 14 already-reshaped run-4 objects correctly refused. No existing assertion removed; reran new
+and related tests: 120 passed, 11 xfailed and 1 xpassed (M12's documented exact-normals cases).
+
 ## 2026-10-19 — Task 12: authenticated historical temple aliases ($0)
 
 Historical names now come from frozen producer lineage or authenticated saved run source, never today's
