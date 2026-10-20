@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-20 — Owner accepts the max-effort Oakley rerun
+
+Owner verdict (ledger record `b8413eb4…`, bound to delivery `20261019T172111-465930-1e20f85b…`, GLB `ba6216a4…`):
+"The max-effort Oakley rerun looks right, accept it." This is the first owner-accepted assembled delivery made from a
+job holding only the owner's inputs, on the M11 code with settled-only money, no finish forecast and camera-ambiguity
+reporting ($19.670825 settled, 70 requests, max effort). It joins Oakley run 4 as a regression reference. The
+afternoon high-effort run (`oakley-oo9208-v2-878ee407`, $12.28) keeps its "changes" verdict.
+
 ## 2026-10-20 — Claude accepted N1 ($0)
 
 N1 (`411e352`) reviewed by Claude: report `data/m12/codex/n1_report.md`. Diff read: shading-only writes keep

@@ -112,7 +112,9 @@ take precedence over superseded text. `review-20261013-pre-cleanup` preserves th
   record is in `plan/archive/20261019/PROGRESS_2026-10-05_to_2026-10-17.md`. Do not reopen WP6 without a new owner request.
 - **Known-good visual references:** the owner re-accepted FT1123 crystal, Oakley OO9208 v2 and INVU IA22403B v2
   on 2026-10-06; their asset-bound verdicts are in `data/ledger/owner_verdicts.jsonl`. The assembled regression is
-  Oakley run 4, GLB `98131458…`, accepted 2026-10-15: "as far as i can see the model is perfect".
+  Oakley run 4, GLB `98131458…`, accepted 2026-10-15: "as far as i can see the model is perfect". The
+  current-code regression is the max-effort Oakley rerun (job `oakley-oo9208-v2-911a2b0e`, owner inputs only), GLB
+  `ba6216a4…`, $19.67, accepted 2026-10-20: "The max-effort Oakley rerun looks right, accept it."
   Prada has no accepted assembled product delivery. The combined M10 copy was accepted as a tool test on
   2026-10-18 ("looks good!"; "we were testing the new tools and their optional effects, our goal wasnt to fix the
   model"). That does not replace a product verdict. Review-page authored size is parked until the hard technical
