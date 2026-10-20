@@ -90,6 +90,9 @@ remain available. A tool's geometric recognition heuristic is not a reason to di
 Judge lens tint, transmission, curvature and coating together. Keep clear or tinted lenses see-through wherever
 the photos show transmission. Room reflections on lenses are not defects: AR uses one fixed reflection setting
 for every product. Material parameters alone do not establish the visible result; use the photo and worn evidence.
+In the browser AR renderer, metallic multiplies the colour seen through the lens by (1 − metallic), so a high
+Transmission value does not keep a metallic lens see-through; judge it in the same-export photo and worn
+comparisons.
 
 Choose body tint, transmission, surface reflection and any thin-film coating by their combined agreement with the
 photographs in the browser comparison. A visible colour shift does not establish matching brightness, saturation

@@ -52,6 +52,26 @@ def colour_stats(image, mask):
             "median_lightness_Lstar": float(np.median(lightness))}
 
 
+def lens_colour_lines(rows):
+    """Expose the existing medians, in photo order, without remeasuring or grading."""
+    lines = []
+    for row in rows:
+        lens = row["colours"]["lens"]
+        photo, drawing = lens["photo"], lens["drawing"]
+        if photo["status"] != "measured" or drawing["status"] != "measured":
+            lines.append(f"{row['ref']} lens: unavailable — no interior pixels after three-pixel erosion")
+            continue
+        photo_l, drawing_l = photo["median_lightness_Lstar"], drawing["median_lightness_Lstar"]
+        # Round the difference itself, not the already-rounded display medians.
+        delta = round(drawing_l - photo_l, 1)
+        gap = f"{abs(delta):.1f} " + ("darker" if delta < 0 else "lighter" if delta > 0 else "difference")
+        photo_rgb = ",".join(f"{value:g}" for value in photo["median_srgb_8bit"])
+        drawing_rgb = ",".join(f"{value:g}" for value in drawing["median_srgb_8bit"])
+        lines.append(f"{row['ref']} lens: AR L* {drawing_l:.1f} vs photo {photo_l:.1f} ({gap}); "
+                     f"median RGB (sRGB 8-bit) AR {drawing_rgb} vs photo {photo_rgb}")
+    return lines
+
+
 def box_of(mask, margin=8):
     y, x = np.nonzero(mask)
     if not len(x):
@@ -247,7 +267,8 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
         delivery_note = ("Each photo's full pair and native details are combined without changing pixels; "
                          "overflow uses additional images." if combine else
                          "Full pairs and native details are separate images.")
-        result = {**base, "status": "ok", "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
+        result = {**base, "status": "ok", "lens_colour_gap": lens_colour_lines(rows),
+                  "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
                   "cameras_sha256": bs.meta["cameras_json_sha256"], "views": rows,
                   "unusable_refs": bs.unusable_refs(), "worn_front_path": str(portrait), "capture_reports": captures,
                   "worn_capture": {"report": str(worn_directory / "report.json"), "report_sha256": arview.sha256(path),
@@ -289,6 +310,8 @@ def tool_for(scene, tool, call):
         separate colour reports, including their rendered/photo shading; surface selection is geometric.
         Also returns side-light native close-ups of facet flatness, front shading seams and lens ripple,
         with measured planarity, degenerates, tessellation and normal discontinuities as information only.
+        The immediate lens_colour_gap lines show each photo's existing median sRGB and CIE L* measurements
+        and the AR-minus-photo lightness difference; full per-region measurements remain in the report.
         Intentional creases also make normal jumps; use the photos to decide what belongs. A missing side-light
         diagnostic is reported and is not a new finish gate. Review lighting and material settings stay unchanged.
         No colour gate. Unusable cameras and missing evidence are reported. Frozen temple openings are applied

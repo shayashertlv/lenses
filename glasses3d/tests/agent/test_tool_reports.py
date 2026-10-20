@@ -298,6 +298,56 @@ def test_short_outputs_are_returned_unchanged(tmp_path):
     assert not (tmp_path / "work").exists()
 
 
+@pytest.mark.parametrize("nested", [False, True])
+def test_every_lens_gap_stays_on_first_page_and_matches_lossless_colour_fields(tmp_path, nested):
+    from glasses3d.agent.tools import look
+
+    # More than the pager's six-row sample, plus enough real image labels to force
+    # compaction. Include an unmeasured view without inventing a colour value.
+    rows, expected = [], []
+    for i in range(8):
+        row = {"ref": f"reference-{i + 1:02d}", "colours": {"lens": {
+            "photo": {"status": "measured", "pixels": 100, "median_srgb_8bit": [152, 151.5, 163],
+                      "median_lightness_Lstar": 63.44},
+            "drawing": {"status": "measured", "pixels": 100, "median_srgb_8bit": [82 + i, 105, 100],
+                        "median_lightness_Lstar": 42.86 + i}}}}
+        rows.append(row)
+        expected.append(f"reference-{i + 1:02d} lens: AR L* {42.86 + i:.1f} vs photo 63.4 "
+                        f"({20.58 - i:.1f} darker); median RGB (sRGB 8-bit) AR {82 + i},105,100 "
+                        "vs photo 152,151.5,163")
+    empty = {"status": "unavailable", "pixels": 0, "reason": "no interior pixels after three-pixel erosion"}
+    rows.append({"ref": "reference-09", "colours": {"lens": {"photo": empty, "drawing": empty}}})
+    expected.append("reference-09 lens: unavailable — no interior pixels after three-pixel erosion")
+    look_result = {"schema": look.SCHEMA, "status": "ok", "views": rows,
+                   "lens_colour_gap": look.lens_colour_lines(rows),
+                   "surface_quality": {"status": "measured", "detail": "native measurement " * 20000}}
+    original, records, footer = panel_output(56)
+    payload = {"status": "review_required", "look_comparison": look_result,
+               "review": {"review_call_id": "first", "required_refs": [row["ref"] for row in rows]}} if nested else look_result
+    payload["images"] = records
+    original[0] = ToolOutputText(text=R.dumps(payload))
+    before = deepcopy(payload)
+    output = R.limit_output(tmp_path, "gap-check", "finish" if nested else "compare_look_to_photos", original)
+    visible = R._body(output[0].text)[0]
+    first = visible["look_comparison"] if nested else visible
+    assert first["lens_colour_gap"] == expected
+    assert first["surface_quality"]["status"] == "measured"
+    assert text_count(output) <= R.TEXT_LIMIT and output[-1].text == footer
+    if nested:
+        assert visible["review"] == payload["review"]
+    saved = json.loads((tmp_path / visible["full_report"]["path"]).read_text(encoding="utf-8"))
+    assert saved["result"] == before == payload
+    pointer = "/result/look_comparison" if nested else "/result"
+    for i, line in enumerate(first["lens_colour_gap"]):
+        page = R.read_report(tmp_path, visible["full_report"]["id"], f"{pointer}/views/{i}/colours/lens")
+        stats = {entry["key"]: entry["value"] for entry in page["entries"]}
+        assert stats == rows[i]["colours"]["lens"]
+        if stats["photo"]["status"] == "measured":
+            assert f"{stats['drawing']['median_lightness_Lstar']:.1f}" in line
+            assert f"{stats['photo']['median_lightness_Lstar']:.1f}" in line
+    assert [p for p in output if p.type == "image"] == [p for p in original if p.type == "image"]
+
+
 def test_many_nonimage_tail_parts_still_respect_aggregate_limit(tmp_path):
     original = [ToolOutputText(text=R.dumps(long_result()))]
     original += [ToolOutputText(text="ordinary diagnostic " * 1000) for _ in range(100)]

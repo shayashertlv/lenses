@@ -196,6 +196,29 @@ def test_construction_guidance_compares_lens_materials_and_temple_sections(tools
         assert "do not refit" in text
 
 
+def test_lens_metallic_guidance_matches_pinned_browser_shader(tools):
+    # Three 0.185.1, arview/node_modules/three/src/renderers/shaders/ShaderChunk/:
+    # lights_physical_fragment.glsl.js:4 multiplies diffuseColor.rgb by (1.0 - metalnessFactor).
+    # transmission_fragment.glsl.js:26-33 passes material.diffuseContribution to volume refraction
+    # and mixes transmitted.rgb by material.transmission; transmission_pars_fragment.glsl.js:218-232
+    # multiplies that colour by volume attenuation, the sampled background and (1.0 - F).
+    sentence = (
+        "In the browser AR renderer, metallic multiplies the colour seen through the lens by (1 − metallic), "
+        "so a high Transmission value does not keep a metallic lens see-through; judge it in the same-export "
+        "photo and worn comparisons."
+    )
+    main = " ".join(I.build_instructions(tools).split())
+    assert main.count(sentence) == 1
+    assert main.index("Judge lens tint, transmission, curvature and coating together.") < main.index(sentence)
+    assert main.index(sentence) < main.index("Choose body tint, transmission, surface reflection")
+    # Owner-edit phases have a separate object text and do not inherit this construction guidance.
+    for phase in ("understand", "edit"):
+        owner = {"phase": phase}
+        registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
+        text = " ".join(I.build_instructions(registered, owner_edit=owner).split())
+        assert sentence not in text
+
+
 def test_coating_description_names_base_colour_target_and_preserved_alpha(tools):
     tool = next(tool for tool in tools if tool.name == "execute_blender_code")
     description = " ".join(tool.description.split())

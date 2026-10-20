@@ -1,5 +1,41 @@
 # glasses3d progress
 
+## 2026-10-20 — Task 14: lens colour gap visible immediately, factual metallic guidance ($0)
+
+Owner, verbatim: "Yes, build both Astra changes at $0: show the colour/brightness gap up front in the
+colour check, and add the one factual metallic sentence."
+
+`compare_look_to_photos` now places one `lens_colour_gap` line per compared photo in immediate text.
+It uses the existing masked RGB and L* medians, reports the raw-median lightness difference, preserves
+fractional RGB values and reports empty masks as unavailable. The pager retains every line, including
+inside finish reviews; all existing full-report fields remain unchanged. No ΔE00, score, ranking, recipe
+or appearance gate was added. Main instructions contain the exact approved metallic sentence, with the
+pinned Three 0.185.1 shader cited in its contract test. Main text is 16,168 / 24,000 characters;
+UNDERSTAND and EDIT remain byte-identical at 19,062 characters each.
+
+The three unchanged Oakley deliveries were replayed through the current tool on fresh copies, with
+their frozen final bases. Front-photo gaps now visible immediately: run 4 **4.5 L* darker**, afternoon
+**22.9 darker**, rerun **20.6 darker**. All 18 colour records and AR photo-camera image hashes match
+Task 13. No existing first-page field moved in any replay; aggregate text is 6,297 / 6,155 / 6,157
+characters against the unchanged 12,000 limit. All **1,082 original files** remain hash-identical after
+the checks. The report records the fixed-envelope limit for very large synthetic photo/image sets.
+
+New instruction and pager regressions fail against the old code; focused checks pass **146 / 1 skip**.
+Required functional pass: **5,857 passed / 2 skipped / 2 process timeouts**, 900.33 s. The unchanged UI
+launcher and CLI-output modules then pass **57/57** serially, 42.53 s, with their original deadlines;
+the failures' causes are not proved. Photo-print **367 passed**, 389.47 s; serial timing **29 passed**,
+272.08 s. Across the passes and scoped retry: **6,255 distinct passes / 2 skips**, preserving the
+initial timeouts rather than claiming a clean second full run. M1 passed once in **156.110 s**,
+13 scripted requests, 35 verified AR images, **$0 actual spend** (`data/assembly/m1-proof-6c9e6893/proof.json`).
+Heavy checks were sequential, BLAS 1, functional 14 workers / photo-print 4 / timing serial, with no
+external process-QoS sweep and no budget or timeout change.
+
+Main instruction SHA-256: `3211ccdece4665c7ced0b4bba7d8536e32cd9e13c3d36ec78df4691695bf0d59`.
+Production default tool-registry/behavior SHA-256: `082ad6b804c21baa1c02adf4d0f9a114ca4eb16e4817cb1d7b894d223c1a180c`.
+Report, exact text, replay links, hashes, process receipts and final commit:
+`data/review_20261018/codex/task14_report.md`. Next: Claude's review of Task 14; no next task started.
+No original job/run/delivery/verdict edits, paid calls, `.env` reads or push.
+
 ## 2026-10-20 — Claude accepted task 13 (`90d48c6`)
 
 - Report: `data/review_20261018/codex/task13_report.md`; comparison image `task13_front_comparison.png`, sent to the

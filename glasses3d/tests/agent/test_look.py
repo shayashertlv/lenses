@@ -80,6 +80,42 @@ def test_colour_statistics_report_black_white_and_empty():
     assert look.colour_stats(np.zeros((10, 10, 3), np.uint8), ~mask)["status"] == "unavailable"
 
 
+@pytest.mark.parametrize("photo_rgb,drawing_rgb,expected", [
+    ([152, 151, 163], [82, 105, 100],
+     "AR L* 42.5 vs photo 62.9 (20.4 darker); median RGB (sRGB 8-bit) AR 82,105,100 vs photo 152,151,163"),
+    ([0, 0, 0], [255, 255, 255],
+     "AR L* 100.0 vs photo 0.0 (100.0 lighter); median RGB (sRGB 8-bit) AR 255,255,255 vs photo 0,0,0"),
+    ([0, 0, 0], [0, 0, 0],
+     "AR L* 0.0 vs photo 0.0 (0.0 difference); median RGB (sRGB 8-bit) AR 0,0,0 vs photo 0,0,0"),
+])
+def test_lens_gap_uses_existing_masked_medians_without_changing_fields(photo_rgb, drawing_rgb, expected):
+    mask = np.array([[True, False]])
+    photo = look.colour_stats(np.array([[photo_rgb, [255, 0, 0]]], np.uint8), mask)
+    drawing = look.colour_stats(np.array([[drawing_rgb, [0, 255, 0]]], np.uint8), mask)
+    rows = [{"ref": "reference-03", "colours": {"lens": {"photo": photo, "drawing": drawing}}}]
+    before = copy.deepcopy(rows)
+    assert look.lens_colour_lines(rows) == ["reference-03 lens: " + expected]
+    assert rows == before
+
+
+def test_lens_gap_retains_fractional_rgb_and_rounds_raw_lightness_difference():
+    rows = [{"ref": "reference-02", "colours": {"lens": {
+        "photo": {"status": "measured", "median_srgb_8bit": [100.5, 101, 102.5],
+                  "median_lightness_Lstar": 63.44},
+        "drawing": {"status": "measured", "median_srgb_8bit": [100, 101.5, 102],
+                    "median_lightness_Lstar": 42.86}}}}]
+    assert look.lens_colour_lines(rows) == [
+        "reference-02 lens: AR L* 42.9 vs photo 63.4 (20.6 darker); "
+        "median RGB (sRGB 8-bit) AR 100,101.5,102 vs photo 100.5,101,102.5"]
+
+
+def test_lens_gap_empty_mask_reports_absence_without_fabricating_numbers():
+    empty = look.colour_stats(np.zeros((1, 1, 3), np.uint8), np.zeros((1, 1), bool))
+    rows = [{"ref": "reference-04", "colours": {"lens": {"photo": empty, "drawing": empty}}}]
+    assert look.lens_colour_lines(rows) == [
+        "reference-04 lens: unavailable — no interior pixels after three-pixel erosion"]
+
+
 def test_new_sdk_tool_forwards_refs_and_exports_current_head(scene, monkeypatch):
     calls = []
     monkeypatch.setattr(look, "capture", lambda *a, **kw: calls.append((a, kw)) or {"status": "unavailable"})
