@@ -62,9 +62,12 @@ class FakeLauncher:
         if self.busy:
             raise APIError("paid_run_busy", "Another paid run is in progress", 409)
 
-    def prepare(self, root, amount, *, run_id):
+    def prepare(self, root, amount, *, run_id, kind):
+        assert kind == "job"
         self.check_available()
-        self.prepares.append((Path(root), amount, run_id))
+        preparation = (Path(root), amount, run_id)
+        if preparation not in self.prepares:
+            self.prepares.append(preparation)
         return {"run_id": run_id, "cutoff_usd": amount, "estimate_usd": "8.123456"}
 
     def approve(self, root, run_id, amount, button, subject):

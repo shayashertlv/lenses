@@ -16,6 +16,7 @@ from .artifacts import Artifacts
 from .contracts import APIError, SHA, cutoff, json_object, now_iso, opaque, text_field
 from .core_adapter import CoreAdapter
 from .labels import label_warnings, item_warnings
+from .launcher import has_launch_evidence
 from .registry import Registry
 from .status import read_run_status, find_run_delivery, _money
 
@@ -50,7 +51,8 @@ class Service:
     def config_dto(self):
         from glasses3d.g3d_host.fit_views import VIEW_KINDS
         return {"schema": "g3d.dev_config/1", "offline_test_mode": self.offline,
-                "view_kinds": list(VIEW_KINDS), "sides": ["both", "left", "right", "none"], "effort": "high"}
+                "view_kinds": list(VIEW_KINDS), "sides": ["both", "left", "right", "none"],
+                "effort": "max", "edit_effort": "high"}
 
     def _request(self, scope, body):
         token = text_field(body.get("idempotency_key"), "idempotency_key", nonempty=True)
@@ -85,8 +87,10 @@ class Service:
             request["run_key"] = run_key
             self.registry.put("requests", request, request_key)
         run = self.get("runs", request["run_key"])
-        if not run.get("prepared"):
-            prepared = self.launcher.prepare(Path(root), amount, run_id=run["run_id"])
+        # A saved pre-upgrade request must satisfy today's effort before a retry
+        # can start it. Already-started runs keep their idempotent recovery path.
+        if not run.get("prepared") or (not run.get("launched") and not has_launch_evidence(root, run["run_id"])):
+            prepared = self.launcher.prepare(Path(root), amount, run_id=run["run_id"], kind=kind)
             run.update(prepared, prepared=True)
             self.registry.put("runs", run, run["run_key"])
         if not run.get("approved"):
@@ -102,7 +106,6 @@ class Service:
             except Exception as error:
                 # Preserve the exact approval/run for retry. A runner receipt means the
                 # launch may have succeeded despite loss of the CLI response.
-                from .launcher import has_launch_evidence
                 if not has_launch_evidence(root, run["run_id"]):
                     run.update(launch_requested=False, error=str(error))
                     self.registry.put("runs", run, run["run_key"])

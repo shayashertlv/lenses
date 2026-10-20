@@ -141,7 +141,9 @@ async function newPage(config) {
   const form = node('form', { id: 'new-run-form', class: 'narrow' },
     field('Product photos', uploader, 'Choose each photo’s view and wearer’s side below.'), photoList,
     field('Short name (optional)', name), field('Product description', description),
-    field('Specifications (optional JSON object)', specs), budgetBlock(cutoff), submit);
+    field('Specifications (optional JSON object)', specs), budgetBlock(cutoff),
+    node('p', { id: 'run-effort', class: 'muted' }, `Product runs use ${config.effort} effort. Paid edit sends use ${config.edit_effort} effort.`),
+    submit);
   let sending = false;
   let nextPhotoId = 0;
   const dropdown = (id, name, placeholder, values) => node('select', { id, name, required: true }, node('option', { value: '', disabled: true, selected: true }, placeholder), values.map(value => node('option', { value }, value)));

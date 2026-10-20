@@ -128,14 +128,17 @@ class Launcher:
     def check_available(self):
         self._lock_probe()
 
-    def prepare(self, root, cutoff_usd, *, run_id=None) -> dict:
+    def prepare(self, root, cutoff_usd, *, run_id=None, kind="job") -> dict:
+        if kind not in ("job", "understand", "full_edit_item"):
+            raise LauncherError("Unknown paid send kind")
+        effort = "max" if kind == "job" else "high"
         amount = cutoff_text(cutoff_usd)
         run_id = run_id or self.core.new_run_id()
         run_dir = _run_dir(root, run_id)
         document = procs.read_json(run_dir / "approval-request.json")
         if document is None:
             self.check_available()
-            settings = replace(self.core.settings_default(), effort="high", settled_only=True,
+            settings = replace(self.core.settings_default(), effort=effort, settled_only=True,
                                settled_stop_usd=amount, fit_output_to_budget=False)
             _core_call(self.core.prepare_run, Path(root).resolve(), run_id, settings=settings, cap=amount,
                        write_request=True)
@@ -145,7 +148,7 @@ class Launcher:
         settings = document.get("request", {}).get("settings", {})
         if (document.get("run_id") != run_id
                 or _micro(document.get("requested_cap_usd", "0")) != _micro(amount)
-                or settings.get("effort") != "high" or settings.get("settled_only") is not True
+                or settings.get("effort") != effort or settings.get("settled_only") is not True
                 or _micro(settings.get("settled_stop_usd", "0")) != _micro(amount)
                 or settings.get("fit_output_to_budget", False)):
             raise LauncherError("The saved run request differs from this paid send")

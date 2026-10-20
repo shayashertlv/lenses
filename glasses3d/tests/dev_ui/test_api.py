@@ -94,7 +94,7 @@ def test_config_is_code_derived_and_offline_is_construction_only(boundary, monke
     from glasses3d.g3d_host.fit_views import VIEW_KINDS
     dto = client.get("/api/config").json()
     assert dto == {"schema": "g3d.dev_config/1", "offline_test_mode": True, "view_kinds": list(VIEW_KINDS),
-                   "sides": ["both", "left", "right", "none"], "effort": "high"}
+                   "sides": ["both", "left", "right", "none"], "effort": "max", "edit_effort": "high"}
     monkeypatch.setenv("G3D_OFFLINE", "1")
     monkeypatch.setenv("OFFLINE_TEST_MODE", "1")
     with TestClient(create_app(config), base_url="http://127.0.0.1:8270") as production:
@@ -160,7 +160,7 @@ def test_real_intake_preserves_verbatim_inputs_with_fake_launcher(boundary):
         offline_test_mode = True
         def check_available(self):
             pass
-        def prepare(self, root, amount, *, run_id):
+        def prepare(self, root, amount, *, run_id, kind):
             return {"run_id": run_id, "cutoff_usd": amount, "estimate_usd": "1.00"}
         def approve(self, *args):
             pass

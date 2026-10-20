@@ -14,6 +14,11 @@ Slow Prada evidence sealing remains open.
 passed. Its four parallel camera setup errors cleared in isolation. These are the dated pre-N1 results, not N1
 verification. Current money terms remain in PROGRESS; the dated design/contracts below remain preserved.
 
+**Effort amendment, 2026-10-20:** owner, verbatim: "Yes: max effort is the standing setting for product runs from now on."
+**Start a paid run** uses **max** effort. Paid edit sends (**Send to Astra (paid)** and **Send this item to a full
+paid edit**) keep **high** effort. This supersedes the original high-effort term for product runs in the design and
+contracts below; all settled-only money terms stay unchanged.
+
 Written by Claude (planner) from the owner's request of 2026-10-19. The coordinator session refines this into tasks after a
 read-only mapping of the current code (section 5), reviews its own plan, and has Codex build it. The owner said not to
 pause for plan approval: "i dont need you to show me the plan, you can follow what you wrote before building, then review
@@ -52,9 +57,9 @@ corner).
 - **Money:** the run page's max budget is the settled-only cutoff (no reservation cutoff, no output shrinking): no new
   request starts at or above it; the response in flight can cross it, and the page says so in one line. The code's
   `<= $20` refusal for job runs (`agent/job_run.py` prepare_run) gives way to the owner's typed number (the owner decides
-  money). Every paid edit send (UNDERSTAND, and a fallback full edit) has its own cutoff field. Effort stays the standing
-  owner term (high) unless the brief says otherwise. "Start a paid run" (and each paid edit send) is the owner's
-  approval: it creates and consumes the single-use approval for exactly what is shown.
+  money). Every paid edit send (UNDERSTAND, and a fallback full edit) has its own cutoff field. Under the 2026-10-20
+  amendment, product runs use max effort and paid edit sends keep high. "Start a paid run" (and each paid edit send)
+  is the owner's approval: it creates and consumes the single-use approval for exactly what is shown.
 - **Photos:** each uploaded photo gets a view dropdown (the camera fitter's view kinds) and a wearer's-side dropdown; the
   pipeline does not guess views today and jobs hold only owner inputs. Description text verbatim; optional specs.
 - **Annotations carry 3D anchors.** Each capture stores the viewer camera (pose, fov, size) and the GLB sha; every point,
@@ -132,8 +137,9 @@ tasks build.
    is unique and gives Astra a tool to see the marked regions on its model map and select authenticated targets from
    them; anything unresolved stays labelled unresolved.
 7. **Money:** the typed cutoff replaces the $20 preparation ceiling for jobs and edit rounds (positive finite,
-   settled-only, effort high, cap = stop). Each paid send (run, UNDERSTAND, fallback) has its own typed cutoff; the
-   press writes the approval (owner words record the button and the displayed amount) and launches once (idempotent).
+   settled-only, cap = stop). Effort is max for product runs and high for paid edit sends under the 2026-10-20
+   amendment. Each paid send (run, UNDERSTAND, fallback) has its own typed cutoff; the press writes the approval
+   (owner words record the button and the displayed amount) and launches once (idempotent).
 8. **Server:** Starlette + Uvicorn (already pinned in `requirements-agent.txt`); `python -m glasses3d.dev_ui` starts it
    detached on `127.0.0.1:8260` (`--foreground` worker, `--stop`). Heavy $0 work runs as detached tasks; paid runs use
    the existing detached `job run`. Offline test mode exists only when Python code builds the app with the scripted
@@ -154,7 +160,7 @@ errors `{"error":{"code","message"}}` with a plain owner-facing message; every P
 
 | Call | Body | Returns |
 |---|---|---|
-| `GET /api/config` | | `{schema:"g3d.dev_config/1", offline_test_mode, view_kinds:[...], sides:["both","left","right","none"], effort:"high"}` |
+| `GET /api/config` | | `{schema:"g3d.dev_config/1", offline_test_mode, view_kinds:[...], sides:["both","left","right","none"], effort:"max", edit_effort:"high"}` |
 | `GET /api/jobs` | | `{jobs:[{job_id, name, created_utc, deliveries:[{delivery_key, label, created_utc}], runs:[{run_key, kind, phase}], drafts:[{draft_id}], edits:[{edit_key, phase}]}]}` |
 | `POST /api/jobs/start` | multipart: `manifest` = `{name, description, specs_text, cutoff_usd, idempotency_key, photos:[{field, filename, kind, side}]}` + one file part per photo named by `field` | `{run_key, job_id, run_id, cutoff_usd}` |
 | `GET /api/runs/{run_key}` | | RunDTO |
@@ -226,6 +232,7 @@ signatures follow the code and are reported by each task):
   destination=None) -> Path` (new delivery; $0; no model request).
 - C3 `agent/owner_fallback.py`: `create_full_edit_item(round_root, item_id, destination=None) -> Path` (fallback round
   root, ready to prepare).
-- Every paid send: `prepare_run` (settled-only, effort high, stop = cap = typed cutoff) -> `write_approval` (owner
-  words: `Dev UI: owner pressed "<button>" with max budget $<N> for <job or edit>`) -> `python -m glasses3d job run
+- Every paid send: `prepare_run` (settled-only, effort max for product runs / high for paid edit sends,
+  stop = cap = typed cutoff) -> `write_approval` (owner words:
+  `Dev UI: owner pressed "<button>" with max budget $<N> for <job or edit>`) -> `python -m glasses3d job run
   <root> --run-id <R>` (detached). Offline test mode substitutes the offline approval and scripted client instead.

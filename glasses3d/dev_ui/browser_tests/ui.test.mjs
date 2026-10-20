@@ -147,6 +147,7 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
 
     await t.test('new run validates owner fields, keeps exact input and prevents double submission', async () => {
       await page.goto(`${server.origin}/new`);
+      assert.equal(await page.locator('#run-effort').textContent(), 'Product runs use max effort. Paid edit sends use high effort.');
       await page.locator('#offline-banner').waitFor({state: 'visible'});
       assert.equal(await page.locator('#offline-banner').innerText(), 'OFFLINE TEST MODE: scripted Astra, $0.00');
       assert.equal(await page.locator('#cutoff').inputValue(), '');

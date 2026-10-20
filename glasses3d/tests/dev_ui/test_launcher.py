@@ -81,13 +81,91 @@ def test_preparation_exact_money_terms_and_idempotency(config, fixture_launcher)
     root = config.jobs_root / "neutral-job"
     result = launcher.prepare(root, "27.50", run_id="run-abc")
     assert result == {"run_id": "run-abc", "cutoff_usd": "27.50", "estimate_usd": "8.720000"}
-    assert core.prepared[0][2] == {"settings": FakeSettings("high", True, "27.50", False),
+    assert core.prepared[0][2] == {"settings": FakeSettings("max", True, "27.50", False),
                                     "cap": "27.50", "write_request": True}
     assert launcher.prepare(root, "27.50", run_id="run-abc") == result
     assert len(core.prepared) == 1
     assert not core.approved
     with pytest.raises(launching.LauncherError, match="differs"):
         launcher.prepare(root, "28", run_id="run-abc")
+
+
+def test_saved_high_effort_product_request_is_refused(config, fixture_launcher):
+    launcher, core, calls = fixture_launcher
+    root = config.jobs_root / "legacy-job"
+    path = root / "runs/legacy-run/approval-request.json"
+    document = {
+        "schema": "test.not_a_real_request/1", "run_id": "legacy-run",
+        "requested_cap_usd": "27.50", "estimate": {"expected_usd": "8.720000"},
+        "request": {"settings": vars(FakeSettings("high", True, "27.50", False))}}
+    procs.write_json_atomic(path, document)
+    saved = path.read_bytes()
+    with pytest.raises(launching.LauncherError, match="differs"):
+        launcher.prepare(root, "27.50", run_id="legacy-run")
+    assert path.read_bytes() == saved
+    assert not core.prepared and not core.approved and not calls
+
+
+@pytest.mark.parametrize("kind", ["understand", "full_edit_item"])
+def test_edit_sends_keep_high_effort(config, fixture_launcher, kind):
+    launcher, core, calls = fixture_launcher
+    root = config.jobs_root / kind
+    result = launcher.prepare(root, "27.50", run_id="edit-run", kind=kind)
+    assert core.prepared[0][2] == {"settings": FakeSettings("high", True, "27.50", False),
+                                  "cap": "27.50", "write_request": True}
+    assert launcher.prepare(root, "27.50", run_id="edit-run", kind=kind) == result
+    assert len(core.prepared) == 1
+    assert not core.approved and not calls
+    path = root / "runs/edit-run/approval-request.json"
+    document = procs.read_json(path)
+    document["request"]["settings"]["effort"] = "max"
+    procs.write_json_atomic(path, document)
+    with pytest.raises(launching.LauncherError, match="differs"):
+        launcher.prepare(root, "27.50", run_id="edit-run", kind=kind)
+
+
+def test_unknown_send_kind_never_prepares(config, fixture_launcher):
+    launcher, core, calls = fixture_launcher
+    with pytest.raises(launching.LauncherError, match="Unknown paid send kind"):
+        launcher.prepare(config.jobs_root / "j", "20", kind="unknown")
+    assert not core.prepared and not core.approved and not calls
+
+
+@pytest.mark.parametrize("already_started", [False, True])
+def test_retry_old_prepared_product_checks_effort_before_launch(config, fixture_launcher, already_started):
+    from glasses3d.dev_ui.api import Service
+    launcher, core, calls = fixture_launcher
+    service = Service(config, launcher)
+    root = config.jobs_root / "legacy-job"
+    key, request = service._request("job", {"idempotency_key": "legacy-click"})
+    launcher._command_runner = lambda *a, **k: SimpleNamespace(
+        returncode=2, stdout="", stderr='{"message":"not launched"}')
+    arguments = dict(root=root, kind="job", amount="27.50", button="Start a paid run", job_id=root.name)
+    with pytest.raises(launching.LauncherError, match="not launched"):
+        service._paid(key, request, **arguments)
+    run = service.get("runs", request["run_key"])
+    assert run["prepared"] and run["approved"] and not run.get("launched")
+    folder = root / "runs" / run["run_id"]
+    path = folder / "approval-request.json"
+    document = procs.read_json(path)
+    document["request"]["settings"]["effort"] = "high"
+    procs.write_json_atomic(path, document)
+    approval = procs.read_json(folder / "approval.json")
+    approval["approval_request_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    procs.write_json_atomic(folder / "approval.json", approval)
+    saved = path.read_bytes()
+    if already_started:
+        procs.write_json_atomic(folder / "runner-status.json", {"keeper_pid": 900000001})
+    launcher._command_runner = lambda *a, **k: pytest.fail("Retry must not start a command")
+    restarted = Service(config, launcher)
+    if already_started:
+        assert restarted._paid(key, request, **arguments)["launched"] is True
+    else:
+        with pytest.raises(launching.LauncherError, match="differs"):
+            restarted._paid(key, request, **arguments)
+    assert path.read_bytes() == saved
+    assert len(core.prepared) == len(core.approved) == 1
+    assert not calls
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "NaN", "Infinity", "-Infinity", "", True,

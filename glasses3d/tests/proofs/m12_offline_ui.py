@@ -119,7 +119,9 @@ class OfflineLauncher(Launcher):
         super().__init__(config)
         self.proof = private_root(proof)
 
-    def prepare(self, root, cutoff_usd, *, run_id=None):
+    def prepare(self, root, cutoff_usd, *, run_id=None, kind="job"):
+        assert kind in {"job", "understand", "full_edit_item"}
+        effort = "max" if kind == "job" else "high"
         root = confined(self.proof, root)
         amount = cutoff_text(cutoff_usd)
         if not run_id:
@@ -129,18 +131,22 @@ class OfflineLauncher(Launcher):
         if request_path.is_file():
             request = read(request_path)
             assert request["offline_only"] and budget.cap_to_micro(request["requested_cap_usd"]) == budget.cap_to_micro(amount)
+            assert request["effort"] == effort
             return {"run_id": run_id, "cutoff_usd": amount, "estimate_usd": "0"}
         self.check_available()
         if (root / "inputs/full-edit-item.json").is_file():
+            assert kind == "full_edit_item"
             scenario = "fallback"
         elif (root / "inputs/owner-edit.json").is_file():
+            assert kind == "understand"
             captures = owner_captures.load_round_captures(root)
             scenario = "understand" if len(captures) == 3 else "followup"
             assert len(captures) in {1, 3}
         else:
+            assert kind == "job"
             scenario = read(self.proof / "control.json")["next_job_scenario"]
             assert scenario in {"success", "cutoff", "slow"}
-        run_settings = replace(job_run.settings_default(), effort="high", settled_only=True,
+        run_settings = replace(job_run.settings_default(), effort=effort, settled_only=True,
             settled_stop_usd=amount, fit_output_to_budget=False, max_turns=1000 if scenario == "slow" else 20)
         prepare_offline_request(root, run_id, _prepare_only_handler, settings=run_settings, cap=amount)
         write(folder / "proof-script.json", {"scenario": scenario, "cutoff_usd": amount,

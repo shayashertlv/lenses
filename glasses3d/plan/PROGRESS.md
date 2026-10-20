@@ -1,5 +1,7 @@
 # glasses3d progress
 
+2026-10-20 — E1 ($0): dev UI product runs prepare/check max effort, including unlaunched retries; paid edit sends stay high; config/page/docs updated; 259 backend tests and 20 browser tests passed, M1 passed once (163.03 s, 13 scripted requests, $0); baseline fails the saved-high regression as required. Report: `data/m12/codex/e1_report.md`; restart port 8260 on the committed code, then stop.
+
 ## 2026-10-20 — Owner decision: max effort is the standing setting for product runs
 
 Owner, verbatim: "Yes: max effort is the standing setting for product runs from now on. Record it in AGENTS.md and

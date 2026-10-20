@@ -36,7 +36,7 @@ to it. **New run** or **Start a new run** opens the upload form.
 **New run:** add product photos, choose each photo's view and wearer's side, and enter the product description.
 You may add a short name and specifications as a JSON object. **Remove photo** removes that upload from the
 form. The description and specifications stay as typed; the UI adds no product details or guessed view labels.
-Enter **Max budget (USD)**, then press **Start a paid run** to authorize and start that one run.
+Enter **Max budget (USD)**, then press **Start a paid run** to authorize and start that one run at **max** effort.
 
 **Running** shows settled spend against your max budget, money left, elapsed time and current state. **Stop** asks
 to stop after the current step; an in-flight request finishes. The page waits through finalization, then opens Results or
@@ -99,9 +99,10 @@ or use **No, back to results** after a successful apply with no new items.
 ## What max budget means
 
 Your typed positive amount is this run's settled-spend cutoff, shared by the main Astra session and specialists.
-Every run and edit send is **settled-only**, at **high** effort; cap equals stop. There is no estimated-reservation cutoff and no shrinking the output to fit
-a reserve. No new request starts at or above the cutoff. The request already in flight can finish past it,
-so this is not a guaranteed final invoice maximum. Unknown charges stop further spending.
+Product runs use **max** effort; paid edit sends (**Send to Astra (paid)** and **Send this item to a full paid edit**)
+keep **high** effort. Every run and edit send is **settled-only**; cap equals stop. There is no estimated-reservation
+cutoff and no shrinking the output to fit a reserve. No new request starts at or above the cutoff. The request already
+in flight can finish past it, so this is not a guaranteed final invoice maximum. Unknown charges stop further spending.
 
 The UI shows only settled spend, your max budget and money left; it shows no estimate, held amount, projected cost
 or "finish soon" figure. Astra's money status also contains only settled spend, the cutoff and money left.

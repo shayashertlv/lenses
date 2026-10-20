@@ -329,7 +329,8 @@ def audit(out):
         assert receipt["status"] == "passed" and receipt["actual_provider_requests"] == 0
         assert receipt["no_request_at_or_above_cutoff"]
         assert approval["authorized_by"] == "offline_fixture" and request["offline_only"]
-        assert request["effort"] == "high"
+        expected_effort = "max" if script["scenario"] in {"success", "cutoff", "slow"} else "high"
+        assert request["effort"] == expected_effort
         assert approval["approval_request_sha256"] == sha(folder / "approval-request.json")
         run_receipts.append({"path": str(folder), **receipt})
     assert {row["scenario"] for row in run_receipts} == {"success", "cutoff", "slow", "understand", "fallback", "followup"}

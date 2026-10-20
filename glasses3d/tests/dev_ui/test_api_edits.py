@@ -42,8 +42,8 @@ class EditLauncher:
         if self.busy:
             raise APIError("paid_run_busy", "Another paid run is in progress", 409)
 
-    def prepare(self, root, amount, *, run_id):
-        self.prepares.append((Path(root), amount, run_id))
+    def prepare(self, root, amount, *, run_id, kind):
+        self.prepares.append((Path(root), amount, run_id, kind))
         return {"run_id": run_id, "cutoff_usd": amount, "estimate_usd": "1.250000"}
 
     def approve(self, root, run_id, amount, button, subject):
@@ -304,6 +304,7 @@ def test_send_once_survives_restart_and_freezes_mutations(edits):
         assert _ok(client.post(f"/api/edit-drafts/{draft['draft_id']}/send", json=body)) == sent
     assert len(edits.core.created) == len(edits.launcher.prepares) == len(edits.launcher.approvals) == len(edits.launcher.launches) == 1
     assert edits.launcher.approvals[0][2:4] == ("27.50", "Send to Astra (paid)")
+    assert edits.launcher.prepares[0][3] == "understand"
     assert edits.core.created[0][2][1]["request_text"] == "Change B, retaining A."
     frozen = _ok(edits.client.get(f"/api/edit-drafts/{draft['draft_id']}"))
     assert frozen["frozen"] is True
@@ -492,3 +493,4 @@ def test_fallback_only_for_allowed_item_and_idempotent(edits):
     assert edits.launcher.approvals[-1][2:4] == ("31.25", "Send this item to a full paid edit")
     run = _ok(edits.client.get(f"/api/runs/{result['run_key']}"))
     assert run["kind"] == "full_edit_item" and run["cutoff_usd"] == "31.25" and run["offline_test_mode"] is True
+    assert [row[3] for row in edits.launcher.prepares] == ["understand", "full_edit_item"]
