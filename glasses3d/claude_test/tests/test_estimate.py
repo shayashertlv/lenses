@@ -67,7 +67,7 @@ def test_known_profile_prices_writes_reads_and_inclusive_output_once(profile):
     run, _, _ = profile
     result = estimate.build_estimate(run, claude_opening=100)
     assert (result["low_usd"], result["central_usd"], result["high_usd"]) == (
-        "0.002904", "0.003504", "0.004704"
+        "0.002662", "0.003504", "0.005188"
     )
     p = result["astra_profile"]
     assert p["opening_counted_input_tokens"] == 100
@@ -87,6 +87,20 @@ def test_known_profile_prices_writes_reads_and_inclusive_output_once(profile):
     assert result["scenarios"]["central"]["output_tokens"] == "60"
     assert result["scenarios"]["central"]["cache_write_1h_usd"] == "0.002240"
     assert result["scenarios"]["central"]["cache_read_usd"] == "0.000064"
+    assert result["output_history_basis"] == {
+        "cache_write_1h": 60, "cache_read": 20, "conversation_end_sequences": [2, 3],
+    }
+    assert [row["output_history_basis"] for row in p["requests"]] == [
+        {"cache_write_1h": 20, "cache_read": 0},
+        {"cache_write_1h": 30, "cache_read": 20},
+        {"cache_write_1h": 10, "cache_read": 0},
+    ]
+    assert [row["estimated_claude_usd"]["high"] for row in p["requests"]] == [
+        "0.001760", "0.002420", "0.001008",
+    ]
+    assert [row["estimated_claude_usd"]["low"] for row in p["requests"]] == [
+        "0.000920", "0.001154", "0.000588",
+    ]
 
 
 @pytest.mark.parametrize("opening,central", [(50, "0.002352"), (100, "0.003504"), (150, "0.004656"),
@@ -103,12 +117,19 @@ def test_ratio_scales_inputs_only(profile, opening, central):
 def test_fixed_k_bounds_are_not_claimed_as_confidence_bounds(profile):
     result = estimate.build_estimate(profile[0], claude_opening=100)
     assert {name: Decimal(row["output_multiplier"]) for name, row in result["scenarios"].items()} == {
-        "low": Decimal("0.5"), "central": Decimal("1"), "high": Decimal("2")
+        "low": Decimal("0.5"), "central": Decimal("1"), "high": Decimal("2"),
+        "stress_5x": Decimal("5"), "stress_10x": Decimal("10"),
     }
-    assert [result["scenarios"][name]["output_usd"] for name in ("low", "central", "high")] == [
-        "0.000600", "0.001200", "0.002400"
+    names = ("low", "central", "high", "stress_5x", "stress_10x")
+    assert [result["scenarios"][name]["output_usd"] for name in names] == [
+        "0.000600", "0.001200", "0.002400", "0.006000", "0.012000",
     ]
-    assert Decimal(result["low_usd"]) < Decimal(result["central_usd"]) < Decimal(result["high_usd"])
+    assert [result[f"{name}_usd"] for name in names] == [
+        "0.002662", "0.003504", "0.005188", "0.010240", "0.018660",
+    ]
+    assert [Decimal(result[f"{name}_usd"]) for name in names] == sorted(
+        Decimal(result[f"{name}_usd"]) for name in names
+    )
     assert any("not statistical bounds" in item for item in result["assumptions"])
     assert any("Ignore context-editing savings" in item for item in result["assumptions"])
 
@@ -123,6 +144,117 @@ def test_uses_tariff_table_not_hardcoded_rates(profile, monkeypatch):
     result = estimate.build_estimate(profile[0], claude_opening=100)
     assert result["central_usd"] == "0.007008"
     assert result["tariff_usd_per_million"]["cache_write_1h"] == "16"
+    assert result["low_usd"] == "0.005324"
+    assert result["high_usd"] == "0.010376"
+    assert result["stress_5x_usd"] == "0.020480"
+    assert result["stress_10x_usd"] == "0.037320"
+
+
+def test_history_adjustments_use_separate_write_read_and_output_tariffs(profile, monkeypatch):
+    tariff = pricing.TARIFFS[estimate.MODEL]
+    monkeypatch.setitem(pricing.TARIFFS, estimate.MODEL, pricing.Tariff(
+        Decimal("97"), Decimal("3"), Decimal("7"), Decimal("101"), Decimal("11"),
+        tariff.source_url, tariff.checked,
+    ))
+    result = estimate.build_estimate(profile[0], claude_opening=100)
+    # At 2x: 340 one-hour writes, 340 reads and 120 output, priced independently.
+    high = result["scenarios"]["high"]
+    assert high["cache_write_1h_usd"] == "0.003740"
+    assert high["cache_read_usd"] == "0.002380"
+    assert high["output_usd"] == "0.000360"
+    assert high["total_usd"] == "0.006480"
+    # Neither ordinary-input nor 5-minute-write tariffs apply to this model.
+    assert result["central_usd"] == "0.005500"
+
+
+@pytest.mark.parametrize("opening", [50, 100, 150, 1])
+def test_history_deltas_are_signed_and_independent_of_opening_ratio(profile, opening):
+    result = estimate.build_estimate(profile[0], claude_opening=opening)
+    expected = {
+        "low": (Decimal("-30"), Decimal("-10")),
+        "central": (Decimal("0"), Decimal("0")),
+        "high": (Decimal("60"), Decimal("20")),
+        "stress_5x": (Decimal("240"), Decimal("80")),
+        "stress_10x": (Decimal("540"), Decimal("180")),
+    }
+    for name, (written, read) in expected.items():
+        scenario = result["scenarios"][name]
+        assert {key: Decimal(value) for key, value in scenario["history_token_delta"].items()} == {
+            "cache_write_1h": written, "cache_read": read,
+        }
+        assert Decimal(scenario["input_tokens"]["cache_write_1h"]) == Decimal(280 * opening) / 100 + written
+        assert Decimal(scenario["input_tokens"]["cache_read"]) == Decimal(320 * opening) / 100 + read
+    if opening == 1:
+        # Preserve the requested signed planning arithmetic instead of silently clamping.
+        assert Decimal(result["scenarios"]["low"]["input_tokens"]["cache_write_1h"]) == Decimal("-27.2")
+        assert Decimal(result["scenarios"]["low"]["input_tokens"]["cache_read"]) == Decimal("-6.8")
+        assert result["central_usd"] == "0.001223"
+
+
+def test_no_renewal_reads_every_prior_output_once_per_later_request(profile):
+    run, _, renewals = profile
+    renewals["renewals"] = []
+    write_json(run / "renewals.json", renewals)
+    result = estimate.build_estimate(run, claude_opening=100)
+    assert result["output_history_basis"] == {
+        "cache_write_1h": 60, "cache_read": 70, "conversation_end_sequences": [3],
+    }
+    assert [row["output_history_basis"]["cache_read"] for row in result["astra_profile"]["requests"]] == [
+        0, 20, 50,
+    ]
+    assert result["high_usd"] == "0.005198"
+    assert result["scenarios"]["low"]["history_token_delta"] == {
+        "cache_write_1h": "-30.0", "cache_read": "-35.0",
+    }
+
+
+def test_multiple_nonuniform_renewals_include_summary_but_reset_after_it(profile):
+    run, budget, renewals = profile
+    outputs = [11, 23, 37, 41, 53, 67, 79]
+    rows = []
+    for sequence, output in enumerate(outputs, 1):
+        rows.append({
+            "sequence": sequence, "input_tokens": 900 + sequence * 100, "outcome": "settled",
+            "settled_from": "transport", "http_status": 200,
+            "request_id": f"req-{sequence}", "response_id": f"resp-{sequence}",
+            "settled_micro_usd": sequence * 10,
+            "usage": {
+                "input_tokens": 900 + sequence * 100, "cached_tokens": (sequence - 1) * 100,
+                "cache_write_tokens": 900, "output_tokens": output, "reasoning_tokens": output - 1,
+            },
+        })
+    budget["rows"] = rows
+    budget["totals"].update(
+        requests=7, settled_micro_usd=280, outcomes={"settled": 7, "held": 0, "unknown": 0}
+    )
+    template = renewals["renewals"][0]
+    renewals["renewals"] = [{
+        **template, "number": number, "old_conversation_id": f"epoch-{number}",
+        "new_conversation_id": f"epoch-{number + 1}", "summary_request_sequence": end,
+    } for number, end in enumerate([2, 5, 6], 1)]
+    write_json(run / "budget.json", budget)
+    write_json(run / "renewals.json", renewals)
+    result = estimate.build_estimate(run, claude_opening=2000)
+    assert result["output_history_basis"] == {
+        "cache_write_1h": 311, "cache_read": 126, "conversation_end_sequences": [2, 5, 6, 7],
+    }
+    profile_rows = result["astra_profile"]["requests"]
+    assert [row["output_history_basis"]["cache_write_1h"] for row in profile_rows] == outputs
+    assert [row["output_history_basis"]["cache_read"] for row in profile_rows] == [0, 11, 0, 37, 78, 0, 0]
+    # Summary and final responses retain their one write, even with no subsequent read.
+    assert result["scenarios"]["high"]["input_tokens"] == {
+        "cache_write_1h": "14311", "cache_read": "4326",
+    }
+    assert result["low_usd"] == "0.114693"
+    assert result["central_usd"] == "0.119060"
+    assert result["high_usd"] == "0.127793"
+    assert result["stress_5x_usd"] == "0.153993"
+    assert result["stress_10x_usd"] == "0.197659"
+    # Last request: baseline 2000 writes/1200 reads, 79 output, one added 79-token write.
+    assert profile_rows[-1]["estimated_claude_usd"]["high"] == "0.020032"
+    for name in result["scenarios"]:
+        rounded_rows = sum(Decimal(row["estimated_claude_usd"][name]) for row in profile_rows)
+        assert abs(rounded_rows - Decimal(result[f"{name}_usd"])) <= Decimal("0.000004")
 
 
 def test_fractional_tokens_and_low_decimal_precision_do_not_round_early(profile):
@@ -318,6 +450,14 @@ def test_cli_writes_json_and_exactly_six_summary_lines(profile, tmp_path, capsys
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["central_usd"] == "0.003504"
     assert "settled-only cutoff unchanged" in captured.out
+    lines = captured.out.splitlines()
+    assert "claude-opus-5-5, max effort" in lines[0]
+    assert "3 requests, 1 renewals" in lines[0]
+    assert "opening Claude 100 / Astra 100 (ratio 1.000000)" in lines[0]
+    for line, name in zip(lines[1:], ("low", "central", "high", "stress_5x", "stress_10x")):
+        assert line.startswith(f"{name} (k={report['scenarios'][name]['output_multiplier']}):")
+        assert f"${report[f'{name}_usd']}" in line
+        assert "1h writes" in line and "reads" in line and "output including thinking" in line
 
 
 def test_cli_real_count_path(profile, livecheck, tmp_path, capsys):

@@ -16,7 +16,10 @@ from . import pricing
 
 
 MODEL = "claude-opus-5-5"
-OUTPUT_MULTIPLIERS = (("low", Decimal("0.5")), ("central", Decimal("1")), ("high", Decimal("2")))
+OUTPUT_MULTIPLIERS = (
+    ("low", Decimal("0.5")), ("central", Decimal("1")), ("high", Decimal("2")),
+    ("stress_5x", Decimal("5")), ("stress_10x", Decimal("10")),
+)
 MILLION = Decimal(1_000_000)
 
 
@@ -241,22 +244,57 @@ def build_estimate(astra_run: Path, *, livecheck: Path | None = None,
         ratio = Decimal(opening) / Decimal(profile["opening_counted_input_tokens"])
         write_tokens = Decimal(profile["totals"]["uncached_input_tokens"]) * ratio
         read_tokens = Decimal(profile["totals"]["cached_tokens"]) * ratio
-        write_usd = write_tokens * tariff.cache_write_1h / MILLION
-        read_usd = read_tokens * tariff.cache_read / MILLION
+        ends = [row["summary_request_sequence"] for row in profile["renewals"]]
+        ends.append(profile["request_count"])
+        end_sequences = set(ends)
+        previous_output = 0
+        history_reads = 0
+        for row in profile["requests"]:
+            # C4's planning convention writes each output delta once and reads
+            # it on every later request in this conversation. Even a final
+            # output gets a write, but never a read beyond its renewal boundary.
+            row["output_history_basis"] = {
+                "cache_write_1h": row["output_tokens"], "cache_read": previous_output,
+            }
+            history_reads += previous_output
+            previous_output += row["output_tokens"]
+            if row["sequence"] in end_sequences:
+                previous_output = 0
+        history_basis = {
+            "cache_write_1h": profile["totals"]["output_tokens"],
+            "cache_read": history_reads, "conversation_end_sequences": ends,
+        }
         scenarios = {}
         for name, k in OUTPUT_MULTIPLIERS:
             output = Decimal(profile["totals"]["output_tokens"]) * k
             output_usd = output * tariff.output / MILLION
+            write_delta = (k - 1) * history_basis["cache_write_1h"]
+            read_delta = (k - 1) * history_basis["cache_read"]
+            scenario_writes = write_tokens + write_delta
+            scenario_reads = read_tokens + read_delta
+            write_usd = scenario_writes * tariff.cache_write_1h / MILLION
+            read_usd = scenario_reads * tariff.cache_read / MILLION
             scenarios[name] = {
                 "output_multiplier": str(k), "output_tokens": str(output),
+                "history_token_delta": {
+                    "cache_write_1h": str(write_delta), "cache_read": str(read_delta),
+                },
+                "input_tokens": {
+                    "cache_write_1h": str(scenario_writes), "cache_read": str(scenario_reads),
+                },
                 "cache_write_1h_usd": _usd(write_usd), "cache_read_usd": _usd(read_usd),
                 "output_usd": _usd(output_usd), "total_usd": _usd(write_usd + read_usd + output_usd),
             }
         for row in profile["requests"]:
             fixed = (Decimal(row["uncached_input_tokens"]) * ratio * tariff.cache_write_1h
                      + Decimal(row["cached_tokens"]) * ratio * tariff.cache_read)
+            history_cost = (
+                Decimal(row["output_history_basis"]["cache_write_1h"]) * tariff.cache_write_1h
+                + Decimal(row["output_history_basis"]["cache_read"]) * tariff.cache_read
+            )
             row["estimated_claude_usd"] = {
-                name: _usd((fixed + Decimal(row["output_tokens"]) * k * tariff.output) / MILLION)
+                name: _usd((fixed + (k - 1) * history_cost
+                            + Decimal(row["output_tokens"]) * k * tariff.output) / MILLION)
                 for name, k in OUTPUT_MULTIPLIERS
             }
         result = {
@@ -269,6 +307,7 @@ def build_estimate(astra_run: Path, *, livecheck: Path | None = None,
             "input_ratio": {"numerator": opening, "denominator": profile["opening_counted_input_tokens"],
                             "decimal": str(ratio)},
             "scaled_input_tokens": {"cache_write_1h": str(write_tokens), "cache_read": str(read_tokens)},
+            "output_history_basis": history_basis,
             "tariff_usd_per_million": {
                 "cache_write_1h": str(tariff.cache_write_1h), "cache_read": str(tariff.cache_read),
                 "output": str(tariff.output), "source_url": tariff.source_url,
@@ -284,8 +323,16 @@ def build_estimate(astra_run: Path, *, livecheck: Path | None = None,
                 "Price all scaled uncached input as one-hour cache writes and all scaled cached input as cache reads.",
                 "Retain Astra's observed cache partition; different cache expiry, hits or renewal timing are not predicted.",
                 "Astra output already includes reasoning; never add the reasoning subset a second time.",
-                "Scale output only by 0.5, 1.0 and 2.0 for low, central and high; Claude's max-effort thinking volume is unknown.",
-                "Output multipliers do not also scale later input history; input sizes use only the opening-count ratio.",
+                "Scale output by 0.5, 1 and 2 for low, central and high, plus 5 and 10 for stress scenarios; "
+                "Claude's max-effort thinking volume is unknown.",
+                "For each request i, add (k-1)*output_i to history at the one-hour cache-write rate, "
+                "then charge cache reads on every strictly later request in the same conversation.",
+                "This planning convention charges one write even for a conversation's final output, "
+                "with no later read; it is not a simulation of the API's cache-write timing.",
+                "The renewal summary request ends the old conversation; discard its history deltas before the next request.",
+                "Apply history deltas without the opening-count ratio; k<1 subtracts the same writes and reads without clamping.",
+                "Very small synthetic opening ratios can make reduced-input scenarios negative; these signed linear "
+                "scenarios are not predictions of actual negative charges.",
                 "Ignore context-editing savings. This leans conservative but is not a guaranteed upper bound.",
                 "Renewal summary replies and cache rebuilds are already in the settled request profile; do not add them again.",
                 "Use pricing.TARIFFS for Opus 5.5, standard speed and global inference, with no long-context price step.",
@@ -306,13 +353,15 @@ def summary(result: dict) -> str:
     profile = result["astra_profile"]
     title = "PLACEHOLDER ONLY - NOT THE ESTIMATE" if result["placeholder"] else "Owner-only planning estimate"
     return "\n".join((
-        f"{title}: {MODEL}, max effort.",
-        f"Astra reference: {profile['request_count']} settled requests, {profile['renewal_count']} renewals.",
-        f"Opening counts: Claude {result['claude_opening_count']}; Astra {profile['opening_counted_input_tokens']}; "
-        f"input ratio {Decimal(result['input_ratio']['decimal']):.6f}.",
-        f"USD low ${result['low_usd']}; central ${result['central_usd']}; high ${result['high_usd']}.",
-        "One-hour cache writes and cache reads; output including thinking at 0.5x / 1x / 2x.",
-        "Context-editing savings ignored (conservative); settled-only cutoff unchanged.",
+        f"{title}: {MODEL}, max effort; {profile['request_count']} requests, "
+        f"{profile['renewal_count']} renewals; opening Claude {result['claude_opening_count']} / "
+        f"Astra {profile['opening_counted_input_tokens']} "
+        f"(ratio {Decimal(result['input_ratio']['decimal']):.6f}); "
+        "context-editing savings ignored; settled-only cutoff unchanged.",
+        *(f"{name} (k={scenario['output_multiplier']}): ${scenario['total_usd']}; "
+          f"1h writes ${scenario['cache_write_1h_usd']}, reads ${scenario['cache_read_usd']}, "
+          f"output including thinking ${scenario['output_usd']}."
+          for name, scenario in result["scenarios"].items()),
     ))
 
 

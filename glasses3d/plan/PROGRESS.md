@@ -1,5 +1,43 @@
 # glasses3d progress
 
+## 2026-10-20 — M13 steps C1–C4 done ($0); paid run C5 awaits the owner
+
+- **Built** (all in `glasses3d/claude_test/`, no shared file changed):
+  - money guard A/A2, `7d5bbf1`;
+  - images B, `bdbebf4`;
+  - facts R, `3377ab0`;
+  - design C0, `8464dc4`;
+  - runner C2, `eb252c8`;
+  - upload deletion, Stop-race fix and livecheck C2b/C2c, `52bfa80`;
+  - estimate C4a, `e833c12`;
+  - Astra regression C3, `fc19e0d`.
+- **The Stop race was a real defect:** a Stop during a streaming reply leaked a transport refusal and misreported the
+  status. It is fixed, and the claude_test suite then passed 20 runs in a row (Codex) plus 5 more (Claude). That
+  suite has 849 tests.
+- **The scripted proof** (real SDK, guarded transport, fake wire, real Blender on a private Oakley copy) passed in
+  18 min, and all 131 uploads were deleted at teardown.
+- **C3** passed on the M13 head: full main suite 5,849 / 2 skips, plus 367 photoprint and 29 timing; `assembly_m1`
+  passed; Astra's opening and tool follow-up requests are byte-identical to `700b673`.
+- **C4 live check** (free only; Messages refused by construction):
+  - The first attempt got HTTP 400, because the key was not scoped to a workspace.
+  - The owner then made a key in workspace "automation": "you got it. done under workspace "automation"".
+  - The rerun made 19/19 HTTP 200 calls: 6 uploads, 6 metadata reads, 1 count and 6 deletions. $0.
+  - The opening request (instructions, 26 tools, six whole native photos) counts 38,448 tokens, vs Astra's 25,150.
+- **Owner-facing estimate** for Opus 5.5 at max effort, from the rerun's 70-request profile scaled ×1.53. These are
+  scenarios, not bounds:
+
+  | Output (incl. thinking) vs Astra | Estimate |
+  |---|---:|
+  | 0.5× | $10.91 |
+  | 1× | $11.90 |
+  | 2× | $13.87 |
+  | 5× | $19.80 |
+  | 10× | $29.69 |
+
+- **Not yet tested:** file-ID images inside Messages, and four request fields the count endpoint does not take
+  (`max_tokens`, `service_tier`, `inference_geo`, `stream`). The paid run's first request tests them; a 400 there is
+  refused before any model work.
+
 ## 2026-10-20 — M13: model set to Opus 5.5 at max effort; task B landed
 
 Owner, verbatim: "for now were set on opus 5.5 with maximum possible effort" (`claude-opus-5-5`, effort `max`).
