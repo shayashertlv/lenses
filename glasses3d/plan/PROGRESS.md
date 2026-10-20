@@ -1,5 +1,34 @@
 # glasses3d progress
 
+## 2026-10-20 — Task 16: request growth traced to native evidence ($0 audit)
+
+Across the four saved Oakley runs, all **231 request totals** reconcile to provider receipts. Run 4 to
+today: mean input **105,084 → 141,239 tokens (+34.4%)**; estimated images **26,595 → 104,687**,
+non-image remainder **78,489 → 36,553**. Look-image exposure contributes **+78,484 tokens/request**,
+offset by less other content. Astra made fewer ordinary look calls (**11 → 8**) and selected fewer photo
+views (**40 → 15**); the dominant change is richer native pairs/details and side-light output per action.
+A front-only comparison grew from one image / 730 image tokens to seven / about 15,337.
+
+Renewal began with `ded8b77` on October 18, after run 4; run 4's peak was also below the later
+217,600 trigger. Current renewal already selects the latest complete group per photo. Today's requests
+contain **zero within-request duplicate image hashes**. Older checkpoint pages remain where no newer
+comparison covers that photo. A fixed-trace replay shows renewal pruning reduces image history; it is
+not the sole cause of growth. Task 17 owns the finish/renewal collision.
+
+Proposal only: trimming native tiles' blank padding, preserving source pixels and labels, projects
+**485,607 tokens total / 9,162 per request (6.5%)** saved on today's unchanged request trace. Removing
+repeated photo columns offers more but separates photos from renders. Neither proposal was applied.
+Report: `data/review_20261018/codex/task16_report.md`; per-request composition, all-tool breakdowns,
+per-call average/max tables, historical commit/file:line evidence and reproducible projections accompany it.
+
+The report uses receipt-increment estimates for all **221 consumed tool outputs**, with framing and
+masked-reasoning limits explicit; four unconsumed terminal outputs have no invented text count.
+The image rule in `agent/look_cost.py` was checked against official documentation on **2026-10-20**:
+https://developers.openai.com/api/docs/guides/images-vision (32-pixel patches, high-detail limit, 1.2 multiplier).
+All **1,372 protected original files** remain hash-identical; independent measurement/history reviews pass.
+Only this PROGRESS entry is committed. No runtime code, original job/run/delivery/verdict changes,
+paid calls, `.env` reads, pools, Blender, suites or push. Next: Claude reviews task 16; stop here.
+
 ## 2026-10-20 — Task 15: new Oakley lens and renewal costs analysed ($0)
 
 The task-14 test run `oakley-oo9208-v2-aaaa5ffe` / `20261020T163834-3ec617` stopped at **$20.178866**
