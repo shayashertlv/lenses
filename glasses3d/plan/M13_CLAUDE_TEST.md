@@ -180,6 +180,13 @@ Claude run.**
     - tool-use metrics in the summary.
   - Nothing is forced, blocked or gated. Astra's text and requests stay byte-identical.
 
+**Owner authorization for the second paid Claude run (2026-10-20), verbatim:** "ok when we're ready for another paid run
+start it with the same settings, come back to me when the paid run results are in".
+- Same settings as C5: the same Oakley job inputs, `claude-opus-5-5`, effort max and a **$20 settled cutoff**.
+- It starts only after F1 and T1 pass Claude's review and their tests, and the estimate is computed and recorded. He
+  chose not to see the estimate first; it goes in the result report.
+- This approves one run only.
+
 ## 4. Steps (Claude reviews every report and diff and reruns the tests)
 - **C1, foundations ($0): four Codex tasks in parallel, with disjoint files.** Owner: "please max utilize this machine
   for fastest runs". The contract lives in `work/briefs/m13_common.md`.
