@@ -186,6 +186,9 @@ start it with the same settings, come back to me when the paid run results are i
 - It starts only after F1 and T1 pass Claude's review and their tests, and the estimate is computed and recorded. He
   chose not to see the estimate first; it goes in the result report.
 - This approves one run only.
+- **Cutoff raised (2026-10-20), verbatim:** "Raise the cutoff for the second paid Claude run to $35 settled; everything
+  else the same settings." He was asked after T1's estimate: $22.50–35 with the extra checking, above $20. Run 2 uses
+  a **$35 settled cutoff**; everything else is unchanged.
 
 ## 4. Steps (Claude reviews every report and diff and reruns the tests)
 - **C1, foundations ($0): four Codex tasks in parallel, with disjoint files.** Owner: "please max utilize this machine
