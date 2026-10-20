@@ -129,8 +129,11 @@ which is personal for this test").
 - `tool_choice` is `auto` with parallel tool use disabled (one Blender worker, as for Astra). Tools are sent without
   `strict`. The API allows at most 20 strict tools and restricts their schemas (FACTS §4), and our registry does not
   meet that. The adapter validates every input against the tool's original schema before running it.
-- A reply with no tool call gets one fixed host line, and receipts count those lines. The line is "Continue the task;
-  the run ends only through the finish tool."
+- A reply with no tool call gets Astra's existing host note, unchanged: `agent.loop.FINISH_NOTE` ("Your reply called no
+  tool. The run ends only when `finish` returns status accepted.").
+  - Astra allows 2 notes per run, a limit set while forced tool choice made text-only replies rare. Claude uses `auto`,
+    so its limit is 2 *consecutive* notes, reset by any tool call.
+  - A third consecutive text-only reply ends the run as a draft. Receipts count every note.
 - A `refusal` stops the run as a draft and is reported. Server-side fallbacks stay off: a fallback would switch models
   mid-test.
 
