@@ -38,7 +38,7 @@ from glasses3d.agent.session_inputs import ReferenceInput
 from glasses3d.agent.temple_lab import stage
 from glasses3d.agent.tools import build_tools
 
-from . import images, money, transport
+from . import images, money, tool_use, transport
 from .conversation import (
     ClaudeReviewLog, Conversation, context_measurement, estimate_content,
     opening_content, pressure, renew_conversation, request_body,
@@ -605,10 +605,14 @@ class _Runtime:
         finally:
             self.log._heartbeat("idle")
             self.log.publish_money(self.ledger.money_status())
+            # Stop can race with a fully settled reply. That request still
+            # carried its notes even when the loop never consumes the reply.
+            rows = _ledger_rows(self.ledger)
+            settlement = next((r for r in reversed(rows) if r.get("request_no") == number
+                               and r["event"] in {"settled", "unknown"}), None)
+            if settlement is not None and settlement["event"] == "settled":
+                self.adapter.record_sent_notes(body["messages"], number)
         # Only transport settlement, never the SDK's parsed usage, authorizes tools.
-        rows = _ledger_rows(self.ledger)
-        settlement = next((r for r in reversed(rows) if r.get("request_no") == number
-                           and r["event"] in {"settled", "unknown"}), None)
         if settlement is None or settlement["event"] != "settled":
             raise Halt("provider_unknown", "the reply has no complete transport settlement")
         self.last_usage = settlement["usage"]
@@ -1153,6 +1157,7 @@ def write_summary(spec, result, delivered):
         "status": result["status"], "tool_test": spec.offline, "seconds": result["seconds"],
         "requests": result["requests"], "budget": result["budget"], "delivery": delivered,
         "stop_observed": result.get("stop_observed", False),
+        "tool_use": tool_use.summarize(directory),
         "unknown_charges": result.get("unknown_charges", []),
         "request_counts": {"model_requests": result["requests"], "message_http_attempts": len(messages),
                            "retry_resends": sum(row.get("attempt", 1) > 1 for row in messages),
@@ -1196,6 +1201,7 @@ def write_summary(spec, result, delivered):
         f"\nDelivery: {delivered.get('delivery_id', delivered.get('id', delivered['status']))}; "
         f"GLB SHA-256: {delivered.get('glb_sha256', 'unavailable')}.\n"
         f"\nRequest counts: {json.dumps(summary['request_counts'])}.\n"
+        f"\nTool use: {json.dumps(summary['tool_use'])}.\n"
         + cleanup_text +
         f"\nImage receipts: {json.dumps(summary['image_receipts'])}. "
         f"{len(mentions)} literal public image references; {summary['image_reference_method']}\n"

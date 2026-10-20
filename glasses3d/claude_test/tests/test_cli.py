@@ -258,7 +258,7 @@ def test_livecheck_counts_the_exact_opening_and_deletes_six_uploads(livecheck_jo
     words = "Owner permits this free-only upload and token check."
     output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok=words,
                           run_id="intended-run", cutoff_usd=Decimal("17"), inner=wire.transport())
-    assert output["status"] == "completed"
+    assert output["status"] == "completed", output
     assert output["input_tokens"] == 27461
     assert output["free_only"] is True and output["owner_words"] == words
     assert output["messages_requests"] == 0 and output["settled_usd"] == "0"

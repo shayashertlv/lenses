@@ -56,6 +56,15 @@ UNIT_ASSERTIONS = {
     "cache_cost_through_real_runner_and_renewal": (
         "test_long_runner_cache_cost_through_real_renewal",
     ),
+    "factual_tool_use_notes_and_claude_only_instructions": (
+        "test_notes_through_runner_wire_reset_and_preserve_results",
+        "test_refused_comparison_and_invalid_calls_do_not_reset_or_get_notes",
+        "test_frozen_effective_instructions_and_unmodified_astra_text",
+        "test_renewal_keeps_scene_change_count",
+        "test_paged_measurements_use_verified_full_report",
+        "test_surface_measurements_count_hits_not_successful_calls",
+        "test_stop_after_settlement_still_records_note_sent",
+    ),
     "atomic_epoch_recovery_and_tool_id_ordering": (
         "test_atomic_renewal_archives_epochs_and_recovers_completed_ids",
         "test_failed_epoch_transaction_keeps_old_pointer_and_rows",
@@ -296,7 +305,13 @@ print({'tool_test': True, 'object': selected.name, 'material': material.name,
                     "seating_repair": False}
         self.add("execute_blender_code", edit, "c3_edit")
         self.add("save_checkpoint", {"label": "C3 temporary material test", "best": False}, "c3_edited")
+        self.add("execute_blender_code", {
+            "code": "import bpy\nprint({'tool_test': True, 'objects': len(bpy.data.objects)})\n",
+            "soft_timeout_s": 120, "label": "C3 read-only scene inspection", "seating_repair": False,
+        }, "c3_read_only")
+        self.add("execute_blender_code", edit, "c3_edit_second")
         self.add("compare_look_to_photos", lambda _: {"refs": None, "basis": self.basis}, "c3_look")
+        self.add("execute_blender_code", edit, "c3_edit_after_compare")
         self.add("scene_summary", {"objects": None}, "c3_retained_history")
 
         def repeat(body):
@@ -637,6 +652,102 @@ def audit_native_tools(scene, wire):
     return {"status": "passed", "journaled_tools": statuses, "reversible_material_mutation": True}
 
 
+def audit_tool_use(run_dir, scene, wire):
+    """Check host notes against native fingerprints, original outputs and wire."""
+    path = run_dir / "tool-use.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    calls = [block for turn in wire.replies for block in turn.content
+             if block.get("type") == "tool_use"]
+    assert [row["call_id"] for row in rows] == [call["id"] for call in calls]
+    assert [row["name"] for row in rows] == [call["name"] for call in calls]
+    assert all(row["stage"] is None for row in rows)
+    native = {row["call_id"]: row for row in scene.events if row.get("kind", "call") == "call"}
+    original = {}
+    for result_path in (run_dir / "tools").glob("*/result.json"):
+        result = read(result_path)
+        original[result["call_id"]] = result
+    seen, first_request = {}, {}
+    for number, body in enumerate(wire.requests, 1):
+        for cid, result in _results(body).items():
+            if cid in seen:
+                assert result == seen[cid], "host note changed in append-only wire history"
+            seen[cid] = result
+            first_request.setdefault(cid, number)
+
+    expected_notes = {
+        "c3_edit": (1, "compare_to_photos"),
+        "c3_edit_second": (2, "compare_to_photos"),
+        "c3_edit_after_compare": (1, "compare_look_to_photos"),
+    }
+    sent_path = path.with_name("tool-use-sent.jsonl")
+    sent = [json.loads(line) for line in sent_path.read_text(encoding="utf-8").splitlines()]
+    assert Counter(row["call_id"] for row in sent) == Counter({cid: 1 for cid in expected_notes})
+    for row in sent:
+        assert row["request_no"] == first_request[row["call_id"]]
+    comparisons = {"compare_to_photos", "compare_look_to_photos"}
+    streak = longest = 0
+    for row in rows:
+        cid, name = row["call_id"], row["name"]
+        assert row["result"]["tool_use_id"] == cid
+        if cid in seen:
+            assert row["result"] == seen[cid], "durable tool-use receipt differs from the wire"
+        else:
+            # Accepted finish ends immediately; audit_epochs checks that final
+            # result in the durable conversation instead of inventing a request.
+            assert cid == "c3_finish_accept"
+        reset = name in comparisons and row["successful"]
+        assert row["comparison_reset"] is reset
+        if reset:
+            streak = 0
+        if name == "execute_blender_code":
+            journal = native[cid]
+            change = row["scene_change"]
+            assert change["before"] == journal["fingerprint_before"]
+            assert change["after"] == journal["fingerprint_after"]
+            assert change["changed"] is (change["before"] != change["after"])
+            assert change["changed"] is (cid in expected_notes)
+            if change["changed"]:
+                streak += 1
+                longest = max(longest, streak)
+            # Scripts emit only original text plus the separate host line:
+            # preserve their status, stdout, footer and all other content.
+            actual = row["result"]["content"]
+            assert (actual[:-1] if row["host_note"] else actual) == original[cid]["result"]
+            assert not row["result"].get("is_error")
+        assert row["changes_since_comparison"] == streak
+        notes = [item["text"] for item in row["result"]["content"]
+                 if item.get("type") == "text" and item["text"].startswith("Host: ")]
+        if cid in expected_notes:
+            number, last_comparison = expected_notes[cid]
+            note = row["host_note"]
+            assert isinstance(note, str) and "\n" not in note
+            assert note.startswith(f"Host: {number} model change")
+            assert f"since your last {last_comparison}." in note
+            assert row["result"]["content"][-1] == {"type": "text", "text": note}
+            assert notes == [note]
+            for tool in ("compare_to_photos", "compare_look_to_photos", "photo_read", "pick_surface_point"):
+                assert tool in note
+        else:
+            assert row["host_note"] is None and notes == []
+    assert native["c3_read_only"]["fingerprint_before"] == native["c3_read_only"]["fingerprint_after"]
+    assert longest == 2
+    counts = Counter(call["name"] for call in calls)
+    metrics = read(run_dir / "summary.json")["tool_use"]
+    assert metrics["per_tool_counts"] == dict(counts)
+    assert metrics["total_calls"] == len(calls)
+    assert metrics["dedicated_tool_calls"] == len(calls) - counts["execute_blender_code"]
+    assert metrics["dedicated_tool_share"] == (len(calls) - counts["execute_blender_code"]) / len(calls)
+    assert metrics["longest_no_comparison_streak"] == longest
+    assert metrics["photo_measurements"] == 0
+    assert metrics["photo_measurement_calls"] == metrics["unresolved_measurement_calls"] == 0
+    assert metrics["host_notes_sent"] == len(expected_notes)
+    assert metrics["host_notes_prepared"] == len(expected_notes)
+    return {"status": "passed", "receipt": str(path), "sent_receipt": str(sent_path), "metrics": metrics,
+            "scene_changing_scripts": list(expected_notes), "read_only_script_note_absent": True,
+            "comparison_reset_verified": True, "original_script_outputs_unchanged": True,
+            "wire_and_journal_consistent": True}
+
+
 def audit_summary(run_dir, outcome, wire, delivered):
     summary = read(run_dir / "summary.json")
     result = outcome["result"]
@@ -723,6 +834,7 @@ async def native(work, workers, assertions):
             "script": wire.assert_complete()}
         assertions["wire_history_images"] = {"status": "passed", **audit_wire(wire, spec, script)}
         assertions["native_tool_journals"] = audit_native_tools(scene, wire)
+        assertions["native_tool_use_notes"] = audit_tool_use(run_dir, scene, wire)
         assertions["native_tile_pixels"] = {"status": "passed", **audit_pixels(run_dir, wire)}
         assertions["durable_renewal_epochs"] = await audit_epochs(private, renewal, wire)
         assertions["transport_settlement_and_forecasts"] = audit_settlement_and_forecasts(run_dir, wire)

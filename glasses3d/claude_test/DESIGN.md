@@ -574,7 +574,7 @@ No general search-and-replace of owner descriptions, summaries or tool results.
 
 | Current source and exact fragment | Claude-path replacement |
 |---|---|
-| `agent/instructions.py:41`: `You are Astra.` | `You are Claude.` |
+| `agent/instructions.py:41`: `You are Astra.` | `You are Claude.` followed by two newlines, the approved T1 paragraph below, and two newlines. |
 | `agent/instructions.py:175`–`:176`: `Only status accepted completes the run; a refusal names the failed checks.` | `The run ends only when the finish tool returns status accepted; a text reply does not end it. A refusal names the failed checks.` |
 | `agent/temple_lab/instructions.txt:1`: `You are Astra, the temple specialist.` | `You are Claude, the temple specialist.` |
 | `agent/temple_lab/instructions.txt:171`–`:172`: `A refusal names unmet conditions or validation failure\nand the run continues. Only an accepted finish completes this specialist session.` | `A refusal names unmet conditions or validation failure\nand the run continues. This specialist session ends only when facet_finish returns status accepted; a text reply does not end it.` |
@@ -595,8 +595,26 @@ Astra request construction stay unchanged. `agent/instructions.py:275` belongs
 to owner-edit mode, outside M13; do not transform or expose it.
 
 Keep every other instruction byte, including seeing guidance, shape/material
-rules, finish-review procedure and all tool descriptions. Do not opportunistically
-improve prompts or encourage new evidence behavior during the model-only test.
+rules, finish-review procedure and all tool descriptions. The initial model-only
+test's restriction on new evidence guidance is amended by M13 D10/T1, on the
+Claude product path only. Its exact added paragraph is:
+
+> Prefer the dedicated tools; each one does its step more reliably than a hand-written script. Measure the photos with `photo_read` or `pick_surface_point` before shaping a part. After each geometric revision, run `compare_to_photos`; after each colour or material change, run `compare_look_to_photos`; use `labelled_model_map` to find parts, and `seat_lens`/`check_lens_seating` for lenses. Use `execute_blender_code` to build or edit one part or one change at a time, then run the matching check.
+
+The effective product SHA-256 is `c990a52f24f8ac4f5b9de8b7770011c68639a40ba457b51ebbcf6ec77ed0d83e`
+(16,495 characters); source Astra remains `18bbbd38aa2728e86b8d800fdcd5eb64cc101d227d68b5350356b8ea606764c7`.
+Tests pin both. Specialist instructions keep their existing replacement table.
+
+T1's adapter observes the existing journal-backed head fingerprint before/after
+each call and appends one host text block after a changed script. It preserves
+every original result block and changes no tool choice, admission or gate.
+Successful explicit shape/look comparisons reset the scene's script-change
+counter; no-op scripts, other calls and renewal do not. Each specialist retains
+its own scene counter. Every result and note is written to `tool-use.jsonl`;
+`tool-use-sent.jsonl` records notes actually included in a settled request.
+The summary derives tool counts/share, longest streak, successful reading/hit
+counts and sent notes from those receipts. Partial photo readings and surface
+misses are distinguished; unavailable full measurement reports remain unresolved.
 
 ## 6. Run outputs, delivery and read-only review
 

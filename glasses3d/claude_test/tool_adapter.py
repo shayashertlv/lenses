@@ -25,10 +25,19 @@ from glasses3d.agent.tool_reports import bounded_tool, limit_output
 from glasses3d.agent.tool_timeouts import busy_result, clear_running, mark_running
 
 from .images import FileCache, image_block, label_block, tile
+from .tool_use import ToolUse, measurement_count
 
 
+TOOL_PREFERENCE_PARAGRAPH = (
+    "Prefer the dedicated tools; each one does its step more reliably than a hand-written script. "
+    "Measure the photos with `photo_read` or `pick_surface_point` before shaping a part. "
+    "After each geometric revision, run `compare_to_photos`; after each colour or material change, "
+    "run `compare_look_to_photos`; use `labelled_model_map` to find parts, and "
+    "`seat_lens`/`check_lens_seating` for lenses. Use `execute_blender_code` to build or edit one part "
+    "or one change at a time, then run the matching check."
+)
 INSTRUCTION_REPLACEMENTS = (
-    ("You are Astra.", "You are Claude."),
+    ("You are Astra.", "You are Claude.\n\n" + TOOL_PREFERENCE_PARAGRAPH + "\n\n"),
     ("Only status accepted completes the run; a refusal names the failed checks.",
      "The run ends only when the finish tool returns status accepted; a text reply does not end it. "
      "A refusal names the failed checks."),
@@ -44,7 +53,7 @@ SPECIALIST_REPLACEMENTS = (
 
 
 def claude_instructions(text: str, *, specialist: bool = False) -> str:
-    """Change only the two approved source fragments; fail on source drift."""
+    """Apply the approved Claude-only replacement table; fail on source drift."""
     for old, new in SPECIALIST_REPLACEMENTS if specialist else INSTRUCTION_REPLACEMENTS:
         if text.count(old) != 1:
             raise ValueError(f"expected exactly one instruction fragment: {old!r}")
@@ -179,6 +188,9 @@ class ToolAdapter:
         self.last_raw_output = self.last_tool_name = self.last_call_id = None
         self.image_records: list[dict] = []
         self._accepted: dict[str, Any] | None = None
+        self.tool_use = ToolUse()
+        self._prepared_notes: set[str] = set()
+        self._sent_notes: set[str] = set()
 
     def dimensions(self) -> dict[str, tuple[int, int]]:
         # Cache remains authoritative across parents, children, and renewal.
@@ -260,6 +272,74 @@ class ToolAdapter:
         self.image_records.extend(records)
 
     async def invoke(self, block: dict) -> dict:
+        """Keep native results intact and append one factual note for a changed scene."""
+        before = self._fingerprint()
+        result = None
+        failure = None
+        try:
+            result = await self._invoke(block)
+        except BaseException as exc:
+            failure = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            after = self._fingerprint()
+            name = block.get("name", "<invalid>") if isinstance(block, dict) else "<invalid>"
+            call_id = block.get("id") if isinstance(block, dict) else None
+            successful = (result is not None and not result.get("is_error", False)
+                          and tool_result_status(self.last_raw_output) in {"ok", "accepted"})
+            changed = isinstance(before, str) and isinstance(after, str) and before != after
+            facts = self.tool_use.observe(name, changed=changed, successful=successful,
+                                          returned=result is not None)
+            if facts["host_note"] is not None:
+                result["content"].append(label_block(facts["host_note"]))
+                self._prepared_notes.add(call_id)
+            value = None
+            for item in _items(self.last_raw_output):
+                text = _text(item)
+                if text is not None:
+                    try:
+                        value, _ = json.JSONDecoder().raw_decode(text.lstrip())
+                        break
+                    except ValueError:
+                        pass
+            row = {
+                "schema": "g3d.claude_tool_use/1", "call_id": call_id, "name": name,
+                "stage": getattr(self.status, "stage_call_id", None),
+                "scene_change": {"before": before, "after": after, "changed": changed},
+                "successful": successful, **facts, "result": result, "failure": failure,
+                "photo_measurements": measurement_count(name, value, self.scene.root),
+            }
+            receipt = self.image_manifest.parent / "tool-use.jsonl"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            with receipt.open("a", encoding="utf-8", newline="\n") as stream:
+                stream.write(_canonical(row) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        return result
+
+    def record_sent_notes(self, messages: list[dict], request_no: int) -> None:
+        """Only a settled request confirms that a prepared note reached the model."""
+        ids = {block.get("tool_use_id") for message in messages
+               for block in message.get("content", []) if isinstance(block, dict)
+               and block.get("type") == "tool_result"}
+        new = sorted((ids & self._prepared_notes) - self._sent_notes)
+        if not new:
+            return
+        path = self.image_manifest.with_name("tool-use-sent.jsonl")
+        with path.open("a", encoding="utf-8", newline="\n") as stream:
+            for call_id in new:
+                stream.write(_canonical({"call_id": call_id, "request_no": request_no}) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        self._sent_notes.update(new)
+
+    def _fingerprint(self) -> str | None:
+        # The existing journal checkpoints every persisted scene change. Merely
+        # saving a new checkpoint ID is not itself a model change.
+        head = getattr(getattr(self.scene, "s", None), "head", None) or {}
+        return head.get("fingerprint")
+
+    async def _invoke(self, block: dict) -> dict:
         call_id = block.get("id") if isinstance(block, dict) else None
         name = block.get("name") if isinstance(block, dict) else None
         self.last_raw_output = None

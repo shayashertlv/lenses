@@ -128,3 +128,31 @@ epoch. Earlier messages and their cache markers are never changed.
 F1's offline cache model and C5 replay are `cache_sim.py` and `cache_replay.py`.
 The replay writes calibration, request-by-request costs and owner-only planning
 scenarios under `work/f1/`; it sends no requests and authorizes no paid run.
+
+T1 adds the approved dedicated-tool paragraph only to Claude's product instructions.
+After each fingerprint-changing `execute_blender_code`, its result gets one factual
+line naming the available comparison and measuring tools. A successful
+`compare_to_photos` or `compare_look_to_photos` resets the change count; read-only
+calls, refused comparisons and conversation renewals do not. Calls remain the
+model's choice, with the existing gates unchanged.
+
+`tool-use.jsonl` retains every invocation, before/after fingerprints, the appended
+note and the complete Claude result. `tool-use-sent.jsonl` confirms unique notes
+included in settled requests; cancelled or otherwise unsent notes remain separate.
+The summary reports per-tool counts, non-script call share, the longest script-change
+streak, actual successful photo readings/surface hits (with unresolved counts), and
+prepared/sent notes. Measurement calls are also counted separately.
+
+Offline receipt comparison and extra-comparison estimates:
+
+```powershell
+& $py -m glasses3d.claude_test.tool_use_audit --run "C5=<run_directory>" `
+  --claude-label C5 --output glasses3d/claude_test/work/t1
+& $py -m glasses3d.claude_test.tool_use_estimate --output glasses3d/claude_test/work/t1
+```
+
+The frozen product instruction SHA-256 is
+`c990a52f24f8ac4f5b9de8b7770011c68639a40ba457b51ebbcf6ec77ed0d83e`.
+The unchanged Astra source hash is
+`18bbbd38aa2728e86b8d800fdcd5eb64cc101d227d68b5350356b8ea606764c7`;
+the separate Astra request-byte regression remains required.

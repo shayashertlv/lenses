@@ -1255,6 +1255,11 @@ def test_stop_joins_shared_sync_tool_before_releasing_scene(root, stop_kind):
             assert h.scene.rows[-1]["checkpoint_after"] == "c2"
             assert len(h.wire.requests) == 1 and h.ledger.may_start_request()[0]
             messages = await h.conversation.messages()
+            from glasses3d.claude_test.tool_use import summarize
+            metrics = summarize(root)
+            assert metrics["host_notes_prepared"] == 1
+            # Stop/cancel permits no follow-up request carrying the completed tool result.
+            assert metrics["host_notes_sent"] == 0
             if stop_kind == "cancel":
                 assert "blocked_tool" in h.scene._unseen
                 assert messages[-1]["role"] == "assistant"
