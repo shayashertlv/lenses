@@ -1,5 +1,15 @@
 # glasses3d progress
 
+## 2026-10-20 — Paid Astra Oakley run started (task 14 test)
+
+- Owner, verbatim: "Yes, start the Astra Oakley run at max effort with a $20 settled cutoff." The estimate shown
+  before was $15.70 (60 requests, effort-blind); the accepted rerun cost $19.67.
+- Fresh job `oakley-oo9208-v2-aaaa5ffe`, made by `data/assembly/oakley-regression-20261020/make_job.py`. Its owner
+  inputs, view/side labels, description and specs are identical to `oakley-oo9208-v2-911a2b0e`, and its brief is
+  byte-identical.
+- Run `20261020T163834-3ec617`, started 16:39:39 UTC, at HEAD `75c8cce` with task 14's text (instructions
+  `3211ccde…`).
+
 ## 2026-10-20 — Claude accepted task 14 (`897672b`)
 
 - Report: `data/review_20261018/codex/task14_report.md`.
