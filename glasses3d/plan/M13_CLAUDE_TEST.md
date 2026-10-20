@@ -142,8 +142,15 @@ which is personal for this test").
 - Each request receipt holds the request with images as file ids plus sha256, the response JSON, usage, priced cost,
   the `request-id` and the stop reason.
 - The run summary and the review page show provider and model.
-- Uploads set `expires_in_seconds` to 7 days (604,800), so the copies in the owner's Anthropic account delete
-  themselves and no clean-up step is needed.
+- **The uploaded copies are deleted when the run ends** (owner, 2026-10-20: "cant we just make our algo delete all
+  the images that were uploaded in a run after a run is done?").
+  - At teardown, after the last request has settled or been marked unknown, the runner deletes every file this run
+    uploaded, using `DELETE /v1/files/{id}`. That covers finished runs, drafts, failures and stops.
+  - The guard allows that call only for IDs in this run's own upload cache, and only after admission has closed.
+  - Each deletion is recorded in receipts and the cache.
+  - Uploads keep `expires_in_seconds` = 7 days (604,800) as the backup, in case a crash or power cut prevents the clean-up
+    step.
+  - A deleted run cannot be resumed on Anthropic; M13 never resumes Claude runs.
 
 **D9. The key.**
 - The owner makes an API key at platform.claude.com, buys prepaid credits at least as large as his cutoff, and adds
