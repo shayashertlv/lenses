@@ -1,7 +1,7 @@
 # M13: one Oakley run driven by the Claude API (written 2026-10-20 by Claude)
 
-Claude plans and reviews; Codex builds, one task at a time, from saved briefs in `data/m13/briefs/` with reports in
-`data/m13/codex/`. Every step is $0 until step C5, which needs the owner's explicit OK, model choice and cutoff.
+Claude plans and reviews; Codex builds from saved briefs in `claude_test/work/briefs/` with reports in
+`claude_test/work/codex/`. Every step is $0 until step C5, which needs the owner's explicit OK, model choice and cutoff.
 
 ## 1. The owner's words (verbatim, 2026-10-20)
 - "i want to test something, tell me your thoughts. i want to do an oakley run with claude api, would the test be hard
@@ -50,13 +50,18 @@ images they get" (the evidence-push design in memory/PROGRESS: automatic before/
 becomes M14. M14 is built once for both providers, after this run. The tile splitting in D5 is not M14: Claude's image
 limits require it, so the model gets the same pixels Astra gets.
 
-**D3. Code layout.**
-- A separate runner lives in new code under `agent/claude/`, using the official `anthropic` Python SDK pinned to an exact
-  version with its sha256.
-- It is a manual loop on the Messages API with streaming.
+**D3. Code layout: one folder for the whole test** (owner, 2026-10-20: "i want you and codex to work in a directory
+which is personal for this test").
+- `glasses3d/claude_test/` holds all new code, its tests, `README.md`, `DESIGN.md` and `FACTS.md`.
+- `glasses3d/claude_test/work/` (git-ignored) holds briefs, Codex reports, the job copy, runs and receipts.
+- `glasses3d/claude_test/.venv` is the test's own venv: the glasses3d pins plus the official `anthropic` Python SDK,
+  pinned to an exact version with its sha256. The main venv, the dev UI and Astra runs are not touched.
+- `glasses3d/claude_test/.env` (git-ignored) is the owner's key file.
+- The runner is a manual loop on the Messages API with streaming, started as `python -m glasses3d.claude_test`.
 - An adapter turns the existing tool registry (each FunctionTool's `params_json_schema` and `on_invoke_tool`, text and
   image outputs) into Claude tools and `tool_result` blocks.
-- `job run` gains `--provider claude --model <id>`. Astra stays the default and its request bytes are unchanged.
+- Existing glasses3d modules are imported, not edited. A shared edit happens only if `DESIGN.md` proves it necessary,
+  and Astra's request bytes stay identical.
 - The instruction text is shared. The Claude path changes only the model's name and the sentences about how the run ends
   (finish tool, no forced tool choice). Codex lists every changed line.
 
@@ -119,22 +124,25 @@ limits require it, so the model gets the same pixels Astra gets.
 
 **D9. The key.**
 - The owner makes an API key at platform.claude.com, buys prepaid credits at least as large as his cutoff, and adds
-  `ANTHROPIC_API_KEY=…` to `glasses3d/.env` himself. A Claude Max plan does not cover API use.
+  `ANTHROPIC_API_KEY=…` to `glasses3d/claude_test/.env` himself (Claude created the empty file 2026-10-20). A Claude Max plan does not cover API use.
 - Agents never read the file; the runner gets its path only (`--env-file`).
 - New accounts start on a low rate-limit tier. C1 checks the current tier table, and Claude tells the owner the credit
   amount that allows requests of this size before he buys.
 
-## 4. Steps (Codex tasks, one at a time; Claude reviews the report and diff and reruns the tests)
-- **C1, foundations ($0).**
-  - Pin the SDK, after a throwaway-venv check against openai 3.22.1 and openai-agents 0.22.3.
-  - Collect the official facts with URLs and dates: prices including the 5-minute and 1-hour cache writes and any
-    long-context tier, rate-limit tiers, image limits, `oversized_image`, context editing, Files API, effort levels and
-    thinking display for both models.
-  - Write `agent/claude/pricing.py`, `money.py` (guard, ledger, approval) and `images.py` (tiling, upload cache,
-    request checks), with unit tests on a fake HTTP transport.
+## 4. Steps (Claude reviews every report and diff and reruns the tests)
+- **C1, foundations ($0): four Codex tasks in parallel, with disjoint files.** Owner: "please max utilize this machine
+  for fastest runs". The contract lives in `work/briefs/m13_common.md`.
+  - **R, facts:** collect the official facts with URLs and dates in `FACTS.md`. They cover prices (including 5-minute
+    and 1-hour cache writes and any long-context tier), rate-limit tiers, image limits, `oversized_image`, context
+    editing, the Files API, effort levels, thinking display and usage fields, for both models.
+  - **A, money:** create the venv and pin the SDK, then write `pricing.py`, `money.py` (guard, ledger, approval, 429/529
+    resend, receipts at the transport) and their tests on a fake HTTP transport.
+  - **B, images:** write `images.py` (native tiling, visual-token math, upload cache, request checks) and its tests.
+  - **C0, design:** survey `run_astra` and the modules it composes, then write `DESIGN.md`, the reuse map and the
+    runner's contract.
 - **C2, runner ($0).**
-  - `agent/claude/runner.py`: the loop, tool adapter, receipts, context editing and the renewal backstop.
-  - The `job run --provider claude` CLI.
+  - `claude_test/runner.py`: the loop, tool adapter, context editing and the renewal backstop.
+  - The `python -m glasses3d.claude_test` CLI.
   - A scripted-Claude transport: a fake Messages API behind the real SDK, replaying scripted replies with thinking and
     `tool_use` blocks.
 - **C3, $0 proof.** On a private copy of the Oakley job, scripted Claude drives the real Blender tools end to end:
@@ -165,7 +173,9 @@ limits require it, so the model gets the same pixels Astra gets.
 ## 5. Working rules for these tasks
 - Codex is run as `codex exec -s danger-full-access -C C:/Users/Shay/PycharmProjects/lenses` with the brief pointer.
   Capacity errors are resumed with `data/review_20261018/codex/resume_retry.sh`.
-- Use all cores within the memory rule; never run two pool-heavy jobs at once.
+- Use all cores within the memory rule; never run two pool-heavy jobs at once. Owner, 2026-10-20: "claude desktop app
+  will be the only app which is open while you run so please max utilize this machine for fastest runs."
+- Parallel tasks do not commit. Claude reviews each task and commits its files with explicit paths.
 - Commits use explicit paths on `glasses3d`. No push without the owner's word: the branch is public on GitHub since
   2026-10-20.
 - Never read `.env`. Never make a paid call: C4's `count_tokens` and uploads are free but still wait for the owner's

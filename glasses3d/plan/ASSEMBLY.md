@@ -865,8 +865,8 @@ main 16,430 / UNDERSTAND and EDIT 17,478; C2 measured main 16,430 / UNDERSTAND a
 main plus fallback 17,770. These are dated report counts; the ordinary temple specialist's cap remains 19,000.
 
 ### M13. One Oakley run on the Claude API ($0 build; added 2026-10-20 by Claude)
-Source: `plan/M13_CLAUDE_TEST.md` (the owner's words, decisions D1–D9, steps C1–C6). Briefs in `data/m13/briefs/`,
-reports in `data/m13/codex/`. Same job and tools as the accepted max-effort rerun; only the model changes. The
+Source: `plan/M13_CLAUDE_TEST.md` (the owner's words, decisions D1–D9, steps C1–C6). All test code and files live in `claude_test/`; briefs in `claude_test/work/briefs/`,
+reports in `claude_test/work/codex/`. Same job and tools as the accepted max-effort rerun; only the model changes. The
 evidence push for both models ("we must encourage more the models to look at the images they get") is M14, after it.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
