@@ -164,6 +164,22 @@ which is personal for this test").
   These are read as per-minute. They are far above any single request (at most the 1M context), so no extra credit is
   needed. His balance is $24.74 in credits plus $200 in promotional credits.
 
+**D10. After paid run C5 (2026-10-20): fix cost, then push tool use. These amend D2's "pure model swap" for the next
+Claude run.**
+- The owner rejected C5: "its shit no need to wait for my verdict". He then asked: "Fix the clearing flaw, prove the
+  cost on the fake wire, then estimate another Claude run for me".
+  - This is task F1: server-side context editing is removed; renewal is the only bound; a cache simulator calibrated
+    on C5 provides the proof and the estimate.
+- Owner, verbatim: "we already have the conclusion, we need opus to use the tool much much more instead of writing its
+  own blender scripts. it can still choose but way more tool usage is needed".
+  - In C5, Opus wrote 21 scripts and made zero `compare_to_photos`, `photo_read` or `pick_surface_point` calls.
+  - This is task T1, on the Claude path only:
+    - a factual host note after every scene-changing script, giving the count since the last comparison and naming the
+      dedicated tools;
+    - one short instruction paragraph preferring the dedicated tools;
+    - tool-use metrics in the summary.
+  - Nothing is forced, blocked or gated. Astra's text and requests stay byte-identical.
+
 ## 4. Steps (Claude reviews every report and diff and reruns the tests)
 - **C1, foundations ($0): four Codex tasks in parallel, with disjoint files.** Owner: "please max utilize this machine
   for fastest runs". The contract lives in `work/briefs/m13_common.md`.
