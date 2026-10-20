@@ -1,5 +1,30 @@
 # glasses3d progress
 
+## 2026-10-20 — Task 15: new Oakley lens and renewal costs analysed ($0)
+
+The task-14 test run `oakley-oo9208-v2-aaaa5ffe` / `20261020T163834-3ec617` stopped at **$20.178866**
+after 53 requests and three renewals. Its draft GLB is `1dbf3535…`. Same-camera comparison with unchanged
+accepted models: common-mask lens L* **photo 63.60 / run 4 58.80 / max-effort rerun 42.58 / new draft 58.56**.
+Brightness moved close to run 4; the new lens is still grey-green and lacks the photo's purple sides.
+No owner acceptance or causal proof of task 14's effect is claimed.
+
+All eight immediate look results contained the front colour-gap line. Astra's renewal summaries cited the
+numbers and metallic's transmission effect. The delivered metallic **.55** is the earlier formally marked
+best `c0006` (restored `c0004`); its later head `c0010` used **.72**, but the formal best was never updated
+before the cutoff. The draft followed the recorded best, not the last material trial.
+
+Requests **46 / 52 / 53** cost **$1.580473 / $1.530671 / $1.519410**. Requests 46 and 53 rebuilt the cache
+after renewals; 52 was renewal 3's summary, preserving the cached prefix while ingesting new finish images.
+Zero-cache requests were exactly the initial opening and three renewal openings (**1 / 32 / 46 / 53**).
+No unintended cache-loss defect was demonstrated; changing finish/renewal scheduling is an unimplemented
+optimization to investigate, not an established bug fix.
+
+Report: `data/review_20261018/codex/task15_report.md`; owner figure: `task15_front_comparison.png`.
+Three local captures exited 0; run-4/rerun beauty images match task 13 byte-for-byte. All **336 protected
+original files** remained hash-identical. Analysis only: no runtime code change, suite run, paid call,
+original job/run/delivery/verdict write, or push. Only this PROGRESS entry is committed; the report records
+its commit hash. Next: Claude reviews task 15; no next coordinator task started.
+
 ## 2026-10-20 — Paid Astra Oakley run started (task 14 test)
 
 - Owner, verbatim: "Yes, start the Astra Oakley run at max effort with a $20 settled cutoff." The estimate shown
