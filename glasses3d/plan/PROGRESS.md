@@ -1,5 +1,13 @@
 # glasses3d progress
 
+## 2026-10-20 — M13: model set to Opus 5.5 at max effort; task B landed
+
+Owner, verbatim: "for now were set on opus 5.5 with maximum possible effort" (`claude-opus-5-5`, effort `max`).
+His Console shows Opus 5.5 limits of 5.0M input tokens (cache reads excluded), 1.0M output tokens and 5.0K requests,
+read as per minute. That is enough for any single request, so no credit purchase is needed. Task B (native-pixel tiles,
+upload cache, request checks) was committed in `bdbebf4`; Claude reran its 145 tests. Tasks A (money + venv), R (facts)
+and C0 (design) are running in parallel.
+
 ## 2026-10-20 — M13 planned: one Oakley run on the Claude API
 
 Owner: "i want to do an oakley run with claude api", then "ok lets do this", and "give me the claude test building plan

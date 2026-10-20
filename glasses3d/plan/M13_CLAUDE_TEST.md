@@ -40,9 +40,10 @@ and 128K-token output, adaptive thinking that is always on, and forced `tool_cho
 - `claude-fable-5-1`: $10 / $50; cache reads $0.25. It is Anthropic's most capable widely released model, with stronger
   vision and long-horizon agent work, and costs the same per token as gpt-6-astra.
 
-Claude's recommendation for this test is Fable 5.1, because the question is whether Claude does better and Fable is
-like-for-like on price. Effort is `max` (the owner's standing setting for product runs). C1 re-checks every figure on
-the official pages, with URLs and dates in PROGRESS.
+**Owner decision, 2026-10-20 (verbatim): "for now were set on opus 5.5 with maximum possible effort".** The test model
+is `claude-opus-5-5` with `output_config.effort: "max"`, the top level. That replaces Claude's earlier Fable 5.1
+recommendation. Tests and the C3/C4 checks target Opus 5.5. The Fable 5.1 tariff may stay in the price table, but no
+work goes into Fable-only features. C1 re-checks every figure on the official pages, with URLs and dates in PROGRESS.
 
 **D2. Pure model swap first.** The first paid Claude run uses exactly the tools and evidence Astra had, so any
 difference can be put down to the model. The owner's standing rule "we must encourage more the models to look at the
@@ -126,8 +127,13 @@ which is personal for this test").
 - The owner makes an API key at platform.claude.com, buys prepaid credits at least as large as his cutoff, and adds
   `ANTHROPIC_API_KEY=…` to `glasses3d/claude_test/.env` himself (Claude created the empty file 2026-10-20). A Claude Max plan does not cover API use.
 - Agents never read the file; the runner gets its path only (`--env-file`).
-- New accounts start on a low rate-limit tier. C1 checks the current tier table, and Claude tells the owner the credit
-  amount that allows requests of this size before he buys.
+- Rate limits are settled: the owner's Console (2026-10-20, his screenshot) shows these for Claude Opus 5.5:
+  - 5.0M input tokens, not counting cache reads;
+  - 1.0M output tokens;
+  - 5.0K requests.
+
+  These are read as per-minute. They are far above any single request (at most the 1M context), so no extra credit is
+  needed. His balance is $24.74 in credits plus $200 in promotional credits.
 
 ## 4. Steps (Claude reviews every report and diff and reruns the tests)
 - **C1, foundations ($0): four Codex tasks in parallel, with disjoint files.** Owner: "please max utilize this machine
