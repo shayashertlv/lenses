@@ -71,8 +71,18 @@ which is personal for this test").
 - No new request starts once the settled total reaches the owner's cutoff; the reply in flight may cross it.
 - Spending stops on any usage the code cannot price: unknown fields, a different served model, a service tier, a
   region multiplier, or a missing usage block.
-- The SDK's `max_retries` is 0. HTTP 429 and 529 responses, which are refused before any work and not billed, are sent
-  again after the server's wait. Every other error stops the run as a draft, as Astra's does.
+- The SDK's `max_retries` is 0. An initial HTTP 429 or 529 that carries a `retry-after` header is sent again after that
+  wait, with total waiting capped at 20 minutes.
+  - Such a response has no usage and is assumed unbilled. The docs neither confirm nor deny that (FACTS §1, §11), so
+    each one is logged and checked against the Console's usage after the run.
+  - A 429 without `retry-after`, such as `enforced_spend_limit_reached`, stops the run as a draft. So does every other
+    error, as for Astra.
+- An SSE `error` after HTTP 200, a stream without final usage, or a cancelled stream is an unknown charge, which stops
+  spending.
+- A `refusal` is settled at normal rates from its usage, as an upper bound, because some refusal categories are free
+  but `usage` still reports tokens (FACTS §1). The run then stops as a draft (D7).
+- Each request sends `service_tier: "standard_only"` at standard speed with global inference. A response showing any
+  other tier, speed, region or served model is an unknown charge.
 - `max_tokens` is the model maximum, 128,000; there is no output shrinking.
 - The model's money status shows only settled spend, the cutoff and money left, as Astra's does.
 - The HTTP guard allows only `api.anthropic.com`, on `POST /v1/messages`, `POST /v1/messages/count_tokens` and the Files
@@ -86,8 +96,8 @@ which is personal for this test").
 - Every other image must be no larger than 2,000 px per side (required once a request holds more than 20 images) and
   4,784 visual tokens (ceil(w/28)·ceil(h/28)). A larger image is split into labelled native tiles and never downscaled.
   Today's widest comparison panels are about 2,924×864 and become two tiles.
-- If the API offers a reject-instead-of-resize option (`oversized_image`), C1 verifies it and the runner uses it, so the
-  server can never shrink silently.
+- Every image block carries `"transformations": {"oversized_image": "error"}` (FACTS §5). The server then refuses an
+  image it would have shrunk, so nothing is ever shrunk silently.
 - Each image is uploaded once through the Files API (sha256 → `file_id`), so requests stay far below the 32 MB request
   limit however many images a run collects. 32 MB is a per-request limit, not a per-session one.
 - Before every request the runner checks: at most 600 images, under 32 MB, and every image within the limits above.
@@ -100,8 +110,15 @@ which is personal for this test").
   - The opening message is never cleared, and the model can re-run a tool to get an old view back.
 - **Backstop: the existing renewal** (`agent/renewal.py`). It starts a fresh conversation carrying the model's state
   summary, every owner photo and the current evidence. Astra renewed twice in the rerun. Server compaction is not used.
-- Context editing and renewal are not history edits, so preserved thinking stays valid. C1 confirms both features on
-  both models.
+- Server-side context editing is safe for preserved thinking (FACTS §3).
+- A renewal starts a fresh conversation:
+  - finish any pending tool call/result pair first;
+  - carry the state summary, owner inputs and current evidence;
+  - carry no signed thinking from the old conversation;
+  - restart the append-only check at the renewal.
+- Clearing happens on the server: the client still sends the whole original history. Request bytes and image count
+  therefore keep growing, and the renewal is what bounds them, triggered locally near 600 images, 32 MB or the context
+  limit.
 - **Caching:** automatic prompt caching with the 1-hour TTL, because Blender tools can run longer than 5 minutes.
   Receipts show `cache_read_input_tokens` for every request.
 
@@ -109,8 +126,9 @@ which is personal for this test").
 - Thinking uses `display: "summarized"`, so the summaries land in receipts like Astra's reasoning summaries.
 - Thinking blocks are passed back unchanged, and the history is append-only. The runner asserts the previous request is
   a prefix of the next one.
-- `tool_choice` is `auto` with parallel tool use disabled (one Blender worker, as for Astra). Tools use `strict` schemas
-  where the API accepts them; the adapter otherwise validates inputs itself, as today.
+- `tool_choice` is `auto` with parallel tool use disabled (one Blender worker, as for Astra). Tools are sent without
+  `strict`. The API allows at most 20 strict tools and restricts their schemas (FACTS §4), and our registry does not
+  meet that. The adapter validates every input against the tool's original schema before running it.
 - A reply with no tool call gets one fixed host line, and receipts count those lines. The line is "Continue the task;
   the run ends only through the finish tool."
 - A `refusal` stops the run as a draft and is reported. Server-side fallbacks stay off: a fallback would switch models
@@ -121,11 +139,12 @@ which is personal for this test").
 - Each request receipt holds the request with images as file ids plus sha256, the response JSON, usage, priced cost,
   the `request-id` and the stop reason.
 - The run summary and the review page show provider and model.
-- Uploaded copies stay in the owner's Anthropic account until deleted. Claude asks him after the run.
+- Uploads set `expires_in_seconds` to 7 days (604,800), so the copies in the owner's Anthropic account delete
+  themselves and no clean-up step is needed.
 
 **D9. The key.**
 - The owner makes an API key at platform.claude.com, buys prepaid credits at least as large as his cutoff, and adds
-  `ANTHROPIC_API_KEY=…` to `glasses3d/claude_test/.env` himself (Claude created the empty file 2026-10-20). A Claude Max plan does not cover API use.
+  `ANTHROPIC_API_KEY=…` to `glasses3d/claude_test/.env` himself (Claude created the empty file 2026-10-20). (A linked Max subscription can add monthly API credit, FACTS §10.)
 - Agents never read the file; the runner gets its path only (`--env-file`).
 - Rate limits are settled: the owner's Console (2026-10-20, his screenshot) shows these for Claude Opus 5.5:
   - 5.0M input tokens, not counting cache reads;
@@ -162,8 +181,12 @@ which is personal for this test").
 
   Then the full suite and `assembly_m1`, which proves the Astra path is unchanged.
 - **C4, $0 live check (needs the owner's key and OK; no model reply, no charge).**
-  - Upload the six photos, then call `count_tokens` on the real first request and on a large late-run request from C3.
-    This checks the tool schemas, file references and image sizes on the real API.
+  - Upload the six photos and read their file metadata back.
+  - Call `count_tokens` on the real opening request: instructions, all tools, the six photos and the exact request
+    settings. Counting rejects file-ID images (FACTS §6), so here the photos go as base64 with
+    `oversized_image: "error"`. This checks tool schemas, settings, image sizes and token size at $0.
+  - File-ID use inside Messages can only be checked by a real request, so the paid run's first request checks it. A
+    rejected request returns 400 before any model work.
   - Estimate: the rerun's request profile priced at each model's tariff, with the input sizes taken from those token
     counts.
 - **C5, paid run (the owner's OK, model and cutoff).** Claude prepares and verifies the request, then starts it
