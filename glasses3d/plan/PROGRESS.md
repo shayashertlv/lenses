@@ -1,5 +1,78 @@
 # glasses3d progress
 
+## 2026-10-20 - L1: isolated $0 lens lab, research, ceiling and one Codex smoke
+
+Built only `glasses3d/lens_lab/`: private run-4 c0015/basis-04 copies, neutral
+clear-glass lens reset, real tool CLI, material-only scope guards, frozen
+photo-region scoring, systematic ceiling search and Codex trial runner. Geometry,
+UVs, normals, transforms, other materials and scene settings are protected.
+All 25 recorded original fixture/input files remained hash-identical. Output and
+trial/job paths are confined to lab DATA, including resolved junctions; insufficient
+pool memory refuses before creating output. No production code changed.
+
+Research confirms that thickness textures survive the installed Blender exporter
+and pinned Three 0.185.1. The convenience coating helper is uniform-only; direct
+Blender nodes reach the existing texture capability. Thin-film reflection lacks
+complementary transmitted-film colour, and the material is not a measured
+multilayer spectral stack. Unknown studio illumination is another fidelity limit;
+these are not experimentally isolated causes of the observed mismatch.
+
+The predeclared 489-state search measured 488 cases in the primary run; one
+Chromium-close/libuv infrastructure failure was retained (primary exit 1), then
+that exact state passed once in a fresh serial replay. All 489 measured states
+have labelled, hash-verified comparison sheets. Aggregate mean regional CIE76:
+run 4 23.4904, best 0153 22.4065, best texture 0430 27.8805. The aggregate gain
+came from the angle: front error worsened from 15.0393 to 17.0067. No searched
+setting beat run 4 on the front metric. Weak green-centre/purple-side ordering
+exists, but a faithful broad saturated photo match was not demonstrated. This
+is a finite fixed-room search, not an impossibility proof or product recipe.
+
+One Codex smoke used the real HEAD 4f0ec35 main instructions and brief, one lab
+paragraph and six photos; inherited gpt-6-astra/ultra, no model override. It exited
+0 after 1686.016 s: 39 lab calls, six material edits, eight photo comparisons.
+The native session proves 44 rendered-image views before finish, with nine
+byte-exact delivered image payloads. All 79 actual shell commands stayed within
+scope. The CLI internally fell back from WebSockets to HTTPS. The initial checker
+missed wrapped-exec image delivery and exited 1; its receipt remains unchanged.
+A tested parser fix reconciled the same saved session and scored the same final
+export (24.062 s), without another Codex run. Smoke error 26.4567; front 23.7027,
+L* 69.27: muted green-grey, still lacking the photo's purple sides. The lab loop
+works; this one sample establishes no quality improvement or repeatability.
+
+Final complete lab suite: **126 passed in 193.55 s**, including nine native cases,
+using its own `pytest.ini`; implementation hashes stayed unchanged. Review and
+refusal regressions cover source sharing, scene scope, output containment,
+low-memory startup and direct/wrapped native image delivery and finish ordering.
+Task 17's outer exit 0 was recorded at 22:34:40 +03:00; L1 first launched native
+work at 22:34:41. Heavy work was sequential, maximum 14 ceiling workers under
+measured free-commit capacity, BLAS 1 and opt-out limited to owned processes.
+
+Report: `data/lens_lab/codex/l1_report.md`; research: `data/lens_lab/RESEARCH.md`;
+ceiling: `data/lens_lab/ceiling/final-assessment.md`; smoke and preserved initial
+failure: `data/lens_lab/trials/l1-smoke/codex/reconciliation/receipt.json`;
+final suite: `data/lens_lab/verification/final-native-20261020T204032Z.json`.
+Original experiment code is retained under `verification/pre-hardening-source/`;
+post-smoke guards did not change search/material/scoring calculations. No paid
+pipeline API call, .env read, original job/run/delivery/verdict edit or push.
+Codex usage is separate from the API ledger. Only this entry and the new package
+are committed. Claude L2 owns subsequent variant trials; L1 stops here.
+
+Primary external sources consulted **2026-10-20** (local pinned-source evidence
+and exact citations are in RESEARCH.md and trial_runner/EXEC_IMAGE_TRANSPORT.md):
+- https://www.oakley.com/en-us/lp/lens-technology
+- https://www.edmundoptics.com/knowledge-center/application-notes/optics/optical-filter-orientation/
+- https://www.edmundoptics.com/knowledge-center/application-notes/optics/optical-filters/
+- https://belcour.github.io/blog/research/publication/2017/05/01/brdf-thin-film.html
+- https://raw.githubusercontent.com/KhronosGroup/glTF/main/extensions/2.0/Khronos/KHR_materials_iridescence/README.md
+- https://raw.githubusercontent.com/KhronosGroup/glTF/main/extensions/2.0/Khronos/KHR_materials_transmission/README.md
+- https://raw.githubusercontent.com/KhronosGroup/glTF/main/extensions/2.0/Khronos/KHR_materials_specular/README.md
+- https://raw.githubusercontent.com/KhronosGroup/glTF/main/extensions/2.0/Khronos/KHR_materials_ior/README.md
+- https://raw.githubusercontent.com/KhronosGroup/glTF/main/extensions/2.0/Khronos/KHR_materials_volume/README.md
+- https://threejs.org/docs/pages/MeshPhysicalMaterial.html
+- https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/exec/src/exec_events.rs
+- https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/exec/src/event_processor_with_jsonl_output.rs
+- https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/config/src/config_toml.rs
+
 ## 2026-10-20 — Claude accepted tasks 16 (`a9cf6ef`) and 17 (`9b26c42`); owner asleep, $0 work only
 
 - **Task 16 (read-only).** Requests grew because each look check now returns about 13 native images instead of 1:
