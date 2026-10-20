@@ -1,5 +1,15 @@
 # glasses3d progress
 
+## 2026-10-20 — Owner decision: max effort is the standing setting for product runs
+
+Owner, verbatim: "Yes: max effort is the standing setting for product runs from now on. Record it in AGENTS.md and
+PROGRESS with my words." Asked after Claude's check of the API settings (only reasoning effort clearly changes results;
+max is the model's top level; no reply in the last three Oakley runs came near the 16,384-token output cap, largest
+8,346). Evidence behind it: both accepted assembled Oakleys (run 4, $10.61; rerun, $19.67) used max; the rejected
+2026-10-19 run used high. Replaces the 2026-10-16 "effort=high" term for product runs; edit sends keep high unless the
+owner says otherwise. AGENTS.md updated. The dev UI still hard-codes high for "Start a paid run"
+(`dev_ui/launcher.py:138, 148`, `dev_ui/api.py:53`); switching it to max is the follow-up.
+
 ## 2026-10-20 — Owner accepts the max-effort Oakley rerun
 
 Owner verdict (ledger record `b8413eb4…`, bound to delivery `20261019T172111-465930-1e20f85b…`, GLB `ba6216a4…`):
@@ -257,7 +267,8 @@ and the fallback-to-new-edit loop verified. M12 status: complete with documented
 
 **Next action:** The owner tries the UI himself and decides on any paid run; M5 paid validation remains his call.
 No build or proof authorizes spending.
-Standing dev UI terms are **high effort, the owner's typed settled-only cutoff, cap = stop**, shared by parent and
+Standing dev UI terms are **max effort for product runs (owner, 2026-10-20; edit sends high), the owner's typed
+settled-only cutoff, cap = stop**, shared by parent and
 specialist; no reservation cutoff or output shrinking. No next request starts at or above that amount; the
 in-flight response may cross it, and unknown charges stop spending. His typed amount and paid-send button press
 authorize that one run or edit send, recorded as a single-use approval with the button's words. Coding agents

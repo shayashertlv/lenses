@@ -57,14 +57,18 @@ take precedence over superseded text. `review-20261013-pre-cleanup` preserves th
   binary/base64 content. Never read or print any `.env` file or credentials.
 - **Paid API calls (M12 amendment, 2026-10-19):** for dev UI runs and edit sends, the owner's typed positive finite
   **max budget** replaces a universal $20 cutoff. Owner: "max budget (meaning the actual cutoff with no reserving),
-  then when the user hits a 'start a paid run' button the automation should start". Effort stays **high**,
-  **settled-only**, cap = stop, shared by parent and specialist; no reservation cutoff or output shrinking.
+  then when the user hits a 'start a paid run' button the automation should start". **Effort for product runs is
+  max** (owner, 2026-10-20, verbatim: "Yes: max effort is the standing setting for product runs from now on. Record
+  it in AGENTS.md and PROGRESS with my words."). This replaces the 2026-10-16 "effort=high" term for product runs;
+  edit sends keep high unless the owner says otherwise. Money stays **settled-only**, cap = stop, shared by parent
+  and specialist; no reservation cutoff or output shrinking.
   No new request starts at or above the typed cutoff; the in-flight response can cross it. Unknown charges still
   stop spending. The owner's typed amount and press of "Start a paid run", "Send to Astra (paid)" or "Send this item
   to a full paid edit" authorize that one run or edit send; the single-use approval records the button's words
   and amount. Coding agents never press those buttons or start a paid call under a build task: anything they
-  would run still needs his explicit OK and a cost estimate before that run. Prepare CLI requests with
-  `--settled-only --effort high` and the approved amount for both `--cap` and `--settled-stop`.
+  would run still needs his explicit OK and a cost estimate before that run. Prepare product-run CLI requests with
+  `--settled-only --effort max` (edit rounds: `--effort high`) and the approved amount for both `--cap` and
+  `--settled-stop`.
   The dated origin of the settled-only/high terms is the owner's 2026-10-16 instruction, verbatim:
   "effort=high, cutoff 20$ reserve doesnt matter", and 2026-10-17: "after youre done fixing, rerun. no bs money reserve this time, i dont care about astras possible responses, only as we pass 20$ cutoff the run not a cent before!"
   The $20 was the amount he named then; the UI now takes his typed amount. M11 task 11 (`2340e95`) makes
