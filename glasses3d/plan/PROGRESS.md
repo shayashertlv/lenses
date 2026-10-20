@@ -23,6 +23,9 @@ equal to the accepted rerun's), run `20261020T102312-ca458f`, `claude-opus-5-5`,
 - Fix before any further Claude run: clearing must leave the context well below the trigger, or happen once in a
   batch, or be replaced by the existing renewal. Prove the fix on the scripted wire with a cost assertion.
 
+**Owner verdict, 2026-10-20, verbatim: "its shit no need to wait for my verdict."** The Claude delivery is rejected.
+No owner acceptance is recorded, and the accepted references (run 4 and the rerun) are unchanged.
+
 **Claude's own visual read**, information only; the owner decides:
 - The lens is in the violet family, like run 4's rather than the rerun's dark one. But the photo's green centre is
   mostly missing, and a bright white glow sits behind the top-centre OAKLEY lettering.
