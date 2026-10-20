@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-20 — Claude accepted task 14 (`897672b`)
+
+- Report: `data/review_20261018/codex/task14_report.md`.
+- What Astra now sees: the immediate result of `compare_look_to_photos` lists one factual lens line per photo. Replay
+  of the accepted rerun's lens shows 20.6 / 29.9 / 27.5 / 25.9 / 33.5 / 1.8 L* darker than photos 1–6; run 4's front
+  line shows 4.5 darker. There is no score, gate or wording beyond sign and units.
+- The metallic sentence is in the main instructions, now 16,168 / 24,000 characters. UNDERSTAND and EDIT text is
+  unchanged.
+- Checks: photoprint and timing passed, and M1 passed. The functional pass had 2 timeouts under load (the dev UI
+  `/api/config` poll and the CLI stderr-flush subprocess); both modules passed 57/57 serially, unchanged. That is not
+  a second clean full run, and it is recorded as such.
+
 ## 2026-10-20 — Task 14: lens colour gap visible immediately, factual metallic guidance ($0)
 
 Owner, verbatim: "Yes, build both Astra changes at $0: show the colour/brightness gap up front in the
