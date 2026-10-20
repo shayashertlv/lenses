@@ -21,6 +21,7 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
 | M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
 | M12 | Built with documented limits. N1 permits same-part `repair_shading` picks with disjoint normal influence; exact native/exported normals, preview equality and immutable delivery remain required. Overlapping influence, other same-part normal operation kinds and older previews failing exact validation still refuse. D1/D3 results below are historical; see the tests README's N1 proof record and PROGRESS for current results and next action. |
+| M13 | Planned 2026-10-20: one Oakley run driven by the Claude API (`plan/M13_CLAUDE_TEST.md`). C1–C4 are $0; the paid run C5 needs the owner's OK, model choice and cutoff. Astra paths unchanged. |
 
 Standing money terms are the dated M12 amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
@@ -862,6 +863,11 @@ authority. These committed M11 terms supersede the legacy-default sentence in th
 Main and edit instruction caps are **24,000 characters**, superseding M6's historical 16,000. C1 measured
 main 16,430 / UNDERSTAND and EDIT 17,478; C2 measured main 16,430 / UNDERSTAND and EDIT 19,455; C3 measured
 main plus fallback 17,770. These are dated report counts; the ordinary temple specialist's cap remains 19,000.
+
+### M13. One Oakley run on the Claude API ($0 build; added 2026-10-20 by Claude)
+Source: `plan/M13_CLAUDE_TEST.md` (the owner's words, decisions D1–D9, steps C1–C6). Briefs in `data/m13/briefs/`,
+reports in `data/m13/codex/`. Same job and tools as the accepted max-effort rerun; only the model changes. The
+evidence push for both models ("we must encourage more the models to look at the images they get") is M14, after it.
 
 ### M5. Paid validation (WP8; owner OK and estimate before every run)
 0. One capped smoke turn (a few cents) through the real API.

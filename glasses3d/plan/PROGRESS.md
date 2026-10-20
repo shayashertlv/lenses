@@ -1,5 +1,16 @@
 # glasses3d progress
 
+## 2026-10-20 — M13 planned: one Oakley run on the Claude API
+
+Owner: "i want to do an oakley run with claude api", then "ok lets do this", and "give me the claude test building plan
+(you plan and workflow with codex)". Plan: `plan/M13_CLAUDE_TEST.md` (ASSEMBLY M13). Same job as the accepted rerun
+(`oakley-oo9208-v2-911a2b0e`), same tools; a separate runner on the Messages API; settled-only money exactly as for
+Astra; native-pixel images (tiles ≤ 2,000 px and ≤ 4,784 visual tokens, Files API); server context editing with the
+existing renewal as backstop. Model choice at the paid step: `claude-opus-5-5` ($4/$20) or `claude-fable-5-1`
+($10/$50, Claude's recommendation). Next action: Codex task C1 ($0). Branch `glasses3d` was pushed to GitHub on the
+owner's word the same day ("please commit and push the branch"; 304 commits to `700b673`, scanned first: no media,
+binaries or keys).
+
 2026-10-20 — E1 ($0): dev UI product runs prepare/check max effort, including unlaunched retries; paid edit sends stay high; config/page/docs updated; 259 backend tests and 20 browser tests passed, M1 passed once (163.03 s, 13 scripted requests, $0); baseline fails the saved-high regression as required. Report: `data/m12/codex/e1_report.md`; restart port 8260 on the committed code, then stop.
 
 ## 2026-10-20 — Owner decision: max effort is the standing setting for product runs
