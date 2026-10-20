@@ -1,5 +1,19 @@
 # glasses3d progress
 
+## 2026-10-20 — Claude accepted tasks 16 (`a9cf6ef`) and 17 (`9b26c42`); owner asleep, $0 work only
+
+- **Task 16 (read-only).** Requests grew because each look check now returns about 13 native images instead of 1:
+  +78K tokens per request against run 4, from `83e3656`, `d39f954`, `25cc366` and `25dcd54`. Renewal (`ded8b77`)
+  came after run 4.
+  - Recommended next change, not applied: tighten blank padding on narrow native full-pair pages, about 6.5% fewer
+    input tokens with no pixel loss.
+  - Rejected as automatic: dropping old view comparisons after renewal, which loses evidence.
+- **Task 17.** While a two-call finish review is pending, the soft renewal waits one request within the hard limits.
+  - Claude reread the diff and reran the 18 new tests; all pass.
+  - Full suite: one CLI subprocess timeout under load, which passed alone, as in task 14. M1 passed.
+- **No paid run** has used tasks 14–17 together. The owner said "one change at a time"; the next paid run is his
+  call.
+
 ## 2026-10-20 — Task 17: pending finish gets one request before soft renewal ($0)
 
 Owner, verbatim: "Yes: have Codex find why requests grew 34% since run 4 and fix the restart-during-finish collision,
