@@ -1,6 +1,7 @@
 """Offline, native-pixel proofs; optional owner evidence is read only."""
 
 from dataclasses import replace
+from datetime import datetime, timedelta
 import hashlib
 import io
 import json
@@ -223,10 +224,17 @@ def test_upload_cache_persists_and_reuses_across_existing_instances(tmp_path):
     assert second.file_id_for(other) == "file-2"
     assert first.file_id_for(other) == "file-2"
     assert calls == [(t.png, f"{t.sha256}.png"), (other.png, f"{other.sha256}.png")]
-    assert json.loads(path.read_text()) == {
+    stored = json.loads(path.read_text())
+    assert {digest: {key: row[key] for key in ("file_id", "w", "h", "bytes")}
+            for digest, row in stored.items()} == {
         t.sha256: {"file_id": "file-1", "w": 40, "h": 30, "bytes": len(t.png)},
         other.sha256: {"file_id": "file-2", "w": 40, "h": 30, "bytes": len(other.png)},
     }
+    for record in stored.values():
+        assert record["expires_in_seconds"] == 604800
+        assert datetime.fromisoformat(record["expires_at"]) - datetime.fromisoformat(
+            record["uploaded_at"]) == timedelta(days=7)
+        assert record["deleted"] is False
     assert not list(path.parent.glob("*.tmp"))
 
 
@@ -238,6 +246,66 @@ def test_concurrent_cache_instances_upload_once(tmp_path):
     with ThreadPoolExecutor(max_workers=4) as pool:
         assert list(pool.map(lambda cache: cache.file_id_for(t), caches)) == ["file-one"] * 4
     assert len(calls) == 1
+
+
+def test_run_binding_and_copied_cache_never_claim_another_runs_upload(tmp_path):
+    path = tmp_path / "files.json"
+    calls = []
+    upload = lambda *args: calls.append(args) or f"file-{len(calls)}"
+    t = images.prepare(encoded(Image.new("RGB", (5, 5))), "tiny")[0]
+    first = images.FileCache(path, upload, run_id="first")
+    assert first.file_id_for(t) == "file-1"
+    copied_path = tmp_path / "copy.json"
+    copied_path.write_bytes(path.read_bytes())
+    copied = images.FileCache(copied_path, upload, run_id="first")
+    assert not copied.owns_file("file-1")
+    assert copied.uploaded_records() == {}
+    second = images.FileCache(path, upload, run_id="second")
+    assert not second.owns_file("file-1")
+    assert second.file_id_for(t) == "file-2"
+    assert not second.owns_file("file-1")
+    assert second.owns_file("file-2")
+    with pytest.raises(ValueError, match="another run"):
+        first.bind_run("second")
+
+
+def test_cache_records_provider_expiry_and_deletion_outcomes(tmp_path):
+    t = images.prepare(encoded(Image.new("RGB", (5, 5))), "tiny")[0]
+    cache = images.FileCache(tmp_path / "files.json", lambda *args: {
+        "id": "file-x", "created_at": "2026-10-20T12:00:00Z",
+        "expires_at": "2026-10-27T12:00:00Z",
+    }, run_id="run")
+    assert cache.file_id_for(t) == "file-x"
+    with pytest.raises(ValueError, match="did not upload"):
+        cache.record_deletion("foreign", deleted=True)
+    cache.record_deletion("file-x", deleted=False, error="HTTP 503")
+    failed = cache.uploaded_records()[t.sha256]
+    assert failed["deletion_error"] == "HTTP 503"
+    assert failed["deleted"] is False
+    assert failed["expires_at"] == "2026-10-27T12:00:00Z"
+    cache.record_deletion("file-x", deleted=True)
+    deleted = cache.uploaded_records()[t.sha256]
+    assert deleted["deleted"] is True
+    assert deleted["deleted_at"]
+    assert "deletion_error" not in deleted
+
+
+def test_successful_upload_remains_cleanup_eligible_after_cache_write_failure(tmp_path, monkeypatch):
+    t = images.prepare(encoded(Image.new("RGB", (5, 5))), "tiny")[0]
+    cache = images.FileCache(tmp_path / "files.json", lambda *args: "file-x", run_id="run")
+    original = cache._write
+
+    def fail(records):
+        raise OSError("injected cache persistence failure")
+
+    monkeypatch.setattr(cache, "_write", fail)
+    with pytest.raises(OSError, match="persistence failure"):
+        cache.file_id_for(t)
+    assert cache.owns_file("file-x")
+    assert cache.uploaded_records()[t.sha256]["file_id"] == "file-x"
+    monkeypatch.setattr(cache, "_write", original)
+    cache.record_deletion("file-x", deleted=True)
+    assert json.loads(cache.path.read_text())[t.sha256]["deleted"] is True
 
 
 @pytest.mark.parametrize("fmt,suffix", [("JPEG", "jpg"), ("WEBP", "webp"), ("GIF", "gif")])

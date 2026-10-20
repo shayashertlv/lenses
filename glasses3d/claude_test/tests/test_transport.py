@@ -8,10 +8,13 @@ from email.utils import format_datetime
 import hashlib
 import json
 import gzip
+import io
 
 import httpx2
 import pytest
+from PIL import Image
 
+from glasses3d.claude_test.images import FileCache, prepare
 from glasses3d.claude_test.money import Ledger, consume_approval, write_approval
 from glasses3d.claude_test.pricing import price_usage
 from glasses3d.claude_test.transport import Refused, files_upload_params, guarded_client
@@ -68,6 +71,93 @@ def receipts(directory):
 
 def rows(ledger):
     return [json.loads(line) for line in ledger.path.read_text(encoding="utf-8").splitlines()]
+
+
+def uploaded_cache(tmp_path, ledger):
+    encoded = io.BytesIO()
+    Image.new("RGB", (4, 4)).save(encoded, "PNG")
+    cache = FileCache(tmp_path / "files.json", lambda *args: "file-owned", run_id=ledger.run_id)
+    cache.file_id_for(prepare(encoded.getvalue(), "tiny")[0])
+    return cache
+
+
+def test_delete_requires_finished_closed_ledger_and_own_run_cache(tmp_path, ledger_factory):
+    ledger = ledger_factory()
+    cache = uploaded_cache(tmp_path, ledger)
+    calls = []
+    with guarded_client(ledger, tmp_path / "receipts", file_cache=cache,
+                        inner=httpx2.MockTransport(lambda request: calls.append(request) or
+                                                   httpx2.Response(200, json={"id": "file-owned"}))) as client:
+        url = "https://api.anthropic.com/v1/files/file-owned"
+        with pytest.raises(Refused, match="finished"):
+            client.delete(url)
+        number = ledger.start_request(MODEL)
+        with pytest.raises(Refused, match="request is open"):
+            client.delete(url)
+        ledger.record_unknown(number, "cancelled")
+        ledger.finish_conversation()
+        with pytest.raises(Refused, match="own uploads"):
+            client.delete("https://api.anthropic.com/v1/files/foreign")
+        assert client.delete(url).status_code == 200
+        with pytest.raises(Refused, match="finished"):
+            client.post("https://api.anthropic.com/v1/files", content=b"upload")
+        with pytest.raises(Refused, match="finished"):
+            client.post(URL, json=body())
+    assert len(calls) == 1
+    receipt, = receipts(tmp_path / "receipts")
+    assert receipt["method"] == "DELETE" and receipt["cost_usd"] == "0"
+    assert receipt["request_no"] is None
+
+
+@pytest.mark.parametrize("status", [429, 529, 503])
+def test_delete_failure_is_free_and_never_retried(tmp_path, ledger_factory, status):
+    ledger = ledger_factory()
+    cache = uploaded_cache(tmp_path, ledger)
+    ledger.finish_conversation()
+    calls, waits = [], []
+    with guarded_client(ledger, tmp_path / "receipts", file_cache=cache, sleep=waits.append,
+                        inner=httpx2.MockTransport(lambda request: calls.append(request) or
+                                                   httpx2.Response(status, headers={
+                                                       "retry-after": "1", "request-id": "req-delete",
+                                                   }, json={"error": "failed"}))) as client:
+        assert client.delete("https://api.anthropic.com/v1/files/file-owned").status_code == status
+    assert len(calls) == 1 and waits == []
+    receipt, = receipts(tmp_path / "receipts")
+    assert receipt["http_status"] == status
+    assert receipt["request_id"] == "req-delete"
+    assert receipt["outcome"] == "free_failed" and receipt["cost_usd"] == "0"
+    assert ledger.settled_usd() == 0
+
+
+@pytest.mark.parametrize("mode", ["flag", "ledger"])
+def test_free_only_blocks_messages_before_network(tmp_path, ledger_factory, mode):
+    ledger = (Ledger.for_livecheck(tmp_path / "free.jsonl", run_id="free", owner_words="Free check")
+              if mode == "ledger" else ledger_factory())
+    calls = []
+    with guarded_client(ledger, tmp_path / "receipts", free_only=mode == "flag",
+                        inner=httpx2.MockTransport(lambda request: calls.append(request) or
+                                                   httpx2.Response(200, json={"input_tokens": 1}))) as client:
+        with pytest.raises(Refused, match="free-only"):
+            client.post(URL, json=body())
+        assert client.post(URL + "/count_tokens", json={"model": MODEL, "messages": []}).status_code == 200
+    assert len(calls) == 1
+    assert not any(row["event"] == "started" for row in rows(ledger))
+    if mode == "ledger":
+        receipt, = receipts(tmp_path / "receipts")
+        assert receipt["owner_words"] == "Free check"
+
+
+@pytest.mark.parametrize("path", ["/v1/files", "/v1/files/file-owned/content"])
+def test_closed_run_still_refuses_list_and_download(tmp_path, ledger_factory, path):
+    ledger = ledger_factory()
+    cache = uploaded_cache(tmp_path, ledger)
+    ledger.finish_conversation()
+    calls = []
+    with guarded_client(ledger, tmp_path / "receipts", file_cache=cache,
+                        inner=httpx2.MockTransport(lambda request: calls.append(request))) as client:
+        with pytest.raises(Refused):
+            client.get("https://api.anthropic.com" + path)
+    assert calls == []
 
 
 def test_cumulative_usage_crosses_cutoff_then_stops(tmp_path, ledger_factory, sse_builder):

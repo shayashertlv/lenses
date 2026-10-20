@@ -5,6 +5,7 @@ import asyncio
 import copy
 from dataclasses import replace
 from decimal import Decimal
+import io
 import json
 from pathlib import Path
 import threading
@@ -109,17 +110,18 @@ class Harness:
         self.ledger = money.Ledger(root / "ledger.jsonl", cutoff_usd=Decimal(cutoff), approval=approval)
         self.wire = wire if wire is not None else ScriptedClaude(turns)
         self.waits = []
+        self.files = FileCache(root / "file-cache.json", lambda b, n: self.client.files.upload(
+            file=(n, b, "image/png"), **transport.files_upload_params()).id, run_id="test")
         self.client = anthropic.Anthropic(
             api_key=R.OFFLINE_KEY, max_retries=0,
             http_client=transport.guarded_client(
-                self.ledger, root / "transport", inner=self.wire.transport(), sleep=self.waits.append))
+                self.ledger, root / "transport", inner=self.wire.transport(), sleep=self.waits.append,
+                file_cache=self.files))
         self.scene = Scene(root)
         self.spec = R.ClaudeRunSpec(
             root, "test", R.ClaudeSettings(cutoff_usd=Decimal(cutoff)),
             "Fixture instructions", tools_for(self.scene), "Owner words", (), "", (),
             None, True, finish_tool="finish")
-        self.files = FileCache(root / "file-cache.json", lambda b, n: self.client.files.upload(
-            file=(n, b, "image/png"), **transport.files_upload_params()).id)
         self.blobs = BlobStore(root / "blobs")
         self.conversation = Conversation(root / "session.sqlite", blobs=self.blobs)
         self.log = ClaudeReviewLog(root, blobs_dir=root / "blobs", stop_file=root / "stop.requested")
@@ -222,15 +224,36 @@ def test_truncated_output_never_invokes_tool(root, stop_reason):
 
 
 def test_refusal_is_priced_upper_bound_and_draft(root):
-    h = Harness(root, [turn({"type": "text", "text": "Cannot continue"}, stop_reason="refusal")])
+    details = {"category": "bio", "explanation": "offline refusal fixture"}
+    h = Harness(root, [turn({"type": "text", "text": "Cannot continue"}, stop_reason="refusal",
+                           stop_details=details)])
     try:
         with pytest.raises(R.Halt) as error:
             asyncio.run(h.drive())
         assert error.value.status == "provider_rejected"
         assert R._ledger_rows(h.ledger)[-1]["upper_bound"]
+        assert R._ledger_rows(h.ledger)[-1]["stop_details"] == details
+        response = json.loads((root / "requests/0001-response.json").read_text())
+        assert response["stop_details"] == details
         assert len(h.wire.requests) == 1
     finally:
         h.close()
+
+
+def test_non_refusal_stop_details_are_receipted_and_do_not_end_run(root):
+    details = {"category": None, "explanation": "ordinary provider completion metadata"}
+    h, status = run_harness(root, [
+        turn(call("touch", change=True), stop_details=details),
+        turn(call("finish", "f")),
+    ])
+    assert status == "completed"
+    assert h.scene.s.head["id"] == "c1x"
+    assert len(h.wire.requests) == 2
+    response = json.loads((root / "requests/0001-response.json").read_text())
+    assert response["stop_details"] == details
+    receipts = [json.loads(path.read_text()) for path in (root / "transport").glob("1-*.json")]
+    assert len(receipts) == 1 and receipts[0]["stop_details"] == details
+    assert not any(row.get("refusal") for row in R._ledger_rows(h.ledger))
 
 
 def test_multi_tool_reply_is_serial_one_result_message_and_later_mutation_invalidates_finish(root):
@@ -288,19 +311,41 @@ def test_global_turn_limit_includes_every_reply(root):
 
 
 def test_stop_preserves_unknown_charge_during_stream(root):
-    def delayed(body):
-        (root / "stop.requested").write_text("stop", encoding="utf-8")
-        return turn(call("touch", change=True))
-    h = Harness(root, [delayed])
+    wire = BlockingWire([turn(call("touch", change=True))], partial=True)
+    h = Harness(root, [], wire=wire)
+
+    async def scenario():
+        task = asyncio.create_task(h.drive())
+        try:
+            await wait_event(wire.ready)
+            await wait_event(wire.blocked.entered)
+            (root / "stop.requested").write_text("stop", encoding="utf-8")
+            with pytest.raises(R.Halt) as error:
+                await asyncio.wait_for(task, 5)
+            assert error.value.status == "stopped"
+            assert h.log.stop_observed and h.shared["cancelled"]
+            assert wire.blocked.closed and wire.blocked.exited.is_set()
+            assert h.scene.s.head["id"] == "c1"
+            rows = R._ledger_rows(h.ledger)
+            unknown = [row for row in rows if row["event"] == "unknown"]
+            assert len(unknown) == 1 and unknown[0]["request_no"] == 1
+            assert ("incomplete event" in unknown[0]["reason"]
+                    or "SSE ended inside an event" in unknown[0]["reason"])
+            assert not any(row["event"] == "settled" for row in rows)
+            assert not h.ledger.may_start_request()[0]
+            assert len(wire.requests) == 1
+        finally:
+            if wire.blocked is not None:
+                wire.blocked.release.set()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+
     try:
-        with pytest.raises((R.Halt, StopRequested)):
-            asyncio.run(h.drive())
-        assert h.scene.s.head["id"] == "c1"
-        rows = R._ledger_rows(h.ledger)
-        assert rows[-1]["event"] in {"settled", "unknown"}
-        assert not [r for r in rows if r["event"] == "started"
-                    and not any(e.get("request_no") == r["request_no"] and
-                                e["event"] in {"settled", "unknown"} for e in rows)]
+        asyncio.run(scenario())
     finally:
         h.close()
 
@@ -447,6 +492,215 @@ def test_lifecycle_writes_authoritative_result_and_closes(prepared, root, monkey
     assert not (root / "locks/.paid-run.lock").exists()
 
 
+def cleanup_fixture(root, monkeypatch, *, cutoff="20"):
+    """Real runner/SDK/ledger lifecycle, with a small offline scene/tool fixture."""
+    monkeypatch.setattr(R, "build_tools", lambda scene, settings: tools_for(scene))
+    monkeypatch.setattr(R, "build_instructions", lambda tools: (
+        "You are Astra. Use touch and finish. "
+        "Only status accepted completes the run; a refusal names the failed checks."))
+    monkeypatch.setattr(R, "instruction_contract",
+                        lambda tools: ToolContract(frozenset(tool.name for tool in tools)))
+    monkeypatch.setattr(R, "_prepared_stages", lambda job, settings: ())
+    monkeypatch.setattr(R.snapshot, "capture", lambda p: None)
+    path = owner_job(root)
+    scene = Scene(path)
+    spec, _ = R.prepare_run(path, settings=R.ClaudeSettings(cutoff_usd=Decimal(cutoff)),
+                            run_id="cleanup", offline=True, write_request=True, scene=scene)
+    R.approve_run(spec, words="OFFLINE CLEANUP TEST ONLY")
+    return spec, scene
+
+
+@pytest.mark.parametrize("ending", [
+    "completed", "draft", "cutoff", "unknown", "failed", "stopped", "crash",
+    "stopped_before_request", "stopped_before_stream",
+])
+def test_teardown_deletes_uploads_after_every_ending(root, monkeypatch, ending):
+    spec, scene = cleanup_fixture(root, monkeypatch,
+                                  cutoff="0.000001" if ending == "cutoff" else "20")
+    if ending == "completed":
+        turns = [turn(call("finish"))]
+    elif ending == "draft":
+        turns = [turn({"type": "text", "text": "test"}, stop_reason="end_turn")] * 3
+    elif ending == "cutoff":
+        turns = [turn(call("touch", change=False), usage={"input_tokens": 100, "output_tokens": 100})]
+    elif ending == "unknown":
+        turns = [turn(call("touch", change=True), missing_usage=True)]
+    elif ending.startswith("stopped"):
+        turns = [turn(call("touch", change=True))]
+    else:
+        def failure(body):
+            if ending == "crash":
+                raise SystemExit("offline process exception")
+            # A protocol failure after settlement is a failed run, not unknown money.
+            return turn(call("touch", change=True), stop_reason="unsupported")
+        turns = [failure]
+    wire = (BlockingWire(turns, partial=True, hold_before_publish=ending == "stopped_before_stream")
+            if ending in {"stopped", "stopped_before_stream"} else ScriptedClaude(turns))
+    inner = wire.transport()
+    original = inner.handle_request
+    close_attempted = threading.Event()
+    original_close = R._Runtime._close_stream
+
+    def observed_close(runtime):
+        try:
+            return original_close(runtime)
+        finally:
+            close_attempted.set()
+
+    monkeypatch.setattr(R._Runtime, "_close_stream", observed_close)
+    monkeypatch.setattr(R, "publish_result", lambda job, lifecycle_scene, result: {
+        "status": "no_usable_checkpoint"})
+
+    def check_locks_and_settlement(request):
+        if request.method == "DELETE":
+            assert (root / "locks/.paid-run.lock").exists()
+            with pytest.raises(R.RunRefused, match="private job"):
+                with R.job_lock(spec.job_dir):
+                    pass
+            rows = [json.loads(line) for line in (spec.run_dir / "ledger.jsonl").read_text().splitlines()]
+            assert rows[-1]["event"] == "conversation_finished"
+            terminal = {row["request_no"] for row in rows
+                        if row["event"] in {"settled", "unknown", "not_sent", "rejected"}}
+            assert all(row["request_no"] in terminal for row in rows if row["event"] == "started")
+        return original(request)
+    monkeypatch.setattr(inner, "handle_request", check_locks_and_settlement)
+
+    async def scenario():
+        if ending == "stopped_before_request":
+            (spec.job_dir / "stop.requested").write_text("stop", encoding="utf-8")
+        task = asyncio.create_task(R.execute_run(
+            spec, scene=scene, inner=inner, isolated_lock_root=root / "locks"))
+        try:
+            if isinstance(wire, BlockingWire):
+                await wait_event(wire.ready)
+                if ending == "stopped":
+                    await wait_event(wire.blocked.entered)
+                (spec.job_dir / "stop.requested").write_text("stop", encoding="utf-8")
+                if ending == "stopped_before_stream":
+                    # Stop is observed while SDK __enter__ is still awaiting its
+                    # response, before _Runtime can publish a closable stream.
+                    await wait_event(close_attempted)
+                    assert not wire.blocked.closed and not task.done()
+                    wire.publish.set()
+            return (await asyncio.wait_for(task, 10))["result"]
+        finally:
+            if isinstance(wire, BlockingWire):
+                wire.publish.set()
+                if wire.blocked is not None:
+                    wire.blocked.release.set()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+
+    result = asyncio.run(scenario())
+    expected = {"completed": "completed", "draft": "ended_without_finish", "cutoff": "budget_limit",
+                "unknown": "provider_unknown", "failed": "failed", "stopped": "stopped",
+                "crash": "provider_unknown", "stopped_before_request": "stopped",
+                "stopped_before_stream": "stopped"}
+    assert result["status"] == expected[ending], result
+    if ending.startswith("stopped"):
+        assert result["stop_observed"]
+        assert scene.s.head["id"] == "c1" and not scene.rows
+        assert len(wire.requests) == (0 if ending == "stopped_before_request" else 1)
+        if ending == "stopped_before_request":
+            assert result["unknown_charges"] == []
+        else:
+            assert len(result["unknown_charges"]) == 1
+            assert result["unknown_charges"][0]["request_no"] == 1
+            assert result["unknown_charges"][0]["reason"]
+            assert wire.blocked.closed
+            if ending == "stopped":
+                assert wire.blocked.exited.is_set()
+    cleanup = result["upload_cleanup"]
+    assert cleanup["uploads"] == cleanup["deleted"] == len(wire.files) == 1
+    assert cleanup["failed"] == []
+    assert all(record["deleted"] and record["deleted_at"]
+               for record in json.loads((spec.run_dir / "file-cache.json").read_text()).values())
+    assert len([row for row in wire.calls if row["method"] == "DELETE"]) == 1
+    assert scene.closed and not (root / "locks/.paid-run.lock").exists()
+    saved = json.loads((spec.run_dir / "result.json").read_text())
+    assert saved["status"] == result["status"]
+    assert saved["stop_observed"] == result["stop_observed"]
+    assert saved["unknown_charges"] == result["unknown_charges"]
+    summary = json.loads((spec.run_dir / "summary.json").read_text())
+    assert summary["upload_cleanup"] == cleanup
+    assert summary["stop_observed"] == result["stop_observed"]
+    assert summary["unknown_charges"] == result["unknown_charges"]
+    text = (spec.run_dir / "summary.md").read_text()
+    assert "Uploads: 1 made; 1 deleted" in text
+    if result["unknown_charges"]:
+        assert "Unknown charge for request 1" in text
+
+
+def test_failed_delete_is_reported_once_with_expiry_without_changing_status(root, monkeypatch):
+    spec, scene = cleanup_fixture(root, monkeypatch)
+    wire = ScriptedClaude([turn(call("finish"))], delete_statuses=[503])
+    result = asyncio.run(R.run_claude(spec, scene=scene, inner=wire.transport(),
+                                     isolated_lock_root=root / "locks"))
+    assert result["status"] == "completed"
+    cleanup = result["upload_cleanup"]
+    assert cleanup["uploads"] == 1 and cleanup["deleted"] == 0
+    assert len(cleanup["failed"]) == 1
+    failure = cleanup["failed"][0]
+    assert failure["http_status"] == 503 and failure["request_id"]
+    assert failure["expires_at"] and failure["error"]
+    assert len([row for row in wire.calls if row["method"] == "DELETE"]) == 1
+    cache = json.loads((spec.run_dir / "file-cache.json").read_text())
+    record = next(iter(cache.values()))
+    assert not record.get("deleted") and record["deletion_attempted_at"] and record["deletion_error"]
+    R.write_summary(spec, result, {"status": "no_usable_checkpoint"})
+    text = (spec.run_dir / "summary.md").read_text()
+    assert "Uploads: 1 made; 0 deleted" in text
+    assert failure["file_id"] in text and failure["expires_at"] in text
+
+
+@pytest.mark.parametrize("cleanup_fails", [False, True])
+def test_cancellation_during_delete_waits_before_releasing_locks(root, monkeypatch, cleanup_fails):
+    spec, scene = cleanup_fixture(root, monkeypatch)
+    wire = ScriptedClaude([turn(call("finish"))])
+    inner = wire.transport()
+    entered, release = threading.Event(), threading.Event()
+
+    cleanup = R.delete_uploads
+
+    def blocked_cleanup(*args):
+        entered.set()
+        assert release.wait(10), "test did not release deletion"
+        if cleanup_fails:
+            raise OSError("offline cleanup receipt failure")
+        return cleanup(*args)
+    monkeypatch.setattr(R, "delete_uploads", blocked_cleanup)
+
+    async def scenario():
+        task = asyncio.create_task(R.run_claude(
+            spec, scene=scene, inner=inner, isolated_lock_root=root / "locks"))
+        try:
+            assert await asyncio.to_thread(entered.wait, 10)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert (root / "locks/.paid-run.lock").exists()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            release.set()
+            if not task.done():
+                await R._join(task)
+    asyncio.run(scenario())
+    result = json.loads((spec.run_dir / "result.json").read_text())
+    assert result["upload_cleanup"]["uploads"] == 1
+    assert result["upload_cleanup"]["deleted"] == (0 if cleanup_fails else 1)
+    if cleanup_fails:
+        assert result["upload_cleanup"]["failed"][0]["expires_at"]
+        assert any(row["step"] == "delete_uploads" for row in result["teardown_errors"])
+    assert not (root / "locks/.paid-run.lock").exists()
+    assert scene.closed
+
+
 def specialist_fixture(h):
     """A real StageSpec/ClaudeStageRuntime with tools that need no Blender."""
     scene = Scene(h.root / "specialist-scene")
@@ -532,6 +786,41 @@ def test_specialist_real_sdk_shares_model_money_and_counter_but_not_history(root
             child_conv.close()
         h.wire.assert_complete()
 
+    try:
+        asyncio.run(scenario())
+    finally:
+        h.close()
+
+
+def test_parent_teardown_includes_specialist_uploads(root):
+    h = Harness(root, [turn(call("facet_step", "child_image", action="inspect")),
+                       turn(call("facet_finish", "child_finish")),
+                       turn(call("finish", "parent_finish"))])
+    child, scene, stages = specialist_fixture(h)
+    image = io.BytesIO()
+    Image.new("RGB", (42, 42), "green").save(image, format="PNG")
+
+    async def upload_from_child(ctx):
+        assert ctx.context.ledger is h.ledger
+        h.files.file_id_for(R.images.tile(image.getvalue(), "specialist fixture")[0])
+
+    scene.operation = upload_from_child
+
+    async def scenario():
+        outcome = await stages.run_stage(child, scene, Decimal("20"), "parent_stage")
+        assert outcome["status"] == "completed"
+        assert len(h.files.uploaded_records()) == 1
+        assert not h.ledger.conversation_finished()
+        assert not [row for row in h.wire.calls if row["method"] == "DELETE"]
+        assert await h.drive() == "completed"
+        await stages.close()
+        cleanup = R.delete_uploads(h.client, h.files, h.ledger, root)
+        assert cleanup["uploads"] == cleanup["deleted"] == 1
+        assert cleanup["failed"] == []
+        assert len([row for row in h.wire.calls if row["method"] == "DELETE"]) == 1
+        # A second cleanup preserves the record and never retries a delete.
+        assert R.delete_uploads(h.client, h.files, h.ledger, root)["deleted"] == 1
+        assert len([row for row in h.wire.calls if row["method"] == "DELETE"]) == 1
     try:
         asyncio.run(scenario())
     finally:
@@ -677,11 +966,17 @@ def test_specialist_close_cancels_and_joins_actual_child_unwind(root):
 
 class BlockingStream(httpx2.SyncByteStream):
     """Hold a real synchronous response between initial and final usage."""
-    def __init__(self, raw):
+    def __init__(self, raw, *, partial=False, hold_after_close=False):
         split = raw.index(b"\n\n") + 2
+        if partial:
+            # A full message_start followed by the beginning of a ping proves
+            # Stop handles _Tee.close's incomplete-event Refused path.
+            split += len(b"event: ping\ndata: {")
         self.first, self.rest = raw[:split], raw[split:]
-        self.entered, self.release, self.exited = (threading.Event() for _ in range(3))
+        self.entered, self.release, self.exited, self.close_called = (
+            threading.Event() for _ in range(4))
         self.closed = False
+        self.hold_after_close = hold_after_close
 
     def __iter__(self):
         try:
@@ -696,20 +991,150 @@ class BlockingStream(httpx2.SyncByteStream):
 
     def close(self):
         self.closed = True
-        self.release.set()
+        self.close_called.set()
+        if not self.hold_after_close:
+            self.release.set()
 
 
 class BlockingWire(ScriptedClaude):
-    def __init__(self, turns):
+    def __init__(self, turns, *, partial=False, hold_before_publish=False, hold_after_close=False):
         super().__init__(turns)
         self.blocked = None
+        self.partial = partial
+        self.hold_before_publish = hold_before_publish
+        self.hold_after_close = hold_after_close
+        self.ready, self.publish = (threading.Event() for _ in range(2))
 
     def __call__(self, request):
         response = super().__call__(request)
         if request.url.path == "/v1/messages":
-            self.blocked = BlockingStream(response.read())
+            self.blocked = BlockingStream(response.read(), partial=self.partial,
+                                          hold_after_close=self.hold_after_close)
+            self.ready.set()
+            if self.hold_before_publish and not self.publish.wait(10):
+                raise AssertionError("test did not release SDK stream entry")
             return httpx2.Response(200, headers=response.headers, stream=self.blocked)
         return response
+
+
+async def wait_event(event):
+    """Wait for a real state transition; the timeout only bounds a broken test."""
+    assert await asyncio.to_thread(event.wait, 5), "test synchronization event did not arrive"
+
+
+def test_stop_close_refused_still_joins_stream_before_return(root, monkeypatch):
+    wire = BlockingWire([turn(call("touch", change=True))],
+                        partial=True, hold_after_close=True)
+    h = Harness(root, [], wire=wire)
+    close_refused, joining_reader = (threading.Event() for _ in range(2))
+    original_close, original_join = h.runtime._close_stream, R._join
+    close_joined = False
+
+    def close():
+        try:
+            original_close()
+        except transport.Refused:
+            close_refused.set()
+            raise
+
+    async def join(task):
+        nonlocal close_joined
+        if close_joined:
+            joining_reader.set()
+        try:
+            return await original_join(task)
+        except transport.Refused:
+            # Signal only the later reader join, after the close task has
+            # actually returned its refusal, regardless of thread scheduling.
+            if close_refused.is_set():
+                close_joined = True
+            raise
+
+    monkeypatch.setattr(h.runtime, "_close_stream", close)
+    monkeypatch.setattr(R, "_join", join)
+
+    async def scenario():
+        task = asyncio.create_task(h.drive())
+        try:
+            await wait_event(wire.ready)
+            await wait_event(wire.blocked.entered)
+            (root / "stop.requested").write_text("stop", encoding="utf-8")
+            await wait_event(joining_reader)
+            assert close_refused.is_set() and wire.blocked.close_called.is_set()
+            assert not task.done() and not wire.blocked.exited.is_set()
+            assert R._ledger_rows(h.ledger)[-1]["event"] == "unknown"
+            wire.blocked.release.set()
+            with pytest.raises(R.Halt) as error:
+                await asyncio.wait_for(task, 5)
+            assert error.value.status == "stopped"
+            assert wire.blocked.exited.is_set() and h.log.stop_observed
+            assert h.scene.s.head["id"] == "c1" and len(wire.requests) == 1
+        finally:
+            if wire.blocked is not None:
+                wire.blocked.release.set()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        h.close()
+
+
+def test_stop_after_complete_reply_preserves_settled_charge(root, monkeypatch):
+    h = Harness(root, [turn(call("touch", change=True))])
+    response_complete, return_response, close_attempted = (threading.Event() for _ in range(3))
+    original_stream, original_close = h.runtime._stream_request, h.runtime._close_stream
+
+    def stream(body):
+        response = original_stream(body)
+        response_complete.set()
+        if not return_response.wait(10):
+            raise AssertionError("test did not release the completed response")
+        return response
+
+    def close():
+        try:
+            original_close()
+        finally:
+            close_attempted.set()
+
+    monkeypatch.setattr(h.runtime, "_stream_request", stream)
+    monkeypatch.setattr(h.runtime, "_close_stream", close)
+
+    async def scenario():
+        task = asyncio.create_task(h.drive())
+        try:
+            await wait_event(response_complete)
+            (root / "stop.requested").write_text("stop", encoding="utf-8")
+            await wait_event(close_attempted)
+            assert not task.done()
+            return_response.set()
+            with pytest.raises(R.Halt) as error:
+                await asyncio.wait_for(task, 5)
+            assert error.value.status == "stopped" and h.log.stop_observed
+            rows = R._ledger_rows(h.ledger)
+            assert rows[-1]["event"] == "settled"
+            assert not any(row["event"] == "unknown" for row in rows)
+            assert h.scene.s.head["id"] == "c1" and len(h.wire.requests) == 1
+            assert h.shared["cancelled"]
+        finally:
+            return_response.set()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        h.close()
 
 
 @pytest.mark.parametrize("stop_kind", ["stop_file", "cancel"])
@@ -720,17 +1145,18 @@ def test_blocked_sse_stop_drains_thread_and_records_unknown(root, stop_kind):
     async def scenario():
         task = asyncio.create_task(h.drive())
         try:
-            for _ in range(500):
-                if wire.blocked is not None and wire.blocked.entered.is_set():
-                    break
-                await asyncio.sleep(0.01)
-            assert wire.blocked is not None and wire.blocked.entered.is_set()
+            await wait_event(wire.ready)
+            await wait_event(wire.blocked.entered)
             if stop_kind == "stop_file":
                 (root / "stop.requested").write_text("stop", encoding="utf-8")
             else:
                 task.cancel()
-            with pytest.raises((Exception, asyncio.CancelledError)):
+            expected = R.Halt if stop_kind == "stop_file" else asyncio.CancelledError
+            with pytest.raises(expected) as error:
                 await asyncio.wait_for(task, 5)
+            if stop_kind == "stop_file":
+                assert error.value.status == "stopped"
+            assert h.log.stop_observed and h.shared["cancelled"]
             assert wire.blocked.closed and wire.blocked.exited.is_set()
             assert h.scene.s.head["id"] == "c1"
             assert R._ledger_failure(h.ledger) == "provider_unknown"

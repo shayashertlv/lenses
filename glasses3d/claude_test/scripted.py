@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import copy
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
 import hashlib
@@ -15,6 +16,7 @@ import io
 import json
 import re
 from typing import Callable, Sequence
+from uuid import uuid4
 
 import httpx2
 from PIL import Image
@@ -150,14 +152,17 @@ def _walk(value):
 
 
 class ScriptedClaude:
-    """Finite scripts and content-addressed fake Files, with no fallback.
+    """Finite scripts and retained fake Files evidence, with no fallback.
 
     Callbacks receive a detached copy of the actual Messages request, allowing
     IDs and arguments to be derived from real preceding tool results.
     """
     def __init__(self, turns: Sequence[ScriptTurn | Callable], *,
-                 token_counts: Sequence[dict] = ()):
+                 token_counts: Sequence[dict] = (), delete_statuses: Sequence[int] = ()):
         self.turns, self.token_counts = list(turns), list(token_counts)
+        self.delete_statuses = list(delete_statuses)
+        assert all(type(status) is int and (status == 200 or 400 <= status <= 599)
+                   for status in self.delete_statuses), "invalid scripted deletion status"
         self.requests: list[dict] = []
         self.request_sizes: list[int] = []
         self.request_sha256: list[str] = []
@@ -166,6 +171,7 @@ class ScriptedClaude:
         self.calls: list[dict] = []
         self.violations: list[str] = []
         self.uploads: list[dict] = []
+        self.deletions: list[dict] = []
         self.replies: list[ScriptTurn] = []
         self._turn_index = self._count_index = 0
 
@@ -196,17 +202,20 @@ class ScriptedClaude:
         if method == "GET" and re.fullmatch(r"/v1/files/[A-Za-z0-9_-]+", path):
             assert not request.content, "metadata GET has a body"
             record = self.files[path.rsplit("/", 1)[1]]
-            return httpx2.Response(200, json=record["metadata"])
+            assert not record["deleted"], "deleted file metadata is unavailable"
+            return httpx2.Response(200, headers={"request-id": f"req_metadata_{len(self.calls):04d}"},
+                                   json=record["metadata"])
+        if method == "DELETE" and re.fullmatch(r"/v1/files/[A-Za-z0-9_-]+", path):
+            return self._delete(request)
         assert method == "POST" and path in ("/v1/messages", "/v1/messages/count_tokens"), "unknown endpoint"
         assert len(request.content) < 32_000_000, "request exceeds strict 32 MB limit"
         body = _json(request.content)
         assert body.get("model") == MODEL
         assert isinstance(body.get("messages"), list) and body["messages"]
         allowed = {"model", "messages", "system", "tools", "thinking", "tool_choice",
-                   "context_management"}
+                   "context_management", "output_config", "cache_control", "speed"}
         if path == "/v1/messages":
-            allowed |= {"stream", "max_tokens", "service_tier", "speed", "inference_geo",
-                        "output_config", "cache_control"}
+            allowed |= {"stream", "max_tokens", "service_tier", "inference_geo"}
         assert not set(body) - allowed, f"unexpected request fields: {sorted(set(body) - allowed)}"
         for message in body["messages"]:
             assert set(message) == {"role", "content"}
@@ -222,6 +231,9 @@ class ScriptedClaude:
         assert body.get("inference_geo", "global") == "global"
         assert "fallbacks" not in body
         assert not check_request(body, self.dims), check_request(body, self.dims)
+        for item in _walk(body):
+            if item.get("type") == "image" and item.get("source", {}).get("type") == "file":
+                assert not self.files[item["source"]["file_id"]]["deleted"], "deleted file used in Messages"
         assert self._turn_index < len(self.turns), "script exhausted; no network fallback"
         self.requests.append(copy.deepcopy(body))
         self.request_sizes.append(len(request.content))
@@ -255,17 +267,39 @@ class ScriptedClaude:
             w, h = image.size
             assert fits(w, h, many=True), "uploaded image must already satisfy native inference bounds"
         sha = hashlib.sha256(raw).hexdigest()
-        file_id = "file_" + sha
+        # Provider IDs belong to an upload, not to its bytes. Separate run caches
+        # must receive different IDs even when they upload the same photograph.
+        file_id = "file_" + uuid4().hex
         metadata = {"id": file_id, "type": "file", "filename": part.get_filename(),
                     "mime_type": part.get_content_type(), "size_bytes": len(raw),
                     "created_at": "2026-10-20T00:00:00Z", "expires_at": "2026-10-27T00:00:00Z",
                     "downloadable": False}
-        if file_id in self.files:
-            assert self.files[file_id]["bytes"] == raw
-        else:
-            self.files[file_id] = {"bytes": raw, "sha256": sha, "w": w, "h": h, "metadata": metadata}
+        self.files[file_id] = {"bytes": raw, "sha256": sha, "w": w, "h": h,
+                               "metadata": metadata, "deleted": False, "deleted_at": None}
         self.uploads.append({"file_id": file_id, "sha256": sha, "expires_in_seconds": 604800})
-        return httpx2.Response(200, json=metadata)
+        return httpx2.Response(200, headers={"request-id": f"req_upload_{len(self.uploads):04d}"}, json=metadata)
+
+    def _delete(self, request):
+        assert not request.content, "file DELETE has a body"
+        file_id = request.url.path.rsplit("/", 1)[1]
+        assert file_id in self.files, "cannot delete a file absent from this fake service"
+        record = self.files[file_id]
+        assert not record["deleted"], "file was already deleted"
+        number = len(self.deletions) + 1
+        status = self.delete_statuses[number - 1] if number <= len(self.delete_statuses) else 200
+        request_id = f"req_delete_{number:04d}"
+        deleted_at = datetime.now(timezone.utc).isoformat() if status == 200 else None
+        self.deletions.append({"file_id": file_id, "http_status": status, "request_id": request_id,
+                               "deleted": status == 200, "deleted_at": deleted_at})
+        if status == 200:
+            # Retain private evidence for pixel/hash audits after teardown, but
+            # refuse API access or inference reuse of the deleted file.
+            record.update(deleted=True, deleted_at=deleted_at)
+            response = {"id": file_id, "type": "file_deleted"}
+        else:
+            response = {"type": "error", "error": {"type": "scripted_delete_error",
+                                                  "message": "Offline scripted deletion failed"}}
+        return httpx2.Response(status, headers={"request-id": request_id}, json=response)
 
     def _count(self, body):
         images = [item for item in _walk(body) if item.get("type") == "image"]
@@ -285,12 +319,14 @@ class ScriptedClaude:
         else:
             text = sum(len(str(item.get("text", "")).encode("utf-8")) for item in _walk(body))
             result = {"input_tokens": local + (text + 2) // 3}
-        return httpx2.Response(200, json=result)
+        return httpx2.Response(200, headers={"request-id": f"req_count_{len(self.counts):04d}"}, json=result)
 
     def assert_complete(self) -> dict:
         assert not self.violations, self.violations
         assert self._turn_index == len(self.turns), (self._turn_index, len(self.turns))
         assert self._count_index == len(self.token_counts)
+        assert len(self.deletions) >= len(self.delete_statuses), "unused scripted deletion status"
         return {"scripted_messages": self._turn_index, "count_requests": len(self.counts),
                 "uploads": len(self.uploads), "unique_files": len(self.files),
+                "deleted_files": sum(row["deleted"] for row in self.files.values()),
                 "network_fallback": False}

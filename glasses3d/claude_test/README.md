@@ -26,6 +26,33 @@ The result names `job_dir`, `run_id` and the execution-request hash. A destinati
 already containing a copy is refused. Use `--destination` under the work folder
 for a separate fresh run; its final directory must retain the source job ID.
 
+The free live check accepts that private job directory and the owner's exact
+words authorizing uploads and counting:
+
+```powershell
+& $py -m glasses3d.claude_test livecheck <job_dir> `
+  --env-file glasses3d/claude_test/.env --owner-ok "<owner's exact words>"
+```
+
+It uploads the six native owner photos with seven-day expiry, reads their metadata,
+counts the opening request and deletes its uploads. It starts no Blender worker.
+The transport refuses all Messages inference calls, including accidental calls;
+the live check has no paid approval and cannot spend. To match a prepared run's
+opening text exactly, add `--run-id <run_id> --cutoff <planned_amount>`. Without
+those options, it uses a fresh check ID and the ordinary $20 planning default.
+These options grant no spending permission.
+
+`work/livecheck/<id>/livecheck.json` records the owner words, token count, upload
+and metadata responses, deletion outcomes, HTTP statuses and request IDs. It also
+records the complete opening and its counting projection, replacing inline image
+bytes with hashes. Counting uses the same instructions, effective tools, brief and
+request settings as the runner, with base64 photos and `oversized_image: "error"`.
+Fields absent from the pinned SDK's counting schema are listed with their values:
+currently `max_tokens`, `stream`, `service_tier` and `inference_geo`. Counting
+cannot validate file-ID inference or prompt-cache hits. A failed free step still
+deletes successfully uploaded files. Failed deletions are reported once with the
+expiry backup and make the command return a failure exit code.
+
 Only after the owner explicitly approves that run and its cost estimate, record
 the owner's exact words, model and cutoff:
 
@@ -46,6 +73,10 @@ Money is settled only: a request can start while settled spend is below the
 cutoff, its reply may cross it, and then no further request starts. Unknown charges
 stop spending. Parent and specialist share one ledger. Status shows settled spend,
 the cutoff and money left, with no reserved amount or projected finish cost.
+After every ending, the runner closes admission and deletes this run's uploads,
+including specialist images. Receipts and the summary report successful deletions
+and any failures with their expiry time. Failed deletes leave the original run
+status intact; every upload also has seven-day expiry.
 
 ```powershell
 & $py -m glasses3d.claude_test status --job-dir <job_dir> --run-id <run_id>
@@ -83,8 +114,8 @@ Run the isolated unit suite:
 & $py -m pytest -c glasses3d/claude_test/pytest.ini glasses3d/claude_test/tests -q -n 14
 ```
 
-The normal glasses3d test suite does not collect these tests. Live upload/count
-checks are C4 work; this runner never calls `count_tokens` during a run. Every
+The normal glasses3d test suite does not collect these tests. The separate C4
+`livecheck` command calls `count_tokens`; the paid runner never counts during a run. Every
 inference uses file IDs, native pixels or overlapping native tiles, and explicit
 reject-resize settings. Context forecasts are estimates anchored to settled
 usage. Server clears preserve local history; renewal keeps the owner photos and

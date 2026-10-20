@@ -9,6 +9,7 @@ edges; this module never resizes or applies EXIF orientation.
 from __future__ import annotations
 
 import hashlib
+from contextlib import nullcontext
 import io
 import json
 import math
@@ -17,6 +18,7 @@ from pathlib import Path
 import tempfile
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterator
 
 from PIL import Image
@@ -171,11 +173,32 @@ class FileCache:
     Use a separate cache per run; this is not a cross-process upload lock.
     """
 
-    def __init__(self, path: str | Path, uploader: Callable[[bytes, str], str]):
+    def __init__(self, path: str | Path, uploader: Callable[[bytes, str], str | dict], *,
+                 run_id: str | None = None):
         self.path = Path(path).resolve()
         self.uploader = uploader
+        self.run_id = run_id
+        self._ledger = None
+        self._pending_records = {}
         with _CACHE_LOCKS_GUARD:
             self._lock = _CACHE_LOCKS.setdefault(self.path, threading.RLock())
+
+    def bind_run(self, run_id: str, *, ledger=None):
+        """Bind this cache instance before uploads; never adopt another run's records."""
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("image cache requires a run_id")
+        with self._lock:
+            if self.run_id is not None and self.run_id != run_id:
+                raise ValueError("image cache belongs to another run")
+            self.run_id = run_id
+            if ledger is not None:
+                if ledger.run_id != run_id:
+                    raise ValueError("image cache ledger belongs to another run")
+                self._ledger = ledger
+
+    def _owned(self, record: dict) -> bool:
+        return (record.get("run_id") == self.run_id
+                and record.get("cache_path") == str(self.path))
 
     def _read(self) -> dict:
         if not self.path.exists():
@@ -187,12 +210,45 @@ class FileCache:
             if (
                 len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)
                 or not isinstance(record, dict)
-                or set(record) != {"file_id", "w", "h", "bytes"}
+                or not {"file_id", "w", "h", "bytes"} <= record.keys()
                 or not isinstance(record["file_id"], str) or not record["file_id"].strip()
                 or not all(_positive_int(record[key]) for key in ("w", "h", "bytes"))
             ):
                 raise ValueError("invalid image cache record")
         return records
+
+    def uploaded_records(self) -> dict:
+        """Return only records uploaded under this run and this cache path."""
+        with self._lock:
+            records = {**self._read(), **self._pending_records}
+            return {digest: dict(record) for digest, record in records.items()
+                    if self._owned(record)}
+
+    def owns_file(self, file_id: str) -> bool:
+        return any(record["file_id"] == file_id for record in self.uploaded_records().values())
+
+    def record_deletion(self, file_id: str, *, deleted: bool, error: str | None = None):
+        """Persist one cleanup result; a failed delete leaves the expiry backup visible."""
+        if type(deleted) is not bool or (not deleted and not isinstance(error, str)):
+            raise ValueError("a failed deletion requires its error")
+        with self._lock:
+            records = {**self._read(), **self._pending_records}
+            selected = [row for row in records.values()
+                        if self._owned(row) and row["file_id"] == file_id]
+            if not selected:
+                raise ValueError("cannot mark a file that this run did not upload")
+            stamp = datetime.now(timezone.utc).isoformat()
+            for record in selected:
+                record["deletion_attempted_at"] = stamp
+                if deleted:
+                    record["deleted"] = True
+                    record["deleted_at"] = stamp
+                    record.pop("deletion_error", None)
+                elif not record.get("deleted"):
+                    record["deleted"] = False
+                    record["deletion_error"] = error
+            self._write(records)
+            self._pending_records.clear()
 
     def _write(self, records: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,18 +280,36 @@ class FileCache:
             if image.format not in _EXTENSIONS:
                 raise ValueError("upload requires PNG, JPEG, WEBP or GIF bytes")
             extension = _EXTENSIONS[image.format]
-        with self._lock:
-            records = self._read()
-            if digest in records:
+        admission = self._ledger.upload_admission() if self._ledger is not None else nullcontext()
+        with admission, self._lock:
+            records = {**self._read(), **self._pending_records}
+            if digest in records and self._owned(records[digest]) and not records[digest].get("deleted"):
                 record = records[digest]
                 if (record["w"], record["h"], record["bytes"]) != (tile.w, tile.h, len(tile.png)):
                     raise ValueError("cached dimensions or byte size do not match the tile")
                 return record["file_id"]
-            file_id = self.uploader(tile.png, f"{digest}.{extension}")
+            uploaded_at = datetime.now(timezone.utc)
+            upload = self.uploader(tile.png, f"{digest}.{extension}")
+            metadata = upload if isinstance(upload, dict) else {}
+            file_id = metadata.get("file_id", metadata.get("id")) if metadata else upload
             if not isinstance(file_id, str) or not file_id.strip():
                 raise ValueError("uploader did not return a file_id")
-            records[digest] = {"file_id": file_id, "w": tile.w, "h": tile.h, "bytes": len(tile.png)}
+            created = metadata.get("uploaded_at", metadata.get("created_at", uploaded_at.isoformat()))
+            if isinstance(created, datetime):
+                created = created.isoformat()
+            expires = metadata.get("expires_at") or (uploaded_at + timedelta(days=7)).isoformat()
+            if isinstance(expires, datetime):
+                expires = expires.isoformat()
+            records[digest] = {
+                "file_id": file_id, "w": tile.w, "h": tile.h, "bytes": len(tile.png),
+                "run_id": self.run_id, "cache_path": str(self.path), "uploaded_at": created,
+                "expires_in_seconds": 604800, "expires_at": expires, "deleted": False,
+            }
+            # Preserve the returned ID for process-alive cleanup even if the
+            # atomic cache write fails immediately after a successful upload.
+            self._pending_records[digest] = records[digest]
             self._write(records)
+            self._pending_records.clear()
             return file_id
 
 

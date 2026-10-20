@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, localcontext
 import json
+import threading
 
 import pytest
 
@@ -33,6 +34,61 @@ def settle(book, usage=USAGE):
     number = book.start_request(MODEL)
     book.record_settled(number, f"req-{number}", MODEL, usage, price_usage(MODEL, usage))
     return number
+
+
+def test_finish_conversation_requires_settled_requests_and_permanently_closes(tmp_path):
+    book = ledger(tmp_path)
+    number = book.start_request(MODEL)
+    with pytest.raises(money.LedgerRefused, match="request is open"):
+        book.finish_conversation()
+    assert book.may_delete_uploads()[0] is False
+    book.record_unknown(number, "stream interrupted")
+    assert book.may_delete_uploads()[0] is False
+    book.finish_conversation()
+    book.finish_conversation()
+    assert book.conversation_finished()
+    assert book.may_delete_uploads()[0] is True
+    assert sum(row["event"] == "conversation_finished" for row in rows(book.path)) == 1
+    reopened = money.Ledger(book.path, cutoff_usd=book.cutoff_usd, approval=book.approval)
+    assert reopened.conversation_finished()
+    with pytest.raises(money.LedgerRefused, match="conversation finished"):
+        reopened.start_request(MODEL)
+
+
+def test_livecheck_has_no_paid_approval_or_request_admission(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    book = money.Ledger.for_livecheck(path, run_id="live", owner_words="Check the photos for free")
+    assert book.money_status() == {"settled_usd": "0", "cutoff_usd": "0", "left_usd": "0"}
+    assert rows(path)[0]["approval"] is None
+    assert rows(path)[0]["authorization"]["owner_words"] == "Check the photos for free"
+    assert not list(tmp_path.glob("approval*"))
+    with pytest.raises(money.LedgerRefused, match="free-only"):
+        book.start_request(MODEL)
+    book.finish_conversation()
+    reopened = money.Ledger.for_livecheck(path, run_id="live", owner_words="Check the photos for free")
+    assert reopened.may_delete_uploads()[0] is True
+    with pytest.raises(money.LedgerRefused, match="different approval"):
+        money.Ledger.for_livecheck(path, run_id="other", owner_words="Check the photos for free")
+
+
+def test_finish_waits_for_active_upload_cache_transaction(tmp_path):
+    book = ledger(tmp_path)
+    closing = threading.Event()
+
+    def finish():
+        closing.set()
+        book.finish_conversation()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with book.upload_admission():
+            closing_request = pool.submit(finish)
+            assert closing.wait(5)
+            assert not closing_request.done()
+        closing_request.result(timeout=5)
+    assert book.conversation_finished()
+    with pytest.raises(money.LedgerRefused, match="uploads are closed"):
+        with book.upload_admission():
+            pytest.fail("closed upload admission entered")
 
 
 def test_approval_shape_words_binding_and_single_use(tmp_path):

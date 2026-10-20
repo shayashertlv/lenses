@@ -227,6 +227,31 @@ class Ledger:
         self.run_id = self.approval["run_id"]
         self.model = self.approval["model"]
         self.effort = self.approval["effort"]
+        self.free_only = False
+        self.authorization = None
+        self._initialize()
+
+    @classmethod
+    def for_livecheck(cls, path, *, run_id, owner_words, model="claude-opus-5-5", effort="max"):
+        """Create a zero-spend ledger without creating or consuming paid approval."""
+        _nonempty(run_id, "run_id")
+        _nonempty(owner_words, "owner_words")
+        if model not in TARIFFS or effort != "max":
+            raise LedgerRefused("livecheck requires an approved model and max effort")
+        instance = cls.__new__(cls)
+        instance.path = Path(path).absolute()
+        instance.cutoff_usd = Decimal(0)
+        instance.approval = None
+        instance.run_id, instance.model, instance.effort = run_id, model, effort
+        instance.free_only = True
+        instance.authorization = {
+            "schema": "g3d.claude_free_authorization/1", "run_id": run_id,
+            "owner_words": owner_words, "model": model, "effort": effort, "free_only": True,
+        }
+        instance._initialize()
+        return instance
+
+    def _initialize(self):
         self._identity = process_identity()
         self._failed = None
         key = os.path.normcase(str(self.path.resolve()))
@@ -234,13 +259,15 @@ class Ledger:
             self._lock = _LOCKS.setdefault(key, threading.RLock())
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._transaction():
-            new_binding = self._bind_consumption()
+            new_binding = True if self.free_only else self._bind_consumption()
             if not self.path.exists():
                 if not new_binding:
                     raise LedgerRefused("the ledger for this consumed approval is missing")
                 header = {"schema": LEDGER_SCHEMA, "event": "opened", "time": now_iso(),
                           "run_id": self.run_id, "provider": "anthropic",
                           "cutoff_usd": _text(self.cutoff_usd), "approval": self.approval}
+                if self.free_only:
+                    header["authorization"] = self.authorization
                 with self.path.open("xb") as stream:
                     stream.write(canonical_json(header) + b"\n")
                     stream.flush()
@@ -321,15 +348,22 @@ class Ledger:
             if (not isinstance(header, dict) or header.get("schema") != LEDGER_SCHEMA
                     or header.get("event") != "opened" or header.get("run_id") != self.run_id
                     or header.get("provider") != "anthropic" or header.get("approval") != self.approval
+                    or header.get("authorization") != self.authorization
                     or _stored_amount(header.get("cutoff_usd"), "cutoff") != self.cutoff_usd):
                 raise ValueError("ledger belongs to a different approval, run or cutoff")
             settled, unknown, stopped, next_no, opened = Decimal(0), None, None, 1, {}
             refused = False
+            finished = False
             for row in rows[1:]:
                 if (not isinstance(row, dict) or row.get("schema") != LEDGER_SCHEMA
                         or not isinstance(row.get("time"), str)):
                     raise ValueError("invalid ledger event")
                 number, event = row.get("request_no"), row.get("event")
+                if event == "conversation_finished":
+                    if finished or opened or number is not None:
+                        raise ValueError("conversation finished with an open request or repeated marker")
+                    finished = True
+                    continue
                 if (event == "wait" and "assumed_unbilled_reconcile_with_console" in row
                         and row["assumed_unbilled_reconcile_with_console"] is not True):
                     raise ValueError("retry wait must retain its unbilled assumption")
@@ -342,7 +376,7 @@ class Ledger:
                     raise ValueError("invalid request number")
                 if event == "started":
                     if (number != next_no or row.get("model") != self.model
-                            or not isinstance(row.get("owner"), dict) or unknown or stopped or refused
+                            or not isinstance(row.get("owner"), dict) or unknown or stopped or refused or finished
                             or settled >= self.cutoff_usd):
                         raise ValueError("invalid request admission in ledger")
                     opened[number] = row
@@ -381,12 +415,16 @@ class Ledger:
                 else:
                     raise ValueError("unknown ledger event")
             return {"settled": settled, "unknown": unknown, "stopped": stopped, "refused": refused,
-                    "next": next_no, "open": opened}
+                    "next": next_no, "open": opened, "conversation_finished": finished}
         except (OSError, ValueError, KeyError, TypeError, UnknownCharge) as error:
             self._failed = f"ledger history is invalid: {error}"
             raise LedgerRefused(self._failed) from error
 
     def _permission(self, state):
+        if self.free_only:
+            return False, "free-only ledger cannot admit Messages requests"
+        if state["conversation_finished"]:
+            return False, "conversation finished; admission is closed"
         if state["refused"]:
             return False, "refusal"
         if state["unknown"] is not None:
@@ -405,6 +443,39 @@ class Ledger:
         try:
             with self._transaction():
                 return self._permission(self._replay())
+        except LedgerRefused as error:
+            return False, str(error)
+
+    def finish_conversation(self):
+        """Durably close admission, only after every started request has an outcome."""
+        with self._transaction():
+            state = self._replay()
+            if state["open"]:
+                raise LedgerRefused("cannot finish conversation while a request is open")
+            if not state["conversation_finished"]:
+                self._append({"event": "conversation_finished"})
+
+    def conversation_finished(self) -> bool:
+        with self._transaction():
+            return self._replay()["conversation_finished"]
+
+    @contextmanager
+    def upload_admission(self):
+        """Keep teardown behind an upload and its cache persistence in this process."""
+        with self._lock:
+            if self.conversation_finished():
+                raise LedgerRefused("conversation finished; uploads are closed")
+            yield
+
+    def may_delete_uploads(self) -> tuple[bool, str]:
+        try:
+            with self._transaction():
+                state = self._replay()
+                if state["open"]:
+                    return False, "cannot delete uploads while a request is open"
+                if not state["conversation_finished"]:
+                    return False, "conversation must be finished before deleting uploads"
+                return True, "conversation finished and no request is open"
         except LedgerRefused as error:
             return False, str(error)
 

@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import copy
 from dataclasses import fields
 from decimal import Decimal
 import hashlib
 import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import mimetypes
 import os
@@ -17,12 +20,21 @@ import threading
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
+import anthropic
+from anthropic.types.beta.message_count_tokens_params import MessageCountTokensParams
+import httpx2
+from PIL import Image
+
 from glasses3d.agent import delivery, jobs, review
 from glasses3d.agent.budget import _is_link, now_iso, write_json_atomic
-from glasses3d.agent.offline import LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing
+from glasses3d.agent.offline import (
+    LoopbackOnly, ProductionTransportTripwire, disable_sdk_tracing, require_offline,
+)
 
-from . import runner
+from . import images, money, runner, transport
+from .conversation import CONTEXT_BETA, canonical_bytes, opening_content, request_body
 from .money import _arithmetic, _text
+from .tool_adapter import tool_definitions
 
 _REVIEW_SERVERS: dict[str, tuple[ThreadingHTTPServer, threading.Thread, dict]] = {}
 
@@ -84,6 +96,163 @@ def _load_spec(job_dir: Path, run_id: str, *, env_file: Path | None = None, offl
                                     run_id=run_id, env_file=env_file, offline=offline)
     runner._request_bytes(spec)
     return spec, scene
+
+
+def _count_opening(body: dict, input_receipt: dict) -> tuple[dict, dict]:
+    """Project the real opening onto the pinned SDK's counting request schema."""
+    accepted = MessageCountTokensParams.__annotations__
+    counted = copy.deepcopy({key: value for key, value in body.items() if key in accepted})
+    omitted = {
+        key: {"value": copy.deepcopy(value),
+              "reason": "Not accepted by the pinned SDK's beta count_tokens request schema."}
+        for key, value in body.items() if key not in accepted
+    }
+    by_id = {row["file_id"]: row for row in input_receipt["images"]}
+    for message in counted["messages"]:
+        for block in message["content"]:
+            if block.get("type") != "image":
+                continue
+            row = by_id[block["source"]["file_id"]]
+            path = runner.confined(Path(row["tile_path"]))
+            raw = path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != row["sha256"]:
+                raise ValueError("opening image bytes changed before token counting")
+            encoded = base64.b64encode(raw).decode("ascii")
+            if len(encoded) > images.LIMITS["max_image_bytes"]:
+                raise ValueError("opening photo exceeds the base64 counting image limit")
+            with Image.open(io.BytesIO(raw)) as source:
+                mime = Image.MIME[source.format]
+            block["source"] = {"type": "base64", "media_type": mime, "data": encoded}
+    if len(canonical_bytes(counted)) >= images.LIMITS["max_request_bytes"]:
+        raise ValueError("opening token-count request must be below 32,000,000 bytes")
+    return counted, omitted
+
+
+def _livecheck_http(directory: Path) -> list[dict]:
+    calls = []
+    for path in (directory / "transport").glob("*.json"):
+        row = _read(path)
+        calls.append({
+            key: row.get(key) for key in
+            ("method", "url", "http_status", "request_id", "outcome", "started", "finished")
+        } | {"receipt": path.relative_to(directory).as_posix()})
+    return sorted(calls, key=lambda row: (row["started"] or "", row["receipt"]))
+
+
+def livecheck(job_dir: Path, *, env_file: Path, owner_ok: str, run_id: str | None = None,
+              cutoff_usd: Decimal = Decimal("20"), inner=None) -> dict:
+    """Check uploads/metadata/opening count only; the wire guard forbids inference.
+
+    ``inner`` is an offline-test-only MockTransport. The production CLI never
+    exposes injection or reads a key until its explicit owner words are checked.
+    """
+    if not isinstance(owner_ok, str) or not owner_ok.strip():
+        raise ValueError("livecheck requires the owner's explicit words")
+    offline = inner is not None
+    if offline:
+        require_offline(runner.OFFLINE_KEY)
+        if not isinstance(inner, httpx2.MockTransport):
+            raise ValueError("offline livechecks require httpx2.MockTransport")
+    check_id = "livecheck-" + uuid4().hex
+    directory = runner.confined(runner.WORK_ROOT / "livecheck" / check_id)
+    settings = runner.ClaudeSettings(cutoff_usd=cutoff_usd)
+    spec, _ = runner.prepare_run(
+        job_dir, settings=settings, run_id=run_id or check_id,
+        env_file=env_file, offline=offline,
+    )
+    if len(spec.photos) != 6:
+        raise ValueError("the M13 livecheck requires exactly six owner photos")
+    directory.mkdir(parents=True, exist_ok=False)
+    receipt_path = directory / "livecheck.json"
+    result = {
+        "schema": "g3d.claude_livecheck/1", "provider": "anthropic", "model": settings.model,
+        "id": check_id, "run_id": spec.run_id, "job_id": spec.job_dir.name,
+        "owner_words": owner_ok, "free_only": True, "offline": offline,
+        "started": now_iso(), "finished": None, "status": "started",
+        "settings": settings.record(), "request_sha256": spec.request_sha256,
+        "input_tokens": None, "uploads": [], "file_metadata": [], "deletions": [],
+        "http_calls": [], "messages_requests": 0, "settled_usd": "0",
+        "receipt": str(receipt_path),
+    }
+    write_json_atomic(receipt_path, result)
+    ledger = money.Ledger.for_livecheck(
+        directory / "ledger.jsonl", run_id=check_id, owner_words=owner_ok,
+        model=settings.model, effort=settings.effort,
+    )
+    client = None
+
+    def uploader(payload, filename):
+        response = client.files.upload(
+            file=(filename, payload, mimetypes.guess_type(filename)[0]),
+            **transport.files_upload_params(),
+        )
+        metadata = response.model_dump(mode="json", exclude_unset=True)
+        result["uploads"].append(metadata)
+        return metadata
+
+    files = images.FileCache(directory / "file-cache.json", uploader, run_id=check_id)
+    try:
+        key = runner.OFFLINE_KEY if offline else runner._production_key(spec.env_file)
+        client = anthropic.Anthropic(
+            api_key=key, http_client=transport.guarded_client(
+                ledger, directory / "transport", inner=inner, file_cache=files, free_only=True),
+            max_retries=0, timeout=900,
+        )
+        content, inputs = opening_content(spec, files=files)
+        write_json_atomic(directory / "input-receipt.json", inputs)
+        body = request_body(spec, [{"role": "user", "content": content}],
+                            tools=tool_definitions(spec.tools))
+        dimensions = {row["file_id"]: (row["w"], row["h"]) for row in inputs["images"]}
+        problems = images.check_request(body, dimensions)
+        if problems:
+            raise ValueError("; ".join(problems))
+        result["opening_request"] = body
+        for file_id in dict.fromkeys(row["file_id"] for row in inputs["images"]):
+            metadata = client.files.retrieve_metadata(file_id)
+            result["file_metadata"].append(metadata.model_dump(mode="json", exclude_unset=True))
+        count_body, omitted = _count_opening(body, inputs)
+        result["count_request"] = transport._clean(count_body)
+        result["count_omitted_fields"] = omitted
+        result["count_schema"] = "anthropic.types.beta.message_count_tokens_params.MessageCountTokensParams"
+        result["count_request_bytes"] = len(canonical_bytes(count_body))
+        response = client.beta.messages.count_tokens(**count_body, betas=[CONTEXT_BETA])
+        result["count_response"] = response.model_dump(mode="json", exclude_unset=True)
+        if type(response.input_tokens) is not int or response.input_tokens < 0:
+            raise ValueError("token count must be a non-negative integer")
+        result["input_tokens"] = response.input_tokens
+        result["status"] = "completed"
+    except BaseException as exc:
+        result["status"] = "interrupted" if not isinstance(exc, Exception) else "failed"
+        # SDK exception messages can echo request data; keep only structured facts.
+        result["error"] = {"type": type(exc).__name__, "http_status": getattr(exc, "status_code", None),
+                           "request_id": getattr(exc, "request_id", None)}
+        if not isinstance(exc, Exception):
+            raise
+    finally:
+        try:
+            cleanup = runner.delete_uploads(client, files, ledger, directory)
+            result["upload_cleanup"] = cleanup
+            result["deletions"] = cleanup["results"]
+        except Exception as exc:
+            result["upload_cleanup"] = {
+                "uploads": len(result["uploads"]), "deleted": 0, "results": [],
+                "failed": [{"error": {"type": type(exc).__name__},
+                            "reason": "Cleanup did not complete; inspect transport and cache receipts."}],
+            }
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception as exc:
+                    result.setdefault("teardown_errors", []).append({"type": type(exc).__name__,
+                                                                    "step": "client.close"})
+            result["finished"] = now_iso()
+            result["http_calls"] = _livecheck_http(directory)
+            rows = runner._ledger_rows(ledger)
+            result["messages_requests"] = sum(row.get("event") == "started" for row in rows)
+            result["settled_usd"] = str(ledger.settled_usd())
+            write_json_atomic(receipt_path, result)
+    return result
 
 
 def status(job_dir: Path, run_id: str) -> dict:
@@ -306,6 +475,13 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--port", type=int, default=0)
     history_parser = commands.add_parser("history")
     history_parser.add_argument("--work-root", type=Path, default=runner.WORK_ROOT)
+    check = commands.add_parser("livecheck", help="Free-only Files and opening token-count check")
+    check.add_argument("job_dir", type=Path)
+    check.add_argument("--env-file", type=Path, required=True)
+    check.add_argument("--owner-ok", required=True)
+    check.add_argument("--run-id", help="Use the intended run ID in the opening text")
+    check.add_argument("--cutoff", type=Decimal, default=Decimal("20"),
+                       help="Match the intended opening text; grants no spending permission")
     return parser
 
 
@@ -369,6 +545,14 @@ def main(argv=None) -> int:
             _show(request_stop(args.job_dir, args.run_id))
         elif command == "history":
             _show(history(args.work_root))
+        elif command == "livecheck":
+            output = livecheck(args.job_dir, env_file=args.env_file, owner_ok=args.owner_ok,
+                               run_id=args.run_id, cutoff_usd=args.cutoff)
+            _show({key: output[key] for key in (
+                "status", "id", "receipt", "input_tokens", "messages_requests", "settled_usd",
+                "upload_cleanup",
+            )})
+            return 0 if output["status"] == "completed" and not output["upload_cleanup"]["failed"] else 2
         elif command == "review":
             record = review_run(args.job_dir, args.run_id, port=args.port)
             _show(record)

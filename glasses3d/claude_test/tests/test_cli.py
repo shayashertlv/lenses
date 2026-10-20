@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import copy
 from decimal import Decimal
 import hashlib
 import http.client
@@ -7,6 +9,7 @@ import json
 from pathlib import Path
 import shutil
 import socket
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -16,7 +19,8 @@ from PIL import Image
 import pytest
 
 from glasses3d.agent import jobs
-from glasses3d.claude_test import cli, runner
+from glasses3d.claude_test import cli, money, runner, transport
+from glasses3d.claude_test.scripted import ScriptedClaude
 
 
 @pytest.fixture
@@ -205,3 +209,190 @@ def test_offline_fixture_still_blocks_external_sockets_and_production_http():
     for module in (httpx, httpx2):
         with pytest.raises(AssertionError, match="real network"):
             module.HTTPTransport().handle_request(module.Request("GET", "https://api.anthropic.com"))
+
+
+@pytest.fixture
+def livecheck_job(tmp_path, monkeypatch):
+    photos = tmp_path / "six-photos"
+    photos.mkdir()
+    labels = ("front", "side", "angled", "rear", "top", "top_oblique")
+    views = {}
+    for index, view in enumerate(labels):
+        name = f"{index}.png"
+        Image.new("RGB", (32 + index, 40 + index), (30 * index, 15, 75)).save(photos / name)
+        views[name] = {"kind": view, "side": "left" if view == "side" else None}
+    views_path = tmp_path / "views.json"
+    views_path.write_text(json.dumps(views), encoding="utf-8")
+    source = jobs.create_job(images=photos, views=views_path, name="Livecheck fixture",
+                             description="Verbatim owner description.",
+                             jobs_root=tmp_path / "source")
+    suffix = "test-" + uuid4().hex
+    check_dir = runner.WORK_ROOT / "livecheck" / ("livecheck-" + suffix)
+    work = runner.WORK_ROOT / "tests" / ("livecheck-" + suffix)
+    work.mkdir(parents=True)
+    target = cli.copy_job(source, work / source.name)
+    monkeypatch.setattr(cli, "uuid4", lambda: SimpleNamespace(hex=suffix))
+    monkeypatch.setattr(runner, "_production_key", lambda *args: pytest.fail("must not read key"))
+    monkeypatch.setattr(runner.JobScene, "start", lambda *args: pytest.fail("must not start Blender"))
+    monkeypatch.setenv("G3D_OFFLINE", "1")
+    try:
+        yield target, check_dir
+    finally:
+        for path in (check_dir, work):
+            resolved = path.resolve()
+            assert resolved.is_relative_to(runner.WORK_ROOT.resolve())
+            if resolved.exists():
+                shutil.rmtree(resolved)
+
+
+def test_livecheck_counts_the_exact_opening_and_deletes_six_uploads(livecheck_job):
+    target, directory = livecheck_job
+    wire = ScriptedClaude([], token_counts=[{"input_tokens": 27461}])
+    words = "Owner permits this free-only upload and token check."
+    output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok=words,
+                          run_id="intended-run", cutoff_usd=Decimal("17"), inner=wire.transport())
+    assert output["status"] == "completed"
+    assert output["input_tokens"] == 27461
+    assert output["free_only"] is True and output["owner_words"] == words
+    assert output["messages_requests"] == 0 and output["settled_usd"] == "0"
+    assert len(output["uploads"]) == len(output["file_metadata"]) == len(output["deletions"]) == 6
+    assert output["upload_cleanup"]["deleted"] == 6
+    assert output["upload_cleanup"]["failed"] == []
+    assert len(wire.uploads) == len(wire.deletions) == 6 and wire.requests == []
+    assert all(row["deleted"] for row in wire.files.values())
+    assert all(row["expires_in_seconds"] == 604800 for row in wire.uploads)
+    assert [row["path"] for row in wire.calls[:6]] == ["/v1/files"] * 6
+    assert [row["method"] for row in wire.calls[6:12]] == ["GET"] * 6
+    assert wire.calls[12]["path"] == "/v1/messages/count_tokens"
+    assert [row["method"] for row in wire.calls[13:]] == ["DELETE"] * 6
+    assert len(output["http_calls"]) == 19
+    assert all(row["http_status"] == 200 and row["request_id"] for row in output["http_calls"])
+
+    spec, _ = runner.prepare_run(target, settings=runner.ClaudeSettings(cutoff_usd=Decimal("17")),
+                                 run_id="intended-run", offline=True)
+    opening = output["opening_request"]
+    assert opening == cli.request_body(spec, opening["messages"], tools=cli.tool_definitions(spec.tools))
+    assert "Verbatim owner description." in json.dumps(opening["messages"])
+    assert "owner cutoff: $17" in json.dumps(opening["messages"])
+    assert len(opening["tools"]) > 20 and all("strict" not in tool for tool in opening["tools"])
+    counted = wire.counts[0]
+    assert set(output["count_omitted_fields"]) == {"max_tokens", "stream", "service_tier", "inference_geo"}
+    assert set(counted) == set(opening) - set(output["count_omitted_fields"])
+    for key in set(counted) - {"messages"}:
+        assert counted[key] == opening[key]
+    assert counted["output_config"] == {"effort": "max"}
+    assert counted["cache_control"]["ttl"] == "1h" and counted["speed"] == "standard"
+    restored = copy.deepcopy(counted)
+    for block, original in zip(restored["messages"][0]["content"], opening["messages"][0]["content"]):
+        if block["type"] == "image":
+            assert block["transformations"] == {"oversized_image": "error"}
+            assert block["source"]["type"] == "base64"
+            assert base64.b64decode(block["source"]["data"]) == wire.files[original["source"]["file_id"]]["bytes"]
+            block["source"] = original["source"]
+    assert restored["messages"] == opening["messages"]
+    receipt = json.loads((directory / "livecheck.json").read_text(encoding="utf-8"))
+    assert receipt == output
+    assert all(isinstance(block["source"]["data"], dict) for block in receipt["count_request"]["messages"][0]["content"]
+               if block["type"] == "image")
+    assert not list(directory.rglob("approval*.json"))
+    for path in (directory / "transport").glob("*.json"):
+        row = json.loads(path.read_text(encoding="utf-8"))
+        assert row["free_only"] is True and row["owner_words"] == words
+    assert all(runner.OFFLINE_KEY not in path.read_text(encoding="utf-8")
+               for path in directory.rglob("*.json"))
+
+
+def test_livecheck_guard_refuses_messages_before_mock_transport(livecheck_job, monkeypatch):
+    target, directory = livecheck_job
+    wire = ScriptedClaude([], token_counts=[{"input_tokens": 123}])
+    actual = transport.guarded_client
+    refused = []
+
+    def checked_guard(ledger, receipts_dir, **kwargs):
+        assert kwargs["free_only"] is True
+        client = actual(ledger, receipts_dir, **kwargs)
+        with pytest.raises(transport.Refused, match="free"):
+            client.post("https://api.anthropic.com/v1/messages", json={"model": runner.MODEL})
+        refused.append(True)
+        return client
+
+    monkeypatch.setattr(transport, "guarded_client", checked_guard)
+    output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok="Free check only.",
+                          inner=wire.transport())
+    assert refused == [True] and output["status"] == "completed"
+    assert wire.requests == [] and all(row["path"] != "/v1/messages" for row in wire.calls)
+    reopened = money.Ledger.for_livecheck(directory / "ledger.jsonl", run_id=output["id"],
+                                         owner_words="Free check only.")
+    assert reopened.may_start_request()[0] is False and reopened.settled_usd() == Decimal(0)
+
+
+@pytest.mark.parametrize("failure", ["metadata", "count", "upload"])
+def test_livecheck_deletes_uploads_when_a_free_step_fails(livecheck_job, failure):
+    target, directory = livecheck_job
+    wire = ScriptedClaude([], token_counts=[{"input_tokens": 123}])
+    calls = []
+
+    def handle(request):
+        calls.append((request.method, request.url.path))
+        fail = ((failure == "metadata" and request.method == "GET")
+                or (failure == "count" and request.url.path.endswith("/count_tokens"))
+                or (failure == "upload" and request.method == "POST" and request.url.path == "/v1/files"
+                    and len(wire.uploads) == 2))
+        if fail:
+            return httpx2.Response(400, headers={"request-id": "req_free_failure"},
+                                   json={"type": "error", "error": {"type": "invalid_request_error",
+                                                                  "message": "Offline rejection"}})
+        return wire(request)
+
+    output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok="Free check only.",
+                          inner=httpx2.MockTransport(handle))
+    assert output["status"] == "failed"
+    expected = 2 if failure == "upload" else 6
+    assert len(wire.uploads) == len(wire.deletions) == output["upload_cleanup"]["deleted"] == expected
+    assert all(row["deleted"] for row in wire.files.values())
+    assert output["error"]["http_status"] == 400 and output["error"]["request_id"] == "req_free_failure"
+    assert output["messages_requests"] == 0 and output["settled_usd"] == "0"
+    assert any(row["http_status"] == 400 for row in output["http_calls"])
+    assert json.loads((directory / "livecheck.json").read_text(encoding="utf-8")) == output
+
+
+def test_livecheck_failed_delete_is_recorded_once_with_expiry(livecheck_job):
+    target, _ = livecheck_job
+    wire = ScriptedClaude([], token_counts=[{"input_tokens": 123}], delete_statuses=[503])
+    output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok="Free check only.",
+                          inner=wire.transport())
+    assert output["status"] == "completed" and output["input_tokens"] == 123
+    assert output["upload_cleanup"]["deleted"] == 5 and len(output["upload_cleanup"]["failed"]) == 1
+    failed = output["upload_cleanup"]["failed"][0]
+    assert failed["expires_at"] and failed["file_id"] == wire.deletions[0]["file_id"]
+    assert len(wire.deletions) == 6
+    assert output["messages_requests"] == 0 and output["settled_usd"] == "0"
+
+
+def test_livecheck_command_requires_owner_words_and_passes_exact_arguments(livecheck_job, monkeypatch, capsys):
+    target, _ = livecheck_job
+    args = ["livecheck", str(target), "--env-file", str(target / "never-read.env")]
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(args)
+    captured = []
+
+    def capture(job_dir, **kwargs):
+        captured.append((job_dir, kwargs))
+        return {"status": "completed", "id": "test", "receipt": "livecheck.json", "input_tokens": 123,
+                "messages_requests": 0, "settled_usd": "0", "upload_cleanup": {"failed": []}}
+
+    monkeypatch.setattr(cli, "livecheck", capture)
+    assert cli.main([*args, "--owner-ok", "Exact owner words.", "--run-id", "intended", "--cutoff", "9"]) == 0
+    assert captured == [(target, {"env_file": target / "never-read.env", "owner_ok": "Exact owner words.",
+                                 "run_id": "intended", "cutoff_usd": Decimal("9")})]
+    assert json.loads(capsys.readouterr().out)["messages_requests"] == 0
+
+
+def test_livecheck_requires_owner_words_and_six_photos_before_key_or_network(private_job, monkeypatch):
+    source, target = private_job
+    cli.copy_job(source, target)
+    monkeypatch.setattr(runner, "_production_key", lambda *args: pytest.fail("must not read key"))
+    with pytest.raises(ValueError, match="explicit words"):
+        cli.livecheck(target, env_file=target / "never-read.env", owner_ok="  ")
+    with pytest.raises(ValueError, match="six owner photos"):
+        cli.livecheck(target, env_file=target / "never-read.env", owner_ok="Free check only.")

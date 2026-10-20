@@ -462,6 +462,7 @@ class _Runtime:
         self.stage_call_id = stage_call_id
         self._stream = None
         self._stream_lock = threading.Lock()
+        self._stream_cancelled = threading.Event()
 
     def dimensions(self):
         return {v["file_id"]: (v["w"], v["h"]) for v in self.files._read().values()}
@@ -480,6 +481,9 @@ class _Runtime:
                 self.appended_estimate[key] = self.appended_estimate.get(key, 0) + value
 
     def _stream_request(self, body):
+        self.log.check_stop()
+        if self._stream_cancelled.is_set() or self.shared.get("cancelled"):
+            raise Halt("stopped", "Stop requested")
         kwargs = copy.deepcopy(body)
         kwargs.pop("stream", None)
         with self.client.beta.messages.stream(
@@ -487,6 +491,16 @@ class _Runtime:
             with self._stream_lock:
                 self._stream = stream
             try:
+                # Stop can land while the SDK is waiting for response headers,
+                # before _close_stream has a published stream to close.
+                if (self._stream_cancelled.is_set() or self.shared.get("cancelled")
+                        or self.log.stop_requested()):
+                    self.log.stop_observed = True
+                    self.shared["cancelled"] = True
+                    try:
+                        stream.close()
+                    finally:
+                        raise Halt("stopped", "Stop requested")
                 message = stream.get_final_message()
                 return message.model_dump(mode="json", exclude_unset=True)
             finally:
@@ -495,9 +509,27 @@ class _Runtime:
 
     def _close_stream(self):
         with self._stream_lock:
+            self._stream_cancelled.set()
             stream = self._stream
         if stream is not None:
             stream.close()
+
+    async def _stop_stream(self, task):
+        self.log.stop_observed = True
+        self.shared["cancelled"] = True
+        closing = asyncio.create_task(asyncio.to_thread(self._close_stream))
+        try:
+            try:
+                await _join(closing)
+            except Exception:
+                # Closing an incomplete SSE records unknown and raises Refused.
+                # Its charge remains in the ledger; Stop remains the run cause.
+                pass
+        finally:
+            try:
+                await _join(task)
+            except Exception:
+                pass
 
     async def request(self, *, summary=False):
         self.log.check_stop()
@@ -560,23 +592,16 @@ class _Runtime:
         write_json_atomic(request_path.with_name(f"{number:04d}-meter.json"), meter)
         task = asyncio.create_task(asyncio.to_thread(self._stream_request, body))
         try:
-            while not task.done():
-                await asyncio.wait({task}, timeout=0.2)
+            while True:
                 if self.log.stop_requested() or self.shared.get("cancelled"):
-                    self.log.stop_observed = True
-                    await asyncio.to_thread(self._close_stream)
-                    try:
-                        await _join(task)
-                    except Exception:
-                        pass
-                    raise Halt(_ledger_failure(self.ledger, StopRequested("Stop requested")), "Stop requested")
+                    await self._stop_stream(task)
+                    raise Halt("stopped", "Stop requested")
+                if task.done():
+                    break
+                await asyncio.wait({task}, timeout=0.2)
             response = task.result()
         except asyncio.CancelledError:
-            await asyncio.to_thread(self._close_stream)
-            try:
-                await _join(task)
-            except Exception:
-                pass
+            await self._stop_stream(task)
             raise
         finally:
             self.log._heartbeat("idle")
@@ -604,7 +629,7 @@ class _Runtime:
         if any(e.get("type") == "clear_tool_uses_20250919" for e in edits):
             self.adapter.expire_image_dedup()
             self.log.event("context_edit", edits=edits, local_history_unchanged=True)
-        if settlement.get("refusal") or response.get("stop_reason") == "refusal" or response.get("stop_details"):
+        if settlement.get("refusal") or response.get("stop_reason") == "refusal":
             raise Halt("provider_rejected", "provider refusal; settled cost is an upper bound")
         if response.get("stop_reason") in {"max_tokens", "model_context_window_exceeded"}:
             raise Halt("output_limit", str(response["stop_reason"]))
@@ -738,7 +763,7 @@ class ClaudeStageRuntime:
             status = await runtime.drive()
             head = await _owned_thread(scene.exit_checkpoint)
         except BaseException as exc:
-            status = _ledger_failure(self.ledger, exc)
+            status = "stopped" if self.log.stop_observed else _ledger_failure(self.ledger, exc)
             error = {"type": type(exc).__name__, "message": str(exc)[:2000]}
             if not isinstance(exc, Exception):
                 raise
@@ -774,6 +799,64 @@ def _production_key(path):
     return value
 
 
+def delete_uploads(client, files, ledger, directory):
+    """Close admission and attempt each owned upload once, preserving the run outcome.
+
+    The caller must first join the parent and all specialist work. The ledger and
+    transport independently refuse deletion while a Messages request remains open.
+    """
+    report = {"uploads": 0, "deleted": 0, "failed": [], "results": []}
+    records = files.uploaded_records()
+    report["uploads"] = len(records)
+    admission_error = None
+    try:
+        ledger.finish_conversation()
+    except Exception as exc:
+        admission_error = f"{type(exc).__name__}: {exc}"
+        report["admission_error"] = admission_error
+    for digest, record in records.items():
+        entry = {"file_id": record["file_id"], "sha256": digest,
+                 "expires_at": record["expires_at"], "deleted": bool(record.get("deleted")),
+                 "http_status": None, "request_id": None}
+        if entry["deleted"]:
+            entry["deleted_at"] = record["deleted_at"]
+        elif record.get("deletion_attempted_at"):
+            # A repeated teardown is an audit, not another deletion retry.
+            entry["error"] = record.get("deletion_error", "previous deletion did not complete")
+        else:
+            try:
+                if admission_error:
+                    raise transport.Refused(admission_error)
+                response = client.files.with_raw_response.delete(record["file_id"])
+                entry.update(http_status=response.status_code,
+                             request_id=response.headers.get("request-id"))
+                reply = response.parse()
+                if reply.id != record["file_id"] or reply.type != "file_deleted":
+                    raise ValueError("Files deletion response does not confirm this upload")
+                files.record_deletion(record["file_id"], deleted=True)
+                saved = files.uploaded_records()[digest]
+                entry.update(deleted=True, deleted_at=saved["deleted_at"])
+            except Exception as exc:
+                response = getattr(exc, "response", None)
+                if response is not None:
+                    entry.update(http_status=response.status_code,
+                                 request_id=response.headers.get("request-id"))
+                entry["error"] = f"{type(exc).__name__}: {exc}"[:2000]
+                try:
+                    files.record_deletion(record["file_id"], deleted=False, error=entry["error"])
+                except Exception as cache_error:
+                    entry["cache_error"] = f"{type(cache_error).__name__}: {cache_error}"[:2000]
+        report["results"].append(entry)
+        if entry["deleted"]:
+            report["deleted"] += 1
+        else:
+            report["failed"].append(entry)
+        # Retain incremental progress if later process teardown is interrupted.
+        write_json_atomic(Path(directory) / "upload-cleanup.json", report)
+    write_json_atomic(Path(directory) / "upload-cleanup.json", report)
+    return report
+
+
 async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, pressure_hook=None,
                      sleep=time.sleep):
     spec.settings.validate()
@@ -798,11 +881,12 @@ async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, p
     if shutil.disk_usage(root).free < (1 << 30):
         raise RunRefused("at least 1 GiB free disk is required")
     started, clock = now_iso(), time.perf_counter()
-    ledger = client = conversation = runtime = stages = log = heartbeat = load_watch = None
+    ledger = client = files = conversation = runtime = stages = log = heartbeat = load_watch = None
     consumed = False
     result = None
     status, error, head, exit_error, pending = "failed", None, None, None, None
     teardown = []
+    upload_cleanup = {"uploads": 0, "deleted": 0, "failed": [], "results": []}
     shared = {"requests": 0}
     paid = PaidRunLock(lock_root)
     with job_lock(root):
@@ -823,18 +907,18 @@ async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, p
             if hasattr(scene, "save"):
                 scene.save()
             key = OFFLINE_KEY if spec.offline else _production_key(spec.env_file)
-            client = anthropic.Anthropic(
-                api_key=key, http_client=transport.guarded_client(
-                    ledger, directory / "transport", inner=inner, sleep=sleep),
-                max_retries=0, timeout=900,
-            )
             def uploader(payload, filename):
                 response = client.files.upload(
                     file=(filename, payload, "image/" + ("jpeg" if filename.endswith(".jpg")
                                                        else filename.rsplit(".", 1)[-1])),
                     **transport.files_upload_params())
-                return response.id
-            files = images.FileCache(directory / "file-cache.json", uploader)
+                return response.model_dump(mode="json", exclude_unset=True)
+            files = images.FileCache(directory / "file-cache.json", uploader, run_id=spec.run_id)
+            client = anthropic.Anthropic(
+                api_key=key, http_client=transport.guarded_client(
+                    ledger, directory / "transport", inner=inner, sleep=sleep, file_cache=files),
+                max_retries=0, timeout=900,
+            )
             blobs = BlobStore(root / "blobs")
             conversation = Conversation(root / "session" / "session.sqlite", blobs=blobs)
             heartbeat = ClaudeHeartbeat(root / "heartbeat.json", model=MODEL, run_id=spec.run_id,
@@ -868,13 +952,57 @@ async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, p
         except BaseException as exc:
             if not consumed:
                 raise
-            status = _ledger_failure(ledger, exc) if ledger is not None else "failed"
+            status = ("stopped" if log and log.stop_observed
+                      else _ledger_failure(ledger, exc) if ledger is not None else "failed")
             error = {"type": type(exc).__name__, "message": str(exc)[:2000]}
             if not isinstance(exc, Exception):
                 pending = exc
         finally:
             if stages:
                 await stages.close()
+            if ledger is not None:
+                # All streaming/tool threads have unwound before this point.
+                # Preserve any interrupted settlement as unknown before closing
+                # admission; deletion must never disguise an unresolved charge.
+                rows = _ledger_rows(ledger)
+                terminal = {r["request_no"] for r in rows if r["event"] in {
+                    "settled", "unknown", "rejected", "not_sent"}}
+                for row in rows:
+                    if row["event"] == "started" and row["request_no"] not in terminal:
+                        ledger.record_unknown(row["request_no"], "run ended before request settlement")
+                        if status != "stopped":
+                            status = "provider_unknown"
+                if files is not None and client is not None:
+                    cleanup_task = asyncio.create_task(asyncio.to_thread(
+                        delete_uploads, client, files, ledger, directory))
+                    try:
+                        try:
+                            upload_cleanup = await asyncio.shield(cleanup_task)
+                        except asyncio.CancelledError as exc:
+                            pending = pending or exc
+                            upload_cleanup = await _join(cleanup_task)
+                    except Exception as exc:
+                        failure = f"{type(exc).__name__}: {exc}"[:2000]
+                        teardown.append({"step": "delete_uploads", "type": type(exc).__name__,
+                                         "message": str(exc)[:2000]})
+                        upload_cleanup["error"] = failure
+                        try:
+                            records = files.uploaded_records()
+                            entries = [{"file_id": row["file_id"], "sha256": digest,
+                                        "expires_at": row["expires_at"],
+                                        "deleted": bool(row.get("deleted")),
+                                        **({"deleted_at": row["deleted_at"]} if row.get("deleted")
+                                           else {"error": failure})}
+                                       for digest, row in records.items()]
+                            upload_cleanup.update(
+                                uploads=len(entries), deleted=sum(row["deleted"] for row in entries),
+                                failed=[row for row in entries if not row["deleted"]], results=entries)
+                        except Exception:
+                            # The original cleanup failure remains explicit when
+                            # its cache cannot be read for a per-file fallback.
+                            pass
+                else:
+                    ledger.finish_conversation()
             if consumed:
                 try:
                     head = await _owned_thread(scene.exit_checkpoint)
@@ -905,6 +1033,8 @@ async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, p
                     "seconds": round(time.perf_counter() - clock, 3), "settings": spec.settings.record(),
                     "requests": sum(r["event"] == "started" for r in rows), "turns_used": shared["requests"],
                     "budget": ledger.money_status() if ledger else None,
+                    "unknown_charges": [{"request_no": row["request_no"], "reason": row["reason"]}
+                                        for row in rows if row["event"] == "unknown"],
                     "finish_notes": len(runtime.finish_notes) if runtime else 0,
                     "finish_note_records": runtime.finish_notes if runtime else [],
                     "continuations": 0, "tool_calls": len(log.tool_calls) if log else 0,
@@ -912,6 +1042,7 @@ async def run_claude(spec, *, scene=None, inner=None, isolated_lock_root=None, p
                     "stages": stages.outcomes if stages else [], "renewals": runtime.renewals if runtime else [],
                     "rollback": None, "dangling_repaired": [], "exit_checkpoint": head,
                     "exit_checkpoint_error": exit_error, "teardown_errors": teardown,
+                    "upload_cleanup": upload_cleanup,
                     "stop_observed": bool(log and log.stop_observed),
                     "transcript_errors": log.transcript_errors if log else [], "transcript": "transcript.md",
                     "approval_binding": seal, "offline": spec.offline, "tool_test": spec.offline,
@@ -1026,6 +1157,8 @@ def write_summary(spec, result, delivered):
         "provider": "anthropic", "model": MODEL, "run_id": spec.run_id,
         "status": result["status"], "tool_test": spec.offline, "seconds": result["seconds"],
         "requests": result["requests"], "budget": result["budget"], "delivery": delivered,
+        "stop_observed": result.get("stop_observed", False),
+        "unknown_charges": result.get("unknown_charges", []),
         "request_counts": {"model_requests": result["requests"], "message_http_attempts": len(messages),
                            "retry_resends": sum(row.get("attempt", 1) > 1 for row in messages),
                            "retry_waits": sum(row.get("outcome") == "retry" for row in attempts),
@@ -1036,19 +1169,39 @@ def write_summary(spec, result, delivered):
                            "unique_sha256": len({row["sha256"] for row in records}),
                            "unique_file_ids": len({row["file_id"] for row in records})},
         "public_image_references": mentions, "lens_material_choices": lens,
+        "upload_cleanup": result.get("upload_cleanup", {}),
         "image_reference_method": (
             "Literal full file ID, SHA, tool call ID or label matches in public text blocks only; "
             "thinking and tool inputs excluded. Reused labels/call IDs may refer to multiple images; "
             "implicit references are not counted. Neither mentions nor receipts prove internal attention."),
     }
     write_json_atomic(directory / "summary.json", summary)
+    unknown_text = "".join(
+        f"\nUnknown charge for request {row['request_no']}: {row['reason']}. "
+        "The bill is not established; it is not included in settled spend.\n"
+        for row in summary["unknown_charges"])
+    cleanup = summary["upload_cleanup"]
+    cleanup_text = (f"\nUploads: {cleanup.get('uploads', 0)} made; "
+                    f"{cleanup.get('deleted', 0)} deleted at teardown.\n")
+    for failure in cleanup.get("failed", []):
+        cleanup_text += (f"\nFailed deletion: {failure['file_id']}; "
+                         f"expires at {failure.get('expires_at', 'unknown')}; "
+                         f"{failure.get('error', 'unconfirmed deletion')}.\n")
+    if cleanup.get("admission_error"):
+        cleanup_text += f"\nUpload cleanup admission failed: {cleanup['admission_error']}.\n"
+    cleanup_errors = [row for row in result.get("teardown_errors", [])
+                      if row["step"] == "delete_uploads"]
+    if cleanup_errors:
+        cleanup_text += f"\nUpload cleanup could not finish: {json.dumps(cleanup_errors)}.\n"
     (directory / "summary.md").write_text(
         f"Anthropic / {MODEL}\n\nStatus: {result['status']}. "
         f"{result['requests']} requests in {result['seconds']} seconds.\n\n"
         f"Settled money: {json.dumps(result['budget'])}.\n"
+        + unknown_text +
         f"\nDelivery: {delivered.get('delivery_id', delivered.get('id', delivered['status']))}; "
         f"GLB SHA-256: {delivered.get('glb_sha256', 'unavailable')}.\n"
         f"\nRequest counts: {json.dumps(summary['request_counts'])}.\n"
+        + cleanup_text +
         f"\nImage receipts: {json.dumps(summary['image_receipts'])}. "
         f"{len(mentions)} literal public image references; {summary['image_reference_method']}\n"
         f"\nLens materials: {json.dumps(lens, ensure_ascii=False)}.\n"

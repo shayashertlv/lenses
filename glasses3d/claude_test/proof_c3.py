@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections import defaultdict
+from collections import Counter, defaultdict
+from datetime import datetime
 from decimal import Decimal
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +63,29 @@ UNIT_ASSERTIONS = {
         "test_tiled_native_pixels_and_output_order_with_upload_dedup",
         "test_opening_keeps_whole_reference_bytes_and_verbatim_inputs",
         "test_real_sdk_files_retains_bytes_and_uploads_cache_once",
+    ),
+    "scripted_file_deletion_identity_and_retained_evidence": (
+        "test_real_sdk_files_delete_preserves_evidence_and_per_upload_identity",
+        "test_scripted_failed_delete_preserves_file_and_does_not_retry",
+        "test_scripted_deleted_file_is_inaccessible",
+    ),
+    "owned_upload_cleanup_all_endings_closed_admission_and_failed_deletes": (
+        "test_teardown_deletes_uploads_after_every_ending",
+        "test_failed_delete_is_reported_once_with_expiry_without_changing_status",
+        "test_delete_requires_finished_closed_ledger_and_own_run_cache",
+        "test_delete_failure_is_free_and_never_retried",
+        "test_closed_run_still_refuses_list_and_download",
+        "test_cache_records_provider_expiry_and_deletion_outcomes",
+        "test_parent_teardown_includes_specialist_uploads",
+        "test_cancellation_during_delete_waits_before_releasing_locks",
+    ),
+    "truthful_stop_details_and_free_only_livecheck": (
+        "test_non_refusal_stop_details_are_receipted_and_do_not_end_run",
+        "test_refusal_is_priced_upper_bound_and_draft",
+        "test_livecheck_counts_the_exact_opening_and_deletes_six_uploads",
+        "test_livecheck_guard_refuses_messages_before_mock_transport",
+        "test_livecheck_deletes_uploads_when_a_free_step_fails",
+        "test_livecheck_failed_delete_is_recorded_once_with_expiry",
     ),
     "large_count_projection_is_not_inference_limit_and_forecast_has_uncertainty": (
         "test_large_base64_projection_does_not_block_small_files_inference",
@@ -399,8 +424,17 @@ def audit_wire(wire, spec, script):
         previous = body
     assert len(epochs) == 2 and script.forced and script.renewal_finish_reset
     assert not wire.counts, "runtime must never call count_tokens"
-    assert len(wire.uploads) == len(wire.files), "an image SHA was uploaded more than once"
+    assert len(wire.uploads) == len(wire.files) == len({row["sha256"] for row in wire.uploads}), (
+        "an image SHA was uploaded more than once")
     assert all(row["expires_in_seconds"] == 604800 for row in wire.uploads)
+    for call in wire.calls:
+        allowed = ((call["method"], call["path"]) in {
+            ("POST", "/v1/messages"), ("POST", "/v1/files")}
+            or call["method"] in {"GET", "DELETE"}
+            and re.fullmatch(r"/v1/files/[A-Za-z0-9_-]+", call["path"]))
+        assert allowed, f"unexpected native proof endpoint: {call}"
+        if call["method"] in {"GET", "DELETE"}:
+            assert call["path"].rsplit("/", 1)[1] in wire.files
     for index in epochs:
         opening_ids = [item["source"]["file_id"] for item in _images(wire.requests[index]["messages"][0])]
         for photo in spec.photos:
@@ -414,6 +448,66 @@ def audit_wire(wire, spec, script):
             "max_images": max(len(_images(body)) for body in wire.requests),
             "thinking_roundtrip": True, "all_six_photos_in_each_epoch": True,
             "descriptors_unchanged": True, "upload_once": True}
+
+
+def audit_upload_cleanup(run_dir, outcome, wire):
+    """Verify actual post-run wire deletes against durable cache/accounting."""
+    result = outcome["result"]
+    cleanup = result["upload_cleanup"]
+    assert cleanup == read(run_dir / "upload-cleanup.json")
+    assert cleanup == read(run_dir / "summary.json")["upload_cleanup"]
+    cache = read(run_dir / "file-cache.json")
+    uploaded_ids = {row["file_id"] for row in wire.uploads}
+    assert uploaded_ids and len(uploaded_ids) == len(wire.uploads)
+    assert len(cache) == len(uploaded_ids)
+    assert {row["file_id"] for row in cache.values()} == uploaded_ids
+    assert cleanup["uploads"] == cleanup["deleted"] == len(uploaded_ids)
+    assert cleanup["failed"] == [] and not cleanup.get("admission_error")
+    assert len(cleanup["results"]) == len(uploaded_ids)
+    assert {row["file_id"] for row in cleanup["results"]} == uploaded_ids
+    expected_deletes = Counter({file_id: 1 for file_id in uploaded_ids})
+    assert Counter(row["file_id"] for row in wire.deletions) == expected_deletes
+    assert all(row["deleted"] and row["http_status"] == 200 for row in wire.deletions)
+    assert all(wire.files[file_id]["deleted"] and wire.files[file_id]["deleted_at"]
+               for file_id in uploaded_ids)
+    ledger = [json.loads(line) for line in (run_dir / "ledger.jsonl").read_text(encoding="utf-8").splitlines()]
+    closed = [index for index, row in enumerate(ledger) if row["event"] == "conversation_finished"]
+    assert len(closed) == 1
+    closed_index = closed[0]
+    terminal = {row["request_no"] for row in ledger[:closed_index]
+                if row["event"] in {"settled", "unknown", "rejected", "not_sent"}}
+    started = {row["request_no"] for row in ledger if row["event"] == "started"}
+    assert started == terminal, "conversation closed with an unresolved request"
+    assert not any(row["event"] == "started" for row in ledger[closed_index + 1:])
+    closed_at = datetime.fromisoformat(ledger[closed_index]["time"].replace("Z", "+00:00"))
+    receipts = [read(path) for path in (run_dir / "transport").glob("*.json")]
+    deletes = [row for row in receipts if row.get("method") == "DELETE"]
+    assert len(deletes) == len(uploaded_ids)
+    assert Counter(urlsplit(row["url"]).path.rsplit("/", 1)[1] for row in deletes) == expected_deletes
+    for entry in cleanup["results"]:
+        file_id, digest = entry["file_id"], entry["sha256"]
+        record = cache[digest]
+        assert record["file_id"] == file_id and record["run_id"] == result["run_id"]
+        assert record["deleted"] is True and record["deleted_at"] == entry["deleted_at"]
+        assert record["expires_in_seconds"] == 604800 and record["expires_at"] == entry["expires_at"]
+        assert wire.files[file_id]["sha256"] == digest
+        authority = next(row for row in deletes if urlsplit(row["url"]).path.rsplit("/", 1)[1] == file_id)
+        assert authority["request_no"] is None and authority["cost_usd"] == "0"
+        assert authority["outcome"] == "free" and authority["http_status"] == 200
+        assert authority["request_id"] == entry["request_id"]
+        assert authority["response"] == {"id": file_id, "type": "file_deleted"}
+        assert datetime.fromisoformat(authority["started"].replace("Z", "+00:00")) >= closed_at
+        assert datetime.fromisoformat(record["deleted_at"].replace("Z", "+00:00")) >= closed_at
+    last_message = max(index for index, row in enumerate(wire.calls)
+                       if (row["method"], row["path"]) == ("POST", "/v1/messages"))
+    first_delete = next(index for index, row in enumerate(wire.calls) if row["method"] == "DELETE")
+    assert first_delete > last_message
+    assert all(row["method"] == "DELETE" for row in wire.calls[first_delete:])
+    markdown = (run_dir / "summary.md").read_text(encoding="utf-8")
+    assert f"Uploads: {len(uploaded_ids)} made; {len(uploaded_ids)} deleted at teardown." in markdown
+    return {"status": "passed", "uploads": len(uploaded_ids), "deleted": len(deletes),
+            "failed": [], "conversation_closed_before_deletion": True,
+            "durable_cache_and_receipts_verified": True}
 
 
 def audit_pixels(run_dir, wire):
@@ -622,6 +716,7 @@ async def native(work, workers, assertions):
         assertions["native_tile_pixels"] = {"status": "passed", **audit_pixels(run_dir, wire)}
         assertions["durable_renewal_epochs"] = await audit_epochs(private, renewal, wire)
         assertions["transport_settlement_and_forecasts"] = audit_settlement_and_forecasts(run_dir, wire)
+        assertions["uploads_deleted_at_teardown"] = audit_upload_cleanup(run_dir, outcome, wire)
         delivered = load_delivery(private)
         assert digest(delivered["model"]) == delivered["glb_sha256"]
         assertions["native_run_summary"] = audit_summary(run_dir, outcome, wire, delivered)

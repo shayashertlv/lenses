@@ -86,6 +86,102 @@ def test_real_sdk_files_retains_bytes_and_uploads_cache_once(tmp_path):
     wire.assert_complete()
 
 
+def test_real_sdk_files_delete_preserves_evidence_and_per_upload_identity(tmp_path):
+    """A shared fake service must distinguish identical photos from two runs."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (53, 37), (3, 19, 111)).save(buffer, "PNG")
+    raw = buffer.getvalue()
+    wire = ScriptedClaude([])
+    with anthropic.Anthropic(api_key="sk-offline-scripted", max_retries=0,
+                              http_client=httpx2.Client(transport=wire.transport(), trust_env=False)) as client:
+        def upload(data, filename):
+            return client.files.upload(file=(filename, data, "image/png"), **files_upload_params()).id
+        photo = tile(raw, "owner photo")[0]
+        first = FileCache(tmp_path / "first-run-cache.json", upload).file_id_for(photo)
+        second = FileCache(tmp_path / "second-run-cache.json", upload).file_id_for(photo)
+        assert first != second
+        deletion = client.files.delete(first)
+        assert deletion.id == first and deletion.type == "file_deleted"
+        assert deletion._request_id == wire.deletions[0]["request_id"]
+        assert client.files.retrieve_metadata(second).size_bytes == len(raw)
+    assert len(wire.uploads) == 2
+    assert wire.files[first]["bytes"] == wire.files[second]["bytes"] == raw
+    assert wire.files[first]["metadata"]["expires_at"] == "2026-10-27T00:00:00Z"
+    assert wire.files[first]["deleted"] is True and wire.files[first]["deleted_at"]
+    assert wire.files[second]["deleted"] is False and wire.files[second]["deleted_at"] is None
+    assert wire.assert_complete()["deleted_files"] == 1
+
+
+def test_scripted_failed_delete_preserves_file_and_does_not_retry():
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 24)).save(buffer, "PNG")
+    wire = ScriptedClaude([], delete_statuses=[503])
+    with anthropic.Anthropic(api_key="sk-offline-scripted", max_retries=0,
+                              http_client=httpx2.Client(transport=wire.transport(), trust_env=False)) as client:
+        uploaded = client.files.upload(file=("fixture.png", buffer.getvalue(), "image/png"),
+                                       **files_upload_params())
+        with pytest.raises(anthropic.APIStatusError) as failure:
+            client.files.delete(uploaded.id)
+        assert failure.value.status_code == 503
+        assert failure.value.request_id == wire.deletions[0]["request_id"]
+        assert client.files.retrieve_metadata(uploaded.id).id == uploaded.id
+    assert len(wire.deletions) == 1
+    assert wire.deletions[0]["deleted"] is False
+    assert wire.files[uploaded.id]["deleted"] is False
+    assert wire.assert_complete()["deleted_files"] == 0
+
+
+def test_cleanup_proof_audits_real_guarded_teardown(tmp_path):
+    """Check proof receipt/cache assumptions cheaply before its native run."""
+    from glasses3d.agent.budget import write_json_atomic
+    from glasses3d.claude_test.proof_c3 import audit_upload_cleanup
+    from glasses3d.claude_test.runner import delete_uploads
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 24)).save(buffer, "PNG")
+    wire = ScriptedClaude([ScriptTurn([{"type": "text", "text": "ending"}], "end_turn")])
+    ledger = ledger_at(tmp_path)
+    def upload(data, filename):
+        return client.files.upload(file=(filename, data, "image/png"), **files_upload_params()).id
+    files = FileCache(tmp_path / "file-cache.json", upload, run_id=ledger.run_id)
+    with anthropic.Anthropic(api_key="sk-offline-scripted", max_retries=0,
+                              http_client=guarded_client(ledger, tmp_path / "transport",
+                                                         file_cache=files, inner=wire.transport())) as client:
+        file_id = files.file_id_for(tile(buffer.getvalue(), "owner photo")[0])
+        stream(client, [{"role": "user", "content": [image_block(file_id)]}])
+        cleanup = delete_uploads(client, files, ledger, tmp_path)
+    result = {"run_id": ledger.run_id, "upload_cleanup": cleanup}
+    write_json_atomic(tmp_path / "summary.json", {"upload_cleanup": cleanup})
+    (tmp_path / "summary.md").write_text("Uploads: 1 made; 1 deleted at teardown.", encoding="utf-8")
+    assert audit_upload_cleanup(tmp_path, {"result": result}, wire)["deleted"] == 1
+    wire.assert_complete()
+
+
+@pytest.mark.parametrize("operation", ["metadata", "delete", "message"])
+def test_scripted_deleted_file_is_inaccessible(operation):
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 24)).save(buffer, "PNG")
+    wire = ScriptedClaude([])
+    with httpx2.Client(transport=wire.transport(), trust_env=False) as http:
+        uploaded = http.post("https://api.anthropic.com/v1/files",
+                             files={"file": ("fixture.png", buffer.getvalue(), "image/png")},
+                             data={"expires_in_seconds": "604800"}).json()
+        url = "https://api.anthropic.com/v1/files/" + uploaded["id"]
+        assert http.delete(url).json() == {"id": uploaded["id"], "type": "file_deleted"}
+        with pytest.raises(AssertionError, match="deleted"):
+            if operation == "metadata":
+                http.get(url)
+            elif operation == "delete":
+                http.delete(url)
+            else:
+                http.post("https://api.anthropic.com/v1/messages", json={
+                    "model": MODEL, "max_tokens": 128000, "stream": True,
+                    "output_config": {"effort": "max"}, "service_tier": "standard_only",
+                    "messages": [{"role": "user", "content": [image_block(uploaded["id"])]}],
+                })
+    assert len(wire.violations) == 1
+
+
 @pytest.mark.parametrize("status", [429, 529])
 def test_retry_after_replays_identical_body_and_logs_assumption(tmp_path, status):
     wire = ScriptedClaude([ScriptTurn([], http_status=status, headers={"retry-after": "2.5"}),
@@ -204,6 +300,21 @@ def test_count_fake_is_explicit_and_never_spends(tmp_path):
     with client:
         result = client.messages.count_tokens(model=MODEL, messages=[{"role": "user", "content": "count me"}])
     assert result.input_tokens == 1234 and ledger.settled_usd() == 0
+    wire.assert_complete()
+
+
+def test_count_fake_accepts_supported_opening_settings(tmp_path):
+    wire = ScriptedClaude([], token_counts=[{"input_tokens": 1234}])
+    client, ledger = sdk(tmp_path, wire)
+    settings = {"output_config": {"effort": "max"}, "cache_control": {"type": "ephemeral", "ttl": "1h"},
+                "speed": "standard",
+                "context_management": {"edits": [{"type": "clear_tool_uses_20250919"}]}}
+    with client:
+        result = client.beta.messages.count_tokens(
+            model=MODEL, messages=[{"role": "user", "content": "count me"}],
+            betas=["context-management-2025-06-27"], **settings)
+    assert result.input_tokens == 1234 and ledger.settled_usd() == 0
+    assert {key: wire.counts[0][key] for key in settings} == settings
     wire.assert_complete()
 
 

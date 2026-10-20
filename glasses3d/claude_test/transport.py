@@ -352,6 +352,8 @@ def _route(request):
         return "file"
     if _FILE.fullmatch(path) and request.method == "GET":
         return "file"
+    if _FILE.fullmatch(path) and request.method == "DELETE":
+        return "delete"
     raise Refused("unreviewed API endpoint or method")
 
 
@@ -375,9 +377,13 @@ def _retry_after(value):
 
 
 class _Guard(httpx2.BaseTransport):
-    def __init__(self, ledger, directory, inner, sleep):
+    def __init__(self, ledger, directory, inner, sleep, file_cache, free_only):
         self.ledger, self.directory = ledger, Path(directory)
         self.inner, self.sleep = inner, sleep
+        self.file_cache = file_cache
+        self.free_only = free_only or getattr(ledger, "free_only", False)
+        if self.file_cache is not None:
+            self.file_cache.bind_run(ledger.run_id, ledger=ledger)
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def _close_before_body(self, response, receipt, number):
@@ -398,6 +404,31 @@ class _Guard(httpx2.BaseTransport):
 
     def handle_request(self, request):
         kind = _route(request)
+        if kind == "file" and request.method == "POST":
+            try:
+                with self.ledger.upload_admission():
+                    return self._handle_request(request)
+            except LedgerRefused as error:
+                raise Refused(str(error)) from error
+        return self._handle_request(request)
+
+    def _handle_request(self, request):
+        kind = _route(request)
+        if kind == "message" and self.free_only:
+            raise Refused("free-only transport cannot send Messages requests")
+        if kind == "file" and request.method == "POST" and self.ledger.conversation_finished():
+            raise Refused("conversation finished; uploads are closed")
+        if kind == "delete":
+            allowed, reason = self.ledger.may_delete_uploads()
+            if not allowed:
+                raise Refused(reason)
+            file_id = request.url.path.rsplit("/", 1)[-1]
+            try:
+                owned = self.file_cache is not None and self.file_cache.owns_file(file_id)
+            except (ValueError, OSError) as error:
+                raise Refused("cannot verify this run's upload cache") from error
+            if not owned:
+                raise Refused("only this run's own uploads may be deleted")
         if request.headers.get("x-stainless-retry-count", "0") != "0":
             raise Refused("SDK retries must be disabled (max_retries=0)")
         body = request.read()
@@ -439,6 +470,9 @@ class _Guard(httpx2.BaseTransport):
             attempt += 1
             try:
                 receipt = _Receipt(self.directory, request, payload, number, attempt)
+                if self.free_only:
+                    authorization = getattr(self.ledger, "authorization", None) or {}
+                    receipt.save(free_only=True, owner_words=authorization.get("owner_words"))
             except BaseException:
                 if number is not None:
                     self.ledger.record_not_sent(number, "receipt creation failed before send")
@@ -447,7 +481,7 @@ class _Guard(httpx2.BaseTransport):
                 response = self.inner.handle_request(request)
             except BaseException as error:
                 try:
-                    receipt.save(finished=now_iso(), outcome="unknown",
+                    receipt.save(finished=now_iso(), outcome="unknown", cost_usd="0" if number is None else None,
                                  reason=f"transport failed ({type(error).__name__})")
                 finally:
                     if number is not None:
@@ -455,7 +489,7 @@ class _Guard(httpx2.BaseTransport):
                 raise Refused("transport failed; no automatic retry") from error
             receipt.data.update(http_status=response.status_code,
                                 request_id=response.headers.get("request-id"))
-            if response.status_code in (429, 529):
+            if response.status_code in (429, 529) and kind != "delete":
                 # Never read the rejection body before resending. Headers are enough.
                 self._close_before_body(response, receipt, number)
                 try:
@@ -525,8 +559,11 @@ class _Guard(httpx2.BaseTransport):
                         reply = _json(content)
                     except (ValueError, UnicodeError):
                         reply = _digest(content)
-                    receipt.save(finished=now_iso(), outcome="free", response=reply, cost_usd="0")
-                except BaseException:
+                    receipt.save(finished=now_iso(), outcome="free" if response.is_success else "free_failed",
+                                 response=reply, cost_usd="0")
+                except BaseException as error:
+                    receipt.save(finished=now_iso(), outcome="free_failed", cost_usd="0",
+                                 reason=f"free response failed ({type(error).__name__})")
                     response.close()
                     raise
             return response
@@ -535,8 +572,10 @@ class _Guard(httpx2.BaseTransport):
         self.inner.close()
 
 
-def guarded_client(ledger, receipts_dir, *, inner=None, sleep=time.sleep) -> httpx2.Client:
+def guarded_client(ledger, receipts_dir, *, inner=None, sleep=time.sleep,
+                   file_cache=None, free_only=False) -> httpx2.Client:
     """A single guard shared by every parent/specialist request in this run."""
     transport = _Guard(ledger, receipts_dir,
-                       inner if inner is not None else httpx2.HTTPTransport(retries=0, trust_env=False), sleep)
+                       inner if inner is not None else httpx2.HTTPTransport(retries=0, trust_env=False),
+                       sleep, file_cache, free_only)
     return httpx2.Client(transport=transport, trust_env=False, follow_redirects=False)
