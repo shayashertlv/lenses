@@ -1,5 +1,33 @@
 # glasses3d progress
 
+## 2026-10-20 — M13 C5: the paid Claude Oakley run, completed and awaiting the owner's eye
+
+Owner OK, verbatim: "Yes, start the paid Claude Opus 5.5 Oakley run at max effort with a $20 settled cutoff."
+
+**Run.** Private job copy `claude_test/work/c5-20261020/jobs/oakley-oo9208-v2-911a2b0e` (owner inputs only, hashes
+equal to the accepted rerun's), run `20261020T102312-ca458f`, `claude-opus-5-5`, effort max.
+- Result: **completed**, accepted finish. 45 requests in 45.7 min, **$19.6487 settled**.
+- Delivery `…-daabc1f6…`, GLB `fac153f7…`.
+- 173 uploads made and 173 deleted at teardown. No retries, no unknown charges.
+- Tools: 21 `execute_blender_code`, 9 `read_image`, 3 `compare_look_to_photos`, 1 each of `fit_cameras`,
+  `render_views`, `export_glb`, `arview_capture` and `check_lens_seating`, 3 `finish`. It made no
+  `compare_to_photos` and no `temple_stage` call.
+- Lens: violet base [0.40, 0.18, 0.45], metallic 0, transmission 1, IOR 2.33, iridescence 300–380 nm.
+- Comparison sheets: `claude_test/work/c5-20261020/compare/`.
+
+**Cost defect (Claude's design, D6).** Requests 1–40 cost $7.64.
+- From request 41 the conversation stayed above the 350K context-editing trigger even after clearing. Each request
+  then cleared a slightly different set of old results, which invalidated the cache, so the whole prefix (about
+  400–420K tokens) was rewritten at the 1-hour write rate.
+- Requests 41 and 43–45 cost $1.92, $3.40, $3.38 and $3.22: about $12 of the $19.65 in four requests.
+- Fix before any further Claude run: clearing must leave the context well below the trigger, or happen once in a
+  batch, or be replaced by the existing renewal. Prove the fix on the scripted wire with a cost assertion.
+
+**Claude's own visual read**, information only; the owner decides:
+- The lens is in the violet family, like run 4's rather than the rerun's dark one. But the photo's green centre is
+  mostly missing, and a bright white glow sits behind the top-centre OAKLEY lettering.
+- The temples are a straight bar with a boxy front block, plainer than the photo's slim angled arm. Astra's were closer.
+
 ## 2026-10-20 — M13 steps C1–C4 done ($0); paid run C5 awaits the owner
 
 - **Built** (all in `glasses3d/claude_test/`, no shared file changed):
