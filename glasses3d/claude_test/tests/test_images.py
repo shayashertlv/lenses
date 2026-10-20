@@ -301,7 +301,10 @@ def tool_result(*blocks):
 
 def test_blocks_and_nested_valid_request():
     assert images.image_block("file-x") == {
-        "type": "image", "source": {"type": "file", "file_id": "file-x"}}
+        "type": "image",
+        "source": {"type": "file", "file_id": "file-x"},
+        "transformations": {"oversized_image": "error"},
+    }
     assert images.label_block("front") == {"type": "text", "text": "front"}
     body = body_with(images.label_block("front"), images.image_block("file-x"),
                      tool_result(images.label_block("compare"),
@@ -310,8 +313,41 @@ def test_blocks_and_nested_valid_request():
 
 
 @pytest.mark.parametrize("nested", [False, True])
+def test_missing_resize_rejection_refused(nested):
+    block = {"type": "image", "source": {"type": "file", "file_id": "file-x"}}
+    body = body_with(tool_result(block) if nested else block)
+    assert images.check_request(body, {"file-x": (1920, 1280)}) == [
+        'image 1 transformations must be exactly {"oversized_image": "error"}'
+    ]
+
+
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("transformations", [
+    None, {}, [], "error",
+    {"oversized_image": "downsize"},
+    {"oversized_image": None},
+    {"oversized_image": "ERROR"},
+    {"oversized_image": "error", "extra": "value"},
+])
+def test_inexact_resize_rejection_refused(nested, transformations):
+    block = {
+        "type": "image",
+        "source": {"type": "file", "file_id": "file-x"},
+        "transformations": transformations,
+    }
+    body = body_with(tool_result(block) if nested else block)
+    assert images.check_request(body, {"file-x": (1920, 1280)}) == [
+        'image 1 transformations must be exactly {"oversized_image": "error"}'
+    ]
+
+
+@pytest.mark.parametrize("nested", [False, True])
 def test_inline_base64_refused(nested):
-    block = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}}
+    block = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AA=="},
+        "transformations": {"oversized_image": "error"},
+    }
     problems = images.check_request(body_with(tool_result(block) if nested else block), {})
     assert len(problems) == 1 and "inline base64" in problems[0]
 
@@ -344,7 +380,13 @@ def test_dimensions_refused_in_small_request(dims):
 @pytest.mark.parametrize("source", [None, {"type": "file"}, {"type": "url", "url": "data:image/png;base64,AA=="},
                                    {"type": "url", "url": "https://example.invalid/image.png"}])
 def test_unverifiable_source_refused(source):
-    assert images.check_request(body_with({"type": "image", "source": source}), {})
+    block = {
+        "type": "image",
+        "source": source,
+        "transformations": {"oversized_image": "error"},
+    }
+    problems = images.check_request(body_with(block), {})
+    assert len(problems) == 1 and "source" in problems[0]
 
 
 def test_missing_dimensions_refused():

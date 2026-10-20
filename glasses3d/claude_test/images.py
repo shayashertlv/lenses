@@ -240,7 +240,11 @@ class FileCache:
 
 
 def image_block(file_id: str) -> dict:
-    return {"type": "image", "source": {"type": "file", "file_id": file_id}}
+    return {
+        "type": "image",
+        "source": {"type": "file", "file_id": file_id},
+        "transformations": {"oversized_image": "error"},
+    }
 
 
 def label_block(text: str) -> dict:
@@ -261,9 +265,10 @@ def _image_blocks(content: object) -> Iterator[dict]:
 def check_request(body: dict, dims: dict[str, tuple[int, int]]) -> list[str]:
     """Check compact UTF-8 JSON bytes and all message/tool-result images.
 
-    Missing dimensions and non-file image sources also refuse: their native
-    size cannot be established. The uploader checks the separate file-byte cap.
-    Call this on the final body immediately before sending it.
+    Require the server's exact reject-instead-of-resize transformation. Missing
+    dimensions and non-file image sources also refuse: their native size cannot
+    be established. The uploader checks the separate file-byte cap. Call this on
+    the final body immediately before sending it.
     """
     problems = []
     try:
@@ -283,6 +288,10 @@ def check_request(body: dict, dims: dict[str, tuple[int, int]]) -> list[str]:
         problems.append(f"request has {len(blocks)} images; maximum is {LIMITS['max_images']}")
     many = len(blocks) > 20
     for i, block in enumerate(blocks, 1):
+        if block.get("transformations") != {"oversized_image": "error"}:
+            problems.append(
+                f'image {i} transformations must be exactly {{"oversized_image": "error"}}'
+            )
         source = block.get("source")
         if not isinstance(source, dict):
             problems.append(f"image {i} has no valid source")
