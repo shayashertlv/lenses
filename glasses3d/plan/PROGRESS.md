@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-20 — Claude accepted task 13 (`90d48c6`)
+
+- Report: `data/review_20261018/codex/task13_report.md`; comparison image `task13_front_comparison.png`, sent to the
+  owner.
+- Verdict: Astra's own material choice. Its look tool measured the darkness correctly: the L* gap to the photo was
+  4.5 for run 4, 20.6 for the rerun and 22.9 for the afternoon run. Those numbers were paged out of the immediate tool
+  text, and no run read them.
+- The code change is a helper-text clarification only, with no behaviour change. Full suite and M1 passed. The one
+  functional failure came from the launcher's external QoS sweep, was reproduced, and passed 17/17 without it.
+- Codex disclosed an accidental broad repository search at the end of the task. Claude checked the task log: no key
+  strings and no `.env` contents appear, and its `.env` mentions are code and rule text only.
+
 ## 2026-10-20 — Task 13: Astra's dark metallic lens choices diagnosed at $0
 
 Compared accepted run 4, the rejected afternoon run and the accepted max-effort rerun, preserving the owner's
