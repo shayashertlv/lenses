@@ -178,5 +178,7 @@ which is personal for this test").
 - Parallel tasks do not commit. Claude reviews each task and commits its files with explicit paths.
 - Commits use explicit paths on `glasses3d`. No push without the owner's word: the branch is public on GitHub since
   2026-10-20.
-- Never read `.env`. Never make a paid call: C4's `count_tokens` and uploads are free but still wait for the owner's
-  OK, because they send his photos to Anthropic.
+- Never read `.env`. Never make a paid call.
+- C4's `count_tokens` and Files uploads are free, and the owner cleared them on 2026-10-20: "i thought step 4 is free
+  why do you need me to okay the images? arent this the products images?". C4 therefore runs as soon as C3 passes. He
+  added the key the same day ("ive added the key to .env").
