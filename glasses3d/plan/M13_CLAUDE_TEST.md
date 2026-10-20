@@ -1,5 +1,12 @@
 # M13: one Oakley run driven by the Claude API (written 2026-10-20 by Claude)
 
+**CLOSED by the owner, 2026-10-20, verbatim: "lets end this test and go back to focusing on astra".**
+- Two paid runs:
+  - C5: rejected, "its shit", $19.65;
+  - run 2: stopped by the owner, $21.25.
+- No Claude delivery is accepted. The code stays in `glasses3d/claude_test/`, committed and inactive.
+- Do not start, extend or rerun it without a new owner request. Results are in PROGRESS.md (2026-10-20 entries).
+
 Claude plans and reviews; Codex builds from saved briefs in `claude_test/work/briefs/` with reports in
 `claude_test/work/codex/`. Every step is $0 until step C5, which needs the owner's explicit OK, model choice and cutoff.
 

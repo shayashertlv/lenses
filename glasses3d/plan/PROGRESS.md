@@ -1,5 +1,18 @@
 # glasses3d progress
 
+## 2026-10-20 — M13 closed: back to Astra
+
+Owner, verbatim: "lets end this test and go back to focusing on astra". The Claude test is closed and no Claude
+delivery is accepted: C5 was rejected at $19.65, and run 2 was stopped at $21.25. The `claude_test/` code stays
+committed and inactive; Astra's code, instructions and requests were never changed (C3 byte check). Lessons that may
+matter for Astra:
+- factual host notes after scene-changing scripts raised Opus's comparisons from 3 to 16;
+- the cache simulator (`claude_test/cache_sim.py`) reproduced real Anthropic bills to the cent.
+
+Neither is applied to Astra without the owner's word. Open Astra items, unchanged: task 13 (why post-M11 Oakley runs
+chose a dark metallic lens; $0, stopped earlier by the owner), Prada (no accepted assembled delivery) and FT1119
+(never run assembled).
+
 ## 2026-10-20 — M13 second paid Claude run: stopped by the owner, $21.25
 
 The run had F1 (no server clearing) and T1/T1b (tool-use and paged-result host notes). Owner OK: "Raise the cutoff

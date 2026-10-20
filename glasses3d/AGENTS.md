@@ -19,7 +19,8 @@ take precedence over repository documents. Dated history is evidence, not a comm
    not a claim that already repaired defects remain open.
 3. `glasses3d/plan/PROGRESS.md`: status per WP, decisions in the owner's words, ledger; the next action.
    For any dev UI work, also read `glasses3d/plan/M12_DEV_UI.md` fully: the owner's words, decisions and §7 contracts.
-   For any Claude API work, read `glasses3d/plan/M13_CLAUDE_TEST.md` fully (the owner's words, decisions D1–D9).
+   The Claude API test (`glasses3d/plan/M13_CLAUDE_TEST.md`, code in `glasses3d/claude_test/`) is closed by the
+   owner (2026-10-20); do not resume it without a new owner request.
 4. `glasses3d/plan/WP6_V3.md` fully, then the `plan/WP6_FACETS.md` sections it cites, for any WP6 work; the
    investigation behind v3 is `data/wp6v2/review_20261012/FINDINGS.md`. `WP5_HANDOFF.md` records the closed WP5; read its
    closeout before changing print code.

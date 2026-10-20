@@ -21,7 +21,7 @@ superseded terms are not instructions to repeat old work. `PROGRESS.md` records 
 | M10 | Diagnose/preview/exact local apply built. Combined copy accepted 2026-10-18 as an edit-tool test only; task 5 adds review/verdict-compatible deliveries with explicit tool-test scope. |
 | M11 | Tasks 1–9 landed and Claude accepted; task 9 tests, remaining arview repairs and documents passed the required checks (`81ef7b2`). M11 is complete. No paid run authorized by this milestone. |
 | M12 | Built with documented limits. N1 permits same-part `repair_shading` picks with disjoint normal influence; exact native/exported normals, preview equality and immutable delivery remain required. Overlapping influence, other same-part normal operation kinds and older previews failing exact validation still refuse. D1/D3 results below are historical; see the tests README's N1 proof record and PROGRESS for current results and next action. |
-| M13 | Planned 2026-10-20: one Oakley run driven by the Claude API (`plan/M13_CLAUDE_TEST.md`). C1–C4 are $0; the paid run C5 needs the owner's OK, model choice and cutoff. Astra paths unchanged. |
+| M13 | **Closed by the owner 2026-10-20** ("lets end this test and go back to focusing on astra"). Claude API Oakley test (`plan/M13_CLAUDE_TEST.md`): two paid runs, neither accepted ($19.65 rejected, $21.25 stopped). Code inactive in `claude_test/`; Astra paths unchanged. |
 
 Standing money terms are the dated M12 amendment to D5 below. The owner parked the review-page authored-size choice until
 the hard technical work is complete. The M10 combined copy is not a new product delivery: owner, 2026-10-18,
