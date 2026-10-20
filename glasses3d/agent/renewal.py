@@ -114,11 +114,24 @@ class ConversationRenewal:
         self.directory = Path(directory)
         self.owner_notes = spec.owner_notes if owner_notes is None else owner_notes
         self.records = []
+        self.finish_review_deferrals = []
+        self._finish_review_requests = set()
+        self._after_finish_review_deferral = False
         self.fresh = False
 
     def check(self, payload, body_bytes, images, tokens):
         reasons = pressure(body_bytes, images, tokens, self.guard.tariff)
         measurements = {"payload_bytes": body_bytes, "images": images, "input_tokens": tokens}
+        review = self.scene.renewal_state().get("finish_review", {})
+        review_key = (self.session.session_id, review.get("call_id"))
+        pending = review.get("status") == "pending" and bool(review_key[1])
+        review_request = (pending and review_key not in self._finish_review_requests
+                          and not self._after_finish_review_deferral)
+        self._after_finish_review_deferral = False
+        if pending:
+            # One request to submit this review, even if that request has no soft
+            # pressure. A refusal or a different tool must not defer renewal again.
+            self._finish_review_requests.add(review_key)
         if self.fresh:
             # A minimal conversation can itself exceed a soft threshold. Renewing
             # that very same input forever would remove access to the owner's photos.
@@ -131,11 +144,29 @@ class ConversationRenewal:
                            conversation_id=self.session.session_id)
             return
         if reasons:
+            within_hard_limits = (
+                tokens is not None
+                and tokens <= min(self.guard.tariff.long_context_input_tokens, budget.MODEL_MAX_INPUT_TOKENS)
+                and images <= budget.PAYLOAD_LIMIT_IMAGES
+                and body_bytes <= budget.PAYLOAD_LIMIT_BYTES
+            )
+            if review_request and within_hard_limits:
+                row = {"schema": "g3d.conversation_renewal_deferral/1",
+                       "conversation_id": self.session.session_id, "review_call_id": review_key[1],
+                       "request_sequence": self.guard.summary()["requests"] + 1,
+                       "measurements": measurements, "reasons": reasons}
+                self.finish_review_deferrals.append(row)
+                # Even another first finish must allow normal renewal next time.
+                self._after_finish_review_deferral = True
+                self._save()
+                self.log.event("conversation_renewal_deferred", deferral=row)
+                return
             raise RenewalNeeded(payload, measurements, reasons)
 
     def _save(self):
         write_json(self.directory / "renewals.json", {"schema": "g3d.conversation_renewals/1",
-                                                     "renewals": self.records})
+                                                     "renewals": self.records,
+                                                     "finish_review_deferrals": self.finish_review_deferrals})
 
     async def renew(self, trigger, *, agent, context, hooks):
         old_id = self.session.session_id

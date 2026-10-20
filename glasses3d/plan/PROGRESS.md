@@ -1,5 +1,39 @@
 # glasses3d progress
 
+## 2026-10-20 — Task 17: pending finish gets one request before soft renewal ($0)
+
+Owner, verbatim: "Yes: have Codex find why requests grew 34% since run 4 and fix the restart-during-finish collision,
+at $0, one change at a time."
+
+`ConversationRenewal.check` now gives a pending two-call finish review one request in the same conversation
+under soft pressure, only within the existing price-step, model-input, image and payload limits. The next
+request resumes normal renewal if the review is refused, omitted or replaced by another first finish.
+Each deferral is recorded in `renewals.json` and `conversation_renewal_deferred` events. Thresholds, money
+guards, carried evidence, summary text, instructions and tool descriptions are unchanged.
+
+The recorded candidate after request 51 was **270,844 tokens / 100 images / 75,136,300 bytes**: below the
+272,000 price step by **1,156 tokens**, and below all other hard limits. Its pending review would now be
+sent without the intervening renewal. The measurement replay verifies this decision and the following
+request's renewal; it does not predict Astra's response, acceptance or dollar savings. Four evidence-source
+files remained hash-identical.
+
+Final focused checks: **75 passed**, 47.40 s, including real scripted SDK/finish calls under renewal
+pressure. Against the old check, the new module gives **10 expected failures / 8 passes**. Required
+functional pass: **5,876 passed / 2 skipped / 1 timeout**, 841.78 s. The unchanged CLI-output module
+then passed **18/18** serially in 47.30 s; the timed-out stderr-flush case took 4.86 s under its original
+60 s deadline. This is consistent with load sensitivity, not proof of its cause or a second clean full run.
+Photoprint: **367 passed**, 398.81 s. Serial timing: **29 passed**, 314.40 s. Total across passes and
+the scoped retry: **6,273 distinct passes / 2 skips**, with the initial timeout retained.
+
+`assembly_m1` passed once in **182.422 s**, 13 scripted requests, 35 verified AR images, clean receipts
+and **$0 actual spend** (`data/assembly/m1-proof-e2d4c1db/proof.json`). Heavy checks were sequential:
+functional 14 workers, photoprint 4, timing serial, BLAS 1, measured free commit and no external QoS sweep.
+Task 16 had no heavy children at preflight; its committed PROGRESS entry is preserved.
+
+Report, replay, process receipts and final commit: `data/review_20261018/codex/task17_report.md`.
+No original job/run/delivery/verdict edits, paid calls, `.env` reads, gate changes or push. The unrelated
+untracked `glasses3d/lens_lab/` remains untouched. Next: Claude reviews Task 17; no next task started.
+
 ## 2026-10-20 — Task 16: request growth traced to native evidence ($0 audit)
 
 Across the four saved Oakley runs, all **231 request totals** reconcile to provider receipts. Run 4 to
