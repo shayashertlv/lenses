@@ -1,8 +1,8 @@
 """A material-only wrapper around the real Astra tool registry.
 
 No API client or approval is created. Every trial has its own copied inputs,
-checkpoint journal, camera basis, tool images and receipts. The runtime tools
-and their text/image transport are reused without rewriting their responses.
+checkpoint journal, camera basis, tool images and receipts. Baseline tools and
+their text/image transport are unchanged; variants substitute only the look implementation.
 """
 from __future__ import annotations
 
@@ -381,7 +381,6 @@ class LabSession:
             from glasses3d.agent import procs
             procs.opt_out_self()
             from glasses3d.agent.job_scene import JobScene
-            from glasses3d.agent.tools import build_tools
             self.scene = JobScene(self.manifest["job_dir"])
             self.worker_started = now()
             self.scene.start()
@@ -417,7 +416,9 @@ class LabSession:
                               "checkpoint": session.head["id"], "restored_to": before["id"]}
                 return result
             self.scene.s.restore_checkpoint = types.MethodType(guarded_restore, self.scene.s)
-            self.registry = {t.name: t for t in build_tools(self.scene) if t.name in TOOLS and t.name != "finish"}
+            from .variants import build_variant_tools
+            self.registry = {t.name: t for t in build_variant_tools(self.scene, self.manifest.get("variant", "baseline"))
+                             if t.name in TOOLS and t.name != "finish"}
             return self
         except BaseException:
             self.__exit__(None, None, None)

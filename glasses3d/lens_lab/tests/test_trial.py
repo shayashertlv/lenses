@@ -427,6 +427,45 @@ def test_previously_used_initialized_trial_refuses(private_trial, monkeypatch):
         trial.run_trial(directory, repo=repo, executable=["codex"])
 
 
+@pytest.mark.parametrize("variant", ["baseline", "regional"])
+def test_variant_persists_without_changing_prompt_or_baseline_manifest(private_trial, monkeypatch, variant):
+    repo, directory, manifest, _ = private_trial
+    mock_codex_run(monkeypatch, repo, directory)
+    status = repo / "glasses3d/data/lens_lab/l2/baseline_status.txt"
+    status.parent.mkdir(parents=True)
+    status.write_text("start\nexit 0\n", encoding="utf-8")
+    before = (directory / "trial.json").read_bytes()
+    result = trial.run_trial(directory, variant=variant, repo=repo, executable=["codex"])
+    saved = json.loads((directory / "trial.json").read_text(encoding="utf-8"))
+    if variant == "baseline":
+        assert (directory / "trial.json").read_bytes() == before
+    else:
+        assert saved == {**manifest, "variant": "regional"}
+    expected = trial.build_prompt({"instructions": "exact main instructions", "brief": "exact owner brief"},
+                                 trial.lab_paragraph(directory, manifest["lens_materials"],
+                                     repo / "glasses3d/.venv/Scripts/python.exe"))
+    assert (directory / "codex/prompt.txt").read_bytes() == expected.encode("utf-8")
+    assert result["variant"] == variant and result["status"] == "completed"
+    assert result["implementation_changed_paths"] == []
+    assert result["implementation_sha256"] == result["implementation_after_sha256"]
+
+
+def test_regional_waits_for_baseline_before_starting_any_native_work(private_trial, monkeypatch):
+    repo, directory, _, _ = private_trial
+    monkeypatch.setattr(trial, "require_task17_exit", lambda repo: "exit 0")
+    monkeypatch.setattr(trial, "discover_codex", lambda: pytest.fail("must refuse before launching anything"))
+    with pytest.raises(RuntimeError, match="baseline_status.txt has an exit line"):
+        trial.run_trial(directory, variant="regional", repo=repo)
+
+
+def test_pristine_regional_manifest_cannot_silently_run_as_baseline(private_trial, monkeypatch):
+    repo, directory, manifest, _ = private_trial
+    mock_codex_run(monkeypatch, repo, directory)
+    trial.write_json(directory / "trial.json", {**manifest, "variant": "regional"})
+    with pytest.raises(ValueError, match="cannot be reused"):
+        trial.run_trial(directory, variant="baseline", repo=repo, executable=["codex"])
+
+
 def test_finish_file_without_matching_tool_receipt_does_not_complete(private_trial, monkeypatch):
     repo, directory, _, _ = private_trial
     mock_codex_run(monkeypatch, repo, directory)

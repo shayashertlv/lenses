@@ -542,11 +542,16 @@ def score_after_codex(trial_dir: Path, receipt_dir: Path) -> dict:
     return status
 
 
-def run_trial(trial_dir: Path | str, *, variant: str = "head", source_job: Path | str | None = None,
+def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: Path | str | None = None,
               repo: Path = REPO, executable: list[str] | None = None) -> dict:
     """Run once; reuse a pristine initialized trial, never an earlier Codex trial."""
     trial = lab_path(trial_dir, repo)
     task17 = require_task17_exit(repo)
+    if variant == "regional":
+        baseline_status = repo / "glasses3d/data/lens_lab/l2/baseline_status.txt"
+        status = baseline_status.read_text(encoding="utf-8-sig") if baseline_status.is_file() else ""
+        if not re.search(r"(?im)^\s*exit\b", status):
+            raise RuntimeError("Regional trials wait until baseline_status.txt has an exit line")
     executable = discover_codex() if executable is None else executable
     env = child_environment()
     preflight = codex_preflight(executable, env)
@@ -559,6 +564,11 @@ def run_trial(trial_dir: Path | str, *, variant: str = "head", source_job: Path 
     _, job, photos = load_trial_job(trial, manifest)
     if (trial / "calls.jsonl").exists() and (trial / "calls.jsonl").stat().st_size:
         raise ValueError("Codex trials must start at the neutral fixture without prior tool calls")
+    if manifest.get("variant", "baseline") == "regional" and variant != "regional":
+        raise ValueError("A regional trial cannot be reused for a baseline variant")
+    if variant == "regional":
+        manifest["variant"] = "regional"
+        write_json(trial / "trial.json", manifest)
     sources = head_prompt_sources(repo, job)
     python = (repo / "glasses3d/.venv/Scripts/python.exe") if os.name == "nt" else Path(sys.executable)
     paragraph = lab_paragraph(trial, manifest["lens_materials"], python)
@@ -677,13 +687,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     batch = commands.add_parser("run", help="N serial trials of the current HEAD/working-code variant")
-    batch.add_argument("--variant", required=True, help="label only; never injected into Astra's prompt")
+    batch.add_argument("--variant", default="baseline", help="regional changes look output only; other labels use baseline")
     batch.add_argument("--count", type=int, default=1)
     batch.add_argument("--output-root", type=Path)
     batch.add_argument("--source-job", type=Path)
     one = commands.add_parser("run-one", help="one new or pristine initialized private trial")
     one.add_argument("trial_dir", type=Path)
-    one.add_argument("--variant", default="head")
+    one.add_argument("--variant", default="baseline")
     one.add_argument("--source-job", type=Path)
     args = parser.parse_args(argv)
     if args.command == "run":

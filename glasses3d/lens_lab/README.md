@@ -7,7 +7,8 @@ tools. The laser marks, other materials, geometry, normals, UVs, object
 transforms, lighting and cameras stay fixed. Nothing here publishes a delivery
 or writes a verdict.
 
-The task is [L1](../data/lens_lab/briefs/l1_lens_lab.md). Research, measurements,
+The original task is [L1](../data/lens_lab/briefs/l1_lens_lab.md); the regional
+variant is [L2b](../data/lens_lab/briefs/l2b_regional_variant.md). Research, measurements,
 process logs, trial receipts and reports live under ignored `../data/lens_lab/`.
 No provider API call or paid-run approval is made. Codex runs through the user's
 existing ChatGPT login; its usage is separate from the pipeline's API ledger.
@@ -61,7 +62,20 @@ Finish is terminal for material mutations and restores.
 & $python -m glasses3d.lens_lab.trial run --variant baseline --count 10
 ```
 
-`--variant` is a grouping label. Each trial takes the real main instruction
+`--variant baseline` (the default) keeps the production tools unchanged.
+`--variant regional` adds image-left/centre/right lens-colour lines to the
+immediate `compare_look_to_photos` output and retains the measurements in its
+full report. It uses thirds of that photo's existing eroded AR lens mask,
+including explicit unavailable values for empty thirds. It does not change
+instructions, schemas, images, scoring, fixture or other tools. Regional trials
+also require an exit line in `data/lens_lab/l2/baseline_status.txt`.
+
+The regional tool runs an isolated copy of the proposed production `look.py`
+source, with the helpers from `regional.py` inserted verbatim. `variants.production_patch()`
+returns the exact unapplied production port; it changes no production file.
+The trial manifest persists regional selection across CLI calls, and the trial
+receipt records its variant and before/after implementation hashes.
+Other historical `--variant` labels retain baseline behaviour. Each trial takes the real main instruction
 builder and brief builder from the current immutable Git HEAD; it records HEAD
 and all relevant working implementation hashes. To compare instruction
 variants, the coordinator first prepares the intended HEAD, then runs a
