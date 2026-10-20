@@ -21,7 +21,7 @@ from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 import anthropic
-from anthropic.types.beta.message_count_tokens_params import MessageCountTokensParams
+from anthropic.types.message_count_tokens_params import MessageCountTokensParams
 import httpx2
 from PIL import Image
 
@@ -32,7 +32,7 @@ from glasses3d.agent.offline import (
 )
 
 from . import images, money, runner, transport
-from .conversation import CONTEXT_BETA, canonical_bytes, opening_content, request_body
+from .conversation import canonical_bytes, opening_content, request_body
 from .money import _arithmetic, _text
 from .tool_adapter import tool_definitions
 
@@ -104,7 +104,7 @@ def _count_opening(body: dict, input_receipt: dict) -> tuple[dict, dict]:
     counted = copy.deepcopy({key: value for key, value in body.items() if key in accepted})
     omitted = {
         key: {"value": copy.deepcopy(value),
-              "reason": "Not accepted by the pinned SDK's beta count_tokens request schema."}
+              "reason": "Not accepted by the pinned SDK's standard count_tokens request schema."}
         for key, value in body.items() if key not in accepted
     }
     by_id = {row["file_id"]: row for row in input_receipt["images"]}
@@ -213,9 +213,9 @@ def livecheck(job_dir: Path, *, env_file: Path, owner_ok: str, run_id: str | Non
         count_body, omitted = _count_opening(body, inputs)
         result["count_request"] = transport._clean(count_body)
         result["count_omitted_fields"] = omitted
-        result["count_schema"] = "anthropic.types.beta.message_count_tokens_params.MessageCountTokensParams"
+        result["count_schema"] = "anthropic.types.message_count_tokens_params.MessageCountTokensParams"
         result["count_request_bytes"] = len(canonical_bytes(count_body))
-        response = client.beta.messages.count_tokens(**count_body, betas=[CONTEXT_BETA])
+        response = client.messages.count_tokens(**count_body)
         result["count_response"] = response.model_dump(mode="json", exclude_unset=True)
         if type(response.input_tokens) is not int or response.input_tokens < 0:
             raise ValueError("token count must be a non-negative integer")

@@ -84,9 +84,6 @@ class ClaudeSettings:
     soft_images: int = 480
     soft_bytes: int = 25_600_000
     soft_tokens: int = 800_000
-    context_trigger: int = 350_000
-    context_clear: int = 150_000
-    context_keep: int = 8
 
     def validate(self):
         if self.model != MODEL or self.effort != "max":
@@ -97,8 +94,8 @@ class ClaudeSettings:
         if self.max_turns is not None and (type(self.max_turns) is not int or self.max_turns <= 0):
             raise RunRefused("max_turns must be a positive integer or None")
         frozen = (self.max_tokens, self.max_finish_notes, self.soft_images, self.soft_bytes,
-                  self.soft_tokens, self.context_trigger, self.context_clear, self.context_keep)
-        if frozen != (128_000, 2, 480, 25_600_000, 800_000, 350_000, 150_000, 8):
+                  self.soft_tokens)
+        if frozen != (128_000, 2, 480, 25_600_000, 800_000):
             raise RunRefused("M13 output, finish and context policies are fixed")
 
     def record(self):
@@ -486,8 +483,10 @@ class _Runtime:
             raise Halt("stopped", "Stop requested")
         kwargs = copy.deepcopy(body)
         kwargs.pop("stream", None)
-        with self.client.beta.messages.stream(
-                **kwargs, betas=["context-management-2025-06-27"]) as stream:
+        # The pinned standard SDK omits speed from its Python signature.
+        # Preserve the bound standard-speed wire policy without enabling a beta.
+        extra_body = {"speed": kwargs.pop("speed")}
+        with self.client.messages.stream(**kwargs, extra_body=extra_body) as stream:
             with self._stream_lock:
                 self._stream = stream
             try:
@@ -625,10 +624,6 @@ class _Runtime:
                                 raw_response=response, transport_receipt=authority)
         await self.conversation.append({"role": "assistant", "content": response.get("content", [])})
         self.final_output = _public_text(response) or self.final_output
-        edits = (response.get("context_management") or {}).get("applied_edits", [])
-        if any(e.get("type") == "clear_tool_uses_20250919" for e in edits):
-            self.adapter.expire_image_dedup()
-            self.log.event("context_edit", edits=edits, local_history_unchanged=True)
         if settlement.get("refusal") or response.get("stop_reason") == "refusal":
             raise Halt("provider_rejected", "provider refusal; settled cost is an upper bound")
         if response.get("stop_reason") in {"max_tokens", "model_context_window_exceeded"}:

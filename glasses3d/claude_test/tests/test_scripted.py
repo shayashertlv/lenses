@@ -439,3 +439,55 @@ def test_large_base64_projection_does_not_block_small_files_inference(tmp_path):
     assert ledger.settled_usd() > 0 and wire.counts == []
     assert len(json.dumps(wire.requests[0]).encode()) < 32_000_000
     wire.assert_complete()
+
+
+def test_scripted_cache_usage_is_derived_from_actual_request_and_settled(tmp_path):
+    from glasses3d.claude_test.cache_sim import CacheBlock, CacheSimulator, request_values
+
+    def blocks(body):
+        return [CacheBlock(value, 600) for value in request_values(body)]
+
+    wire = ScriptedClaude([
+        ScriptTurn([{"type": "text", "text": "first"}], "end_turn", cache_output_tokens=25),
+        ScriptTurn([{"type": "text", "text": "second"}], "end_turn", cache_output_tokens=50),
+    ], cache_sim=CacheSimulator(), cache_blocks=blocks)
+    client, ledger = sdk(tmp_path, wire)
+    messages = [{"role": "user", "content": [{"type": "text", "text": "opening"}]}]
+    with client:
+        for index in range(2):
+            with client.messages.stream(
+                    model=MODEL, messages=messages, max_tokens=128000,
+                    output_config={"effort": "max"}, service_tier="standard_only",
+                    cache_control={"type": "ephemeral", "ttl": "1h"}) as response:
+                final = response.get_final_message()
+            if index == 0:
+                messages += [
+                    {"role": "assistant", "content": final.model_dump(mode="json")["content"]},
+                    {"role": "user", "content": [{"type": "text", "text": "continue"}]},
+                ]
+    assert [(row.read_tokens, row.write_tokens) for row in wire.cache_results] == [(0, 600), (600, 1200)]
+    assert ledger.settled_usd() == sum(row.cost_usd for row in wire.cache_results)
+    assert wire.replies[0].usage["output_tokens"] == 25
+    assert wire.replies[1].usage["output_tokens"] == 50
+    assert all(not call["query"] for call in wire.calls)
+    wire.assert_complete()
+
+
+def test_scripted_cache_usage_refuses_ambiguous_supplied_usage(tmp_path):
+    from glasses3d.claude_test.cache_sim import CacheBlock, CacheSimulator
+
+    with pytest.raises(ValueError, match="together"):
+        ScriptedClaude([], cache_sim=CacheSimulator())
+    wire = ScriptedClaude([ScriptTurn([], usage=DEFAULT_USAGE, cache_output_tokens=1)],
+                          cache_sim=CacheSimulator(),
+                          cache_blocks=lambda body: [CacheBlock(body["messages"], 1000)])
+    client, ledger = sdk(tmp_path, wire)
+    with client, pytest.raises(Exception):
+        with client.messages.stream(
+                model=MODEL, messages=[{"role": "user", "content": "test"}], max_tokens=128000,
+                output_config={"effort": "max"}, service_tier="standard_only",
+                cache_control={"type": "ephemeral", "ttl": "1h"}) as response:
+            response.get_final_message()
+    assert "computed usage cannot also be scripted" in wire.violations[0]
+    assert ledger.settled_usd() == 0
+    assert not ledger.may_start_request()[0]

@@ -265,10 +265,8 @@ def test_request_policy_matches_binding_amendments():
     assert body["service_tier"] == "standard_only"
     assert body["inference_geo"] == "global"
     assert body["speed"] == "standard"
-    edit = body["context_management"]["edits"][0]
-    assert edit["trigger"]["value"] == 350_000
-    assert edit["clear_at_least"]["value"] == 150_000
-    assert edit["keep"]["value"] == 8
+    assert "context_management" not in body
+    assert "betas" not in body
     assert "fallbacks" not in body
     assert "strict" not in body["tools"][0]
 

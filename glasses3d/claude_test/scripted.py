@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import base64
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -21,6 +21,7 @@ from uuid import uuid4
 import httpx2
 from PIL import Image
 
+from .cache_sim import CacheBlock, CacheSimulator, request_namespace
 from .images import check_request, fits, visual_tokens
 
 MODEL = "claude-opus-5-5"
@@ -43,6 +44,7 @@ class ScriptTurn:
     error: dict | None = None
     stop_details: dict | None = None
     chunk_size: int = 37
+    cache_output_tokens: int | None = None
 
 
 class _Chunks(httpx2.SyncByteStream):
@@ -158,7 +160,22 @@ class ScriptedClaude:
     IDs and arguments to be derived from real preceding tool results.
     """
     def __init__(self, turns: Sequence[ScriptTurn | Callable], *,
-                 token_counts: Sequence[dict] = (), delete_statuses: Sequence[int] = ()):
+                 token_counts: Sequence[dict] = (), delete_statuses: Sequence[int] = (),
+                 cache_sim: CacheSimulator | None = None,
+                 cache_blocks: Callable[[dict], Sequence[CacheBlock]] | None = None,
+                 cache_clock: Callable[[], float] | None = None):
+        """Optionally compute usage from exact request blocks, never a usage script.
+
+        ``cache_blocks`` supplies tokens for the actual detached wire request.
+        Each successful scripted turn supplies ``cache_output_tokens``. The
+        default logical clock advances 60 seconds per attempted Messages call;
+        a caller clock can instead exercise expiry or measured timestamps.
+        Legacy explicit-usage fixtures remain available when cache_sim is absent.
+        """
+        if (cache_sim is None) != (cache_blocks is None):
+            raise ValueError("cache_sim and cache_blocks must be supplied together")
+        self.cache_sim, self.cache_blocks, self.cache_clock = cache_sim, cache_blocks, cache_clock
+        self.cache_results = []
         self.turns, self.token_counts = list(turns), list(token_counts)
         self.delete_statuses = list(delete_statuses)
         assert all(type(status) is int and (status == 200 or 400 <= status <= 599)
@@ -243,6 +260,18 @@ class ScriptedClaude:
         if callable(turn):
             turn = turn(copy.deepcopy(body))
         assert isinstance(turn, ScriptTurn), "script callbacks must return ScriptTurn"
+        if self.cache_sim is not None and turn.http_status == 200:
+            assert "context_management" not in body, "cache simulation requires the no-edit policy"
+            assert body.get("cache_control") == {"type": "ephemeral", "ttl": "1h"}
+            assert turn.usage is None, "computed usage cannot also be scripted"
+            assert turn.cache_output_tokens is not None, "computed usage needs caller output tokens"
+            assert turn.context_management is None, "computed usage cannot model server context edits"
+            result = self.cache_sim.request(
+                self.cache_blocks(copy.deepcopy(body)), output_tokens=turn.cache_output_tokens,
+                now=self.cache_clock() if self.cache_clock is not None else (self._turn_index - 1) * 60,
+                namespace=request_namespace(body))
+            self.cache_results.append(result)
+            turn = replace(turn, usage=result.usage)
         self.replies.append(turn)
         return sse_response(turn, request_id=f"req_script_{self._turn_index:04d}",
                             model=body["model"], message_id=f"msg_script_{self._turn_index:04d}")

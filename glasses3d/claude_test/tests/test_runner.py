@@ -269,16 +269,32 @@ def test_multi_tool_reply_is_serial_one_result_message_and_later_mutation_invali
     assert len(h.wire.requests) == 2
 
 
-def test_clear_event_preserves_prefix_and_thinking(root):
+def test_requests_preserve_prefix_and_thinking_without_context_edits(root):
+    class StandardMessagesWire(ScriptedClaude):
+        def _handle(self, request):
+            if request.url.path == "/v1/messages":
+                assert "anthropic-beta" not in request.headers
+                assert not request.url.query
+            return super()._handle(request)
+
     thought = {"type": "thinking", "thinking": "Test summary", "signature": "synthetic-signature"}
-    h, status = run_harness(root, [
-        turn(thought, call("touch", change=False),
-             context_management={"applied_edits": [{"type": "clear_tool_uses_20250919",
-                                                   "cleared_tool_uses": 1, "cleared_input_tokens": 150000}]}),
+    wire = StandardMessagesWire([
+        turn(thought, call("touch", change=False)),
         turn(call("finish", "f")),
     ])
+    h = Harness(root, [], wire=wire)
+    h.scene._emitted_images = {"sha": "prior-image"}
+    try:
+        status = asyncio.run(h.drive())
+    finally:
+        h.close()
     assert status == "completed"
+    assert h.scene._emitted_images == {"sha": "prior-image"}
     first, second = h.wire.requests
+    assert all("context_management" not in body for body in (first, second))
+    assert all(body["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+               for body in (first, second))
+    assert all(body["speed"] == "standard" for body in (first, second))
     assert second["messages"][:len(first["messages"])] == first["messages"]
     assert second["messages"][-2]["content"][0] == thought
     meter = json.loads((root / "requests/0002-meter.json").read_text())
@@ -404,6 +420,10 @@ def test_prepare_approval_seal_and_single_use(prepared):
     assert not (spec.run_dir / "approval.json").exists()
     R.approve_run(spec, words="OFFLINE TEST ONLY")
     assert R._check_seal(spec)["offline_only"] is True
+    request = json.loads((spec.run_dir / "run-request.json").read_text(encoding="utf-8"))
+    assert not {"context_trigger", "context_clear", "context_keep"} & request["settings"].keys()
+    assert "context_management" not in request["settings"]["request_policy"]
+    assert request["settings"]["request_policy"]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
     money.consume_approval(spec.run_dir / "approval.json", spec.run_id)
     with pytest.raises(R.A.ApprovalRefused):
         R._check_seal(spec)

@@ -334,7 +334,7 @@ def test_failed_specialist_output_does_not_replace_finish_operation(tmp_path):
     assert scene.state["finish"] is None
 
 
-def test_clear_expires_only_dedup_and_namespaces_only_log(tmp_path):
+def test_renewal_expires_only_dedup_and_namespaces_only_log(tmp_path):
     scene = Scene(tmp_path)
     scene._emitted_images = {"sha": "previous"}
 

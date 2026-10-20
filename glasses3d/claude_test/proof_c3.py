@@ -48,10 +48,13 @@ STATEMENT = "Scripted offline tool procedure proof only; no automated likeness j
 # Every entry is resolved to passing JUnit cases, not inferred from a module's
 # overall pass count. Native assertions below supply the actual worker evidence.
 UNIT_ASSERTIONS = {
-    "append_only_thinking_after_clear": (
+    "append_only_thinking_without_context_edits": (
         "test_prefix_survives_reopen_and_preserves_every_thinking_field",
-        "test_clear_event_preserves_prefix_and_thinking",
+        "test_requests_preserve_prefix_and_thinking_without_context_edits",
         "test_policy_is_immutable_within_epoch",
+    ),
+    "cache_cost_through_real_runner_and_renewal": (
+        "test_long_runner_cache_cost_through_real_renewal",
     ),
     "atomic_epoch_recovery_and_tool_id_ordering": (
         "test_atomic_renewal_archives_epochs_and_recovers_completed_ids",
@@ -148,7 +151,7 @@ UNIT_ASSERTIONS = {
         "test_temple_exact_submicrodollar_and_bridge_callback",
         "test_three_money_facts_preserve_submicro_precision",
         "test_private_temple_fatal_callback_survives_redecoration",
-        "test_clear_expires_only_dedup_and_namespaces_only_log",
+        "test_renewal_expires_only_dedup_and_namespaces_only_log",
         "test_specialist_real_sdk_shares_model_money_and_counter_but_not_history",
         "test_child_worker_failure_retains_fatal_cause_and_receipt",
         "test_changed_specialist_source_contract_refuses_before_network",
@@ -204,12 +207,12 @@ def _images(value):
     return [item for item in _walk(value) if item.get("type") == "image"]
 
 
-def _call(name, arguments, cid, *, context_management=None):
+def _call(name, arguments, cid):
     return ScriptTurn([
         {"type": "thinking", "thinking": "Synthetic procedure summary for " + name,
          "signature": "SYNTHETIC-C3-SIGNATURE-" + cid},
         {"type": "tool_use", "id": cid, "name": name, "input": arguments},
-    ], context_management=context_management)
+    ])
 
 
 class SeedCheckedScene(JobScene):
@@ -228,16 +231,16 @@ class NativeScript:
         self.scene, self.job, self.workers = scene, job, workers
         self.saved = None
         self.basis = None
-        self.clear_seen = False
+        self.retained_history_seen = False
         self.forced = False
         self.renewal_finish_reset = False
         self.steps = []
         self._make_steps()
 
-    def add(self, name, args, cid, *, context_management=None):
+    def add(self, name, args, cid):
         def reply(body):
             arguments = args(body) if callable(args) else args
-            return _call(name, arguments, cid, context_management=context_management)
+            return _call(name, arguments, cid)
         self.steps.append(reply)
 
     def _make_steps(self):
@@ -294,20 +297,21 @@ print({'tool_test': True, 'object': selected.name, 'material': material.name,
         self.add("execute_blender_code", edit, "c3_edit")
         self.add("save_checkpoint", {"label": "C3 temporary material test", "best": False}, "c3_edited")
         self.add("compare_look_to_photos", lambda _: {"refs": None, "basis": self.basis}, "c3_look")
-        self.add("scene_summary", {"objects": None}, "c3_clear",
-                 context_management={"applied_edits": [{"type": "clear_tool_uses_20250919",
-                                                        "cleared_tool_uses": 8,
-                                                        "cleared_input_tokens": 150000}]})
+        self.add("scene_summary", {"objects": None}, "c3_retained_history")
 
         def repeat(body):
             assert _images(_results(body)["c3_look"]), "first comparison must deliver real images"
-            self.clear_seen = True
+            assert "context_management" not in body
+            self.retained_history_seen = True
             return {"refs": None, "basis": self.basis}
         self.add("compare_look_to_photos", repeat, "c3_repeated_look")
 
         def summary(body):
             assert self.forced, "summary request must follow deterministic soft pressure"
-            assert _images(_results(body)["c3_repeated_look"]), "cleared comparison dedup was not expired"
+            # Earlier evidence remains available. A repeated real comparison may
+            # refer to already delivered pixels; no server event expires dedup.
+            assert _images(_results(body)["c3_look"])
+            assert _report(_results(body)["c3_repeated_look"])["status"] == "ok"
             return ScriptTurn([{"type": "thinking", "thinking": "Synthetic renewal summary",
                                 "signature": "SYNTHETIC-C3-OLD-EPOCH"},
                                {"type": "text", "text": STATEMENT + " Temporary roughness change was checked. "
@@ -361,7 +365,7 @@ print({'tool_test': True, 'object': selected.name, 'material': material.name,
 
     def pressure(self, runtime, body, measurement):
         if not self.forced and "c3_repeated_look" in _results(body):
-            assert self.clear_seen
+            assert self.retained_history_seen
             self.forced = True
             return [{"kind": "tokens", "value": 800001, "limit": 800000,
                      "test_only": True, "method": "deterministic fake forecast pressure"}]
@@ -396,6 +400,9 @@ def audit_wire(wire, spec, script):
     expected_tools = [{"name": tool.name, "description": tool.description,
                        "input_schema": tool.params_json_schema} for tool in spec.tools]
     for number, body in enumerate(wire.requests):
+        assert "context_management" not in body
+        assert body["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert not any("cache_control" in item for item in _walk(body["messages"]))
         assert body["tools"] == expected_tools
         assert not check_request(body, wire.dims)
         messages = body["messages"]
@@ -428,6 +435,8 @@ def audit_wire(wire, spec, script):
         "an image SHA was uploaded more than once")
     assert all(row["expires_in_seconds"] == 604800 for row in wire.uploads)
     for call in wire.calls:
+        if call["path"] == "/v1/messages":
+            assert call["query"] == "", "native proof must use standard Messages"
         allowed = ((call["method"], call["path"]) in {
             ("POST", "/v1/messages"), ("POST", "/v1/files")}
             or call["method"] in {"GET", "DELETE"}
@@ -447,7 +456,8 @@ def audit_wire(wire, spec, script):
             "max_request_bytes": max(wire.request_sizes), "request_sha256": wire.request_sha256,
             "max_images": max(len(_images(body)) for body in wire.requests),
             "thinking_roundtrip": True, "all_six_photos_in_each_epoch": True,
-            "descriptors_unchanged": True, "upload_once": True}
+            "descriptors_unchanged": True, "upload_once": True,
+            "no_context_edits": True, "automatic_one_hour_cache": True}
 
 
 def audit_upload_cleanup(run_dir, outcome, wire):

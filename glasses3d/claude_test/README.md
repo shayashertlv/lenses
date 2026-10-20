@@ -48,7 +48,7 @@ records the complete opening and its counting projection, replacing inline image
 bytes with hashes. Counting uses the same instructions, effective tools, brief and
 request settings as the runner, with base64 photos and `oversized_image: "error"`.
 Fields absent from the pinned SDK's counting schema are listed with their values:
-currently `max_tokens`, `stream`, `service_tier` and `inference_geo`. Counting
+currently `max_tokens`, `stream`, `service_tier`, `inference_geo` and `speed`. Counting
 cannot validate file-ID inference or prompt-cache hits. A failed free step still
 deletes successfully uploaded files. Failed deletions are reported once with the
 expiry backup and make the command return a failure exit code.
@@ -118,5 +118,13 @@ The normal glasses3d test suite does not collect these tests. The separate C4
 `livecheck` command calls `count_tokens`; the paid runner never counts during a run. Every
 inference uses file IDs, native pixels or overlapping native tiles, and explicit
 reject-resize settings. Context forecasts are estimates anchored to settled
-usage. Server clears preserve local history; renewal keeps the owner photos and
-current evidence while starting a fresh signed-history epoch.
+usage. Requests use standard Messages with automatic top-level one-hour caching;
+they contain no server context-editing policy or context-management beta.
+Renewal is the only context bound: more than 480 image occurrences, at least
+25,600,000 serialized bytes, or more than 800,000 forecast input tokens. It keeps
+the owner photos and current evidence while starting a fresh signed-history
+epoch. Earlier messages and their cache markers are never changed.
+
+F1's offline cache model and C5 replay are `cache_sim.py` and `cache_replay.py`.
+The replay writes calibration, request-by-request costs and owner-only planning
+scenarios under `work/f1/`; it sends no requests and authorizes no paid run.

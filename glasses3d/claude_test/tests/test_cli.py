@@ -246,8 +246,15 @@ def livecheck_job(tmp_path, monkeypatch):
 
 
 def test_livecheck_counts_the_exact_opening_and_deletes_six_uploads(livecheck_job):
+    class StandardCountWire(ScriptedClaude):
+        def _handle(self, request):
+            if request.url.path == "/v1/messages/count_tokens":
+                assert "anthropic-beta" not in request.headers
+                assert not request.url.query
+            return super()._handle(request)
+
     target, directory = livecheck_job
-    wire = ScriptedClaude([], token_counts=[{"input_tokens": 27461}])
+    wire = StandardCountWire([], token_counts=[{"input_tokens": 27461}])
     words = "Owner permits this free-only upload and token check."
     output = cli.livecheck(target, env_file=target / "never-read.env", owner_ok=words,
                           run_id="intended-run", cutoff_usd=Decimal("17"), inner=wire.transport())
@@ -276,12 +283,17 @@ def test_livecheck_counts_the_exact_opening_and_deletes_six_uploads(livecheck_jo
     assert "owner cutoff: $17" in json.dumps(opening["messages"])
     assert len(opening["tools"]) > 20 and all("strict" not in tool for tool in opening["tools"])
     counted = wire.counts[0]
-    assert set(output["count_omitted_fields"]) == {"max_tokens", "stream", "service_tier", "inference_geo"}
+    assert set(output["count_omitted_fields"]) == {
+        "max_tokens", "stream", "service_tier", "inference_geo", "speed",
+    }
+    assert output["count_schema"] == "anthropic.types.message_count_tokens_params.MessageCountTokensParams"
+    assert "context_management" not in opening and "context_management" not in counted
     assert set(counted) == set(opening) - set(output["count_omitted_fields"])
     for key in set(counted) - {"messages"}:
         assert counted[key] == opening[key]
     assert counted["output_config"] == {"effort": "max"}
-    assert counted["cache_control"]["ttl"] == "1h" and counted["speed"] == "standard"
+    assert counted["cache_control"]["ttl"] == "1h"
+    assert opening["speed"] == "standard"
     restored = copy.deepcopy(counted)
     for block, original in zip(restored["messages"][0]["content"], opening["messages"][0]["content"]):
         if block["type"] == "image":

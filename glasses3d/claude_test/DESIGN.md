@@ -1,5 +1,12 @@
 # M13 C0: Claude runner design
 
+**F1 amendment, 2026-10-20:** server-side context editing is removed after C5's
+repeated clearing invalidated cached prefixes. Standard Messages, fixed top-level
+one-hour caching and the existing fresh-conversation renewal are the active
+policy. This amendment supersedes D6's clearing proposal and the historical C0
+profiling below. F1 evidence and estimates live in `work/f1/`; no paid run is
+authorized by them.
+
 Survey date: 2026-10-20. Source baseline: `ac00f92bf4a7577ea52416dba41587aa1ff25557`,
 branch `glasses3d`. References below are current repository paths and line numbers,
 not ASSEMBLY's historical line numbers. Paths starting `agent/` are relative to
@@ -353,7 +360,7 @@ and asserts `strict` is absent from **all** actual declarations. C4
 `count_tokens` is not a strict-grammar compilation proof; do not claim it
 certifies all Messages schema acceptance.
 
-## 4. Conversation state, context editing and renewal
+## 4. Conversation state, caching and renewal
 
 ### Durable append-only history
 
@@ -373,7 +380,7 @@ cannot literally be a prefix because JSON containers close; the invariant is
 the complete ordered message prefix plus unchanged non-message fields.
 Store the comparison and canonical hashes in receipts. Renewal starts a new
 conversation ID and records the link; it is the only epoch exception.
-Server clearing never edits local messages.
+Server context editing is disabled.
 
 Never run replay data through `Cleaner`: it masks `signature`
 (`agent/receipts.py:49`, `:180`). Keep authenticated request/response/session
@@ -405,13 +412,6 @@ C2 freezes the request):
     "speed": "standard",
     "tool_choice": {"type": "auto", "disable_parallel_tool_use": True},
     "cache_control": {"type": "ephemeral", "ttl": "1h"},
-    "context_management": {"edits": [{
-        "type": "clear_tool_uses_20250919",
-        "trigger": {"type": "input_tokens", "value": 350_000},
-        "clear_at_least": {"type": "input_tokens", "value": 150_000},
-        "keep": {"type": "tool_uses", "value": 8},
-        "clear_tool_inputs": False,
-    }]},
     "system": claude_instructions,
     "tools": effective_tools,
     "messages": conversation_messages,
@@ -419,7 +419,8 @@ C2 freezes the request):
 }
 ```
 
-Use the beta Messages route with `context-management-2025-06-27`.
+Use standard Messages without the context-management beta. The pinned standard
+SDK takes `speed` through `extra_body`; the resulting wire field stays unchanged.
 Files is GA: use `client.files` without a Files beta header
 ([Files guide](https://platform.claude.com/docs/en/build-with-claude/files),
 checked 2026-10-20). Upload with `expires_in_seconds=604800` per current D8;
@@ -439,12 +440,8 @@ Cache control is top-level and fixed, not moved through stored content. The
 supports the one-hour TTL (checked 2026-10-20). Record all read/write counters
 and actual TTL charges; never assume a cache hit.
 
-Per the [context-editing API](https://platform.claude.com/docs/en/build-with-claude/context-editing)
-(checked 2026-10-20), keep full client history and record final-delta
-`context_management.applied_edits`. Clearing
-does not remove the opening photo message. It can invalidate cache prefixes.
-Upon a reported tool-clear event, expire `JobScene._emitted_images = {}` under
-its state lock so a later real tool call can return the cleared view again.
+Only fresh-conversation renewal expires `JobScene._emitted_images = {}` under
+its state lock so a later real tool call can return a view from the old epoch.
 Do **not** mark historical calls unseen: they were actually delivered. The
 ordinary `StageLab` already emits previews on retries (`agent/temple_lab/stage.py:215`).
 
@@ -466,26 +463,24 @@ C0 read the accepted rerun's local
 | Second rebuilt conversation | 117,225 tokens; 40 images; 33,858,253 bytes |
 | Current evidence carried | 6 then 34 images, plus all six owner photos |
 
-Keep D6's 350K trigger / 150K minimum clear / 8 retained tools as the proposed
-initial configuration: the actual profile demonstrates large evidence batches
-and expensive base64 payloads, but it was cut into epochs near 218K and cannot
-measure an unrenewed Claude context. These are engineering choices, **not**
-measured Claude counts or proof that clearing will occur. C3 records the tiled
-profile; C4 records actual Claude counts before C5. If unable to clear 150K,
-the server may leave the context unchanged; the backstop must still work.
+The original 350K trigger / 150K minimum clear / 8 retained tools proposal was
+not validated by this Astra profile. C5 later showed repeated clearing with
+zero cache reads and full prefix rewrites. F1 removes those settings from
+requests and approval binding. Reported `cleared_input_tokens` are inconsistent
+with request sizes and must not be used to estimate saved tokens.
 
-Provider-specific soft renewal is strictly above 80% of either 600 image
-occurrences (480), 32,000,000 serialized bytes (25,600,000), or verified usable
+Provider-specific soft renewal is strictly above 480 image occurrences,
+at or above 25,600,000 serialized bytes, or strictly above 80% of verified usable
 input capacity: for Opus 5.5's 1M window the context trigger is **800,000**.
 Do not subtract the 128K output cap: current models accept input plus requested
 output exceeding the window; input alone exceeding it is rejected, and actual
 generation reaching it ends with `model_context_window_exceeded`.
 [Context overflow](https://platform.claude.com/docs/en/build-with-claude/context-windows)
 (checked 2026-10-20). Never reuse OpenAI's 272K tariff threshold.
-Apply hard checks regardless of server clearing: the full submitted request
+Apply hard checks to the full submitted request, which
 still contains all file-ID blocks. The context meter below is a forecast,
 not an exact admission guarantee; do not fabricate a zero count or promise a
-future 150K clear.
+future cache hit.
 
 ### Separate free counting representation and runtime context meter
 
@@ -509,7 +504,7 @@ Proposed C2 context meter, an engineering estimate:
    a private count-projection validator that allows native base64.
 2. After a settled reply, anchor the meter to actual
    `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
-   Keep actual output tokens and applied-clear counters separately.
+   Keep actual output tokens separately.
 3. Forecast the next input as that effective-input anchor plus the prior
    reply's actual output count plus an estimate for only the new tool/user
    content. Count the unsigned new text/images in bounded, self-contained
@@ -639,7 +634,7 @@ A's actual receipt filenames may differ within `transport/`; add separate
 derived `NNNN-request.json`/`NNNN-response.json` only when needed, never overwrite
 its authority. Preserve request body with file IDs plus an image-hash manifest,
 raw SSE, assembled raw response JSON, usage, exact Decimal cost, HTTP status,
-request ID, stop reason/details, timestamps, retries and context-editing events.
+request ID, stop reason/details, timestamps and retries.
 Record original/effective schema hashes and count results. Complete thinking
 blocks/signatures live in private replay records; readable summaries go in the
 existing reasoning-summary/transcript locations.
@@ -648,7 +643,7 @@ Keep `g3d.run_config/1`, `g3d.run_result/1`, `g3d.heartbeat/1` and the native
 delivery/review/verdict schemas. Add `provider:"anthropic"` and exact `model` to
 run request, approval binding, run config, result, request/response metadata,
 stage result and summary. Config names the API/SDK version, max_tokens, max
-effort, summarized thinking, effective tools, automatic cache TTL, context edits,
+effort, summarized thinking, effective tools, automatic cache TTL,
 no fallback, one worker and zero SDK retries. Do not write `use_responses:true`.
 
 Result retains `job_id`, `run_id`, `status`, `error`, `started`, `finished`,
@@ -904,9 +899,10 @@ preserved exactly; this proves round-tripping, not server cryptographic validity
 Support before-body 429/529 plus Retry-After, refusal, text-only end_turn,
 unknown usage/model, partial stream and error-event scripts. Fake Files/count
 handlers implement only R's SDK-observed allowlisted paths. Check every method,
-host, path, query and body; unknown endpoints fail immediately. A fake
-context-editing event tests local bookkeeping; it does not prove real server
-clearing or image interpretation. Disable production HTTP paths and DNS outside
+host, path, query and body; unknown endpoints fail immediately. F1 also computes
+fake usage from the deterministic cache model and reconciles the guarded ledger
+exactly. This tests accounting, not real provider caching or image interpretation.
+Disable production HTTP paths and DNS outside
 loopback, covering both httpx and httpx2. No owner key is loaded.
 
 ### Native Oakley scenario
@@ -935,8 +931,8 @@ Drive these real tools with scripted replies:
    change selected from actual scene metadata; save a checkpoint and run
    `compare_look_to_photos`. At least one real panel must require B's tiling;
    assert split/reconstruction rather than relying solely on a synthetic image.
-4. Return a fake context-editing event. Assert local history is unchanged and
-   rerunning a cleared comparison returns images because dedup was expired.
+4. Repeat a comparison while retaining earlier evidence. Assert all requests
+   omit context editing and keep automatic top-level one-hour caching.
 5. Force one renewal with deterministic fake count pressure (test-only
    configuration), a scripted state summary and real current evidence. Verify
    both epoch records, all six photos, pixel/file hashes and finish-reset state.
@@ -964,7 +960,7 @@ Do not force a specialist geometry success onto Oakley.
 ### Required assertions and negative scenarios
 
 - Exact prior Messages prefixes and immutable thinking/signature blocks,
-  including after server-clear events; separate append-only renewal epochs,
+  with no server context edits; separate append-only renewal epochs,
   atomic pointer/receipt recovery, exact tool-use/result IDs and ordering.
 - Original and emitted/tiled pixels remain exact; no inline inference images; all
   dimensions/visual-token counts valid; <=600 image occurrences; serialized
@@ -1024,7 +1020,7 @@ no monkeypatch/import side effect should change either request.
    C2 must not bypass transport or repair its files. Current D7 omits all strict
    flags; D8 sets seven-day expiry. Verify the pinned SDK against FACTS.
    C4 counts base64 opening projections and cannot validate file access,
-   strict compilation or live context clearing. No paid probe is authorized.
+   strict compilation or live caching. No paid probe is authorized.
 2. **Approval/accounting adapters are mandatory.** A's approval API does not
    bind the whole job request; use the separate execution seal. OpenAI
    `JobLedger`, `BudgetGuard`, result cleaner and `deliver_draft` cannot be
@@ -1034,8 +1030,8 @@ no monkeypatch/import side effect should change either request.
    and changing earlier request blocks/cache markers can invalidate them.
    Persist raw blocks separately and check every request prefix. A fake
    signature test proves preservation only.
-4. **Re-reading cleared images needs a dedup reset.** Otherwise the shared tool
-   returns “already delivered” text after the server cleared that evidence.
+4. **A fresh renewal needs a dedup reset.** Otherwise the shared tool
+   returns “already delivered” text for evidence left in the old conversation.
    Expire only the emission cache; do not rewrite history or falsify unseen
    journals. Upload failures must invalidate an actual unreceived finish.
 5. **Non-strict tools require complete local validation.** All declarations
@@ -1045,9 +1041,8 @@ no monkeypatch/import side effect should change either request.
 6. **Context pressure is estimated after signed turns.** Counting does not
    accept file IDs; converting past images may invalidate thinking, and
    base64 histories can exceed 32 MB. Section 4 proposes usage-anchored growth
-   estimates without changing inference history. Review this policy before C2.
-   Saved Astra epochs cannot validate 350K/150K clearing; C3/C4 cannot prove
-   real server clearing. A huge actual result or irreducible carried evidence
+   estimates without changing inference history. F1 keeps these soft thresholds.
+   C3/C4 cannot prove real server cache behavior. A huge actual result or irreducible carried evidence
    can still require a draft.
 7. **Specialist concurrency/cancellation can leak work.** Retain StageBridge's
    true unwind and one shared ledger/client; never substitute a child OpenAI

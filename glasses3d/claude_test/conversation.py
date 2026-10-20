@@ -28,7 +28,6 @@ from glasses3d.agent.session_inputs import plan_session_input
 from .images import LIMITS, FileCache, Tile, check_request, fits, image_block, visual_tokens
 
 
-CONTEXT_BETA = "context-management-2025-06-27"
 SOFT_IMAGES = 480
 SOFT_BYTES = 25_600_000
 SOFT_TOKENS = 800_000
@@ -269,12 +268,6 @@ def request_body(spec, messages: list[dict], *, tools: list[dict]) -> dict:
         "service_tier": "standard_only", "speed": "standard", "inference_geo": "global",
         "tool_choice": {"type": "auto", "disable_parallel_tool_use": True},
         "cache_control": {"type": "ephemeral", "ttl": "1h"},
-        "context_management": {"edits": [{
-            "type": "clear_tool_uses_20250919",
-            "trigger": {"type": "input_tokens", "value": 350_000},
-            "clear_at_least": {"type": "input_tokens", "value": 150_000},
-            "keep": {"type": "tool_uses", "value": 8}, "clear_tool_inputs": False,
-        }]},
         "system": spec.instructions, "tools": tools, "messages": messages, "stream": True,
     })
 
@@ -338,7 +331,7 @@ def _counter(value, name):
 
 def context_measurement(*, last_usage: dict | None, appended_estimate: dict,
                         opening_count: dict | None = None) -> dict:
-    """Forecast next input from settled usage; clearing is already in that usage."""
+    """Forecast next input from settled usage and newly appended content."""
     new_tokens = _counter(appended_estimate.get("total_tokens", 0), "new content estimate")
     anchor = output = 0
     if last_usage is not None:
@@ -531,7 +524,7 @@ class ClaudeReviewLog(ReviewLog):
         })
         self.event("api_response", request_seq=request_no, **{k: v for k, v in row.items() if k != "sequence"},
                    usage=value.get("usage"), stop_details=value.get("stop_details"),
-                   context_management=value.get("context_management"), raw_response_sha256=_sha(value))
+                   raw_response_sha256=_sha(value))
         lines = [f"## Claude, response {value.get('id')} (request {request_no}, {value.get('stop_reason')})"]
         for block in blocks:
             if block.get("type") == "text":

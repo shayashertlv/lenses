@@ -240,7 +240,7 @@ class ToolAdapter:
             self.scene.save()
 
     def expire_image_dedup(self) -> None:
-        """Server clears affect emission only, never the delivered-call journal."""
+        """A fresh conversation needs image emission, retaining the delivered-call journal."""
         lock = getattr(self.scene, "_state_lock", None)
         if lock is None:
             self.scene._emitted_images = {}
