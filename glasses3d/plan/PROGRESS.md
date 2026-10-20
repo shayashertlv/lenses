@@ -1,5 +1,29 @@
 # glasses3d progress
 
+## 2026-10-20 — M13 second paid Claude run: stopped by the owner, $21.25
+
+The run had F1 (no server clearing) and T1/T1b (tool-use and paged-result host notes). Owner OK: "Raise the cutoff
+for the second paid Claude run to $35 settled; everything else the same settings."
+
+**Run.** Job copy `claude_test/work/c6-20261020/jobs/oakley-oo9208-v2-911a2b0e`, run `20261020T130337-bb18b4`.
+- The owner stopped it after Claude showed him a mid-run snapshot (request-80 comparison: green centre fading to
+  violet, white glow behind the top lettering, flatter lens lower edge, pale lens). His words: "ok i think we can stop
+  the run".
+- Result: **stopped**, 85 requests in 101.7 min, **$21.250687 settled** of the $35 cutoff, with no unknown charges.
+  One renewal happened at request 75.
+- A draft delivery was published: `…-9a58745f…`, GLB `cffb9ea2…`. 396 uploads were made and 396 deleted.
+
+**Tool use.**
+- 84 calls; 62% were dedicated tools.
+- 32 scripts against 16 look comparisons; 0 `compare_to_photos`.
+- 29 photo measurements in 5 calls.
+- 6 `read_report` calls: 3 of the 24 paged results were later read.
+- 46 change-count notes and 23 paged notes were sent.
+- The longest no-comparison streak was 5.
+
+**Cost.** The fix worked: requests at about 340–750K context cost $0.09–0.20 each, against $3.40 under the C5
+defect. The renewal's first request cost $1.69.
+
 ## 2026-10-20 — M13 C5: the paid Claude Oakley run, completed and awaiting the owner's eye
 
 Owner OK, verbatim: "Yes, start the paid Claude Opus 5.5 Oakley run at max effort with a $20 settled cutoff."
