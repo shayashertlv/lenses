@@ -196,6 +196,18 @@ def test_construction_guidance_compares_lens_materials_and_temple_sections(tools
         assert "do not refit" in text
 
 
+def test_coating_description_names_base_colour_target_and_preserved_alpha(tools):
+    tool = next(tool for tool in tools if tool.name == "execute_blender_code")
+    description = " ".join(tool.description.split())
+    for phrase in ("Tint is linear RGB and replaces Principled Base Color RGB",
+                   "not an independent thin-film colour",
+                   "Base Color alpha and the separate Alpha input are preserved",
+                   "Linked Base Color inputs are refused before any change",
+                   "returned tint_target names the changed input",
+                   "preserves metallic, transmission and other optics"):
+        assert phrase in description
+
+
 def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(tools):
     main = I.build_instructions(tools)
     assert "After each shape, colour or material edit, use `compare_look_to_photos`" in main

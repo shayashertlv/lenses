@@ -1,5 +1,34 @@
 # glasses3d progress
 
+## 2026-10-20 — Task 13: Astra's dark metallic lens choices diagnosed at $0
+
+Compared accepted run 4, the rejected afternoon run and the accepted max-effort rerun, preserving the owner's
+rerun lens-colour caveat. The later runs deliberately retained dark metallic materials after trying alternatives;
+the record does not explain the exact final .92 metallic/.10 base choice. Run 4 also tried a dark metallic lens,
+then returned to metallic 0. The unchanged shader reduces transmitted base-colour contribution by `(1 - metallic)`;
+the look tool reports medians without ranking candidates. No new rule prescribing dark metallic lenses was found.
+
+All three encountered the same white-coating-tint override. Clarified the existing helper contract in its description
+and output: `tint` replaces Principled Base Color RGB, preserves both alpha inputs and other optics, and refuses
+linked Base Color. Material writes, recipes, gates and the fixed reflection default are unchanged. Additional
+material-selection guidance is proposal-only in the report.
+
+Current six-view replays on copies: front AR L* run 4 **58.89**, afternoon **40.30**, rerun **42.79**, versus photos
+about **63.4**. Before/after numbers match exactly and all **18** photo-camera AR images are byte-identical.
+The labelled front-photo/three-lens comparison is the primary visual output. All **97** original input hashes match.
+
+Proof: old helper/output-description regressions fail and new versions pass, with equal native/exported material
+values; **137** focused tests pass. Functional run: **5,850 passed, 2 skipped, 1 failed** (the launcher's external
+QoS sweep can contaminate the deliberately unmanaged process-test child). The unchanged whole process module
+passes **17/17** without that sweep; no process-test assertion, process runtime or timeout changed. Photo-print **367** and serial
+timing **29** pass: **6,247 distinct passing tests**, with the initial failure retained in the report.
+Offline M1 passes in **164.59 s**, 13 scripted requests, 35 verified AR images, **$0 actual spend**
+(`data/assembly/m1-proof-836cd343/proof.json`). Heavy jobs were sequential, BLAS 1, memory-bounded, with EcoQoS opt-out.
+
+Report: `data/review_20261018/codex/task13_report.md`; image: `task13_front_comparison.png` beside it.
+The report also records a discarded accidental broad read-only search during final verification.
+No original job, run, delivery or verdict changed; no paid call or push.
+
 ## 2026-10-20 — M13 closed: back to Astra
 
 Owner, verbatim: "lets end this test and go back to focusing on astra". The Claude test is closed and no Claude

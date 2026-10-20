@@ -114,7 +114,9 @@ def _colour(socket, stack=()):
 def lens_coating(material, *, factor, ior, thickness_min_nm, thickness_max_nm, tint):
     """Author a uniform exportable thin film on an existing directly connected Principled material.
 
-    ``tint`` is three linear RGB components. Existing alpha, transmission, bulk IOR and unrelated nodes stay intact.
+    ``tint`` replaces the unlinked Principled Base Color RGB, not an independent thin-film colour.
+    Its three components are linear RGB. Existing Base Color alpha, Alpha, metallic, transmission, bulk IOR
+    and unrelated nodes stay intact. A linked Base Color is refused before any change.
     Without a thickness texture glTF uses only maximum thickness; minimum is retained as an inactive control.
     Blender has no thin-film strength socket: partial factor is a glTF/AR control, not an exact Blender preview.
     Refuses linked/ambiguous controlled inputs before changing anything; never replaces a shader graph.
@@ -215,8 +217,10 @@ def lens_coating(material, *, factor, ior, thickness_min_nm, thickness_max_nm, t
     material[COATING_KEY] = 1
     return {"status": "configured", "material": material.name, "principled": principled.name,
             "group": group.name, **values, "tint": list(colour), "tint_space": "linear RGB",
+            "tint_target": "Principled Base Color RGB",
             "effective_uniform_thickness_nm": effective, "thickness_texture": False,
-            "notes": ["Without a thickness texture, glTF uses uniform maximum thickness; minimum is inactive.",
+            "notes": ["Tint replaced Principled Base Color RGB, not an independent thin-film colour; alpha is unchanged.",
+                      "Without a thickness texture, glTF uses uniform maximum thickness; minimum is inactive.",
                       "Partial factor controls glTF/AR; Blender's native thin film has no matching strength input."]}
 
 

@@ -449,9 +449,12 @@ def build_tools(scene, settings=None) -> list:
         confirmed owner operations; these construction helpers do not grant extra edit authority.
 
         g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
-        authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB;
-        the untextured film uses the maximum thickness. Both thickness limits are retained in the GLB.
-        The helper preserves transmission and other optics. Inspect export warnings and fixed-scale AR to judge it.
+        authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB
+        and replaces Principled Base Color RGB, not an independent thin-film colour. Base Color alpha and the
+        separate Alpha input are preserved. Linked Base Color inputs are refused before any change.
+        The returned tint_target names the changed input. The untextured film uses the maximum thickness;
+        both thickness limits are retained in the GLB. The helper preserves metallic, transmission and other optics.
+        Inspect export warnings and fixed-scale AR to judge it.
         For ANY manual seating/support repair set seating_repair=True: the host returns front before/after at
         one frozen camera. Preserve every opening and feature visible in the photos, including vents.
         This visual report and geometric seating results are information to weigh against the photos.

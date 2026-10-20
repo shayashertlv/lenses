@@ -87,6 +87,19 @@ facade.lens_coating(mat, **{**PARAMS, "factor": 0})
 export("factor_zero")
 REPORT["preserved"]["native_zero"] = p.inputs["Thin Film Thickness"].default_value
 
+# A white "coating tint" replaces an existing coloured body. Report that target explicitly.
+mat, p = scene()
+p.inputs["Base Color"].default_value = (.13, .47, .71, .37)
+for name, value in (("Metallic", .67), ("Transmission Weight", .83), ("IOR", 1.61),
+                    ("Alpha", .79), ("Roughness", .23)):
+    p.inputs[name].default_value = value
+REPORT["white_tint"] = {"before_base_color": list(p.inputs["Base Color"].default_value)}
+REPORT["white_tint"]["helper"] = facade.lens_coating(mat, **{**PARAMS, "tint": (1., 1., 1.)})
+REPORT["white_tint"]["after_base_color"] = list(p.inputs["Base Color"].default_value)
+REPORT["white_tint"]["preserved_inputs"] = {
+    name: p.inputs[name].default_value for name in ("Metallic", "Transmission Weight", "IOR", "Alpha", "Roughness")}
+export("white_tint")
+
 # Live workers evaluate and checkpoint an existing scene between edits. Exercise repeated exports on shared data.
 mat, p = scene()
 first = bpy.context.object

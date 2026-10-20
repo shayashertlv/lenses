@@ -61,6 +61,31 @@ def test_factor_zero_explicitly_disables_native_and_export_film(proof):
     assert case["receipt"]["optical_warnings"] == []
 
 
+def test_white_tint_reports_base_colour_replacement_and_preserves_other_optics(proof):
+    report = proof["white_tint"]
+    assert report["before_base_color"] == pytest.approx([.13, .47, .71, .37])
+    assert report["after_base_color"] == pytest.approx([1., 1., 1., .37])
+    assert report["preserved_inputs"] == pytest.approx({
+        "Metallic": .67, "Transmission Weight": .83, "IOR": 1.61, "Alpha": .79, "Roughness": .23})
+    helper = report["helper"]
+    assert helper["tint"] == [1., 1., 1.]
+    assert helper["tint_space"] == "linear RGB"
+    assert helper["tint_target"] == "Principled Base Color RGB"
+    assert any("not an independent thin-film colour" in note and "alpha is unchanged" in note
+               for note in helper["notes"])
+    case = proof["cases"]["white_tint"]
+    pbr = case["materials"][0]["pbrMetallicRoughness"]
+    assert pbr["baseColorFactor"] == pytest.approx([1., 1., 1., .79])
+    assert pbr["metallicFactor"] == pytest.approx(.67)
+    assert pbr["roughnessFactor"] == pytest.approx(.23)
+    assert extension(case, "transmission")["transmissionFactor"] == pytest.approx(.83)
+    assert extension(case, "ior")["ior"] == pytest.approx(1.61)
+    assert extension(case, "iridescence") == pytest.approx({
+        "iridescenceFactor": 1., "iridescenceIor": 1.38,
+        "iridescenceThicknessMinimum": 140., "iridescenceThicknessMaximum": 460.})
+    assert case["receipt"]["optical_warnings"] == []
+
+
 def test_repeated_live_export_uses_current_shared_material_controls(proof):
     irid = extension(proof["cases"]["live_coated"], "iridescence")
     assert irid["iridescenceThicknessMinimum"] == 140, proof["live_before_export"]
