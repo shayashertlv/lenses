@@ -681,13 +681,37 @@ def audit_tool_use(run_dir, scene, wire):
     }
     sent_path = path.with_name("tool-use-sent.jsonl")
     sent = [json.loads(line) for line in sent_path.read_text(encoding="utf-8").splitlines()]
-    assert Counter(row["call_id"] for row in sent) == Counter({cid: 1 for cid in expected_notes})
+    expected_paged = {}
+    for row in rows:
+        for item in row["result"]["content"]:
+            if item.get("type") != "text":
+                continue
+            try:
+                value, _ = json.JSONDecoder().raw_decode(item["text"].lstrip())
+                break
+            except ValueError:
+                value = None
+        else:
+            value = None
+        if (row["name"] != "read_report" and isinstance(value, dict)
+                and value.get("paged") is True):
+            digest = value["full_report"]["id"]
+            assert re.fullmatch(r"[0-9a-f]{64}", digest)
+            expected_paged[row["call_id"]] = digest
+    expected_sent = (set(expected_notes) | set(expected_paged)) & seen.keys()
+    assert Counter(row["call_id"] for row in sent) == Counter({cid: 1 for cid in expected_sent})
     for row in sent:
         assert row["request_no"] == first_request[row["call_id"]]
     comparisons = {"compare_to_photos", "compare_look_to_photos"}
     streak = longest = 0
     for row in rows:
         cid, name = row["call_id"], row["name"]
+        paged_note = (f"Host: this result is paged; the full report is available with read_report "
+                      f"(id {expected_paged[cid]}).") if cid in expected_paged else None
+        assert row.get("paged_note") == paged_note
+        assert row.get("paged_report") == expected_paged.get(cid)
+        appended = ([row["host_note"]] if row["host_note"] else []) + (
+            [paged_note] if paged_note else [])
         assert row["result"]["tool_use_id"] == cid
         if cid in seen:
             assert row["result"] == seen[cid], "durable tool-use receipt differs from the wire"
@@ -709,26 +733,28 @@ def audit_tool_use(run_dir, scene, wire):
             if change["changed"]:
                 streak += 1
                 longest = max(longest, streak)
-            # Scripts emit only original text plus the separate host line:
+            # Scripts emit only original text plus the separate host lines:
             # preserve their status, stdout, footer and all other content.
             actual = row["result"]["content"]
-            assert (actual[:-1] if row["host_note"] else actual) == original[cid]["result"]
+            assert (actual[:-len(appended)] if appended else actual) == original[cid]["result"]
             assert not row["result"].get("is_error")
         assert row["changes_since_comparison"] == streak
         notes = [item["text"] for item in row["result"]["content"]
                  if item.get("type") == "text" and item["text"].startswith("Host: ")]
+        assert notes == appended
+        if appended:
+            assert row["result"]["content"][-len(appended):] == [
+                {"type": "text", "text": note} for note in appended]
         if cid in expected_notes:
             number, last_comparison = expected_notes[cid]
             note = row["host_note"]
             assert isinstance(note, str) and "\n" not in note
             assert note.startswith(f"Host: {number} model change")
             assert f"since your last {last_comparison}." in note
-            assert row["result"]["content"][-1] == {"type": "text", "text": note}
-            assert notes == [note]
             for tool in ("compare_to_photos", "compare_look_to_photos", "photo_read", "pick_surface_point"):
                 assert tool in note
         else:
-            assert row["host_note"] is None and notes == []
+            assert row["host_note"] is None
     assert native["c3_read_only"]["fingerprint_before"] == native["c3_read_only"]["fingerprint_after"]
     assert longest == 2
     counts = Counter(call["name"] for call in calls)
@@ -740,8 +766,11 @@ def audit_tool_use(run_dir, scene, wire):
     assert metrics["longest_no_comparison_streak"] == longest
     assert metrics["photo_measurements"] == 0
     assert metrics["photo_measurement_calls"] == metrics["unresolved_measurement_calls"] == 0
-    assert metrics["host_notes_sent"] == len(expected_notes)
-    assert metrics["host_notes_prepared"] == len(expected_notes)
+    assert metrics["host_notes_sent"] == len(expected_notes) + len(set(expected_paged) & seen.keys())
+    assert metrics["host_notes_prepared"] == len(expected_notes) + len(expected_paged)
+    assert metrics["paged_results"] == len(expected_paged)
+    assert metrics["paged_notes_sent"] == len(set(expected_paged) & seen.keys())
+    assert metrics["paged_results_later_read"] == 0  # The native script never calls read_report.
     return {"status": "passed", "receipt": str(path), "sent_receipt": str(sent_path), "metrics": metrics,
             "scene_changing_scripts": list(expected_notes), "read_only_script_note_absent": True,
             "comparison_reset_verified": True, "original_script_outputs_unchanged": True,

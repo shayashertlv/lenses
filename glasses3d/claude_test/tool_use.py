@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 
 
 COMPARISONS = frozenset({"compare_to_photos", "compare_look_to_photos"})
@@ -40,11 +41,48 @@ class ToolUse:
                 "host_note": note}
 
 
+def paging_facts(name: str, result: dict | None) -> dict:
+    """Describe the emitted report envelope; read_report pages never get a reminder."""
+    facts = {"paged_report": None, "paged_note": None, "report_read": None}
+    if result is None:
+        return facts
+    value = None
+    for block in result.get("content", []):
+        if block.get("type") != "text":
+            continue
+        try:
+            value, _ = json.JSONDecoder().raw_decode(block["text"].lstrip())
+            break
+        except ValueError:
+            pass
+    if not isinstance(value, dict):
+        return facts
+    if name == "read_report":
+        digest = value.get("report")
+        if (value.get("status") == "ok" and not result.get("is_error", False)
+                and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)):
+            facts["report_read"] = digest
+        return facts
+    reference = value.get("full_report")
+    digest = reference.get("id") if isinstance(reference, dict) else None
+    if (value.get("paged") is True and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)):
+        facts["paged_report"] = digest
+        facts["paged_note"] = (
+            f"Host: this result is paged; the full report is available with read_report (id {digest})."
+        )
+    return facts
+
+
 def summarize(directory: Path) -> dict:
     """Reconcile parent and specialist receipts without merging separate scenes' streaks."""
     counts = Counter()
     longest = measurements = notes = prepared = measurement_calls = unknown_measurements = 0
+    paged_results = paged_read = paged_notes = 0
     for path in sorted(Path(directory).rglob("tool-use.jsonl")):
+        # Report IDs are job-local. Count each emission once, only after a later
+        # successful page in this scene; repeated pages cannot inflate the count.
+        unread = Counter()
         sent_path = path.with_name("tool-use-sent.jsonl")
         sent = ({json.loads(line)["call_id"] for line in sent_path.read_text(
             encoding="utf-8").splitlines()} if sent_path.exists() else set())
@@ -57,8 +95,16 @@ def summarize(directory: Path) -> dict:
                 measurement_calls += 1
                 measurements += row["photo_measurements"] or 0
                 unknown_measurements += row["photo_measurements"] is None
-            prepared += row["host_note"] is not None
-            notes += row["host_note"] is not None and row["call_id"] in sent
+            note_count = int(row["host_note"] is not None) + int(row.get("paged_note") is not None)
+            prepared += note_count
+            if row["call_id"] in sent:
+                notes += note_count
+                paged_notes += row.get("paged_note") is not None
+            if row.get("paged_report") is not None:
+                paged_results += 1
+                unread[row["paged_report"]] += 1
+            if row.get("report_read") is not None:
+                paged_read += unread.pop(row["report_read"], 0)
     total = sum(counts.values())
     dedicated = total - counts["execute_blender_code"]
     return {
@@ -72,6 +118,9 @@ def summarize(directory: Path) -> dict:
         "unresolved_measurement_calls": unknown_measurements,
         "host_notes_sent": notes,
         "host_notes_prepared": prepared,
+        "paged_results": paged_results,
+        "paged_results_later_read": paged_read,
+        "paged_notes_sent": paged_notes,
         "method": (
             "All tool invocations, including refusals, count toward shares. "
             "Streaks count fingerprint-changing execute_blender_code calls; only a successful "
@@ -79,6 +128,9 @@ def summarize(directory: Path) -> dict:
             "renewals do not reset. Photo measurements count successful photo_read readings and "
             "pick_surface_point hits, including partial results. Host notes sent counts unique notes "
             "included in a settled model request; prepared but unsent notes are separate. "
+            "Change-count and paged-result notes count separately. Paged results later read counts "
+            "each result followed by at least one successful read_report page for its ID in the same "
+            "scene, not proof that every page was read. read_report pages get no paging reminder. "
             "Each specialist has its own scene streak."
         ),
     }

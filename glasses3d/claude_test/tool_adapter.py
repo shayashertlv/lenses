@@ -25,7 +25,7 @@ from glasses3d.agent.tool_reports import bounded_tool, limit_output
 from glasses3d.agent.tool_timeouts import busy_result, clear_running, mark_running
 
 from .images import FileCache, image_block, label_block, tile
-from .tool_use import ToolUse, measurement_count
+from .tool_use import ToolUse, measurement_count, paging_facts
 
 
 TOOL_PREFERENCE_PARAGRAPH = (
@@ -272,7 +272,7 @@ class ToolAdapter:
         self.image_records.extend(records)
 
     async def invoke(self, block: dict) -> dict:
-        """Keep native results intact and append one factual note for a changed scene."""
+        """Keep native results intact; append change-count then paged-report notes."""
         before = self._fingerprint()
         result = None
         failure = None
@@ -290,9 +290,11 @@ class ToolAdapter:
             changed = isinstance(before, str) and isinstance(after, str) and before != after
             facts = self.tool_use.observe(name, changed=changed, successful=successful,
                                           returned=result is not None)
-            if facts["host_note"] is not None:
-                result["content"].append(label_block(facts["host_note"]))
-                self._prepared_notes.add(call_id)
+            facts.update(paging_facts(name, result))
+            for note in (facts["host_note"], facts["paged_note"]):
+                if note is not None:
+                    result["content"].append(label_block(note))
+                    self._prepared_notes.add(call_id)
             value = None
             for item in _items(self.last_raw_output):
                 text = _text(item)

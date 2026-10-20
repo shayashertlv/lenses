@@ -23,6 +23,8 @@ from typing import Callable, Iterator
 
 from PIL import Image
 
+from glasses3d.agent.procs import replace_with_retry
+
 
 # PROVISIONAL: frozen M13 C1 interface; the coordinator reconciles FACTS.md.
 LIMITS = {
@@ -263,7 +265,8 @@ class FileCache:
                 output.write("\n")
                 output.flush()
                 os.fsync(output.fileno())
-            os.replace(temporary, self.path)
+            # Windows Defender transiently denies ~1% of renames (WinError 5); a paid run writes this cache per upload.
+            replace_with_retry(temporary, self.path)
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
