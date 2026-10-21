@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-21 — Owner verdict on the task 18 lab lenses (on-face AR): task 18 kept
+
+- Owner, verbatim, after trying them on himself in the AR preview: "new trial 4 is absolutely perfect, its the best
+  result we got so far (even better than run4). trail 3 is slightly better than run4."
+  - The trials are lab lenses, batch `baseline/20261021T061019Z-35e0a497`, trials 004 and 003. They are not products.
+- **Task 18 is kept (`77aad88`).** Its worn-image colour judging produced the two best lenses by his eye, although the
+  lab's white-background metric ranked them below his earlier picks (25.04 and 24.85, against 23.66–24.59).
+- **Lesson.** The lab's six-region metric agrees with his eye on white-background views, but not on-face. Judge lens
+  colour on-face, by him. The metric is information only, never a gate.
+- Next: E2 (the lens-colour panel) and task 20 (instruction review) are running. A confirming paid Astra Oakley run on
+  this code is his call.
+
 ## 2026-10-21 — Task 18 (worn images lead the colour review) committed `77aad88`; lab check worse; owner to decide
 
 - What Astra sees now: `compare_look_to_photos` leads with the native worn front image and the closest worn angles,
