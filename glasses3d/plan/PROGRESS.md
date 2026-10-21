@@ -1,5 +1,43 @@
 # glasses3d progress
 
+## 2026-10-22 ~01:10 — Codex usage limit stops E5 and task 24; their work saved, tree restored ($0)
+
+**What stopped.** Both Codex jobs stopped with "You've hit your usage limit … try again at Oct 27th, 2026 8:32 AM":
+- E5 (Around-a-point gradients) exited 1 at 00:59:07;
+- task 24 (duplicate images) exited 1 at 00:59:35.
+
+Neither committed. Codex is unavailable until 2026-10-27 08:32 unless the owner adds credits.
+
+**Why Claude restored the tree.** E5's uncommitted page script was being served live by the dev UI against an older
+server that does not know "Around a point". Task 24's half-built runtime would also have been imported by any new
+paid-run process.
+
+**How the work was saved.**
+- Both jobs' uncommitted work is kept as a binary patch, copies of the new files and full copies of every changed
+  file, verified byte-identical:
+  - `data/m12/codex/e5_wip/`: `tracked.patch`, `new/`, `current/`, base commit `0e1e0c6`;
+  - `data/review_20261018/codex/task24_wip/`: the same layout.
+- Every modified tracked file belonged to exactly one set.
+- Claude then restored the committed files and moved the new files out.
+- Both patches pass `git apply --check` on `0e1e0c6`.
+- The dev UI was restarted on `0e1e0c6`. The live Edit page has no unfinished option and no console errors.
+
+**E5's state.** Implementation and focused tests were done (455 passed plus affected retests). Browser, parity,
+generality and M12 checks were never run.
+
+**E5 worktree.** E5 left `C:/Users/Shay/PycharmProjects/lenses-e5-proof` with the same three junctions to live
+`.venv`, `data` and `node_modules`. Claude unlinked them, checked the targets (53 jobs intact) and removed the
+worktree.
+
+**Task 24 measurement (complete).** Report: `data/review_20261018/codex/task24_measure.md`.
+- **Exact duplicate sends:** run 4 none; max rerun 19 images, about $0.60 (3.05 %); 10-20 run none; today 36 images,
+  about $1.04 (4.04 %).
+- **Where the duplicates come from:** all are first-finish re-attachments after a renewal carried the look images.
+  Today's finish was hash-bound to the unchanged look (c0018); the replay removes 36 of 37 finish images.
+- **Owner photo halves inside photo/render pair composites:** about 23–30 % of each run ($4.58–6.60). This is a
+  proposal only. Removing them loses side-by-side pairing, so it is a decision for later.
+- The partial implementation is saved in `task24_wip`, not applied.
+
 ## 2026-10-22 — Claude review of task 23; lab worktree junctions removed safely ($0)
 
 **Task 23 accepted.** Commits `385f179`, `ed25f05`, `c7951f9`, `4ac39fc`, `4acb2db`, `e4c26d5`, `80a51b3`. Claude reran its 14
