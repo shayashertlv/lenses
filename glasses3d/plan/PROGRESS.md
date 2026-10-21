@@ -1,5 +1,50 @@
 # glasses3d progress
 
+## 2026-10-21 — Claude review: E2, task 21 and 21b accepted; Oakley paid run prepared, not started ($0)
+
+**Where things stand:**
+- E2 (`da3cd0c`), task 21 (`22f3980`, `2e497d5`) and task 21b (`74142c2`, `6a15971`) are reviewed and accepted.
+- No paid call was made. The prepared paid run waits for the owner.
+
+**E2 (lens-colour panel).** Claude reran the dev UI and lens-edit tests: 331 passed. The panel loads on the accepted
+max-effort rerun (`SGCLnM_TEZm3H0jFtBuIS-rk`) with every control.
+- E2's own single M1 failed. It ran while task 21's uncommitted proof edits were in the shared checkout, and the
+  assertion read a paged field (`e2_checks/m1_diagnosis.md`).
+- Task 21's later M1 (`m1-proof-cc4c474f`) and 21b's M1 (`m1-proof-9dbf0e8b`) passed on HEADs that include E2.
+
+**Task 21 (decision rewrite).** Claude reran its new and touched tests: 384 passed.
+- Removed assertions moved to new wording or stayed on the legacy profile. No assertion was dropped.
+- Claude read the new 9,991-character main prompt. The seating rule was carried over from 28abe77.
+
+**Cost defect found in review → task 21b.** Product runs send `parallel_tool_calls=False` (`agent/loop.py:517`), and
+`record_difference` took one item per call. Resolved items also go stale after any later export.
+- Effect: a finish with N items needing reconciliation cost N + 2 paid requests, about $0.30–0.50 each late in a run.
+- Task 21b batches updates and reconciles inline at finish: 2 requests. Codex built it in a detached worktree,
+  because the lab batch imported the main working tree on every tool call, then cherry-picked it after task 21
+  exited.
+- Claude reran its tests in the worktree: 233 passed.
+
+**Full functional pass at `6a15971`, launched by Claude:** 6,049 passed, 2 skipped, 21 failed in 1,280 s.
+- All 21 failures are in `tests/test_render_dome.py`. Its module Blender worker hit `render: no reply within 300 s`,
+  and the other 20 tests then saw "the worker is not running".
+- Render code and that test file are unchanged since `28abe77`. The file passes alone (22 passed, 42 s) and passed
+  in E2's and task 21's 8-worker runs.
+- Treated as a load timing event. The timeout is unchanged. Log: `data/ptc/claude_full/functional.log`.
+
+**Lab batch `20261021T101327Z-7518f1d3` (decision profile, 4/4 valid).** Six-region errors, for information only:
+26.13, 27.09, 23.39 and 32.59.
+- In every trial the kept lens is byte-identical to the formally marked best.
+- The owner's on-face grid is at `data/lens_lab/gallery/decision_on_face.png`. AR previews are on ports 8319–8322.
+- No owner verdict yet.
+
+**Paid run prepared, not started.** Job `oakley-oo9208-v2-7035e95c` was made from `oakley-oo9208-v2-911a2b0e`'s owner
+inputs only, with every field checked equal.
+- The request is `runs/20261021T120440-6d5602`: max effort, `decision-20261021`, $20 settled-only cutoff.
+- Astra's brief SHA-256 `c2c7a0e2…` matches the accepted rerun's.
+- The CLI forecast of $15.75 (range $13.99–21.73) is effort-blind. Comparable real max-effort runs: run 4 $10.61,
+  rerun $19.67, aaaa5ffe stopped at the $20 cutoff ($20.18).
+- It needs the owner's explicit OK and amount.
+
 ## 2026-10-21 — Task 21b: batch differences and inline finish reconciliation ($0; complete)
 
 `record_difference(items=[...])` validates the whole batch before appending any item and names failing IDs,
