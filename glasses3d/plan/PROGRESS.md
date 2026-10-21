@@ -1,5 +1,26 @@
 # glasses3d progress
 
+## 2026-10-22 — Claude review of task 23; lab worktree junctions removed safely ($0)
+
+**Task 23 accepted.** Commits `385f179`, `ed25f05`, `c7951f9`, `4ac39fc`, `4acb2db`, `e4c26d5`, `80a51b3`. Claude reran its 14
+new and changed test files: 139 passed. The 21 errors, all in `test_wp2_worker.py`, were module-worker setup errors
+under `-n 10` while E5 and task 24 were also active. That file passes serially (33 passed), so this is a load event,
+not a defect.
+
+**Junction hazard handled.** Task 23 ran its lab in the detached worktree `C:/Users/Shay/PycharmProjects/lenses-t23-lab`
+with junctions to the live `glasses3d/.venv`, `glasses3d/data` and `arview/node_modules`. On Windows,
+`git worktree remove` follows junctions and empties their targets.
+- Claude unlinked each junction with `rmdir` on the link only, then verified the targets intact: 53 jobs, venv
+  python, 33 node packages.
+- Claude removed the worktree once it had no reparse points.
+- Future briefs that create worktrees must forbid junctions to live data, or require unlinking before removal.
+
+**Lab batch `candidates/20261021T200713Z-14df836d`.** Errors 26.02, 25.40, 25.98 and 23.20, information only.
+- Owner on-face grid: `data/lens_lab/gallery/candidates_on_face.png`.
+- AR on 8327 (trial 1, moved off the paid-draft port 8323) and 8324–8326 (trials 2–4).
+- `add_batch.py` now takes the next free port.
+- Owner verdict pending.
+
 ## 2026-10-22 — Task 23: five Astra fixes complete ($0)
 
 Owner, verbatim (2026-10-21):
