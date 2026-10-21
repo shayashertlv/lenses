@@ -1,6 +1,6 @@
 # glasses3d progress
 
-## 2026-10-21 — Task 21: decision profiles and host-kept differences ($0; lab next)
+## 2026-10-21 — Task 21: decision profiles and host-kept differences ($0; complete)
 
 Owner's words, verbatim:
 - "it seems like a small issue to be sent on its own, or am i wrong here? id just rather sending you on bigger quests than changing a couple of words"
@@ -34,10 +34,30 @@ The earlier E2 assembly found a Task 21 proof assertion reading a paged field; i
 hash before reading that field. Runtime finish checks were unchanged. Current/old-finish falsification: 17 current
 passes versus 8 expected old failures and 9 evidence controls; legacy text hashes match 28abe77.
 
-Next: four baseline lens trials on this implementation commit, with the adapted HEAD-pinned instruction loader.
-The lab's terminal finish does not exercise production finish, renewal or the list. Report and full texts:
-`data/review_20261018/codex/task21_report.md` and `task21_texts.json`. No paid call, push, original-job edit or
-owner appearance judgement; ignored evidence stays out of Git.
+Implementation commit: `22f398021dc97b91c59cc3535e1f7f3dc18fb7f5`. The post-commit HEAD loader check passed
+60 tests. Four baseline lens trials then ran on that unchanged commit in
+`data/lens_lab/trials/baseline/20261021T101327Z-7518f1d3`, from 10:13:27Z to 11:49:01Z; exit 0,
+4/4 valid completions, 117 tool calls and 34/34 successful look comparisons. Each trial cited worn images;
+each final lens matched its marked best checkpoint and byte-identical corresponding export. Diagnostic
+six-region Delta E76 (information only) and explicit regression observations before a best save:
+
+| Trial | Six-region error | Regression named before keeping | Final = best |
+|---|---:|---|---|
+| 001 | 26.1286160645 | No; 0/3 best writes | Yes, c0007 |
+| 002 | 27.0894188963 | Yes; 1/5, including final retain | Yes, c0009 |
+| 003 | 23.3931564642 | No; 0/4; one separate inferred tradeoff | Yes, c0009 |
+| 004 | 32.5873795212 | Yes; 1/3, including final retain | Yes, c0008 |
+
+Trial 003's alternative-brightness wording is a qualified tradeoff inference, not an explicit regression.
+Trials 003 and 004 each recovered from one unsupported Weight-socket edit: host rollback, then successful
+agent correction, without outside intervention. All trial receipt/source/export/score integrity checks passed;
+no original job or implementation file changed during the batch. These observations do not establish an
+appearance improvement or owner acceptance. The lab's terminal finish does not exercise production finish,
+renewal or the list; the scripted proof and focused tests cover that mechanism.
+
+Report, exact export paths and full texts: `data/review_20261018/codex/task21_report.md` and
+`task21_texts.json`. No paid call, push, original-job edit or owner appearance judgement; ignored evidence stays
+out of Git. Claude prepares the on-face views; task 21 stops here for review.
 
 ## 2026-10-21 — Task 20: Astra instruction-thinking review ($0, read-only)
 
