@@ -409,9 +409,11 @@ def main(argv=None):
     else:
         result = score_glb(args.glb, args.output_dir, basis_dir=args.basis_dir, trial_label=args.label)
         output = args.output_dir
-    print(json.dumps({"score_json": str(output.resolve() / "score.json"),
-                      "comparison_image": result["comparison_image"],
-                      "mean_regional_delta_E76": result["mean_regional_delta_E76"]}, indent=2))
+    summary = {"score_json": str(output.resolve() / "score.json"),
+               "mean_regional_delta_E76": result["mean_regional_delta_E76"]}
+    if "comparison_image" in result:
+        summary["comparison_image"] = result["comparison_image"]
+    print(json.dumps(summary, indent=2))
     return 0
 
 

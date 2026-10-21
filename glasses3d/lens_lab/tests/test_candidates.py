@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import json
 from pathlib import Path
+import pytest
 
 from glasses3d.agent.tools import build_tools
 from glasses3d.lens_lab import harness, trial, variants
@@ -61,3 +62,16 @@ def test_candidates_scoring_refuses_unrequested_sheet(tmp_path, monkeypatch):
     monkeypatch.setattr(trial, "_score_trial", lambda _: {"comparison_image": "white.png"})
     result = trial.score_after_codex(tmp_path, tmp_path)
     assert result["status"] == "failed" and "must not produce" in result["error"]
+
+
+@pytest.mark.parametrize("sheet", [False, True])
+def test_score_cli_reports_measurements_with_or_without_a_sheet(tmp_path, monkeypatch, capsys, sheet):
+    from glasses3d.lens_lab import score
+    result = {"mean_regional_delta_E76": 12.3}
+    if sheet:
+        result["comparison_image"] = str(tmp_path / "comparison.png")
+    monkeypatch.setattr(score, "score_trial", lambda *args, **kwargs: result)
+    assert score.main(["score-trial", str(tmp_path)]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown == {"score_json": str((tmp_path / "score/score.json").resolve()), **result}
+    assert not list(tmp_path.rglob("*.png"))
