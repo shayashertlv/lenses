@@ -1,5 +1,30 @@
 # glasses3d progress
 
+## 2026-10-21 — Lens lab overnight results ($0; Claude-reviewed)
+
+- **Lab and ceiling** (`6c204bf`). 489 lens-material settings in our exporter and renderer: none beat run 4 on the
+  front regional metric. Run 4 is near the renderer's ceiling, and the photo's broad purple sides and green centre
+  were not reproduced.
+- **First lab batches invalid.** Every lab look call failed (E_LOOK): Chromium cache paths above 260 characters under
+  deep trial directories. L2d (`2066782`) fixed the lab with a short profile root and now marks zero-look trials
+  invalid.
+- **Repaired, matched batches**, 4 trials each, 117/117 look calls succeeded; six-region error mean / min / max:
+
+  | Variant | Six-region error | Pattern signs |
+  |---|---:|---:|
+  | baseline | 25.6 / 23.7 / 30.1 | 0/4 |
+  | regional | 27.2 / 25.6 / 28.6 | 2/4 |
+  | pre14 | 27.2 / 24.6 / 28.5 | 0/4 |
+
+  - Run 4 scores 23.5, and no trial beat it.
+  - The ranges overlap. No variant is established as better, and task 14 is not shown to cause grey lenses.
+- **Production risk found (read-only).** The longest AR-capture browser-cache path for a real job measures 254
+  characters, a margin of only 6 below Windows' 260. A longer job or run id could make look captures fail. To be fixed
+  before the next paid run (owner to be told).
+- Owner's proposal, 2026-10-21, verbatim: "it seems the only thing it still gets wrong are the colors, isnt it possible
+  to have in the edit page editable option for the user to just do?". Claude agreed and asked whether to build a
+  lens-colour panel.
+
 ## 2026-10-20 - L1: isolated $0 lens lab, research, ceiling and one Codex smoke
 
 Built only `glasses3d/lens_lab/`: private run-4 c0015/basis-04 copies, neutral
