@@ -126,6 +126,22 @@ def test_imported_checkpoint_filters_delivery_outside_proof_roots(appearance):
     assert "imported-elsewhere" not in {job["job_id"] for job in appearance.client.get("/api/jobs").json()["jobs"]}
 
 
+def test_reject_verdict_reads_rejected_and_changes_reads_changes_requested(appearance, tmp_path):
+    appearance.config.repo_root = tmp_path
+    _, asked = add_version(appearance, "asked", date="2026-10-19T02:00:00Z")
+    _, refused = add_version(appearance, "refused", date="2026-10-18T02:00:00Z")
+    rows = [{"glb_sha256": appearance.service.delivery(asked)["glb_sha256"], "verdict": "accept", "date": "2026-10-19"},
+            {"glb_sha256": appearance.service.delivery(asked)["glb_sha256"], "verdict": "changes", "date": "2026-10-20"},
+            {"glb_sha256": appearance.service.delivery(refused)["glb_sha256"], "verdict": "reject", "date": "2026-10-18"}]
+    ledger = tmp_path / "glasses3d/data/ledger/owner_verdicts.jsonl"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    dto = appearance.client.get(f"/api/deliveries/{appearance.key}/appearance").json()
+    labels = {row["job_id"]: row["label"] for row in dto["copy_sources"] if row["job_id"] in {"asked", "refused"}}
+    assert labels["asked"].endswith("changes requested by you")
+    assert labels["refused"].endswith("rejected by you")
+
+
 def test_full_labels_exact_sha_verdicts_accepted_first_then_newest_and_no_duplicates(appearance, tmp_path):
     appearance.config.repo_root = tmp_path
     _, accepted = add_version(appearance, "accepted", date="2026-10-15T01:30:00Z")
@@ -145,7 +161,7 @@ def test_full_labels_exact_sha_verdicts_accepted_first_then_newest_and_no_duplic
     assert [row["job_id"] for row in selected] == ["accepted", "recent", "rejected"]
     assert selected[0]["label"] == "Owner product — 2026-10-15 01:30 UTC — Astra c0042 — accepted by you"
     assert selected[1]["label"].endswith("not finished")
-    assert selected[2]["label"].endswith("rejected")
+    assert selected[2]["label"].endswith("changes requested by you")
     assert selected[0]["lens_swatch"]["css"].startswith("#")
     assert len({row["delivery_key"] for row in dto["copy_sources"]}) == len(dto["copy_sources"])
 

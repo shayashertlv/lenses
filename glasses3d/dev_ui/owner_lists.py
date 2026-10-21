@@ -163,11 +163,13 @@ class VersionLabels:
         if not matches:
             return None
         latest = max(matches, key=lambda row: (timestamp(row.get("recorded_at") or row.get("date")), row.get("sequence", 0)))
-        return "accepted" if latest["verdict"] in {"accept", "accepted"} else "rejected"
+        # "changes" is the owner asking for changes, not a rejection; keep his meaning in the label.
+        return ("accepted" if latest["verdict"] in {"accept", "accepted"} else
+                "changes requested" if latest["verdict"] == "changes" else "rejected")
 
     def summary(self, record, dto, name, *, test_job=False, swatch=False):
         verdict = self.verdict(record, dto)
-        status = "accepted by you" if verdict == "accepted" else "rejected" if verdict else (
+        status = f"{verdict} by you" if verdict else (
             "finished" if dto.get("finished") else "not finished")
         date = timestamp(dto.get("created_utc"))
         date_label = date.strftime("%Y-%m-%d %H:%M UTC") if date.year > 1 else "date unavailable"
