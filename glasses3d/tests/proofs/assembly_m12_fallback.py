@@ -249,10 +249,17 @@ class FinishScript:
                 assert review["status"] == "review_required", review
                 refs = review["review"]["required_refs"]
                 assert isinstance(refs, list) and refs
+                difference = {"id": "fallback-temple-shift", "refs": refs,
+                    "what_differs": LABEL + "; deliberate 0.2 mm temple shift; no likeness acceptance asserted.",
+                    "evidence_ref": "fallback-review", "status": "limitation",
+                    "last_correction": "Deliberately moved the complete synthetic temple 0.2 mm, including outside point A's footprint.",
+                    "outcome": "The delivered review contains the changed temple; the separate exported-object audit checks its exact movement.",
+                    "next_action": "No further correction in this fallback tool test; product likeness and owner acceptance remain untested.",
+                    "reason": "The out-of-region shift is deliberately retained to exercise side-effect reporting on a disposable synthetic copy; it is not an accepted product edit."}
                 name, args, cid = "finish", {"summary": LABEL + "; reviewed the changed temple and retained all other objects.",
                     "review_call_id": "fallback-review", "per_photo": [{"ref": ref,
-                    "differences": LABEL + "; deliberate 0.2 mm temple shift; no likeness acceptance asserted."}
-                    for ref in refs]}, "fallback-finish"
+                    "differences": difference["what_differs"], "difference_ids": [difference["id"]]}
+                    for ref in refs], "difference_updates": [difference]}, "fallback-finish"
             else:
                 raise AssertionError("Fallback must finish after four scripted requests")
             self.transport.replies.append(replay.tool_call(name, args, call_id=cid, text=LABEL, counted=1000))

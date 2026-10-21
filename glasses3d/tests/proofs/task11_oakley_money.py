@@ -42,6 +42,23 @@ def usage(row):
             'output_tokens_details': {'reasoning_tokens': u['reasoning_tokens']}}
 
 
+def finish_pair(refs, first_usage, second_usage, count1, count2):
+    difference = {'id': 'saved-evidence-replay', 'refs': list(refs),
+        'what_differs': 'Saved Oakley evidence replay; no quality judgement.',
+        'evidence_ref': 'review', 'status': 'limitation',
+        'last_correction': 'No model correction attempted; immutable saved evidence is replayed.',
+        'outcome': 'The delivered review replays the saved model and photo comparisons without a new likeness assessment.',
+        'next_action': 'No further model action in this money-policy proof; no new product acceptance is asserted.',
+        'reason': 'Saved visual evidence and scripted replies test settled-spend admission and finish handling, not a new Astra or owner visual judgement.'}
+    return [R.tool_call('finish', {'summary': 'Inspect saved evidence.'}, call_id='review',
+                        counted=count1, usage=first_usage),
+            R.tool_call('finish', {'summary': 'Offline finish procedure verified.',
+                'review_call_id': 'review', 'per_photo': [{'ref': ref,
+                    'differences': difference['what_differs'], 'difference_ids': [difference['id']]}
+                    for ref in difference['refs']], 'difference_updates': [difference]}, call_id='confirm',
+                counted=count2, usage=second_usage)]
+
+
 class SavedScene(L.SceneHooks):
     def __init__(self, root, saved):
         self.root, self.saved = root, saved
@@ -54,6 +71,10 @@ class SavedScene(L.SceneHooks):
 
     def start(self):
         return {'head': self.s.head['id']}
+
+    def bind_review_log(self, log):
+        self._review_log = log
+        self.active_run_id = log.run_id
 
     def record_call(self, cid, name, before, after, result):
         self.calls.append({'call_id': cid, 'tool': name, 'checkpoint_before': before,
@@ -178,21 +199,14 @@ def main():
     report_path = job / json.loads(finish['result'][0]['text'])['full_report']['path']
     saved = json.loads(report_path.read_bytes())['result']
     hashes = {str(p): sha(p) for p in (run / 'budget.json', run / 'tools/0045-finish/result.json', report_path)}
-    per_photo = [{'ref': p['ref'], 'differences': 'Saved Oakley evidence replay; no quality judgement.'}
-                 for p in saved['review']['binding']['photos']]
+    refs = [p['ref'] for p in saved['review']['binding']['photos']]
     def status(row):
         return R.tool_call('budget_status', counted=row['input_tokens'], usage=usage(row))
-    def finish_pair(first_usage, second_usage, count1, count2):
-        return [R.tool_call('finish', {'summary': 'Inspect saved evidence.'}, call_id='review',
-                            counted=count1, usage=first_usage),
-                R.tool_call('finish', {'summary': 'Offline finish procedure verified.',
-                    'review_call_id': 'review', 'per_photo': per_photo}, call_id='confirm',
-                    counted=count2, usage=second_usage)]
     os.environ['G3D_OFFLINE'] = '1'
     disable_sdk_tracing()
     with LoopbackOnly() as network, ProductionTransportTripwire() as production:
         replay = scenario(job, output / 'saved-spend-finish', saved,
-                          [status(r) for r in rows] + finish_pair(usage(rows[-2]), usage(rows[-1]),
+                          [status(r) for r in rows] + finish_pair(refs, usage(rows[-2]), usage(rows[-1]),
                           rows[-2]['input_tokens'], rows[-1]['input_tokens']), hashes)
         assert replay['status'] == 'completed' and replay['calls'][-1]['status'] == 'accepted', replay
         assert replay['first_finish_input'] and replay['requests'] == 50
@@ -206,7 +220,7 @@ def main():
         near = scenario(job, output / 'finish-near-cutoff', saved,
                         [R.tool_call('budget_status', counted=799600,
                                      usage=R.default_usage(799600, output_tokens=0, reasoning_tokens=0))]
-                        + finish_pair(first, R.default_usage(922000, output_tokens=0, reasoning_tokens=0),
+                        + finish_pair(refs, first, R.default_usage(922000, output_tokens=0, reasoning_tokens=0),
                                       1, 922000), hashes)
         assert near['requests'] == 3 and near['calls'][-1]['status'] == 'accepted', near
         assert near['settled_before_each_request'][-1] == 19_990_001, near

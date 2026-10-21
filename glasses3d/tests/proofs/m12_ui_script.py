@@ -79,13 +79,23 @@ class JobScript(DynamicScript):
         if index <= len(steps):
             name, args = steps[index-1]
         else:
-            assert index == len(steps)+1
+            assert index == len(steps)+1, (
+                f"M12 success script exhausted after {len(steps)+2} requests; "
+                f"unexpected reply index {index}. Inspect the confirming finish result.")
             review = tool_result(self.root, "call_0012")
             assert review["status"] == "review_required", review
+            refs = review["review"]["required_refs"]
+            difference = LABEL + "; procedure test, not product acceptance."
             name, args = "finish", {"summary": LABEL + "; reviewed all native comparisons; no likeness judgment.",
                 "review_call_id": "call_0012", "per_photo": [{"ref": ref,
-                    "differences": LABEL + "; procedure test, not product acceptance."}
-                    for ref in review["review"]["required_refs"]]}
+                    "differences": difference, "difference_ids": ["scripted-procedure"]} for ref in refs],
+                "difference_updates": [{"id": "scripted-procedure", "what_differs": difference,
+                    "evidence_ref": "call_0012", "refs": refs, "status": "limitation",
+                    "last_correction": "No material correction tried; this script tests the assembly procedure.",
+                    "outcome": "The delivered review compares silhouette-coded synthetic photos with authored materials.",
+                    "reason": LABEL + "; the synthetic photo palette is not a product appearance target, so this "
+                              "procedure test cannot establish product acceptance.",
+                    "next_action": "No appearance correction is justified by the synthetic palette; product acceptance remains untested."}]}
         return name, args, f"call_{index+1:04d}"
 
 
@@ -178,7 +188,7 @@ class DiagnosticScript(DynamicScript):
             return "labelled_model_map", {"photos": ["reference-04"], "focus": None, "kind": "parts",
                 "map_id": None, "supports_json": None, "page": 0, "label_descriptions_json": None,
                 "owner_labels": row["labels"]}, "followup-map"
-        assert index == 1
+        assert index == 1, f"M12 followup script exhausted after two requests; unexpected reply index {index}."
         shown = tool_result(self.root, "followup-map")
         assert shown["status"] == "ok", shown
         return "understand_finish", {"map_id": shown["map_id"], "map_sha256": shown["map_sha256"],
@@ -203,13 +213,22 @@ class FallbackScript(DynamicScript):
         if index == 2:
             assert tool_result(self.root, "fallback-export")["status"] == "exported"
             return "finish", {"summary": LABEL + "; 0.2 mm temple change exceeds C/D footprint; disclose side effects."}, "fallback-review"
-        assert index == 3
+        assert index == 3, (f"M12 fallback script exhausted after four requests; unexpected reply index {index}. "
+                            "Inspect the confirming finish result.")
         review = tool_result(self.root, "fallback-review")
         assert review["status"] == "review_required", review
+        refs = review["review"]["required_refs"]
+        difference = LABEL + "; one complete temple moved 0.2 mm, including outside marked polygons."
         return "finish", {"summary": LABEL + "; reviewed the deliberate temple movement; no visual acceptance.",
             "review_call_id": "fallback-review", "per_photo": [{"ref": ref,
-                "differences": LABEL + "; one complete temple moved 0.2 mm, including outside marked polygons."}
-                for ref in review["review"]["required_refs"]]}, "fallback-finish"
+                "differences": difference, "difference_ids": ["scripted-temple-side-effect"]} for ref in refs],
+            "difference_updates": [{"id": "scripted-temple-side-effect", "what_differs": difference,
+                "evidence_ref": "fallback-review", "refs": refs, "status": "limitation",
+                "last_correction": "Deliberately moved the whole temple 0.2 mm, without a corrective followup.",
+                "outcome": "The delivered review retains the changed temple, including the out-of-footprint movement.",
+                "reason": LABEL + "; the out-of-region change is intentional evidence for the fallback side-effect "
+                          "reporting test, not a product correction or acceptance.",
+                "next_action": "Retain and disclose the side effect for the procedure test; no product acceptance is asserted."}]}, "fallback-finish"
 
 
 def make_script(root, record, out, plan_path):

@@ -211,10 +211,17 @@ class Script:
         if index in (4,7):
             where, prior = (child,"proof-child-finish-1") if index == 4 else (self.root,"proof-parent-finish-1")
             r = result(where,prior)
-            photos=[{"ref":ref,"differences":LABEL + ": numerical owner-depth edits with unchanged Y/Z outline coordinates; projected silhouettes can shift with depth. These real panels are instrument evidence, not an Astra visual judgement."}
-                    for ref in r["review"]["required_refs"]]
+            difference = {"id": "owner-depth-tool-test", "refs": r["review"]["required_refs"],
+                "what_differs": LABEL + ": numerical owner-depth edits with unchanged Y/Z outline coordinates; projected silhouettes can shift with depth. These real panels are instrument evidence, not an Astra visual judgement.",
+                "evidence_ref": prior, "status": "limitation",
+                "last_correction": "Applied the four scripted mirrored depth changes to the actual mesh; retained Y/Z outline coordinates.",
+                "outcome": "The delivered native review shows the edited mesh and its projected silhouette and shading side effects.",
+                "next_action": "No further correction in this instrument test; owner visual approval of the proposed design remains pending.",
+                "reason": "The numerical depth changes deliberately demonstrate the tool on a disposable copy; scripted image-review replies cannot establish Astra or owner visual acceptance."}
+            photos=[{"ref":ref,"differences":difference["what_differs"],
+                     "difference_ids":[difference["id"]]} for ref in difference["refs"]]
             return "finish",{"summary":LABEL + ": requested actual-mesh edits and side effects are reported; owner visual approval remains pending.",
-                "review_call_id":prior,"per_photo":photos}, prior.replace("-1","-2"),where,{"accepted"}
+                "review_call_id":prior,"per_photo":photos,"difference_updates":[difference]}, prior.replace("-1","-2"),where,{"accepted"}
         if index not in rows:
             raise AssertionError("Edit must stop after accepted finish")
         return rows[index]

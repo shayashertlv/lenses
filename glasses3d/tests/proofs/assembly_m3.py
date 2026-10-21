@@ -18,6 +18,24 @@ from glasses3d.tests.proofs.assembly_m1 import run as assembly, TRUTH
 from glasses3d.tests.proofs.offline_job_approval import approve_offline_request
 
 
+def resume_replies(index):
+    review_id = f"call_{100 * index + 2:04d}"
+    difference = {"id": "resume-procedure", "refs": [Path(name).stem for name in TRUTH],
+        "what_differs": "Scripted procedure proof; no automated likeness judgment.",
+        "evidence_ref": review_id, "status": "limitation",
+        "last_correction": "No geometry correction attempted; the resume note asks to retain the synthetic geometry.",
+        "outcome": "The delivered review compares the retained synthetic model with its procedural reference images.",
+        "next_action": "No further correction in this resume procedure test; product appearance remains untested.",
+        "reason": "These synthetic references and scripted replies prove review-note handling, not Astra or owner product acceptance."}
+    return [
+        replay.tool_call("scene_summary", {"objects": None}),
+        replay.tool_call("finish", {"summary": "Offline resume proof: review note received; geometry retained."}),
+        replay.tool_call("finish", {"summary": "Offline resume proof: reviewed all comparison evidence.",
+            "review_call_id": review_id, "per_photo": [{"ref": ref,
+                "differences": difference["what_differs"], "difference_ids": [difference["id"]]}
+                for ref in difference["refs"]], "difference_updates": [difference]})]
+
+
 def run():
     started = time.monotonic()
     built = assembly()
@@ -34,14 +52,7 @@ def run():
         assert verdict["notes"] == notes
         resumed = []
         for index in (1, 2):
-            transport = replay.ScriptedOpenAI([
-                replay.tool_call("scene_summary", {"objects": None}),
-                replay.tool_call("finish", {"summary": "Offline resume proof: review note received; geometry retained."}),
-                replay.tool_call("finish", {"summary": "Offline resume proof: reviewed all comparison evidence.",
-                    "review_call_id": f"call_{100 * index + 2:04d}", "per_photo": [
-                        {"ref": Path(name).stem, "differences": "Scripted procedure proof; no automated likeness judgment."}
-                        for name in TRUTH]})
-            ], id_start=100 * index + 1)
+            transport = replay.ScriptedOpenAI(resume_replies(index), id_start=100 * index + 1)
             settings = replace(job_run.settings_default(), max_turns=4)
             spec, _ = job_run.prepare_run(root, f"offline-review-resume-{index}", settings=settings,
                                            write_request=True, resume=True)
