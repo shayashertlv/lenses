@@ -22,6 +22,7 @@ from .appearance_api import AppearanceService
 from .appearance_flow import OWNER_ORIGINS
 from .registry import Registry
 from .status import read_run_status, find_run_delivery, _money
+from .owner_lists import VersionLabels, job_is_test, delivery_is_test, version_order
 
 
 def _read(path):
@@ -582,7 +583,7 @@ class Service(LensColourService, AppearanceService):
                 button="Send this item to a full paid edit", job_id=edit["job_id"], edit_key=key)
             return {"run_key": run["run_key"]}
 
-    def jobs(self):
+    def jobs(self, show_test_jobs=False):
         with self.registry.lock:
             for root in self.config.jobs_root.glob("*"):
                 if not root.is_dir() or root.resolve() != root.absolute():
@@ -595,7 +596,9 @@ class Service(LensColourService, AppearanceService):
                     self.registry.put("jobs", {"root": str(root), "job_id": job["id"], "name": job.get("name", "Product"),
                                                "created_utc": job.get("created", "")})
             output = []
+            labels = VersionLabels(self)
             drafts, edits = self.registry.list("drafts"), self.registry.list("edits")
+            all_runs = self.registry.list("runs")
             for job in self.registry.list("jobs"):
                 root = Path(job["root"])
                 for manifest in (root / "deliveries").glob("*/manifest.json"):
@@ -605,24 +608,33 @@ class Service(LensColourService, AppearanceService):
                     if raw.get("id") == manifest.parent.name:
                         self.register_delivery(root, raw["id"], job_id=job["job_id"])
                 deliveries = [d for d in self.registry.list("deliveries") if d["job_id"] == job["job_id"]]
+                test_job = job_is_test(job, self.config, all_runs, deliveries)
+                if test_job and not show_test_jobs:
+                    continue
                 summaries = []
+                seen = set()
                 for d in deliveries:
+                    identity = (str(Path(d["root"]).resolve()).casefold(), d["delivery_id"])
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
                     report_path = Path(d["root"]) / "deliveries" / d["delivery_id"] / "report.json"
-                    report = d.get("dto") or _read(report_path)
-                    if report.get("owner_applied"):
-                        report = self.delivery(d["key"])
-                        d = self.get("deliveries", d["key"])
-                    from datetime import datetime, timezone
-                    created = report.get("created_utc") or (datetime.fromtimestamp(report_path.stat().st_mtime,
-                        timezone.utc).isoformat() if report_path.is_file() else "")
-                    summaries.append({"delivery_key": d["key"], "label": "edited by you" if d["origin"] in OWNER_ORIGINS else "finished" if report.get("finished") else "not finished",
-                                      "created_utc": created})
+                    report = _read(report_path)
+                    test_delivery = delivery_is_test(d, report, self.config, parent_test=test_job)
+                    if test_delivery and not show_test_jobs:
+                        continue
+                    try:
+                        dto = self.delivery(d["key"])
+                    except (OSError, ValueError, KeyError):
+                        continue
+                    summaries.append(labels.summary(d, dto, job["name"], test_job=test_delivery))
                 keys = {d["key"] for d in deliveries}
-                runs = [r for r in self.registry.list("runs") if r["job_id"] == job["job_id"]]
+                runs = [r for r in all_runs if r["job_id"] == job["job_id"]]
                 output.append({"job_id": job["job_id"], "name": job["name"], "created_utc": job["created_utc"],
-                    "deliveries": sorted(summaries, key=lambda d: d["created_utc"], reverse=True),
+                    "test_job": test_job, "deliveries": sorted(summaries, key=version_order, reverse=True),
                     "runs": [{"run_key": r["key"], "kind": r["kind"], "phase": read_run_status(r)["phase"]} for r in runs],
                     "drafts": [{"draft_id": d["key"]} for d in drafts if d["source"]["delivery_key"] in keys],
                     "edits": [{"edit_key": e["key"], "phase": self.run(e["run_key"])["phase"] if e.get("run_key") else "starting"}
                               for e in edits if e["job_id"] == job["job_id"]]})
-            return {"jobs": sorted(output, key=lambda j: j["created_utc"], reverse=True)}
+            return {"jobs": sorted(output, key=lambda j: j["created_utc"], reverse=True),
+                    "show_test_jobs": bool(show_test_jobs)}

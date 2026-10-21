@@ -3,12 +3,14 @@ from pathlib import Path
 import json
 
 from .contracts import APIError, confined, now_iso
+from .owner_lists import VersionLabels, unique_materials, version_order
 
 
 class AppearanceService:
-    def appearance(self, key):
+    def appearance(self, key, show_test_jobs=False):
         dto, record, loaded = self._lens_source(key)
         materials = self.core.read_look_materials(Path(loaded["model"]))
+        materials["materials"] = unique_materials(materials["materials"])
         refusals = list(materials.get("refusals", []))
         if dto.get("appearance_error"):
             refusals.append({"name": "Saved look", "reason": dto["appearance_error"]})
@@ -28,29 +30,33 @@ class AppearanceService:
                     "camera_photo_url": (self.artifacts.register(fitted["photo"], fitted["sha256"])
                                          if fitted.get("photo") else None)})
         # Discover old job deliveries as well as owner versions already in the UI registry.
-        job_names = {job["job_id"]: job["name"] for job in self.jobs()["jobs"]}
+        jobs = self.jobs(show_test_jobs)["jobs"]
+        allowed = {row["delivery_key"]: row for job in jobs for row in job["deliveries"]}
+        labels = VersionLabels(self)
         versions, copy_sources = [], []
         for candidate in self.registry.list("deliveries"):
+            if candidate["key"] not in allowed:
+                continue
             try:
                 version = self.delivery(candidate["key"])
             except (OSError, ValueError, KeyError):
                 continue
-            summary = {name: version[name] for name in ("delivery_key", "job_id", "created_utc")}
-            summary["label"] = version["version_label"]
-            copy_sources.append({**summary, "label": job_names.get(version["job_id"], version["job_id"])
-                                 + " — " + version["version_label"]})
+            summary = {**allowed[candidate["key"]], "lens_swatch": labels.swatch(candidate, version)}
+            copy_sources.append(summary)
             if candidate["job_id"] == record["job_id"]:
                 versions.append(summary)
         return {"schema": "g3d.dev_appearance/1",
             "source": {name: dto[name] for name in ("delivery_key", "glb_sha256", "model_url")},
             "materials": materials["materials"], "refusals": refusals,
+            "default_material_index": materials["materials"][0]["material_index"] if materials["materials"] else None,
+            "show_test_jobs": bool(show_test_jobs),
             "appearance_error": dto.get("appearance_error"),
             "look_skipped": dto.get("look_skipped", []),
             "roles": [{"role": role, "label": label} for role, label in
                       (("lens", "Lenses"), ("frame", "Frame"), ("temple", "Temples"))
                       if any(row["role"] == role for row in materials["materials"])],
-            "photos": photos, "versions": sorted(versions, key=lambda row: row["created_utc"], reverse=True),
-            "copy_sources": sorted(copy_sources, key=lambda row: (row["job_id"], row["created_utc"]), reverse=True)}
+            "photos": photos, "versions": sorted(versions, key=version_order, reverse=True),
+            "copy_sources": sorted(copy_sources, key=version_order, reverse=True)}
 
     def _appearance_values(self, key, body, *, task=False):
         fields = {"source_sha256", "materials"} | ({"idempotency_key"} if task else set())

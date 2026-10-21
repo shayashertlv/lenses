@@ -176,7 +176,8 @@ def browser(out, port, scenarios=None, resume=False):
                 if (status and status.get("exit_code") is not None) or time.monotonic() - started > 60:
                     raise RuntimeError("Offline UI failed to start; see server.log")
                 time.sleep(.25)
-        jobs = get_json(port, "/api/jobs")["jobs"]
+        # Private scripted/copy fixtures are deliberately hidden from owner lists.
+        jobs = get_json(port, "/api/jobs?show_test_jobs=true")["jobs"]
         source = next(job for job in jobs if job["job_id"] == Path(config["source_root"]).name)
         candidates = [row["delivery_key"] for row in source["deliveries"]]
         key = next(k for k in candidates if get_json(port, f"/api/deliveries/{k}")["delivery_id"] == config["delivery_id"])

@@ -111,7 +111,7 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
         return await call(service.config_dto)
 
     async def jobs(request):
-        return await call(service.jobs)
+        return await call(service.jobs, request.query_params.get("show_test_jobs", "").lower() in {"1", "true"})
 
     async def start(request):
         payload, files = await _multipart(request, "manifest")
@@ -146,7 +146,8 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
         return await call(service.lens_save, request.path_params["key"], await _json(request))
 
     async def appearance(request):
-        return await call(service.appearance, request.path_params["key"])
+        return await call(service.appearance, request.path_params["key"],
+                          request.query_params.get("show_test_jobs", "").lower() in {"1", "true"})
 
     async def appearance_preview(request):
         return await call(service.appearance_preview, request.path_params["key"], await _json(request))

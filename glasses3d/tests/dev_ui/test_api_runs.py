@@ -377,12 +377,13 @@ def test_job_list_imports_existing_jobs_and_real_delivery_dates(setup):
         started = start(browser).json()
         root, run_id = core.created[0]["root"], started["run_id"]
         publish(core, root, run_id)
-        listed = browser.get("/api/jobs")
+        assert [job["job_id"] for job in browser.get("/api/jobs").json()["jobs"]] == ["existing-job"]
+        listed = browser.get("/api/jobs?show_test_jobs=1")
     assert listed.status_code == 200
     jobs = listed.json()["jobs"]
     assert [job["job_id"] for job in jobs] == [started["job_id"], "existing-job"]
     assert jobs[0]["runs"][0]["run_key"] == started["run_key"]
-    assert jobs[1]["deliveries"][0]["label"] == "finished"
+    assert jobs[1]["deliveries"][0]["verdict_label"] == "finished"
     for job in jobs:
         assert datetime.fromisoformat(job["deliveries"][0]["created_utc"]).tzinfo is not None
 

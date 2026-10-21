@@ -22,7 +22,7 @@ def test_verified_applied_provenance_wins_over_registry_hints(setup, discovered)
         report.update(expected)
         write_json(path, report)
         if discovered:
-            key = browser.get("/api/jobs").json()["jobs"][0]["deliveries"][0]["delivery_key"]
+            key = browser.get("/api/jobs?show_test_jobs=1").json()["jobs"][0]["deliveries"][0]["delivery_key"]
         else:
             key = app.state.service.register_delivery(root, delivery_id, origin="run",
                 applied=[{"item_id": "I2", "option_id": "wrong"}], notes=[{"item_id": "I1", "note": "stale"}])

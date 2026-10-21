@@ -107,7 +107,7 @@ def test_save_is_idempotent_new_version_and_visible_in_jobs(lens):
     assert result["label"] == "edited by you"
     assert not result["accepted_finish"]
     jobs = lens.client.get("/api/jobs").json()["jobs"]
-    assert any(d["label"] == "edited by you" for j in jobs for d in j["deliveries"])
+    assert any(d["origin_label"] == "your edit" for j in jobs for d in j["deliveries"])
     assert len(lens.core.saves) == 1
     assert before == {p.relative_to(lens.source): p.read_bytes() for p in lens.source.rglob("*") if p.is_file()}
     # No native checkpoint is claimed, so later paid edits cannot drop the colours.

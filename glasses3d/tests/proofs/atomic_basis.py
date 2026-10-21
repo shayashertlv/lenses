@@ -7,11 +7,40 @@ the complete old basis at the reported backup path, never deleted before rebuild
 """
 from __future__ import annotations
 
+import errno
+import logging
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import time
 from uuid import uuid4
+
+from glasses3d.agent.procs import REPLACE_DELAYS_S
+
+
+def _replace_with_retry(source, destination):
+    """Keep each publication/rollback rename atomic during transient denials."""
+    attempts = len(REPLACE_DELAYS_S) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as error:
+            if not (isinstance(error, PermissionError)
+                    or error.errno in (errno.EPERM, errno.EACCES, errno.EBUSY)
+                    or getattr(error, 'winerror', None) in (5, 32, 33)):
+                raise
+            if attempt == attempts:
+                message = f'Atomic replace failed after {attempt} attempts: {source} -> {destination}'
+                logging.getLogger(__name__).error('%s (errno=%s)', message, error.errno)
+                error.add_note(message)
+                raise
+            delay = REPLACE_DELAYS_S[attempt - 1]
+            logging.getLogger(__name__).warning(
+                'Atomic replace attempt %s/%s failed (errno=%s); retry in %.3f s: %s -> %s',
+                attempt, attempts, error.errno, delay, source, destination)
+            time.sleep(delay)
 
 
 def rebuild_basis(destination, build):
@@ -30,13 +59,13 @@ def rebuild_basis(destination, build):
         if had_basis:
             if not destination.is_dir():
                 raise ValueError('basis destination must be a directory')
-            os.replace(destination, backup)
+            _replace_with_retry(destination, backup)
         try:
-            os.replace(candidate, destination)
+            _replace_with_retry(candidate, destination)
         except BaseException:
             if had_basis:
                 try:
-                    os.replace(backup, destination)
+                    _replace_with_retry(backup, destination)
                 except OSError as exc:
                     raise RuntimeError(f'publication failed; intact old basis retained at {backup}') from exc
             raise

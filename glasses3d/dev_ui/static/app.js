@@ -113,21 +113,37 @@ function drawOutcome(delivery) {
 }
 
 async function jobsPage() {
-  const { jobs } = await api.get('/api/jobs');
-  app.replaceChildren();
-  if (!jobs.length) { app.append(node('p', {}, 'No jobs yet.'), link('Start a new run', '/new', { class: 'button' })); return; }
-  const ordered = [...jobs].sort((a, b) => String(b.created_utc).localeCompare(String(a.created_utc)));
-  for (const job of ordered) {
-    const card = node('section', { class: 'card', 'data-job-id': job.job_id }, node('h2', {}, job.name || job.job_id), node('p', { class: 'muted' }, dateText(job.created_utc)));
-    const entries = [];
-    for (const delivery of job.deliveries || []) entries.push(node('li', {}, link(`Delivery · ${delivery.label}`, `/results/${encodeURIComponent(delivery.delivery_key)}`), ` · ${dateText(delivery.created_utc)}`));
-    for (const run of job.runs || []) {
-      if (['starting', 'running', 'finalizing'].includes(run.phase)) entries.push(node('li', {}, link(`Active ${run.kind} run · ${run.phase}`, `/run/${encodeURIComponent(run.run_key)}`)));
+  const showTests = node('input', {id: 'jobs-show-tests', type: 'checkbox'});
+  const cards = node('div', {id: 'job-list'});
+  let shownTests = false;
+  app.replaceChildren(node('label', {class: 'list-filter'}, showTests, 'Show test jobs'), cards);
+  async function loadJobs() {
+    showTests.disabled = true;
+    try {
+      const {jobs} = await api.get(`/api/jobs${showTests.checked ? '?show_test_jobs=1' : ''}`);
+      cards.replaceChildren();
+      drawJobs(jobs);
+      shownTests = showTests.checked;
+    } catch (error) {showTests.checked = shownTests; showError(error);}
+    finally {showTests.disabled = false;}
+  }
+  showTests.addEventListener('change', loadJobs);
+  await loadJobs();
+  function drawJobs(jobs) {
+    if (!jobs.length) { cards.append(node('p', {}, 'No jobs to show.'), link('Start a new run', '/new', { class: 'button' })); return; }
+    const ordered = [...jobs].sort((a, b) => String(b.created_utc).localeCompare(String(a.created_utc)));
+    for (const job of ordered) {
+      const card = node('section', { class: 'card', 'data-job-id': job.job_id }, node('h2', {}, job.name || job.job_id), node('p', { class: 'muted' }, dateText(job.created_utc)));
+      const entries = [];
+      for (const delivery of job.deliveries || []) entries.push(node('li', {}, link(`Delivery · ${delivery.label}`, `/results/${encodeURIComponent(delivery.delivery_key)}`), ` · ${dateText(delivery.created_utc)}`));
+      for (const run of job.runs || []) {
+        if (['starting', 'running', 'finalizing'].includes(run.phase)) entries.push(node('li', {}, link(`Active ${run.kind} run · ${run.phase}`, `/run/${encodeURIComponent(run.run_key)}`)));
+      }
+      for (const draft of job.drafts || []) entries.push(node('li', {}, link(`Edit draft · ${draft.draft_id}`, `/edit/${encodeURIComponent(draft.draft_id)}`)));
+      for (const edit of job.edits || []) entries.push(node('li', {}, link(`Edit · ${edit.phase}`, `/understand/${encodeURIComponent(edit.edit_key)}`)));
+      card.append(entries.length ? node('ul', { class: 'job-links' }, entries) : node('p', { class: 'muted' }, 'No saved delivery yet.'));
+      cards.append(card);
     }
-    for (const draft of job.drafts || []) entries.push(node('li', {}, link(`Edit draft · ${draft.draft_id}`, `/edit/${encodeURIComponent(draft.draft_id)}`)));
-    for (const edit of job.edits || []) entries.push(node('li', {}, link(`Edit · ${edit.phase}`, `/understand/${encodeURIComponent(edit.edit_key)}`)));
-    card.append(entries.length ? node('ul', { class: 'job-links' }, entries) : node('p', { class: 'muted' }, 'No saved delivery yet.'));
-    app.append(card);
   }
 }
 

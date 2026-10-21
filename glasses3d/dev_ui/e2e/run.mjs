@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
+import {replaceWithRetry} from './atomic-replace.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const requireAr = createRequire(path.resolve(HERE, '../../arview/package.json'));
@@ -55,7 +56,7 @@ const checkpoint = () => {
   checkpointWrites = checkpointWrites.then(async () => {
     const temporary = path.join(output, 'browser-report.writing.json');
     await fs.writeFile(temporary, bytes);
-    await fs.rename(temporary, path.join(output, 'browser-report.json'));
+    await replaceWithRetry(temporary, path.join(output, 'browser-report.json'));
   });
   return checkpointWrites;
 };
@@ -589,7 +590,12 @@ try {
     await shot('concurrent-start-refused', other); await other.close();
     await browser.close();
     await new Promise(resolve => setTimeout(resolve, 1500));
-    await launch(); await navigate('/'); await shot('survival-reopened-jobs');
+    await launch(); await navigate('/');
+    const testJobs = page.getByRole('checkbox', {name: 'Show test jobs', exact: true});
+    check(!(await testJobs.isChecked()), 'Reopened Jobs hides scripted test jobs by default');
+    const visibleJobs = nextResponse(page, '/api/jobs', 'GET');
+    await testJobs.check(); await visibleJobs;
+    await shot('survival-reopened-jobs');
     await page.locator(`[data-job-id="${started.job_id}"] a[href="/run/${started.run_key}"]`).click();
     await waitPath('run');
     const after = await dto(`/api/runs/${started.run_key}`);
@@ -620,7 +626,7 @@ try {
     } else {
       let sourceKey = config.prada_delivery_key;
       if (!sourceKey) {
-        const jobs = await dto('/api/jobs');
+        const jobs = await dto('/api/jobs?show_test_jobs=true');
         const job = jobs.jobs.find(j => j.job_id === config.prada_job_id || j.name === config.prada_job_name);
         check(!!job?.deliveries?.length, 'Private copied Prada source is registered'); sourceKey = job.deliveries[0].delivery_key;
       }

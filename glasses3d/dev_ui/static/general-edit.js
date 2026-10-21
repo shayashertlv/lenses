@@ -23,9 +23,14 @@ const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export async function generalEditPage(host, key) {
   host.replaceChildren(el('p', {role: 'status'}, 'Loading your model and photos…'));
   const dto = await api.get(`/api/deliveries/${key}/appearance`);
-  const rows = dto.materials.map(row => ({...row, values: {...row.values, gradient: row.values.gradient ?? row.gradient ?? null}}));
+  const seenMaterials = new Set();
+  const rows = dto.materials.filter(row => {
+    if (seenMaterials.has(row.material_index)) return false;
+    seenMaterials.add(row.material_index); return true;
+  }).map(row => ({...row, values: {...row.values, gradient: row.values.gradient ?? row.gradient ?? null}}));
   const history = new LensHistory(rows), photos = dto.photos || [];
-  let viewer, colourAtAngle, selected = 0, activePhoto = 0, before = false, compareKey = key;
+  let viewer, colourAtAngle, selected = Math.max(0, rows.findIndex(row => row.role === 'lens')), activePhoto = 0, before = false, compareKey = key;
+  let copySourceKey = null, listsBusy = false;
   let disposed = false, busy = false, ready = false, allowLeave = false, previewTimer, requestVersion = 0, previewChain = Promise.resolve();
   let lastPick = null, saveRequest = null;
   const dialogs = new Set();
@@ -44,7 +49,12 @@ export async function generalEditPage(host, key) {
   const parts = el('select', {id: 'edit-part', 'aria-label': 'Part and material'});
   for (const role of ['lens', 'frame', 'temple']) {
     const group = el('optgroup', {label: labels[role]});
-    rows.forEach((row, i) => {if (row.role === role) group.append(el('option', {value: i}, row.name || `Material ${row.material_index}`));});
+    rows.forEach((row, i) => {
+      if (row.role !== role) return;
+      const name = row.name || `Material ${row.material_index}`;
+      const repeatedName = rows.some((other, j) => j !== i && other.name === row.name);
+      group.append(el('option', {value: i}, repeatedName ? `${name} (${labels[role]})` : name));
+    });
     if (group.children.length) parts.append(group);
   }
   parts.addEventListener('change', () => {history.commit(); selected = Number(parts.value); lastPick = null; renderControls();});
@@ -65,15 +75,36 @@ export async function generalEditPage(host, key) {
   const ar = button('Check in AR', {id: 'edit-ar', onclick: checkAR});
   const save = button('Save as new version', {id: 'edit-save', class: 'primary', onclick: () => saveVersion()});
   const footer = el('div', {class: 'general-footer'}, el('div', {class: 'actions'}, undo, redo, beforeButton, afterButton), status, el('div', {class: 'actions'}, ar, save));
-  const versions = el('section', {class: 'versions-strip', 'aria-label': 'Versions'}, el('h2', {}, 'Versions'));
-  for (const version of dto.versions || []) {
-    const comparison = button('Compare', {'aria-label': `Compare with ${version.label}`, onclick: () => {compareKey = version.delivery_key; compare(true);}});
-    versions.append(el('div', {class: 'version-card'}, el('a', {href: `/edit-version/${version.delivery_key}`, 'aria-current': version.delivery_key === key ? 'page' : 'false'}, version.label), comparison));
+  const versions = el('section', {class: 'versions-strip', 'aria-label': 'Versions'});
+  const showTests = el('input', {id: 'edit-show-tests', type: 'checkbox'});
+  const listFilter = el('label', {class: 'list-filter'}, showTests, 'Show test jobs');
+  showTests.addEventListener('change', async () => {
+    listsBusy = true; showTests.disabled = true;
+    try {
+      const fresh = await api.get(`/api/deliveries/${key}/appearance${showTests.checked ? '?show_test_jobs=1' : ''}`);
+      dto.versions = fresh.versions; dto.copy_sources = fresh.copy_sources;
+      renderVersions(); renderCopySources();
+    } catch (cause) {showTests.checked = !showTests.checked; showError(cause);}
+    finally {listsBusy = false; showTests.disabled = false; renderCopySources(); refresh();}
+  });
+  function swatch(version) {
+    const result = el('span', {class: 'version-swatch', role: 'img', 'aria-label': 'Lens look'});
+    if (version.lens_swatch?.css) result.style.background = version.lens_swatch.css;
+    else {result.classList.add('swatch-unavailable'); result.setAttribute('aria-label', 'Lens look unavailable');}
+    return result;
+  }
+  function renderVersions() {
+    versions.replaceChildren(el('h2', {}, 'Versions'));
+    for (const version of dto.versions || []) {
+      const comparison = button('Compare', {'aria-label': `Compare with ${version.label}`, onclick: () => {compareKey = version.delivery_key; compare(true);}});
+      versions.append(el('div', {class: 'version-card'}, swatch(version), el('a', {href: `/edit-version/${version.delivery_key}`, 'aria-current': version.delivery_key === key ? 'page' : 'false'}, version.label), comparison));
+    }
+    if (!dto.versions?.length) versions.append(el('p', {class: 'muted'}, 'No versions to show.'));
   }
   const notices = el('div');
   for (const refusal of dto.refusals || []) notices.append(el('p', {class: 'notice'}, typeof refusal === 'string' ? refusal : refusal.message || refusal.reason));
   for (const skipped of dto.look_skipped || []) notices.append(el('p', {class: 'notice'}, `Saved look not applied: ${skipped.material_name || labels[skipped.role] || 'part'} — ${skipped.reason}`));
-  host.replaceChildren(el('p', {class: 'general-intro'}, 'Choose a part, adjust its look, and save a new version. Look changes are free. ', el('a', {href: `/results/${key}`}, 'Results')), error,
+  host.replaceChildren(el('p', {class: 'general-intro'}, 'Choose a part, adjust its look, and save a new version. Look changes are free. ', el('a', {href: `/results/${key}`}, 'Results')), error, listFilter,
     el('div', {class: 'general-layout'}, references, el('section', {class: 'general-centre'}, views, viewport, wipeField, photoNote,
       el('p', {class: 'viewer-help'}, 'Click a part to choose it. Drag to turn, scroll to zoom. Keyboard: focus the view, use arrows to turn and + / − to zoom.')), controls), notices, versions, footer);
   const current = () => history.current[selected];
@@ -127,13 +158,16 @@ export async function generalEditPage(host, key) {
       v.gradient.colours.forEach((colour, index) => {
         const name = index === 0 ? 'Start' : index === v.gradient.colours.length - 1 ? 'End' : 'Middle';
         addColour(section, `${name} colour`, colour.colour, rgb => change(next => {next.gradient.colours[index].colour = rgb;}));
-        const share = el('input', {type: 'number', min: 1, max: 98, step: 1, value: colour.share, 'aria-label': `${name} takes (%)`});
-        share.addEventListener('change', () => {
-          const value = share.valueAsNumber;
-          if (!Number.isFinite(value) || value < 1 || value > 98) {share.setCustomValidity('Enter a share from 1 to 98.'); share.reportValidity(); return;}
+        const share = el('input', {type: 'range', min: 1, max: 98, step: 'any', value: colour.share, 'aria-label': `${name} takes (%)`, 'data-share-index': index});
+        const output = el('output', {'data-share-output': index}, `${Number(colour.share.toFixed(1))}%`);
+        share.addEventListener('input', () => {
+          const value = Number(share.value);
           change(next => {const colours = next.gradient.colours, otherTotal = colours.reduce((sum, c, i) => sum + (i === index ? 0 : c.share), 0);
-            colours.forEach((c, i) => {c.share = i === index ? value : c.share / otherTotal * (100 - value);});});
-        }); section.append(el('label', {}, `${name} takes (%)`, share));
+            colours.forEach((c, i) => {c.share = i === index ? value : c.share / otherTotal * (100 - value);});}, false, false);
+          renderGradientPreview();
+        });
+        share.addEventListener('change', () => {history.commit(); refresh();});
+        section.append(el('div', {class: 'general-slider'}, el('label', {}, `${name} takes (%)`, output, share)));
       });
       section.append(button(v.gradient.colours.length === 2 ? 'Add middle colour' : 'Remove middle colour', {id: 'gradient-middle', onclick: () => change(next => {
         const colours = next.gradient.colours;
@@ -143,7 +177,11 @@ export async function generalEditPage(host, key) {
       const direction = el('select', {id: 'gradient-direction', 'aria-label': 'Gradient direction'}, ...[['centre_to_sides', 'Centre to sides'], ['top_to_bottom', 'Top to bottom'], ['left_to_right', 'Left to right']].map(([value, label]) => el('option', {value}, label)));
       direction.value = v.gradient.direction; direction.addEventListener('change', () => change(next => {next.gradient.direction = direction.value;}));
       section.append(el('label', {}, 'Direction', direction));
-      slider(section, 'Blend', v.gradient.blend, number => change(next => {next.gradient.blend = number;}, false, false), 'Sharp to soft');
+      slider(section, 'Blend', v.gradient.blend, number => {change(next => {next.gradient.blend = number;}, false, false); renderGradientPreview();}, 'Sharp to soft');
+      section.append(el('div', {id: 'gradient-shares', class: 'gradient-shares', role: 'img'}),
+        el('canvas', {id: 'gradient-blend-preview', class: 'gradient-blend-preview', width: 256, height: 20, role: 'img', 'aria-label': 'Gradient colour and blend preview'}),
+        el('p', {class: 'lens-help'}, v.gradient.direction === 'centre_to_sides' ? 'Side · centre · side' : v.gradient.direction === 'top_to_bottom' ? 'Top → bottom' : 'Left → right'));
+      renderGradientPreview();
     }
     if (row.can_transmission) slider(fields, 'See-through', v.transmission, number => change(next => {next.transmission = number;}, false, false));
     if (row.role === 'lens' || row.can_transmission) slider(fields, 'Mirror', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Mirror darkens what you see through.');
@@ -165,19 +203,69 @@ export async function generalEditPage(host, key) {
       details.append(el('label', {}, label, input));
     }
     details.append(el('p', {class: 'lens-help'}, 'Thickness endpoints may be reversed. Exact IOR and thickness values have no artificial upper limit.'));
-    const copySelect = el('select', {id: 'copy-source', 'aria-label': 'Copy look from version'});
-    for (const candidate of dto.copy_sources || []) copySelect.append(el('option', {value: candidate.delivery_key}, candidate.label));
-    const copyButton = button(row.role === 'lens' ? 'Copy lens look from another model' : 'Copy look from this job', {'data-unavailable': String(!copySelect.options.length), onclick: async () => {
-      try {const result = await api.post(`/api/deliveries/${key}/appearance-copy`, {from_delivery_key: copySelect.value, role: row.role, source_sha256: dto.source.glb_sha256});
+    const copyList = el('fieldset', {id: 'copy-source', class: 'copy-source-list', 'aria-label': 'Copy look from version'});
+    const copyButton = button(row.role === 'lens' ? 'Copy lens look from another model' : 'Copy look from this job', {id: 'copy-look', onclick: async () => {
+      try {const result = await api.post(`/api/deliveries/${key}/appearance-copy`, {from_delivery_key: copySourceKey, role: row.role, source_sha256: dto.source.glb_sha256});
         history.update(all => {for (const copied of result.materials) {const target = all.find(item => item.material_index === copied.material_index); if (target) target.values = clone(copied.values);}}, true);
         changed(); const skipped = (result.skipped || []).map(item => typeof item === 'string' ? item : item.message || item.reason || item.name).filter(Boolean);
         if (skipped.length) showError(skipped.join('\n')); else if (!result.materials.length) showError('No matching material names were found in this job.');
       } catch (cause) {showError(cause);}
     }});
-    fields.append(el('hr'), el('label', {}, 'Copy a look', copySelect), copyButton, el('p', {class: 'lens-help'}, row.role === 'lens' ? 'Lens looks map by material name; a single source lens can supply every lens. Markings and decals are excluded.' : 'Frame and temple looks copy only between versions of this job, using matching material names.'));
+    fields.append(el('hr'), copyList, copyButton, el('p', {class: 'lens-help'}, row.role === 'lens' ? 'Lens looks map by material name; a single source lens can supply every lens. Markings and decals are excluded.' : 'Frame and temple looks copy only between versions of this job, using matching material names.'));
+    renderCopySources();
     fields.append(button('Reset this material', {onclick: () => {history.update(all => {all[selected].values = clone(history.original[selected].values);}, true); changed();}}));
     refresh();
     if (focusedLabel) fields.querySelector(`[aria-label="${CSS.escape(focusedLabel)}"]`)?.focus({preventScroll: true});
+  }
+  function renderCopySources() {
+    const list = fields.querySelector('#copy-source'); if (!list) return;
+    const sources = dto.copy_sources || [];
+    if (!sources.some(source => source.delivery_key === copySourceKey)) copySourceKey = sources[0]?.delivery_key || null;
+    list.replaceChildren(el('legend', {}, 'Copy a look'));
+    const entries = el('div', {class: 'copy-source-entries'});
+    for (const candidate of sources) {
+      const choice = el('input', {type: 'radio', name: 'copy-version', value: candidate.delivery_key, checked: candidate.delivery_key === copySourceKey});
+      choice.addEventListener('change', () => {copySourceKey = choice.value;});
+      entries.append(el('label', {class: 'copy-source-row'}, choice, swatch(candidate), el('span', {}, candidate.label)));
+    }
+    list.append(entries);
+    if (!sources.length) list.append(el('p', {class: 'lens-help'}, 'No saved looks to copy.'));
+    const copyButton = fields.querySelector('#copy-look');
+    if (copyButton) {copyButton.dataset.unavailable = String(!sources.length || listsBusy); copyButton.disabled = busy || !ready || !sources.length || listsBusy;}
+  }
+  function renderGradientPreview() {
+    const gradient = values().gradient, bar = fields.querySelector('#gradient-shares'), canvas = fields.querySelector('#gradient-blend-preview');
+    if (!gradient) return;
+    const names = gradient.colours.map((row, index) => index === 0 ? 'Start' : index === gradient.colours.length - 1 ? 'End' : 'Middle');
+    gradient.colours.forEach((row, index) => {
+      const input = fields.querySelector(`[data-share-index="${index}"]`), output = fields.querySelector(`[data-share-output="${index}"]`);
+      if (input) {input.min = Math.min(1, row.share); input.max = Math.max(98, row.share); input.value = row.share;}
+      if (output) output.textContent = `${Number(row.share.toFixed(1))}%`;
+    });
+    if (!bar || !canvas) return;
+    bar.replaceChildren(...gradient.colours.map((row, index) => {
+      const segment = el('span', {title: `${names[index]} ${Number(row.share.toFixed(1))}%`});
+      segment.style.width = `${row.share}%`; segment.style.backgroundColor = tintToHex(row.colour); return segment;
+    }));
+    bar.setAttribute('aria-label', gradient.colours.map((row, index) => `${names[index]} ${Number(row.share.toFixed(1))}%`).join(', '));
+    // The same region boundaries and linear-RGB smoothstep as the saved gradient texture.
+    const context = canvas.getContext('2d'), colours = gradient.colours;
+    for (let x = 0; x < canvas.width; x++) {
+      let position = (x + .5) / canvas.width;
+      if (gradient.direction === 'centre_to_sides') position = Math.abs(2 * position - 1);
+      let boundary = 0, rgb = colours.at(-1).colour;
+      for (const row of colours) {boundary += row.share / 100; if (position < boundary) {rgb = row.colour; break;}}
+      boundary = 0;
+      for (let i = 0; i < colours.length - 1; i++) {
+        boundary += colours[i].share / 100;
+        const half = gradient.blend * Math.min(colours[i].share, colours[i + 1].share) / 200;
+        if (half && position >= boundary - half && position <= boundary + half) {
+          let mix = (position - boundary + half) / (2 * half); mix = mix * mix * (3 - 2 * mix);
+          rgb = colours[i].colour.map((value, channel) => value * (1 - mix) + colours[i + 1].colour[channel] * mix);
+        }
+      }
+      context.fillStyle = tintToHex(rgb); context.fillRect(x, 0, 1, canvas.height);
+    }
   }
   function slider(parent, name, value, onInput, note) {
     const input = el('input', {type: 'range', min: 0, max: 1, step: .01, value, 'aria-label': name});
@@ -292,7 +380,7 @@ export async function generalEditPage(host, key) {
   const keyboard = event => {if (!(event.ctrlKey || event.metaKey) || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName) || busy) return;
     const key = event.key.toLowerCase(); if (!['z', 'y'].includes(key)) return; event.preventDefault(); if (key === 'y' || event.shiftKey) history.redo(); else history.undo(); changed();};
   window.addEventListener('beforeunload', guard); document.addEventListener('click', guardLink); document.addEventListener('keydown', keyboard);
-  renderControls(); refresh();
+  renderVersions(); renderControls(); refresh();
   try {
     const renderer = await import('/lens-renderer/lens-renderer.js'); colourAtAngle = renderer.coatingSwatchRGB;
     viewer = await renderer.createLensColourViewer(stage, {modelUrl: dto.source.model_url, materials: rows}); ready = true; stage.setAttribute('aria-busy', 'false'); refresh();

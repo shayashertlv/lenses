@@ -105,10 +105,12 @@ def test_role_metadata_and_immutable_versions(appearance):
     assert dto["roles"] == [{"role": "lens", "label": "Lenses"}, {"role": "frame", "label": "Frame"}]
     assert dto["materials"][0]["can_transmission"] is True
     assert dto["refusals"][0]["reason"] == "This material is shared by Frame and Temples."
-    assert {row["label"] for row in dto["versions"]} == {"your edit", "Astra delivery-1"}
+    assert {row["origin_label"] for row in dto["versions"]} == {"your edit", "Astra delivery-1"}
     assert {row["delivery_key"] for row in dto["versions"]} == {saved, appearance.key}
-    assert {row["label"] for row in dto["copy_sources"]} == {
-        "Fixture — your edit", "Fixture — Astra delivery-1", "Other model — Astra other-1"}
+    assert {(row["job_name"], row["origin_label"]) for row in dto["copy_sources"]} == {
+        ("Fixture", "your edit"), ("Fixture", "Astra delivery-1"), ("Other model", "Astra other-1")}
+    assert all(row["job_name"] in row["label"] and row["verdict_label"] in row["label"]
+               for row in dto["copy_sources"])
     assert not appearance.launcher.approvals
 
 

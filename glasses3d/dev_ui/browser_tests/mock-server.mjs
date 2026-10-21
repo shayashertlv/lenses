@@ -60,23 +60,27 @@ export async function startMockServer() {
           for (const [key, value] of data) parts[key] = typeof value === 'string' ? value : {name: value.name, type: value.type, bytes: Buffer.from(await value.arrayBuffer())};
         } else if (bytes.length) body = JSON.parse(bytes.toString('utf8'));
       }
-      state.requests.push({method, route, body, parts});
+      state.requests.push({method, route, query: url.search, body, parts});
       if (state.nextError && route === state.nextError.route) {const error = state.nextError; state.nextError = null; return json(res, {error: {code: 'test_error', message: error.message}}, 409);}
       if (route === '/api/config') return json(res, state.config);
-      if (route === '/api/jobs') return json(res, {jobs: [
+      if (route === '/api/jobs') return json(res, {jobs: (state.jobs || [
         {job_id: 'job_old', name: 'Older glasses', created_utc: '2026-10-18T10:00:00Z', deliveries: [], runs: [], drafts: [], edits: []},
         {job_id: 'job_demo', name: 'Synthetic glasses', created_utc: created, deliveries: [{delivery_key: 'delivery_demo', label: 'not finished', created_utc: created}, ...(state.lensSaved ? [{delivery_key: 'delivery_lens', label: 'edited by you', created_utc: created}] : [])], runs: [{run_key: 'run_demo', kind: 'job', phase: 'running'}], drafts: [{draft_id: 'draft_demo'}], edits: [{edit_key: 'edit_demo', phase: 'ended'}]},
-      ]});
+      ]).filter(job => url.searchParams.get('show_test_jobs') === '1' || !job.test_job)});
       if (route === '/api/jobs/start') {if (state.startDelay) await new Promise(resolve => setTimeout(resolve, state.startDelay)); return json(res, {run_key: 'run_demo', job_id: 'job_demo', run_id: 'run_demo', cutoff_usd: JSON.parse(parts.manifest).cutoff_usd});}
       if (route === '/api/runs/run_demo/stop') {state.run.stop_requested = true; return json(res, state.run);}
       if (route === '/api/runs/run_demo') return json(res, state.run);
       if (route === '/__test/alpha.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(alphaFixture.bytes);}
       if (route === '/__test/lenses.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(lensFixture.bytes);}
-      if (/^\/api\/deliveries\/[^/]+\/appearance$/.test(route)) return json(res, state.appearance || {...state.lens,
+      if (/^\/api\/deliveries\/[^/]+\/appearance$/.test(route)) {
+        const appearance = state.appearance || {...state.lens,
         materials: [...state.lens.materials.map(row => ({...row, role: 'lens', can_gradient: true, can_transmission: true, has_colour_texture: false})),
           {material_index: 0, name: 'Frame pattern', role: 'frame', has_colour_texture: true, can_gradient: false, can_transmission: true, values: {...state.lens.materials[0].values, tint: [.2,.1,.05], transmission: .2, gradient: null}}],
         versions: [{delivery_key: 'delivery_demo', label: 'Astra c0001'}, {delivery_key: 'delivery_lens', label: 'your edit'}],
-        copy_sources: [{delivery_key: 'delivery_demo', job_id: 'job_demo', label: 'Astra c0001'}], refusals: ['A shared material cannot be edited separately.']});
+        copy_sources: [{delivery_key: 'delivery_demo', job_id: 'job_demo', label: 'Astra c0001'}], refusals: ['A shared material cannot be edited separately.']};
+        const visible = row => url.searchParams.get('show_test_jobs') === '1' || !row.test_job;
+        return json(res, {...appearance, versions: appearance.versions.filter(visible), copy_sources: appearance.copy_sources.filter(visible)});
+      }
       if (route.endsWith('/appearance-model')) {
         const doc = clone(lensFixture.doc);
         for (const row of body.materials) {const target = doc.materials[row.material_index], values = row.values;
