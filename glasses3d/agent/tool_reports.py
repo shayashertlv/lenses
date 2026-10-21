@@ -34,7 +34,7 @@ Args:
     filter_value: Case-insensitive text to find at filter_path; null disables filtering.
 """
 PRIORITY = ("status", "ok", "pass", "graded_pass", "code", "message", "reasons", "failures", "errors", "warnings", "summary",
-            "lens_colour_gap",
+            "lens_colour_gap", "lens_colour_judgement",
             "verdicts", "worst_gap", "worst_deficit", "stations", "required", "points", "verdict", "value",
             "checkpoint", "fingerprint", "sha256", "glb_sha256", "export_sha256", "call_id", "basis",
             "counts", "n_fail", "n_pass", "worst", "max", "min", "images", "image_receipt")
@@ -235,6 +235,8 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
     if body.get("schema") == "g3d.look_comparison/1" and isinstance(body.get("lens_colour_gap"), list):
         # One factual line per compared photo, never sampled or moved behind a read pointer.
         answer["lens_colour_gap"] = body["lens_colour_gap"]
+    if body.get("schema") == "g3d.look_comparison/1" and isinstance(body.get("lens_colour_judgement"), str):
+        answer["lens_colour_judgement"] = body["lens_colour_judgement"]
     if isinstance(body.get("review"), dict):
         answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
                             ("required_refs", "review_call_id", "unavailable", "appearance_is_information")

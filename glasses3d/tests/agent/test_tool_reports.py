@@ -358,6 +358,25 @@ def test_many_nonimage_tail_parts_still_respect_aggregate_limit(tmp_path):
 
 
 @pytest.mark.parametrize("nested", [False, True])
+def test_worn_colour_judgement_and_existing_gap_survive_paging(tmp_path, nested):
+    from glasses3d.agent.tools.look import LENS_COLOUR_JUDGEMENT
+    look = {"schema": "g3d.look_comparison/1", "status": "ok",
+            "lens_colour_judgement": LENS_COLOUR_JUDGEMENT,
+            "lens_colour_gap": [f"reference-{n:02d} lens: AR L* 42.9 vs photo 63.4 (20.6 darker)" for n in range(24)],
+            "views": [{"details": "unchanged native details " * 2000} for _ in range(24)]}
+    payload = {"look_comparison": look, "status": "review_required"} if nested else look
+    output = R.limit_output(tmp_path, "worn", "finish" if nested else "compare_look_to_photos",
+                            [ToolOutputText(text=R.dumps(payload))])
+    body, _ = R._body(output[0].text)
+    visible = body["look_comparison"] if nested else body
+    assert visible["lens_colour_judgement"] == LENS_COLOUR_JUDGEMENT
+    assert visible["lens_colour_gap"] == look["lens_colour_gap"]
+    assert text_count(output) <= R.TEXT_LIMIT
+    saved = json.loads((tmp_path / body["full_report"]["path"]).read_text(encoding="utf-8"))
+    assert saved["result"] == payload
+
+
+@pytest.mark.parametrize("nested", [False, True])
 def test_required_review_and_surface_fields_survive_long_outputs(tmp_path, nested):
     refs = [f"view-{n:03d}" for n in range(40)]
     diagnostics = {"status": "measured", "planarity": {"worst_mm": .12},

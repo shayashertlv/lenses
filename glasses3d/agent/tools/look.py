@@ -14,6 +14,53 @@ from ..tool_timeouts import LOOK_CAPTURE_DEADLINE_S, LOOK_CAMERA_BATCH_SIZE
 from . import arview, look_panels, look_composition
 
 SCHEMA = "g3d.look_comparison/1"
+LENS_COLOUR_JUDGEMENT = ("Judge lens colour on the worn, on-face AR images against the lens colour in the owner photos; "
+                         "use the white-background panels for shape and see-through.")
+
+
+def worn_colour_images(rows, report, worn_directory, portrait):
+    """Promote existing visible-face pixels; never substitute a face-less skin-background pose.
+
+    WP3b yaw describes the camera; capture yaw rotates the head in the opposite direction.
+    Compare viewing directions, not view-name guesses, and send each selected image only once.
+    """
+    front = {"path": str(portrait), "sha256": arview.sha256(portrait),
+             "kind": "compare_look_to_photos", "purpose": "lens_colour_judgement",
+             "view": "Lens-colour judgement: worn front on the test face",
+             "pose": "front", "matched_refs": []}
+    candidates = [(front, np.array([0., 0., 1.]))]
+    poses = {pose["id"]: pose for pose in report.get("poses", [])}
+    for image in report["images"]:
+        if image.get("kind") != "worn_crop":
+            continue
+        pose = poses.get(image.get("pose"))
+        if pose is None or not pose.get("worn"):
+            continue
+        yaw, pitch, roll = np.radians([pose["yaw"], pose["pitch"], pose["roll"]])
+        # R(YXZ)^T @ +Z: camera direction in the rotated head's own coordinates.
+        sy, cy, sp, cp, sr, cr = np.sin(yaw), np.cos(yaw), np.sin(pitch), np.cos(pitch), np.sin(roll), np.cos(roll)
+        toward = np.array([-sy * cr + cy * sp * sr, sy * sr + cy * sp * cr, cy * cp])
+        candidates.append(({"path": str(worn_directory / image["file"]), "sha256": image["sha256"],
+                            "kind": "compare_look_to_photos", "purpose": "lens_colour_judgement",
+                            "pose": image["pose"], "matched_refs": [],
+                            "view": f"Lens-colour judgement: worn {image['pose']}, visible head, hair off"}, toward))
+    selected = [front]
+    by_hash = {front["sha256"]: front}
+    for row in rows:
+        camera = row["camera"]["meta"]["source_camera"]
+        yaw, pitch = np.radians([camera["yaw"], camera["pitch"]])
+        toward = np.array([np.cos(pitch) * np.sin(yaw), np.sin(pitch), np.cos(pitch) * np.cos(yaw)])
+        # Front wins equal-distance ties (e.g. a straight top photo); no invented matching capture.
+        similarities = [float(direction @ toward) for _, direction in candidates]
+        best = max(similarities)
+        index = next(i for i, similarity in enumerate(similarities) if similarity >= best - 1e-12)
+        image = candidates[index][0]
+        if image["sha256"] not in by_hash:
+            by_hash[image["sha256"]] = image
+            selected.append(image)
+        by_hash[image["sha256"]]["matched_refs"].append({"ref": row["ref"],
+            "angle_difference_deg": float(np.degrees(np.arccos(np.clip(similarities[index], -1, 1))))})
+    return selected
 
 
 def border_colour(photo):
@@ -252,6 +299,7 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
             target = worn_directory / image["file"]
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path.parent / image["file"], target)
+        worn_images = worn_colour_images(rows, report, worn_directory, portrait)
         overview = directory / "comparison.png"
         sheet(rows, portrait, overview, compact=True)
         # Pack only this call's evidence, per photo. Keep the labelled source panels
@@ -268,22 +316,21 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                          "overflow uses additional images." if combine else
                          "Full pairs and native details are separate images.")
         result = {**base, "status": "ok", "lens_colour_gap": lens_colour_lines(rows),
+                  "lens_colour_judgement": LENS_COLOUR_JUDGEMENT,
                   "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
                   "cameras_sha256": bs.meta["cameras_json_sha256"], "views": rows,
                   "unusable_refs": bs.unusable_refs(), "worn_front_path": str(portrait), "capture_reports": captures,
                   "worn_capture": {"report": str(worn_directory / "report.json"), "report_sha256": arview.sha256(path),
                                    "export_sha256": export["sha256"], "portrait_sha256": rec["sha256"]},
                   "fixed_scale": True, "lens_env_intensity": arview.LENS_ENV_INTENSITY,
-                  "summary": "Photo-camera AR colour check plus same-export worn front. Colours are information, not a gate. "
+                  "summary": "Same-export worn on-face lens-colour judgement first, then photo-camera AR comparisons. Colours are information, not a gate. "
                              "Fixed-room highlights are not lens colour. " + delivery_note,
                   "method": "Median sRGB and CIE L* in AR lens/frame part-id masks eroded 3 pixels, applied identically "
                             "to photo and drawing. Registration can mix photo regions; no tone/colour normalization. "
                             "Each view reports requested temple deltas and the temple-role meshes actually moved; frame-tagged arm geometry stays authored and is reported. "
                             "The worn view resets to the authored model before the normal face fit.",
                   "overview_path": str(overview), "image_delivery": "separate", "surface_quality": surface,
-                  "images": images + [
-                      {"path": str(portrait), "sha256": arview.sha256(portrait),
-                       "view": "Same export worn front on the test face"}]}
+                  "images": worn_images + images}
         result["assets"] = [{"path": str(p), "sha256": arview.sha256(p)} for p in sorted(directory.rglob("*"))
                             if p.is_file() and p.suffix in (".png", ".json")]
         report_path = directory / "comparison-report.json"
@@ -299,13 +346,16 @@ def tool_for(scene, tool, call):
     @tool("compare_look_to_photos")
     async def compare_look_to_photos(ctx: ToolContext, refs: list[str] | None = None, basis: str | None = None):
         """Like-for-like shape and appearance check: the owner's AR renderer at each frozen photo camera.
-        Judge shape details, lens hue, lightness and see-through and frame colour against the photos. Fixed-room reflection
-        highlights are expected and are not lens colour. Every successful call also shows the worn front on the
-        test face, eyes legible, from the SAME export. After shape edits and colour/material edits, inspect the
+        Judge lens hue and lightness on the worn, on-face images against the owner photos; photo-background
+        panels retain shape, see-through and frame-colour evidence. Fixed-room reflection highlights are expected
+        and are not lens colour. Every successful call starts with the worn front on the test face, eyes legible,
+        followed by the closest available visible-head worn angle for each photo, without duplicates, from the SAME export.
+        Available worn angles can differ from the photo; matched_refs reports the angular difference.
+        After shape edits and colour/material edits, inspect the
         full-size photo pairs and native close-ups, and judge the worn view too.
         Returns each photo's full-size photo/drawing pair combined with its automatic native details of corners,
         inner rims, lens marks, arm roots and tips. Every panel keeps its pixels, including labels; overflow uses
-        another image within high-detail limits, never shrinking any panel. Also returns the worn front.
+        another image within high-detail limits, never shrinking any panel. Worn images retain native pixels.
         Front-facing surfaces, depth walls and inner-rim walls have
         separate colour reports, including their rendered/photo shading; surface selection is geometric.
         Also returns side-light native close-ups of facet flatness, front shading seams and lens ripple,

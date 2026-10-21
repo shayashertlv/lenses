@@ -93,6 +93,8 @@ for every product. Material parameters alone do not establish the visible result
 In the browser AR renderer, metallic multiplies the colour seen through the lens by (1 − metallic), so a high
 Transmission value does not keep a metallic lens see-through; judge it in the same-export photo and worn
 comparisons.
+Judge lens colour on the worn, on-face AR images against the lens colour in the owner photos; use the
+white-background panels for shape and see-through.
 
 Choose body tint, transmission, surface reflection and any thin-film coating by their combined agreement with the
 photographs in the browser comparison. A visible colour shift does not establish matching brightness, saturation
