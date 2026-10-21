@@ -1,5 +1,33 @@
 # glasses3d progress
 
+## 2026-10-21 — Task 21b: batch differences and inline finish reconciliation ($0; complete)
+
+`record_difference(items=[...])` validates the whole batch before appending any item and names failing IDs,
+including schema-invalid items. Existing one-item calls, delivered/current/run-bound evidence, retained refs,
+and specific limitation reasons remain required. Confirming `finish(difference_updates=[...])` defaults omitted
+evidence to the delivered first review, evaluates acceptance over staged updates, and commits them only after
+accepted output and receipts succeed. Refusal commits no inline changes and leaves the review usable; renewal
+carries the updated list. History stays append-only. Only the two authorized decision-index sentences and matching
+tool descriptions changed; legacy text/schema/behavior and the 24,000-character cap are preserved.
+
+For N items needing reconciliation after the final export, finish requests fall from N + 2 to 2 with inline
+updates (or 3 with a separate batch). No paid-run savings were measured. The scripted M1 proof retains its
+intentional refused confirmation, so its request count falls separately from 16 to an asserted 15.
+
+Built and committed in the detached worktree at `ee1fb5fe5a0eae948328ffb202dc6ac77f155dfa`, based on `22f3980`.
+Task 21's `exit 0 2026-10-21T14:55:07+03:00` preceded all main-checkout edits; cherry-picked onto `glasses3d`
+as `74142c2f721a3ab83da1753c62c6b0c13954dc0f`. Focused task21/task21b plus finish/renewal regressions passed:
+151 in the worktree / 44.25 s and 151 in main / 49.89 s. All 37 new cases failed as expected on an exact
+`22f3980` archive / 14.13 s. The first detached run (145 passed / 4 failed) exposed SDK error-detail redaction
+and two incorrect legacy test assumptions; fixes preserve SDK logging policy and historical legacy behavior.
+
+Fresh `assembly_m1`, run once in main, passed in 193.875 s: open item → refused confirmation → accepted inline
+limitation, 15 requests, 35 verified AR images, clean receipts, $0 actual spend. Proof:
+`data/assembly/m1-proof-9dbf0e8b/proof.json`. Checks ran sequentially, offline, with BLAS 1, prescribed test
+basetemp, measured memory and process receipts; no gate or deadline was loosened. Report:
+`data/review_20261018/codex/task21b_report.md`; logs/status/arguments in `codex/task21b_checks/` beside it.
+No paid calls, push, or edits to existing jobs, runs, deliveries or verdicts.
+
 ## 2026-10-21 — Task 21: decision profiles and host-kept differences ($0; complete)
 
 Owner's words, verbatim:
