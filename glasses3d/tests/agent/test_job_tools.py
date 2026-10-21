@@ -5,7 +5,9 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import threading
 import time
 from types import SimpleNamespace
@@ -739,4 +741,34 @@ def test_capture_sets_private_temp_for_node_and_children(tmp_path):
                      "open(sys.argv[1],'w').write(json.dumps([os.environ['TEMP'],os.environ['TMP'],child]))\n")
     code, timed_out = AR.run_capture([sys.executable, str(probe), str(output)], tmp_path, timeout_s=10)
     assert code == 0 and not timed_out
-    assert json.loads(output.read_text()) == [str((tmp_path / "temp").resolve())] * 3
+    seen = json.loads(output.read_text())
+    temp = Path((tmp_path / "temp-path.txt").read_text(encoding="utf-8").strip())
+    assert seen == [str(temp)] * 3
+    assert temp.name.startswith("g3d-ar-") and temp.parent == Path(tempfile.gettempdir()).resolve()
+    assert not temp.exists()   # a clean capture removes its private TEMP
+
+
+def test_capture_temp_stays_far_below_the_windows_path_limit(tmp_path):
+    """Chromium nests ~38 characters of profile and ~70 of GPU cache below TEMP (lens lab L2d audit). A capture
+    output deep inside any job must not move TEMP: the private TEMP's length is independent of the job path."""
+    deep = tmp_path / ("job-" + "x" * 24) / "work" / "arview" / ("call_" + "y" * 24 + "-worn-process")
+    probe = tmp_path / "temp_probe.py"
+    output = tmp_path / "temp.json"
+    probe.write_text("import json,os,sys\nopen(sys.argv[1],'w').write(json.dumps(os.environ['TEMP']))\n")
+    code, timed_out = AR.run_capture([sys.executable, str(probe), str(output)], deep, timeout_s=10)
+    assert code == 0 and not timed_out
+    temp = json.loads(output.read_text())
+    assert len(temp) + 38 + 70 < 260 - 40, temp   # keep at least 40 characters of margin
+    assert not temp.startswith(str(deep))
+
+
+def test_failed_capture_keeps_its_private_temp_for_diagnosis(tmp_path):
+    probe = tmp_path / "fail.py"
+    probe.write_text("import os,sys\nopen(os.path.join(os.environ['TEMP'],'trace.txt'),'w').write('x')\nsys.exit(1)\n")
+    code, timed_out = AR.run_capture([sys.executable, str(probe)], tmp_path, timeout_s=10)
+    assert code == 1 and not timed_out
+    temp = Path((tmp_path / "temp-path.txt").read_text(encoding="utf-8").strip())
+    try:
+        assert temp.is_dir()
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)

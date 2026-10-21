@@ -1,5 +1,20 @@
 # glasses3d progress
 
+## 2026-10-21 — AR capture TEMP moved to a short private folder (Claude, $0)
+
+- Owner, verbatim: "i want you to implement the fix, then send codex make astra look at the face worn ar images ...
+  the build the user edits option in the dev ui (think about good ux). then perform a codex review about astra
+  instructions from how we make it think perspective."
+- **The fix.** `agent/tools/arview.py` `run_capture` used to set TEMP inside the job folder; Chromium's GPU cache
+  then reached 254 of Windows' 260 characters. It now gives each capture tree a private `g3d-ar-*` folder under the
+  system temp and records it in `temp-path.txt`.
+  - Clean captures remove the folder.
+  - Failed or timed-out captures keep it for diagnosis, unless it is empty.
+- **Checks.** The capture, look and timeout tests pass (146 focused, plus the timing kill test), with new tests for
+  the margin and the clean-up. `assembly_m1` passed with 35 verified AR images and left no temp folders.
+- Next: task 18 (worn-image colour judging, owner's decision), E2 (the dev UI lens-colour panel) and task 20 (the
+  instruction-thinking review).
+
 ## 2026-10-21 — Owner's eye on the 12 lab lenses (gallery, 3D + AR)
 
 - Owner, verbatim: "all of the following have perfect lens (the same level as accepted run 4)": baseline trials

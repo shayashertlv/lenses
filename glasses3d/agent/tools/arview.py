@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 
 from PIL import Image, ImageOps, ImageDraw
 
@@ -43,18 +44,30 @@ def output_dir(root: Path, call_id: str) -> Path:
     return path
 
 
+def private_temp() -> Path:
+    """A short, private TEMP for one capture tree. Chromium nests its profile and GPU caches about 110 characters
+    below TEMP (Playwright profile + GPUPersistentCache\\DawnGraphiteCache\\<32>), so a TEMP inside a job directory
+    reached 254 of Windows' 260-character limit (lens lab L2d audit, 2026-10-21) and silently failed look captures
+    in the deeper lab trials. The system temp keeps it far below that limit for any job or call id."""
+    return Path(tempfile.mkdtemp(prefix="g3d-ar-")).resolve()
+
+
 def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | None, bool]:
     """Own the entire tree through normal exit and timeout; stdout streams to disk, never an unread pipe."""
     env = {key: value for key, value in os.environ.items() if key.upper() in procs.WORKER_ENV_KEYS}
-    temp = (out / "temp").resolve()
-    temp.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+    temp = private_temp()
+    (out / "temp-path.txt").write_text(str(temp) + "\n", encoding="utf-8")   # where this capture's TEMP lived
     env.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS="1", TEMP=str(temp), TMP=str(temp))
     proc = job = None
+    clean = False
     with (out / "capture.log").open("ab") as log:
         try:
             proc, job = procs.spawn_in_job(argv, cwd=ARVIEW, stdout=log, env=env)
             try:
-                return proc.wait(timeout=timeout_s), False
+                code = proc.wait(timeout=timeout_s)
+                clean = code == 0
+                return code, False
             except subprocess.TimeoutExpired:
                 if job.handle is not None:
                     job.terminate()
@@ -71,6 +84,10 @@ def run_capture(argv: list[str], out: Path, *, timeout_s: float) -> tuple[int | 
         finally:
             if job is not None:
                 job.close()
+            if clean:   # a failed or timed-out capture keeps its TEMP for diagnosis; temp-path.txt names it
+                shutil.rmtree(temp, ignore_errors=True)
+            elif temp.is_dir() and not any(temp.iterdir()):
+                temp.rmdir()   # nothing to diagnose
 
 
 def contact_sheet(out: Path, records: list[dict]) -> Path | None:
