@@ -93,6 +93,83 @@ def test_no_op_preserves_entire_glb_byte_for_byte(document):
     assert receipt["changed_material_indices"] == []
 
 
+@pytest.mark.parametrize("field,value", [
+    ("ior", 0), ("ior", 3.2), ("ior", 6.0), ("ior", 1234.56789),
+    ("iridescence_ior", 6.25), ("iridescence_ior", 1e100),
+    ("iridescence_thickness_min", 1600.25), ("iridescence_thickness_max", 1e100),
+])
+def test_spec_valid_values_open_exactly_and_noop_keeps_every_byte(document, field, value):
+    material = document["materials"][1]
+    extension, property_name = {
+        "ior": ("KHR_materials_ior", "ior"),
+        "iridescence_ior": ("KHR_materials_iridescence", "iridescenceIor"),
+        "iridescence_thickness_min": ("KHR_materials_iridescence", "iridescenceThicknessMinimum"),
+        "iridescence_thickness_max": ("KHR_materials_iridescence", "iridescenceThicknessMaximum"),
+    }[field]
+    material["extensions"].setdefault(extension, {})[property_name] = value
+    original = _glb(document)
+    values = {str(row["material_index"]): row["values"]
+              for row in lens.read_lens_materials(original)["materials"]}
+    assert values["1"][field] == value
+    patched, receipt = lens.patch_lens_glb(original, values)
+    assert patched == original
+    assert receipt["changed_material_indices"] == []
+
+
+def test_ior_six_edit_round_trips_exactly(document):
+    original = _glb(document)
+    selected = {str(row["material_index"]): row["values"]
+                for row in lens.read_lens_materials(original)["materials"]}
+    selected["1"]["ior"] = 6.0
+    patched, receipt = lens.patch_lens_glb(original, selected)
+    assert receipt["changed_material_indices"] == [1]
+    doc, chunks = lens._parse(patched)
+    assert doc["materials"][1]["extensions"]["KHR_materials_ior"]["ior"] == 6.0
+    assert doc["materials"][0] == document["materials"][0]
+    assert doc["materials"][2] == document["materials"][2]
+    assert [row[2] for row in chunks[1:]] == [row[2] for row in lens._parse(original)[1][1:]]
+    reread = {str(row["material_index"]): row["values"]
+              for row in lens.read_lens_materials(patched)["materials"]}
+    assert reread == selected
+    assert lens.patch_lens_glb(patched, reread)[0] == patched
+
+
+def test_reversed_film_thickness_endpoints_are_valid_for_texture_interpolation(document):
+    original = _glb(document)
+    selected = _selection(original)
+    selected["1"].update(iridescence_thickness_min=600, iridescence_thickness_max=200)
+    patched, _ = lens.patch_lens_glb(original, selected)
+    film = lens._parse(patched)[0]["materials"][1]["extensions"]["KHR_materials_iridescence"]
+    assert film["iridescenceThicknessMinimum"] == 600
+    assert film["iridescenceThicknessMaximum"] == 200
+    assert film["iridescenceThicknessTexture"] == {"index": 1}
+    reread = {str(row["material_index"]): row["values"]
+              for row in lens.read_lens_materials(patched)["materials"]}
+    assert reread["1"] == selected["1"]
+    assert lens.patch_lens_glb(patched, reread)[0] == patched
+
+
+@pytest.mark.parametrize("filename,expected_ior", [("00.glb", 6.0), ("17.glb", 3.200000047683716)])
+def test_copied_gallery_high_ior_values_and_noop_are_exact(tmp_path, filename, expected_ior):
+    source = Path(__file__).resolve().parents[1] / "data/lens_lab/gallery/models" / filename
+    if not source.is_file():
+        pytest.skip("The owner's local lens-gallery GLB is unavailable.")
+    original = source.read_bytes()
+    copied = tmp_path / filename
+    copied.write_bytes(original)
+    rows = lens.read_lens_materials(copied)["materials"]
+    assert expected_ior in [row["values"]["ior"] for row in rows]
+    source_document = lens._parse(original)[0]
+    for row in rows:
+        material = source_document["materials"][row["material_index"]]
+        assert row["values"]["ior"] == material.get("extensions", {}).get("KHR_materials_ior", {}).get("ior", 1.5)
+    selected = {str(row["material_index"]): row["values"] for row in rows}
+    patched, receipt = lens.patch_lens_glb(copied, selected)
+    assert patched == copied.read_bytes() == original
+    assert receipt["changed_material_indices"] == []
+    assert source.read_bytes() == original
+
+
 @pytest.mark.parametrize("bad", [None, {}, [], {"1": {}}, {"01": {}}, {True: {}}, {"0": {}}, {"999": {}}])
 def test_missing_unknown_nonlens_or_invalid_material_values_refused(document, bad):
     with pytest.raises(ValueError):
@@ -101,8 +178,11 @@ def test_missing_unknown_nonlens_or_invalid_material_values_refused(document, ba
 
 @pytest.mark.parametrize("field,value", [("transmission", True), ("metallic", float("nan")),
     ("metallic", 10 ** 400),
-    ("roughness", float("inf")), ("iridescence", -.01), ("ior", 0), ("iridescence_ior", 4),
-    ("iridescence_thickness_min", 1300), ("iridescence_thickness_max", "300"),
+    ("roughness", float("inf")), ("iridescence", -.01), ("ior", .5), ("iridescence_ior", .9),
+    ("iridescence_thickness_min", -1), ("iridescence_thickness_max", "300"),
+    ("ior", -1), ("ior", float("nan")), ("ior", float("inf")), ("ior", 10 ** 400),
+    ("iridescence_ior", True), ("iridescence_ior", float("inf")),
+    ("iridescence_thickness_min", float("nan")), ("iridescence_thickness_max", float("inf")),
     ("tint", [1, 2, 0]), ("tint", [1, 0]), ("tint", [True, 0, 0])])
 def test_control_ranges_are_strict(document, field, value):
     payload = _glb(document)
@@ -112,12 +192,8 @@ def test_control_ranges_are_strict(document, field, value):
         lens.patch_lens_glb(payload, selected)
 
 
-def test_order_unknown_fields_and_duplicate_index_refused(document):
+def test_unknown_fields_and_duplicate_index_refused(document):
     payload = _glb(document)
-    selected = _selection(payload)
-    selected["1"]["iridescence_thickness_min"] = 600
-    with pytest.raises(ValueError, match="minimum"):
-        lens.patch_lens_glb(payload, selected)
     selected = _selection(payload)
     selected["1"]["alpha"] = 0
     with pytest.raises(ValueError, match="unknown"):

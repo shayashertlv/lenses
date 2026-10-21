@@ -47,7 +47,7 @@ test('E2 real-renderer browser editor controls, photos, history, AR and immutabl
   const browser = await launchBrowser(); t.after(() => browser.close());
   const {context, audit} = await browserContext(browser, server.origin); t.after(() => context.close());
   const page = await context.newPage();
-  const evidence = path.join(ROOT, 'glasses3d/data/m12/codex'); await fs.mkdir(evidence, {recursive: true});
+  const evidence = process.env.G3D_LENS_EVIDENCE_DIR || path.join(ROOT, 'glasses3d/data/m12/codex'); await fs.mkdir(evidence, {recursive: true});
   const original = structuredClone(server.state.lens.materials);
   let initialPixels;
   try {

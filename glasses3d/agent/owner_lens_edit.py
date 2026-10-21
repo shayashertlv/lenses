@@ -132,9 +132,17 @@ def _lens_indices(doc):
 
 
 def _number(value, low, high, label):
-    if type(value) not in (int, float) or not low <= value <= high or not math.isfinite(value):
-        raise ValueError(f"{label} must be a finite number from {low:g} to {high:g}.")
-    return float(value)
+    bounds = f"at least {low:g}" if high is None else f"from {low:g} to {high:g}"
+    message = f"{label} must be a finite number {bounds}."
+    if type(value) not in (int, float):
+        raise ValueError(message)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(message) from exc
+    if not math.isfinite(number) or number < low or (high is not None and number > high):
+        raise ValueError(message)
+    return number
 
 
 def _values(value):
@@ -146,12 +154,16 @@ def _values(value):
     result = {"tint": [_number(v, 0, 1, "Tint") for v in tint]}
     for field in ("transmission", "metallic", "roughness", "iridescence"):
         result[field] = _number(value[field], 0, 1, field)
-    for field in ("ior", "iridescence_ior"):
-        result[field] = _number(value[field], 1, 3, field)
+    # Khronos permits any IOR >= 1, plus 0 for the lens's specular-glossiness
+    # compatibility mode. Film IOR has no zero exception and neither has a cap.
+    result["ior"] = _number(value["ior"], 0, None, "ior")
+    if 0 < result["ior"] < 1:
+        raise ValueError("ior must be zero or a finite number at least 1.")
+    result["iridescence_ior"] = _number(value["iridescence_ior"], 1, None, "iridescence_ior")
+    # Thickness endpoints are nonnegative, uncapped and may be reversed to
+    # invert a thickness texture. The panel's slider range is only a UI aid.
     for field in ("iridescence_thickness_min", "iridescence_thickness_max"):
-        result[field] = _number(value[field], 0, 1200, field)
-    if result["iridescence_thickness_min"] > result["iridescence_thickness_max"]:
-        raise ValueError("The coating thickness minimum must not exceed its maximum.")
+        result[field] = _number(value[field], 0, None, field)
     return result
 
 

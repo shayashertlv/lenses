@@ -78,6 +78,7 @@ def run(inputs: Path, out: Path) -> int:
             or _sha((inputs / "materials.json").read_bytes()) != receipt["materials_sha256"]):
         raise ValueError("Prepared proof input bytes changed.")
     cases = [("synthetic", []), ("opaque", ["--opaque", "true"]),
+             ("high-ior", ["--lens-ior", "6"]),
              ("oakley", ["--model", str(inputs / "model.glb"), "--materials", str(inputs / "materials.json")])]
     results = []
     for name, arguments in cases:

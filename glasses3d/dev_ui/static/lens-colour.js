@@ -1,4 +1,5 @@
 import { api, idempotencyKey } from './api.js';
+import { findCoatingThicknesses } from './coating-match.js';
 
 const clone = value => structuredClone(value);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -119,9 +120,10 @@ export async function lensColourPage(host, key) {
   const materialChoice = el('select', { id: 'lens-material', 'aria-label': 'Lens to edit' }, dto.materials.map((material, index) =>
     el('option', { value: index }, `${material.name || `Lens ${index + 1}`}`)));
   const linkHelp = el('p', { class: 'lens-help', id: 'lens-link-help' });
+  const materialLabel = el('label', { htmlFor: 'lens-material', class: 'lens-material-label' }, 'Lens shown in controls');
   const selector = el('div', { class: 'lens-material-choice', hidden: dto.materials.length === 1 },
     el('label', { class: 'lens-check', htmlFor: 'lens-link' }, linkControl, 'Edit all lenses together'),
-    el('label', { htmlFor: 'lens-material', class: 'lens-material-label' }, 'Lens to edit'), materialChoice, linkHelp);
+    materialLabel, materialChoice, linkHelp);
   linkControl.addEventListener('change', () => { history.commit(); linked = linkControl.checked; refresh(); });
   materialChoice.addEventListener('change', () => { history.commit(); selectedIndex = Number(materialChoice.value); refresh(); });
   controls.append(selector);
@@ -143,28 +145,64 @@ export async function lensColourPage(host, key) {
     }, true);
     changed();
   }
-  function addControl({ id, label, fields, min = 0, max = 1, step = 0.01, read, write, format = value => `${Math.round(value * 100)}%`, note, parent = controls, type = 'range' }) {
+  function addControl({ id, label, fields, min = 0, max = 1, step = 0.01, exactMin = min, exactMax = max,
+    valid = value => value >= exactMin && (exactMax === null || value <= exactMax), validationMessage,
+    read, write, format = value => `${Math.round(value * 100)}%`, note, parent = controls, type = 'range' }) {
     const input = el('input', { id: `lens-${id}`, type, min, max, step });
     const output = el('output', { htmlFor: input.id, id: `${input.id}-value`, class: 'lens-control-value' });
     const resetButton = button('Reset', { class: 'lens-reset', 'aria-label': `Reset ${label}`, onclick: () => reset(fields) });
     const caption = el('div', { class: 'lens-control-caption' }, el('label', { htmlFor: input.id }, label), output, resetButton);
     const row = el('div', { class: 'lens-control', 'data-control': id }, caption, input);
+    let numberInput, numberError;
+    if (type === 'range' || type === 'number') {
+      numberInput = type === 'number' ? input : el('input', { id: `${input.id}-number`, type: 'number', class: 'lens-exact-value',
+        'aria-label': `${label} exact value` });
+      if (type === 'number') numberInput.id += '-number';
+      numberInput.min = exactMin; numberInput.step = 'any';
+      if (exactMax !== null) numberInput.max = exactMax; else numberInput.removeAttribute('max');
+      if (type === 'range') row.append(numberInput);
+      numberError = el('p', { id: `${numberInput.id}-error`, class: 'lens-number-error', role: 'status', hidden: true });
+      row.append(numberError); numberInput.setAttribute('aria-describedby', numberError.id);
+      const validate = () => {
+        const value = numberInput.valueAsNumber;
+        const validNumber = numberInput.value !== '' && Number.isFinite(value) && valid(value);
+        const message = validNumber ? '' : validationMessage || `Enter a finite number from ${exactMin}${exactMax === null ? ' upwards' : ` to ${exactMax}`}.`;
+        numberInput.setCustomValidity(message); numberInput.setAttribute('aria-invalid', String(!validNumber));
+        numberError.textContent = message; numberError.hidden = validNumber;
+        return validNumber;
+      };
+      numberInput.addEventListener('input', validate);
+      const applyNumber = () => {
+        if (!validate()) { numberInput.reportValidity(); return; }
+        history.commit();
+        if (numberInput.valueAsNumber !== read(values()) || fields.some(mixed)) write(numberInput.valueAsNumber);
+        history.commit(); refresh();
+      };
+      numberInput.addEventListener('change', applyNumber);
+      numberInput.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); applyNumber(); } });
+      // Link labels after the standalone numeric input receives its final id.
+      if (type === 'number') { caption.querySelector('label').htmlFor = input.id; output.htmlFor = input.id; }
+    }
     if (note) {
       const help = el('p', { id: `${input.id}-help`, class: 'lens-help' }, note);
-      input.setAttribute('aria-describedby', help.id); row.append(help);
+      input.setAttribute('aria-describedby', `${input.getAttribute('aria-describedby') || ''} ${help.id}`.trim());
+      if (numberInput && numberInput !== input) numberInput.setAttribute('aria-describedby', `${numberInput.getAttribute('aria-describedby')} ${help.id}`);
+      row.append(help);
     }
     parent.append(row);
     const update = () => write(type === 'checkbox' ? input.checked : type === 'color' ? input.value : Number(input.value));
-    input.addEventListener('input', update);
-    input.addEventListener('change', () => { history.commit(); refresh(); });
-    input.addEventListener('blur', () => { history.commit(); refresh(); });
-    controlRows.push({ input, output, resetButton, fields, read, format, type });
+    if (type !== 'number') {
+      input.addEventListener('input', update);
+      input.addEventListener('change', () => { history.commit(); refresh(); });
+      input.addEventListener('blur', () => { history.commit(); refresh(); });
+    }
+    controlRows.push({ input, numberInput, numberError, output, resetButton, fields, read, format, type });
     return row;
   }
 
   const tintRow = addControl({ id: 'tint', label: 'Tint', fields: ['tint'], type: 'color', read: value => tintToHex(value.tint),
     write: value => mutate(['tint'], hexToTint(value)), format: value => value.toUpperCase() });
-  const eyedropper = button('Pick from photo', { id: 'lens-eyedropper', onclick: () => openPhoto(activePhoto, true) });
+  const eyedropper = button('Pick tint from photo', { id: 'lens-eyedropper', onclick: () => openPhoto(activePhoto, 'tint') });
   tintRow.append(eyedropper);
   addControl({ id: 'transmission', label: 'See-through amount', fields: ['transmission'], read: value => value.transmission, write: value => mutate(['transmission'], value) });
   addControl({ id: 'mirror', label: 'Mirror', fields: ['metallic'], read: value => value.metallic, write: value => mutate(['metallic'], value), note: 'More mirror darkens the see-through colour.' });
@@ -180,15 +218,25 @@ export async function lensColourPage(host, key) {
   const colourRow = addControl({ id: 'shimmer-colour', label: 'Shimmer colour', fields: ['iridescence_thickness_min', 'iridescence_thickness_max'],
     min: 0, max: 1200, step: 1, parent: shimmer, read: value => value.iridescence_thickness_max,
     write: value => mutate(['iridescence_thickness_min', 'iridescence_thickness_max'], value),
-    format: value => `${Math.round(value)} nm`, note: 'Slide through coating colours. The colour shifts with the viewing angle.' });
+    exactMax: null, format: value => `${value} nm`, note: 'The slider sets the coating thickness. One coating shows these colours at different angles.' });
   const swatch = el('canvas', { id: 'lens-shimmer-swatch', class: 'lens-shimmer-swatch', width: 288, height: 30, role: 'img', 'aria-label': 'Coating reflection at different angles' });
-  colourRow.append(swatch, el('p', { class: 'lens-help' }, 'Coating reflection at different angles.'));
+  const swatchLabels = () => el('div', { class: 'lens-swatch-labels' }, el('span', {}, 'Seen at an angle (lens sides)'), el('span', {}, 'Seen straight on (lens centre)'));
+  const coatingEyedropper = button('Pick coating colour from photo', { id: 'lens-coating-eyedropper', onclick: () => openPhoto(activePhoto, 'coating') });
+  colourRow.append(swatch, swatchLabels(), coatingEyedropper);
   const advanced = el('details', { class: 'lens-advanced' }, el('summary', {}, 'Advanced'));
   controls.append(advanced);
-  addControl({ id: 'ior', label: 'Lens IOR', fields: ['ior'], min: 1, max: 3, step: 0.01, parent: advanced,
-    read: value => value.ior, write: value => mutate(['ior'], value), format: value => value.toFixed(2), note: 'How strongly the lens bends light.' });
-  addControl({ id: 'film-ior', label: 'Film IOR', fields: ['iridescence_ior'], min: 1, max: 3, step: 0.01, parent: advanced,
-    read: value => value.iridescence_ior, write: value => mutate(['iridescence_ior'], value), format: value => value.toFixed(2) });
+  addControl({ id: 'ior', label: 'Lens IOR', fields: ['ior'], min: 1, max: 8, step: 0.01, parent: advanced,
+    exactMin: 0, exactMax: null, valid: value => value === 0 || value >= 1, validationMessage: 'Enter 0, or a finite number of 1 or more.',
+    read: value => value.ior, write: value => mutate(['ior'], value), format: String,
+    note: 'How strongly the lens bends light. Slider: 1–8. Exact entry: 1 or more, or 0 for full reflection.' });
+  addControl({ id: 'film-ior', label: 'Film IOR', fields: ['iridescence_ior'], min: 1, max: 8, step: 0.01, parent: advanced,
+    exactMax: null, read: value => value.iridescence_ior, write: value => mutate(['iridescence_ior'], value), format: String,
+    note: 'Slider: 1–8. Exact entry: any finite number of 1 or more.' });
+  advanced.append(el('p', { class: 'lens-help' }, 'Thickness limits (nm) are independent and may be reversed. The colour slider and photo choice set both to one thickness; exact entries can exceed 1200 nm.'));
+  for (const [id, label, field] of [['thickness-min', 'Minimum thickness', 'iridescence_thickness_min'], ['thickness-max', 'Maximum thickness', 'iridescence_thickness_max']]) {
+    addControl({ id, label, fields: [field], type: 'number', exactMax: null, parent: advanced,
+      read: value => value[field], write: value => mutate([field], value), format: value => `${value} nm` });
+  }
 
   const viewButtons = el('div', { class: 'lens-views', role: 'group', 'aria-label': 'Preview view' });
   for (const [kind, label] of [['front', 'Front'], ['angled', 'Angled'], ['side', 'Side'], ['top', 'Top']]) {
@@ -209,7 +257,7 @@ export async function lensColourPage(host, key) {
     photoStrip.lastElementChild.append(image, el('span', {}, prettyView(photo)));
   });
   const references = el('section', { class: 'lens-references', 'aria-label': 'Reference photos' }, el('h2', {}, 'Your reference photos'),
-    photos.length ? el('p', { class: 'lens-help' }, 'Click to enlarge, or pick a tint directly from a photo.') : el('p', { class: 'muted' }, 'No reference photos are available for this delivery.'), photoStrip);
+    photos.length ? el('p', { class: 'lens-help' }, 'Click to enlarge, or pick a tint or coating colour from a photo.') : el('p', { class: 'muted' }, 'No reference photos are available for this delivery.'), photoStrip);
   const previewColumn = el('section', { class: 'lens-preview-column', 'aria-label': 'Preview and photos' },
     el('div', { class: 'lens-preview-toolbar' }, viewButtons, el('div', { class: 'lens-compare', role: 'group', 'aria-label': 'Compare lens colours' }, beforeButton, afterButton)),
     lensHost, mode, el('p', { class: 'viewer-help' }, 'Drag to orbit · Scroll to zoom · Right-drag to pan. Keyboard: focus the preview, then use arrow keys to turn and + / − to zoom.'), references);
@@ -243,6 +291,10 @@ export async function lensColourPage(host, key) {
       const value = row.read(values());
       if (row.type === 'checkbox') row.input.checked = value;
       else row.input.value = value;
+      if (row.numberInput) {
+        row.numberInput.value = value; row.numberInput.disabled = disabled;
+        row.numberInput.setCustomValidity(''); row.numberInput.removeAttribute('aria-invalid'); row.numberError.hidden = true;
+      }
       row.output.textContent = row.fields.some(mixed) ? 'Mixed' : row.format(value);
       row.input.disabled = disabled;
       if (row.type === 'range') row.input.setAttribute('aria-valuetext', row.output.textContent);
@@ -254,18 +306,21 @@ export async function lensColourPage(host, key) {
     save.disabled = disabled || !history.dirty;
     ar.disabled = disabled;
     eyedropper.disabled = disabled || !photos.length;
+    coatingEyedropper.disabled = disabled || !photos.length;
     linkControl.disabled = disabled;
-    materialChoice.disabled = disabled || linked;
+    materialChoice.disabled = disabled;
+    materialLabel.textContent = linked ? 'Lens shown in controls' : 'Lens to edit';
+    materialChoice.setAttribute('aria-label', materialLabel.textContent);
     beforeButton.disabled = afterButton.disabled = disabled;
     for (const view of viewButtons.children) view.disabled = disabled;
     state.textContent = busy ? 'Working…' : history.dirty ? 'Unsaved changes' : 'No changes yet';
-    linkHelp.textContent = linked ? 'Changes apply to every lens. Mixed values stay as they are until you change that control.' : 'Only the selected lens changes.';
+    linkHelp.textContent = linked ? 'Changes apply to every lens. The selected lens supplies the values shown and the coating match. Mixed values stay as they are until you change that control.' : 'Only the selected lens changes.';
     if (coatingSwatchRGB) drawShimmerSwatch(swatch, values(), coatingSwatchRGB);
     highlightPhoto();
   }
 
   const dialogs = new Set();
-  function openPhoto(index, picking = false) {
+  function openPhoto(index, picking = null) {
     const photo = photos[index];
     if (!photo) return;
     activePhoto = index; highlightPhoto();
@@ -279,15 +334,20 @@ export async function lensColourPage(host, key) {
     const caption = el('p', { class: 'lens-help', id: 'lens-photo-help' });
     canvas.setAttribute('aria-describedby', caption.id);
     const sampleButton = button('Use colour at point', { disabled: true, id: 'lens-photo-sample' });
-    const pickToggle = button('Pick a colour', { id: 'lens-photo-pick', 'aria-pressed': String(picking), disabled: !ready || busy });
+    const pickToggle = button('Pick tint from photo', { id: 'lens-photo-pick', 'aria-pressed': String(picking === 'tint'), disabled: !ready || busy });
+    const coatingToggle = button('Pick coating colour from photo', { id: 'lens-photo-coating-pick', 'aria-pressed': String(picking === 'coating'), disabled: !ready || busy });
+    const matchHelp = el('p', { id: 'lens-coating-match-help', class: 'lens-help', role: 'status' });
+    const choices = el('div', { id: 'lens-coating-choices', class: 'lens-coating-choices', role: 'group', 'aria-label': 'Closest coating thicknesses' });
+    const matches = el('section', { class: 'lens-coating-matches', hidden: true }, matchHelp, choices);
     const close = button('Done', { onclick: () => dialog.close() });
     const loadingPhoto = el('p', { role: 'status' }, 'Loading reference photo…');
     const dialog = el('dialog', { class: 'lens-photo-dialog', 'aria-labelledby': 'lens-photo-title' },
       el('div', { class: 'lens-dialog-title' }, el('h2', { id: 'lens-photo-title' }, prettyView(photo)), close), loadingPhoto,
-      el('div', { class: 'lens-photo-stage' }, canvas), caption, el('div', { class: 'actions' }, pickToggle, sampleButton));
+      el('div', { class: 'lens-photo-stage' }, canvas), caption, el('div', { class: 'actions' }, pickToggle, coatingToggle, sampleButton), matches);
     dialogs.add(dialog); document.body.append(dialog); dialog.showModal();
     const renderPhoto = () => {
       if (!loaded) return;
+      matches.hidden = true; choices.replaceChildren(); dialog.classList.remove('has-coating-choices');
       const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(image, 0, 0);
       if (picking) {
         const radius = Math.max(8, image.width / 100), width = Math.max(1, image.width / 600);
@@ -296,16 +356,35 @@ export async function lensColourPage(host, key) {
         cross(); ctx.strokeStyle = '#17212b'; ctx.lineWidth = width; cross();
       }
       canvas.classList.toggle('sampling', picking);
-      caption.textContent = picking ? `Click the photo to use its colour. Keyboard: arrows move the point, Shift moves faster, Enter picks. Point ${x + 1}, ${y + 1}.` : 'Enlarged reference photo. Choose Pick a colour to sample a tint.';
+      caption.textContent = picking ? `Click the photo to ${picking === 'coating' ? 'find its closest coating colours' : 'use its tint'}. Keyboard: arrows move the point, Shift moves faster, Enter picks. Point ${x + 1}, ${y + 1}.` : 'Enlarged reference photo. Choose a tint or coating picker to sample a colour.';
       sampleButton.disabled = !picking || !ready || busy;
-      pickToggle.setAttribute('aria-pressed', String(picking));
+      sampleButton.textContent = picking === 'coating' ? 'Find closest coatings at point' : 'Use colour at point';
+      pickToggle.setAttribute('aria-pressed', String(picking === 'tint'));
+      coatingToggle.setAttribute('aria-pressed', String(picking === 'coating'));
     };
     const pick = () => {
       if (!loaded || !picking || !ready || busy) return;
       try {
         const pixel = sample.getContext('2d', { willReadFrequently: true }).getImageData(x, y, 1, 1).data;
-        history.commit(); mutate(['tint'], [...pixel].slice(0, 3).map(value => srgbToLinear(value / 255)), true);
-        dialog.close();
+        if (picking === 'coating') {
+          const settings = clone(values());
+          const result = findCoatingThicknesses([...pixel].slice(0, 3), settings, coatingSwatchRGB);
+          choices.replaceChildren(); matches.hidden = false; dialog.classList.add('has-coating-choices');
+          const lensNote = linked && history.current.length > 1 ? ` Matching ${history.current[selectedIndex].name || `Lens ${selectedIndex + 1}`}; the chosen thickness applies to all linked lenses.` : '';
+          matchHelp.textContent = result.reason || `These are the closest coating colours, matched straight on without matching brightness. Choose a thickness, then judge it by eye in the preview and in AR.${lensNote}`;
+          for (const { thickness } of result.choices) {
+            const choice = button(`Use ${thickness} nm`, { 'data-thickness': thickness, onclick: () => {
+              history.commit(); mutate(['iridescence_thickness_min', 'iridescence_thickness_max'], thickness, true); dialog.close();
+            } });
+            const bar = el('canvas', { class: 'lens-shimmer-swatch', width: 288, height: 30, role: 'img', 'aria-label': `${thickness} nm coating at different angles` });
+            drawShimmerSwatch(bar, { ...settings, iridescence_thickness_min: thickness, iridescence_thickness_max: thickness }, coatingSwatchRGB);
+            choice.append(bar, swatchLabels()); choices.append(choice);
+          }
+          choices.firstElementChild?.focus();
+        } else {
+          history.commit(); mutate(['tint'], [...pixel].slice(0, 3).map(value => srgbToLinear(value / 255)), true);
+          dialog.close();
+        }
       } catch { loadingPhoto.hidden = false; loadingPhoto.textContent = 'This photo could not be sampled. Try another reference photo.'; }
     };
     image.onload = () => {
@@ -315,9 +394,10 @@ export async function lensColourPage(host, key) {
       x = Math.floor(canvas.width / 2); y = Math.floor(canvas.height / 2);
       loaded = true; loadingPhoto.hidden = true; renderPhoto(); if (picking) canvas.focus();
     };
-    image.onerror = () => { loadingPhoto.textContent = 'This reference photo could not be loaded. Close it and try another photo.'; pickToggle.disabled = true; };
+    image.onerror = () => { loadingPhoto.textContent = 'This reference photo could not be loaded. Close it and try another photo.'; pickToggle.disabled = coatingToggle.disabled = true; };
     image.src = photo.url;
-    pickToggle.addEventListener('click', () => { picking = !picking; renderPhoto(); canvas.focus(); });
+    pickToggle.addEventListener('click', () => { picking = picking === 'tint' ? null : 'tint'; renderPhoto(); canvas.focus(); });
+    coatingToggle.addEventListener('click', () => { picking = picking === 'coating' ? null : 'coating'; renderPhoto(); canvas.focus(); });
     sampleButton.addEventListener('click', pick);
     canvas.addEventListener('click', event => {
       if (!loaded || !picking) return;
@@ -471,10 +551,24 @@ export async function lensColourPage(host, key) {
 /** The same thin-film Fresnel calculation as pinned Three, viewed across angles. */
 function drawShimmerSwatch(canvas, values, colourAtAngle) {
   const context = canvas.getContext('2d');
+  canvas.dataset.originalLabel ??= canvas.getAttribute('aria-label');
+  const samples = [];
   for (let x = 0; x < canvas.width; x++) {
     const cosine = 0.4 + 0.6 * x / (canvas.width - 1);
     const rgb = colourAtAngle(values, cosine);
+    if (!rgb.every(Number.isFinite)) {
+      context.fillStyle = '#eceff2'; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#596675'; context.font = '12px sans-serif';
+      context.fillText('Coating colour unavailable at these settings', 6, 20);
+      canvas.title = 'Coating colour unavailable at these settings.'; canvas.setAttribute('aria-label', canvas.title);
+      return;
+    }
+    samples.push(rgb);
+  }
+  for (let x = 0; x < samples.length; x++) {
+    const rgb = samples[x];
     context.fillStyle = `rgb(${rgb.join(',')})`; context.fillRect(x, 0, 1, canvas.height);
   }
+  canvas.setAttribute('aria-label', canvas.dataset.originalLabel);
   canvas.title = 'Coating reflection at different angles. The model preview also shows lighting, gloss and see-through colour.';
 }

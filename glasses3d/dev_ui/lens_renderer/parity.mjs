@@ -69,11 +69,11 @@ async function pixelFraming(page, image) {
   }, image);
 }
 
-export async function proveParity({out, model, materials, opaque = false}) {
+export async function proveParity({out, model, materials, opaque = false, lensIOR}) {
   if (model && !materials) throw new Error('A real model requires its exact lens material DTO.');
   await fs.mkdir(path.dirname(out), {recursive: true});
   await fs.mkdir(out); // Failed attempts remain immutable proof evidence.
-  const sourceBytes = model ? await fs.readFile(model) : Buffer.from(buildGlb({materials: {
+  let sourceBytes = model ? await fs.readFile(model) : Buffer.from(buildGlb({materials: {
     frame: {name: 'Synthetic frame', pbrMetallicRoughness: {baseColorFactor: [.13, .08, .04, 1], metallicFactor: 0, roughnessFactor: .45}},
     lens: {name: 'Synthetic lens', pbrMetallicRoughness: {baseColorFactor: [.7, .85, 1, 1], metallicFactor: .1, roughnessFactor: .1},
       ...(opaque ? {} : {extensions: {KHR_materials_transmission: {transmissionFactor: .9}}})},
@@ -82,8 +82,14 @@ export async function proveParity({out, model, materials, opaque = false}) {
   const materialData = materials ? JSON.parse(await fs.readFile(materials, 'utf8')) : null;
   const rows = materialData ? (materialData.materials ?? materialData)
     : [{material_index: 1, name: doc.materials[1].name, values: valuesOf(doc.materials[1])}];
+  if (lensIOR !== undefined) {
+    assert.ok(Number.isFinite(lensIOR) && (lensIOR === 0 || lensIOR >= 1));
+    assert.equal(Boolean(model), false, 'IOR overrides are for generated proof fixtures only.');
+    for (const row of rows) row.values.ior = lensIOR;
+    sourceBytes = patchGlb(sourceBytes, rows);
+  }
   const afterRows = rows.map(row => ({...row, values: {...row.values, tint: [.08, .55, .9],
-    transmission: .67, metallic: .4, roughness: .13, ior: 1.6, iridescence: .8,
+    transmission: .67, metallic: .4, roughness: .13, ior: lensIOR ?? 1.6, iridescence: .8,
     iridescence_ior: 1.4, iridescence_thickness_min: 170, iridescence_thickness_max: 630}}));
   const afterBytes = patchGlb(sourceBytes, afterRows);
   const beforeGlb = path.join(out, 'before-copy.glb'), afterGlb = path.join(out, 'after-copy.glb');
@@ -119,6 +125,10 @@ export async function proveParity({out, model, materials, opaque = false}) {
       {ior: 1.4, cosine: .7, thickness: 630, base: [.08, .55, .9]},
       {ior: 2.3, cosine: .2, thickness: 400, base: [.45, .12, .73]},
       {ior: 1, cosine: .95, thickness: 0, base: [.04, .04, .04]},
+      // Run 4's lens IOR 6 gives dielectric F0 = 25/49; the first
+      // argument here is the film IOR, as in Three's evalIridescence.
+      {ior: 1.3, cosine: 1, thickness: 460, base: [25 / 49, 25 / 49, 25 / 49]},
+      {ior: 1.3, cosine: .4, thickness: 460, base: [25 / 49, 25 / 49, 25 / 49]},
     ];
     const coatingPixels = await page.evaluate(({common, film, cases}) => {
       const canvas = document.createElement('canvas'); canvas.width = cases.length; canvas.height = 1;
@@ -274,6 +284,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (index % 2 === 0) rows.push([value.replace(/^--/, ''), all[index + 1]]); return rows;
   }, []));
   if (!args.out) throw new Error('--out is required');
-  const result = await proveParity({out: path.resolve(args.out), model: args.model, materials: args.materials, opaque: args.opaque === 'true'});
+  const result = await proveParity({out: path.resolve(args.out), model: args.model, materials: args.materials,
+    opaque: args.opaque === 'true', lensIOR: args['lens-ior'] === undefined ? undefined : Number(args['lens-ior'])});
   console.log(JSON.stringify({passed: result.passed, comparisons: result.comparisons}));
 }

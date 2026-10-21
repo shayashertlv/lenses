@@ -51,13 +51,18 @@ use different rendering paths; use AR to judge the worn appearance.
 
 **Lens colour** opens a free, local editor from Results. It uses arview's own renderer, pinned Three build,
 lens handling and fixed room-reflection setting. Drag to rotate the large preview, use Front / Angled / Side /
-Top, and enlarge the reference photos. **Pick from photo** samples the original photo pixels into the tint
+Top, and enlarge the reference photos. **Pick tint from photo** samples the original photo pixels into the tint
 picker. **Before / After** compares the original and your changes. Lenses change together by default;
 uncheck **Edit all lenses together** to select one material.
 
 Tint, see-through amount, mirror, gloss and coating shimmer update live. Every control has a reset;
 **Reset all**, **Undo / Redo** and Ctrl+Z / Ctrl+Y work within the session. Advanced optical controls are
-collapsed. Leaving with unsaved changes asks for confirmation. **Check in AR** makes a temporary model copy
+collapsed. The coating bar labels the colours seen at an angle and straight on. **Pick coating colour from photo**
+finds the closest straight-on coating colours at the current settings, ignoring brightness, and offers up to three
+thickness choices with their angle bars. Picking one changes only the two thickness fields and can be undone.
+Judge the closest coating by eye in the preview and AR. Exact number fields retain valid IOR and thickness values
+outside the sliders' practical ranges; opening a model never clamps or rounds its saved values.
+Leaving with unsaved changes asks for confirmation. **Check in AR** makes a temporary model copy
 and opens the existing AR viewer; it does not publish a delivery. **Save as new version** runs the existing
 specification, seating, retained-print and AR checks, then publishes a new immutable owner-edited version.
 It opens on Results and appears in Jobs as **edited by you**. Failed checks show an error and keep the original.
@@ -196,6 +201,7 @@ Renderer parity and the native browser proof (run sequentially, after any other 
 
 ```powershell
 node glasses3d/dev_ui/lens_renderer/parity.mjs --out glasses3d/data/m12/proofs/FRESH_LENS_PARITY
+node glasses3d/dev_ui/lens_renderer/parity.mjs --out glasses3d/data/m12/proofs/FRESH_HIGH_IOR_PARITY --lens-ior 6
 glasses3d/.venv/Scripts/python.exe -B -m glasses3d.dev_ui.e2e.lens_colour --out C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/m12/proofs/FRESH_LENS_UI --port 8297
 ```
 

@@ -1,5 +1,40 @@
 # glasses3d progress
 
+## 2026-10-21 — E3: clearer coating controls, photo matching and valid optical ranges ($0; complete)
+
+Owner, verbatim:
+- "the model looks good but the lens isnt, im in the edit page but i dont really understand what each option is doing"
+- "i just dont understand the shimmer colors, why cant i just choose a color, what is this changing gradient"
+- "Only the panel fixes for now (label the bar, pick coating colour from photo, lift the IOR limit), at $0."
+
+The bar now labels lens sides / centre and explains thickness and viewing angle. Separate tint and coating
+photo actions share the existing viewer. Coating matching searches every integer thickness from 0–1200 nm,
+using the existing straight-on swatch function and current optical settings. It compares D65 Lab a*b* after
+normalising luminance; up to three distinct error minima represent repeated coating orders. Choosing one is
+a thickness-only, undoable edit. The UI describes the closest match and asks the owner to judge preview / AR.
+Linked editing allows selecting which lens supplies the matching settings without changing any material.
+
+Exact number fields accompany practical IOR sliders (1–8) and the thickness slider (0–1200 nm). Lens IOR accepts
+0 or >=1; Film IOR accepts >=1, both without an artificial maximum. Thickness endpoints are nonnegative with
+no maximum; a reversed pair is valid (texture-range inversion). Tint and all factors remain within [0,1].
+Opening valid values does not round or clamp state; a no-op retains the complete original GLB bytes. Lens
+ownership, production AR rendering and save/review gates are unchanged. The real favourite's stored IOR is
+`3.200000047683716`, which is displayed exactly; the run 4 copy displays `6`.
+
+Official Khronos sources checked **2026-10-21**:
+- Lens IOR valid set, zero meaning and no maximum: [extension text](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_ior/README.md#extending-materials), [schema](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_ior/schema/material.KHR_materials_ior.schema.json).
+- Film IOR >=1, thickness >=0, allowed reversed endpoints and shimmer factor [0,1]: [extension text](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_iridescence/README.md#properties), [schema](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_iridescence/schema/material.KHR_materials_iridescence.schema.json).
+- Transmission [0,1]: [schema](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_transmission/schema/material.KHR_materials_transmission.schema.json).
+- Base colour, metallic and roughness factors [0,1]: [core schema](https://github.com/KhronosGroup/glTF/blob/main/specification/2.0/schema/material.pbrMetallicRoughness.schema.json).
+
+Validation: **377 focused Python tests passed** (55.57 s); **38 browser tests passed** (46.63 s, no skips).
+New behaviour fails on the starting HEAD `3e80083`: 12 focused backend cases and 9 E3 browser tests fail there;
+both suites pass on the fix. Four parity cases (synthetic, opaque, high-IOR 6 and copied Oakley) pass with all
+eight before/after images pixel-identical to unchanged production AR; CPU swatch / Three GLSL samples also match
+exactly. E2's native copied-Oakley proof passes all 12 browser assertions and immutable-save checks; original,
+non-lens and binary bytes are preserved. Checks were serialised and used ignored copies. No paid calls or push.
+Report, screenshots, logs, proof paths, final commit and UI restart receipt: `data/m12/codex/e3_report.md`.
+
 ## 2026-10-21 — Paid Oakley run on the decision profile: $25 cutoff draft c0018, owner verdict pending
 
 **Approval and settings.** Owner, verbatim: "Yes, start the paid Astra Oakley run at max effort with the new decision

@@ -109,18 +109,24 @@ body[data-page="lens-colour"] main { max-width: 1440px; }
 .lens-material-label { font-size: .85rem; }
 .lens-control { margin-bottom: 1rem; }
 .lens-control:last-child { margin-bottom: 0; }
-.lens-control-caption { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .25rem; }
+.lens-control-caption { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem; margin-bottom: .25rem; }
 .lens-control-caption label { margin: 0; font-size: .9rem; }
-.lens-control-value { margin-left: auto; font-variant-numeric: tabular-nums; font-size: .85rem; color: #445363; white-space: nowrap; }
+.lens-control-value { margin-left: auto; font-variant-numeric: tabular-nums; font-size: .85rem; color: #445363; overflow-wrap: anywhere; min-width: 0; }
 .lens-reset { padding: .15rem .35rem; border-color: transparent; font-size: .8rem; color: #145ea8; }
 .lens-controls input[type="range"] { padding: 0; border: 0; accent-color: #185f9f; background: transparent; height: 26px; cursor: pointer; }
 .lens-controls input[type="color"] { height: 40px; padding: .15rem; width: 100%; cursor: pointer; }
 .lens-controls input[type="checkbox"] { accent-color: #185f9f; width: 1.05rem; height: 1.05rem; }
-.lens-controls button#lens-eyedropper { font-size: .85rem; padding: .3rem .6rem; margin-top: .35rem; }
+.lens-controls button#lens-eyedropper, .lens-controls button#lens-coating-eyedropper { font-size: .85rem; padding: .3rem .6rem; margin-top: .35rem; }
+.lens-controls input.lens-exact-value, .lens-controls input[type="number"] { padding: .3rem .5rem; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.lens-number-error { font-size: .8rem; color: #8c1622; margin: .3rem 0; }
+.lens-controls input[aria-invalid="true"] { border-color: #a21f26; }
 .lens-help { font-size: .8rem; color: #596675; margin: .25rem 0 0; }
 .lens-shimmer { border: 1px solid #d6dde5; padding: .6rem .75rem .75rem; border-radius: 5px; margin: 0 0 1rem; min-width: 0; }
 .lens-shimmer legend { font-size: .9rem; font-weight: 600; padding: 0 .3rem; }
 .lens-shimmer-swatch { display: block; width: 100%; height: 24px; border: 1px solid #d6dde5; border-radius: 4px; margin-top: .5rem; }
+.lens-swatch-labels { display: flex; justify-content: space-between; gap: .75rem; font-size: .72rem; line-height: 1.35; color: #445363; margin-top: .25rem; }
+.lens-swatch-labels > span { max-width: 48%; }
+.lens-swatch-labels > span:last-child { text-align: right; }
 .lens-advanced { font-size: .9rem; }
 .lens-advanced summary { cursor: pointer; margin-bottom: .6rem; }
 .lens-references { margin-top: 1rem; }
@@ -139,6 +145,10 @@ body[data-page="lens-colour"] main { max-width: 1440px; }
 .lens-photo-stage { background: #eceff2; display: flex; justify-content: center; align-items: center; min-height: 150px; }
 .lens-photo-stage canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 65vh; }
 .lens-photo-stage canvas.sampling { cursor: crosshair; }
+.lens-photo-dialog.has-coating-choices .lens-photo-stage canvas { max-height: 40vh; }
+.lens-coating-matches { border-top: 1px solid #d6dde5; padding-top: .6rem; }
+.lens-coating-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: .75rem; margin-top: .75rem; }
+.lens-coating-choices button { padding: .7rem; text-align: left; min-width: 0; }
 @media (max-width: 1000px) {
   .lens-layout { grid-template-columns: minmax(0, 1fr) 300px; gap: .8rem; }
   .lens-controls { padding: .75rem; }
