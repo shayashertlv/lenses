@@ -1,5 +1,36 @@
 # glasses3d progress
 
+## 2026-10-21 — Claude review: task 22 findings; E4/E4b/E4c accepted; verdict-label fix ($0)
+
+**Task 22 (read-only investigation of run `20261021T123308-aa22d4`).** Report: `data/review_20261018/codex/task22_report.md`.
+- **Lens.** Astra knew the lens was wrong. It tried 7 materials, all at lens IOR 1.59; mirror was 0.12–0.70 and 0.45
+  at the end. It never tested the substrate/Fresnel route that run 4's search explored (IOR up to 6). It narrowed the
+  search by prediction rather than paired comparison.
+- **Evidence and cameras.** Most candidates were judged from AR sheets: 4 look calls, against 11 in run 4. Camera fits
+  took 35.1 of 110 min, and the right and top views stayed wrong.
+- **Best.** The formal best lagged at c0006 from $5.37 to $24.17.
+- **Cost.** Renewal 2's summary cost $3.15, and omitting its newest images would have saved about $2.52. The refused
+  refs update cost $0.74.
+- **Next.** Owner approved its fixes as task 23 (brief `briefs/task23_five_astra_fixes.md`), now running.
+
+**E4 (general Edit page, `48609fe`, `d33cac0`, `64e8e65`).**
+- Claude reran its 403 dev UI and look tests and inspected shield and pair screenshots.
+- Live review found three problems: test-proof jobs flooding "Copy a look", ambiguous version labels, and a frame
+  material as the default part. These became E4c.
+
+**E4b (`cb67bcd`, `bdcb06d`).** Task 21 had left stale scripted finishes in five proof scripts, which E4b repaired. Its
+M12 run then hit a transient Windows EPERM rename in `dev_ui/e2e/run.mjs`.
+
+**E4c (`cb81e01`, `7e021c7`).**
+- Test jobs are hidden behind a toggle, detected from provenance rather than names.
+- Labels carry date, origin and owner verdict. The lens is the default part, and the shares are sliders.
+- The harness rename gets a bounded retry.
+- The single `assembly_m12_ui` passed all six scenarios (2,394.5 s).
+
+**Claude fix `a6c02cc`.** E4c mapped the owner's "changes" verdict to "rejected". The accepted max rerun read
+"rejected", although the owner accepted it and later asked for lens changes. It now reads "changes requested by you",
+and "rejected" is kept for true rejections. Dev UI tests: 324 passed. The dev UI was restarted on this commit.
+
 2026-10-21 — **E4c complete (`cb81e01`, $0):** owner lists hide recorded tests with a toggle, show dated SHA-bound verdict labels and lens swatches, select the first lens, deduplicate material indices, and provide shares sliders/blend bars; proof atomic renames have bounded logged retries. 323 focused Python tests, 56 browser tests, final five E4c browser checks and 17 proof-basis checks pass; new browser behaviors fail initial HEAD. The single M12 invocation passed all six scenarios/audits (284 assertions, 31 scripted requests, 2394.547 s); 763 owner files unchanged. UI 8260 restarted and live draft verified (Copy 13/53, Jobs 8/53); one empty legacy job has no test marker and remains visible without a name hack. Report/screenshots: `data/m12/codex/e4c_report.md`; next: coordinator review.
 
 2026-10-21 — **E4b: script repair committed `cb67bcd`, validation incomplete ($0).** M12 and four other stale proof conversations reconcile honest inline limitations; 51 distinct focused tests pass. The single M12 invocation passed scenario 1 (24 browser assertions, 13 scripted requests, 35 verified AR images), then failed after 211.172 s on Windows `EPERM` renaming the browser report before scenario 2's action; scenarios 2–6/E4 edits remain unverified, no rerun. Sources unchanged; no runtime/gate changes or paid calls. Report: `data/m12/codex/e4b_report.md`; next: coordinator review and a separately dispatched report-write repair/proof task.
