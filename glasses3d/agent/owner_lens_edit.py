@@ -308,10 +308,11 @@ def _source_unchanged(root, loaded):
         raise ValueError("The source delivery changed while the lens copy was prepared.")
 
 
-def create_preview(source_root, delivery_id, values_by_material, destination=None, *, open_ar=True):
+def create_preview(source_root, delivery_id, values_by_material, destination=None, *, open_ar=True,
+                   _patcher=None):
     """Create a temporary GLB, not a delivery; optionally open verified detached AR."""
     source_root, loaded, original = _source(source_root, delivery_id)
-    patched, receipt = patch_lens_glb(original, values_by_material)
+    patched, receipt = (_patcher or patch_lens_glb)(original, values_by_material)
     root, reused = _destination(source_root, destination, "preview-", _operation("preview", loaded, receipt))
     model = root / "model.glb"
     if not reused:
@@ -342,7 +343,8 @@ def create_preview(source_root, delivery_id, values_by_material, destination=Non
     return result
 
 
-def save_lens_edit(source_root, delivery_id, values_by_material, destination=None, *, tool_test=False):
+def save_lens_edit(source_root, delivery_id, values_by_material, destination=None, *, tool_test=False,
+                   _patcher=None, _look_record=None):
     """Publish an exact local preview through the existing owner-apply verifier.
 
     Invalid source drafts remain available to preview but cannot gain a successful
@@ -350,10 +352,12 @@ def save_lens_edit(source_root, delivery_id, values_by_material, destination=Non
     run afresh on the edited GLB.
 """
     source_root, loaded, original = _source(source_root, delivery_id)
-    patched, receipt = patch_lens_glb(original, values_by_material)
+    patched, receipt = (_patcher or patch_lens_glb)(original, values_by_material)
     jobs.load_job(source_root)
     previous = loaded["report_data"]
     operation = {**_operation("save", loaded, receipt), "tool_test": bool(tool_test)}
+    if _look_record is not None:
+        operation["owner_look"] = copy.deepcopy(_look_record)
     root, reused = _destination(source_root, destination, "lens-", operation)
     if reused:
         _source_unchanged(source_root, loaded)
@@ -406,6 +410,9 @@ def save_lens_edit(source_root, delivery_id, values_by_material, destination=Non
                        "glb_sha256": loaded["glb_sha256"], "manifest_sha256": loaded["manifest_sha256"],
                        "checkpoint": previous.get("checkpoint"), "fingerprint": previous.get("fingerprint")},
             "checkpoint_kind": "owner_lens_glb", "native_scene_available": False}}
+    if _look_record is not None:
+        application.update(origin="owner_look_edit", owner_look_edit=copy.deepcopy(_look_record),
+                           confirmation_text="Dev UI: owner saved these appearance values as a new version.")
     if model.read_bytes() != patched or (checkpoint_dir / checkpoint["file"]).read_bytes() != patched:
         raise ValueError("The lens preview changed before saving.")
     _source_unchanged(source_root, loaded)

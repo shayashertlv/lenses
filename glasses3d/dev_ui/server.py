@@ -145,6 +145,22 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
     async def lens_save(request):
         return await call(service.lens_save, request.path_params["key"], await _json(request))
 
+    async def appearance(request):
+        return await call(service.appearance, request.path_params["key"])
+
+    async def appearance_preview(request):
+        return await call(service.appearance_preview, request.path_params["key"], await _json(request))
+
+    async def appearance_save(request):
+        return await call(service.appearance_save, request.path_params["key"], await _json(request))
+
+    async def appearance_copy(request):
+        return await call(service.appearance_copy, request.path_params["key"], await _json(request))
+
+    async def appearance_model(request):
+        data = await run_in_threadpool(service.appearance_model, request.path_params["key"], await _json(request))
+        return Response(data, media_type="model/gltf-binary")
+
     async def new_draft(request):
         body = await _json(request)
         return await call(service.new_draft, body.get("delivery_key"))
@@ -230,6 +246,11 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
               Route("/api/deliveries/{key}/lens-colour", lens_colour),
               Route("/api/deliveries/{key}/lens-colour/preview", lens_preview, methods=["POST"]),
               Route("/api/deliveries/{key}/lens-colour/save", lens_save, methods=["POST"]),
+              Route("/api/deliveries/{key}/appearance", appearance),
+              Route("/api/deliveries/{key}/appearance-preview", appearance_preview, methods=["POST"]),
+              Route("/api/deliveries/{key}/appearance-save", appearance_save, methods=["POST"]),
+              Route("/api/deliveries/{key}/appearance-copy", appearance_copy, methods=["POST"]),
+              Route("/api/deliveries/{key}/appearance-model", appearance_model, methods=["POST"]),
               Route("/api/edit-drafts", new_draft, methods=["POST"]), Route("/api/edit-drafts/{key}", draft),
               Route("/api/edit-drafts/{key}/items", item, methods=["POST"]),
               Route("/api/edit-drafts/{key}/items/{item}", item, methods=["PATCH", "DELETE"]),
@@ -240,6 +261,7 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
               Route("/static/{path:path}", static), Route("/vendor/three/{path:path}", vendor),
               Route("/lens-renderer/{path:path}", lens_renderer)]
     routes += [Route("/", page("index")), Route("/new", page("new"))]
+    routes += [Route("/edit-version/{key}", page("general-edit"))]
     routes += [Route(f"/{name}/{{key}}", page(name)) for name in ("run", "results", "edit", "understand", "task", "lens-colour")]
     app = Starlette(routes=routes, exception_handlers={APIError: handle_error, ValueError: handle_error,
         KeyError: handle_error, HTTPException: handle_error, OSError: handle_error, Exception: handle_error})

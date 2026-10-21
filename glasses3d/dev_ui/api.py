@@ -18,6 +18,8 @@ from .core_adapter import CoreAdapter
 from .labels import label_warnings, item_warnings
 from .launcher import has_launch_evidence
 from .lens_api import LensColourService
+from .appearance_api import AppearanceService
+from .appearance_flow import OWNER_ORIGINS
 from .registry import Registry
 from .status import read_run_status, find_run_delivery, _money
 
@@ -34,7 +36,7 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
-class Service(LensColourService):
+class Service(LensColourService, AppearanceService):
     def __init__(self, config, launcher, core=None, task_launcher=None):
         self.config, self.launcher = config, launcher
         self.core = core or CoreAdapter()
@@ -182,6 +184,8 @@ class Service(LensColourService):
         if info:
             dto["delivery_key"] = self.register_delivery(info["root"], info["delivery_id"],
                 origin="full_edit_item" if record["kind"] == "full_edit_item" else "run", job_id=record["job_id"])
+            from .appearance_flow import reapply_run_result
+            dto = reapply_run_result(self, record, dto)
         return dto
 
     def stop(self, key):
@@ -215,11 +219,12 @@ class Service(LensColourService):
     def delivery(self, key):
         with self.registry.lock:
             record = self.get("deliveries", key)
-            if "dto" not in record or record.get("dto_revision") != 4:
+            if "dto" not in record or record.get("dto_revision") != 7:
                 loaded = self.core.load_delivery(Path(record["root"]), record["delivery_id"])
                 report = loaded["report_data"]
                 origin = report.get("origin", record["origin"])
                 binding = report.get("owner_applied") or {}
+                look_skipped = []
                 if binding.get("path") == "owner-applied/report.json":
                     application_path = Path(loaded["report"]).parent / binding["path"]
                     application_bytes = application_path.read_bytes()
@@ -229,6 +234,10 @@ class Service(LensColourService):
                     if (application.get("origin") == "owner_lens_edit"
                             and application.get("owner_lens_edit", {}).get("schema") == "g3d.owner_lens_edit/1"):
                         origin = "owner_lens_edit"
+                    if (application.get("origin") == "owner_look_edit"
+                            and application.get("owner_look_edit", {}).get("schema") == "g3d.owner_look_edit/1"):
+                        origin = "owner_look_edit"
+                        look_skipped = application["owner_look_edit"].get("skipped", [])
                 record["origin"] = origin
                 self.artifacts.register(loaded["model"], loaded["glb_sha256"])
                 finished = report.get("finished", loaded.get("finished", False)) is True
@@ -248,18 +257,25 @@ class Service(LensColourService):
                        "model_url": f"/api/deliveries/{key}/model.glb", "finished": finished,
                        "accepted_finish": report.get("accepted_finish", False),
                        "run_status": report.get("run_status", loaded.get("run_status")),
-                       "label": "edited by you" if record["origin"] == "owner_lens_edit" else "finished" if finished else "not finished",
+                       "label": "edited by you" if origin in OWNER_ORIGINS else "finished" if finished else "not finished",
+                       "version_label": "your edit" if origin in OWNER_ORIGINS | {"applied_picks"} else "Astra " + str(report.get("checkpoint") or record["delivery_id"]),
                        "run_settled_usd": _money([report.get("cost")], "settled"),
                        "created_utc": created, "checks": checks,
                        "origin": origin,
                        "applied": report.get("applied", record["applied"]),
-                       "notes": report.get("notes", record["notes"]), "warnings": report.get("warnings", []),
+                       "notes": report.get("notes", record["notes"]), "warnings": list(report.get("warnings") or []) + [
+                           "Look not reapplied to " + str(row.get("material_name") or row.get("name") or row.get("role") or "a material")
+                           + ": " + str(row.get("reason", "No matching material.")) for row in look_skipped],
+                       "look_skipped": look_skipped,
                        "exactness": report.get("exactness"), "side_effects": report.get("side_effects")}
-                record.update(dto=dto, dto_revision=4, model=str(loaded["model"]))
+                record.update(dto=dto, dto_revision=7, model=str(loaded["model"]))
                 self.registry.put("deliveries", record, key)
             # The artifact cache verifies the model once, then invalidates on file identity/stat changes.
             self.artifacts.read(record["dto"]["glb_sha256"])
-            return record["dto"]
+            dto = dict(record["dto"])
+            if record.get("appearance_issue"):
+                dto["appearance_error"] = record["appearance_issue"]["message"]
+            return dto
 
     def model(self, key):
         return self.artifacts.read(self.delivery(key)["glb_sha256"])
@@ -276,19 +292,22 @@ class Service(LensColourService):
 
     def new_draft(self, delivery_key):
         delivery = self.delivery(delivery_key)
-        if delivery["origin"] == "owner_lens_edit":
-            raise APIError("native_edit_unavailable", "Use Lens colour for more colour edits on this version. "
-                           "Astra edits are available from the original version.", 409)
+        from .appearance_flow import native_draft_source
+        delivery_key, appearance_source = native_draft_source(self, delivery_key, delivery)
+        delivery = self.delivery(delivery_key)
         with self.registry.lock:
             source = {"delivery_key": delivery_key, "glb_sha256": delivery["glb_sha256"]}
             # The task has already made the next empty draft. The page's standard
             # create-draft call opens that draft instead of orphaning a duplicate.
             for existing in self.registry.list("drafts"):
                 if (existing.get("applied_task_key") and existing["source"] == source
+                        and existing.get("appearance_source") == appearance_source
                         and not existing["frozen"] and not existing["items"]):
                     return self._draft_dto(existing)
             row = {"source": source,
                    "items": [], "frozen": False, "next_number": 1, "created_utc": now_iso()}
+            if appearance_source:
+                row["appearance_source"] = appearance_source
             key = self.registry.put("drafts", row)
             return self.draft(key)
 
@@ -298,8 +317,12 @@ class Service(LensColourService):
             item = {k: original[k] for k in ("item_id", "capture_id", "labels", "request_text", "viewer_url", "annotated_url")}
             item["warnings"] = item_warnings(row["items"], item["item_id"])
             items.append(item)
-        return {"schema": "g3d.dev_edit_draft/1", "draft_id": row["key"], "source": row["source"],
-                "items": items, "labels": [label for item in items for label in item["labels"]], "frozen": row["frozen"]}
+        result = {"schema": "g3d.dev_edit_draft/1", "draft_id": row["key"], "source": row["source"],
+                  "items": items, "labels": [label for item in items for label in item["labels"]], "frozen": row["frozen"]}
+        if row.get("appearance_source"):
+            result.update(appearance_source=row["appearance_source"], look_notice=
+                "Shape editing uses the native model; your saved look will be reapplied to the new version.")
+        return result
 
     def draft(self, key):
         return self._draft_dto(self.get("drafts", key))
@@ -394,7 +417,9 @@ class Service(LensColourService):
         with self.registry.lock:
             request_key, request = self._request("send:" + key, body)
             draft = self.get("drafts", key)
-            if self.delivery(draft["source"]["delivery_key"])["origin"] == "owner_lens_edit":
+            from .appearance_flow import verify_draft_look
+            verify_draft_look(self, draft)
+            if self.delivery(draft["source"]["delivery_key"])["origin"] in OWNER_ORIGINS:
                 raise APIError("native_edit_unavailable", "Astra edits are available from the original version. "
                                "Use Lens colour to keep editing this version.", 409)
             if not request.get("root"):
@@ -415,7 +440,8 @@ class Service(LensColourService):
                     self.registry.put("drafts", draft, key)
                     raise
                 edit_key = self.registry.put("edits", {"root": str(root), "source": draft["source"],
-                    "draft_id": key, "job_id": source["job_id"], "created_utc": now_iso()})
+                    "draft_id": key, "job_id": source["job_id"], "created_utc": now_iso(),
+                    **({"appearance_source": draft["appearance_source"]} if draft.get("appearance_source") else {})})
                 request.update(root=str(root), edit_key=edit_key, job_id=source["job_id"])
                 self.registry.put("requests", request, request_key)
             run = self._paid(request_key, request, root=request["root"], kind="understand", amount=amount,
@@ -494,7 +520,8 @@ class Service(LensColourService):
             task = {"kind": "apply_picks", "phase": "queued", "started_at": None, "progress": "Queued",
                     "result": None, "error": None, "edit_key": key, "round_root": edit["root"],
                     "job_id": edit["job_id"], "body": body, "confirmation_text": confirmation,
-                    "created_utc": now_iso(), "offline_test_mode": self.offline}
+                    "created_utc": now_iso(), "offline_test_mode": self.offline,
+                    **({"appearance_source": edit["appearance_source"]} if edit.get("appearance_source") else {})}
             task_key = self.registry.put("tasks", task)
             task["task_key"] = task_key
             self.registry.put("tasks", task, task_key)
@@ -538,6 +565,8 @@ class Service(LensColourService):
         with self.registry.lock:
             request_key, request = self._request("full:" + key + ":" + item_id, body)
             edit = self.get("edits", key)
+            from .appearance_flow import verify_draft_look
+            verify_draft_look(self, edit)
             if not request.get("root"):
                 understanding = self.understanding(key)
                 item = next((i for i in understanding["items"] if i["item_id"] == item_id), None)
@@ -586,7 +615,7 @@ class Service(LensColourService):
                     from datetime import datetime, timezone
                     created = report.get("created_utc") or (datetime.fromtimestamp(report_path.stat().st_mtime,
                         timezone.utc).isoformat() if report_path.is_file() else "")
-                    summaries.append({"delivery_key": d["key"], "label": "edited by you" if d["origin"] == "owner_lens_edit" else "finished" if report.get("finished") else "not finished",
+                    summaries.append({"delivery_key": d["key"], "label": "edited by you" if d["origin"] in OWNER_ORIGINS else "finished" if report.get("finished") else "not finished",
                                       "created_utc": created})
                 keys = {d["key"] for d in deliveries}
                 runs = [r for r in self.registry.list("runs") if r["job_id"] == job["job_id"]]

@@ -19,6 +19,36 @@ def _facade(module, function):
 
 
 class CoreAdapter:
+    def read_look_materials(self, source_glb):
+        return _facade("owner_look_edit", "read_materials")(source_glb)
+
+    def patch_look_glb(self, source_glb, values):
+        return _facade("owner_look_edit", "patch_glb")(source_glb, values)
+
+    def create_look_preview(self, source_root, delivery_id, values, destination=None):
+        return _facade("owner_look_edit", "create_preview")(
+            source_root, delivery_id, values, destination=destination)
+
+    def save_look_edit(self, source_root, delivery_id, values, destination=None, **kwargs):
+        return _facade("owner_look_edit", "save_look_edit")(
+            source_root, delivery_id, values, destination=destination, **kwargs)
+
+    def build_look(self, source_glb, values):
+        return _facade("owner_look_edit", "build_look")(source_glb, values)
+
+    def map_look(self, look, target, **kwargs):
+        return _facade("owner_look_edit", "map_look")(look, target, **kwargs)
+
+    def read_saved_look(self, source_root, delivery_id):
+        return _facade("owner_look_edit", "read_saved_look")(source_root, delivery_id)
+
+    def resolve_native_source(self, source_root, delivery_id):
+        return _facade("owner_look_edit", "resolve_native_source")(source_root, delivery_id)
+
+    def photo_cameras(self, source_root, delivery_id):
+        from .appearance_flow import photo_cameras
+        return photo_cameras(self, source_root, delivery_id)
+
     def read_lens_materials(self, source_glb):
         return _facade("owner_lens_edit", "read_lens_materials")(source_glb)
 

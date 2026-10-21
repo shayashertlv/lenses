@@ -81,7 +81,8 @@ def reconcile_task(service, key):
             return task
         code = status.get("exit_code")
         detail = f" (worker exit {code})" if type(code) is int else ""
-        retry = "Save as new version" if task["kind"] == "lens_save" else "Check in AR" if task["kind"] == "lens_preview" else "Apply my picks"
+        retry = ("Save as new version" if task["kind"] in ("lens_save", "appearance_save") else
+                 "Check in AR" if task["kind"] in ("lens_preview", "appearance_preview") else "Apply my picks")
         task.update(phase="failed", recoverable=True, launched=False, ended_at=now_iso(),
                     progress="Interrupted; retry " + retry, error="The local task was interrupted" + detail)
         service.registry.put("tasks", task, key)
@@ -126,15 +127,20 @@ def _applied_draft(service, task, delivery_key):
     """One durable draft even if the worker dies between draft and task writes."""
     key = "apply_" + hashlib.sha256(task["task_key"].encode()).hexdigest()[:32]
     delivery = service.delivery(delivery_key)
+    from .appearance_flow import native_draft_source
+    delivery_key, appearance_source = native_draft_source(service, delivery_key, delivery)
+    delivery = service.delivery(delivery_key)
     source = {"delivery_key": delivery_key, "glb_sha256": delivery["glb_sha256"]}
     with service.registry.lock:
         try:
             draft = service.get("drafts", key)
         except KeyError:
             service.registry.put("drafts", {"source": source, "items": [], "frozen": False,
-                "next_number": 1, "created_utc": now_iso(), "applied_task_key": task["task_key"]}, key)
+                "next_number": 1, "created_utc": now_iso(), "applied_task_key": task["task_key"],
+                **({"appearance_source": appearance_source} if appearance_source else {})}, key)
         else:
-            if draft.get("source") != source or draft.get("applied_task_key") != task["task_key"]:
+            if (draft.get("source") != source or draft.get("applied_task_key") != task["task_key"]
+                    or draft.get("appearance_source") != appearance_source):
                 raise ValueError("The applied draft is bound to a different task or delivery")
         return key
 
@@ -152,8 +158,9 @@ def execute_task(service, key):
         identity = _worker_identity()
         if _identity_alive(task.get("worker_identity")):
             return task
-        progress = ("Checking and saving your lens colours" if task["kind"] == "lens_save" else
-                    "Preparing a temporary AR preview" if task["kind"] == "lens_preview" else
+        progress = ("Checking and saving your look" if task["kind"] in ("lens_save", "appearance_save") else
+                    "Preparing a temporary AR preview" if task["kind"] in ("lens_preview", "appearance_preview") else
+                    "Reapplying your saved look" if task["kind"] == "appearance_reapply" else
                     "Applying the selected sealed options")
         task.update(phase="running", started_at=now_iso(), progress=progress,
                     error=None, recoverable=False, worker_identity=identity)
@@ -161,6 +168,16 @@ def execute_task(service, key):
         registry.put("tasks", task, key)
     try:
         body = task["body"]
+        if task["kind"] in ("appearance_save", "appearance_preview", "appearance_reapply"):
+            from .appearance_api import execute_appearance_task
+            from .appearance_flow import reapply_owner_look
+            result = (reapply_owner_look(service, task["appearance_source"], task["native_delivery_key"],
+                        service.config.state_root / "reapplied" / key)
+                      if task["kind"] == "appearance_reapply" else execute_appearance_task(service, task))
+            task.update(result=result, phase="done", progress="AR preview ready" if
+                        task["kind"] == "appearance_preview" else "Saved", ended_at=now_iso())
+            registry.put("tasks", task, key)
+            return task
         if task["kind"] in ("lens_save", "lens_preview"):
             from .lens_api import execute_lens_task
             task.update(result=execute_lens_task(service, task), phase="done",
@@ -187,8 +204,24 @@ def execute_task(service, key):
         applied = [{**choice, "amount_text": amounts[(choice["item_id"], choice["option_id"])]} for choice in body["choices"]]
         delivery_key = service.register_delivery(root, delivery_id, origin="applied_picks", job_id=task["job_id"],
                                                   applied=applied, notes=body["skipped"])
-        draft_id = _applied_draft(service, task, delivery_key)
-        task.update(phase="done", progress="Applied", result={"delivery_key": delivery_key}, draft_id=draft_id)
+        result = {"delivery_key": delivery_key}
+        if task.get("appearance_source"):
+            from .appearance_flow import reapply_owner_look, record_reapply_failure
+            try:
+                result = reapply_owner_look(service, task["appearance_source"], delivery_key,
+                                            service.config.state_root / "reapplied" / key)
+            except Exception as error:
+                # The selected native operations already passed their checks and
+                # published. Preserve access to that success if the separate
+                # owner appearance publication fails; never certify its look.
+                message = record_reapply_failure(service, delivery_key, error, key)
+                result.update(native_delivery_key=delivery_key, appearance_error=message,
+                              look_delivery_key=task["appearance_source"]["delivery_key"])
+        # An appearance delivery's next draft must resolve its native source and
+        # retain the saved look just like any direct Ask Astra action.
+        draft_id = _applied_draft(service, task, result["delivery_key"])
+        task.update(phase="done", progress="Picks applied; saved look could not be reapplied"
+                    if result.get("appearance_error") else "Applied", result=result, draft_id=draft_id)
     except Exception as error:
         task.update(phase="failed", recoverable=False, progress="Application failed", error=str(error))
     task["ended_at"] = now_iso()
