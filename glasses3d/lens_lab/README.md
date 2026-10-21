@@ -8,18 +8,28 @@ transforms, lighting and cameras stay fixed. Nothing here publishes a delivery
 or writes a verdict.
 
 The original task is [L1](../data/lens_lab/briefs/l1_lens_lab.md); the regional
-variant is [L2b](../data/lens_lab/briefs/l2b_regional_variant.md). Research, measurements,
+variant is [L2b](../data/lens_lab/briefs/l2b_regional_variant.md), with the capture
+repair and matched controls in [L2d](../data/lens_lab/briefs/l2d_fix_and_rerun.md). Research, measurements,
 process logs, trial receipts and reports live under ignored `../data/lens_lab/`.
 No provider API call or paid-run approval is made. Codex runs through the user's
 existing ChatGPT login; its usage is separate from the pipeline's API ledger.
 
 Run commands from the repository root with `glasses3d/.venv/Scripts/python.exe`.
 All Blender, capture and pool entry points refuse until task 17's status file
-contains an `exit` line. The coordinator must also serialize the ceiling pool,
-native checks and Codex trials. Worker capacity reserves 2 GiB of free commit,
+contains an `exit` line. Serialize ceiling pools and native checks. Separate
+trial batches may run concurrently after checking free commit, per-trial peak
+memory, private roots/locks and a warmed shared Vite dependency cache. Keep
+implementation and dependencies frozen during those batches. Worker capacity reserves 2 GiB of free commit,
 then uses 1.3 GiB per worker, capped at 14; BLAS is one thread and processes opt
 out of EcoQoS. A ceiling run refuses if no worker fits. Trial and scoring output
 paths must resolve to private subdirectories of `glasses3d/data/lens_lab/`.
+
+Native lab captures reuse the production capture helper's process-directory
+argument with a short, unique `data/lens_lab/_capture/c-*` directory. Image
+destinations stay inside each trial; the native log is copied back beside its
+capture, with `lab-capture-process-*.json` recording each short temporary path and
+cleanup. This avoids Windows browser-profile path limits at deep batch paths.
+The lab binds isolated tool modules; no production files or module globals change.
 
 ## Material tools
 
@@ -70,6 +80,11 @@ including explicit unavailable values for empty thirds. It does not change
 instructions, schemas, images, scoring, fixture or other tools. Regional trials
 also require an exit line in `data/lens_lab/l2/baseline_status.txt`.
 
+`--variant pre14` removes task 14's metallic sentence from the instructions and
+the `lens_colour_gap` lines from agent-visible look/report text. It validates
+the instruction bytes against commit `61d5726`; all other prompt components,
+tools, images, fixture and scoring stay the same.
+
 The regional tool runs an isolated copy of the proposed production `look.py`
 source, with the helpers from `regional.py` inserted verbatim. `variants.production_patch()`
 returns the exact unapplied production port; it changes no production file.
@@ -103,7 +118,13 @@ keeps that one session in its normal state directory; the trial retains its
 hash and selected proof records, without copying image payloads or transcript
 prose. An agent's claim that it looked is insufficient. See each trial's
 `codex/receipt.json`, `native-image-proof.json`, `events.jsonl`, exact prompt and source hashes.
-An infrastructure-incomplete trial stops its batch and remains recorded.
+A trial with no successful `compare_look_to_photos` call is **invalid**, even if
+finish, other image viewing and export succeeded. Receipts and batch summaries
+record look calls made/succeeded and nonempty failure diagnostics, including
+blank native `E_LOOK` failures. Each invalid slot receives one fresh
+`trial-NNN-replacement` attempt; both attempts remain recorded. Other
+infrastructure-incomplete trials stop the batch. A batch completes only with
+the requested number of valid completed trials.
 Scoring runs after Codex exits, producing a comparison image and JSON without
 feeding diagnostic measurements or ceiling settings back to the trial.
 

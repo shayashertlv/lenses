@@ -417,7 +417,9 @@ class LabSession:
                 return result
             self.scene.s.restore_checkpoint = types.MethodType(guarded_restore, self.scene.s)
             from .variants import build_variant_tools
-            self.registry = {t.name: t for t in build_variant_tools(self.scene, self.manifest.get("variant", "baseline"))
+            from .capture import short_run_capture
+            self.registry = {t.name: t for t in build_variant_tools(
+                self.scene, self.manifest.get("variant", "baseline"), capture_runner=short_run_capture)
                              if t.name in TOOLS and t.name != "finish"}
             return self
         except BaseException:

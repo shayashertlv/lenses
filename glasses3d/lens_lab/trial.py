@@ -1,7 +1,8 @@
 """Receipted Codex-as-Astra lens trials. These are lab observations, never deliveries.
 
 No provider SDK is used here. Codex must already be signed in through ChatGPT.
-Trials run serially because their tool calls can start Blender and Chromium.
+Trials within a batch run serially. Independent batches may run concurrently
+after the coordinator checks available memory and process isolation.
 """
 from __future__ import annotations
 
@@ -542,6 +543,20 @@ def score_after_codex(trial_dir: Path, receipt_dir: Path) -> dict:
     return status
 
 
+def look_evidence(calls: list[dict]) -> dict:
+    """No successful look means no exposure to the tested comparison text."""
+    looks = [call for call in calls if call.get("tool") == "compare_look_to_photos"]
+    successful = [call for call in looks if call.get("result", {}).get("status") == "ok"]
+    failures = [{"call_id": call.get("call_id"), "status": call.get("result", {}).get("status"),
+                 "code": call.get("result", {}).get("code"),
+                 "message": call.get("result", {}).get("message") or "Look comparison failed without a message; inspect its capture log."}
+                for call in looks if call not in successful]
+    return {"made": len(looks), "succeeded": len(successful), "failed": len(failures),
+            "valid": bool(successful), "failures": failures,
+            "invalid_reason": None if successful else
+                "No successful compare_look_to_photos call: this trial did not exercise the look comparison."}
+
+
 def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: Path | str | None = None,
               repo: Path = REPO, executable: list[str] | None = None) -> dict:
     """Run once; reuse a pristine initialized trial, never an earlier Codex trial."""
@@ -564,12 +579,16 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
     _, job, photos = load_trial_job(trial, manifest)
     if (trial / "calls.jsonl").exists() and (trial / "calls.jsonl").stat().st_size:
         raise ValueError("Codex trials must start at the neutral fixture without prior tool calls")
-    if manifest.get("variant", "baseline") == "regional" and variant != "regional":
-        raise ValueError("A regional trial cannot be reused for a baseline variant")
-    if variant == "regional":
-        manifest["variant"] = "regional"
+    existing_variant = manifest.get("variant", "baseline")
+    if existing_variant in {"regional", "pre14"} and variant != existing_variant:
+        raise ValueError("A selected variant trial cannot be reused for another variant")
+    if variant in {"regional", "pre14"}:
+        manifest["variant"] = variant
         write_json(trial / "trial.json", manifest)
     sources = head_prompt_sources(repo, job)
+    if variant == "pre14":
+        from .pre14 import prompt_sources
+        sources = prompt_sources(repo, job, baseline_sources=sources)
     python = (repo / "glasses3d/.venv/Scripts/python.exe") if os.name == "nt" else Path(sys.executable)
     paragraph = lab_paragraph(trial, manifest["lens_materials"], python)
     prompt = build_prompt(sources, paragraph)
@@ -585,6 +604,8 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
                "status": "starting", "started_at": utc_now(), "provider_api_spend_usd": 0,
                "codex_usage_billed_separately": True, **preflight,
                "head": sources["head"], "source_sha256": sources["source_sha256"],
+               "instructions_source_commit": sources.get("instructions_source_commit", sources["head"]),
+               "baseline_source_sha256": sources.get("baseline_source_sha256", sources["source_sha256"]),
                "main_tool_names": sources["main_tool_names"],
                "prompt_sha256": sha256(prompt.encode("utf-8")),
                "instructions_sha256": sha256(sources["instructions"].encode("utf-8")),
@@ -607,6 +628,7 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
         codex_finished_at = utc_now()
         events, invalid = read_jsonl(output / "events.jsonl")
         calls, invalid_calls = read_jsonl(trial / "calls.jsonl")
+        looks = look_evidence(calls)
         native = native_rollout_evidence(events, calls, trial, repo, env,
                                          receipt["codex_started_at"], codex_finished_at)
         view = native.get("image_viewing", {"verified": False, "reason": "native image proof unavailable"})
@@ -623,12 +645,13 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
         success = (code == 0 and finished and view["verified"] and invalid == 0 and invalid_calls == 0
                    and native.get("invalid_jsonl_lines") == 0
                    and not audit["outside_trial_file_changes"] and not changed)
-        receipt.update(status="scoring" if success else "incomplete", exit_code=code,
+        receipt.update(status="invalid" if not looks["valid"] else "scoring" if success else "incomplete", exit_code=code,
                        codex_status="completed" if success else "incomplete",
                        codex_finished_at=codex_finished_at, codex_seconds=time.monotonic() - started,
                        codex_usage=[e.get("usage") for e in events if e.get("type") == "turn.completed"],
                        invalid_jsonl_lines=invalid, invalid_call_lines=invalid_calls,
                        tool_calls=calls, image_viewing=view, native_rollout=native, event_audit=audit,
+                       look_comparisons=looks, invalid_reason=looks["invalid_reason"],
                        final_materials=finish.get("final_materials") if finish else None,
                        finish=finish, finish_receipted=finish_receipted,
                        finish_sha256=file_sha256(finish_path) if finish else None,
@@ -638,12 +661,12 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
                        implementation_change_note="Any concurrent implementation edit invalidates a stable "
                                                   "trial; this check does not attribute the change to Codex.")
         write_json(output / "receipt.json", receipt)
-        if success:
+        if success and looks["valid"]:
             scoring = score_after_codex(trial, output)
             receipt["status"] = "completed" if scoring["status"] == "completed" else "incomplete"
         else:
             scoring = {"status": "not_started", "not_sent_to_codex": True,
-                       "reason": "Codex finish, image-view, or trial-integrity proof did not complete"}
+                       "reason": looks["invalid_reason"] or "Codex finish, image-view, or trial-integrity proof did not complete"}
             write_json(output / "scoring-status.json", scoring)
         receipt.update(scoring=scoring, finished_at=utc_now(), seconds=time.monotonic() - started)
     except Exception as error:
@@ -667,18 +690,29 @@ def run_trials(*, variant: str, count: int, output_root: Path | None = None,
     batch = output_root / variant / (stamp + "-" + uuid.uuid4().hex[:8])
     batch.mkdir(parents=True)
     summary = {"schema": "g3d.lens_lab.codex_batch/1", "lab": True, "variant": variant,
-               "requested_trials": count, "started_at": utc_now(), "trials": []}
+               "requested_trials": count, "started_at": utc_now(), "trials": [],
+               "invalid_trial_replacement_limit": 1}
+    write_json(batch / "batch.json", summary)
     for index in range(1, count + 1):
-        result = run_trial(batch / f"trial-{index:03d}", variant=variant, source_job=source_job, repo=repo)
-        summary["trials"].append({"trial_dir": result["trial_dir"], "status": result["status"],
-                                  "prompt_sha256": result["prompt_sha256"], "seconds": result["seconds"],
-                                  "codex_status": result.get("codex_status"), "scoring": result.get("scoring")})
-        write_json(batch / "batch.json", summary)
+        for attempt in range(2):
+            name = f"trial-{index:03d}" + ("-replacement" if attempt else "")
+            result = run_trial(batch / name, variant=variant, source_job=source_job, repo=repo)
+            summary["trials"].append({"trial_dir": result["trial_dir"], "status": result["status"],
+                                      "slot": index, "attempt": attempt + 1,
+                                      "prompt_sha256": result["prompt_sha256"], "seconds": result["seconds"],
+                                      "codex_status": result.get("codex_status"), "scoring": result.get("scoring"),
+                                      "look_comparisons": result.get("look_comparisons"),
+                                      "invalid_reason": result.get("invalid_reason")})
+            summary["invalid_trials"] = sum(row["status"] == "invalid" for row in summary["trials"])
+            write_json(batch / "batch.json", summary)
+            if result["status"] != "invalid":
+                break
         # Infrastructure failures cannot be interpreted as material samples.
-        if result["status"] != "completed":
+        if result["status"] not in {"completed", "invalid"}:
             break
     summary.update(finished_at=utc_now(), completed_trials=sum(
         row["status"] == "completed" for row in summary["trials"]))
+    summary["status"] = "completed" if summary["completed_trials"] == count else "incomplete"
     write_json(batch / "batch.json", summary)
     return {**summary, "batch_dir": str(batch)}
 
@@ -687,7 +721,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     batch = commands.add_parser("run", help="N serial trials of the current HEAD/working-code variant")
-    batch.add_argument("--variant", default="baseline", help="regional changes look output only; other labels use baseline")
+    batch.add_argument("--variant", default="baseline", help="baseline, regional, pre14; historical labels use baseline")
     batch.add_argument("--count", type=int, default=1)
     batch.add_argument("--output-root", type=Path)
     batch.add_argument("--source-job", type=Path)

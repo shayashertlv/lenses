@@ -427,10 +427,15 @@ def test_previously_used_initialized_trial_refuses(private_trial, monkeypatch):
         trial.run_trial(directory, repo=repo, executable=["codex"])
 
 
-@pytest.mark.parametrize("variant", ["baseline", "regional"])
+@pytest.mark.parametrize("variant", ["baseline", "regional", "pre14"])
 def test_variant_persists_without_changing_prompt_or_baseline_manifest(private_trial, monkeypatch, variant):
     repo, directory, manifest, _ = private_trial
     mock_codex_run(monkeypatch, repo, directory)
+    if variant == "pre14":
+        from glasses3d.lens_lab import pre14
+        monkeypatch.setattr(pre14, "prompt_sources", lambda repo, job, baseline_sources:
+                            {**baseline_sources, "instructions_source_commit": "historical",
+                             "baseline_source_sha256": {"source": "baseline"}})
     status = repo / "glasses3d/data/lens_lab/l2/baseline_status.txt"
     status.parent.mkdir(parents=True)
     status.write_text("start\nexit 0\n", encoding="utf-8")
@@ -440,7 +445,7 @@ def test_variant_persists_without_changing_prompt_or_baseline_manifest(private_t
     if variant == "baseline":
         assert (directory / "trial.json").read_bytes() == before
     else:
-        assert saved == {**manifest, "variant": "regional"}
+        assert saved == {**manifest, "variant": variant}
     expected = trial.build_prompt({"instructions": "exact main instructions", "brief": "exact owner brief"},
                                  trial.lab_paragraph(directory, manifest["lens_materials"],
                                      repo / "glasses3d/.venv/Scripts/python.exe"))
@@ -448,6 +453,9 @@ def test_variant_persists_without_changing_prompt_or_baseline_manifest(private_t
     assert result["variant"] == variant and result["status"] == "completed"
     assert result["implementation_changed_paths"] == []
     assert result["implementation_sha256"] == result["implementation_after_sha256"]
+    if variant == "pre14":
+        assert result["instructions_source_commit"] == "historical"
+        assert result["baseline_source_sha256"] == {"source": "baseline"}
 
 
 def test_regional_waits_for_baseline_before_starting_any_native_work(private_trial, monkeypatch):
@@ -549,3 +557,47 @@ def test_batch_is_serial_stops_infrastructure_failure_and_keeps_variant_outside_
         trial.run_trials(variant="../escape", count=1, repo=tmp_path)
     with pytest.raises(ValueError):
         trial.run_trials(variant="good", count=0, repo=tmp_path)
+
+
+@pytest.mark.parametrize("failed_calls", [0, 3])
+def test_zero_successful_looks_invalidates_otherwise_finished_trial(private_trial, monkeypatch, failed_calls):
+    repo, directory, _, _ = private_trial
+    scoring_calls = mock_codex_run(monkeypatch, repo, directory)
+    original = subprocess.Popen
+    class FailedLooks(original):
+        def wait(self):
+            code = super().wait()
+            calls, _ = trial.read_jsonl(directory / "calls.jsonl")
+            calls[0]["tool"] = "render_views"  # Image proof and finish still succeed.
+            calls.extend({"tool": "compare_look_to_photos", "call_id": str(i),
+                          "result": {"status": "unavailable", "code": "E_LOOK", "message": ""}}
+                         for i in range(failed_calls))
+            (directory / "calls.jsonl").write_text("".join(json.dumps(c) + "\n" for c in calls), encoding="utf-8")
+            return code
+    monkeypatch.setattr(subprocess, "Popen", FailedLooks)
+    result = trial.run_trial(directory, repo=repo, executable=["codex"])
+    assert result["status"] == "invalid"
+    assert result["image_viewing"]["verified"] and result["finish_receipted"]
+    assert result["look_comparisons"]["made"] == failed_calls
+    assert result["look_comparisons"]["succeeded"] == 0
+    assert result["invalid_reason"] and not scoring_calls
+    assert all(row["message"] for row in result["look_comparisons"]["failures"])
+
+
+@pytest.mark.parametrize("replacement_status", ["completed", "invalid"])
+def test_invalid_batch_trial_replaced_once_without_overwriting_evidence(tmp_path, monkeypatch, replacement_status):
+    monkeypatch.setattr(trial, "require_task17_exit", lambda repo: "exit 0")
+    seen = []
+    def run(path, **kwargs):
+        seen.append(path)
+        status = "invalid" if len(seen) == 1 else replacement_status if len(seen) == 2 else "completed"
+        return {"status": status, "trial_dir": str(path), "prompt_sha256": "x", "seconds": 1,
+                "look_comparisons": {"made": 3, "succeeded": 0 if status == "invalid" else 3},
+                "invalid_reason": "no look" if status == "invalid" else None}
+    monkeypatch.setattr(trial, "run_trial", run)
+    result = trial.run_trials(variant="baseline", count=2, repo=tmp_path)
+    assert [p.name for p in seen] == ["trial-001", "trial-001-replacement", "trial-002"]
+    assert result["invalid_trials"] == (1 if replacement_status == "completed" else 2)
+    assert result["completed_trials"] == (2 if replacement_status == "completed" else 1)
+    assert result["trials"][0]["status"] == "invalid"
+    assert result["trials"][0]["look_comparisons"]["succeeded"] == 0

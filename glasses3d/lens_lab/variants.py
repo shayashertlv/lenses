@@ -41,19 +41,58 @@ def regional_module():
     return module
 
 
-def build_variant_tools(scene, variant="baseline"):
+def _rebind(function, namespace):
+    rebound = types.FunctionType(function.__code__, namespace, function.__name__,
+                                 function.__defaults__, function.__closure__)
+    rebound.__kwdefaults__ = function.__kwdefaults__
+    rebound.__annotations__ = function.__annotations__
+    return rebound
+
+
+def _capture_modules(variant, capture_runner):
+    from glasses3d.agent.tools import arview, look
+
+    if variant == "regional":
+        look_module = regional_module()
+    else:
+        look_module = types.ModuleType("glasses3d.agent.tools._lens_lab_baseline_look")
+        look_module.__dict__.update(look.__dict__)
+    if capture_runner is not None:
+        arview_module = types.ModuleType("glasses3d.agent.tools._lens_lab_arview")
+        arview_module.__dict__.update(arview.__dict__)
+        arview_module.run_capture = capture_runner
+        arview_module.capture = _rebind(arview.capture, arview_module.__dict__)
+        look_module.arview = arview_module
+        look_module.capture = _rebind(look_module.capture, look_module.__dict__)
+        look_module.tool_for = _rebind(look_module.tool_for, look_module.__dict__)
+    else:
+        arview_module = arview
+    return look_module, arview_module
+
+
+def build_variant_tools(scene, variant="baseline", *, capture_runner=None):
     from glasses3d.agent.tools import build_tools
 
-    if variant != "regional":
+    if variant not in {"regional", "pre14"} and capture_runner is None:
         # Historical grouping labels also retain the unmodified production path.
         return build_tools(scene)
     # Bind only this registry's look tool to its isolated module. No production
     # module globals are patched, even while the async tool runs in its worker thread.
-    builder = types.FunctionType(build_tools.__code__,
-                                 {**build_tools.__globals__, "look": regional_module()},
-                                 build_tools.__name__, build_tools.__defaults__, build_tools.__closure__)
-    builder.__kwdefaults__ = build_tools.__kwdefaults__
-    return builder(scene)
+    look_module, arview_module = _capture_modules(variant, capture_runner)
+    namespace = {**build_tools.__globals__, "look": look_module, "arview": arview_module}
+    if variant == "pre14":
+        from . import pre14
+        report_tool = namespace["report_tool"]
+        namespace["report_tool"] = _rebind(report_tool, {**report_tool.__globals__, "read_report": pre14.read_report})
+    registry = _rebind(build_tools, namespace)(scene)
+    if variant == "pre14":
+        for tool in registry:
+            if tool.name == "compare_look_to_photos":
+                invoke = tool.on_invoke_tool
+                async def without_gap(ctx, arguments, invoke=invoke):
+                    return pre14.strip_tool_output(await invoke(ctx, arguments))
+                tool.on_invoke_tool = without_gap
+    return registry
 
 
 def production_patch():
