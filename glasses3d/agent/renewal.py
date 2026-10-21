@@ -32,6 +32,51 @@ RENEWAL_NOTICE = ("Continue the same run in this fresh conversation with the sam
 FINISH_RESTART_NOTICE = ("The host restarted the pending two-call finish review. Use this conversation's finish "
                          "tool again to obtain its evidence before submitting the per-photo review.")
 NO_SUMMARY = "No Astra summary was obtained; continue from the host's factual state and the attached evidence."
+NEWEST_IMAGES_NOTICE = ("The newest tool-result images are omitted from this summary request only. "
+                        "Their labels remain below; do not claim to have inspected them. "
+                        "The fresh conversation receives the complete result, including these images.")
+
+
+def input_digest(items):
+    return hashlib.sha256(json.dumps(items, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def summary_input(items, previous_input):
+    """Make a summary-only copy, preserving the previously requested prefix exactly.
+
+    Only newly appended tool outputs are eligible. Unknown prefixes (including a
+    resumed conversation before its first request) retain every image. Stored
+    conversation items are never rewritten.
+    """
+    result = copy.deepcopy(items)
+    if previous_input is None:
+        return result, [], []
+    count, digest = previous_input
+    if len(items) < count or input_digest(items[:count]) != digest:
+        return result, [], []
+    latest, omitted = [], []
+    for index in range(count, len(items)):
+        item = items[index]
+        if item.get("type") != "function_call_output" or not isinstance(item.get("output"), list):
+            continue
+        if not any(part.get("type") == "input_image" for part in item["output"]):
+            continue
+        latest.append(copy.deepcopy(item))
+        parts, labels = [], []
+        label = None
+        for position, part in enumerate(item["output"]):
+            if part.get("type") == "input_image":
+                description = label or f"Image at output position {position}; call {item['call_id']}"
+                labels.append(description)
+                omitted.append({"call_id": item["call_id"], "output_position": position, "label": description})
+            else:
+                parts.append(copy.deepcopy(part))
+            label = part.get("text") if part.get("type") == "input_text" else None
+        # Original result text, including labels, is byte-for-byte unchanged.
+        # The explicit list also covers outputs without individual labels.
+        parts.append({"type": "input_text", "text": NEWEST_IMAGES_NOTICE + "\n" + "\n".join(labels)})
+        result[index]["output"] = parts
+    return result, latest, omitted
 
 
 def summary_request(profile=None):
@@ -125,6 +170,12 @@ class ConversationRenewal:
         self._finish_review_requests = set()
         self._after_finish_review_deferral = False
         self.fresh = False
+        self._previous_input = None
+
+    def _remember_input(self, payload, tokens):
+        if tokens is not None:
+            items = payload.get("input", [])
+            self._previous_input = (len(items), input_digest(items))
 
     def check(self, payload, body_bytes, images, tokens):
         reasons = pressure(body_bytes, images, tokens, self.guard.tariff)
@@ -149,6 +200,7 @@ class ConversationRenewal:
             self._save()
             self.log.event("conversation_rebuilt_request", **measurements, irreducible_pressure=reasons,
                            conversation_id=self.session.session_id)
+            self._remember_input(payload, tokens)
             return
         if reasons:
             within_hard_limits = (
@@ -167,8 +219,10 @@ class ConversationRenewal:
                 self._after_finish_review_deferral = True
                 self._save()
                 self.log.event("conversation_renewal_deferred", deferral=row)
+                self._remember_input(payload, tokens)
                 return
             raise RenewalNeeded(payload, measurements, reasons)
+        self._remember_input(payload, tokens)
 
     def _save(self):
         write_json(self.directory / "renewals.json", {"schema": "g3d.conversation_renewals/1",
@@ -185,6 +239,8 @@ class ConversationRenewal:
         decision_tools = any(getattr(tool, "name", None) == "record_difference"
                              for tool in getattr(self.spec, "tools", ()))
         decision_state = decision_tools and resolve_profile(profile) != LEGACY_PROFILE
+        summary_items, latest, omitted = (summary_input(trigger.payload.get("input", []), self._previous_input)
+                                          if decision_state else (copy.deepcopy(trigger.payload.get("input", [])), [], []))
         callback = self.guard.request_pressure
         self.guard.request_pressure = None  # the summary is admitted normally, without recursive renewal
         self.guard.renewal_summary = True
@@ -196,7 +252,7 @@ class ConversationRenewal:
             await self.session.add_items([summary_item])
             await hooks.on_llm_start(context, agent, agent.instructions, trigger.payload.get("input", []))
             request = copy.deepcopy(trigger.payload)
-            request["input"] = [*request.get("input", []), summary_item]
+            request["input"] = [*summary_items, summary_item]
             request["tool_choice"] = "none"
             response = await self.client.responses.create(**request)
             await hooks.on_llm_end(context, agent, SimpleNamespace(response_id=response.id,
@@ -226,7 +282,22 @@ class ConversationRenewal:
         after = await self.session.get_items()
         if after[:len(old_items)] != old_items:
             raise RuntimeError("conversation prefix changed while obtaining renewal summary")
-        evidence, evidence_rows = evidence_content(self.scene.renewal_evidence(), trigger.payload)
+        latest_calls = {item["call_id"] for item in latest}
+        carried_hashes = set()
+        for item in latest:
+            for part in item["output"]:
+                url = part.get("image_url")
+                if part.get("type") == "input_image" and isinstance(url, str) and url.startswith("data:image/"):
+                    carried_hashes.add(hashlib.sha256(base64.b64decode(url.split(",", 1)[1], validate=True)).hexdigest())
+        # A latest result may reuse some earlier images by reference. Carry those
+        # selected evidence bytes too; only actual attached pixels are duplicates.
+        evidence, evidence_rows = evidence_content(
+            [item for item in self.scene.renewal_evidence() if item["sha256"] not in carried_hashes], trigger.payload)
+        latest_content = []
+        for item in latest:
+            latest_content.append({"type": "input_text", "text":
+                f"Complete latest tool result from call {item['call_id']}; its images were not inspected by the summary:"})
+            latest_content.extend(copy.deepcopy(item["output"]))
         restart = self.scene.renewal_started()
         scene_state = self.scene.renewal_state()
         state = {**scene_state, "finish_review_renewal": restart, "money": money_facts(self.guard.summary()),
@@ -244,7 +315,7 @@ class ConversationRenewal:
         content = [*plan.content,
                    {"type": "input_text", "text": ASTRA_SUMMARY_PREFIX + summary if summary else NO_SUMMARY},
                    {"type": "input_text", "text": HOST_STATE_PREFIX + json.dumps(state, ensure_ascii=False)},
-                   *evidence]
+                   *evidence, *latest_content]
         row = {"schema": "g3d.conversation_renewal/1", "number": len(self.records) + 1,
                "run_id": self.log.run_id, "receipt_directory": str(self.directory),
                "old_conversation_id": old_id,
@@ -253,10 +324,15 @@ class ConversationRenewal:
                "summary_sha256": hashlib.sha256(summary.encode("utf-8")).hexdigest() if summary else None,
                "summary_text": summary, "summary_request_sequence": summary_sequence,
                "summary_skipped": skipped, "evidence": evidence_rows, "input_receipt": plan.receipt,
+               "summary_omitted_images": omitted,
+               "latest_result_call_ids": sorted(latest_calls),
+               "preserved_request_prefix": ({"items": self._previous_input[0], "sha256": self._previous_input[1]}
+                                            if omitted else None),
                "host_state": state}
         new_id = await self.session.renew([{"role": "user", "content": content}], receipt=row)
         self.records.append(row)
         self.fresh = True
+        self._previous_input = None
         self._save()
         self.log.note(f"Conversation renewed: {old_id} -> {new_id}; "
                       + ", ".join(r["reason"] for r in trigger.reasons), renewal=row)
