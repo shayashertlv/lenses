@@ -1,5 +1,42 @@
 # glasses3d progress
 
+## 2026-10-21 — Paid Oakley run on the decision profile: $25 cutoff draft c0018, owner verdict pending
+
+**Approval and settings.** Owner, verbatim: "Yes, start the paid Astra Oakley run at max effort with the new decision
+instructions and a $25 settled cutoff."
+- Job `oakley-oo9208-v2-7035e95c` holds owner inputs only. Run `20261021T123308-aa22d4` used `decision-20261021`,
+  max effort, settled-only $25 cutoff, HEAD `9e2576a`.
+- Astra's brief SHA `c2c7a0e2…` equals the accepted rerun's.
+
+**Result.**
+- **Stop:** the cutoff stopped it after 77 requests: settled $25.78, 110 min, cache share 93.3 %, two renewals.
+  "no inference sent" after the cutoff.
+- **Draft:** delivery `20261021T123308-aa22d4-2dde5666…` from formal best **c0018** (GLB `5a9b4d44…`). Spec and print
+  passed; seating reported, not a pass requirement; AR capture ok.
+- **Dev UI:** results key `AqViwrHX4JakBxMwIZHQ0ver`.
+- **Owner sheet:** `data/lens_lab/gallery/paid_run_20261021_on_face.png`. AR on port 8323.
+
+**What the new mechanisms did.**
+- **Differences list:** Astra recorded open items in batches: lens-colour, frame-detail and camera-evidence.
+  - Its final update (tool 0073) kept all three open, with specific accounts. Lens: "greener than F with readable eyes,
+    but weaker violet and olive oblique colour; photo pairs remain substantially less saturated".
+  - The first finish call returned `review_required`. The cutoff came before confirmation, so no difference was fixed
+    or marked a limitation.
+- **Renewal:** both renewals carried the host list and the formal best.
+- **Formal best:** it stayed at **c0006** (about $5 in) until after renewal 2. Astra then marked **c0018** at $24.17.
+  An earlier cutoff would have built the draft from c0006.
+- **Tool use:** 75 tool calls, including 24 `execute_blender_code`, 13 `read_report`, 4 `fit_cameras` (one over
+  8 min), 4 `compare_look_to_photos` (run 4 used 11), 3 `record_difference` and 2 `save_checkpoint`.
+
+**Defects found, for $0 follow-up:**
+1. **Renewal summary priced above the 272k step.** Request 72 was at 216,102 tokens. A look result then raised the
+   candidate to 302,367 tokens and 98 images. Renewal 2's summary request (73) cost **$3.15**, against **$0.59** for
+   renewal 1's summary at 220,539 tokens. The text summary does not need the newest look's images at long-context
+   price.
+2. **A difference update cost a refused request.** `record_difference` (tool 0047) refused a lens-colour update
+   because the cited comparison covered fewer photos than the item's refs ("an update cannot drop the item's
+   previously affected photo refs").
+
 ## 2026-10-21 — Claude review: E2, task 21 and 21b accepted; Oakley paid run prepared, not started ($0)
 
 **Where things stand:**
