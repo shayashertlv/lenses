@@ -155,4 +155,4 @@ def test_latest_result_with_reused_images_carries_referenced_pixels_too(tmp_path
     fresh = {"input": session.items}
     assert sorted(R.input_images(fresh)) == sorted([S.data_url(S.png_bytes(seed=2)), reused["image_url"]])
     assert session.items[0]["content"][-len(latest["output"]):] == latest["output"]
-    assert renewal.records[0]["evidence"] == [{**records[1], "detail": "high"}]
+    assert renewal.records[0]["evidence"] == [{**record, "detail": "high"} for record in records]

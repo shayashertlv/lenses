@@ -121,7 +121,7 @@ def find_error(error, kinds):
     return None
 
 
-def evidence_content(records, payload):
+def evidence_content(records, payload, *, already_carried=()):
     """Prefer the already-sent bytes; otherwise verify the scene's original image file."""
     urls = {}
     def visit(value):
@@ -153,8 +153,9 @@ def evidence_content(records, payload):
             url, detail = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}", "high"
         label = (f"Renewal evidence: call {row['call_id']}; checkpoint {row.get('checkpoint')}; "
                  f"view {row.get('view')}; kind {row.get('kind')}; sha256 {digest}.")
-        content.extend([{"type": "input_text", "text": label},
-                        {"type": "input_image", "image_url": url, "detail": detail}])
+        if digest not in already_carried:
+            content.extend([{"type": "input_text", "text": label},
+                            {"type": "input_image", "image_url": url, "detail": detail}])
         receipt.append({**row, "detail": detail})
     return content, receipt
 
@@ -291,8 +292,10 @@ class ConversationRenewal:
                     carried_hashes.add(hashlib.sha256(base64.b64decode(url.split(",", 1)[1], validate=True)).hexdigest())
         # A latest result may reuse some earlier images by reference. Carry those
         # selected evidence bytes too; only actual attached pixels are duplicates.
-        evidence, evidence_rows = evidence_content(
-            [item for item in self.scene.renewal_evidence() if item["sha256"] not in carried_hashes], trigger.payload)
+        # Receipt metadata remains complete even when the latest output already
+        # carries the pixels; deduplication changes content placement only.
+        evidence, evidence_rows = evidence_content(self.scene.renewal_evidence(), trigger.payload,
+                                                   already_carried=carried_hashes)
         latest_content = []
         for item in latest:
             latest_content.append({"type": "input_text", "text":

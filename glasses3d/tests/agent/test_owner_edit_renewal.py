@@ -19,7 +19,8 @@ from .test_owner_edit_lifecycle_review import selected_source, _cover_round
 from .test_owner_understanding_dispositions import shown, item, shown_preview
 
 
-def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, monkeypatch):
+@pytest.mark.parametrize("profile", ["decision-20261021", "legacy-20261021"])
+def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, monkeypatch, profile):
     h = shown
     preview_receipt = shown_preview(h, [item(h, disposition="executable")])
     source_before = edits.tree_hashes(h.fixture.source)
@@ -56,7 +57,7 @@ def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, m
         count_tokens=lambda body: (B.Tariff.frozen().long_context_input_tokens * 4 // 5 + 1
                                    if marker in json.dumps(body) else 100))
     run_id = "owner-renewal"
-    settings = replace(job_run.settings_default(), max_turns=3, max_output_tokens=100)
+    settings = replace(job_run.settings_default(), max_turns=3, max_output_tokens=100, instruction_profile=profile)
     spec, prepared = job_run.prepare_run(h.root, run_id, settings=settings, cap="20", write_request=False,
                                          scene=scene, offline_handler=transport.handle)
     assert prepared is scene and spec.settings.finish_tool == "understand_finish"
@@ -108,8 +109,21 @@ def test_understand_round_renews_with_bound_owner_request_and_publishes(shown, m
     assert any(doc["request_text"] in text and "Edit phase: understand" in text for text in texts)
     assert all(photo.image_url in R.input_images(fresh) for photo in spec.photos)
     assert len(R.input_images(fresh)) == len(spec.photos) + 1
-    assert marker not in json.dumps(fresh) and N.FINISH_RESTART_NOTICE not in json.dumps(fresh)
-    assert summary_request["input"][:-1] == transport.counts[1]["input"]
+    assert N.FINISH_RESTART_NOTICE not in json.dumps(fresh)
+    if profile == "legacy-20261021":
+        assert marker not in json.dumps(fresh)
+        assert summary_request["input"][:-1] == transport.counts[1]["input"]
+    else:
+        assert summary_request["input"][:len(old["input"])] == old["input"]
+        latest = next(row["output"] for row in transport.counts[1]["input"]
+                      if row.get("type") == "function_call_output")
+        assert fresh["input"][0]["content"][-len(latest):] == latest
+        summary_output = next(row["output"] for row in summary_request["input"]
+                              if row.get("type") == "function_call_output")
+        assert [row for row in summary_output if row["type"] == "input_text"][:-1] == [
+            row for row in latest if row["type"] == "input_text"]
+        assert not any(row["type"] == "input_image" for row in summary_output)
+        assert len(renewal["summary_omitted_images"]) == 1
     assert summary_request["tool_choice"] == "none"
 
     assert delivery["status"] == "awaiting_owner_confirmation" and delivery["geometry_changed"] is False
