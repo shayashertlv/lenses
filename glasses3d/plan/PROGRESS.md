@@ -2,6 +2,15 @@
 
 ## 2026-10-21 — E3: clearer coating controls, photo matching and valid optical ranges ($0; complete)
 
+**Claude's acceptance:**
+- Reran dev UI and owner-lens-edit tests: 351 passed.
+- `read_lens_materials` opens run 4's shield (IOR 6.0, film 1.8, 435 nm) and the lab favourite (IOR 3.2, film 1.5,
+  530 nm, mirror 0.15) exactly.
+- The live panel on the paid-run draft (`AqViwrHX4JakBxMwIZHQ0ver`) shows the bar labels and "Pick coating colour
+  from photo".
+- Run 4 also carries a second lens-labelled material, "Subtle lens laser marks". With "Edit all lenses together" on,
+  an edit there also recolours those marks; untick it to edit the shield alone.
+
 Owner, verbatim:
 - "the model looks good but the lens isnt, im in the edit page but i dont really understand what each option is doing"
 - "i just dont understand the shimmer colors, why cant i just choose a color, what is this changing gradient"
