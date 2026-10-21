@@ -1,5 +1,22 @@
 # glasses3d progress
 
+## 2026-10-21 — Task 20: Astra instruction-thinking review ($0, read-only)
+
+Reviewed the actual product-run instructions at task-18 HEAD `77aad88`, the built brief and 26-tool registry,
+host notes/money footer, renewal request, three Oakley run traces and the valid lens-lab trials. Main text is
+16,321 characters; 10,258 (62.9%) are appended tool guidance. Tool descriptions add 22,050 characters.
+Verdict: Astra often sees and names the faults; the weaker step is choosing the next correction, retaining a
+compared best checkpoint and justifying completion. The report separates the current task-17 finish repair
+from the historical restart, and the cutoff draft's formal c0006 best from its later c0010 head.
+
+Report: `data/review_20261018/codex/task20_report.md`; exact texts/counts and verification are adjacent
+`task20_*` artifacts. Includes a proposed ~9,000-character outline and ten concrete unapplied text changes,
+each with evidence, risk and $0-versus-paid validation limits. Task 18's sentence is reviewed separately;
+the owner keep verdict committed during this review (`d28d0f3`) supersedes its earlier pending status and
+metric-based revert recommendation. The on-face priority should be consistent across the remaining guidance.
+No runtime wording, E2 file or original job/run/delivery/verdict changed; no tests, renders, paid calls or push.
+Only this PROGRESS entry is a tracked change. Stop for coordinator review; no next task started.
+
 ## 2026-10-21 — Owner verdict on the task 18 lab lenses (on-face AR): task 18 kept
 
 - Owner, verbatim, after trying them on himself in the AR preview: "new trial 4 is absolutely perfect, its the best
