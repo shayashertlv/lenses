@@ -130,6 +130,13 @@ class FinishRunnerScene(FakeScene):
 
 
 def scripted_finish(tmp_path, monkeypatch, review_scene, *, next_action="finish", hard=False):
+    # Scheduling is exercised on the new production profile. This proof supplies
+    # no actionable appearance faults; the differences suite covers those.
+    review_scene.instruction_profile = "decision-20261021"
+    def reviewed(call="first"):
+        args = final_args(call)
+        args["per_photo"] = [{"ref": row["ref"], "differences": "none"} for row in args["per_photo"]]
+        return args
     runner_scene = FinishRunnerScene(review_scene)
     tools = [tool for tool in T.build_tools(review_scene) if tool.name in {"finish", "scene_summary"}]
     settings = L.RunSettings(effort="max", max_turns=10, max_output_tokens=100,
@@ -140,17 +147,17 @@ def scripted_finish(tmp_path, monkeypatch, review_scene, *, next_action="finish"
     replies = [R.tool_call("finish", {"summary": "Inspect every photo"}, call_id="first")]
     if not hard:
         if next_action == "refused":
-            replies.append(R.tool_call("finish", {**final_args(), "per_photo": []}, call_id="second"))
+            replies.append(R.tool_call("finish", {**reviewed(), "per_photo": []}, call_id="second"))
         elif next_action == "unrelated":
             replies.append(R.tool_call("scene_summary", call_id="unrelated"))
         elif next_action == "retry_first":
             replies.append(R.tool_call("finish", {"summary": "Get review again"}, call_id="second"))
         else:
-            replies.append(R.tool_call("finish", final_args(), call_id="second"))
+            replies.append(R.tool_call("finish", reviewed(), call_id="second"))
     if hard or next_action != "finish":
         replies.extend([R.message("Current head checked; resume the pending photo review."),
                         R.tool_call("finish", {"summary": "Inspect fresh evidence"}, call_id="fresh"),
-                        R.tool_call("finish", final_args("fresh"), call_id="complete")])
+                        R.tool_call("finish", reviewed("fresh"), call_id="complete")])
     def count(body):
         old_evidence = any(item.get("type") == "function_call_output" and item.get("call_id") == "first"
                            for item in body.get("input", []))
@@ -189,7 +196,7 @@ def test_real_refused_or_missing_second_finish_renews_on_the_following_request(
     assert result["renewals"][0]["host_state"]["finish_review_renewal"] == {
         "finish_review_restarted": True,
         "previous_review_call_id": "second" if next_action == "retry_first" else "first"}
-    assert transport.creates[2]["input"][-1]["content"] == N.SUMMARY_REQUEST
+    assert transport.creates[2]["input"][-1]["content"] == N.summary_request("legacy-20261021")
     assert review_scene.finish["review"]["review_call_id"] == "fresh"
     receipts = json.loads((job / "runs" / RUN / "renewals.json").read_text(encoding="utf-8"))
     assert len(receipts["finish_review_deferrals"]) == 1
@@ -206,5 +213,5 @@ def test_real_pending_finish_still_renews_above_hard_price_step(tmp_path, monkey
     assert len(result["renewals"]) == 1
     assert result["renewals"][0]["summary_request_sequence"] == 2
     assert result["renewals"][0]["host_state"]["finish_review_renewal"]["previous_review_call_id"] == "first"
-    assert transport.creates[1]["input"][-1]["content"] == N.SUMMARY_REQUEST
+    assert transport.creates[1]["input"][-1]["content"] == N.summary_request("legacy-20261021")
     assert review_scene.finish["review"]["review_call_id"] == "fresh"

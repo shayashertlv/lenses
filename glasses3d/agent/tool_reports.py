@@ -23,6 +23,9 @@ REPORT_SCHEMA = "g3d.tool_report/1"
 REPORT_DOC = """Read any saved full tool report without repeating its operation. Long outputs are summaries;
 all original values remain here. Select a JSON pointer, page a table or filter rows. Text mode pages the exact
 JSON serialization (or original string), including a single oversized item. No scene changes or model calls.
+If a fact needed for the next decision has a read_pointer, retrieve that field before claiming what it says.
+If the page still contains a pointer for that fact, it is still unread. Read the saved report rather than
+rerunning the operation; unrelated diagnostic fields need not be paged.
 
 Args:
     report: The full_report.id returned by a tool; only this job's saved reports are readable.

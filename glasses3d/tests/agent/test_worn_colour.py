@@ -19,8 +19,10 @@ from glasses3d.tests.agent.test_job_tools import invoke, record, scene
 
 
 SENTENCE = (
-    "Judge lens colour on the worn, on-face AR images against the lens colour in the owner photos; "
-    "use the white-background panels for shape and see-through."
+    "Judge lens colour on the worn, on-face AR images against the owner photos. "
+    "Use photo-background panels for shape, see-through and diagnostic measurements; "
+    "a better photo-background colour number does not overrule the worn result. "
+    "Report disagreements separately and explain the retained choice."
 )
 
 

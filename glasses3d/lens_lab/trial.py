@@ -102,6 +102,31 @@ def head_prompt_sources(repo: Path, job: dict) -> dict:
     instructions_ast.body.remove(imports[0])
     instructions_ns = {"__name__": "lens_lab_head_instructions",
                        "MODEL_REQUIREMENTS": brief_ns["MODEL_REQUIREMENTS"]}
+    profile_imports = [node for node in ast.walk(instructions_ast)
+                       if isinstance(node, ast.ImportFrom) and node.module == "instruction_profiles"
+                       and node.level == 1]
+    if profile_imports:
+        profile_path = "glasses3d/agent/instruction_profiles.py"
+        snapshot_path = "glasses3d/agent/legacy_20261021.json"
+        for path in (profile_path, snapshot_path):
+            sources[path] = git_bytes(repo, "show", f"{head}:{path}")
+        profiles_ns = {"__name__": "lens_lab_head_profiles", "__file__": profile_path}
+        exec(compile(sources[profile_path], profile_path + "@" + head, "exec"), profiles_ns)
+        # The legacy data is also pinned to HEAD. Neither the default builder nor
+        # its owner-edit parts may read a concurrently edited working-tree file.
+        frozen_profile = json.loads(sources[snapshot_path])
+        profiles_ns["_legacy"] = lambda: frozen_profile
+        for node in profile_imports:
+            for alias in node.names:
+                if alias.name == "*" or alias.name not in profiles_ns:
+                    raise ValueError("production profile dependency changed; review HEAD extraction")
+                instructions_ns[alias.asname or alias.name] = profiles_ns[alias.name]
+
+        class BindHeadProfiles(ast.NodeTransformer):
+            def visit_ImportFrom(self, node):
+                return None if node in profile_imports else node
+
+        instructions_ast = BindHeadProfiles().visit(instructions_ast)
     exec(compile(instructions_ast, paths[1] + "@" + head, "exec"), instructions_ns)
     names = sorted(set(instructions_ns["CORE_GUIDANCE"]) | set(instructions_ns["SPECIALIST_GUIDANCE"]))
     main = instructions_ns["build_instructions"]([SimpleNamespace(name=name) for name in names])

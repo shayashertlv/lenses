@@ -103,7 +103,7 @@ def test_renewal_counts_exact_candidate_preserves_prefix_photos_evidence_ledger_
     assert not scene.pending
     old, summary, fresh = transport.creates
     assert summary["input"][:-1] == transport.counts[1]["input"]
-    assert summary["input"][-1]["content"] == N.SUMMARY_REQUEST and summary["tool_choice"] == "none"
+    assert summary["input"][-1]["content"] == N.summary_request("legacy-20261021") and summary["tool_choice"] == "none"
     for photo in photos(2):
         assert photo.image_url in R.input_images(fresh)
     for record in scene.records:
@@ -170,7 +170,7 @@ def test_summary_over_provider_limit_renews_from_factual_state(tmp_path, monkeyp
     def script(replies, **kwargs):
         count = kwargs["count_tokens"]
         kwargs["count_tokens"] = lambda body: (B.MODEL_MAX_INPUT_TOKENS + 1
-            if body["input"][-1].get("content") == N.SUMMARY_REQUEST else count(body))
+            if body["input"][-1].get("content") == N.summary_request("legacy-20261021") else count(body))
         return original([replies[0], replies[-1]], **kwargs)
     monkeypatch.setattr(R, "ScriptedOpenAI", script)
     _, _, transport, result = case(tmp_path, monkeypatch, "input_tokens", cap="1", max_turns=2)
@@ -193,7 +193,7 @@ def _assert_paid_summary_fallback(job, transport, result, reason):
     assert row["summary_request_sequence"] == 2 and row["summary_skipped"] == reason
     old, summary, fresh = transport.creates
     assert summary["input"][:-1] == transport.counts[1]["input"]
-    assert summary["input"][-1]["content"] == N.SUMMARY_REQUEST
+    assert summary["input"][-1]["content"] == N.summary_request("legacy-20261021")
     assert summary["tool_choice"] == "none"
     assert old["tools"] == summary["tools"] == fresh["tools"]
     texts = [part["text"] for item in fresh["input"] for part in item.get("content", [])

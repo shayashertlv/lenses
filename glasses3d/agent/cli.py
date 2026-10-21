@@ -14,6 +14,7 @@ from .budget import JobLedger, BudgetGuardError
 from .loop import EFFORTS, RunRefused
 from .money import owner_money
 from .text_io import configure_utf8_stdio
+from .instruction_profiles import DEFAULT_PROFILE, LEGACY_PROFILE
 
 
 def owner_text_file(path):
@@ -87,6 +88,9 @@ def parser():
         cmd.add_argument("--round")
         if name in ("approve", "run"):
             cmd.add_argument("--run-id")
+        if name in ("estimate", "run"):
+            cmd.add_argument("--instruction-profile", choices=(DEFAULT_PROFILE, LEGACY_PROFILE),
+                             help="instruction profile; select it when estimating, then run the matching approved request")
         if name == "estimate":
             cmd.add_argument("--smoke", action="store_true")
             cmd.add_argument("--resume", action="store_true", help="price and bind the saved conversation and reviewed checkpoint")
@@ -268,7 +272,8 @@ def dispatch(args):
                                               else settings.max_output_tokens),
                            settled_stop_usd=args.settled_stop if args.settled_stop is not None else cap,
                            settled_only=args.settled_only)
-        spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True, resume=args.resume)
+        spec, _ = job_run.prepare_run(root, settings=settings, cap=cap, write_request=True, resume=args.resume,
+                                     instruction_profile=args.instruction_profile)
         return procs.read_json(root / "runs" / spec.run_id / "approval-request.json")
     if args.command == "stop":
         (root / "stop.requested").write_text("Owner requested stop.\n", encoding="utf-8")
@@ -292,6 +297,8 @@ def dispatch(args):
                                  recorded_by="owner via job approve")
     # Preflight in the caller too: a missing/stale approval refuses synchronously before detaching.
     settings, cap = job_run.prepared_settings(root, rid)
+    if args.instruction_profile is not None and args.instruction_profile != settings.instruction_profile:
+        raise A.ApprovalRefused("stale", "instruction profile differs from the prepared request; estimate and approve that profile first")
     if settings.smoke != args.smoke:
         raise A.ApprovalRefused("stale", "smoke and ordinary runs require their own matching approval request")
     spec, _ = job_run.prepare_run(root, rid, settings=settings, cap=cap, resume=args.resume)
@@ -306,6 +313,8 @@ def dispatch(args):
         argv.append("--resume")
     if args.smoke:
         argv.append("--smoke")
+    if args.instruction_profile is not None:
+        argv.extend(["--instruction-profile", args.instruction_profile])
     if args.env_file is not None:
         argv.extend(["--env-file", str(args.env_file.resolve())])
     child = procs.spawn_detached(argv, cwd=Path(__file__).resolve().parents[2],

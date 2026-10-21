@@ -10,12 +10,19 @@ from scipy.ndimage import binary_erosion
 from ...g3d_host import compare as C
 from ...g3d_host.ar_camera import explicit_camera
 from .. import procs
+from ..instruction_profiles import LEGACY_PROFILE, legacy_text, resolve_profile
 from ..tool_timeouts import LOOK_CAPTURE_DEADLINE_S, LOOK_CAMERA_BATCH_SIZE
 from . import arview, look_panels, look_composition
 
 SCHEMA = "g3d.look_comparison/1"
-LENS_COLOUR_JUDGEMENT = ("Judge lens colour on the worn, on-face AR images against the lens colour in the owner photos; "
-                         "use the white-background panels for shape and see-through.")
+LENS_COLOUR_JUDGEMENT = ("Judge lens colour on the worn, on-face AR images against the owner photos. "
+                         "Use photo-background panels for shape, see-through and diagnostic measurements; "
+                         "a better photo-background colour number does not overrule the worn result. "
+                         "Report disagreements separately and explain the retained choice.")
+
+
+def lens_colour_judgement(profile=None):
+    return legacy_text("look_note") if resolve_profile(profile) == LEGACY_PROFILE else LENS_COLOUR_JUDGEMENT
 
 
 def worn_colour_images(rows, report, worn_directory, portrait):
@@ -168,11 +175,13 @@ def verified_report(root, record, digest):
 
 
 def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, worn=None, timeout_s=LOOK_CAPTURE_DEADLINE_S,
-            combine=False):
+            combine=False, profile=None):
     """Return an informational refusal on missing evidence; never alter the frozen basis or the export."""
     root = Path(root).resolve()
     base = {"schema": SCHEMA, "informational_only": True, "export_sha256": export.get("sha256"),
             "checkpoint": export.get("checkpoint"), "images": []}
+    if resolve_profile(profile) != LEGACY_PROFILE:
+        base["export_path"] = export.get("path")
     try:
         bs = C.load_basis(root, basis)
         wanted = bs.usable_refs() if refs is None else [C.ref_id(name) for name in refs]
@@ -316,7 +325,7 @@ def capture(root, export, call_id, *, refs=None, basis=None, front_only=False, w
                          "overflow uses additional images." if combine else
                          "Full pairs and native details are separate images.")
         result = {**base, "status": "ok", "lens_colour_gap": lens_colour_lines(rows),
-                  "lens_colour_judgement": LENS_COLOUR_JUDGEMENT,
+                  "lens_colour_judgement": lens_colour_judgement(profile),
                   "basis": bs.id, "basis_sha256": arview.sha256(bs.dir / "basis.json"),
                   "cameras_sha256": bs.meta["cameras_json_sha256"], "views": rows,
                   "unusable_refs": bs.unusable_refs(), "worn_front_path": str(portrait), "capture_reports": captures,
@@ -346,8 +355,11 @@ def tool_for(scene, tool, call):
     @tool("compare_look_to_photos")
     async def compare_look_to_photos(ctx: ToolContext, refs: list[str] | None = None, basis: str | None = None):
         """Like-for-like shape and appearance check: the owner's AR renderer at each frozen photo camera.
-        Judge lens hue and lightness on the worn, on-face images against the owner photos; photo-background
-        panels retain shape, see-through and frame-colour evidence. Fixed-room reflection highlights are expected
+        Judge lens colour on the worn, on-face AR images against the owner photos. Use photo-background panels
+        for shape, see-through and diagnostic measurements; a better photo-background colour number does not
+        overrule the worn result. Report disagreements separately and explain the retained choice.
+        Compare hue, lightness, colour distribution and see-through before retaining a lens candidate.
+        Fixed-room reflection highlights are expected
         and are not lens colour. Every successful call starts with the worn front on the test face, eyes legible,
         followed by the closest available visible-head worn angle for each photo, without duplicates, from the SAME export.
         Available worn angles can differ from the photo; matched_refs reports the angular difference.
@@ -373,5 +385,6 @@ def tool_for(scene, tool, call):
             basis: Frozen basis id; null uses the latest usable basis. Does not fit or modify cameras.
         """
         return await call(ctx, "compare_look_to_photos", lambda cid: capture(
-            scene.root, scene.seeing.export_head(call_id=cid), cid, refs=refs, basis=basis, combine=True))
+            scene.root, scene.seeing.export_head(call_id=cid), cid, refs=refs, basis=basis, combine=True,
+            profile=getattr(scene, "instruction_profile", None)))
     return compare_look_to_photos

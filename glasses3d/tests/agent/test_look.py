@@ -122,7 +122,7 @@ def test_new_sdk_tool_forwards_refs_and_exports_current_head(scene, monkeypatch)
     out = record(invoke(scene, "compare_look_to_photos", {"refs": ["front.png"], "basis": "basis-02"}))
     assert out["status"] == "unavailable"
     assert calls[0][0][1] == scene.export and calls[0][1] == {
-        "refs": ["front.png"], "basis": "basis-02", "combine": True}
+        "refs": ["front.png"], "basis": "basis-02", "combine": True, "profile": None}
 
 
 def test_successful_sdk_comparison_emits_one_sheet_with_list_view_records(scene, monkeypatch):

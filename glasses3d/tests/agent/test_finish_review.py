@@ -14,6 +14,9 @@ from glasses3d.tests.agent.test_job_tools import scene, finish_scene, invoke, re
 @pytest.fixture
 def review_scene(finish_scene, monkeypatch):
     scene = finish_scene
+    # These historical assertions cover the selectable, unchanged two-call behaviour.
+    # The decision profile's actionable-difference path is tested in test_task21_differences.
+    scene.instruction_profile = "legacy-20261021"
     scene.binding = {"basis": "basis-001", "basis_sha256": "basis-bytes", "cameras_sha256": "camera-bytes",
                      "photos": [{"ref": "front", "sha256": "photo-front"}, {"ref": "top", "sha256": "photo-top"}]}
     def evidence(root, head, export):
@@ -221,11 +224,13 @@ def test_unseen_cleanup_failure_preserves_the_original_delivery_error(review_sce
 def test_sdk_review_receipt_survives_reload_and_second_call_accepts(review_scene):
     fake = review_scene
     durable = JobScene(fake.root, job={})
+    durable.instruction_profile = fake.instruction_profile
     fake.s.index = durable.s.index
     durable.s, durable.seeing = fake.s, fake.seeing
     initial = first(durable)
     assert initial["status"] == "review_required"
     reopened = JobScene(fake.root, job={})
+    reopened.instruction_profile = fake.instruction_profile
     assert reopened.finish_review == durable.finish_review
     assert reopened.finish is None
     reopened.s, reopened.seeing = fake.s, fake.seeing

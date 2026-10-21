@@ -25,15 +25,17 @@ def settings(parent, owner_edit):
 
 def registry(scene, child_settings):
     from ..tools import build_tools
+    scene.instruction_profile = child_settings.instruction_profile
     return [tool for tool in build_tools(scene, child_settings) if tool.name != "temple_stage"]
 
 
 def contract(job, parent_settings, maximum_usd, owner_edit):
     child_settings = settings(parent_settings, owner_edit)
     tools = registry(SimpleNamespace(root=None, owner_edit=owner_edit), child_settings)
-    spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=owner_edit), tools,
+    spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=owner_edit,
+                     profile=child_settings.instruction_profile), tools,
                      "Current actual mesh and the host-sealed owner edit round.", child_settings,
-                     contract=instruction_contract(tools, owner_edit=owner_edit),
+                     contract=instruction_contract(tools, owner_edit=owner_edit, profile=child_settings.instruction_profile),
                      contract_brief=brief.host_text(job))
     return StageContract.from_spec(spec, maximum_usd)
 
@@ -89,13 +91,15 @@ def run(scene, runtime, bridge, call_id, cap_usd, child_settings):
         child.start()
         bridge.check()
         tools = registry(child, child_settings)
-        spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=child.owner_edit), tools,
+        spec = StageSpec("temple_stage", build_instructions(tools, owner_edit=child.owner_edit,
+                        profile=child_settings.instruction_profile), tools,
             brief.build_brief(child.job) + edits.brief_suffix(child.owner_edit), child_settings,
             photos=jobs.references(folder) + owner_capture_references(folder, child.owner_edit),
             scene_note=(f"Private owner-edit specialist: exact current parent head {source['head']['id']}. "
                         "No template or earlier specification has replaced this mesh. "
                         + money_note(runtime, child_settings, cap_usd)),
-            contract=instruction_contract(tools, owner_edit=child.owner_edit), contract_brief=brief.host_text(child.job))
+            contract=instruction_contract(tools, owner_edit=child.owner_edit, profile=child_settings.instruction_profile),
+            contract_brief=brief.host_text(child.job))
         outcome = bridge.run(runtime, spec, child, cap_usd, call_id)
         outcome["progress"] = progress(child, folder, scene.root)
         write_json_atomic(folder / "stage-outcome.json", outcome)

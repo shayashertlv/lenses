@@ -386,7 +386,8 @@ def test_async_desktop_mailbox_renews_real_loop_from_token_pressure_with_simulat
     assert renewal['summary_sha256'] == hashlib.sha256(summary.encode()).hexdigest()
     original, summarized, fresh, continued = mailbox.transport.creates
     assert summarized['tool_choice'] == 'none'
-    assert summarized['input'][-1]['content'] == N.SUMMARY_REQUEST
+    # This synthetic toolset has no record_difference and keeps the independent summary protocol.
+    assert summarized['input'][-1]['content'] == N.summary_request('legacy-20261021')
     assert summarized['input'][:-1] == mailbox.transport.counts[1]['input']
     assert len(mailbox.transport.counts) == 5, 'the unsent pressure candidate must still be counted'
     assert original['instructions'] == fresh['instructions'] and original['tools'] == fresh['tools']

@@ -107,7 +107,7 @@ def test_default_sdk_behavior_is_unchanged_and_settled_only_is_bound():
     default = L.RunSettings(effort="max")
     assert default.behavior() == {}
     assert default.approval_settings() == {"effort": "max", "max_output_tokens": 16384, "max_turns": 60,
-                                           "settled_only": True}
+                                           "settled_only": True, "instruction_profile": "decision-20261021"}
     assert L.tool_registry_sha256(tools, default) == L.tool_registry_sha256(tools)
     assert L.build_model_settings(default).tool_choice is None
     agent = L.build_agent("x", tools, default)
@@ -120,6 +120,7 @@ def test_facet_settings_are_bound_into_the_approval_and_the_registry_sha():
     guard = L.RunSettings(**{**FACET.__dict__, "context_guard_tokens": 240_000})
     assert FACET.approval_settings() == {
         "effort": "max", "max_output_tokens": 4096, "max_turns": 10, "settled_only": True,
+        "instruction_profile": "decision-20261021",
         "tool_choice": "required",
         "reset_tool_choice": False, "finish": {"tool": "facet_finish", "behavior": L.FINISH_BEHAVIOR, "k": 4}}
     assert guard.approval_settings()["context_guard"] == {"input_tokens": 240_000, "filter": L.CONTEXT_GUARD}

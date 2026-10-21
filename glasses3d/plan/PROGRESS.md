@@ -1,5 +1,44 @@
 # glasses3d progress
 
+## 2026-10-21 — Task 21: decision profiles and host-kept differences ($0; lab next)
+
+Owner's words, verbatim:
+- "it seems like a small issue to be sent on its own, or am i wrong here? id just rather sending you on bigger quests than changing a couple of words"
+- "id like all of this work to be as quick as it can (not fast, but efficient!)"
+- "go ahead ... please max utilize this machine for fastest overall work."
+
+Implemented task 20 proposals #2–#10, the restructure and host-kept differences; #1 (part plan before construction)
+remains excluded. The default `decision-20261021` main is 9,991 characters, down from 16,321; tool descriptions hold
+mechanics. It connects mismatch/cause/evidence to improvement/regression, keep/restore and formal-best saving.
+Worn lens colour has consistent priority; photo-background measurements cannot overrule it. Paging follows the
+decision; the no-tool note is neutral. The 24,000 cap, owner hard rules and canonical cutoff sentence remain.
+`legacy-20261021` preserves 28abe77 main/tool metadata, notes, renewal request and finish behaviour, including the
+owner specialist's scoped description. CLI estimate/run selection binds the approval and run records.
+
+`record_difference` keeps append-only per-run items with delivered current-run comparison evidence. First-finish
+faults map to items. Open items and stale resolved evidence refuse acceptance; fixed needs a current comparison,
+and limitation also needs a specific reason. Astra classifies items; no appearance score, reserve or forced spend
+was added. Renewal carries the list and formal best; Task 17 scheduling is unchanged. Main-tool specialists have
+private durable lists; ordinary temple specialists retain their separate state. Cutoff drafts still use formal best.
+
+E2's final exit line (12:29:22+03:00, commit `da3cd0c`) preceded all Task 21 heavy checks. Its files were not edited
+or staged. Functional pass, once: 6,030 passed / 2 skipped / 3 failed in 1,204.99 s, 8 workers after measuring
+34.144 GiB free commit and considering E2's 14-worker deadline failure. Two test expectations needed profile-aware
+updates; the third caught a paraphrased cutoff sentence, restored verbatim without weakening its assertion.
+Affected checks passed: 104 prompt/money, 35 look, and 1 desktop renewal. Photoprint: 367 passed / 425.69 s;
+serial timing: 29 passed / 285.77 s, unchanged deadlines. All heavy jobs ran sequentially with BLAS 1 and receipts.
+
+Fresh `assembly_m1` passed in 173.219 s: open item → refused finish → supported limitation → accepted finish,
+16 scripted requests, 35 verified AR images, $0 actual spend; proof `data/assembly/m1-proof-cc4c474f/proof.json`.
+The earlier E2 assembly found a Task 21 proof assertion reading a paged field; it now verifies the full report's
+hash before reading that field. Runtime finish checks were unchanged. Current/old-finish falsification: 17 current
+passes versus 8 expected old failures and 9 evidence controls; legacy text hashes match 28abe77.
+
+Next: four baseline lens trials on this implementation commit, with the adapted HEAD-pinned instruction loader.
+The lab's terminal finish does not exercise production finish, renewal or the list. Report and full texts:
+`data/review_20261018/codex/task21_report.md` and `task21_texts.json`. No paid call, push, original-job edit or
+owner appearance judgement; ignored evidence stays out of Git.
+
 ## 2026-10-21 — Task 20: Astra instruction-thinking review ($0, read-only)
 
 Reviewed the actual product-run instructions at task-18 HEAD `77aad88`, the built brief and 26-tool registry,

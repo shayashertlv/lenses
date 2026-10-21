@@ -14,6 +14,7 @@ from . import delivery as D, verdicts, procs, edits, edit_capabilities, resume a
 from .budget import cap_to_micro
 from .job_scene import JobScene
 from .instructions import build_instructions, instruction_contract, MAX_INSTRUCTION_CHARS
+from .instruction_profiles import resolve_profile
 from .loop import RESULT_SCHEMA, RunSettings, RunSpec, approval_settings, run_astra, tool_registry_sha256
 from .temple_lab import stage as temple_stage
 from .tools import build_tools
@@ -50,8 +51,8 @@ class _FullEditItemScene(JobScene):
         return result
 
 
-def instructions_text(tools) -> str:
-    return build_instructions(tools)
+def instructions_text(tools, *, profile=None) -> str:
+    return build_instructions(tools, profile=profile)
 
 
 def new_run_id() -> str:
@@ -59,7 +60,7 @@ def new_run_id() -> str:
 
 
 def prepare_run(root, run_id=None, *, settings=None, cap=None, write_request=False, resume=False,
-                scene=None, offline_handler=None, env_file=None):
+                scene=None, offline_handler=None, env_file=None, instruction_profile=None):
     root = Path(root).resolve()
     job = jobs.load_job(root)
     fallback = owner_fallback.load(root)
@@ -67,6 +68,8 @@ def prepare_run(root, run_id=None, *, settings=None, cap=None, write_request=Fal
         settings = settings_full_edit_item(cap or "20") if fallback else settings_default()
         if cap is not None:
             settings = replace(settings, settled_stop_usd=cap)
+    profile = resolve_profile(instruction_profile if instruction_profile is not None else settings.instruction_profile)
+    settings = replace(settings, instruction_profile=profile)
     cap = settings.settled_stop_usd if cap is None else cap
     owner_edit = edits.load(root)
     if fallback:
@@ -104,9 +107,10 @@ def prepare_run(root, run_id=None, *, settings=None, cap=None, write_request=Fal
             raise ValueError("full edit item requires the unrestricted main-run scene")
         scene.full_edit_item = fallback
     scene.scripted = offline_handler is not None
+    scene.instruction_profile = profile
     tools = build_tools(scene, settings)
     stages = () if settings.smoke else (temple_stage.contract(job, settings, cap, **({"owner_edit": owner_edit} if owner_edit else {})),)
-    instructions = build_instructions(tools, owner_edit=owner_edit) if owner_edit else instructions_text(tools)
+    instructions = build_instructions(tools, owner_edit=owner_edit, profile=profile)
     text = brief.build_brief(job) + (edits.brief_suffix(owner_edit) if owner_edit else "")
     if fallback:
         instructions += owner_fallback.instructions_suffix(fallback)
@@ -132,7 +136,7 @@ def prepare_run(root, run_id=None, *, settings=None, cap=None, write_request=Fal
                        + "; mode full_edit_item." if fallback else
                        "Start from the exact delivered checkpoint; phase " + owner_edit["phase"]
                        if owner_edit else resume_plan.scene_note(session_binding) if resume else "Start with the empty job template."),
-                   contract=instruction_contract(tools, owner_edit=owner_edit), contract_brief=brief.host_text(job),
+                   contract=instruction_contract(tools, owner_edit=owner_edit, profile=profile), contract_brief=brief.host_text(job),
                    offline_handler=offline_handler,
                    env_file=env_file,
                    offline_api_key="sk-offline-job-proof" if offline_handler is not None else None)
@@ -173,6 +177,9 @@ def prepared_settings(root, run_id) -> tuple[RunSettings, str]:
         raise A.ApprovalRefused("missing", "job estimate must create a run request first")
     doc = json.loads(path.read_text(encoding="utf-8"))
     values = dict(doc["request"]["settings"])
+    # Pre-profile approvals were made against the legacy instruction surface. The
+    # usual request hash still rejects any changed implementation or other input.
+    values.setdefault("instruction_profile", "legacy-20261021")
     values.setdefault("settled_only", False)  # preserve historical approval semantics; prepare_run refuses execution
     values.pop("session", None)  # re-read and bind the current saved history in prepare_run
     if values.get("smoke") is True:

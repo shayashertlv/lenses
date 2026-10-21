@@ -176,7 +176,8 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
         assert args["tool"] == rec["tool"] == jr["tool"] == journal[cid]["tool"] == name
         assert isinstance(rec["result"], list) and rec["result"][0]["type"] == "text"
         output = json.loads(rec["result"][0]["text"])
-        status = "review_required" if name == "finish" and i < n else expected_status.get(name, "ok")
+        status = ("review_required" if name == "finish" and args["arguments"].get("review_call_id") is None else
+                  "refused" if name == "finish" and i < n else expected_status.get(name, "ok"))
         assert output["status"] == jr["status"] == journal[cid]["status"] == status, (name, output)
         if name == "render_views":
             rendered = read(local(output["manifest"]))
@@ -241,6 +242,22 @@ def check_receipts(job: Path, run_id: str, expected_tools: list[str]) -> dict:
             "verified_ar_images": len(capture["images"]), "receipts_clean": True}
 
 
+def check_decisions(job: Path, run_id: str, difference_id: str):
+    """Audit the refusal and resolution, following the hash-bound full report when paged."""
+    run_dir = job / "runs" / run_id
+    refused = json.loads((run_dir / "tools/0014-finish/result.json").read_text(encoding="utf-8"))
+    output = json.loads(refused["result"][0]["text"])
+    assert output["status"] == "refused" and output["code"] == "E_DIFFERENCES", output
+    if output.get("paged"):
+        receipt = output["full_report"]
+        path = (job / receipt["path"]).resolve()
+        assert path.is_relative_to(job.resolve()) and approvals.file_sha256(path) == receipt["sha256"]
+        output = json.loads(path.read_text(encoding="utf-8"))["result"]
+    assert output["open_difference_ids"] == [difference_id], output
+    decisions = [json.loads(line) for line in (run_dir / "differences.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [row["item"]["status"] for row in decisions if row["kind"] == "difference"] == ["open", "limitation"]
+
+
 def run():
     started = time.monotonic()
     token = uuid4().hex[:8]
@@ -291,12 +308,26 @@ def run():
                                                       "stations_table": False}),
                replay.tool_call("compare_to_photos", {"refs": None, "parts": "all", "size_px": 640, "basis": None}),
                replay.tool_call("export_glb"), replay.tool_call("arview_capture"),
-               replay.tool_call("compare_look_to_photos", {"refs": None, "basis": None}),
-               replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR."}),
-               replay.tool_call("finish", {"summary": "Reviewed every full photo comparison, native detail and worn front in this scripted procedure proof.",
-                   "review_call_id": "call_0012", "per_photo": [
-                       {"ref": Path(name).stem, "differences": "Scripted procedure proof; no automated likeness judgment."}
-                       for name in TRUTH]})]
+               replay.tool_call("compare_look_to_photos", {"refs": None, "basis": None})]
+    difference = {"id": "synthetic-colour", "what_differs": "The synthetic reference colours encode silhouettes, not the authored material.",
+                  "evidence_ref": "call_0011", "status": "open", "last_correction": "No material correction tried.",
+                  "outcome": "Shape has been compared, but the synthetic palette is not a product appearance target.",
+                  "next_action": "Review the current comparison and classify the synthetic colour limitation.",
+                  "refs": [Path(name).stem for name in TRUTH], "reason": None}
+    photo_rows = [{"ref": Path(name).stem, "differences": difference["what_differs"],
+                   "difference_ids": [difference["id"]]} for name in TRUTH]
+    replies += [
+        replay.tool_call("record_difference", difference),
+        replay.tool_call("finish", {"summary": "Synthetic offline frame and lenses, cameras fitted, compared, validated and captured in AR.",
+                                    "per_photo": photo_rows}),
+        replay.tool_call("finish", {"summary": "Attempting finish with the recorded open synthetic colour difference.",
+                                    "review_call_id": "call_0013", "per_photo": photo_rows}),
+        replay.tool_call("record_difference", {**difference, "status": "limitation", "evidence_ref": "call_0013",
+            "reason": "These procedural photos deliberately encode a hard silhouette; their false colour cannot validate material likeness.",
+            "outcome": "The delivered current comparison shows the silhouette-coded reference beside the authored material.",
+            "next_action": "No material correction justified by synthetic false colour; owner appearance remains untested."}),
+        replay.tool_call("finish", {"summary": "Scripted differences reconciliation passed; no automated likeness judgment.",
+                                    "review_call_id": "call_0013", "per_photo": photo_rows})]
     transport = replay.ScriptedOpenAI(replies)
     settings = replace(job_run.settings_default(), max_turns=len(replies) + 1)
     spec, _ = prepare_offline_request(job, "offline-proof", transport.handle, settings=settings)
@@ -309,7 +340,8 @@ def run():
     receipt_checks = check_receipts(job, spec.run_id, [
         "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "seat_lens", "seat_lens",
         "check_lens_seating", "compare_to_photos", "export_glb",
-        "arview_capture", "compare_look_to_photos", "finish", "finish"])
+        "arview_capture", "compare_look_to_photos", "record_difference", "finish", "finish", "record_difference", "finish"])
+    check_decisions(job, spec.run_id, difference["id"])
     basis = json.loads(next((job / "cameras").rglob("cameras.json")).read_text())
     for name, rec in basis["images"].items():
         _, yaw, pitch, _, _ = TRUTH[name]

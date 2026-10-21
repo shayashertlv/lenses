@@ -112,6 +112,30 @@ def test_current_head_main_matches_production_builder(tmp_path):
     assert head["instructions"] == build_instructions(tools)
 
 
+def test_head_builder_pins_profile_code_and_snapshot_together(tmp_path, monkeypatch):
+    sources = {
+        "brief.py": b'MODEL_REQUIREMENTS = "committed"\ndef build_brief(job): return job["description"]',
+        "instructions.py": (
+            b'from .brief import MODEL_REQUIREMENTS\n'
+            b'CORE_GUIDANCE = {"core": "core"}\nSPECIALIST_GUIDANCE = {}\n'
+            b'def build_instructions(tools):\n'
+            b'    from .instruction_profiles import resolve_profile, legacy_instruction_parts\n'
+            b'    return resolve_profile() + legacy_instruction_parts()["text"]\n'),
+        "instruction_profiles.py": (
+            b'from pathlib import Path\nimport json\n'
+            b'def _legacy(): return json.loads(Path(__file__).with_name("legacy_20261021.json").read_text())\n'
+            b'def resolve_profile(): return "committed-default:"\n'
+            b'def legacy_instruction_parts(): return _legacy()["instruction_parts"]\n'),
+        "legacy_20261021.json": b'{"instruction_parts":{"text":"frozen parts"}}',
+    }
+    monkeypatch.setattr(trial, "git_bytes", lambda repo, *args:
+                        b"frozen-head" if args == ("rev-parse", "HEAD") else sources[args[1].split("/")[-1]])
+    result = trial.head_prompt_sources(tmp_path, {"description": "exact"})
+    assert result["instructions"] == "committed-default:frozen parts"
+    assert len(result["source_sha256"]) == 4
+    assert result["source_sha256"]["glasses3d/agent/legacy_20261021.json"] == trial.sha256(sources["legacy_20261021.json"])
+
+
 def test_prompt_is_two_verbatim_parts_then_one_recipe_free_paragraph(private_trial):
     _, directory, _, _ = private_trial
     sources = {"instructions": " main text\nwith original whitespace ", "brief": "owner's\nexact brief"}

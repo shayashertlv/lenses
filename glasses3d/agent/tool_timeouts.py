@@ -62,7 +62,7 @@ HARD_TIMEOUT_S = {
     "fit_cameras": 1800, "project_photo_texture": 1800, "deliver": 600,
     "pick_surface_point": PICK_DEADLINE_S, "read_image": 30, "read_report": 30,
     "scene_summary": READ_DEADLINE_S, "compare_look_to_photos": 750,
-    "finish": 1080, "budget_status": 30,
+    "finish": 1080, "budget_status": 30, "record_difference": 30,
     "facet_inspect": 30, "photo_image": 30, "photo_read": 30, "photo_compare": 40,
     "facet_edit": 60, "facet_variants": 90,
     "facet_finish": CHECKPOINT_DEADLINE_S + EXPORT_DEADLINE_S + FACET_DEADLINE_MARGIN_S,
@@ -202,7 +202,7 @@ def inner_steps_s(tool_name: str, *, photo_count=1, matched_rig=None) -> float |
         "facet_owner_edit": read_steps_s(OWNER_SNAPSHOT_DEADLINE_S) + mutation(OWNER_APPLY_DEADLINE_S) + owner_check,
         "preview_owner_edit": ((PREVIEW_OPTIONS_MAX + 3) * worker_rpc_steps_s(READ_DEADLINE_S) +
                                export + look_steps_s(photo_count=photo_count) + PREVIEW_OPTIONS_MAX * option),
-        **{name: HARD_TIMEOUT_S[name] for name in ("read_image", "read_report", "budget_status", "photo_read",
+        **{name: HARD_TIMEOUT_S[name] for name in ("read_image", "read_report", "budget_status", "record_difference", "photo_read",
             "photo_image", "facet_inspect", "project_photo_texture", "deliver")},
         "photo_compare": matched + read_steps_s(HARD_TIMEOUT_S["photo_compare"]),
         "facet_edit": facet_edit,

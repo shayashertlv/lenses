@@ -58,7 +58,7 @@ def test_all_optional_specialists_are_absent_until_registered_and_fit_cap(tools)
     core = I.build_instructions(tools)
     registered = set(TOOL_NAMES) & I.SPECIALIST_GUIDANCE.keys()
     assert registered == {"seat_lens", "hide_eyewire", "check_lens_seating", "unseat_lens", "unhide_eyewire",
-                          "temple_stage", "photo_print", "labelled_model_map"}
+                          "temple_stage", "photo_print", "labelled_model_map", "record_difference"}
     assert I.named_tools(core) & I.SPECIALIST_GUIDANCE.keys() == registered
     pending = I.SPECIALIST_GUIDANCE.keys() - registered
     for name in pending:
@@ -156,37 +156,35 @@ def test_guidance_teaches_recorded_decisions_and_stage_order(tools):
     for phrase in ("closed solid", "Every supplied product photo from the owner is authoritative",
                    "Photos decide appearance", "Report every conflict", "A colourway name does not determine",
                    "Small branding stays", "Room reflections on lenses are not defects", "one fixed reflection",
-                   "crystal and translucent", "complex pattern such as tortoiseshell", "photo-derived print",
-                   "Plain frames need material, colour", "earlier owner complaints"):
+                   "crystal and translucent", "complex patterns such as tortoiseshell", "photo-derived print",
+                   "plain frames need material/finish edits", "earlier owner complaints"):
         assert phrase in text
-    assert text.index("Develop the complete frame and lenses") < text.index("Resolve lens") < text.index("Apply photo print")
-    assert text.index("Use `export_glb`") < text.index("Use `arview_capture`") < text.index("Call `finish`")
+    assert text.index("Develop the complete frame/lenses") < text.index("Resolve lens") < text.index("Apply photo print")
+    assert text.index("`export_glb`") < text.index("`arview_capture`") < text.index("`finish`")
 
 
 def test_faint_facet_guidance_keeps_named_evidence_through_finish(tools):
-    text = I.build_instructions(tools)
+    text = " ".join(I.build_instructions(tools).split())
     assert "facet edges crisp in photos but faint in the build" in text
     assert "angle comparison/choice" in text
-    assert "named mismatches and crops from the stage summary into the finish review" in text
+    assert "named mismatches and crops into finish review" in text
 
 
 def test_construction_guidance_compares_lens_materials_and_temple_sections(tools):
     lens = (
-        "Choose body tint, transmission, surface reflection and any thin-film coating by their combined agreement "
-        "with the photographs in the browser comparison. A visible colour shift does not establish matching "
-        "brightness, saturation or colour distribution. Keep a comparison checkpoint before a material "
-        "experiment, and compare the candidate with it in the same views before retaining the change."
+        "Before retaining a lens material, compare hue, lightness, colour distribution and see-through with the saved "
+        "candidate in the same views. Name the winning tradeoff; stronger coloured reflection alone does not prove a "
+        "closer match."
     )
     temple = (
-        "Judge temple section width, relief and transitions in top, rear and oblique evidence as well as the side "
-        "silhouette. A stronger longitudinal highlight does not by itself prove the section matches. When a "
-        "fitted camera is ambiguous, compare its alternatives and use the other photographs to identify "
-        "differences visible under either camera."
+        "Judge temple section width, relief and transitions in top, rear and oblique evidence as well as side "
+        "silhouette; stronger longitudinal highlights alone do not prove a match. For ambiguous cameras compare alternatives "
+        "and other photos; refit only for an identified reason."
     )
     main = " ".join(I.build_instructions(tools).split())
     assert main.count(lens) == main.count(temple) == 1
-    assert main.index("2. Build a measurable model") < main.index(temple) < main.index("3. Complete construction")
-    assert main.index("3. Complete construction") < main.index(lens) < main.index("4. Review the best state")
+    assert main.index("5. Judge geometry and appearance") < main.index(temple) < main.index(lens)
+    assert main.index(lens) < main.index("6. Best state and finish")
     for phase in ("understand", "edit"):
         owner = {"phase": phase}
         registered = build_tools(SimpleNamespace(root=None, owner_edit=owner))
@@ -209,8 +207,8 @@ def test_lens_metallic_guidance_matches_pinned_browser_shader(tools):
     )
     main = " ".join(I.build_instructions(tools).split())
     assert main.count(sentence) == 1
-    assert main.index("Judge lens tint, transmission, curvature and coating together.") < main.index(sentence)
-    assert main.index(sentence) < main.index("Choose body tint, transmission, surface reflection")
+    assert main.index("Judge tint, transmission, curvature and coating together;") < main.index(sentence)
+    assert main.index(sentence) < main.index("Judge lens colour on the worn, on-face AR images")
     # Owner-edit phases have a separate object text and do not inherit this construction guidance.
     for phase in ("understand", "edit"):
         owner = {"phase": phase}
@@ -233,9 +231,9 @@ def test_coating_description_names_base_colour_target_and_preserved_alpha(tools)
 
 def test_shape_edits_receive_full_visual_review_and_owner_money_stays_scoped(tools):
     main = I.build_instructions(tools)
-    assert "After each shape, colour or material edit, use `compare_look_to_photos`" in main
-    assert "full-size photo/render pairs and close-ups for edges, rounding, rims, facets" in main
-    assert "Do not finish while a visible difference you can still fix remains" in main
+    assert "After editing, compare with the saved candidate in the same relevant views" in main
+    assert "`compare_look_to_photos`: same-export worn colour, photo pairs, details and side-light evidence" in main
+    assert "refuses open items and unknown or stale evidence references" in main
     assert "finish runway" not in main
     owner = {"phase": "edit"}
     text = I.build_instructions(build_tools(SimpleNamespace(root=None, owner_edit=owner)), owner_edit=owner)
@@ -307,13 +305,14 @@ def test_report_guidance_names_fields_the_current_tools_return(tools):
     for name, fields in expected.items():
         assert name in {tool.name for tool in tools}
         for field in fields:
-            assert field in I.CORE_GUIDANCE[name]
+            teaching = I.CORE_GUIDANCE[name] + " " + next(t.description for t in tools if t.name == name)
+            assert all(part in teaching for part in field.split()), (name, field)
     assert "before the settled stop" not in I.CORE_GUIDANCE["finish"]
-    assert "revisit every difference" in I.CORE_GUIDANCE["finish"]
+    assert "Reconcile important differences with current evidence" in I.build_instructions(tools)
     assert "money" not in I.CORE_GUIDANCE["finish"]
-    assert "Do not finish while a visible difference you can still fix remains" in I.CORE_GUIDANCE["finish"]
+    assert "refuses open items and unknown or stale evidence references" in I.build_instructions(tools)
     assert "finish runway" not in I.CORE_GUIDANCE["finish"]
-    assert "per_photo differences" in I.CORE_GUIDANCE["finish"]
+    assert "per_photo" in next(t.description for t in tools if t.name == "finish")
 
     # Check the implementation's actual dictionary keys, rather than accepting a new field invented in the text.
     root = Path(__file__).parents[2]

@@ -26,7 +26,7 @@ def no_production(monkeypatch):
 
 
 def setup(root, replies, *, stage_cap="2", allowance="2", parent_cap="5", max_turns=10, alter=None,
-          child_scene=None, owner_notes=(), stage_notes=()):
+          child_scene=None, owner_notes=(), stage_notes=(), stage_tools=None, child_settings=None):
     scene = FakeScene()
     child_scene = child_scene or FakeScene()
     results = []
@@ -43,9 +43,9 @@ def setup(root, replies, *, stage_cap="2", allowance="2", parent_cap="5", max_tu
         """End an accepted specialist stage."""
         return json.dumps({"status": "accepted"})
 
-    child_tools = [look, facet_finish]
+    child_tools = [look, facet_finish] if stage_tools is None else stage_tools
     child = L.StageSpec("temple", tool_instructions(child_tools, "Private temple specialist."), child_tools,
-                        BRIEF, CHILD, photos=photos(2), owner_notes=stage_notes,
+                        BRIEF, child_settings or CHILD, photos=photos(2), owner_notes=stage_notes,
                         contract=L.ToolContract(frozenset(t.name for t in child_tools)))
     contract = L.StageContract.from_spec(child, allowance)
 

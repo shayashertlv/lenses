@@ -91,6 +91,7 @@ from .receipts import BlobStore, Cleaner, ReviewLog, StopRequested, write_json
 from .session_inputs import ReferenceInput, plan_session_input
 from .snapshot import capture as capture_implementation
 from .renewal import ConversationRenewal, RenewalNeeded, find_error
+from .instruction_profiles import resolve_profile, legacy_text
 
 AGENT_NAME = "Astra"
 SESSION_ID = "astra"
@@ -111,7 +112,8 @@ CONTEXT_GUARD_PERIODIC = "g3d.context_guard/3"  # request cadence and per-output
 # Keep the old default unchanged so deserializing an approval reproduces its exact binding.
 CONTEXT_GUARD_BYTES = PAYLOAD_LIMIT_BYTES // 2
 CONTINUATION_NOTE = ("Your previous response was cut off at the output limit and was not recorded. Continue.")
-FINISH_NOTE = "Your reply called no tool. The run ends only when `{tool}` returns status accepted."
+FINISH_NOTE = ("No accepted finish was recorded. Continue with the next justified tool action, or complete the "
+               "pending finish review after inspecting its evidence. A text reply alone does not complete the run.")
 DANGLING_OUTPUT = ("interrupted: the run ended before this call returned; it has no result and any effect it had on "
                    "the scene was rolled back")
 INFERENCE_TIMEOUT_S = 900.0         # the model-wait ceiling (observed maximum 165 s)
@@ -120,6 +122,13 @@ HEARTBEAT_INTERVAL_S = 2.0
 LOAD_WATCH_INTERVAL_S = 30.0        # LoadWatch: how often a run looks for other Blender / pytest work
 STATUS_LINE_AFTER_S = 30.0
 STOP_FILE = "stop.requested"
+
+
+def finish_note(tool, profile=None):
+    """Neutral continuation for the decision profile; exact historical note for legacy."""
+    template = (legacy_text("no_tool_finish_note_template")
+                if resolve_profile(profile) == "legacy-20261021" else FINISH_NOTE)
+    return template.format(tool=tool)
 
 
 class RunRefused(Exception):
@@ -217,6 +226,7 @@ class RunSettings:
     context_guard_bytes: int | None = None
     context_guard_every_requests: int | None = None
     smoke: bool = False
+    instruction_profile: str = "decision-20261021"
 
     def guard_bytes(self) -> int | None:
         """The legacy byte rung used by approval binding and historical cost projections."""
@@ -247,7 +257,8 @@ class RunSettings:
         return out
 
     def approval_settings(self) -> dict:
-        settings = {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns}
+        settings = {"effort": self.effort, "max_output_tokens": self.max_output_tokens, "max_turns": self.max_turns,
+                    "instruction_profile": resolve_profile(self.instruction_profile)}
         if self.fit_output_to_budget:
             settings["fit_output_to_budget"] = True
         if self.settled_stop_usd is not None:
@@ -639,9 +650,10 @@ class SmokeOnce:
 class RunStatus:
     """SDK context: shared settled spend, owner cutoff and last counted input for tool footers."""
 
-    def __init__(self, guard: BudgetGuard | None = None, runtime=None, *, finish_tool="finish"):
+    def __init__(self, guard: BudgetGuard | None = None, runtime=None, *, finish_tool="finish", scene=None):
         self.guard = guard
         self.runtime = runtime
+        self.scene = scene
 
     async def run_stage(self, spec: StageSpec, scene: SceneHooks, cap_usd, call_id):
         if self.runtime is None:
@@ -656,7 +668,24 @@ class RunStatus:
                 "context_tokens": summary["planning"]["last_counted_input_tokens"]}
 
     def footer(self) -> str:
-        return footer_text(**self.numbers())
+        text = footer_text(**self.numbers())
+        if self.scene is None:
+            return text
+        from . import differences
+        if not differences.enabled(self.scene):
+            return text
+        state = self.scene.renewal_state()
+        best = differences.formal_best(self.scene)
+        rows = differences.snapshot(self.scene)
+        open_ids = [row["id"] for row in rows if row["status"] == "open"]
+        fixed = sum(row["status"] == "fixed" for row in rows)
+        limitations = sum(row["status"] == "limitation" for row in rows)
+        shown_open = ", ".join(open_ids[:8]) or "none"
+        if len(open_ids) > 8:
+            shown_open += f", +{len(open_ids) - 8} more"
+        return (f"{text}\nHost state: head {state.get('head_checkpoint') or 'none'}; "
+                f"formal best {best.get('checkpoint') or 'none'}; "
+                f"differences open {shown_open}; fixed {fixed}; limitation {limitations}.")
 
 
 def footer_text(settled_usd=None, cap_usd=None, context_tokens=None, *, settled_stop_usd=None,
@@ -768,6 +797,17 @@ class StageRuntime:
         started = self.log.interactions
         try:
             directory.mkdir(parents=True, exist_ok=False)
+            settings = spec.settings
+            scene.instruction_profile = resolve_profile(settings.instruction_profile)
+            decision_tools = any(tool.name == "record_difference" for tool in spec.tools)
+            if decision_tools:
+                # Main-tool specialists need their own durable decision list and best
+                # mark. Receipts still share the parent's namespaced tool log and money.
+                stage_log = SimpleNamespace(
+                    run_id=directory.name, run_dir=directory,
+                    record_journal=lambda cid, journal: self.log.record_journal(
+                        f"stage:{call_id}:{cid}", {**journal, "stage": call_id}))
+                scene.bind_review_log(stage_log)
             session = BlobSession(SESSION_ID, directory / "session.sqlite", blobs=self.blobs)
             notes = tuple(dict.fromkeys((*self.owner_notes, *spec.owner_notes)))
             plan = plan_session_input([], prompt=spec.brief, photos=spec.photos, owner_notes=notes,
@@ -775,7 +815,6 @@ class StageRuntime:
             write_json(directory / "input-receipt.json", plan.receipt)
             self.log.note(f"Stage {spec.name} started ({call_id}).", stage=spec.name, stage_call_id=call_id,
                           contract=approved.binding())
-            settings = spec.settings
             renewal = ConversationRenewal(spec=spec, scene=scene, session=session, log=self.log,
                                           guard=self.guard, client=self.client, directory=directory,
                                           owner_notes=notes)
@@ -784,7 +823,8 @@ class StageRuntime:
                     status, output = await _drive(build_agent(spec.instructions, spec.tools, settings), plan.content,
                         session=session, log=self.log, guard=self.guard,
                         run_config=build_run_config(self.client), settings=settings,
-                        state=state, context=RunStatus(self.guard, finish_tool=settings.finish_tool),
+                        state=state, context=RunStatus(self.guard, finish_tool=settings.finish_tool,
+                                                       scene=scene if decision_tools else None),
                         hooks=_SharedHooks(self.log, self.maximum, scene, call_id), renewal=renewal)
                 except BaseException as exc:
                     if any(isinstance(item, StageBudgetExceeded) for item in _chain(exc)):
@@ -1322,6 +1362,10 @@ def _versions() -> dict:
 
 def _validate_spec(spec: RunSpec) -> None:
     settings = spec.settings
+    try:
+        resolve_profile(settings.instruction_profile)
+    except (ValueError, TypeError) as error:
+        raise RunRefused(str(error)) from error
     if settings.effort not in EFFORTS:
         raise RunRefused(f"effort must be one of {', '.join(EFFORTS)}")
     for name in ("max_output_tokens", "max_turns"):
@@ -1508,7 +1552,7 @@ async def _drive_loop(agent: Agent, first_input: list[dict], *, session, log: Re
         state["finish_notes"] += 1
         log.note(f"The reply ended without an accepted `{finisher.tool}`; host note {state['finish_notes']} of "
                  f"{settings.max_continuations}.", finish_note=state["finish_notes"])
-        run_input = [{"role": "user", "content": FINISH_NOTE.format(tool=finisher.tool)}]
+        run_input = [{"role": "user", "content": finish_note(finisher.tool, settings.instruction_profile)}]
 
 
 async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=None) -> dict:
@@ -1517,6 +1561,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
     Raises ``ApprovalRefused`` (exit 3) or ``RunRefused`` (exit 2) before anything is consumed or sent."""
     scene = scene or SceneHooks()
     _validate_spec(spec)
+    scene.instruction_profile = resolve_profile(spec.settings.instruction_profile)
     job_dir = Path(spec.job_dir).resolve()
     run_dir = job_dir / "runs" / spec.run_id
     session_path = (run_dir / "smoke" / "session.sqlite" if spec.settings.smoke
@@ -1645,6 +1690,7 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             write_json(run_dir / "run-config.json", {
                 "schema": RUN_CONFIG_SCHEMA, "job_id": job_dir.name, "run_id": spec.run_id, "created": _now(),
                 "model": MODEL, "agent": AGENT_NAME, "effort": spec.settings.effort, "reasoning_summary": "auto",
+                "instruction_profile": resolve_profile(spec.settings.instruction_profile),
                 "max_output_tokens": spec.settings.max_output_tokens, "max_turns": spec.settings.max_turns,
                 "fit_output_to_budget": spec.settings.fit_output_to_budget,
                 "settled_stop_usd": spec.settings.approval_settings().get("settled_stop_usd"),
@@ -1686,7 +1732,9 @@ async def run_astra(spec: RunSpec, *, scene: SceneHooks | None = None, clients=N
             # (5) the stock Runner (and its continuations)
             status, final_output = await _drive(agent, plan.content, session=session, log=log, guard=guard,
                                                 run_config=build_run_config(client),
-                                                settings=spec.settings, state=state, context=RunStatus(guard, runtime),
+                                                settings=spec.settings, state=state,
+                                                context=RunStatus(guard, runtime, scene=scene if any(
+                                                    tool.name == "record_difference" for tool in spec.tools) else None),
                                                 hooks=_SharedHooks(log, spec.settings.max_turns), renewal=renewal)
         except BaseException as raised:     # noqa: BLE001 - every outcome becomes a status and a result.json
             if guard is not None and is_transport_failure(raised) and guard.open_sequence is not None:

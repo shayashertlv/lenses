@@ -14,15 +14,16 @@ from . import budget
 from .receipts import write_json
 from .money import money_facts
 from .session_inputs import plan_session_input
+from .instruction_profiles import LEGACY_PROFILE, resolve_profile, legacy_text
 
 SUMMARY_REQUEST = """The host is renewing this conversation to keep request context bounded.
 Write a state summary only; do not call tools. Use these headings, in this order:
-1. Current head and best checkpoint: identify the current head and the checkpoint you judge best, and why.
-2. Open differences per photo: list every difference you still see for each owner photo, or explicitly none.
+1. Current head and best checkpoint: distinguish the host-recorded formal best from the current head and any unverified candidate; explain your kept choice. Prose does not change the formal best.
+2. Remaining differences: preserve each item's evidence reference, last correction, outcome and next action. The host carries its recorded list automatically.
 3. Decisions and reasons: preserve choices made, rejected approaches and the evidence behind them.
 4. Outstanding owner requests: quote outstanding edit requests and what remains to do; say none if there are none.
-5. Next action: state exactly what you were about to do, including any pending finish review.
-Do not claim that an unfinished check passed. The host will carry every owner photo, current evidence and its factual state into a fresh conversation."""
+5. Next action: state exactly what you were about to do. Preserve any pending finish review's state and follow the host notice about whether its ID remains usable.
+Do not claim an unfinished check passed. The host carries every owner photo, current evidence and factual state into the fresh conversation."""
 ASTRA_SUMMARY_PREFIX = "Astra's own state summary from the previous conversation:\n"
 HOST_STATE_PREFIX = "Host factual state at conversation renewal (tool records, not a likeness judgement):\n"
 RENEWAL_NOTICE = ("Continue the same run in this fresh conversation with the same instructions, tools and brief. "
@@ -31,6 +32,12 @@ RENEWAL_NOTICE = ("Continue the same run in this fresh conversation with the sam
 FINISH_RESTART_NOTICE = ("The host restarted the pending two-call finish review. Use this conversation's finish "
                          "tool again to obtain its evidence before submitting the per-photo review.")
 NO_SUMMARY = "No Astra summary was obtained; continue from the host's factual state and the attached evidence."
+
+
+def summary_request(profile=None):
+    """The selected profile's exact request; legacy conversation guidance is frozen."""
+    return (legacy_text("summary_request") if resolve_profile(profile) == "legacy-20261021"
+            else SUMMARY_REQUEST)
 
 
 def durable_receipts(path):
@@ -173,11 +180,18 @@ class ConversationRenewal:
         old_items = await self.session.get_items()
         old_hash = hashlib.sha256(json.dumps(old_items, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         summary, skipped, summary_sequence = "", None, None
+        profile = getattr(getattr(self.spec, "settings", None), "instruction_profile",
+                          getattr(self.scene, "instruction_profile", None))
+        decision_tools = any(getattr(tool, "name", None) == "record_difference"
+                             for tool in getattr(self.spec, "tools", ()))
+        decision_state = decision_tools and resolve_profile(profile) != LEGACY_PROFILE
         callback = self.guard.request_pressure
         self.guard.request_pressure = None  # the summary is admitted normally, without recursive renewal
         self.guard.renewal_summary = True
         try:
-            summary_item = {"role": "user", "content": SUMMARY_REQUEST}
+            # The ordinary temple lab has its own best/revision state and tools.
+            # Only main-tool conversations use the host differences protocol.
+            summary_item = {"role": "user", "content": summary_request(profile if decision_state else LEGACY_PROFILE)}
             # Persist exactly one appended host message even if admission refuses it.
             await self.session.add_items([summary_item])
             await hooks.on_llm_start(context, agent, agent.instructions, trigger.payload.get("input", []))
@@ -218,6 +232,10 @@ class ConversationRenewal:
         state = {**scene_state, "finish_review_renewal": restart, "money": money_facts(self.guard.summary()),
                  "tool_calls_so_far": list(self.log.tool_calls),
                  "owner_requests_supplied_for_this_run": list(self.owner_notes)}
+        if decision_state:
+            from . import differences
+            state.update(differences=differences.snapshot(self.scene),
+                         formal_best_checkpoint=differences.formal_best(self.scene))
         notice = RENEWAL_NOTICE
         if restart.get("finish_review_restarted"):
             notice += " " + FINISH_RESTART_NOTICE

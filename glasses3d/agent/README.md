@@ -37,6 +37,12 @@ Creation, inspection and estimation are local and free. Estimation writes a new 
 only. Run it only after the owner has authorized the actual paid run and seen its estimate. `job run JOB_ID --run-id
 RUN_ID` refuses missing, changed, consumed or insufficient approvals and launches a detached logged runner.
 
+The default instruction profile is `decision-20261021`. To select the frozen pre-rewrite instructions, use
+`job estimate JOB_ID --instruction-profile legacy-20261021`, then approve that request and run it with
+`job run JOB_ID --run-id RUN_ID --instruction-profile legacy-20261021`. The run option must match the prepared
+profile; changing it needs a new estimate and approval. Omitting the run option uses the approved profile.
+The profile is recorded in approval settings and the run configuration. The dev UI uses the default.
+
 Standing dev UI terms (2026-10-19) use the owner's typed positive finite max budget, replacing the universal $20
 cutoff for each run or edit send. Owner: "max budget (meaning the actual cutoff with no reserving), then when the
 user hits a 'start a paid run' button the automation should start". Effort is high, spending is settled-only and
@@ -66,9 +72,15 @@ checks each candidate before admission: above 80% of the image/byte limit or lon
 state summary and continues in a fresh conversation with every owner photo and verified current evidence. Old
 conversation bytes remain unchanged. Summary requests use the same approval/money; unavailable summaries use host
 facts. A mandatory seed exceeding hard limits still refuses. `job show` and delivery reports list renewal receipts.
-Main and edit instructions have 24,000-character caps. The M12 C1/C2/C3 reports measure main at 16,430 characters,
-UNDERSTAND and EDIT at 19,455 each after C2, and main plus `full_edit_item` guidance at 17,770 after C3. Guidance
-was not trimmed to fit; the specialist retains its own cap.
+The default profile keeps important visible differences in the run's append-only `differences.jsonl` through
+`record_difference`. Each entry records evidence, status, the last correction/outcome and next action. Unknown,
+unseen and stale comparison references refuse. First-finish per-photo differences map to items; an open item
+prevents accepted finish until Astra records a current supported fix or limitation. Renewal carries the host list
+and formal best automatically. The cutoff still publishes a draft from this run's formal best regardless of open
+items. These are decision records, not appearance scores; the owner still decides likeness.
+Main and edit instructions retain their 24,000-character caps. The new main prompt is about 10,000 characters;
+the frozen legacy main is 16,321. Historical M12 measurements remain in their dated reports. The specialist
+retains its own cap.
 
 Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.
 The forecast names its corpus and limitations; it assumes no savings from image pruning. It is a planning estimate;

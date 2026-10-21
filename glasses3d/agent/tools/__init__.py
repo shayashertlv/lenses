@@ -23,6 +23,7 @@ from ..tool_timeouts import AR_CAPTURE_DEADLINE_S, mark_running, clear_running, 
 from ..seeing import VIEWS_PER_SHEET
 from ..money import astra_money, money_facts
 from ..tool_reports import bounded_tool, limit_output, report_tool
+from .. import differences
 from . import arview, look, finish_review, model_map, owner_edit, owner_preview
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
@@ -33,7 +34,7 @@ from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "load_font", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
-              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map")
+              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map", "record_difference")
 FATAL = FATAL_TOOL_ERRORS
 
 
@@ -304,6 +305,7 @@ def build_tools(scene, settings=None) -> list:
             mark_running(scene, name, cid)
             before = (scene.s.head or {}).get("id")
             result = None
+            source_images = None
             try:
                 try:
                     if (getattr(scene, "owner_edit", None) and
@@ -314,6 +316,7 @@ def build_tools(scene, settings=None) -> list:
                         result = {"status": "ok", "result": result}
                     result.setdefault("call_id", cid)
                     result.setdefault("checkpoint", (scene.s.head or {}).get("id"))
+                    source_images = result.get("images")
                     try:
                         output = _output(scene, cid, name, result)
                     except (ValueError, KeyError, TypeError, OSError) as error:
@@ -352,6 +355,13 @@ def build_tools(scene, settings=None) -> list:
                             # Images and lossless text persistence must succeed before accepting the finish.
                             scene.finish = result
                     scene.record_call(cid, name, before, (scene.s.head or {}).get("id"), result)
+                    # _output replaces top-level source paths with delivered blob paths;
+                    # comparison completeness is checked against the original panels.
+                    evidence_result = ({**result, "images": source_images}
+                                       if name == "compare_look_to_photos" else result)
+                    differences.register_evidence(scene, name, evidence_result)
+                    if name == "finish":
+                        differences.commit_finish(scene, result)
                     if name == "labelled_model_map":
                         model_map.mark_delivered(scene.root, result, True)
                     if name == "understand_finish":
@@ -486,7 +496,8 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("scene_summary")
     async def scene_summary(ctx: ToolContext, objects: list[str] | None = None):
-        """Inspect units, axes, origin, objects, materials, mesh topology and role warnings; null means all objects."""
+        """Inspect units, axes, origin, objects, materials, mesh topology and role warnings; null means all objects.
+        Read result.objects for each part's mesh facts, including closed and loose_parts."""
         return await call(ctx, "scene_summary", lambda cid: scene.s.call_read(
             "scene_summary", "scene_summary", {"objects": objects if objects is not None else "all"},
             deadline_s=hard_timeout_s("scene_summary"), call_id=cid))
@@ -494,6 +505,9 @@ def build_tools(scene, settings=None) -> list:
     @tool("save_checkpoint")
     async def save_checkpoint(ctx: ToolContext, label: str, best: bool = False):
         """Label the current scene; save a new checkpoint only if it changed.
+        After comparing and keeping a choice, call with best=True and a reason in label. Prose saying
+        'best' does not select the formal best. Distinguish the current head, this run's formal best and
+        a candidate not yet verified. At a cutoff the draft comes from this run's formal best when present.
 
         Args:
             label: Short name for this checkpoint.
@@ -538,6 +552,7 @@ def build_tools(scene, settings=None) -> list:
         Large fit tables are summarized; read_report pages or filters the saved full result without refitting.
         The default uses seven camera parameters. Optional off-axis fitting adds two lateral-eye coordinates;
         improved silhouette overlap alone does not establish camera angles or metric measurement accuracy.
+        The result identifies basis and refs with each status, iou, contour_mean_mm and flags.
 
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
@@ -571,6 +586,7 @@ def build_tools(scene, settings=None) -> list:
                            passes: list[Literal["native", "clay", "normal", "silhouette", "parts"]] = ["native", "clay"],
                            size_px: int = 1024, background: str = "grey", basis: str | None = None):
         """Render canonical, fitted photo or custom cameras without changing the scene; returns labelled sheets.
+        Read sheets and views, including each ref, basis and the manifest camera metadata.
 
         Args:
             views: Canonical names, fitted photo filenames, canonical/reference/all, or custom yaw/pitch cameras.
@@ -589,6 +605,7 @@ def build_tools(scene, settings=None) -> list:
                                 size_px: int = 1024, basis: str | None = None):
         """Compare the current model with photos through frozen cameras; reports silhouette offsets and image sheets.
         Large metric tables are summarized; read_report pages or filters the full result without rendering again.
+        The refs entries identify sheet, contour_mean_mm, model_only_px, photo_only_px and delta.
 
         Args:
             refs: Photo ids; null compares every photo in the basis.
@@ -603,6 +620,7 @@ def build_tools(scene, settings=None) -> list:
     async def pick_surface_point(ctx: ToolContext, view: str, points: list[list[float]], manifest: str | None = None,
                                  size_px: int = 1024, basis: str | None = None):
         """Ray-cast image pixel coordinates onto the current model; returns 3D hits and object identities.
+        Each hits entry reports hit, object and point_mm; a miss does not identify a surface.
 
         Args:
             view: A canonical name, fitted photo filename, reference:photo-id, or view name from a render manifest.
@@ -618,6 +636,7 @@ def build_tools(scene, settings=None) -> list:
     @tool("export_glb")
     async def export_glb(ctx: ToolContext):
         """Export the current checkpoint with its SHA-256, complete specification report and all-frame seating check.
+        Read status, sha256, validate_spec and seat_check rather than inferring success from a file path.
         Seating is measured for every frame and reported even when it fails. Weigh it against the photos;
         specification and print validity remain required for finish."""
         return await call(ctx, "export_glb", lambda cid: scene.seeing.export_head(call_id=cid))
@@ -633,7 +652,8 @@ def build_tools(scene, settings=None) -> list:
         2=usage, 3=spec failed or validator unavailable, 4=refused. Auto-fit is always disabled.
         Side names in reports and crop filenames use the wearer's side (+X left, -X right).
         Capture errors return infrastructure_failed; validator_unavailable means no Python spec verdict was obtained.
-        portrait is true only when captured portrait images were verified."""
+        portrait is true only when captured portrait images were verified.
+        Inspect status, images/sheets, errors, warnings and export_sha256 in the capture report."""
         def capture(cid):
             exp = scene.seeing.export_head(call_id=cid)
             result = arview.capture(scene.root, exp, cid, timeout_s=AR_CAPTURE_DEADLINE_S)
@@ -650,6 +670,7 @@ def build_tools(scene, settings=None) -> list:
         with native panels at reported paths.
         Crop a native panel to inspect small details. Identical images
         already delivered in this run are referenced by their earlier call without changing conversation history.
+        The images field lists the delivered image or crop evidence.
 
         Args:
             path: Job-relative image path inside images, reference_images or work, or cameras/basis-*/overlay_*.png
@@ -676,34 +697,46 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("budget_status")
     async def budget_status(ctx: ToolContext):
-        """Return settled spend, the owner's cutoff and money left before that cutoff."""
+        """Return settled spend, the owner's cutoff and money left before that cutoff.
+        Budget fields are settled_usd, settled_stop_usd and remaining_to_stop_usd."""
         def status(cid):
             runtime = getattr(ctx, "context", None)
             guard = getattr(runtime, "guard", None)
             return {"status": "ok", "budget": money_facts(guard.summary()) if guard is not None else None}
         return await call(ctx, "budget_status", status)
 
+    PhotoDifference = finish_review.PhotoDifference if differences.enabled(scene) else finish_review.LegacyPhotoDifference
+
     @tool("finish")
     async def finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
-                     per_photo: list[finish_review.PhotoDifference] | None = None):
+                     per_photo: list[PhotoDifference] | None = None):
         """Finish in two calls. First export/check the current head, capture fixed-scale AR and show every usable
         photo's full pair and automatic native details together, including side-light surface checks, without shrinking
         any panel (additional images for overflow), plus the worn front. Inspect them, then call again with its review_call_id
-        and exactly one per_photo entry {ref, differences} for each required ref. State visible differences or 'none'.
+        and exactly one per_photo entry {ref, differences, difference_ids} for each required ref.
+        State visible differences or 'none'; difference_ids optionally maps the statement to existing list items.
+        You may provide per_photo on the first call too. Every unmapped non-'none' statement creates an open
+        host-list item, including the first call's faults. Inspect the worn on-face views against the photos first
+        for lens colour; photo-background panels support shape, see-through and measurements.
         If review.required_refs carries read_pointer/count instead of a list, retrieve every page with read_report first.
         Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
         A refusal lists every failed quality check with diagnostics. Only accepted completes the run.
+        Its status must be accepted; summary records what was built and any remaining differences.
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
         Usable photo cameras require complete captured review evidence; EDIT also requires a delivered edit_report.
-        Differences are information, not a likeness score or appearance gate. Do not claim a usable photo reviewed
-        when its images failed to capture. Inspect and revisit visible differences before finalizing.
+        Any open list item refuses final acceptance. Use record_difference to mark it fixed with a current
+        supporting comparison, or limitation with a specific reason and current supporting comparison.
+        Resolved items with stale evidence also refuse. Astra makes these classifications; there is no likeness
+        score or appearance threshold. Do not claim a usable photo reviewed when its images failed to capture.
+        Finish does not change money admission; a cutoff draft still uses the formal best with open items retained.
 
         Args:
             summary: What was built and any remaining differences from the photos.
             review_call_id: Null for the first call; the delivered first call's id on the second.
-            per_photo: Null for the first call; one ref and nonblank differences text (or 'none') per required photo.
+            per_photo: Optional first-call observations; required on second call with one ref, nonblank differences
+                (or 'none'), and optional difference_ids mapping to list items per required photo.
         """
         def finish_current(cid):
             scene.finish = None
@@ -724,7 +757,8 @@ def build_tools(scene, settings=None) -> list:
                       "image_delivery": "separate",
                       "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
                       "export": exp, "arview": ar, "summary": summary, "failures": failures}
-            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar, combine=True) if bound else
+            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar, combine=True,
+                                          profile=getattr(scene, "instruction_profile", None)) if bound else
                                          {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"})
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
@@ -760,8 +794,11 @@ def build_tools(scene, settings=None) -> list:
             export_glb, arview_capture, look.tool_for(scene, tool, call), read_image, budget_status,
             finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
             photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call),
-            model_map.tool_for(scene, tool, call)]
+            model_map.tool_for(scene, tool, call), differences.tool_for(scene, tool, call)]
     if getattr(scene, "owner_edit", None):
         from .. import owner_edits
         tools += [owner_preview.tool_for(scene, tool, call)] + owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]
+    if not differences.enabled(scene):
+        from ..instruction_profiles import legacy_tool_text
+        tools = legacy_tool_text(tools, owner_edit=getattr(scene, "owner_edit", None))
     return [bounded_tool(item, getattr(scene, "root", None)) for item in tools]

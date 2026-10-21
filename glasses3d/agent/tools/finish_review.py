@@ -2,14 +2,19 @@
 from pydantic import BaseModel, ConfigDict
 
 from ...g3d_host import compare as C
+from .. import differences
 from . import arview
 from .look_panels import DETAIL_KINDS
 
 
-class PhotoDifference(BaseModel):
+class LegacyPhotoDifference(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ref: str
     differences: str
+
+
+class PhotoDifference(LegacyPhotoDifference):
+    difference_ids: list[str] | None = None
 
 
 def evidence(root, head, export):
@@ -92,19 +97,42 @@ def apply(scene, result, review_call_id, per_photo):
     result["review"] = {"required_refs": refs, "binding": binding,
                         "appearance_is_information": True,
                         "unavailable": binding.get("unavailable")}
+    decision = differences.enabled(scene)
+    rows = [item.model_dump(exclude_none=True) if isinstance(item, LegacyPhotoDifference) else item
+            for item in (per_photo or [])]
+    valid_rows = all(isinstance(row, dict) and {"ref", "differences"} <= set(row)
+                     and set(row) <= ({"ref", "differences", "difference_ids"} if decision else {"ref", "differences"})
+                     and isinstance(row["ref"], str) and isinstance(row["differences"], str)
+                     and row["differences"].strip()
+                     and (row.get("difference_ids") is None or isinstance(row["difference_ids"], list)
+                          and all(isinstance(key, str) for key in row["difference_ids"])) for row in rows)
+    if decision and per_photo is not None and (not valid_rows or len({row["ref"] for row in rows}) != len(rows)):
+        result.update(status="refused", code="E_FINISH_REVIEW", message="Provide distinct per_photo refs and nonblank differences.")
+        result["failures"].append({"check": "photo_review", "code": "E_FINISH_REVIEW", "message": result["message"]})
+        return
     if not matches or review_call_id is None:
         scene.finish_review = None
+        inspection = ("Judge lens colour on the worn, on-face AR images against the owner photos first. "
+                      "Use every full photo/drawing pair and native detail for shape, see-through and measurements; "
+                      "a better photo-background colour number does not overrule the worn result. "
+                      "Report disagreements and explain the kept choice. " if decision else
+                      "Inspect every full photo/drawing pair and native detail, plus the worn front. ")
         result.update(status="review_required", code="REVIEW_REQUIRED", message=
-            "Inspect every full photo/drawing pair and native detail, plus the worn front. Then call finish again "
+            inspection + "Then call finish again "
             "with this call's review_call_id and one nonblank differences entry (or 'none') per required ref. "
             "If there are no usable photo cameras, return an empty per_photo list and acknowledge the unavailable evidence.")
         result["review"]["review_call_id"] = result["call_id"]
+        if decision:
+            try:
+                differences.prepare_finish(scene, result, rows, result["call_id"])
+            except ValueError as problem:
+                result.update(status="refused", code="E_DIFFERENCES", message=str(problem))
+                result["failures"].append({"check": "differences", "code": "E_DIFFERENCES", "message": str(problem)})
+            else:
+                result["message"] += " Record actionable differences with record_difference; open items prevent acceptance."
         return
-    rows = [item.model_dump() if isinstance(item, PhotoDifference) else item for item in (per_photo or [])]
     valid = (review_call_id == prior["call_id"] and per_photo is not None and
-             len(rows) == len(refs) and all(isinstance(row, dict) and set(row) == {"ref", "differences"}
-             and isinstance(row["ref"], str) and isinstance(row["differences"], str)
-             and row["differences"].strip() for row in rows) and
+             len(rows) == len(refs) and valid_rows and
              len({row["ref"] for row in rows}) == len(rows) and {row["ref"] for row in rows} == set(refs))
     result["review"]["review_call_id"] = prior["call_id"]
     if not valid:
@@ -114,6 +142,24 @@ def apply(scene, result, review_call_id, per_photo):
         result["failures"].append({"check": "photo_review", "code": "E_FINISH_REVIEW", "message": result["message"]})
         return
     result["review"]["per_photo"] = rows
+    if decision:
+        try:
+            open_ids = differences.prepare_finish(scene, result, rows, prior["call_id"])
+            stale_ids = []
+            for item in result["differences"]:
+                if item["status"] != "open":
+                    try:
+                        differences.validate_evidence(scene, item["evidence_ref"], item["refs"],
+                                                      current_export=result["export"])
+                    except (ValueError, OSError, KeyError, TypeError):
+                        stale_ids.append(item["id"])
+            if open_ids or stale_ids:
+                result["open_difference_ids"], result["stale_difference_ids"] = open_ids, stale_ids
+                raise ValueError("Resolve open differences and support resolved items with a current comparison: "
+                                 + ", ".join(open_ids + stale_ids))
+        except ValueError as problem:
+            result.update(status="refused", code="E_DIFFERENCES", message=str(problem))
+            result["failures"].append({"check": "differences", "code": "E_DIFFERENCES", "message": str(problem)})
 
 
 def delivered(scene, result):
