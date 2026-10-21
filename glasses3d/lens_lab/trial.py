@@ -32,7 +32,7 @@ LAB_TOOLS = (
     "read_report", "save_checkpoint", "restore_checkpoint", "list_checkpoints", "scene_summary", "export_glb",
     "arview_capture", "finish",
 )
-RENDER_TOOLS = frozenset(("compare_look_to_photos", "render_views", "arview_capture"))
+RENDER_TOOLS = frozenset(("compare_look_to_photos", "compare_lens_candidates", "render_views", "arview_capture"))
 API_KEY_NAMES = frozenset(("OPENAI_API_KEY", "CODEX_API_KEY", "AZURE_OPENAI_API_KEY",
                            "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"))
 
@@ -157,7 +157,7 @@ def load_trial_job(trial: Path, manifest: dict) -> tuple[Path, dict, list[Path]]
     return job_dir, job, photos
 
 
-def lab_paragraph(trial: Path, lens_materials: list[str], python: Path) -> str:
+def lab_paragraph(trial: Path, lens_materials: list[str], python: Path, *, variant="baseline") -> str:
     """One paragraph of mechanics and lab scope; no material values or recipe."""
     cli = f"& '{str(python).replace(chr(39), chr(39) * 2)}' -m glasses3d.lens_lab"
     directory = str(trial).replace("'", "''")
@@ -167,7 +167,7 @@ def lab_paragraph(trial: Path, lens_materials: list[str], python: Path) -> str:
         f"inputs unchanged; the editable lens materials are {json.dumps(lens_materials, ensure_ascii=False)}. "
         f"Use the lens lab tool CLI from the repository: {cli} tool '{directory}' TOOL "
         f"--args-file '{directory}/arguments.json'; write the exact JSON argument object to that trial-local file. "
-        f"available tools are {', '.join(LAB_TOOLS)}, and their argument schemas and real descriptions are in "
+        f"available tools are {', '.join(LAB_TOOLS + (('compare_lens_candidates',) if variant == 'candidates' else ()))}, and their argument schemas and real descriptions are in "
         f"'{directory}/tool-schemas.json'. "
         "Use execute_blender_code for lens material edits including g3d.lens_coating, and inspect the actual "
         "saved result images with your built-in view_image tool during the trial before choosing the final "
@@ -550,15 +550,21 @@ def score_after_codex(trial_dir: Path, receipt_dir: Path) -> dict:
         result = _score_trial(trial_dir)
         score_dir = (trial_dir / "score").resolve()
         score_json = score_dir / "score.json"
-        comparison = Path(result["comparison_image"]).resolve()
-        if not comparison.is_relative_to(score_dir) or not comparison.is_file():
-            raise ValueError("scorer did not produce a comparison image inside this trial's score folder")
-        if file_sha256(comparison) != result["comparison_sha256"]:
-            raise ValueError("scoring comparison image bytes changed")
+        manifest = json.loads((trial_dir / "trial.json").read_text(encoding="utf-8"))
+        if manifest.get("variant") == "candidates":
+            if "comparison_image" in result or "comparison_sha256" in result:
+                raise ValueError("Candidates trials must not produce a white-background scoring sheet")
+            status["comparison_sheet_omitted"] = True
+        else:
+            comparison = Path(result["comparison_image"]).resolve()
+            if not comparison.is_relative_to(score_dir) or not comparison.is_file():
+                raise ValueError("scorer did not produce a comparison image inside this trial's score folder")
+            if file_sha256(comparison) != result["comparison_sha256"]:
+                raise ValueError("scoring comparison image bytes changed")
+            status.update(comparison_image=str(comparison), comparison_sha256=result["comparison_sha256"])
         if json.loads(score_json.read_text(encoding="utf-8")) != result:
             raise ValueError("scoring JSON does not match the returned scoring result")
-        status.update(status="completed", score_json=str(score_json), score_sha256=file_sha256(score_json),
-                      comparison_image=str(comparison), comparison_sha256=result["comparison_sha256"])
+        status.update(status="completed", score_json=str(score_json), score_sha256=file_sha256(score_json))
     except Exception as error:
         # Retain the completed model trial while reporting scoring infrastructure
         # failure separately; a batch must not silently count it as complete.
@@ -599,15 +605,20 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
         raise ValueError("this trial already has Codex evidence; choose a new directory")
     if not (trial / "trial.json").exists():
         from .harness import init_trial
-        init_trial(trial, source_job=source_job)
+        if variant == "candidates":
+            init_trial(trial, source_job=source_job, variant=variant)
+        else:
+            init_trial(trial, source_job=source_job)
     manifest = json.loads((trial / "trial.json").read_text(encoding="utf-8"))
     _, job, photos = load_trial_job(trial, manifest)
     if (trial / "calls.jsonl").exists() and (trial / "calls.jsonl").stat().st_size:
         raise ValueError("Codex trials must start at the neutral fixture without prior tool calls")
     existing_variant = manifest.get("variant", "baseline")
-    if existing_variant in {"regional", "pre14"} and variant != existing_variant:
+    if existing_variant in {"regional", "pre14", "candidates"} and variant != existing_variant:
         raise ValueError("A selected variant trial cannot be reused for another variant")
-    if variant in {"regional", "pre14"}:
+    if variant in {"regional", "pre14", "candidates"}:
+        if variant == "candidates" and existing_variant != "candidates":
+            raise ValueError("Candidates trials require a fresh candidates initialization with matching tool schemas")
         manifest["variant"] = variant
         write_json(trial / "trial.json", manifest)
     sources = head_prompt_sources(repo, job)
@@ -615,7 +626,8 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
         from .pre14 import prompt_sources
         sources = prompt_sources(repo, job, baseline_sources=sources)
     python = (repo / "glasses3d/.venv/Scripts/python.exe") if os.name == "nt" else Path(sys.executable)
-    paragraph = lab_paragraph(trial, manifest["lens_materials"], python)
+    paragraph = (lab_paragraph(trial, manifest["lens_materials"], python, variant=variant) if variant == "candidates"
+                 else lab_paragraph(trial, manifest["lens_materials"], python))
     prompt = build_prompt(sources, paragraph)
     output = trial / "codex"
     output.mkdir()
@@ -677,6 +689,8 @@ def run_trial(trial_dir: Path | str, *, variant: str = "baseline", source_job: P
                        invalid_jsonl_lines=invalid, invalid_call_lines=invalid_calls,
                        tool_calls=calls, image_viewing=view, native_rollout=native, event_audit=audit,
                        look_comparisons=looks, invalid_reason=looks["invalid_reason"],
+                       lens_candidates={"made": sum(call.get("tool") == "compare_lens_candidates" for call in calls),
+                           "succeeded": sum(call.get("tool") == "compare_lens_candidates" and call.get("result", {}).get("status") == "ok" for call in calls)},
                        final_materials=finish.get("final_materials") if finish else None,
                        finish=finish, finish_receipted=finish_receipted,
                        finish_sha256=file_sha256(finish_path) if finish else None,
@@ -727,6 +741,7 @@ def run_trials(*, variant: str, count: int, output_root: Path | None = None,
                                       "prompt_sha256": result["prompt_sha256"], "seconds": result["seconds"],
                                       "codex_status": result.get("codex_status"), "scoring": result.get("scoring"),
                                       "look_comparisons": result.get("look_comparisons"),
+                                      "lens_candidates": result.get("lens_candidates"),
                                       "invalid_reason": result.get("invalid_reason")})
             summary["invalid_trials"] = sum(row["status"] == "invalid" for row in summary["trials"])
             write_json(batch / "batch.json", summary)
@@ -746,7 +761,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     batch = commands.add_parser("run", help="N serial trials of the current HEAD/working-code variant")
-    batch.add_argument("--variant", default="baseline", help="baseline, regional, pre14; historical labels use baseline")
+    batch.add_argument("--variant", default="baseline", help="baseline, regional, pre14, candidates; historical labels use baseline")
     batch.add_argument("--count", type=int, default=1)
     batch.add_argument("--output-root", type=Path)
     batch.add_argument("--source-job", type=Path)

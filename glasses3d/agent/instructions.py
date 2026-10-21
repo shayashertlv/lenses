@@ -91,6 +91,8 @@ Edges across directions and occlusions constrain shape; brightness alone does no
 direction. Judge temple section width, relief and transitions in top, rear and oblique evidence as well as side
 silhouette; stronger longitudinal highlights alone do not prove a match. For ambiguous cameras compare alternatives
 and other photos; refit only for an identified reason.
+choose_camera_orientation can install a validated reported alternative without refitting.
+Photographic arm opening is separate from camera orientation; an orientation choice does not calibrate the arms.
 Inspect native details and clay/normal renders as needed. Planarity, seams, lens ripple, degenerates and normal
 jumps describe the mesh, not likeness; intentional creases also make jumps. Small sheets cannot establish small
 detail. State missing diagnostic evidence.
@@ -106,9 +108,12 @@ Judge lens colour on the worn, on-face AR images against the owner photos. Use p
 see-through and diagnostic measurements; a better photo-background colour number does not overrule the worn
 result. Report disagreements separately and explain the retained choice. Worn angles can differ from photos;
 a highlight is not proof of matching body colour.
+compare_lens_candidates compares chosen materials side by side without changing the scene. Do not rule out
+untested options by prediction alone; apply a chosen set with the documented exact helper, then compare the head.
 
 6. Best state and finish.
-When a compared candidate becomes best, use save_checkpoint with best=True and why. Distinguish current head,
+When a compared candidate becomes best, use save_checkpoint with best=True and why, or record_difference with
+best=True while recording its current-head comparison decision and remaining differences. Distinguish current head,
 host-recorded formal best and a candidate not yet verified; prose does not set the draft source. Conversation
 items and checkpoint history stay append-only.
 
@@ -146,6 +151,8 @@ CORE_GUIDANCE = {
     "photo_read": "`photo_read`: triangulate the same photo feature with camera/arm-opening uncertainty.",
     "compare_to_photos": "`compare_to_photos`: frozen-basis geometry differences and native crops.",
     "compare_look_to_photos": "`compare_look_to_photos`: same-export worn colour, photo pairs, details and side-light evidence.",
+    "compare_lens_candidates": "`compare_lens_candidates`: compare 2–6 labelled lens material sets at native pixels; worn front/both sides and frozen front photo pair, with colour-gap diagnostics. Astra chooses every value.",
+    "choose_camera_orientation": "`choose_camera_orientation`: choose reported orientation candidates at the current export, preserving camera checks; no full refit or new arm-opening calibration.",
     "export_glb": "`export_glb`: specification, seating, print freshness and lost-optics warnings.",
     "arview_capture": "`arview_capture`: fixed-scale AR/visible eyes. Measure temple shape in photo views: worn arms spread/clip.",
     "budget_status": "`budget_status`: settled spend, owner cutoff and money left.",
@@ -165,7 +172,7 @@ SPECIALIST_GUIDANCE = {
     "unhide_eyewire": "`unhide_eyewire`: restore eyewire/held lens, undoing a dependent seat.",
     "photo_print": "`photo_print`: photo-derived print for complex patterns such as tortoiseshell; plain frames need material/finish edits.",
     "labelled_model_map": "`labelled_model_map`: readable part/surface/point labels beside photos; capture anchors do not authorize mutation.",
-    "record_difference": "`record_difference`: persist/update one or several important differences atomically via items, with their evidence, status, correction and next action.",
+    "record_difference": "`record_difference`: persist/update one or several important differences atomically via items, with their evidence, status, correction and next action. Open observations may cover a subset while affected refs persist; resolution needs all refs. Optional best=True explicitly promotes the compared current head with the remaining differences.",
 }
 
 EDIT_GUIDANCE = {
@@ -337,7 +344,7 @@ _WORKFLOW = (
     "execute_blender_code", "load_font", "save_checkpoint", "list_checkpoints", "restore_checkpoint", "fit_cameras",
     "render_views", "pick_surface_point", "photo_read", "compare_to_photos", "temple_stage", "facet_owner_edit",
     "check_lens_seating", "hide_eyewire", "seat_lens", "unseat_lens", "unhide_eyewire", "photo_print",
-    "compare_look_to_photos", "export_glb", "arview_capture", "edit_report", "budget_status", "record_difference", "finish",
+    "compare_look_to_photos", "compare_lens_candidates", "choose_camera_orientation", "export_glb", "arview_capture", "edit_report", "budget_status", "record_difference", "finish",
 )
 
 
@@ -369,6 +376,9 @@ def build_instructions(tools, *, owner_edit=None, profile=None) -> str:
             specialists["record_difference"] = SPECIALIST_GUIDANCE["record_difference"]
             core["compare_look_to_photos"] = CORE_GUIDANCE["compare_look_to_photos"]
             core["read_report"] = CORE_GUIDANCE["read_report"]
+            core["compare_lens_candidates"] = CORE_GUIDANCE["compare_lens_candidates"]
+            core["choose_camera_orientation"] = (
+                "`choose_camera_orientation`: unavailable in owner edit rounds; keep the frozen edit cameras.")
             workflow = _WORKFLOW
             overrides["compare_look_to_photos"] += (" For authorized lens-colour changes, judge worn, on-face AR "
                 "against the owner target/photos; photo-background panels supply shape, see-through and measurements. "

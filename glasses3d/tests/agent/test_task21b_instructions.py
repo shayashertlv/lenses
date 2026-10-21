@@ -29,9 +29,12 @@ def baseline_source():
         ["git", "show", "22f3980:glasses3d/agent/instructions.py"], cwd=ROOT).decode("utf-8")
 
 
-def test_decision_instruction_diff_is_exactly_the_two_authorized_sentences():
+def test_task21b_historical_diff_and_current_batch_guidance():
     expected = baseline_source()
-    current = Path(I.__file__).read_text(encoding="utf-8")
+    # Task 23 authorizes additional tools/teaching. Keep the exact task-21b
+    # assertion on its immutable commit, and require both sentences today too.
+    current = subprocess.check_output(
+        ["git", "show", "74142c2:glasses3d/agent/instructions.py"], cwd=ROOT).decode("utf-8")
     for old, new in CHANGED_SENTENCES:
         assert expected.count(old) == current.count(new) == 1
         expected = expected.replace(old, new)

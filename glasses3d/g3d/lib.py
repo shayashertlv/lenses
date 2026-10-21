@@ -20,10 +20,11 @@ import types
 
 TEMPLE_NAMES = ("loft_sections", "polygon_section", "check_round_corners")
 COATING_NAMES = ("lens_coating",)
+CANDIDATE_NAMES = ("apply_lens_candidate",)
 RIM_NAMES = ("acetate_section", "sweep_rim")
 SURFACE_NAMES = ("quadratic_lens",)
 HEALTH_NAMES = ("mesh_cleanup", "consistent_normals", "symmetrize_mesh", "controlled_decimate")
-NAMES = TEMPLE_NAMES + COATING_NAMES + RIM_NAMES + SURFACE_NAMES + HEALTH_NAMES
+NAMES = TEMPLE_NAMES + COATING_NAMES + CANDIDATE_NAMES + RIM_NAMES + SURFACE_NAMES + HEALTH_NAMES
 
 
 def build() -> tuple[types.ModuleType, dict]:
@@ -42,6 +43,12 @@ def build() -> tuple[types.ModuleType, dict]:
             setattr(facade, name, getattr(coating, name))
     except Exception as exc:  # noqa: BLE001
         errors["coating"] = f"{type(exc).__name__}: {exc}"
+    try:
+        from . import lens_candidate
+        for name in CANDIDATE_NAMES:
+            setattr(facade, name, getattr(lens_candidate, name))
+    except Exception as exc:
+        errors["lens_candidate"] = f"{type(exc).__name__}: {exc}"
     try:
         from . import rim_bpy
         for name in RIM_NAMES:

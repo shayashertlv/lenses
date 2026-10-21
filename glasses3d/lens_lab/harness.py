@@ -32,6 +32,11 @@ TOOLS = (
     "read_report", "save_checkpoint", "restore_checkpoint", "list_checkpoints",
     "scene_summary", "export_glb", "arview_capture", "finish",
 )
+CANDIDATE_TOOL = "compare_lens_candidates"
+
+
+def allowed_tools(variant="baseline"):
+    return TOOLS + ((CANDIDATE_TOOL,) if variant == "candidates" else ())
 PROTECTED_KEYS = ("schema", "scenes", "view_layers", "collections", "objects", "meshes", "curves", "other")
 
 
@@ -251,7 +256,7 @@ def close_recorded(scene, root, started, label):
     write_json(directory / f"{label}-{uuid.uuid4().hex}.json", record)
 
 
-def init_trial(trial_dir, source_job=None):
+def init_trial(trial_dir, source_job=None, *, variant="baseline"):
     """Copy the verified accepted checkpoint and frozen basis, then reset only lens materials."""
     root = trial_path(trial_dir)
     heavy = ensure_heavy_allowed()
@@ -343,12 +348,12 @@ def init_trial(trial_dir, source_job=None):
             "source_native_fingerprint": source_native_fingerprint,
             "source_glb_sha256": SOURCE_GLB_SHA, "basis": "basis-04", "heavy_gate": heavy,
             "source_files": {str(p): sha256(p) for p in sorted(set(tracked_sources))},
-            "tools": list(TOOLS), "api_requests": 0, "api_spend_usd": 0,
+            "tools": list(allowed_tools(variant)), "variant": variant, "api_requests": 0, "api_spend_usd": 0,
             "baseline_description": "LAB neutral clear glass, metallic 0, no coating or tint; not a product recipe",
         }
-        from glasses3d.agent.tools import build_tools
+        from .variants import build_variant_tools
         schemas = {t.name: {"description": t.description, "parameters": t.params_json_schema}
-                   for t in build_tools(scene) if t.name in TOOLS and t.name != "finish"}
+                   for t in build_variant_tools(scene, variant) if t.name in allowed_tools(variant) and t.name != "finish"}
         schemas["finish"] = {"description": "LAB ONLY: export and record final material; terminal, no product delivery.",
                              "parameters": {"type": "object", "properties": {"summary": {"type": "string"}},
                                             "additionalProperties": False}}
@@ -420,7 +425,7 @@ class LabSession:
             from .capture import short_run_capture
             self.registry = {t.name: t for t in build_variant_tools(
                 self.scene, self.manifest.get("variant", "baseline"), capture_runner=short_run_capture)
-                             if t.name in TOOLS and t.name != "finish"}
+                             if t.name in allowed_tools(self.manifest.get("variant", "baseline")) and t.name != "finish"}
             return self
         except BaseException:
             self.__exit__(None, None, None)
@@ -443,7 +448,7 @@ class LabSession:
     def call(self, name, arguments=None):
         from agents.tool_context import ToolContext
         from agents.tool import ToolOutputText
-        if name not in TOOLS:
+        if name not in allowed_tools(self.manifest.get("variant", "baseline")):
             raise ValueError(f"Not a lens-lab tool: {name}")
         args = arguments or {}
         start, started = time.perf_counter(), now()

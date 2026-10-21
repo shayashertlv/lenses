@@ -72,6 +72,7 @@ def _capture_modules(variant, capture_runner):
 
 def build_variant_tools(scene, variant="baseline", *, capture_runner=None):
     from glasses3d.agent.tools import build_tools
+    from glasses3d.agent.tools import lens_candidates
 
     if variant not in {"regional", "pre14"} and capture_runner is None:
         # Historical grouping labels also retain the unmodified production path.
@@ -80,6 +81,12 @@ def build_variant_tools(scene, variant="baseline", *, capture_runner=None):
     # module globals are patched, even while the async tool runs in its worker thread.
     look_module, arview_module = _capture_modules(variant, capture_runner)
     namespace = {**build_tools.__globals__, "look": look_module, "arview": arview_module}
+    candidate_module = types.ModuleType("glasses3d.agent.tools._lens_lab_candidates")
+    candidate_module.__dict__.update(lens_candidates.__dict__)
+    candidate_module.arview, candidate_module.look = arview_module, look_module
+    for name in ("_worn", "_front", "capture", "tool_for"):
+        setattr(candidate_module, name, _rebind(getattr(lens_candidates, name), candidate_module.__dict__))
+    namespace["lens_candidates"] = candidate_module
     if variant == "pre14":
         from . import pre14
         report_tool = namespace["report_tool"]

@@ -50,7 +50,7 @@ def legacy_tool_text(tools, *, owner_edit=None) -> list:
     metadata = {row["name"]: row for row in _legacy()["registry"]}
     result = []
     for original in tools:
-        if original.name == "record_difference":
+        if original.name in {"record_difference", "compare_lens_candidates", "choose_camera_orientation"}:
             continue
         tool = copy(original)
         if tool.name in metadata:

@@ -118,7 +118,7 @@ def exporter_identity() -> str:
     """Bind cached bytes to exporter, fingerprint and worker implementations (including local edits)."""
     directory = Path(__file__).resolve().parents[1] / "g3d"
     digest = hashlib.sha256()
-    for name in ("export_glb.py", "checkpoint.py", "worker.py", "glb_patch.py", "coating.py"):
+    for name in ("export_glb.py", "checkpoint.py", "worker.py", "glb_patch.py", "coating.py", "lens_candidate.py"):
         digest.update(name.encode("utf-8"))
         digest.update((directory / name).read_bytes())
     return digest.hexdigest()
@@ -2497,6 +2497,7 @@ class Seeing:
 
     @staticmethod
     def _fit_ref_summary(rec, *, usable, basis_path=None):
+        from ..g3d_host.camera_choice import opening_uncertainty
         f, camera = rec.get("fit") or {}, rec.get("camera") or {}
 
         def overlay_record(record):
@@ -2529,6 +2530,7 @@ class Seeing:
                 "yaw": number(camera.get("yaw"), 2), "pitch": number(camera.get("pitch"), 2),
                 "roll": number(camera.get("roll"), 2), "usability": f.get("usability"),
                 "theta_deg": rec.get("theta_deg"), "theta_observed": rec.get("theta_observed"),
+                "photographic_arm_opening": opening_uncertainty(rec),
                 "pose_provenance": rec.get("pose_provenance"), "opening_fit": rec.get("opening_fit"),
                 "retained_fit": retained,
                 **({"camera": camera, "off_axis": f["off_axis"], "sign": f.get("sign")}

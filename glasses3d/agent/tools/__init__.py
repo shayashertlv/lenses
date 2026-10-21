@@ -24,7 +24,7 @@ from ..seeing import VIEWS_PER_SHEET
 from ..money import astra_money, money_facts
 from ..tool_reports import bounded_tool, limit_output, report_tool
 from .. import differences
-from . import arview, look, finish_review, model_map, owner_edit, owner_preview
+from . import arview, look, finish_review, model_map, owner_edit, owner_preview, lens_candidates, camera_choice
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
@@ -34,7 +34,7 @@ from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "load_font", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
-              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map", "record_difference")
+              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map", "record_difference", "compare_lens_candidates", "choose_camera_orientation")
 FATAL = FATAL_TOOL_ERRORS
 
 
@@ -811,6 +811,8 @@ def build_tools(scene, settings=None) -> list:
             finish_tool, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
             photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call),
             model_map.tool_for(scene, tool, call), differences.tool_for(scene, tool, call)]
+    if differences.enabled(scene):
+        tools += [lens_candidates.tool_for(scene, tool, call), camera_choice.tool_for(scene, tool, call)]
     if getattr(scene, "owner_edit", None):
         from .. import owner_edits
         tools += [owner_preview.tool_for(scene, tool, call)] + owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]

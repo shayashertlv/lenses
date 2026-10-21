@@ -377,7 +377,7 @@ def score_trial(trial_dir, output_dir=None, *, basis_dir=None):
     glb = (job / export["path"]).resolve()
     if not glb.is_relative_to(job) or sha256(glb) != export["sha256"]:
         raise ValueError("finished trial export escaped its copy or changed bytes")
-    return score_glb(glb, output, basis_dir=basis_dir,
+    return score_glb(glb, output, basis_dir=basis_dir, make_sheet=manifest.get("variant") != "candidates",
                      trial_label="LAB Codex-as-Astra trial — not a product")
 
 

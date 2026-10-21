@@ -66,6 +66,7 @@ from mathutils import Matrix, Vector
 
 from . import glb_patch
 from .coating import coating_range, optical_intent, optical_warnings
+from .lens_candidate import exact_values, patch_material
 
 ROLES = ("lens", "frame", "temple")
 AXES_KEYS = ("blender_agent_axes", "authoring_axes", "g3d_axes")
@@ -731,6 +732,7 @@ def export_glb(path: str | Path, scene=None) -> dict:
         roles_by_material: dict[str, set] = {}
         optical_sources: dict[str, list] = {}        # exported copy name -> active authored optical controls
         coating_ranges: dict[str, dict] = {}        # only the helper's scalar, untextured coating controls
+        candidate_values: dict[str, dict] = {}
         material_meshes: dict[str, list] = {}       # temporary material name -> whole evaluated mesh checks
         renormalised = []
         seat_extras: dict = {}
@@ -809,6 +811,9 @@ def export_glb(path: str | Path, scene=None) -> dict:
                     # Evaluated Material IDs can retain a previous helper tag/control value across live edits;
                     # Blender's own copy/export follows the original datablock. Audit that same authored graph.
                     authored_mat = mat.original
+                    exact = exact_values(authored_mat)
+                    if exact is not None:
+                        candidate_values[cp.name] = exact
                     optical_sources[cp.name] = optical_intent(authored_mat)
                     film_range = coating_range(authored_mat)
                     if film_range:
@@ -845,7 +850,21 @@ def export_glb(path: str | Path, scene=None) -> dict:
         receipt["optical_warnings"] = []
         receipt["coating_ranges"] = []
         receipt["single_sided_materials"] = []
+        receipt["lens_candidate_values"] = []
+        receipt["material_sidedness"] = []
         for m in doc_before.get("materials", []):
+            exact = candidate_values.get(m.get("name"))
+            if exact is not None:
+                patch_material(m, exact)
+                for extension in ("KHR_materials_transmission", "KHR_materials_ior", "KHR_materials_iridescence"):
+                    if extension not in doc_before.setdefault("extensionsUsed", []):
+                        doc_before["extensionsUsed"].append(extension)
+                receipt["lens_candidate_values"].append({"material": mat_names.get(m.get("name")), "values": exact})
+            shown = mat_names.get(m.get("name"), m.get("name"))
+            uses = material_meshes.get(m.get("name"), [])
+            sidedness = {"material": shown, "partRole": m.get("extras", {}).get("partRole"),
+                "closed_outward": bool(uses and all(use["outward_solid"] for use in uses)),
+                "authored_double_sided": m.get("doubleSided", False)}
             transmission = (m.get("extensions") or {}).get("KHR_materials_transmission", {})
             if float(transmission.get("transmissionFactor", 0)) > 0:
                 shown = mat_names.get(m.get("name"), m.get("name"))
@@ -860,11 +879,12 @@ def export_glb(path: str | Path, scene=None) -> dict:
                     reasons = "; ".join(f"{use['object']}: {use['reason']}" for use in uses
                                         if not use["outward_solid"]) or "no verified mesh use"
                     notes.append(f"See-through material {shown!r} keeps its sidedness: {reasons}.")
+            receipt["material_sidedness"].append({**sidedness, "export_double_sided": m.get("doubleSided", False)})
             # Blender omits minimum for uniform thin films. Preserve the helper's explicit range while
             # keeping the standard glTF meaning: no thickness texture => uniform maximum, not a gradient.
             iridescence = (m.get("extensions") or {}).get("KHR_materials_iridescence")
             film_range = coating_ranges.get(m.get("name"))
-            if iridescence is not None and film_range and "iridescenceThicknessTexture" not in iridescence:
+            if exact is None and iridescence is not None and film_range and "iridescenceThicknessTexture" not in iridescence:
                 iridescence.update(film_range)
                 receipt["coating_ranges"].append({"material": mat_names.get(m.get("name"), m.get("name")),
                                                    **film_range, "uniform_uses_maximum": True})

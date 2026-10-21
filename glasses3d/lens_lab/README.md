@@ -73,6 +73,14 @@ Finish is terminal for material mutations and restores.
 ```
 
 `--variant baseline` (the default) keeps the production tools unchanged.
+`--variant candidates` exposes `compare_lens_candidates` with its production schema and native image
+transport. It uses the same neutral fixture, frozen inputs, material-only scope and scoring as baseline.
+Candidate use is recorded separately; the existing successful photo-look and image-inspection requirements
+remain. Its post-trial scorer records the same six-region measurements without a white-background comparison
+sheet. Use `--variant candidates --count 4` for the task-23 batch. The tool previews exact GLB copies;
+apply the chosen result's `apply_code` through `execute_blender_code`. It calls
+`g3d.apply_lens_candidate(material_name, source_double_sided=source_flag, **values)` so opacity changes retain
+the compared export's sidedness. The closed-outward exporter rule remains enforced.
 `--variant regional` adds image-left/centre/right lens-colour lines to the
 immediate `compare_look_to_photos` output and retains the measurements in its
 full report. It uses thirds of that photo's existing eroded AR lens mask,
