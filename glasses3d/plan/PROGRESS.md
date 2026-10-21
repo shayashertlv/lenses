@@ -1,5 +1,21 @@
 # glasses3d progress
 
+## 2026-10-21 — Owner's eye on the 12 lab lenses (gallery, 3D + AR)
+
+- Owner, verbatim: "all of the following have perfect lens (the same level as accepted run 4)": baseline trials
+  002, 003 and 004, and pre14 trial 004.
+- **His four picks are exactly the four lowest lab errors** (23.66–24.59). All eight others score 25.64 or more.
+  The lab's six-region metric separates his choice perfectly in this cohort, n = 12, so it is information worth
+  keeping. It is not a gate.
+- By variant:
+  - baseline, with task 14's lines: 3 of 4 perfect;
+  - pre14, without them: 1 of 4;
+  - regional: 0 of 4.
+- So task 14's lines did not cause the grey, and **the regional lines are not to be ported**; the patch stays
+  unapplied.
+- Owner also wrote: "i think astra might needs to only base its opinion on the on face ar images since only they show
+  the color really". Claude's answer is recorded in the conversation; no change has been made.
+
 ## 2026-10-21 — Lens lab overnight results ($0; Claude-reviewed)
 
 - **Lab and ceiling** (`6c204bf`). 489 lens-material settings in our exporter and renderer: none beat run 4 on the
