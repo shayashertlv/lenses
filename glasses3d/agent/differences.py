@@ -213,16 +213,27 @@ def _prepare_item(scene, item, previous, default_evidence_ref, current_export):
     evidence_ref = item.get("evidence_ref")
     if evidence_ref is None:
         evidence_ref = default_evidence_ref
+    binding = validate_evidence(scene, evidence_ref, current_export=current_export)
+    available = [photo["ref"] for photo in binding["photos"]]
     refs = item.get("refs")
-    refs = refs if refs is not None else (previous["refs"] if previous else None)
-    binding = validate_evidence(scene, evidence_ref, refs, current_export=current_export)
-    refs = refs if refs is not None else [photo["ref"] for photo in binding["photos"]]
+    if refs is None:
+        refs = ([ref for ref in previous["refs"] if ref in available]
+                if previous and status == "open" else previous["refs"] if previous else available)
+    if not refs or len(set(refs)) != len(refs) or not set(refs) <= set(available):
+        raise ValueError("refs must name distinct photos included in the cited comparison")
+    observation_refs = list(refs)
+    if previous:
+        if status == "open":
+            # A focused observation cannot erase the affected scope established by
+            # earlier observations. Closing the item still requires its entire scope.
+            refs = list(dict.fromkeys([*previous["refs"], *refs]))
+        elif not set(previous["refs"]) <= set(refs):
+            raise ValueError("resolution must cover all previously affected photo refs; an update cannot drop them")
     prepared = {"id": id, "evidence_ref": evidence_ref, "status": status, "refs": list(refs),
+                "observation_refs": observation_refs,
                 **{field: _text(item.get(field), field) for field in
                    ("what_differs", "last_correction", "outcome", "next_action")},
                 "reason": _text(item.get("reason"), "reason") if status == "limitation" else item.get("reason")}
-    if previous and not set(previous["refs"]) <= set(refs):
-        raise ValueError("an update cannot drop the item's previously affected photo refs")
     # Serialization is also validation: no later item can fail after earlier appends.
     json.dumps(prepared, allow_nan=False)
     return prepared
@@ -265,17 +276,30 @@ def _commit_updates(scene, items, call_id):
 
 
 def record(scene, *, id=None, what_differs=None, evidence_ref=None, status=None, last_correction=None,
-           outcome=None, next_action=None, refs=None, reason=None, items=None, call_id=None):
+           outcome=None, next_action=None, refs=None, reason=None, items=None, best=False, call_id=None):
     """Append a validated batch, or the backward-compatible single complete item."""
     single = {"id": id, "what_differs": what_differs, "evidence_ref": evidence_ref, "status": status,
               "last_correction": last_correction, "outcome": outcome, "next_action": next_action,
               "refs": refs, "reason": reason}
     if items is not None and any(value is not None for value in single.values()):
         raise ValueError("Provide either items or the one-item fields, not both")
+    if not isinstance(best, bool):
+        raise ValueError("best must be a boolean")
     prepared = prepare_updates(scene, items if items is not None else [single])
     _commit_updates(scene, prepared, call_id)
+    if best:
+        # prepare_updates binds every cited comparison to this exact current head.
+        # This explicit decision carries the full list, including unresolved items;
+        # merely recording a comparison or a newer head never selects a best.
+        scene.best_checkpoint = scene.s.head["id"]
+        scene.best_checkpoint_run_id = scene.active_run_id
     result = {"status": "ok", "updated_differences": prepared, "differences": snapshot(scene),
               "formal_best_checkpoint": formal_best(scene)}
+    if best:
+        result["best_selection"] = {"checkpoint": scene.best_checkpoint,
+                                    "evidence_refs": list(dict.fromkeys(item["evidence_ref"] for item in prepared)),
+                                    "remaining_difference_ids": [item["id"] for item in result["differences"]
+                                                                 if item["status"] != "fixed"]}
     if len(prepared) == 1:
         result["difference"] = prepared[0]
     return result
@@ -314,7 +338,7 @@ def prepare_finish(scene, result, rows, evidence_ref, updates=None):
                         "last_correction": "No correction recorded in this finish review.",
                         "outcome": "Visible difference reported by Astra.",
                         "next_action": "Choose a correction, compare it, then record fixed or a supported limitation.",
-                        "refs": [ref], "reason": None}
+                        "refs": [ref], "observation_refs": [ref], "reason": None}
                 current[key] = item
                 additions.append(item)
                 ids = [key]
@@ -336,7 +360,10 @@ def commit_finish(scene, result):
         return
     updates = result.get("difference_updates", [])
     if updates:
-        prepared = prepare_updates(scene, updates, current_export=result.get("export"))
+        # Staged open records retain a wider affected scope than this observation.
+        # Revalidate their observed refs while reconstructing that persistent scope.
+        observations = [{**item, "refs": item.get("observation_refs", item["refs"])} for item in updates]
+        prepared = prepare_updates(scene, observations, current_export=result.get("export"))
         _commit_updates(scene, prepared, result["call_id"])
 
 
@@ -347,12 +374,18 @@ def tool_for(scene, tool, call):
                                 status: Literal["open", "fixed", "limitation"] | None = None,
                                 last_correction: str | None = None, outcome: str | None = None,
                                 next_action: str | None = None, refs: list[str] | None = None,
-                                reason: str | None = None, items: list[DifferenceUpdate] | None = None):
+                                reason: str | None = None, items: list[DifferenceUpdate] | None = None,
+                                best: bool = False):
         """Record one visible difference or an atomic items batch in this run's append-only host list.
         Supply items or the one-item fields. Every item is validated before any append; a refusal names
         failing ids and changes nothing. Confirming finish can reconcile the same items inline.
         Use a stable id. Cite a delivered compare_look_to_photos or finish review call id from this run;
         its head, camera basis and photo bytes must still be current. Unknown, unseen and stale evidence refuses.
+        Open updates retain all previously affected refs and record this observation's coverage separately.
+        Fixed or limitation must cover every affected ref in the current cited comparison.
+        Set best=True to explicitly select this compared current head as this run's formal best in the same
+        decision; state the kept choice and tradeoffs in outcome. All remaining differences are carried.
+        Without best=True, the formal best stays unchanged.
         State the last correction tried, its observed outcome and the next action; for a new open item say
         explicitly that no correction has been tried. Fixed needs a current supporting comparison and an
         account of what corrected it. Limitation additionally requires a specific reason supported by that
@@ -368,15 +401,17 @@ def tool_for(scene, tool, call):
             last_correction: What was tried, or explicitly no correction tried yet.
             outcome: What that comparison shows about the correction or limitation.
             next_action: The next correction/check, or explicitly no further action for this resolved item.
-            refs: Affected photo refs included in the cited comparison; null retains prior refs or uses all cited refs.
+            refs: This observation's photo refs. Open updates retain prior affected refs; resolution must cover all.
+                Null uses prior refs (the cited subset for open), or all cited refs for a new item.
             reason: Specific reason for a limitation; null is allowed for open or fixed.
             items: Complete updates in one request; use instead of the one-item fields. Each needs evidence_ref.
+            best: Explicitly make the compared current head formal best, carrying the remaining differences.
         """
         def action(cid):
             try:
                 return record(scene, id=id, what_differs=what_differs, evidence_ref=evidence_ref, status=status,
                               last_correction=last_correction, outcome=outcome, next_action=next_action,
-                              refs=refs, reason=reason, items=items, call_id=cid)
+                              refs=refs, reason=reason, items=items, best=best, call_id=cid)
             except DifferenceUpdateError as problem:
                 return {"status": "refused", "code": "E_ARGS", "message": str(problem),
                         "invalid_difference_ids": problem.invalid_difference_ids, "errors": problem.errors}

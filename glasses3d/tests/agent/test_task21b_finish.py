@@ -43,7 +43,8 @@ def seed_items(scene, *, stale=False):
 def updates(items, *, evidence_ref=None):
     result = []
     for index, item in enumerate(items):
-        resolved = {key: value for key, value in item.items() if key != "evidence_ref"}
+        # Observation coverage is host-recorded output, not a caller-writable field.
+        resolved = {key: value for key, value in item.items() if key not in {"evidence_ref", "observation_refs"}}
         resolved.update(status="fixed" if index == 0 else "limitation",
                         last_correction="Compared a corrected candidate and kept this current state.",
                         outcome="Current review supports the retained correction and its stated tradeoff.",

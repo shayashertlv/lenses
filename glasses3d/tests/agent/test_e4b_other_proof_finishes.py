@@ -78,7 +78,7 @@ def test_proof_confirmations_use_supported_inline_limitations(case, decision_sce
         assert "owner visual approval" in updates[0]["next_action"]
     confirmed = record(invoke(s, "finish", args, cid="proof-confirmed"))
     assert confirmed["status"] == "accepted", confirmed
-    assert D.snapshot(s) == updates
+    assert D.snapshot(s) == [{**item, "observation_refs": item["refs"]} for item in updates]
     assert confirmed["review"]["difference_mappings"] == [
         {"ref": row["ref"], "difference_ids": row["difference_ids"]} for row in args["per_photo"]]
 
