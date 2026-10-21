@@ -49,6 +49,26 @@ opens the existing webcam review for this exact delivery in a new tab; **Open AR
 browser blocks that tab. **Edit** opens a capture draft for this delivery. The orbit viewer and worn AR view
 use different rendering paths; use AR to judge the worn appearance.
 
+**Lens colour** opens a free, local editor from Results. It uses arview's own renderer, pinned Three build,
+lens handling and fixed room-reflection setting. Drag to rotate the large preview, use Front / Angled / Side /
+Top, and enlarge the reference photos. **Pick from photo** samples the original photo pixels into the tint
+picker. **Before / After** compares the original and your changes. Lenses change together by default;
+uncheck **Edit all lenses together** to select one material.
+
+Tint, see-through amount, mirror, gloss and coating shimmer update live. Every control has a reset;
+**Reset all**, **Undo / Redo** and Ctrl+Z / Ctrl+Y work within the session. Advanced optical controls are
+collapsed. Leaving with unsaved changes asks for confirmation. **Check in AR** makes a temporary model copy
+and opens the existing AR viewer; it does not publish a delivery. **Save as new version** runs the existing
+specification, seating, retained-print and AR checks, then publishes a new immutable owner-edited version.
+It opens on Results and appears in Jobs as **edited by you**. Failed checks show an error and keep the original.
+
+Saving patches only declared lens materials in the GLB JSON. Geometry, normals, UVs, textures, other materials
+and every non-JSON chunk retain their bytes. No Blender re-export, paid model request or product acceptance
+is implied. The saved provenance contains the source hashes and all chosen values. Its checkpoint is explicitly
+a GLB snapshot, so it supports further Lens colour edits and AR review. It has no new native Blender scene:
+start later Astra geometry edits from the original version. The UI refuses a native edit from this version
+instead of silently reverting the saved colours.
+
 **Edit:** position the model, then press **Capture and annotate** to freeze the view. In the annotation dialog:
 
 - **Point** makes a filled circle at one click.
@@ -131,6 +151,7 @@ Default locations, relative to the repository root:
 | `glasses3d/data/dev_ui/captures/` | Draft capture PNGs and metadata. |
 | `glasses3d/data/dev_ui/tasks/` | Detached apply-task records. |
 | `glasses3d/data/dev_ui/applied/<task-key>/` | New local-apply job copies and their deliveries. |
+| `glasses3d/data/dev_ui/lens-edits/<task-key>/` | Temporary AR previews and new immutable lens-colour versions. |
 | `glasses3d/data/jobs/<job-id>/` | Owner inputs, runs, checkpoints, money records and immutable `deliveries/<delivery-id>/`. |
 | `glasses3d/data/oe/` | Short-path UNDERSTAND/edit/fallback rounds; captures are frozen under their `inputs/owner_captures/`. |
 
@@ -160,9 +181,27 @@ byte-identical (`7d2d5b27…`). See PROGRESS for the retained proof.
 | `api.py`, `registry.py`, `artifacts.py`, `labels.py` | Workflow services, durable records, verified files and label warnings. |
 | `launcher.py`, `status.py`, `tasks.py` | Existing paid-run preparation/approval/detach, cheap file-only polling, detached $0 apply. |
 | `core_adapter.py` | Calls the agent's `owner_captures.py`, `owner_choices.py`, `owner_fallback.py` and existing job/delivery/review code. |
+| `lens_api.py`, `agent/owner_lens_edit.py` | Source-bound lens values, idempotent detached preview/save tasks and exact material-only GLB publication. |
+| `lens_renderer/`, `static/lens-colour.js` | Shared arview renderer bundle and local colour controls/photo eyedropper/history. Generated `.lens-renderer/` is ignored and rebuilt on source changes. |
 | `static/app.js`, `static/api.js`, `static/money.js`, `static/label-warnings.js` | Page flows, requests, decimal display and warnings. |
 | `static/viewer.js`, `static/annotation.js` | Three orbit view, frozen captures, GLB anchors, footprints and labelled drawing. |
 | `browser_tests/` | Chromium tests against the mock API, using existing arview dependencies. |
+
+The lens panel reads `GET /api/deliveries/{key}/lens-colour` and sends source SHA-256, material indices,
+complete values and an idempotency key to `POST .../lens-colour/preview` or `POST .../lens-colour/save`.
+Both return a task key; normal task polling returns an AR URL or a new delivery key. These routes have the
+same local-host, same-origin, artifact-hash and path-confinement boundary as the other pages.
+
+Renderer parity and the native browser proof (run sequentially, after any other heavy task exits):
+
+```powershell
+node glasses3d/dev_ui/lens_renderer/parity.mjs --out glasses3d/data/m12/proofs/FRESH_LENS_PARITY
+glasses3d/.venv/Scripts/python.exe -B -m glasses3d.dev_ui.e2e.lens_colour --out C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/m12/proofs/FRESH_LENS_UI --port 8297
+```
+
+The UI proof copies the accepted Oakley rerun delivery, blocks the paid launcher by construction, changes
+the real controls, opens temporary and saved AR, saves through the real API, checks the Jobs listing and
+proves original hashes and unrelated GLB data unchanged. Evidence and screenshots stay in the ignored output.
 
 Focused checks from the repository root:
 

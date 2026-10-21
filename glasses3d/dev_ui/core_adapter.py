@@ -19,6 +19,20 @@ def _facade(module, function):
 
 
 class CoreAdapter:
+    def read_lens_materials(self, source_glb):
+        return _facade("owner_lens_edit", "read_lens_materials")(source_glb)
+
+    def patch_lens_glb(self, source_glb, values):
+        return _facade("owner_lens_edit", "patch_lens_glb")(source_glb, values)
+
+    def create_lens_preview(self, source_root, delivery_id, values, destination=None):
+        return _facade("owner_lens_edit", "create_preview")(
+            source_root, delivery_id, values, destination=destination)
+
+    def save_lens_edit(self, source_root, delivery_id, values, destination=None):
+        return _facade("owner_lens_edit", "save_lens_edit")(
+            source_root, delivery_id, values, destination=destination)
+
     def validate_capture(self, payload, viewer_png, annotated_png, source_glb):
         return _facade("owner_captures", "validate_capture")(payload, viewer_png, annotated_png, source_glb)
 

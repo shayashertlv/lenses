@@ -89,6 +89,69 @@ dialog::backdrop { background: #16202b99; }
 .annotation-warnings { margin: 0; max-height: 6rem; overflow-y: auto; }
 .annotation-warnings:empty { display: none; }
 :focus-visible { outline: 3px solid #e4a118; outline-offset: 3px; }
+/* Lens colour keeps the preview visible beside the controls at laptop widths. */
+body[data-page="lens-colour"] main { max-width: 1440px; }
+.lens-intro { display: flex; gap: 1rem; justify-content: space-between; align-items: baseline; margin-bottom: 1rem; }
+.lens-intro p { margin: 0; }
+.lens-intro a { white-space: nowrap; }
+.lens-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1.25rem; align-items: start; }
+.lens-preview-column { min-width: 0; position: sticky; top: 1rem; }
+.lens-preview-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; margin-bottom: .6rem; }
+.lens-views, .lens-compare { display: flex; gap: .3rem; }
+.lens-preview-toolbar button { padding: .4rem .6rem; }
+.lens-preview-toolbar button[aria-pressed="true"] { padding: calc(.4rem - 1px) calc(.6rem - 1px); }
+.lens-viewer { height: min(55vh, 550px); min-height: 330px; background: #e8e8e8; }
+.lens-viewer-message { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; background: #eef1f4; color: #596675; z-index: 1; padding: 1rem; text-align: center; }
+.lens-preview-label { display: block; margin-top: .5rem; font-size: .9rem; font-weight: 650; }
+.lens-controls { padding: 1rem; margin: 0; }
+.lens-material-choice { border-bottom: 1px solid #d6dde5; margin-bottom: 1rem; padding-bottom: .75rem; }
+.lens-check { display: flex; gap: .5rem; align-items: center; font-size: .9rem; }
+.lens-material-label { font-size: .85rem; }
+.lens-control { margin-bottom: 1rem; }
+.lens-control:last-child { margin-bottom: 0; }
+.lens-control-caption { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .25rem; }
+.lens-control-caption label { margin: 0; font-size: .9rem; }
+.lens-control-value { margin-left: auto; font-variant-numeric: tabular-nums; font-size: .85rem; color: #445363; white-space: nowrap; }
+.lens-reset { padding: .15rem .35rem; border-color: transparent; font-size: .8rem; color: #145ea8; }
+.lens-controls input[type="range"] { padding: 0; border: 0; accent-color: #185f9f; background: transparent; height: 26px; cursor: pointer; }
+.lens-controls input[type="color"] { height: 40px; padding: .15rem; width: 100%; cursor: pointer; }
+.lens-controls input[type="checkbox"] { accent-color: #185f9f; width: 1.05rem; height: 1.05rem; }
+.lens-controls button#lens-eyedropper { font-size: .85rem; padding: .3rem .6rem; margin-top: .35rem; }
+.lens-help { font-size: .8rem; color: #596675; margin: .25rem 0 0; }
+.lens-shimmer { border: 1px solid #d6dde5; padding: .6rem .75rem .75rem; border-radius: 5px; margin: 0 0 1rem; min-width: 0; }
+.lens-shimmer legend { font-size: .9rem; font-weight: 600; padding: 0 .3rem; }
+.lens-shimmer-swatch { display: block; width: 100%; height: 24px; border: 1px solid #d6dde5; border-radius: 4px; margin-top: .5rem; }
+.lens-advanced { font-size: .9rem; }
+.lens-advanced summary { cursor: pointer; margin-bottom: .6rem; }
+.lens-references { margin-top: 1rem; }
+.lens-references h2 { font-size: 1rem; margin-bottom: .1rem; }
+.lens-photo-strip { display: flex; gap: .5rem; overflow-x: auto; padding: .5rem .15rem; }
+.lens-photo { flex: 0 0 115px; padding: .25rem; overflow: hidden; border-color: #c9d2dc; }
+.lens-photo.active-reference { border-color: #185f9f; box-shadow: 0 0 0 1px #185f9f; }
+.lens-photo img { width: 105px; height: 74px; display: block; object-fit: contain; background: #f5f5f5; }
+.lens-photo span { display: block; font-size: .73rem; margin-top: .3rem; white-space: normal; }
+.lens-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; border-top: 1px solid #d6dde5; margin-top: 1rem; }
+.lens-footer .actions { margin: .85rem 0 0; }
+#lens-save-state { font-size: .9rem; }
+.lens-photo-dialog { width: min(1100px, 96vw); }
+.lens-dialog-title { display: flex; gap: 1rem; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+.lens-dialog-title h2 { margin: 0; text-transform: capitalize; }
+.lens-photo-stage { background: #eceff2; display: flex; justify-content: center; align-items: center; min-height: 150px; }
+.lens-photo-stage canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: 65vh; }
+.lens-photo-stage canvas.sampling { cursor: crosshair; }
+@media (max-width: 1000px) {
+  .lens-layout { grid-template-columns: minmax(0, 1fr) 300px; gap: .8rem; }
+  .lens-controls { padding: .75rem; }
+  .lens-viewer { min-height: 300px; }
+}
+@media (max-width: 760px) {
+  .lens-layout { grid-template-columns: minmax(0, 1fr); }
+  .lens-preview-column { position: static; }
+  .lens-intro { display: block; }
+  .lens-intro a { display: inline-block; margin-top: .4rem; }
+  .lens-viewer { height: 44vh; }
+  .lens-footer { position: sticky; bottom: 0; background: #f7f8faf5; padding-bottom: .6rem; }
+}
 @media (max-width: 640px) {
   header { gap: 1rem; padding: .8rem 1rem; }
   header strong { font-size: .9rem; }

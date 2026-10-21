@@ -136,6 +136,15 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
         await _json(request)
         return await call(service.ar, request.path_params["key"])
 
+    async def lens_colour(request):
+        return await call(service.lens_colour, request.path_params["key"])
+
+    async def lens_preview(request):
+        return await call(service.lens_preview, request.path_params["key"], await _json(request))
+
+    async def lens_save(request):
+        return await call(service.lens_save, request.path_params["key"], await _json(request))
+
     async def new_draft(request):
         body = await _json(request)
         return await call(service.new_draft, body.get("delivery_key"))
@@ -186,6 +195,16 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
             raise KeyError(name)
         return FileResponse(await run_in_threadpool(confined, config.vendor_root, name), media_type="text/javascript")
 
+    async def lens_renderer(request):
+        from .lens_renderer import renderer_asset
+        try:
+            path = await run_in_threadpool(renderer_asset, request.path_params["path"])
+        except FileNotFoundError:
+            raise KeyError(request.path_params["path"]) from None
+        except RuntimeError:
+            return error_response("renderer_unavailable", "The lens preview could not load. Check the dev UI log and retry.", 503)
+        return FileResponse(path)
+
     def page(name):
         async def endpoint(request):
             return FileResponse(await run_in_threadpool(confined, config.static_root, name + ".html"))
@@ -208,6 +227,9 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
               Route("/api/jobs/start", start, methods=["POST"]), Route("/api/runs/{key}", run),
               Route("/api/runs/{key}/stop", stop, methods=["POST"]), Route("/api/deliveries/{key}", delivery),
               Route("/api/deliveries/{key}/model.glb", model), Route("/api/deliveries/{key}/ar", ar, methods=["POST"]),
+              Route("/api/deliveries/{key}/lens-colour", lens_colour),
+              Route("/api/deliveries/{key}/lens-colour/preview", lens_preview, methods=["POST"]),
+              Route("/api/deliveries/{key}/lens-colour/save", lens_save, methods=["POST"]),
               Route("/api/edit-drafts", new_draft, methods=["POST"]), Route("/api/edit-drafts/{key}", draft),
               Route("/api/edit-drafts/{key}/items", item, methods=["POST"]),
               Route("/api/edit-drafts/{key}/items/{item}", item, methods=["PATCH", "DELETE"]),
@@ -215,9 +237,10 @@ def create_app(config=None, *, launcher=None, core_adapter=None, task_launcher=N
               Route("/api/edits/{key}/understanding", understanding), Route("/api/edits/{key}/apply", apply, methods=["POST"]),
               Route("/api/edits/{key}/items/{item}/full-edit", full_edit, methods=["POST"]),
               Route("/api/tasks/{key}", task), Route("/api/artifacts/{sha}", artifact),
-              Route("/static/{path:path}", static), Route("/vendor/three/{path:path}", vendor)]
+              Route("/static/{path:path}", static), Route("/vendor/three/{path:path}", vendor),
+              Route("/lens-renderer/{path:path}", lens_renderer)]
     routes += [Route("/", page("index")), Route("/new", page("new"))]
-    routes += [Route(f"/{name}/{{key}}", page(name)) for name in ("run", "results", "edit", "understand", "task")]
+    routes += [Route(f"/{name}/{{key}}", page(name)) for name in ("run", "results", "edit", "understand", "task", "lens-colour")]
     app = Starlette(routes=routes, exception_handlers={APIError: handle_error, ValueError: handle_error,
         KeyError: handle_error, HTTPException: handle_error, OSError: handle_error, Exception: handle_error})
     app.state.service = service

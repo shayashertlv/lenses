@@ -81,8 +81,9 @@ def reconcile_task(service, key):
             return task
         code = status.get("exit_code")
         detail = f" (worker exit {code})" if type(code) is int else ""
+        retry = "Save as new version" if task["kind"] == "lens_save" else "Check in AR" if task["kind"] == "lens_preview" else "Apply my picks"
         task.update(phase="failed", recoverable=True, launched=False, ended_at=now_iso(),
-                    progress="Interrupted; retry Apply my picks", error="The local apply task was interrupted" + detail)
+                    progress="Interrupted; retry " + retry, error="The local task was interrupted" + detail)
         service.registry.put("tasks", task, key)
         return task
 
@@ -151,12 +152,22 @@ def execute_task(service, key):
         identity = _worker_identity()
         if _identity_alive(task.get("worker_identity")):
             return task
-        task.update(phase="running", started_at=now_iso(), progress="Applying the selected sealed options",
+        progress = ("Checking and saving your lens colours" if task["kind"] == "lens_save" else
+                    "Preparing a temporary AR preview" if task["kind"] == "lens_preview" else
+                    "Applying the selected sealed options")
+        task.update(phase="running", started_at=now_iso(), progress=progress,
                     error=None, recoverable=False, worker_identity=identity)
         task.pop("ended_at", None)
         registry.put("tasks", task, key)
     try:
         body = task["body"]
+        if task["kind"] in ("lens_save", "lens_preview"):
+            from .lens_api import execute_lens_task
+            task.update(result=execute_lens_task(service, task), phase="done",
+                        progress="Saved" if task["kind"] == "lens_save" else "AR preview ready")
+            task["ended_at"] = now_iso()
+            registry.put("tasks", task, key)
+            return task
         destination = service.config.state_root / "applied" / key
         # Deterministic destination makes an interrupted publication discoverable on retry.
         pointer = destination / "deliveries/current.json"

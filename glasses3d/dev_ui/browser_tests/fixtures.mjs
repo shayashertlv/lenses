@@ -83,3 +83,30 @@ export function makeAnchorGlb({alphaMask = false} = {}) {
   const binHeader = Buffer.alloc(8); binHeader.writeUInt32LE(bin.length); binHeader.writeUInt32LE(0x004e4942, 4);
   return {bytes: Buffer.concat([header, jsonHeader, json, binHeader, bin]), doc, quads};
 }
+
+/** Two explicitly tagged lens materials plus an untouched frame, for E2 only. */
+export function makeLensGlb() {
+  const fixture = makeAnchorGlb(), doc = structuredClone(fixture.doc);
+  const lens = tint => ({name: 'Lens tint', extras: {partRole: 'lens'},
+    pbrMetallicRoughness: {baseColorFactor: [...tint, 1], metallicFactor: 0.1, roughnessFactor: 0.2},
+    extensions: {KHR_materials_transmission: {transmissionFactor: 0.65}, KHR_materials_ior: {ior: 1.5},
+      KHR_materials_iridescence: {iridescenceFactor: 0.45, iridescenceIor: 1.3, iridescenceThicknessMinimum: 350, iridescenceThicknessMaximum: 350}}});
+  doc.materials[0].extras = {partRole: 'frame'};
+  doc.materials[0].pbrMetallicRoughness.metallicFactor = 0;
+  doc.materials[1] = lens([0.22, 0.5, 0.65]); doc.materials[1].name = 'Right lens';
+  doc.materials[2] = lens([0.22, 0.5, 0.65]); doc.materials[2].name = 'Left lens';
+  doc.meshes[0].primitives.forEach(primitive => { primitive.material = 2; });
+  doc.nodes[0].name = 'Lens left';
+  doc.extensionsUsed = ['KHR_materials_transmission', 'KHR_materials_ior', 'KHR_materials_iridescence'];
+  return {...fixture, doc, bytes: replaceGlbJson(fixture.bytes, doc), materials: [1, 2].map(material_index => ({material_index,
+    name: doc.materials[material_index].name, values: {tint: [0.22, 0.5, 0.65], transmission: 0.65, metallic: 0.1, roughness: 0.2,
+      ior: 1.5, iridescence: 0.45, iridescence_ior: 1.3, iridescence_thickness_min: 350, iridescence_thickness_max: 350}}))};
+}
+
+export function replaceGlbJson(bytes, doc) {
+  const raw = Buffer.from(JSON.stringify(doc)), json = Buffer.concat([raw, Buffer.alloc((4 - raw.length % 4) % 4, 32)]);
+  const bin = bytes.subarray(20 + bytes.readUInt32LE(12));
+  const header = Buffer.from(bytes.subarray(0, 20));
+  header.writeUInt32LE(20 + json.length + bin.length, 8); header.writeUInt32LE(json.length, 12);
+  return Buffer.concat([header, json, bin]);
+}

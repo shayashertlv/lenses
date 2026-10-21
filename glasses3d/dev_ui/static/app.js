@@ -268,9 +268,13 @@ async function resultsPage() {
   const delivery = await api.get(`/api/deliveries/${key}`);
   const viewer = node('div', { id: 'viewer', class: 'viewer', 'aria-label': '3D model viewer' });
   const ar = button('View in AR', { id: 'view-ar' });
-  const edit = button('Edit', { id: 'edit-delivery', class: 'primary' });
-  app.replaceChildren(node('p', {}, node('span', { class: `status-tag${delivery.finished ? '' : ' not-finished'}` }, delivery.finished ? 'finished' : 'not finished'), ` · Settled spend: ${money(delivery.run_settled_usd)}`),
-    viewer, node('p', { class: 'viewer-help' }, 'Drag to orbit, scroll to zoom, right-drag to pan.'), node('div', { class: 'actions' }, ar, edit), drawOutcome(delivery));
+  const ownerColour = delivery.origin === 'owner_lens_edit';
+  const edit = button('Edit', { id: 'edit-delivery', class: 'primary', disabled: ownerColour });
+  const colour = link('Lens colour', `/lens-colour/${key}`, { id: 'lens-colour', class: 'button' });
+  app.replaceChildren(node('p', {}, node('span', { class: `status-tag${delivery.finished ? '' : ' not-finished'}` }, ownerColour ? 'edited by you' : delivery.finished ? 'finished' : 'not finished'),
+    ownerColour && !delivery.finished ? node('span', { class: 'status-tag not-finished' }, 'not finished') : null, ` · Settled spend: ${money(delivery.run_settled_usd)}`),
+    viewer, node('p', { class: 'viewer-help' }, 'Drag to orbit, scroll to zoom, right-drag to pan.'), node('div', { class: 'actions' }, ar, edit, colour), drawOutcome(delivery));
+  if (ownerColour) app.append(node('p', { class: 'notice' }, 'This version keeps your lens changes. Use Lens colour for more colour edits; Astra edits are available from the original version.'));
   if (delivery.checks?.length) app.append(node('details', {}, node('summary', {}, 'Model checks'), node('ul', { class: 'check-list' }, delivery.checks.map(check => node('li', {}, `${check.name}: ${check.ok ? 'passed' : 'needs attention'}${check.detail ? ` · ${typeof check.detail === 'string' ? check.detail : JSON.stringify(check.detail)}` : ''}`)))));
   ar.addEventListener('click', async () => {
     if (ar.disabled) return;
@@ -539,7 +543,11 @@ async function taskPage() {
 async function start() {
   const config = await api.get('/api/config');
   document.querySelector('#offline-banner').hidden = !config.offline_test_mode;
-  const pages = { index: jobsPage, new: newPage, run: runPage, results: resultsPage, edit: editPage, understand: understandPage, task: taskPage };
+  const pages = { index: jobsPage, new: newPage, run: runPage, results: resultsPage, edit: editPage, understand: understandPage, task: taskPage,
+    'lens-colour': async () => {
+      const { lensColourPage } = await import('./lens-colour.js');
+      cleanups.push(await lensColourPage(app, routeKey()));
+    } };
   const render = pages[document.body.dataset.page];
   if (!render) throw new Error('This page is not available. Open Jobs to continue.');
   await render(config);

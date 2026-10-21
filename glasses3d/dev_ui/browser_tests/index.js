@@ -2,3 +2,4 @@
 // Preserve the brief's command: node --test glasses3d/dev_ui/browser_tests/
 require('./ui.test.mjs');
 require('./provenance.test.mjs');
+require('./lens-colour.test.mjs');

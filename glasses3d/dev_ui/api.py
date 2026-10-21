@@ -17,6 +17,7 @@ from .contracts import APIError, SHA, cutoff, json_object, now_iso, opaque, text
 from .core_adapter import CoreAdapter
 from .labels import label_warnings, item_warnings
 from .launcher import has_launch_evidence
+from .lens_api import LensColourService
 from .registry import Registry
 from .status import read_run_status, find_run_delivery, _money
 
@@ -33,7 +34,7 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
-class Service:
+class Service(LensColourService):
     def __init__(self, config, launcher, core=None, task_launcher=None):
         self.config, self.launcher = config, launcher
         self.core = core or CoreAdapter()
@@ -214,14 +215,28 @@ class Service:
     def delivery(self, key):
         with self.registry.lock:
             record = self.get("deliveries", key)
-            if "dto" not in record or record.get("dto_revision") != 2:
+            if "dto" not in record or record.get("dto_revision") != 4:
                 loaded = self.core.load_delivery(Path(record["root"]), record["delivery_id"])
                 report = loaded["report_data"]
+                origin = report.get("origin", record["origin"])
+                binding = report.get("owner_applied") or {}
+                if binding.get("path") == "owner-applied/report.json":
+                    application_path = Path(loaded["report"]).parent / binding["path"]
+                    application_bytes = application_path.read_bytes()
+                    if hashlib.sha256(application_bytes).hexdigest() != binding.get("sha256"):
+                        raise APIError("stale_source", "The saved owner edit changed. Reload its original version.", 409)
+                    application = json.loads(application_bytes)
+                    if (application.get("origin") == "owner_lens_edit"
+                            and application.get("owner_lens_edit", {}).get("schema") == "g3d.owner_lens_edit/1"):
+                        origin = "owner_lens_edit"
+                record["origin"] = origin
                 self.artifacts.register(loaded["model"], loaded["glb_sha256"])
                 finished = report.get("finished", loaded.get("finished", False)) is True
-                checks = [{"name": name, "ok": report.get(name, {}).get("ok"),
-                           "detail": report.get(name, {}).get("status", "")}
+                checks = [{"name": name, "ok": (report.get(name) or {}).get("ok"),
+                           "detail": (report.get(name) or {}).get("status", "")}
                           for name in ("validate_spec", "seating", "print_check", "arview")]
+                if checks[-1]["ok"] is None and isinstance(report.get("arview"), dict) and "status" in report["arview"]:
+                    checks[-1]["ok"] = report["arview"]["status"] == "ok" and report["arview"].get("exit_code") == 0
                 manifest = Path(loaded.get("manifest", Path(loaded["model"]).parent / "manifest.json"))
                 created = report.get("created_utc") or _read(manifest).get("created_utc")
                 if not created:
@@ -233,14 +248,14 @@ class Service:
                        "model_url": f"/api/deliveries/{key}/model.glb", "finished": finished,
                        "accepted_finish": report.get("accepted_finish", False),
                        "run_status": report.get("run_status", loaded.get("run_status")),
-                       "label": "finished" if finished else "not finished",
+                       "label": "edited by you" if record["origin"] == "owner_lens_edit" else "finished" if finished else "not finished",
                        "run_settled_usd": _money([report.get("cost")], "settled"),
                        "created_utc": created, "checks": checks,
-                       "origin": report.get("origin", record["origin"]),
+                       "origin": origin,
                        "applied": report.get("applied", record["applied"]),
                        "notes": report.get("notes", record["notes"]), "warnings": report.get("warnings", []),
                        "exactness": report.get("exactness"), "side_effects": report.get("side_effects")}
-                record.update(dto=dto, dto_revision=2, model=str(loaded["model"]))
+                record.update(dto=dto, dto_revision=4, model=str(loaded["model"]))
                 self.registry.put("deliveries", record, key)
             # The artifact cache verifies the model once, then invalidates on file identity/stat changes.
             self.artifacts.read(record["dto"]["glb_sha256"])
@@ -261,6 +276,9 @@ class Service:
 
     def new_draft(self, delivery_key):
         delivery = self.delivery(delivery_key)
+        if delivery["origin"] == "owner_lens_edit":
+            raise APIError("native_edit_unavailable", "Use Lens colour for more colour edits on this version. "
+                           "Astra edits are available from the original version.", 409)
         with self.registry.lock:
             source = {"delivery_key": delivery_key, "glb_sha256": delivery["glb_sha256"]}
             # The task has already made the next empty draft. The page's standard
@@ -376,6 +394,9 @@ class Service:
         with self.registry.lock:
             request_key, request = self._request("send:" + key, body)
             draft = self.get("drafts", key)
+            if self.delivery(draft["source"]["delivery_key"])["origin"] == "owner_lens_edit":
+                raise APIError("native_edit_unavailable", "Astra edits are available from the original version. "
+                               "Use Lens colour to keep editing this version.", 409)
             if not request.get("root"):
                 if draft["frozen"] and draft.get("send_request") != request_key:
                     raise APIError("draft_frozen", "These edits were already sent.", 409)
@@ -509,7 +530,8 @@ class Service:
             elapsed = max(0, (end - datetime.fromisoformat(task["started_at"])).total_seconds())
         return {"schema": "g3d.dev_task/1", "task_key": key, "kind": task["kind"], "phase": task["phase"],
                 "started_at": task.get("started_at"), "elapsed_seconds": elapsed, "progress": task.get("progress", ""),
-                "result": task.get("result"), "error": task.get("error")}
+                "result": task.get("result"), "error": task.get("error"),
+                "recoverable": task.get("recoverable", False)}
 
     def full_edit(self, key, item_id, body):
         amount = cutoff(body.get("cutoff_usd"))
@@ -558,10 +580,13 @@ class Service:
                 for d in deliveries:
                     report_path = Path(d["root"]) / "deliveries" / d["delivery_id"] / "report.json"
                     report = d.get("dto") or _read(report_path)
+                    if report.get("owner_applied"):
+                        report = self.delivery(d["key"])
+                        d = self.get("deliveries", d["key"])
                     from datetime import datetime, timezone
                     created = report.get("created_utc") or (datetime.fromtimestamp(report_path.stat().st_mtime,
                         timezone.utc).isoformat() if report_path.is_file() else "")
-                    summaries.append({"delivery_key": d["key"], "label": "finished" if report.get("finished") else "not finished",
+                    summaries.append({"delivery_key": d["key"], "label": "edited by you" if d["origin"] == "owner_lens_edit" else "finished" if report.get("finished") else "not finished",
                                       "created_utc": created})
                 keys = {d["key"] for d in deliveries}
                 runs = [r for r in self.registry.list("runs") if r["job_id"] == job["job_id"]]

@@ -4,7 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
-import {makeAnchorGlb, makePng, sha256} from './fixtures.mjs';
+import {makeAnchorGlb, makeLensGlb, makePng, sha256} from './fixtures.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const DATA = path.join(ROOT, 'glasses3d/data/m12/tmp/B');
@@ -12,17 +12,21 @@ export const arRequire = createRequire(path.join(ROOT, 'glasses3d/arview/package
 export const {chromium} = arRequire('@playwright/test');
 const STATIC = path.join(ROOT, 'glasses3d/dev_ui/static');
 const THREE = path.join(ROOT, 'glasses3d/arview/node_modules/three');
+const LENS_RENDERER = path.join(ROOT, 'glasses3d/dev_ui/.lens-renderer');
 const clone = value => structuredClone(value);
 
 export async function startMockServer() {
   await fs.mkdir(DATA, {recursive: true});
-  const fixture = makeAnchorGlb(), alphaFixture = makeAnchorGlb({alphaMask: true}), png = makePng();
+  const fixture = makeAnchorGlb(), alphaFixture = makeAnchorGlb({alphaMask: true}), lensFixture = makeLensGlb(), png = makePng();
   await fs.writeFile(path.join(DATA, 'synthetic-anchor.glb'), fixture.bytes);
   await fs.writeFile(path.join(DATA, 'synthetic-alpha.glb'), alphaFixture.bytes);
   await fs.writeFile(path.join(DATA, 'photo.png'), png);
   const hash = sha256(fixture.bytes), created = '2026-10-19T10:00:00Z', previewUrl = `/api/artifacts/${sha256(png)}`;
   const source = {delivery_key: 'delivery_demo', glb_sha256: hash};
-  const state = {requests: [], startDelay: 0, nextError: null, moneyDiagnostics: null, fixture, alphaFixture, png, source, artifacts: new Map(),
+  const state = {requests: [], startDelay: 0, nextError: null, moneyDiagnostics: null, fixture, alphaFixture, lensFixture, png, source, artifacts: new Map(),
+    lensSaved: false, lensTaskDelay: 0, lensPreviewPending: false, lensSaveFailure: null, lensSaveRecoverable: false, inspectLens: false,
+    lens: {source: {delivery_key: 'delivery_demo', glb_sha256: sha256(lensFixture.bytes), model_url: '/__test/lenses.glb'},
+      materials: clone(lensFixture.materials), photos: ['front', 'angled', 'side', 'top'].map(kind => ({url: previewUrl, kind, side: 'left', name: `${kind}.png`}))},
     config: {schema: 'g3d.dev_config/1', offline_test_mode: true, view_kinds: ['front', 'side', 'angled', 'top', 'rear', 'top_oblique'], sides: ['both', 'left', 'right', 'none'], effort: 'max', edit_effort: 'high'},
     run: {schema: 'g3d.dev_run/1', run_key: 'run_demo', kind: 'job', job_id: 'job_demo', run_id: 'run_demo', phase: 'running', loop_state: 'working', started_at: new Date(Date.now() - 65_000).toISOString(), updated_at: created, elapsed_seconds: 65, settled_usd: '1.25', held_usd: '0', unknown_usd: '0', cutoff_usd: '25.50', estimate_usd: '8.50', terminal_status: null, stop_requested: false, delivery_key: null, edit_key: null, error: null, offline_test_mode: true},
     delivery: {schema: 'g3d.dev_delivery/1', ...source, job_id: 'job_demo', delivery_id: 'delivery_demo', model_url: '/api/deliveries/delivery_demo/model.glb', finished: false, accepted_finish: false, run_status: 'budget_limit', label: 'not finished', run_settled_usd: '25.65', created_utc: created, checks: [{name: 'GLB', ok: true, detail: 'Synthetic fixture'}], origin: 'run', applied: [], notes: [], warnings: []},
@@ -61,14 +65,26 @@ export async function startMockServer() {
       if (route === '/api/config') return json(res, state.config);
       if (route === '/api/jobs') return json(res, {jobs: [
         {job_id: 'job_old', name: 'Older glasses', created_utc: '2026-10-18T10:00:00Z', deliveries: [], runs: [], drafts: [], edits: []},
-        {job_id: 'job_demo', name: 'Synthetic glasses', created_utc: created, deliveries: [{delivery_key: 'delivery_demo', label: 'not finished', created_utc: created}], runs: [{run_key: 'run_demo', kind: 'job', phase: 'running'}], drafts: [{draft_id: 'draft_demo'}], edits: [{edit_key: 'edit_demo', phase: 'ended'}]},
+        {job_id: 'job_demo', name: 'Synthetic glasses', created_utc: created, deliveries: [{delivery_key: 'delivery_demo', label: 'not finished', created_utc: created}, ...(state.lensSaved ? [{delivery_key: 'delivery_lens', label: 'edited by you', created_utc: created}] : [])], runs: [{run_key: 'run_demo', kind: 'job', phase: 'running'}], drafts: [{draft_id: 'draft_demo'}], edits: [{edit_key: 'edit_demo', phase: 'ended'}]},
       ]});
       if (route === '/api/jobs/start') {if (state.startDelay) await new Promise(resolve => setTimeout(resolve, state.startDelay)); return json(res, {run_key: 'run_demo', job_id: 'job_demo', run_id: 'run_demo', cutoff_usd: JSON.parse(parts.manifest).cutoff_usd});}
       if (route === '/api/runs/run_demo/stop') {state.run.stop_requested = true; return json(res, state.run);}
       if (route === '/api/runs/run_demo') return json(res, state.run);
       if (route === '/__test/alpha.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(alphaFixture.bytes);}
+      if (route === '/__test/lenses.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(lensFixture.bytes);}
+      if (route === '/api/deliveries/delivery_demo/lens-colour') return json(res, state.lens);
+      if (route === '/api/deliveries/delivery_demo/lens-colour/preview') return json(res, {task_key: 'task_lens_preview'});
+      if (route === '/api/deliveries/delivery_demo/lens-colour/save') return json(res, {task_key: 'task_lens_save'});
+      if (route === '/api/tasks/task_lens_preview') return json(res, {...state.task, kind: 'owner_lens_preview', task_key: 'task_lens_preview', phase: state.lensPreviewPending || state.lensTaskDelay-- > 0 ? 'running' : 'done', result: {url: `${origin}/__test/ar`}});
+      if (route === '/api/tasks/task_lens_save') {
+        const phase = state.lensSaveFailure ? 'failed' : state.lensTaskDelay-- > 0 ? 'running' : 'done';
+        if (phase === 'done') state.lensSaved = true;
+        return json(res, {...state.task, kind: 'owner_lens_edit', task_key: 'task_lens_save', phase, error: state.lensSaveFailure,
+          recoverable: state.lensSaveRecoverable, result: phase === 'done' ? {delivery_key: 'delivery_lens'} : null});
+      }
       if (/^\/api\/deliveries\/[^/]+\/model.glb$/.test(route) || route === '/__test/model.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(route === '/__test/model.glb' && state.realBytes ? state.realBytes : fixture.bytes);}
       if (route === '/api/deliveries/delivery_demo/ar') return json(res, {url: `${origin}/__test/ar`});
+      if (route === '/api/deliveries/delivery_lens') return json(res, {...state.delivery, delivery_key: 'delivery_lens', origin: 'owner_lens_edit', label: 'edited by you'});
       if (/^\/api\/deliveries\/[^/]+$/.test(route)) return json(res, state.delivery);
       if (route === '/api/edit-drafts' && method === 'POST') {if (body.delivery_key === 'delivery_after') return json(res, {...state.draft, draft_id: 'draft_after', source: {...source, delivery_key: 'delivery_after'}, items: [], labels: []}); return json(res, state.draft);}
       if (/^\/api\/edit-drafts\/[^/]+\/items$/.test(route) && method === 'POST') {
@@ -92,10 +108,20 @@ export async function startMockServer() {
       if (route.startsWith('/api/artifacts/')) {res.writeHead(200, {'content-type': 'image/png'}); return res.end(state.artifacts.get(route.split('/').at(-1)) || png);}
       if (route === '/__test/ar') {res.end('<!doctype html><title>Mock AR</title><p>Offline AR handoff</p>'); return;}
       if (route === '/__test/viewer') {res.writeHead(200, {'content-type': 'text/html'}); res.end(`<!doctype html><meta charset="utf-8"><title>Viewer fixture</title><link rel="stylesheet" href="/static/styles.css"><script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script><div id="fixture-viewer" style="width:800px;height:500px"></div>`); return;}
+      if (route.startsWith('/lens-renderer/')) {
+        const relative = decodeURIComponent(route.slice('/lens-renderer/'.length));
+        if (relative.includes('..')) return json(res, {error: {message: 'Invalid renderer path'}}, 404);
+        // Test-only exposure of the real returned viewer: no production hook or mock rendering.
+        if (relative === 'lens-renderer.js' && state.inspectLens) {
+          res.writeHead(200, {'content-type': 'text/javascript'});
+          return res.end(`export * from '/lens-renderer/implementation.js'; import {createLensColourViewer as create} from '/lens-renderer/implementation.js'; export async function createLensColourViewer(...args) {const viewer = await create(...args); window.__lensPreview = viewer; return viewer;}`);
+        }
+        return file(res, path.join(LENS_RENDERER, relative === 'implementation.js' ? 'lens-renderer.js' : relative), relative.endsWith('.js') ? 'text/javascript' : relative.endsWith('.wasm') ? 'application/wasm' : 'application/json');
+      }
       if (route.startsWith('/static/')) {const relative = decodeURIComponent(route.slice(8)); if (relative.includes('..')) return json(res, {error: {message: 'Invalid path'}}, 404); return file(res, path.join(STATIC, relative), relative.endsWith('.js') ? 'text/javascript' : relative.endsWith('.css') ? 'text/css' : 'text/html');}
       if (route.startsWith('/vendor/three/')) {const relative = decodeURIComponent(route.slice('/vendor/three/'.length)); if ((!relative.startsWith('build/') && !relative.startsWith('examples/jsm/')) || relative.includes('..') || !relative.endsWith('.js')) return json(res, {error: {message: 'Invalid vendor path'}}, 404); return file(res, path.join(THREE, relative), 'text/javascript');}
       const page = route === '/' ? 'index' : route.split('/')[1];
-      if (['index', 'new', 'run', 'results', 'edit', 'understand', 'task'].includes(page)) return file(res, path.join(STATIC, `${page}.html`), 'text/html');
+      if (['index', 'new', 'run', 'results', 'edit', 'understand', 'task', 'lens-colour'].includes(page)) return file(res, path.join(STATIC, `${page}.html`), 'text/html');
       return json(res, {error: {message: `Mock has no route ${method} ${route}`}}, 404);
     } catch (error) {return json(res, {error: {code: 'mock_failure', message: error.message}}, 500);}
   });
