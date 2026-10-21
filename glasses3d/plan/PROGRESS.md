@@ -1,5 +1,15 @@
 # glasses3d progress
 
+## 2026-10-21 — Owner verdict on the general Edit page (E4/E4c)
+
+**Verdict.** After using the live Edit page, the owner said, verbatim: "not needed, this is what i talked about. it
+looks and works great".
+
+**Free shape tweaks.** The owner declined size, lens height and temple length tweaks ("not needed"). They are not
+planned. Shape changes stay with "Ask Astra".
+
+**Still in progress.** E5 ("Around a point" gradients) and task 23 are running.
+
 ## 2026-10-21 — Claude review: task 22 findings; E4/E4b/E4c accepted; verdict-label fix ($0)
 
 **Task 22 (read-only investigation of run `20261021T123308-aa22d4`).** Report: `data/review_20261018/codex/task22_report.md`.
