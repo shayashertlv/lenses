@@ -238,6 +238,10 @@ export async function createViewer(container, {modelUrl, source} = {}) {
       const buffer = faceBuffer(renderer, root, gltf.parser, frozen, width, height);
       const ray = new THREE.Raycaster(); ray.near = frozen.near; ray.far = frozen.far;
       return {blob, width, height, camera: cameraRecord(frozen, target),
+        projectPoint(positionMm) {
+          const point = new THREE.Vector3(...positionMm).multiplyScalar(.001).project(frozen);
+          return [(point.x + 1) * width / 2, (1 - point.y) * height / 2];
+        },
         anchorAt(xy) {
           ray.setFromCamera(new THREE.Vector2(2 * xy[0] / width - 1, 1 - 2 * xy[1] / height), frozen);
           const hits = ray.intersectObject(root, true).filter(h => {
@@ -258,6 +262,41 @@ export async function createViewer(container, {modelUrl, source} = {}) {
     }
   }
   return {renderer, camera, controls, scene, root, gltf, source, capture,
+    setCameraSpec(spec) {
+      camera.matrixWorldInverse.fromArray(spec.view).transpose(); camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
+      camera.matrixWorld.decompose(camera.position, camera.quaternion, camera.scale);
+      camera.fov = 2 * Math.atan(spec.height / (2 * spec.fy)) * 180 / Math.PI;
+      camera.aspect = spec.width / spec.height; camera.near = spec.near; camera.far = spec.far;
+      // M12's authenticated camera is centred. Keep the photo's pose and field
+      // of view; the chosen canonical point is reprojected into this capture.
+      camera.clearViewOffset();
+      camera.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
+      controls.target.copy(camera.position).add(new THREE.Vector3(0, 0, -Math.max(radius * 2, camera.position.distanceTo(center))).applyQuaternion(camera.quaternion));
+      camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); controls.update();
+    },
+    showAuthoredPoint(selection) {
+      const point = new THREE.Vector3(...selection.position_mm).multiplyScalar(.001);
+      const visible = () => {
+        camera.updateMatrixWorld(true);
+        const projected = point.clone().project(camera);
+        if (Math.abs(projected.x) >= 1 || Math.abs(projected.y) >= 1 || Math.abs(projected.z) >= 1) return false;
+        const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2(projected.x, projected.y), camera);
+        const hit = ray.intersectObject(root, true).find(hit => hit.object.isMesh && hit.face);
+        return !!hit && hit.point.distanceTo(point) < 1e-7;
+      };
+      if (visible()) return false;
+      const normal = new THREE.Vector3(...(selection.surface_normal || [0, 0, 1])).normalize();
+      const cross = normal.clone().cross(Math.abs(normal.y) > .9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
+      const up = cross.clone().cross(normal).normalize();
+      const directions = [normal, ...[cross, cross.clone().negate(), up, up.clone().negate()].map(axis => normal.clone().addScaledVector(axis, .6).normalize())];
+      for (const direction of directions) {
+        controls.target.copy(point); camera.position.copy(point).addScaledVector(direction, radius * 8);
+        camera.up.copy(Math.abs(direction.y) > .95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
+        camera.lookAt(point); camera.updateMatrixWorld(true); controls.update();
+        if (visible()) return true;
+      }
+      throw new Error('This surface is hidden in the authored pose. Turn the model and choose a visible point before asking Astra.');
+    },
     dispose() {
       disposed = true; observer.disconnect(); controls.dispose(); renderer.setAnimationLoop(null);
       root.traverse(o => { o.geometry?.dispose(); for (const m of o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []) {

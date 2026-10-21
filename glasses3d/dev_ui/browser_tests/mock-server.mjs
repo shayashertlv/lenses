@@ -4,7 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
-import {makeAnchorGlb, makeLensGlb, makePng, sha256} from './fixtures.mjs';
+import {makeAnchorGlb, makeLensGlb, makePng, sha256, replaceGlbJson} from './fixtures.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const DATA = path.join(ROOT, 'glasses3d/data/m12/tmp/B');
@@ -72,6 +72,22 @@ export async function startMockServer() {
       if (route === '/api/runs/run_demo') return json(res, state.run);
       if (route === '/__test/alpha.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(alphaFixture.bytes);}
       if (route === '/__test/lenses.glb') {res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(lensFixture.bytes);}
+      if (/^\/api\/deliveries\/[^/]+\/appearance$/.test(route)) return json(res, state.appearance || {...state.lens,
+        materials: [...state.lens.materials.map(row => ({...row, role: 'lens', can_gradient: true, can_transmission: true, has_colour_texture: false})),
+          {material_index: 0, name: 'Frame pattern', role: 'frame', has_colour_texture: true, can_gradient: false, can_transmission: true, values: {...state.lens.materials[0].values, tint: [.2,.1,.05], transmission: .2, gradient: null}}],
+        versions: [{delivery_key: 'delivery_demo', label: 'Astra c0001'}, {delivery_key: 'delivery_lens', label: 'your edit'}],
+        copy_sources: [{delivery_key: 'delivery_demo', job_id: 'job_demo', label: 'Astra c0001'}], refusals: ['A shared material cannot be edited separately.']});
+      if (route.endsWith('/appearance-model')) {
+        const doc = clone(lensFixture.doc);
+        for (const row of body.materials) {const target = doc.materials[row.material_index], values = row.values;
+          target.pbrMetallicRoughness = {...target.pbrMetallicRoughness, baseColorFactor: [...values.tint, 1], metallicFactor: values.metallic, roughnessFactor: values.roughness};
+          target.extensions = {...target.extensions, KHR_materials_transmission: {transmissionFactor: values.transmission}, KHR_materials_ior: {ior: values.ior}, KHR_materials_iridescence: {iridescenceFactor: values.iridescence, iridescenceIor: values.iridescence_ior, iridescenceThicknessMinimum: values.iridescence_thickness_min, iridescenceThicknessMaximum: values.iridescence_thickness_max}};
+        }
+        res.writeHead(200, {'content-type': 'model/gltf-binary'}); return res.end(replaceGlbJson(lensFixture.bytes, doc));
+      }
+      if (route.endsWith('/appearance-preview')) return json(res, {task_key: 'task_lens_preview'});
+      if (route.endsWith('/appearance-save')) return json(res, {task_key: 'task_lens_save'});
+      if (route.endsWith('/appearance-copy')) return json(res, {materials: body.role === 'lens' ? state.lens.materials.map(row => ({...row, values: {...row.values, tint: [.9,.1,.2], gradient: null}})) : [], applied: [], skipped: body.role === 'lens' ? [] : ['No matching material names were found in this job.']});
       if (route === '/api/deliveries/delivery_demo/lens-colour') return json(res, state.lens);
       if (route === '/api/deliveries/delivery_demo/lens-colour/preview') return json(res, {task_key: 'task_lens_preview'});
       if (route === '/api/deliveries/delivery_demo/lens-colour/save') return json(res, {task_key: 'task_lens_save'});
@@ -121,6 +137,7 @@ export async function startMockServer() {
       if (route.startsWith('/static/')) {const relative = decodeURIComponent(route.slice(8)); if (relative.includes('..')) return json(res, {error: {message: 'Invalid path'}}, 404); return file(res, path.join(STATIC, relative), relative.endsWith('.js') ? 'text/javascript' : relative.endsWith('.css') ? 'text/css' : 'text/html');}
       if (route.startsWith('/vendor/three/')) {const relative = decodeURIComponent(route.slice('/vendor/three/'.length)); if ((!relative.startsWith('build/') && !relative.startsWith('examples/jsm/')) || relative.includes('..') || !relative.endsWith('.js')) return json(res, {error: {message: 'Invalid vendor path'}}, 404); return file(res, path.join(THREE, relative), 'text/javascript');}
       const page = route === '/' ? 'index' : route.split('/')[1];
+      if (page === 'edit-version') return file(res, path.join(STATIC, 'general-edit.html'), 'text/html');
       if (['index', 'new', 'run', 'results', 'edit', 'understand', 'task', 'lens-colour'].includes(page)) return file(res, path.join(STATIC, `${page}.html`), 'text/html');
       return json(res, {error: {message: `Mock has no route ${method} ${route}`}}, 404);
     } catch (error) {return json(res, {error: {code: 'mock_failure', message: error.message}}, 500);}

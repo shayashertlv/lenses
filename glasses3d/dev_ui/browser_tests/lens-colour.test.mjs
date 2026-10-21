@@ -53,7 +53,8 @@ test('E2 real-renderer browser editor controls, photos, history, AR and immutabl
   try {
     await t.test('results opens a clear responsive panel using the actual AR renderer', async () => {
       await page.goto(`${server.origin}/results/delivery_demo`);
-      await page.locator('#lens-colour').click();
+      assert.equal(await page.locator('#lens-colour').count(), 0, 'Results has one general Edit entry point');
+      await page.goto(`${server.origin}/lens-colour/delivery_demo`);
       await page.waitForFunction(() => window.__lensPreview && !document.querySelector('#lens-check-ar').disabled);
       await frame(page);
       assert.equal(await page.locator('#lens-save').isDisabled(), true);
@@ -210,8 +211,7 @@ test('E2 real-renderer browser editor controls, photos, history, AR and immutabl
       await page.waitForURL('**/results/delivery_lens');
       assert.equal(await page.locator('.status-tag').first().textContent(), 'edited by you');
       assert.equal(await page.locator('.status-tag').last().textContent(), 'not finished');
-      assert.equal(await page.locator('#edit-delivery').isDisabled(), true);
-      assert.match(await page.locator('.notice').textContent(), /Astra edits are available from the original version/);
+      assert.equal(await page.locator('#edit-delivery').isDisabled(), false, 'Owner looks remain editable through the general page');
       const sends = server.state.requests.filter(row => row.route === route);
       assert.equal(sends[0].body.idempotency_key, sends[1].body.idempotency_key, 'same values retry one save');
       assert.equal(sends[1].body.idempotency_key, sends[2].body.idempotency_key, 'interrupted recoverable save resumes the same task');

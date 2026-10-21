@@ -4,3 +4,4 @@ require('./ui.test.mjs');
 require('./provenance.test.mjs');
 require('./lens-colour.test.mjs');
 require('./e3-lens-colour.test.mjs');
+require('./general-edit.test.mjs');

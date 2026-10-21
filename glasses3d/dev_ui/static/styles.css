@@ -1,4 +1,34 @@
 :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17212b; background: #f7f8fa; line-height: 1.5; font-synthesis: none; }
+body[data-page="general-edit"] main {max-width: 1760px; padding-bottom: 7rem;}
+.general-layout {display:grid; grid-template-columns:minmax(125px, 180px) minmax(350px, 1fr) minmax(260px, 320px); gap:1rem; align-items:start;}
+.general-photos {display:flex; flex-direction:column; gap:.65rem; max-height:72vh; overflow:auto;}
+.general-photos button {padding:.4rem; text-align:left;}
+.general-photos img {display:block; width:100%; height:100px; object-fit:contain; background:white;}
+.general-photos span {display:block; font-size:.8rem;}
+.general-controls {max-height:76vh; overflow:auto; padding:1rem;}
+.general-controls fieldset {min-width:0; border:1px solid #d6dde5; border-radius:4px; margin:.75rem 0; padding:.8rem;}
+.general-controls input[type="color"] {height:42px; padding:3px;}
+.general-controls button {font-size:.85rem; margin:.25rem 0;}
+.general-controls label {font-size:.9rem; margin-top:.65rem;}
+.general-controls h2 {margin:.8rem 0 .1rem;}
+.general-controls .muted {margin:0 0 .5rem; font-size:.8rem;}
+.general-viewport {position:relative; background:#f3f2f0; border:1px solid #d6dde5;}
+.viewer.general-viewer {height:auto; min-height:300px; aspect-ratio:8/5; border:0;}
+.general-viewer canvas {object-fit:contain;}
+.photo-wipe {position:absolute; inset:0; width:100%; height:100%; object-fit:fill; pointer-events:none;}
+.general-views {margin-top:0;}
+.general-slider output {float:right; font-weight:400; color:#596675;}
+.general-footer {position:fixed; bottom:0; left:0; right:0; z-index:8; background:#fff; border-top:1px solid #d6dde5; display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.4rem max(1rem, calc((100vw - 1720px)/2)); box-shadow:0 -2px 8px #0000000b;}
+.general-footer .actions {margin:.25rem 0;}
+.versions-strip {display:flex; align-items:stretch; gap:.8rem; overflow-x:auto; margin-top:1rem; padding:.7rem 0;}
+.versions-strip h2 {align-self:center; font-size:1rem; margin-right:.5rem;}
+.version-card {flex:none; border:1px solid #d6dde5; background:#fff; padding:.7rem; border-radius:4px; display:flex; flex-direction:column; gap:.4rem;}
+.version-card a[aria-current="page"] {font-weight:700;}
+.version-card button {font-size:.8rem; padding:.2rem .5rem;}
+.lens-photo-dialog #general-photo-canvas {display:block; max-width:100%; max-height:60vh; margin:auto; object-fit:contain;}
+@media(max-width:1100px) {.general-layout {grid-template-columns:115px minmax(280px,1fr) 265px; gap:.65rem;} .general-controls {padding:.6rem;} .general-footer {gap:.4rem;} .general-footer button {padding:.4rem .55rem;}}
+@media(max-width:850px) {.general-layout {grid-template-columns:minmax(0,1fr) 260px;} .general-photos {grid-column:1/-1; flex-direction:row; max-height:160px;} .general-photos h2 {display:none;} .general-photos button {width:120px; flex:none;} .general-footer {flex-wrap:wrap;} .general-viewer {min-height:220px;}}
+@media(max-width:600px) {.general-layout {display:flex; flex-direction:column;} .general-centre,.general-controls {width:100%;} .general-controls {max-height:none;} .general-photos {width:100%;} .general-footer {position:sticky;} body[data-page="general-edit"] main {padding-bottom:1rem;}}
 * { box-sizing: border-box; }
 body { margin: 0; }
 header { display: flex; gap: 1.5rem; align-items: center; padding: 1rem max(1.25rem, calc((100vw - 1120px) / 2)); border-bottom: 1px solid #d8dde3; background: #fff; }

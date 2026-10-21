@@ -78,9 +78,11 @@ const toPng = canvas => new Promise((resolve, reject) => canvas.toBlob(blob =>
 function element(tag, text, parent) { const el = document.createElement(tag); if (text) el.textContent = text; parent?.append(el); return el; }
 function button(text, parent, action) { const b = element('button', text, parent); b.type = 'button'; b.addEventListener('click', action); return b; }
 
-export async function annotateCapture(viewer, {source, labels = [], captureId = 'C1', sessionTexts = [], onSave}) {
+export async function annotateCapture(viewer, {source, labels = [], captureId = 'C1', sessionTexts = [], initialPoint = null, initialPosition = null, onSave}) {
   const frozen = await viewer.capture(), clean = await createImageBitmap(frozen.blob);
   const state = new AnnotationState(labels), dialog = element('dialog', null, document.body);
+  if (initialPosition && frozen.projectPoint) state.add('point', [frozen.projectPoint(initialPosition)]);
+  else if (initialPoint) state.add('point', [[initialPoint[0] * frozen.width, initialPoint[1] * frozen.height]]);
   dialog.className = 'annotation-dialog'; dialog.dataset.testid = 'annotation-dialog';
   const heading = element('h2', 'Capture and annotate', dialog); heading.id = 'annotation-title'; dialog.setAttribute('aria-labelledby', heading.id);
   const help = element('p', 'Point: click once. Line: click each point, then Finish line, Enter, or double-click. Shape: click each corner, then click the first corner to close it.', dialog);

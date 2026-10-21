@@ -82,6 +82,8 @@ function drawOutcome(delivery) {
     outcome.append(node('h2', {}, 'Not applied'), node('ul', {}, delivery.notes.map(item => node('li', { class: 'verbatim' }, `${item.item_id}${item.note ? `: ${item.note}` : ''}`))));
   }
   if (delivery.warnings?.length) outcome.append(warningBlock(delivery.warnings));
+  if (delivery.look_skipped?.length) outcome.append(warningBlock(delivery.look_skipped.map(item => ({message: `Saved look not applied: ${item.material_name || item.role || 'part'} — ${item.reason}`}))));
+  if (delivery.appearance_error) outcome.append(warningBlock([{message: delivery.appearance_error}]));
   if (delivery.exactness) {
     const proof = delivery.exactness;
     const text = proof.ok !== true ? 'Exactness check needs attention.'
@@ -231,6 +233,7 @@ async function runPage() {
     stop.disabled = stopSending || dto.stop_requested || !['starting', 'running', 'finalizing'].includes(dto.phase);
     stop.textContent = dto.stop_requested ? 'Stop requested' : 'Stop';
     if (dto.error) showError(dto.error);
+    if (dto.appearance_error) showError(dto.appearance_error);
     tick();
     if (dto.phase === 'ended') {
       if (dto.kind === 'understand' && dto.edit_key) location.replace(`/understand/${encodeURIComponent(dto.edit_key)}`);
@@ -268,13 +271,11 @@ async function resultsPage() {
   const delivery = await api.get(`/api/deliveries/${key}`);
   const viewer = node('div', { id: 'viewer', class: 'viewer', 'aria-label': '3D model viewer' });
   const ar = button('View in AR', { id: 'view-ar' });
-  const ownerColour = delivery.origin === 'owner_lens_edit';
-  const edit = button('Edit', { id: 'edit-delivery', class: 'primary', disabled: ownerColour });
-  const colour = link('Lens colour', `/lens-colour/${key}`, { id: 'lens-colour', class: 'button' });
+  const ownerColour = ['owner_lens_edit', 'owner_look_edit'].includes(delivery.origin);
+  const edit = button('Edit', { id: 'edit-delivery', class: 'primary' });
   app.replaceChildren(node('p', {}, node('span', { class: `status-tag${delivery.finished ? '' : ' not-finished'}` }, ownerColour ? 'edited by you' : delivery.finished ? 'finished' : 'not finished'),
     ownerColour && !delivery.finished ? node('span', { class: 'status-tag not-finished' }, 'not finished') : null, ` · Settled spend: ${money(delivery.run_settled_usd)}`),
-    viewer, node('p', { class: 'viewer-help' }, 'Drag to orbit, scroll to zoom, right-drag to pan.'), node('div', { class: 'actions' }, ar, edit, colour), drawOutcome(delivery));
-  if (ownerColour) app.append(node('p', { class: 'notice' }, 'This version keeps your lens changes. Use Lens colour for more colour edits; Astra edits are available from the original version.'));
+    viewer, node('p', { class: 'viewer-help' }, 'Drag to orbit, scroll to zoom, right-drag to pan.'), node('div', { class: 'actions' }, ar, edit), drawOutcome(delivery));
   if (delivery.checks?.length) app.append(node('details', {}, node('summary', {}, 'Model checks'), node('ul', { class: 'check-list' }, delivery.checks.map(check => node('li', {}, `${check.name}: ${check.ok ? 'passed' : 'needs attention'}${check.detail ? ` · ${typeof check.detail === 'string' ? check.detail : JSON.stringify(check.detail)}` : ''}`)))));
   ar.addEventListener('click', async () => {
     if (ar.disabled) return;
@@ -293,8 +294,7 @@ async function resultsPage() {
     if (edit.disabled) return;
     edit.disabled = true; clearError();
     try {
-      const draft = await api.post('/api/edit-drafts', { delivery_key: delivery.delivery_key });
-      location.assign(`/edit/${encodeURIComponent(draft.draft_id)}`);
+      location.assign(`/edit-version/${encodeURIComponent(delivery.delivery_key)}`);
     } catch (error) { showError(error); edit.disabled = false; }
   });
   await attachViewer(viewer, delivery);
@@ -303,6 +303,8 @@ async function resultsPage() {
 async function editPage() {
   const key = routeKey();
   let draft = await api.get(`/api/edit-drafts/${key}`);
+  let preanchor = null;
+  try { preanchor = JSON.parse(sessionStorage.getItem(`shape-anchor:${key}`) || 'null'); sessionStorage.removeItem(`shape-anchor:${key}`); } catch {}
   const delivery = await api.get(`/api/deliveries/${encodeURIComponent(draft.source.delivery_key)}`);
   const viewerElement = node('div', { id: 'viewer', class: 'viewer', 'aria-label': '3D model viewer' });
   const captureButton = button('Capture and annotate', { id: 'capture-annotate', class: 'primary', disabled: true });
@@ -312,13 +314,15 @@ async function editPage() {
   let annotating = false;
   const pendingWords = new Map();
   app.replaceChildren(drawOutcome(delivery), viewerElement, node('p', { class: 'viewer-help' }, 'Drag to orbit, scroll to zoom, right-drag to pan.'), node('div', { class: 'actions' }, captureButton), itemList, next);
+  app.prepend(node('p', {}, link('Back to look controls', `/edit-version/${draft.appearance_source?.delivery_key || draft.source.delivery_key}`)));
+  if (draft.look_notice) app.prepend(node('p', {class: 'notice'}, draft.look_notice));
   const capture = async () => {
     if (!viewer || annotating || draft.frozen) return;
     annotating = true; captureButton.disabled = true; clearError();
     try {
       const number = Math.max(0, ...draft.items.map(item => Number(/^C(\d+)$/.exec(item.capture_id)?.[1] || 0))) + 1;
       await annotateCapture(viewer, {
-        source: draft.source, labels: draft.labels, sessionTexts: draft.items.map(item => item.request_text), captureId: `C${number}`,
+        source: draft.source, labels: draft.labels, sessionTexts: draft.items.map(item => item.request_text), captureId: `C${number}`, initialPoint: preanchor?.normalized, initialPosition: preanchor?.position_mm,
         onSave: async bundle => {
           const body = new FormData();
           body.append('capture', JSON.stringify(bundle.capture));
@@ -331,6 +335,7 @@ async function editPage() {
           return result;
         },
       });
+      preanchor = null;
     } catch (error) { showError(error); }
     finally { annotating = false; captureButton.disabled = !viewer || draft.frozen; }
   };
@@ -419,6 +424,17 @@ async function editPage() {
   renderDraft();
   viewer = await attachViewer(viewerElement, delivery);
   captureButton.disabled = !viewer || draft.frozen;
+  if (viewer && preanchor?.camera && !draft.frozen) {
+    viewerElement.style.aspectRatio = `${preanchor.camera.width} / ${preanchor.camera.height}`;
+    viewerElement.style.height = 'auto'; viewerElement.style.minHeight = '0';
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    try {
+      viewer.setCameraSpec(preanchor.camera);
+      const moved = viewer.showAuthoredPoint(preanchor);
+      if (moved || Object.keys(preanchor.camera.temple_pose || {}).length) app.prepend(node('p', {class: 'notice'}, 'The capture shows the authored pose and keeps the same surface point you selected.'));
+      await capture();
+    } catch (error) {preanchor = null; showError(error);}
+  }
 }
 
 async function understandPage() {
@@ -544,6 +560,10 @@ async function start() {
   const config = await api.get('/api/config');
   document.querySelector('#offline-banner').hidden = !config.offline_test_mode;
   const pages = { index: jobsPage, new: newPage, run: runPage, results: resultsPage, edit: editPage, understand: understandPage, task: taskPage,
+    'general-edit': async () => {
+      const { generalEditPage } = await import('./general-edit.js');
+      cleanups.push(await generalEditPage(app, routeKey()));
+    },
     'lens-colour': async () => {
       const { lensColourPage } = await import('./lens-colour.js');
       cleanups.push(await lensColourPage(app, routeKey()));

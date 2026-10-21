@@ -224,8 +224,8 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
       const popup = await popupPromise; await popup.waitForURL('**/__test/ar'); await popup.close();
       assert.deepEqual(lastRequest(server, 'POST', '/api/deliveries/delivery_demo/ar').body, {});
       await page.getByRole('button', {name: 'Edit', exact: true}).click();
-      await page.waitForURL('**/edit/draft_demo');
-      assert.deepEqual(lastRequest(server, 'POST', '/api/edit-drafts').body, {delivery_key: 'delivery_demo'});
+      await page.waitForURL('**/edit-version/delivery_demo');
+      await page.goto(`${server.origin}/edit/draft_demo`);
       server.state.run.phase = 'running'; server.state.run.delivery_key = null;
     });
 

@@ -1,10 +1,10 @@
 /** The lens panel uses TryOnRenderer itself, including its loader, materials and fixed room.
  * OrbitControls moves an independent metre-space camera; poseCamera performs the same
  * conversion as arview capture --cameras --no-face. There is no duplicate lighting setup. */
-import {Box3, Matrix4, MeshPhysicalMaterial, PerspectiveCamera, Vector3, REVISION} from 'three';
+import {Box3, Matrix4, Mesh, MeshPhysicalMaterial, PerspectiveCamera, Raycaster, Vector2, Vector3, REVISION} from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TryOnRenderer, SCENE_ENVIRONMENT_INTENSITY} from '../../arview/src/render/renderer.ts';
-import {applyTransmissionToneMapping, isOpticalMaterial} from '../../arview/src/eyewear/optical-material.ts';
+import {applyTransmissionToneMapping} from '../../arview/src/eyewear/optical-material.ts';
 import {assetToCameraScene, projectionMatrix, METRES_TO_SCENE} from '../../arview/qa/capture/cameras.ts';
 export {coatingSwatchRGB} from './coating.js';
 
@@ -76,24 +76,40 @@ export class LensColourViewer {
     this.resizeObserver.observe(host);
   }
 
-  async load(modelUrl, materials = this.materialRows) {
+  async load(modelUrl, materials = this.materialRows, {preserveCamera = false} = {}) {
+    const previous = preserveCamera && this.instance ? {camera: this.camera.clone(), target: this.controls.target.clone(), explicit: this.explicit, framingAspect: this.framingAspect} : null;
     this.materialRows = structuredClone(materials);
     const indices = new Set(materials.map(row => row.material_index));
-    this.instance?.dispose();
-    this.instance = await TryOnRenderer.create(this.canvas, this.abortController.signal,
+    // The production renderer deliberately loses its WebGL context on dispose.
+    // A reload therefore needs a fresh canvas; keep the current frame visible
+    // until the replacement is fully loaded, then release the old context.
+    const previousInstance = this.instance, previousCanvas = this.canvas;
+    const nextCanvas = previousInstance ? previousCanvas.cloneNode(false) : previousCanvas;
+    const nextInstance = await TryOnRenderer.create(nextCanvas, this.abortController.signal,
       {url: modelUrl, displayName: 'Lens colour preview', lensEnvIntensity: LENS_ENV_INTENSITY},
       {sync: false, steady: null, fixedScale: true, load: {plugins: [indexPlugin(indices)]}});
+    if (previousInstance) {
+      this.controls.disconnect(); previousCanvas.removeEventListener('keydown', this.onKey);
+      previousCanvas.replaceWith(nextCanvas); this.canvas = nextCanvas;
+      this.controls.connect(nextCanvas); nextCanvas.addEventListener('keydown', this.onKey);
+      previousInstance.dispose();
+    }
+    this.instance = nextInstance;
     this.lastLighting = null;
     this.materials.clear();
+    this.authoredPositions = new Map();
     const bounds = new Box3();
     for (const part of this.instance.parts()) {
       if (part.overlay) continue;
+      // Photo fitting opens the temples by changing their position attributes.
+      // Keep the immutable authored points so a hit can return to the native
+      // scene using its same triangle and barycentric coordinates.
+      this.authoredPositions.set(part.mesh, part.mesh.geometry.getAttribute('position').clone());
       part.mesh.geometry.computeBoundingBox();
       bounds.union(part.mesh.geometry.boundingBox);
       for (const material of Array.isArray(part.mesh.material) ? part.mesh.material : [part.mesh.material]) {
         const index = material.userData[identityKey];
         if (!indices.has(index)) continue;
-        if (!isOpticalMaterial(material)) throw new Error('A selected material is not a lens in the AR renderer.');
         if (!(material instanceof MeshPhysicalMaterial)) throw new Error('The lens material cannot be edited live.');
         if (!this.materials.has(index)) this.materials.set(index, new Set());
         this.materials.get(index).add(material);
@@ -103,6 +119,10 @@ export class LensColourViewer {
     this.bounds = bounds;
     this.target = bounds.getCenter(new Vector3());
     this.setView('front');
+    if (previous) {
+      this.camera.copy(previous.camera); this.controls.target.copy(previous.target); this.controls.update();
+      this.explicit = previous.explicit; this.framingAspect = previous.framingAspect;
+    }
     // Initial load keeps the exact authored material. The UI applies values only on edits.
     this.render();
     return this;
@@ -163,6 +183,32 @@ export class LensColourViewer {
 
   /** Deterministic proof/capture interface, exactly arview.cameras/1's camera object. */
   setExplicitCamera(camera) {this.explicit = structuredClone(camera); this.requestRender();}
+
+  /** Pick canonical geometry through the exact camera used for the AR draw. */
+  pick(normalized) {
+    if (!this.instance) return null;
+    const spec = this.cameraSpec(), camera = this.camera.clone();
+    camera.matrixWorldInverse.fromArray(spec.view).transpose();
+    camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
+    camera.matrixWorld.decompose(camera.position, camera.quaternion, camera.scale);
+    camera.projectionMatrix.fromArray(projectionMatrix(spec));
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    const ray = new Raycaster(); ray.setFromCamera(new Vector2(normalized[0] * 2 - 1, 1 - normalized[1] * 2), camera);
+    const sources = new Map();
+    const meshes = this.instance.parts().filter(part => !part.overlay).map(part => {
+      const mesh = new Mesh(part.mesh.geometry, part.mesh.material); mesh.updateMatrixWorld(); sources.set(mesh, part.mesh); return mesh;
+    });
+    const hit = ray.intersectObjects(meshes, false)[0];
+    if (!hit) return null;
+    const material = Array.isArray(hit.object.material) ? hit.object.material[hit.face.materialIndex] : hit.object.material;
+    const positions = this.authoredPositions.get(sources.get(hit.object));
+    const vertices = [hit.face.a, hit.face.b, hit.face.c].map(index => new Vector3().fromBufferAttribute(positions, index));
+    const canonical = vertices.reduce((point, vertex, i) => point.addScaledVector(vertex, hit.barycoord.getComponent(i)), new Vector3());
+    const normal = vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0])).normalize();
+    if (hit.face.normal.dot(ray.ray.direction) > 0) normal.negate();
+    return {material_index: material.userData[identityKey], normalized, position_mm: canonical.multiplyScalar(1000).toArray(),
+      surface_normal: normal.toArray(), rendered_position_mm: hit.point.clone().multiplyScalar(1000).toArray(), camera: spec};
+  }
 
   viewportSize() {
     const width = Math.max(64, Math.min(1280, Math.round(this.host.clientWidth || 800)));
