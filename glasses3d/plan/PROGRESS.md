@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-21 — Task 18 (worn images lead the colour review) committed `77aad88`; lab check worse; owner to decide
+
+- What Astra sees now: `compare_look_to_photos` leads with the native worn front image and the closest worn angles,
+  plus one sentence: "Judge lens colour on the worn, on-face AR images against the lens colour in the owner photos;
+  use the white-background panels for shape and see-through."
+- Checks: full suite 6,368 passed / 2 skips, AR 509 + 113, M1 passed.
+- Lab, 4 trials on the new HEAD: errors 26.05 / 27.32 / 24.85 / 25.04, so **0 of 4 at or below 24.6**, against 3 of 4
+  before. The mean is about the same: 25.81 against 25.64.
+- Codex recommends reverting; the change has not been reverted. The four trials are in the lab gallery (8290) beside
+  the earlier ones, and the contact sheet is `data/review_20261018/codex/task18_contact_sheet.png`.
+- Task 20 (instruction-thinking review) started.
+
 ## 2026-10-21 — AR capture TEMP moved to a short private folder (Claude, $0)
 
 - Owner, verbatim: "i want you to implement the fix, then send codex make astra look at the face worn ar images ...
