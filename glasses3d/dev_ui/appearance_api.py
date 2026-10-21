@@ -28,7 +28,7 @@ class AppearanceService:
                     "camera_photo_url": (self.artifacts.register(fitted["photo"], fitted["sha256"])
                                          if fitted.get("photo") else None)})
         # Discover old job deliveries as well as owner versions already in the UI registry.
-        self.jobs()
+        job_names = {job["job_id"]: job["name"] for job in self.jobs()["jobs"]}
         versions, copy_sources = [], []
         for candidate in self.registry.list("deliveries"):
             try:
@@ -37,7 +37,8 @@ class AppearanceService:
                 continue
             summary = {name: version[name] for name in ("delivery_key", "job_id", "created_utc")}
             summary["label"] = version["version_label"]
-            copy_sources.append(summary)
+            copy_sources.append({**summary, "label": job_names.get(version["job_id"], version["job_id"])
+                                 + " — " + version["version_label"]})
             if candidate["job_id"] == record["job_id"]:
                 versions.append(summary)
         return {"schema": "g3d.dev_appearance/1",

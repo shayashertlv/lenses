@@ -626,7 +626,9 @@ try {
       }
       await navigate(`/results/${sourceKey}`); await readyViewer(); await shot('prada-source-results');
       source = await dto(`/api/deliveries/${sourceKey}`);
-      draft = await clickJSON('#edit-delivery', '/api/edit-drafts');
+      await page.locator('#edit-delivery').click();
+      await waitPath('edit-version');
+      draft = await clickJSON('#ask-astra', '/api/edit-drafts');
       await waitPath('edit'); await readyViewer(); await shot('prada-edit-empty');
       await captureCycle(source, {marks: [{...corner(1), label: 'A'}], name: 'left-corner',
         words: 'Repair the visibly different shading inside A at the upper outer left corner.'});
@@ -724,7 +726,12 @@ try {
     await shot('fallback-side-effects', page, {fullPage: false});
     let draft = config.resume && report.state.fallback_draft;
     if (draft) await navigate(`/edit/${draft.draft_id}`);
-    else { draft = await clickJSON('#edit-delivery', '/api/edit-drafts'); report.state.fallback_draft = draft; await checkpoint(); }
+    else {
+      await page.locator('#edit-delivery').click();
+      await waitPath('edit-version');
+      draft = await clickJSON('#ask-astra', '/api/edit-drafts');
+      report.state.fallback_draft = draft; await checkpoint();
+    }
     await waitPath('edit'); await readyViewer(); await shot('fallback-new-edit');
     check((await page.locator('#more-edits').innerText()).includes('Any more edits?'), 'Fallback delivery returns to the owner edit-loop question');
     if (!report.state.fallback_capture_done) {

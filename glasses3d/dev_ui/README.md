@@ -46,35 +46,46 @@ without a usable model stays an explicit error. One paid run at a time is allowe
 **Results:** drag to orbit the model, scroll to zoom, and right-drag to pan. **Model checks** expands the
 recorded checks. Applied picks, skipped notes and interaction warnings appear with the model. **View in AR**
 opens the existing webcam review for this exact delivery in a new tab; **Open AR viewer** appears if the
-browser blocks that tab. **Edit** opens a capture draft for this delivery. The orbit viewer and worn AR view
-use different rendering paths; use AR to judge the worn appearance.
+browser blocks that tab. **Edit** opens one free appearance editor for the delivered version.
 
-**Lens colour** opens a free, local editor from Results. It uses arview's own renderer, pinned Three build,
-lens handling and fixed room-reflection setting. Drag to rotate the large preview, use Front / Angled / Side /
-Top, and enlarge the reference photos. **Pick tint from photo** samples the original photo pixels into the tint
-picker. **Before / After** compares the original and your changes. Lenses change together by default;
-uncheck **Edit all lenses together** to select one material.
+**Edit:** your photos are on the left, the AR-rendered model is in the centre, and controls for the selected
+material are on the right. Click a part or choose its material under **Lenses**, **Frame** or **Temples**.
+Those groups come from the model's own part roles. A material shared across roles is refused with an explanation;
+lens markings and decals are excluded from lens looks. Hardware uses its declared supporting component.
 
-Tint, see-through amount, mirror, gloss and coating shimmer update live. Every control has a reset;
-**Reset all**, **Undo / Redo** and Ctrl+Z / Ctrl+Y work within the session. Advanced optical controls are
-collapsed. The coating bar labels the colours seen at an angle and straight on. **Pick coating colour from photo**
-finds the closest straight-on coating colours at the current settings, ignoring brightness, and offers up to three
-thickness choices with their angle bars. Picking one changes only the two thickness fields and can be undone.
-Judge the closest coating by eye in the preview and AR. Exact number fields retain valid IOR and thickness values
-outside the sliders' practical ranges; opening a model never clamps or rounds its saved values.
-Leaving with unsaved changes asks for confirmation. **Check in AR** makes a temporary model copy
-and opens the existing AR viewer; it does not publish a delivery. **Save as new version** runs the existing
-specification, seating, retained-print and AR checks, then publishes a new immutable owner-edited version.
-It opens on Results and appears in Jobs as **edited by you**. Failed checks show an error and keep the original.
+For lenses, choose **Solid** or **Gradient** with start/end colours and an optional removable middle colour.
+Each colour's **takes (%)** sets its region width; adjusting one distributes the remainder proportionally.
+**Blend** softens the boundaries. **Centre to sides** mirrors about the bridge; **Left to right** spans the entire
+lens extent; **Top to bottom** spans each connected lens surface's height. A single shield stays continuous.
+Every colour can come from a colour box or the photo picker. Other parts use solid colour; on a colour texture,
+it tints the existing pattern. A gradient cannot replace an authored lens colour texture; solid tint still works.
 
-Saving patches only declared lens materials in the GLB JSON. Geometry, normals, UVs, textures, other materials
-and every non-JSON chunk retain their bytes. No Blender re-export, paid model request or product acceptance
-is implied. The saved provenance contains the source hashes and all chosen values. Its checkpoint is explicitly
-a GLB snapshot, so it supports further Lens colour edits and AR review. It has no new native Blender scene:
-start later Astra geometry edits from the original version. The UI refuses a native edit from this version
-instead of silently reverting the saved colours.
+**See-through** appears for lenses and existing transmissive parts, including crystal frames. **Mirror** darkens
+what you see through. **Shine** moves from matte to glossy; frame and temple materials also have **Metal or plastic**.
+**Shimmer** offers Off/Subtle/Strong, and **Choose shimmer colour** uses the coating matcher. Exact optical controls
+are folded under **Details**, with the same meanings and valid ranges as the earlier lens panel. Opening a model
+never clamps its values. **Undo/Redo**, **Before/After**, **Check in AR** and **Save as new version** stay visible;
+leaving with unsaved changes asks for confirmation.
 
-**Edit:** position the model, then press **Capture and annotate** to freeze the view. In the annotation dialog:
+Click a photo to use its verified frozen fitted camera and the photo/render wipe. An unavailable camera is stated
+plainly. The bottom strip lists the job's deliveries as **Astra <checkpoint>** or **your edit**; open or compare any
+version. Lens looks copy between models: one source lens material supplies all target lens materials; multiple
+source materials require unique matching names. Frame/temple looks copy only within the same job by material name.
+Unmatched materials and marking exclusions are reported.
+
+The preview loads the same patched GLB used by Save through arview's production renderer and fixed lighting.
+Gradients append an image and planar UV data, preserving existing binary byte ranges, geometry, normals and authored
+textures. The receipt lists appended records and changed bindings. **Check in AR** opens a temporary copy;
+**Save as new version** runs strict specification, seating, retained-print and AR checks before immutable publication.
+Seating remains diagnostic under the existing policy. A save is your edit, never an Astra finish or visual acceptance.
+
+**Shape wrong here? Ask Astra** opens the existing capture workflow, anchored to the clicked point when available.
+Save pending appearance changes first. A reusable look records owner changes by role/material name and gradient
+specification. Shape work uses the verified native source; the look is reapplied to a resulting native version through
+a separate checked owner publication. Missing/renamed/ambiguous materials are skipped and reported. The original
+native result stays available if appearance reapplication fails; patched GLB bytes never claim a matching Blender scene.
+
+On the shape-edit page, position the model and press **Capture and annotate** to freeze the view. In the annotation dialog:
 
 - **Point** makes a filled circle at one click.
 - **Line** adds points one by one; use **Finish line**, Enter or a double-click to finish it.
@@ -157,6 +168,8 @@ Default locations, relative to the repository root:
 | `glasses3d/data/dev_ui/tasks/` | Detached apply-task records. |
 | `glasses3d/data/dev_ui/applied/<task-key>/` | New local-apply job copies and their deliveries. |
 | `glasses3d/data/dev_ui/lens-edits/<task-key>/` | Temporary AR previews and new immutable lens-colour versions. |
+| `glasses3d/data/dev_ui/appearance-edits/<task-key>/` | General Edit previews and new owner-look versions. |
+| `glasses3d/data/dev_ui/reapplied/<task-key>/` | Checked owner-look versions after native shape changes. |
 | `glasses3d/data/jobs/<job-id>/` | Owner inputs, runs, checkpoints, money records and immutable `deliveries/<delivery-id>/`. |
 | `glasses3d/data/oe/` | Short-path UNDERSTAND/edit/fallback rounds; captures are frozen under their `inputs/owner_captures/`. |
 
@@ -187,7 +200,10 @@ byte-identical (`7d2d5b27…`). See PROGRESS for the retained proof.
 | `launcher.py`, `status.py`, `tasks.py` | Existing paid-run preparation/approval/detach, cheap file-only polling, detached $0 apply. |
 | `core_adapter.py` | Calls the agent's `owner_captures.py`, `owner_choices.py`, `owner_fallback.py` and existing job/delivery/review code. |
 | `lens_api.py`, `agent/owner_lens_edit.py` | Source-bound lens values, idempotent detached preview/save tasks and exact material-only GLB publication. |
+| `appearance_api.py`, `appearance_flow.py` | General Edit controls, frozen photo angles, version/copy discovery, native source authority and look reapplication. |
+| `agent/owner_look_edit.py`, `agent/owner_look_gradient.py` | Explicit role ownership, append-only image/UV patches, reusable looks and exact-name mapping. |
 | `lens_renderer/`, `static/lens-colour.js` | Shared arview renderer bundle and local colour controls/photo eyedropper/history. Generated `.lens-renderer/` is ignored and rebuilt on source changes. |
+| `static/general-edit.js` | Unified part controls, gradients, version comparisons, photo wipe and shape-flow handoff. |
 | `static/app.js`, `static/api.js`, `static/money.js`, `static/label-warnings.js` | Page flows, requests, decimal display and warnings. |
 | `static/viewer.js`, `static/annotation.js` | Three orbit view, frozen captures, GLB anchors, footprints and labelled drawing. |
 | `browser_tests/` | Chromium tests against the mock API, using existing arview dependencies. |
@@ -196,6 +212,12 @@ The lens panel reads `GET /api/deliveries/{key}/lens-colour` and sends source SH
 complete values and an idempotency key to `POST .../lens-colour/preview` or `POST .../lens-colour/save`.
 Both return a task key; normal task polling returns an AR URL or a new delivery key. These routes have the
 same local-host, same-origin, artifact-hash and path-confinement boundary as the other pages.
+
+General Edit reads `GET /api/deliveries/{key}/appearance`. Source-bound `POST .../appearance-model`
+returns the exact patched GLB for live preview; `.../appearance-preview` and `.../appearance-save`
+return task keys for temporary AR and immutable publication. `.../appearance-copy` returns mapped
+values and explicit skips. All use the existing HTTP and artifact boundaries. The free owner look
+never authorizes a paid call; its native source is revalidated before the existing paid send.
 
 Renderer parity and the native browser proof (run sequentially, after any other heavy task exits):
 
@@ -208,6 +230,21 @@ glasses3d/.venv/Scripts/python.exe -B -m glasses3d.dev_ui.e2e.lens_colour --out 
 The UI proof copies the accepted Oakley rerun delivery, blocks the paid launcher by construction, changes
 the real controls, opens temporary and saved AR, saves through the real API, checks the Jobs listing and
 proves original hashes and unrelated GLB data unchanged. Evidence and screenshots stay in the ignored output.
+
+The E4 generality proof imports a private JSON manifest of `{label, model, job?, delivery_id?}` rows;
+existing jobs are copied and standalone GLBs become clearly labelled test fixtures. It adds coarse
+synthetic pairs and a transmissive frame, exercises all gradient directions, and records valid saves
+or source-check refusals. It also checks exact owner-look reapplication on unchanged copied native
+Oakley geometry. A read-only `--phase audit` can independently verify saved values and warnings.
+
+```powershell
+glasses3d/.venv/Scripts/python.exe -B -m glasses3d.dev_ui.e2e.general_edit --inputs PRIVATE_MANIFEST.json --out C:/Users/Shay/PycharmProjects/lenses/glasses3d/data/m12/proofs/FRESH_GENERAL_EDIT --port 8297
+node glasses3d/dev_ui/lens_renderer/general-parity.mjs --out FRESH_PARITY_DIR --model PATCHED_TEST.glb --materials APPEARANCE_DTO.json
+```
+
+General parity compares every RGBA channel of the panel and the unchanged production AR capture at
+the same explicit camera and lighting. Repeat it for both solid and gradient patches on each required
+model type; it never changes the supplied GLB.
 
 Focused checks from the repository root:
 

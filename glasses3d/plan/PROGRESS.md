@@ -1,5 +1,62 @@
 # glasses3d progress
 
+## 2026-10-21 — E4: one general Edit page ($0; native-proof verification limitation)
+
+Owner, verbatim, in order:
+
+1. "wouldnt you agree this is complicated ux? im not feeling like im capable or know what im doing."
+2. "i just dont understand the shimmer colors, why cant i just choose a color, what is this changing gradient"
+3. "nope. if there an optional gradient i can choose, i want to just choose upto three color with a start end and middle and i want to be able to control on how much each color takes (applicable to gradient lens color and solid color lens too (just one color). maybe you need to do a brainstorm about the edit page"
+4. "brainstorm the edit page generally not just colors"
+5. "dont forget the edit page needs to be general and applicable to every model the automation produces. so the edit options must be applicable to all models in a general way"
+6. "yes build it"
+
+Results now has one **Edit** entry. Photos, an AR-rendered preview, role-derived material controls and versions
+share one page. Solid/optional three-colour gradients, shares/blend/directions, photo colour picking, plain optical
+controls and folded exact Details work with undo/redo, comparisons, temporary AR and immutable save. Frozen fitted
+photo cameras drive the wipe; unavailable angles are explicit. Copy sources identify the model and version.
+Shared roles and lens markings refuse; texture colours multiply the existing pattern. Hardware uses its declared
+supporting role. Lens copying broadcasts one source or matches multiple unique names; other roles stay within one job.
+
+Image gradients append PNG/UV/accessor/view data while preserving existing binary ranges, geometry and normals.
+Centre-to-sides uses a mirrored image over linear X coordinates, including coarse triangles across the bridge;
+vertical projection uses each connected lens surface. Repeated edits retain old bytes and reuse only verified owner
+UV bindings. Authored lens colour textures accept solid tint and refuse gradient replacement. Receipts enumerate additions.
+
+**Shape wrong here? Ask Astra** reuses M12 captures and its unchanged money/approval rules. Raycasts retain the
+authored surface point even in a folded photo pose; the native capture reprojects it or gives a plain refusal.
+Reusable looks bind role/material names and gradient specs, keep native scene authority separate, and reapply through
+checked owner publications after picks/full edits. Missing matches and failed reapplication are visible; native results
+remain available. Authenticated legacy E2 looks can resolve their native source without rewriting the old versions.
+
+Validation: **105** focused core tests, **46** final browser tests; API recovery/provenance checks pass.
+New behavior fails initial HEAD `3cf4301` (missing core module, 17 API failures, old browser behavior).
+**8/8** solid/gradient comparisons on shield, pair, crystal and synthetic transmissive frame have zero differing RGBA
+channels and identical PNG hashes against unchanged production AR. Browser tests check actual nonblank reload pixels,
+keyboard/controls and normal/folded capture anchors within `1e-5 mm`.
+
+Generality on nine copies: all opened, exercised solid plus three-colour gradients in each direction and the optical
+controls, and opened AR; **eight saved**. The WP5 historical print fixture correctly refuses Save because its fresh
+source retained-print check already fails. FT1123's shared frame/temple crystal material refuses while the synthetic
+crystal exercises frame transmission. Saved values match exactly; untouched materials, source files and old binary
+ranges remain exact. Native-job AR warnings are unchanged; imported fixtures' warnings lack a baseline and are recorded
+as such. Seating remains diagnostic. The copied Oakley look reapplies to unchanged native geometry with identical GLB
+bytes; these are tool tests and confer no product acceptance.
+
+The required **single** `assembly_m12_ui.py` invocation failed after **207.5 s**, before E4 editing. Its unchanged
+success script confirms finish with three non-`none` photo difference statements; the current gate correctly returns
+`E_DIFFERENCES`. The exhausted 13-response script then asserts during token counting. Ten causal proof/runtime files
+match initial HEAD and the run snapshot. No gate/fixture was weakened and no rerun was made; the remaining five
+scenarios are unproved. Original/adapted/copied Prada source maps remain exact (986/376/376 files). Actual requests/spend
+were 0/$0; the 13 scripted ledger rows are simulated accounting. See `data/m12/codex/e4_m12_diagnosis.md`.
+
+Final full suite: **6,142 functional passed / 2 skipped** (1,168.75 s), **367 photo-print passed** (423.33 s),
+**29 serial timing passed** (287.99 s); **6,538 Python passes** total. AR: **509 unit + 113 QA passed**, type check
+and build exit 0. Checks ran on frozen code, serialized with detached PID/UTC/exit logs, BLAS 1 and EcoQoS opt-out,
+finishing 2026-10-21 17:13:16 UTC. Full-suite launch measured 36,576,464 KiB free commit; pools used the README's
+8/4/serial schedule with headroom for child work. Final counts, screenshots, per-model table, commits and
+8260 restart verification are recorded in `data/m12/codex/e4_report.md`. Task 22 files are untouched; no push or paid call.
+
 ## 2026-10-21 — E3: clearer coating controls, photo matching and valid optical ranges ($0; complete)
 
 **Claude's acceptance:**

@@ -98,12 +98,17 @@ def _save(fixture):
 
 def test_role_metadata_and_immutable_versions(appearance):
     saved = _save(appearance)
+    other = appearance.core.make_delivery(appearance.config.jobs_root / "other", identifier="other-1")
+    (other / "job.json").write_text(json.dumps({"id": "other-job", "name": "Other model", "images": []}))
+    appearance.service.register_delivery(other, "other-1", job_id="other-job")
     dto = _ok(appearance.client.get(f"/api/deliveries/{appearance.key}/appearance"))
     assert dto["roles"] == [{"role": "lens", "label": "Lenses"}, {"role": "frame", "label": "Frame"}]
     assert dto["materials"][0]["can_transmission"] is True
     assert dto["refusals"][0]["reason"] == "This material is shared by Frame and Temples."
     assert {row["label"] for row in dto["versions"]} == {"your edit", "Astra delivery-1"}
     assert {row["delivery_key"] for row in dto["versions"]} == {saved, appearance.key}
+    assert {row["label"] for row in dto["copy_sources"]} == {
+        "Fixture — your edit", "Fixture — Astra delivery-1", "Other model — Astra other-1"}
     assert not appearance.launcher.approvals
 
 
