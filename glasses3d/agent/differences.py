@@ -6,15 +6,67 @@ checks their immutable identities; Astra supplies the visual judgement.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Literal
 
+from agents.exceptions import ModelBehaviorError
 from agents.tool_context import ToolContext
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .jsonl import append_jsonl, read_jsonl
 
 SCHEMA = "g3d.differences/1"
+
+
+class DifferenceUpdateError(ValueError):
+    """All invalid ids survive bounded tool reporting as structured fields."""
+    def __init__(self, invalid_difference_ids, errors):
+        self.invalid_difference_ids = invalid_difference_ids
+        self.errors = errors
+        super().__init__("Invalid difference updates [" + ", ".join(invalid_difference_ids)
+                         + "]: " + "; ".join(errors))
+
+
+class DifferenceUpdate(BaseModel):
+    """One complete decision; finish may supply its current review evidence."""
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    what_differs: str
+    status: Literal["open", "fixed", "limitation"]
+    last_correction: str
+    outcome: str
+    next_action: str
+    evidence_ref: str | None = None
+    refs: list[str] | None = None
+    reason: str | None = None
+
+
+def argument_failure(default_failure):
+    """Name malformed batch items even when the SDK redacts validation details."""
+    def failure(context, error):
+        # Preserve the existing fatal-error policy before adding argument context.
+        message = default_failure(context, error)
+        if not isinstance(error, ModelBehaviorError) or not str(error).startswith("Invalid JSON input for tool"):
+            return message
+        try:
+            arguments = json.loads(context.tool_arguments)
+        except (ValueError, TypeError, AttributeError):
+            return message
+        key = "items" if context.tool_name == "record_difference" else "difference_updates"
+        items = arguments.get(key) if isinstance(arguments, dict) else None
+        if not isinstance(items, list):
+            return message
+        invalid_ids = []
+        for index, item in enumerate(items, 1):
+            try:
+                DifferenceUpdate.model_validate(item)
+            except ValidationError:
+                label = item.get("id") if isinstance(item, dict) else None
+                invalid_ids.append(label if isinstance(label, str) else f"item[{index}]")
+        return message + ("\nInvalid difference item ids: " + ", ".join(invalid_ids) if invalid_ids else "")
+    return failure
 
 
 def enabled(scene):
@@ -152,38 +204,95 @@ def _text(value, field):
     return value.strip()
 
 
-def record(scene, *, id, what_differs, evidence_ref, status, last_correction, outcome, next_action,
-           refs=None, reason=None, call_id=None):
-    """Validate and append a complete item version, never overwrite past decisions."""
-    if not enabled(scene):
-        raise ValueError("record_difference is unavailable in the legacy profile")
+def _prepare_item(scene, item, previous, default_evidence_ref, current_export):
+    id, status = item.get("id"), item.get("status")
     if not isinstance(id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,95}", id):
         raise ValueError("id must be 1-96 letters, digits, dots, hyphens or underscores")
     if status not in {"open", "fixed", "limitation"}:
         raise ValueError("status must be open, fixed or limitation")
-    previous = next((item for item in snapshot(scene) if item["id"] == id), None)
+    evidence_ref = item.get("evidence_ref")
+    if evidence_ref is None:
+        evidence_ref = default_evidence_ref
+    refs = item.get("refs")
     refs = refs if refs is not None else (previous["refs"] if previous else None)
-    binding = validate_evidence(scene, evidence_ref, refs)
+    binding = validate_evidence(scene, evidence_ref, refs, current_export=current_export)
     refs = refs if refs is not None else [photo["ref"] for photo in binding["photos"]]
-    item = {"id": id, "what_differs": _text(what_differs, "what_differs"), "evidence_ref": evidence_ref,
-            "status": status, "last_correction": _text(last_correction, "last_correction"),
-            "outcome": _text(outcome, "outcome"), "next_action": _text(next_action, "next_action"),
-            "refs": refs, "reason": _text(reason, "reason") if status == "limitation" else reason}
+    prepared = {"id": id, "evidence_ref": evidence_ref, "status": status, "refs": list(refs),
+                **{field: _text(item.get(field), field) for field in
+                   ("what_differs", "last_correction", "outcome", "next_action")},
+                "reason": _text(item.get("reason"), "reason") if status == "limitation" else item.get("reason")}
     if previous and not set(previous["refs"]) <= set(refs):
         raise ValueError("an update cannot drop the item's previously affected photo refs")
-    _append(scene, "difference", call_id=call_id, item=item)
-    return {"status": "ok", "difference": item, "differences": snapshot(scene),
-            "formal_best_checkpoint": formal_best(scene)}
+    # Serialization is also validation: no later item can fail after earlier appends.
+    json.dumps(prepared, allow_nan=False)
+    return prepared
 
 
-def prepare_finish(scene, result, rows, evidence_ref):
+def prepare_updates(scene, items, *, default_evidence_ref=None, current_export=None):
+    """Validate every update before returning staged items; never write the journal."""
+    if not enabled(scene):
+        raise ValueError("record_difference is unavailable in the legacy profile")
+    if not isinstance(items, list) or not items:
+        raise ValueError("items must be a nonempty list of difference updates")
+    current = {item["id"]: item for item in snapshot(scene)}
+    prepared, failures, failed_ids, seen = [], [], [], set()
+    for index, raw in enumerate(items, 1):
+        item = raw.model_dump() if isinstance(raw, DifferenceUpdate) else raw
+        label = str(item.get("id", f"item[{index}]")) if isinstance(item, dict) else f"item[{index}]"
+        try:
+            if not isinstance(item, dict):
+                raise ValueError("each update must be an object")
+            key = item.get("id")
+            if not isinstance(key, str):
+                raise ValueError("id must be 1-96 letters, digits, dots, hyphens or underscores")
+            if key in seen:
+                raise ValueError("each id may appear only once in an update batch")
+            seen.add(key)
+            prepared.append(_prepare_item(scene, item, current.get(key), default_evidence_ref, current_export))
+        except (ValueError, OSError, KeyError, TypeError) as problem:
+            failed_ids.append(label)
+            failures.append(f"{label}: {problem}")
+    if failures:
+        raise DifferenceUpdateError(failed_ids, failures)
+    return prepared
+
+
+def _commit_updates(scene, items, call_id):
+    # The callers finish all validation before the first append. Journal history
+    # remains one complete, consecutively numbered record per item version.
+    for item in items:
+        _append(scene, "difference", call_id=call_id, item=item)
+
+
+def record(scene, *, id=None, what_differs=None, evidence_ref=None, status=None, last_correction=None,
+           outcome=None, next_action=None, refs=None, reason=None, items=None, call_id=None):
+    """Append a validated batch, or the backward-compatible single complete item."""
+    single = {"id": id, "what_differs": what_differs, "evidence_ref": evidence_ref, "status": status,
+              "last_correction": last_correction, "outcome": outcome, "next_action": next_action,
+              "refs": refs, "reason": reason}
+    if items is not None and any(value is not None for value in single.values()):
+        raise ValueError("Provide either items or the one-item fields, not both")
+    prepared = prepare_updates(scene, items if items is not None else [single])
+    _commit_updates(scene, prepared, call_id)
+    result = {"status": "ok", "updated_differences": prepared, "differences": snapshot(scene),
+              "formal_best_checkpoint": formal_best(scene)}
+    if len(prepared) == 1:
+        result["difference"] = prepared[0]
+    return result
+
+
+def prepare_finish(scene, result, rows, evidence_ref, updates=None):
     """Map every non-'none' per-photo statement to items before acceptance.
 
     New records are staged in the tool result and appended only after its output
     succeeds. An explicit mapping preserves item identity when wording changes.
     """
     current = {item["id"]: item for item in snapshot(scene)}
-    additions, mappings = [], []
+    additions = (prepare_updates(scene, updates, default_evidence_ref=evidence_ref,
+                                 current_export=result["export"]) if updates is not None else [])
+    for item in additions:
+        current[item["id"]] = item
+    mappings = []
     allowed = set(result["review"]["required_refs"])
     for row in rows:
         ref, text = row["ref"], row["differences"].strip()
@@ -213,6 +322,8 @@ def prepare_finish(scene, result, rows, evidence_ref):
     result["differences"] = list(current.values())
     result["review"]["difference_mappings"] = mappings
     result["difference_updates"] = additions
+    if updates is not None:
+        result["difference_reconciliation"] = True
     result["formal_best_checkpoint"] = formal_best(scene)
     return [item["id"] for item in current.values() if item["status"] == "open"]
 
@@ -221,18 +332,25 @@ def commit_finish(scene, result):
     """Commit staged first-/second-finish observations after successful delivery."""
     if not enabled(scene) or result.get("call_id") in _unseen(scene):
         return
-    for item in result.get("difference_updates", []):
-        validate_evidence(scene, item["evidence_ref"], item["refs"])
-        _append(scene, "difference", call_id=result["call_id"], item=item)
+    if result.get("difference_reconciliation") and result.get("status") != "accepted":
+        return
+    updates = result.get("difference_updates", [])
+    if updates:
+        prepared = prepare_updates(scene, updates, current_export=result.get("export"))
+        _commit_updates(scene, prepared, result["call_id"])
 
 
 def tool_for(scene, tool, call):
     @tool("record_difference")
-    async def record_difference(ctx: ToolContext, id: str, what_differs: str, evidence_ref: str,
-                                status: Literal["open", "fixed", "limitation"], last_correction: str,
-                                outcome: str, next_action: str, refs: list[str] | None = None,
-                                reason: str | None = None):
-        """Record or update an important visible difference in this run's append-only host list.
+    async def record_difference(ctx: ToolContext, id: str | None = None, what_differs: str | None = None,
+                                evidence_ref: str | None = None,
+                                status: Literal["open", "fixed", "limitation"] | None = None,
+                                last_correction: str | None = None, outcome: str | None = None,
+                                next_action: str | None = None, refs: list[str] | None = None,
+                                reason: str | None = None, items: list[DifferenceUpdate] | None = None):
+        """Record one visible difference or an atomic items batch in this run's append-only host list.
+        Supply items or the one-item fields. Every item is validated before any append; a refusal names
+        failing ids and changes nothing. Confirming finish can reconcile the same items inline.
         Use a stable id. Cite a delivered compare_look_to_photos or finish review call id from this run;
         its head, camera basis and photo bytes must still be current. Unknown, unseen and stale evidence refuses.
         State the last correction tried, its observed outcome and the next action; for a new open item say
@@ -252,10 +370,16 @@ def tool_for(scene, tool, call):
             next_action: The next correction/check, or explicitly no further action for this resolved item.
             refs: Affected photo refs included in the cited comparison; null retains prior refs or uses all cited refs.
             reason: Specific reason for a limitation; null is allowed for open or fixed.
+            items: Complete updates in one request; use instead of the one-item fields. Each needs evidence_ref.
         """
-        return await call(ctx, "record_difference", lambda cid: record(
-            scene, id=id, what_differs=what_differs, evidence_ref=evidence_ref, status=status,
-            last_correction=last_correction, outcome=outcome, next_action=next_action,
-            refs=refs, reason=reason, call_id=cid))
+        def action(cid):
+            try:
+                return record(scene, id=id, what_differs=what_differs, evidence_ref=evidence_ref, status=status,
+                              last_correction=last_correction, outcome=outcome, next_action=next_action,
+                              refs=refs, reason=reason, items=items, call_id=cid)
+            except DifferenceUpdateError as problem:
+                return {"status": "refused", "code": "E_ARGS", "message": str(problem),
+                        "invalid_difference_ids": problem.invalid_difference_ids, "errors": problem.errors}
+        return await call(ctx, "record_difference", action)
 
     return record_difference

@@ -26,6 +26,9 @@ from glasses3d.tests.test_fit_views_synthetic import lens, photo, TRUTH as FIT_T
 from glasses3d.tests.proofs.offline_job_approval import prepare_offline_request
 
 ROOT = Path(__file__).resolve().parents[2]
+# Includes an intentional refused confirm; inline reconciliation saves the former
+# sixteenth request without skipping that refusal or the delivered review.
+EXPECTED_REQUESTS = 15
 # Exercise a canonical-name collision and an ordinary filename with a space through
 # job intake, camera fitting and the reference renderer without changing the cameras.
 TRUTH = {"angle photo.png" if name == "angled.png" else name: values for name, values in FIT_TRUTH.items()}
@@ -255,7 +258,14 @@ def check_decisions(job: Path, run_id: str, difference_id: str):
         output = json.loads(path.read_text(encoding="utf-8"))["result"]
     assert output["open_difference_ids"] == [difference_id], output
     decisions = [json.loads(line) for line in (run_dir / "differences.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert [row["item"]["status"] for row in decisions if row["kind"] == "difference"] == ["open", "limitation"]
+    updates = [row for row in decisions if row["kind"] == "difference"]
+    assert [(row["call_id"], row["item"]["status"]) for row in updates] == [
+        ("call_0012", "open"), ("call_0015", "limitation")]
+    assert updates[-1]["item"]["evidence_ref"] == "call_0013"
+    accepted = json.loads((run_dir / "tools/0015-finish/arguments.json").read_text(encoding="utf-8"))["arguments"]
+    assert accepted["review_call_id"] == "call_0013"
+    assert [item["id"] for item in accepted["difference_updates"]] == [difference_id]
+    assert accepted["difference_updates"][0].get("evidence_ref") is None
 
 
 def run():
@@ -322,12 +332,15 @@ def run():
                                     "per_photo": photo_rows}),
         replay.tool_call("finish", {"summary": "Attempting finish with the recorded open synthetic colour difference.",
                                     "review_call_id": "call_0013", "per_photo": photo_rows}),
-        replay.tool_call("record_difference", {**difference, "status": "limitation", "evidence_ref": "call_0013",
-            "reason": "These procedural photos deliberately encode a hard silhouette; their false colour cannot validate material likeness.",
-            "outcome": "The delivered current comparison shows the silhouette-coded reference beside the authored material.",
-            "next_action": "No material correction justified by synthetic false colour; owner appearance remains untested."}),
         replay.tool_call("finish", {"summary": "Scripted differences reconciliation passed; no automated likeness judgment.",
-                                    "review_call_id": "call_0013", "per_photo": photo_rows})]
+                                    "review_call_id": "call_0013", "per_photo": photo_rows,
+                                    "difference_updates": [{
+                                        **{key: value for key, value in difference.items() if key != "evidence_ref"},
+                                        "status": "limitation",
+                                        "reason": "These procedural photos deliberately encode a hard silhouette; their false colour cannot validate material likeness.",
+                                        "outcome": "The delivered current comparison shows the silhouette-coded reference beside the authored material.",
+                                        "next_action": "No material correction justified by synthetic false colour; owner appearance remains untested."}]})]
+    assert len(replies) == EXPECTED_REQUESTS
     transport = replay.ScriptedOpenAI(replies)
     settings = replace(job_run.settings_default(), max_turns=len(replies) + 1)
     spec, _ = prepare_offline_request(job, "offline-proof", transport.handle, settings=settings)
@@ -336,11 +349,11 @@ def run():
     assert outcome["result"]["status"] == "completed", outcome
     assert outcome["delivery"]["status"] == "delivered", outcome
     assert not transport.violations and not transport.unexpected, transport.violations
-    assert len(transport.counts) == len(transport.creates) == outcome["result"]["requests"] == len(replies)
+    assert len(transport.counts) == len(transport.creates) == outcome["result"]["requests"] == EXPECTED_REQUESTS
     receipt_checks = check_receipts(job, spec.run_id, [
         "execute_blender_code", "scene_summary", "fit_cameras", "render_views", "seat_lens", "seat_lens",
         "check_lens_seating", "compare_to_photos", "export_glb",
-        "arview_capture", "compare_look_to_photos", "record_difference", "finish", "finish", "record_difference", "finish"])
+        "arview_capture", "compare_look_to_photos", "record_difference", "finish", "finish", "finish"])
     check_decisions(job, spec.run_id, difference["id"])
     basis = json.loads(next((job / "cameras").rglob("cameras.json")).read_text())
     for name, rec in basis["images"].items():

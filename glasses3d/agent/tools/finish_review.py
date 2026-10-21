@@ -74,7 +74,7 @@ def _capture_complete(binding, look):
     return None
 
 
-def apply(scene, result, review_call_id, per_photo):
+def apply(scene, result, review_call_id, per_photo, difference_updates=None):
     """Add the procedure after existing export/AR checks, before output is encoded."""
     if result["failures"]:
         scene.finish_review = None
@@ -111,6 +111,13 @@ def apply(scene, result, review_call_id, per_photo):
         result["failures"].append({"check": "photo_review", "code": "E_FINISH_REVIEW", "message": result["message"]})
         return
     if not matches or review_call_id is None:
+        if decision and difference_updates is not None:
+            result.update(status="refused", code="E_DIFFERENCES",
+                          message="Inline difference_updates require a delivered, current first finish review_call_id.")
+            result["failures"].append({"check": "differences", "code": "E_DIFFERENCES", "message": result["message"]})
+            if not matches:
+                scene.finish_review = None
+            return
         scene.finish_review = None
         inspection = ("Judge lens colour on the worn, on-face AR images against the owner photos first. "
                       "Use every full photo/drawing pair and native detail for shape, see-through and measurements; "
@@ -144,7 +151,7 @@ def apply(scene, result, review_call_id, per_photo):
     result["review"]["per_photo"] = rows
     if decision:
         try:
-            open_ids = differences.prepare_finish(scene, result, rows, prior["call_id"])
+            open_ids = differences.prepare_finish(scene, result, rows, prior["call_id"], updates=difference_updates)
             stale_ids = []
             for item in result["differences"]:
                 if item["status"] != "open":
@@ -159,6 +166,8 @@ def apply(scene, result, review_call_id, per_photo):
                                  + ", ".join(open_ids + stale_ids))
         except ValueError as problem:
             result.update(status="refused", code="E_DIFFERENCES", message=str(problem))
+            if hasattr(problem, "invalid_difference_ids"):
+                result["invalid_difference_ids"] = problem.invalid_difference_ids
             result["failures"].append({"check": "differences", "code": "E_DIFFERENCES", "message": str(problem)})
 
 

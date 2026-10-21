@@ -149,7 +149,7 @@ CORE_GUIDANCE = {
     "export_glb": "`export_glb`: specification, seating, print freshness and lost-optics warnings.",
     "arview_capture": "`arview_capture`: fixed-scale AR/visible eyes. Measure temple shape in photo views: worn arms spread/clip.",
     "budget_status": "`budget_status`: settled spend, owner cutoff and money left.",
-    "finish": "`finish`: review then confirm. Page all required_refs; no usable cameras needs an "
+    "finish": "`finish`: review then confirm with difference_updates; omitted evidence_ref uses that review. Page all required_refs; no usable cameras needs an "
         "unavailable-evidence statement and per_photo=[].",
 }
 
@@ -165,7 +165,7 @@ SPECIALIST_GUIDANCE = {
     "unhide_eyewire": "`unhide_eyewire`: restore eyewire/held lens, undoing a dependent seat.",
     "photo_print": "`photo_print`: photo-derived print for complex patterns such as tortoiseshell; plain frames need material/finish edits.",
     "labelled_model_map": "`labelled_model_map`: readable part/surface/point labels beside photos; capture anchors do not authorize mutation.",
-    "record_difference": "`record_difference`: persist/update important differences and their evidence, status, correction and next action.",
+    "record_difference": "`record_difference`: persist/update one or several important differences atomically via items, with their evidence, status, correction and next action.",
 }
 
 EDIT_GUIDANCE = {

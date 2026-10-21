@@ -288,8 +288,11 @@ def build_tools(scene, settings=None) -> list:
     def tool(name):
         def wrap(fn):
             timeout = scene_timeout_s(scene, name)
+            failure = fatal_tool_errors(*FATAL)
+            if differences.enabled(scene) and name in {"record_difference", "finish"}:
+                failure = differences.argument_failure(failure)
             return function_tool(fn, name_override=name, timeout=timeout,
-                                 failure_error_function=fatal_tool_errors(*FATAL),
+                                 failure_error_function=failure,
                                  timeout_error_function=timeout_text(name))
         return wrap
 
@@ -707,9 +710,9 @@ def build_tools(scene, settings=None) -> list:
 
     PhotoDifference = finish_review.PhotoDifference if differences.enabled(scene) else finish_review.LegacyPhotoDifference
 
-    @tool("finish")
     async def finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
-                     per_photo: list[PhotoDifference] | None = None):
+                     per_photo: list[PhotoDifference] | None = None,
+                     difference_updates: list[differences.DifferenceUpdate] | None = None):
         """Finish in two calls. First export/check the current head, capture fixed-scale AR and show every usable
         photo's full pair and automatic native details together, including side-light surface checks, without shrinking
         any panel (additional images for overflow), plus the worn front. Inspect them, then call again with its review_call_id
@@ -726,8 +729,10 @@ def build_tools(scene, settings=None) -> list:
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
         Usable photo cameras require complete captured review evidence; EDIT also requires a delivered edit_report.
-        Any open list item refuses final acceptance. Use record_difference to mark it fixed with a current
-        supporting comparison, or limitation with a specific reason and current supporting comparison.
+        Any open list item refuses final acceptance. Reconcile items together in the confirming call's
+        difference_updates, or with record_difference: fixed needs a current supporting comparison;
+        limitation also needs a specific reason. Omitted evidence_ref uses the delivered review_call_id.
+        Inline updates validate atomically and commit only after an accepted result is delivered.
         Resolved items with stale evidence also refuse. Astra makes these classifications; there is no likeness
         score or appearance threshold. Do not claim a usable photo reviewed when its images failed to capture.
         Finish does not change money admission; a cutoff draft still uses the formal best with open items retained.
@@ -737,6 +742,8 @@ def build_tools(scene, settings=None) -> list:
             review_call_id: Null for the first call; the delivered first call's id on the second.
             per_photo: Optional first-call observations; required on second call with one ref, nonblank differences
                 (or 'none'), and optional difference_ids mapping to list items per required photo.
+            difference_updates: Optional confirming-call list of record_difference item fields; omitted evidence_ref
+                uses review_call_id. All items must validate, retaining prior refs; a refusal commits no inline updates.
         """
         def finish_current(cid):
             scene.finish = None
@@ -785,14 +792,23 @@ def build_tools(scene, settings=None) -> list:
                     result["failures"].append({"check": "owner_edit_report", "code": "E_EDIT_REPORT"})
                 else:
                     result["owner_edit_report"] = report
-            finish_review.apply(scene, result, review_call_id, per_photo)
+            finish_review.apply(scene, result, review_call_id, per_photo, difference_updates)
             return result
         return await call(ctx, "finish", finish_current)
+
+    if differences.enabled(scene):
+        finish_tool = tool("finish")(finish)
+    else:
+        # Preserve both the advertised legacy schema and its runtime argument validation.
+        async def legacy_finish(ctx: ToolContext, summary: str, review_call_id: str | None = None,
+                                per_photo: list[PhotoDifference] | None = None):
+            return await finish(ctx, summary, review_call_id, per_photo)
+        finish_tool = tool("finish")(legacy_finish)
 
     tools = [execute_blender_code, load_font, scene_summary, save_checkpoint, list_checkpoints, restore_checkpoint, fit_cameras,
             render_views, compare_to_photos, pick_surface_point, photo_read_tool(scene, tool, call),
             export_glb, arview_capture, look.tool_for(scene, tool, call), read_image, budget_status,
-            finish, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
+            finish_tool, *seat_tools(scene, tool, call, FATAL), temple_tool(scene, call, settings, FATAL),
             photo_print_tool(scene, call, FATAL), report_tool(getattr(scene, "root", None), tool, call),
             model_map.tool_for(scene, tool, call), differences.tool_for(scene, tool, call)]
     if getattr(scene, "owner_edit", None):
