@@ -1,5 +1,47 @@
 # glasses3d progress
 
+## 2026-10-22 — Task 23: five Astra fixes complete ($0)
+
+Owner, verbatim (2026-10-21):
+
+- "the model looks good but the lens isnt"
+- "send codex to investigate the last run please"
+- "Yes: after the edit page work, have Codex build the five Astra fixes as one $0 job (lens candidates tool, best at comparison, renewal summary without newest images, camera orientation choice, differences refs rule), tested."
+
+**Implemented.** Decision-only 2–6 labelled lens candidates use exact copied-GLB patches and native worn/front-photo
+comparisons; the apply helper reproduces exact glTF values, with four-view pixel parity proved for one synthetic
+candidate on a fresh fixture. Explicit best-at-comparison promotes only the compared current head. Renewal omits
+only unsent newest images from its summary, retaining full latest output in the fresh conversation and all evidence
+receipts. Validated saved camera alternatives install immutable bases without refitting. Open differences retain
+affected refs plus observation coverage; resolution still requires current evidence covering all refs. Legacy
+identity, camera/sidedness/finish gates, and settled-only money terms remain. No material recipe was added.
+
+**Measured proof.** Saved renewal 73 has 98→62 summary images and an offline estimated $2.507702 saving
+($3.150254→$0.642552), not measured billing. Saved tool0047 now succeeds with affected refs01–05 and observed
+01/02/05. Camera proof: 18/24 alternatives accepted, six invalid top poses refused, 155 original files unchanged;
+the last right-view choice takes 1.216 s. Rigid camera transport was not built because exact rigid/frame provenance
+was not established. Actual two-candidate transport: 7 images/11,968 estimated image tokens versus 7/14,035 for
+one ordinary front-look call; six-candidate cost is explicitly a layout extrapolation in the report.
+
+**Verification.** Required full passes ran once: functional 6,282 passed/2 skipped/1 failed; photo-print 367 passed;
+timing 28 passed/1 failed. The receipt-deduplication and exact helper-name failures were repaired; affected batches
+passed 49 and 1 cases respectively. AR 509 unit/113 QA and 56 browser tests pass; type check/build exit0. M1 passes
+(199.063 s); M12 passes all six scenarios (2,349.812 s, 284 browser assertions, 31 scripted requests). New-feature
+baseline failures and native missing-helper setup errors are retained. Two unrelated historical lab-test failures
+were reproduced on baseline and left unchanged. Focused tests and detailed receipts are in the report.
+
+**Four-trial lab.** `candidates --count 4` completed on clean committed `e4c26d5`, in an isolated detached worktree:
+four valid first attempts, 22/22 candidate calls and 8/8 ordinary looks successful. Six-region errors, information
+only: 26.015527, 25.402923, 25.977584, 23.200909. Every final GLB matches scoring; each trial preserves all 25 source
+files and 308 implementation files. No scoring sheets or owner appearance judgement. Final GLB paths and hashes
+are in the report and `data/lens_lab/trials/candidates/20261021T200713Z-14df836d/`.
+
+**Commits/scope.** `385f179`, `ed25f05`, `c7951f9`, `4ac39fc`, `4acb2db`, `e4c26d5`. Started after E4c exit; no
+dev UI, root app or `ar/` edits, existing job/run/delivery/verdict mutations, `.env` reads, paid API calls or push.
+Actual provider requests/spend 0/$0; Codex subscription usage is separate. Concurrent E5 owner-look/UI edits remain
+untouched and were excluded from the lab worktree. Report: `data/review_20261018/codex/task23_report.md`.
+Next: Claude reviews the task and prepares the on-face lab views; no new paid run is authorized by this work.
+
 ## 2026-10-21 — Owner verdict on the general Edit page (E4/E4c)
 
 **Verdict.** After using the live Edit page, the owner said, verbatim: "not needed, this is what i talked about. it
