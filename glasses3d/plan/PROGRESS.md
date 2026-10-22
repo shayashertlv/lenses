@@ -1,5 +1,41 @@
 # glasses3d progress
 
+## 2026-10-22 — Claude finished E5 and task 24 while Codex is out of usage ($0)
+
+Owner, verbatim: "Claude, finish E5 and task 24 yourself from the saved patches while Codex is out, with the same
+checks, at $0."
+
+**Restore.** Claude re-applied both saved work sets from `e5_wip` and `task24_wip`. The files were byte-identical to
+the saved `current/` and `new/` copies; the restore had changed only line endings, so the exact bytes were copied back.
+
+**Checks:**
+- Focused tests for both: 718 passed. Renderer build: exit 0. Browser suite: 62/62 on the final code (Codex's earlier
+  7 failures were on intermediate code).
+- Radial parity: all six circle and moved-oval cases on the Oakley rerun shield, Prada pair and synthetic coarse
+  pair. Zero differing channels, and panel and AR PNG SHAs equal.
+- Nine-model generality with `around_point`: `passed_with_refusals`, 8 radial saves. The WP5 print fixture keeps its
+  source-justified refusal. All originals and copies are unchanged, with 0 API requests.
+- Full suite via `data/m12/claude_checks/run_sequence.py` (`procs.spawn_detached`, EcoQoS opt-out, BLAS 1, serial):
+  - **Functional:** 6,352 passed / 2 skipped / **3 failed**. `test_temple_failure_safety.py::test_facet_sdk_dispatch_uses_shared_fatal_errors`
+    (3 params).
+    - Cause: task 24 made `temple_lab/tools.py` call `lab.mark_unseen` on every failed tool in the decision profile.
+      With a scene lacking it, an AttributeError masked the original fatal error.
+    - Fix: keep the original unconditional call for `facet_crease_compare`, and mark other tools only when the scene
+      supports it. The original error always propagates.
+    - Affected temple and task 24 tests: 447 passed. No second full functional pass.
+  - **Photoprint:** exit 0. **Timing:** exit 0.
+  - **M1:** exit 0, 35 verified AR images.
+  - **M12:** exit 0. Scenario groups 1–5 passed (284 assertions) and the cross-scenario audit passed. Proof:
+    `data/m12/proofs/claude-e5-t24`.
+- **Claude launch slips** (none affected results): a stray `assembly_m1 --help` started M1 for under 2 minutes and
+  was stopped with nothing left; a wrong runner root and a missing basetemp parent were found and relaunched cleanly.
+
+**Commits:** E5 `76456fd`; task 24 `abe26f9`, including the temple fix. The dev UI was restarted on HEAD. "Around a
+point" is live with no console errors.
+
+**Shield centre.** On a shield, the radial default centre is the projected shield centre, which sits behind the
+bridge. The owner drags it.
+
 ## 2026-10-22 ~01:10 — Codex usage limit stops E5 and task 24; their work saved, tree restored ($0)
 
 **What stopped.** Both Codex jobs stopped with "You've hit your usage limit … try again at Oct 27th, 2026 8:32 AM":
