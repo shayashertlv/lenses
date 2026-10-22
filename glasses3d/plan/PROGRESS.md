@@ -1,5 +1,69 @@
 # glasses3d progress
 
+## 2026-10-22 — Astra delivery audit: report and proposed rewrite, nothing applied (Claude, $0)
+
+The owner's words, verbatim: "audit the instruction generally (view each sentence specifically which is currently in
+the instructions + each one which was deleted). then audit the tools descriptions. then view the entire delivery of
+system prompt + tools descriptions + instructions +etc....... and really think hard on if what we are currently
+delivering for astra is good. ... two things i want you to also pay attention to. astra usage of the tools vs its own
+scripts and how it affects money consumption, and astra usage of the tools and how its affects results quality."
+This came after the owner saw the 10-21 draft: "the upper brow is not connected with the temples (it supposed to) ,this has
+never happened with the oaklys".
+
+The report is `plan/AUDIT_20261022_ASTRA_DELIVERY.md`.
+
+**Verdict.** What we deliver is not coherent as one piece.
+
+**Text cut.** The instructions lost 37% of their text (15,940 → 10,092 characters). Of the 177 old sentences:
+- 18 unchanged;
+- 67 reworded or condensed;
+- 71 now only in tool descriptions;
+- 6 owner-edit only;
+- 3 replaced on purpose;
+- **12 lost or weakened.**
+
+The lost ones include the order ("Complete construction, then surface appearance") and the check-after-every-edit
+rule ("After each shape, colour or material edit, use `compare_look_to_photos`").
+
+**Behaviour changed as that predicts.** Look checks per Astra script:
+- run 4: 11/18;
+- max rerun: 12/19;
+- lens campaign: 8/11;
+- 10-21: **4/24**.
+
+In 10-21, about 15 turns went to lens tests and 6 to the brow. Two other things pushed the same way: the brief's
+"Lens appearance is a priority" and money spent on renewals. With one run on each side, this is not proof of cause.
+
+**Brow gap, measured on the delivered draft.**
+- The brow rail never touches either shield lock: closest 0.75 mm (left) and 0.76 mm (right), a band about 6.5 mm
+  long, zero contact.
+- In the accepted max rerun, the brow touches both latch pods (0.015 / 0.018 mm).
+- Astra recorded "Brow has unwanted continuous gaps" at call 15. The item was still open at the $25 cutoff.
+
+**Money in 10-21 ($25.78).**
+- Astra's scripts: 24 turns, $7.09.
+- Renewals: about $6.2. Fixed by task 23.
+- `read_report`: 13 turns, $3.48. Six of them paged `fit_cameras` results, about $1.10.
+- `record_difference`: 3 turns, $1.97.
+- `compare_look_to_photos` images re-read on later turns: $3.19. Repeats fixed by task 24.
+
+**Other findings.**
+- No specialist tool was used in any of the four runs.
+- The rim-sweep recommendation that was cut had never been followed anyway.
+
+**Proposals awaiting the owner:**
+- **A.** Rewrite the instructions as one document. The `decision-20261022` draft is in the report, 7,862 characters.
+  It restores the order and the after-every-edit check, adds structure before appearance and a "which tool when"
+  table, and removes host jargon and duplicates.
+- **B1.** A contact report: parts within 1.5 mm that never touch.
+- **B2.** An inline `fit_cameras` decision table.
+- **B3.** The edit page's coating solver offered to Astra.
+- **B4.** Difference updates inline in `compare_look_to_photos`.
+- **B5.** Trim text that does not apply to product runs.
+- **C.** A paid validation run, the owner's call.
+
+One draft sentence (efficiency teaching) is marked for the owner's decision.
+
 ## 2026-10-22 — Exact angle colours on the Edit page; annotation labels push apart (Claude, $0)
 
 **The owner's words, verbatim:**
