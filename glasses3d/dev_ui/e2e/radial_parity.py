@@ -55,6 +55,20 @@ def variants():
     }
 
 
+ANGLE = {"schema": "g3d.angle_colour/1", "softness": [1], "reflection": True, "tint": .6,
+         "stops": [{"colour": linear("#a96fd0"), "position": .35}, {"colour": linear("#4fc28a"), "position": .75}]}
+# Exact angle colours and their control: identical optics, with and without the owner's angle colours.
+ANGLE_OPTICS = {"gradient": None, "iridescence": 1, "iridescence_thickness_min": 400,
+                "iridescence_thickness_max": 400, "metallic": .02, "roughness": .1}
+
+
+def all_variants():
+    result = {name: {"gradient": spec} for name, spec in variants().items()}
+    result["angle-exact"] = {**ANGLE_OPTICS, "angle_colour": ANGLE}
+    result["angle-control"] = dict(ANGLE_OPTICS)
+    return result
+
+
 def prepare(inputs, out):
     rows = json.loads(inputs.read_text(encoding="utf-8"))
     rows += synthetic_assets(out)
@@ -70,11 +84,17 @@ def prepare(inputs, out):
         if row.get("sha256"):
             assert sha(original) == row["sha256"], f"Inventory source changed: {row['label']}"
         dto = read_materials(original)
-        for name, spec in variants().items():
-            values = {item["material_index"]: {**copy.deepcopy(item["values"]),
-                "gradient": copy.deepcopy(spec), "transmission": .82,
-                "metallic": .08, "roughness": .2, "iridescence": .25}
-                for item in dto["materials"] if item["role"] == "lens"}
+        for name, overrides in all_variants().items():
+            spec = overrides.get("gradient")
+            values = {}
+            for item in dto["materials"]:
+                if item["role"] != "lens":
+                    continue
+                value = {**copy.deepcopy(item["values"]), "transmission": .82, "metallic": .08, "roughness": .2,
+                         "iridescence": .25, **copy.deepcopy(overrides)}
+                if value.get("angle_colour") is None:
+                    value.pop("angle_colour", None)
+                values[item["material_index"]] = value
             assert values, row["label"]
             payload, receipt = patch_glb(original, values)
             saved = read_materials(payload)
@@ -127,8 +147,14 @@ def prove(out, cases):
         results.append(result)
         procs.write_json_atomic(out / "summary.json", results)
         assert child.returncode == 0 and result["passed"] and result["original_source_unchanged"], case["name"]
-    assert len(results) == len(cases) == 3 * len(variants())
-    print(f"All {len(results)} gradient parity comparisons passed with zero differing channels.", flush=True)
+    assert len(results) == len(cases) == 3 * len(all_variants())
+    # The angle colours must actually render: each exact case differs from its identical-optics control.
+    for label in {case["label"] for case in cases}:
+        exact = (out / "renders" / f"{label}-angle-exact" / "panel.png").read_bytes()
+        control = (out / "renders" / f"{label}-angle-control" / "panel.png").read_bytes()
+        assert exact != control, f"Exact angle colours left {label} unchanged"
+    print(f"All {len(results)} parity comparisons passed with zero differing channels; "
+          "exact angle colours change every model against its control.", flush=True)
     return results
 
 

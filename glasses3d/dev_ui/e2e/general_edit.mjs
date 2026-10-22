@@ -119,6 +119,11 @@ try {
       await page.locator('#find-coating').click();
       await update(() => page.getByRole('button', {name: 'Use coating 1', exact: true}).click());
       row.edits.coating_two_colours = true;
+      // Exact colours: the owner's own angle bar, kept for the save so every model stores and renders it.
+      await update(() => page.locator('#coating-exact').click());
+      await set('Exact side colour', '#a96fd0'); await set('Exact straight-on colour', '#4fc28a'); await set('Lens colour tint', .7);
+      await update(async () => {const marker = page.locator('.angle-stop[data-angle-stop="0"]'); await marker.focus(); await page.keyboard.press('ArrowRight');});
+      row.edits.coating_exact = true;
     } else {
       await update(() => page.getByLabel('Shimmer', {exact: true}).selectOption('0.25')); row.edits.shimmer = true;
     }

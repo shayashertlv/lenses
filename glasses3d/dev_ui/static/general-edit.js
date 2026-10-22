@@ -50,6 +50,20 @@ const takes = gradient => gradient.stops.map((stop, i, stops) => {
 const stopName = (gradient, index) => index === 0 ? 'Start' : index === gradient.stops.length - 1 ? 'End' : 'Middle';
 const barEnds = {centre_to_sides: ['Centre', 'Sides'], top_to_bottom: ['Top', 'Bottom'], left_to_right: ['Left', 'Right'], around_point: ['Centre', 'Edge']};
 const BRIGHTNESS = [[1.6, 'Subtle'], [3, 'Medium'], [6, 'Strong']];
+// Exact angle colours (arview/src/eyewear/angle-colour.ts): bar position 0 = lens sides, 1 = straight on.
+const ANGLE_SCHEMA = 'g3d.angle_colour/1';
+export function sampleAngle(spec, t) {
+  let rgb = spec.stops[0].colour;
+  for (let i = 0; i < spec.stops.length - 1; i++) {
+    const low = spec.stops[i].position, high = spec.stops[i + 1].position, middle = (low + high) / 2, half = spec.softness[i] * (high - low) / 2;
+    if (i && t < low) continue;
+    let z = half > 0 ? Math.min(1, Math.max(0, (t - (middle - half)) / (2 * half))) : (t >= middle ? 1 : 0);
+    z = z * z * (3 - 2 * z);
+    rgb = spec.stops[i].colour.map((value, channel) => value * (1 - z) + spec.stops[i + 1].colour[channel] * z);
+  }
+  return rgb;
+}
+const angleName = (spec, index) => index === 0 ? 'side' : index === spec.stops.length - 1 ? 'straight-on' : 'middle';
 const rgbBytes = linear => tintToHex(linear).slice(1).match(/../g).map(byte => parseInt(byte, 16));
 
 /** One role-driven appearance editor. All generated texture previews load the exact
@@ -336,17 +350,31 @@ export async function generalEditPage(host, key) {
   }
   function coatingLayer(row, v) {
     const section = layer('2 · Coating', 'The reflective colour on the lens surface. It changes with the viewing angle, like a real coating.');
-    const on = v.iridescence > 0, mode = on ? coatingModes.get(row.material_index) || 'two' : 'off';
+    const on = v.iridescence > 0, mode = v.angle_colour ? 'exact' : on ? coatingModes.get(row.material_index) || 'two' : 'off';
     const modes = el('div', {class: 'actions'});
-    for (const [id, label, value] of [['coating-off', 'Off', 'off'], ['coating-one', 'One colour', 'one'], ['coating-two', 'Two colours', 'two']]) {
+    for (const [id, label, value] of [['coating-off', 'Off', 'off'], ['coating-one', 'One colour', 'one'], ['coating-two', 'Two colours', 'two'], ['coating-exact', 'Exact colours', 'exact']]) {
       modes.append(button(label, {id, 'aria-pressed': String(mode === value), onclick: () => {
-        if (value === 'off') {change(next => {next.iridescence = 0;}); return;}
-        coatingModes.set(row.material_index, value); coatingChoices.delete(row.material_index);
-        change(next => {if (!(next.iridescence > 0)) next.iridescence = 1;});
+        if (value === 'off') {change(next => {next.iridescence = 0; delete next.angle_colour;}); return;}
+        coatingChoices.delete(row.material_index);
+        if (value === 'exact') {
+          change(next => {
+            if (!(next.iridescence > 0)) next.iridescence = 1;
+            if (!(next.iridescence_thickness_max > 0)) next.iridescence_thickness_min = next.iridescence_thickness_max = 400;
+            next.angle_colour ??= defaultAngle(next);
+          });
+          return;
+        }
+        coatingModes.set(row.material_index, value);
+        change(next => {delete next.angle_colour; if (!(next.iridescence > 0)) next.iridescence = 1;});
       }}));
     }
-    section.append(modes);
-    if (on) {
+    section.append(modes, el('p', {class: 'lens-help'}, mode === 'exact'
+      ? 'Exact colours: the lens reflects exactly the colours you draw, by viewing angle. Shown here and in our AR try-on; other 3D viewers show the real coating underneath.'
+      : 'One colour and Two colours find the closest real coating. Exact colours lets you draw the colours by angle precisely.'));
+    if (mode === 'exact') {
+      angleEditor(section, v.angle_colour);
+      slider(section, 'Coating strength', v.iridescence, number => change(next => {next.iridescence = Math.max(.01, number);}, false, false), 'How strongly the colours show.');
+    } else if (on) {
       const current = el('canvas', {id: 'coating-current', class: 'lens-shimmer-swatch', width: 288, height: 26, role: 'img', 'aria-label': 'Current coating, sides to centre'});
       section.append(el('p', {class: 'lens-help'}, 'Your coating now:'), current, el('div', {class: 'radial-slider-ends'}, el('span', {}, 'Seen at an angle (lens sides)'), el('span', {}, 'Seen straight on (lens centre)')));
       drawCoating(current, v);
@@ -383,6 +411,79 @@ export async function generalEditPage(host, key) {
       if (result?.choices.length) section.append(el('p', {class: 'lens-help'}, 'Choose one, then turn the model or Check in AR. Real coatings cannot make every colour pair; the closest is shown.'));
     }
     slider(section, 'Mirror', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Mirror darkens what you see through.');
+  }
+  function defaultAngle(v) {
+    const targets = currentTargets(v), linear = bytes => hexToTint('#' + bytes.map(n => n.toString(16).padStart(2, '0')).join(''));
+    return {schema: ANGLE_SCHEMA, softness: [1], reflection: true, tint: .6,
+      stops: [{colour: linear(targets.sides), position: .35}, {colour: linear(targets.straight_on), position: .75}]};
+  }
+  function changeAngle(mutator, commit = true, rebuild = true) {change(next => {mutator(next.angle_colour);}, commit, rebuild);}
+  /** The owner's own coating bar: draggable markers set where each colour sits by angle, as drawn. */
+  function angleEditor(section, spec) {
+    const bar = el('div', {id: 'angle-bar', class: 'gradient-bar'},
+      el('canvas', {id: 'angle-preview', class: 'gradient-blend-preview', width: 512, height: 28, role: 'img', 'aria-label': 'Exact coating colours, sides to centre'}));
+    spec.stops.forEach((stop, index) => {
+      const name = angleName(spec, index);
+      const handle = el('button', {type: 'button', class: 'gradient-stop angle-stop', 'data-angle-stop': index, role: 'slider',
+        'aria-label': `Exact ${name} colour position`, 'aria-valuemin': 0, 'aria-valuemax': 100});
+      handle.addEventListener('pointerdown', event => {if (event.button !== 0 || busy) return; event.preventDefault(); handle.focus(); handle.setPointerCapture(event.pointerId); draggingStop = `a${index}`;});
+      handle.addEventListener('pointermove', event => {
+        if (draggingStop !== `a${index}` || !handle.hasPointerCapture(event.pointerId)) return;
+        const box = bar.getBoundingClientRect(); moveAngleStop(index, (event.clientX - box.left) / box.width, false);
+      });
+      const finish = event => {if (draggingStop !== `a${index}`) return; draggingStop = null; if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId); history.commit(); refresh(); schedulePreview();};
+      handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish);
+      handle.addEventListener('keydown', event => {
+        const delta = {ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1}[event.key]; if (!delta) return;
+        event.preventDefault(); moveAngleStop(index, values().angle_colour.stops[index].position + delta * (event.shiftKey ? .05 : .01), true);
+      });
+      bar.append(handle);
+    });
+    section.append(bar, el('div', {class: 'radial-slider-ends'}, el('span', {}, 'Seen at an angle (lens sides)'), el('span', {}, 'Seen straight on (lens centre)')),
+      el('p', {class: 'lens-help'}, 'Drag the markers to set where each colour sits. Between two markers the colour changes over the softness you choose.'));
+    spec.stops.forEach((stop, index) => {
+      const name = angleName(spec, index), title = name[0].toUpperCase() + name.slice(1);
+      addColour(section, `Exact ${name} colour`, stop.colour, rgb => changeAngle(next => {next.stops[index].colour = rgb;}));
+      if (index < spec.stops.length - 1) {
+        slider(section, `Exact softness ${name} to ${angleName(spec, index + 1)}`, spec.softness[index],
+          number => {changeAngle(next => {next.softness[index] = number;}, false, false); renderAnglePreview();}, `${title} to ${angleName(spec, index + 1)}: sharp edge to a smooth blend across the gap`);
+      }
+    });
+    const reflection = el('input', {id: 'angle-reflection', type: 'checkbox', checked: spec.reflection, 'aria-label': 'Show in the reflections'});
+    reflection.addEventListener('change', () => {
+      if (!reflection.checked && !(values().angle_colour.tint > 0)) {reflection.checked = true; showError('Keep the colours in the reflections or in the lens colour.'); return;}
+      changeAngle(next => {next.reflection = reflection.checked;});
+    });
+    section.append(el('label', {class: 'lens-check'}, reflection, 'Show in the reflections (the coating)'));
+    slider(section, 'Lens colour tint', spec.tint, number => {
+      if (!(number > 0) && !values().angle_colour.reflection) return;
+      changeAngle(next => {next.tint = number;}, false, false);
+    }, 'Also colour the lens itself by angle with the same hues, so they show even where reflections are weak.');
+    section.append(button(spec.stops.length === 2 ? 'Add middle colour' : 'Remove middle colour', {id: 'angle-middle', onclick: () => changeAngle(next => {
+      if (next.stops.length === 2) {
+        const position = round4((next.stops[0].position + next.stops[1].position) / 2);
+        next.stops.splice(1, 0, {colour: sampleAngle(next, position), position}); next.softness = [next.softness[0], next.softness[0]];
+      } else {next.stops.splice(1, 1); next.softness = [next.softness[0]];}
+    })}));
+    renderAnglePreview();
+  }
+  function moveAngleStop(index, position, commit) {
+    changeAngle(next => {
+      const low = index ? next.stops[index - 1].position + .01 : 0, high = index < next.stops.length - 1 ? next.stops[index + 1].position - .01 : 1;
+      next.stops[index].position = round4(Math.min(high, Math.max(low, position)));
+    }, commit, false);
+    renderAnglePreview();
+  }
+  function renderAnglePreview() {
+    const spec = values().angle_colour; if (!spec) return;
+    spec.stops.forEach((stop, index) => {
+      const handle = fields.querySelector(`.angle-stop[data-angle-stop="${index}"]`);
+      if (handle) {handle.style.left = `${stop.position * 100}%`; handle.style.backgroundColor = tintToHex(stop.colour);
+        handle.setAttribute('aria-valuenow', String(Math.round(stop.position * 100)));}
+    });
+    const canvas = fields.querySelector('#angle-preview'); if (!canvas) return;
+    const context = canvas.getContext('2d');
+    for (let x = 0; x < canvas.width; x++) {context.fillStyle = tintToHex(sampleAngle(spec, (x + .5) / canvas.width)); context.fillRect(x, 0, 1, canvas.height);}
   }
   function currentTargets(v) {
     if (colourAtAngle && v.iridescence > 0) return {straight_on: colourAtAngle(v, STRAIGHT_ON), sides: colourAtAngle(v, SIDES)};

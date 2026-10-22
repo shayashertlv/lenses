@@ -48,7 +48,7 @@ export function pngCoordinates(event, canvas) {
     Math.max(0, Math.min(canvas.height - 1e-6, (event.clientY - rect.top) * canvas.height / rect.height))];
 }
 
-function drawMark(context, mark, width, height, label = true) {
+function drawMark(context, mark) {
   const points = mark.vertices.map(v => v.xy_px);
   context.save(); context.strokeStyle = '#e5102d'; context.fillStyle = '#e5102d';
   context.lineWidth = mark.stroke_px; context.lineCap = 'round'; context.lineJoin = 'round'; context.beginPath();
@@ -57,20 +57,63 @@ function drawMark(context, mark, width, height, label = true) {
     context.moveTo(...points[0]); for (const point of points.slice(1)) context.lineTo(...point);
     if (mark.kind === 'closed_shape') context.closePath(); context.stroke();
   }
-  if (label) {
-    context.font = 'bold 24px sans-serif';
-    const boxWidth = Math.min(width, context.measureText(mark.label).width + 14), boxHeight = 32;
-    const x = Math.max(0, Math.min(width - boxWidth, points[0][0] + 13));
-    const y = Math.max(0, Math.min(height - boxHeight, points[0][1] - 39));
-    context.fillStyle = '#ffffff'; context.fillRect(x, y, boxWidth, boxHeight);
-    context.strokeStyle = '#e5102d'; context.lineWidth = 1; context.strokeRect(x, y, boxWidth, boxHeight);
-    context.fillStyle = '#c60020'; context.textBaseline = 'middle'; context.fillText(mark.label, x + 7, y + boxHeight / 2, boxWidth - 14);
-  }
   context.restore();
 }
 
+const LABEL_HEIGHT = 32, LABEL_GAP = 4;
+const overlaps = (a, b) => a.x < b.x + b.w + LABEL_GAP && b.x < a.x + a.w + LABEL_GAP && a.y < b.y + b.h + LABEL_GAP && b.y < a.y + a.h + LABEL_GAP;
+
+/** Place every label so none overlaps another label or any mark's points. Each label tries its usual spot
+ *  (up and right of its first point), then the other diagonals and sides, then rings further out, then the free
+ *  spot nearest its point anywhere on the image; a moved label keeps a thin line back to its point.
+ *  Deterministic: the same marks always give the same picture. */
+export function layoutLabels(context, marks, width, height) {
+  context.save(); context.font = 'bold 24px sans-serif';
+  const obstacles = marks.flatMap(mark => mark.vertices.map(({xy_px: [x, y]}) => {
+    const r = Math.max(mark.radius_px ?? 9, (mark.stroke_px ?? 4) / 2);
+    return {x: x - r, y: y - r, w: 2 * r, h: 2 * r};
+  }));
+  const placed = [];
+  for (const mark of marks) {
+    const w = Math.min(width, context.measureText(mark.label).width + 14), h = Math.min(height, LABEL_HEIGHT), [ax, ay] = mark.vertices[0].xy_px;
+    const clamp = (x, y) => ({x: Math.max(0, Math.min(width - w, x)), y: Math.max(0, Math.min(height - h, y)), w, h});
+    const free = box => !placed.some(other => overlaps(box, other)) && !obstacles.some(o => overlaps(box, o));
+    const usual = clamp(ax + 13, ay - 39), candidates = [usual];
+    for (let ring = 1; ring <= 6; ring++) {
+      const dx = 13 + (ring - 1) * (w / 2 + LABEL_GAP), dy = 39 + (ring - 1) * (h + LABEL_GAP);
+      for (const [x, y] of [[ax + dx, ay - dy], [ax - dx - w, ay - dy], [ax + dx, ay + dy - h], [ax - dx - w, ay + dy - h],
+        [ax + dx, ay - h / 2], [ax - dx - w, ay - h / 2], [ax - w / 2, ay - dy], [ax - w / 2, ay + dy - h]]) candidates.push(clamp(x, y));
+    }
+    let box = candidates.find(free);
+    if (!box) { // crowded: the free spot nearest the point, scanning the whole image
+      let best = Infinity;
+      for (let y = 0; y <= height - h; y += 8) for (let x = 0; x <= width - w; x += 8) {
+        const d = Math.hypot(x + w / 2 - ax, y + h / 2 - ay), candidate = {x, y, w, h};
+        if (d < best && free(candidate)) { best = d; box = candidate; }
+      }
+    }
+    box ??= usual; // the image is full of labels: overlap rather than hide one
+    placed.push({...box, moved: box.x !== usual.x || box.y !== usual.y, anchor: [ax, ay], label: mark.label});
+  }
+  context.restore();
+  return placed;
+}
+
 export function drawAnnotations(context, marks, width, height) {
-  for (const mark of marks) drawMark(context, mark, width, height);
+  for (const mark of marks) drawMark(context, mark);
+  const labels = layoutLabels(context, marks, width, height);
+  context.save();
+  for (const label of labels) if (label.moved) {
+    const x = Math.max(label.x, Math.min(label.x + label.w, label.anchor[0])), y = Math.max(label.y, Math.min(label.y + label.h, label.anchor[1]));
+    context.strokeStyle = '#e5102d'; context.lineWidth = 2; context.beginPath(); context.moveTo(...label.anchor); context.lineTo(x, y); context.stroke();
+  }
+  context.font = 'bold 24px sans-serif'; context.textBaseline = 'middle';
+  for (const label of labels) {
+    context.fillStyle = '#ffffff'; context.fillRect(label.x, label.y, label.w, label.h);
+    context.strokeStyle = '#e5102d'; context.lineWidth = 1; context.strokeRect(label.x, label.y, label.w, label.h);
+    context.fillStyle = '#c60020'; context.fillText(label.label, label.x + 7, label.y + label.h / 2, label.w - 14);
+  }
+  context.restore();
 }
 
 const toPng = canvas => new Promise((resolve, reject) => canvas.toBlob(blob =>

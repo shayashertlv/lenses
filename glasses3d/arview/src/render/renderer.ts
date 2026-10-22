@@ -91,6 +91,7 @@ import type {ShadowSettings} from './eyewear-shadow.ts';
 import {ShadowReceiver} from './shadow-receiver.ts';
 import {EYEWEAR_FIT, EyewearFitSession, observeFitWidth} from './eyewear-fit.ts';
 import {applyTransmissionToneMapping, isOpticalMaterial, isTranslucentFrameMaterial} from '../eyewear/optical-material.ts';
+import {applyAngleColour} from '../eyewear/angle-colour.ts';
 import type {GltfSource, LensIdentificationReport} from '../eyewear/optical-material.ts';
 import {applyVolumeAttenuationScale} from './eyewear-volume.ts';
 import {createCameraTransmissionTwin, createCameraTransmissionUniforms, refreshCameraTransmissionTwin, setCameraTransmissionSource, setCrystalLookThroughSource} from './translucent-twin.ts';
@@ -739,6 +740,8 @@ export class TryOnRenderer {
       if (!(object instanceof Mesh)) return;
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
         applyTransmissionToneMapping(material);
+        // Owner exact angle colours (dev UI lens editor): recolour the coating's reflections and/or tint by viewing angle.
+        if (isOpticalMaterial(material)) applyAngleColour(material);
       }
     });
     asset.add(eyewearScene); this.eyewearPose.add(asset);

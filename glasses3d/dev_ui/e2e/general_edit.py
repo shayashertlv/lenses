@@ -278,6 +278,8 @@ def audit_existing(out, prepared, name="audit.json"):
             assert record["edits"].get("coating_two_colours") is True or record["edits"].get("shimmer") is True
             if "three_layer" in proof.get("features", []):
                 assert record["edits"].get("coating_two_colours") is True, row["label"]
+            if "exact_angle_colours" in proof.get("features", []):
+                assert record["edits"].get("coating_exact") is True, row["label"]
             if "around_point" in proof.get("features", []):
                 assert all(record["edits"].get(key) is True for key in ("around_point", "radial_centre", "roundness"))
                 assert record["radial_material_indices"]
@@ -341,7 +343,7 @@ def serve_and_prove(out, prepared, port):
     thread.start()
     while not server.started and thread.is_alive():
         time.sleep(.05)
-    proof = {"schema": "g3d.e4_generality/1", "features": ["around_point", "three_layer"],
+    proof = {"schema": "g3d.e4_generality/1", "features": ["around_point", "three_layer", "exact_angle_colours"],
              "started_at": procs.utcnow(), "api_requests": 0, "spend_usd": 0}
     try:
         child = subprocess.run(["node", str(Path(__file__).with_suffix(".mjs")), str(out / "browser-config.json")],

@@ -66,7 +66,12 @@ Lenses are edited in three layers, the parts every real lens has:
    renderer coating function and offers up to three real coatings to choose from. **Brightness** (Subtle,
    Medium, Strong) sets how strongly the surface reflects; **Coating strength** sets how much the colour shows.
    Real coatings cannot make every colour pair, so each choice says how close it is. **Mirror** darkens what
-   you see through.
+   you see through. **Exact colours** skips physics: a bar runs from the lens sides (seen at an angle) to the
+   lens centre (seen straight on), with two or three draggable colour markers and a **Softness** per
+   transition. **Show in the reflections** colours the coating's reflections exactly; **Lens colour tint** also
+   colours the see-through tint by viewing angle, which shows even where the room reflects little. This is our
+   own AR effect (material `extras.g3dAngleColour`, read by arview's renderer); other glTF viewers show the
+   ordinary coating underneath.
 3. **Darkness and shine:** **See-through** and **Shine**.
 
 Gradients saved by the earlier editor (shares and one Blend) still open, render and save exactly; they convert
@@ -119,6 +124,8 @@ On the shape-edit page, position the model and press **Capture and annotate** to
   across this edit session. Use those labels in your request text.
 - **Undo** reverses the last drawing action; **Delete selected** removes the selected mark; **Clear** removes
   all marks in this capture. **Cancel** closes the dialog without saving the item.
+- Labels never cover each other or another mark's points: a crowded label moves to the nearest free spot and
+  keeps a thin red line back to its mark.
 - **Done annotating** opens the request text box. Type what should change, then **Done** saves that capture and
   your words as one item. Warnings identify unknown or unused labels without rewriting your words.
 

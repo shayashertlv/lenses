@@ -1,5 +1,56 @@
 # glasses3d progress
 
+## 2026-10-22 — Exact angle colours on the Edit page; annotation labels push apart (Claude, $0)
+
+**The owner's words, verbatim:**
+- The owner's two-handle coating sketch: "is this possible????"
+- Then: "dont fit it. i just need you to make this edit options available in the edit page. if thats possible, tell
+  me, dont start anything yet".
+- Approval: "please implement your edit page changes and then investigate astras instruction".
+- On labels: "it works well but label are getting on top of each other if theyre close instead of pushing each other
+  logically so all labels would show".
+
+**Exact colours, what was built.** Coating has a fourth mode, **Exact colours**.
+- A bar runs from the lens sides to straight on, with 2–3 draggable, keyboard-operable colour markers and a softness
+  per transition.
+- **Show in the reflections** replaces three's thin-film Fresnel colour with the owner's colours by viewing angle.
+- **Lens colour tint** (0–1) also multiplies the see-through tint by the same hues, so the colours show where AR's
+  fixed room reflects little.
+- Stored as material `extras.g3dAngleColour` (`g3d.angle_colour/1`).
+  - It is validated in Python (`agent/owner_angle_colour.py`).
+  - arview's renderer reads it (`src/eyewear/angle-colour.ts`) through a per-material shader hook with its own
+    program cache key.
+  - The global shader chunk is untouched.
+  - Other glTF viewers show the ordinary coating underneath.
+- Looks saved before keep their exact shape: the key is present only when set.
+- Exact colours in the reflections refuse while the coating is off; tint-only works without a coating.
+
+**Exact colours, decision (Claude).** Reflection-only exact colours were barely visible on the worn view, because
+AR's fixed lighting gives few bright reflections. That is why the optional tint exists, with default 0.6.
+
+**Labels.** All marks draw first; then each label tries its usual spot, the other diagonals and sides, rings further
+out, and finally the free spot nearest its mark anywhere on the image. A moved label keeps a thin red line to its
+mark. No label covers another label or any mark's points, and the layout is deterministic.
+
+**Checks:**
+- arview: 514/514 tests (5 new); `tsc` clean.
+- Backend: 482 look, lens and dev UI tests (7 new in `test_owner_angle_colour.py`).
+- Browser: 64/64. New tests cover Exact mode (positions, keyboard, softness, tint, middle colour, the reflections
+  checkbox, removal when switching back to Two colours) and close labels: nine crowded marks plus an edge mark and a
+  line; no overlaps; inside the image; a lone label unmoved; deterministic.
+- Parity: 21/21 preview/AR comparisons with zero differing channels, including angle-exact and its control on the
+  Oakley rerun shield, the Prada pair and the synthetic pair. Exact differs from control on every model.
+- Nine-model generality (`data/m12/claude_angle_labels`): `passed_with_refusals`, the same as before. Exact colours
+  ran on all 9 models with 0 errors; the WP5 print fixture keeps its expected refusal; 0 API requests.
+- Full suite via `run_sequence.py` (functional with 14 workers this time):
+  - **Functional:** 6,377 passed / 2 skipped / 2 failed, both load timeouts and unrelated to this work.
+    `test_launcher.py::test_real_detached_server_start_status_stop` timed out on the server status socket
+    after the server had started. A `test_cli_output.py` subprocess exceeded its 60 s limit.
+  - **Rerun alone, timeouts unchanged:** both passed (5/5). Use at most 8-12 functional workers next time.
+  - **Photoprint:** 367 passed. **Timing:** 29 passed.
+  - **M1** passed (35 verified AR images, receipts clean).
+  - **M12** passed, $0, no network attempts (`proofs/claude-angle-labels`).
+
 ## 2026-10-22 — Three-layer lens editor: built and verified by Claude ($0)
 
 **Result.**

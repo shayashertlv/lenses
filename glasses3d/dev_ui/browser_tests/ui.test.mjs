@@ -96,6 +96,40 @@ test('M12-B browser contracts, annotation and generated-GLB evidence', {timeout:
       await page.evaluate(() => window.followupFitViewer.dispose());
     });
 
+    await t.test('close labels push each other apart so every label shows, with a line back to its mark', async () => {
+      await page.goto(`${server.origin}/__test/viewer`);
+      const result = await page.evaluate(async () => {
+        const {layoutLabels, drawAnnotations} = await import('/static/annotation.js');
+        const canvas = document.createElement('canvas'); canvas.width = 800; canvas.height = 600; document.body.append(canvas);
+        const context = canvas.getContext('2d'); context.fillStyle = '#eeeeec'; context.fillRect(0, 0, 800, 600);
+        const point = (label, x, y) => ({label, kind: 'point', radius_px: 9, stroke_px: 4, vertices: [{xy_px: [x, y]}]});
+        const cluster = ['A', 'B', 'C', 'D', 'E', 'F', 'Brow gap', 'H'].map((label, i) => point(label, 400 + (i % 3) * 7, 300 + Math.floor(i / 3) * 7));
+        const marks = [point('Q', 100, 500), ...cluster, point('Edge', 795, 3),
+          {label: 'Line', kind: 'polyline', radius_px: 9, stroke_px: 4, vertices: [{xy_px: [380, 330]}, {xy_px: [460, 330]}]}];
+        const boxes = layoutLabels(context, marks, 800, 600);
+        drawAnnotations(context, marks, 800, 600);
+        const repeat = layoutLabels(context, marks, 800, 600);
+        return {boxes, same: JSON.stringify(boxes) === JSON.stringify(repeat), marks};
+      });
+      const {boxes, marks} = result;
+      assert.equal(boxes.length, marks.length);
+      assert.ok(result.same, 'the layout is deterministic');
+      for (const box of boxes) assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.w <= 800 && box.y + box.h <= 600, `${box.label} inside the image`);
+      for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i], b = boxes[j];
+        assert.ok(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y, `${a.label} and ${b.label} do not overlap`);
+      }
+      marks.forEach((mark, i) => marks.forEach(other => { for (const {xy_px: [x, y]} of other.vertices) {
+        const b = boxes[i];
+        assert.ok(x + 9 <= b.x || x - 9 >= b.x + b.w || y + 9 <= b.y || y - 9 >= b.y + b.h, `${mark.label}'s label leaves ${other.label}'s point visible`);
+      } }));
+      assert.deepEqual([boxes[0].x, boxes[0].y, boxes[0].moved], [113, 461, false], 'a lone label keeps its usual spot');
+      assert.ok(boxes.filter(b => b.moved).length >= 5, 'crowded labels moved and carry a line back to their mark');
+      await page.evaluate(() => { const c = document.querySelector('body > canvas'); c.style.cssText = 'position:fixed;inset:0;z-index:99;background:#fff'; });
+      await screenshot(page, 'annotation-label-layout');
+      await page.evaluate(() => document.querySelector('body > canvas').remove());
+    });
+
     await t.test('near-full-window annotation maximizes landscape and portrait images with exact resized pixel mapping', async () => {
       for (const [width, height, label] of [[1600, 900, 'landscape'], [600, 1600, 'portrait']]) {
         await page.setViewportSize({width: 1280, height: 800}); await page.goto(`${server.origin}/__test/viewer`);

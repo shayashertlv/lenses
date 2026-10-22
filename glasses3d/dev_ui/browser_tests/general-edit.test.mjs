@@ -101,6 +101,19 @@ test('E4 one general editor exposes role-based controls and preserves the M12 sh
     assert.ok(sides[2] > sides[1] && sides[0] > sides[1], `purple at the sides: ${sides}`);
     await page.locator('#coating-one').click(); await set(page, 'Coating colour', '#3c78d8'); await page.locator('#find-coating').click();
     await page.getByRole('button', {name: 'Use coating 1', exact: true}).waitFor();
+    // Exact colours: the owner's own bar, markers and softness, saved as the angle-colour spec.
+    await page.locator('#coating-exact').click(); await ready(page);
+    let exact = latest(server).materials[0].values.angle_colour;
+    assert.equal(exact.schema, 'g3d.angle_colour/1'); assert.equal(exact.stops.length, 2); assert.deepEqual(exact.stops.map(stop => stop.position), [.35, .75]);
+    assert.equal(exact.reflection, true); assert.equal(exact.tint, .6);
+    await set(page, 'Exact side colour', '#a96fd0'); await set(page, 'Exact straight-on colour', '#4fc28a');
+    const marker = page.locator('.angle-stop[data-angle-stop="0"]'); await marker.focus(); await page.keyboard.press('ArrowRight'); await ready(page);
+    await set(page, 'Exact softness side to straight-on', .4); await set(page, 'Lens colour tint', .8);
+    await page.locator('#angle-middle').click(); await ready(page);
+    exact = latest(server).materials[0].values.angle_colour;
+    assert.equal(exact.stops.length, 3); assert.equal(exact.stops[0].position, .36); assert.equal(exact.tint, .8); assert.deepEqual(exact.softness, [.4, .4]);
+    await page.locator('#angle-reflection').uncheck(); await ready(page); assert.equal(latest(server).materials[0].values.angle_colour.reflection, false);
+    await page.locator('#coating-two').click(); await ready(page); assert.equal(latest(server).materials[0].values.angle_colour, undefined);
     await page.locator('#coating-off').click(); await ready(page); assert.equal(latest(server).materials[0].values.iridescence, 0);
     await page.locator('#edit-undo').click(); await ready(page); assert.ok(latest(server).materials[0].values.iridescence > 0);
     values = latest(server).materials[0].values;

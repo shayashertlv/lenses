@@ -23,6 +23,7 @@ import struct
 import threading
 
 from . import delivery, edits, owner_lens_edit as lens
+from . import owner_angle_colour as angle
 from . import owner_look_gradient as gradient
 
 SCHEMA = "g3d.owner_look/1"
@@ -137,14 +138,24 @@ def _row_values(material, doc, chunks):
     result["gradient"] = generated["spec"] if generated else None
     if generated:
         result["tint"] = generated["solid_tint"]
+    spec = angle.read(material)
+    if spec is not None:  # present only when set, so looks and receipts made before it keep their exact shape
+        result["angle_colour"] = spec
     return result
 
 
 def _values(value):
-    if not isinstance(value, dict) or set(value) - {"gradient"} != lens.FIELDS:
+    # gradient and angle_colour are optional so looks and requests saved before them stay valid.
+    if not isinstance(value, dict) or set(value) - {"gradient", "angle_colour"} != lens.FIELDS:
         raise ValueError("Provide every appearance control value, with no unknown fields.")
-    return {**lens._values({key: value[key] for key in lens.FIELDS}),
-            "gradient": gradient.validate_gradient(value.get("gradient"))}
+    result = {**lens._values({key: value[key] for key in lens.FIELDS}),
+              "gradient": gradient.validate_gradient(value.get("gradient"))}
+    spec = angle.validate_angle_colour(value.get("angle_colour"))
+    if spec is not None:
+        if spec["reflection"] and not (result["iridescence"] > 0 and result["iridescence_thickness_max"] > 0):
+            raise ValueError("Exact angle colours in the reflections need the coating on: set Coating strength above 0.")
+        result["angle_colour"] = spec
+    return result
 
 
 def _radial_layout(source_sha, doc, chunks, ownership):
@@ -245,6 +256,16 @@ def patch_glb(source_glb, values_by_material, *, _allow_empty=False):
         ext.setdefault(lens.EXTENSIONS[2], {}).update(iridescenceFactor=value["iridescence"],
             iridescenceIor=value["iridescence_ior"], iridescenceThicknessMinimum=value["iridescence_thickness_min"],
             iridescenceThicknessMaximum=value["iridescence_thickness_max"])
+        if value.get("angle_colour") != before.get("angle_colour"):
+            extras = mat.setdefault("extras", {})
+            if not isinstance(extras, dict):
+                raise ValueError("This material's existing metadata cannot carry exact angle colours.")
+            if value.get("angle_colour") is None:
+                extras.pop(angle.KEY, None)
+                if not extras:
+                    del mat["extras"]
+            else:
+                extras[angle.KEY] = value["angle_colour"]
         if value["gradient"] is None:
             if generated:
                 pbr.pop("baseColorTexture", None)
