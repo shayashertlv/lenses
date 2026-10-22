@@ -53,23 +53,41 @@ material are on the right. Click a part or choose its material under **Lenses**,
 Those groups come from the model's own part roles. A material shared across roles is refused with an explanation;
 lens markings and decals are excluded from lens looks. Hardware uses its declared supporting component.
 
-For lenses, choose **Solid** or **Gradient** with start/end colours and an optional removable middle colour.
-Each colour's **takes (%)** sets its region width; adjusting one distributes the remainder proportionally.
-**Blend** softens the boundaries. **Centre to sides** mirrors about the bridge; **Left to right** spans the entire
-lens extent; **Top to bottom** spans each connected lens surface's height. A single shield stays continuous.
-**Around a point** puts the start colour in the centre and the other colours in outward rings. The same takes
-and Blend controls set ring widths and softness. Move the centre on the lens or with **Left / right** and
-**Up / down**; **Roundness** runs from Circle to Wide oval and increases the horizontal reach. Pairs start at
-each lens's own projected centre and mirror horizontal movement about the bridge; a shield has one shared centre.
+Lenses are edited in three layers, the parts every real lens has:
+
+1. **Lens colour** (the tint you see the eyes through): **Clear**, **Solid**, or **Gradient** with start/end
+   colours and an optional removable middle colour. Drag each colour's marker on the bar (or focus it and use
+   the arrow keys); each colour takes the bar up to halfway to its neighbour, shown as "Takes about N%". Every
+   transition has its own **Softness**, from a sharp edge to a smooth blend across the whole gap. Each colour's
+   **tint strength** runs from clear to the chosen colour, so a lens can fade from dark at the top to fully clear.
+2. **Coating** (the reflective colour that changes with the viewing angle): **Off**, **One colour** or **Two
+   colours**. Pick the colour seen straight on and the colour seen at the lens sides (or one colour), from the
+   colour box or a photo, and **Find matching coating** tries every thickness and film index with the exact
+   renderer coating function and offers up to three real coatings to choose from. **Brightness** (Subtle,
+   Medium, Strong) sets how strongly the surface reflects; **Coating strength** sets how much the colour shows.
+   Real coatings cannot make every colour pair, so each choice says how close it is. **Mirror** darkens what
+   you see through.
+3. **Darkness and shine:** **See-through** and **Shine**.
+
+Gradients saved by the earlier editor (shares and one Blend) still open, render and save exactly; they convert
+to the marker/softness form only when you edit that gradient.
+
+**Centre to sides** mirrors about the bridge; **Left to right** spans the entire lens extent; **Top to bottom**
+spans each connected lens surface's height. A single shield stays continuous. **Around a point** puts the start
+colour in the centre and the other colours in outward rings; the same markers and softness set the rings. Move
+the centre by dragging it on the lens, by **Place centre by clicking the lens**, or with **Left / right** and
+**Up / down**; **Roundness** runs from Circle to Wide oval and increases the horizontal reach. The centre starts at
+each lens's projected area centroid (on a shield this is above the nose cut-out); pairs mirror horizontal
+movement about the bridge and a shield has one shared centre.
 Radial colour controls link the editable lens materials, including lenses split across several materials; optical
 controls still affect the selected material. A lens with an existing colour texture keeps its pattern and is
 explicitly excluded from the linked rings. Markings remain excluded.
 Every colour can come from a colour box or the photo picker. Other parts use solid colour; on a colour texture,
 it tints the existing pattern. A gradient cannot replace an authored lens colour texture; solid tint still works.
 
-**See-through** appears for lenses and existing transmissive parts, including crystal frames. **Mirror** darkens
-what you see through. **Shine** moves from matte to glossy; frame and temple materials also have **Metal or plastic**.
-**Shimmer** offers Off/Subtle/Strong, and **Choose shimmer colour** uses the coating matcher. Exact optical controls
+**See-through** appears for lenses and existing transmissive parts, including crystal frames. **Shine** moves from
+matte to glossy; frame and temple materials also have **Metal or plastic** and a **Shimmer** preset
+(Off/Subtle/Strong). Exact optical controls
 are folded under **Details**, with the same meanings and valid ranges as the earlier lens panel. Opening a model
 never clamps its values. **Undo/Redo**, **Before/After**, **Check in AR** and **Save as new version** stay visible;
 leaving with unsaved changes asks for confirmation.

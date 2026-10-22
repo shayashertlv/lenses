@@ -272,8 +272,12 @@ def audit_existing(out, prepared, name="audit.json"):
             expected = save_expectation(row["copy_root"], original)
             record = next(item for item in browser["models"] if item["label"] == row["label"])
             assert record["opened"] and record["ar"]
-            assert all(record["edits"].get(key) is True for key in ("solid", "see_through", "mirror", "shine", "shimmer",
+            assert all(record["edits"].get(key) is True for key in ("solid", "see_through", "mirror", "shine",
                        "top_to_bottom", "left_to_right", "centre_to_sides"))
+            # Lenses use the coating layer's two-colour solver; other parts keep the shimmer preset.
+            assert record["edits"].get("coating_two_colours") is True or record["edits"].get("shimmer") is True
+            if "three_layer" in proof.get("features", []):
+                assert record["edits"].get("coating_two_colours") is True, row["label"]
             if "around_point" in proof.get("features", []):
                 assert all(record["edits"].get(key) is True for key in ("around_point", "radial_centre", "roundness"))
                 assert record["radial_material_indices"]
@@ -337,7 +341,7 @@ def serve_and_prove(out, prepared, port):
     thread.start()
     while not server.started and thread.is_alive():
         time.sleep(.05)
-    proof = {"schema": "g3d.e4_generality/1", "features": ["around_point"],
+    proof = {"schema": "g3d.e4_generality/1", "features": ["around_point", "three_layer"],
              "started_at": procs.utcnow(), "api_requests": 0, "spend_usd": 0}
     try:
         child = subprocess.run(["node", str(Path(__file__).with_suffix(".mjs")), str(out / "browser-config.json")],

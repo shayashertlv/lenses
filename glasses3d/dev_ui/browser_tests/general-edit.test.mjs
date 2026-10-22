@@ -62,33 +62,55 @@ test('E4 one general editor exposes role-based controls and preserves the M12 sh
   // An old entrypoint cannot reach any downstream editor flow. Preserve the
   // first behavioral failure without spending seven UI timeouts on that absence.
   if (baselineRef) return;
-  await t.test('solid and three-colour gradients preserve each share, blend and every direction', async () => {
+  await t.test('clear, solid and three-colour gradients keep stop positions, per-transition softness, tint strength and every direction', async () => {
     await set(page, 'Solid colour', '#28a4d8'); assert.equal(latest(server).materials[0].values.gradient, null);
     await page.locator('#colour-gradient').click(); await ready(page); await page.locator('#gradient-middle').click(); await ready(page);
-    for (const [label, value] of [['Start colour', '#ff0000'], ['Middle colour', '#00ff00'], ['End colour', '#0000ff'], ['Start takes (%)', 40], ['Blend', .7]]) await set(page, label, value);
+    for (const [label, value] of [['Start colour', '#ff0000'], ['Middle colour', '#00ff00'], ['End colour', '#0000ff'],
+      ['Softness start to middle', .9], ['Softness middle to end', .1], ['End tint strength', .4]]) await set(page, label, value);
     for (const direction of ['centre_to_sides', 'top_to_bottom', 'left_to_right']) {
       await page.locator('#gradient-direction').selectOption(direction); await ready(page);
       const gradient = latest(server).materials[0].values.gradient;
-      assert.equal(gradient.direction, direction); assert.equal(gradient.colours.length, 3); assert.equal(gradient.colours[0].share, 40);
-      assert.ok(Math.abs(gradient.colours.reduce((sum, row) => sum + row.share, 0) - 100) < 1e-9); assert.equal(gradient.blend, .7);
+      assert.equal(gradient.version, 2); assert.equal(gradient.direction, direction); assert.equal(gradient.stops.length, 3);
+      assert.deepEqual(gradient.softness, [.9, .1]); assert.equal(gradient.stops[2].strength, .4);
+      assert.deepEqual(gradient.stops.map(stop => stop.position), [.15, .5, .85]);
     }
-    await page.locator('#gradient-middle').click(); await ready(page); assert.equal(latest(server).materials[0].values.gradient.colours.length, 2);
-    await page.locator('#edit-undo').click(); await ready(page); assert.equal(latest(server).materials[0].values.gradient.colours.length, 3);
+    await page.locator('#gradient-middle').click(); await ready(page); assert.equal(latest(server).materials[0].values.gradient.stops.length, 2);
+    await page.locator('#edit-undo').click(); await ready(page); assert.equal(latest(server).materials[0].values.gradient.stops.length, 3);
+    await page.locator('#colour-clear').click(); await ready(page);
+    const cleared = latest(server).materials[0].values; assert.equal(cleared.gradient, null); assert.deepEqual(cleared.tint, [1, 1, 1]);
+    await page.locator('#edit-undo').click(); await ready(page); assert.equal(latest(server).materials[0].values.gradient.stops.length, 3);
     await assertRendered(page);
   });
-  await t.test('see-through mirror shine shimmer and unbounded exact optical values round trip', async () => {
+  await t.test('see-through, mirror, shine, coating colours and unbounded exact optical values round trip', async () => {
     for (const [label, value] of [['See-through', .6], ['Mirror', .2], ['Shine', .85]]) await set(page, label, value);
-    await page.locator('#edit-shimmer').selectOption('1'); await ready(page);
+    await page.locator('#coating-two').click(); await ready(page);
     let values = latest(server).materials[0].values;
-    assert.equal(values.transmission, .6); assert.equal(values.metallic, .2); assert.ok(Math.abs(values.roughness - .15) < 1e-12); assert.equal(values.iridescence, 1);
+    assert.equal(values.transmission, .6); assert.equal(values.metallic, .2); assert.ok(Math.abs(values.roughness - .15) < 1e-12); assert.ok(values.iridescence > 0);
+    await page.locator('#coating-brightness').selectOption('6'); await ready(page); assert.equal(latest(server).materials[0].values.ior, 6);
+    await set(page, 'Coating strength', 1);
+    // Before any colour is picked, the targets are the coating's current colours and Find still works.
+    await page.locator('#find-coating').click(); await page.getByRole('button', {name: 'Use coating 1', exact: true}).waitFor();
+    await set(page, 'Straight-on colour', '#5abe8c'); await set(page, 'Side colour', '#aa6ec8');
+    await page.locator('#find-coating').click();
+    const use = page.getByRole('button', {name: 'Use coating 1', exact: true}); await use.waitFor(); await use.click(); await ready(page);
+    values = latest(server).materials[0].values;
+    assert.equal(values.iridescence_thickness_min, values.iridescence_thickness_max); assert.ok(values.iridescence_ior >= 1.2 && values.iridescence_ior <= 2.4);
+    const [centre, sides] = await page.evaluate(async chosen => {const renderer = await import('/lens-renderer/lens-renderer.js');
+      return [renderer.coatingSwatchRGB(chosen, 1), renderer.coatingSwatchRGB(chosen, .4)];}, values);
+    assert.ok(centre[1] > centre[0] && centre[1] > centre[2], `green straight on: ${centre}`);
+    assert.ok(sides[2] > sides[1] && sides[0] > sides[1], `purple at the sides: ${sides}`);
+    await page.locator('#coating-one').click(); await set(page, 'Coating colour', '#3c78d8'); await page.locator('#find-coating').click();
+    await page.getByRole('button', {name: 'Use coating 1', exact: true}).waitFor();
+    await page.locator('#coating-off').click(); await ready(page); assert.equal(latest(server).materials[0].values.iridescence, 0);
+    await page.locator('#edit-undo').click(); await ready(page); assert.ok(latest(server).materials[0].values.iridescence > 0);
+    values = latest(server).materials[0].values;
     await page.getByText('Details', {exact: true}).click(); await set(page, 'Lens IOR', 6);
     await set(page, 'Film IOR', 3.2);
     await set(page, 'Minimum thickness (nm)', 1500);
     await set(page, 'Maximum thickness (nm)', 10);
     values = latest(server).materials[0].values; assert.equal(values.ior, 6); assert.equal(values.iridescence_ior, 3.2); assert.equal(values.iridescence_thickness_min, 1500); assert.equal(values.iridescence_thickness_max, 10);
-    await page.locator('#choose-shimmer').click(); await page.getByLabel('Shimmer colour', {exact: true}).fill('#e31e7e'); await page.getByRole('button', {name: 'Find closest shimmer colours'}).click();
-    assert.ok(await page.getByRole('button', {name: 'Use shimmer 1', exact: true}).count()); await page.getByRole('button', {name: 'Use shimmer 1', exact: true}).click(); await ready(page);
-    values = latest(server).materials[0].values; assert.equal(values.iridescence_thickness_min, values.iridescence_thickness_max);
+    await set(page, 'Film IOR', 1.37);
+    assert.equal(await page.locator('#coating-brightness').inputValue(), '6');
   });
   await t.test('photo eyedropper, keyboard undo redo and frame pattern tint are general', async () => {
     await page.locator('#colour-solid').click(); await ready(page); await page.getByRole('button', {name: 'Pick solid colour from photo'}).click();

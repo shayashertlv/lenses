@@ -1,5 +1,77 @@
 # glasses3d progress
 
+## 2026-10-22 — Three-layer lens editor: built and verified by Claude ($0)
+
+**Result.**
+- The Edit page now edits lenses in three layers: lens colour, coating, and darkness and shine.
+- Gradient v2: draggable, keyboard-operable stop markers; a softness per transition; a tint strength per colour.
+  v1 images are byte-identical, with hashes frozen in a test.
+- A two-colour coating solver.
+- The Around-a-point default centre is the lens area centroid. Click-to-place is added.
+
+**Checks:**
+- **Python:** 470 look, lens and dev UI tests. The new `test_owner_look_gradient_v2.py` covers v1 byte identity,
+  softness extremes, per-transition softness, tint strength, validation, the GLB round trip and no-op, and the
+  radial v2 area centroid.
+- **Browser:** 63/63. Four old shares/blend tests were rewritten to the v2 behaviour, a centroid/click-to-place test
+  was added, and the coating test checks in the browser that the chosen coating is green straight on and purple at
+  the sides.
+- **Solver:**
+  - On the Oakley targets (90,190,140) straight on and (170,110,200) at the sides, at Strong (lens IOR 6), it finds
+    444 nm with film IOR 1.8. That gives (94,185,125) and (171,110,197). Accepted run 4 is 435 nm / 1.8 / 6.
+  - It takes about 80 ms.
+  - Its choices must differ by at least 40 nm across an error ridge.
+- **Parity:** 15/15 gradient preview/AR comparisons with zero differing channels: 3 sources × 5 variants, including
+  v2 dark-to-clear, v2 ring and v2 centre-to-sides.
+- **Nine-model generality:** `passed_with_refusals`. Every model used the two-colour coating solver, all directions
+  and Around a point. 8 saves; the WP5 print fixture keeps its source-justified refusal.
+- **Full suite:** functional 6,367 passed / 2 skipped; photoprint passed; timing passed.
+- **M1** passed. **M12** passed five scenario groups and the audit (284 assertions; `proofs/claude-3layer`).
+
+**Bug found in self-review after the suite.** Find matching coating could read an unset target cache. It now uses the
+displayed targets, and a browser test covers Find before any colour is picked (8/8). M12 was running while this
+two-line page fix was made; both versions passed the browser tests.
+
+**Proof fixes.** The parity count was hard-coded at 6, and stale render folders blocked a rerun; both fixed.
+
+**Design (recorded before the build):**
+
+**The owner's words, verbatim:**
+- "the edit page needs to be general, that mean that if the oakly pair is "finished" by astra but i see that the color
+  is not proper, id be able to edit the properties of the shimmer (what color is shown straight on and what is on the
+  sides) because the oaklys have a shimmer, if i get the invu pair which is also "shield" lens i should be able to
+  create it exact gradient, even tho it has no shimmer at all. i want to be able to control the blendness because its
+  not very allowing right now. i also want to be able to control regular glasses. of course theres a limit to what we
+  can edit, but what we can needs to be very good and practical."
+- "so theres no option for the user to choose colors it wants in the shimmer? ... if a user could just choose the
+  shimmer colors it will save a lot of trial and error playing with settings to get the right shimmer"
+- Approving: "Yes: build the three-layer lens editor yourself now at $0 (tint, coating where I pick straight-on and
+  side colours, darkness and shine; draggable gradient bar, per-transition softness, per-colour darkness; regular
+  glasses covered), proven on every model type."
+
+**Design decisions (Claude):**
+- **Lens colour layer.** Clear, Solid or Gradient. Gradient spec **v2** is
+  `{version: 2, direction, stops: [{colour, position, strength}], softness: [...], centre?, roundness?}`.
+  - Stops have positions on 0–1.
+  - Between neighbouring stops, the transition is centred on their midpoint, with width `softness × gap`. Softness 1
+    blends across the whole gap; softness 0 gives a hard edge. This replaces v1's cap of `blend × min(adjacent shares)`.
+  - **Per-colour darkness** is a tint strength: effective linear tint = `1 − strength × (1 − colour)`. Strength 0 is
+    clear and 1 is the chosen colour. Real dark lenses are dark tints at full transmission, not opaque.
+  - v1 specs validate and render byte-identically, so saved versions keep verifying. The page converts a v1 spec to
+    v2 only when the owner edits that gradient.
+- **Coating layer.**
+  - Off, One colour or Two colours: the owner picks the straight-on and side colours, by colour box or from a photo.
+  - An exhaustive solver searches thickness 0–1200 nm and film IOR 1.2–2.4. It uses the exact coating function that
+    matches Three's GLSL (E3), comparing chromaticity at cos 1 (straight on) and cos 0.4 (sides). It offers 2–3
+    distinct choices.
+  - Brightness Subtle/Medium/Strong sets lens IOR 1.6/3/6. Strength is the coating factor. Mirror (metallic) stays,
+    with its darkening note.
+- **Darkness and shine layer.** See-through and Shine.
+- **Around a point.** The default centre is the lens's projected **area centroid**, not its bounding-box centre. That
+  is general, and on a shield it moves the centre off the nose cutout. A "click the lens to place the centre" mode is
+  added.
+- **Other parts.** Frames and temples keep colour, shine, metal/plastic and see-through.
+
 ## 2026-10-22 — Owner verdict on the candidates-tool lab lenses
 
 **Verdict.** The owner judged batch `candidates/20261021T200713Z-14df836d` live in AR. Verbatim: "trial 3 looks best

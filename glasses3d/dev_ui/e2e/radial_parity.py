@@ -41,6 +41,17 @@ def variants():
             "colours": [{"colour": linear("#20c979"), "share": 42},
                         {"colour": linear("#25b5d9"), "share": 18},
                         {"colour": linear("#914de3"), "share": 40}], "blend": .65},
+        # Gradient v2 (three-layer editor): positioned stops, per-transition softness, tint strength.
+        "v2-dark-to-clear": {"version": 2, "direction": "top_to_bottom", "softness": [1],
+            "stops": [{"colour": linear("#2a2a2e"), "position": .1, "strength": 1},
+                      {"colour": linear("#2a2a2e"), "position": .9, "strength": 0}]},
+        "v2-ring": {"version": 2, "direction": "around_point", "centre": [0, .35], "roundness": 1.6,
+            "softness": [.9, .2], "stops": [{"colour": linear("#3fbf86"), "position": 0, "strength": 1},
+                                           {"colour": linear("#8a5cc8"), "position": .55, "strength": .8},
+                                           {"colour": linear("#5a3c8c"), "position": .9, "strength": 1}]},
+        "v2-centre-sides": {"version": 2, "direction": "centre_to_sides", "softness": [.6],
+            "stops": [{"colour": linear("#3fbf86"), "position": .2, "strength": .7},
+                      {"colour": linear("#8a5cc8"), "position": .8, "strength": 1}]},
     }
 
 
@@ -116,8 +127,8 @@ def prove(out, cases):
         results.append(result)
         procs.write_json_atomic(out / "summary.json", results)
         assert child.returncode == 0 and result["passed"] and result["original_source_unchanged"], case["name"]
-    assert len(results) == 6
-    print("All six radial parity comparisons passed with zero differing channels.", flush=True)
+    assert len(results) == len(cases) == 3 * len(variants())
+    print(f"All {len(results)} gradient parity comparisons passed with zero differing channels.", flush=True)
     return results
 
 

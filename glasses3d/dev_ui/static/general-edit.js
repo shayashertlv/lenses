@@ -1,6 +1,6 @@
 import {api, idempotencyKey} from './api.js';
 import {LensHistory, tintToHex, hexToTint} from './lens-colour.js';
-import {findCoatingThicknesses} from './coating-match.js';
+import {findCoatingForColours, STRAIGHT_ON, SIDES} from './coating-match.js';
 
 const clone = value => structuredClone(value);
 const labels = {lens: 'Lenses', frame: 'Frame', temple: 'Temples'};
@@ -18,6 +18,40 @@ function el(tag, attrs = {}, ...children) {
 const button = (text, attrs = {}) => el('button', {type: 'button', ...attrs}, text);
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+// Gradient v2 (agent/owner_look_gradient.py): stops with positions, one softness per
+// transition, and a tint strength per colour mixing clear (0) to the chosen colour (1).
+const effective = stop => stop.colour.map(value => 1 - stop.strength * (1 - value));
+const round4 = value => Math.round(value * 1e4) / 1e4;
+export function toV2(gradient) {
+  if (!gradient || gradient.version === 2) return gradient;
+  let start = 0;
+  const stops = gradient.colours.map(row => {const position = (start + row.share / 2) / 100; start += row.share; return {colour: clone(row.colour), position: round4(position), strength: 1};});
+  const result = {version: 2, direction: gradient.direction, stops, softness: stops.slice(1).map(() => gradient.blend)};
+  if (gradient.direction === 'around_point') {result.centre = clone(gradient.centre); result.roundness = gradient.roundness;}
+  return result;
+}
+/** The exact sampling of owner_look_gradient._sample_v2, for the bar preview only. */
+export function sampleV2(gradient, t) {
+  const stops = gradient.stops, colours = stops.map(effective);
+  let rgb = colours[0];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const low = stops[i].position, high = stops[i + 1].position, middle = (low + high) / 2, half = gradient.softness[i] * (high - low) / 2;
+    if (i && t < low) continue;
+    let z = half > 0 ? Math.min(1, Math.max(0, (t - (middle - half)) / (2 * half))) : (t >= middle ? 1 : 0);
+    z = z * z * (3 - 2 * z);
+    rgb = colours[i].map((value, channel) => value * (1 - z) + colours[i + 1][channel] * z);
+  }
+  return rgb;
+}
+const takes = gradient => gradient.stops.map((stop, i, stops) => {
+  const low = i ? (stops[i - 1].position + stop.position) / 2 : 0, high = i < stops.length - 1 ? (stop.position + stops[i + 1].position) / 2 : 1;
+  return (high - low) * 100;
+});
+const stopName = (gradient, index) => index === 0 ? 'Start' : index === gradient.stops.length - 1 ? 'End' : 'Middle';
+const barEnds = {centre_to_sides: ['Centre', 'Sides'], top_to_bottom: ['Top', 'Bottom'], left_to_right: ['Left', 'Right'], around_point: ['Centre', 'Edge']};
+const BRIGHTNESS = [[1.6, 'Subtle'], [3, 'Medium'], [6, 'Strong']];
+const rgbBytes = linear => tintToHex(linear).slice(1).match(/../g).map(byte => parseInt(byte, 16));
+
 /** One role-driven appearance editor. All generated texture previews load the exact
  * GLB patch that Save uses; there is no separate approximation of gradient pixels. */
 export async function generalEditPage(host, key) {
@@ -33,6 +67,9 @@ export async function generalEditPage(host, key) {
   let copySourceKey = null, listsBusy = false;
   let disposed = false, busy = false, ready = false, allowLeave = false, previewTimer, requestVersion = 0, previewChain = Promise.resolve();
   let lastPick = null, saveRequest = null, radialDragging = false;
+  // UI-only coating state: one or two target colours, the owner's targets and the last fit.
+  const coatingModes = new Map(), coatingTargets = new Map(), coatingChoices = new Map();
+  let placingCentre = false, draggingStop = null;
   const dialogs = new Set();
   const error = el('p', {class: 'error', role: 'alert', hidden: true});
   const status = el('span', {id: 'edit-state', role: 'status'}, 'Loading preview…');
@@ -155,73 +192,8 @@ export async function generalEditPage(host, key) {
     const focusedLabel = fields.contains(document.activeElement) ? document.activeElement.getAttribute('aria-label') : null;
     const row = current(), v = values(); parts.value = selected; partHeading.textContent = labels[row.role]; partName.textContent = row.name;
     fields.replaceChildren();
-    const section = el('fieldset', {}, el('legend', {}, 'Colour'));
-    fields.append(section);
-    if (row.has_colour_texture && !v.gradient) section.append(el('p', {class: 'lens-help'}, 'Colour tints the existing pattern. The photo print stays in place.'));
-    if (row.role === 'lens') {
-      const modes = el('div', {class: 'actions'});
-      modes.append(button('Solid', {id: 'colour-solid', 'aria-pressed': String(!v.gradient), onclick: () => change(next => {next.gradient = null;})}),
-        button('Gradient', {id: 'colour-gradient', 'aria-pressed': String(!!v.gradient), 'data-unavailable': String(!row.can_gradient), title: row.can_gradient ? '' : 'This lens already has a colour texture. Solid tint keeps it.', onclick: () => change(next => {
-          next.gradient ??= {direction: 'centre_to_sides', colours: [{colour: clone(next.tint), share: 50}, {colour: [1, 1, 1], share: 50}], blend: .5};
-        })})); section.append(modes);
-      if (!row.can_gradient) section.append(el('p', {class: 'lens-help'}, 'A gradient cannot replace this lens’s existing colour texture. Solid colour tints it.'));
-    }
-    if (!v.gradient) addColour(section, 'Solid colour', v.tint, colour => change(next => {next.tint = colour;}));
-    else {
-      v.gradient.colours.forEach((colour, index) => {
-        const name = index === 0 ? 'Start' : index === v.gradient.colours.length - 1 ? 'End' : 'Middle';
-        addColour(section, `${name} colour`, colour.colour, rgb => change(next => {next.gradient.colours[index].colour = rgb;}));
-        const share = el('input', {type: 'range', min: 1, max: 98, step: 'any', value: colour.share, 'aria-label': `${name} takes (%)`, 'data-share-index': index});
-        const output = el('output', {'data-share-output': index}, `${Number(colour.share.toFixed(1))}%`);
-        share.addEventListener('input', () => {
-          const value = Number(share.value);
-          change(next => {const colours = next.gradient.colours, otherTotal = colours.reduce((sum, c, i) => sum + (i === index ? 0 : c.share), 0);
-            colours.forEach((c, i) => {c.share = i === index ? value : c.share / otherTotal * (100 - value);});}, false, false);
-          renderGradientPreview();
-        });
-        share.addEventListener('change', () => {history.commit(); refresh();});
-        section.append(el('div', {class: 'general-slider'}, el('label', {}, `${name} takes (%)`, output, share)));
-      });
-      section.append(button(v.gradient.colours.length === 2 ? 'Add middle colour' : 'Remove middle colour', {id: 'gradient-middle', onclick: () => change(next => {
-        const colours = next.gradient.colours;
-        if (colours.length === 2) {colours.forEach(c => {c.share *= .7;}); colours.splice(1, 0, {colour: [1, 1, 1], share: 30});}
-        else {colours.splice(1, 1); const total = colours[0].share + colours[1].share; colours.forEach(c => {c.share = c.share / total * 100;});}
-      })}));
-      const direction = el('select', {id: 'gradient-direction', 'aria-label': 'Gradient direction'}, ...[['centre_to_sides', 'Centre to sides'], ['top_to_bottom', 'Top to bottom'], ['left_to_right', 'Left to right'], ['around_point', 'Around a point']].map(([value, label]) => el('option', {value}, label)));
-      direction.value = v.gradient.direction; direction.addEventListener('change', () => change(next => {
-        next.gradient.direction = direction.value;
-        if (direction.value === 'around_point') {next.gradient.centre = [0, 0]; next.gradient.roundness = 1;}
-        else {delete next.gradient.centre; delete next.gradient.roundness;}
-      }));
-      section.append(el('label', {}, 'Direction', direction));
-      if (v.gradient.direction === 'around_point') {
-        radialSlider(section, 'Left / right', 'gradient-centre-x', v.gradient.centre[0], -1, 1,
-          number => {change(next => {next.gradient.centre[0] = number;}, false, false);});
-        radialSlider(section, 'Up / down', 'gradient-centre-y', v.gradient.centre[1], -1, 1,
-          number => {change(next => {next.gradient.centre[1] = number;}, false, false);});
-        radialSlider(section, 'Roundness', 'gradient-roundness', v.gradient.roundness, 1, 4,
-          number => {change(next => {next.gradient.roundness = number;}, false, false);}, 'Circle', 'Wide oval');
-        section.append(el('p', {class: 'lens-help'}, row.radial_projection?.mode === 'pair'
-          ? 'Paired lenses share these rings. Drag either centre on the lens, or use the sliders; the other centre moves in mirror.'
-          : 'The lens surfaces share these rings and one centre. Drag the centre on the lens, or use the sliders.'));
-        if (history.current.some(peer => peer.role === 'lens' && !peer.can_gradient)) {
-          section.append(el('p', {class: 'notice'}, 'A lens with an existing colour texture keeps its own pattern and is excluded from these rings.'));
-        }
-      }
-      slider(section, 'Blend', v.gradient.blend, number => {change(next => {next.gradient.blend = number;}, false, false); renderGradientPreview();}, 'Sharp to soft');
-      section.append(el('div', {id: 'gradient-shares', class: 'gradient-shares', role: 'img'}),
-        el('canvas', {id: 'gradient-blend-preview', class: 'gradient-blend-preview', width: 256, height: 20, role: 'img', 'aria-label': 'Gradient colour and blend preview'}),
-        el('p', {class: 'lens-help'}, v.gradient.direction === 'around_point' ? 'Start at the centre · middle and end in rings' : v.gradient.direction === 'centre_to_sides' ? 'Side · centre · side' : v.gradient.direction === 'top_to_bottom' ? 'Top → bottom' : 'Left → right'));
-      renderGradientPreview();
-    }
-    if (row.can_transmission) slider(fields, 'See-through', v.transmission, number => change(next => {next.transmission = number;}, false, false));
-    if (row.role === 'lens' || row.can_transmission) slider(fields, 'Mirror', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Mirror darkens what you see through.');
-    slider(fields, 'Shine', 1 - v.roughness, number => change(next => {next.roughness = 1 - number;}, false, false), 'Matte to glossy');
-    if (row.role !== 'lens') slider(fields, 'Metal or plastic', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Plastic to metal');
-    const shimmer = el('select', {id: 'edit-shimmer', 'aria-label': 'Shimmer'}, ...[['0', 'Off'], ['0.25', 'Subtle'], ['1', 'Strong']].map(([value, name]) => el('option', {value}, name)));
-    if (![0, .25, 1].includes(v.iridescence)) shimmer.append(el('option', {value: v.iridescence}, 'Custom (see Details)'));
-    shimmer.value = v.iridescence; shimmer.addEventListener('change', () => change(next => {next.iridescence = Number(shimmer.value);}));
-    fields.append(el('label', {}, 'Shimmer', shimmer), button('Choose shimmer colour', {id: 'choose-shimmer', onclick: chooseShimmer}));
+    if (row.role === 'lens') renderLensLayers(row, v);
+    else renderPartLook(row, v);
     const details = el('details', {class: 'lens-advanced'}, el('summary', {}, 'Details'));
     details.open = !!detailsOpen;
     fields.append(details);
@@ -248,6 +220,190 @@ export async function generalEditPage(host, key) {
     refresh();
     if (focusedLabel) fields.querySelector(`[aria-label="${CSS.escape(focusedLabel)}"]`)?.focus({preventScroll: true});
   }
+  function layer(title, help) {
+    const section = el('fieldset', {class: 'look-layer'}, el('legend', {}, title));
+    if (help) section.append(el('p', {class: 'lens-help'}, help));
+    fields.append(section); return section;
+  }
+  function changeGradient(mutator, commit = true, rebuild = true) {
+    change(next => {next.gradient = toV2(next.gradient); mutator(next.gradient);}, commit, rebuild);
+  }
+  function defaultCentre(row) {
+    const surface = row.radial_projection?.surfaces?.[0];
+    if (!surface?.area_centroid) return [0, 0];
+    return [(surface.area_centroid[0] - surface.centre[0]) / (surface.half_extent[0] * surface.mirror_x),
+      (surface.area_centroid[1] - surface.centre[1]) / surface.half_extent[1]].map(value => round4(Math.max(-1, Math.min(1, value))));
+  }
+  /** Layer 1 lens colour, 2 coating, 3 darkness and shine: the parts every real lens has. */
+  function renderLensLayers(row, v) {
+    const tint = layer('1 · Lens colour', 'The colour of the lens itself, the colour you see the eyes through.');
+    const clear = !v.gradient && v.tint.every(value => value >= .999);
+    const modes = el('div', {class: 'actions'});
+    modes.append(button('Clear', {id: 'colour-clear', 'aria-pressed': String(clear), onclick: () => change(next => {next.gradient = null; next.tint = [1, 1, 1];})}),
+      button('Solid', {id: 'colour-solid', 'aria-pressed': String(!v.gradient && !clear), onclick: () => change(next => {next.gradient = null; if (next.tint.every(value => value >= .999)) next.tint = [.55, .55, .58];})}),
+      button('Gradient', {id: 'colour-gradient', 'aria-pressed': String(!!v.gradient), 'data-unavailable': String(!row.can_gradient), title: row.can_gradient ? '' : 'This lens already has a colour texture. Solid tint keeps it.', onclick: () => change(next => {
+        next.gradient ??= {version: 2, direction: 'centre_to_sides', softness: [.7],
+          stops: [{colour: next.tint.every(value => value >= .999) ? [.35, .35, .38] : clone(next.tint), position: .15, strength: 1}, {colour: [1, 1, 1], position: .85, strength: 1}]};
+      })}));
+    tint.append(modes);
+    if (!row.can_gradient) tint.append(el('p', {class: 'lens-help'}, 'A gradient cannot replace this lens’s existing colour texture. Solid colour tints it.'));
+    if (row.has_colour_texture && !v.gradient) tint.append(el('p', {class: 'lens-help'}, 'Colour tints the existing pattern. The photo print stays in place.'));
+    if (!v.gradient && !clear) addColour(tint, 'Solid colour', v.tint, colour => change(next => {next.tint = colour;}));
+    if (v.gradient) gradientEditor(tint, row, toV2(v.gradient));
+    coatingLayer(row, v);
+    const finish = layer('3 · Darkness and shine');
+    if (row.can_transmission) slider(finish, 'See-through', v.transmission, number => change(next => {next.transmission = number;}, false, false), 'Lower makes the lens less see-through (more opaque).');
+    slider(finish, 'Shine', 1 - v.roughness, number => change(next => {next.roughness = 1 - number;}, false, false), 'Matte to glossy');
+  }
+  function renderPartLook(row, v) {
+    const colour = layer('Colour');
+    if (row.has_colour_texture) colour.append(el('p', {class: 'lens-help'}, 'Colour tints the existing pattern. The photo print stays in place.'));
+    addColour(colour, 'Solid colour', v.tint, rgb => change(next => {next.tint = rgb;}));
+    const finish = layer('Finish');
+    if (row.can_transmission) slider(finish, 'See-through', v.transmission, number => change(next => {next.transmission = number;}, false, false));
+    slider(finish, 'Shine', 1 - v.roughness, number => change(next => {next.roughness = 1 - number;}, false, false), 'Matte to glossy');
+    slider(finish, 'Metal or plastic', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Plastic to metal');
+    const shimmer = el('select', {id: 'edit-shimmer', 'aria-label': 'Shimmer'}, ...[['0', 'Off'], ['0.25', 'Subtle'], ['1', 'Strong']].map(([value, name]) => el('option', {value}, name)));
+    if (![0, .25, 1].includes(v.iridescence)) shimmer.append(el('option', {value: v.iridescence}, 'Custom (see Details)'));
+    shimmer.value = v.iridescence; shimmer.addEventListener('change', () => change(next => {next.iridescence = Number(shimmer.value);}));
+    finish.append(el('label', {}, 'Shimmer', shimmer));
+  }
+  function gradientEditor(section, row, gradient) {
+    const direction = el('select', {id: 'gradient-direction', 'aria-label': 'Gradient direction'}, ...[['centre_to_sides', 'Centre to sides'], ['top_to_bottom', 'Top to bottom'], ['left_to_right', 'Left to right'], ['around_point', 'Around a point']].map(([value, label]) => el('option', {value}, label)));
+    direction.value = gradient.direction; direction.addEventListener('change', () => changeGradient(next => {
+      next.direction = direction.value;
+      if (direction.value === 'around_point') {next.centre = defaultCentre(row); next.roundness = 1;}
+      else {delete next.centre; delete next.roundness;}
+    }));
+    section.append(el('label', {}, 'Direction', direction));
+    const bar = el('div', {id: 'gradient-bar', class: 'gradient-bar'},
+      el('canvas', {id: 'gradient-blend-preview', class: 'gradient-blend-preview', width: 512, height: 28, role: 'img', 'aria-label': 'Gradient colours and blend'}));
+    gradient.stops.forEach((stop, index) => {
+      const handle = el('button', {type: 'button', class: 'gradient-stop', 'data-stop': index, role: 'slider',
+        'aria-label': `${stopName(gradient, index)} colour position`, 'aria-valuemin': 0, 'aria-valuemax': 100});
+      handle.addEventListener('pointerdown', event => {if (event.button !== 0 || busy) return; event.preventDefault(); handle.focus(); handle.setPointerCapture(event.pointerId); draggingStop = index;});
+      handle.addEventListener('pointermove', event => {
+        if (draggingStop !== index || !handle.hasPointerCapture(event.pointerId)) return;
+        const box = bar.getBoundingClientRect(); moveStop(index, (event.clientX - box.left) / box.width, false);
+      });
+      const finish = event => {if (draggingStop !== index) return; draggingStop = null; if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId); history.commit(); refresh(); schedulePreview();};
+      handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish);
+      handle.addEventListener('keydown', event => {
+        const delta = {ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1}[event.key]; if (!delta) return;
+        event.preventDefault(); moveStop(index, values().gradient.stops[index].position + delta * (event.shiftKey ? .05 : .01), true);
+      });
+      bar.append(handle);
+    });
+    const [low, high] = barEnds[gradient.direction];
+    section.append(bar, el('div', {class: 'radial-slider-ends'}, el('span', {}, low), el('span', {}, high)),
+      el('p', {class: 'lens-help'}, 'Drag a colour’s marker to move it. Each colour takes the bar up to halfway to its neighbour.'));
+    gradient.stops.forEach((stop, index) => {
+      const name = stopName(gradient, index), group = el('div', {class: 'gradient-stop-controls'});
+      addColour(group, `${name} colour`, stop.colour, rgb => changeGradient(next => {next.stops[index].colour = rgb;}));
+      slider(group, `${name} tint strength`, stop.strength, number => {changeGradient(next => {next.stops[index].strength = number;}, false, false); renderGradientPreview();}, 'Clear to full colour. Pick a darker colour for a darker lens.');
+      group.append(el('p', {class: 'lens-help', 'data-takes': index}));
+      section.append(group);
+      if (index < gradient.stops.length - 1) {
+        const next = stopName(gradient, index + 1).toLowerCase();
+        slider(section, `Softness ${name.toLowerCase()} to ${next}`, gradient.softness[index], number => {changeGradient(g => {g.softness[index] = number;}, false, false); renderGradientPreview();}, 'Sharp edge to a smooth blend across the whole gap');
+      }
+    });
+    section.append(button(gradient.stops.length === 2 ? 'Add middle colour' : 'Remove middle colour', {id: 'gradient-middle', onclick: () => changeGradient(next => {
+      if (next.stops.length === 2) {
+        const position = round4((next.stops[0].position + next.stops[1].position) / 2);
+        next.stops.splice(1, 0, {colour: sampleV2(next, position), position, strength: 1}); next.softness = [next.softness[0], next.softness[0]];
+      } else {next.stops.splice(1, 1); next.softness = [next.softness[0]];}
+    })}));
+    if (gradient.direction === 'around_point') {
+      radialSlider(section, 'Left / right', 'gradient-centre-x', gradient.centre[0], -1, 1, number => {changeGradient(next => {next.centre[0] = number;}, false, false);});
+      radialSlider(section, 'Up / down', 'gradient-centre-y', gradient.centre[1], -1, 1, number => {changeGradient(next => {next.centre[1] = number;}, false, false);});
+      radialSlider(section, 'Roundness', 'gradient-roundness', gradient.roundness, 1, 4, number => {changeGradient(next => {next.roundness = number;}, false, false);}, 'Circle', 'Wide oval');
+      section.append(button(placingCentre ? 'Click the lens to place the centre…' : 'Place centre by clicking the lens', {id: 'place-centre', 'aria-pressed': String(placingCentre), onclick: () => {placingCentre = !placingCentre; renderControls();}}),
+        el('canvas', {id: 'gradient-radial-preview', class: 'gradient-blend-preview radial', width: 256, height: 128, role: 'img', 'aria-label': 'Ring preview'}),
+        el('p', {class: 'lens-help'}, row.radial_projection?.mode === 'pair'
+          ? 'Paired lenses share these rings. Drag either centre on the lens, click to place it, or use the sliders; the other centre moves in mirror.'
+          : 'The lens surfaces share these rings and one centre. Drag the centre on the lens, click to place it, or use the sliders.'));
+      if (history.current.some(peer => peer.role === 'lens' && !peer.can_gradient)) section.append(el('p', {class: 'notice'}, 'A lens with an existing colour texture keeps its own pattern and is excluded from these rings.'));
+    }
+    renderGradientPreview();
+  }
+  function moveStop(index, position, commit) {
+    changeGradient(next => {
+      const low = index ? next.stops[index - 1].position + .01 : 0, high = index < next.stops.length - 1 ? next.stops[index + 1].position - .01 : 1;
+      next.stops[index].position = round4(Math.min(high, Math.max(low, position)));
+    }, commit, false);
+    renderGradientPreview();
+  }
+  function coatingLayer(row, v) {
+    const section = layer('2 · Coating', 'The reflective colour on the lens surface. It changes with the viewing angle, like a real coating.');
+    const on = v.iridescence > 0, mode = on ? coatingModes.get(row.material_index) || 'two' : 'off';
+    const modes = el('div', {class: 'actions'});
+    for (const [id, label, value] of [['coating-off', 'Off', 'off'], ['coating-one', 'One colour', 'one'], ['coating-two', 'Two colours', 'two']]) {
+      modes.append(button(label, {id, 'aria-pressed': String(mode === value), onclick: () => {
+        if (value === 'off') {change(next => {next.iridescence = 0;}); return;}
+        coatingModes.set(row.material_index, value); coatingChoices.delete(row.material_index);
+        change(next => {if (!(next.iridescence > 0)) next.iridescence = 1;});
+      }}));
+    }
+    section.append(modes);
+    if (on) {
+      const current = el('canvas', {id: 'coating-current', class: 'lens-shimmer-swatch', width: 288, height: 26, role: 'img', 'aria-label': 'Current coating, sides to centre'});
+      section.append(el('p', {class: 'lens-help'}, 'Your coating now:'), current, el('div', {class: 'radial-slider-ends'}, el('span', {}, 'Seen at an angle (lens sides)'), el('span', {}, 'Seen straight on (lens centre)')));
+      drawCoating(current, v);
+      const brightness = el('select', {id: 'coating-brightness', 'aria-label': 'Coating brightness'}, ...BRIGHTNESS.map(([value, label]) => el('option', {value}, label)));
+      if (!BRIGHTNESS.some(([value]) => value === v.ior)) brightness.append(el('option', {value: v.ior}, 'Custom (see Details)'));
+      brightness.value = v.ior; brightness.addEventListener('change', () => {coatingChoices.delete(row.material_index); change(next => {next.ior = Number(brightness.value);});});
+      section.append(el('label', {}, 'Brightness', brightness));
+      slider(section, 'Coating strength', v.iridescence, number => change(next => {next.iridescence = Math.max(.01, number);}, false, false), 'How strongly the coating colour shows.');
+      // Until the owner picks targets, start from the coating's current colours (known once the renderer loads).
+      const targets = coatingTargets.get(row.material_index) || currentTargets(v);
+      const setTarget = (key, linear) => {const bytes = rgbBytes(linear);
+        coatingTargets.set(row.material_index, mode === 'one' ? {straight_on: bytes, sides: bytes} : {...targets, [key]: bytes});
+        coatingChoices.delete(row.material_index); renderControls();};
+      const asLinear = bytes => hexToTint('#' + bytes.map(n => n.toString(16).padStart(2, '0')).join(''));
+      if (mode === 'one') addColour(section, 'Coating colour', asLinear(targets.straight_on), linear => setTarget('straight_on', linear));
+      else {
+        addColour(section, 'Straight-on colour', asLinear(targets.straight_on), linear => setTarget('straight_on', linear));
+        addColour(section, 'Side colour', asLinear(targets.sides), linear => setTarget('sides', linear));
+      }
+      section.append(button('Find matching coating', {id: 'find-coating', 'data-unavailable': String(!colourAtAngle), onclick: () => {
+        const result = findCoatingForColours(targets, clone(values()), colourAtAngle);
+        coatingChoices.set(row.material_index, result); renderControls();
+      }}));
+      const result = coatingChoices.get(row.material_index);
+      if (result?.reason) section.append(el('p', {class: 'notice'}, result.reason));
+      result?.choices.forEach((choice, index) => {
+        const settings = {...values(), iridescence_ior: choice.film_ior, iridescence_thickness_min: choice.thickness, iridescence_thickness_max: choice.thickness};
+        const swatchBar = el('canvas', {width: 288, height: 26, class: 'lens-shimmer-swatch', 'aria-label': `Coating choice ${index + 1}, sides to centre`});
+        drawCoating(swatchBar, settings);
+        section.append(el('div', {class: 'coating-choice'}, el('p', {}, `${index + 1}. ${choice.quality}`), swatchBar,
+          button(`Use coating ${index + 1}`, {onclick: () => {coatingChoices.delete(row.material_index);
+            change(next => {next.iridescence_ior = choice.film_ior; next.iridescence_thickness_min = next.iridescence_thickness_max = choice.thickness;});}})));
+      });
+      if (result?.choices.length) section.append(el('p', {class: 'lens-help'}, 'Choose one, then turn the model or Check in AR. Real coatings cannot make every colour pair; the closest is shown.'));
+    }
+    slider(section, 'Mirror', v.metallic, number => change(next => {next.metallic = number;}, false, false), 'Mirror darkens what you see through.');
+  }
+  function currentTargets(v) {
+    if (colourAtAngle && v.iridescence > 0) return {straight_on: colourAtAngle(v, STRAIGHT_ON), sides: colourAtAngle(v, SIDES)};
+    return {straight_on: [90, 190, 140], sides: [170, 110, 200]};
+  }
+  function drawCoating(canvas, settings) {
+    if (!colourAtAngle) return;
+    const context = canvas.getContext('2d');
+    for (let x = 0; x < canvas.width; x++) {
+      context.fillStyle = `rgb(${colourAtAngle(settings, SIDES + (STRAIGHT_ON - SIDES) * x / (canvas.width - 1)).join(',')})`;
+      context.fillRect(x, 0, 1, canvas.height);
+    }
+  }
+  function centreFromPick(pick) {
+    const peer = pick && history.current.find(item => item.material_index === pick.material_index && item.role === 'lens' && item.can_gradient && item.radial_projection);
+    const surface = peer?.radial_projection?.surfaces.find(item => item.mesh_index === pick.mesh_index
+      && item.primitive_index === pick.primitive_index && item.vertex_ranges.some(([low, high]) => pick.vertex_indices[0] >= low && pick.vertex_indices[0] <= high));
+    if (!surface) return null;
+    return [(pick.position_mm[0] / 1000 - surface.centre[0]) / (surface.half_extent[0] * surface.mirror_x),
+      (pick.position_mm[1] / 1000 - surface.centre[1]) / surface.half_extent[1]].map(value => Math.max(-1, Math.min(1, value)));
+  }
   function renderCopySources() {
     const list = fields.querySelector('#copy-source'); if (!list) return;
     const sources = dto.copy_sources || [];
@@ -265,53 +421,31 @@ export async function generalEditPage(host, key) {
     if (copyButton) {copyButton.dataset.unavailable = String(!sources.length || listsBusy); copyButton.disabled = busy || !ready || !sources.length || listsBusy;}
   }
   function renderGradientPreview() {
-    const gradient = values().gradient, bar = fields.querySelector('#gradient-shares'), canvas = fields.querySelector('#gradient-blend-preview');
-    if (!gradient) return;
-    const names = gradient.colours.map((row, index) => index === 0 ? 'Start' : index === gradient.colours.length - 1 ? 'End' : 'Middle');
-    gradient.colours.forEach((row, index) => {
-      const input = fields.querySelector(`[data-share-index="${index}"]`), output = fields.querySelector(`[data-share-output="${index}"]`);
-      if (input) {input.min = Math.min(1, row.share); input.max = Math.max(98, row.share); input.value = row.share;}
-      if (output) output.textContent = `${Number(row.share.toFixed(1))}%`;
+    if (!values().gradient) return;
+    const gradient = toV2(values().gradient), canvas = fields.querySelector('#gradient-blend-preview');
+    const shares = takes(gradient);
+    gradient.stops.forEach((stop, index) => {
+      const handle = fields.querySelector(`.gradient-stop[data-stop="${index}"]`);
+      if (handle) {handle.style.left = `${stop.position * 100}%`; handle.style.backgroundColor = tintToHex(effective(stop));
+        handle.setAttribute('aria-valuenow', String(Math.round(stop.position * 100))); handle.setAttribute('aria-valuetext', `${Math.round(stop.position * 100)}% along, takes ${Math.round(shares[index])}%`);}
+      const note = fields.querySelector(`[data-takes="${index}"]`);
+      if (note) note.textContent = `Takes about ${Math.round(shares[index])}% of the bar.`;
     });
-    if (!bar || !canvas) return;
-    bar.replaceChildren(...gradient.colours.map((row, index) => {
-      const segment = el('span', {title: `${names[index]} ${Number(row.share.toFixed(1))}%`});
-      segment.style.width = `${row.share}%`; segment.style.backgroundColor = tintToHex(row.colour); return segment;
-    }));
-    bar.setAttribute('aria-label', gradient.colours.map((row, index) => `${names[index]} ${Number(row.share.toFixed(1))}%`).join(', '));
-    // The same region boundaries and linear-RGB smoothstep as the saved gradient texture.
-    const radial = gradient.direction === 'around_point';
-    canvas.height = radial ? 128 : 20; canvas.classList.toggle('radial', radial);
-    const context = canvas.getContext('2d'), colours = gradient.colours;
-    const sample = position => {
-      let boundary = 0, rgb = colours.at(-1).colour;
-      for (const row of colours) {boundary += row.share / 100; if (position < boundary) {rgb = row.colour; break;}}
-      boundary = 0;
-      for (let i = 0; i < colours.length - 1; i++) {
-        boundary += colours[i].share / 100;
-        const half = gradient.blend * Math.min(colours[i].share, colours[i + 1].share) / 200;
-        if (half && position >= boundary - half && position <= boundary + half) {
-          let mix = (position - boundary + half) / (2 * half); mix = mix * mix * (3 - 2 * mix);
-          rgb = colours[i].colour.map((value, channel) => value * (1 - mix) + colours[i + 1].colour[channel] * mix);
-        }
-      }
-      return tintToHex(rgb);
-    };
-    if (radial) {
-      const image = context.createImageData(canvas.width, canvas.height);
-      const lookup = Array.from({length: 1024}, (_, i) => sample(i / 1023).slice(1).match(/../g).map(byte => parseInt(byte, 16)));
-      const radius = canvas.height / 2, cx = canvas.width / 2 + gradient.centre[0] * canvas.width / 2,
-        cy = canvas.height / 2 - gradient.centre[1] * canvas.height / 2;
-      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+    if (canvas) {
+      // The bar runs along the gradient's own axis: 0 is its first end, 1 its last.
+      const context = canvas.getContext('2d');
+      for (let x = 0; x < canvas.width; x++) {context.fillStyle = tintToHex(sampleV2(gradient, (x + .5) / canvas.width)); context.fillRect(x, 0, 1, canvas.height);}
+    }
+    const radial = fields.querySelector('#gradient-radial-preview');
+    if (radial && gradient.direction === 'around_point') {
+      const context = radial.getContext('2d'), image = context.createImageData(radial.width, radial.height);
+      const lookup = Array.from({length: 1024}, (_, i) => rgbBytes(sampleV2(gradient, i / 1023)));
+      const radius = radial.height / 2, cx = radial.width / 2 + gradient.centre[0] * radial.width / 2, cy = radial.height / 2 - gradient.centre[1] * radial.height / 2;
+      for (let y = 0; y < radial.height; y++) for (let x = 0; x < radial.width; x++) {
         const position = Math.min(1, Math.hypot((x + .5 - cx) / (radius * gradient.roundness), (y + .5 - cy) / radius));
-        const rgb = lookup[Math.round(position * 1023)], offset = (y * canvas.width + x) * 4;
-        image.data.set([...rgb, 255], offset);
+        image.data.set([...lookup[Math.round(position * 1023)], 255], (y * radial.width + x) * 4);
       }
       context.putImageData(image, 0, 0);
-    } else for (let x = 0; x < canvas.width; x++) {
-      let position = (x + .5) / canvas.width;
-      if (gradient.direction === 'centre_to_sides') position = Math.abs(2 * position - 1);
-      context.fillStyle = sample(position); context.fillRect(x, 0, 1, canvas.height);
     }
   }
   function radialSlider(parent, name, id, value, min, max, onInput, start, end) {
@@ -351,16 +485,9 @@ export async function generalEditPage(host, key) {
         handle.addEventListener('pointermove', event => {
           if (!radialDragging || !handle.hasPointerCapture(event.pointerId)) return;
           const box = viewer.canvas.getBoundingClientRect();
-          const pick = viewer.pick([(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height]);
-          const peer = pick && history.current.find(peer => peer.material_index === pick.material_index && peer.role === 'lens'
-            && peer.can_gradient && peer.radial_projection);
-          if (!peer) return;
-          const surface = peer.radial_projection?.surfaces.find(surface => surface.mesh_index === pick.mesh_index
-            && surface.primitive_index === pick.primitive_index && surface.vertex_ranges.some(([low, high]) => pick.vertex_indices[0] >= low && pick.vertex_indices[0] <= high));
-          if (!surface) return;
-          const centre = [(pick.position_mm[0] / 1000 - surface.centre[0]) / (surface.half_extent[0] * surface.mirror_x),
-            (pick.position_mm[1] / 1000 - surface.centre[1]) / surface.half_extent[1]].map(value => Math.max(-1, Math.min(1, value)));
-          change(next => {next.gradient.centre = centre;}, false, false); syncCentreSliders(); renderGradientPreview();
+          const centre = centreFromPick(viewer.pick([(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height]));
+          if (!centre) return;
+          changeGradient(next => {next.centre = centre;}, false, false); syncCentreSliders(); renderGradientPreview();
         });
         const finish = event => {
           if (!radialDragging) return;
@@ -430,21 +557,6 @@ export async function generalEditPage(host, key) {
       const delta = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]}[event.key]; if (!delta) return; event.preventDefault();
       x = Math.max(0, Math.min(canvas.width - 1, x + delta[0] * (event.shiftKey ? 10 : 1))); y = Math.max(0, Math.min(canvas.height - 1, y + delta[1] * (event.shiftKey ? 10 : 1))); draw();});
     popup.append(selector, canvas, hint, button('Use colour at point', {onclick: pick})); load();
-  }
-  function chooseShimmer() {
-    const popup = dialog('Choose shimmer colour'), wanted = el('input', {type: 'color', value: '#b0dfff', 'aria-label': 'Shimmer colour'}), matches = el('div');
-    function match(rgb) {
-      const settings = clone(values()), result = findCoatingThicknesses(rgb, settings, colourAtAngle); matches.replaceChildren();
-      if (result.reason) {matches.append(el('p', {}, result.reason)); return;}
-      matches.append(el('p', {}, 'Choose the closest look, then turn the model to check it. Shimmer changes with the angle.'));
-      result.choices.forEach(({thickness}, i) => {
-        const bar = el('canvas', {width: 288, height: 30, class: 'lens-shimmer-swatch', 'aria-label': `Shimmer choice ${i + 1}, side to centre`}), ctx = bar.getContext('2d');
-        for (let x = 0; x < bar.width; x++) {ctx.fillStyle = `rgb(${colourAtAngle({...settings, iridescence_thickness_min: thickness, iridescence_thickness_max: thickness}, .4 + .6 * x / (bar.width - 1)).join(',')})`; ctx.fillRect(x, 0, 1, bar.height);}
-        matches.append(el('div', {}, bar, button(`Use shimmer ${i + 1}`, {onclick: () => {change(next => {next.iridescence_thickness_min = next.iridescence_thickness_max = thickness;}); popup.close();}})));
-      });
-    }
-    const fromLinear = rgb => match(tintToHex(rgb).slice(1).match(/../g).map(byte => parseInt(byte, 16)));
-    popup.append(wanted, button('Find closest shimmer colours', {onclick: () => fromLinear(hexToTint(wanted.value))}), button('Pick shimmer colour from photo', {'data-unavailable': String(!photos.length), disabled: !photos.length, onclick: () => pickPhoto(fromLinear)}), matches);
   }
   function schedulePreview() {
     stage.setAttribute('aria-busy', 'true');
@@ -519,7 +631,13 @@ export async function generalEditPage(host, key) {
     stage.addEventListener('click', event => {
       if (!down || event.target.closest('.gradient-centre-handle') || Math.hypot(event.clientX - down[0], event.clientY - down[1]) > 5 || before) return;
       const box = viewer.canvas.getBoundingClientRect(), pick = viewer.pick([(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height]);
-      if (!pick) return; const index = rows.findIndex(row => row.material_index === pick.material_index);
+      if (!pick) return;
+      if (placingCentre && values().gradient?.direction === 'around_point') {
+        const centre = centreFromPick(pick);
+        if (!centre) {showError('Click on a lens to place the centre.'); return;}
+        placingCentre = false; changeGradient(next => {next.centre = centre;}); return;
+      }
+      const index = rows.findIndex(row => row.material_index === pick.material_index);
       if (index < 0) {showError('This part has no separate editable role, or shares its material across roles.'); return;}
       selected = index; lastPick = pick; renderControls();
     });

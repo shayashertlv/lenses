@@ -48,19 +48,20 @@ test('E5 radial controls and centre gestures use canonical component metadata', 
     assert.ok((await page.locator('#gradient-direction option').allTextContents()).includes('Around a point'));
     await page.locator('#gradient-direction').selectOption('around_point'); await ready(page);
   };
-  await t.test('direction, circles, ring shares and blend apply to both pair materials without changing optics or patterns', async () => {
+  await t.test('direction, circles, ring stops and softness apply to both pair materials without changing optics or patterns', async () => {
     await openRadial();
     assert.deepEqual(gradient(server).centre, [0, 0]); assert.equal(gradient(server).roundness, 1);
     assert.equal(await page.locator('.gradient-centre-handle').count(), 2);
     assert.match(await page.locator('.general-controls').innerText(), /Paired lenses share these rings/);
     assert.match(await page.locator('.general-controls').innerText(), /existing colour texture keeps its own pattern/);
     await page.locator('#gradient-middle').click(); await ready(page);
-    for (const [name, value] of [['Start colour', '#00cc66'], ['Middle colour', '#008844'], ['End colour', '#8c20d5'], ['Start takes (%)', 40]]) await input(page, name, value);
-    const preview = () => page.locator('#gradient-blend-preview').evaluate(node => node.toDataURL());
-    const soft = await preview(); await input(page, 'Blend', 0); assert.notEqual(await preview(), soft);
+    for (const [name, value] of [['Start colour', '#00cc66'], ['Middle colour', '#008844'], ['End colour', '#8c20d5'], ['Start tint strength', .6]]) await input(page, name, value);
+    const preview = () => page.locator('#gradient-radial-preview').evaluate(node => node.toDataURL());
+    const soft = await preview(); await input(page, 'Softness start to middle', 0); assert.notEqual(await preview(), soft);
     const payload = latest(server), left = payload.materials.find(row => row.material_index === 2);
     assert.deepEqual(left.values.gradient, gradient(server));
-    assert.equal(gradient(server).colours.length, 3); assert.equal(gradient(server).colours[0].share, 40);
+    assert.equal(gradient(server).stops.length, 3); assert.equal(gradient(server).stops[0].strength, .6);
+    assert.deepEqual(gradient(server).softness, [0, .7]);
     assert.deepEqual(payload.materials.find(row => row.material_index === 0).values, excluded.values);
     for (const originalRow of original) {
       const actual = {...payload.materials.find(row => row.material_index === originalRow.material_index).values}; delete actual.gradient;
@@ -83,7 +84,7 @@ test('E5 radial controls and centre gestures use canonical component metadata', 
     assert.deepEqual(gradient(server).centre, [.26, -.19]);
     const radial = structuredClone(gradient(server));
     await page.locator('#gradient-direction').selectOption('left_to_right'); await ready(page);
-    assert.deepEqual(Object.keys(gradient(server)).sort(), ['blend', 'colours', 'direction']);
+    assert.deepEqual(Object.keys(gradient(server)).sort(), ['direction', 'softness', 'stops', 'version']);
     assert.equal(await page.locator('.gradient-centres').isVisible(), false);
     await page.locator('#edit-undo').click(); await ready(page); assert.deepEqual(gradient(server), radial);
     assert.equal(await page.getByLabel('Roundness', {exact: true}).inputValue(), '2.01');
@@ -157,6 +158,27 @@ test('E5 radial controls and centre gestures use canonical component metadata', 
     await input(page, 'Left / right', .2); await input(page, 'Roundness', 1.5);
     assert.deepEqual(latest(server).materials.find(row => row.material_index === 2).values.gradient, gradient(server));
     assert.deepEqual(gradient(server).centre, [.2, 0]);
+  });
+  await t.test('the default centre is the lens area centroid, and one click on the lens places the centre', async () => {
+    // A shield whose bounding-box centre sits in the nose cut-out: the area centroid is higher.
+    for (const row of server.state.appearance.materials.filter(row => row.radial_projection)) {
+      for (const surface of row.radial_projection.surfaces) surface.area_centroid = [surface.centre[0], surface.centre[1] + .35 * surface.half_extent[1]];
+    }
+    await openRadial();
+    assert.deepEqual(gradient(server).centre, [0, .35]);
+    await page.locator('#place-centre').click(); assert.equal(await page.locator('#place-centre').getAttribute('aria-pressed'), 'true');
+    const point = await page.evaluate(() => {
+      const viewer = window.__lensPreview;
+      for (let y = .3; y < .7; y += .01) for (let x = .3; x < .7; x += .01) {
+        const hit = viewer.pick([x, y]); if (hit?.material_index === 1 || hit?.material_index === 2) return [x, y];
+      }
+      return null;
+    });
+    assert.ok(point, 'a lens point is visible');
+    const box = await page.locator('#general-viewer canvas').boundingBox();
+    await page.mouse.click(box.x + point[0] * box.width, box.y + point[1] * box.height); await ready(page);
+    assert.notDeepEqual(gradient(server).centre, [0, .35]);
+    assert.equal(await page.locator('#place-centre').getAttribute('aria-pressed'), 'false');
   });
   assert.deepEqual(audit.errors, []); assert.deepEqual(audit.shaderErrors, []); assert.deepEqual(audit.blocked, []);
 });

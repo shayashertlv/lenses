@@ -36,12 +36,56 @@ KEY = "g3dOwnerGradient"
 SCHEMA = "g3d.owner_gradient/1"
 
 
+def _radial_controls(value, clean):
+    if not isinstance(value["centre"], list) or len(value["centre"]) != 2:
+        raise ValueError("The gradient centre needs Left / right and Up / down values.")
+    clean.update(centre=[lens._number(x, -1, 1, "Gradient centre") for x in value["centre"]],
+                 roundness=lens._number(value["roundness"], 1, 4, "Roundness"))
+
+
+def _validate_v2(value):
+    """Stops with positions; each transition is centred on the midpoint between its
+    two stops with width softness * gap (1 = blend across the whole gap, 0 = hard edge).
+    Strength mixes clear (0) to the chosen colour (1): tint = 1 - strength * (1 - colour)."""
+    radial = value["direction"] == "around_point"
+    expected = {"version", "direction", "stops", "softness"} | ({"centre", "roundness"} if radial else set())
+    if set(value) != expected:
+        raise ValueError("Provide the gradient stops and softness, including centre and roundness only for Around a point.")
+    stops = value["stops"]
+    if not isinstance(stops, list) or not 2 <= len(stops) <= 3:
+        raise ValueError("A gradient needs two or three colours; use Solid for one colour.")
+    result = []
+    for row in stops:
+        if not isinstance(row, dict) or set(row) != {"colour", "position", "strength"}:
+            raise ValueError("Each gradient colour needs a colour, a position and a tint strength.")
+        rgb = row["colour"]
+        if not isinstance(rgb, list) or len(rgb) != 3:
+            raise ValueError("Each gradient colour needs three linear RGB values.")
+        result.append({"colour": [lens._number(x, 0, 1, "Gradient colour") for x in rgb],
+                       "position": lens._number(row["position"], 0, 1, "Colour position"),
+                       "strength": lens._number(row["strength"], 0, 1, "Tint strength")})
+    if any(b["position"] - a["position"] < 1e-3 for a, b in zip(result, result[1:])):
+        raise ValueError("Gradient colours must be in order along the bar, with a little space between them.")
+    softness = value["softness"]
+    if not isinstance(softness, list) or len(softness) != len(result) - 1:
+        raise ValueError("Each transition between two colours needs its own softness.")
+    clean = {"version": 2, "direction": value["direction"], "stops": result,
+             "softness": [lens._number(x, 0, 1, "Softness") for x in softness]}
+    if radial:
+        _radial_controls(value, clean)
+    return clean
+
+
 def validate_gradient(value):
     if value is None:
         return None
     if (not isinstance(value, dict) or not isinstance(value.get("direction"), str)
             or value["direction"] not in DIRECTIONS):
         raise ValueError("Choose Centre to sides, Top to bottom, Left to right or Around a point for the gradient.")
+    if "version" in value:
+        if value["version"] != 2 or type(value["version"]) is not int:
+            raise ValueError("This gradient format is not supported.")
+        return _validate_v2(value)
     radial = value["direction"] == "around_point"
     expected = {"direction", "colours", "blend"} | ({"centre", "roundness"} if radial else set())
     if set(value) != expected:
@@ -65,11 +109,27 @@ def validate_gradient(value):
     clean = {"direction": value["direction"], "colours": result,
              "blend": lens._number(value["blend"], 0, 1, "Blend")}
     if radial:
-        if not isinstance(value["centre"], list) or len(value["centre"]) != 2:
-            raise ValueError("The gradient centre needs Left / right and Up / down values.")
-        clean.update(centre=[lens._number(x, -1, 1, "Gradient centre") for x in value["centre"]],
-                     roundness=lens._number(value["roundness"], 1, 4, "Roundness"))
+        _radial_controls(value, clean)
     return clean
+
+
+def _sample_v2(value, t):
+    stops = value["stops"]
+    colours = np.array([[1 - row["strength"] * (1 - c) for c in row["colour"]] for row in stops])
+    positions = [row["position"] for row in stops]
+    result = np.broadcast_to(colours[0], t.shape + (3,)).copy()
+    for i in range(len(stops) - 1):
+        low, high = positions[i], positions[i + 1]
+        middle, half = (low + high) / 2, value["softness"][i] * (high - low) / 2
+        if half > 0:
+            z = np.clip((t - (middle - half)) / (2 * half), 0, 1)
+            z = z * z * (3 - 2 * z)
+        else:
+            z = (t >= middle).astype(np.float64)
+        span = t >= low if i else np.ones(t.shape, dtype=bool)
+        candidate = colours[i] * (1 - z[..., None]) + colours[i + 1] * z[..., None]
+        result = np.where(span[..., None], candidate, result)
+    return result
 
 
 def sample_gradient(value, positions):
@@ -78,6 +138,8 @@ def sample_gradient(value, positions):
     if value is None:
         raise ValueError("A gradient is required.")
     t = np.clip(np.asarray(positions, dtype=np.float64), 0, 1)
+    if value.get("version") == 2:
+        return _sample_v2(value, t)
     rows = value["colours"]
     bounds = np.cumsum([row["share"] for row in rows]) / 100
     colours = np.array([row["colour"] for row in rows])
@@ -96,8 +158,21 @@ def image_bytes(value):
     value = validate_gradient(value)
     # Centre moves only UVs. Keep a small cache of immutable encoded PNGs so live
     # dragging and authenticated rereads do not rasterize the same million pixels.
+    if value.get("version") == 2:
+        return _image_bytes_v2(value["direction"], tuple((tuple(row["colour"]), row["position"], row["strength"])
+                               for row in value["stops"]), tuple(value["softness"]), value.get("roundness"))
     return _image_bytes(value["direction"], tuple((tuple(row["colour"]), row["share"])
                         for row in value["colours"]), value["blend"], value.get("roundness"))
+
+
+@lru_cache(maxsize=16)
+def _image_bytes_v2(direction, stops, softness, roundness):
+    value = {"version": 2, "direction": direction, "softness": list(softness),
+             "stops": [{"colour": list(rgb), "position": position, "strength": strength}
+                       for rgb, position, strength in stops]}
+    if direction == "around_point":
+        value.update(centre=[0, 0], roundness=roundness)
+    return _raster(value)
 
 
 @lru_cache(maxsize=16)
@@ -106,6 +181,11 @@ def _image_bytes(direction, colours, blend, roundness):
              "blend": blend}
     if direction == "around_point":
         value.update(centre=[0, 0], roundness=roundness)
+    return _raster(value)
+
+
+def _raster(value):
+    """The same raster and encoding for both spec versions; only sampling differs."""
     u = (np.arange(WIDTH, dtype=np.float64) + .5) / WIDTH
     if value["direction"] == "centre_to_sides":
         u = np.abs(2 * u - 1)
@@ -209,6 +289,20 @@ def projection_data(doc, binary, lens_indices):
     pair = bool((sides != 0).all() and (sides == -1).any() and (sides == 1).any())
     radial_low = np.broadcast_to(low.min(axis=0), low.shape).copy()
     radial_high = np.broadcast_to(high.max(axis=0), high.shape).copy()
+    # Projected-area centroid per logical lens: a better default ring centre than
+    # the extent centre, which on a shield falls in the nose cut-out.
+    corners = unique[triangles][:, :, :2]
+    edge_a, edge_b = corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]
+    area = np.abs(edge_a[:, 0] * edge_b[:, 1] - edge_a[:, 1] * edge_b[:, 0]) / 2
+    centroid = corners.mean(axis=1)
+    group = labels[triangles[:, 0]]
+    radial_centroid = np.empty((n, 2))
+    groups = [sides == side for side in (-1, 1)] if pair else [np.ones(n, dtype=bool)]
+    for mask in groups:
+        chosen = mask[group]
+        weight = area[chosen].sum()
+        value = (centroid[chosen] * area[chosen, None]).sum(axis=0) / weight if weight > 0 else None
+        radial_centroid[mask] = value if value is not None else (low[mask].min(axis=0) + high[mask].max(axis=0)) / 2
     if pair:
         for side in [-1, 1]:
             mask = sides == side
@@ -221,6 +315,7 @@ def projection_data(doc, binary, lens_indices):
                    radial_mode="pair" if pair else "single",
                    radial_centre=(radial_low[ids] + radial_high[ids]) / 2,
                    radial_half_extent=(radial_high[ids] - radial_low[ids]) / 2,
+                   radial_area_centroid=radial_centroid[ids],
                    radial_mirror_x=sides[ids] if pair else np.ones(size, dtype=int))
     return rows, float(all_points[:, 0].min()), float(all_points[:, 0].max())
 
@@ -242,6 +337,7 @@ def radial_projection(rows, material_index):
                 "lens_id": int(row["radial_mirror_x"][first]) if row["radial_mode"] == "pair" else 0,
                 "centre": row["radial_centre"][first].tolist(),
                 "half_extent": row["radial_half_extent"][first].tolist(),
+                "area_centroid": row["radial_area_centroid"][first].tolist(),
                 "mirror_x": int(row["radial_mirror_x"][first])})
     return {"mode": rows[0]["radial_mode"], "surfaces": surfaces}
 

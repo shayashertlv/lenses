@@ -110,11 +110,23 @@ try {
     await set('See-through', .82); row.edits.see_through = true;
     await set('Mirror', .08); row.edits.mirror = true;
     await set('Shine', .8); row.edits.shine = true;
-    await update(() => page.getByLabel('Shimmer', {exact: true}).selectOption('.25'.replace(/^\./, '0.'))); row.edits.shimmer = true;
+    // Coating layer: two target colours -> the exact solver -> the first choice.
+    if (await page.locator('#coating-two').count()) {
+      await update(() => page.locator('#coating-two').click());
+      await update(() => page.locator('#coating-brightness').selectOption('6'));
+      await page.getByLabel('Straight-on colour', {exact: true}).evaluate(input => {input.value = '#5abe8c'; input.dispatchEvent(new Event('change', {bubbles: true}));});
+      await page.getByLabel('Side colour', {exact: true}).evaluate(input => {input.value = '#aa6ec8'; input.dispatchEvent(new Event('change', {bubbles: true}));});
+      await page.locator('#find-coating').click();
+      await update(() => page.getByRole('button', {name: 'Use coating 1', exact: true}).click());
+      row.edits.coating_two_colours = true;
+    } else {
+      await update(() => page.getByLabel('Shimmer', {exact: true}).selectOption('0.25')); row.edits.shimmer = true;
+    }
     await update(() => page.locator('#colour-gradient').click());
     await update(() => page.locator('#gradient-middle').click());
     await set('Start colour', '#7a43ce'); await set('Middle colour', '#37b5b5'); await set('End colour', '#d2ab43');
-    await set('Middle takes (%)', 44); await set('Blend', .65);
+    await set('Softness start to middle', .65); await set('Middle tint strength', .7);
+    await update(async () => {const marker = page.locator('.gradient-stop[data-stop="1"]'); await marker.focus(); await page.keyboard.press('ArrowRight');});
     for (const direction of ['top_to_bottom', 'left_to_right', 'centre_to_sides']) {
       const patched = await update(() => page.locator('#gradient-direction').selectOption(direction));
       await writePreview(direction + '.glb', patched);
@@ -135,7 +147,7 @@ try {
       }
       await update(() => page.locator('#gradient-direction').selectOption('around_point'));
       await set('Start colour', '#20c979'); await set('End colour', '#914de3');
-      await set('Start takes (%)', 58); await set('Blend', .85);
+      await set('Softness start to end', .85);
       await set('Left / right', .18); await set('Up / down', -.12); await set('Roundness', 2);
       const moved = lastBody.materials.find(item => item.material_index === material.material_index).values.gradient;
       assert.equal(moved.direction, 'around_point'); assert.deepEqual(moved.centre, [.18, -.12]); assert.equal(moved.roundness, 2);
