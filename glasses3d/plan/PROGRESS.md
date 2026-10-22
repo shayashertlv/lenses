@@ -41,6 +41,18 @@ effort and a $25 settled cutoff."
 - record_difference: 3 turns, $2.53, two of them refused.
 - compare_look_to_photos images re-read on later turns: $1.85.
 
+**Owner's edit of the draft.** The owner opened the draft on the Edit page, changed the lens colour and saved a
+version: delivery key `3OQCI7YhH-_8U0j3bQbaXYaH`, 15:42 UTC, labelled "your edit — finished".
+- Lens values:
+  - Exact colours: violet at the sides (0.35) to green straight on (0.88), in the reflections, with lens-colour
+    tint 0.81;
+  - coating 479 nm, film 1.7;
+  - lens IOR 4.5 (Astra's draft used a lower value);
+  - transmission 0.92, metallic 0.1.
+- Frame and temples are unchanged.
+- The owner, verbatim: "i dont think we can get better than this, ive edited the color a bit myself and saved the
+  model". No formal verdict has been recorded yet.
+
 **Defects found during the run, not fixed (the run was live):**
 1. **Contacts nested in `scene_summary`.** The contacts sit inside the tool envelope at
    `result.result.contacts`, so the summary hid the rows and Astra paged them 4 times (about $0.80).
