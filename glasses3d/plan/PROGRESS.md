@@ -1,5 +1,47 @@
 # glasses3d progress
 
+## 2026-10-23 — Paid INVU run on decision-20261022: $25 cutoff draft c0014, five items open (Claude)
+
+**The run.** Job `invu-invu-s-ia22403b-99m-0270abc6`, run `20261022T194022-40e34d`, approved with the owner's
+words in the entry below.
+- `budget_limit` at $25.114851 after 70 requests and 66 tool calls, 11,254 s (19:40–22:48 UTC).
+- Draft from formal best `c0014`, GLB `bbe4c826…`, delivery key `UPBri4ZBJ1Z9ybmR5fLzO8ox`.
+- The confirming finish (0065) was refused with five items open; 0064 was review_required.
+- No owner verdict yet.
+
+**Astra's open items, in its words where quoted:**
+1. Nose moulding: the rear pads are separate ovals.
+2. Temple details: the blue returns are raised and the tips are faceted.
+3. Shield profile: doubled side contours and too much top-view projection; "the provisional 126.54 mm shield span
+   also conflicts with the stated 99 mm".
+4. Lens flash: duller than the photos' blue flash and violet edges.
+5. Black finish: recessed details too dark.
+
+**Two brief conflicts Astra reported.**
+- Size. The owner's description says "Lens Width: 99 mm continuous shield span". Astra scaled the front from the
+  photo proportions, using the 137 mm temples as the ruler: about 127 mm shield and 136 mm brow (its first front
+  was about 138 mm and 148 mm). It did not build a literal 99 mm span. Authored size on the review page stays
+  parked (owner, 2026-10-18).
+- Rim. The photos show an exposed lower shield edge; Astra followed the photos.
+
+**Joins, measured on the delivered GLB:** 38 pairs, 32 touching.
+- Near misses: the blue triangular inlay ↔ upper shoulder blue return, 0.266 mm over a 4.5 mm span, on both sides.
+- The INVU lens mark ↔ brow is 0.763 mm, intentional per Astra.
+
+**Money ($25.11), and the fixes against the 10-22 Oakley run.**
+- Astra's scripts: 16 turns, $6.33.
+- compare_look_to_photos: 11 turns, $2.92, plus $2.99 when its images were re-read on later turns.
+- record_difference: 5 turns, $5.01 (this includes cache writes of comparison images).
+- Summaries for 4 renewals: $2.27.
+- read_report: 9 turns, $1.49 (Oakley: 15 turns, $3.55).
+- fit_cameras: 5 turns, $1.01. Each refit took about 25 minutes of wall time; workers were busy throughout.
+- Lens colour: one match_coating_colours and one compare_lens_candidates, about $0.43 (Oakley: about $2).
+- Renewals came at requests 26, 40, 56 and 66.
+  - New conversations started at 37.5k, 72.4k, 90.5k and 101.9k input tokens (Oakley: 120–143k).
+  - Gaps between them were 14, 16 and 10 requests (Oakley: about every 10).
+- Contacts and photo_read warnings were read inline, with no paging.
+- record_difference with best=True was accepted, with no basis refusals.
+
 ## 2026-10-22 — INVU run: UI launch fixed, run restarted on the owner's words (Claude)
 
 **What happened.** The owner pressed "Start a paid run" ($25) for job `invu-invu-s-ia22403b-99m-0270abc6`. The run
