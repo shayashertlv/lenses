@@ -1,5 +1,27 @@
 # glasses3d progress
 
+## 2026-10-22 — INVU run: UI launch fixed, run restarted on the owner's words (Claude)
+
+**What happened.** The owner pressed "Start a paid run" ($25) for job `invu-invu-s-ia22403b-99m-0270abc6`. The run
+ended at once with "The run ended before its result could be published"; $0 was spent.
+- Cause: the runner refused with "set OPENAI_API_KEY or pass an explicit dotenv file (env_file)".
+- The dev UI launched `job run` without `--env-file`, so runs depended on the server's environment.
+- Claude had restarted the server four times today from a shell without the key.
+
+**Fixes** (`dev_ui/contracts.py`, `dev_ui/launcher.py`, `dev_ui/status.py`).
+- The dev UI passes `--env-file glasses3d/.env` by path to every run it starts. It never reads the file.
+- A failed run's page shows the runner's own structured refusal line instead of the generic message.
+- Tests: dev UI suite 327 passed, with two new tests: key file passed by path; refusal shown, other log text never
+  shown.
+
+**Restart.** The owner's words, verbatim: "please fix what needs to be fixed in this issue. then run the same invu
+run i set, 25$. im going to sleep".
+- Same inputs as the UI request: the owner's photos, labels and description.
+- Same instructions hash, brief and photos.
+- Max effort, decision-20261022, $25 settled cutoff.
+- New run `20261022T194022-40e34d`, approved with those words, launched 22:40 via the CLI with `--env-file`.
+- The first request reached Astra.
+
 ## 2026-10-22 — Run fixes before INVU: smaller restarts, inline results, evidence on the chosen camera set, one lens sentence (Claude, $0)
 
 **Owner's words.**

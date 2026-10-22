@@ -22,6 +22,9 @@ class Config:
     static_root: Path = Path(__file__).parent / "static"
     vendor_root: Path = REPO / "glasses3d/arview/node_modules/three"
     python: Path = REPO / "glasses3d/.venv/Scripts/python.exe"
+    # Passed by path to `job run --env-file`; the UI never reads it. Without it a run depends on whoever started the
+    # server having OPENAI_API_KEY in their environment (10-22: a server restarted from a coding shell refused runs).
+    env_file: Path | None = REPO / "glasses3d/.env"
     max_request_bytes: int = 128 * 1024 * 1024
     max_photo_bytes: int = 24 * 1024 * 1024
     max_png_bytes: int = 20 * 1024 * 1024
@@ -32,6 +35,8 @@ class Config:
             raise ValueError("port must be between 1024 and 65535")
         for name in ("repo_root", "state_root", "jobs_root", "static_root", "vendor_root", "python"):
             setattr(self, name, Path(getattr(self, name)).resolve())
+        if self.env_file is not None:
+            self.env_file = Path(self.env_file).resolve()
 
     @property
     def data_root(self):

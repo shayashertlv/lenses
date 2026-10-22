@@ -61,7 +61,7 @@ class FakeCore:
 @pytest.fixture
 def config(tmp_path):
     return Config(port=8278, state_root=tmp_path / "ui", jobs_root=tmp_path / "jobs",
-                  static_root=tmp_path / "pages")
+                  static_root=tmp_path / "pages", env_file=tmp_path / "absent.env")
 
 
 @pytest.fixture
@@ -386,3 +386,30 @@ def test_real_detached_server_start_status_stop(config):
     finally:
         if started:
             cli.stop_server(config)
+
+
+def test_launch_passes_the_key_file_by_path_whoever_started_the_server(fixture_launcher, config, tmp_path):
+    # 10-22: a server restarted from a shell without OPENAI_API_KEY made the next paid run refuse at once.
+    launcher, _, calls = fixture_launcher
+    key_file = tmp_path / "keys.env"
+    key_file.write_text("not read by the UI", encoding="utf-8")
+    config.env_file = key_file
+    root = config.jobs_root / "keyed"
+    launcher.launch(root, "r2")
+    assert calls[-1][0] == [str(config.python), "-m", "glasses3d", "job", "run", str(root.resolve()), "--run-id", "r2",
+                            "--env-file", str(key_file)]
+
+
+def test_failed_run_shows_the_runner_refusal_instead_of_the_generic_message(tmp_path):
+    from glasses3d.dev_ui import status
+    run = tmp_path / "job" / "runs" / "ui-run"
+    run.mkdir(parents=True)
+    (run / "runner-status.json").write_text('{"exit_code": 2}', encoding="utf-8")
+    (run / "runner.log").write_text('noise that is never shown\n{"status": "refused", "message": "set OPENAI_API_KEY or '
+                                    'pass an explicit dotenv file (env_file)"}\n=== exit code 2\n', encoding="utf-8")
+    record = {"root": str(tmp_path / "job"), "run_id": "ui-run", "run_key": "k"}
+    shown = status.read_run_status(record)
+    assert shown["phase"] == "failed"
+    assert shown["error"] == "set OPENAI_API_KEY or pass an explicit dotenv file (env_file)"
+    (run / "runner.log").write_text("plain crash text\n", encoding="utf-8")
+    assert status.read_run_status(record)["error"] == "The run ended before its result could be published."

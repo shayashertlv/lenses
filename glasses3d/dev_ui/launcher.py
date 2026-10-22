@@ -207,8 +207,10 @@ class Launcher:
             procs.write_json_atomic(receipt_path, receipt)
             return receipt
         self.check_available()
+        env_file = getattr(self.config, "env_file", None)
+        key_file = ["--env-file", env_file] if env_file is not None and Path(env_file).is_file() else []
         try:
-            receipt = self._command(["run", Path(root).resolve(), "--run-id", run_id])
+            receipt = self._command(["run", Path(root).resolve(), "--run-id", run_id, *key_file])
         except (LauncherError, OSError):
             if has_launch_evidence(root, run_id):
                 return self.launch(root, run_id)

@@ -49,6 +49,28 @@ def _read(root: Path, relative: str):
         return None, None
 
 
+def _runner_refusal(root: Path, relative: str):
+    """The CLI's structured refusal line (status "refused", a short message) from the end of the runner log, or
+    None. Only that JSON message is shown, never other log text."""
+    try:
+        path = root / relative
+        if not path.resolve().is_relative_to(root):
+            return None
+        with path.open("rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 8192))
+            lines = stream.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("status") == "refused" and isinstance(value.get("message"), str):
+            return value["message"][:500] or None
+    return None
+
+
 def _time(value):
     if not isinstance(value, str):
         return None
@@ -110,7 +132,8 @@ def _snapshot(record):
     pointer, _ = _read(root, "deliveries/current.json")
     usage, _ = _read(root, "work/owner_edit/understanding-usage.json") if record.get("kind") == "understand" else (None, None)
     usage = _same_run(usage, run_id)
-    return {"root": root, "run_id": run_id, "runner": runner or {},
+    refusal = _runner_refusal(root, run_relative + "runner.log")
+    return {"root": root, "run_id": run_id, "runner": runner or {}, "refusal": refusal,
             "result": _same_run(result, run_id) or {},
             "heartbeat": _same_run(heartbeat, run_id) or {}, "attempt": attempt or {},
             "pointer": pointer or {}, "usage": usage or {}}
@@ -207,7 +230,7 @@ def read_run_status(record: dict, *, now: datetime | None = None) -> dict:
         error = _error(attempt, "The run ended without a usable model.")
     elif exited or runner.get("error") or record.get("error"):
         phase = "failed"
-        error = _error(runner.get("error") or record.get("error") or error,
+        error = _error(runner.get("error") or record.get("error") or error or state["refusal"],
                        "The run ended before its result could be published.")
     elif result or terminal:
         phase = "finalizing"
