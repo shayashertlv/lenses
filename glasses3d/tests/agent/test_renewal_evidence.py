@@ -55,6 +55,23 @@ def test_job_keeps_latest_full_call_per_photo_with_every_native_page_and_pick(tm
     assert JobScene(tmp_path, job={}).renewal_evidence() == output
 
 
+def test_job_carries_only_comparisons_of_the_current_checkpoint_but_keeps_photo_readings(tmp_path):
+    # 10-22 run: a later partial comparison left photos falling back to the first comparison of an older model.
+    obj = JobScene(tmp_path, job={})
+    obj.s = SimpleNamespace(head={"id": "c0002", "fingerprint": "f2"})
+    obj.images = [image(tmp_path, "old-front", kind="look_composed", ref="front"),
+                  image(tmp_path, "old-side", kind="look_composed", ref="side", call_id="old-front"),
+                  image(tmp_path, "new-front", kind="look_composed", ref="front", checkpoint="c0002"),
+                  image(tmp_path, "new-detail", kind="look_detail", ref="front", call_id="new-front", checkpoint="c0002"),
+                  image(tmp_path, "reading", kind="photo_read", view="corner"),
+                  image(tmp_path, "model-pick", kind="pick_surface_point", view="hinge")]
+    rows = obj.renewal_evidence()
+    assert {(r["call_id"], r["checkpoint"]) for r in rows} == {("new-front", "c0002"), ("reading", "c0001")}
+    assert len(rows) == 3  # the current full pair and its detail, plus the photo reading; no stale side or pick
+    obj.s = SimpleNamespace(head={"id": "c0003", "fingerprint": "f3"})  # an edit with no comparison yet: only the reading stays
+    assert [r["call_id"] for r in obj.renewal_evidence()] == ["reading"]
+
+
 def test_job_zoom_only_does_not_replace_full_comparison_and_compact_sheet_stays_whole(tmp_path):
     obj = JobScene(tmp_path, job={})
     old = image(tmp_path, "full-sheet", kind="compare_to_photos", view="front, side",

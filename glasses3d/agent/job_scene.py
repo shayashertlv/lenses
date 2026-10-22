@@ -357,7 +357,8 @@ class JobScene(SceneHooks):
             return {"finish_review_restarted": previous is not None, "previous_review_call_id": previous}
 
     def renewal_evidence(self):
-        """Latest full comparison per photo and current picks, using their exact delivered bytes.
+        """Latest full comparison per photo of the current checkpoint and current picks, using their exact
+        delivered bytes. Comparisons of an older checkpoint are not carried; photo_read sheets always are.
 
         A comparison is a call/photo group, not one image: keep every native tile,
         close-up and side-light page belonging to the selected group. Metadata survives
@@ -367,6 +368,9 @@ class JobScene(SceneHooks):
             records = deepcopy(self.images)
             events = {e.get("call_id"): e.get("tool") for e in self.events}
             unseen = set(self._unseen)
+        # Only comparisons of the current model are evidence. In the 10-22 run a later partial comparison left two
+        # photos falling back to the first comparison of an older checkpoint: 24 stale images in every restart.
+        current = (getattr(getattr(self, "s", None), "head", None) or {}).get("id")
         comparison_tools = {"compare_look_to_photos", "compare_to_photos"}
         full_kinds = {"look_full_pair", "look_composed", "compare_to_photos", "compare_look_to_photos"}
         look_kinds = full_kinds | {"look_detail", "surface_detail"}
@@ -376,6 +380,10 @@ class JobScene(SceneHooks):
                 continue
             kind = record.get("kind")
             tool = events.get(record.get("call_id"), kind)
+            # photo_read measures the photos themselves; everything else here depicts a model checkpoint.
+            stale = current is not None and record.get("checkpoint") not in (None, current) and kind != "photo_read"
+            if stale:
+                continue
             if kind in {"photo_read", "pick_surface_point"} or record.get("context_role") == "pick":
                 # photo_read's view is the persistent reading name; a compact sheet
                 # contains all names in views and remains whole when any is current.

@@ -19,7 +19,7 @@ def review_scene(finish_scene, monkeypatch):
     scene.instruction_profile = "legacy-20261021"
     scene.binding = {"basis": "basis-001", "basis_sha256": "basis-bytes", "cameras_sha256": "camera-bytes",
                      "photos": [{"ref": "front", "sha256": "photo-front"}, {"ref": "top", "sha256": "photo-top"}]}
-    def evidence(root, head, export):
+    def evidence(root, head, export, basis=None):
         return {"checkpoint": head["id"], "fingerprint": head["fingerprint"], "export_sha256": export["sha256"],
                 **copy.deepcopy(scene.binding)}
     monkeypatch.setattr(F, "evidence", evidence)

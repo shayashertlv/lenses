@@ -1,5 +1,52 @@
 # glasses3d progress
 
+## 2026-10-22 — Run fixes before INVU: smaller restarts, inline results, evidence on the chosen camera set, one lens sentence (Claude, $0)
+
+**Owner's words.**
+- Request, verbatim: "maybe we need to investigate to understand if astra might be spending too much actions on the
+  lenses color adjustment (because the edit page is really good now), maybe if astra is overdoing the lenses color we
+  can have it do it less."
+- Answer: lens colour cost about $2 (8%) of the 10-22 run; restarts cost $8.83 (35%).
+- Approval, verbatim: "Yes: before the INVU run, fix the renewal carry-over, the three result problems from the run,
+  and add the one lens sentence, at $0 with the same checks." Then: "come back to me when youre done and ill run the
+  invu by myself at the dev ui".
+- Owner verdict on the Oakley edit (delivery `3OQCI7YhH-_8U0j3bQbaXYaH`): "accept it". It is recorded in that
+  edit's `reviews/verdicts.jsonl` with the earlier words. Claude's first row said "his", so a second row with
+  neutral wording was appended; the newest row is the one shown.
+
+**Fixes:**
+1. **Restart carry-over** (`agent/job_scene.py` `renewal_evidence`). Only comparisons of the current checkpoint are
+   carried; owner photos, the latest tool result and photo_read sheets still are.
+   - In the 10-22 run, a later partial comparison left photos falling back to the first comparison of an older
+     model.
+   - 66 of 186 carried images were stale (25, 35, 1 and 5 at the four restarts).
+   - At about 2,300 tokens per image, restarts 1 and 2 would have started 55–80k tokens smaller.
+2. **Inline results** (`agent/tool_reports.py` `_must_show`).
+   - `scene_summary` contacts are now read inside the tool envelope (`result.contacts`); Astra had paged them 4
+     times.
+   - `photo_read` readings keep every warning's code and message; it had paged 2 times.
+   - Replayed on the run's real outputs: all 8 contact rows and all warnings now show inline.
+3. **Evidence on the chosen camera set** (`agent/differences.py`, `finish_review.evidence(..., basis=)`).
+   - A comparison binds to the frozen camera set it used. It goes stale when the model, export or that set's
+     photo/camera bytes change.
+   - The finish review and finish look-reuse stay on the newest set.
+   - A comparison that cannot count records why, and a citation says "<call> cannot support differences: <reason>"
+     instead of "unknown evidence_ref".
+4. **Lens sentence** (decision-20261022), verbatim as approved: "The owner fine-tunes lens colour in the editor
+   afterwards; get the lens family, see-through and coating presence close with one coating search and one
+   side-by-side test, then return to structure and shape." The text is now 9,754 characters, hash `e9a62497…`
+   (the 10-22 run used `64a40259…`).
+
+**Checks:**
+- New tests:
+  - restart evidence: current checkpoint only, photo readings kept;
+  - an older camera set counts until the model changes;
+  - a refusal says why;
+  - nested contacts and photo_read warnings stay inline;
+  - the lens sentence is in the contract.
+- Full suite: functional 6,399 passed / 2 skipped / 0 failed; photoprint passed; timing 29 passed; M1 passed;
+  M12 passed at $0 with no network attempts (`proofs/claude-run-fixes`).
+
 ## 2026-10-22 — Paid Oakley run on decision-20261022: $25 cutoff draft, brow joined (Claude)
 
 **Owner approval, verbatim:** "Yes, start the paid Astra Oakley run with the decision-20261022 instructions at max

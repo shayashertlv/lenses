@@ -25,12 +25,13 @@ def reuse_look(scene, export, review_call_id=None):
     return reusable(scene, export)
 
 
-def evidence(root, head, export):
-    """Independently verify the frozen basis and its actual photo/camera bytes."""
+def evidence(root, head, export, basis=None):
+    """Independently verify the frozen basis and its actual photo/camera bytes. basis names the frozen camera set a
+    comparison used; the default is the newest usable one (the finish review)."""
     result = {"checkpoint": head["id"], "fingerprint": head["fingerprint"],
               "export_sha256": export["sha256"]}
     try:
-        basis = C.load_basis(root)
+        basis = C.load_basis(root, basis)
     except C.NoBasis as error:
         return {**result, "basis": None, "basis_sha256": None, "cameras_sha256": None,
                 "photos": [], "unavailable": str(error)}

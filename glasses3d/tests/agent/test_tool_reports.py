@@ -465,3 +465,27 @@ def test_fit_decision_table_stays_inline_and_long_unusable_details_move_behind_a
     assert shown["unusable_refs"]["refs"] == ["reference-06"]
     full = R.read_report(tmp_path, shown["full_report"]["id"], shown["unusable_refs"]["read_pointer"])
     assert json.dumps(body["unusable_refs"]["reference-06"]) in json.dumps(full)
+
+
+def test_nested_scene_contacts_and_photo_read_warnings_stay_inline_when_paged(tmp_path):
+    # 10-22 run: scene_summary's contacts sit inside its envelope and photo_read warnings were collapsed.
+    rows = [{"parts": [f"a{i}", f"b{i}"], "roles": ["frame", "frame"], "min_gap_mm": 0.7, "gap_span_mm": 5.0,
+             "near_points": 9, "closest_mm": [1, 2, 3]} for i in range(3)]
+    summary = {"status": "ok", "checkpoint": "c0003", "result": {
+        "objects": {f"part {i}": {"topology": "x" * 600} for i in range(40)},
+        "contacts": {"schema": "g3d.contacts/1", "rule": "rule", "near_misses": rows, "complete": True,
+                     "touching_pairs": 4, "omitted_near_misses": 0}}}
+    out = R.limit_output(tmp_path, "s", "scene_summary", [ToolOutputText(text=json.dumps(summary)), ToolOutputText(text="f")])
+    shown = json.JSONDecoder().raw_decode(out[0].text)[0]
+    assert shown["paged"] is True and shown["result"]["contacts"]["near_misses"] == rows
+    warning = {"code": "W_RESIDUAL", "message": "Not one point within the stated error.", "chi2": 149.2, "dof": 3}
+    reading = {"name": "LeftLensLowest", "kind": "corner", "status": "ok", "xyz_mm": [1, 2, 3], "sd_xyz_mm": [0.1] * 3,
+               "residual_px": 4.2, "consistent_with_stated_error": False, "warnings": [warning],
+               "cov_xyz_mm2": [[0.1] * 3] * 3, "picks": ["x" * 9000]}
+    body = {"schema": "g3d.photo_read/1", "status": "ok", "readings": [reading, {**reading, "name": "Upper"}]}
+    out = R.limit_output(tmp_path, "p", "photo_read", [ToolOutputText(text=json.dumps(body)), ToolOutputText(text="f")])
+    shown = json.JSONDecoder().raw_decode(out[0].text)[0]
+    assert shown["paged"] is True
+    assert [(r["name"], r["warnings"]) for r in shown["readings"]] == [
+        ("LeftLensLowest", [{"code": "W_RESIDUAL", "message": "Not one point within the stated error."}]),
+        ("Upper", [{"code": "W_RESIDUAL", "message": "Not one point within the stated error."}])]

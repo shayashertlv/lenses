@@ -206,7 +206,9 @@ the saved candidate in the same views and name the winning tradeoff; stronger co
 alone is not a closer match. match_coating_colours finds real coating values for the colours seen straight on and
 at the sides; compare_lens_candidates tries several lens settings side by side without changing the scene. Do not
 rule out untested options by prediction alone; apply a chosen set with the documented exact helper, then compare
-the head. Room reflections on lenses are not defects: AR uses one fixed reflection setting for every product. In
+the head. The owner fine-tunes lens colour in the editor afterwards; get the lens family, see-through and coating
+presence close with one coating search and one side-by-side test, then return to structure and shape. Room
+reflections on lenses are not defects: AR uses one fixed reflection setting for every product. In
 the AR renderer, metallic multiplies the colour seen through the lens by (1 - metallic), so high transmission does
 not keep a metallic lens see-through.
 

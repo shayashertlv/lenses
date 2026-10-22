@@ -55,6 +55,9 @@ def test_the_order_and_the_check_after_every_edit_are_restored(tools):
                    "Keep correcting while a visible difference you can still fix remains",
                    "Photographic arm opening is separate from camera orientation",
                    "Do not rule out untested options by prediction alone",
+                   "The owner fine-tunes lens colour in the editor afterwards; get the lens family, see-through and "
+                   "coating presence close with one coating search and one side-by-side test, then return to "
+                   "structure and shape",
                    "earlier owner complaints", "Every supplied product photo from the owner is authoritative"):
         assert phrase in text, phrase
     steps = [text.index(step) for step in ("a. Structure", "b. Cameras", "c. Shape detail", "d. Lens seating",
@@ -146,3 +149,40 @@ def test_descriptions_drop_product_irrelevant_text_and_keep_owner_scope(tools):
     owner = build_tools(SimpleNamespace(root=None, owner_edit={"phase": "edit"}))
     assert "In owner edit mode use the labelled, previewed and confirmed owner operations" in next(
         tool.description for tool in owner if tool.name == "execute_blender_code")
+
+
+def test_a_comparison_on_an_older_camera_set_counts_until_the_model_changes(decision_scene, monkeypatch):
+    # 10-22 run: Astra kept basis-01 after a refit made basis-02, and every citation was refused as "unknown".
+    import copy
+    from glasses3d.agent.tools import finish_review as F
+    s = decision_scene
+    newest = {**copy.deepcopy(s.binding), "basis": "basis-002", "basis_sha256": "newer", "cameras_sha256": "newer"}
+
+    def evidence(root, head, export, basis=None):
+        chosen = s.binding if basis == "basis-001" else newest
+        return {"checkpoint": head["id"], "fingerprint": head["fingerprint"], "export_sha256": export["sha256"],
+                **copy.deepcopy(chosen)}
+    monkeypatch.setattr(F, "evidence", evidence)
+    assert record(invoke(s, "compare_look_to_photos", {}, cid="old-basis-look"))["status"] == "ok"
+    out = record(invoke(s, "record_difference", entry(evidence_ref="old-basis-look"), cid="item"))
+    assert out["status"] == "ok" and D.snapshot(s)[0]["evidence_ref"] == "old-basis-look"
+    assert record(invoke(s, "execute_blender_code", {"code": "pass"}, cid="edit"))["status"] == "ok"
+    stale = record(invoke(s, "record_difference", entry(evidence_ref="old-basis-look", status="fixed"), cid="late"))
+    assert stale["status"] == "refused" and "stale" in stale["message"]
+
+
+def test_a_comparison_that_cannot_count_says_why(decision_scene, monkeypatch):
+    from glasses3d.agent.tools import look
+    s = decision_scene
+    capture = look.capture
+
+    def without_worn(*args, **kwargs):
+        result = capture(*args, **kwargs)
+        result.pop("worn_front_path")
+        return result
+    monkeypatch.setattr(look, "capture", without_worn)
+    assert record(invoke(s, "compare_look_to_photos", {}, cid="partial-look"))["status"] == "ok"
+    out = record(invoke(s, "record_difference", entry(evidence_ref="partial-look"), cid="item"))
+    assert out["status"] == "refused"
+    assert "partial-look cannot support differences: The same-export worn front view is missing." in out["message"]
+    assert "unknown evidence_ref" not in out["message"]

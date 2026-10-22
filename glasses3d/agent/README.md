@@ -58,6 +58,15 @@ Tool facts added by the audit (both decision profiles unless noted):
   runs; a refusal runs no code.
 - `match_coating_colours` (`decision-20261022` only, product runs): the Edit page's coating search in Python
   (`agent/coating_match.py`, byte-equal to `dev_ui/lens_renderer/coating.js`), read-only.
+- After the 10-22 paid run:
+  - **Restarts.** A conversation renewal carries only comparisons of the current checkpoint, plus the owner photos,
+    the latest tool result and photo_read sheets. That run carried 66 stale images across 4 restarts.
+  - **Inline results.** `scene_summary` contact rows and `photo_read` warnings stay inline when a result is paged.
+  - **Evidence binding.** A comparison counts as difference evidence on the camera set it used, not only the newest
+    one; it goes stale when the model, export or photo/camera bytes change. A comparison that cannot count records
+    why, and a citation of it says so instead of "unknown".
+  - **Lens colour.** `decision-20261022` says the owner fine-tunes lens colour in the editor afterwards: get it close
+    with one coating search and one side-by-side test, then return to structure and shape.
 
 Standing dev UI terms (2026-10-19) use the owner's typed positive finite max budget, replacing the universal $20
 cutoff for each run or edit send. Owner: "max budget (meaning the actual cutoff with no reserving), then when the
@@ -100,7 +109,7 @@ unseen and stale comparison references refuse. First-finish per-photo difference
 prevents accepted finish until Astra records a current supported fix or limitation. Renewal carries the host list
 and formal best automatically. The cutoff still publishes a draft from this run's formal best regardless of open
 items. These are decision records, not appearance scores; the owner still decides likeness.
-Main and edit instructions retain their 24,000-character caps. The `decision-20261022` main prompt is 9,548
+Main and edit instructions retain their 24,000-character caps. The `decision-20261022` main prompt is 9,754
 characters and `decision-20261021` is about 11,200; the frozen legacy main is 16,321. Historical M12 measurements remain in their dated reports. The specialist
 retains its own cap.
 

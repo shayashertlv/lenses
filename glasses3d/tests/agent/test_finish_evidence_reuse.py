@@ -23,7 +23,7 @@ def reusable_scene(finish_scene, monkeypatch):
         path.write_text(json.dumps({"fixture": name}), encoding="utf-8")
         current.basis_files[name] = path
 
-    def evidence(root, head, export):
+    def evidence(root, head, export, basis=None):
         return {"checkpoint": head["id"], "fingerprint": head["fingerprint"],
                 "export_sha256": export["sha256"], "basis": "basis-01",
                 "basis_sha256": arview.sha256(current.basis_files["basis"]),

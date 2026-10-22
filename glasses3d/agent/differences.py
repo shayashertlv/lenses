@@ -146,17 +146,32 @@ def register_evidence(scene, name, result):
         return
     from .tools import finish_review as review, arview
     look = result.get("look_comparison", {}) if name == "finish" else result
+
+    def refuse(reason):
+        # Kept so a later citation explains why this comparison cannot support an item (not "unknown").
+        reasons = getattr(scene, "evidence_refusals", None)
+        if not isinstance(reasons, dict):
+            reasons = scene.evidence_refusals = {}
+        reasons[cid] = reason
+
     if look.get("status") != "ok":
-        return
-    binding = review.evidence(scene.root, scene.s.head, {"sha256": look.get("export_sha256")})
+        return refuse("the comparison did not complete")
+    # Bind to the frozen camera set this comparison used, which Astra may keep after a worse refit.
+    try:
+        binding = review.evidence(scene.root, scene.s.head, {"sha256": look.get("export_sha256")},
+                                  basis=look.get("basis") if name == "compare_look_to_photos" else None)
+    except (ValueError, OSError, KeyError) as error:
+        return refuse(f"its camera set could not be verified ({str(error)[:160]})")
     # A look may intentionally compare a subset; only that subset can support an item.
     refs = {row.get("ref") for row in look.get("views", [])}
     binding["photos"] = [photo for photo in binding["photos"] if photo["ref"] in refs]
-    if not binding["photos"] or review._capture_complete(binding, look):
-        return
-    if (look.get("checkpoint", binding["checkpoint"]) != binding["checkpoint"]
-            or not binding.get("export_sha256")):
-        return
+    if not binding["photos"]:
+        return refuse("it includes no usable photo camera")
+    problem = review._capture_complete(binding, look)
+    if problem:
+        return refuse(problem)
+    if look.get("checkpoint", binding["checkpoint"]) != binding["checkpoint"] or not binding.get("export_sha256"):
+        return refuse("it compared another checkpoint or export")
     export_path = (result.get("export") or {}).get("path") if name == "finish" else look.get("export_path")
     if export_path is not None:
         export_path = str(arview.confined(scene.root, export_path))
@@ -179,6 +194,9 @@ def validate_evidence(scene, evidence_ref, refs=None, *, current_export=None):
     row = next((row for row in reversed(records) if row["kind"] == "evidence"
                 and row["evidence_ref"] == evidence_ref), None)
     if row is None:
+        reason = (getattr(scene, "evidence_refusals", None) or {}).get(evidence_ref)
+        if reason:
+            raise ValueError(f"{evidence_ref} cannot support differences: {reason}")
         raise ValueError("unknown evidence_ref: use a delivered look or review from this run")
     binding = row["binding"]
     if row.get("export_path") and arview.sha256(arview.confined(scene.root, row["export_path"])) != binding["export_sha256"]:
@@ -189,7 +207,8 @@ def validate_evidence(scene, evidence_ref, refs=None, *, current_export=None):
     current_sha = current_export.get("sha256") if current_export is not None else latest["binding"]["export_sha256"]
     if current_sha != binding["export_sha256"]:
         raise ValueError("stale evidence_ref: the current export differs from the cited comparison")
-    current = review.evidence(scene.root, scene.s.head, {"sha256": current_sha})
+    # Same camera set as the cited comparison: stale means the model, export or photo/camera bytes changed.
+    current = review.evidence(scene.root, scene.s.head, {"sha256": current_sha}, basis=binding.get("basis"))
     available = {photo["ref"] for photo in binding["photos"]}
     current["photos"] = [photo for photo in current["photos"] if photo["ref"] in available]
     if current != binding:
@@ -380,8 +399,9 @@ def tool_for(scene, tool, call):
         """Record one visible difference or an atomic items batch in this run's append-only host list.
         Supply items or the one-item fields. Every item is validated before any append; a refusal names
         failing ids and changes nothing. Confirming finish can reconcile the same items inline.
-        Use a stable id. Cite a delivered compare_look_to_photos or finish review call id from this run;
-        its head, camera basis and photo bytes must still be current. Unknown, unseen and stale evidence refuses.
+        Use a stable id. Cite a delivered compare_look_to_photos or finish review call id from this run; its model
+        head and photo bytes must still be current and the camera set it used unchanged (an older camera set you
+        chose is fine). Unknown, unseen and stale evidence refuses; a comparison that cannot count says why.
         Open updates retain all previously affected refs and record this observation's coverage separately.
         Fixed or limitation must cover every affected ref in the current cited comparison.
         Set best=True to explicitly select this compared current head as this run's formal best in the same

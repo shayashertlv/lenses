@@ -254,13 +254,26 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
         answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
                             ("required_refs", "review_call_id", "unavailable", "appearance_is_information", "evidence_reuse")
                             if key in body["review"]}
-    if isinstance(body.get("contacts"), dict) and isinstance(body["contacts"].get("near_misses"), list):
+    def contact_rows(contact, at):
         # Near misses between parts are a structural fact; the first rows are never sampled away.
-        contact = body["contacts"]
-        answer["contacts"] = {"near_misses": contact["near_misses"][:8], "complete": contact.get("complete"),
-                              "touching_pairs": contact.get("touching_pairs"), "rule": contact.get("rule")}
+        rows = {"near_misses": contact["near_misses"][:8], "complete": contact.get("complete"),
+                "touching_pairs": contact.get("touching_pairs"), "rule": contact.get("rule")}
         if len(contact["near_misses"]) > 8 or contact.get("omitted_near_misses"):
-            answer["contacts"]["read_pointer"] = _pointer(_pointer(pointer, "contacts"), "near_misses")
+            rows["read_pointer"] = _pointer(at, "near_misses")
+        return rows
+    if isinstance(body.get("contacts"), dict) and isinstance(body["contacts"].get("near_misses"), list):
+        answer["contacts"] = contact_rows(body["contacts"], _pointer(pointer, "contacts"))
+    nested = body.get("result")
+    if isinstance(nested, dict) and isinstance(nested.get("contacts"), dict) and isinstance(nested["contacts"].get("near_misses"), list):
+        # scene_summary: the worker's report sits inside the tool's journal envelope (10-22 run: Astra paged it 4 times).
+        answer["result"] = {"contacts": contact_rows(nested["contacts"], _pointer(_pointer(pointer, "result"), "contacts"))}
+    if str(body.get("schema", "")).startswith("g3d.photo_read") and isinstance(body.get("readings"), list):
+        # One line per measured point, with every warning's code and message (10-22 run: 2 paging turns).
+        answer["readings"] = [{key: row.get(key) for key in ("name", "kind", "status", "temple_side", "xyz_mm", "sd_xyz_mm",
+                                                              "residual_px", "consistent_with_stated_error")}
+                              | {"warnings": [{"code": w.get("code"), "message": w.get("message")}
+                                              for w in row.get("warnings") or [] if isinstance(w, dict)]}
+                              for row in body["readings"] if isinstance(row, dict)]
     if "surface_quality" in body:
         answer["surface_quality"] = summarize(body["surface_quality"], _pointer(pointer, "surface_quality"),
             width=width, levels=max(1, levels), string_chars=string_chars)
