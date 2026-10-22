@@ -1,5 +1,56 @@
 # glasses3d progress
 
+## 2026-10-22 — Paid Oakley run on decision-20261022: $25 cutoff draft, brow joined (Claude)
+
+**Owner approval, verbatim:** "Yes, start the paid Astra Oakley run with the decision-20261022 instructions at max
+effort and a $25 settled cutoff."
+
+**The run.**
+- Job `oakley-oo9208-v2-ad74f639`, run `20261022T133042-2441c6`.
+- Inputs are byte-identical to the 10-21 job: photos, labels, description and specs, with the same brief hash.
+- Before it started, the owner checked for a reserve-based early cutoff. There is none in settled-only mode: in
+  10-21, requests 75–77 went out with $0.83/$0.65/$0.46 left against worst-case holds of $2.33–$3.46.
+
+**Result.**
+- `budget_limit` at $25.12 after 67 requests, 5,473 s.
+- Draft from formal best `c0007`, GLB `ea320652…`, delivery key `FzQ9eC7hs5B__WOMa9FE2xhR`.
+- The confirming finish was refused because Astra left three items open:
+  - joins: repaired in photos 1–5, but the top camera is unusable;
+  - shape detail: temple roots blocky, pads simplified;
+  - lens optics: violet and green weaker and greyer than the photos.
+
+**Brow, measured on the delivered GLB.**
+- "Continuous vented brow" intersects both lens-lock housings (0.003 mm).
+- The housings touch the temple roots and hinge knuckles (0.001–0.002 mm).
+- In the 10-21 draft the brow missed the locks by 0.74 mm.
+- Remaining near misses: badges about 0.5 mm from the brow, hinge pin caps 0.49 mm.
+
+**Behaviour against the rewrite.**
+- Astra read contacts after building and after structural edits.
+- It recorded joins before shape and lens.
+- Its first correction was the joins.
+- It used compare_look_to_photos after edits (6 calls in 10 scripts).
+- It used match_coating_colours 4 times and compare_lens_candidates 4 times, instead of writing its own physics
+  scripts.
+
+**Money ($25.12).**
+- Astra's scripts: 10 turns, $5.11.
+- Renewals: 4, about $8.5. Each new conversation restarts at 120–143k tokens, so a renewal came about every
+  10 steps.
+- read_report: 15 turns, $3.55.
+- record_difference: 3 turns, $2.53, two of them refused.
+- compare_look_to_photos images re-read on later turns: $1.85.
+
+**Defects found during the run, not fixed (the run was live):**
+1. **Contacts nested in `scene_summary`.** The contacts sit inside the tool envelope at
+   `result.result.contacts`, so the summary hid the rows and Astra paged them 4 times (about $0.80).
+   `_must_show` must look one level down.
+2. **Evidence bound to the newest camera basis.** Astra compared on `basis-01` after a refit made `basis-02`, so
+   its record_difference (with best=True) and inline updates were refused with a misleading "unknown evidence_ref".
+   It recovered with save_checkpoint best=True.
+3. **Renewal carry-over too large** (about $8.5 in all).
+4. **`photo_read` warnings paged** (2 turns).
+
 ## 2026-10-22 — Audit applied: decision-20261022 default, contact report, inline fit table, coating search (Claude, $0)
 
 **Authorization.** Claude asked: "Shall I apply the instruction rewrite and the tool fixes now, at $0?" The owner,
