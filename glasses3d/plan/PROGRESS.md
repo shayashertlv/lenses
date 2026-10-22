@@ -1,5 +1,17 @@
 # glasses3d progress
 
+## 2026-10-22 — Owner verdict on the candidates-tool lab lenses
+
+**Verdict.** The owner judged batch `candidates/20261021T200713Z-14df836d` live in AR. Verbatim: "trial 3 looks best
+(almost identical the "favorite"). trial 4 looks pretty good."
+
+**Against the lab metric.** The metric ranked trial 4 first (23.20) and trial 3 third (25.98). Again the owner's
+on-face eye differs from the white-background metric.
+
+**Against earlier batches.** Two of four look good, the same rate as the worn-first batch (trials 3 and 4). The lab
+therefore does not show the candidates tool beating task 18's setup on lens quality. Its expected gain is fewer paid
+requests per lens decision, which only a paid run can show.
+
 ## 2026-10-22 — Claude finished E5 and task 24 while Codex is out of usage ($0)
 
 Owner, verbatim: "Claude, finish E5 and task 24 yourself from the saved patches while Codex is out, with the same
