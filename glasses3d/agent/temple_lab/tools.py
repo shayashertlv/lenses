@@ -65,8 +65,11 @@ latest note's layout, whatever the parent).
 Annotations are evaluated eagerly (no __future__ import): the tools close over the lab's photo-id Literals.
 """
 import asyncio
+import base64
+import hashlib
 import json
 import math
+import re
 import time
 from typing import Annotated, Literal, Union
 
@@ -79,6 +82,7 @@ from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from glasses3d.agent.money import astra_money
+from glasses3d.agent import image_delivery
 from glasses3d.agent.loop import FATAL_TOOL_ERRORS, RunSettings, fatal_tool_errors, footer_text, sdk_timeout_s
 from glasses3d.agent.seeing import GRID_STATION_MM, TEMPLE_ROI_MIN_PX, ZOOM_MIN_PX
 from glasses3d.agent.tool_reports import bounded_tool, limit_output, report_tool
@@ -339,6 +343,67 @@ def output(result: dict, footer: str) -> list:
     out = [ToolOutputText(text=result_text(result, footer))]
     out += [ToolOutputImage(image_url=data_url(p), detail="high") for p in result.get("images") or []]
     return out
+
+
+def _update_image_receipt(value, call_id, records):
+    """Adjust only this new output's transport fields; native panel provenance stays intact."""
+    if isinstance(value, dict):
+        index = value.get("output_index")
+        record = records.get(index) if type(index) is int else None
+        if (value.get("call_id") == call_id and record is not None
+                and value.get("sha256") == record["sha256"]):
+            value.update(record)
+        for child in value.values():
+            _update_image_receipt(child, call_id, records)
+    elif isinstance(value, list):
+        for child in value:
+            _update_image_receipt(child, call_id, records)
+
+
+def _reference_images(lab, call_id, name, emitted):
+    """Filter encoded image bytes without decoding/re-encoding pixels or editing old outputs."""
+    pending = dict(getattr(lab, "_emitted_images", {}))
+    unseen = getattr(lab, "_unseen", getattr(lab, "unseen", ()))
+    out, records, reused = list(emitted), {}, False
+    for index, part in enumerate(out):
+        url = getattr(part, "image_url", None)
+        if (getattr(part, "type", None) != "image" or not isinstance(url, str)
+                or not re.match(r"^data:image/[A-Za-z0-9.+-]+;base64,", url)):
+            continue  # Opaque provider ids/remote URLs have no provable byte identity.
+        digest = hashlib.sha256(base64.b64decode(url.split(",", 1)[1], validate=True)).hexdigest()
+        record = {"call_id": call_id, "sha256": digest, "output_index": index}
+        previous = pending.get(digest)
+        if name != "photo_image" and previous is not None and previous not in unseen:
+            record.update(output_index=None, reused_from_call=previous)
+            out[index] = ToolOutputText(text=f"Image: call {call_id}; sha256 {digest}."
+                                       + image_delivery.reference_text(lab, digest, previous))
+            reused = True
+        else:
+            pending[digest] = call_id
+        records[index] = record
+    if reused and out and getattr(out[0], "type", None) == "text":
+        body, end = json.JSONDecoder().raw_decode(out[0].text)
+        if isinstance(body.get("image_receipt"), dict):
+            receipt = body["image_receipt"]
+            _update_image_receipt(receipt, call_id, records)
+            if "output_index" not in receipt:
+                receipt["deliveries"] = list(records.values())
+            out[0] = ToolOutputText(text=json.dumps(body, ensure_ascii=False, separators=(",", ":"),
+                                                  allow_nan=False) + out[0].text[end:])
+    return out, pending, records, reused
+
+
+def _record_image_delivery(lab, call_id, pending, records, reused):
+    # The output's text/report has succeeded. Later outer-limiter failures are marked unseen.
+    if reused and hasattr(lab, "state_lock"):
+        with lab.state_lock:
+            for record in lab.state.get("stage_images", []):
+                if record.get("call_id") == call_id:
+                    _update_image_receipt(record, call_id, records)
+        lab.save()
+    lab._emitted_images = pending
+    if reused:
+        lab._referenced_image_calls = {*getattr(lab, "_referenced_image_calls", ()), call_id}
 
 
 # --------------------------------------------------------------------------------------------- registry
@@ -664,11 +729,16 @@ def registry(lab, settings=None) -> list:
                 emitted = lab.tool_output(result, footer_of(ctx), call_id, name)
             else:
                 emitted = output(result, footer_of(ctx))
+            if image_delivery.enabled(lab):
+                emitted, pending, records, reused = _reference_images(lab, call_id, name, emitted)
+                emitted = limit_output(getattr(lab, "root", None), call_id, name, emitted)
+                _record_image_delivery(lab, call_id, pending, records, reused)
+                return emitted
             return limit_output(getattr(lab, "root", None), call_id, name, emitted)
         except BaseException:
             # The SDK may turn an image/report encoding error into an ordinary error string. Mark it unseen here,
             # before that conversion, so an angle comparison can never become selectable without its images.
-            if name == "facet_crease_compare":
+            if name == "facet_crease_compare" or image_delivery.enabled(lab):
                 lab.mark_unseen(call_id)
             raise
 
@@ -764,22 +834,30 @@ def registry(lab, settings=None) -> list:
         t.params_json_schema = without_titles(t.params_json_schema)
     bounded = [bounded_tool(item, getattr(lab, "root", None)) for item in tools]
     for item in bounded:
-        if item.name != "facet_crease_compare":
-            continue
         invoke = item.on_invoke_tool
+        name = item.name
 
-        async def delivered(ctx, arguments, invoke=invoke):
-            call_id = getattr(ctx, "tool_call_id", "facet_crease_compare")
+        async def delivered(ctx, arguments, invoke=invoke, name=name):
+            call_id = getattr(ctx, "tool_call_id", name)
             try:
                 result = await invoke(ctx, arguments)
+                if name != "facet_crease_compare":
+                    return result
                 has_images = isinstance(result, list) and any(getattr(p, "type", None) == "image" for p in result)
-                if has_images and hasattr(lab, "mark_delivered"):
+                referenced = (image_delivery.enabled(lab)
+                              and call_id in getattr(lab, "_referenced_image_calls", ())
+                              and call_id not in getattr(lab, "_unseen", getattr(lab, "unseen", ())))
+                if (has_images or referenced) and hasattr(lab, "mark_delivered"):
                     lab.mark_delivered(call_id, "facet_crease_compare")
-                elif not has_images:
+                elif not has_images and not referenced:
                     lab.mark_unseen(call_id)
                 return result
             except BaseException:
-                lab.mark_unseen(call_id)
+                # The original error must always propagate unchanged; marking is bookkeeping only.
+                if name == "facet_crease_compare":
+                    lab.mark_unseen(call_id)
+                elif image_delivery.enabled(lab) and hasattr(lab, "mark_unseen"):
+                    lab.mark_unseen(call_id)
                 raise
 
         item.on_invoke_tool = delivered

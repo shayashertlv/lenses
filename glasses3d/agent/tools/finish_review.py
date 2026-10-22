@@ -17,6 +17,14 @@ class PhotoDifference(LegacyPhotoDifference):
     difference_ids: list[str] | None = None
 
 
+def reuse_look(scene, export, review_call_id=None):
+    """Only first finish may cite a complete, current, already-delivered look."""
+    if review_call_id is not None:
+        return None
+    from ..look_evidence import reusable
+    return reusable(scene, export)
+
+
 def evidence(root, head, export):
     """Independently verify the frozen basis and its actual photo/camera bytes."""
     result = {"checkpoint": head["id"], "fingerprint": head["fingerprint"],
@@ -98,6 +106,9 @@ def apply(scene, result, review_call_id, per_photo, difference_updates=None):
                         "appearance_is_information": True,
                         "unavailable": binding.get("unavailable")}
     decision = differences.enabled(scene)
+    reused = result["look_comparison"].get("evidence_reuse") if decision else None
+    if reused:
+        result["review"]["evidence_reuse"] = reused
     rows = [item.model_dump(exclude_none=True) if isinstance(item, LegacyPhotoDifference) else item
             for item in (per_photo or [])]
     valid_rows = all(isinstance(row, dict) and {"ref", "differences"} <= set(row)
@@ -128,6 +139,9 @@ def apply(scene, result, review_call_id, per_photo, difference_updates=None):
             inspection + "Then call finish again "
             "with this call's review_call_id and one nonblank differences entry (or 'none') per required ref. "
             "If there are no usable photo cameras, return an empty per_photo list and acknowledge the unavailable evidence.")
+        if reused:
+            result["message"] = (f"Reuse the unchanged full look from call {reused['call_id']}, whose images are still above. "
+                                 + result["message"])
         result["review"]["review_call_id"] = result["call_id"]
         if decision:
             try:

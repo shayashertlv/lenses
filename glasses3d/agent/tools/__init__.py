@@ -24,6 +24,7 @@ from ..seeing import VIEWS_PER_SHEET
 from ..money import astra_money, money_facts
 from ..tool_reports import bounded_tool, limit_output, report_tool
 from .. import differences
+from .. import image_delivery, look_evidence
 from . import arview, look, finish_review, model_map, owner_edit, owner_preview, lens_candidates, camera_choice
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
@@ -214,7 +215,7 @@ def _output(scene, call_id, name, result):
         records = [{**meta, "call_id": call_id, "kind": name, "checkpoint": scene.s.head["id"],
                     "view": ", ".join(record["view"] for record in sources),
                     "views": [record["view"] for record in sources], "panels": sources, "output_index": 2}]
-    # Only deduplicate bytes delivered during this live scene session, not images from prior runs.
+    # Decision membership is rebuilt from admitted request bytes; legacy keeps its live-scene cache.
     emitted = getattr(scene, "_emitted_images", None)
     if emitted is None:
         emitted = {}
@@ -231,9 +232,13 @@ def _output(scene, call_id, name, result):
                  f"revision {record.get('revision') or record['checkpoint']}; view {record['view']}; "
                  f"sha256 {record['sha256'][:12]}.")
         unseen = getattr(scene, "_unseen", getattr(scene, "unseen", ()))
-        if record["sha256"] in emitted and emitted[record["sha256"]] not in unseen:
+        decision = image_delivery.enabled(scene)
+        if (record["sha256"] in emitted and emitted[record["sha256"]] not in unseen
+                and not (decision and name == "read_image")):
             record.update(reused_from_call=emitted[record["sha256"]], output_index=None)
-            images.append(ToolOutputText(text=label + f" Same image already delivered in call {record['reused_from_call']}."))
+            reference = (image_delivery.reference_text(scene, record["sha256"], record["reused_from_call"])
+                         if decision else f" Same image already delivered in call {record['reused_from_call']}.")
+            images.append(ToolOutputText(text=label + reference))
         else:
             emitted[record["sha256"]] = call_id
             record["output_index"] = len(images) + 2
@@ -373,6 +378,7 @@ def build_tools(scene, settings=None) -> list:
                         owner_preview.mark_delivered(scene, result, True)
                     if name == "edit_report":
                         owner_edit.mark_report_delivered(scene, result, True)
+                    look_evidence.delivered(scene, name, evidence_result, delivered_images=result.get("images"))
                 except BaseException as delivery_error:
                     if name == "labelled_model_map":
                         model_map.mark_delivered(scene.root, result, False)
@@ -671,8 +677,9 @@ def build_tools(scene, settings=None) -> list:
         Look comparisons and finish return
         full pairs and automatic details combined per photo without shrinking; other renders use compact sheets
         with native panels at reported paths.
-        Crop a native panel to inspect small details. Identical images
-        already delivered in this run are referenced by their earlier call without changing conversation history.
+        Crop a native panel to inspect small details. An explicit read_image always attaches the requested
+        image again. Other tools reference exact duplicate bytes still above in this conversation segment;
+        earlier conversation items stay unchanged.
         The images field lists the delivered image or crop evidence.
 
         Args:
@@ -723,6 +730,8 @@ def build_tools(scene, settings=None) -> list:
         for lens colour; photo-background panels support shape, see-through and measurements.
         If review.required_refs carries read_pointer/count instead of a list, retrieve every page with read_report first.
         Scene/camera/photo changes require a new first call; invented or unseen review ids cannot complete finish.
+        An unchanged, hash-verified full look already delivered in this conversation can supply the first review;
+        its exact images are referenced above instead of captured and attached again. Every review requirement remains.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
         A refusal lists every failed quality check with diagnostics. Only accepted completes the run.
         Its status must be accepted; summary records what was built and any remaining differences.
@@ -764,9 +773,13 @@ def build_tools(scene, settings=None) -> list:
                       "image_delivery": "separate",
                       "checkpoint": scene.s.head["id"], "fingerprint": scene.s.head["fingerprint"],
                       "export": exp, "arview": ar, "summary": summary, "failures": failures}
-            result["look_comparison"] = (look.capture(scene.root, exp, cid, worn=ar, combine=True,
-                                          profile=getattr(scene, "instruction_profile", None)) if bound else
-                                         {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"})
+            if bound:
+                reused_look = finish_review.reuse_look(scene, exp, review_call_id=review_call_id)
+                result["look_comparison"] = (reused_look if reused_look is not None else
+                    look.capture(scene.root, exp, cid, worn=ar, combine=True,
+                                 profile=getattr(scene, "instruction_profile", None)))
+            else:
+                result["look_comparison"] = {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"}
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
                               message="Finish checks failed: " + ", ".join(f["check"] for f in failures))

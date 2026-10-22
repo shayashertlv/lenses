@@ -185,6 +185,7 @@ class JobScene(SceneHooks):
         self.active_run_id = run_id
         # A reused scene object may serve a fresh run with no previous conversation.
         self._emitted_images = {}
+        self._segment_images = {}
         self.finish_review = None
         self.save()
 
@@ -351,6 +352,7 @@ class JobScene(SceneHooks):
             previous = (self.finish_review or {}).get("call_id")
             self.finish_review = None
             self._emitted_images = {}
+            self._segment_images = {}
             self.save()
             return {"finish_review_restarted": previous is not None, "previous_review_call_id": previous}
 

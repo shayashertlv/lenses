@@ -244,7 +244,7 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
         answer["apply_materials"] = reference_field(body["apply_materials"], _pointer(pointer, "apply_materials"))
     if isinstance(body.get("review"), dict):
         answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
-                            ("required_refs", "review_call_id", "unavailable", "appearance_is_information")
+                            ("required_refs", "review_call_id", "unavailable", "appearance_is_information", "evidence_reuse")
                             if key in body["review"]}
     if "surface_quality" in body:
         answer["surface_quality"] = summarize(body["surface_quality"], _pointer(pointer, "surface_quality"),

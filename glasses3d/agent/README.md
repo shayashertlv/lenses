@@ -67,6 +67,12 @@ Instructions teach the glasses construction, evidence and stage order, with the 
 `plan/PLAN.md`. Owners' descriptions and specifications remain verbatim and approval-bound. History stays
 append-only: earlier messages and images are never replaced. New tool results use bounded text with lossless
 `read_report` access, and native photo comparisons compose onto pages with additional images for overflow.
+In `decision-20261021`, main and specialist tools reference exact image bytes already present in their conversation;
+an explicit `read_image` or specialist `photo_image` attaches them again. Renewal resets membership from the images carried into
+the new conversation. First finish can reuse a complete delivered look only while its checkpoint, export,
+camera basis, photos and source/transport files still match their hashes and every image remains in context.
+Changed or incomplete evidence is captured afresh; the two-call review and all finish checks remain.
+`legacy-20261021` keeps its prior transmitted behavior. No image is shrunk or recompressed by these reuse rules.
 `save_checkpoint(best=True)` marks this run's draft source if it stops before accepted finish. The M9 safety valve
 checks each candidate before admission: above 80% of the image/byte limit or long-context price step, it requests a
 state summary and continues in a fresh conversation with every owner photo and verified current evidence. Old

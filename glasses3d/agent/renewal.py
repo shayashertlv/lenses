@@ -177,6 +177,11 @@ class ConversationRenewal:
         if tokens is not None:
             items = payload.get("input", [])
             self._previous_input = (len(items), input_digest(items))
+            profile = getattr(getattr(self.spec, "settings", None), "instruction_profile",
+                              getattr(self.scene, "instruction_profile", None))
+            if resolve_profile(profile) != LEGACY_PROFILE:
+                from .image_delivery import sync_context
+                sync_context(self.scene, items)
 
     def check(self, payload, body_bytes, images, tokens):
         reasons = pressure(body_bytes, images, tokens, self.guard.tariff)
