@@ -57,6 +57,13 @@ For lenses, choose **Solid** or **Gradient** with start/end colours and an optio
 Each colour's **takes (%)** sets its region width; adjusting one distributes the remainder proportionally.
 **Blend** softens the boundaries. **Centre to sides** mirrors about the bridge; **Left to right** spans the entire
 lens extent; **Top to bottom** spans each connected lens surface's height. A single shield stays continuous.
+**Around a point** puts the start colour in the centre and the other colours in outward rings. The same takes
+and Blend controls set ring widths and softness. Move the centre on the lens or with **Left / right** and
+**Up / down**; **Roundness** runs from Circle to Wide oval and increases the horizontal reach. Pairs start at
+each lens's own projected centre and mirror horizontal movement about the bridge; a shield has one shared centre.
+Radial colour controls link the editable lens materials, including lenses split across several materials; optical
+controls still affect the selected material. A lens with an existing colour texture keeps its pattern and is
+explicitly excluded from the linked rings. Markings remain excluded.
 Every colour can come from a colour box or the photo picker. Other parts use solid colour; on a colour texture,
 it tints the existing pattern. A gradient cannot replace an authored lens colour texture; solid tint still works.
 

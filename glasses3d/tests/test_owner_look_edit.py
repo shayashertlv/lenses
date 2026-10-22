@@ -71,7 +71,8 @@ def selected(source, index=0):
 def spec(direction="left_to_right", blend=.5):
     return {"direction": direction, "colours": [
         {"colour": [1, 0, 0], "share": 25}, {"colour": [0, 1, 0], "share": 50},
-        {"colour": [0, 0, 1], "share": 25}], "blend": blend}
+        {"colour": [0, 0, 1], "share": 25}], "blend": blend,
+        **({"centre": [0, 0], "roundness": 1} if direction == "around_point" else {})}
 
 
 @pytest.mark.parametrize("existing_uv", [False, True])
@@ -101,7 +102,7 @@ def test_gradient_appends_image_uv_and_receipts_without_changing_existing_ranges
     view = result["bufferViews"][image["bufferView"]]
     raw = after_binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]]
     with Image.open(io.BytesIO(raw)) as im:
-        assert im.size == (1024, 1)
+        assert im.size == (1024, 1024 if direction == "around_point" else 1)
         pixels = np.asarray(im)
     # These intermediate texels exist independently of the coarse mesh's eight
     # vertices. Mirrored gradients naturally repeat their texels on both halves.

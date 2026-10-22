@@ -1,4 +1,4 @@
-"""E4 browser/generality proof on copied deliveries and explicit imported fixtures.
+"""E4/E5 browser/generality proof on copies and explicit imported fixtures.
 
 The input manifest is private evidence: [{label, job?, delivery_id?, model}].
 Imported assets get a fixture-only draft and a clearly labelled placeholder,
@@ -159,7 +159,7 @@ def ar_evidence(loaded):
 def audit_saved(original, loaded, record):
     """Independent saved-value and preservation checks using retained evidence."""
     from glasses3d.agent.owner_lens_edit import _parse
-    from glasses3d.agent.owner_look_edit import read_materials
+    from glasses3d.agent.owner_look_edit import _application, read_materials
     assert loaded["report_data"]["tool_test"] is True
     assert loaded["report_data"]["accepted_finish"] is False
     assert loaded["report_data"]["validate_spec"]["ok"] is True
@@ -189,6 +189,22 @@ def audit_saved(original, loaded, record):
     assert len(requested) == len(record["values"]), "Duplicate requested material"
     for index, values in requested.items():
         assert after_values[index] == values, f"Saved appearance differs from the owner request on material {index}"
+    radial = record.get("radial_material_indices", [])
+    if radial:
+        application = _application(loaded)
+        patch_values = application["owner_lens_edit"]["patch"]["values"]
+        saved_entries = application["owner_look_edit"]["look"]["entries"]
+        material_names = {row["material_index"]: row["material_name"]
+                          for row in read_materials(loaded["model"])["materials"]}
+        assert record["radial_reopened_exact"] is True
+        for index in radial:
+            spec = requested[index]["gradient"]
+            assert spec["direction"] == "around_point"
+            assert spec["centre"] == [0, 0] and spec["roundness"] == 1
+            assert patch_values[str(index)]["gradient"] == spec
+            matching = [entry for entry in saved_entries if entry["role"] == "lens"
+                        and entry["material_name"] == material_names[index]]
+            assert len(matching) == 1 and matching[0]["values"]["gradient"] == spec
     changed = {index for index, values in requested.items() if before_values[index] != values}
     assert len(before_doc["materials"]) == len(after_doc["materials"])
     for index, material in enumerate(before_doc["materials"]):
@@ -203,6 +219,8 @@ def audit_saved(original, loaded, record):
     return {"delivery_id": loaded["id"], "sha256": loaded["glb_sha256"],
         "existing_binary_ranges_unchanged": True, "original_geometry_normals_unchanged": True,
         "requested_appearance_values_exact": True, "unchanged_material_json_exact": True,
+        "radial_receipt_and_reusable_look_exact": bool(radial),
+        "radial_material_indices": radial,
         "changed_material_indices": sorted(changed), "ar": comparison,
         "checks": {key: loaded["report_data"][key] for key in ("validate_spec", "seating", "print_check", "arview")}}
 
@@ -256,6 +274,9 @@ def audit_existing(out, prepared, name="audit.json"):
             assert record["opened"] and record["ar"]
             assert all(record["edits"].get(key) is True for key in ("solid", "see_through", "mirror", "shine", "shimmer",
                        "top_to_bottom", "left_to_right", "centre_to_sides"))
+            if "around_point" in proof.get("features", []):
+                assert all(record["edits"].get(key) is True for key in ("around_point", "radial_centre", "roundness"))
+                assert record["radial_material_indices"]
             item = {"label": row["label"], "original_and_copied_source_unchanged": True, **expected}
             if record.get("saved_key"):
                 rec = registry_record(record["saved_key"])
@@ -316,7 +337,8 @@ def serve_and_prove(out, prepared, port):
     thread.start()
     while not server.started and thread.is_alive():
         time.sleep(.05)
-    proof = {"schema": "g3d.e4_generality/1", "started_at": procs.utcnow(), "api_requests": 0, "spend_usd": 0}
+    proof = {"schema": "g3d.e4_generality/1", "features": ["around_point"],
+             "started_at": procs.utcnow(), "api_requests": 0, "spend_usd": 0}
     try:
         child = subprocess.run(["node", str(Path(__file__).with_suffix(".mjs")), str(out / "browser-config.json")],
                                cwd=REPO, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

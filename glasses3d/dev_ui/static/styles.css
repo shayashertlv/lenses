@@ -38,6 +38,11 @@ body[data-page="general-edit"] main {max-width: 1760px; padding-bottom: 7rem;}
 .gradient-shares {display:flex; height:8px; width:100%; border:1px solid #9ba7b4; margin-top:.75rem;}
 .gradient-shares span {display:block; height:100%;}
 .gradient-blend-preview {display:block; width:100%; height:24px; border:1px solid #9ba7b4; margin-top:.25rem;}
+.gradient-blend-preview.radial {height:auto; aspect-ratio:2/1;}
+.gradient-centres {position:absolute; inset:0; pointer-events:none; z-index:2; overflow:hidden;}
+.gradient-centre-handle {position:absolute; transform:translate(-50%,-50%); pointer-events:auto; width:28px; height:28px; padding:0; border:2px solid white; border-radius:50%; background:#17394ee6; box-shadow:0 0 0 1px #17394e; color:white; font-size:21px; line-height:22px; cursor:move; touch-action:none;}
+.gradient-centre-handle:focus-visible {outline:3px solid #ffb300; outline-offset:3px;}
+.radial-slider-ends {display:flex; justify-content:space-between; color:#596675; font-size:.8rem;}
 .general-controls input[type="range"] {padding:0; border:0; height:26px; background:transparent; accent-color:#185f9f;}
 .lens-photo-dialog #general-photo-canvas {display:block; max-width:100%; max-height:60vh; margin:auto; object-fit:contain;}
 @media(max-width:1100px) {.general-layout {grid-template-columns:115px minmax(280px,1fr) 265px; gap:.65rem;} .general-controls {padding:.6rem;} .general-footer {gap:.4rem;} .general-footer button {padding:.4rem .55rem;}}

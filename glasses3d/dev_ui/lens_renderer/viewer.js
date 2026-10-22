@@ -14,6 +14,7 @@ export const RENDERER_POLICY = Object.freeze({three_revision: REVISION, lens_env
   scene_environment: SCENE_ENVIRONMENT_INTENSITY, renderer: 'TryOnRenderer', camera_path: 'poseCamera',
   hair: false, shadows: false, guard: false});
 const identityKey = 'g3dOwnerLensMaterialIndex';
+const primitiveKey = 'g3dOwnerPrimitiveIdentity';
 const physicalFields = Object.freeze({transmission: 'transmission', metallic: 'metalness', roughness: 'roughness',
   ior: 'ior', iridescence: 'iridescence', iridescence_ior: 'iridescenceIOR'});
 
@@ -25,6 +26,10 @@ function indexPlugin(indices) {
     afterRoot(gltf) {
       gltf.scene.traverse(object => {
         if (!object.isMesh) return;
+        const association = parser.associations.get(object);
+        if (association?.meshes !== undefined) object.userData[primitiveKey] = {
+          mesh_index: association.meshes, primitive_index: association.primitives ?? 0,
+        };
         for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
           const index = parser.associations.get(material)?.materials;
           if (indices.has(index)) material.userData[identityKey] = index;
@@ -98,6 +103,7 @@ export class LensColourViewer {
     this.lastLighting = null;
     this.materials.clear();
     this.authoredPositions = new Map();
+    this.radialSurfaceData = new Map();
     const bounds = new Box3();
     for (const part of this.instance.parts()) {
       if (part.overlay) continue;
@@ -185,14 +191,19 @@ export class LensColourViewer {
   setExplicitCamera(camera) {this.explicit = structuredClone(camera); this.requestRender();}
 
   /** Pick canonical geometry through the exact camera used for the AR draw. */
-  pick(normalized) {
-    if (!this.instance) return null;
-    const spec = this.cameraSpec(), camera = this.camera.clone();
+  projectionCamera(spec = this.cameraSpec()) {
+    const camera = this.camera.clone();
     camera.matrixWorldInverse.fromArray(spec.view).transpose();
     camera.matrixWorld.copy(camera.matrixWorldInverse).invert();
     camera.matrixWorld.decompose(camera.position, camera.quaternion, camera.scale);
     camera.projectionMatrix.fromArray(projectionMatrix(spec));
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    return camera;
+  }
+
+  pick(normalized) {
+    if (!this.instance) return null;
+    const spec = this.cameraSpec(), camera = this.projectionCamera(spec);
     const ray = new Raycaster(); ray.setFromCamera(new Vector2(normalized[0] * 2 - 1, 1 - normalized[1] * 2), camera);
     const sources = new Map();
     const meshes = this.instance.parts().filter(part => !part.overlay).map(part => {
@@ -206,8 +217,57 @@ export class LensColourViewer {
     const canonical = vertices.reduce((point, vertex, i) => point.addScaledVector(vertex, hit.barycoord.getComponent(i)), new Vector3());
     const normal = vertices[1].clone().sub(vertices[0]).cross(vertices[2].clone().sub(vertices[0])).normalize();
     if (hit.face.normal.dot(ray.ray.direction) > 0) normal.negate();
-    return {material_index: material.userData[identityKey], normalized, position_mm: canonical.multiplyScalar(1000).toArray(),
+    return {material_index: material.userData[identityKey], ...sources.get(hit.object).userData[primitiveKey],
+      vertex_indices: [hit.face.a, hit.face.b, hit.face.c], normalized, position_mm: canonical.multiplyScalar(1000).toArray(),
       surface_normal: normal.toArray(), rendered_position_mm: hit.point.clone().multiplyScalar(1000).toArray(), camera: spec};
+  }
+
+  /** Place the draggable centre on its actual component, using the same canonical
+   * coordinates and isotropic projection metadata as the saved texture. */
+  radialCentres(row, gradient) {
+    if (!this.instance || !row?.radial_projection || gradient?.direction !== 'around_point') return [];
+    const camera = this.projectionCamera(), centres = new Map();
+    for (const surface of row.radial_projection.surfaces) {
+      const key = surface.lens_id !== undefined ? String(surface.lens_id) : row.radial_projection.mode === 'single' ? 'shared'
+        : JSON.stringify([surface.centre, surface.half_extent, surface.mirror_x]);
+      const part = this.instance.parts().find(part => !part.overlay
+        && part.mesh.userData[primitiveKey]?.mesh_index === surface.mesh_index
+        && part.mesh.userData[primitiveKey]?.primitive_index === surface.primitive_index);
+      if (!part) continue;
+      const positions = this.authoredPositions.get(part.mesh);
+      const cacheKey = `${surface.mesh_index}:${surface.primitive_index}:${surface.component}`;
+      let data = this.radialSurfaceData.get(cacheKey);
+      if (!data) {
+        const allowed = index => surface.vertex_ranges.some(([low, high]) => index >= low && index <= high);
+        let z = 0, count = 0;
+        for (const [low, high] of surface.vertex_ranges) for (let index = low; index <= high; index++) {z += positions.getZ(index); count++;}
+        const indices = part.mesh.geometry.index, triangles = [];
+        for (let i = 0; i + 2 < (indices?.count ?? positions.count); i += 3) {
+          const ids = [0, 1, 2].map(j => indices ? indices.getX(i + j) : i + j);
+          if (allowed(ids[0])) triangles.push(ids.map(index => [positions.getX(index), positions.getY(index), positions.getZ(index)]));
+        }
+        data = {z: z / (count || 1), triangles}; this.radialSurfaceData.set(cacheKey, data);
+      }
+      const x = surface.centre[0] + gradient.centre[0] * surface.half_extent[0] * surface.mirror_x;
+      const y = surface.centre[1] + gradient.centre[1] * surface.half_extent[1];
+      let point = null;
+      // At a projected triangle interior interpolate its authored depth. The
+      // outside-extent centre remains movable by the sliders at mean depth.
+      for (const [a, b, c] of data.triangles) {
+        const area = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+        if (Math.abs(area) < 1e-15) continue;
+        const u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / area;
+        const v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / area;
+        if (u >= -1e-6 && v >= -1e-6 && u + v <= 1 + 1e-6) {
+          const candidate = new Vector3(x, y, u * a[2] + v * b[2] + (1 - u - v) * c[2]).project(camera);
+          if (!point || candidate.z < point.z) point = candidate;
+        }
+      }
+      point ??= new Vector3(x, y, data.z).project(camera);
+      if (!centres.has(key) || point.z < centres.get(key).depth) centres.set(key, {key, surface, depth: point.z,
+        normalized: [(point.x + 1) / 2, (1 - point.y) / 2], visible: point.z >= -1 && point.z <= 1});
+    }
+    return [...centres.values()];
   }
 
   viewportSize() {
@@ -259,6 +319,7 @@ export class LensColourViewer {
       nearCm: camera.near * METRES_TO_SCENE, farCm: camera.far * METRES_TO_SCENE,
       ...(camera.temple_pose ? {temple_pose: camera.temple_pose} : {})});
     this.instance.render(null, {hair: false, shadows: false, guard: false});
+    this.host.dispatchEvent(new Event('lens-render'));
   }
 
   capture() {

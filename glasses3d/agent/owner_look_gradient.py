@@ -5,10 +5,23 @@ Shares are positive region widths summing to 100. At each region boundary,
 The transition is smoothstep in linear RGB; the embedded PNG stores sRGB bytes.
 Centre-to-sides uses an ordinary linear X UV and a mirrored image, so even a
 single triangle crossing the bridge interpolates correctly (unlike abs(X) UVs).
+
+Around-a-point uses affine XY coordinates, never interpolated vertex distances.
+Its circle radius is half the projected lens height. Roundness (1..4) multiplies
+the horizontal radius only. Both UV axes use the SAME scale, radius * roundness;
+the square PNG evaluates the elliptical distance. Every edge of this square is
+at radius >= 1, so clamp-to-edge preserves the end colour even on very wide lenses
+or when the centre is moved to an edge. Centre offsets (-1..1) are fractions of
+the projected half-width/half-height; +Y is up. Disconnected surfaces on both
+sides of X=0 get their own extent centre and mirrored horizontal offsets (+X
+means outwards). Front/back sheets and material splits on the same side share
+one logical lens's union extent. Otherwise all lens surfaces share their union
+extent centre.
 """
 from __future__ import annotations
 
 import io
+from functools import lru_cache
 import math
 import struct
 
@@ -17,7 +30,7 @@ from PIL import Image
 
 from . import owner_lens_edit as lens
 
-DIRECTIONS = {"centre_to_sides", "top_to_bottom", "left_to_right"}
+DIRECTIONS = {"centre_to_sides", "top_to_bottom", "left_to_right", "around_point"}
 WIDTH = 1024
 KEY = "g3dOwnerGradient"
 SCHEMA = "g3d.owner_gradient/1"
@@ -26,9 +39,13 @@ SCHEMA = "g3d.owner_gradient/1"
 def validate_gradient(value):
     if value is None:
         return None
-    if (not isinstance(value, dict) or set(value) != {"direction", "colours", "blend"}
+    if (not isinstance(value, dict) or not isinstance(value.get("direction"), str)
             or value["direction"] not in DIRECTIONS):
-        raise ValueError("Choose Centre to sides, Top to bottom or Left to right for the gradient.")
+        raise ValueError("Choose Centre to sides, Top to bottom, Left to right or Around a point for the gradient.")
+    radial = value["direction"] == "around_point"
+    expected = {"direction", "colours", "blend"} | ({"centre", "roundness"} if radial else set())
+    if set(value) != expected:
+        raise ValueError("Provide the gradient controls, including centre and roundness only for Around a point.")
     colours = value["colours"]
     if not isinstance(colours, list) or not 2 <= len(colours) <= 3:
         raise ValueError("A gradient needs two or three colours; use Solid for one colour.")
@@ -45,8 +62,14 @@ def validate_gradient(value):
         result.append({"colour": [lens._number(x, 0, 1, "Gradient colour") for x in rgb], "share": share})
     if not math.isclose(sum(row["share"] for row in result), 100, rel_tol=0, abs_tol=1e-7):
         raise ValueError("The colour takes shares must add up to 100%.")
-    return {"direction": value["direction"], "colours": result,
-            "blend": lens._number(value["blend"], 0, 1, "Blend")}
+    clean = {"direction": value["direction"], "colours": result,
+             "blend": lens._number(value["blend"], 0, 1, "Blend")}
+    if radial:
+        if not isinstance(value["centre"], list) or len(value["centre"]) != 2:
+            raise ValueError("The gradient centre needs Left / right and Up / down values.")
+        clean.update(centre=[lens._number(x, -1, 1, "Gradient centre") for x in value["centre"]],
+                     roundness=lens._number(value["roundness"], 1, 4, "Roundness"))
+    return clean
 
 
 def sample_gradient(value, positions):
@@ -71,13 +94,34 @@ def sample_gradient(value, positions):
 
 def image_bytes(value):
     value = validate_gradient(value)
+    # Centre moves only UVs. Keep a small cache of immutable encoded PNGs so live
+    # dragging and authenticated rereads do not rasterize the same million pixels.
+    return _image_bytes(value["direction"], tuple((tuple(row["colour"]), row["share"])
+                        for row in value["colours"]), value["blend"], value.get("roundness"))
+
+
+@lru_cache(maxsize=16)
+def _image_bytes(direction, colours, blend, roundness):
+    value = {"direction": direction, "colours": [{"colour": list(rgb), "share": share} for rgb, share in colours],
+             "blend": blend}
+    if direction == "around_point":
+        value.update(centre=[0, 0], roundness=roundness)
     u = (np.arange(WIDTH, dtype=np.float64) + .5) / WIDTH
     if value["direction"] == "centre_to_sides":
         u = np.abs(2 * u - 1)
+    elif value["direction"] == "around_point":
+        # Ellipse maths belongs in the image. Affine, isotropic UVs then work
+        # inside even a two-triangle lens with no vertex near the centre.
+        x = 2 * u - 1
+        u = np.hypot(x[None, :], value["roundness"] * x[:, None])
+        # Clamp samples the outer texel centres, just inside the square. Keep
+        # those perimeter texels at the endpoint even for sub-texel end shares.
+        u[[0, -1], :] = 1
+        u[:, [0, -1]] = 1
     linear = sample_gradient(value, u)
     srgb = np.where(linear <= .0031308, linear * 12.92, 1.055 * linear ** (1 / 2.4) - .055)
-    rgba = np.full((1, WIDTH, 4), 255, dtype=np.uint8)
-    rgba[0, :, :3] = np.floor(srgb * 255 + .5).astype(np.uint8)
+    rgba = np.full((WIDTH if value["direction"] == "around_point" else 1, WIDTH, 4), 255, dtype=np.uint8)
+    rgba[:, :, :3] = np.floor(srgb * 255 + .5).astype(np.uint8)
     output = io.BytesIO()
     Image.fromarray(rgba).save(output, format="PNG", compress_level=9)
     return output.getvalue()
@@ -155,18 +199,68 @@ def projection_data(doc, binary, lens_indices):
     a, b = triangles[:, [0, 1, 2]].reshape(-1), triangles[:, [1, 2, 0]].reshape(-1)
     graph = coo_matrix((np.ones(len(a), dtype=np.uint8), (a, b)), shape=(len(unique), len(unique)))
     n, labels = connected_components(graph, directed=False)
-    low, high = np.full(n, np.inf), np.full(n, -np.inf)
-    np.minimum.at(low, labels, unique[:, 1])
-    np.maximum.at(high, labels, unique[:, 1])
+    low, high = np.full((n, 2), np.inf), np.full((n, 2), -np.inf)
+    np.minimum.at(low, labels, unique[:, :2])
+    np.maximum.at(high, labels, unique[:, :2])
+    # Surface topology, including material boundaries, decides pair or shield.
+    # Front/back sheets may be disconnected. A side's sheets/materials share one
+    # logical lens extent; a shield's sheets share the complete union extent.
+    sides = np.where(high[:, 0] <= 0, -1, np.where(low[:, 0] >= 0, 1, 0))
+    pair = bool((sides != 0).all() and (sides == -1).any() and (sides == 1).any())
+    radial_low = np.broadcast_to(low.min(axis=0), low.shape).copy()
+    radial_high = np.broadcast_to(high.max(axis=0), high.shape).copy()
+    if pair:
+        for side in [-1, 1]:
+            mask = sides == side
+            radial_low[mask] = low[mask].min(axis=0)
+            radial_high[mask] = high[mask].max(axis=0)
     for row in rows:
         start, size = row["offset"], len(row["positions"])
         ids = labels[weld[start:start + size]]
-        row.update(ymin=low[ids], ymax=high[ids])
+        row.update(ymin=low[ids, 1], ymax=high[ids, 1], components=ids,
+                   radial_mode="pair" if pair else "single",
+                   radial_centre=(radial_low[ids] + radial_high[ids]) / 2,
+                   radial_half_extent=(radial_high[ids] - radial_low[ids]) / 2,
+                   radial_mirror_x=sides[ids] if pair else np.ones(size, dtype=int))
     return rows, float(all_points[:, 0].min()), float(all_points[:, 0].max())
 
 
-def coordinates(row, direction, xmin, xmax):
+def radial_projection(rows, material_index):
+    """JSON layout for converting a picked canonical triangle into centre controls."""
+    surfaces = []
+    for row in rows:
+        if row["material"] != material_index:
+            continue
+        for component in np.unique(row["components"]):
+            indices = np.flatnonzero(row["components"] == component)
+            first = indices[0]
+            breaks = np.flatnonzero(np.diff(indices) > 1)
+            starts = indices[np.r_[0, breaks + 1]]
+            ends = indices[np.r_[breaks, len(indices) - 1]]
+            surfaces.append({"mesh_index": row["mesh"], "primitive_index": row["primitive"],
+                "component": int(component), "vertex_ranges": np.column_stack((starts, ends)).tolist(),
+                "lens_id": int(row["radial_mirror_x"][first]) if row["radial_mode"] == "pair" else 0,
+                "centre": row["radial_centre"][first].tolist(),
+                "half_extent": row["radial_half_extent"][first].tolist(),
+                "mirror_x": int(row["radial_mirror_x"][first])})
+    return {"mode": rows[0]["radial_mode"], "surfaces": surfaces}
+
+
+def coordinates(row, direction, xmin, xmax, spec=None):
     p = row["positions"]
+    if direction == "around_point":
+        spec = validate_gradient(spec)
+        if spec is None or spec["direction"] != direction:
+            raise ValueError("Around a point needs its centre and roundness controls.")
+        centre = row["radial_centre"].copy()
+        half = row["radial_half_extent"]
+        if not (half > 0).all():
+            raise ValueError("Around a point needs a lens with projected width and height.")
+        centre[:, 0] += spec["centre"][0] * half[:, 0] * row["radial_mirror_x"]
+        centre[:, 1] += spec["centre"][1] * half[:, 1]
+        scale = half[:, 1] * spec["roundness"]
+        uv = .5 + (p[:, :2] - centre) * np.array([1, -1]) / (2 * scale[:, None])
+        return uv.astype("<f4").tobytes()
     if direction == "left_to_right":
         denominator = xmax - xmin
         u = (p[:, 0] - xmin) / denominator if denominator > 0 else None

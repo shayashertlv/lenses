@@ -15,10 +15,12 @@ retained in the reusable look and explained in its receipt.
 from __future__ import annotations
 
 import copy
+from collections import OrderedDict
 import json
 from pathlib import Path
 import re
 import struct
+import threading
 
 from . import delivery, edits, owner_lens_edit as lens
 from . import owner_look_gradient as gradient
@@ -26,6 +28,8 @@ from . import owner_look_gradient as gradient
 SCHEMA = "g3d.owner_look/1"
 ROLES = ("lens", "frame", "temple")
 MARKING_STEMS = ("etch", "letter", "inscri", "decal", "logo", "mark", "signature", "laser")
+_RADIAL_LAYOUTS = OrderedDict()
+_RADIAL_LAYOUT_LOCK = threading.Lock()
 
 
 def _marking(*values):
@@ -82,6 +86,18 @@ def _generated(material, doc, chunks):
         binary = next(body for kind, body, _ in chunks if kind == 0x004E4942)
         if type(marker["texcoord"]) is not int or not 0 <= marker["texcoord"] <= 3 or not marker["bindings"]:
             raise ValueError()
+        radial_rows = None
+        if spec is not None and spec["direction"] == "around_point":
+            # Centre affects UVs, not image bytes. Bind the saved parameters to
+            # the actual affine coordinates, not merely a caller-provided hash.
+            ownership, _ = _ownership(doc)
+            material_index = next(i for i, row in enumerate(doc["materials"]) if row is material)
+            rows, xmin, xmax = gradient.projection_data(doc, binary,
+                {i for i, row in ownership.items() if row["role"] == "lens"})
+            radial_rows = {(row["mesh"], row["primitive"]): row for row in rows if row["material"] == material_index}
+            declared = [(row["mesh"], row["primitive"]) for row in marker["bindings"]]
+            if len(declared) != len(set(declared)) or set(declared) != set(radial_rows):
+                raise ValueError()
         for binding in marker["bindings"]:
             primitive = doc["meshes"][binding["mesh"]]["primitives"][binding["primitive"]]
             index = primitive["attributes"][f"TEXCOORD_{marker['texcoord']}"]
@@ -90,6 +106,9 @@ def _generated(material, doc, chunks):
             uv = gradient._accessor(doc, binary, index).astype("<f4").tobytes()
             position = gradient._accessor(doc, binary, primitive["attributes"]["POSITION"])
             if lens._sha(uv) != binding["uv_sha256"] or len(uv) != len(position) * 8:
+                raise ValueError()
+            if radial_rows is not None and uv != gradient.coordinates(
+                    radial_rows[(binding["mesh"], binding["primitive"])], "around_point", xmin, xmax, spec):
                 raise ValueError()
         if spec is not None:
             binding = material["pbrMetallicRoughness"]["baseColorTexture"]
@@ -128,10 +147,37 @@ def _values(value):
             "gradient": gradient.validate_gradient(value.get("gradient"))}
 
 
+def _radial_layout(source_sha, doc, chunks, ownership):
+    # Cache compact JSON metadata, not source GLBs or per-vertex numpy arrays.
+    # Read-only inspection must remain available for old/unsupported geometry;
+    # attempting a gradient still performs the exact geometry checks in patch_glb.
+    with _RADIAL_LAYOUT_LOCK:
+        if source_sha in _RADIAL_LAYOUTS:
+            _RADIAL_LAYOUTS.move_to_end(source_sha)
+            return copy.deepcopy(_RADIAL_LAYOUTS[source_sha])
+    result = {}
+    try:
+        indices = {i for i, row in ownership.items() if row["role"] == "lens"}
+        if indices:
+            binary = next(body for kind, body, _ in chunks if kind == 0x004E4942)
+            rows, _, _ = gradient.projection_data(doc, binary, indices)
+            result = {i: gradient.radial_projection(rows, i) for i in indices}
+    except (ValueError, StopIteration):
+        pass
+    with _RADIAL_LAYOUT_LOCK:
+        _RADIAL_LAYOUTS[source_sha] = result
+        _RADIAL_LAYOUTS.move_to_end(source_sha)
+        while len(_RADIAL_LAYOUTS) > 16:
+            _RADIAL_LAYOUTS.popitem(last=False)
+    return copy.deepcopy(result)
+
+
 def read_materials(source_glb):
     payload = lens._payload(source_glb)
     doc, chunks = lens._parse(payload)
     ownership, refused = _ownership(doc)
+    source_sha = lens._sha(payload)
+    radial_layout = _radial_layout(source_sha, doc, chunks, ownership)
     rows = []
     for index, authority in ownership.items():
         material = doc["materials"][index]
@@ -140,13 +186,14 @@ def read_materials(source_glb):
         rows.append({"material_index": index, "name": material.get("name", f"Material {index + 1}"),
             "material_name": material.get("name"), **authority, "values": values,
             "gradient": values["gradient"], "has_colour_texture": authored_texture,
+            "radial_projection": radial_layout.get(index),
             "can_gradient": authority["role"] == "lens" and not authored_texture,
             "can_transmission": authority["role"] == "lens" or
                 "KHR_materials_transmission" in material.get("extensions", {}),
             "colour_note": "Colour tints the existing pattern." if authored_texture else "",
             "gradient_refusal": "This lens already has a colour texture. Solid colour tints it; gradient would replace it."
                 if authored_texture and authority["role"] == "lens" else None})
-    return {"schema": SCHEMA, "glb_sha256": lens._sha(payload), "materials": rows,
+    return {"schema": SCHEMA, "glb_sha256": source_sha, "materials": rows,
             "roles": [role for role in ROLES if any(row["role"] == role for row in rows)], "refusals": refused}
 
 
@@ -224,7 +271,7 @@ def patch_glb(source_glb, values_by_material, *, _allow_empty=False):
                 texture = appender.texture(value["gradient"])
                 owner_bindings = []
                 for row in targets:
-                    uv = gradient.coordinates(row, value["gradient"]["direction"], xmin, xmax)
+                    uv = gradient.coordinates(row, value["gradient"]["direction"], xmin, xmax, value["gradient"])
                     accessor = appender.uv(uv)
                     primitive = after["meshes"][row["mesh"]]["primitives"][row["primitive"]]
                     previous_accessor = primitive["attributes"].get(f"TEXCOORD_{texcoord}")

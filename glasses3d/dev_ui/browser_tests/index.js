@@ -6,4 +6,5 @@ require('./lens-colour.test.mjs');
 require('./e3-lens-colour.test.mjs');
 require('./general-edit.test.mjs');
 require('./e4c-clarity.test.mjs');
+require('./e5-radial.test.mjs');
 require('./atomic-replace.test.mjs');

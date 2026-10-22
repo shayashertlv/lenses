@@ -226,5 +226,14 @@ def lens_swatch(rows):
         direction = "left_to_right"
     stops = ", ".join(f"{color} {position * 100:g}%" for color, position in zip(colors, positions))
     angle = "to bottom" if direction == "top_to_bottom" else "to right"
+    if direction == "around_point":
+        # List chips are 22 px high. Use equal pixel radii for Circle even when
+        # the Copy and Versions chips have different widths. This is a colour
+        # summary, not an optical render or a model-specific lens projection.
+        x, y = gradient["centre"]
+        shape = f"ellipse {10 * gradient['roundness']:g}px 10px at {50 + 50 * x:g}% {50 - 50 * y:g}%"
+        css = f"radial-gradient({shape}, {stops})"
+    else:
+        css = colors[0] if len(colors) == 1 else f"linear-gradient({angle}, {stops})"
     return {"colors": colors, "positions": [x * 100 for x in positions], "direction": direction,
-            "css": colors[0] if len(colors) == 1 else f"linear-gradient({angle}, {stops})"}
+            "css": css}

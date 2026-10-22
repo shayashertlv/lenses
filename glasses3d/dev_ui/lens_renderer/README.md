@@ -32,6 +32,19 @@ canvas before replacing the displayed frame because disposing the production
 renderer deliberately loses its canvas's WebGL context. Orbit, pan, zoom and an
 explicit fitted photo camera survive the replacement.
 
+Around-a-point gradients use the canonical X/Y plane. Their centre starts at the
+midpoint of each lens's projected extent. The saved `centre: [x,y]` values are
+offsets in projected halfwidth/halfheight units, from -1 to 1; pair X offsets are
+mirrored by side of the bridge. `roundness` is the horizontal/vertical radius
+ratio, from 1 (circle) to 4 (wide oval). With `R` the projected halfheight, the
+vertical reach is R and horizontal reach is R times roundness. Both UV axes use
+the same scale, `2 * R * roundness`; the PNG evaluates elliptical distance in
+that plane. Shares remain radial widths, not area percentages. No vertex stores
+a radial distance: affine planar UVs keep circles round even on coarse triangles.
+The texture's outer edges already hold the end colour, so clamping outside its
+square cannot truncate a shifted ring. The full gradient spec, including centre,
+roundness, stops and blend, is retained in look receipts and reapplication.
+
 `pick([x,y])` takes normalized canvas coordinates and raycasts the currently
 rendered geometry. It returns the material index and both rendered and authored
 positions. Frozen photo temple openings rotate private geometry in the production

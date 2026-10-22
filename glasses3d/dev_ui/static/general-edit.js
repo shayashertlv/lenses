@@ -32,13 +32,15 @@ export async function generalEditPage(host, key) {
   let viewer, colourAtAngle, selected = Math.max(0, rows.findIndex(row => row.role === 'lens')), activePhoto = 0, before = false, compareKey = key;
   let copySourceKey = null, listsBusy = false;
   let disposed = false, busy = false, ready = false, allowLeave = false, previewTimer, requestVersion = 0, previewChain = Promise.resolve();
-  let lastPick = null, saveRequest = null;
+  let lastPick = null, saveRequest = null, radialDragging = false;
   const dialogs = new Set();
   const error = el('p', {class: 'error', role: 'alert', hidden: true});
   const status = el('span', {id: 'edit-state', role: 'status'}, 'Loading preview…');
   const showError = cause => {error.hidden = false; error.textContent = cause?.message || String(cause);};
   const clearError = () => {error.hidden = true; error.textContent = '';};
   const stage = el('div', {id: 'general-viewer', class: 'viewer general-viewer', 'aria-label': 'AR appearance preview', 'aria-busy': 'true'});
+  const centreOverlay = el('div', {class: 'gradient-centres'});
+  stage.append(centreOverlay);
   const photoOverlay = el('img', {class: 'photo-wipe', alt: 'Selected reference photo', hidden: true});
   const viewport = el('div', {class: 'general-viewport'}, stage, photoOverlay);
   const photoNote = el('p', {id: 'photo-angle-note', role: 'status', class: 'muted'});
@@ -119,10 +121,21 @@ export async function generalEditPage(host, key) {
     controls.querySelectorAll('input, select, button').forEach(control => {if (control !== shape && control !== parts) control.disabled = disabled || control.dataset.unavailable === 'true';});
     status.textContent = busy ? 'Working…' : !ready ? 'Loading preview…' : history.dirty ? 'Unsaved changes' : 'Saved version';
     beforeButton.setAttribute('aria-pressed', String(before)); afterButton.setAttribute('aria-pressed', String(!before));
+    updateCentreHandles();
   }
   function change(mutator, commit = true, rebuild = true) {
     if (busy) return;
-    history.update(all => mutator(all[selected].values), commit); clearError(); before = false;
+    history.update(all => {
+      const previousGradient = clone(all[selected].values.gradient);
+      mutator(all[selected].values);
+      const selectedRow = all[selected], gradient = selectedRow.values.gradient;
+      if (gradient?.direction === 'around_point' && selectedRow.radial_projection
+          && !equal(previousGradient, gradient)) {
+        for (const row of all) if (row.role === 'lens' && row.can_gradient && row.radial_projection) {
+          row.values.gradient = clone(gradient);
+        }
+      }
+    }, commit); clearError(); before = false;
     if (rebuild) renderControls(); refresh(); schedulePreview();
   }
   function changed() {before = false; renderControls(); refresh(); schedulePreview();}
@@ -174,13 +187,31 @@ export async function generalEditPage(host, key) {
         if (colours.length === 2) {colours.forEach(c => {c.share *= .7;}); colours.splice(1, 0, {colour: [1, 1, 1], share: 30});}
         else {colours.splice(1, 1); const total = colours[0].share + colours[1].share; colours.forEach(c => {c.share = c.share / total * 100;});}
       })}));
-      const direction = el('select', {id: 'gradient-direction', 'aria-label': 'Gradient direction'}, ...[['centre_to_sides', 'Centre to sides'], ['top_to_bottom', 'Top to bottom'], ['left_to_right', 'Left to right']].map(([value, label]) => el('option', {value}, label)));
-      direction.value = v.gradient.direction; direction.addEventListener('change', () => change(next => {next.gradient.direction = direction.value;}));
+      const direction = el('select', {id: 'gradient-direction', 'aria-label': 'Gradient direction'}, ...[['centre_to_sides', 'Centre to sides'], ['top_to_bottom', 'Top to bottom'], ['left_to_right', 'Left to right'], ['around_point', 'Around a point']].map(([value, label]) => el('option', {value}, label)));
+      direction.value = v.gradient.direction; direction.addEventListener('change', () => change(next => {
+        next.gradient.direction = direction.value;
+        if (direction.value === 'around_point') {next.gradient.centre = [0, 0]; next.gradient.roundness = 1;}
+        else {delete next.gradient.centre; delete next.gradient.roundness;}
+      }));
       section.append(el('label', {}, 'Direction', direction));
+      if (v.gradient.direction === 'around_point') {
+        radialSlider(section, 'Left / right', 'gradient-centre-x', v.gradient.centre[0], -1, 1,
+          number => {change(next => {next.gradient.centre[0] = number;}, false, false);});
+        radialSlider(section, 'Up / down', 'gradient-centre-y', v.gradient.centre[1], -1, 1,
+          number => {change(next => {next.gradient.centre[1] = number;}, false, false);});
+        radialSlider(section, 'Roundness', 'gradient-roundness', v.gradient.roundness, 1, 4,
+          number => {change(next => {next.gradient.roundness = number;}, false, false);}, 'Circle', 'Wide oval');
+        section.append(el('p', {class: 'lens-help'}, row.radial_projection?.mode === 'pair'
+          ? 'Paired lenses share these rings. Drag either centre on the lens, or use the sliders; the other centre moves in mirror.'
+          : 'The lens surfaces share these rings and one centre. Drag the centre on the lens, or use the sliders.'));
+        if (history.current.some(peer => peer.role === 'lens' && !peer.can_gradient)) {
+          section.append(el('p', {class: 'notice'}, 'A lens with an existing colour texture keeps its own pattern and is excluded from these rings.'));
+        }
+      }
       slider(section, 'Blend', v.gradient.blend, number => {change(next => {next.gradient.blend = number;}, false, false); renderGradientPreview();}, 'Sharp to soft');
       section.append(el('div', {id: 'gradient-shares', class: 'gradient-shares', role: 'img'}),
         el('canvas', {id: 'gradient-blend-preview', class: 'gradient-blend-preview', width: 256, height: 20, role: 'img', 'aria-label': 'Gradient colour and blend preview'}),
-        el('p', {class: 'lens-help'}, v.gradient.direction === 'centre_to_sides' ? 'Side · centre · side' : v.gradient.direction === 'top_to_bottom' ? 'Top → bottom' : 'Left → right'));
+        el('p', {class: 'lens-help'}, v.gradient.direction === 'around_point' ? 'Start at the centre · middle and end in rings' : v.gradient.direction === 'centre_to_sides' ? 'Side · centre · side' : v.gradient.direction === 'top_to_bottom' ? 'Top → bottom' : 'Left → right'));
       renderGradientPreview();
     }
     if (row.can_transmission) slider(fields, 'See-through', v.transmission, number => change(next => {next.transmission = number;}, false, false));
@@ -249,10 +280,10 @@ export async function generalEditPage(host, key) {
     }));
     bar.setAttribute('aria-label', gradient.colours.map((row, index) => `${names[index]} ${Number(row.share.toFixed(1))}%`).join(', '));
     // The same region boundaries and linear-RGB smoothstep as the saved gradient texture.
+    const radial = gradient.direction === 'around_point';
+    canvas.height = radial ? 128 : 20; canvas.classList.toggle('radial', radial);
     const context = canvas.getContext('2d'), colours = gradient.colours;
-    for (let x = 0; x < canvas.width; x++) {
-      let position = (x + .5) / canvas.width;
-      if (gradient.direction === 'centre_to_sides') position = Math.abs(2 * position - 1);
+    const sample = position => {
       let boundary = 0, rgb = colours.at(-1).colour;
       for (const row of colours) {boundary += row.share / 100; if (position < boundary) {rgb = row.colour; break;}}
       boundary = 0;
@@ -264,8 +295,105 @@ export async function generalEditPage(host, key) {
           rgb = colours[i].colour.map((value, channel) => value * (1 - mix) + colours[i + 1].colour[channel] * mix);
         }
       }
-      context.fillStyle = tintToHex(rgb); context.fillRect(x, 0, 1, canvas.height);
+      return tintToHex(rgb);
+    };
+    if (radial) {
+      const image = context.createImageData(canvas.width, canvas.height);
+      const lookup = Array.from({length: 1024}, (_, i) => sample(i / 1023).slice(1).match(/../g).map(byte => parseInt(byte, 16)));
+      const radius = canvas.height / 2, cx = canvas.width / 2 + gradient.centre[0] * canvas.width / 2,
+        cy = canvas.height / 2 - gradient.centre[1] * canvas.height / 2;
+      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+        const position = Math.min(1, Math.hypot((x + .5 - cx) / (radius * gradient.roundness), (y + .5 - cy) / radius));
+        const rgb = lookup[Math.round(position * 1023)], offset = (y * canvas.width + x) * 4;
+        image.data.set([...rgb, 255], offset);
+      }
+      context.putImageData(image, 0, 0);
+    } else for (let x = 0; x < canvas.width; x++) {
+      let position = (x + .5) / canvas.width;
+      if (gradient.direction === 'centre_to_sides') position = Math.abs(2 * position - 1);
+      context.fillStyle = sample(position); context.fillRect(x, 0, 1, canvas.height);
     }
+  }
+  function radialSlider(parent, name, id, value, min, max, onInput, start, end) {
+    const input = el('input', {id, type: 'range', min, max, step: .01, value, 'aria-label': name});
+    const format = number => id === 'gradient-roundness' ? `${Number(number.toFixed(2))}×` : `${Math.round(number * 100)}%`;
+    const output = el('output', {htmlFor: id}, format(value));
+    input.addEventListener('input', () => {output.textContent = format(Number(input.value)); onInput(Number(input.value)); renderGradientPreview(); updateCentreHandles();});
+    input.addEventListener('change', () => {history.commit(); refresh();});
+    parent.append(el('div', {class: 'general-slider'}, el('label', {}, name, output, input),
+      start ? el('div', {class: 'radial-slider-ends'}, el('span', {}, start), el('span', {}, end)) : null));
+  }
+  function updateCentreHandles() {
+    const row = current(), gradient = row?.values.gradient;
+    const visible = viewer && ready && !busy && !before && gradient?.direction === 'around_point';
+    centreOverlay.hidden = !visible;
+    if (!visible) return;
+    const linkedRows = history.current.filter(peer => peer.role === 'lens' && peer.can_gradient && peer.values.gradient?.direction === 'around_point');
+    const uniqueCentres = new Map();
+    for (const peer of linkedRows) for (const centre of viewer.radialCentres(peer, peer.values.gradient)) {
+      if (!uniqueCentres.has(centre.key) || centre.depth < uniqueCentres.get(centre.key).depth) {
+        uniqueCentres.set(centre.key, {...centre, material_index: peer.material_index});
+      }
+    }
+    const centres = [...uniqueCentres.values()], retained = new Set();
+    centres.forEach((centre, index) => {
+      retained.add(centre.key);
+      let handle = [...centreOverlay.children].find(node => node.dataset.centre === centre.key);
+      if (!handle) {
+        handle = button('+', {class: 'gradient-centre-handle', 'data-centre': centre.key,
+          'aria-label': `Gradient centre ${index + 1}. Drag on the lens or use arrow keys.`});
+        handle.addEventListener('pointerdown', event => {
+          if (event.button !== 0 || busy) return;
+          event.preventDefault(); event.stopPropagation(); handle.focus();
+          radialDragging = true; clearTimeout(previewTimer); viewer.controls.enabled = false;
+          handle.setPointerCapture(event.pointerId);
+        });
+        handle.addEventListener('pointermove', event => {
+          if (!radialDragging || !handle.hasPointerCapture(event.pointerId)) return;
+          const box = viewer.canvas.getBoundingClientRect();
+          const pick = viewer.pick([(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height]);
+          const peer = pick && history.current.find(peer => peer.material_index === pick.material_index && peer.role === 'lens'
+            && peer.can_gradient && peer.radial_projection);
+          if (!peer) return;
+          const surface = peer.radial_projection?.surfaces.find(surface => surface.mesh_index === pick.mesh_index
+            && surface.primitive_index === pick.primitive_index && surface.vertex_ranges.some(([low, high]) => pick.vertex_indices[0] >= low && pick.vertex_indices[0] <= high));
+          if (!surface) return;
+          const centre = [(pick.position_mm[0] / 1000 - surface.centre[0]) / (surface.half_extent[0] * surface.mirror_x),
+            (pick.position_mm[1] / 1000 - surface.centre[1]) / surface.half_extent[1]].map(value => Math.max(-1, Math.min(1, value)));
+          change(next => {next.gradient.centre = centre;}, false, false); syncCentreSliders(); renderGradientPreview();
+        });
+        const finish = event => {
+          if (!radialDragging) return;
+          radialDragging = false; viewer.controls.enabled = true;
+          if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+          history.commit(); refresh(); schedulePreview(); event.stopPropagation();
+        };
+        handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish);
+        handle.addEventListener('click', event => event.stopPropagation());
+        handle.addEventListener('keydown', event => {
+          const delta = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1]}[event.key];
+          if (!delta) return;
+          event.preventDefault(); event.stopPropagation();
+          const surface = handle.radialSurface, step = event.shiftKey ? .1 : .01;
+          change(next => {next.gradient.centre = next.gradient.centre.map((value, axis) => Math.max(-1, Math.min(1,
+            value + delta[axis] * step * (axis === 0 ? surface.mirror_x : 1))));}, true, false);
+          syncCentreSliders(); renderGradientPreview();
+        });
+        centreOverlay.append(handle);
+      }
+      handle.radialSurface = centre.surface;
+      const [x, y] = centre.normalized;
+      handle.hidden = !centre.visible || x < 0 || x > 1 || y < 0 || y > 1;
+      handle.style.left = `${100 * x}%`; handle.style.top = `${100 * y}%`;
+    });
+    for (const handle of [...centreOverlay.children]) if (!retained.has(handle.dataset.centre)) handle.remove();
+  }
+  function syncCentreSliders() {
+    values().gradient.centre.forEach((value, axis) => {
+      const id = axis === 0 ? 'gradient-centre-x' : 'gradient-centre-y', input = fields.querySelector(`#${id}`);
+      if (input) input.value = value;
+      const output = fields.querySelector(`output[for="${id}"]`); if (output) output.textContent = `${Math.round(value * 100)}%`;
+    });
   }
   function slider(parent, name, value, onInput, note) {
     const input = el('input', {type: 'range', min: 0, max: 1, step: .01, value, 'aria-label': name});
@@ -321,6 +449,7 @@ export async function generalEditPage(host, key) {
   function schedulePreview() {
     stage.setAttribute('aria-busy', 'true');
     clearTimeout(previewTimer); const version = ++requestVersion;
+    if (radialDragging) return;
     previewTimer = setTimeout(() => {previewChain = previewChain.then(async () => {
       if (!viewer || disposed || version !== requestVersion) return;
       try {
@@ -384,10 +513,11 @@ export async function generalEditPage(host, key) {
   try {
     const renderer = await import('/lens-renderer/lens-renderer.js'); colourAtAngle = renderer.coatingSwatchRGB;
     viewer = await renderer.createLensColourViewer(stage, {modelUrl: dto.source.model_url, materials: rows}); ready = true; stage.setAttribute('aria-busy', 'false'); refresh();
+    stage.addEventListener('lens-render', updateCentreHandles);
     let down;
     stage.addEventListener('pointerdown', event => {down = [event.clientX, event.clientY];});
     stage.addEventListener('click', event => {
-      if (!down || Math.hypot(event.clientX - down[0], event.clientY - down[1]) > 5 || before) return;
+      if (!down || event.target.closest('.gradient-centre-handle') || Math.hypot(event.clientX - down[0], event.clientY - down[1]) > 5 || before) return;
       const box = viewer.canvas.getBoundingClientRect(), pick = viewer.pick([(event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height]);
       if (!pick) return; const index = rows.findIndex(row => row.material_index === pick.material_index);
       if (index < 0) {showError('This part has no separate editable role, or shares its material across roles.'); return;}
