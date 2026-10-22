@@ -18,7 +18,7 @@ def test_candidates_camera_and_best_are_decision_only_and_named(phase):
         assert name in names
         assert T.sdk_timeout_s(name) > T.inner_steps_s(name)
     assert "best" in names["record_difference"].params_json_schema["properties"]
-    text = I.build_instructions(tools, owner_edit=owner)
+    text = I.build_instructions(tools, owner_edit=owner, profile="decision-20261021")
     assert I.named_tools(text) == set(names)
     assert len(text) < I.MAX_INSTRUCTION_CHARS
     assert "affected refs persist" in text and "resolution needs all refs" in text
@@ -29,8 +29,8 @@ def test_candidates_camera_and_best_are_decision_only_and_named(phase):
 
 
 def test_new_teaching_describes_choices_without_parameters_or_promotion_default():
-    tools = build_tools(SimpleNamespace())
-    text = I.build_instructions(tools)
+    tools = build_tools(SimpleNamespace(instruction_profile="decision-20261021"))
+    text = I.build_instructions(tools, profile="decision-20261021")
     assert "Do not rule out\nuntested options by prediction alone" in text
     assert "Astra chooses every value" in text
     assert "Photographic arm opening is separate from camera orientation" in text

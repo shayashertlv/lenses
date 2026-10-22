@@ -8,11 +8,11 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 
-from .instruction_profiles import DEFAULT_PROFILE, resolve_profile
+from .instruction_profiles import LEGACY_PROFILE, resolve_profile
 
 
 def _enabled(scene):
-    return resolve_profile(getattr(scene, "instruction_profile", None)) == DEFAULT_PROFILE
+    return resolve_profile(getattr(scene, "instruction_profile", None)) != LEGACY_PROFILE
 
 
 def _unseen(scene):

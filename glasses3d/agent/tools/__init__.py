@@ -26,6 +26,8 @@ from ..tool_reports import bounded_tool, limit_output, report_tool
 from .. import differences
 from .. import image_delivery, look_evidence
 from . import arview, look, finish_review, model_map, owner_edit, owner_preview, lens_candidates, camera_choice
+from . import coating_tool
+from ..instruction_profiles import offers_tool
 from .images import compact_sheet, MAX_IMAGE_SIDE, LOOK_IMAGE_SIDE, IMAGE_POLICY
 from .seating import SEAT_TOOL_NAMES, seat_tools
 from .seating_report import repair_report
@@ -35,7 +37,7 @@ from .photo_read import photo_read_tool
 
 TOOL_NAMES = ("execute_blender_code", "load_font", "scene_summary", "save_checkpoint", "list_checkpoints",
               "restore_checkpoint", "fit_cameras", "render_views", "compare_to_photos", "pick_surface_point", "photo_read",
-              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map", "record_difference", "compare_lens_candidates", "choose_camera_orientation")
+              "export_glb", "arview_capture", "compare_look_to_photos", "read_image", "budget_status", "finish") + SEAT_TOOL_NAMES + ("temple_stage", "photo_print", "read_report", "labelled_model_map", "record_difference", "compare_lens_candidates", "choose_camera_orientation", "match_coating_colours")
 FATAL = FATAL_TOOL_ERRORS
 
 
@@ -280,6 +282,20 @@ def _finish_export_failures(scene, export):
     return bound, failures
 
 
+def _contacts(scene, cid):
+    """The finish review's near-miss contact report: information only, never a finish check."""
+    try:
+        read = scene.s.call_read("finish", "contacts", {}, deadline_s=hard_timeout_s("scene_summary"),
+                                 call_id=cid + "-contacts")
+    except FATAL:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        return {"status": "unavailable", "message": str(error)[:300]}
+    if read.get("status") != "ok" or not isinstance(read.get("result"), dict):
+        return {"status": "unavailable", "message": str(read.get("message"))[:300]}
+    return read["result"]
+
+
 def build_tools(scene, settings=None) -> list:
     """Build without starting Blender; the exact registry is available for estimation and approval."""
     def timeout_text(name):
@@ -414,7 +430,8 @@ def build_tools(scene, settings=None) -> list:
 
     @tool("execute_blender_code")
     async def execute_blender_code(ctx: ToolContext, code: str, soft_timeout_s: float = 120, label: str = "",
-                                   seating_repair: bool = False):
+                                   seating_repair: bool = False,
+                                   difference_updates: list[differences.DifferenceUpdate] | None = None):
         """Run bpy code in the live scene; validated changes create a checkpoint. Files and imports are restricted.
 
         The exporter accepts only partRole values lens, frame and temple. Tag hardware by its supporting component.
@@ -464,8 +481,7 @@ def build_tools(scene, settings=None) -> list:
         and reporting added flags in normal_fan_encoding.
         Existing sharp flags remain; added flags move no vertices, and equal intended normals stay continuous.
         Inspect added_sharp_edges and the rendered shading. Helpers never relax closed-solid,
-        applicable thickness or strict export checks. In owner edit mode use the labelled, previewed and
-        confirmed owner operations; these construction helpers do not grant extra edit authority.
+        applicable thickness or strict export checks.
 
         g3d.lens_coating(material, factor=..., ior=..., thickness_min_nm=..., thickness_max_nm=..., tint=[r,g,b])
         authors exportable thin-film coating on an active Principled material (or its name). Tint is linear RGB
@@ -478,15 +494,30 @@ def build_tools(scene, settings=None) -> list:
         one frozen camera. Preserve every opening and feature visible in the photos, including vents.
         This visual report and geometric seating results are information to weigh against the photos.
 
+        difference_updates records what the last comparison showed in the same step as the next correction:
+        record_difference items, each citing a delivered look or finish review of the current (pre-edit) head.
+        All are validated and recorded before the code runs; any refusal runs no code and records nothing.
+
         Args:
             code: Python code using bpy and the allowed g3d helpers.
             soft_timeout_s: Soft deadline, 0.5 to 600 seconds.
             label: Short name for the change.
             seating_repair: True for a manual lens/support/eyewire repair; captures frozen front before/after.
+            difference_updates: Optional record_difference items recorded before the code runs; each needs evidence_ref.
         """
         def execute(cid):
+            recorded = None
+            if difference_updates:
+                try:
+                    recorded = differences.record(scene, items=difference_updates, call_id=cid)
+                except differences.DifferenceUpdateError as problem:
+                    return {"status": "refused", "code": "E_ARGS", "message": "No code ran: " + str(problem),
+                            "invalid_difference_ids": problem.invalid_difference_ids, "errors": problem.errors}
             action = lambda: scene.s.execute(code, soft_timeout_s=soft_timeout_s, label=label, call_id=cid)
-            return repair_report(scene, cid, action, FATAL) if seating_repair else action()
+            result = repair_report(scene, cid, action, FATAL) if seating_repair else action()
+            if recorded is not None and isinstance(result, dict):
+                result["recorded_differences"] = [item["id"] for item in recorded["updated_differences"]]
+            return result
         return await call(ctx, "execute_blender_code", execute)
 
     @tool("load_font")
@@ -506,7 +537,10 @@ def build_tools(scene, settings=None) -> list:
     @tool("scene_summary")
     async def scene_summary(ctx: ToolContext, objects: list[str] | None = None):
         """Inspect units, axes, origin, objects, materials, mesh topology and role warnings; null means all objects.
-        Read result.objects for each part's mesh facts, including closed and loose_parts."""
+        Read result.objects for each part's mesh facts, including closed and loose_parts. result.contacts lists
+        near misses: separate parts within 1.5 mm of each other that never come closer than 0.25 mm (about one
+        AR pixel), with the smallest gap, the gap's span and where it is. Compare each with the photos: a gap where
+        the photos show parts joined is a defect; real clearances exist. Information only, not a gate."""
         return await call(ctx, "scene_summary", lambda cid: scene.s.call_read(
             "scene_summary", "scene_summary", {"objects": objects if objects is not None else "all"},
             deadline_s=hard_timeout_s("scene_summary"), call_id=cid))
@@ -558,10 +592,12 @@ def build_tools(scene, settings=None) -> list:
         stages that need a complete camera set.
         Subset refits retain compatible prior fits for the other owner photos; photos without compatible fits
         are fitted too. A failed refit keeps its compatible prior usable fit with the failed attempt reported.
-        Large fit tables are summarized; read_report pages or filters the saved full result without refitting.
+        The result names the frozen basis. decision_table gives one inline row per photo: ref, usable, status, iou,
+        iou_lens_optional, contour_mean_mm, flags, refusal, matte, orientation (with candidate ids and overlays when
+        unresolved), arm_opening and overlay. refs/<ref> holds the complete record; read_report pages it without
+        refitting.
         The default uses seven camera parameters. Optional off-axis fitting adds two lateral-eye coordinates;
         improved silhouette overlap alone does not establish camera angles or metric measurement accuracy.
-        The result identifies basis and refs with each status, iou, contour_mean_mm and flags.
 
         Args:
             reason: Why the current geometry warrants fitting or refitting the cameras.
@@ -733,10 +769,11 @@ def build_tools(scene, settings=None) -> list:
         An unchanged, hash-verified full look already delivered in this conversation can supply the first review;
         its exact images are referenced above instead of captured and attached again. Every review requirement remains.
         No usable cameras is explicitly unavailable evidence: still call twice, with per_photo=[] on the second.
-        A refusal lists every failed quality check with diagnostics. Only accepted completes the run.
-        Its status must be accepted; summary records what was built and any remaining differences.
+        A refusal lists every failed quality check with diagnostics. Only status accepted completes the run;
+        summary records what was built and any remaining differences.
         Seating is a report to weigh against the photos, not a pass requirement; its complete measurements remain
         in export.seat_check and the delivery. Specification, print freshness and export/AR integrity still gate finish.
+        contacts lists separate parts within 1.5 mm that never come closer than 0.25 mm; compare each with the photos.
         Usable photo cameras require complete captured review evidence; EDIT also requires a delivered edit_report.
         Any open list item refuses final acceptance. Reconcile items together in the confirming call's
         difference_updates, or with record_difference: fixed needs a current supporting comparison;
@@ -780,6 +817,8 @@ def build_tools(scene, settings=None) -> list:
                                  profile=getattr(scene, "instruction_profile", None)))
             else:
                 result["look_comparison"] = {"status": "unavailable", "informational_only": True, "code": "E_EXPORT"}
+            if differences.enabled(scene):
+                result["contacts"] = _contacts(scene, cid)
             if failures:
                 result.update(code="E_EXPORT" if any(f["check"] != "arview" for f in failures) else "E_AR",
                               message="Finish checks failed: " + ", ".join(f["check"] for f in failures))
@@ -826,9 +865,15 @@ def build_tools(scene, settings=None) -> list:
             model_map.tool_for(scene, tool, call), differences.tool_for(scene, tool, call)]
     if differences.enabled(scene):
         tools += [lens_candidates.tool_for(scene, tool, call), camera_choice.tool_for(scene, tool, call)]
+    # Owner-edit rounds keep their own frozen teaching, which does not name this product-run search.
+    if offers_tool(getattr(scene, "instruction_profile", None), "match_coating_colours") and not getattr(scene, "owner_edit", None):
+        tools.append(coating_tool.tool_for(scene, tool, call))
     if getattr(scene, "owner_edit", None):
         from .. import owner_edits
         tools += [owner_preview.tool_for(scene, tool, call)] + owner_edit.tools_for(scene, tool, call) + [owner_edits.tool_for(scene, tool, call)]
+        # Owner-edit scope applies only in owner rounds; product runs do not carry this sentence.
+        execute_blender_code.description += ("\nIn owner edit mode use the labelled, previewed and confirmed owner "
+                                             "operations; these construction helpers do not grant extra edit authority.")
     if not differences.enabled(scene):
         from ..instruction_profiles import legacy_tool_text
         tools = legacy_tool_text(tools, owner_edit=getattr(scene, "owner_edit", None))

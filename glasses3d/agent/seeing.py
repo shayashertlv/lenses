@@ -2489,11 +2489,43 @@ class Seeing:
                            "before treating the installed camera as measured."}}
                    if any(orientation_refs.values()) else {}),
                "seconds": round(time.perf_counter() - t0, 1)}
+        out["decision_table"] = [self._fit_decision_row(rid, row) for rid, row in out["refs"].items()]
         if not bs.usable_refs():
             out.update(code="E_FIT_ALL", message="No photo camera fit succeeded; this basis retains the diagnostics. "
                        "The previous usable basis, if any, remains the default.")
         self.s.record_call("fit_cameras", call_id, args, out)
         return out
+
+    @staticmethod
+    def _fit_decision_row(rid, row):
+        """One compact row per photo with the facts the next decision needs, delivered inline. In the 10-21
+        run Astra paged these per photo with read_report (6 turns); refs/<ref> keeps the complete record."""
+        def number(value, digits):
+            return round(value, digits) if isinstance(value, (int, float)) and math.isfinite(value) else None
+
+        def short(value, limit=160):
+            text = None if value is None else str(value)
+            return text if text is None or len(text) <= limit else text[:limit - 1] + "…"
+
+        orientation, opening = row.get("camera_ambiguity") or {}, row.get("photographic_arm_opening") or {}
+        result = {"ref": rid, "view": f"{row.get('view_kind')}/{row.get('view')}", "usable": row.get("usable"),
+                  "status": row.get("status"), "iou": row.get("iou"),
+                  "iou_lens_optional": number(row.get("iou_lens_optional"), 4),
+                  "contour_mean_mm": row.get("contour_mean_mm"), "flags": row.get("flags") or [],
+                  "refusal": short(row.get("refusal") or row.get("message") or row.get("error")),
+                  "matte": row.get("matte_mode"), "orientation": orientation.get("status"),
+                  "arm_opening": {"status": opening.get("status") or (row.get("opening_fit") or {}).get("status"),
+                                  "theta_deg": opening.get("theta_deg")},
+                  "overlay": row.get("overlay")}
+        if orientation.get("status") == "unresolved":
+            result.update(orientation_selected=orientation.get("selected"),
+                          preferred_by_silhouette=orientation.get("preferred_by_silhouette"),
+                          orientation_candidates=[{"id": c.get("id"), "view": c.get("view"),
+                                                   "region": c.get("profile_region"),
+                                                   "iou_lens_optional": number(c.get("iou_lens_optional"), 4),
+                                                   "overlay": c.get("overlay")}
+                                                  for c in orientation.get("candidates", [])])
+        return result
 
     @staticmethod
     def _fit_ref_summary(rec, *, usable, basis_path=None):

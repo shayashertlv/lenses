@@ -62,7 +62,7 @@ HARD_TIMEOUT_S = {
     "fit_cameras": 1800, "project_photo_texture": 1800, "deliver": 600,
     "pick_surface_point": PICK_DEADLINE_S, "read_image": 30, "read_report": 30,
     "scene_summary": READ_DEADLINE_S, "compare_look_to_photos": 750,
-    "finish": 1080, "budget_status": 30, "record_difference": 30,
+    "finish": 1080, "budget_status": 30, "record_difference": 30, "match_coating_colours": 30,
     "compare_lens_candidates": 6 * 2 * (LOOK_CAPTURE_DEADLINE_S + CAPTURE_KILL_WAIT_S),
     "choose_camera_orientation": 180,
     "facet_inspect": 30, "photo_image": 30, "photo_read": 30, "photo_compare": 40,
@@ -199,14 +199,16 @@ def inner_steps_s(tool_name: str, *, photo_count=1, matched_rig=None) -> float |
         "compare_look_to_photos": export + look_steps_s(photo_count=photo_count),
         "compare_lens_candidates": export + 6 * 2 * capture_steps_s(LOOK_CAPTURE_DEADLINE_S),
         "choose_camera_orientation": export + HARD_TIMEOUT_S["choose_camera_orientation"],
-        "finish": export + capture_steps_s(AR_CAPTURE_DEADLINE_S) + look_steps_s(worn=False, photo_count=photo_count) + render,
+        # The decision profiles add one read-only contacts call (the scene_summary deadline) to the review.
+        "finish": (export + capture_steps_s(AR_CAPTURE_DEADLINE_S) + look_steps_s(worn=False, photo_count=photo_count)
+                   + render + read_steps_s(READ_DEADLINE_S)),
         "labelled_model_map": export + read_steps_s(MODEL_MAP_SNAPSHOT_DEADLINE_S) + capture_steps_s(LOOK_CAPTURE_DEADLINE_S),
         "understand_finish": 3 * worker_rpc_steps_s(READ_DEADLINE_S),
         "edit_report": owner_check + export + 2 * look_steps_s(photo_count=photo_count) + worker_rpc_steps_s(READ_DEADLINE_S),
         "facet_owner_edit": read_steps_s(OWNER_SNAPSHOT_DEADLINE_S) + mutation(OWNER_APPLY_DEADLINE_S) + owner_check,
         "preview_owner_edit": ((PREVIEW_OPTIONS_MAX + 3) * worker_rpc_steps_s(READ_DEADLINE_S) +
                                export + look_steps_s(photo_count=photo_count) + PREVIEW_OPTIONS_MAX * option),
-        **{name: HARD_TIMEOUT_S[name] for name in ("read_image", "read_report", "budget_status", "record_difference", "photo_read",
+        **{name: HARD_TIMEOUT_S[name] for name in ("read_image", "read_report", "budget_status", "record_difference", "match_coating_colours", "photo_read",
             "photo_image", "facet_inspect", "project_photo_texture", "deliver")},
         "photo_compare": matched + read_steps_s(HARD_TIMEOUT_S["photo_compare"]),
         "facet_edit": facet_edit,

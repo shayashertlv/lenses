@@ -13,6 +13,7 @@ from agents.tool import ToolOutputImage, ToolOutputText
 from PIL import Image
 
 from ..loop import StageRunFailed
+from ..instruction_profiles import DEFAULT_PROFILE
 from ..money import factual_money_text
 from .lab import Lab, data_url, sha
 from . import tools as T
@@ -21,7 +22,7 @@ from . import tools as T
 def settings(parent=None):
     from ..loop import RunSettings
     return RunSettings(effort=getattr(parent, "effort", "max"),
-                       instruction_profile=getattr(parent, "instruction_profile", "decision-20261021"),
+                       instruction_profile=getattr(parent, "instruction_profile", DEFAULT_PROFILE),
                        max_output_tokens=getattr(parent, "max_output_tokens", 16384), max_turns=None,
                        settled_stop_usd=getattr(parent, "settled_stop_usd", "20"), tool_choice="required",
                        settled_only=getattr(parent, "settled_only", True),

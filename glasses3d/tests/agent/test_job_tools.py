@@ -179,8 +179,9 @@ def test_read_image_only_opens_camera_diagnostic_images(scene, path):
 def test_tool_docs_explain_export_roles_and_hinge_recognition():
     docs = {t.name: t.description for t in T.build_tools(SimpleNamespace())}
     assert "only partRole values lens, frame and temple" in docs["execute_blender_code"]
-    assert "strictly below 3.2 mm" in docs["temple_stage"] and "within" in docs["temple_stage"]
-    assert "4 mm" in docs["temple_stage"] and "do not shrink real hardware" in docs["temple_stage"]
+    # The exact thresholds live in the refusal (test_rigid_pose); the description names the rule and its limits.
+    assert "temple-role knuckle part" in docs["temple_stage"] and "refusal states the exact" in docs["temple_stage"]
+    assert "do not shrink real hardware" in docs["temple_stage"] and "3.2 mm" not in docs["temple_stage"]
 
 
 def test_scene_summary_is_read_only_worker_call(scene):

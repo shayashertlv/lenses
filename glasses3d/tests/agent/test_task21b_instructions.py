@@ -39,11 +39,12 @@ def test_task21b_historical_diff_and_current_batch_guidance():
         assert expected.count(old) == current.count(new) == 1
         expected = expected.replace(old, new)
     assert current == expected
-    tools = build_tools(SimpleNamespace(instruction_profile=DEFAULT_PROFILE))
-    text = I.build_instructions(tools, profile=DEFAULT_PROFILE)
+    # The task-21b sentences belong to the selectable decision-20261021 text.
+    tools = build_tools(SimpleNamespace(instruction_profile="decision-20261021"))
+    text = I.build_instructions(tools, profile="decision-20261021")
     assert all(new in text for _old, new in CHANGED_SENTENCES)
     assert len(text) <= I.MAX_INSTRUCTION_CHARS == 24_000
-    assert contract_problems(I.instruction_contract(tools), instructions=text,
+    assert contract_problems(I.instruction_contract(tools, profile="decision-20261021"), instructions=text,
                              brief="Owner facts.", tools=tools) == []
 
 

@@ -222,6 +222,14 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
     for key in ("review_call_id", "required_refs", "usable_refs", "unusable_refs"):
         if key in body:
             answer[key] = reference_field(body[key], _pointer(pointer, key))
+    if isinstance(body.get("decision_table"), list):
+        # fit_cameras: one compact row per photo is the decision record; it is never sampled. Its rows already
+        # carry each unusable photo's refusal, so a long unusable_refs detail moves behind its read pointer.
+        answer["decision_table"] = body["decision_table"]
+        unusable = body.get("unusable_refs")
+        if isinstance(unusable, dict) and len(dumps(unusable)) > 1500 and not page_refs:
+            answer["unusable_refs"] = {"refs": sorted(unusable), "read_pointer": _pointer(pointer, "unusable_refs"),
+                                       "read_note": "Each refusal is in decision_table; full details are here."}
     if isinstance(body.get("camera_orientation"), dict):
         orientation = body["camera_orientation"]
         answer["camera_orientation"] = {
@@ -246,6 +254,13 @@ def _must_show(body, *, width=2, levels=3, string_chars=120, page_refs=False, po
         answer["review"] = {key: reference_field(body["review"][key], _pointer(_pointer(pointer, "review"), key)) for key in
                             ("required_refs", "review_call_id", "unavailable", "appearance_is_information", "evidence_reuse")
                             if key in body["review"]}
+    if isinstance(body.get("contacts"), dict) and isinstance(body["contacts"].get("near_misses"), list):
+        # Near misses between parts are a structural fact; the first rows are never sampled away.
+        contact = body["contacts"]
+        answer["contacts"] = {"near_misses": contact["near_misses"][:8], "complete": contact.get("complete"),
+                              "touching_pairs": contact.get("touching_pairs"), "rule": contact.get("rule")}
+        if len(contact["near_misses"]) > 8 or contact.get("omitted_near_misses"):
+            answer["contacts"]["read_pointer"] = _pointer(_pointer(pointer, "contacts"), "near_misses")
     if "surface_quality" in body:
         answer["surface_quality"] = summarize(body["surface_quality"], _pointer(pointer, "surface_quality"),
             width=width, levels=max(1, levels), string_chars=string_chars)

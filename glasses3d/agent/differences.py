@@ -70,7 +70,8 @@ def argument_failure(default_failure):
 
 
 def enabled(scene):
-    return getattr(scene, "instruction_profile", "decision-20261021") != "legacy-20261021"
+    from .instruction_profiles import LEGACY_PROFILE, resolve_profile
+    return resolve_profile(getattr(scene, "instruction_profile", None)) != LEGACY_PROFILE
 
 
 def _path(scene):

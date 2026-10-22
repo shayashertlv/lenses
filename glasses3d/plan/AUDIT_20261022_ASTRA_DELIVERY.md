@@ -161,7 +161,7 @@ column counts:
    - `execute_blender_code` carries an owner-edit-mode sentence.
    - `finish` says "Only accepted completes the run. Its status must be accepted".
 
-## Proposed changes (nothing applied yet)
+## Proposed changes (applied 2026-10-22; see the next section)
 
 **A. Rewrite the instructions as one document**, draft below as `decision-20261022`.
 - It is organised as: authority → read the product → work in this order → the revision loop → judging →
@@ -195,7 +195,50 @@ column counts:
 more costs less than several small ones." It is efficiency teaching, not a forecast or limit; the draft marks it.
 
 
-## Draft: `decision-20261022` instructions (proposal, not applied)
+## Applied 2026-10-22 (owner: "go ahead")
+
+The changes below are built and tested at $0. No paid run was made; a paid Oakley run with the same brief is the
+behaviour test, and it is the owner's call.
+
+**A. `decision-20261022` is the default.**
+- It is the draft below with three corrections:
+  - the cutoff sentence and the lens-colour note are now word for word the shared `money.MONEY_INSTRUCTION` and
+    `look.LENS_COLOUR_JUDGEMENT`, so the prompt, the descriptions and the notes keep one voice;
+  - the task-23 lines (arm opening, untested options, `record_difference` best) are kept;
+  - `match_coating_colours` and `difference_updates` are named.
+- 9,548 characters.
+- `decision-20261021` and `legacy-20261021` stay selectable with their exact texts.
+
+**B1. Contact report.**
+- The threshold: closer than 0.25 mm counts as joined, because that is about one AR pixel at face scale. With the
+  first 0.05 mm rule, the accepted models listed 27 invisible 0.08–0.2 mm emblem and bezel gaps.
+- On the 10-21 draft, 13 near misses, including "Left/Right sculpted shield lock ↔ Sculpted black brow rail
+  0.736/0.737 mm, span 5.7/5.5 mm at x ±63.28". The accepted models have no brow–lock row.
+- Accepted models still list small separate ribs and emblems, so it stays information for Astra to judge against
+  the photos.
+- It runs in about 0.1 s per model.
+
+**B2. `decision_table`.**
+- On the real 10-21 fit results, all six photo rows stay inline (11.6k of the 12k text limit).
+- The failed photo's long detail moves behind a read pointer.
+
+**B3. `match_coating_colours`.**
+- It is byte-equal to the Edit page's JavaScript on every tested case, including identical choices.
+- The Oakley targets give 444 nm / film 1.8 at lens IOR 6 in 0.03 s.
+- It is offered only with `decision-20261022` in product runs.
+
+**B4. Changed from the proposal.**
+- Inline updates on `compare_look_to_photos` would be written before Astra sees that call's images, so they went on
+  `execute_blender_code` instead.
+- There, they are recorded before the code runs, while the cited comparison still matches the scene. That covers
+  10-21's compare → record → edit pattern without a separate turn.
+
+**B5. Trims.**
+- Temple thresholds moved to the refusal, which already states them.
+- The owner-edit sentence is added only in owner rounds.
+- The duplicate finish line is removed.
+
+## Draft: `decision-20261022` instructions (as proposed; the applied text is in `agent/instructions.py`)
 
 About 7,900 characters, against 10,092 now and 15,940 in the legacy text. Every rule from the owner's decisions is
 kept. **[owner]** marks the one sentence that needs the owner's decision. The "which tool when" table names only

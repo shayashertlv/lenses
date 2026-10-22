@@ -9,12 +9,35 @@ import pytest
 from glasses3d.agent import instructions as I
 from glasses3d.agent.brief import MODEL_REQUIREMENTS
 from glasses3d.agent.loop import REMOVED_PHRASES, contract_problems, schema_descriptions
-from glasses3d.agent.tools import TOOL_NAMES, build_tools
+from glasses3d.agent.tools import TOOL_NAMES as ALL_TOOL_NAMES, build_tools
+
+# This M2 contract guards the selectable decision-20261021 text, which stays byte-identical; the default
+# decision-20261022 text has its own contract in test_instructions_20261022.py.
+PROFILE = "decision-20261021"
+TOOL_NAMES = tuple(name for name in ALL_TOOL_NAMES if name != "match_coating_colours")
+
+
+class Builder:
+    """The instructions module, with this contract's profile applied to every build."""
+    def __init__(self, module):
+        self._module = module
+
+    def __getattr__(self, name):
+        return getattr(self._module, name)
+
+    def build_instructions(self, tools, **kwargs):
+        return self._module.build_instructions(tools, **{"profile": PROFILE, **kwargs})
+
+    def instruction_contract(self, tools, **kwargs):
+        return self._module.instruction_contract(tools, **{"profile": PROFILE, **kwargs})
+
+
+I = Builder(I)
 
 
 @pytest.fixture
 def tools():
-    return build_tools(SimpleNamespace())
+    return build_tools(SimpleNamespace(instruction_profile=PROFILE))
 
 
 def test_current_registry_is_complete_and_named_independently(tools):

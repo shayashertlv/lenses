@@ -14,7 +14,7 @@ from .budget import JobLedger, BudgetGuardError
 from .loop import EFFORTS, RunRefused
 from .money import owner_money
 from .text_io import configure_utf8_stdio
-from .instruction_profiles import DEFAULT_PROFILE, LEGACY_PROFILE
+from .instruction_profiles import PROFILES
 
 
 def owner_text_file(path):
@@ -89,7 +89,7 @@ def parser():
         if name in ("approve", "run"):
             cmd.add_argument("--run-id")
         if name in ("estimate", "run"):
-            cmd.add_argument("--instruction-profile", choices=(DEFAULT_PROFILE, LEGACY_PROFILE),
+            cmd.add_argument("--instruction-profile", choices=PROFILES,
                              help="instruction profile; select it when estimating, then run the matching approved request")
         if name == "estimate":
             cmd.add_argument("--smoke", action="store_true")

@@ -56,7 +56,9 @@ def _worn(directory):
 
 
 def test_instruction_places_owner_colour_decision_beside_metallic_guidance():
-    text = " ".join(instructions.build_instructions(build_tools(SimpleNamespace())).split())
+    # The placement belongs to decision-20261021; decision-20261022 keeps the sentence (its own contract).
+    registry = build_tools(SimpleNamespace(instruction_profile="decision-20261021"))
+    text = " ".join(instructions.build_instructions(registry, profile="decision-20261021").split())
     assert text.count(SENTENCE) == 1
     metallic_end = "photo and worn comparisons."
     assert metallic_end + " " + SENTENCE in text

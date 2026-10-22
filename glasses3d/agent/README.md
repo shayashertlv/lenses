@@ -37,11 +37,27 @@ Creation, inspection and estimation are local and free. Estimation writes a new 
 only. Run it only after the owner has authorized the actual paid run and seen its estimate. `job run JOB_ID --run-id
 RUN_ID` refuses missing, changed, consumed or insufficient approvals and launches a detached logged runner.
 
-The default instruction profile is `decision-20261021`. To select the frozen pre-rewrite instructions, use
-`job estimate JOB_ID --instruction-profile legacy-20261021`, then approve that request and run it with
-`job run JOB_ID --run-id RUN_ID --instruction-profile legacy-20261021`. The run option must match the prepared
-profile; changing it needs a new estimate and approval. Omitting the run option uses the approved profile.
+The default instruction profile is `decision-20261022`, the owner-approved rewrite from the 2026-10-22 audit
+(`plan/AUDIT_20261022_ASTRA_DELIVERY.md`). It is one document: authority, reading the product, a fixed work order
+(structure, cameras, shape detail, seating and print, appearance), the revision loop with `compare_look_to_photos`
+after every shape or material edit, judging, specialists, best/money/finish, and a "which tool when" table. A
+structural break (parts that meet in the photos but not in the model) comes before appearance work. Only this
+profile offers `match_coating_colours`. `decision-20261021` stays selectable with its exact text; tool descriptions
+are current for both decision profiles. To select another profile, use `job estimate JOB_ID --instruction-profile
+decision-20261021` (or `legacy-20261021`, the frozen pre-rewrite instructions), then approve that request and run
+it with `job run JOB_ID --run-id RUN_ID --instruction-profile` and the same name. The run option must match the
+prepared profile; changing it needs a new estimate and approval. Omitting the run option uses the approved profile.
 The profile is recorded in approval settings and the run configuration. The dev UI uses the default.
+
+Tool facts added by the audit (both decision profiles unless noted):
+- `scene_summary` returns `contacts`: separate parts within 1.5 mm that never come closer than 0.25 mm (about one AR
+  pixel), with the smallest gap, its span and its position (`g3d/contacts.py`, BVH queries in `g3d/contacts_bpy.py`).
+  The first finish call carries the same report. Information only, never a gate.
+- `fit_cameras` returns `decision_table`, one compact row per photo, which stays inline when the rest is paged.
+- `execute_blender_code` accepts `difference_updates`: record_difference items validated and recorded before the code
+  runs; a refusal runs no code.
+- `match_coating_colours` (`decision-20261022` only, product runs): the Edit page's coating search in Python
+  (`agent/coating_match.py`, byte-equal to `dev_ui/lens_renderer/coating.js`), read-only.
 
 Standing dev UI terms (2026-10-19) use the owner's typed positive finite max budget, replacing the universal $20
 cutoff for each run or edit send. Owner: "max budget (meaning the actual cutoff with no reserving), then when the
@@ -67,7 +83,7 @@ Instructions teach the glasses construction, evidence and stage order, with the 
 `plan/PLAN.md`. Owners' descriptions and specifications remain verbatim and approval-bound. History stays
 append-only: earlier messages and images are never replaced. New tool results use bounded text with lossless
 `read_report` access, and native photo comparisons compose onto pages with additional images for overflow.
-In `decision-20261021`, main and specialist tools reference exact image bytes already present in their conversation;
+In the decision profiles, main and specialist tools reference exact image bytes already present in their conversation;
 an explicit `read_image` or specialist `photo_image` attaches them again. Renewal resets membership from the images carried into
 the new conversation. First finish can reuse a complete delivered look only while its checkpoint, export,
 camera basis, photos and source/transport files still match their hashes and every image remains in context.
@@ -84,8 +100,8 @@ unseen and stale comparison references refuse. First-finish per-photo difference
 prevents accepted finish until Astra records a current supported fix or limitation. Renewal carries the host list
 and formal best automatically. The cutoff still publishes a draft from this run's formal best regardless of open
 items. These are decision records, not appearance scores; the owner still decides likeness.
-Main and edit instructions retain their 24,000-character caps. The new main prompt is about 10,000 characters;
-the frozen legacy main is 16,321. Historical M12 measurements remain in their dated reports. The specialist
+Main and edit instructions retain their 24,000-character caps. The `decision-20261022` main prompt is 9,548
+characters and `decision-20261021` is about 11,200; the frozen legacy main is 16,321. Historical M12 measurements remain in their dated reports. The specialist
 retains its own cap.
 
 Job estimates use the eight complete recorded glasses runs and their measured context growth and prefix reuse.

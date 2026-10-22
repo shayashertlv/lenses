@@ -432,3 +432,36 @@ def test_oversized_required_reference_list_has_explicit_lossless_paging_without_
         result.extend(entry["value"] for entry in page["entries"])
         offset = page["next_offset"]
     assert result == refs
+
+
+def test_fit_decision_table_stays_inline_and_long_unusable_details_move_behind_a_pointer(tmp_path):
+    from glasses3d.agent.seeing import Seeing
+    candidates = [{"id": f"view_{k}", "view": "right", "profile_region": region, "iou_lens_optional": 0.88123,
+                   "overlay": f"cameras/basis-03/overlay_reference-03_orientation_view_{k}.png", "camera": {"yaw": k}}
+                  for k, region in ((1, "behind_profile"), (2, "front_of_profile"))]
+    refs = {f"reference-0{k}": {"view_kind": "side", "view": "right", "status": "ok", "usable": True,
+                                "matte_mode": "open_frame", "matte_selection": {"reason": "x" * 2500},
+                                "camera_ambiguity": {"status": "unresolved", "selected": "view_1",
+                                                     "preferred_by_silhouette": "view_2", "candidates": candidates},
+                                "iou": 0.8465, "iou_lens_optional": 0.881296, "contour_mean_mm": 1.291,
+                                "flags": ["camera_orientation_unresolved"], "refusal": None,
+                                "photographic_arm_opening": {"status": "observed", "theta_deg": {"+1": 3.5}},
+                                "overlay": f"cameras/basis-03/overlay_reference-0{k}.png"} for k in range(1, 6)}
+    refs["reference-06"] = {"view_kind": "top", "view": "top", "status": "refused", "usable": False,
+                            "refusal": "pitch -93.20 contradicts label 'top'", "flags": ["label_sign_contradicted"]}
+    body = {"status": "ok", "basis": "basis-03", "refs": refs, "usable_refs": sorted(refs)[:5],
+            "unusable_refs": {"reference-06": {"refusal": "pitch -93.20", "all_candidates": ["y" * 3000]}},
+            "decision_table": [Seeing._fit_decision_row(rid, row) for rid, row in refs.items()]}
+    out = R.limit_output(tmp_path, "fit", "fit_cameras", [ToolOutputText(text=json.dumps(body)), ToolOutputText(text="footer")])
+    shown = json.JSONDecoder().raw_decode(out[0].text)[0]
+    assert shown["paged"] is True and shown["decision_table"] == body["decision_table"]
+    row = shown["decision_table"][2]
+    assert row == {**row, "ref": "reference-03", "view": "side/right", "usable": True, "iou_lens_optional": 0.8813,
+                   "orientation": "unresolved", "orientation_selected": "view_1",
+                   "arm_opening": {"status": "observed", "theta_deg": {"+1": 3.5}}}
+    assert [c["id"] for c in row["orientation_candidates"]] == ["view_1", "view_2"]
+    assert shown["decision_table"][5]["refusal"] == "pitch -93.20 contradicts label 'top'"
+    assert "orientation_candidates" not in shown["decision_table"][5]
+    assert shown["unusable_refs"]["refs"] == ["reference-06"]
+    full = R.read_report(tmp_path, shown["full_report"]["id"], shown["unusable_refs"]["read_pointer"])
+    assert json.dumps(body["unusable_refs"]["reference-06"]) in json.dumps(full)

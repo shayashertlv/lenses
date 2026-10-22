@@ -91,7 +91,7 @@ from .receipts import BlobStore, Cleaner, ReviewLog, StopRequested, write_json
 from .session_inputs import ReferenceInput, plan_session_input
 from .snapshot import capture as capture_implementation
 from .renewal import ConversationRenewal, RenewalNeeded, find_error
-from .instruction_profiles import resolve_profile, legacy_text
+from .instruction_profiles import DEFAULT_PROFILE, resolve_profile, legacy_text
 
 AGENT_NAME = "Astra"
 SESSION_ID = "astra"
@@ -226,7 +226,7 @@ class RunSettings:
     context_guard_bytes: int | None = None
     context_guard_every_requests: int | None = None
     smoke: bool = False
-    instruction_profile: str = "decision-20261021"
+    instruction_profile: str = DEFAULT_PROFILE
 
     def guard_bytes(self) -> int | None:
         """The legacy byte rung used by approval binding and historical cost projections."""

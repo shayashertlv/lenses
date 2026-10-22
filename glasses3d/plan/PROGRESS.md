@@ -1,5 +1,55 @@
 # glasses3d progress
 
+## 2026-10-22 — Audit applied: decision-20261022 default, contact report, inline fit table, coating search (Claude, $0)
+
+**Authorization.** Claude asked: "Shall I apply the instruction rewrite and the tool fixes now, at $0?" The owner,
+verbatim: "go ahead". No paid call was made.
+
+**A. Instructions.** `decision-20261022` is the default profile (`agent/instructions.py` `_OBJECT_20261022` plus the
+`WHEN_20261022` table; 9,548 characters).
+- It restores the work order and "After every shape or material edit, run compare_look_to_photos".
+- It adds structure before appearance: a gap where the photos show parts joined comes first, even when the brief
+  names appearance as the priority.
+- It removes host jargon and duplicates.
+- The cutoff sentence and the lens-colour note are word for word the shared ones.
+- `decision-20261021` and `legacy-20261021` stay selectable with their exact texts.
+- The tests that guard those texts now name their profile; `tests/agent/test_instructions_20261022.py` is the new
+  contract.
+
+**B. Tools:**
+- **B1, contacts** (`g3d/contacts.py`, `g3d/contacts_bpy.py`, `scene_summary` and the first finish call): pairs within
+  1.5 mm that never come closer than 0.25 mm (about one AR pixel). The 10-21 draft shows the brow rail ↔ both
+  shield locks at 0.736/0.737 mm, span 5.7/5.5 mm, at x ±63.28. The accepted models have no brow–lock row. It takes
+  about 0.1 s per model and is information only.
+- **B2, `fit_cameras` `decision_table`.** One row per photo stays inline when the result is paged. On the real 10-21
+  results all six rows fit (11.6k of 12k).
+- **B3, `match_coating_colours`** (`agent/coating_match.py`, `agent/tools/coating_tool.py`). The Edit page's search
+  in numpy is byte-equal to `coating.js` and `coating-match.js`, with a node parity test. Oakley targets give
+  444 nm / 1.8 in 0.03 s. Offered only with `decision-20261022` in product runs.
+- **B4, `execute_blender_code` `difference_updates`.** Recorded before the code runs; a refusal runs no code. This
+  differs from the proposal, which put them on the look tool: there they would be written before Astra sees that
+  call's images.
+- **B5, trims.** Temple thresholds moved to the refusal, which already states them. The owner-edit sentence is added
+  only in owner rounds. The duplicate finish line is gone.
+
+**Checks:**
+- Focused tests: agent suite 2,999 passed. Three renewal tests failed only on Windows' 260-character path limit
+  under a long temp folder and pass with the suite's short folder.
+- Contacts: 5/5, including a real Blender worker scene, with the head unchanged.
+- Tool reports: 32 passed.
+- Coating parity: 2/2.
+- Full suite (`run_sequence.py`, functional with 10 workers): functional 6,395 passed / 2 skipped / 0 failed;
+  photoprint 367 passed; timing 29 passed.
+- **M1** passed on `decision-20261022`: `match_coating_colours` in the registry, receipts clean.
+- **M12** passed, $0, no network attempts (`proofs/claude-audit-applied`).
+
+**Answer to the owner's question on the brow gap**, recorded in the audit report:
+- Astra's own first build left the brow and the shield locks apart.
+- It saw the gap at call 15, but spent most turns on lens tests.
+- It checked brow edits without the photo comparison.
+- It reached the $25 cutoff with the item open.
+- One run per side, so the cause is not proven.
+
 ## 2026-10-22 — Astra delivery audit: report and proposed rewrite, nothing applied (Claude, $0)
 
 The owner's words, verbatim: "audit the instruction generally (view each sentence specifically which is currently in

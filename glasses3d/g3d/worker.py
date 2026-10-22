@@ -724,7 +724,22 @@ def m_scene_summary(params):
     return {"units": {"system": us.system, "scale_length": us.scale_length, "length_unit": us.length_unit},
             "axes": axes, "origin_marker": origin, "objects": objects,
             "materials": sorted(m.name for m in bpy.data.materials), "warnings": warnings,
+            "contacts": _contacts(None if want == "all" else list(want or [])),
             "fingerprint": checkpoint.fingerprint(state)}
+
+
+def _contacts(names=None, budget_s=12.0):
+    """Near-miss contacts between parts; a failure is reported, never allowed to hide the rest of the summary."""
+    from glasses3d.g3d import contacts_bpy
+    try:
+        return contacts_bpy.report(names, budget_s=budget_s)
+    except Exception as exc:  # noqa: BLE001 - diagnostic only
+        return {"status": "unavailable", "error": f"{type(exc).__name__}: {exc}"[:500]}
+
+
+def m_contacts(params):
+    """Near-miss contacts only (read-only), for the finish review."""
+    return _contacts(params.get("objects"), float(params.get("budget_s", 12.0)))
 
 
 def m_bounds(params):
@@ -783,7 +798,7 @@ def m_owner_edit_apply(params):
 METHODS = {
     "ping": m_ping, "exec": m_exec, "exec_unvalidated": m_exec_unvalidated, "fingerprint": m_fingerprint,
     "checkpoint_save": m_checkpoint_save, "checkpoint_restore": m_checkpoint_restore, "load_font": m_load_font,
-    "scene_summary": m_scene_summary, "bounds": m_bounds, "render": m_render, "pick": m_pick,
+    "scene_summary": m_scene_summary, "contacts": m_contacts, "bounds": m_bounds, "render": m_render, "pick": m_pick,
     "export_glb": m_export_glb, "g3d_call": m_g3d_call,
     "temple_lab_build": m_temple_lab_build, "temple_variants_render": m_temple_variants_render,
     "temple_variants_export": m_temple_variants_export,

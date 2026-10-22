@@ -6,9 +6,18 @@ from functools import lru_cache
 import json
 from pathlib import Path
 
-DEFAULT_PROFILE = "decision-20261021"
+DECISION_20261022 = "decision-20261022"
+DECISION_20261021 = "decision-20261021"
+DEFAULT_PROFILE = DECISION_20261022
 LEGACY_PROFILE = "legacy-20261021"
-PROFILES = (DEFAULT_PROFILE, LEGACY_PROFILE)
+PROFILES = (DECISION_20261022, DECISION_20261021, LEGACY_PROFILE)
+# Tools taught only by the newest decision text; an older profile's exact text cannot name them.
+PROFILE_ONLY_TOOLS = {"match_coating_colours": (DECISION_20261022,)}
+
+
+def offers_tool(profile, name) -> bool:
+    allowed = PROFILE_ONLY_TOOLS.get(name)
+    return allowed is None or resolve_profile(profile) in allowed
 
 
 def resolve_profile(name=None) -> str:
@@ -50,7 +59,8 @@ def legacy_tool_text(tools, *, owner_edit=None) -> list:
     metadata = {row["name"]: row for row in _legacy()["registry"]}
     result = []
     for original in tools:
-        if original.name in {"record_difference", "compare_lens_candidates", "choose_camera_orientation"}:
+        if (original.name in {"record_difference", "compare_lens_candidates", "choose_camera_orientation"}
+                or not offers_tool(LEGACY_PROFILE, original.name)):
             continue
         tool = copy(original)
         if tool.name in metadata:

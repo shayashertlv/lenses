@@ -35,21 +35,24 @@ def assignment(source, name):
 
 
 def test_new_default_is_explicit_and_unknown_profiles_refuse():
-    assert resolve_profile() == DEFAULT_PROFILE == "decision-20261021"
+    # The owner-approved 2026-10-22 rewrite is the default; the 10-21 decision text stays selectable.
+    assert resolve_profile() == DEFAULT_PROFILE == "decision-20261022"
+    assert resolve_profile("decision-20261021") == "decision-20261021"
     assert resolve_profile(LEGACY_PROFILE) == "legacy-20261021"
     with pytest.raises(ValueError, match="unknown instruction profile"):
         resolve_profile("decision-typo")
 
 
 def test_new_prompt_contract_and_decision_loop_keep_owner_authority():
-    tools = build_tools(SimpleNamespace())
-    text = I.build_instructions(tools)
+    tools = build_tools(SimpleNamespace(instruction_profile="decision-20261021"))
+    text = I.build_instructions(tools, profile="decision-20261021")
     assert text != legacy_text("main")
     assert I.named_tools(text) == {tool.name for tool in tools}
     assert "record_difference" in I.named_tools(text)
     assert len(text) <= I.MAX_INSTRUCTION_CHARS == 24_000
-    assert contract_problems(I.instruction_contract(tools), instructions=text, brief="Owner facts.", tools=tools) == []
-    assert text == I.build_instructions(list(reversed(tools)))
+    assert contract_problems(I.instruction_contract(tools, profile="decision-20261021"), instructions=text,
+                             brief="Owner facts.", tools=tools) == []
+    assert text == I.build_instructions(list(reversed(tools)), profile="decision-20261021")
     words = normalized(text)
     for phrase in ("likely cause and expected comparison evidence", "Name the improvement and any regression",
                    "retain or restore for that reason", "hue, lightness, colour distribution and see-through",
@@ -129,9 +132,10 @@ def test_look_wrapper_passes_selected_profile_to_capture(monkeypatch, profile):
 
 
 def test_paging_requires_only_facts_needed_for_the_decision():
-    tools = build_tools(SimpleNamespace())
+    # decision-20261022 keeps this rule once, in read_report; test_instructions_20261022 checks its table row.
+    tools = build_tools(SimpleNamespace(instruction_profile="decision-20261021"))
     description = next(tool.description for tool in tools if tool.name == "read_report")
-    for value in (description, I.build_instructions(tools)):
+    for value in (description, I.build_instructions(tools, profile="decision-20261021")):
         words = normalized(value)
         assert "read_pointer" in words
         assert "next decision" in words

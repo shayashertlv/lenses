@@ -31,13 +31,11 @@ def temple_tool(scene, call, parent_settings, fatal):
         and facet tools; its requests share the parent's cutoff and interaction limits.
         The accepted fitted temples are applied only if the parent head still
         matches the captured one. Inspect its summary, compare the result to photos, and continue the job.
-        When deriving a hinge axis from an unposed source, recognition needs a temple-role part centered on
-        each side, with world X and Z bounding-box extents each strictly below 3.2 mm and center Z within
-        4 mm of the temple-front hinge plane. This is a tool heuristic, not a product geometry requirement;
-        do not shrink real hardware just to satisfy it. Export refusals include the underlying cause.
-        Hinge parts are kept separately: parts near the axis within 8 mm in X, around the hinge plane within 4 mm
-        (extended 4 mm rearward), at most 20,000 vertices; knuckles are under 3.2 mm in X and Z, temple leaves
-        under 15 mm in Z. Compare these mechanics to the photos before choosing this tool.
+        Deriving a hinge axis from an unposed source needs a small temple-role knuckle part on each side near the
+        temple-front hinge plane; a refusal states the exact size and position rule. This is a tool heuristic,
+        not a product geometry requirement; do not shrink real hardware just to satisfy it. Export refusals
+        include the underlying cause. Hinge parts near the axis are kept separate from the fitted temple body.
+        Compare these mechanics to the photos before choosing this tool.
 
         """
         runtime = getattr(ctx, "context", None)
