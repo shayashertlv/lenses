@@ -7,7 +7,18 @@ words in the entry below.
 - `budget_limit` at $25.114851 after 70 requests and 66 tool calls, 11,254 s (19:40–22:48 UTC).
 - Draft from formal best `c0014`, GLB `bbe4c826…`, delivery key `UPBri4ZBJ1Z9ybmR5fLzO8ox`.
 - The confirming finish (0065) was refused with five items open; 0064 was review_required.
-- No owner verdict yet.
+
+**Owner verdict: accepted after the owner's own lens edit.** The owner, verbatim: "ive edited the model and
+accepted it".
+- The edit was saved on the Edit page as delivery key `YjD1J4FF9hOKyMptvcr16uY1` (07:27 UTC, GLB `c5b9704f…`).
+- The accept is in that edit's `reviews/verdicts.jsonl` (`verdict-3239c8bf…`), bound to the delivery and its GLB.
+  The UI labels it "accepted by you".
+- Changes against the draft, read from both GLBs:
+  - only the lens changed;
+  - a centre-to-sides gradient was added: cyan at 0.30, blue at 0.84, violet-blue at the edge;
+  - transmission went from 0.76 to 0.78;
+  - Astra's coating (798 nm, film 1.25, lens IOR 1.65) was kept.
+- Frame and temple materials and all geometry are Astra's. The five open items above were not changed by the edit.
 
 **Astra's open items, in its words where quoted:**
 1. Nose moulding: the rear pads are separate ovals.
