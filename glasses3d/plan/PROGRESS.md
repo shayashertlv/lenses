@@ -1720,7 +1720,22 @@ old-code failures and harness/concurrent-edit retries are recorded in `data/revi
 which also records the commit. Existing text writers were already UTF-8. No paid call, push, gate change or
 unrelated-session edit. Next: Claude reviews task 10; no next coordinator task started.
 
-## Current state — 2026-10-19
+## Current state — 2026-10-23
+
+**Since 10-19** (details in the dated entries above):
+- Default instructions: `decision-20261022` (hash `e9a62497…`), max effort for product runs, the owner's settled
+  cutoff.
+- Accepted products on it: Oakley (10-22 run, owner's edit `3OQCI7YhH-_8U0j3bQbaXYaH`, "accept it") and INVU (10-22
+  run, owner's edit `YjD1J4FF9hOKyMptvcr16uY1`, "ive edited the model and accepted it"). In both, the owner
+  retouched the lens colour on the Edit page.
+- Camera fits are 2.3x faster with identical results (`ac3493e`).
+- Latest full suite (10-23): functional 6,411 passed / 2 skipped; photoprint 367; timing 29; M1 and M12 passed at
+  $0. The tree is clean; `data/ptc` pytest temp trees were removed on 10-23 (cited logs kept).
+
+**Next action (10-23):** no paid run is pending. The owner chooses the next product or work: assembled Prada,
+FT1119 or an unseen product, or the INVU/Oakley open items. No build or proof authorizes spending.
+
+**State on 10-19, kept for reference:**
 
 The assembled job, specialist, seeing, delivery and owner-edit paths work; M6–M10 implementations are present.
 WP0/1/3/3b are built and tested, WP2 A–F and specialist stages are assembled, and WP7's main/specialist/edit
@@ -1760,6 +1775,14 @@ or finish-soon figures. Local CLI planning estimates remain available. No total 
   Job `oakley-oo9208-v2-3e057bab`, run `20261015T062433-662a82`, c0015,
   GLB SHA `981314580a6b174546ebac0e42509b03a2e83044e4ae888aa729539277d198fb`;
   asset-bound verdict `verdict-6cb0c4050a3b47b8bb09c0a7c419ecaa`. Keep this regression asset unchanged.
+- **Max-effort Oakley rerun, 2026-10-20:** "The max-effort Oakley rerun looks right, accept it." Job
+  `oakley-oo9208-v2-911a2b0e`, GLB `ba6216a4…`, $19.67; the current-code regression (AGENTS.md).
+- **Oakley 10-22 run, owner's edit, 2026-10-22:** "accept it". Delivery `3OQCI7YhH-_8U0j3bQbaXYaH` (job
+  `oakley-oo9208-v2-ad74f639`, draft c0007, $25.12); verdict in that edit's `reviews/verdicts.jsonl`.
+- **INVU 10-22 run, owner's edit, 2026-10-23:** "ive edited the model and accepted it". Delivery
+  `YjD1J4FF9hOKyMptvcr16uY1` (job `invu-invu-s-ia22403b-99m-0270abc6`, draft c0014, $25.11), GLB `c5b9704f…`;
+  `verdict-3239c8bf…` in that edit's `reviews/verdicts.jsonl`. Astra's five open items and the 99 mm size note
+  stay recorded in the 10-23 entry.
 - **M10 combined copy, 2026-10-18:** "looks good!"; "we were testing the new tools and their optional effects,
   our goal wasnt to fix the model". Tool-test verdict only, GLB SHA
   `f44492b9054f3c19de2a38f05f180820d9b065bc0675c9e1b8fad70df79fe534`,
@@ -1793,7 +1816,8 @@ or finish-soon figures. Local CLI planning estimates remain available. No total 
   planned "more edits" flow. M9/M11 supplied native evidence and fresh-conversation renewal for the image pile;
   old history-rewriting proposals are superseded. These tools do not imply a newly accepted Prada product or reopen
   WP6. The stopped hinge-face experiment remains local evidence.
-- **Cameras:** CC-12 remains partly open (full posed scenes rebuild outside the small LRU); CC-13 cropped-photo
+- **Cameras:** CC-12 remains partly open (full posed scenes rebuild outside the small LRU; since 10-23 a posed copy
+  skips the content hash and whole-mesh hull, but still builds its own ray-casting tree); CC-13 cropped-photo
   objective and CC-17 selection/native-metric inconsistencies remain. Travel sampling does not recover mechanical
   hinge stops or arm-arm constraints. Task 6's report records the scope and uncertainty assumptions.
 
