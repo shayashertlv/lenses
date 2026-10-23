@@ -5,8 +5,9 @@ Generic CLI: python -m glasses3d.g3d_host.fit_views views --glb MODEL --out-dir 
 Historical product reproduction helpers live in tests/fixtures/camera_products.py.
 
 Fit non-receiving views first, then angled views using the first batch's eligible
-camera winners as cross seeds. One memory-bounded pool shares independent photo
-and matte-alternative work. Every attempted photo and both automatic alternatives
+camera winners as cross seeds; the angled views start as soon as the photos that can
+seed them are fitted. One memory-bounded pool shares independent photo and
+matte-alternative work. Every attempted photo and both automatic alternatives
 retain their diagnostics; existing camera usability and view-sign checks apply.
 """
 from __future__ import annotations
@@ -675,7 +676,15 @@ def _map_photos(jobs, workers):
     """Share one bounded pool across independent photo/matte alternatives, including one-photo batches."""
     if workers <= 1:
         return _map(jobs, workers)
-    started, attempts, groups = time.perf_counter(), [], []
+    started = time.perf_counter()
+    attempts, groups = _photo_attempts(jobs)
+    fitted = _map(attempts, workers)
+    return [_photo_record(job, group, fitted, started) for job, group in zip(jobs, groups)]
+
+
+def _photo_attempts(jobs):
+    """Pool attempts for photo jobs: an automatic-matte photo becomes its base and floor alternatives."""
+    attempts, groups = [], []
     for args, kwargs in jobs:
         context = kwargs['_model_context']
         base = _matte_mode(kwargs.get('matte_mode'), context)
@@ -696,18 +705,54 @@ def _map_photos(jobs, workers):
         else:
             attempts.append((args, kwargs))
         groups.append((first, automatic, digest, base, floor))
-    fitted = _map(attempts, workers)
-    out = []
-    for (args, kwargs), (first, automatic, digest, base, floor) in zip(jobs, groups):
-        if not automatic:
-            out.append(fitted[first])
-            continue
-        try:
-            out.append(_assemble_mattes(args[0], args[1], kwargs['_model_context'], digest,
-                dict(zip((base, floor), fitted[first:first+2])), base, floor, kwargs.get('overlay_path'), started))
-        except Exception as exc:
-            out.append(_failed_photo(args[1], args[2], kwargs, exc))
-    return out
+    return attempts, groups
+
+
+def _photo_record(job, group, fitted, started):
+    """One photo's record from its fitted attempts (``_photo_attempts`` group); one selection rule."""
+    (args, kwargs), (first, automatic, digest, base, floor) = job, group
+    if not automatic:
+        return fitted[first]
+    try:
+        return _assemble_mattes(args[0], args[1], kwargs['_model_context'], digest,
+            dict(zip((base, floor), fitted[first:first+2])), base, floor, kwargs.get('overlay_path'), started)
+    except Exception as exc:
+        return _failed_photo(args[1], args[2], kwargs, exc)
+
+
+def _map_photo_stages(first_jobs, sources, make_second, n_second, workers):
+    """``_map_photos`` of the first batch, then of the receiving batch, in ONE bounded pool.
+
+    The receivers' jobs (``make_second({index: record})`` of the ``sources``, the first-batch photos that can seed
+    them) are made and queued as soon as those photos are fitted; the other first-batch photos keep running beside
+    them. The jobs and records equal the two sequential batches; only start times (and batch-relative seconds) change.
+    In the 10-22 INVU run the angled photo waited about six minutes for the top photo, which never seeds it.
+    """
+    started = time.perf_counter()
+    attempts, groups = _photo_attempts(first_jobs)
+    workers = min(fit_workers(workers), len(attempts) + 2 * n_second)
+    firsts, fitted = [None] * len(first_jobs), [None] * len(attempts)
+    with single_threaded_children(), ProcessPoolExecutor(max_workers=workers) as ex:
+        pending = [ex.submit(_run, attempt) for attempt in attempts]
+
+        def record(i):
+            first, automatic = groups[i][:2]
+            for k in range(first, first + (2 if automatic else 1)):
+                fitted[k] = pending[k].result()
+            firsts[i] = _photo_record(first_jobs[i], groups[i], fitted, started)
+
+        for i in sources:
+            record(i)
+        second_jobs = make_second({i: firsts[i] for i in sources})
+        second_started = time.perf_counter()
+        later, later_groups = _photo_attempts(second_jobs)
+        queued = [ex.submit(_run, attempt) for attempt in later]
+        for i in range(len(first_jobs)):
+            if firsts[i] is None:
+                record(i)
+        later_fitted = [future.result() for future in queued]
+    seconds = [_photo_record(job, group, later_fitted, second_started) for job, group in zip(second_jobs, later_groups)]
+    return firsts, seconds
 
 
 def _per_name(value, names, what: str) -> dict:
@@ -778,16 +823,35 @@ def fit_views(glb_path: str | Path, images: dict[str, str | Path], views: dict[s
                  "initial_theta": openings[n],
                  "overlay_path": out_dir / f"overlay_{Path(n).stem}.png"})
 
+    def cross_winners(fitted):
+        winners: dict[str, dict] = {}
+        for n in first:                                # cross sources: ok fits whose chosen view may seed others
+            r = fitted.get(n)
+            if r is not None and r["status"] == "ok" and r["view"] not in cameras.NOT_CROSS_SOURCES:
+                winners.setdefault(r["view"], r["camera"])  # first photo wins a duplicate view
+        return winners
+
     first = [n for n in names if not receives(n)]
     second = [n for n in names if receives(n)]
     nw = fit_workers(workers)
-    recs = dict(zip(first, _map_photos([job(n, None) for n in first], nw)))
-    winners: dict[str, dict] = {}
-    for n in first:                                    # cross sources: ok fits whose chosen view may seed others
-        r = recs[n]
-        if r["status"] == "ok" and r["view"] not in cameras.NOT_CROSS_SOURCES:
-            winners.setdefault(r["view"], r["camera"])  # first photo wins a duplicate view
-    recs.update(zip(second, _map_photos([job(n, winners or None) for n in second], nw)))
+    if second and nw > 1:
+        # A photo whose candidate views are all NOT_CROSS_SOURCES can never add a winner, so the receivers
+        # need not wait for it: same winners, earlier start (_map_photo_stages).
+        sources = [i for i, n in enumerate(first)
+                   if any(v not in cameras.NOT_CROSS_SOURCES for v in (cands[n] or view_candidates(views[n])))]
+        seeded = {}
+
+        def receivers(fitted):
+            seeded["winners"] = cross_winners({first[i]: r for i, r in fitted.items()})
+            return [job(n, seeded["winners"] or None) for n in second]
+
+        firsts, seconds = _map_photo_stages([job(n, None) for n in first], sources, receivers, len(second), nw)
+        recs, winners = dict(zip(first, firsts)), seeded["winners"]
+        recs.update(zip(second, seconds))
+    else:
+        recs = dict(zip(first, _map_photos([job(n, None) for n in first], nw)))
+        winners = cross_winners(recs)
+        recs.update(zip(second, _map_photos([job(n, winners or None) for n in second], nw)))
     models = [recs[n].pop("model") for n in names if 'model' in recs[n]]
     if any(mo != context['model'] for mo in models) or sha256_file(glb_path) != context['model']['sha256']:
         raise RuntimeError("the worker processes loaded different meshes from one GLB")

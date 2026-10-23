@@ -1,5 +1,86 @@
 # glasses3d progress
 
+## 2026-10-23 — Camera fits 2.3x faster with identical results: fixes A, B, C (Claude, $0)
+
+**Owner's words.**
+- "Yes, look into why camera fitting takes about 21 minutes per call and what would make it faster, at $0. Report
+  before changing anything."
+- After the report: "Yes, build fixes A, B and C in the code with tests, then confirm on a full refit of a saved
+  INVU model that every camera and angle is identical and report the measured time. $0, no paid calls."
+
+**Cause, measured on the INVU run `20261022T194022-40e34d`.** fit_cameras took 105 of the run's 187 minutes. The
+first fit took 6 minutes (no hinges yet); the four refits took 24–26 minutes each.
+- The arm-opening fit makes about 760 trial renders per photo and matte, 4–8 minutes of each photo's fit.
+- Every trial pose copied the model and re-found its temple parts (`pose._part_boxes` over every part). It also
+  hashed all 212,168 faces and rebuilt the ray-casting tree and a whole-mesh convex hull. On basis-06's model the
+  render was 17 ms of a 368 ms search trial.
+- Ray building made about ten N x 3 float64 temporaries per call: 104 of 546 profiled seconds.
+- Scheduling:
+  - each photo-and-matte attempt ran on one CPU from start to end;
+  - the angled photo waited for the top photo (two candidate views in series, about 19 minutes), although
+    top/topb are never cross sources;
+  - 29–42% of the 14 reserved workers were used.
+- Not changed: a refit after a geometry change refits every photo, because cameras fitted to the old model do not
+  hold for the new one.
+
+**Fixes** (`g3d_host/pose.py`, `fitmesh.py`, `raster.py`, `fit_views.py`).
+- A:
+  - `FitMesh.cache` holds the part boxes and temple layout once per mesh object; `dataclasses.replace` copies
+    start empty and pickling drops the cache.
+  - `pose.posed` copies carry hull rows: the hull corners of the non-temple vertices and of each temple.
+  - `FitMesh.scene` builds a posed copy's scene once from those rows (`RasterScene(hull_rows=)`), with no content
+    hash and no whole-mesh hull.
+  - The hull is used only for projected bounds and the near-plane test, and the rows include every hull corner of
+    any posed copy, so every bound is unchanged.
+- B: `raster._ray_columns` writes rays one coordinate at a time with the former formula's float64 operations in the
+  same order; `camera_rays` and `RasterScene.cast` use it, and `cast` writes straight into the float32 ray array.
+- C: `fit_views._map_photo_stages` queues the angled photos in the same pool as soon as the first-batch photos that
+  can seed them are fitted. Same winners and records; the single-worker path is unchanged.
+
+**Checks.**
+- Prototypes on basis-06's left photo, under the same load:
+  - A: identical record and overlay, 14% faster;
+  - A+B: identical, 37% faster (412 s to 261 s);
+  - an unprofiled rerun of the old code reproduced the run's record exactly.
+- `tests/test_fit_speed_exact.py` (10 tests):
+  - rays and cast are bit-identical to the former formula;
+  - posed rows, hull bounds and renders equal a whole-mesh hull scene, on a mesh above the 64-vertex rule with an
+    unreferenced vertex;
+  - the cache belongs to one object and is not pickled;
+  - the angled photo starts before the top photo, with the sequential path's winners and records.
+- Existing camera, pose, raster and fit tests: 328 passed, including exact equality with the prototype's pickled
+  cameras.
+- Full refit proof, `tests/proofs/refit_identity.py`, on INVU basis-06 (6 photos, 14 workers, off-axis, explicit
+  and automatic mattes):
+  - every image record, the cross winners and all 18 overlay PNGs are identical;
+  - 682.6 s against the saved 1,543.4 s.
+- Full suite (`data/m12/claude_checks_fit_speed/`, serial, offline, BLAS 1):
+  - functional 6,411 passed / 2 skipped / 0 failed;
+  - photoprint 367 passed;
+  - timing 29 passed;
+  - M1 passed;
+  - M12 passed at $0 with no network attempts (`proofs/claude-fit-speed`).
+
+**Left for a later decision** (they can change results and need a check across saved fits first): rendering only
+the temples during the angle search, and starting a refit from the previous cameras.
+
+## 2026-10-23 — Owner question: what Astra's INVU money was spent on (Claude, $0)
+
+The owner, verbatim: "what made astra use so much money? it doesnt look liks it used much of the tools correct me if
+im wrong". The answer, from the run's billing records (reconciles to $25.11, priced with `agent/pricing.py`):
+- New material written to the conversation cache: $11.68 (47%).
+- Re-reading the cached conversation on each of 70 requests, about 129k input tokens per request: $8.09 (32%).
+- Visible output (scripts, tool calls, text): $2.72 (11%).
+- Thinking: $2.55 (10%).
+- Uncached input: $0.09.
+- By the result that brought the new material in:
+  - photo comparisons: 11, about $8;
+  - restart rebuilds: 4, about $4;
+  - Astra's own scripts: 16, about $4.
+- Tools ran on 66 of 70 requests, mostly general ones (16 scripts, 11 comparisons, 9 report reads). Offered but
+  never used: temple_stage, photo_print, seat_lens, render_views, labelled_model_map, pick_surface_point,
+  compare_to_photos, arview_capture, export_glb, list_checkpoints, budget_status and the eyewire/lens-seat toggles.
+
 ## 2026-10-23 — Paid INVU run on decision-20261022: $25 cutoff draft c0014, five items open (Claude)
 
 **The run.** Job `invu-invu-s-ia22403b-99m-0270abc6`, run `20261022T194022-40e34d`, approved with the owner's
@@ -45,7 +126,8 @@ accepted it".
 - record_difference: 5 turns, $5.01 (this includes cache writes of comparison images).
 - Summaries for 4 renewals: $2.27.
 - read_report: 9 turns, $1.49 (Oakley: 15 turns, $3.55).
-- fit_cameras: 5 turns, $1.01. Each refit took about 25 minutes of wall time; workers were busy throughout.
+- fit_cameras: 5 turns, $1.01. Each refit after the first took 24–26 minutes. (Corrected the same day: this line
+  first said "workers were busy throughout"; most of the 14 workers were idle. See the camera-fit entry above.)
 - Lens colour: one match_coating_colours and one compare_lens_candidates, about $0.43 (Oakley: about $2).
 - Renewals came at requests 26, 40, 56 and 66.
   - New conversations started at 37.5k, 72.4k, 90.5k and 101.9k input tokens (Oakley: 120–143k).

@@ -32,7 +32,8 @@ Ported verbatim from automation/bsa/raster.py (WP3b; glasses3d/plan/archive/2026
 
 Rays are only cast inside the projected bounding box of the mesh vertices (exact: a triangle's
 image lies inside the convex hull of its projected vertices for any camera in front of the
-geometry), so thin frames in large photos render quickly. Scenes are cached by mesh content.
+geometry), so thin frames in large photos render quickly. Scenes are cached by mesh content; a posed copy
+(``pose.posed``) keeps its own scene with hull rows from its authored parts (``fitmesh.FitMesh.scene``).
 """
 from __future__ import annotations
 
@@ -57,27 +58,49 @@ def camera_basis(camera: Camera) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return (np.array([cy, 0.0, -sy]), np.array([-sp * sy, cp, -sp * cy]), np.array([cp * sy, sp, cp * cy]))
 
 
+def _image_xy(camera: Camera, u: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Image points with scale, centre and roll undone: the ray model's (x, y)."""
+    roll = math.radians(camera.roll)
+    cr, sr = math.cos(roll), math.sin(roll)
+    a = (np.asarray(u, float) - camera.center_x) / camera.scale
+    b = (camera.center_y - np.asarray(v, float)) / camera.scale
+    return cr * a + sr * b, -sr * a + cr * b
+
+
+def _ray_columns(camera: Camera, x: np.ndarray, y: np.ndarray, z0: float, basis):
+    """(j, origin_j, direction_j) for j = 0, 1, 2: one coordinate of every ray at a time, with the same float64
+    operations in the same order as origins = x k right + y k up + z0 toward (+ eye) and
+    directions = p (x right + y up) - toward, without N x 3 temporaries."""
+    right, up, toward = basis
+    p = float(camera.perspective)
+    if p > 0:
+        z0 = min(float(z0), 1.0 / p)
+    k = 1.0 - p * z0
+    xk, yk, zt = x * k, y * k, z0 * toward
+    eye = camera.eye_x * right + camera.eye_y * up if camera.eye_x or camera.eye_y else None
+    for j in range(3):
+        origin = xk * right[j]
+        origin += yk * up[j]
+        origin += zt[j]
+        if eye is not None:
+            origin += eye[j]
+        direction = x * right[j]
+        direction += y * up[j]
+        direction *= p
+        direction -= toward[j]
+        yield j, origin, direction
+
+
 def camera_rays(camera: Camera, u: np.ndarray, v: np.ndarray, z0: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     """Ray origins and directions (normalized frame, float64) through image points (u, v).
 
     Origins lie on the plane P.toward = z0 (clamped to the eye for perspective); every point
     O + t D with t >= 0 projects exactly onto (u, v).
     """
-    right, up, toward = camera_basis(camera)
-    roll = math.radians(camera.roll)
-    cr, sr = math.cos(roll), math.sin(roll)
-    a = (np.asarray(u, float) - camera.center_x) / camera.scale
-    b = (camera.center_y - np.asarray(v, float)) / camera.scale
-    x = cr * a + sr * b
-    y = -sr * a + cr * b
-    p = float(camera.perspective)
-    if p > 0:
-        z0 = min(float(z0), 1.0 / p)
-    k = 1.0 - p * z0
-    origins = (x * k)[:, None] * right + (y * k)[:, None] * up + z0 * toward
-    if camera.eye_x or camera.eye_y:
-        origins += camera.eye_x * right + camera.eye_y * up
-    directions = p * (x[:, None] * right + y[:, None] * up) - toward
+    x, y = _image_xy(camera, u, v)
+    origins, directions = np.empty((len(x), 3)), np.empty((len(x), 3))
+    for j, origin, direction in _ray_columns(camera, x, y, z0, camera_basis(camera)):
+        origins[:, j], directions[:, j] = origin, direction
     return origins, directions
 
 
@@ -152,7 +175,9 @@ def mesh_key(V: np.ndarray, F: np.ndarray, frame: NormFrame) -> str:
 class RasterScene:
     """A mesh in model millimetres, normalized with its product's NormFrame, ready to ray cast."""
 
-    def __init__(self, V_mm: np.ndarray, F: np.ndarray, frame: NormFrame):
+    def __init__(self, V_mm: np.ndarray, F: np.ndarray, frame: NormFrame, hull_rows: np.ndarray | None = None):
+        """``hull_rows``: vertex rows that include every convex-hull corner (``pose.posed`` copies supply them);
+        the hull is only ever used for projected bounds and the near-plane test."""
         V_mm = np.asarray(V_mm, np.float64)
         F = np.asarray(F)
         if V_mm.ndim != 2 or V_mm.shape[1] != 3 or F.ndim != 2 or F.shape[1] != 3 or len(F) == 0:
@@ -172,7 +197,9 @@ class RasterScene:
         # Convex-hull vertices bound the image of the whole mesh for any camera in front of it
         # (projection maps segments to segments), so culling and the near-plane test use only them.
         self.hull = self.V_norm
-        if len(self.V_norm) > 64:
+        if len(self.V_norm) > 64 and hull_rows is not None:
+            self.hull = self.V_norm[hull_rows]
+        elif len(self.V_norm) > 64:
             try:
                 from scipy.spatial import ConvexHull
                 self.hull = self.V_norm[ConvexHull(self.V_norm).vertices]
@@ -205,16 +232,23 @@ class RasterScene:
             out["points"] = np.full((len(u), 3), np.nan, np.float64)
         if len(u) == 0:
             return out
-        origins, directions = camera_rays(camera, u, v, self.z0)
-        rays = np.concatenate([origins, directions], axis=1).astype(np.float32)
+        # camera_rays' values, written straight into the float32 ray array; hit points use the float64 values.
+        basis = camera_basis(camera)
+        x, y = _image_xy(camera, u, v)
+        rays = np.empty((len(u), 6), np.float32)
+        for j, origin, direction in _ray_columns(camera, x, y, self.z0, basis):
+            rays[:, j], rays[:, 3 + j] = origin, direction
         ans = self._scene.cast_rays(o3d.core.Tensor(rays))
         prim = ans["primitive_ids"].numpy()
         t = ans["t_hit"].numpy().astype(np.float64)
         hit = (prim != INVALID) & np.isfinite(t)
         out["hit"] = hit
         out["face_id"][hit] = prim[hit].astype(np.int32)
-        pts = origins[hit] + t[hit, None] * directions[hit]
-        toward = camera_basis(camera)[2]
+        t_hit = t[hit]
+        pts = np.empty((len(t_hit), 3))
+        for j, origin, direction in _ray_columns(camera, x[hit], y[hit], self.z0, basis):
+            pts[:, j] = origin + t_hit * direction
+        toward = basis[2]
         out["depth"][hit] = (-(pts @ toward) * self.frame.extent).astype(np.float32)
         if want_bary:
             out["bary"][hit] = ans["primitive_uvs"].numpy()[hit]

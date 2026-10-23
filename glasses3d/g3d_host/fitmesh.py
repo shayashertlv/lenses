@@ -47,9 +47,22 @@ class FitMesh:
     node_indices: list[int] = field(default_factory=list)  # exact GLB object identity per primitive
     lens_parts: list[bool] = field(default_factory=list)   # shared lens classifier, before any skipped geometry
     part_roles: list[str | None] = field(default_factory=list)
+    # Data derived from this object's arrays (pose.py part boxes and temple layout; a posed copy's hull rows and
+    # scene). FitMesh arrays are never modified in place; dataclasses.replace gives a copy an empty cache.
+    cache: dict = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def __getstate__(self):
+        return {**self.__dict__, "cache": {}}   # a ray-casting scene does not pickle; copies rebuild on demand
 
     def scene(self) -> raster.RasterScene:
-        return raster.get_scene(self.V, self.F, self.frame)
+        """The content-cached scene. A posed copy (``pose.posed``) builds its own once, with hull rows taken from the
+        authored parts' hulls, instead of hashing and re-hulling the whole mesh for every trial pose."""
+        rows = self.cache.get("hull_rows")
+        if rows is None:
+            return raster.get_scene(self.V, self.F, self.frame)
+        if "scene" not in self.cache:
+            self.cache["scene"] = raster.RasterScene(self.V, self.F, self.frame, hull_rows=rows)
+        return self.cache["scene"]
 
     def part_ids(self, names) -> list[int]:
         """Every part whose exact ``names`` entry is in ``names``. Unlike the prototype

@@ -85,6 +85,10 @@ def part_roles(glb_path) -> dict:
 
 
 def _part_boxes(mesh: fitmesh.FitMesh) -> list:
+    """Per part (min, max) of its vertices, or None; computed once per mesh object (FitMesh.cache)."""
+    cache = getattr(mesh, "cache", None)
+    if cache is not None and "part_boxes" in cache:
+        return cache["part_boxes"]
     boxes = []
     for pid in range(len(mesh.node_names)):
         F = mesh.F[mesh.part == pid]
@@ -93,6 +97,8 @@ def _part_boxes(mesh: fitmesh.FitMesh) -> list:
             continue
         V = mesh.V[np.unique(F)]
         boxes.append((V.min(0), V.max(0)))
+    if cache is not None:
+        cache["part_boxes"] = boxes
     return boxes
 
 
@@ -143,15 +149,45 @@ def side_of_faces(mesh: fitmesh.FitMesh, roles: dict) -> np.ndarray:
     return out
 
 
+def _hull_corner_rows(V: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """The rows of ``V[rows]``'s convex-hull corners; every row when the hull is degenerate."""
+    from scipy.spatial import ConvexHull
+    try:
+        return rows[ConvexHull(V[rows]).vertices]
+    except Exception:          # too few, flat or degenerate points: keep them all
+        return rows
+
+
+def _temple_layout(mesh: fitmesh.FitMesh, roles: dict) -> tuple[dict, np.ndarray]:
+    """Once per mesh object and roles: each side's temple vertex rows, and hull rows that bound every posed copy.
+
+    The hull rows are the hull corners of the non-temple vertices and of each side's temple. A rigid turn keeps a
+    temple's corners, and every corner of a union is a corner of one of its pieces, so these rows include every hull
+    corner of any posed copy and are all its vertices: each projected min/max and near-plane test is unchanged."""
+    key = ("temple_layout", tuple(sorted(roles.items())))
+    if key not in mesh.cache:
+        rows = {side: np.unique(mesh.F[np.isin(mesh.part, temple_parts(mesh, side, roles))]) for side in (1, -1)}
+        rest = np.setdiff1d(np.arange(len(mesh.V)), np.concatenate([rows[1], rows[-1]]))
+        corners = [_hull_corner_rows(mesh.V, r) for r in (rest, rows[1], rows[-1]) if len(r)]
+        mesh.cache[key] = rows, np.unique(np.concatenate(corners))
+    return mesh.cache[key]
+
+
 def posed(mesh: fitmesh.FitMesh, pose, roles: dict) -> fitmesh.FitMesh:
-    """``mesh`` with each posed side's temple parts opened (a new FitMesh; parts never share vertices)."""
+    """``mesh`` with each posed side's temple parts opened (a new FitMesh; parts never share vertices).
+
+    The temple rows are found once per mesh, and the copy carries hull rows (``_temple_layout``) so its scene skips
+    the whole-mesh hash and hull; an opening fit poses the same mesh hundreds of times."""
     p = parse_pose(pose) if not (isinstance(pose, dict) and all(isinstance(k, int) for k in pose)) else pose
+    rows, corners = _temple_layout(mesh, roles)
     V = mesh.V.copy()
     for side, (th, axis) in p.items():
-        idx = np.unique(mesh.F[np.isin(mesh.part, temple_parts(mesh, side, roles))])
+        idx = rows[side]
         if len(idx):
             V[idx] = rot_about_hinge(mesh.V[idx], side, th, axis)
-    return replace(mesh, V=V)
+    out = replace(mesh, V=V)
+    out.cache["hull_rows"] = corners
+    return out
 
 
 def unpose_points(P: np.ndarray, side: np.ndarray, pose) -> np.ndarray:
